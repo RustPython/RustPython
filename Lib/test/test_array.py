@@ -38,8 +38,6 @@ class MiscTest(unittest.TestCase):
         self.assertRaises(TypeError, array.array, 'xx')
         self.assertRaises(ValueError, array.array, 'x')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_empty(self):
         # Exercise code for handling zero-length arrays
         a = array.array('B')
@@ -583,8 +581,6 @@ class BaseTest:
 
         self.assertRaises(TypeError, a.__iadd__, "bad")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_mul(self):
         a = 5*array.array(self.typecode, self.example)
         self.assertEqual(

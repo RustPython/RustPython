@@ -365,6 +365,23 @@ macro_rules! def_array_enum {
                 }
             }
 
+            fn mul(&self, counter: isize, vm: &VirtualMachine) -> PyObjectRef {
+                let counter = if counter < 0 { 0 } else { counter as usize };
+                match self {
+                    $(ArrayContentType::$n(v) => {
+                        let elements = v.iter().cycle().take(v.len() * counter).cloned().collect();
+                        let sliced = ArrayContentType::$n(elements);
+                        PyObject::new(
+                            PyArray {
+                                array: PyRwLock::new(sliced)
+                            },
+                            PyArray::class(vm),
+                            None
+                        )
+                    })*
+                }
+            }
+
             fn repr(&self, _vm: &VirtualMachine) -> PyResult<String> {
                 // we don't need ReprGuard here
                 let s = match self {
@@ -634,6 +651,16 @@ impl PyArray {
                 other.class().name
             )))
         }
+    }
+
+    #[pymethod(name = "__mul__")]
+    fn mul(&self, counter: isize, vm: &VirtualMachine) -> PyObjectRef {
+        self.borrow_value().mul(counter, vm)
+    }
+
+    #[pymethod(name = "__rmul__")]
+    fn rmul(&self, counter: isize, vm: &VirtualMachine) -> PyObjectRef {
+        self.mul(counter, &vm)
     }
 
     #[pymethod(name = "__repr__")]
