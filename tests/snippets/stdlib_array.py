@@ -20,3 +20,15 @@ b = a
 assert a.__ne__(b) is False
 b = array("B", [3, 2, 1, 0])
 assert a.__ne__(b) is True
+
+def test_float_with_integer_input():
+    f = array("f", [0, 1, 2.0, 3.0])
+    f.append(4)
+    f.insert(0, -1)
+    assert f.count(4) == 1
+    f.remove(1)
+    assert f.index(0) == 1
+    f[0] = -2
+    assert f == array("f", [-2, 0, 2, 3, 4])
+
+test_float_with_integer_input()
