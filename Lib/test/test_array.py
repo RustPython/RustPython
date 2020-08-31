@@ -25,7 +25,10 @@ class ArraySubclassWithKwargs(array.array):
     def __init__(self, typecode, newarg=None):
         array.array.__init__(self)
 
-typecodes = 'ubBhHiIlLfdqQ'
+# TODO: RUSTPYTHON
+# We did not support typecode u for unicode yet
+# typecodes = 'ubBhHiIlLfdqQ'
+typecodes = 'bBhHiIlLfdqQ'
 
 class MiscTest(unittest.TestCase):
 
@@ -497,8 +500,6 @@ class BaseTest:
         b = array.array(self.typecode, a)
         self.assertEqual(a, b)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_repr(self):
         a = array.array(self.typecode, 2*self.example)
         self.assertEqual(a, eval(repr(a), {"array": array.array}))
@@ -801,8 +802,6 @@ class BaseTest:
                     self.assertEqual(list(a[start:stop:step]),
                                      list(a)[start:stop:step])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_setslice(self):
         a = array.array(self.typecode, self.example)
         a[:1] = a
@@ -1235,8 +1234,6 @@ class NumberTest(BaseTest):
         a = array.array(self.typecode, range(10))
         del a[9::1<<333]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_assignment(self):
         a = array.array(self.typecode, range(10))
         a[::2] = array.array(self.typecode, [42]*5)

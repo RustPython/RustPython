@@ -720,6 +720,14 @@ mod _os {
     }
 
     #[pyfunction]
+    fn abort() {
+        extern "C" {
+            fn abort();
+        }
+        unsafe { abort() }
+    }
+
+    #[pyfunction]
     fn urandom(size: usize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         let mut buf = vec![0u8; size];
         getrandom::getrandom(&mut buf).map_err(|e| match e.raw_os_error() {

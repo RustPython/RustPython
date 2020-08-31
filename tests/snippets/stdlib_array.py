@@ -32,3 +32,17 @@ def test_float_with_integer_input():
     assert f == array("f", [-2, 0, 2, 3, 4])
 
 test_float_with_integer_input()
+
+# slice assignment step overflow behaviour test
+T = 'I'
+a = array(T, range(10))
+b = array(T, [100])
+a[::9999999999] = b
+assert a == array(T, [100, 1, 2, 3, 4, 5, 6, 7, 8, 9])
+a[::-9999999999] = b
+assert a == array(T, [100, 1, 2, 3, 4, 5, 6, 7, 8, 100])
+c = array(T)
+a[0:0:9999999999] = c
+assert a == array(T, [100, 1, 2, 3, 4, 5, 6, 7, 8, 100])
+a[0:0:-9999999999] = c
+assert a == array(T, [100, 1, 2, 3, 4, 5, 6, 7, 8, 100])

@@ -579,6 +579,23 @@ fn socket_gethostbyaddr(
     ))
 }
 
+#[cfg(not(target_os = "redox"))]
+fn socket_gethostbyname(name: PyStringRef, vm: &VirtualMachine) -> PyResult<String> {
+    match socket_gethostbyaddr(name, vm) {
+        Ok((_, _, hosts)) => {
+            let lst = vm.extract_elements::<PyStringRef>(&hosts)?;
+            Ok(lst.get(0).unwrap().to_string())
+        }
+        Err(_) => {
+            let error_type = vm.class("_socket", "gaierror");
+            Err(vm.new_exception_msg(
+                error_type,
+                "nodename nor servname provided, or not known".to_owned(),
+            ))
+        }
+    }
+}
+
 fn get_addr<T, I>(vm: &VirtualMachine, addr: T) -> PyResult<socket2::SockAddr>
 where
     T: ToSocketAddrs<Iter = I>,
@@ -707,6 +724,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     extend_module!(vm, module, {
         "getaddrinfo" => ctx.new_function(socket_getaddrinfo),
         "gethostbyaddr" => ctx.new_function(socket_gethostbyaddr),
+        "gethostbyname" => ctx.new_function(socket_gethostbyname),
     });
 
     extend_module_platform_specific(vm, &module);
