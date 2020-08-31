@@ -614,8 +614,6 @@ class BaseTest:
 
         self.assertRaises(TypeError, a.__mul__, "bad")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_imul(self):
         a = array.array(self.typecode, self.example)
         b = a

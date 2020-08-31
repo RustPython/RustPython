@@ -382,6 +382,16 @@ macro_rules! def_array_enum {
                 }
             }
 
+            fn imul(&mut self, counter: isize) {
+                let counter = if counter < 0 { 0 } else { counter as usize };
+                match self {
+                    $(ArrayContentType::$n(v) => {
+                        let mut elements = v.iter().cycle().take(v.len() * counter).cloned().collect();
+                        std::mem::swap(v, &mut elements);
+                    })*
+                }
+            }
+
             fn repr(&self, _vm: &VirtualMachine) -> PyResult<String> {
                 // we don't need ReprGuard here
                 let s = match self {
@@ -661,6 +671,12 @@ impl PyArray {
     #[pymethod(name = "__rmul__")]
     fn rmul(&self, counter: isize, vm: &VirtualMachine) -> PyObjectRef {
         self.mul(counter, &vm)
+    }
+
+    #[pymethod(name = "__imul__")]
+    fn imul(zelf: PyRef<Self>, counter: isize) -> PyRef<Self> {
+        zelf.borrow_value_mut().imul(counter);
+        zelf
     }
 
     #[pymethod(name = "__repr__")]
