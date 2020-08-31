@@ -252,13 +252,11 @@ impl PyBytesInner {
         let mut res = String::with_capacity(self.elements.len());
         for i in self.elements.iter() {
             match i {
-                0..=8 => res.push_str(&format!("\\x0{}", i)),
                 9 => res.push_str("\\t"),
                 10 => res.push_str("\\n"),
-                11 => res.push_str(&format!("\\x0{:x}", i)),
                 13 => res.push_str("\\r"),
                 32..=126 => res.push(*(i) as char),
-                _ => res.push_str(&format!("\\x{:x}", i)),
+                _ => res.push_str(&format!("\\x{:02x}", i)),
             }
         }
         res
