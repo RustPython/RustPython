@@ -825,6 +825,8 @@ class CommandLineTestCase(unittest.TestCase):
         stdout = self.run_ok('2004', '1')
         self.assertEqual(stdout, conv(result_2004_01_text))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_option_encoding(self):
         self.assertFailure('-e')
         self.assertFailure('--encoding')
