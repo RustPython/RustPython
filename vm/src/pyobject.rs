@@ -1036,7 +1036,7 @@ where
     T: PyValue + Sized,
 {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        PyValue::into_simple_object(self, vm)
+        PyValue::into_object(self, vm)
     }
 }
 
@@ -1148,17 +1148,8 @@ cfg_if::cfg_if! {
 pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
     fn class(vm: &VirtualMachine) -> PyClassRef;
 
-    fn into_simple_object(self, vm: &VirtualMachine) -> PyObjectRef {
+    fn into_object(self, vm: &VirtualMachine) -> PyObjectRef {
         self.into_ref(vm).into_object()
-    }
-
-    fn into_object(
-        self,
-        _vm: &VirtualMachine,
-        cls: PyClassRef,
-        dict: Option<PyDictRef>,
-    ) -> PyObjectRef {
-        PyObject::new(self, cls, dict)
     }
 
     fn into_ref(self, vm: &VirtualMachine) -> PyRef<Self> {
