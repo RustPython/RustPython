@@ -4,18 +4,21 @@ use crate::common::cell::{
 };
 use crate::function::OptionalArg;
 use crate::obj::objbytes::PyBytesRef;
-use crate::obj::objsequence::PySliceableSequence;
+use crate::obj::objsequence::{get_slice_range, PySliceableSequence};
 use crate::obj::objslice::PySliceRef;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
 use crate::obj::{objbool, objiter};
 use crate::pyobject::{
-    BorrowValue, Either, IntoPyObject, PyArithmaticValue, PyClassImpl, PyComparisonValue,
-    PyIterable, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    BorrowValue, Either, IdProtocol, IntoPyObject, PyArithmaticValue, PyClassImpl,
+    PyComparisonValue, PyIterable, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol,
 };
 use crate::VirtualMachine;
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
+use num_bigint::BigInt;
+use num_traits::{One, Signed, ToPrimitive, Zero};
 use std::fmt;
 
 struct ArrayTypeSpecifierError {
@@ -33,7 +36,7 @@ impl fmt::Display for ArrayTypeSpecifierError {
 
 macro_rules! def_array_enum {
     ($(($n:ident, $t:ident, $c:literal)),*$(,)?) => {
-        #[derive(Debug)]
+        #[derive(Debug, Clone)]
         enum ArrayContentType {
             $($n(Vec<$t>),)*
         }
@@ -223,17 +226,113 @@ macro_rules! def_array_enum {
                 }
             }
 
-            fn setitem(&mut self, needle: Either<isize, PySliceRef>, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-                match needle {
-                    Either::A(i) => {
-                        let i = self.idx(i, "array assignment", vm)?;
-                        match self {
-                            $(ArrayContentType::$n(v) => { v[i] = TryFromObject::try_from_object(vm, value)? },)*
-                        }
-                        Ok(())
-                    }
-                    Either::B(_slice) => Err(vm.new_not_implemented_error("array slice is not implemented".to_owned())),
+            fn setitem_by_slice(&mut self, slice: PySliceRef, items: &ArrayContentType, vm: &VirtualMachine) -> PyResult<()> {
+                let start = slice.start_index(vm)?;
+                let stop = slice.stop_index(vm)?;
+                let step = slice.step_index(vm)?.unwrap_or_else(BigInt::one);
+
+                if step.is_zero() {
+                    return Err(vm.new_value_error("slice step cannot be zero".to_owned()));
                 }
+
+                match self {
+                    $(ArrayContentType::$n(elements) => if let ArrayContentType::$n(items) = items {
+                        if step == BigInt::one() {
+                            let range = get_slice_range(&start, &stop, elements.len());
+                            let range = if range.end < range.start {
+                                range.start..range.start
+                            } else {
+                                range
+                            };
+                            elements.splice(range, items.iter().cloned());
+                            return Ok(());
+                        }
+
+                        let (start, stop, step, is_negative_step) = if step.is_negative() {
+                            (
+                                stop.map(|x| if x == -BigInt::one() {
+                                    elements.len() + BigInt::one()
+                                } else {
+                                    x + 1
+                                }),
+                                start.map(|x| if x == -BigInt::one() {
+                                    BigInt::from(elements.len())
+                                } else {
+                                    x + 1
+                                }),
+                                -step,
+                                true
+                            )
+                        } else {
+                            (start, stop, step, false)
+                        };
+
+                        let range = get_slice_range(&start, &stop, elements.len());
+                        let range = if range.end < range.start {
+                            range.start..range.start
+                        } else {
+                            range
+                        };
+
+                        // step is not negative here
+                        if let Some(step) = step.to_usize() {
+                            let slicelen = if range.end > range.start {
+                                (range.end - range.start - 1) / step + 1
+                            } else {
+                                0
+                            };
+
+                            if slicelen == items.len() {
+                                if is_negative_step {
+                                    for (i, &item) in range.rev().step_by(step).zip(items) {
+                                        elements[i] = item;
+                                    }
+                                } else {
+                                    for (i, &item) in range.step_by(step).zip(items) {
+                                        elements[i] = item;
+                                    }
+                                }
+                                Ok(())
+                            } else {
+                                Err(vm.new_value_error(format!(
+                                    "attempt to assign sequence of size {} to extended slice of size {}",
+                                    items.len(), slicelen
+                                )))
+                            }
+                        } else {
+                            // edge case, step is too big for usize
+                            // same behaviour as CPython
+                            let slicelen = if range.start < range.end { 1 } else { 0 };
+                            if match items.len() {
+                                0 => slicelen == 0,
+                                1 => {
+                                    elements[
+                                        if is_negative_step { range.end - 1 } else { range.start }
+                                    ] = items[0];
+                                    true
+                                },
+                                _ => false,
+                            } {
+                                Ok(())
+                            } else {
+                                Err(vm.new_value_error(format!(
+                                    "attempt to assign sequence of size {} to extended slice of size {}",
+                                    items.len(), slicelen
+                                )))
+                            }
+                        }
+                    } else {
+                        Err(vm.new_type_error("bad argument type for built-in operation".to_owned()))
+                    },)*
+                }
+            }
+
+            fn setitem_by_idx(&mut self, i: isize, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+                let i = self.idx(i, "array assignment", vm)?;
+                match self {
+                    $(ArrayContentType::$n(v) => { v[i] = TryFromObject::try_from_object(vm, value)? },)*
+                }
+                Ok(())
             }
 
             fn repr(&self, _vm: &VirtualMachine) -> PyResult<String> {
@@ -449,12 +548,36 @@ impl PyArray {
 
     #[pymethod(magic)]
     fn setitem(
-        &self,
+        zelf: PyRef<Self>,
         needle: Either<isize, PySliceRef>,
         obj: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        self.borrow_value_mut().setitem(needle, obj, vm)
+        match needle {
+            Either::A(i) => zelf.borrow_value_mut().setitem_by_idx(i, obj, vm),
+            Either::B(slice) => {
+                let cloned;
+                let guard;
+                let items = if zelf.is(&obj) {
+                    cloned = zelf.borrow_value().clone();
+                    &cloned
+                } else {
+                    match obj.payload::<PyArray>() {
+                        Some(array) => {
+                            guard = array.borrow_value();
+                            &*guard
+                        }
+                        None => {
+                            return Err(vm.new_type_error(format!(
+                                "can only assign array (not \"{}\") to array slice",
+                                obj.class().name
+                            )));
+                        }
+                    }
+                };
+                zelf.borrow_value_mut().setitem_by_slice(slice, items, vm)
+            }
+        }
     }
 
     #[pymethod(name = "__repr__")]
