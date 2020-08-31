@@ -354,6 +354,17 @@ macro_rules! def_array_enum {
                 }
             }
 
+            fn iadd(&mut self, other: ArrayContentType, vm: &VirtualMachine) -> PyResult<()> {
+                match self {
+                    $(ArrayContentType::$n(v) => if let ArrayContentType::$n(mut other) = other {
+                        v.append(&mut other);
+                        Ok(())
+                    } else {
+                        Err(vm.new_type_error("can only extend with array of same kind".to_owned()))
+                    },)*
+                }
+            }
+
             fn repr(&self, _vm: &VirtualMachine) -> PyResult<String> {
                 // we don't need ReprGuard here
                 let s = match self {
@@ -604,7 +615,24 @@ impl PyArray {
         if let Some(other) = other.payload::<PyArray>() {
             self.borrow_value().add(&*other.borrow_value(), vm)
         } else {
-            Err(vm.new_type_error(format!("can only append array (not \"{}\") to array", other.class().name)))
+            Err(vm.new_type_error(format!(
+                "can only append array (not \"{}\") to array",
+                other.class().name
+            )))
+        }
+    }
+
+    #[pymethod(name = "__iadd__")]
+    fn iadd(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        if let Some(other) = other.payload::<PyArray>() {
+            let other = other.borrow_value().clone();
+            let result = zelf.borrow_value_mut().iadd(other, vm);
+            result.map(|_| zelf.into_object())
+        } else {
+            Err(vm.new_type_error(format!(
+                "can only extend array with array (not \"{}\")",
+                other.class().name
+            )))
         }
     }
 

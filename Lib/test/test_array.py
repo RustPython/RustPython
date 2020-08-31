@@ -562,8 +562,6 @@ class BaseTest:
 
         self.assertRaises(TypeError, a.__add__, "bad")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_iadd(self):
         a = array.array(self.typecode, self.example[::-1])
         b = a
