@@ -335,6 +335,25 @@ macro_rules! def_array_enum {
                 Ok(())
             }
 
+            fn add(&self, other: &ArrayContentType, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+                match self {
+                    $(ArrayContentType::$n(v) => if let ArrayContentType::$n(other) = other {
+                        let elements = v.iter().chain(other.iter()).cloned().collect();
+                        let sliced = ArrayContentType::$n(elements);
+                        let obj = PyObject::new(
+                            PyArray {
+                                array: PyRwLock::new(sliced)
+                            },
+                            PyArray::class(vm),
+                            None
+                        );
+                        Ok(obj)
+                    } else {
+                        Err(vm.new_type_error("bad argument type for built-in operation".to_owned()))
+                    },)*
+                }
+            }
+
             fn repr(&self, _vm: &VirtualMachine) -> PyResult<String> {
                 // we don't need ReprGuard here
                 let s = match self {
@@ -577,6 +596,15 @@ impl PyArray {
                 };
                 zelf.borrow_value_mut().setitem_by_slice(slice, items, vm)
             }
+        }
+    }
+
+    #[pymethod(name = "__add__")]
+    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        if let Some(other) = other.payload::<PyArray>() {
+            self.borrow_value().add(&*other.borrow_value(), vm)
+        } else {
+            Err(vm.new_type_error(format!("can only append array (not \"{}\") to array", other.class().name)))
         }
     }
 

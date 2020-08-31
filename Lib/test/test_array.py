@@ -549,8 +549,6 @@ class BaseTest:
         self.assertIs(a > ab, False)
         self.assertIs(a >= ab, False)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_add(self):
         a = array.array(self.typecode, self.example) \
             + array.array(self.typecode, self.example[::-1])
