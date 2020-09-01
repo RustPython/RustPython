@@ -447,6 +447,9 @@ pub struct ExceptionZoo {
     pub unicode_encode_error: PyClassRef,
     pub unicode_translate_error: PyClassRef,
 
+    #[cfg(feature = "jit")]
+    pub jit_error: PyClassRef,
+
     pub warning: PyClassRef,
     pub deprecation_warning: PyClassRef,
     pub pending_deprecation_warning: PyClassRef,
@@ -529,6 +532,9 @@ impl ExceptionZoo {
         let unicode_translate_error =
             create_exception_type("UnicodeTranslateError", &unicode_error);
 
+        #[cfg(feature = "jit")]
+        let jit_error = create_exception_type("JitError", &exception_type);
+
         let warning = create_exception_type("Warning", &exception_type);
         let deprecation_warning = create_exception_type("DeprecationWarning", &warning);
         let pending_deprecation_warning =
@@ -597,6 +603,9 @@ impl ExceptionZoo {
             unicode_decode_error,
             unicode_encode_error,
             unicode_translate_error,
+
+            #[cfg(feature = "jit")]
+            jit_error,
 
             warning,
             deprecation_warning,

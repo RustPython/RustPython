@@ -977,4 +977,9 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "BytesWarning" => ctx.exceptions.bytes_warning.clone(),
         "ResourceWarning" => ctx.exceptions.resource_warning.clone(),
     });
+
+    #[cfg(feature = "jit")]
+    extend_module!(vm, module, {
+        "JitError" => ctx.exceptions.jit_error.clone(),
+    });
 }

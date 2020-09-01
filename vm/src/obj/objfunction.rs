@@ -1,3 +1,6 @@
+#[cfg(feature = "jit")]
+mod jitfunc;
+
 use super::objcode::PyCodeRef;
 use super::objdict::PyDictRef;
 use super::objstr::PyStringRef;
@@ -22,17 +25,7 @@ use itertools::Itertools;
 #[cfg(feature = "jit")]
 use rustpython_common::cell::OnceCell;
 #[cfg(feature = "jit")]
-use rustpython_jit::{AbiValue, CompiledCode};
-
-#[cfg(feature = "jit")]
-impl IntoPyObject for AbiValue {
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        match self {
-            AbiValue::Int(i) => i.into_pyobject(vm),
-            AbiValue::Float(f) => f.into_pyobject(vm),
-        }
-    }
-}
+use rustpython_jit::CompiledCode;
 
 pub type PyFunctionRef = PyRef<PyFunction>;
 
@@ -245,7 +238,16 @@ impl PyFunction {
     ) -> PyResult {
         #[cfg(feature = "jit")]
         if let Some(jitted_code) = self.jitted_code.get() {
-            return Ok(jitted_code.invoke().into_pyobject(vm));
+            match jitfunc::get_jit_args(self, &func_args, jitted_code, vm) {
+                Ok(args) => {
+                    return Ok(jitted_code.invoke(&args).into_pyobject(vm));
+                }
+                Err(err) => info!(
+                    "jit: function `{}` is falling back to being interpreted because of the \
+                    error: {}",
+                    self.code.obj_name, err
+                ),
+            }
         }
 
         let code = &self.code;
@@ -313,11 +315,12 @@ impl PyFunction {
 
     #[cfg(feature = "jit")]
     #[pymethod(magic)]
-    fn jit(&self, vm: &VirtualMachine) -> PyResult<()> {
-        self.jitted_code
+    fn jit(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<()> {
+        zelf.jitted_code
             .get_or_try_init(|| {
-                rustpython_jit::compile(&self.code.code)
-                    .map_err(|err| vm.new_runtime_error(err.to_string()))
+                let arg_types = jitfunc::get_jit_arg_types(&zelf, vm)?;
+                rustpython_jit::compile(&zelf.code.code, &arg_types)
+                    .map_err(|err| jitfunc::new_jit_error(err.to_string(), vm))
             })
             .map(drop)
     }
