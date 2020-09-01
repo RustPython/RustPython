@@ -1585,6 +1585,7 @@ dependencies = [
  "env_logger",
  "flame",
  "flamescope",
+ "libc",
  "log",
  "num-traits",
  "rustpython-compiler",

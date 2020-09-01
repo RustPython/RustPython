@@ -36,6 +36,19 @@ fn main() {
         settings.initialization_parameter = InitParameter::InitializeInternal;
     }
 
+    // don't translate newlines (\r\n <=> \n)
+    #[cfg(windows)]
+    {
+        extern "C" {
+            fn _setmode(fd: i32, flags: i32) -> i32;
+        }
+        unsafe {
+            _setmode(0, libc::O_BINARY);
+            _setmode(1, libc::O_BINARY);
+            _setmode(2, libc::O_BINARY);
+        }
+    }
+
     let vm = VirtualMachine::new(settings);
 
     let res = run_rustpython(&vm, &matches);

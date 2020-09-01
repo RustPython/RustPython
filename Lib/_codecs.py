@@ -1006,8 +1006,8 @@ def PyUnicode_DecodeUTF16Stateful(s, size, errors, byteorder='native', final=Tru
 # have any nested variables.
 
 def STORECHAR(CH, byteorder):
-    hi = chr(((CH) >> 8) & 0xff)
-    lo = chr((CH) & 0xff)
+    hi = (CH >> 8) & 0xff
+    lo = CH & 0xff
     if byteorder == 'little':
         return [lo, hi]
     else:
