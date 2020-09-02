@@ -11,7 +11,7 @@ use crate::obj::objtype::PyClassRef;
 use crate::obj::{objbool, objiter};
 use crate::pyobject::{
     BorrowValue, Either, IdProtocol, IntoPyObject, PyArithmaticValue, PyClassImpl,
-    PyComparisonValue, PyIterable, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    PyComparisonValue, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
 };
 use crate::VirtualMachine;
@@ -203,13 +203,10 @@ macro_rules! def_array_enum {
                     $(ArrayContentType::$n(v) => {
                         let elements = v.get_slice_items(vm, &slice)?;
                         let sliced = ArrayContentType::$n(elements);
-                        let obj = PyObject::new(
-                            PyArray {
-                                array: PyRwLock::new(sliced)
-                            },
-                            PyArray::class(vm),
-                            None
-                        );
+                        let obj = PyArray {
+                            array: PyRwLock::new(sliced)
+                        }
+                        .into_simple_object(vm);
                         Ok(obj)
                     })*
                 }
@@ -333,6 +330,57 @@ macro_rules! def_array_enum {
                     $(ArrayContentType::$n(v) => { v[i] = TryFromObject::try_from_object(vm, value)? },)*
                 }
                 Ok(())
+            }
+
+            fn add(&self, other: &ArrayContentType, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+                match self {
+                    $(ArrayContentType::$n(v) => if let ArrayContentType::$n(other) = other {
+                        let elements = v.iter().chain(other.iter()).cloned().collect();
+                        let sliced = ArrayContentType::$n(elements);
+                        let obj = PyArray {
+                            array: PyRwLock::new(sliced)
+                        }
+                        .into_simple_object(vm);
+                        Ok(obj)
+                    } else {
+                        Err(vm.new_type_error("bad argument type for built-in operation".to_owned()))
+                    },)*
+                }
+            }
+
+            fn iadd(&mut self, other: ArrayContentType, vm: &VirtualMachine) -> PyResult<()> {
+                match self {
+                    $(ArrayContentType::$n(v) => if let ArrayContentType::$n(mut other) = other {
+                        v.append(&mut other);
+                        Ok(())
+                    } else {
+                        Err(vm.new_type_error("can only extend with array of same kind".to_owned()))
+                    },)*
+                }
+            }
+
+            fn mul(&self, counter: isize, vm: &VirtualMachine) -> PyObjectRef {
+                let counter = if counter < 0 { 0 } else { counter as usize };
+                match self {
+                    $(ArrayContentType::$n(v) => {
+                        let elements = v.iter().cycle().take(v.len() * counter).cloned().collect();
+                        let sliced = ArrayContentType::$n(elements);
+                        PyArray {
+                            array: PyRwLock::new(sliced)
+                        }
+                        .into_simple_object(vm)
+                    })*
+                }
+            }
+
+            fn imul(&mut self, counter: isize) {
+                let counter = if counter < 0 { 0 } else { counter as usize };
+                match self {
+                    $(ArrayContentType::$n(v) => {
+                        let mut elements = v.iter().cycle().take(v.len() * counter).cloned().collect();
+                        std::mem::swap(v, &mut elements);
+                    })*
+                }
             }
 
             fn repr(&self, _vm: &VirtualMachine) -> PyResult<String> {
@@ -578,6 +626,48 @@ impl PyArray {
                 zelf.borrow_value_mut().setitem_by_slice(slice, items, vm)
             }
         }
+    }
+
+    #[pymethod(name = "__add__")]
+    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        if let Some(other) = other.payload::<PyArray>() {
+            self.borrow_value().add(&*other.borrow_value(), vm)
+        } else {
+            Err(vm.new_type_error(format!(
+                "can only append array (not \"{}\") to array",
+                other.class().name
+            )))
+        }
+    }
+
+    #[pymethod(name = "__iadd__")]
+    fn iadd(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        if let Some(other) = other.payload::<PyArray>() {
+            let other = other.borrow_value().clone();
+            let result = zelf.borrow_value_mut().iadd(other, vm);
+            result.map(|_| zelf.into_object())
+        } else {
+            Err(vm.new_type_error(format!(
+                "can only extend array with array (not \"{}\")",
+                other.class().name
+            )))
+        }
+    }
+
+    #[pymethod(name = "__mul__")]
+    fn mul(&self, counter: isize, vm: &VirtualMachine) -> PyObjectRef {
+        self.borrow_value().mul(counter, vm)
+    }
+
+    #[pymethod(name = "__rmul__")]
+    fn rmul(&self, counter: isize, vm: &VirtualMachine) -> PyObjectRef {
+        self.mul(counter, &vm)
+    }
+
+    #[pymethod(name = "__imul__")]
+    fn imul(zelf: PyRef<Self>, counter: isize) -> PyRef<Self> {
+        zelf.borrow_value_mut().imul(counter);
+        zelf
     }
 
     #[pymethod(name = "__repr__")]

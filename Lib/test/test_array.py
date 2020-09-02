@@ -38,8 +38,6 @@ class MiscTest(unittest.TestCase):
         self.assertRaises(TypeError, array.array, 'xx')
         self.assertRaises(ValueError, array.array, 'x')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_empty(self):
         # Exercise code for handling zero-length arrays
         a = array.array('B')
@@ -549,8 +547,6 @@ class BaseTest:
         self.assertIs(a > ab, False)
         self.assertIs(a >= ab, False)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_add(self):
         a = array.array(self.typecode, self.example) \
             + array.array(self.typecode, self.example[::-1])
@@ -564,8 +560,6 @@ class BaseTest:
 
         self.assertRaises(TypeError, a.__add__, "bad")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_iadd(self):
         a = array.array(self.typecode, self.example[::-1])
         b = a
@@ -587,8 +581,6 @@ class BaseTest:
 
         self.assertRaises(TypeError, a.__iadd__, "bad")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_mul(self):
         a = 5*array.array(self.typecode, self.example)
         self.assertEqual(
@@ -622,8 +614,6 @@ class BaseTest:
 
         self.assertRaises(TypeError, a.__mul__, "bad")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_imul(self):
         a = array.array(self.typecode, self.example)
         b = a
