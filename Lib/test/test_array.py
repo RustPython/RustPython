@@ -890,7 +890,7 @@ class BaseTest:
         self.assertRaises(TypeError, a.__setitem__, slice(0, 1), b)
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    # @unittest.expectedFailure
     def test_extended_set_del_slice(self):
         indices = (0, None, 1, 3, 19, 100, sys.maxsize, -1, -2, -31, -100)
         for start in indices:
@@ -1214,7 +1214,7 @@ class NumberTest(BaseTest):
         self.assertEqual(a[-1000:-2000:-2], array.array(self.typecode, []))
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    # @unittest.expectedFailure
     def test_delslice(self):
         a = array.array(self.typecode, range(5))
         del a[::2]
