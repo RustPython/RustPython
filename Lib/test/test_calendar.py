@@ -787,7 +787,9 @@ class LeapdaysTestCase(unittest.TestCase):
 
 
 def conv(s):
-    return s.replace('\n', os.linesep).encode()
+    # XXX RUSTPYTHON TODO: TextIOWrapper newline translation
+    return s.encode()
+    # return s.replace('\n', os.linesep).encode()
 
 class CommandLineTestCase(unittest.TestCase):
     def run_ok(self, *args):
