@@ -300,8 +300,6 @@ class BaseBytesTest:
                 for step in indices[1:]:
                     self.assertEqual(b[start:stop:step], self.type2test(L[start:stop:step]))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_encoding(self):
         sample = "Hello world\n\u1234\u5678\u9abc"
         for enc in ("utf-8", "utf-16"):
@@ -311,8 +309,6 @@ class BaseBytesTest:
         b = self.type2test(sample, "latin-1", "ignore")
         self.assertEqual(b, self.type2test(sample[:-3], "utf-8"))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_decode(self):
         sample = "Hello world\n\u1234\u5678\u9abc"
         for enc in ("utf-8", "utf-16"):

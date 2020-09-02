@@ -1290,3 +1290,29 @@ impl<'s> PyCommonString<'s, u8> for [u8] {
         splited
     }
 }
+
+#[derive(FromArgs)]
+pub struct DecodeArgs {
+    #[pyarg(positional_or_keyword, default = "None")]
+    encoding: Option<PyStringRef>,
+    #[pyarg(positional_or_keyword, default = "None")]
+    errors: Option<PyStringRef>,
+}
+
+pub fn bytes_decode(
+    zelf: PyObjectRef,
+    args: DecodeArgs,
+    vm: &VirtualMachine,
+) -> PyResult<PyStringRef> {
+    let DecodeArgs { encoding, errors } = args;
+    vm.decode(zelf, encoding.clone(), errors)?
+        .downcast::<PyString>()
+        .map_err(|obj| {
+            vm.new_type_error(format!(
+                "'{}' decoder returned '{}' instead of 'str'; use codecs.encode() to \
+                     encode arbitrary types",
+                encoding.as_ref().map_or("utf-8", |s| s.borrow_value()),
+                obj.lease_class().name,
+            ))
+        })
+}
