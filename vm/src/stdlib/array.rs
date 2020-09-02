@@ -4,6 +4,7 @@ use crate::common::cell::{
 };
 use crate::function::OptionalArg;
 use crate::obj::objbytes::PyBytesRef;
+use crate::obj::objfloat::try_float;
 use crate::obj::objsequence::{get_slice_range, PySliceableSequence};
 use crate::obj::objslice::PySliceRef;
 use crate::obj::objstr::PyStringRef;
@@ -77,7 +78,7 @@ macro_rules! def_array_enum {
             fn push(&mut self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
                 match self {
                     $(ArrayContentType::$n(v) => {
-                        let val = $t::try_from_object(vm, obj)?;
+                        let val = $t::try_into_from_object(vm, obj)?;
                         v.push(val);
                     })*
                 }
@@ -95,19 +96,21 @@ macro_rules! def_array_enum {
             fn insert(&mut self, i: usize, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
                 match self {
                     $(ArrayContentType::$n(v) => {
-                        let val = $t::try_from_object(vm, obj)?;
+                        let val = $t::try_into_from_object(vm, obj)?;
                         v.insert(i, val);
                     })*
                 }
                 Ok(())
             }
 
-            fn count(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+            fn count(&self, obj: PyObjectRef, vm: &VirtualMachine) -> usize {
                 match self {
                     $(ArrayContentType::$n(v) => {
-                        Ok(<Option<$t>>::try_from_object(vm, obj)?.map_or(0, |val| {
+                        if let Ok(val) = $t::try_into_from_object(vm, obj) {
                             v.iter().filter(|&&a| a == val).count()
-                        }))
+                        } else {
+                            0
+                        }
                     })*
                 }
             }
@@ -115,13 +118,15 @@ macro_rules! def_array_enum {
             fn remove(&mut self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()>{
                 match self {
                     $(ArrayContentType::$n(v) => {
-                        let pos = <Option<$t>>::try_from_object(vm, obj)?.map_or(None, |val| {
-                            v.iter().position(|&a| a == val)
-                        }).ok_or_else(||vm.new_value_error("array.remove(x): x not in array".to_owned()) )?;
-                        v.remove(pos);
+                        if let Ok(val) = $t::try_into_from_object(vm, obj) {
+                            if let Some(pos) = v.iter().position(|&a| a == val) {
+                                v.remove(pos);
+                                return Ok(());
+                            }
+                        }
+                        Err(vm.new_value_error("array.remove(x): x not in array".to_owned()))
                     })*
                 }
-                Ok(())
             }
 
             fn frombytes(&mut self, b: &[u8]) {
@@ -159,12 +164,15 @@ macro_rules! def_array_enum {
                 }
             }
 
-            fn index(&self, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<usize>> {
+            fn index(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
                 match self {
                     $(ArrayContentType::$n(v) => {
-                        Ok(<Option<$t>>::try_from_object(vm, x)?.map_or(None, |val| {
-                            v.iter().position(|&a| a == val)
-                        }))
+                        if let Ok(val) = $t::try_into_from_object(vm, obj) {
+                            if let Some(pos) = v.iter().position(|&a| a == val) {
+                                return Ok(pos);
+                            }
+                        }
+                        Err(vm.new_value_error("array.index(x): x not in array".to_owned()))
                     })*
                 }
             }
@@ -327,7 +335,7 @@ macro_rules! def_array_enum {
             fn setitem_by_idx(&mut self, i: isize, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
                 let i = self.idx(i, "array assignment", vm)?;
                 match self {
-                    $(ArrayContentType::$n(v) => { v[i] = TryFromObject::try_from_object(vm, value)? },)*
+                    $(ArrayContentType::$n(v) => { v[i] = $t::try_into_from_object(vm, value)? },)*
                 }
                 Ok(())
             }
@@ -425,6 +433,44 @@ def_array_enum!(
     (Double, f64, 'd'),
 );
 
+trait ArrayElement: Sized {
+    fn try_into_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self>;
+}
+
+macro_rules! adapt_try_into_from_object {
+    ($(($t:ty, $f: path),)*) => {$(
+        impl ArrayElement for $t {
+            fn try_into_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+                $f(vm, obj)
+            }
+        }
+    )*};
+}
+
+adapt_try_into_from_object!(
+    (i8, i8::try_from_object),
+    (u8, u8::try_from_object),
+    (i16, i16::try_from_object),
+    (u16, u16::try_from_object),
+    (i32, i32::try_from_object),
+    (u32, u32::try_from_object),
+    (i64, i64::try_from_object),
+    (u64, u64::try_from_object),
+    (f32, f32_try_into_from_object),
+    (f64, f64_try_into_from_object),
+);
+
+fn f32_try_into_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<f32> {
+    try_float(&obj, vm)?
+        .map(|x| x as f32)
+        .ok_or_else(|| vm.new_type_error(format!("must be real number, not {}", obj.class().name)))
+}
+
+fn f64_try_into_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<f64> {
+    try_float(&obj, vm)?
+        .ok_or_else(|| vm.new_type_error(format!("must be real number, not {}", obj.class().name)))
+}
+
 #[pyclass(module = "array", name = "array")]
 #[derive(Debug)]
 pub struct PyArray {
@@ -492,7 +538,7 @@ impl PyArray {
     }
 
     #[pymethod]
-    fn count(&self, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+    fn count(&self, x: PyObjectRef, vm: &VirtualMachine) -> usize {
         self.borrow_value().count(x, vm)
     }
 
@@ -525,9 +571,7 @@ impl PyArray {
 
     #[pymethod]
     fn index(&self, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-        self.borrow_value()
-            .index(x, vm)?
-            .ok_or_else(|| vm.new_value_error("x not in array".to_owned()))
+        self.borrow_value().index(x, vm)
     }
 
     #[pymethod]
