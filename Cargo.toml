@@ -35,6 +35,7 @@ pylib = { package = "rustpython-pylib", path = "vm/pylib-crate", version = "0.1.
 dirs = { package = "dirs-next", version = "1.0" }
 num-traits = "0.2.8"
 cfg-if = "0.1"
+libc = "0.2"
 
 flame = { version = "0.2", optional = true }
 flamescope = { version = "0.1", optional = true }
