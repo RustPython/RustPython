@@ -11,7 +11,7 @@ use crate::obj::objtype::PyClassRef;
 use crate::obj::{objbool, objiter};
 use crate::pyobject::{
     BorrowValue, Either, IdProtocol, IntoPyObject, PyArithmaticValue, PyClassImpl,
-    PyComparisonValue, PyIterable, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    PyComparisonValue, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
 };
 use crate::VirtualMachine;
@@ -203,13 +203,10 @@ macro_rules! def_array_enum {
                     $(ArrayContentType::$n(v) => {
                         let elements = v.get_slice_items(vm, &slice)?;
                         let sliced = ArrayContentType::$n(elements);
-                        let obj = PyObject::new(
-                            PyArray {
-                                array: PyRwLock::new(sliced)
-                            },
-                            PyArray::class(vm),
-                            None
-                        );
+                        let obj = PyArray {
+                            array: PyRwLock::new(sliced)
+                        }
+                        .into_simple_object(vm);
                         Ok(obj)
                     })*
                 }
@@ -340,13 +337,10 @@ macro_rules! def_array_enum {
                     $(ArrayContentType::$n(v) => if let ArrayContentType::$n(other) = other {
                         let elements = v.iter().chain(other.iter()).cloned().collect();
                         let sliced = ArrayContentType::$n(elements);
-                        let obj = PyObject::new(
-                            PyArray {
-                                array: PyRwLock::new(sliced)
-                            },
-                            PyArray::class(vm),
-                            None
-                        );
+                        let obj = PyArray {
+                            array: PyRwLock::new(sliced)
+                        }
+                        .into_simple_object(vm);
                         Ok(obj)
                     } else {
                         Err(vm.new_type_error("bad argument type for built-in operation".to_owned()))
@@ -371,13 +365,10 @@ macro_rules! def_array_enum {
                     $(ArrayContentType::$n(v) => {
                         let elements = v.iter().cycle().take(v.len() * counter).cloned().collect();
                         let sliced = ArrayContentType::$n(elements);
-                        PyObject::new(
-                            PyArray {
-                                array: PyRwLock::new(sliced)
-                            },
-                            PyArray::class(vm),
-                            None
-                        )
+                        PyArray {
+                            array: PyRwLock::new(sliced)
+                        }
+                        .into_simple_object(vm)
                     })*
                 }
             }
