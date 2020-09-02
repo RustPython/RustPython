@@ -335,6 +335,18 @@ macro_rules! def_array_enum {
                 Ok(())
             }
 
+            fn delitem_by_idx(&mut self, i: isize, vm: &VirtualMachine) -> PyResult<()> {
+                let i = self.idx(i, "array assignment", vm)?;
+                match self {
+                    $(ArrayContentType::$n(v) => { v.remove(i); },)*
+                }
+                Ok(())
+            }
+
+            fn delitem_by_slice(&mut self, slice: PySliceRef, vm: &VirtualMachine) -> PyResult<()> {
+                Err(vm.new_not_implemented_error("FIX NOW".to_owned()))
+            }
+
             fn repr(&self, _vm: &VirtualMachine) -> PyResult<String> {
                 // we don't need ReprGuard here
                 let s = match self {
@@ -577,6 +589,14 @@ impl PyArray {
                 };
                 zelf.borrow_value_mut().setitem_by_slice(slice, items, vm)
             }
+        }
+    }
+
+    #[pymethod(name = "__delitem__")]
+    fn delitem(&self, needle: Either<isize, PySliceRef>, vm: &VirtualMachine) -> PyResult<()> {
+        match needle {
+            Either::A(i) => self.borrow_value_mut().delitem_by_idx(i, vm),
+            Either::B(slice) => self.borrow_value_mut().delitem_by_slice(slice, vm)
         }
     }
 

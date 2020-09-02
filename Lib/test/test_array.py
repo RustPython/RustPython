@@ -704,8 +704,6 @@ class BaseTest:
             -len(self.example)-1, self.example[0]
         )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_delitem(self):
         a = array.array(self.typecode, self.example)
         del a[0]
