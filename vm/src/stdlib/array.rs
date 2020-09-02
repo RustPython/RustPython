@@ -103,14 +103,14 @@ macro_rules! def_array_enum {
                 Ok(())
             }
 
-            fn count(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+            fn count(&self, obj: PyObjectRef, vm: &VirtualMachine) -> usize {
                 match self {
                     $(ArrayContentType::$n(v) => {
-                        Ok(if let Ok(val) = $t::try_into_from_object(vm, obj) {
+                        if let Ok(val) = $t::try_into_from_object(vm, obj) {
                             v.iter().filter(|&&a| a == val).count()
                         } else {
                             0
-                        })
+                        }
                     })*
                 }
             }
@@ -385,13 +385,13 @@ def_array_enum!(
     (Double, f64, 'd'),
 );
 
-trait TryIntoFromObject: Sized {
+trait ArrayElement: Sized {
     fn try_into_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self>;
 }
 
 macro_rules! adapt_try_into_from_object {
     ($(($t:ty, $f: path),)*) => {$(
-        impl TryIntoFromObject for $t {
+        impl ArrayElement for $t {
             fn try_into_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
                 $f(vm, obj)
             }
@@ -490,7 +490,7 @@ impl PyArray {
     }
 
     #[pymethod]
-    fn count(&self, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+    fn count(&self, x: PyObjectRef, vm: &VirtualMachine) -> usize {
         self.borrow_value().count(x, vm)
     }
 
