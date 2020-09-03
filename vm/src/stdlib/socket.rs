@@ -810,6 +810,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "SO_REUSEADDR" => ctx.new_int(c::SO_REUSEADDR),
         "SO_TYPE" => ctx.new_int(c::SO_TYPE),
         "SO_BROADCAST" => ctx.new_int(c::SO_BROADCAST),
+        // "SO_EXCLUSIVEADDRUSE" => ctx.new_int(c::SO_EXCLUSIVEADDRUSE),
         "TCP_NODELAY" => ctx.new_int(c::TCP_NODELAY),
         "AI_ALL" => ctx.new_int(c::AI_ALL),
         "AI_PASSIVE" => ctx.new_int(c::AI_PASSIVE),
@@ -817,6 +818,11 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "NI_NOFQDN" => ctx.new_int(c::NI_NOFQDN),
         "NI_NUMERICHOST" => ctx.new_int(c::NI_NUMERICHOST),
         "NI_NUMERICSERV" => ctx.new_int(c::NI_NUMERICSERV),
+    });
+
+    #[cfg(not(windows))]
+    extend_module!(vm, module, {
+        "SO_REUSEPORT" => ctx.new_int(c::SO_REUSEPORT),
     });
 
     #[cfg(not(target_os = "redox"))]

@@ -951,7 +951,8 @@ if os.name == 'nt':
         else:
             print('WARNING: The filename %r CAN be encoded by the filesystem encoding (%s). '
                   'Unicode filename tests may not be effective'
-                  % (TESTFN_UNENCODABLE, TESTFN_ENCODING))
+                  % (TESTFN_UNENCODABLE, TESTFN_ENCODING),
+                  file=sys.__stderr__)
             TESTFN_UNENCODABLE = None
 # # Mac OS X denies unencodable filenames (invalid utf-8)
 # elif sys.platform != 'darwin':
