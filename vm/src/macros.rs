@@ -224,10 +224,10 @@ macro_rules! flame_guard {
 
 #[macro_export]
 macro_rules! class_or_notimplemented {
-    ($vm:expr, $t:ty, $obj:expr) => {
+    ($t:ty, $obj:expr) => {
         match $crate::pyobject::PyObjectRef::downcast::<$t>($obj) {
             Ok(pyref) => pyref,
-            Err(_) => return Ok(PyArithmaticValue::NotImplemented),
+            Err(_) => return Ok($crate::pyobject::PyArithmaticValue::NotImplemented),
         }
     };
 }
