@@ -141,6 +141,9 @@ pub struct PySettings {
     /// -i
     pub inspect: bool,
 
+    /// -i, with no script
+    pub interactive: bool,
+
     /// -O optimization switch counter
     pub optimize: u8,
 
@@ -161,6 +164,21 @@ pub struct PySettings {
 
     /// -B
     pub dont_write_bytecode: bool,
+
+    /// -b
+    pub bytes_warning: u64,
+
+    /// -Xfoo[=bar]
+    pub xopts: Vec<(String, Option<String>)>,
+
+    /// -I
+    pub isolated: bool,
+
+    /// -Xdev
+    pub dev_mode: bool,
+
+    /// -Wfoo
+    pub warnopts: Vec<String>,
 
     /// Environment PYTHONPATH and RUSTPYTHONPATH:
     pub path_list: Vec<String>,
@@ -194,6 +212,7 @@ impl Default for PySettings {
         PySettings {
             debug: false,
             inspect: false,
+            interactive: false,
             optimize: 0,
             no_user_site: false,
             no_site: false,
@@ -201,6 +220,11 @@ impl Default for PySettings {
             verbose: 0,
             quiet: false,
             dont_write_bytecode: false,
+            bytes_warning: 0,
+            xopts: vec![],
+            isolated: false,
+            dev_mode: false,
+            warnopts: vec![],
             path_list: vec![],
             argv: vec![],
             hash_seed: None,
@@ -288,14 +312,12 @@ impl VirtualMachine {
             #[cfg(not(target_arch = "wasm32"))]
             import::import_builtin(self, "signal")?;
 
-            import::init_importlib(self, initialize_parameter)?;
-
             #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
             {
                 // this isn't fully compatible with CPython; it imports "io" and sets
                 // builtins.open to io.OpenWrapper, but this is easier, since it doesn't
                 // require the Python stdlib to be present
-                let io = self.import("_io", &[], 0)?;
+                let io = import::import_builtin(self, "_io")?;
                 let io_open = self.get_attribute(io, "open")?;
                 let set_stdio = |name, fd, mode: &str| {
                     let stdio =
@@ -314,6 +336,8 @@ impl VirtualMachine {
 
                 self.set_attr(&self.builtins, "open", io_open)?;
             }
+
+            import::init_importlib(self, initialize_parameter)?;
 
             Ok(())
         };
