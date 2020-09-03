@@ -1,5 +1,7 @@
 use crate::exceptions::PyBaseExceptionRef;
-use crate::pyobject::PyObjectRef;
+use crate::obj::objbytes::PyBytes;
+use crate::obj::objstr::PyString;
+use crate::pyobject::{BorrowValue, PyObjectRef, PyResult};
 use crate::VirtualMachine;
 use std::{fmt, io};
 
@@ -27,4 +29,41 @@ impl Write for PyWriter<'_> {
         vm.call_method(obj, "write", vec![vm.ctx.new_str(args.to_string())])
             .map(drop)
     }
+}
+
+pub fn file_readline(obj: &PyObjectRef, size: Option<usize>, vm: &VirtualMachine) -> PyResult {
+    let args = size.map_or_else(Vec::new, |size| vec![vm.ctx.new_int(size)]);
+    let ret = vm.call_method(obj, "readline", args)?;
+    let eof_err = || {
+        vm.new_exception(
+            vm.ctx.exceptions.eof_error.clone(),
+            vec![vm.ctx.new_str("EOF when reading a line".to_owned())],
+        )
+    };
+    let ret = match_class!(match ret {
+        s @ PyString => {
+            let sval = s.borrow_value();
+            if sval.len() == 0 {
+                return Err(eof_err());
+            }
+            if let Some(nonl) = sval.strip_suffix('\n') {
+                vm.ctx.new_str(nonl.to_owned())
+            } else {
+                s.into_object()
+            }
+        }
+        b @ PyBytes => {
+            let buf = b.borrow_value();
+            if buf.len() == 0 {
+                return Err(eof_err());
+            }
+            if buf.last() == Some(&b'\n') {
+                vm.ctx.new_bytes(buf[..buf.len() - 1].to_owned())
+            } else {
+                b.into_object()
+            }
+        }
+        _ => return Err(vm.new_type_error("object.readline() returned non-string".to_owned())),
+    });
+    Ok(ret)
 }

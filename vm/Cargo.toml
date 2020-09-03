@@ -78,6 +78,7 @@ thread_local = "1.0"
 cfg-if = "0.1.10"
 timsort = "0.1"
 thiserror = "1.0"
+atty = "0.2"
 
 ## unicode stuff
 unicode_names2 = "0.4"
