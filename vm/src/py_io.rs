@@ -43,7 +43,7 @@ pub fn file_readline(obj: &PyObjectRef, size: Option<usize>, vm: &VirtualMachine
     let ret = match_class!(match ret {
         s @ PyString => {
             let sval = s.borrow_value();
-            if sval.len() == 0 {
+            if sval.is_empty() {
                 return Err(eof_err());
             }
             if let Some(nonl) = sval.strip_suffix('\n') {
@@ -54,7 +54,7 @@ pub fn file_readline(obj: &PyObjectRef, size: Option<usize>, vm: &VirtualMachine
         }
         b @ PyBytes => {
             let buf = b.borrow_value();
-            if buf.len() == 0 {
+            if buf.is_empty() {
                 return Err(eof_err());
             }
             if buf.last() == Some(&b'\n') {
