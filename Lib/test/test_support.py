@@ -409,8 +409,8 @@ class TestSupport(unittest.TestCase):
 
         self.assertRaises(AssertionError, support.check__all__, self, unittest)
 
-    @unittest.skipUnless(hasattr(os, 'waitpid') and hasattr(os, 'WNOHANG'),
-                         'need os.waitpid() and os.WNOHANG')
+    @unittest.skipUnless(hasattr(os, 'waitpid') and hasattr(os, 'WNOHANG') and hasattr(os, 'fork'),
+                         'need os.waitpid() and os.WNOHANG and os.fork()')
     def test_reap_children(self):
         # Make sure that there is no other pending child process
         support.reap_children()
