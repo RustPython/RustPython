@@ -2050,7 +2050,9 @@ def _run_suite(suite):
 
 # By default, don't filter tests
 _match_test_func = None
-_match_test_patterns = None
+
+_accept_test_patterns = None
+_ignore_test_patterns = None
 
 
 def match_test(test):
@@ -2066,18 +2068,45 @@ def _is_full_match_test(pattern):
     # as a full test identifier.
     # Example: 'test.test_os.FileTests.test_access'.
     #
-    # Reject patterns which contain fnmatch patterns: '*', '?', '[...]'
-    # or '[!...]'. For example, reject 'test_access*'.
+    # ignore patterns which contain fnmatch patterns: '*', '?', '[...]'
+    # or '[!...]'. For example, ignore 'test_access*'.
     return ('.' in pattern) and (not re.search(r'[?*\[\]]', pattern))
 
 
-def set_match_tests(patterns):
-    global _match_test_func, _match_test_patterns
+def set_match_tests(accept_patterns=None, ignore_patterns=None):
+    global _match_test_func, _accept_test_patterns, _ignore_test_patterns
 
-    if patterns == _match_test_patterns:
-        # No change: no need to recompile patterns.
-        return
 
+    if accept_patterns is None:
+        accept_patterns = ()
+    if ignore_patterns is None:
+        ignore_patterns = ()
+
+    accept_func = ignore_func = None
+
+    if accept_patterns != _accept_test_patterns:
+        accept_patterns, accept_func = _compile_match_function(accept_patterns)
+    if ignore_patterns != _ignore_test_patterns:
+        ignore_patterns, ignore_func = _compile_match_function(ignore_patterns)
+
+    # Create a copy since patterns can be mutable and so modified later
+    _accept_test_patterns = tuple(accept_patterns)
+    _ignore_test_patterns = tuple(ignore_patterns)
+
+    if accept_func is not None or ignore_func is not None:
+        def match_function(test_id):
+            accept = True
+            ignore = False
+            if accept_func:
+                accept = accept_func(test_id)
+            if ignore_func:
+                ignore = ignore_func(test_id)
+            return accept and not ignore
+
+        _match_test_func = match_function
+
+
+def _compile_match_function(patterns):
     if not patterns:
         func = None
         # set_match_tests(None) behaves as set_match_tests(())
@@ -2105,10 +2134,7 @@ def set_match_tests(patterns):
 
         func = match_test_regex
 
-    # Create a copy since patterns can be mutable and so modified later
-    _match_test_patterns = tuple(patterns)
-    _match_test_func = func
-
+    return patterns, func
 
 
 def run_unittest(*classes):
@@ -2178,6 +2204,12 @@ def run_doctest(module, verbosity=None, optionflags=0):
 #=======================================================================
 # Support for saving and restoring the imported modules.
 
+def print_warning(msg):
+    # bpo-39983: Print into sys.__stderr__ to display the warning even
+    # when sys.stderr is captured temporarily by a test
+    for line in msg.splitlines():
+        print(f"Warning -- {line}", file=sys.__stderr__, flush=True)
+
 def modules_setup():
     return sys.modules.copy(),
 
@@ -2233,14 +2265,12 @@ def threading_cleanup(*original_values):
             # Display a warning at the first iteration
             environment_altered = True
             dangling_threads = values[1]
-            print("Warning -- threading_cleanup() failed to cleanup "
-                  "%s threads (count: %s, dangling: %s)"
-                  % (values[0] - original_values[0],
-                     values[0], len(dangling_threads)),
-                  file=sys.stderr)
+            print_warning(f"threading_cleanup() failed to cleanup "
+                          f"{values[0] - original_values[0]} threads "
+                          f"(count: {values[0]}, "
+                          f"dangling: {len(dangling_threads)})")
             for thread in dangling_threads:
-                print(f"Dangling thread: {thread!r}", file=sys.stderr)
-            sys.stderr.flush()
+                print_warning(f"Dangling thread: {thread!r}")
 
             # Don't hold references to threads
             dangling_threads = None
@@ -2333,8 +2363,7 @@ def reap_children():
         if pid == 0:
             break
 
-        print("Warning -- reap_children() reaped child process %s"
-              % pid, file=sys.stderr)
+        print_warning(f"reap_children() reaped child process {pid}")
         environment_altered = True
 
 
@@ -2568,31 +2597,6 @@ def skip_if_buggy_ucrt_strfptime(test):
         else:
             _buggy_ucrt = False
     return unittest.skip("buggy MSVC UCRT strptime/strftime")(test) if _buggy_ucrt else test
-
-
-def skip_if_broken_multiprocessing_synchronize():
-    """
-    Skip tests if the multiprocessing.synchronize module is missing, if there
-    is no available semaphore implementation, or if creating a lock raises an
-    OSError (on Linux only).
-    """
-
-    # Skip tests if the _multiprocessing extension is missing.
-    import_module('_multiprocessing')
-
-    # Skip tests if there is no available semaphore implementation:
-    # multiprocessing.synchronize requires _multiprocessing.SemLock.
-    synchronize = import_module('multiprocessing.synchronize')
-
-    if sys.platform == "linux":
-        try:
-            # bpo-38377: On Linux, creating a semaphore fails with OSError
-            # if the current user does not have the permission to create
-            # a file in /dev/shm/ directory.
-            synchronize.Lock(ctx=None)
-        except OSError as exc:
-            raise unittest.SkipTest(f"broken multiprocessing SemLock: {exc!r}")
-
 
 class PythonSymlink:
     """Creates a symlink for the current Python executable"""
@@ -3209,9 +3213,9 @@ def maybe_get_event_loop_policy():
     """Return the global event loop policy if one is set, else return None."""
     return asyncio.events._event_loop_policy
 
-# # Helpers for testing hashing.
-# NHASHBITS = sys.hash_info.width # number of bits in hash() result
-# assert NHASHBITS in (32, 64)
+# Helpers for testing hashing.
+NHASHBITS = sys.hash_info.width # number of bits in hash() result
+assert NHASHBITS in (32, 64)
 
 # Return mean and sdev of number of collisions when tossing nballs balls
 # uniformly at random into nbins bins.  By definition, the number of
