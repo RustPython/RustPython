@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use num_bigint::{BigInt, ToBigInt};
+use num_bigint::BigInt;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
 use super::objint::{PyInt, PyIntRef};
@@ -327,16 +327,16 @@ pub trait PySliceableSequence {
         } else {
             // calculate the range for the reverse slice, first the bounds needs to be made
             // exclusive around stop, the lower number
-            let start = start.as_ref().map(|x| {
-                if *x == (-1).to_bigint().unwrap() {
-                    self.len() + BigInt::one() //.to_bigint().unwrap()
+            let start = start.map(|x| {
+                if x == -BigInt::one() {
+                    self.len() + BigInt::one()
                 } else {
                     x + 1
                 }
             });
-            let stop = stop.as_ref().map(|x| {
-                if *x == (-1).to_bigint().unwrap() {
-                    self.len().to_bigint().unwrap()
+            let stop = stop.map(|x| {
+                if x == -BigInt::one() {
+                    BigInt::from(self.len())
                 } else {
                     x + 1
                 }
