@@ -43,8 +43,8 @@ pub struct PyClassSlots {
     pub descr_get: Option<PyDescrGetFunc>,
 }
 
-impl From<PyTpFlags> for PyClassSlots {
-    fn from(flags: PyTpFlags) -> Self {
+impl PyClassSlots {
+    pub fn from_flags(flags: PyTpFlags) -> Self {
         Self {
             flags,
             ..Default::default()

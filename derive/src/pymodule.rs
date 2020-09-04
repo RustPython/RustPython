@@ -57,7 +57,7 @@ pub fn impl_pymodule(
     // append additional items
     let module_name = context.name.as_str();
     let module_extend_items = context.module_extend_items;
-    items.extend(vec![
+    items.extend(iter_chain![
         parse_quote! {
             pub(crate) const MODULE_NAME: &'static str = #module_name;
         },

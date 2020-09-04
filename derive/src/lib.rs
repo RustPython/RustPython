@@ -9,12 +9,14 @@ extern crate maplit;
 
 #[macro_use]
 mod error;
+#[macro_use]
+mod util;
+
 mod compile_bytecode;
 mod from_args;
 mod pyclass;
 mod pymodule;
 mod pystructseq;
-mod util;
 
 use error::{extract_spans, Diagnostic};
 use proc_macro::TokenStream;

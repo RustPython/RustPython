@@ -39,7 +39,7 @@ macro_rules! py_class {
     ( $ctx:expr, $class_name:expr, $class_base:expr, $flags:expr, { $($name:tt => $value:expr),* $(,)* }) => {
         {
             #[allow(unused_mut)]
-            let mut slots: $crate::slots::PyClassSlots = ($crate::slots::PyTpFlags::DEFAULT | $flags).into();
+            let mut slots = $crate::slots::PyClassSlots::from_flags($crate::slots::PyTpFlags::DEFAULT | $flags);
             $($crate::py_class!(@extract_slots($ctx, &mut slots, $name, $value));)*
             let py_class = $ctx.new_class($class_name, $class_base.clone(), slots);
             $($crate::py_class!(@extract_attrs($ctx, &py_class, $name, $value));)*

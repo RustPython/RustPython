@@ -359,13 +359,15 @@ impl PyClassRef {
         // TODO: how do we know if it should have a dict?
         let flags = base.slots.flags | PyTpFlags::HAS_DICT;
 
+        let slots = PyClassSlots::from_flags(flags);
+
         let typ = new(
             metatype,
             name.borrow_value(),
             base,
             bases,
             attributes,
-            flags.into(),
+            slots,
         )
         .map_err(|e| vm.new_type_error(e))?;
 

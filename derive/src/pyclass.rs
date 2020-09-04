@@ -45,36 +45,6 @@ fn extract_items_into_context<'a, Item>(
     context.errors.ok_or_push(context.getset_items.validate());
 }
 
-fn raw_extend_methods<T: syn::parse::Parse>(context: &ImplContext) -> impl Iterator<Item = T> {
-    let getset_impl = &context.getset_items;
-    let extend_impl = &context.impl_extend_items;
-    let slots_impl = &context.extend_slots_items;
-    let class_extensions = &context.class_extensions;
-    macro_rules! iter_chain {
-        ($($it:expr),*$(,)?) => {
-            std::iter::empty()
-                $(.chain(std::iter::once($it)))*
-        };
-    }
-    iter_chain![
-        parse_quote! {
-            fn __extend_py_class(
-                ctx: &::rustpython_vm::pyobject::PyContext,
-                class: &::rustpython_vm::obj::objtype::PyClassRef,
-            ) {
-                #getset_impl
-                #extend_impl
-                #(#class_extensions)*
-            }
-        },
-        parse_quote! {
-            fn __extend_slots(slots: &mut ::rustpython_vm::slots::PyClassSlots) {
-                #slots_impl
-            }
-        },
-    ]
-}
-
 pub(crate) fn impl_pyimpl(
     attr: AttributeArgs,
     item: Item,
@@ -122,7 +92,28 @@ pub(crate) fn impl_pyimpl(
             let mut context = ImplContext::default();
             extract_items_into_context(&mut context, trai.items.iter_mut());
 
-            trai.items.extend(raw_extend_methods(&context));
+            let getset_impl = &context.getset_items;
+            let extend_impl = &context.impl_extend_items;
+            let slots_impl = &context.extend_slots_items;
+            let class_extensions = &context.class_extensions;
+            let extra_methods = iter_chain![
+                parse_quote! {
+                    fn __extend_py_class(
+                        ctx: &::rustpython_vm::pyobject::PyContext,
+                        class: &::rustpython_vm::obj::objtype::PyClassRef,
+                    ) {
+                        #getset_impl
+                        #extend_impl
+                        #(#class_extensions)*
+                    }
+                },
+                parse_quote! {
+                    fn __extend_slots(slots: &mut ::rustpython_vm::slots::PyClassSlots) {
+                        #slots_impl
+                    }
+                },
+            ];
+            trai.items.extend(extra_methods);
 
             trai.into_token_stream()
         }
@@ -158,22 +149,16 @@ fn generate_class_def(
         Some(v) => quote!(Some(#v) ),
         None => quote!(None),
     };
-    let mut is_pystruct = false;
-    'pystruct_check: for attr in attrs {
-        if path_eq(&attr.path, "derive") {
-            if let Ok(Meta::List(l)) = attr.parse_meta() {
-                for nested in l.nested {
-                    if nested
-                        .get_ident()
-                        .map_or(false, |p| p == "PyStructSequence")
-                    {
-                        is_pystruct = true;
-                        break 'pystruct_check;
-                    }
-                }
+    let is_pystruct = attrs.iter().any(|attr| {
+        path_eq(&attr.path, "derive")
+            && if let Ok(Meta::List(l)) = attr.parse_meta() {
+                l.nested
+                    .into_iter()
+                    .any(|n| n.get_ident().map_or(false, |p| p == "PyStructSequence"))
+            } else {
+                false
             }
-        }
-    }
+    });
 
     let base_class = if is_pystruct {
         quote! {
@@ -355,7 +340,7 @@ where
         let slot_ident = item_meta.slot_name()?;
         let slot_name = slot_ident.to_string();
         let tokens = {
-            let transform = if vec!["new", "call"].contains(&slot_name.as_str()) {
+            let transform = if ["new", "call"].contains(&slot_name.as_str()) {
                 quote! { ::rustpython_vm::function::IntoPyNativeFunc::into_func }
             } else {
                 quote! { ::std::boxed::Box::new }
@@ -653,21 +638,12 @@ fn extract_impl_attrs(attr: AttributeArgs) -> std::result::Result<ExtractedImplA
                     for meta in nested {
                         match meta {
                             NestedMeta::Meta(Meta::Path(path)) => {
-                                if path_eq(&path, "Self") {
-                                    withs.push(quote! {
-                                        Self::__extend_py_class(ctx, class);
-                                    });
-                                    with_slots.push(quote! {
-                                        Self::__extend_slots(slots);
-                                    });
-                                } else {
-                                    withs.push(quote! {
-                                        <Self as #path>::__extend_py_class(ctx, class);
-                                    });
-                                    with_slots.push(quote! {
-                                        <Self as #path>::__extend_slots(slots);
-                                    });
-                                }
+                                withs.push(quote! {
+                                    <Self as #path>::__extend_py_class(ctx, class);
+                                });
+                                with_slots.push(quote! {
+                                    <Self as #path>::__extend_slots(slots);
+                                });
                             }
                             meta => {
                                 bail_span!(meta, "#[pyimpl(with(...))] arguments should be paths")
