@@ -1,15 +1,15 @@
 use std::fmt;
 use std::iter::FromIterator;
 use std::mem::size_of;
-use std::ops::{DerefMut};
+use std::ops::DerefMut;
 
 use crossbeam_utils::atomic::AtomicCell;
-use num_traits::{ToPrimitive};
+use num_traits::ToPrimitive;
 
 use super::objbool;
 use super::objint::PyIntRef;
 use super::objiter;
-use super::objsequence::{get_item, get_pos, SequenceIndex, PySliceableSequenceMut};
+use super::objsequence::{get_item, get_pos, PySliceableSequenceMut, SequenceIndex};
 use super::objslice::PySliceRef;
 use super::objtype::PyClassRef;
 use crate::bytesinner;
@@ -215,7 +215,7 @@ impl PyList {
         subscript: SequenceIndex,
         value: PyObjectRef,
         vm: &VirtualMachine,
-    ) -> PyResult {
+    ) -> PyResult<()> {
         match subscript {
             SequenceIndex::Int(index) => self.setindex(index, value, vm),
             SequenceIndex::Slice(slice) => {
@@ -227,21 +227,21 @@ impl PyList {
         }
     }
 
-    fn setindex(&self, index: isize, mut value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn setindex(&self, index: isize, mut value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let mut elements = self.borrow_value_mut();
         if let Some(pos_index) = get_pos(index, elements.len()) {
             std::mem::swap(&mut elements[pos_index], &mut value);
-            Ok(vm.get_none())
+            Ok(())
         } else {
             Err(vm.new_index_error("list assignment index out of range".to_owned()))
         }
     }
 
-    fn setslice(&self, slice: PySliceRef, sec: PyIterable, vm: &VirtualMachine) -> PyResult {
+    fn setslice(&self, slice: PySliceRef, sec: PyIterable, vm: &VirtualMachine) -> PyResult<()> {
         let items: Result<Vec<PyObjectRef>, _> = sec.iter(vm)?.collect();
         let items = items?;
         let mut elements = self.borrow_value_mut();
-        elements.set_slice_items(vm, &slice, items.as_slice()).map(|_| vm.get_none())
+        elements.set_slice_items(vm, &slice, items.as_slice())
     }
 
     #[pymethod(name = "__repr__")]
