@@ -340,6 +340,90 @@ macro_rules! def_array_enum {
                 Ok(())
             }
 
+            fn delitem_by_idx(&mut self, i: isize, vm: &VirtualMachine) -> PyResult<()> {
+                let i = self.idx(i, "array assignment", vm)?;
+                match self {
+                    $(ArrayContentType::$n(v) => { v.remove(i); },)*
+                }
+                Ok(())
+            }
+
+            fn delitem_by_slice(&mut self, slice: PySliceRef, vm: &VirtualMachine) -> PyResult<()> {
+                let start = slice.start_index(vm)?;
+                let stop = slice.stop_index(vm)?;
+                let step = slice.step_index(vm)?.unwrap_or_else(BigInt::one);
+
+                if step.is_zero() {
+                    return Err(vm.new_value_error("slice step cannot be zero".to_owned()));
+                }
+
+                match self {
+                    $(ArrayContentType::$n(elements) => {
+                        if step == BigInt::one() {
+                            let range = get_slice_range(&start, &stop, elements.len());
+                            if range.start < range.end {
+                                elements.drain(range);
+                            }
+                            return Ok(());
+                        }
+
+                        let (start, stop, step, is_negative_step) = if step.is_negative() {
+                            (
+                                stop.map(|x| if x == -BigInt::one() {
+                                    elements.len() + BigInt::one()
+                                } else {
+                                    x + 1
+                                }),
+                                start.map(|x| if x == -BigInt::one() {
+                                    BigInt::from(elements.len())
+                                } else {
+                                    x + 1
+                                }),
+                                -step,
+                                true
+                            )
+                        } else {
+                            (start, stop, step, false)
+                        };
+
+                        let range = get_slice_range(&start, &stop, elements.len());
+                        if range.start >= range.end {
+                            return Ok(());
+                        }
+
+                        // step is not negative here
+                        if let Some(step) = step.to_usize() {
+                            let mut indexes = if is_negative_step {
+                                itertools::Either::Left(range.clone().rev().step_by(step).rev()).peekable()
+                            } else {
+                                itertools::Either::Right(range.clone().step_by(step)).peekable()
+                            };
+
+                            let mut deleted = 0;
+
+                            // passing whole range, swap or overlap
+                            for i in range.clone() {
+                                if indexes.peek() == Some(&i) {
+                                    indexes.next();
+                                    deleted += 1;
+                                } else {
+                                    elements.swap(i - deleted, i);
+                                }
+                            }
+                            // then drain (the values to delete should now be contiguous at the end of the range)
+                            elements.drain((range.end - deleted)..range.end);
+                        } else {
+                            // edge case, step is too big for usize
+                            // same behaviour as CPython
+                            elements.remove(
+                                if is_negative_step { range.end -1 } else { range.start }
+                            );
+                        }
+                        Ok(())
+                    })*
+                }
+            }
+
             fn add(&self, other: &ArrayContentType, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
                 match self {
                     $(ArrayContentType::$n(v) => if let ArrayContentType::$n(other) = other {
@@ -669,6 +753,14 @@ impl PyArray {
                 };
                 zelf.borrow_value_mut().setitem_by_slice(slice, items, vm)
             }
+        }
+    }
+
+    #[pymethod(name = "__delitem__")]
+    fn delitem(&self, needle: Either<isize, PySliceRef>, vm: &VirtualMachine) -> PyResult<()> {
+        match needle {
+            Either::A(i) => self.borrow_value_mut().delitem_by_idx(i, vm),
+            Either::B(slice) => self.borrow_value_mut().delitem_by_slice(slice, vm),
         }
     }
 
