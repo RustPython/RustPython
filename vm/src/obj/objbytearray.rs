@@ -185,7 +185,12 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "__setitem__")]
-    fn setitem(&self, needle: SequenceIndex, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn setitem(
+        &self,
+        needle: SequenceIndex,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         self.borrow_value_mut().setitem(needle, value, vm)
     }
 

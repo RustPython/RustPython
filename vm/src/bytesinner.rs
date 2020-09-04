@@ -1,7 +1,7 @@
 use bstr::ByteSlice;
 use itertools::Itertools;
-use num_bigint::{BigInt, ToBigInt};
-use num_traits::{One, Signed, ToPrimitive, Zero};
+use num_bigint::BigInt;
+use num_traits::ToPrimitive;
 use std::ops::Range;
 
 use crate::byteslike::PyBytesLike;
@@ -12,7 +12,7 @@ use crate::obj::objint::{self, PyInt, PyIntRef};
 use crate::obj::objlist::PyList;
 use crate::obj::objmemory::PyMemoryView;
 use crate::obj::objnone::PyNoneRef;
-use crate::obj::objsequence::{PySliceableSequence, SequenceIndex};
+use crate::obj::objsequence::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex};
 use crate::obj::objslice::PySliceRef;
 use crate::obj::objstr::{self, PyString, PyStringRef};
 use crate::pyobject::{
@@ -334,7 +334,7 @@ impl PyBytesInner {
         }
     }
 
-    fn setindex(&mut self, int: isize, object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn setindex(&mut self, int: isize, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if let Some(idx) = self.elements.get_pos(int) {
             let result = match_class!(match object {
                 i @ PyInt => {
@@ -348,7 +348,7 @@ impl PyBytesInner {
             });
             let value = result?;
             self.elements[idx] = value;
-            Ok(vm.ctx.new_int(value))
+            Ok(())
         } else {
             Err(vm.new_index_error("index out of range".to_owned()))
         }
@@ -359,7 +359,7 @@ impl PyBytesInner {
         slice: PySliceRef,
         object: PyObjectRef,
         vm: &VirtualMachine,
-    ) -> PyResult {
+    ) -> PyResult<()> {
         let sec = match PyIterable::try_from_object(vm, object.clone()) {
             Ok(sec) => {
                 let items: Result<Vec<PyObjectRef>, _> = sec.iter(vm)?.collect();
@@ -370,21 +370,14 @@ impl PyBytesInner {
             }
             _ => match_class!(match object {
                 i @ PyMemoryView => Ok(i.try_bytes(|v| v.to_vec()).unwrap()),
-                _ => Err(vm.new_index_error(
+                _ => Err(vm.new_value_error(
                     "can assign only bytes, buffers, or iterables of ints in range(0, 256)"
                         .to_owned()
                 )),
             }),
         };
         let items = sec?;
-        let mut range = self
-            .elements
-            .get_slice_range(&slice.start_index(vm)?, &slice.stop_index(vm)?);
-        if range.end < range.start {
-            range.end = range.start;
-        }
-        self.elements.splice(range, items);
-        Ok(vm.ctx.new_bytes(self.elements.get_slice_items(vm, &slice)?))
+        self.elements.set_slice_items(vm, &slice, items.as_slice())
     }
 
     pub fn setitem(
@@ -392,7 +385,7 @@ impl PyBytesInner {
         needle: SequenceIndex,
         object: PyObjectRef,
         vm: &VirtualMachine,
-    ) -> PyResult {
+    ) -> PyResult<()> {
         match needle {
             SequenceIndex::Int(int) => self.setindex(int, object, vm),
             SequenceIndex::Slice(slice) => self.setslice(slice, object, vm),
@@ -413,74 +406,8 @@ impl PyBytesInner {
         }
     }
 
-    // TODO: deduplicate this with the code in objlist
     fn delslice(&mut self, slice: PySliceRef, vm: &VirtualMachine) -> PyResult<()> {
-        let start = slice.start_index(vm)?;
-        let stop = slice.stop_index(vm)?;
-        let step = slice.step_index(vm)?.unwrap_or_else(BigInt::one);
-
-        if step.is_zero() {
-            Err(vm.new_value_error("slice step cannot be zero".to_owned()))
-        } else if step.is_positive() {
-            let range = self.elements.get_slice_range(&start, &stop);
-            if range.start < range.end {
-                #[allow(clippy::range_plus_one)]
-                match step.to_i32() {
-                    Some(1) => {
-                        self._del_slice(range);
-                        Ok(())
-                    }
-                    Some(num) => {
-                        self._del_stepped_slice(range, num as usize);
-                        Ok(())
-                    }
-                    None => {
-                        self._del_slice(range.start..range.start + 1);
-                        Ok(())
-                    }
-                }
-            } else {
-                // no del to do
-                Ok(())
-            }
-        } else {
-            // calculate the range for the reverse slice, first the bounds needs to be made
-            // exclusive around stop, the lower number
-            let start = start.as_ref().map(|x| {
-                if *x == (-1).to_bigint().unwrap() {
-                    self.elements.len() + BigInt::one() //.to_bigint().unwrap()
-                } else {
-                    x + 1
-                }
-            });
-            let stop = stop.as_ref().map(|x| {
-                if *x == (-1).to_bigint().unwrap() {
-                    self.elements.len().to_bigint().unwrap()
-                } else {
-                    x + 1
-                }
-            });
-            let range = self.elements.get_slice_range(&stop, &start);
-            if range.start < range.end {
-                match (-step).to_i32() {
-                    Some(1) => {
-                        self._del_slice(range);
-                        Ok(())
-                    }
-                    Some(num) => {
-                        self._del_stepped_slice_reverse(range, num as usize);
-                        Ok(())
-                    }
-                    None => {
-                        self._del_slice(range.end - 1..range.end);
-                        Ok(())
-                    }
-                }
-            } else {
-                // no del to do
-                Ok(())
-            }
-        }
+        self.elements.delete_slice(vm, &slice)
     }
 
     fn _del_slice(&mut self, range: Range<usize>) {
