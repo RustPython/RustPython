@@ -7,17 +7,17 @@ use std::mem::size_of;
 use super::objint::PyIntRef;
 use super::objiter;
 use super::objsequence::SequenceIndex;
-use super::objstr::{PyString, PyStringRef};
+use super::objstr::PyStringRef;
 use super::objtype::PyClassRef;
 use crate::bytesinner::{
-    ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerSplitOptions,
-    ByteInnerTranslateOptions, ByteOr, PyBytesInner,
+    bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
+    ByteInnerSplitOptions, ByteInnerTranslateOptions, ByteOr, DecodeArgs, PyBytesInner,
 };
 use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::function::{OptionalArg, OptionalOption};
 use crate::pyobject::{
     BorrowValue, Either, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef,
-    PyResult, PyValue, TryFromObject, TypeProtocol,
+    PyResult, PyValue, TryFromObject,
 };
 use crate::pystr::{self, PyCommonString};
 use crate::vm::VirtualMachine;
@@ -582,23 +582,8 @@ impl PyByteArray {
     }
 
     #[pymethod]
-    fn decode(
-        zelf: PyRef<Self>,
-        encoding: OptionalArg<PyStringRef>,
-        errors: OptionalArg<PyStringRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyStringRef> {
-        let encoding = encoding.into_option();
-        vm.decode(zelf.into_object(), encoding.clone(), errors.into_option())?
-            .downcast::<PyString>()
-            .map_err(|obj| {
-                vm.new_type_error(format!(
-                    "'{}' decoder returned '{}' instead of 'str'; use codecs.encode() to \
-                     encode arbitrary types",
-                    encoding.as_ref().map_or("utf-8", |s| s.borrow_value()),
-                    obj.lease_class().name,
-                ))
-            })
+    fn decode(zelf: PyRef<Self>, args: DecodeArgs, vm: &VirtualMachine) -> PyResult<PyStringRef> {
+        bytes_decode(zelf.into_object(), args, vm)
     }
 }
 

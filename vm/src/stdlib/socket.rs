@@ -1,6 +1,6 @@
 use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use std::io::{self, prelude::*};
-use std::net::{Ipv4Addr, Shutdown, SocketAddr, ToSocketAddrs};
+use std::net::{Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, ToSocketAddrs};
 use std::time::Duration;
 
 use byteorder::{BigEndian, ByteOrder};
@@ -596,6 +596,56 @@ fn socket_gethostbyname(name: PyStringRef, vm: &VirtualMachine) -> PyResult<Stri
     }
 }
 
+fn socket_inet_pton(af_inet: i32, ip_string: PyStringRef, vm: &VirtualMachine) -> PyResult {
+    match af_inet {
+        c::AF_INET => ip_string
+            .borrow_value()
+            .parse::<Ipv4Addr>()
+            .map(|ip_addr| vm.ctx.new_bytes(ip_addr.octets().to_vec()))
+            .map_err(|_| {
+                vm.new_os_error("illegal IP address string passed to inet_pton".to_owned())
+            }),
+        c::AF_INET6 => ip_string
+            .borrow_value()
+            .parse::<Ipv6Addr>()
+            .map(|ip_addr| vm.ctx.new_bytes(ip_addr.octets().to_vec()))
+            .map_err(|_| {
+                vm.new_os_error("illegal IP address string passed to inet_pton".to_owned())
+            }),
+        _ => Err(vm.new_os_error("Address family not supported by protocol".to_owned())),
+    }
+}
+
+fn socket_inet_ntop(af_inet: i32, packed_ip: PyBytesRef, vm: &VirtualMachine) -> PyResult {
+    match af_inet {
+        c::AF_INET => {
+            if packed_ip.len() != 4 {
+                return Err(
+                    vm.new_value_error("invalid length of packed IP address string".to_owned())
+                );
+            }
+            let ip_num = BigEndian::read_u32(&packed_ip);
+            Ok(vm.ctx.new_str(Ipv4Addr::from(ip_num).to_string()))
+        }
+        c::AF_INET6 => {
+            if packed_ip.len() != 16 {
+                return Err(
+                    vm.new_value_error("invalid length of packed IP address string".to_owned())
+                );
+            }
+            let mut iter = packed_ip.iter();
+            let mut ip_num: u128 = *iter.next().unwrap() as u128;
+            for item in iter {
+                ip_num <<= 8;
+                ip_num |= *item as u128
+            }
+            let ipv6 = Ipv6Addr::from(ip_num);
+            Ok(vm.ctx.new_str(get_ipv6_addr_str(ipv6)))
+        }
+        _ => Err(vm.new_value_error(format!("unknown address family {}", af_inet))),
+    }
+}
+
 fn get_addr<T, I>(vm: &VirtualMachine, addr: T) -> PyResult<socket2::SockAddr>
 where
     T: ToSocketAddrs<Iter = I>,
@@ -667,6 +717,20 @@ fn convert_sock_error(vm: &VirtualMachine, err: io::Error) -> PyBaseExceptionRef
     }
 }
 
+fn get_ipv6_addr_str(ipv6: Ipv6Addr) -> String {
+    match ipv6.to_ipv4() {
+        Some(_) => {
+            let segments = ipv6.segments();
+            if segments[5] == 0 && segments[6] == 0 {
+                format!("::{:x}", segments[7] as u32)
+            } else {
+                ipv6.to_string()
+            }
+        }
+        None => ipv6.to_string(),
+    }
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
     let socket_timeout = ctx.new_class(
@@ -694,6 +758,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "ntohs" => ctx.new_function(u16::from_be),
         "getdefaulttimeout" => ctx.new_function(|vm: &VirtualMachine| vm.get_none()),
         "has_ipv6" => ctx.new_bool(false),
+        "inet_pton" => ctx.new_function(socket_inet_pton),
+        "inet_ntop" => ctx.new_function(socket_inet_ntop),
         // constants
         "AF_UNSPEC" => ctx.new_int(0),
         "AF_INET" => ctx.new_int(c::AF_INET),

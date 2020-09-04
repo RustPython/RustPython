@@ -787,7 +787,9 @@ class LeapdaysTestCase(unittest.TestCase):
 
 
 def conv(s):
-    return s.replace('\n', os.linesep).encode()
+    # XXX RUSTPYTHON TODO: TextIOWrapper newline translation
+    return s.encode()
+    # return s.replace('\n', os.linesep).encode()
 
 class CommandLineTestCase(unittest.TestCase):
     def run_ok(self, *args):
@@ -817,18 +819,14 @@ class CommandLineTestCase(unittest.TestCase):
         self.assertIn(b'January', stdout)
         self.assertIn(b'Mo Tu We Th Fr Sa Su', stdout)
 
-    @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON Windows')
     def test_output_year(self):
         stdout = self.run_ok('2004')
         self.assertEqual(stdout, conv(result_2004_text))
 
-    @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON Windows')
     def test_output_month(self):
         stdout = self.run_ok('2004', '1')
         self.assertEqual(stdout, conv(result_2004_01_text))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_option_encoding(self):
         self.assertFailure('-e')
         self.assertFailure('--encoding')
@@ -860,7 +858,6 @@ class CommandLineTestCase(unittest.TestCase):
         stdout = self.run_ok('--width', '3', '2004')
         self.assertIn(b'Mon Tue Wed Thu Fri Sat Sun', stdout)
 
-    @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON Windows')
     def test_option_lines(self):
         self.assertFailure('-l')
         self.assertFailure('--lines')
@@ -875,7 +872,6 @@ class CommandLineTestCase(unittest.TestCase):
         stdout = self.run_ok('--spacing', '8', '2004')
         self.assertIn(b'Su        Mo', stdout)
 
-    @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON Windows')
     def test_option_months(self):
         self.assertFailure('-m')
         self.assertFailure('--month')
@@ -883,7 +879,6 @@ class CommandLineTestCase(unittest.TestCase):
         stdout = self.run_ok('--months', '1', '2004')
         self.assertIn(conv('\nMo Tu We Th Fr Sa Su\n'), stdout)
 
-    @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON Windows')
     def test_option_type(self):
         self.assertFailure('-t')
         self.assertFailure('--type')

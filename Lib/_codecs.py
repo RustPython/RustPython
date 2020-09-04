@@ -915,7 +915,7 @@ def PyUnicode_DecodeUTF16Stateful(s, size, errors, byteorder='native', final=Tru
     p = []
     if byteorder == 'native':
         if (size >= 2):
-            bom = (ord(s[ihi]) << 8) | ord(s[ilo])
+            bom = (s[ihi] << 8) | s[ilo]
 #ifdef BYTEORDER_IS_LITTLE_ENDIAN
             if sys.byteorder == 'little':
                 if (bom == 0xFEFF):
@@ -962,11 +962,11 @@ def PyUnicode_DecodeUTF16Stateful(s, size, errors, byteorder='native', final=Tru
 #           /* The remaining input chars are ignored if the callback
 ##             chooses to skip the input */
     
-        ch = (ord(s[q+ihi]) << 8) | ord(s[q+ilo])
+        ch = (s[q+ihi] << 8) | s[q+ilo]
         q += 2
     
         if (ch < 0xD800 or ch > 0xDFFF):
-            p += chr(ch)
+            p.append(chr(ch))
             continue
     
         #/* UTF-16 code pair: */
@@ -977,15 +977,14 @@ def PyUnicode_DecodeUTF16Stateful(s, size, errors, byteorder='native', final=Tru
             unicode_call_errorhandler(errors, 'utf-16', errmsg, s, startinpos, endinpos, True)
 
         if (0xD800 <= ch and ch <= 0xDBFF):
-            ch2 = (ord(s[q+ihi]) << 8) | ord(s[q+ilo])
+            ch2 = (s[q+ihi] << 8) | s[q+ilo]
             q += 2
             if (0xDC00 <= ch2 and ch2 <= 0xDFFF):
     #ifndef Py_UNICODE_WIDE
                 if sys.maxunicode < 65536:
-                    p += chr(ch)
-                    p += chr(ch2)
+                    p += [chr(ch), chr(ch2)]
                 else:
-                    p += chr((((ch & 0x3FF)<<10) | (ch2 & 0x3FF)) + 0x10000)
+                    p.append(chr((((ch & 0x3FF)<<10) | (ch2 & 0x3FF)) + 0x10000))
     #endif
                 continue
 
@@ -1006,8 +1005,8 @@ def PyUnicode_DecodeUTF16Stateful(s, size, errors, byteorder='native', final=Tru
 # have any nested variables.
 
 def STORECHAR(CH, byteorder):
-    hi = chr(((CH) >> 8) & 0xff)
-    lo = chr((CH) & 0xff)
+    hi = (CH >> 8) & 0xff
+    lo = CH & 0xff
     if byteorder == 'little':
         return [lo, hi]
     else:
