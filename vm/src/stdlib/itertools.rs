@@ -1115,7 +1115,7 @@ mod decl {
 
             self.update_idxs(idxs);
 
-            Ok(res.into_ref(vm).into_object())
+            Ok(res.into_object(vm))
         }
 
         fn update_idxs(&self, mut idxs: PyRwLockWriteGuard<'_, Vec<usize>>) {
@@ -1243,7 +1243,7 @@ mod decl {
                 }
             }
 
-            Ok(res.into_ref(vm).into_object())
+            Ok(res.into_object(vm))
         }
     }
 
