@@ -109,7 +109,7 @@ fn browser_fetch(url: PyStringRef, args: FetchArgs, vm: &VirtualMachine) -> PyRe
         JsFuture::from(response_format.get_response(&response)?).await
     };
 
-    Ok(PyPromise::from_future(future).into_ref(vm).into_object())
+    Ok(PyPromise::from_future(future).into_object(vm))
 }
 
 fn browser_request_animation_frame(func: PyCallable, vm: &VirtualMachine) -> PyResult {
@@ -264,7 +264,7 @@ impl Document {
             .query_selector(query.borrow_value())
             .map_err(|err| convert::js_py_typeerror(vm, err))?;
         let elem = match elem {
-            Some(elem) => Element { elem }.into_ref(vm).into_object(),
+            Some(elem) => Element { elem }.into_object(vm),
             None => vm.get_none(),
         };
         Ok(elem)
@@ -336,7 +336,7 @@ fn browser_load_module(module: PyStringRef, path: PyStringRef, vm: &VirtualMachi
         }
     };
 
-    Ok(PyPromise::from_future(future).into_ref(vm).into_object())
+    Ok(PyPromise::from_future(future).into_object(vm))
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {

@@ -171,7 +171,7 @@ mod decl {
                 .symtable
                 .sub_tables
                 .iter()
-                .map(|t| to_py_symbol_table(t.clone()).into_ref(vm).into_object())
+                .map(|t| to_py_symbol_table(t.clone()).into_object(vm))
                 .collect();
             Ok(vm.ctx.new_list(children))
         }
@@ -267,7 +267,7 @@ mod decl {
             let namespaces = self
                 .namespaces
                 .iter()
-                .map(|table| to_py_symbol_table(table.clone()).into_ref(vm).into_object())
+                .map(|table| to_py_symbol_table(table.clone()).into_object(vm))
                 .collect();
             Ok(vm.ctx.new_list(namespaces))
         }

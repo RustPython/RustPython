@@ -341,13 +341,13 @@ impl PyClassRef {
         let mut attributes = dict.to_attributes();
         if let Some(f) = attributes.get_mut("__new__") {
             if f.class().is(&vm.ctx.types.function_type) {
-                *f = PyStaticMethod::from(f.clone()).into_ref(vm).into_object();
+                *f = PyStaticMethod::from(f.clone()).into_object(vm);
             }
         }
 
         if let Some(f) = attributes.get_mut("__init_subclass__") {
             if f.class().is(&vm.ctx.types.function_type) {
-                *f = PyClassMethod::from(f.clone()).into_ref(vm).into_object();
+                *f = PyClassMethod::from(f.clone()).into_object(vm);
             }
         }
 

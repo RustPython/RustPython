@@ -453,7 +453,7 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::YieldValue => {
                 let value = self.pop_value();
                 let value = if self.code.flags.contains(bytecode::CodeFlags::IS_COROUTINE) {
-                    PyAsyncGenWrappedValue(value).into_ref(vm).into_object()
+                    PyAsyncGenWrappedValue(value).into_object(vm)
                 } else {
                     value
                 };

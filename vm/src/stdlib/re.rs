@@ -291,7 +291,7 @@ fn create_match(vm: &VirtualMachine, haystack: PyStringRef, captures: Captures) 
         .iter()
         .map(|opt| opt.map(|m| m.start()..m.end()))
         .collect();
-    PyMatch { haystack, captures }.into_ref(vm).into_object()
+    PyMatch { haystack, captures }.into_object(vm)
 }
 
 fn extract_flags(flags: OptionalArg<usize>) -> PyRegexFlags {

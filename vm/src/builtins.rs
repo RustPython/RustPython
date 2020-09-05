@@ -705,7 +705,7 @@ mod decl {
             let len = vm.call_method(&obj, "__len__", PyFuncArgs::default())?;
             let len = objint::get_value(&len).to_isize().unwrap();
             let obj_iterator = objiter::PySequenceIterator::new_reversed(obj, len);
-            Ok(obj_iterator.into_ref(vm).into_object())
+            Ok(obj_iterator.into_object(vm))
         }
     }
 

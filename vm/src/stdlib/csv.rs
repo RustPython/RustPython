@@ -69,7 +69,7 @@ pub fn build_reader(
 ) -> PyResult {
     let config = ReaderOption::new(args, vm)?;
 
-    Ok(Reader::new(iterable, config).into_ref(vm).into_pyobject(vm))
+    Ok(Reader::new(iterable, config).into_object(vm))
 }
 
 fn into_strings(iterable: &PyIterable<PyObjectRef>, vm: &VirtualMachine) -> PyResult<Vec<String>> {
