@@ -177,14 +177,20 @@ fn inner_divmod(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
     }
 }
 
-fn inner_lshift(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
-    let n_bits = get_shift_amount(int2, vm)?;
-    Ok(vm.ctx.new_int(int1 << n_bits))
-}
-
-fn inner_rshift(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
-    let n_bits = get_shift_amount(int2, vm)?;
-    Ok(vm.ctx.new_int(int1 >> n_bits))
+fn inner_shift<F>(int1: &BigInt, int2: &BigInt, shift_op: F, vm: &VirtualMachine) -> PyResult
+where
+    F: Fn(&BigInt, usize) -> BigInt,
+{
+    if int2.is_negative() {
+        Err(vm.new_value_error("negative shift count".to_owned()))
+    } else if int1.is_zero() {
+        Ok(vm.ctx.new_int(0))
+    } else {
+        let int2 = int2.to_usize().ok_or_else(|| {
+            vm.new_overflow_error("the number is too large to convert to int".to_owned())
+        })?;
+        Ok(vm.ctx.new_int(shift_op(int1, int2)))
+    }
 }
 
 #[inline]
@@ -379,22 +385,22 @@ impl PyInt {
 
     #[pymethod(name = "__lshift__")]
     fn lshift(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.general_op(other, |a, b| inner_lshift(a, b, vm), vm)
+        self.general_op(other, |a, b| inner_shift(a, b, |a, b| a << b, vm), vm)
     }
 
     #[pymethod(name = "__rlshift__")]
     fn rlshift(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.general_op(other, |a, b| inner_lshift(b, a, vm), vm)
+        self.general_op(other, |a, b| inner_shift(b, a, |a, b| a << b, vm), vm)
     }
 
     #[pymethod(name = "__rshift__")]
     fn rshift(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.general_op(other, |a, b| inner_rshift(a, b, vm), vm)
+        self.general_op(other, |a, b| inner_shift(a, b, |a, b| a >> b, vm), vm)
     }
 
     #[pymethod(name = "__rrshift__")]
     fn rrshift(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.general_op(other, |a, b| inner_rshift(b, a, vm), vm)
+        self.general_op(other, |a, b| inner_shift(b, a, |a, b| a >> b, vm), vm)
     }
 
     #[pymethod(name = "__xor__")]
@@ -924,20 +930,6 @@ pub fn get_value(obj: &PyObjectRef) -> &BigInt {
 pub fn try_float(int: &BigInt, vm: &VirtualMachine) -> PyResult<f64> {
     int.to_f64()
         .ok_or_else(|| vm.new_overflow_error("int too large to convert to float".to_owned()))
-}
-
-fn get_shift_amount(amount: &BigInt, vm: &VirtualMachine) -> PyResult<usize> {
-    if let Some(n_bits) = amount.to_usize() {
-        Ok(n_bits)
-    } else {
-        match amount {
-            v if *v < BigInt::zero() => Err(vm.new_value_error("negative shift count".to_owned())),
-            v if *v > BigInt::from(usize::max_value()) => {
-                Err(vm.new_overflow_error("the number is too large to convert to int".to_owned()))
-            }
-            _ => panic!("Failed converting {} to rust usize", amount),
-        }
-    }
 }
 
 pub(crate) fn init(context: &PyContext) {
