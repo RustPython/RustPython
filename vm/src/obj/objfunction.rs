@@ -240,7 +240,7 @@ impl PyFunction {
         if let Some(jitted_code) = self.jitted_code.get() {
             match jitfunc::get_jit_args(self, &func_args, jitted_code, vm) {
                 Ok(args) => {
-                    return Ok(jitted_code.invoke(&args).into_pyobject(vm));
+                    return Ok(args.invoke().into_pyobject(vm));
                 }
                 Err(err) => info!(
                     "jit: function `{}` is falling back to being interpreted because of the \
