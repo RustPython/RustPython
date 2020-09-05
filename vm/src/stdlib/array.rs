@@ -214,7 +214,7 @@ macro_rules! def_array_enum {
                         let obj = PyArray {
                             array: PyRwLock::new(sliced)
                         }
-                        .into_simple_object(vm);
+                        .into_object(vm);
                         Ok(obj)
                     })*
                 }
@@ -432,7 +432,7 @@ macro_rules! def_array_enum {
                         let obj = PyArray {
                             array: PyRwLock::new(sliced)
                         }
-                        .into_simple_object(vm);
+                        .into_object(vm);
                         Ok(obj)
                     } else {
                         Err(vm.new_type_error("bad argument type for built-in operation".to_owned()))
@@ -460,7 +460,7 @@ macro_rules! def_array_enum {
                         PyArray {
                             array: PyRwLock::new(sliced)
                         }
-                        .into_simple_object(vm)
+                        .into_object(vm)
                     })*
                 }
             }
