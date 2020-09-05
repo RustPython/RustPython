@@ -2,7 +2,6 @@ use bstr::ByteSlice;
 use itertools::Itertools;
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
-use std::ops::Range;
 
 use crate::byteslike::PyBytesLike;
 use crate::function::{OptionalArg, OptionalOption};
@@ -408,52 +407,6 @@ impl PyBytesInner {
 
     fn delslice(&mut self, slice: PySliceRef, vm: &VirtualMachine) -> PyResult<()> {
         self.elements.delete_slice(vm, &slice)
-    }
-
-    fn _del_slice(&mut self, range: Range<usize>) {
-        self.elements.drain(range);
-    }
-
-    fn _del_stepped_slice(&mut self, range: Range<usize>, step: usize) {
-        // no easy way to delete stepped indexes so here is what we'll do
-        let mut deleted = 0;
-        let elements = &mut self.elements;
-        let mut indexes = range.clone().step_by(step).peekable();
-
-        for i in range.clone() {
-            // is this an index to delete?
-            if indexes.peek() == Some(&i) {
-                // record and move on
-                indexes.next();
-                deleted += 1;
-            } else {
-                // swap towards front
-                elements.swap(i - deleted, i);
-            }
-        }
-        // then drain (the values to delete should now be contiguous at the end of the range)
-        elements.drain((range.end - deleted)..range.end);
-    }
-
-    fn _del_stepped_slice_reverse(&mut self, range: Range<usize>, step: usize) {
-        // no easy way to delete stepped indexes so here is what we'll do
-        let mut deleted = 0;
-        let elements = &mut self.elements;
-        let mut indexes = range.clone().rev().step_by(step).peekable();
-
-        for i in range.clone().rev() {
-            // is this an index to delete?
-            if indexes.peek() == Some(&i) {
-                // record and move on
-                indexes.next();
-                deleted += 1;
-            } else {
-                // swap towards back
-                elements.swap(i + deleted, i);
-            }
-        }
-        // then drain (the values to delete should now be contiguous at teh start of the range)
-        elements.drain(range.start..(range.start + deleted));
     }
 
     pub fn isalnum(&self) -> bool {
