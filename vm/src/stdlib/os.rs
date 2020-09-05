@@ -1571,11 +1571,11 @@ mod posix {
 
         let first = argv
             .first()
-            .ok_or_else(|| vm.new_value_error("execv() arg 2 must not be empty".to_owned()))?;
+            .ok_or_else(|| vm.new_value_error("execve() arg 2 must not be empty".to_owned()))?;
 
         if first.to_bytes().is_empty() {
             return Err(
-                vm.new_value_error("execv() arg 2 first element cannot be empty".to_owned())
+                vm.new_value_error("execve() arg 2 first element cannot be empty".to_owned())
             );
         }
 
