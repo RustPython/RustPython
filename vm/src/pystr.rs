@@ -224,8 +224,8 @@ where
             let value = self.get_bytes(range);
             single_or_tuple_any(
                 affix,
-                |s: &T| Ok(func(value, s)),
-                |o| {
+                &|s: &T| Ok(func(value, s)),
+                &|o| {
                     format!(
                         "{} first arg must be {} or a tuple of {}, not {}",
                         func_name,

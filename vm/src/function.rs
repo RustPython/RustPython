@@ -581,8 +581,8 @@ into_py_native_func_tuple!((v1, T1), (v2, T2), (v3, T3), (v4, T4), (v5, T5));
 /// values of that type, then a TypeError is raised.
 pub fn single_or_tuple_any<T, F, M>(
     obj: PyObjectRef,
-    predicate: F,
-    message: M,
+    predicate: &F,
+    message: &M,
     vm: &VirtualMachine,
 ) -> PyResult<bool>
 where
@@ -590,44 +590,19 @@ where
     F: Fn(&T) -> PyResult<bool>,
     M: Fn(&PyObjectRef) -> String,
 {
-    // TODO: figure out some way to have recursive calls without... this
-    struct Checker<T, F, M>
-    where
-        F: Fn(&T) -> PyResult<bool>,
-        M: Fn(&PyObjectRef) -> String,
-    {
-        predicate: F,
-        message: M,
-        t: std::marker::PhantomData<T>,
-    }
-    impl<T, F, M> Checker<T, F, M>
-    where
-        T: TryFromObject,
-        F: Fn(&T) -> PyResult<bool>,
-        M: Fn(&PyObjectRef) -> String,
-    {
-        fn check(&self, obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-            match T::try_from_object(vm, obj.clone()) {
-                Ok(single) => (self.predicate)(&single),
-                Err(_) => {
-                    let tuple = PyTupleRef::try_from_object(vm, obj.clone())
-                        .map_err(|_| vm.new_type_error((self.message)(&obj)))?;
-                    for obj in tuple.borrow_value().iter() {
-                        if self.check(&obj, vm)? {
-                            return Ok(true);
-                        }
-                    }
-                    Ok(false)
+    match T::try_from_object(vm, obj.clone()) {
+        Ok(single) => (predicate)(&single),
+        Err(_) => {
+            let tuple = PyTupleRef::try_from_object(vm, obj.clone())
+                .map_err(|_| vm.new_type_error((message)(&obj)))?;
+            for obj in tuple.borrow_value().iter() {
+                if single_or_tuple_any(obj.clone(), predicate, message, vm)? {
+                    return Ok(true);
                 }
             }
+            Ok(false)
         }
     }
-    let checker = Checker {
-        predicate,
-        message,
-        t: std::marker::PhantomData,
-    };
-    checker.check(&obj, vm)
 }
 
 #[cfg(test)]
