@@ -30,7 +30,8 @@ RustPython requires the following:
       from the [Python website](https://www.python.org/downloads/), or
       using a third-party distribution, such as 
       [Anaconda](https://www.anaconda.com/distribution/).
-- [macOS] Make sure autoconf, automake, libtool are installed
+- [macOS] In case of libffi-sys compilation error, make sure autoconf, automake,
+   libtool are installed
     - To install with [Homebrew](https://brew.sh), enter 
       `brew install autoconf automake libtool`
 - [Optional] The Python package, `pytest`, is used for testing Python code
