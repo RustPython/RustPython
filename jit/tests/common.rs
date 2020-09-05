@@ -159,17 +159,22 @@ impl StackMachine {
 }
 
 macro_rules! jit_function {
-    ($func_name:ident($($arg_name:ident:$arg_type:ty),*) -> $ret_type:ty => $($t:tt)*) => {
+    ($func_name:ident => $($t:tt)*) => {
         {
-            use std::convert::TryInto;
-
             let code = rustpython_derive::py_compile!(
                 crate_name = "rustpython_bytecode",
                 source = $($t)*
             );
             let mut machine = $crate::common::StackMachine::new();
             machine.run(code);
-            let jit_code = machine.get_function(stringify!($func_name)).compile();
+            machine.get_function(stringify!($func_name)).compile()
+        }
+    };
+    ($func_name:ident($($arg_name:ident:$arg_type:ty),*) -> $ret_type:ty => $($t:tt)*) => {
+        {
+            use std::convert::TryInto;
+
+            let jit_code = jit_function!($func_name => $($t)*);
 
             move |$($arg_name:$arg_type),*| -> Result<$ret_type, rustpython_jit::JitArgumentError> {
                 jit_code
@@ -177,6 +182,20 @@ macro_rules! jit_function {
                     .map(|ret| match ret {
                         Some(ret) => ret.try_into().expect("jit function returned unexpected type"),
                         None => panic!("jit function unexpectedly returned None")
+                    })
+            }
+        }
+    };
+    ($func_name:ident($($arg_name:ident:$arg_type:ty),*) => $($t:tt)*) => {
+        {
+            let jit_code = jit_function!($func_name => $($t)*);
+
+            move |$($arg_name:$arg_type),*| -> Result<(), rustpython_jit::JitArgumentError> {
+                jit_code
+                    .invoke(&[$($arg_name.into()),*])
+                    .map(|ret| match ret {
+                        Some(ret) => panic!("jit function unexpectedly returned a value {:?}", ret),
+                        None => ()
                     })
             }
         }
