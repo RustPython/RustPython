@@ -954,10 +954,10 @@ impl SymbolTableBuilder {
         // Some checks:
         let containing = table.symbols.contains_key(name);
         if containing {
+            let symbol = table.symbols.get(name).unwrap();
             // Role already set..
             match role {
                 SymbolUsage::Global => {
-                    let symbol = table.symbols.get(name).unwrap();
                     if let SymbolScope::Global = symbol.scope {
                         // Ok
                     } else {
@@ -968,10 +968,33 @@ impl SymbolTableBuilder {
                     }
                 }
                 SymbolUsage::Nonlocal => {
-                    return Err(SymbolTableError {
-                        error: format!("name '{}' is used prior to nonlocal declaration", name),
-                        location,
-                    })
+                    if symbol.is_parameter {
+                        return Err(SymbolTableError {
+                            error: format!("name '{}' is parameter and nonlocal", name),
+                            location,
+                        });
+                    }
+                    if symbol.is_referenced {
+                        return Err(SymbolTableError {
+                            error: format!("name '{}' is used prior to nonlocal declaration", name),
+                            location,
+                        });
+                    }
+                    if symbol.is_annotated {
+                        return Err(SymbolTableError {
+                            error: format!("annotated name '{}' can't be nonlocal", name),
+                            location,
+                        });
+                    }
+                    if symbol.is_assigned {
+                        return Err(SymbolTableError {
+                            error: format!(
+                                "name '{}' is assigned to before nonlocal declaration",
+                                name
+                            ),
+                            location,
+                        });
+                    }
                 }
                 _ => {
                     // Ok?
