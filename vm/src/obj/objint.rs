@@ -404,7 +404,7 @@ impl PyInt {
 
     #[pymethod(name = "__rlshift__")]
     fn rlshift(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.general_op(other, |a, b| inner_shift(a, b, |a, b| a << b, vm), vm)
+        self.general_op(other, |a, b| inner_shift(b, a, |a, b| a << b, vm), vm)
     }
 
     #[pymethod(name = "__rshift__")]
@@ -414,7 +414,7 @@ impl PyInt {
 
     #[pymethod(name = "__rrshift__")]
     fn rrshift(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.general_op(other, |a, b| inner_shift(a, b, |a, b| a >> b, vm), vm)
+        self.general_op(other, |a, b| inner_shift(b, a, |a, b| a >> b, vm), vm)
     }
 
     #[pymethod(name = "__xor__")]
