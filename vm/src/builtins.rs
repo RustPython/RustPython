@@ -372,8 +372,8 @@ mod decl {
     pub fn isinstance(obj: PyObjectRef, typ: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         single_or_tuple_any(
             typ,
-            |cls: &PyClassRef| vm.isinstance(&obj, cls),
-            |o| {
+            &|cls: &PyClassRef| vm.isinstance(&obj, cls),
+            &|o| {
                 format!(
                     "isinstance() arg 2 must be a type or tuple of types, not {}",
                     o.lease_class()
@@ -387,8 +387,8 @@ mod decl {
     fn issubclass(subclass: PyClassRef, typ: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         single_or_tuple_any(
             typ,
-            |cls: &PyClassRef| vm.issubclass(&subclass, cls),
-            |o| {
+            &|cls: &PyClassRef| vm.issubclass(&subclass, cls),
+            &|o| {
                 format!(
                     "issubclass() arg 2 must be a class or tuple of classes, not {}",
                     o.lease_class()
