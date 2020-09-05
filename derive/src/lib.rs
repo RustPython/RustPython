@@ -62,6 +62,11 @@ pub fn pystruct_sequence(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn py_compile_bytecode(input: TokenStream) -> TokenStream {
-    result_to_tokens(compile_bytecode::impl_py_compile_bytecode(input.into()))
+pub fn py_compile(input: TokenStream) -> TokenStream {
+    result_to_tokens(compile_bytecode::impl_py_compile(input.into()))
+}
+
+#[proc_macro]
+pub fn py_freeze(input: TokenStream) -> TokenStream {
+    result_to_tokens(compile_bytecode::impl_py_freeze(input.into()))
 }

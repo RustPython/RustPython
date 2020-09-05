@@ -13,5 +13,5 @@ use {
 };
 #[cfg(feature = "compiled-bytecode")]
 pub fn frozen_stdlib() -> HashMap<String, FrozenModule> {
-    rustpython_derive::py_compile_bytecode!(dir = "Lib", crate_name = "rustpython_pylib")
+    rustpython_derive::py_freeze!(dir = "Lib", crate_name = "rustpython_pylib")
 }

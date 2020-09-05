@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 // this needs to be in scope in order to insert things into scope.globals
 use vm::pyobject::ItemProtocol;
 
-// This has to be a macro because it uses the py_compile_bytecode macro,
+// This has to be a macro because it uses the py_compile macro,
 // which compiles python source to optimized bytecode at compile time, so that
 // the program you're embedding this into doesn't take longer to start up.
 macro_rules! add_python_function {
@@ -19,15 +19,7 @@ macro_rules! add_python_function {
         // (a PyRef is a special reference that points to something in the VirtualMachine)
         use vm::pyobject::PyValue;
 
-        // you can safely assume that only one module will be created when passing a source literal
-        // to py_compile_bytecode. However, it is also possible to pass directories, which may
-        // return more modules.
-        let (_, vm::bytecode::FrozenModule { code, .. }): (String, _) =
-            vm::py_compile_bytecode!(source = $src)
-                .into_iter()
-                .collect::<Vec<_>>()
-                .pop()
-                .expect("No modules found in the provided source!");
+        let code = vm::py_compile!(source = $src);
 
         // takes the first constant in the file that's a function
         let def = code
