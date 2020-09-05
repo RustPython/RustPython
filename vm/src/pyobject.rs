@@ -36,8 +36,8 @@ use crate::obj::objstr;
 use crate::obj::objtuple::{PyTuple, PyTupleRef};
 use crate::obj::objtype::{self, PyClass, PyClassRef};
 use crate::scope::Scope;
-use crate::slots::PyTpFlags;
-use crate::types::{create_type, create_type_with_flags, initialize_types, TypeZoo};
+use crate::slots::{PyClassSlots, PyTpFlags};
+use crate::types::{create_type, create_type_with_slots, initialize_types, TypeZoo};
 use crate::vm::VirtualMachine;
 use rustpython_common::cell::{PyRwLock, PyRwLockReadGuard};
 use rustpython_common::rc::PyRc;
@@ -130,13 +130,16 @@ impl PyContext {
             PyRef::new_ref(payload, cls.clone(), None)
         }
 
-        let none_type = PyNone::create_bare_type(&types.type_type, &types.object_type);
+        let none_type = PyNone::create_bare_type(&types.type_type, types.object_type.clone());
         let none = create_object(PyNone, &none_type);
 
         let ellipsis = create_object(PyEllipsis, &types.ellipsis_type);
 
-        let not_implemented_type =
-            create_type("NotImplementedType", &types.type_type, &types.object_type);
+        let not_implemented_type = create_type(
+            "NotImplementedType",
+            &types.type_type,
+            types.object_type.clone(),
+        );
         let not_implemented = create_object(PyNotImplemented, &not_implemented_type);
 
         let int_cache_pool = (Self::INT_CACHE_POOL_MIN..=Self::INT_CACHE_POOL_MAX)
@@ -276,8 +279,8 @@ impl PyContext {
             .unwrap()
     }
 
-    pub fn new_class(&self, name: &str, base: &PyClassRef, flags: PyTpFlags) -> PyClassRef {
-        create_type_with_flags(name, &self.types.type_type, base, flags)
+    pub fn new_class(&self, name: &str, base: PyClassRef, slots: PyClassSlots) -> PyClassRef {
+        create_type_with_slots(name, &self.types.type_type, base, slots)
     }
 
     pub fn new_namespace(&self) -> PyObjectRef {
@@ -1168,7 +1171,7 @@ pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
     }
 
     fn into_ref_with_type_unchecked(self, cls: PyClassRef, vm: &VirtualMachine) -> PyRef<Self> {
-        let dict = if cls.flags.has_feature(PyTpFlags::HAS_DICT) {
+        let dict = if cls.slots.flags.has_feature(PyTpFlags::HAS_DICT) {
             Some(vm.ctx.new_dict())
         } else {
             None
@@ -1253,6 +1256,9 @@ pub trait PyClassDef {
     const MODULE_NAME: Option<&'static str>;
     const TP_NAME: &'static str;
     const DOC: Option<&'static str> = None;
+    fn base_class(ctx: &PyContext) -> PyClassRef {
+        ctx.types.object_type.clone()
+    }
 }
 
 impl<T> PyClassDef for PyRef<T>
@@ -1273,7 +1279,7 @@ pub trait PyClassImpl: PyClassDef {
     fn extend_class(ctx: &PyContext, class: &PyClassRef) {
         #[cfg(debug_assertions)]
         {
-            assert!(class.flags.is_created_with_flags());
+            assert!(class.slots.flags.is_created_with_flags());
         }
         if Self::TP_FLAGS.has_feature(PyTpFlags::HAS_DICT) {
             class.set_str_attr(
@@ -1286,7 +1292,6 @@ pub trait PyClassImpl: PyClassDef {
             );
         }
         Self::impl_extend_class(ctx, class);
-        class.slots.write().name = Some(Self::TP_NAME.to_owned());
         ctx.add_tp_new_wrapper(&class);
         if let Some(doc) = Self::DOC {
             class.set_str_attr("__doc__", ctx.new_str(doc));
@@ -1297,23 +1302,41 @@ pub trait PyClassImpl: PyClassDef {
     }
 
     fn make_class(ctx: &PyContext) -> PyClassRef {
-        Self::make_class_with_base(ctx, Self::NAME, &ctx.types.object_type)
+        Self::make_class_with_base(ctx, Self::NAME, Self::base_class(ctx))
     }
 
-    fn make_class_with_base(ctx: &PyContext, name: &str, base: &PyClassRef) -> PyClassRef {
-        let py_class = ctx.new_class(name, base, Self::TP_FLAGS);
+    fn make_class_with_base(ctx: &PyContext, name: &str, base: PyClassRef) -> PyClassRef {
+        let py_class = ctx.new_class(name, base, Self::make_slots());
         Self::extend_class(ctx, &py_class);
         py_class
     }
 
-    fn create_bare_type(type_type: &PyClassRef, base: &PyClassRef) -> PyClassRef {
-        create_type_with_flags(Self::NAME, type_type, base, Self::TP_FLAGS)
+    fn create_bare_type(type_type: &PyClassRef, base: PyClassRef) -> PyClassRef {
+        create_type_with_slots(Self::NAME, type_type, base, Self::make_slots())
+    }
+
+    fn extend_slots(slots: &mut PyClassSlots);
+
+    fn make_slots() -> PyClassSlots {
+        let mut slots = PyClassSlots::default();
+        slots.flags = Self::TP_FLAGS;
+        slots.name = PyRwLock::new(Some(Self::TP_NAME.to_owned()));
+        Self::extend_slots(&mut slots);
+        slots
     }
 }
 
-pub trait PyStructSequenceImpl: PyClassImpl {
+#[pyimpl]
+pub trait PyStructSequence: PyClassImpl + Sized + 'static {
     const FIELD_NAMES: &'static [&'static str];
 
+    fn into_tuple(self, vm: &VirtualMachine) -> PyTuple;
+
+    fn into_struct_sequence(self, vm: &VirtualMachine, cls: PyClassRef) -> PyResult<PyTupleRef> {
+        self.into_tuple(vm).into_ref_with_type(vm, cls)
+    }
+
+    #[pymethod(magic)]
     fn repr(zelf: PyRef<PyTuple>, vm: &VirtualMachine) -> PyResult<String> {
         let format_field = |(value, name)| {
             let s = vm.to_repr(value)?;
@@ -1338,6 +1361,19 @@ pub trait PyStructSequenceImpl: PyClassImpl {
                 (String::new(), "...")
             };
         Ok(format!("{}({}{})", Self::TP_NAME, body, suffix))
+    }
+
+    #[extend_class]
+    fn extend_pyclass(ctx: &PyContext, class: &PyClassRef) {
+        for (i, &name) in Self::FIELD_NAMES.iter().enumerate() {
+            // cast i to a u8 so there's less to store in the getter closure.
+            // Hopefully there's not struct sequences with >=256 elements :P
+            let i = i as u8;
+            class.set_str_attr(
+                name,
+                ctx.new_readonly_getset(name, move |zelf: &PyTuple| zelf.fast_getitem(i.into())),
+            );
+        }
     }
 }
 

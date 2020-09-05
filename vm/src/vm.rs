@@ -767,7 +767,7 @@ impl VirtualMachine {
         cls: Option<PyObjectRef>,
     ) -> Option<PyResult> {
         let descr_class = descr.class();
-        let slots = descr_class.slots.read();
+        let slots = &descr_class.slots;
         if let Some(descr_get) = slots.descr_get.as_ref() {
             Some(descr_get(self, descr, obj, OptionalArg::from_option(cls)))
         } else if let Some(ref descriptor) = descr_class.get_attr("__get__") {
@@ -819,7 +819,7 @@ impl VirtualMachine {
 
     fn _invoke(&self, callable: &PyObjectRef, args: PyFuncArgs) -> PyResult {
         vm_trace!("Invoke: {:?} {:?}", callable, args);
-        if let Some(slot_call) = callable.lease_class().slots.read().call.as_ref() {
+        if let Some(slot_call) = callable.lease_class().slots.call.as_ref() {
             self.trace_event(TraceEvent::Call)?;
             let args = args.insert(callable.clone());
             let result = slot_call(self, args);
@@ -1052,8 +1052,7 @@ impl VirtualMachine {
 
     pub fn is_callable(&self, obj: &PyObjectRef) -> bool {
         let class = obj.lease_class();
-        let lock = class.slots.read();
-        lock.call.is_some() || class.has_attr("__call__")
+        class.slots.call.is_some() || class.has_attr("__call__")
     }
 
     #[inline]

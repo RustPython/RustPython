@@ -1,6 +1,7 @@
 /* Several function to retrieve version information.
  */
 
+use crate::pyobject::PyStructSequence;
 use chrono::prelude::DateTime;
 use chrono::Local;
 use std::time::{Duration, UNIX_EPOCH};
@@ -15,8 +16,8 @@ const SERIAL: usize = 0;
 pub const VERSION_HEX: usize =
     (MAJOR << 24) | (MINOR << 16) | (MICRO << 8) | (RELEASELEVEL_N << 4) | SERIAL;
 
-#[pystruct_sequence(module = "sys", name = "version_info")]
-#[derive(Default, Debug)]
+#[pyclass(module = "sys", name = "version_info")]
+#[derive(Default, Debug, PyStructSequence)]
 pub struct VersionInfo {
     major: usize,
     minor: usize,
@@ -34,6 +35,7 @@ pub fn get_version() -> String {
     )
 }
 
+#[pyimpl(with(PyStructSequence))]
 impl VersionInfo {
     pub const VERSION: VersionInfo = VersionInfo {
         major: MAJOR,
@@ -42,6 +44,14 @@ impl VersionInfo {
         releaselevel: RELEASELEVEL,
         serial: SERIAL,
     };
+    #[pyslot]
+    fn tp_new(
+        _cls: crate::obj::objtype::PyClassRef,
+        _args: crate::function::PyFuncArgs,
+        vm: &crate::VirtualMachine,
+    ) -> crate::pyobject::PyResult {
+        Err(vm.new_type_error("cannot create 'sys.version_info' instances".to_owned()))
+    }
 }
 
 pub fn get_version_number() -> String {

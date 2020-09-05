@@ -757,7 +757,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ssl_error = create_type(
         "SSLError",
         &vm.ctx.types.type_type,
-        &vm.ctx.exceptions.os_error,
+        vm.ctx.exceptions.os_error.clone(),
     );
     let module = py_module!(vm, "_ssl", {
         "_SSLContext" => PySslContext::make_class(ctx),

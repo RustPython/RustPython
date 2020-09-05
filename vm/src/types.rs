@@ -40,7 +40,7 @@ use crate::obj::objweakproxy;
 use crate::obj::objweakref;
 use crate::obj::objzip;
 use crate::pyobject::{PyAttributes, PyClassDef, PyClassImpl, PyContext, PyObject};
-use crate::slots::PyTpFlags;
+use crate::slots::PyClassSlots;
 use rustpython_common::{cell::PyRwLock, rc::PyRc};
 use std::mem::MaybeUninit;
 use std::ptr;
@@ -125,10 +125,10 @@ impl TypeZoo {
 
         macro_rules! create_type {
             ($class:ty) => {
-                <$class>::create_bare_type(&type_type, &object_type)
+                <$class>::create_bare_type(&type_type, object_type.clone())
             };
             ($class:ty, $base:expr) => {
-                <$class>::create_bare_type(&type_type, $base)
+                <$class>::create_bare_type(&type_type, $base.clone())
             };
         }
 
@@ -138,7 +138,7 @@ impl TypeZoo {
             async_generator_asend: create_type!(objasyncgenerator::PyAsyncGenASend),
             async_generator_athrow: create_type!(objasyncgenerator::PyAsyncGenAThrow),
             async_generator_wrapped_value: create_type!(objasyncgenerator::PyAsyncGenWrappedValue),
-            bool_type: create_type!(objbool::PyBool, &int_type),
+            bool_type: create_type!(objbool::PyBool, int_type),
             bound_method_type: create_type!(objfunction::PyBoundMethod),
             builtin_function_or_method_type: create_type!(objbuiltinfunc::PyBuiltinFunction),
             bytearray_type: create_type!(objbytearray::PyByteArray),
@@ -201,24 +201,24 @@ impl TypeZoo {
     }
 }
 
-pub fn create_type(name: &str, type_type: &PyClassRef, base: &PyClassRef) -> PyClassRef {
-    create_type_with_flags(name, type_type, base, Default::default())
+pub fn create_type(name: &str, type_type: &PyClassRef, base: PyClassRef) -> PyClassRef {
+    create_type_with_slots(name, type_type, base, Default::default())
 }
 
-pub fn create_type_with_flags(
+pub fn create_type_with_slots(
     name: &str,
     type_type: &PyClassRef,
-    base: &PyClassRef,
-    flags: PyTpFlags,
+    base: PyClassRef,
+    slots: PyClassSlots,
 ) -> PyClassRef {
     let dict = PyAttributes::new();
     objtype::new(
         type_type.clone(),
         name,
         base.clone(),
-        vec![base.clone()],
+        vec![base],
         dict,
-        PyTpFlags::default() | flags,
+        slots,
     )
     .expect("Failed to create a new type in internal code.")
 }
@@ -265,8 +265,7 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
                     mro: vec![],
                     subclasses: PyRwLock::default(),
                     attributes: PyRwLock::new(PyAttributes::new()),
-                    flags: objtype::PyClassRef::TP_FLAGS,
-                    slots: PyRwLock::default(),
+                    slots: objtype::PyClassRef::make_slots(),
                 },
             },
             Uninit { typ }
@@ -281,8 +280,7 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
                     mro: vec![],
                     subclasses: PyRwLock::default(),
                     attributes: PyRwLock::new(PyAttributes::new()),
-                    flags: objobject::PyBaseObject::TP_FLAGS,
-                    slots: PyRwLock::default(),
+                    slots: objobject::PyBaseObject::make_slots(),
                 },
             },
             Uninit { typ },

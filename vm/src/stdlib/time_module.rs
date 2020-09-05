@@ -11,7 +11,9 @@ use crate::function::OptionalArg;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtuple::PyTupleRef;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{BorrowValue, Either, PyClassImpl, PyObjectRef, PyResult, TryFromObject};
+use crate::pyobject::{
+    BorrowValue, Either, PyClassImpl, PyObjectRef, PyResult, PyStructSequence, TryFromObject,
+};
 use crate::vm::VirtualMachine;
 
 #[cfg(unix)]
@@ -170,7 +172,8 @@ fn time_strptime(
     Ok(PyStructTime::new(vm, instant, -1).into_obj(vm))
 }
 
-#[pystruct_sequence(module = "time", name = "struct_time")]
+#[pyclass(module = "time", name = "struct_time")]
+#[derive(PyStructSequence)]
 #[allow(dead_code)]
 struct PyStructTime {
     tm_year: PyObjectRef,
@@ -190,6 +193,7 @@ impl fmt::Debug for PyStructTime {
     }
 }
 
+#[pyimpl(with(PyStructSequence))]
 impl PyStructTime {
     fn new(vm: &VirtualMachine, tm: NaiveDateTime, isdst: i32) -> Self {
         PyStructTime {
@@ -227,6 +231,7 @@ impl PyStructTime {
             .into_object()
     }
 
+    #[pyslot]
     fn tp_new(cls: PyClassRef, seq: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         Self::try_from_object(vm, seq)?.into_struct_sequence(vm, cls)
     }
@@ -259,11 +264,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
     let struct_time_type = PyStructTime::make_class(ctx);
-
-    // TODO: allow $[pyimpl]s for struct_sequences
-    extend_class!(ctx, struct_time_type, {
-        (slot new) => PyStructTime::tp_new,
-    });
 
     py_module!(vm, "time", {
         "asctime" => ctx.new_function(time_asctime),

@@ -23,8 +23,8 @@ use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtuple::PyTupleRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
-    BorrowValue, Either, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
+    BorrowValue, Either, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyStructSequence,
+    PyValue, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -637,8 +637,8 @@ mod _os {
     }
 
     #[pyattr]
-    #[pystruct_sequence(module = "os", name = "stat_result")]
-    #[derive(Debug)]
+    #[pyclass(module = "os", name = "stat_result")]
+    #[derive(Debug, PyStructSequence)]
     pub(super) struct StatResult {
         pub st_mode: u32,
         pub st_ino: u64,
@@ -652,6 +652,7 @@ mod _os {
         pub st_ctime: f64,
     }
 
+    #[pyimpl(with(PyStructSequence))]
     impl StatResult {
         pub(super) fn into_obj(self, vm: &VirtualMachine) -> PyObjectRef {
             self.into_struct_sequence(vm, vm.class(super::MODULE_NAME, "stat_result"))
@@ -847,12 +848,15 @@ mod _os {
     }
 
     #[pyattr]
-    #[pystruct_sequence(module = "os", name = "terminal_size")]
+    #[pyclass(module = "os", name = "terminal_size")]
+    #[derive(PyStructSequence)]
     #[allow(dead_code)]
     pub(super) struct PyTerminalSize {
         pub columns: usize,
         pub lines: usize,
     }
+    #[pyimpl(with(PyStructSequence))]
+    impl PyTerminalSize {}
 
     pub(super) fn support_funcs(vm: &VirtualMachine) -> Vec<SupportFunc> {
         let mut supports = super::platform::support_funcs(vm);
@@ -1757,8 +1761,8 @@ mod posix {
     }
 
     #[pyattr]
-    #[pystruct_sequence(module = "os", name = "uname_result")]
-    #[derive(Debug)]
+    #[pyclass(module = "os", name = "uname_result")]
+    #[derive(Debug, PyStructSequence)]
     struct UnameResult {
         sysname: String,
         nodename: String,
@@ -1767,6 +1771,7 @@ mod posix {
         machine: String,
     }
 
+    #[pyimpl(with(PyStructSequence))]
     impl UnameResult {
         fn into_obj(self, vm: &VirtualMachine) -> PyObjectRef {
             self.into_struct_sequence(vm, vm.class(super::MODULE_NAME, "uname_result"))

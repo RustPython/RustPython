@@ -1,14 +1,15 @@
 use crate::exceptions::IntoPyException;
 use crate::obj::objint::PyIntRef;
 use crate::obj::objstr::PyStringRef;
-use crate::pyobject::{BorrowValue, PyClassImpl, PyObjectRef, PyResult};
+use crate::pyobject::{BorrowValue, PyClassImpl, PyObjectRef, PyResult, PyStructSequence};
 use crate::vm::VirtualMachine;
 use std::convert::TryFrom;
 use std::ptr::NonNull;
 
 use nix::unistd::{self, User};
 
-#[pystruct_sequence(module = "pwd", name = "struct_passwd")]
+#[pyclass(module = "pwd", name = "struct_passwd")]
+#[derive(PyStructSequence)]
 struct Passwd {
     pw_name: String,
     pw_passwd: String,
@@ -18,6 +19,8 @@ struct Passwd {
     pw_dir: String,
     pw_shell: String,
 }
+#[pyimpl(with(PyStructSequence))]
+impl Passwd {}
 
 impl From<User> for Passwd {
     fn from(user: User) -> Self {
