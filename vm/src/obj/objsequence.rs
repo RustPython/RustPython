@@ -12,8 +12,8 @@ use crate::function::OptionalArg;
 use crate::pyobject::{BorrowValue, PyObject, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
 use crate::vm::VirtualMachine;
 
-pub trait PySliceableSequenceMut: PySliceableSequence {
-    type Item;
+pub trait PySliceableSequenceMut {
+    type Item: Clone;
     // as CPython, length of range and items could be different, function must act like Vec::splice()
     fn do_set_range(&mut self, range: Range<usize>, items: &[Self::Item]);
     fn do_replace_indexes<I>(&mut self, indexes: I, items: &[Self::Item])
@@ -23,6 +23,7 @@ pub trait PySliceableSequenceMut: PySliceableSequence {
     fn do_delete_indexes<I>(&mut self, range: Range<usize>, indexes: I)
     where
         I: Iterator<Item = usize>;
+    fn as_slice(&self) -> &[Self::Item];
 
     fn set_slice_items(
         &mut self,
@@ -38,7 +39,7 @@ pub trait PySliceableSequenceMut: PySliceableSequence {
             return Err(vm.new_value_error("slice step cannot be zero".to_owned()));
         }
         if step == BigInt::one() {
-            let range = self.get_slice_range(&start, &stop);
+            let range = self.as_slice().get_slice_range(&start, &stop);
             let range = if range.end < range.start {
                 range.start..range.start
             } else {
@@ -52,14 +53,14 @@ pub trait PySliceableSequenceMut: PySliceableSequence {
             (
                 stop.map(|x| {
                     if x == -BigInt::one() {
-                        self.len() + BigInt::one()
+                        self.as_slice().len() + BigInt::one()
                     } else {
                         x + 1
                     }
                 }),
                 start.map(|x| {
                     if x == -BigInt::one() {
-                        BigInt::from(self.len())
+                        BigInt::from(self.as_slice().len())
                     } else {
                         x + 1
                     }
@@ -71,7 +72,7 @@ pub trait PySliceableSequenceMut: PySliceableSequence {
             (start, stop, step, false)
         };
 
-        let range = self.get_slice_range(&start, &stop);
+        let range = self.as_slice().get_slice_range(&start, &stop);
         let range = if range.end < range.start {
             range.start..range.start
         } else {
@@ -141,7 +142,7 @@ pub trait PySliceableSequenceMut: PySliceableSequence {
         }
 
         if step == BigInt::one() {
-            let range = self.get_slice_range(&start, &stop);
+            let range = self.as_slice().get_slice_range(&start, &stop);
             if range.start < range.end {
                 self.do_delete_range(range);
             }
@@ -152,14 +153,14 @@ pub trait PySliceableSequenceMut: PySliceableSequence {
             (
                 stop.map(|x| {
                     if x == -BigInt::one() {
-                        self.len() + BigInt::one()
+                        self.as_slice().len() + BigInt::one()
                     } else {
                         x + 1
                     }
                 }),
                 start.map(|x| {
                     if x == -BigInt::one() {
-                        BigInt::from(self.len())
+                        BigInt::from(self.as_slice().len())
                     } else {
                         x + 1
                     }
@@ -171,7 +172,7 @@ pub trait PySliceableSequenceMut: PySliceableSequence {
             (start, stop, step, false)
         };
 
-        let range = self.get_slice_range(&start, &stop);
+        let range = self.as_slice().get_slice_range(&start, &stop);
         if range.start >= range.end {
             return Ok(());
         }
@@ -198,45 +199,12 @@ pub trait PySliceableSequenceMut: PySliceableSequence {
     }
 }
 
-impl<T: Clone> PySliceableSequence for Vec<T> {
-    type Sliced = Vec<T>;
-
-    fn do_slice(&self, range: Range<usize>) -> Self::Sliced {
-        self[range].to_vec()
-    }
-
-    fn do_slice_reverse(&self, range: Range<usize>) -> Self::Sliced {
-        let mut slice = self[range].to_vec();
-        slice.reverse();
-        slice
-    }
-
-    fn do_stepped_slice(&self, range: Range<usize>, step: usize) -> Self::Sliced {
-        self[range].iter().step_by(step).cloned().collect()
-    }
-
-    fn do_stepped_slice_reverse(&self, range: Range<usize>, step: usize) -> Self::Sliced {
-        self[range].iter().rev().step_by(step).cloned().collect()
-    }
-
-    #[inline(always)]
-    fn empty() -> Self::Sliced {
-        Vec::new()
-    }
-
-    #[inline(always)]
-    fn len(&self) -> usize {
-        self.len()
-    }
-
-    #[inline(always)]
-    fn is_empty(&self) -> bool {
-        self.is_empty()
-    }
-}
-
 impl<T: Clone> PySliceableSequenceMut for Vec<T> {
     type Item = T;
+
+    fn as_slice(&self) -> &[Self::Item] {
+        self.as_slice()
+    }
 
     fn do_set_range(&mut self, range: Range<usize>, items: &[Self::Item]) {
         self.splice(range, items.to_vec());
