@@ -1025,14 +1025,7 @@ impl SymbolTableBuilder {
         let symbol = table.symbols.get_mut(name).unwrap();
         match role {
             SymbolUsage::Nonlocal => {
-                if let SymbolScope::Unknown = symbol.scope {
-                    symbol.scope = SymbolScope::Nonlocal;
-                } else {
-                    return Err(SymbolTableError {
-                        error: format!("Symbol {} scope cannot be set to nonlocal, since its scope was already determined otherwise.", name),
-                        location,
-                    });
-                }
+                symbol.scope = SymbolScope::Nonlocal;
             }
             SymbolUsage::Imported => {
                 symbol.is_assigned = true;
