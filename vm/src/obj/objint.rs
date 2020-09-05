@@ -9,7 +9,6 @@ use num_traits::{One, Pow, Signed, ToPrimitive, Zero};
 use super::objbool::IntoPyBool;
 use super::objbytearray::PyByteArray;
 use super::objbytes::PyBytes;
-use super::objdict::PyDictRef;
 use super::objfloat;
 use super::objmemory::PyMemoryView;
 use super::objstr::{PyString, PyStringRef};
@@ -19,7 +18,7 @@ use crate::format::FormatSpec;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
     BorrowValue, IdProtocol, IntoPyObject, IntoPyResult, PyArithmaticValue, PyClassImpl,
-    PyComparisonValue, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
 };
 use crate::stdlib::array::PyArray;
@@ -76,21 +75,8 @@ impl PyValue for PyInt {
         vm.ctx.types.int_type.clone()
     }
 
-    fn into_simple_object(self, vm: &VirtualMachine) -> PyObjectRef {
+    fn into_object(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_int(self.value)
-    }
-
-    fn into_object(
-        self,
-        vm: &VirtualMachine,
-        cls: PyClassRef,
-        dict: Option<PyDictRef>,
-    ) -> PyObjectRef {
-        if cls.is(&Self::class(vm)) {
-            vm.ctx.new_int(self.value)
-        } else {
-            PyObject::new(self, cls, dict)
-        }
     }
 }
 
