@@ -775,7 +775,10 @@ pub(crate) fn init(context: &PyContext) {
     PyDictReverseKeyIterator::extend_class(context, &context.types.dict_reversekeyiterator_type);
     PyDictValues::extend_class(context, &context.types.dict_values_type);
     PyDictValueIterator::extend_class(context, &context.types.dict_valueiterator_type);
-    PyDictReverseValueIterator::extend_class(context, &context.types.dict_reversevalueiterator_type);
+    PyDictReverseValueIterator::extend_class(
+        context,
+        &context.types.dict_reversevalueiterator_type,
+    );
     PyDictItems::extend_class(context, &context.types.dict_items_type);
     PyDictItemIterator::extend_class(context, &context.types.dict_itemiterator_type);
     PyDictReverseItemIterator::extend_class(context, &context.types.dict_reverseitemiterator_type);
