@@ -65,4 +65,17 @@ def test_float_with_nan():
     assert not (a <= a)
     assert not (a > a)
     assert not (a >= a)
+
 test_float_with_nan()
+
+def test_different_type_cmp():
+    a = array('i', [-1, -2, -3, -4])
+    b = array('I', [1, 2, 3, 4])
+    c = array('f', [1, 2, 3, 4])
+    assert a < b
+    assert b > a
+    assert b == c
+    assert a < c
+    assert c > a
+
+test_different_type_cmp()
