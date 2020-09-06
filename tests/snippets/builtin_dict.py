@@ -15,9 +15,14 @@ assert {'a': 123}.get('a') == 123
 assert {'a': 123}.get('b') == None
 assert {'a': 123}.get('b', 456) == 456
 
+d = {'a': 123, 'b': 456}
+assert list(reversed(d)) == ['b', 'a']
+assert list(reversed(d.keys())) == ['b', 'a']
+assert list(reversed(d.values())) == [456, 123]
+assert list(reversed(d.items())) == [('b', 456), ('a', 123)]
+with assert_raises(StopIteration):
+    dict_reversed = reversed(d)
+    for _ in range(len(d) + 1):
+        next(dict_reversed)
 assert 'dict' in dict().__doc__
-assert_raises(TypeError, lambda: reversed(dict()))
-assert {'b': 345}.__ge__({'a': 123}) == NotImplemented
-assert {'b': 345}.__gt__({'a': 123}) == NotImplemented
-assert {'b': 345}.__le__({'a': 123}) == NotImplemented
-assert {'b': 345}.__lt__({'a': 123}) == NotImplemented
+
