@@ -1,16 +1,15 @@
 use std::fmt;
 use std::iter::FromIterator;
 use std::mem::size_of;
-use std::ops::{DerefMut, Range};
+use std::ops::DerefMut;
 
 use crossbeam_utils::atomic::AtomicCell;
-use num_bigint::{BigInt, ToBigInt};
-use num_traits::{One, Signed, ToPrimitive, Zero};
+use num_traits::ToPrimitive;
 
 use super::objbool;
 use super::objint::PyIntRef;
 use super::objiter;
-use super::objsequence::{get_item, get_pos, get_slice_range, SequenceIndex};
+use super::objsequence::{get_item, get_pos, PySliceableSequenceMut, SequenceIndex};
 use super::objslice::PySliceRef;
 use super::objtype::PyClassRef;
 use crate::bytesinner;
@@ -216,7 +215,7 @@ impl PyList {
         subscript: SequenceIndex,
         value: PyObjectRef,
         vm: &VirtualMachine,
-    ) -> PyResult {
+    ) -> PyResult<()> {
         match subscript {
             SequenceIndex::Int(index) => self.setindex(index, value, vm),
             SequenceIndex::Slice(slice) => {
@@ -228,191 +227,21 @@ impl PyList {
         }
     }
 
-    fn setindex(&self, index: isize, mut value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn setindex(&self, index: isize, mut value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let mut elements = self.borrow_value_mut();
         if let Some(pos_index) = get_pos(index, elements.len()) {
             std::mem::swap(&mut elements[pos_index], &mut value);
-            Ok(vm.get_none())
+            Ok(())
         } else {
             Err(vm.new_index_error("list assignment index out of range".to_owned()))
         }
     }
 
-    fn setslice(&self, slice: PySliceRef, sec: PyIterable, vm: &VirtualMachine) -> PyResult {
-        let step = slice.step_index(vm)?.unwrap_or_else(BigInt::one);
-        let start = slice.start_index(vm)?;
-        let stop = slice.stop_index(vm)?;
-        // consume the iter, we  need it's size
-        // and if it's going to fail we want that to happen *before* we start modifing
-        // In addition we want to iterate before taking the list lock.
+    fn setslice(&self, slice: PySliceRef, sec: PyIterable, vm: &VirtualMachine) -> PyResult<()> {
         let items: Result<Vec<PyObjectRef>, _> = sec.iter(vm)?.collect();
         let items = items?;
-
-        let elements = self.borrow_value_mut();
-        if step.is_zero() {
-            Err(vm.new_value_error("slice step cannot be zero".to_owned()))
-        } else if step.is_positive() {
-            let range = get_slice_range(&start, &stop, elements.len());
-            if range.start < range.end {
-                match step.to_isize() {
-                    Some(1) => PyList::_set_slice(elements, range, items, vm),
-                    Some(num) => {
-                        // assign to extended slice
-                        PyList::_set_stepped_slice(elements, range, num as usize, items, vm)
-                    }
-                    None => {
-                        // not sure how this is reached, step too big for isize?
-                        // then step is bigger than the than len of the list, no question
-                        #[allow(clippy::range_plus_one)]
-                        PyList::_set_stepped_slice(
-                            elements,
-                            range.start..(range.start + 1),
-                            1,
-                            items,
-                            vm,
-                        )
-                    }
-                }
-            } else {
-                // this functions as an insert of sec before range.start
-                PyList::_set_slice(elements, range.start..range.start, items, vm)
-            }
-        } else {
-            // calculate the range for the reverse slice, first the bounds needs to be made
-            // exclusive around stop, the lower number
-            let start = &start.as_ref().map(|x| {
-                if *x == (-1).to_bigint().unwrap() {
-                    elements.len() + BigInt::one() //.to_bigint().unwrap()
-                } else {
-                    x + 1
-                }
-            });
-            let stop = &stop.as_ref().map(|x| {
-                if *x == (-1).to_bigint().unwrap() {
-                    elements.len().to_bigint().unwrap()
-                } else {
-                    x + 1
-                }
-            });
-            let range = get_slice_range(&stop, &start, elements.len());
-            match (-step).to_isize() {
-                Some(num) => {
-                    PyList::_set_stepped_slice_reverse(elements, range, num as usize, items, vm)
-                }
-                None => {
-                    // not sure how this is reached, step too big for isize?
-                    // then step is bigger than the than len of the list no question
-                    PyList::_set_stepped_slice_reverse(
-                        elements,
-                        range.end - 1..range.end,
-                        1,
-                        items,
-                        vm,
-                    )
-                }
-            }
-        }
-    }
-
-    fn _set_slice(
-        mut elements: PyRwLockWriteGuard<'_, Vec<PyObjectRef>>,
-        range: Range<usize>,
-        items: Vec<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
-        // replace the range of elements with the full sequence
-        elements.splice(range, items);
-
-        Ok(vm.get_none())
-    }
-
-    fn _set_stepped_slice(
-        elements: PyRwLockWriteGuard<'_, Vec<PyObjectRef>>,
-        range: Range<usize>,
-        step: usize,
-        items: Vec<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
-        let slicelen = if range.end > range.start {
-            ((range.end - range.start - 1) / step) + 1
-        } else {
-            0
-        };
-
-        let n = items.len();
-
-        if range.start < range.end {
-            if n == slicelen {
-                let indexes = range.step_by(step);
-                PyList::_replace_indexes(elements, indexes, &items);
-                Ok(vm.get_none())
-            } else {
-                Err(vm.new_value_error(format!(
-                    "attempt to assign sequence of size {} to extended slice of size {}",
-                    n, slicelen
-                )))
-            }
-        } else if n == 0 {
-            // slice is empty but so is sequence
-            Ok(vm.get_none())
-        } else {
-            // empty slice but this is an error because stepped slice
-            Err(vm.new_value_error(format!(
-                "attempt to assign sequence of size {} to extended slice of size 0",
-                n
-            )))
-        }
-    }
-
-    fn _set_stepped_slice_reverse(
-        elements: PyRwLockWriteGuard<'_, Vec<PyObjectRef>>,
-        range: Range<usize>,
-        step: usize,
-        items: Vec<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
-        let slicelen = if range.end > range.start {
-            ((range.end - range.start - 1) / step) + 1
-        } else {
-            0
-        };
-
-        let n = items.len();
-
-        if range.start < range.end {
-            if n == slicelen {
-                let indexes = range.rev().step_by(step);
-                PyList::_replace_indexes(elements, indexes, &items);
-                Ok(vm.get_none())
-            } else {
-                Err(vm.new_value_error(format!(
-                    "attempt to assign sequence of size {} to extended slice of size {}",
-                    n, slicelen
-                )))
-            }
-        } else if n == 0 {
-            // slice is empty but so is sequence
-            Ok(vm.get_none())
-        } else {
-            // empty slice but this is an error because stepped slice
-            Err(vm.new_value_error(format!(
-                "attempt to assign sequence of size {} to extended slice of size 0",
-                n
-            )))
-        }
-    }
-
-    fn _replace_indexes<I>(
-        mut elements: PyRwLockWriteGuard<'_, Vec<PyObjectRef>>,
-        indexes: I,
-        items: &[PyObjectRef],
-    ) where
-        I: Iterator<Item = usize>,
-    {
-        for (i, value) in indexes.zip(items) {
-            // clone for refrence count
-            elements[i] = value.clone();
-        }
+        let mut elements = self.borrow_value_mut();
+        elements.set_slice_items(vm, &slice, items.as_slice())
     }
 
     #[pymethod(name = "__repr__")]
@@ -607,125 +436,7 @@ impl PyList {
     }
 
     fn delslice(&self, slice: PySliceRef, vm: &VirtualMachine) -> PyResult<()> {
-        let start = slice.start_index(vm)?;
-        let stop = slice.stop_index(vm)?;
-        let step = slice.step_index(vm)?.unwrap_or_else(BigInt::one);
-
-        let elements = self.borrow_value_mut();
-        if step.is_zero() {
-            Err(vm.new_value_error("slice step cannot be zero".to_owned()))
-        } else if step.is_positive() {
-            let range = get_slice_range(&start, &stop, elements.len());
-            if range.start < range.end {
-                #[allow(clippy::range_plus_one)]
-                match step.to_isize() {
-                    Some(1) => {
-                        PyList::_del_slice(elements, range);
-                        Ok(())
-                    }
-                    Some(num) => {
-                        PyList::_del_stepped_slice(elements, range, num as usize);
-                        Ok(())
-                    }
-                    None => {
-                        PyList::_del_slice(elements, range.start..range.start + 1);
-                        Ok(())
-                    }
-                }
-            } else {
-                // no del to do
-                Ok(())
-            }
-        } else {
-            // calculate the range for the reverse slice, first the bounds needs to be made
-            // exclusive around stop, the lower number
-            let start = start.as_ref().map(|x| {
-                if *x == (-1).to_bigint().unwrap() {
-                    elements.len() + BigInt::one() //.to_bigint().unwrap()
-                } else {
-                    x + 1
-                }
-            });
-            let stop = stop.as_ref().map(|x| {
-                if *x == (-1).to_bigint().unwrap() {
-                    elements.len().to_bigint().unwrap()
-                } else {
-                    x + 1
-                }
-            });
-            let range = get_slice_range(&stop, &start, elements.len());
-            if range.start < range.end {
-                match (-step).to_isize() {
-                    Some(1) => {
-                        PyList::_del_slice(elements, range);
-                        Ok(())
-                    }
-                    Some(num) => {
-                        PyList::_del_stepped_slice_reverse(elements, range, num as usize);
-                        Ok(())
-                    }
-                    None => {
-                        PyList::_del_slice(elements, range.end - 1..range.end);
-                        Ok(())
-                    }
-                }
-            } else {
-                // no del to do
-                Ok(())
-            }
-        }
-    }
-
-    fn _del_slice(mut elements: PyRwLockWriteGuard<'_, Vec<PyObjectRef>>, range: Range<usize>) {
-        elements.drain(range);
-    }
-
-    fn _del_stepped_slice(
-        mut elements: PyRwLockWriteGuard<'_, Vec<PyObjectRef>>,
-        range: Range<usize>,
-        step: usize,
-    ) {
-        // no easy way to delete stepped indexes so here is what we'll do
-        let mut deleted = 0;
-        let mut indexes = range.clone().step_by(step).peekable();
-
-        for i in range.clone() {
-            // is this an index to delete?
-            if indexes.peek() == Some(&i) {
-                // record and move on
-                indexes.next();
-                deleted += 1;
-            } else {
-                // swap towards front
-                elements.swap(i - deleted, i);
-            }
-        }
-        // then drain (the values to delete should now be contiguous at the end of the range)
-        elements.drain((range.end - deleted)..range.end);
-    }
-
-    fn _del_stepped_slice_reverse(
-        mut elements: PyRwLockWriteGuard<'_, Vec<PyObjectRef>>,
-        range: Range<usize>,
-        step: usize,
-    ) {
-        // no easy way to delete stepped indexes so here is what we'll do
-        let mut deleted = 0;
-        let mut indexes = range.clone().rev().step_by(step).peekable();
-
-        for i in range.clone().rev() {
-            // is this an index to delete?
-            if indexes.peek() == Some(&i) {
-                // record and move on
-                indexes.next();
-                deleted += 1;
-            } else {
-                // swap towards back
-                elements.swap(i + deleted, i);
-            }
-        }
-        // then drain (the values to delete should now be contiguous at teh start of the range)
-        elements.drain(range.start..(range.start + deleted));
+        self.borrow_value_mut().delete_slice(vm, &slice)
     }
 
     #[pymethod]

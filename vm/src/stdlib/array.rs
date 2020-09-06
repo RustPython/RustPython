@@ -5,7 +5,7 @@ use crate::common::cell::{
 use crate::function::OptionalArg;
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objfloat::try_float;
-use crate::obj::objsequence::{get_slice_range, PySliceableSequence};
+use crate::obj::objsequence::{PySliceableSequence, PySliceableSequenceMut};
 use crate::obj::objslice::PySliceRef;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
@@ -18,8 +18,6 @@ use crate::pyobject::{
 use crate::VirtualMachine;
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
-use num_bigint::BigInt;
-use num_traits::{One, Signed, ToPrimitive, Zero};
 use std::fmt;
 
 struct ArrayTypeSpecifierError {
@@ -232,100 +230,9 @@ macro_rules! def_array_enum {
             }
 
             fn setitem_by_slice(&mut self, slice: PySliceRef, items: &ArrayContentType, vm: &VirtualMachine) -> PyResult<()> {
-                let start = slice.start_index(vm)?;
-                let stop = slice.stop_index(vm)?;
-                let step = slice.step_index(vm)?.unwrap_or_else(BigInt::one);
-
-                if step.is_zero() {
-                    return Err(vm.new_value_error("slice step cannot be zero".to_owned()));
-                }
-
                 match self {
                     $(ArrayContentType::$n(elements) => if let ArrayContentType::$n(items) = items {
-                        if step == BigInt::one() {
-                            let range = get_slice_range(&start, &stop, elements.len());
-                            let range = if range.end < range.start {
-                                range.start..range.start
-                            } else {
-                                range
-                            };
-                            elements.splice(range, items.iter().cloned());
-                            return Ok(());
-                        }
-
-                        let (start, stop, step, is_negative_step) = if step.is_negative() {
-                            (
-                                stop.map(|x| if x == -BigInt::one() {
-                                    elements.len() + BigInt::one()
-                                } else {
-                                    x + 1
-                                }),
-                                start.map(|x| if x == -BigInt::one() {
-                                    BigInt::from(elements.len())
-                                } else {
-                                    x + 1
-                                }),
-                                -step,
-                                true
-                            )
-                        } else {
-                            (start, stop, step, false)
-                        };
-
-                        let range = get_slice_range(&start, &stop, elements.len());
-                        let range = if range.end < range.start {
-                            range.start..range.start
-                        } else {
-                            range
-                        };
-
-                        // step is not negative here
-                        if let Some(step) = step.to_usize() {
-                            let slicelen = if range.end > range.start {
-                                (range.end - range.start - 1) / step + 1
-                            } else {
-                                0
-                            };
-
-                            if slicelen == items.len() {
-                                if is_negative_step {
-                                    for (i, &item) in range.rev().step_by(step).zip(items) {
-                                        elements[i] = item;
-                                    }
-                                } else {
-                                    for (i, &item) in range.step_by(step).zip(items) {
-                                        elements[i] = item;
-                                    }
-                                }
-                                Ok(())
-                            } else {
-                                Err(vm.new_value_error(format!(
-                                    "attempt to assign sequence of size {} to extended slice of size {}",
-                                    items.len(), slicelen
-                                )))
-                            }
-                        } else {
-                            // edge case, step is too big for usize
-                            // same behaviour as CPython
-                            let slicelen = if range.start < range.end { 1 } else { 0 };
-                            if match items.len() {
-                                0 => slicelen == 0,
-                                1 => {
-                                    elements[
-                                        if is_negative_step { range.end - 1 } else { range.start }
-                                    ] = items[0];
-                                    true
-                                },
-                                _ => false,
-                            } {
-                                Ok(())
-                            } else {
-                                Err(vm.new_value_error(format!(
-                                    "attempt to assign sequence of size {} to extended slice of size {}",
-                                    items.len(), slicelen
-                                )))
-                            }
-                        }
+                        elements.set_slice_items(vm, &slice, items)
                     } else {
                         Err(vm.new_type_error("bad argument type for built-in operation".to_owned()))
                     },)*
@@ -349,77 +256,10 @@ macro_rules! def_array_enum {
             }
 
             fn delitem_by_slice(&mut self, slice: PySliceRef, vm: &VirtualMachine) -> PyResult<()> {
-                let start = slice.start_index(vm)?;
-                let stop = slice.stop_index(vm)?;
-                let step = slice.step_index(vm)?.unwrap_or_else(BigInt::one);
-
-                if step.is_zero() {
-                    return Err(vm.new_value_error("slice step cannot be zero".to_owned()));
-                }
 
                 match self {
                     $(ArrayContentType::$n(elements) => {
-                        if step == BigInt::one() {
-                            let range = get_slice_range(&start, &stop, elements.len());
-                            if range.start < range.end {
-                                elements.drain(range);
-                            }
-                            return Ok(());
-                        }
-
-                        let (start, stop, step, is_negative_step) = if step.is_negative() {
-                            (
-                                stop.map(|x| if x == -BigInt::one() {
-                                    elements.len() + BigInt::one()
-                                } else {
-                                    x + 1
-                                }),
-                                start.map(|x| if x == -BigInt::one() {
-                                    BigInt::from(elements.len())
-                                } else {
-                                    x + 1
-                                }),
-                                -step,
-                                true
-                            )
-                        } else {
-                            (start, stop, step, false)
-                        };
-
-                        let range = get_slice_range(&start, &stop, elements.len());
-                        if range.start >= range.end {
-                            return Ok(());
-                        }
-
-                        // step is not negative here
-                        if let Some(step) = step.to_usize() {
-                            let mut indexes = if is_negative_step {
-                                itertools::Either::Left(range.clone().rev().step_by(step).rev()).peekable()
-                            } else {
-                                itertools::Either::Right(range.clone().step_by(step)).peekable()
-                            };
-
-                            let mut deleted = 0;
-
-                            // passing whole range, swap or overlap
-                            for i in range.clone() {
-                                if indexes.peek() == Some(&i) {
-                                    indexes.next();
-                                    deleted += 1;
-                                } else {
-                                    elements.swap(i - deleted, i);
-                                }
-                            }
-                            // then drain (the values to delete should now be contiguous at the end of the range)
-                            elements.drain((range.end - deleted)..range.end);
-                        } else {
-                            // edge case, step is too big for usize
-                            // same behaviour as CPython
-                            elements.remove(
-                                if is_negative_step { range.end -1 } else { range.start }
-                            );
-                        }
-                        Ok(())
+                        elements.delete_slice(vm, &slice)
                     })*
                 }
             }

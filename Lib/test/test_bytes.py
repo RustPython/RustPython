@@ -1350,8 +1350,6 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         del b[:1]
         self.assertLessEqual(sys.getsizeof(b), size)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_extended_set_del_slice(self):
         indices = (0, None, 1, 3, 19, 300, 1<<333, sys.maxsize,
             -1, -2, -31, -300)
