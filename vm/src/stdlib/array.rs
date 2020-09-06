@@ -18,6 +18,9 @@ use crate::pyobject::{
 use crate::VirtualMachine;
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
+use num_bigint::BigInt;
+use num_traits::{One, Signed, ToPrimitive, Zero};
+use std::cmp::Ordering;
 use std::fmt;
 use PyArithmaticValue::Implemented;
 
@@ -337,6 +340,18 @@ macro_rules! def_array_enum {
                     i += 1;
                     ret
                 })
+            }
+
+            fn cmp(&self, other: &ArrayContentType) -> Result<Option<Ordering>, ()> {
+                match self {
+                    $(ArrayContentType::$n(v) => {
+                        if let ArrayContentType::$n(other) = other {
+                            Ok(PartialOrd::partial_cmp(v, other))
+                        } else {
+                            Err(())
+                        }
+                    })*
+                }
             }
         }
     };
@@ -684,6 +699,16 @@ impl PyArray {
         }
         let array_a = self.borrow_value();
         let array_b = other.borrow_value();
+
+        // fast path for same ArrayContentType type
+        if let Ok(ord) = array_a.cmp(&*array_b) {
+            let r = match ord {
+                Some(Ordering::Equal) => true,
+                _ => false,
+            };
+            return Ok(Implemented(r));
+        }
+
         let iter = Iterator::zip(array_a.iter(vm), array_b.iter(vm));
         for (a, b) in iter {
             if !vm.bool_eq(a, b)? {
@@ -701,24 +726,56 @@ impl PyArray {
     #[pymethod(name = "__lt__")]
     fn lt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
         let other = class_or_notimplemented!(vm, Self, other);
+        // fast path for same ArrayContentType type
+        if let Ok(ord) = self.borrow_value().cmp(&*other.borrow_value()) {
+            let r = match ord {
+                Some(Ordering::Less) => true,
+                _ => false,
+            };
+            return Ok(Implemented(r));
+        }
         self.cmp(other, |a, b| a < b, |a, b| vm.bool_seq_lt(a, b), vm)
     }
 
     #[pymethod(name = "__le__")]
     fn le(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
         let other = class_or_notimplemented!(vm, Self, other);
+        // fast path for same ArrayContentType type
+        if let Ok(ord) = self.borrow_value().cmp(&*other.borrow_value()) {
+            let r = match ord {
+                Some(Ordering::Less) | Some(Ordering::Equal) => true,
+                _ => false,
+            };
+            return Ok(Implemented(r));
+        }
         self.cmp(other, |a, b| a <= b, |a, b| vm.bool_seq_lt(a, b), vm)
     }
 
     #[pymethod(name = "__gt__")]
     fn gt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
         let other = class_or_notimplemented!(vm, Self, other);
+        // fast path for same ArrayContentType type
+        if let Ok(ord) = self.borrow_value().cmp(&*other.borrow_value()) {
+            let r = match ord {
+                Some(Ordering::Greater) => true,
+                _ => false,
+            };
+            return Ok(Implemented(r));
+        }
         self.cmp(other, |a, b| a > b, |a, b| vm.bool_seq_gt(a, b), vm)
     }
 
     #[pymethod(name = "__ge__")]
     fn ge(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
         let other = class_or_notimplemented!(vm, Self, other);
+        // fast path for same ArrayContentType type
+        if let Ok(ord) = self.borrow_value().cmp(&*other.borrow_value()) {
+            let r = match ord {
+                Some(Ordering::Greater) | Some(Ordering::Equal) => true,
+                _ => false,
+            };
+            return Ok(Implemented(r));
+        }
         self.cmp(other, |a, b| a >= b, |a, b| vm.bool_seq_gt(a, b), vm)
     }
 
