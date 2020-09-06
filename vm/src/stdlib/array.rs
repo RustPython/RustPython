@@ -5,11 +5,11 @@ use crate::common::cell::{
 use crate::function::OptionalArg;
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objfloat::try_float;
+use crate::obj::objiter;
 use crate::obj::objsequence::{PySliceableSequence, PySliceableSequenceMut};
 use crate::obj::objslice::PySliceRef;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
-use crate::obj::{objbool, objiter};
 use crate::pyobject::{
     BorrowValue, Either, IdProtocol, IntoPyObject, PyArithmaticValue, PyClassImpl,
     PyComparisonValue, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
@@ -19,6 +19,7 @@ use crate::VirtualMachine;
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
 use std::fmt;
+use PyArithmaticValue::Implemented;
 
 struct ArrayTypeSpecifierError {
     _priv: (),
@@ -362,7 +363,7 @@ trait ArrayElement: Sized {
 }
 
 macro_rules! adapt_try_into_from_object {
-    ($(($t:ty, $f: path),)*) => {$(
+    ($(($t:ty, $f:path),)*) => {$(
         impl ArrayElement for $t {
             fn try_into_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
                 $f(vm, obj)
@@ -651,22 +652,45 @@ impl PyArray {
         zelf.borrow_value().repr(vm)
     }
 
+    fn cmp<L, O>(
+        &self,
+        other: PyArrayRef,
+        len_cmp: L,
+        obj_cmp: O,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue>
+    where
+        L: Fn(usize, usize) -> bool,
+        O: Fn(PyObjectRef, PyObjectRef) -> PyResult<Option<bool>>,
+    {
+        let array_a = self.borrow_value();
+        let array_b = other.borrow_value();
+        let iter = Iterator::zip(array_a.iter(vm), array_b.iter(vm));
+        for (a, b) in iter {
+            if let Some(v) = obj_cmp(a, b)? {
+                return Ok(Implemented(v));
+            }
+        }
+        Ok(Implemented(len_cmp(self.len(), other.len())))
+    }
+
     #[pymethod(name = "__eq__")]
     fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
-        let lhs = self.borrow_value();
-        let rhs = class_or_notimplemented!(vm, Self, other);
-        let rhs = rhs.borrow_value();
-        if lhs.len() != rhs.len() {
-            Ok(PyArithmaticValue::Implemented(false))
-        } else {
-            for (a, b) in lhs.iter(vm).zip(rhs.iter(vm)) {
-                let ne = objbool::boolval(vm, vm._ne(a, b)?)?;
-                if ne {
-                    return Ok(PyArithmaticValue::Implemented(false));
-                }
-            }
-            Ok(PyArithmaticValue::Implemented(true))
+        // we cannot use zelf.is(other) for shortcut because if we contenting a
+        // float value NaN we always return False even they are the same object.
+        let other = class_or_notimplemented!(vm, Self, other);
+        if self.len() != other.len() {
+            return Ok(Implemented(false));
         }
+        let array_a = self.borrow_value();
+        let array_b = other.borrow_value();
+        let iter = Iterator::zip(array_a.iter(vm), array_b.iter(vm));
+        for (a, b) in iter {
+            if !vm.bool_eq(a, b)? {
+                return Ok(Implemented(false));
+            }
+        }
+        Ok(Implemented(true))
     }
 
     #[pymethod(name = "__ne__")]
@@ -676,70 +700,26 @@ impl PyArray {
 
     #[pymethod(name = "__lt__")]
     fn lt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
-        let lhs = self.borrow_value();
-        let rhs = class_or_notimplemented!(vm, Self, other);
-        let rhs = rhs.borrow_value();
-
-        for (a, b) in lhs.iter(vm).zip(rhs.iter(vm)) {
-            let lt = objbool::boolval(vm, vm._lt(a, b)?)?;
-
-            if lt {
-                return Ok(PyArithmaticValue::Implemented(true));
-            }
-        }
-
-        Ok(PyArithmaticValue::Implemented(lhs.len() < rhs.len()))
+        let other = class_or_notimplemented!(vm, Self, other);
+        self.cmp(other, |a, b| a < b, |a, b| vm.bool_seq_lt(a, b), vm)
     }
 
     #[pymethod(name = "__le__")]
     fn le(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
-        let lhs = self.borrow_value();
-        let rhs = class_or_notimplemented!(vm, Self, other);
-        let rhs = rhs.borrow_value();
-
-        for (a, b) in lhs.iter(vm).zip(rhs.iter(vm)) {
-            let le = objbool::boolval(vm, vm._le(a, b)?)?;
-
-            if le {
-                return Ok(PyArithmaticValue::Implemented(true));
-            }
-        }
-
-        Ok(PyArithmaticValue::Implemented(lhs.len() <= rhs.len()))
+        let other = class_or_notimplemented!(vm, Self, other);
+        self.cmp(other, |a, b| a <= b, |a, b| vm.bool_seq_lt(a, b), vm)
     }
 
     #[pymethod(name = "__gt__")]
     fn gt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
-        let lhs = self.borrow_value();
-        let rhs = class_or_notimplemented!(vm, Self, other);
-        let rhs = rhs.borrow_value();
-
-        for (a, b) in lhs.iter(vm).zip(rhs.iter(vm)) {
-            let gt = objbool::boolval(vm, vm._gt(a, b)?)?;
-
-            if gt {
-                return Ok(PyArithmaticValue::Implemented(true));
-            }
-        }
-
-        Ok(PyArithmaticValue::Implemented(lhs.len() > rhs.len()))
+        let other = class_or_notimplemented!(vm, Self, other);
+        self.cmp(other, |a, b| a > b, |a, b| vm.bool_seq_gt(a, b), vm)
     }
 
     #[pymethod(name = "__ge__")]
     fn ge(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
-        let lhs = self.borrow_value();
-        let rhs = class_or_notimplemented!(vm, Self, other);
-        let rhs = rhs.borrow_value();
-
-        for (a, b) in lhs.iter(vm).zip(rhs.iter(vm)) {
-            let ge = objbool::boolval(vm, vm._ge(a, b)?)?;
-
-            if ge {
-                return Ok(PyArithmaticValue::Implemented(true));
-            }
-        }
-
-        Ok(PyArithmaticValue::Implemented(lhs.len() >= rhs.len()))
+        let other = class_or_notimplemented!(vm, Self, other);
+        self.cmp(other, |a, b| a >= b, |a, b| vm.bool_seq_gt(a, b), vm)
     }
 
     #[pymethod(name = "__len__")]

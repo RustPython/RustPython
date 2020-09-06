@@ -54,3 +54,15 @@ del a[0:0:9999999999]
 assert a == array(T, [1, 2, 3, 4, 5, 6, 7, 8])
 del a[0:0:-9999999999]
 assert a == array(T, [1, 2, 3, 4, 5, 6, 7, 8])
+
+def test_float_with_nan():
+    f = float('nan')
+    a = array('f')
+    a.append(f)
+    assert not (a == a)
+    assert a != a
+    assert not (a < a)
+    assert not (a <= a)
+    assert not (a > a)
+    assert not (a >= a)
+test_float_with_nan()
