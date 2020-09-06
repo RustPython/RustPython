@@ -18,8 +18,6 @@ use crate::pyobject::{
 use crate::VirtualMachine;
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
-use num_bigint::BigInt;
-use num_traits::{One, Signed, ToPrimitive, Zero};
 use std::cmp::Ordering;
 use std::fmt;
 use PyArithmaticValue::Implemented;
