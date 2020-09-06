@@ -1161,14 +1161,13 @@ class GrammarTests(unittest.TestCase):
         global a, b
         global one, two, three, four, five, six, seven, eight, nine, ten
 
-    # TODO: RUSTPYTHON
-    # def test_nonlocal(self):
-    #     # 'nonlocal' NAME (',' NAME)*
-    #     x = 0
-    #     y = 0
-    #     def f():
-    #         nonlocal x
-    #         nonlocal x, y
+    def test_nonlocal(self):
+        # 'nonlocal' NAME (',' NAME)*
+        x = 0
+        y = 0
+        def f():
+            nonlocal x
+            nonlocal x, y
 
     def test_assert(self):
         # assertTruestmt: 'assert' test [',' test]

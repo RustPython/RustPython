@@ -951,13 +951,11 @@ impl SymbolTableBuilder {
         let table = self.tables.last_mut().unwrap();
         let location = Default::default();
 
-        // Some checks:
-        let containing = table.symbols.contains_key(name);
-        if containing {
+        // Some checks for the symbol that present on this scope level:
+        if let Some(symbol) = table.symbols.get(name) {
             // Role already set..
             match role {
                 SymbolUsage::Global => {
-                    let symbol = table.symbols.get(name).unwrap();
                     if let SymbolScope::Global = symbol.scope {
                         // Ok
                     } else {
@@ -968,32 +966,53 @@ impl SymbolTableBuilder {
                     }
                 }
                 SymbolUsage::Nonlocal => {
-                    return Err(SymbolTableError {
-                        error: format!("name '{}' is used prior to nonlocal declaration", name),
-                        location,
-                    })
+                    if symbol.is_parameter {
+                        return Err(SymbolTableError {
+                            error: format!("name '{}' is parameter and nonlocal", name),
+                            location,
+                        });
+                    }
+                    if symbol.is_referenced {
+                        return Err(SymbolTableError {
+                            error: format!("name '{}' is used prior to nonlocal declaration", name),
+                            location,
+                        });
+                    }
+                    if symbol.is_annotated {
+                        return Err(SymbolTableError {
+                            error: format!("annotated name '{}' can't be nonlocal", name),
+                            location,
+                        });
+                    }
+                    if symbol.is_assigned {
+                        return Err(SymbolTableError {
+                            error: format!(
+                                "name '{}' is assigned to before nonlocal declaration",
+                                name
+                            ),
+                            location,
+                        });
+                    }
                 }
                 _ => {
                     // Ok?
                 }
             }
-        }
-
-        // Some more checks:
-        match role {
-            SymbolUsage::Nonlocal if scope_depth < 2 => {
-                return Err(SymbolTableError {
-                    error: format!("cannot define nonlocal '{}' at top level.", name),
-                    location,
-                })
+        } else {
+            // The symbol does not present on this scope level.
+            // Some checks to insert new symbol into symbol table:
+            match role {
+                SymbolUsage::Nonlocal if scope_depth < 2 => {
+                    return Err(SymbolTableError {
+                        error: format!("cannot define nonlocal '{}' at top level.", name),
+                        location,
+                    })
+                }
+                _ => {
+                    // Ok!
+                }
             }
-            _ => {
-                // Ok!
-            }
-        }
-
-        // Insert symbol when required:
-        if !containing {
+            // Insert symbol when required:
             let symbol = Symbol::new(name);
             table.symbols.insert(name.to_owned(), symbol);
         }
@@ -1002,14 +1021,7 @@ impl SymbolTableBuilder {
         let symbol = table.symbols.get_mut(name).unwrap();
         match role {
             SymbolUsage::Nonlocal => {
-                if let SymbolScope::Unknown = symbol.scope {
-                    symbol.scope = SymbolScope::Nonlocal;
-                } else {
-                    return Err(SymbolTableError {
-                        error: format!("Symbol {} scope cannot be set to nonlocal, since its scope was already determined otherwise.", name),
-                        location,
-                    });
-                }
+                symbol.scope = SymbolScope::Nonlocal;
             }
             SymbolUsage::Imported => {
                 symbol.is_assigned = true;
