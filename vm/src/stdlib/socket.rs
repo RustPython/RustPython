@@ -646,6 +646,18 @@ fn socket_inet_ntop(af_inet: i32, packed_ip: PyBytesRef, vm: &VirtualMachine) ->
     }
 }
 
+fn socket_getprotobyname(name: PyStringRef, vm: &VirtualMachine) -> PyResult {
+    use std::ffi::CString;
+    let cstr = CString::new(name.borrow_value())
+        .map_err(|_| vm.new_value_error("embedded null character".to_owned()))?;
+    let proto = unsafe { c::getprotobyname(cstr.as_ptr()) };
+    if proto.is_null() {
+        return Err(vm.new_os_error("protocol not found".to_owned()));
+    }
+    let num = unsafe { (*proto).p_proto };
+    Ok(vm.ctx.new_int(num))
+}
+
 fn get_addr<T, I>(vm: &VirtualMachine, addr: T) -> PyResult<socket2::SockAddr>
 where
     T: ToSocketAddrs<Iter = I>,
@@ -760,6 +772,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "has_ipv6" => ctx.new_bool(false),
         "inet_pton" => ctx.new_function(socket_inet_pton),
         "inet_ntop" => ctx.new_function(socket_inet_ntop),
+        "getprotobyname" => ctx.new_function(socket_getprotobyname),
         // constants
         "AF_UNSPEC" => ctx.new_int(0),
         "AF_INET" => ctx.new_int(c::AF_INET),
