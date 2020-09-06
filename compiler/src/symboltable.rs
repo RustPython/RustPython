@@ -951,10 +951,8 @@ impl SymbolTableBuilder {
         let table = self.tables.last_mut().unwrap();
         let location = Default::default();
 
-        // Some checks:
-        let containing = table.symbols.contains_key(name);
-        if containing {
-            let symbol = table.symbols.get(name).unwrap();
+        // Some checks for the symbol that present on this scope level:
+        if let Some(symbol) = table.symbols.get(name) {
             // Role already set..
             match role {
                 SymbolUsage::Global => {
@@ -1000,23 +998,21 @@ impl SymbolTableBuilder {
                     // Ok?
                 }
             }
-        }
-
-        // Some more checks:
-        match role {
-            SymbolUsage::Nonlocal if scope_depth < 2 => {
-                return Err(SymbolTableError {
-                    error: format!("cannot define nonlocal '{}' at top level.", name),
-                    location,
-                })
+        } else {
+            // The symbol does not present on this scope level.
+            // Some checks to insert new symbol into symbol table:
+            match role {
+                SymbolUsage::Nonlocal if scope_depth < 2 => {
+                    return Err(SymbolTableError {
+                        error: format!("cannot define nonlocal '{}' at top level.", name),
+                        location,
+                    })
+                }
+                _ => {
+                    // Ok!
+                }
             }
-            _ => {
-                // Ok!
-            }
-        }
-
-        // Insert symbol when required:
-        if !containing {
+            // Insert symbol when required:
             let symbol = Symbol::new(name);
             table.symbols.insert(name.to_owned(), symbol);
         }
