@@ -341,11 +341,12 @@ impl PyBytesIORef {
     //Takes an integer k (bytes) and returns them from the underlying buffer
     //If k is undefined || k == -1, then we read all bytes until the end of the file.
     //This also increments the stream position by the value of k
-    fn read(self, size: OptionalSize, vm: &VirtualMachine) -> PyResult {
-        match self.buffer(vm)?.read(size.to_usize()) {
-            Some(value) => Ok(vm.ctx.new_bytes(value)),
-            None => Err(vm.new_value_error("Error Retrieving Value".to_owned())),
-        }
+    fn read(self, size: OptionalSize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        let buf = self
+            .buffer(vm)?
+            .read(size.to_usize())
+            .unwrap_or_else(Vec::new);
+        Ok(buf)
     }
 
     //skip to the jth position
