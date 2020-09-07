@@ -3,9 +3,9 @@
  */
 
 use crossbeam_utils::atomic::AtomicCell;
-use num_traits::{Signed, ToPrimitive};
+use num_traits::Signed;
 
-use super::objint::PyInt;
+use super::objint::{self, PyInt};
 use super::objsequence;
 use super::objtype::{self, PyClassRef};
 use crate::exceptions::PyBaseExceptionRef;
@@ -143,9 +143,7 @@ pub fn length_hint(vm: &VirtualMachine, iter: PyObjectRef) -> PyResult<Option<us
     if result.is_negative() {
         return Err(vm.new_value_error("__length_hint__() should return >= 0".to_owned()));
     }
-    let hint = result.to_usize().ok_or_else(|| {
-        vm.new_value_error("Python int too large to convert to Rust usize".to_owned())
-    })?;
+    let hint = objint::try_to_primitive(result, vm)?;
     Ok(Some(hint))
 }
 

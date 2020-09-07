@@ -1052,9 +1052,7 @@ fn text_io_wrapper_write(
     let bytes = obj.borrow_value().to_owned().into_bytes();
 
     let len = vm.call_method(&raw, "write", vec![vm.ctx.new_bytes(bytes.clone())])?;
-    let len = objint::get_value(&len)
-        .to_usize()
-        .ok_or_else(|| vm.new_overflow_error("int to large to convert to Rust usize".to_owned()))?;
+    let len = objint::try_to_primitive(objint::get_value(&len), vm)?;
 
     // returns the count of unicode code points written
     let len = from_utf8(&bytes[..len])
