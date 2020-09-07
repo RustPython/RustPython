@@ -509,8 +509,6 @@ class BaseTest:
         a = array.array(self.typecode, 2*self.example)
         str(a)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_cmp(self):
         a = array.array(self.typecode, self.example)
         self.assertIs(a == 42, False)
