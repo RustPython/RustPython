@@ -300,19 +300,32 @@ impl CFormatSpec {
                 self.format_string(result.borrow_value().to_owned())
             }
             CFormatType::Number(number_type) => {
-                if !objtype::isinstance(&obj, &vm.ctx.types.int_type) {
+                let err = || {
                     let required_type_string = match number_type {
                         CNumberType::Decimal => "a number",
                         _ => "an integer",
                     };
-                    return Err(vm.new_type_error(format!(
+                    vm.new_type_error(format!(
                         "%{} format: {} is required, not {}",
                         self.format_char,
                         required_type_string,
                         obj.lease_class()
-                    )));
-                }
-                self.format_number(objint::get_value(&obj))
+                    ))
+                };
+                match_class!(match &obj {
+                    ref i @ objint::PyInt => {
+                        self.format_number(i.borrow_value())
+                    }
+                    // TODO: if guards for match_class
+                    ref f @ objfloat::PyFloat => {
+                        if let CNumberType::Decimal = number_type {
+                            self.format_number(&objfloat::try_bigint(f.to_f64(), vm)?)
+                        } else {
+                            return Err(err());
+                        }
+                    }
+                    _ => return Err(err()),
+                })
             }
             CFormatType::Float(_) => {
                 let value = objfloat::try_float(&obj, vm)?.ok_or_else(|| {
