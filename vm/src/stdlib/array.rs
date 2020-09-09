@@ -6,6 +6,7 @@ use crate::function::OptionalArg;
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objfloat::try_float;
 use crate::obj::objiter;
+use crate::obj::objlist::PyList;
 use crate::obj::objsequence::{PySliceableSequence, PySliceableSequenceMut};
 use crate::obj::objslice::PySliceRef;
 use crate::obj::objstr::PyStringRef;
@@ -138,6 +139,22 @@ macro_rules! def_array_enum {
                         let ptr_len = b.len() / std::mem::size_of::<$t>();
                         let slice = unsafe { std::slice::from_raw_parts(ptr, ptr_len) };
                         v.extend_from_slice(slice);
+                    })*
+                }
+            }
+
+            fn fromlist(&mut self, list: &PyList, vm: &VirtualMachine) -> PyResult<()> {
+                match self {
+                    $(ArrayContentType::$n(v) => {
+                        // convert list before modify self
+                        let mut list: Vec<$t> = list
+                            .borrow_value()
+                            .iter()
+                            .cloned()
+                            .map(|value| $t::try_into_from_object(vm, value))
+                            .try_collect()?;
+                        v.append(&mut list);
+                        Ok(())
                     })*
                 }
             }
@@ -564,6 +581,15 @@ impl PyArray {
             v.push(obj);
         }
         Ok(vm.ctx.new_list(v))
+    }
+
+    #[pymethod]
+    fn fromlist(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        if let Some(list) = obj.payload::<PyList>() {
+            self.borrow_value_mut().fromlist(list, vm)
+        } else {
+            Err(vm.new_type_error("arg must be list".to_owned()))
+        }
     }
 
     #[pymethod]
