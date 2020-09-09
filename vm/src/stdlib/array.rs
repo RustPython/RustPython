@@ -598,6 +598,19 @@ impl PyArray {
     }
 
     #[pymethod(magic)]
+    fn copy(&self, vm: &VirtualMachine) -> PyObjectRef {
+        PyArray {
+            array: PyRwLock::new(self.array.read().clone()),
+        }
+        .into_object(vm)
+    }
+
+    #[pymethod(magic)]
+    fn deepcopy(&self, _memo: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        self.copy(vm)
+    }
+
+    #[pymethod(magic)]
     fn getitem(&self, needle: Either<isize, PySliceRef>, vm: &VirtualMachine) -> PyResult {
         self.borrow_value().getitem(needle, vm)
     }
