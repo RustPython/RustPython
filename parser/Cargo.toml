@@ -9,10 +9,10 @@ license = "MIT"
 edition = "2018"
 
 [build-dependencies]
-lalrpop="0.19"
+lalrpop = "0.19"
 
 [dependencies]
-lalrpop-util = "0.19"
+lalrpop-util = "0.19.1"
 log = "0.4.1"
 num-bigint = "0.3"
 num-traits = "0.2"
