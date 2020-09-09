@@ -445,8 +445,6 @@ class BaseTest:
                 f.close()
             support.unlink(support.TESTFN)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_tofromlist(self):
         a = array.array(self.typecode, 2*self.example)
         b = array.array(self.typecode)
