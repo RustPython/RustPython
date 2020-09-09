@@ -317,6 +317,17 @@ macro_rules! def_array_enum {
                 }
             }
 
+            fn byteswap(&mut self) {
+                match self {
+                    $(ArrayContentType::$n(v) => {
+                        for element in v.iter_mut() {
+                            let x = element.byteswap();
+                            *element = x;
+                        }
+                    })*
+                }
+            }
+
             fn repr(&self, _vm: &VirtualMachine) -> PyResult<String> {
                 // we don't need ReprGuard here
                 let s = match self {
@@ -373,30 +384,42 @@ def_array_enum!(
 
 trait ArrayElement: Sized {
     fn try_into_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self>;
+    fn byteswap(self) -> Self;
 }
 
-macro_rules! adapt_try_into_from_object {
-    ($(($t:ty, $f:path),)*) => {$(
+macro_rules! impl_array_element {
+    ($(($t:ty, $f_into:path, $f_swap:path),)*) => {$(
         impl ArrayElement for $t {
             fn try_into_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-                $f(vm, obj)
+                $f_into(vm, obj)
+            }
+            fn byteswap(self) -> Self {
+                $f_swap(self)
             }
         }
     )*};
 }
 
-adapt_try_into_from_object!(
-    (i8, i8::try_from_object),
-    (u8, u8::try_from_object),
-    (i16, i16::try_from_object),
-    (u16, u16::try_from_object),
-    (i32, i32::try_from_object),
-    (u32, u32::try_from_object),
-    (i64, i64::try_from_object),
-    (u64, u64::try_from_object),
-    (f32, f32_try_into_from_object),
-    (f64, f64_try_into_from_object),
+impl_array_element!(
+    (i8, i8::try_from_object, i8::swap_bytes),
+    (u8, u8::try_from_object, u8::swap_bytes),
+    (i16, i16::try_from_object, i16::swap_bytes),
+    (u16, u16::try_from_object, u16::swap_bytes),
+    (i32, i32::try_from_object, i32::swap_bytes),
+    (u32, u32::try_from_object, u32::swap_bytes),
+    (i64, i64::try_from_object, i64::swap_bytes),
+    (u64, u64::try_from_object, u64::swap_bytes),
+    (f32, f32_try_into_from_object, f32_swap_bytes),
+    (f64, f64_try_into_from_object, f64_swap_bytes),
 );
+
+fn f32_swap_bytes(x: f32) -> f32 {
+    f32::from_bits(x.to_bits().swap_bytes())
+}
+
+fn f64_swap_bytes(x: f64) -> f64 {
+    f64::from_bits(x.to_bits().swap_bytes())
+}
 
 fn f32_try_into_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<f32> {
     try_float(&obj, vm)?
@@ -505,6 +528,11 @@ impl PyArray {
             self.borrow_value_mut().frombytes(&b);
         }
         Ok(())
+    }
+
+    #[pymethod]
+    fn byteswap(&self) {
+        self.borrow_value_mut().byteswap();
     }
 
     #[pymethod]
