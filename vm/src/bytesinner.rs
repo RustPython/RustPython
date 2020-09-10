@@ -333,7 +333,12 @@ impl PyBytesInner {
         }
     }
 
-    fn setindex(&mut self, int: isize, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    pub fn setindex(
+        &mut self,
+        int: isize,
+        object: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         if let Some(idx) = self.elements.get_pos(int) {
             let result = match_class!(match object {
                 i @ PyInt => {
@@ -353,7 +358,7 @@ impl PyBytesInner {
         }
     }
 
-    fn setslice(
+    pub fn setslice(
         &mut self,
         slice: PySliceRef,
         object: PyObjectRef,
@@ -379,16 +384,9 @@ impl PyBytesInner {
         self.elements.set_slice_items(vm, &slice, items.as_slice())
     }
 
-    pub fn setitem(
-        &mut self,
-        needle: SequenceIndex,
-        object: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        match needle {
-            SequenceIndex::Int(int) => self.setindex(int, object, vm),
-            SequenceIndex::Slice(slice) => self.setslice(slice, object, vm),
-        }
+    pub fn setslice_from_self(&mut self, slice: PySliceRef, vm: &VirtualMachine) -> PyResult<()> {
+        let items = self.elements.clone();
+        self.elements.set_slice_items(vm, &slice, items.as_slice())
     }
 
     pub fn delitem(&mut self, needle: SequenceIndex, vm: &VirtualMachine) -> PyResult<()> {
