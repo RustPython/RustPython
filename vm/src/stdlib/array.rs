@@ -598,16 +598,15 @@ impl PyArray {
     }
 
     #[pymethod(magic)]
-    fn copy(&self, vm: &VirtualMachine) -> PyObjectRef {
+    fn copy(&self) -> PyArray {
         PyArray {
             array: PyRwLock::new(self.array.read().clone()),
         }
-        .into_object(vm)
     }
 
     #[pymethod(magic)]
-    fn deepcopy(&self, _memo: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        self.copy(vm)
+    fn deepcopy(&self, _memo: PyObjectRef) -> PyArray {
+        self.copy()
     }
 
     #[pymethod(magic)]
