@@ -223,8 +223,6 @@ class BaseTest:
         self.assertIsInstance(bi[1], int)
         self.assertEqual(bi[1], len(a))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_byteswap(self):
         if self.typecode == 'u':
             example = '\U00100100'
