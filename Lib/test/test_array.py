@@ -242,8 +242,6 @@ class BaseTest:
             b.byteswap()
             self.assertEqual(a, b)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_copy(self):
         import copy
         a = array.array(self.typecode, self.example)
@@ -251,8 +249,6 @@ class BaseTest:
         self.assertNotEqual(id(a), id(b))
         self.assertEqual(a, b)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_deepcopy(self):
         import copy
         a = array.array(self.typecode, self.example)
