@@ -39,7 +39,9 @@ use crate::obj::objtype::{self, PyClass, PyClassRef};
 use crate::obj::objweakproxy;
 use crate::obj::objweakref;
 use crate::obj::objzip;
-use crate::pyobject::{PyAttributes, PyClassDef, PyClassImpl, PyContext, PyObject, PyObjectRef};
+use crate::pyobject::{
+    PyAttributes, PyClassDef, PyClassImpl, PyContext, PyObject, PyObjectRc, PyObjectRef,
+};
 use crate::slots::PyClassSlots;
 use rustpython_common::{cell::PyRwLock, rc::PyRc};
 use std::mem::MaybeUninit;
@@ -259,35 +261,37 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
     // (and yes, this will never get dropped. TODO?)
     let (type_type, object_type) = {
         type PyClassObj = PyObject<PyClass>;
-        type UninitRef<T> = PyRwLock<PyRc<MaybeUninit<T>>>;
+        type UninitRef<T> = PyRwLock<PyRc<MaybeUninit<PyObject<T>>>>;
 
+        let type_payload = PyClass {
+            name: PyClassRef::NAME.to_owned(),
+            base: None,
+            bases: vec![],
+            mro: vec![],
+            subclasses: PyRwLock::default(),
+            attributes: PyRwLock::new(PyAttributes::new()),
+            slots: objtype::PyClassRef::make_slots(),
+        };
+        let object_payload = PyClass {
+            name: objobject::PyBaseObject::NAME.to_owned(),
+            base: None,
+            bases: vec![],
+            mro: vec![],
+            subclasses: PyRwLock::default(),
+            attributes: PyRwLock::new(PyAttributes::new()),
+            slots: objobject::PyBaseObject::make_slots(),
+        };
         let type_type: PyRc<MaybeUninit<PyClassObj>> = PyRc::new(partially_init!(
             PyObject::<PyClass> {
                 dict: None,
-                payload: PyClass {
-                    name: PyClassRef::NAME.to_owned(),
-                    base: None,
-                    bases: vec![],
-                    mro: vec![],
-                    subclasses: PyRwLock::default(),
-                    attributes: PyRwLock::new(PyAttributes::new()),
-                    slots: objtype::PyClassRef::make_slots(),
-                },
+                payload: type_payload,
             },
             Uninit { typ }
         ));
         let object_type: PyRc<MaybeUninit<PyClassObj>> = PyRc::new(partially_init!(
             PyObject::<PyClass> {
                 dict: None,
-                payload: PyClass {
-                    name: objobject::PyBaseObject::NAME.to_owned(),
-                    base: None,
-                    bases: vec![],
-                    mro: vec![],
-                    subclasses: PyRwLock::default(),
-                    attributes: PyRwLock::new(PyAttributes::new()),
-                    slots: objobject::PyBaseObject::make_slots(),
-                },
+                payload: object_payload,
             },
             Uninit { typ },
         ));
@@ -299,13 +303,13 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
 
         unsafe {
             ptr::write(
-                &mut (*object_type_ptr).typ as *mut PyRwLock<PyRc<PyClassObj>>
-                    as *mut UninitRef<PyClassObj>,
+                &mut (*object_type_ptr).typ as *mut PyRwLock<PyObjectRc<PyClass>>
+                    as *mut UninitRef<PyClass>,
                 PyRwLock::new(type_type.clone()),
             );
             ptr::write(
-                &mut (*type_type_ptr).typ as *mut PyRwLock<PyRc<PyClassObj>>
-                    as *mut UninitRef<PyClassObj>,
+                &mut (*type_type_ptr).typ as *mut PyRwLock<PyObjectRc<PyClass>>
+                    as *mut UninitRef<PyClass>,
                 PyRwLock::new(type_type),
             );
 
