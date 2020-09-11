@@ -1371,7 +1371,6 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
                     del b[start:stop:step]
                     self.assertEqual(b, bytearray(L))
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_setslice_trap(self):
         # This test verifies that we correctly handle assigning self
         # to a slice of self (the old Lambert Meertens trap).

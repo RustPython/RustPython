@@ -16,8 +16,8 @@ use crate::bytesinner::{
 use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::function::{OptionalArg, OptionalOption};
 use crate::pyobject::{
-    BorrowValue, Either, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef,
-    PyResult, PyValue, TryFromObject,
+    BorrowValue, Either, IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyIterable,
+    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
 };
 use crate::pystr::{self, PyCommonString};
 use crate::vm::VirtualMachine;
@@ -186,12 +186,21 @@ impl PyByteArray {
 
     #[pymethod(name = "__setitem__")]
     fn setitem(
-        &self,
+        zelf: PyRef<Self>,
         needle: SequenceIndex,
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        self.borrow_value_mut().setitem(needle, value, vm)
+        match needle {
+            SequenceIndex::Int(int) => zelf.borrow_value_mut().setindex(int, value, vm),
+            SequenceIndex::Slice(slice) => {
+                if zelf.is(&value) {
+                    zelf.borrow_value_mut().setslice_from_self(slice, vm)
+                } else {
+                    zelf.borrow_value_mut().setslice(slice, value, vm)
+                }
+            }
+        }
     }
 
     #[pymethod(name = "__delitem__")]
