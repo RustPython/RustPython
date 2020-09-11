@@ -18,6 +18,15 @@ use std::mem::size_of;
 
 pub type DictContentType = dictdatatype::Dict;
 
+/// dict() -> new empty dictionary
+/// dict(mapping) -> new dictionary initialized from a mapping object's
+///    (key, value) pairs
+/// dict(iterable) -> new dictionary initialized as if via:
+///    d = {}
+///    for k, v in iterable:
+///        d[k] = v
+/// dict(**kwargs) -> new dictionary initialized with the name=value pairs
+///    in the keyword argument list.  For example:  dict(one=1, two=2)
 #[pyclass(module = false, name = "dict")]
 #[derive(Default)]
 pub struct PyDict {
@@ -402,6 +411,11 @@ impl PyDict {
     pub fn size(&self) -> dictdatatype::DictSize {
         self.entries.size()
     }
+
+    #[pymethod(name = "__reversed__")]
+    fn reversed(zelf: PyRef<Self>) -> PyDictReverseKeyIterator {
+        PyDictReverseKeyIterator::new(zelf)
+    }
 }
 
 impl PyDictRef {
@@ -552,7 +566,10 @@ impl Iterator for DictIter {
 }
 
 macro_rules! dict_iterator {
-    ( $name: ident, $iter_name: ident, $class: ident, $iter_class: ident, $class_name: literal, $iter_class_name: literal, $result_fn: expr) => {
+    ( $name: ident, $iter_name: ident, $reverse_iter_name: ident,
+      $class: ident, $iter_class: ident, $reverse_iter_class: ident,
+      $class_name: literal, $iter_class_name: literal, $reverse_iter_class_name: literal,
+      $result_fn: expr) => {
         #[pyclass(module=false,name = $class_name)]
         #[derive(Debug)]
         pub(crate) struct $name {
@@ -589,6 +606,10 @@ macro_rules! dict_iterator {
                     "{...}".to_owned()
                 };
                 Ok(s)
+            }
+            #[pymethod(name = "__reversed__")]
+            fn reversed(&self) -> $reverse_iter_name {
+                $reverse_iter_name::new(self.dict.clone())
             }
         }
 
@@ -650,36 +671,101 @@ macro_rules! dict_iterator {
                 vm.ctx.types.$iter_class.clone()
             }
         }
+
+        #[pyclass(module=false,name = $reverse_iter_class_name)]
+        #[derive(Debug)]
+        pub(crate) struct $reverse_iter_name {
+            pub dict: PyDictRef,
+            pub size: dictdatatype::DictSize,
+            pub position: AtomicCell<usize>,
+        }
+
+        #[pyimpl]
+        impl $reverse_iter_name {
+            fn new(dict: PyDictRef) -> Self {
+                $reverse_iter_name {
+                    position: AtomicCell::new(1),
+                    size: dict.size(),
+                    dict,
+                }
+            }
+
+            #[pymethod(name = "__next__")]
+            #[allow(clippy::redundant_closure_call)]
+            fn next(&self, vm: &VirtualMachine) -> PyResult {
+                if self.dict.entries.has_changed_size(&self.size) {
+                    return Err(
+                        vm.new_runtime_error("dictionary changed size during iteration".to_owned())
+                    );
+                }
+                let count = self.position.fetch_add(1);
+                match self.dict.len().checked_sub(count) {
+                    Some(mut pos) => {
+                        let (key, value) = self.dict.entries.next_entry(&mut pos).unwrap();
+                        Ok($result_fn(vm, key, value))
+                    }
+                    None => {
+                        self.position.store(std::isize::MAX as usize);
+                        Err(objiter::new_stop_iteration(vm))
+                    }
+                }
+            }
+
+            #[pymethod(name = "__iter__")]
+            fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
+                zelf
+            }
+
+            #[pymethod(name = "__length_hint__")]
+            fn length_hint(&self) -> usize {
+                self.dict.entries.len_from_entry_index(self.position.load())
+            }
+        }
+
+        impl PyValue for $reverse_iter_name {
+            fn class(vm: &VirtualMachine) -> PyClassRef {
+                vm.ctx.types.$reverse_iter_class.clone()
+            }
+        }
     };
 }
 
 dict_iterator! {
     PyDictKeys,
     PyDictKeyIterator,
+    PyDictReverseKeyIterator,
     dict_keys_type,
     dict_keyiterator_type,
+    dict_reversekeyiterator_type,
     "dict_keys",
     "dict_keyiterator",
+    "dict_reversekeyiterator",
     |_vm: &VirtualMachine, key: PyObjectRef, _value: PyObjectRef| key
 }
 
 dict_iterator! {
     PyDictValues,
     PyDictValueIterator,
+    PyDictReverseValueIterator,
     dict_values_type,
     dict_valueiterator_type,
+    dict_reversevalueiterator_type,
     "dict_values",
     "dict_valueiterator",
+    "dict_reversevalueiterator",
     |_vm: &VirtualMachine, _key: PyObjectRef, value: PyObjectRef| value
 }
 
 dict_iterator! {
     PyDictItems,
     PyDictItemIterator,
+    PyDictReverseItemIterator,
     dict_items_type,
     dict_itemiterator_type,
+    dict_reverseitemiterator_type,
     "dict_items",
     "dict_itemiterator",
+    "dict_reverseitemiterator",
     |vm: &VirtualMachine, key: PyObjectRef, value: PyObjectRef|
         vm.ctx.new_tuple(vec![key, value])
 }
@@ -688,10 +774,16 @@ pub(crate) fn init(context: &PyContext) {
     PyDict::extend_class(context, &context.types.dict_type);
     PyDictKeys::extend_class(context, &context.types.dict_keys_type);
     PyDictKeyIterator::extend_class(context, &context.types.dict_keyiterator_type);
+    PyDictReverseKeyIterator::extend_class(context, &context.types.dict_reversekeyiterator_type);
     PyDictValues::extend_class(context, &context.types.dict_values_type);
     PyDictValueIterator::extend_class(context, &context.types.dict_valueiterator_type);
+    PyDictReverseValueIterator::extend_class(
+        context,
+        &context.types.dict_reversevalueiterator_type,
+    );
     PyDictItems::extend_class(context, &context.types.dict_items_type);
     PyDictItemIterator::extend_class(context, &context.types.dict_itemiterator_type);
+    PyDictReverseItemIterator::extend_class(context, &context.types.dict_reverseitemiterator_type);
 }
 
 pub struct PyMapping {
