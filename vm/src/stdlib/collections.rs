@@ -4,7 +4,7 @@ pub(crate) use _collections::make_module;
 mod _collections {
     use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
     use crate::function::OptionalArg;
-    use crate::obj::{objiter, objtype::PyClassRef};
+    use crate::obj::{objiter, objsequence, objtype::PyClassRef};
     use crate::pyobject::{
         IdProtocol, PyArithmaticValue::*, PyClassImpl, PyComparisonValue, PyIterable, PyObjectRef,
         PyRef, PyResult, PyValue,
@@ -247,7 +247,32 @@ mod _collections {
             self.maxlen.store(maxlen);
         }
 
-        #[pymethod(name = "__repr__")]
+        #[pymethod(magic)]
+        fn getitem(&self, idx: isize, vm: &VirtualMachine) -> PyResult {
+            let deque = self.borrow_deque();
+            objsequence::get_pos(idx, deque.len())
+                .and_then(|i| deque.get(i).cloned())
+                .ok_or_else(|| vm.new_index_error("deque index out of range".to_owned()))
+        }
+
+        #[pymethod(magic)]
+        fn setitem(&self, idx: isize, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            let mut deque = self.borrow_deque_mut();
+            objsequence::get_pos(idx, deque.len())
+                .and_then(|i| deque.get_mut(i))
+                .map(|x| *x = value)
+                .ok_or_else(|| vm.new_index_error("deque index out of range".to_owned()))
+        }
+
+        #[pymethod(magic)]
+        fn delitem(&self, idx: isize, vm: &VirtualMachine) -> PyResult<()> {
+            let mut deque = self.borrow_deque_mut();
+            objsequence::get_pos(idx, deque.len())
+                .and_then(|i| deque.remove(i).map(drop))
+                .ok_or_else(|| vm.new_index_error("deque index out of range".to_owned()))
+        }
+
+        #[pymethod(magic)]
         fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
             let repr = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
                 let elements = zelf
@@ -299,7 +324,7 @@ mod _collections {
             Ok(r)
         }
 
-        #[pymethod(name = "__eq__")]
+        #[pymethod(magic)]
         fn eq(
             zelf: PyRef<Self>,
             other: PyObjectRef,
@@ -312,7 +337,7 @@ mod _collections {
             }
         }
 
-        #[pymethod(name = "__ne__")]
+        #[pymethod(magic)]
         fn ne(
             zelf: PyRef<Self>,
             other: PyObjectRef,
@@ -321,7 +346,7 @@ mod _collections {
             Ok(PyDeque::eq(zelf, other, vm)?.map(|v| !v))
         }
 
-        #[pymethod(name = "__lt__")]
+        #[pymethod(magic)]
         fn lt(
             zelf: PyRef<Self>,
             other: PyObjectRef,
@@ -334,7 +359,7 @@ mod _collections {
             }
         }
 
-        #[pymethod(name = "__gt__")]
+        #[pymethod(magic)]
         fn gt(
             zelf: PyRef<Self>,
             other: PyObjectRef,
@@ -347,7 +372,7 @@ mod _collections {
             }
         }
 
-        #[pymethod(name = "__le__")]
+        #[pymethod(magic)]
         fn le(
             zelf: PyRef<Self>,
             other: PyObjectRef,
@@ -360,7 +385,7 @@ mod _collections {
             }
         }
 
-        #[pymethod(name = "__ge__")]
+        #[pymethod(magic)]
         fn ge(
             zelf: PyRef<Self>,
             other: PyObjectRef,
@@ -373,7 +398,7 @@ mod _collections {
             }
         }
 
-        #[pymethod(name = "__mul__")]
+        #[pymethod(magic)]
         fn mul(&self, n: isize) -> Self {
             let deque: SimpleSeqDeque = self.borrow_deque().into();
             let mul = sequence::seq_mul(&deque, n);
@@ -389,12 +414,12 @@ mod _collections {
             }
         }
 
-        #[pymethod(name = "__len__")]
+        #[pymethod(magic)]
         fn len(&self) -> usize {
             self.borrow_deque().len()
         }
 
-        #[pymethod(name = "__iter__")]
+        #[pymethod(magic)]
         fn iter(zelf: PyRef<Self>) -> PyDequeIterator {
             PyDequeIterator {
                 position: AtomicCell::new(0),
@@ -419,7 +444,7 @@ mod _collections {
 
     #[pyimpl]
     impl PyDequeIterator {
-        #[pymethod(name = "__next__")]
+        #[pymethod(magic)]
         fn next(&self, vm: &VirtualMachine) -> PyResult {
             let pos = self.position.fetch_add(1);
             let deque = self.deque.borrow_deque();
@@ -431,7 +456,7 @@ mod _collections {
             }
         }
 
-        #[pymethod(name = "__iter__")]
+        #[pymethod(magic)]
         fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
             zelf
         }

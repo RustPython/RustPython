@@ -1,10 +1,11 @@
+use std::convert::TryFrom;
 use std::fmt;
 use std::mem::size_of;
 
 use bstr::ByteSlice;
 use num_bigint::{BigInt, BigUint, Sign};
 use num_integer::Integer;
-use num_traits::{One, Pow, Signed, ToPrimitive, Zero};
+use num_traits::{One, Pow, PrimInt, Signed, ToPrimitive, Zero};
 
 use super::objbool::IntoPyBool;
 use super::objbytearray::PyByteArray;
@@ -93,20 +94,24 @@ macro_rules! impl_into_pyobject_int {
 
 impl_into_pyobject_int!(isize i8 i16 i32 i64 usize u8 u16 u32 u64 BigInt);
 
+pub fn try_to_primitive<'a, I>(i: &'a BigInt, vm: &VirtualMachine) -> PyResult<I>
+where
+    I: PrimInt + TryFrom<&'a BigInt>,
+{
+    I::try_from(i).map_err(|_| {
+        vm.new_overflow_error(format!(
+            "Python int too large to convert to Rust {}",
+            std::any::type_name::<I>()
+        ))
+    })
+}
+
 macro_rules! impl_try_from_object_int {
     ($(($t:ty, $to_prim:ident),)*) => {$(
         impl TryFromObject for $t {
             fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
                 let int = PyIntRef::try_from_object(vm, obj)?;
-                match int.value.$to_prim() {
-                    Some(value) => Ok(value),
-                    None => Err(
-                        vm.new_overflow_error(concat!(
-                            "Int value cannot fit into Rust ",
-                            stringify!($t)
-                        ).to_owned())
-                    ),
-                }
+                try_to_primitive(&int.value, vm)
             }
         }
     )*};
