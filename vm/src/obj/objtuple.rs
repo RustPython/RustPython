@@ -11,6 +11,7 @@ use crate::pyobject::{
     PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
 };
 use crate::sequence::{self, SimpleSeq};
+use crate::slots::Hashable;
 use crate::vm::{ReprGuard, VirtualMachine};
 use rustpython_common::hash::PyHash;
 
@@ -80,7 +81,7 @@ pub(crate) fn get_value(obj: &PyObjectRef) -> &[PyObjectRef] {
     obj.payload::<PyTuple>().unwrap().borrow_value()
 }
 
-#[pyimpl(flags(BASETYPE))]
+#[pyimpl(flags(BASETYPE), with(Hashable))]
 impl PyTuple {
     #[inline]
     fn cmp<F>(&self, other: PyObjectRef, op: F, vm: &VirtualMachine) -> PyResult<PyComparisonValue>
@@ -157,11 +158,6 @@ impl PyTuple {
     #[pymethod(name = "__ne__")]
     fn ne(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
         Ok(self.eq(other, vm)?.map(|v| !v))
-    }
-
-    #[pymethod(name = "__hash__")]
-    fn hash(&self, vm: &VirtualMachine) -> PyResult<PyHash> {
-        pyobject::hash_iter(self.elements.iter(), vm)
     }
 
     #[pymethod(name = "__iter__")]
@@ -252,6 +248,12 @@ impl PyTuple {
         };
 
         PyTuple::from(elements).into_ref_with_type(vm, cls)
+    }
+}
+
+impl Hashable for PyTuple {
+    fn hash(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+        pyobject::hash_iter(zelf.elements.iter(), vm)
     }
 }
 

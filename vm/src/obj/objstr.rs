@@ -28,7 +28,8 @@ use crate::pyobject::{
 use crate::pystr::{
     self, adjust_indices, PyCommonString, PyCommonStringContainer, PyCommonStringWrapper,
 };
-use crate::vm::VirtualMachine;
+use crate::slots::Hashable;
+use crate::VirtualMachine;
 use rustpython_common::hash;
 
 /// str(object='') -> str
@@ -177,7 +178,7 @@ struct StrArgs {
     errors: OptionalArg<PyStringRef>,
 }
 
-#[pyimpl(flags(BASETYPE))]
+#[pyimpl(flags(BASETYPE), with(Hashable))]
 impl PyString {
     #[pyslot]
     fn tp_new(cls: PyClassRef, args: StrArgs, vm: &VirtualMachine) -> PyResult<PyStringRef> {
@@ -289,7 +290,6 @@ impl PyString {
         self.value <= other.value
     }
 
-    #[pymethod(name = "__hash__")]
     pub(crate) fn hash(&self, vm: &VirtualMachine) -> hash::PyHash {
         self.hash.load().unwrap_or_else(|| {
             let hash = vm.state.hash_secret.hash_str(&self.value);
@@ -1081,6 +1081,11 @@ impl PyString {
     }
 }
 
+impl Hashable for PyString {
+    fn hash(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<hash::PyHash> {
+        Ok(zelf.hash(vm))
+    }
+}
 #[derive(FromArgs)]
 struct EncodeArgs {
     #[pyarg(positional_or_keyword, default = "None")]

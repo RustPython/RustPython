@@ -8,7 +8,8 @@ use crate::pyobject::{
     BorrowValue, IntoPyObject, Never, PyArithmaticValue, PyClassImpl, PyComparisonValue, PyContext,
     PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
-use crate::vm::VirtualMachine;
+use crate::slots::Hashable;
+use crate::VirtualMachine;
 use rustpython_common::{float_ops, hash};
 
 /// Create a complex number from a real part and an optional imaginary part.
@@ -55,7 +56,7 @@ fn try_complex(value: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<Comp
     Ok(r)
 }
 
-#[pyimpl(flags(BASETYPE))]
+#[pyimpl(flags(BASETYPE), with(Hashable))]
 impl PyComplex {
     #[pyproperty(name = "real")]
     fn real(&self) -> f64 {
@@ -288,16 +289,17 @@ impl PyComplex {
         Self::from(value).into_ref_with_type(vm, cls)
     }
 
-    #[pymethod(name = "__hash__")]
-    fn hash(&self) -> hash::PyHash {
-        hash::hash_complex(&self.value)
-    }
-
     #[pymethod(name = "__getnewargs__")]
     fn complex_getnewargs(&self, vm: &VirtualMachine) -> PyObjectRef {
         let Complex64 { re, im } = self.value;
         vm.ctx
             .new_tuple(vec![vm.ctx.new_float(re), vm.ctx.new_float(im)])
+    }
+}
+
+impl Hashable for PyComplex {
+    fn hash(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyResult<hash::PyHash> {
+        Ok(hash::hash_complex(&zelf.value))
     }
 }
 

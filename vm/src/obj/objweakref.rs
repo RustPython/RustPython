@@ -4,7 +4,7 @@ use crate::pyobject::{
     IdProtocol, PyClassImpl, PyContext, PyObject, PyObjectPayload, PyObjectRef, PyRef, PyResult,
     PyValue, TypeProtocol,
 };
-use crate::slots::SlotCall;
+use crate::slots::{Hashable, SlotCall};
 use crate::vm::VirtualMachine;
 use rustpython_common::hash::PyHash;
 use rustpython_common::rc::{PyRc, PyWeak as Weak};
@@ -46,7 +46,7 @@ impl SlotCall for PyWeak {
     }
 }
 
-#[pyimpl(with(SlotCall), flags(BASETYPE))]
+#[pyimpl(with(SlotCall, Hashable), flags(BASETYPE))]
 impl PyWeak {
     // TODO callbacks
     #[pyslot]
@@ -57,21 +57,6 @@ impl PyWeak {
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
         PyWeak::downgrade(&referent).into_ref_with_type(vm, cls)
-    }
-
-    #[pymethod(magic)]
-    fn hash(&self, vm: &VirtualMachine) -> PyResult<PyHash> {
-        match self.hash.load() {
-            Some(hash) => Ok(hash),
-            None => {
-                let obj = self
-                    .upgrade()
-                    .ok_or_else(|| vm.new_type_error("weak object has gone away".to_owned()))?;
-                let hash = vm._hash(&obj)?;
-                self.hash.store(Some(hash));
-                Ok(hash)
-            }
-        }
     }
 
     #[pymethod(magic)]
@@ -98,6 +83,22 @@ impl PyWeak {
             )
         } else {
             format!("<weakref at {}; dead>", id)
+        }
+    }
+}
+
+impl Hashable for PyWeak {
+    fn hash(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+        match zelf.hash.load() {
+            Some(hash) => Ok(hash),
+            None => {
+                let obj = zelf
+                    .upgrade()
+                    .ok_or_else(|| vm.new_type_error("weak object has gone away".to_owned()))?;
+                let hash = vm._hash(&obj)?;
+                zelf.hash.store(Some(hash));
+                Ok(hash)
+            }
         }
     }
 }
