@@ -229,6 +229,8 @@ fn thread_start_new_thread(
     }
     let res = thread_builder.spawn(move || {
         let vm = &thread_vm;
+        let prior_vm = crate::vm::thread::VM.with(|tvm| tvm.replace(vm as *const _));
+        assert!(prior_vm.is_null());
         let args = Args::from(args.borrow_value().to_owned());
         let kwargs = KwArgs::from(kwargs.map_or_else(Default::default, |k| k.to_attributes()));
         if let Err(exc) = func.invoke(PyFuncArgs::from((args, kwargs)), vm) {

@@ -68,6 +68,29 @@ pub struct VirtualMachine {
     pub initialized: bool,
 }
 
+pub(crate) mod thread {
+    use super::VirtualMachine;
+    use std::cell::Cell;
+    use std::thread_local;
+
+    thread_local! {
+        pub(crate) static VM: Cell<*const VirtualMachine> = Cell::new(std::ptr::null());
+    }
+
+    pub(crate) fn with_vm<F, R>(f: F) -> R
+    where
+        F: Fn(&VirtualMachine) -> R,
+    {
+        VM.with(|tvm| {
+            // vm is guaranteed to be existing unless it is not null
+            let pvm = tvm.get();
+            debug_assert!(!pvm.is_null());
+            let vm = unsafe { &*pvm };
+            f(vm)
+        })
+    }
+}
+
 pub struct PyGlobalState {
     pub settings: PySettings,
     pub stdlib_inits: HashMap<String, stdlib::StdlibInitFunc>,
@@ -221,6 +244,7 @@ impl VirtualMachine {
             }),
             initialized: false,
         };
+        thread::VM.with(|tvm| tvm.replace(&vm as *const _));
 
         objmodule::init_module_dict(
             &vm,
