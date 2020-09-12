@@ -658,6 +658,24 @@ fn socket_getprotobyname(name: PyStringRef, vm: &VirtualMachine) -> PyResult {
     Ok(vm.ctx.new_int(num))
 }
 
+fn socket_getnameinfo(
+    address: Address,
+    flags: i32,
+    vm: &VirtualMachine,
+) -> PyResult<(String, String)> {
+    let addr = get_addr(vm, address)?;
+    let nameinfo = addr
+        .as_std()
+        .and_then(|addr| dns_lookup::getnameinfo(&addr, flags).ok());
+    nameinfo.ok_or_else(|| {
+        let error_type = vm.class("_socket", "gaierror");
+        vm.new_exception_msg(
+            error_type,
+            "nodename nor servname provided, or not known".to_owned(),
+        )
+    })
+}
+
 fn get_addr<T, I>(vm: &VirtualMachine, addr: T) -> PyResult<socket2::SockAddr>
 where
     T: ToSocketAddrs<Iter = I>,
@@ -773,6 +791,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "inet_pton" => ctx.new_function(socket_inet_pton),
         "inet_ntop" => ctx.new_function(socket_inet_ntop),
         "getprotobyname" => ctx.new_function(socket_getprotobyname),
+        "getnameinfo" => ctx.new_function(socket_getnameinfo),
         // constants
         "AF_UNSPEC" => ctx.new_int(0),
         "AF_INET" => ctx.new_int(c::AF_INET),
@@ -797,6 +816,10 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "TCP_NODELAY" => ctx.new_int(c::TCP_NODELAY),
         "AI_ALL" => ctx.new_int(c::AI_ALL),
         "AI_PASSIVE" => ctx.new_int(c::AI_PASSIVE),
+        "NI_NAMEREQD" => ctx.new_int(c::NI_NAMEREQD),
+        "NI_NOFQDN" => ctx.new_int(c::NI_NOFQDN),
+        "NI_NUMERICHOST" => ctx.new_int(c::NI_NUMERICHOST),
+        "NI_NUMERICSERV" => ctx.new_int(c::NI_NUMERICSERV),
     });
 
     #[cfg(not(target_os = "redox"))]
