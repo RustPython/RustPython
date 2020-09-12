@@ -7,7 +7,7 @@
 use std::cell::{Cell, Ref, RefCell};
 use std::collections::hash_map::HashMap;
 use std::collections::hash_set::HashSet;
-use std::{env, fmt};
+use std::fmt;
 
 use arr_macro::arr;
 use crossbeam_utils::atomic::AtomicCell;
@@ -576,7 +576,7 @@ impl VirtualMachine {
     fn _py_panic_failed(&self, exc: PyBaseExceptionRef, msg: &str) -> ! {
         #[cfg(not(all(target_arch = "wasm32", not(target_os = "wasi"))))]
         {
-            let show_backtrace = env::var_os("RUST_BACKTRACE").map_or(false, |v| &v != "0");
+            let show_backtrace = std::env::var_os("RUST_BACKTRACE").map_or(false, |v| &v != "0");
             let after = if show_backtrace {
                 exceptions::print_exception(self, exc);
                 "exception backtrace above"

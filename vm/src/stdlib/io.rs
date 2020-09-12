@@ -1,7 +1,6 @@
 /*
  * I/O core tools.
  */
-use std::fs;
 use std::io::{self, prelude::*, Cursor, SeekFrom};
 
 use bstr::ByteSlice;
@@ -756,12 +755,12 @@ mod fileio {
             }
         }
 
-        fn get_file(&self, vm: &VirtualMachine) -> PyResult<fs::File> {
+        fn get_file(&self, vm: &VirtualMachine) -> PyResult<std::fs::File> {
             let fileno = self.fileno(vm)?;
             Ok(os::rust_file(fileno))
         }
 
-        fn set_file(&self, f: fs::File) -> PyResult<()> {
+        fn set_file(&self, f: std::fs::File) -> PyResult<()> {
             let updated = os::raw_file_number(f);
             self.fd.store(updated);
             Ok(())
