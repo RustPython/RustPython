@@ -1187,15 +1187,6 @@ pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
     }
 }
 
-impl<T> PyValue for std::mem::MaybeUninit<T>
-where
-    T: PyValue,
-{
-    fn class(vm: &VirtualMachine) -> PyClassRef {
-        T::class(vm)
-    }
-}
-
 pub trait BorrowValue<'a>: PyValue {
     type Borrowed: 'a + Deref;
     fn borrow_value(&'a self) -> Self::Borrowed;
