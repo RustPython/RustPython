@@ -1010,19 +1010,7 @@ impl PyBytesInner {
             // We can multiple an empty vector by any integer, even if it doesn't fit in an isize.
             return;
         }
-
-        if n <= 0 {
-            self.elements.clear();
-        } else {
-            let n = n.to_usize().unwrap(); // always positive by outer if condition
-
-            let old = self.elements.clone();
-
-            self.elements.reserve((n - 1) * old.len());
-            for _ in 1..n {
-                self.elements.extend(&old);
-            }
-        }
+        self.elements = self.repeat(n);
     }
 }
 

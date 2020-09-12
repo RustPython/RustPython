@@ -1392,8 +1392,6 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         else:
             self.fail("bytes += unicode didn't raise TypeError")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_irepeat(self):
         b = bytearray(b"abc")
         b1 = b
@@ -1402,8 +1400,6 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         self.assertEqual(b, b1)
         self.assertIs(b, b1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_irepeat_1char(self):
         b = bytearray(b"x")
         b1 = b

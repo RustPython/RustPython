@@ -574,8 +574,9 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "__imul__")]
-    fn imul(&self, n: isize) {
-        self.borrow_value_mut().irepeat(n)
+    fn imul(zelf: PyRef<Self>, n: isize) -> PyRef<Self> {
+        zelf.borrow_value_mut().irepeat(n);
+        zelf
     }
 
     #[pymethod(name = "__mod__")]
