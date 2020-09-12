@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::marker::PhantomData;
 use std::mem;
 use std::ops::RangeInclusive;
 
@@ -475,36 +476,56 @@ pub type PyNativeFunc = Box<py_dyn_fn!(dyn Fn(&VirtualMachine, PyFuncArgs) -> Py
 
 /// Implemented by types that are or can generate built-in functions.
 ///
-/// For example, any function that:
+/// This trait is implemented by any function that matches the pattern:
 ///
-/// - Accepts a sequence of types that implement `FromArgs`, followed by a
-///   `&VirtualMachine`
-/// - Returns some type that implements `IntoPyObject`
+/// ```rust,ignore
+/// Fn([&self,] [T where T: FromArgs, ...] [, vm: &VirtualMachine])
+/// ```
 ///
-/// will generate a `PyNativeFunc` that performs the appropriate type and arity
-/// checking, any requested conversions, and then if successful call the function
-/// with the bound values.
+/// For example, anything from `Fn()` to `Fn(vm: &VirtualMachine) -> u32` to
+/// `Fn(PyIntRef, PyIntRef) -> String` to
+/// `Fn(&self, PyStringRef, FooOptions, vm: &VirtualMachine) -> PyResult<PyInt>`
+/// is `IntoPyNativeFunc`. If you do want a really general function signature, e.g.
+/// to forward the args to another function, you can define a function like
+/// `Fn(PyFuncArgs [, &VirtualMachine]) -> ...`
 ///
-/// A bare `PyNativeFunc` also implements this trait, allowing the above to be
-/// done manually, for rare situations that don't fit into this model.
-pub trait IntoPyNativeFunc<T, R, VM>: Sized + PyThreadingConstraint + 'static {
+/// Note that the `Kind` type parameter is meaningless and should be considered
+/// an implementation detail; if you need to use `IntoPyNativeFunc` as a trait bound
+/// just pass an unconstrained generic type, e.g.
+/// `fn foo<F, FKind>(f: F) where F: IntoPyNativeFunc<FKind>`
+pub trait IntoPyNativeFunc<Kind>: Sized + PyThreadingConstraint + 'static {
     fn call(&self, vm: &VirtualMachine, args: PyFuncArgs) -> PyResult;
+    /// `IntoPyNativeFunc::into_func()` generates a PyNativeFunc that performs the
+    /// appropriate type and arity checking, any requested conversions, and then if
+    /// successful calls the function with the extracted parameters.
     fn into_func(self) -> PyNativeFunc {
         Box::new(move |vm: &VirtualMachine, args| self.call(vm, args))
     }
 }
 
-impl<F> IntoPyNativeFunc<PyFuncArgs, PyResult, VirtualMachine> for F
+// TODO: once higher-rank trait bounds are stabilized, remove the `Kind` type
+// parameter and impl for F where F: for<T, R, VM> PyNativeFuncInternal<T, R, VM>
+impl<F, T, R, VM> IntoPyNativeFunc<(T, R, VM)> for F
 where
-    F: Fn(&VirtualMachine, PyFuncArgs) -> PyResult + PyThreadingConstraint + 'static,
+    F: PyNativeFuncInternal<T, R, VM>,
 {
     fn call(&self, vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-        (self)(vm, args)
+        self.call_(vm, args)
     }
 }
 
-pub struct OwnedParam<T>(std::marker::PhantomData<T>);
-pub struct RefParam<T>(std::marker::PhantomData<T>);
+mod sealed {
+    use super::*;
+    pub trait PyNativeFuncInternal<T, R, VM>: Sized + PyThreadingConstraint + 'static {
+        fn call_(&self, vm: &VirtualMachine, args: PyFuncArgs) -> PyResult;
+    }
+}
+use sealed::PyNativeFuncInternal;
+
+#[doc(hidden)]
+pub struct OwnedParam<T>(PhantomData<T>);
+#[doc(hidden)]
+pub struct RefParam<T>(PhantomData<T>);
 
 // This is the "magic" that allows rust functions of varying signatures to
 // generate native python functions.
@@ -512,54 +533,54 @@ pub struct RefParam<T>(std::marker::PhantomData<T>);
 // Note that this could be done without a macro - it is simply to avoid repetition.
 macro_rules! into_py_native_func_tuple {
     ($(($n:tt, $T:ident)),*) => {
-        impl<F, $($T,)* R> IntoPyNativeFunc<($(OwnedParam<$T>,)*), R, VirtualMachine> for F
+        impl<F, $($T,)* R> PyNativeFuncInternal<($(OwnedParam<$T>,)*), R, VirtualMachine> for F
         where
             F: Fn($($T,)* &VirtualMachine) -> R + PyThreadingConstraint + 'static,
             $($T: FromArgs,)*
             R: IntoPyResult,
         {
-            fn call(&self, vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+            fn call_(&self, vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
                 let ($($n,)*) = args.bind::<($($T,)*)>(vm)?;
 
                 (self)($($n,)* vm).into_pyresult(vm)
             }
         }
 
-        impl<F, S, $($T,)* R> IntoPyNativeFunc<(RefParam<S>, $(OwnedParam<$T>,)*), R, VirtualMachine> for F
+        impl<F, S, $($T,)* R> PyNativeFuncInternal<(RefParam<S>, $(OwnedParam<$T>,)*), R, VirtualMachine> for F
         where
             F: Fn(&S, $($T,)* &VirtualMachine) -> R + PyThreadingConstraint + 'static,
             S: PyValue,
             $($T: FromArgs,)*
             R: IntoPyResult,
         {
-            fn call(&self, vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+            fn call_(&self, vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
                 let (zelf, $($n,)*) = args.bind::<(PyRef<S>, $($T,)*)>(vm)?;
 
                 (self)(&zelf, $($n,)* vm).into_pyresult(vm)
             }
         }
 
-        impl<F, $($T,)* R> IntoPyNativeFunc<($(OwnedParam<$T>,)*), R, ()> for F
+        impl<F, $($T,)* R> PyNativeFuncInternal<($(OwnedParam<$T>,)*), R, ()> for F
         where
             F: Fn($($T,)*) -> R + PyThreadingConstraint + 'static,
             $($T: FromArgs,)*
             R: IntoPyResult,
         {
-            fn call(&self, vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+            fn call_(&self, vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
                 let ($($n,)*) = args.bind::<($($T,)*)>(vm)?;
 
                 (self)($($n,)*).into_pyresult(vm)
             }
         }
 
-        impl<F, S, $($T,)* R> IntoPyNativeFunc<(RefParam<S>, $(OwnedParam<$T>,)*), R, ()> for F
+        impl<F, S, $($T,)* R> PyNativeFuncInternal<(RefParam<S>, $(OwnedParam<$T>,)*), R, ()> for F
         where
             F: Fn(&S, $($T,)*) -> R + PyThreadingConstraint + 'static,
             S: PyValue,
             $($T: FromArgs,)*
             R: IntoPyResult,
         {
-            fn call(&self, vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+            fn call_(&self, vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
                 let (zelf, $($n,)*) = args.bind::<(PyRef<S>, $($T,)*)>(vm)?;
 
                 (self)(&zelf, $($n,)*).into_pyresult(vm)

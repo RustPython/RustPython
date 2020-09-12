@@ -26,7 +26,7 @@ impl PyValue for PyBaseObject {
 #[pyimpl(flags(BASETYPE))]
 impl PyBaseObject {
     #[pyslot]
-    fn tp_new(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResult {
+    fn tp_new(mut args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
         // more or less __new__ operator
         let cls = PyClassRef::try_from_object(vm, args.shift())?;
         let dict = if cls.is(&vm.ctx.types.object_type) {
@@ -135,7 +135,7 @@ impl PyBaseObject {
     }
 
     #[pyclassmethod(magic)]
-    fn subclasshook(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {
+    fn subclasshook(_args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
         Ok(vm.ctx.not_implemented())
     }
 
@@ -176,7 +176,7 @@ impl PyBaseObject {
     }
 
     #[pymethod(magic)]
-    fn init(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {
+    fn init(_args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
         Ok(vm.ctx.none())
     }
 
