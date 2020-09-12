@@ -15,8 +15,8 @@ use crate::obj::objsequence::{PySliceableSequence, PySliceableSequenceMut, Seque
 use crate::obj::objslice::PySliceRef;
 use crate::obj::objstr::{self, PyString, PyStringRef};
 use crate::pyobject::{
-    BorrowValue, Either, PyComparisonValue, PyIterable, PyObjectRef, PyResult, TryFromObject,
-    TypeProtocol,
+    BorrowValue, Either, PyComparisonValue, PyIterable, PyIterator, PyObjectRef, PyResult,
+    TryFromObject, TypeProtocol,
 };
 use crate::pystr::{self, PyCommonString, PyCommonStringContainer, PyCommonStringWrapper};
 use crate::vm::VirtualMachine;
@@ -340,22 +340,27 @@ impl PyBytesInner {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         if let Some(idx) = self.elements.get_pos(int) {
-            let result = match_class!(match object {
-                i @ PyInt => {
-                    if let Some(value) = i.borrow_value().to_u8() {
-                        Ok(value)
-                    } else {
-                        Err(vm.new_value_error("byte must be in range(0, 256)".to_owned()))
-                    }
-                }
-                _ => Err(vm.new_type_error("an integer is required".to_owned())),
-            });
-            let value = result?;
+            let value = Self::value_try_from_object(vm, object)?;
             self.elements[idx] = value;
             Ok(())
         } else {
             Err(vm.new_index_error("index out of range".to_owned()))
         }
+    }
+
+    fn value_try_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<u8> {
+        let value = vm.to_index(&object).ok_or_else(|| {
+            vm.new_type_error(format!(
+                "'{}' object cannot be interpreted as an integer",
+                object.class().name
+            ))
+        })?;
+        // __index__ returned non-int type
+        let value = value?;
+        value
+            .borrow_value()
+            .to_u8()
+            .ok_or_else(|| vm.new_value_error("byte must be in range(0, 256)".to_owned()))
     }
 
     pub fn setslice(
@@ -366,15 +371,13 @@ impl PyBytesInner {
     ) -> PyResult<()> {
         let sec = match PyIterable::try_from_object(vm, object.clone()) {
             Ok(sec) => {
-                let items: Result<Vec<PyObjectRef>, _> = sec.iter(vm)?.collect();
-                Ok(items?
-                    .into_iter()
-                    .map(|obj| u8::try_from_object(vm, obj))
-                    .collect::<PyResult<Vec<_>>>()?)
+                let iter: PyIterator<PyObjectRef> = sec.iter(vm)?;
+                iter.map(|obj| Self::value_try_from_object(vm, obj?))
+                    .try_collect()
             }
             _ => match_class!(match object {
                 i @ PyMemoryView => Ok(i.try_bytes(|v| v.to_vec()).unwrap()),
-                _ => Err(vm.new_value_error(
+                _ => Err(vm.new_type_error(
                     "can assign only bytes, buffers, or iterables of ints in range(0, 256)"
                         .to_owned()
                 )),

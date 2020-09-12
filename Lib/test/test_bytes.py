@@ -1238,8 +1238,6 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         b = by("Hello, world")
         self.assertEqual(re.findall(br"\w+", b), [by("Hello"), by("world")])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_setitem(self):
         b = bytearray([1, 2, 3])
         b[1] = 100
@@ -1283,8 +1281,6 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         del b[4]
         self.assertEqual(b, bytearray([1, 2, 3, 4, 6, 7, 8]))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_setslice(self):
         b = bytearray(range(10))
         self.assertEqual(list(b), list(range(10)))
