@@ -303,8 +303,12 @@ impl PyBytesInner {
         vm.state.hash_secret.hash_bytes(&self.elements)
     }
 
-    pub fn add(&self, other: PyBytesInner) -> Vec<u8> {
-        self.elements.py_add(&other.elements)
+    pub fn add(&self, other: PyBytesLike) -> Vec<u8> {
+        other.with_ref(|other| self.elements.py_add(other))
+    }
+
+    pub fn iadd(&mut self, other: PyBytesLike) {
+        other.with_ref(|other| self.elements.extend(other));
     }
 
     pub fn contains(

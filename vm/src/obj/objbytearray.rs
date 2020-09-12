@@ -13,6 +13,7 @@ use crate::bytesinner::{
     bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
     ByteInnerSplitOptions, ByteInnerTranslateOptions, ByteOr, DecodeArgs, PyBytesInner,
 };
+use crate::byteslike::PyBytesLike;
 use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::function::{OptionalArg, OptionalOption};
 use crate::pyobject::{
@@ -163,11 +164,15 @@ impl PyByteArray {
 
     #[pymethod(name = "__add__")]
     fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Ok(other) = PyBytesInner::try_from_object(vm, other) {
-            Ok(vm.ctx.new_bytearray(self.borrow_value().add(other)))
-        } else {
-            Ok(vm.ctx.not_implemented())
-        }
+        let other = PyBytesLike::try_from_object(vm, other)?;
+        Ok(vm.ctx.new_bytearray(self.borrow_value().add(other)))
+    }
+
+    #[pymethod(name = "__iadd__")]
+    fn iadd(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        let other = PyBytesLike::try_from_object(vm, other)?;
+        zelf.borrow_value_mut().iadd(other);
+        Ok(zelf)
     }
 
     #[pymethod(name = "__contains__")]

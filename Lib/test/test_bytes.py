@@ -1374,8 +1374,6 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         b[8:] = b
         self.assertEqual(b, bytearray(list(range(8)) + list(range(256))))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_iconcat(self):
         b = bytearray(b"abc")
         b1 = b
