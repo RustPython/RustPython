@@ -426,7 +426,7 @@ mod decl {
     }
 
     #[pyfunction]
-    fn max(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResult {
+    fn max(mut args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
         let default = args.take_keyword("default");
         let key_func = args.take_keyword("key");
         if !args.kwargs.is_empty() {
@@ -486,7 +486,7 @@ mod decl {
     }
 
     #[pyfunction]
-    fn min(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    fn min(args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
         let candidates = match args.args.len().cmp(&1) {
             std::cmp::Ordering::Greater => args.args.clone(),
             std::cmp::Ordering::Equal => vm.extract_elements(&args.args[0])?,
@@ -763,7 +763,7 @@ mod decl {
     }
 
     #[pyfunction]
-    fn __import__(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    fn __import__(args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
         vm.invoke(&vm.import_func, args)
     }
 

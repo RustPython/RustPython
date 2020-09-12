@@ -197,7 +197,7 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
     } else if js_val.is_function() {
         let func = js_sys::Function::from(js_val);
         vm.ctx
-            .new_method(move |vm: &VirtualMachine, args: PyFuncArgs| -> PyResult {
+            .new_method(move |args: PyFuncArgs, vm: &VirtualMachine| -> PyResult {
                 let this = Object::new();
                 for (k, v) in args.kwargs {
                     Reflect::set(&this, &k.into(), &py_to_js(vm, v))

@@ -483,11 +483,16 @@ pub type PyNativeFunc = Box<py_dyn_fn!(dyn Fn(&VirtualMachine, PyFuncArgs) -> Py
 /// ```
 ///
 /// For example, anything from `Fn()` to `Fn(vm: &VirtualMachine) -> u32` to
+/// `Fn(PyIntRef, PyIntRef) -> String` to
 /// `Fn(&self, PyStringRef, FooOptions, vm: &VirtualMachine) -> PyResult<PyInt>`
-/// is `IntoPyNativeFunc`
+/// is `IntoPyNativeFunc`. If you do want a really general function signature, e.g.
+/// to forward the args to another function, you can define a function like
+/// `Fn(PyFuncArgs [, &VirtualMachine]) -> ...`
 ///
-/// A bare `PyNativeFunc` also implements this trait, allowing the above to be
-/// done manually, for rare situations that don't fit into this model.
+/// Note that the `Kind` type parameter is meaningless and should be considered
+/// an implementation detail; if you need to use `IntoPyNativeFunc` as a trait bound
+/// just pass an unconstrained generic type, e.g.
+/// `fn foo<F, FKind>(f: F) where F: IntoPyNativeFunc<FKind>`
 pub trait IntoPyNativeFunc<Kind>: Sized + PyThreadingConstraint + 'static {
     fn call(&self, vm: &VirtualMachine, args: PyFuncArgs) -> PyResult;
     /// `IntoPyNativeFunc::into_func()` generates a PyNativeFunc that performs the
@@ -498,8 +503,8 @@ pub trait IntoPyNativeFunc<Kind>: Sized + PyThreadingConstraint + 'static {
     }
 }
 
-// once higher-rank trait bounds are stabilized, remove the Kind type parameter and
-// impl for F where F: for<T, R, VM> PyNativeFuncInternal<T, R, VM>
+// TODO: once higher-rank trait bounds are stabilized, remove the `Kind` type
+// parameter and impl for F where F: for<T, R, VM> PyNativeFuncInternal<T, R, VM>
 impl<F, T, R, VM> IntoPyNativeFunc<(T, R, VM)> for F
 where
     F: PyNativeFuncInternal<T, R, VM>,
@@ -517,16 +522,9 @@ mod sealed {
 }
 use sealed::PyNativeFuncInternal;
 
-impl<F> PyNativeFuncInternal<PyFuncArgs, PyResult, VirtualMachine> for F
-where
-    F: Fn(&VirtualMachine, PyFuncArgs) -> PyResult + PyThreadingConstraint + 'static,
-{
-    fn call_(&self, vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-        (self)(vm, args)
-    }
-}
-
+#[doc(hidden)]
 pub struct OwnedParam<T>(PhantomData<T>);
+#[doc(hidden)]
 pub struct RefParam<T>(PhantomData<T>);
 
 // This is the "magic" that allows rust functions of varying signatures to
