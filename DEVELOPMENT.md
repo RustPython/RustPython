@@ -51,10 +51,10 @@ Python code should follow the
 ## Testing
 
 To test RustPython's functionality, a collection of Python snippets is located
-in the `tests/snippets` directory and can be run using `pytest`:
+in the `extra_tests/snippets` directory and can be run using `pytest`:
 
 ```shell
-$ cd tests
+$ cd extra_tests
 $ pytest -v
 ```
 
@@ -93,6 +93,7 @@ repository's structure:
 - `parser/src`: python lexing, parsing and ast
 - `Lib`: Carefully selected / copied files from CPython sourcecode. This is
    the python side of the standard library.
+  - `test`: CPython test suite
 - `vm/src`: python virtual machine
   - `builtins.rs`: Builtin functions
   - `compile.rs`: the python compiler from ast to bytecode
@@ -103,7 +104,7 @@ repository's structure:
 - `py_code_object`: CPython bytecode to rustpython bytecode converter (work in
   progress)
 - `wasm`: Binary crate and resources for WebAssembly build
-- `tests`: integration test snippets
+- `extra_tests`: extra integration test snippets as supplement of `Lib/test`
 
 ## Understanding Internals
 

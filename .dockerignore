@@ -8,7 +8,7 @@
 .vscode
 wasm-pack.log
 .idea/
-tests/snippets/resources
+extra_tests/snippets/resources
 
 flame-graph.html
 flame.txt

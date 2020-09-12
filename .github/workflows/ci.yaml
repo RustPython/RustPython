@@ -84,10 +84,10 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install pipenv
       - run: pipenv install
-        working-directory: ./tests
+        working-directory: ./extra_tests
       - name: run snippets
         run: pipenv run pytest -v
-        working-directory: ./tests
+        working-directory: ./extra_tests
       - name: run cpython tests
         run: target/release/rustpython -m test -v
         env:

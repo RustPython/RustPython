@@ -499,11 +499,15 @@ fn test_run_script() {
     let r = run_script(
         &vm,
         vm.new_scope_with_builtins(),
-        "tests/snippets/dir_main/__main__.py",
+        "extra_tests/snippets/dir_main/__main__.py",
     );
     assert!(r.is_ok());
 
     // test module run
-    let r = run_script(&vm, vm.new_scope_with_builtins(), "tests/snippets/dir_main");
+    let r = run_script(
+        &vm,
+        vm.new_scope_with_builtins(),
+        "extra_tests/snippets/dir_main",
+    );
     assert!(r.is_ok());
 }

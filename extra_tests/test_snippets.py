@@ -20,7 +20,7 @@ class _TestType(enum.Enum):
 
 logger = logging.getLogger("tests")
 ROOT_DIR = ".."
-TEST_ROOT = os.path.abspath(os.path.join(ROOT_DIR, "tests"))
+TEST_ROOT = os.path.abspath(os.path.join(ROOT_DIR, "extra_tests"))
 TEST_DIRS = {_TestType.functional: os.path.join(TEST_ROOT, "snippets")}
 CPYTHON_RUNNER_DIR = os.path.abspath(os.path.join(ROOT_DIR, "py_code_object"))
 RUSTPYTHON_RUNNER_DIR = os.path.abspath(os.path.join(ROOT_DIR))
