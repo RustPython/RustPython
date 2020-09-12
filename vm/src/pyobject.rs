@@ -291,9 +291,9 @@ impl PyContext {
         )
     }
 
-    pub fn new_function<F, T, R, VM>(&self, f: F) -> PyObjectRef
+    pub fn new_function<F, FKind>(&self, f: F) -> PyObjectRef
     where
-        F: IntoPyNativeFunc<T, R, VM>,
+        F: IntoPyNativeFunc<FKind>,
     {
         PyObject::new(
             PyBuiltinFunction::from(f.into_func()),
@@ -302,9 +302,9 @@ impl PyContext {
         )
     }
 
-    pub fn new_function_named<F, T, R, VM>(&self, f: F, module: String, name: String) -> PyObjectRef
+    pub fn new_function_named<F, FKind>(&self, f: F, module: String, name: String) -> PyObjectRef
     where
-        F: IntoPyNativeFunc<T, R, VM>,
+        F: IntoPyNativeFunc<FKind>,
     {
         let stringref =
             |s| PyRef::new_ref(objstr::PyString::from(s), self.types.str_type.clone(), None);
@@ -315,9 +315,9 @@ impl PyContext {
         )
     }
 
-    pub fn new_method<F, T, R, VM>(&self, f: F) -> PyObjectRef
+    pub fn new_method<F, FKind>(&self, f: F) -> PyObjectRef
     where
-        F: IntoPyNativeFunc<T, R, VM>,
+        F: IntoPyNativeFunc<FKind>,
     {
         PyObject::new(
             PyBuiltinMethod::from(f.into_func()),
@@ -326,9 +326,9 @@ impl PyContext {
         )
     }
 
-    pub fn new_classmethod<F, T, R, VM>(&self, f: F) -> PyObjectRef
+    pub fn new_classmethod<F, FKind>(&self, f: F) -> PyObjectRef
     where
-        F: IntoPyNativeFunc<T, R, VM>,
+        F: IntoPyNativeFunc<FKind>,
     {
         PyObject::new(
             PyClassMethod::from(self.new_method(f)),
@@ -336,9 +336,9 @@ impl PyContext {
             None,
         )
     }
-    pub fn new_staticmethod<F, T, R, VM>(&self, f: F) -> PyObjectRef
+    pub fn new_staticmethod<F, FKind>(&self, f: F) -> PyObjectRef
     where
-        F: IntoPyNativeFunc<T, R, VM>,
+        F: IntoPyNativeFunc<FKind>,
     {
         PyObject::new(
             PyStaticMethod::from(self.new_method(f)),

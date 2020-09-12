@@ -918,7 +918,7 @@ struct SupportFunc {
 }
 
 impl<'a> SupportFunc {
-    fn new<F, T, R, VM>(
+    fn new<F, FKind>(
         vm: &VirtualMachine,
         name: &'static str,
         func: F,
@@ -927,7 +927,7 @@ impl<'a> SupportFunc {
         follow_symlinks: Option<bool>,
     ) -> Self
     where
-        F: IntoPyNativeFunc<T, R, VM>,
+        F: IntoPyNativeFunc<FKind>,
     {
         let func_obj = vm.ctx.new_function(func);
         Self {
