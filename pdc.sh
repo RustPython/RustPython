@@ -23,7 +23,7 @@ PRE_ACT=()
 # Postprocessing steps run after each action is executed
 POST_ACT=()
 
-ACTIONS=("cargo build" "cargo build --release" "cargo fmt --all" "cargo clippy --all -- -Dwarnings" "cargo test --all" "cargo run --release -- -m test -v" "cd tests" "pytest" "cd ..")
+ACTIONS=("cargo build" "cargo build --release" "cargo fmt --all" "cargo clippy --all -- -Dwarnings" "cargo test --all" "cargo run --release -- -m test -v" "cd extra_tests" "pytest" "cd ..")
 
 # Usually, there should be no need to adapt the remaining file, when adding or removing actions.
 

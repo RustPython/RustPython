@@ -18,7 +18,7 @@ cd "$(dirname "$0")"
 export RUSTPYTHONPATH=Lib
 
 (
-  cd tests
+  cd extra_tests
   # -I means isolate from environment; we don't want any pip packages to be listed
   python3 -I not_impl_gen.py
 )
@@ -35,7 +35,7 @@ fi
 
 for section in "${sections[@]}"; do
   section=$(echo "$section" | tr "[:upper:]" "[:lower:]")
-  snippet=tests/snippets/whats_left_$section.py
+  snippet=extra_tests/snippets/whats_left_$section.py
   if ! [[ -f $snippet ]]; then
     echo "Invalid section $section" >&2
     continue

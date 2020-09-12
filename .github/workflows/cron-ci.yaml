@@ -40,10 +40,10 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install pipenv
       - run: pipenv install
-        working-directory: ./tests
+        working-directory: ./extra_tests
       - name: run snippets
         run: pipenv run pytest -v
-        working-directory: ./tests
+        working-directory: ./extra_tests
         env:
           RUSTPYTHON_DEBUG: 'true'
       - name: run cpython tests
@@ -68,7 +68,7 @@ jobs:
           command: build
           args: --release --verbose --all
       - name: collect tests data
-        run: cargo run --release tests/jsontests.py
+        run: cargo run --release extra_tests/jsontests.py
         env:
           RUSTPYTHONPATH: ${{ github.workspace }}/Lib
       - name: upload tests data to the website
@@ -82,7 +82,7 @@ jobs:
 
           git clone git@github.com:RustPython/rustpython.github.io.git website
           cd website
-          cp ../tests/cpython_tests_results.json ./_data/regrtests_results.json
+          cp ../extra_tests/cpython_tests_results.json ./_data/regrtests_results.json
           git add ./_data/regrtests_results.json
           git -c user.name="Github Actions" -c user.email="actions@github.com" commit -m "Update regression test results" --author="$GITHUB_ACTOR"
           git push
