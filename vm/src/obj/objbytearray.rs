@@ -560,11 +560,9 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "pop")]
-    fn pop(&self, vm: &VirtualMachine) -> PyResult<u8> {
-        self.borrow_value_mut()
-            .elements
-            .pop()
-            .ok_or_else(|| vm.new_index_error("pop from empty bytearray".to_owned()))
+    fn pop(&self, index: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult<u8> {
+        let index = index.unwrap_or(-1);
+        self.borrow_value_mut().pop(index, vm)
     }
 
     #[pymethod(name = "title")]

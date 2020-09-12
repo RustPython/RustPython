@@ -414,6 +414,14 @@ impl PyBytesInner {
         self.elements.delete_slice(vm, &slice)
     }
 
+    pub fn pop(&mut self, index: isize, vm: &VirtualMachine) -> PyResult<u8> {
+        if let Some(index) = self.elements.get_pos(index) {
+            Ok(self.elements.remove(index))
+        } else {
+            Err(vm.new_index_error("index out of range".to_owned()))
+        }
+    }
+
     pub fn isalnum(&self) -> bool {
         !self.elements.is_empty()
             && self

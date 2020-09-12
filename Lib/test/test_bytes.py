@@ -1494,8 +1494,6 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         c.remove(129)
         self.assertEqual(c, bytes([126, 128]))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pop(self):
         b = bytearray(b'world')
         self.assertEqual(b.pop(), ord('d'))
