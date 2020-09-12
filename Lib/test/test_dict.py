@@ -582,7 +582,6 @@ class DictTest(unittest.TestCase):
         with self.assertRaises(Exc):
             d1 == d2
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_keys_contained(self):
         self.helper_keys_contained(lambda x: x.keys())
         self.helper_keys_contained(lambda x: x.items())
@@ -631,8 +630,6 @@ class DictTest(unittest.TestCase):
         self.assertTrue(larger != larger3)
         self.assertFalse(larger == larger3)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_errors_in_view_containment_check(self):
         class C:
             def __eq__(self, other):
