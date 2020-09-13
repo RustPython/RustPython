@@ -3,18 +3,21 @@ use std::fmt;
 use crossbeam_utils::atomic::AtomicCell;
 
 use super::objiter;
+use super::objset::PySet;
 use super::objstr;
 use super::objtype::{self, PyClassRef};
 use crate::dictdatatype::{self, DictKey};
 use crate::exceptions::PyBaseExceptionRef;
 use crate::function::{KwArgs, OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    BorrowValue, IdProtocol, IntoPyObject, ItemProtocol, PyAttributes, PyClassImpl, PyContext,
-    PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    BorrowValue, IdProtocol, IntoPyObject, ItemProtocol, PyArithmaticValue, PyAttributes,
+    PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
 use std::mem::size_of;
+use PyArithmaticValue::{Implemented, NotImplemented};
 
 pub type DictContentType = dictdatatype::Dict;
 
@@ -146,46 +149,65 @@ impl PyDict {
         !self.entries.is_empty()
     }
 
-    fn inner_eq(zelf: PyRef<Self>, other: &PyDict, vm: &VirtualMachine) -> PyResult<bool> {
-        if other.entries.len() != zelf.entries.len() {
-            return Ok(false);
+    fn inner_cmp(
+        zelf: PyRef<Self>,
+        other: PyDictRef,
+        size_func: fn(usize, usize) -> bool,
+        item: bool,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        if size_func(zelf.len(), other.len()) {
+            return Ok(Implemented(false));
         }
-        for (k, v1) in zelf {
-            match other.entries.get(vm, &k)? {
+        let (zelf, other) = if zelf.len() < other.len() {
+            (other, zelf)
+        } else {
+            (zelf, other)
+        };
+        for (k, v1) in other {
+            match zelf.get_item_option(k, vm)? {
                 Some(v2) => {
                     if v1.is(&v2) {
                         continue;
                     }
-                    if !vm.bool_eq(v1, v2)? {
-                        return Ok(false);
+                    if item && !vm.bool_eq(v1, v2)? {
+                        return Ok(Implemented(false));
                     }
                 }
                 None => {
-                    return Ok(false);
+                    return Ok(Implemented(false));
                 }
             }
         }
-        Ok(true)
+        Ok(Implemented(true))
     }
 
     #[pymethod(magic)]
-    fn eq(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(other) = other.payload::<PyDict>() {
-            let eq = Self::inner_eq(zelf, other, vm)?;
-            Ok(vm.ctx.new_bool(eq))
+    fn eq(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        if let Ok(other) = other.downcast::<PyDict>() {
+            Self::inner_cmp(
+                zelf,
+                other,
+                |zelf: usize, other: usize| -> bool { zelf != other },
+                true,
+                vm,
+            )
         } else {
-            Ok(vm.ctx.not_implemented())
+            Ok(NotImplemented)
         }
     }
 
     #[pymethod(magic)]
-    fn ne(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(other) = other.payload::<PyDict>() {
-            let neq = !Self::inner_eq(zelf, other, vm)?;
-            Ok(vm.ctx.new_bool(neq))
-        } else {
-            Ok(vm.ctx.not_implemented())
-        }
+    fn ne(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        Ok(Self::eq(zelf, other, vm)?.map(|v| !v))
     }
 
     #[pymethod(magic)]
@@ -610,6 +632,111 @@ macro_rules! dict_iterator {
             #[pymethod(name = "__reversed__")]
             fn reversed(&self) -> $reverse_iter_name {
                 $reverse_iter_name::new(self.dict.clone())
+            }
+
+            fn cmp(
+                zelf: PyRef<Self>,
+                other: PyObjectRef,
+                size_func: fn(usize, usize) -> bool,
+                vm: &VirtualMachine,
+            ) -> PyResult<PyComparisonValue> {
+                match_class!(match other {
+                    dictview @ Self => {
+                        PyDict::inner_cmp(
+                            zelf.dict.clone(),
+                            dictview.dict.clone(),
+                            size_func,
+                            !zelf.class().is(&vm.ctx.types.dict_keys_type),
+                            vm,
+                        )
+                    }
+                    _set @ PySet => {
+                        // TODO: Implement comparison for set
+                        Ok(NotImplemented)
+                    }
+                    _ => {
+                        Ok(NotImplemented)
+                    }
+                })
+            }
+
+            #[pymethod(name = "__eq__")]
+            fn eq(
+                zelf: PyRef<Self>,
+                other: PyObjectRef,
+                vm: &VirtualMachine,
+            ) -> PyResult<PyComparisonValue> {
+                Self::cmp(
+                    zelf,
+                    other,
+                    |zelf: usize, other: usize| -> bool { zelf != other },
+                    vm,
+                )
+            }
+
+            #[pymethod(name = "__ne__")]
+            fn ne(
+                zelf: PyRef<Self>,
+                other: PyObjectRef,
+                vm: &VirtualMachine,
+            ) -> PyResult<PyComparisonValue> {
+                Ok(Self::eq(zelf, other, vm)?.map(|v| !v))
+            }
+
+            #[pymethod(name = "__lt__")]
+            fn lt(
+                zelf: PyRef<Self>,
+                other: PyObjectRef,
+                vm: &VirtualMachine,
+            ) -> PyResult<PyComparisonValue> {
+                Self::cmp(
+                    zelf,
+                    other,
+                    |zelf: usize, other: usize| -> bool { zelf >= other },
+                    vm,
+                )
+            }
+
+            #[pymethod(name = "__le__")]
+            fn le(
+                zelf: PyRef<Self>,
+                other: PyObjectRef,
+                vm: &VirtualMachine,
+            ) -> PyResult<PyComparisonValue> {
+                Self::cmp(
+                    zelf,
+                    other,
+                    |zelf: usize, other: usize| -> bool { zelf > other },
+                    vm,
+                )
+            }
+
+            #[pymethod(name = "__gt__")]
+            fn gt(
+                zelf: PyRef<Self>,
+                other: PyObjectRef,
+                vm: &VirtualMachine,
+            ) -> PyResult<PyComparisonValue> {
+                Self::cmp(
+                    zelf,
+                    other,
+                    |zelf: usize, other: usize| -> bool { zelf <= other },
+                    vm,
+                )
+            }
+
+            #[pymethod(name = "__ge__")]
+            fn ge(
+                zelf: PyRef<Self>,
+                other: PyObjectRef,
+                vm: &VirtualMachine,
+            ) -> PyResult<PyComparisonValue> {
+                Self::cmp(
+                    zelf,
+                    other,
+                    |zelf: usize, other: usize| -> bool { zelf < other },
+                    vm,
+                )
             }
         }
 
