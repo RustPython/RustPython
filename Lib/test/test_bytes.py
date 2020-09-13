@@ -1468,8 +1468,6 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         a.extend([Indexable(ord('a'))])
         self.assertEqual(a, b'a')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_remove(self):
         b = bytearray(b'hello')
         b.remove(ord('l'))

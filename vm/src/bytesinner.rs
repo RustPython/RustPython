@@ -442,6 +442,16 @@ impl PyBytesInner {
         Ok(())
     }
 
+    pub fn remove(&mut self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let value = Self::value_try_from_object(vm, object)?;
+        if let Some(index) = self.elements.iter().position(|&x| x == value) {
+            self.elements.remove(index);
+            Ok(())
+        } else {
+            Err(vm.new_value_error("value not found in bytearray".to_owned()))
+        }
+    }
+
     pub fn isalnum(&self) -> bool {
         !self.elements.is_empty()
             && self

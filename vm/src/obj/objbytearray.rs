@@ -370,18 +370,8 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "remove")]
-    fn remove(&self, x: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
-        let x = x.borrow_value().byte_or(vm)?;
-
-        let bytes = &mut self.borrow_value_mut().elements;
-        let pos = bytes
-            .iter()
-            .position(|b| *b == x)
-            .ok_or_else(|| vm.new_value_error("value not found in bytearray".to_owned()))?;
-
-        bytes.remove(pos);
-
-        Ok(())
+    fn remove(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.borrow_value_mut().remove(value, vm)
     }
 
     #[pymethod(name = "translate")]
