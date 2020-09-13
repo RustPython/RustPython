@@ -369,27 +369,27 @@ impl PyBytesInner {
             .ok_or_else(|| vm.new_value_error("byte must be in range(0, 256)".to_owned()))
     }
 
+    fn value_seq_try_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Vec<u8>> {
+        if let Ok(iterable) = PyIterable::try_from_object(vm, object.clone()) {
+            let iter: PyIterator<PyObjectRef> = iterable.iter(vm)?;
+            iter.map(|obj| Self::value_try_from_object(vm, obj?))
+                .try_collect()
+        } else if let Some(mview) = object.payload_if_subclass::<PyMemoryView>(vm) {
+            Ok(mview.try_bytes(|v| v.to_vec()).unwrap())
+        } else {
+            Err(vm.new_type_error(
+                "can assign only bytes, buffers, or iterables of ints in range(0, 256)".to_owned(),
+            ))
+        }
+    }
+
     pub fn setslice(
         &mut self,
         slice: PySliceRef,
         object: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let sec = match PyIterable::try_from_object(vm, object.clone()) {
-            Ok(sec) => {
-                let iter: PyIterator<PyObjectRef> = sec.iter(vm)?;
-                iter.map(|obj| Self::value_try_from_object(vm, obj?))
-                    .try_collect()
-            }
-            _ => match_class!(match object {
-                i @ PyMemoryView => Ok(i.try_bytes(|v| v.to_vec()).unwrap()),
-                _ => Err(vm.new_type_error(
-                    "can assign only bytes, buffers, or iterables of ints in range(0, 256)"
-                        .to_owned()
-                )),
-            }),
-        };
-        let items = sec?;
+        let items = Self::value_seq_try_from_object(vm, object)?;
         self.elements.set_slice_items(vm, &slice, items.as_slice())
     }
 
@@ -450,6 +450,12 @@ impl PyBytesInner {
         } else {
             Err(vm.new_value_error("value not found in bytearray".to_owned()))
         }
+    }
+
+    pub fn extend(&mut self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let items = Self::value_seq_try_from_object(vm, object)?;
+        self.elements.extend(items);
+        Ok(())
     }
 
     pub fn isalnum(&self) -> bool {

@@ -10,7 +10,7 @@ use super::objstr::PyStringRef;
 use super::objtype::PyClassRef;
 use crate::bytesinner::{
     bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
-    ByteInnerSplitOptions, ByteInnerTranslateOptions, ByteOr, DecodeArgs, PyBytesInner,
+    ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
 };
 use crate::byteslike::PyBytesLike;
 use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
@@ -505,15 +505,13 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "extend")]
-    fn extend(&self, iterable_of_ints: PyIterable, vm: &VirtualMachine) -> PyResult<()> {
-        for x in iterable_of_ints.iter(vm)? {
-            let x = x?;
-            let x = PyIntRef::try_from_object(vm, x)?;
-            let x = x.borrow_value().byte_or(vm)?;
-            self.borrow_value_mut().elements.push(x);
+    fn extend(zelf: PyRef<Self>, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        if zelf.is(&value) {
+            zelf.borrow_value_mut().irepeat(2);
+            Ok(())
+        } else {
+            zelf.borrow_value_mut().extend(value, vm)
         }
-
-        Ok(())
     }
 
     #[pymethod(name = "insert")]
