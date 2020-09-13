@@ -1,7 +1,11 @@
+use std::cmp::Ordering;
+
 use crate::common::cell::PyRwLock;
 use crate::common::hash::PyHash;
 use crate::function::{OptionalArg, PyFuncArgs, PyNativeFunc};
-use crate::pyobject::{IdProtocol, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject};
+use crate::pyobject::{
+    IdProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+};
 use crate::VirtualMachine;
 
 bitflags! {
@@ -43,9 +47,20 @@ pub struct PyClassSlots {
     pub call: Option<PyNativeFunc>,
     pub descr_get: Option<PyDescrGetFunc>,
     pub hash: Option<HashFunc>,
+    pub cmp: Option<CmpFunc>,
 }
 
 type HashFunc = Box<py_dyn_fn!(dyn Fn(PyObjectRef, &VirtualMachine) -> PyResult<PyHash>)>;
+type CmpFunc = Box<
+    py_dyn_fn!(
+        dyn Fn(
+            PyObjectRef,
+            PyObjectRef,
+            PyComparisonOp,
+            &VirtualMachine,
+        ) -> PyResult<PyComparisonValue>
+    ),
+>;
 
 impl PyClassSlots {
     pub fn from_flags(flags: PyTpFlags) -> Self {
@@ -148,10 +163,112 @@ pub trait SlotDescriptor: PyValue {
 pub trait Hashable: PyValue {
     #[pyslot]
     fn tp_hash(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyHash> {
-        let zelf = <PyRef<Self>>::try_from_object(vm, zelf)?;
+        let zelf = PyRef::try_from_object(vm, zelf)?;
         Self::hash(zelf, vm)
     }
 
     #[pymethod(magic)]
     fn hash(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash>;
+}
+
+#[pyimpl]
+pub trait Comparable: PyValue {
+    #[pyslot]
+    fn tp_cmp(
+        zelf: PyObjectRef,
+        other: PyObjectRef,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        let zelf = PyRef::try_from_object(vm, zelf)?;
+        Self::cmp(zelf, other, op, vm)
+    }
+
+    fn cmp(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue>;
+
+    #[pymethod(magic)]
+    fn eq(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        Self::cmp(zelf, other, PyComparisonOp::Eq, vm)
+    }
+    #[pymethod(magic)]
+    fn ne(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        Self::cmp(zelf, other, PyComparisonOp::Ne, vm)
+    }
+    #[pymethod(magic)]
+    fn lt(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        Self::cmp(zelf, other, PyComparisonOp::Lt, vm)
+    }
+    #[pymethod(magic)]
+    fn le(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        Self::cmp(zelf, other, PyComparisonOp::Le, vm)
+    }
+    #[pymethod(magic)]
+    fn ge(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        Self::cmp(zelf, other, PyComparisonOp::Ge, vm)
+    }
+    #[pymethod(magic)]
+    fn gt(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        Self::cmp(zelf, other, PyComparisonOp::Gt, vm)
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum PyComparisonOp {
+    Lt,
+    Le,
+    Eq,
+    Ne,
+    Ge,
+    Gt,
+}
+
+impl PyComparisonOp {
+    pub fn eq_only(
+        self,
+        f: impl FnOnce() -> PyResult<PyComparisonValue>,
+    ) -> PyResult<PyComparisonValue> {
+        match self {
+            Self::Eq => f(),
+            Self::Ne => f().map(|x| x.map(|eq| !eq)),
+            _ => Ok(PyComparisonValue::NotImplemented),
+        }
+    }
+
+    pub fn eval_ord(self, ord: Ordering) -> bool {
+        use PyComparisonOp::*;
+        match ord {
+            Ordering::Less => matches!(self, Lt | Le | Ne),
+            Ordering::Equal => matches!(self, Le | Eq | Ge),
+            Ordering::Greater => matches!(self, Ne | Ge | Gt),
+        }
+    }
 }

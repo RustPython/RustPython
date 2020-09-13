@@ -37,8 +37,8 @@ use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype::{self, PyClassRef};
 use crate::pyobject::{
-    BorrowValue, IdProtocol, IntoPyObject, ItemProtocol, PyContext, PyObject, PyObjectRef, PyRef,
-    PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
+    BorrowValue, IdProtocol, IntoPyObject, ItemProtocol, PyArithmaticValue, PyContext, PyObject,
+    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
 };
 use crate::scope::Scope;
 use crate::stdlib;
@@ -1044,8 +1044,9 @@ impl VirtualMachine {
         if let Some(method_or_err) = self.get_method(obj.clone(), method) {
             let method = method_or_err?;
             let result = self.invoke(&method, vec![arg.clone()])?;
-            if !result.is(&self.ctx.not_implemented()) {
-                return Ok(result);
+            if let PyArithmaticValue::Implemented(x) = PyArithmaticValue::from_object(self, result)
+            {
+                return Ok(x);
             }
         }
         unsupported(self, obj, arg)
@@ -1417,8 +1418,10 @@ impl VirtualMachine {
                 checked_reverse_op = true;
 
                 let result = self.invoke(&method, vec![v.clone()])?;
-                if !result.is(&self.ctx.not_implemented()) {
-                    return Ok(result);
+                if let PyArithmaticValue::Implemented(x) =
+                    PyArithmaticValue::from_object(self, result)
+                {
+                    return Ok(x);
                 }
             }
         }
