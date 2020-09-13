@@ -1439,7 +1439,6 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         alloc = b.__alloc__()
         self.assertGreater(alloc, len(b))
 
-    # @unittest.skip("TODO: RUSTPYTHON")
     def test_extend(self):
         orig = b'hello'
         a = bytearray(orig)
