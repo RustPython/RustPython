@@ -7,7 +7,7 @@ use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objfloat::try_float;
 use crate::obj::objiter;
 use crate::obj::objlist::PyList;
-use crate::obj::objsequence::{PySliceableSequence, PySliceableSequenceMut};
+use crate::obj::objsequence::{get_saturated_pos, PySliceableSequence, PySliceableSequenceMut};
 use crate::obj::objslice::PySliceRef;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
@@ -559,22 +559,7 @@ impl PyArray {
 
     #[pymethod]
     fn insert(&self, i: isize, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let len = self.len();
-        let i = if i.is_negative() {
-            let i = i.abs() as usize;
-            if i > len {
-                0
-            } else {
-                len - i
-            }
-        } else {
-            let i = i as usize;
-            if i > len {
-                len
-            } else {
-                i
-            }
-        };
+        let i = get_saturated_pos(i, self.len());
         self.borrow_value_mut().insert(i, x, vm)
     }
 

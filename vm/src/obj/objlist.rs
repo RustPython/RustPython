@@ -9,7 +9,9 @@ use num_traits::ToPrimitive;
 use super::objbool;
 use super::objint::PyIntRef;
 use super::objiter;
-use super::objsequence::{get_item, get_pos, PySliceableSequenceMut, SequenceIndex};
+use super::objsequence::{
+    get_item, get_pos, get_saturated_pos, PySliceableSequenceMut, SequenceIndex,
+};
 use super::objslice::PySliceRef;
 use super::objtype::PyClassRef;
 use crate::bytesinner;
@@ -118,15 +120,7 @@ impl PyList {
     #[pymethod]
     pub(crate) fn insert(&self, position: isize, element: PyObjectRef) {
         let mut elements = self.borrow_value_mut();
-        let vec_len = elements.len().to_isize().unwrap();
-        // This unbounded position can be < 0 or > vec.len()
-        let unbounded_position = if position < 0 {
-            vec_len + position
-        } else {
-            position
-        };
-        // Bound it by [0, vec.len()]
-        let position = unbounded_position.min(vec_len).to_usize().unwrap_or(0);
+        let position = get_saturated_pos(position, elements.len());
         elements.insert(position, element);
     }
 

@@ -12,7 +12,7 @@ use crate::obj::objlist::PyList;
 use crate::obj::objmemory::PyMemoryView;
 use crate::obj::objnone::PyNoneRef;
 use crate::obj::objsequence::{
-    get_bounded_pos, PySliceableSequence, PySliceableSequenceMut, SequenceIndex,
+    get_saturated_pos, PySliceableSequence, PySliceableSequenceMut, SequenceIndex,
 };
 use crate::obj::objslice::PySliceRef;
 use crate::obj::objstr::{self, PyString, PyStringRef};
@@ -431,7 +431,7 @@ impl PyBytesInner {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let value = Self::value_try_from_object(vm, object)?;
-        let index = get_bounded_pos(index, self.len());
+        let index = get_saturated_pos(index, self.len());
         self.elements.insert(index, value);
         Ok(())
     }
@@ -1058,7 +1058,19 @@ impl PyBytesInner {
             // We can multiple an empty vector by any integer, even if it doesn't fit in an isize.
             return;
         }
-        self.elements = self.repeat(n);
+
+        if n <= 0 {
+            self.elements.clear();
+        } else if n != 1 {
+            let n = n as usize;
+
+            let old = self.elements.clone();
+
+            self.elements.reserve((n - 1) * old.len());
+            for _ in 1..n {
+                self.elements.extend(&old);
+            }
+        }
     }
 }
 
