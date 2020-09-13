@@ -1522,8 +1522,6 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         b.append(Indexable(ord('A')))
         self.assertEqual(b, b'A')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_insert(self):
         b = bytearray(b'msssspp')
         b.insert(1, ord('i'))

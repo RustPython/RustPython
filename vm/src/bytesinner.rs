@@ -11,7 +11,9 @@ use crate::obj::objint::{self, PyInt, PyIntRef};
 use crate::obj::objlist::PyList;
 use crate::obj::objmemory::PyMemoryView;
 use crate::obj::objnone::PyNoneRef;
-use crate::obj::objsequence::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex};
+use crate::obj::objsequence::{
+    get_bounded_pos, PySliceableSequence, PySliceableSequenceMut, SequenceIndex,
+};
 use crate::obj::objslice::PySliceRef;
 use crate::obj::objstr::{self, PyString, PyStringRef};
 use crate::pyobject::{
@@ -420,6 +422,18 @@ impl PyBytesInner {
         } else {
             Err(vm.new_index_error("index out of range".to_owned()))
         }
+    }
+
+    pub fn insert(
+        &mut self,
+        index: isize,
+        object: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let value = Self::value_try_from_object(vm, object)?;
+        let index = get_bounded_pos(index, self.len());
+        self.elements.insert(index, value);
+        Ok(())
     }
 
     pub fn isalnum(&self) -> bool {

@@ -531,32 +531,8 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "insert")]
-    fn insert(&self, mut index: isize, x: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
-        let bytes = &mut self.borrow_value_mut().elements;
-        let len = bytes
-            .len()
-            .to_isize()
-            .ok_or_else(|| vm.new_overflow_error("bytearray too big".to_owned()))?;
-
-        let x = x.borrow_value().byte_or(vm)?;
-
-        if index >= len {
-            bytes.push(x);
-            return Ok(());
-        }
-
-        if index < 0 {
-            index += len;
-            index = index.max(0);
-        }
-
-        let index = index
-            .to_usize()
-            .ok_or_else(|| vm.new_overflow_error("overflow in index calculation".to_owned()))?;
-
-        bytes.insert(index, x);
-
-        Ok(())
+    fn insert(&self, index: isize, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.borrow_value_mut().insert(index, value, vm)
     }
 
     #[pymethod(name = "pop")]

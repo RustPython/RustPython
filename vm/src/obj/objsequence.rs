@@ -420,6 +420,25 @@ pub fn get_pos(p: isize, len: usize) -> Option<usize> {
     }
 }
 
+// return pos is in range [0, len] inclusive
+pub fn get_bounded_pos(p: isize, len: usize) -> usize {
+    if p.is_negative() {
+        let p = -p as usize;
+        if p >= len {
+            0
+        } else {
+            len - p
+        }
+    } else {
+        let p = p as usize;
+        if p >= len {
+            len
+        } else {
+            p
+        }
+    }
+}
+
 pub fn get_slice_pos(slice_pos: &BigInt, len: usize) -> usize {
     if let Some(pos) = slice_pos.to_isize() {
         if let Some(index) = get_pos(pos, len) {
