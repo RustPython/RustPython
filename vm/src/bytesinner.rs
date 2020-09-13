@@ -436,6 +436,12 @@ impl PyBytesInner {
         Ok(())
     }
 
+    pub fn append(&mut self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let value = Self::value_try_from_object(vm, object)?;
+        self.elements.push(value);
+        Ok(())
+    }
+
     pub fn isalnum(&self) -> bool {
         !self.elements.is_empty()
             && self

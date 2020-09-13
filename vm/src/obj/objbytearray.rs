@@ -1,7 +1,6 @@
 //! Implementation of the python bytearray object.
 use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;
-use num_traits::cast::ToPrimitive;
 use std::mem::size_of;
 
 use super::objint::PyIntRef;
@@ -511,11 +510,8 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "append")]
-    fn append(&self, x: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.borrow_value_mut()
-            .elements
-            .push(x.borrow_value().byte_or(vm)?);
-        Ok(())
+    fn append(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.borrow_value_mut().append(value, vm)
     }
 
     #[pymethod(name = "extend")]

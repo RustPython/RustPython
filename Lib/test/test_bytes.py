@@ -1507,8 +1507,6 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
     def test_nosort(self):
         self.assertRaises(AttributeError, lambda: bytearray().sort())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_append(self):
         b = bytearray(b'hell')
         b.append(ord('o'))
