@@ -12,7 +12,12 @@ where
     inner: PyRc<PyObject<T>>,
 }
 
-pub type PyObjectWeak<T = dyn PyObjectPayload> = PyWeak<PyObject<T>>;
+pub struct PyObjectWeak<T = dyn PyObjectPayload>
+where
+    T: ?Sized + PyObjectPayload,
+{
+    inner: PyWeak<PyObject<T>>,
+}
 
 pub trait AsPyObjectRef {
     fn _as_ref(self) -> PyRc<PyObject<dyn PyObjectPayload>>;
@@ -80,11 +85,28 @@ where
     }
 
     pub fn downgrade(this: &Self) -> PyObjectWeak<T> {
-        PyRc::downgrade(&this.inner)
+        PyObjectWeak {
+            inner: PyRc::downgrade(&this.inner),
+        }
     }
+}
 
-    pub fn upgrade_weak(weak: &PyObjectWeak<T>) -> Option<Self> {
-        weak.upgrade().map(|inner| PyObjectRc { inner })
+impl<T: ?Sized + PyObjectPayload> IdProtocol for PyObjectRc<T>
+where
+    PyRc<PyObject<T>>: IdProtocol + AsPyObjectRef,
+{
+    fn get_id(&self) -> usize {
+        self.inner.get_id()
+    }
+}
+
+impl<T> PyObjectWeak<T>
+where
+    T: ?Sized + PyObjectPayload,
+    PyRc<PyObject<T>>: AsPyObjectRef,
+{
+    pub fn upgrade(&self) -> Option<PyObjectRc<T>> {
+        self.inner.upgrade().map(|inner| PyObjectRc { inner })
     }
 }
 
@@ -102,6 +124,11 @@ where
     PyRc<PyObject<T>>: AsPyObjectRef,
 {
 }
+
+#[cfg(feature = "threading")]
+unsafe impl<T> Send for PyObjectWeak<T> where T: ?Sized + PyObjectPayload {}
+#[cfg(feature = "threading")]
+unsafe impl<T> Sync for PyObjectWeak<T> where T: ?Sized + PyObjectPayload {}
 
 impl<T> Deref for PyObjectRc<T>
 where
@@ -171,6 +198,16 @@ where
     }
 }
 
+impl<T> borrow::BorrowMut<T> for PyObjectRc<T>
+where
+    T: ?Sized + PyObjectPayload,
+    PyRc<PyObject<T>>: AsPyObjectRef + borrow::BorrowMut<T>,
+{
+    fn borrow_mut(&mut self) -> &mut T {
+        self.inner.borrow_mut()
+    }
+}
+
 impl<T> AsRef<T> for PyObjectRc<T>
 where
     T: ?Sized + PyObjectPayload,
@@ -181,8 +218,53 @@ where
     }
 }
 
-impl IdProtocol for PyObjectRc {
-    fn get_id(&self) -> usize {
-        self.inner.get_id()
+impl<T> Clone for PyObjectWeak<T>
+where
+    T: ?Sized + PyObjectPayload,
+{
+    fn clone(&self) -> Self {
+        PyObjectWeak {
+            inner: self.inner.clone(),
+        }
+    }
+}
+
+impl<T> fmt::Debug for PyObjectWeak<T>
+where
+    T: ?Sized + PyObjectPayload,
+    PyObject<T>: fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.inner.fmt(f)
+    }
+}
+
+impl<T> borrow::Borrow<T> for PyObjectWeak<T>
+where
+    T: ?Sized + PyObjectPayload,
+    PyWeak<PyObject<T>>: borrow::Borrow<T>,
+{
+    fn borrow(&self) -> &T {
+        self.inner.borrow()
+    }
+}
+
+impl<T> borrow::BorrowMut<T> for PyObjectWeak<T>
+where
+    T: ?Sized + PyObjectPayload,
+    PyWeak<PyObject<T>>: borrow::BorrowMut<T>,
+{
+    fn borrow_mut(&mut self) -> &mut T {
+        self.inner.borrow_mut()
+    }
+}
+
+impl<T> AsRef<T> for PyObjectWeak<T>
+where
+    T: ?Sized + PyObjectPayload,
+    PyWeak<PyObject<T>>: AsRef<T>,
+{
+    fn as_ref(&self) -> &T {
+        self.inner.as_ref()
     }
 }

@@ -26,7 +26,7 @@ impl PyWeak {
     }
 
     pub fn upgrade(&self) -> Option<PyObjectRef> {
-        PyObjectRc::upgrade_weak(&self.referent)
+        self.referent.upgrade()
     }
 }
 
