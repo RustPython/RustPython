@@ -1374,8 +1374,6 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         b[8:] = b
         self.assertEqual(b, bytearray(list(range(8)) + list(range(256))))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_iconcat(self):
         b = bytearray(b"abc")
         b1 = b
@@ -1392,8 +1390,6 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         else:
             self.fail("bytes += unicode didn't raise TypeError")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_irepeat(self):
         b = bytearray(b"abc")
         b1 = b
@@ -1402,8 +1398,6 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         self.assertEqual(b, b1)
         self.assertIs(b, b1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_irepeat_1char(self):
         b = bytearray(b"x")
         b1 = b
@@ -1445,7 +1439,6 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         alloc = b.__alloc__()
         self.assertGreater(alloc, len(b))
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_extend(self):
         orig = b'hello'
         a = bytearray(orig)
@@ -1474,8 +1467,6 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         a.extend([Indexable(ord('a'))])
         self.assertEqual(a, b'a')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_remove(self):
         b = bytearray(b'hello')
         b.remove(ord('l'))
@@ -1500,8 +1491,6 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         c.remove(129)
         self.assertEqual(c, bytes([126, 128]))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pop(self):
         b = bytearray(b'world')
         self.assertEqual(b.pop(), ord('d'))
@@ -1515,8 +1504,6 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
     def test_nosort(self):
         self.assertRaises(AttributeError, lambda: bytearray().sort())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_append(self):
         b = bytearray(b'hell')
         b.append(ord('o'))
@@ -1530,8 +1517,6 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         b.append(Indexable(ord('A')))
         self.assertEqual(b, b'A')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_insert(self):
         b = bytearray(b'msssspp')
         b.insert(1, ord('i'))

@@ -420,6 +420,22 @@ pub fn get_pos(p: isize, len: usize) -> Option<usize> {
     }
 }
 
+// return pos is in range [0, len] inclusive
+pub fn get_saturated_pos(p: isize, len: usize) -> usize {
+    let mut p = p;
+    let len = len.to_isize().unwrap();
+    if p < 0 {
+        p += len;
+        if p < 0 {
+            p = 0;
+        }
+    }
+    if p > len {
+        p = len;
+    }
+    p as usize
+}
+
 pub fn get_slice_pos(slice_pos: &BigInt, len: usize) -> usize {
     if let Some(pos) = slice_pos.to_isize() {
         if let Some(index) = get_pos(pos, len) {

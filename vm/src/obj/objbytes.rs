@@ -12,12 +12,11 @@ use crate::bytesinner::{
     bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
     ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
 };
+use crate::byteslike::PyBytesLike;
 use crate::function::{OptionalArg, OptionalOption};
 use crate::pyobject::{
-    BorrowValue, Either, IntoPyObject,
-    PyArithmaticValue::{self, *},
-    PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject,
+    BorrowValue, Either, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyIterable,
+    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
 };
 use crate::pystr::{self, PyCommonString};
 use crate::slots::Hashable;
@@ -145,12 +144,9 @@ impl PyBytes {
     }
 
     #[pymethod(name = "__add__")]
-    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<PyBytes> {
-        if let Ok(other) = PyBytesInner::try_from_object(vm, other) {
-            Implemented(self.inner.add(other).into())
-        } else {
-            NotImplemented
-        }
+    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let other = PyBytesLike::try_from_object(vm, other)?;
+        Ok(vm.ctx.new_bytes(self.inner.add(other)))
     }
 
     #[pymethod(name = "__contains__")]

@@ -1,7 +1,6 @@
 //! Implementation of the python bytearray object.
 use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;
-use num_traits::cast::ToPrimitive;
 use std::mem::size_of;
 
 use super::objint::PyIntRef;
@@ -11,8 +10,9 @@ use super::objstr::PyStringRef;
 use super::objtype::PyClassRef;
 use crate::bytesinner::{
     bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
-    ByteInnerSplitOptions, ByteInnerTranslateOptions, ByteOr, DecodeArgs, PyBytesInner,
+    ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
 };
+use crate::byteslike::PyBytesLike;
 use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::function::{OptionalArg, OptionalOption};
 use crate::pyobject::{
@@ -163,11 +163,15 @@ impl PyByteArray {
 
     #[pymethod(name = "__add__")]
     fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Ok(other) = PyBytesInner::try_from_object(vm, other) {
-            Ok(vm.ctx.new_bytearray(self.borrow_value().add(other)))
-        } else {
-            Ok(vm.ctx.not_implemented())
-        }
+        let other = PyBytesLike::try_from_object(vm, other)?;
+        Ok(vm.ctx.new_bytearray(self.borrow_value().add(other)))
+    }
+
+    #[pymethod(name = "__iadd__")]
+    fn iadd(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        let other = PyBytesLike::try_from_object(vm, other)?;
+        zelf.borrow_value_mut().iadd(other);
+        Ok(zelf)
     }
 
     #[pymethod(name = "__contains__")]
@@ -366,18 +370,8 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "remove")]
-    fn remove(&self, x: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
-        let x = x.borrow_value().byte_or(vm)?;
-
-        let bytes = &mut self.borrow_value_mut().elements;
-        let pos = bytes
-            .iter()
-            .position(|b| *b == x)
-            .ok_or_else(|| vm.new_value_error("value not found in bytearray".to_owned()))?;
-
-        bytes.remove(pos);
-
-        Ok(())
+    fn remove(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.borrow_value_mut().remove(value, vm)
     }
 
     #[pymethod(name = "translate")]
@@ -506,60 +500,29 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "append")]
-    fn append(&self, x: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.borrow_value_mut()
-            .elements
-            .push(x.borrow_value().byte_or(vm)?);
-        Ok(())
+    fn append(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.borrow_value_mut().append(value, vm)
     }
 
     #[pymethod(name = "extend")]
-    fn extend(&self, iterable_of_ints: PyIterable, vm: &VirtualMachine) -> PyResult<()> {
-        for x in iterable_of_ints.iter(vm)? {
-            let x = x?;
-            let x = PyIntRef::try_from_object(vm, x)?;
-            let x = x.borrow_value().byte_or(vm)?;
-            self.borrow_value_mut().elements.push(x);
+    fn extend(zelf: PyRef<Self>, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        if zelf.is(&value) {
+            zelf.borrow_value_mut().irepeat(2);
+            Ok(())
+        } else {
+            zelf.borrow_value_mut().extend(value, vm)
         }
-
-        Ok(())
     }
 
     #[pymethod(name = "insert")]
-    fn insert(&self, mut index: isize, x: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
-        let bytes = &mut self.borrow_value_mut().elements;
-        let len = bytes
-            .len()
-            .to_isize()
-            .ok_or_else(|| vm.new_overflow_error("bytearray too big".to_owned()))?;
-
-        let x = x.borrow_value().byte_or(vm)?;
-
-        if index >= len {
-            bytes.push(x);
-            return Ok(());
-        }
-
-        if index < 0 {
-            index += len;
-            index = index.max(0);
-        }
-
-        let index = index
-            .to_usize()
-            .ok_or_else(|| vm.new_overflow_error("overflow in index calculation".to_owned()))?;
-
-        bytes.insert(index, x);
-
-        Ok(())
+    fn insert(&self, index: isize, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.borrow_value_mut().insert(index, value, vm)
     }
 
     #[pymethod(name = "pop")]
-    fn pop(&self, vm: &VirtualMachine) -> PyResult<u8> {
-        self.borrow_value_mut()
-            .elements
-            .pop()
-            .ok_or_else(|| vm.new_index_error("pop from empty bytearray".to_owned()))
+    fn pop(&self, index: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult<u8> {
+        let index = index.unwrap_or(-1);
+        self.borrow_value_mut().pop(index, vm)
     }
 
     #[pymethod(name = "title")]
@@ -574,8 +537,9 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "__imul__")]
-    fn imul(&self, n: isize) {
-        self.borrow_value_mut().irepeat(n)
+    fn imul(zelf: PyRef<Self>, n: isize) -> PyRef<Self> {
+        zelf.borrow_value_mut().irepeat(n);
+        zelf
     }
 
     #[pymethod(name = "__mod__")]

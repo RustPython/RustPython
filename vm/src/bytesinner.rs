@@ -11,7 +11,9 @@ use crate::obj::objint::{self, PyInt, PyIntRef};
 use crate::obj::objlist::PyList;
 use crate::obj::objmemory::PyMemoryView;
 use crate::obj::objnone::PyNoneRef;
-use crate::obj::objsequence::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex};
+use crate::obj::objsequence::{
+    get_saturated_pos, PySliceableSequence, PySliceableSequenceMut, SequenceIndex,
+};
 use crate::obj::objslice::PySliceRef;
 use crate::obj::objstr::{self, PyString, PyStringRef};
 use crate::pyobject::{
@@ -303,8 +305,12 @@ impl PyBytesInner {
         vm.state.hash_secret.hash_bytes(&self.elements)
     }
 
-    pub fn add(&self, other: PyBytesInner) -> Vec<u8> {
-        self.elements.py_add(&other.elements)
+    pub fn add(&self, other: PyBytesLike) -> Vec<u8> {
+        other.with_ref(|other| self.elements.py_add(other))
+    }
+
+    pub fn iadd(&mut self, other: PyBytesLike) {
+        other.with_ref(|other| self.elements.extend(other));
     }
 
     pub fn contains(
@@ -363,27 +369,27 @@ impl PyBytesInner {
             .ok_or_else(|| vm.new_value_error("byte must be in range(0, 256)".to_owned()))
     }
 
+    fn value_seq_try_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Vec<u8>> {
+        if let Ok(iterable) = PyIterable::try_from_object(vm, object.clone()) {
+            let iter: PyIterator<PyObjectRef> = iterable.iter(vm)?;
+            iter.map(|obj| Self::value_try_from_object(vm, obj?))
+                .try_collect()
+        } else if let Some(mview) = object.payload_if_subclass::<PyMemoryView>(vm) {
+            Ok(mview.try_bytes(|v| v.to_vec()).unwrap())
+        } else {
+            Err(vm.new_type_error(
+                "can assign only bytes, buffers, or iterables of ints in range(0, 256)".to_owned(),
+            ))
+        }
+    }
+
     pub fn setslice(
         &mut self,
         slice: PySliceRef,
         object: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let sec = match PyIterable::try_from_object(vm, object.clone()) {
-            Ok(sec) => {
-                let iter: PyIterator<PyObjectRef> = sec.iter(vm)?;
-                iter.map(|obj| Self::value_try_from_object(vm, obj?))
-                    .try_collect()
-            }
-            _ => match_class!(match object {
-                i @ PyMemoryView => Ok(i.try_bytes(|v| v.to_vec()).unwrap()),
-                _ => Err(vm.new_type_error(
-                    "can assign only bytes, buffers, or iterables of ints in range(0, 256)"
-                        .to_owned()
-                )),
-            }),
-        };
-        let items = sec?;
+        let items = Self::value_seq_try_from_object(vm, object)?;
         self.elements.set_slice_items(vm, &slice, items.as_slice())
     }
 
@@ -408,6 +414,48 @@ impl PyBytesInner {
 
     fn delslice(&mut self, slice: PySliceRef, vm: &VirtualMachine) -> PyResult<()> {
         self.elements.delete_slice(vm, &slice)
+    }
+
+    pub fn pop(&mut self, index: isize, vm: &VirtualMachine) -> PyResult<u8> {
+        if let Some(index) = self.elements.get_pos(index) {
+            Ok(self.elements.remove(index))
+        } else {
+            Err(vm.new_index_error("index out of range".to_owned()))
+        }
+    }
+
+    pub fn insert(
+        &mut self,
+        index: isize,
+        object: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let value = Self::value_try_from_object(vm, object)?;
+        let index = get_saturated_pos(index, self.len());
+        self.elements.insert(index, value);
+        Ok(())
+    }
+
+    pub fn append(&mut self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let value = Self::value_try_from_object(vm, object)?;
+        self.elements.push(value);
+        Ok(())
+    }
+
+    pub fn remove(&mut self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let value = Self::value_try_from_object(vm, object)?;
+        if let Some(index) = self.elements.find_byte(value) {
+            self.elements.remove(index);
+            Ok(())
+        } else {
+            Err(vm.new_value_error("value not found in bytearray".to_owned()))
+        }
+    }
+
+    pub fn extend(&mut self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let items = Self::value_seq_try_from_object(vm, object)?;
+        self.elements.extend(items);
+        Ok(())
     }
 
     pub fn isalnum(&self) -> bool {
@@ -621,13 +669,11 @@ impl PyBytesInner {
         let mut res = vec![];
 
         for i in 0..=255 {
-            res.push(
-                if let Some(position) = from.elements.iter().position(|&x| x == i) {
-                    to.elements[position]
-                } else {
-                    i
-                },
-            );
+            res.push(if let Some(position) = from.elements.find_byte(i) {
+                to.elements[position]
+            } else {
+                i
+            });
         }
 
         Ok(vm.ctx.new_bytes(res))
@@ -1013,8 +1059,8 @@ impl PyBytesInner {
 
         if n <= 0 {
             self.elements.clear();
-        } else {
-            let n = n.to_usize().unwrap(); // always positive by outer if condition
+        } else if n != 1 {
+            let n = n as usize;
 
             let old = self.elements.clone();
 
