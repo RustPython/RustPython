@@ -6,8 +6,8 @@ use js_sys::{Object, TypeError};
 use wasm_bindgen::prelude::*;
 
 use rustpython_compiler::compile;
-use rustpython_vm::common::rc::{PyRc, PyWeak};
-use rustpython_vm::pyobject::{ItemProtocol, PyObject, PyObjectPayload, PyObjectRef, PyValue};
+use rustpython_vm::common::rc::PyRc;
+use rustpython_vm::pyobject::{ItemProtocol, PyObjectRef, PyObjectWeak, PyValue};
 use rustpython_vm::scope::{NameProtocol, Scope};
 use rustpython_vm::{InitParameter, PySettings, VirtualMachine};
 
@@ -174,12 +174,9 @@ impl WASMVirtualMachine {
         STORED_VMS.with(|cell| cell.borrow().contains_key(&self.id))
     }
 
-    pub(crate) fn push_held_rc(
-        &self,
-        obj: PyObjectRef,
-    ) -> Result<PyWeak<PyObject<dyn PyObjectPayload>>, JsValue> {
+    pub(crate) fn push_held_rc(&self, obj: PyObjectRef) -> Result<PyObjectWeak, JsValue> {
         self.with(|stored_vm| {
-            let weak = PyRc::downgrade(&obj);
+            let weak = PyObjectRef::downgrade(&obj);
             stored_vm.held_objects.borrow_mut().push(obj);
             weak
         })

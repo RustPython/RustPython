@@ -9,7 +9,7 @@ mod decl {
     use std::iter;
 
     use crate::common::cell::{PyMutex, PyRwLock, PyRwLockWriteGuard};
-    use crate::common::rc::{PyRc, PyWeak};
+    use crate::common::rc::PyRc;
     use crate::function::{Args, OptionalArg, OptionalOption, PyFuncArgs};
     use crate::obj::objbool;
     use crate::obj::objint::{self, PyInt, PyIntRef};
@@ -17,8 +17,8 @@ mod decl {
     use crate::obj::objtuple::PyTuple;
     use crate::obj::objtype::{self, PyClassRef};
     use crate::pyobject::{
-        BorrowValue, IdProtocol, IntoPyRef, PyCallable, PyClassImpl, PyObject, PyObjectRef, PyRef,
-        PyResult, PyValue, TypeProtocol,
+        BorrowValue, IdProtocol, IntoPyRef, PyCallable, PyClassImpl, PyObjectRc, PyObjectRef,
+        PyObjectWeak, PyRef, PyResult, PyValue, TypeProtocol,
     };
     use crate::vm::VirtualMachine;
 
@@ -498,7 +498,7 @@ mod decl {
         current_value: Option<PyObjectRef>,
         current_key: Option<PyObjectRef>,
         next_group: bool,
-        grouper: Option<PyWeak<PyObject<PyItertoolsGrouper>>>,
+        grouper: Option<PyObjectWeak<PyItertoolsGrouper>>,
     }
 
     impl fmt::Debug for GroupByState {
@@ -609,7 +609,7 @@ mod decl {
             }
             .into_ref(vm);
 
-            state.grouper = Some(PyRc::downgrade(&grouper.clone().into_typed_pyobj()));
+            state.grouper = Some(PyObjectRc::downgrade(&grouper.clone().into_typed_pyobj()));
             Ok((state.current_key.as_ref().unwrap().clone(), grouper))
         }
 

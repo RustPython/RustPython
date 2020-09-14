@@ -444,7 +444,7 @@ mod decl {
                             .to_owned(),
                     ));
                 }
-                args.args.clone()
+                args.args
             }
             std::cmp::Ordering::Equal => vm.extract_elements(&args.args[0])?,
             std::cmp::Ordering::Less => {

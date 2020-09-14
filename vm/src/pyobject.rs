@@ -35,6 +35,7 @@ use crate::obj::objstaticmethod::PyStaticMethod;
 use crate::obj::objstr;
 use crate::obj::objtuple::{PyTuple, PyTupleRef};
 use crate::obj::objtype::{self, PyClass, PyClassRef};
+pub use crate::pyobjectrc::{PyObjectRc, PyObjectWeak};
 use crate::scope::Scope;
 use crate::slots::{PyClassSlots, PyTpFlags};
 use crate::types::{create_type, create_type_with_slots, initialize_types, TypeZoo};
@@ -61,7 +62,7 @@ Basically reference counting, but then done by rust.
 /// this reference counting is accounted for by this type. Use the `.clone()`
 /// method to create a new reference and increment the amount of references
 /// to the python object by 1.
-pub type PyObjectRef = PyRc<PyObject<dyn PyObjectPayload>>;
+pub type PyObjectRef = PyObjectRc<dyn PyObjectPayload>;
 
 /// Use this type for functions which return a python object or an exception.
 /// Both the python object and the python exception are `PyObjectRef` types
@@ -461,19 +462,17 @@ pub struct PyObject<T>
 where
     T: ?Sized + PyObjectPayload,
 {
-    pub(crate) typ: PyRwLock<PyRc<PyObject<PyClass>>>, // __class__ member
-    pub(crate) dict: Option<PyRwLock<PyRc<PyObject<PyDict>>>>, // __dict__ member
+    pub(crate) typ: PyRwLock<PyObjectRc<PyClass>>, // __class__ member
+    pub(crate) dict: Option<PyRwLock<PyObjectRc<PyDict>>>, // __dict__ member
     pub payload: T,
 }
 
-impl PyObject<dyn PyObjectPayload> {
+impl PyObjectRef {
     /// Attempt to downcast this reference to a subclass.
     ///
     /// If the downcast fails, the original ref is returned in as `Err` so
     /// another downcast can be attempted without unnecessary cloning.
-    pub fn downcast<T: PyObjectPayload + PyValue>(
-        self: PyRc<Self>,
-    ) -> Result<PyRef<T>, PyObjectRef> {
+    pub fn downcast<T: PyObjectPayload + PyValue>(self) -> Result<PyRef<T>, Self> {
         if self.payload_is::<T>() {
             Ok(unsafe { PyRef::from_obj_unchecked(self) })
         } else {
@@ -486,9 +485,9 @@ impl PyObject<dyn PyObjectPayload> {
     /// If the downcast fails, the original ref is returned in as `Err` so
     /// another downcast can be attempted without unnecessary cloning.
     pub fn downcast_exact<T: PyObjectPayload + PyValue>(
-        self: PyRc<Self>,
+        self,
         vm: &VirtualMachine,
-    ) -> Result<PyRef<T>, PyObjectRef> {
+    ) -> Result<PyRef<T>, Self> {
         if self.lease_class().is(&T::class(vm)) {
             // TODO: is this always true?
             assert!(
@@ -504,12 +503,10 @@ impl PyObject<dyn PyObjectPayload> {
     /// Downcast this PyObjectRef to an `PyRc<PyObject<T>>`. The [`downcast`](#method.downcast) method
     /// is generally preferred, as the `PyRef<T>` it returns implements `Deref<Target=T>`, and
     /// therefore can be used similarly to an `&T`.
-    pub fn downcast_generic<T: PyObjectPayload>(
-        self: PyRc<Self>,
-    ) -> Result<PyRc<PyObject<T>>, PyObjectRef> {
+    pub fn downcast_generic<T: PyObjectPayload>(self) -> Result<PyObjectRc<T>, Self> {
         if self.payload_is::<T>() {
-            let ptr = PyRc::into_raw(self) as *const PyObject<T>;
-            let ret = unsafe { PyRc::from_raw(ptr) };
+            let ptr = PyObjectRc::into_raw(self) as *const PyObject<T>;
+            let ret = unsafe { PyObjectRc::from_raw(ptr) };
             Ok(ret)
         } else {
             Err(self)
@@ -579,7 +576,7 @@ impl<T: PyValue> PyRef<T> {
         self.obj
     }
 
-    pub fn into_typed_pyobj(self) -> PyRc<PyObject<T>> {
+    pub fn into_typed_pyobj(self) -> PyObjectRc<T> {
         self.into_object().downcast_generic().unwrap()
     }
 }
@@ -672,6 +669,14 @@ impl TryFromObject for PyCallable {
     }
 }
 
+pub type Never = std::convert::Infallible;
+
+impl PyValue for Never {
+    fn class(_vm: &VirtualMachine) -> PyClassRef {
+        unreachable!()
+    }
+}
+
 pub trait IdProtocol {
     fn get_id(&self) -> usize;
     fn is<T>(&self, other: &T) -> bool
@@ -679,14 +684,6 @@ pub trait IdProtocol {
         T: IdProtocol,
     {
         self.get_id() == other.get_id()
-    }
-}
-
-pub type Never = std::convert::Infallible;
-
-impl PyValue for Never {
-    fn class(_vm: &VirtualMachine) -> PyClassRef {
-        unreachable!()
     }
 }
 
@@ -723,7 +720,7 @@ impl<T: IdProtocol> IdProtocol for &'_ T {
 /// A borrow of a reference to a Python object. This avoids having clone the `PyRef<T>`/
 /// `PyObjectRef`, which isn't that cheap as that increments the atomic reference counter.
 pub struct PyLease<'a, T: PyObjectPayload> {
-    inner: PyRwLockReadGuard<'a, PyRc<PyObject<T>>>,
+    inner: PyRwLockReadGuard<'a, PyObjectRc<T>>,
 }
 
 impl<'a, T: PyObjectPayload + PyValue> PyLease<'a, T> {
@@ -1081,16 +1078,8 @@ where
 
     // Move this object into a reference object, transferring ownership.
     pub fn into_ref(self) -> PyObjectRef {
-        PyRc::new(self)
-    }
-
-    pub fn into_pyref(self: PyRc<Self>) -> PyRef<T>
-    where
-        T: PyValue,
-    {
-        // SAFETY: we know just casted from PyRc<PyObject<T>> to PyObjectRef, so we know the
-        // payload is `T`
-        unsafe { PyRef::from_obj_unchecked(self as PyObjectRef) }
+        let raw = PyObjectRc::into_raw(PyObjectRc::new(self));
+        unsafe { PyObjectRef::from_raw(raw) }
     }
 }
 
@@ -1134,6 +1123,24 @@ impl PyObject<dyn PyObjectPayload> {
             self.payload()
         } else {
             None
+        }
+    }
+}
+
+impl<T> PyObjectRc<T>
+where
+    T: Sized + PyObjectPayload,
+{
+    pub fn into_pyref(self) -> PyRef<T>
+    where
+        T: PyValue,
+    {
+        // SAFETY: we know just casted from PyRc<PyObject<T>> to PyObjectRef, so we know the
+        // payload is `T`
+        let raw = PyObjectRc::into_raw(self);
+        unsafe {
+            let rc = PyObjectRc::<dyn PyObjectPayload>::from_raw(raw);
+            PyRef::from_obj_unchecked(rc)
         }
     }
 }

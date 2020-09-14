@@ -1,17 +1,17 @@
 use num_traits::ToPrimitive;
 use std::{env, mem, path};
 
+use crate::common::hash::{PyHash, PyUHash};
 use crate::frame::FrameRef;
 use crate::function::{Args, OptionalArg, PyFuncArgs};
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
-    IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult, PyStructSequence,
+    IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRc, PyObjectRef, PyResult,
+    PyStructSequence,
 };
 use crate::vm::{PySettings, VirtualMachine};
 use crate::{builtins, exceptions, py_io, version};
-use rustpython_common::hash::{PyHash, PyUHash};
-use rustpython_common::rc::PyRc;
 
 /*
  * The magic sys module.
@@ -130,7 +130,7 @@ impl SysFlags {
 }
 
 fn sys_getrefcount(obj: PyObjectRef) -> usize {
-    PyRc::strong_count(&obj)
+    PyObjectRc::strong_count(&obj)
 }
 
 fn sys_getsizeof(obj: PyObjectRef) -> usize {

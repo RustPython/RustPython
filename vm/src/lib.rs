@@ -57,6 +57,7 @@ pub mod obj;
 mod py_io;
 pub mod py_serde;
 pub mod pyobject;
+mod pyobjectrc;
 mod pystr;
 pub mod readline;
 pub mod scope;
