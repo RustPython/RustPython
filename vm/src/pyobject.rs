@@ -35,7 +35,7 @@ use crate::obj::objstaticmethod::PyStaticMethod;
 use crate::obj::objstr;
 use crate::obj::objtuple::{PyTuple, PyTupleRef};
 use crate::obj::objtype::{self, PyClass, PyClassRef};
-pub use crate::pyobjectrc::PyObjectRc;
+pub use crate::pyobjectrc::{PyObjectRc, PyObjectWeak};
 use crate::scope::Scope;
 use crate::slots::{PyClassSlots, PyTpFlags};
 use crate::types::{create_type, create_type_with_slots, initialize_types, TypeZoo};

@@ -66,11 +66,11 @@ impl<T> Deref for PyObjectRc<T>
 where
     T: ?Sized + PyObjectPayload,
 {
-    type Target = PyRc<PyObject<T>>;
+    type Target = PyObject<T>;
 
     #[inline]
-    fn deref(&self) -> &PyRc<PyObject<T>> {
-        &self.inner
+    fn deref(&self) -> &PyObject<T> {
+        self.inner.deref()
     }
 }
 
@@ -122,16 +122,6 @@ where
 {
     fn borrow(&self) -> &T {
         self.inner.borrow()
-    }
-}
-
-impl<T> borrow::Borrow<PyRc<PyObject<T>>> for PyObjectRc<T>
-where
-    T: ?Sized + PyObjectPayload,
-    PyRc<PyObject<T>>: borrow::Borrow<PyRc<PyObject<T>>>,
-{
-    fn borrow(&self) -> &PyRc<PyObject<T>> {
-        &self.inner
     }
 }
 
