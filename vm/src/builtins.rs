@@ -37,6 +37,7 @@ mod decl {
     };
     use crate::readline::{Readline, ReadlineResult};
     use crate::scope::Scope;
+    use crate::slots::PyComparisonOp;
     #[cfg(feature = "rustpython-parser")]
     use crate::stdlib::ast;
     use crate::vm::VirtualMachine;
@@ -494,16 +495,14 @@ mod decl {
             let mut x_key = vm.invoke(key_func, x.clone())?;
             for y in candidates_iter {
                 let y_key = vm.invoke(key_func, y.clone())?;
-                let y_gt_x = objbool::boolval(vm, vm._gt(y_key.clone(), x_key.clone())?)?;
-                if y_gt_x {
+                if vm.bool_cmp(y_key.clone(), x_key.clone(), PyComparisonOp::Gt)? {
                     x = y;
                     x_key = y_key;
                 }
             }
         } else {
             for y in candidates_iter {
-                let y_gt_x = objbool::boolval(vm, vm._gt(y.clone(), x.clone())?)?;
-                if y_gt_x {
+                if vm.bool_cmp(y.clone(), x.clone(), PyComparisonOp::Gt)? {
                     x = y;
                 }
             }
@@ -547,9 +546,8 @@ mod decl {
             } else {
                 y.clone()
             };
-            let order = vm._gt(x_key.clone(), y_key.clone())?;
 
-            if objbool::get_value(&order) {
+            if vm.bool_cmp(x_key.clone(), y_key.clone(), PyComparisonOp::Gt)? {
                 x = y.clone();
                 x_key = y_key;
             }

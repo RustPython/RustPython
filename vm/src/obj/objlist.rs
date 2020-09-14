@@ -6,7 +6,6 @@ use std::ops::DerefMut;
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::ToPrimitive;
 
-use super::objbool;
 use super::objint::PyIntRef;
 use super::objiter;
 use super::objsequence::{
@@ -22,6 +21,7 @@ use crate::pyobject::{
     PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::sequence::{self, SimpleSeq};
+use crate::slots::PyComparisonOp;
 use crate::vm::{ReprGuard, VirtualMachine};
 
 /// Built-in mutable sequence.
@@ -472,13 +472,12 @@ fn do_sort(
     key_func: Option<PyObjectRef>,
     reverse: bool,
 ) -> PyResult<()> {
-    let cmp = if reverse {
-        VirtualMachine::_lt
+    let op = if reverse {
+        PyComparisonOp::Lt
     } else {
-        VirtualMachine::_gt
+        PyComparisonOp::Gt
     };
-    let cmp =
-        |a: &PyObjectRef, b: &PyObjectRef| objbool::boolval(vm, cmp(vm, a.clone(), b.clone())?);
+    let cmp = |a: &PyObjectRef, b: &PyObjectRef| vm.bool_cmp(a.clone(), b.clone(), op);
 
     if let Some(ref key_func) = key_func {
         let mut items = values

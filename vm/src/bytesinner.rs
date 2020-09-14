@@ -21,6 +21,7 @@ use crate::pyobject::{
     TryFromObject, TypeProtocol,
 };
 use crate::pystr::{self, PyCommonString, PyCommonStringContainer, PyCommonStringWrapper};
+use crate::slots::PyComparisonOp;
 use crate::vm::VirtualMachine;
 use rustpython_common::hash;
 
@@ -256,38 +257,15 @@ impl PyBytesInner {
         self.elements.len()
     }
 
-    #[inline]
-    fn cmp<F>(&self, other: PyObjectRef, op: F, vm: &VirtualMachine) -> PyComparisonValue
-    where
-        F: Fn(&[u8], &[u8]) -> bool,
-    {
+    pub fn cmp(
+        &self,
+        other: PyObjectRef,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyComparisonValue {
         let r = PyBytesLike::try_from_object(vm, other)
-            .map(|other| other.with_ref(|other| op(&self.elements, other)));
+            .map(|other| other.with_ref(|other| op.eval_ord(self.elements.as_slice().cmp(other))));
         PyComparisonValue::from_option(r.ok())
-    }
-
-    pub fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
-        self.cmp(other, |a, b| a == b, vm)
-    }
-
-    pub fn ne(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
-        self.eq(other, vm).map(|v| !v)
-    }
-
-    pub fn ge(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
-        self.cmp(other, |a, b| a >= b, vm)
-    }
-
-    pub fn le(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
-        self.cmp(other, |a, b| a <= b, vm)
-    }
-
-    pub fn gt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
-        self.cmp(other, |a, b| a > b, vm)
-    }
-
-    pub fn lt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
-        self.cmp(other, |a, b| a < b, vm)
     }
 
     pub fn hash(&self, vm: &VirtualMachine) -> hash::PyHash {

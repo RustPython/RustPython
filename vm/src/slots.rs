@@ -241,7 +241,7 @@ pub trait Comparable: PyValue {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum PyComparisonOp {
     Lt,
     Le,
@@ -251,6 +251,7 @@ pub enum PyComparisonOp {
     Gt,
 }
 
+use PyComparisonOp::*;
 impl PyComparisonOp {
     pub fn eq_only(
         self,
@@ -264,11 +265,43 @@ impl PyComparisonOp {
     }
 
     pub fn eval_ord(self, ord: Ordering) -> bool {
-        use PyComparisonOp::*;
         match ord {
             Ordering::Less => matches!(self, Lt | Le | Ne),
             Ordering::Equal => matches!(self, Le | Eq | Ge),
             Ordering::Greater => matches!(self, Ne | Ge | Gt),
+        }
+    }
+
+    pub fn swapped(self) -> Self {
+        match self {
+            Lt => Gt,
+            Le => Ge,
+            Eq => Eq,
+            Ne => Ne,
+            Ge => Le,
+            Gt => Lt,
+        }
+    }
+
+    pub fn method_name(self) -> &'static str {
+        match self {
+            Lt => "__lt__",
+            Le => "__le__",
+            Eq => "__eq__",
+            Ne => "__ne__",
+            Ge => "__ge__",
+            Gt => "__gt__",
+        }
+    }
+
+    pub fn operator_token(self) -> &'static str {
+        match self {
+            Lt => "<",
+            Le => "<=",
+            Eq => "==",
+            Ne => "!=",
+            Ge => ">=",
+            Gt => ">",
         }
     }
 }

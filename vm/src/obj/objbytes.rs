@@ -16,11 +16,11 @@ use crate::byteslike::PyBytesLike;
 use crate::function::{OptionalArg, OptionalOption};
 use crate::obj::objtuple::{PyTuple, PyTupleRef};
 use crate::pyobject::{
-    BorrowValue, Either, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyIterable,
-    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    BorrowValue, Either, IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext,
+    PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
 };
 use crate::pystr::{self, PyCommonString};
-use crate::slots::Hashable;
+use crate::slots::{Comparable, Hashable, PyComparisonOp};
 use crate::vm::VirtualMachine;
 use rustpython_common::hash::PyHash;
 
@@ -86,7 +86,7 @@ pub(crate) fn init(context: &PyContext) {
     PyBytesIterator::extend_class(context, &context.types.bytes_iterator_type);
 }
 
-#[pyimpl(flags(BASETYPE), with(Hashable))]
+#[pyimpl(flags(BASETYPE), with(Hashable, Comparable))]
 impl PyBytes {
     #[pyslot]
     fn tp_new(
@@ -108,27 +108,6 @@ impl PyBytes {
     #[pymethod(name = "__len__")]
     pub(crate) fn len(&self) -> usize {
         self.inner.len()
-    }
-
-    #[pymethod(name = "__eq__")]
-    fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
-        self.inner.eq(other, vm)
-    }
-    #[pymethod(name = "__ge__")]
-    fn ge(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
-        self.inner.ge(other, vm)
-    }
-    #[pymethod(name = "__le__")]
-    fn le(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
-        self.inner.le(other, vm)
-    }
-    #[pymethod(name = "__gt__")]
-    fn gt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
-        self.inner.gt(other, vm)
-    }
-    #[pymethod(name = "__lt__")]
-    fn lt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
-        self.inner.lt(other, vm)
     }
 
     #[pymethod(name = "__iter__")]
@@ -480,6 +459,20 @@ impl PyBytes {
 impl Hashable for PyBytes {
     fn hash(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
         Ok(zelf.inner.hash(vm))
+    }
+}
+
+impl Comparable for PyBytes {
+    fn cmp(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        if op == PyComparisonOp::Eq && zelf.is(&other) {
+            return Ok(PyComparisonValue::Implemented(true));
+        }
+        Ok(zelf.inner.cmp(other, op, vm))
     }
 }
 

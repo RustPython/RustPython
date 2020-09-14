@@ -6,10 +6,10 @@ use super::objtype::PyClassRef;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objtype::PyClass;
 use crate::pyobject::{
-    BorrowValue, IdProtocol, ItemProtocol, PyArithmaticValue::*, PyAttributes, PyClassImpl,
-    PyComparisonValue, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol,
+    BorrowValue, IdProtocol, ItemProtocol, PyAttributes, PyClassImpl, PyComparisonValue, PyContext,
+    PyObject, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
+use crate::slots::PyComparisonOp;
 use crate::vm::VirtualMachine;
 
 /// The most base type
@@ -37,51 +37,78 @@ impl PyBaseObject {
         Ok(PyObject::new(PyBaseObject, cls, dict))
     }
 
-    #[pymethod(magic)]
-    fn eq(zelf: PyObjectRef, other: PyObjectRef) -> PyComparisonValue {
-        if zelf.is(&other) {
-            Implemented(true)
-        } else {
-            NotImplemented
+    #[pyslot]
+    fn tp_cmp(
+        zelf: PyObjectRef,
+        other: PyObjectRef,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        match op {
+            PyComparisonOp::Eq => Ok(zelf.is(&other).into()),
+            PyComparisonOp::Ne => {
+                let eq_method = match vm.get_method(zelf, "__eq__") {
+                    Some(func) => func?,
+                    None => return Ok(PyComparisonValue::NotImplemented), // XXX: is this a possible case?
+                };
+                let eq = vm.invoke(&eq_method, vec![other])?;
+                if eq.is(&vm.ctx.not_implemented) {
+                    return Ok(PyComparisonValue::NotImplemented);
+                }
+                let bool_eq = objbool::boolval(vm, eq)?;
+                Ok(PyComparisonValue::Implemented(!bool_eq))
+            }
+            _ => Ok(PyComparisonValue::NotImplemented),
         }
     }
 
+    #[pymethod(magic)]
+    fn eq(
+        zelf: PyObjectRef,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        Self::tp_cmp(zelf, other, PyComparisonOp::Eq, vm)
+    }
     #[pymethod(magic)]
     fn ne(
         zelf: PyObjectRef,
         other: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
-        let eq_method = match vm.get_method(zelf, "__eq__") {
-            Some(func) => func?,
-            None => return Ok(NotImplemented), // XXX: is this a possible case?
-        };
-        let eq = vm.invoke(&eq_method, vec![other])?;
-        if eq.is(&vm.ctx.not_implemented()) {
-            return Ok(NotImplemented);
-        }
-        let bool_eq = objbool::boolval(vm, eq)?;
-        Ok(Implemented(!bool_eq))
+        Self::tp_cmp(zelf, other, PyComparisonOp::Ne, vm)
     }
-
     #[pymethod(magic)]
-    fn lt(_zelf: PyObjectRef, _other: PyObjectRef) -> PyComparisonValue {
-        NotImplemented
+    fn lt(
+        zelf: PyObjectRef,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        Self::tp_cmp(zelf, other, PyComparisonOp::Lt, vm)
     }
-
     #[pymethod(magic)]
-    fn le(_zelf: PyObjectRef, _other: PyObjectRef) -> PyComparisonValue {
-        NotImplemented
+    fn le(
+        zelf: PyObjectRef,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        Self::tp_cmp(zelf, other, PyComparisonOp::Le, vm)
     }
-
     #[pymethod(magic)]
-    fn gt(_zelf: PyObjectRef, _other: PyObjectRef) -> PyComparisonValue {
-        NotImplemented
+    fn ge(
+        zelf: PyObjectRef,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        Self::tp_cmp(zelf, other, PyComparisonOp::Ge, vm)
     }
-
     #[pymethod(magic)]
-    fn ge(_zelf: PyObjectRef, _other: PyObjectRef) -> PyComparisonValue {
-        NotImplemented
+    fn gt(
+        zelf: PyObjectRef,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        Self::tp_cmp(zelf, other, PyComparisonOp::Gt, vm)
     }
 
     #[pymethod(magic)]

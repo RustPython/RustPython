@@ -15,7 +15,7 @@ use crate::pyobject::{
     PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol,
 };
-use crate::slots::Hashable;
+use crate::slots::{Comparable, Hashable, PyComparisonOp};
 use crate::VirtualMachine;
 use rustpython_common::{float_ops, hash};
 
@@ -132,7 +132,7 @@ pub fn float_pow(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult {
     }
 }
 
-#[pyimpl(flags(BASETYPE), with(Hashable))]
+#[pyimpl(flags(BASETYPE), with(Comparable, Hashable))]
 #[allow(clippy::trivially_copy_pass_by_ref)]
 impl PyFloat {
     #[pyslot]
@@ -148,27 +148,6 @@ impl PyFloat {
         PyFloat::from(float_val?).into_ref_with_type(vm, cls)
     }
 
-    #[inline]
-    fn cmp<F, G>(
-        &self,
-        other: PyObjectRef,
-        float_op: F,
-        int_op: G,
-        vm: &VirtualMachine,
-    ) -> PyComparisonValue
-    where
-        F: Fn(f64, f64) -> bool,
-        G: Fn(f64, &BigInt) -> bool,
-    {
-        if let Some(other) = other.payload_if_subclass::<PyFloat>(vm) {
-            Implemented(float_op(self.value, other.value))
-        } else if let Some(other) = other.payload_if_subclass::<PyInt>(vm) {
-            Implemented(int_op(self.value, other.borrow_value()))
-        } else {
-            NotImplemented
-        }
-    }
-
     #[pymethod(name = "__format__")]
     fn format(&self, spec: PyStringRef, vm: &VirtualMachine) -> PyResult<String> {
         match FormatSpec::parse(spec.borrow_value())
@@ -177,58 +156,6 @@ impl PyFloat {
             Ok(string) => Ok(string),
             Err(err) => Err(vm.new_value_error(err.to_string())),
         }
-    }
-
-    #[pymethod(name = "__eq__")]
-    fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
-        self.cmp(other, |a, b| a == b, float_ops::eq_int, vm)
-    }
-
-    #[pymethod(name = "__ne__")]
-    fn ne(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
-        self.eq(other, vm).map(|v| !v)
-    }
-
-    #[pymethod(name = "__lt__")]
-    fn lt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
-        self.cmp(other, |a, b| a < b, float_ops::lt_int, vm)
-    }
-
-    #[pymethod(name = "__le__")]
-    fn le(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
-        self.cmp(
-            other,
-            |a, b| a <= b,
-            |a, b| {
-                if let (Some(a_int), Some(b_float)) = (a.to_bigint(), b.to_f64()) {
-                    a <= b_float && a_int <= *b
-                } else {
-                    float_ops::lt_int(a, b)
-                }
-            },
-            vm,
-        )
-    }
-
-    #[pymethod(name = "__gt__")]
-    fn gt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
-        self.cmp(other, |a, b| a > b, float_ops::gt_int, vm)
-    }
-
-    #[pymethod(name = "__ge__")]
-    fn ge(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
-        self.cmp(
-            other,
-            |a, b| a >= b,
-            |a, b| {
-                if let (Some(a_int), Some(b_float)) = (a.to_bigint(), b.to_f64()) {
-                    a >= b_float && a_int >= *b
-                } else {
-                    float_ops::gt_int(a, b)
-                }
-            },
-            vm,
-        )
     }
 
     #[pymethod(name = "__abs__")]
@@ -514,6 +441,47 @@ impl PyFloat {
     #[pymethod]
     fn hex(&self) -> String {
         float_ops::to_hex(self.value)
+    }
+}
+
+impl Comparable for PyFloat {
+    fn cmp(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        let ret = if let Some(other) = other.payload_if_subclass::<PyFloat>(vm) {
+            zelf.value
+                .partial_cmp(&other.value)
+                .map_or(false, |ord| op.eval_ord(ord))
+        } else if let Some(other) = other.payload_if_subclass::<PyInt>(vm) {
+            let a = zelf.to_f64();
+            let b = other.borrow_value();
+            match op {
+                PyComparisonOp::Lt => float_ops::lt_int(a, b),
+                PyComparisonOp::Le => {
+                    if let (Some(a_int), Some(b_float)) = (a.to_bigint(), b.to_f64()) {
+                        a <= b_float && a_int <= *b
+                    } else {
+                        float_ops::lt_int(a, b)
+                    }
+                }
+                PyComparisonOp::Eq => float_ops::eq_int(a, b),
+                PyComparisonOp::Ne => !float_ops::eq_int(a, b),
+                PyComparisonOp::Ge => {
+                    if let (Some(a_int), Some(b_float)) = (a.to_bigint(), b.to_f64()) {
+                        a >= b_float && a_int >= *b
+                    } else {
+                        float_ops::gt_int(a, b)
+                    }
+                }
+                PyComparisonOp::Gt => float_ops::gt_int(a, b),
+            }
+        } else {
+            return Ok(NotImplemented);
+        };
+        Ok(Implemented(ret))
     }
 }
 

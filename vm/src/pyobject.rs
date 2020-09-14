@@ -1212,6 +1212,15 @@ impl<A: PyValue, B: PyValue> Either<PyRef<A>, PyRef<B>> {
     }
 }
 
+impl<A: IntoPyObject, B: IntoPyObject> IntoPyObject for Either<A, B> {
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+        match self {
+            Self::A(a) => a.into_pyobject(vm),
+            Self::B(b) => b.into_pyobject(vm),
+        }
+    }
+}
+
 /// This allows a builtin method to accept arguments that may be one of two
 /// types, raising a `TypeError` if it is neither.
 ///

@@ -37,10 +37,11 @@ use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype::{self, PyClassRef};
 use crate::pyobject::{
-    BorrowValue, IdProtocol, IntoPyObject, ItemProtocol, PyArithmaticValue, PyContext, PyObject,
-    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
+    BorrowValue, Either, IdProtocol, IntoPyObject, ItemProtocol, PyArithmaticValue, PyContext,
+    PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
 };
 use crate::scope::Scope;
+use crate::slots::PyComparisonOp;
 use crate::stdlib;
 use crate::sysmodule;
 
@@ -1393,18 +1394,27 @@ impl VirtualMachine {
     // Perform a comparison, raising TypeError when the requested comparison
     // operator is not supported.
     // see: CPython PyObject_RichCompare
-    fn _cmp<F>(
+    fn _cmp(
         &self,
         v: PyObjectRef,
         w: PyObjectRef,
-        op: &str,
-        swap_op: &str,
-        default: F,
-    ) -> PyResult
-    where
-        F: Fn(&VirtualMachine, PyObjectRef, PyObjectRef) -> PyResult,
-    {
+        op: PyComparisonOp,
+    ) -> PyResult<Either<PyObjectRef, bool>> {
+        let swapped = op.swapped();
         // TODO: _Py_EnterRecursiveCall(tstate, " in comparison")
+
+        let call_cmp = |obj: PyObjectRef, other, op| {
+            let ret = if let Some(ref cmp) = obj.class().slots.cmp {
+                Some(cmp(obj, other, op, self)?.map(Either::B))
+            } else if let Some(method_or_err) = self.get_method(obj, swapped.method_name()) {
+                let method = method_or_err?;
+                let ret = self.invoke(&method, vec![other])?;
+                Some(PyArithmaticValue::from_object(self, ret).map(Either::A))
+            } else {
+                None
+            };
+            Ok(ret)
+        };
 
         let mut checked_reverse_op = false;
         let is_strict_subclass = {
@@ -1413,63 +1423,39 @@ impl VirtualMachine {
             !v_class.is(&w_class) && objtype::issubclass(&w_class, &v_class)
         };
         if is_strict_subclass {
-            if let Some(method_or_err) = self.get_method(w.clone(), swap_op) {
-                let method = method_or_err?;
+            if let Some(res) = call_cmp(w.clone(), v.clone(), swapped)? {
                 checked_reverse_op = true;
-
-                let result = self.invoke(&method, vec![v.clone()])?;
-                if let PyArithmaticValue::Implemented(x) =
-                    PyArithmaticValue::from_object(self, result)
-                {
+                if let PyArithmaticValue::Implemented(x) = res {
                     return Ok(x);
                 }
             }
         }
-        self.call_or_unsupported(v, w, op, |vm, v, w| {
-            if !checked_reverse_op {
-                self.call_or_unsupported(w, v, swap_op, |vm, v, w| default(vm, v, w))
-            } else {
-                default(vm, v, w)
+        if let Some(PyArithmaticValue::Implemented(x)) = call_cmp(v.clone(), w.clone(), op)? {
+            return Ok(x);
+        }
+        if !checked_reverse_op {
+            let res = call_cmp(w.clone(), v.clone(), swapped)?;
+            if let Some(PyArithmaticValue::Implemented(x)) = res {
+                return Ok(x);
             }
-        })
-
+        }
+        match op {
+            PyComparisonOp::Eq => Ok(Either::B(v.is(&w))),
+            PyComparisonOp::Ne => Ok(Either::B(!v.is(&w))),
+            _ => Err(self.new_unsupported_operand_error(v, w, op.operator_token())),
+        }
         // TODO: _Py_LeaveRecursiveCall(tstate);
     }
 
-    pub fn _eq(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self._cmp(a, b, "__eq__", "__eq__", |vm, a, b| {
-            Ok(vm.ctx.new_bool(a.is(&b)))
-        })
+    pub fn bool_cmp(&self, a: PyObjectRef, b: PyObjectRef, op: PyComparisonOp) -> PyResult<bool> {
+        match self._cmp(a, b, op)? {
+            Either::A(obj) => objbool::boolval(self, obj),
+            Either::B(b) => Ok(b),
+        }
     }
 
-    pub fn _ne(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self._cmp(a, b, "__ne__", "__ne__", |vm, a, b| {
-            Ok(vm.ctx.new_bool(!a.is(&b)))
-        })
-    }
-
-    pub fn _lt(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self._cmp(a, b, "__lt__", "__gt__", |vm, a, b| {
-            Err(vm.new_unsupported_operand_error(a, b, "<"))
-        })
-    }
-
-    pub fn _le(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self._cmp(a, b, "__le__", "__ge__", |vm, a, b| {
-            Err(vm.new_unsupported_operand_error(a, b, "<="))
-        })
-    }
-
-    pub fn _gt(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self._cmp(a, b, "__gt__", "__lt__", |vm, a, b| {
-            Err(vm.new_unsupported_operand_error(a, b, ">"))
-        })
-    }
-
-    pub fn _ge(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self._cmp(a, b, "__ge__", "__le__", |vm, a, b| {
-            Err(vm.new_unsupported_operand_error(a, b, ">="))
-        })
+    pub fn obj_cmp(&self, a: PyObjectRef, b: PyObjectRef, op: PyComparisonOp) -> PyResult {
+        self._cmp(a, b, op).map(|res| res.into_pyobject(self))
     }
 
     pub fn _hash(&self, obj: &PyObjectRef) -> PyResult<rustpython_common::hash::PyHash> {
@@ -1524,9 +1510,7 @@ impl VirtualMachine {
     }
 
     pub fn bool_eq(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult<bool> {
-        let eq = self._eq(a, b)?;
-        let value = objbool::boolval(self, eq)?;
-        Ok(value)
+        self.bool_cmp(a, b, PyComparisonOp::Eq)
     }
 
     pub fn identical_or_equal(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult<bool> {
@@ -1538,9 +1522,9 @@ impl VirtualMachine {
     }
 
     pub fn bool_seq_lt(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult<Option<bool>> {
-        let value = if objbool::boolval(self, self._lt(a.clone(), b.clone())?)? {
+        let value = if self.bool_cmp(a.clone(), b.clone(), PyComparisonOp::Lt)? {
             Some(true)
-        } else if !objbool::boolval(self, self._eq(a, b)?)? {
+        } else if !self.bool_eq(a, b)? {
             Some(false)
         } else {
             None
@@ -1549,9 +1533,9 @@ impl VirtualMachine {
     }
 
     pub fn bool_seq_gt(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult<Option<bool>> {
-        let value = if objbool::boolval(self, self._gt(a.clone(), b.clone())?)? {
+        let value = if self.bool_cmp(a.clone(), b.clone(), PyComparisonOp::Gt)? {
             Some(true)
-        } else if !objbool::boolval(self, self._eq(a, b)?)? {
+        } else if !self.bool_eq(a, b)? {
             Some(false)
         } else {
             None

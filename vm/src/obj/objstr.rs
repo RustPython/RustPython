@@ -22,13 +22,13 @@ use crate::exceptions::IntoPyException;
 use crate::format::{FormatSpec, FormatString, FromTemplate};
 use crate::function::{OptionalArg, OptionalOption, PyFuncArgs};
 use crate::pyobject::{
-    BorrowValue, IdProtocol, IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyIterable,
-    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
+    BorrowValue, IdProtocol, IntoPyObject, ItemProtocol, PyClassImpl, PyComparisonValue, PyContext,
+    PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
 };
 use crate::pystr::{
     self, adjust_indices, PyCommonString, PyCommonStringContainer, PyCommonStringWrapper,
 };
-use crate::slots::Hashable;
+use crate::slots::{Comparable, Hashable, PyComparisonOp};
 use crate::VirtualMachine;
 use rustpython_common::hash;
 
@@ -178,7 +178,7 @@ struct StrArgs {
     errors: OptionalArg<PyStringRef>,
 }
 
-#[pyimpl(flags(BASETYPE), with(Hashable))]
+#[pyimpl(flags(BASETYPE), with(Hashable, Comparable))]
 impl PyString {
     #[pyslot]
     fn tp_new(cls: PyClassRef, args: StrArgs, vm: &VirtualMachine) -> PyResult<PyStringRef> {
@@ -224,24 +224,6 @@ impl PyString {
         !self.value.is_empty()
     }
 
-    #[pymethod(name = "__eq__")]
-    fn eq(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        if objtype::isinstance(&rhs, &vm.ctx.types.str_type) {
-            vm.ctx.new_bool(self.value == borrow_value(&rhs))
-        } else {
-            vm.ctx.not_implemented()
-        }
-    }
-
-    #[pymethod(name = "__ne__")]
-    fn ne(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        if objtype::isinstance(&rhs, &vm.ctx.types.str_type) {
-            vm.ctx.new_bool(self.value != borrow_value(&rhs))
-        } else {
-            vm.ctx.not_implemented()
-        }
-    }
-
     #[pymethod(name = "__contains__")]
     fn contains(&self, needle: PyStringRef) -> bool {
         self.value.contains(&needle.value)
@@ -268,26 +250,6 @@ impl PyString {
                 Ok(vm.ctx.new_str(string))
             }
         }
-    }
-
-    #[pymethod(name = "__gt__")]
-    fn gt(&self, other: PyStringRef) -> bool {
-        self.value > other.value
-    }
-
-    #[pymethod(name = "__ge__")]
-    fn ge(&self, other: PyStringRef) -> bool {
-        self.value >= other.value
-    }
-
-    #[pymethod(name = "__lt__")]
-    fn lt(&self, other: PyStringRef) -> bool {
-        self.value < other.value
-    }
-
-    #[pymethod(name = "__le__")]
-    fn le(&self, other: PyStringRef) -> bool {
-        self.value <= other.value
     }
 
     pub(crate) fn hash(&self, vm: &VirtualMachine) -> hash::PyHash {
@@ -1086,6 +1048,24 @@ impl Hashable for PyString {
         Ok(zelf.hash(vm))
     }
 }
+
+impl Comparable for PyString {
+    fn cmp(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        op: PyComparisonOp,
+        _vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        if op == PyComparisonOp::Eq && zelf.is(&other) {
+            return Ok(PyComparisonValue::Implemented(true));
+        }
+        let other = class_or_notimplemented!(Self, other);
+        Ok(op
+            .eval_ord(zelf.borrow_value().cmp(other.borrow_value()))
+            .into())
+    }
+}
+
 #[derive(FromArgs)]
 struct EncodeArgs {
     #[pyarg(positional_or_keyword, default = "None")]
