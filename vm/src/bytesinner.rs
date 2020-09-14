@@ -444,7 +444,7 @@ impl PyBytesInner {
 
     pub fn remove(&mut self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let value = Self::value_try_from_object(vm, object)?;
-        if let Some(index) = self.elements.iter().position(|&x| x == value) {
+        if let Some(index) = self.elements.find_byte(value) {
             self.elements.remove(index);
             Ok(())
         } else {
@@ -669,13 +669,11 @@ impl PyBytesInner {
         let mut res = vec![];
 
         for i in 0..=255 {
-            res.push(
-                if let Some(position) = from.elements.iter().position(|&x| x == i) {
-                    to.elements[position]
-                } else {
-                    i
-                },
-            );
+            res.push(if let Some(position) = from.elements.find_byte(i) {
+                to.elements[position]
+            } else {
+                i
+            });
         }
 
         Ok(vm.ctx.new_bytes(res))
