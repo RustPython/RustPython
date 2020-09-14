@@ -17,11 +17,11 @@ use crate::bytesinner;
 use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::function::OptionalArg;
 use crate::pyobject::{
-    BorrowValue, IdProtocol, PyArithmaticValue::*, PyClassImpl, PyComparisonValue, PyContext,
-    PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    BorrowValue, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef,
+    PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::sequence::{self, SimpleSeq};
-use crate::slots::PyComparisonOp;
+use crate::slots::{Comparable, PyComparisonOp};
 use crate::vm::{ReprGuard, VirtualMachine};
 
 /// Built-in mutable sequence.
@@ -103,7 +103,7 @@ pub(crate) struct SortOptions {
 
 pub type PyListRef = PyRef<PyList>;
 
-#[pyimpl(flags(BASETYPE))]
+#[pyimpl(flags(BASETYPE), with(Comparable))]
 impl PyList {
     #[pymethod]
     pub(crate) fn append(&self, x: PyObjectRef) {
@@ -350,64 +350,6 @@ impl PyList {
         .map(drop)
     }
 
-    #[inline]
-    fn cmp<F>(&self, other: PyObjectRef, op: F, vm: &VirtualMachine) -> PyResult<PyComparisonValue>
-    where
-        F: Fn(sequence::DynPyIter, sequence::DynPyIter) -> PyResult<bool>,
-    {
-        let r = if let Some(other) = other.payload_if_subclass::<PyList>(vm) {
-            Implemented(op(
-                self.borrow_value().boxed_iter(),
-                other.borrow_value().boxed_iter(),
-            )?)
-        } else {
-            NotImplemented
-        };
-        Ok(r)
-    }
-
-    #[pymethod(name = "__eq__")]
-    fn eq(
-        zelf: PyRef<Self>,
-        other: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyComparisonValue> {
-        if zelf.as_object().is(&other) {
-            Ok(Implemented(true))
-        } else {
-            zelf.cmp(other, |a, b| sequence::eq(vm, a, b), vm)
-        }
-    }
-
-    #[pymethod(name = "__ne__")]
-    fn ne(
-        zelf: PyRef<Self>,
-        other: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyComparisonValue> {
-        Ok(PyList::eq(zelf, other, vm)?.map(|v| !v))
-    }
-
-    #[pymethod(name = "__lt__")]
-    fn lt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
-        self.cmp(other, |a, b| sequence::lt(vm, a, b), vm)
-    }
-
-    #[pymethod(name = "__gt__")]
-    fn gt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
-        self.cmp(other, |a, b| sequence::gt(vm, a, b), vm)
-    }
-
-    #[pymethod(name = "__ge__")]
-    fn ge(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
-        self.cmp(other, |a, b| sequence::ge(vm, a, b), vm)
-    }
-
-    #[pymethod(name = "__le__")]
-    fn le(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
-        self.cmp(other, |a, b| sequence::le(vm, a, b), vm)
-    }
-
     #[pymethod(name = "__delitem__")]
     fn delitem(&self, subscript: SequenceIndex, vm: &VirtualMachine) -> PyResult<()> {
         match subscript {
@@ -463,6 +405,23 @@ impl PyList {
         };
 
         PyList::from(elements).into_ref_with_type(vm, cls)
+    }
+}
+
+impl Comparable for PyList {
+    fn cmp(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        if let Some(res) = op.identical_optimization(&zelf, &other) {
+            return Ok(res.into());
+        }
+        let other = class_or_notimplemented!(Self, other);
+        let a = zelf.borrow_value();
+        let b = other.borrow_value();
+        sequence::cmp(vm, a.boxed_iter(), b.boxed_iter(), op).map(PyComparisonValue::Implemented)
     }
 }
 

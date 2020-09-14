@@ -1,4 +1,5 @@
 use crate::pyobject::{IdProtocol, PyObjectRef, PyResult};
+use crate::slots::PyComparisonOp;
 use crate::vm::VirtualMachine;
 use num_traits::cast::ToPrimitive;
 
@@ -39,34 +40,29 @@ pub(crate) fn eq(vm: &VirtualMachine, zelf: DynPyIter, other: DynPyIter) -> PyRe
     }
 }
 
-fn cmp<L, O>(zelf: DynPyIter, other: DynPyIter, len_cmp: L, obj_cmp: O) -> PyResult<bool>
-where
-    L: Fn(usize, usize) -> bool,
-    O: Fn(PyObjectRef, PyObjectRef) -> PyResult<Option<bool>>,
-{
-    let fallback = len_cmp(zelf.len(), other.len());
+pub fn cmp(
+    vm: &VirtualMachine,
+    zelf: DynPyIter,
+    other: DynPyIter,
+    op: PyComparisonOp,
+) -> PyResult<bool> {
+    match op {
+        PyComparisonOp::Eq => return eq(vm, zelf, other),
+        PyComparisonOp::Ne => return eq(vm, zelf, other).map(|eq| !eq),
+        _ => {}
+    }
+    let fallback = op.eval_ord(zelf.len().cmp(&other.len()));
     for (a, b) in Iterator::zip(zelf, other) {
-        if let Some(v) = obj_cmp(a.clone(), b.clone())? {
+        let ret = match op {
+            PyComparisonOp::Lt | PyComparisonOp::Le => vm.bool_seq_lt(a.clone(), b.clone())?,
+            PyComparisonOp::Gt | PyComparisonOp::Ge => vm.bool_seq_gt(a.clone(), b.clone())?,
+            _ => unreachable!(),
+        };
+        if let Some(v) = ret {
             return Ok(v);
         }
     }
     Ok(fallback)
-}
-
-pub(crate) fn lt(vm: &VirtualMachine, zelf: DynPyIter, other: DynPyIter) -> PyResult<bool> {
-    cmp(zelf, other, |a, b| a < b, |a, b| vm.bool_seq_lt(a, b))
-}
-
-pub(crate) fn le(vm: &VirtualMachine, zelf: DynPyIter, other: DynPyIter) -> PyResult<bool> {
-    cmp(zelf, other, |a, b| a <= b, |a, b| vm.bool_seq_lt(a, b))
-}
-
-pub(crate) fn gt(vm: &VirtualMachine, zelf: DynPyIter, other: DynPyIter) -> PyResult<bool> {
-    cmp(zelf, other, |a, b| a > b, |a, b| vm.bool_seq_gt(a, b))
-}
-
-pub(crate) fn ge(vm: &VirtualMachine, zelf: DynPyIter, other: DynPyIter) -> PyResult<bool> {
-    cmp(zelf, other, |a, b| a >= b, |a, b| vm.bool_seq_gt(a, b))
 }
 
 pub(crate) struct SeqMul<'a> {

@@ -1074,7 +1074,10 @@ impl VirtualMachine {
         // Try to call the default method
         self.call_or_unsupported(lhs, rhs, default, move |vm, lhs, rhs| {
             // Try to call the reflection method
-            vm.call_or_unsupported(rhs, lhs, reflection, unsupported)
+            vm.call_or_unsupported(rhs, lhs, reflection, |_, rhs, lhs| {
+                // switch them around again
+                unsupported(vm, lhs, rhs)
+            })
         })
     }
 
@@ -1406,7 +1409,7 @@ impl VirtualMachine {
         let call_cmp = |obj: PyObjectRef, other, op| {
             let ret = if let Some(ref cmp) = obj.class().slots.cmp {
                 Some(cmp(obj, other, op, self)?.map(Either::B))
-            } else if let Some(method_or_err) = self.get_method(obj, swapped.method_name()) {
+            } else if let Some(method_or_err) = self.get_method(obj, op.method_name()) {
                 let method = method_or_err?;
                 let ret = self.invoke(&method, vec![other])?;
                 Some(PyArithmaticValue::from_object(self, ret).map(Either::A))

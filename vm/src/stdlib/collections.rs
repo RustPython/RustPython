@@ -6,10 +6,10 @@ mod _collections {
     use crate::function::OptionalArg;
     use crate::obj::{objiter, objsequence, objtype::PyClassRef};
     use crate::pyobject::{
-        IdProtocol, PyArithmaticValue::*, PyClassImpl, PyComparisonValue, PyIterable, PyObjectRef,
-        PyRef, PyResult, PyValue,
+        PyClassImpl, PyComparisonValue, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
     };
     use crate::sequence::{self, SimpleSeq};
+    use crate::slots::{Comparable, PyComparisonOp};
     use crate::vm::ReprGuard;
     use crate::VirtualMachine;
     use itertools::Itertools;
@@ -303,101 +303,6 @@ mod _collections {
             Ok(false)
         }
 
-        #[inline]
-        fn cmp<F>(
-            &self,
-            other: PyObjectRef,
-            op: F,
-            vm: &VirtualMachine,
-        ) -> PyResult<PyComparisonValue>
-        where
-            F: Fn(sequence::DynPyIter, sequence::DynPyIter) -> PyResult<bool>,
-        {
-            let r = if let Some(other) = other.payload_if_subclass::<PyDeque>(vm) {
-                Implemented(op(
-                    SimpleSeqDeque::from(self.borrow_deque()).boxed_iter(),
-                    SimpleSeqDeque::from(other.borrow_deque()).boxed_iter(),
-                )?)
-            } else {
-                NotImplemented
-            };
-            Ok(r)
-        }
-
-        #[pymethod(magic)]
-        fn eq(
-            zelf: PyRef<Self>,
-            other: PyObjectRef,
-            vm: &VirtualMachine,
-        ) -> PyResult<PyComparisonValue> {
-            if zelf.as_object().is(&other) {
-                Ok(Implemented(true))
-            } else {
-                zelf.cmp(other, |a, b| sequence::eq(vm, a, b), vm)
-            }
-        }
-
-        #[pymethod(magic)]
-        fn ne(
-            zelf: PyRef<Self>,
-            other: PyObjectRef,
-            vm: &VirtualMachine,
-        ) -> PyResult<PyComparisonValue> {
-            Ok(PyDeque::eq(zelf, other, vm)?.map(|v| !v))
-        }
-
-        #[pymethod(magic)]
-        fn lt(
-            zelf: PyRef<Self>,
-            other: PyObjectRef,
-            vm: &VirtualMachine,
-        ) -> PyResult<PyComparisonValue> {
-            if zelf.as_object().is(&other) {
-                Ok(Implemented(false))
-            } else {
-                zelf.cmp(other, |a, b| sequence::lt(vm, a, b), vm)
-            }
-        }
-
-        #[pymethod(magic)]
-        fn gt(
-            zelf: PyRef<Self>,
-            other: PyObjectRef,
-            vm: &VirtualMachine,
-        ) -> PyResult<PyComparisonValue> {
-            if zelf.as_object().is(&other) {
-                Ok(Implemented(false))
-            } else {
-                zelf.cmp(other, |a, b| sequence::gt(vm, a, b), vm)
-            }
-        }
-
-        #[pymethod(magic)]
-        fn le(
-            zelf: PyRef<Self>,
-            other: PyObjectRef,
-            vm: &VirtualMachine,
-        ) -> PyResult<PyComparisonValue> {
-            if zelf.as_object().is(&other) {
-                Ok(Implemented(true))
-            } else {
-                zelf.cmp(other, |a, b| sequence::le(vm, a, b), vm)
-            }
-        }
-
-        #[pymethod(magic)]
-        fn ge(
-            zelf: PyRef<Self>,
-            other: PyObjectRef,
-            vm: &VirtualMachine,
-        ) -> PyResult<PyComparisonValue> {
-            if zelf.as_object().is(&other) {
-                Ok(Implemented(true))
-            } else {
-                zelf.cmp(other, |a, b| sequence::ge(vm, a, b), vm)
-            }
-        }
-
         #[pymethod(magic)]
         fn mul(&self, n: isize) -> Self {
             let deque: SimpleSeqDeque = self.borrow_deque().into();
@@ -425,6 +330,24 @@ mod _collections {
                 position: AtomicCell::new(0),
                 deque: zelf,
             }
+        }
+    }
+
+    impl Comparable for PyDeque {
+        fn cmp(
+            zelf: PyRef<Self>,
+            other: PyObjectRef,
+            op: PyComparisonOp,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyComparisonValue> {
+            if let Some(res) = op.identical_optimization(&zelf, &other) {
+                return Ok(res.into());
+            }
+            let other = class_or_notimplemented!(Self, other);
+            let a: SimpleSeqDeque = zelf.borrow_deque().into();
+            let b: SimpleSeqDeque = other.borrow_deque().into();
+            sequence::cmp(vm, a.boxed_iter(), b.boxed_iter(), op)
+                .map(PyComparisonValue::Implemented)
         }
     }
 

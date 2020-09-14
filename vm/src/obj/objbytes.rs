@@ -16,8 +16,8 @@ use crate::byteslike::PyBytesLike;
 use crate::function::{OptionalArg, OptionalOption};
 use crate::obj::objtuple::{PyTuple, PyTupleRef};
 use crate::pyobject::{
-    BorrowValue, Either, IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext,
-    PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    BorrowValue, Either, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyIterable,
+    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
 };
 use crate::pystr::{self, PyCommonString};
 use crate::slots::{Comparable, Hashable, PyComparisonOp};
@@ -469,8 +469,8 @@ impl Comparable for PyBytes {
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
-        if op == PyComparisonOp::Eq && zelf.is(&other) {
-            return Ok(PyComparisonValue::Implemented(true));
+        if let Some(res) = op.identical_optimization(&zelf, &other) {
+            return Ok(res.into());
         }
         Ok(zelf.inner.cmp(other, op, vm))
     }

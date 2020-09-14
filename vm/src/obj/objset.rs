@@ -9,10 +9,10 @@ use super::objtype::{self, PyClassRef};
 use crate::dictdatatype;
 use crate::function::{Args, OptionalArg};
 use crate::pyobject::{
-    self, BorrowValue, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
+    self, BorrowValue, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef,
+    PyResult, PyValue, TryFromObject, TypeProtocol,
 };
-use crate::slots::Hashable;
+use crate::slots::{Comparable, Hashable, PyComparisonOp};
 use crate::vm::{ReprGuard, VirtualMachine};
 use rustpython_common::hash::PyHash;
 
@@ -106,17 +106,18 @@ impl PySetInner {
         self.content.contains(vm, needle)
     }
 
-    #[inline]
-    fn _compare_inner(
+    fn compare(
         &self,
         other: &PySetInner,
-        size_func: fn(usize, usize) -> bool,
-        swap: bool,
+        op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
-        let (zelf, other) = if swap { (other, self) } else { (self, other) };
-
-        if size_func(zelf.len(), other.len()) {
+        let (zelf, other) = if matches!(op, PyComparisonOp::Lt | PyComparisonOp::Le) {
+            (other, self)
+        } else {
+            (self, other)
+        };
+        if !op.eval_ord(zelf.len().cmp(&other.len())) {
             return Ok(false);
         }
         for key in other.content.keys() {
@@ -125,55 +126,6 @@ impl PySetInner {
             }
         }
         Ok(true)
-    }
-
-    fn eq(&self, other: &PySetInner, vm: &VirtualMachine) -> PyResult<bool> {
-        self._compare_inner(
-            other,
-            |zelf: usize, other: usize| -> bool { zelf != other },
-            false,
-            vm,
-        )
-    }
-
-    fn ne(&self, other: &PySetInner, vm: &VirtualMachine) -> PyResult<bool> {
-        Ok(!self.eq(other, vm)?)
-    }
-
-    fn ge(&self, other: &PySetInner, vm: &VirtualMachine) -> PyResult<bool> {
-        self._compare_inner(
-            other,
-            |zelf: usize, other: usize| -> bool { zelf < other },
-            false,
-            vm,
-        )
-    }
-
-    fn gt(&self, other: &PySetInner, vm: &VirtualMachine) -> PyResult<bool> {
-        self._compare_inner(
-            other,
-            |zelf: usize, other: usize| -> bool { zelf <= other },
-            false,
-            vm,
-        )
-    }
-
-    fn le(&self, other: &PySetInner, vm: &VirtualMachine) -> PyResult<bool> {
-        self._compare_inner(
-            other,
-            |zelf: usize, other: usize| -> bool { zelf < other },
-            true,
-            vm,
-        )
-    }
-
-    fn lt(&self, other: &PySetInner, vm: &VirtualMachine) -> PyResult<bool> {
-        self._compare_inner(
-            other,
-            |zelf: usize, other: usize| -> bool { zelf <= other },
-            true,
-            vm,
-        )
     }
 
     fn union(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<PySetInner> {
@@ -228,7 +180,7 @@ impl PySetInner {
 
     fn issubset(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<bool> {
         let other_set = PySetInner::new(other, vm)?;
-        self.le(&other_set, vm)
+        self.compare(&other_set, PyComparisonOp::Le, vm)
     }
 
     fn isdisjoint(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<bool> {
@@ -340,14 +292,12 @@ impl PySetInner {
     }
 }
 
-macro_rules! try_set_cmp {
-    ($vm:expr, $other:expr, $op:expr) => {
-        Ok(match_class!(match ($other) {
-            set @ PySet => ($vm.ctx.new_bool($op(&set.inner)?)),
-            frozen @ PyFrozenSet => ($vm.ctx.new_bool($op(&frozen.inner)?)),
-            _ => $vm.ctx.not_implemented(),
-        }));
-    };
+fn extract_set(obj: &PyObjectRef) -> Option<&PySetInner> {
+    match_class!(match obj {
+        ref set @ PySet => Some(&set.inner),
+        ref frozen @ PyFrozenSet => Some(&frozen.inner),
+        _ => None,
+    })
 }
 
 macro_rules! multi_args_set {
@@ -360,7 +310,7 @@ macro_rules! multi_args_set {
     }};
 }
 
-#[pyimpl(flags(BASETYPE))]
+#[pyimpl(flags(BASETYPE), with(Comparable))]
 impl PySet {
     #[pyslot]
     fn tp_new(
@@ -394,36 +344,6 @@ impl PySet {
     #[pymethod(name = "__contains__")]
     fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         self.inner.contains(&needle, vm)
-    }
-
-    #[pymethod(name = "__eq__")]
-    fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        try_set_cmp!(vm, other, |other| self.inner.eq(other, vm))
-    }
-
-    #[pymethod(name = "__ne__")]
-    fn ne(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        try_set_cmp!(vm, other, |other| self.inner.ne(other, vm))
-    }
-
-    #[pymethod(name = "__ge__")]
-    fn ge(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        try_set_cmp!(vm, other, |other| self.inner.ge(other, vm))
-    }
-
-    #[pymethod(name = "__gt__")]
-    fn gt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        try_set_cmp!(vm, other, |other| self.inner.gt(other, vm))
-    }
-
-    #[pymethod(name = "__le__")]
-    fn le(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        try_set_cmp!(vm, other, |other| self.inner.le(other, vm))
-    }
-
-    #[pymethod(name = "__lt__")]
-    fn lt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        try_set_cmp!(vm, other, |other| self.inner.lt(other, vm))
     }
 
     #[pymethod]
@@ -608,6 +528,19 @@ impl PySet {
     }
 }
 
+impl Comparable for PySet {
+    fn cmp(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        extract_set(&other).map_or(Ok(PyComparisonValue::NotImplemented), |other| {
+            Ok(zelf.inner.compare(other, op, vm)?.into())
+        })
+    }
+}
+
 macro_rules! multi_args_frozenset {
     ($vm:expr, $others:expr, $zelf:expr, $op:tt) => {{
         let mut res = $zelf.inner.copy();
@@ -618,7 +551,7 @@ macro_rules! multi_args_frozenset {
     }};
 }
 
-#[pyimpl(flags(BASETYPE), with(Hashable))]
+#[pyimpl(flags(BASETYPE), with(Hashable, Comparable))]
 impl PyFrozenSet {
     pub fn from_iter(
         vm: &VirtualMachine,
@@ -663,36 +596,6 @@ impl PyFrozenSet {
     #[pymethod(name = "__contains__")]
     fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         self.inner.contains(&needle, vm)
-    }
-
-    #[pymethod(name = "__eq__")]
-    fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        try_set_cmp!(vm, other, |other| self.inner.eq(other, vm))
-    }
-
-    #[pymethod(name = "__ne__")]
-    fn ne(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        try_set_cmp!(vm, other, |other| self.inner.ne(other, vm))
-    }
-
-    #[pymethod(name = "__ge__")]
-    fn ge(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        try_set_cmp!(vm, other, |other| self.inner.ge(other, vm))
-    }
-
-    #[pymethod(name = "__gt__")]
-    fn gt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        try_set_cmp!(vm, other, |other| self.inner.gt(other, vm))
-    }
-
-    #[pymethod(name = "__le__")]
-    fn le(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        try_set_cmp!(vm, other, |other| self.inner.le(other, vm))
-    }
-
-    #[pymethod(name = "__lt__")]
-    fn lt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        try_set_cmp!(vm, other, |other| self.inner.lt(other, vm))
     }
 
     #[pymethod]
@@ -796,6 +699,19 @@ impl PyFrozenSet {
 impl Hashable for PyFrozenSet {
     fn hash(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
         zelf.inner.hash(vm)
+    }
+}
+
+impl Comparable for PyFrozenSet {
+    fn cmp(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<pyobject::PyComparisonValue> {
+        extract_set(&other).map_or(Ok(PyComparisonValue::NotImplemented), |other| {
+            Ok(zelf.inner.compare(other, op, vm)?.into())
+        })
     }
 }
 

@@ -1056,8 +1056,8 @@ impl Comparable for PyString {
         op: PyComparisonOp,
         _vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
-        if op == PyComparisonOp::Eq && zelf.is(&other) {
-            return Ok(PyComparisonValue::Implemented(true));
+        if let Some(res) = op.identical_optimization(&zelf, &other) {
+            return Ok(res.into());
         }
         let other = class_or_notimplemented!(Self, other);
         Ok(op

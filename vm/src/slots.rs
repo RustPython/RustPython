@@ -304,4 +304,32 @@ impl PyComparisonOp {
             Gt => ">",
         }
     }
+
+    /// Returns an appropriate return value for the comparison when a and b are the same object, if an
+    /// appropriate return value exists.
+    pub fn identical_optimization(self, a: &impl IdProtocol, b: &impl IdProtocol) -> Option<bool> {
+        self.map_eq(|| a.is(b))
+    }
+
+    /// Returns `Some(true)` when self is `Eq` and `f()` returns true. Returns `Some(false)` when self
+    /// is `Ne` and `f()` returns true. Otherwise returns `None`.
+    pub fn map_eq(self, f: impl FnOnce() -> bool) -> Option<bool> {
+        match self {
+            Self::Eq => {
+                if f() {
+                    Some(true)
+                } else {
+                    None
+                }
+            }
+            Self::Ne => {
+                if f() {
+                    None
+                } else {
+                    Some(false)
+                }
+            }
+            _ => None,
+        }
+    }
 }
