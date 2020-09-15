@@ -957,7 +957,6 @@ class BaseTest:
             array.array(self.typecode, self.example[::-1])
         )
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_extend(self):
         a = array.array(self.typecode, self.example)
         self.assertRaises(TypeError, a.extend)
