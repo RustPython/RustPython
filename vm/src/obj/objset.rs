@@ -112,6 +112,9 @@ impl PySetInner {
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
+        if op == PyComparisonOp::Ne {
+            return self.compare(other, PyComparisonOp::Eq, vm).map(|eq| !eq);
+        }
         if !op.eval_ord(self.len().cmp(&other.len())) {
             return Ok(false);
         }

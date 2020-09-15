@@ -157,16 +157,20 @@ impl PyDict {
         item: bool,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
+        if op == PyComparisonOp::Ne {
+            return Self::inner_cmp(zelf, other, PyComparisonOp::Eq, item, vm)
+                .map(|x| x.map(|eq| !eq));
+        }
         if !op.eval_ord(zelf.len().cmp(&other.len())) {
             return Ok(Implemented(false));
         }
-        let (zelf, other) = if zelf.len() < other.len() {
+        let (superset, subset) = if zelf.len() < other.len() {
             (other, zelf)
         } else {
             (zelf, other)
         };
-        for (k, v1) in other {
-            match zelf.get_item_option(k, vm)? {
+        for (k, v1) in subset {
+            match superset.get_item_option(k, vm)? {
                 Some(v2) => {
                     if v1.is(&v2) {
                         continue;
@@ -421,11 +425,8 @@ impl Comparable for PyDict {
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
         op.eq_only(|| {
-            if let Ok(other) = other.downcast::<PyDict>() {
-                Self::inner_cmp(zelf, other, PyComparisonOp::Eq, true, vm)
-            } else {
-                Ok(PyComparisonValue::NotImplemented)
-            }
+            let other = class_or_notimplemented!(Self, other);
+            Self::inner_cmp(zelf, other, PyComparisonOp::Eq, true, vm)
         })
     }
 }
