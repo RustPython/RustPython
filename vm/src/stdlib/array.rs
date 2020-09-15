@@ -466,7 +466,7 @@ impl PyValue for PyArray {
     }
 }
 
-#[pyimpl(flags(BASETYPE))]
+#[pyimpl(flags(BASETYPE), with(Comparable))]
 impl PyArray {
     fn borrow_value(&self) -> PyRwLockReadGuard<'_, ArrayContentType> {
         self.array.read()
@@ -757,8 +757,8 @@ impl PyArray {
     }
 
     fn array_eq(&self, other: &Self, vm: &VirtualMachine) -> PyResult<bool> {
-        // we cannot use zelf.is(other) for shortcut because if we co
-        // float value NaN we always return False even they are the s
+        // we cannot use zelf.is(other) for shortcut because if we contenting a
+        // float value NaN we always return False even they are the same object.
         if self.len() != other.len() {
             return Ok(false);
         }

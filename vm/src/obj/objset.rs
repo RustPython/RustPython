@@ -112,16 +112,16 @@ impl PySetInner {
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
-        let (zelf, other) = if matches!(op, PyComparisonOp::Lt | PyComparisonOp::Le) {
+        if !op.eval_ord(self.len().cmp(&other.len())) {
+            return Ok(false);
+        }
+        let (superset, subset) = if matches!(op, PyComparisonOp::Lt | PyComparisonOp::Le) {
             (other, self)
         } else {
             (self, other)
         };
-        if !op.eval_ord(zelf.len().cmp(&other.len())) {
-            return Ok(false);
-        }
-        for key in other.content.keys() {
-            if !zelf.contains(&key, vm)? {
+        for key in subset.content.keys() {
+            if !superset.contains(&key, vm)? {
                 return Ok(false);
             }
         }
@@ -708,7 +708,7 @@ impl Comparable for PyFrozenSet {
         other: PyObjectRef,
         op: PyComparisonOp,
         vm: &VirtualMachine,
-    ) -> PyResult<pyobject::PyComparisonValue> {
+    ) -> PyResult<PyComparisonValue> {
         extract_set(&other).map_or(Ok(PyComparisonValue::NotImplemented), |other| {
             Ok(zelf.inner.compare(other, op, vm)?.into())
         })

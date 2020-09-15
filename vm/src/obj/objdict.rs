@@ -53,7 +53,7 @@ impl PyValue for PyDict {
 
 // Python dict methods:
 #[allow(clippy::len_without_is_empty)]
-#[pyimpl(flags(BASETYPE))]
+#[pyimpl(flags(BASETYPE), with(Comparable))]
 impl PyDict {
     #[pyslot]
     fn tp_new(class: PyClassRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {

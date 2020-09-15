@@ -44,8 +44,14 @@ impl PyBaseObject {
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
-        match op {
-            PyComparisonOp::Eq => Ok(zelf.is(&other).into()),
+        let res = match op {
+            PyComparisonOp::Eq => {
+                if zelf.is(&other) {
+                    PyComparisonValue::Implemented(true)
+                } else {
+                    PyComparisonValue::NotImplemented
+                }
+            }
             PyComparisonOp::Ne => {
                 let eq_method = match vm.get_method(zelf, "__eq__") {
                     Some(func) => func?,
@@ -56,10 +62,11 @@ impl PyBaseObject {
                     return Ok(PyComparisonValue::NotImplemented);
                 }
                 let bool_eq = objbool::boolval(vm, eq)?;
-                Ok(PyComparisonValue::Implemented(!bool_eq))
+                PyComparisonValue::Implemented(!bool_eq)
             }
-            _ => Ok(PyComparisonValue::NotImplemented),
-        }
+            _ => PyComparisonValue::NotImplemented,
+        };
+        Ok(res)
     }
 
     #[pymethod(magic)]

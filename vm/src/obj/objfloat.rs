@@ -454,7 +454,7 @@ impl Comparable for PyFloat {
         let ret = if let Some(other) = other.payload_if_subclass::<PyFloat>(vm) {
             zelf.value
                 .partial_cmp(&other.value)
-                .map_or(false, |ord| op.eval_ord(ord))
+                .map_or_else(|| op == PyComparisonOp::Ne, |ord| op.eval_ord(ord))
         } else if let Some(other) = other.payload_if_subclass::<PyInt>(vm) {
             let a = zelf.to_f64();
             let b = other.borrow_value();

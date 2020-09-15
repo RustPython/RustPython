@@ -8,7 +8,7 @@ mod _collections {
     use crate::pyobject::{
         PyClassImpl, PyComparisonValue, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
     };
-    use crate::sequence::{self, SimpleSeq};
+    use crate::sequence;
     use crate::slots::{Comparable, PyComparisonOp};
     use crate::vm::ReprGuard;
     use crate::VirtualMachine;
@@ -62,11 +62,11 @@ mod _collections {
 
     impl<'a> From<PyRwLockReadGuard<'a, VecDeque<PyObjectRef>>> for SimpleSeqDeque<'a> {
         fn from(from: PyRwLockReadGuard<'a, VecDeque<PyObjectRef>>) -> Self {
-            Self { 0: from }
+            Self(from)
         }
     }
 
-    #[pyimpl(flags(BASETYPE))]
+    #[pyimpl(flags(BASETYPE), with(Comparable))]
     impl PyDeque {
         #[pyslot]
         fn tp_new(
@@ -344,9 +344,8 @@ mod _collections {
                 return Ok(res.into());
             }
             let other = class_or_notimplemented!(Self, other);
-            let a: SimpleSeqDeque = zelf.borrow_deque().into();
-            let b: SimpleSeqDeque = other.borrow_deque().into();
-            sequence::cmp(vm, a.boxed_iter(), b.boxed_iter(), op)
+            let (lhs, rhs) = (zelf.borrow_deque(), other.borrow_deque());
+            sequence::cmp(vm, Box::new(lhs.iter()), Box::new(rhs.iter()), op)
                 .map(PyComparisonValue::Implemented)
         }
     }

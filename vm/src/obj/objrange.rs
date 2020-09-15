@@ -11,8 +11,8 @@ use super::objtype::PyClassRef;
 
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    self, BorrowValue, IntoPyRef, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
+    self, BorrowValue, IdProtocol, IntoPyRef, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
+    PyValue, TryFromObject, TypeProtocol,
 };
 use crate::slots::{Comparable, PyComparisonOp};
 use crate::vm::VirtualMachine;
@@ -131,7 +131,7 @@ pub fn init(context: &PyContext) {
 
 type PyRangeRef = PyRef<PyRange>;
 
-#[pyimpl]
+#[pyimpl(with(Comparable))]
 impl PyRange {
     fn new(cls: PyClassRef, stop: PyIntRef, vm: &VirtualMachine) -> PyResult<PyRangeRef> {
         PyRange {
@@ -349,6 +349,9 @@ impl Comparable for PyRange {
         _vm: &VirtualMachine,
     ) -> PyResult<pyobject::PyComparisonValue> {
         op.eq_only(|| {
+            if zelf.is(&other) {
+                return Ok(true.into());
+            }
             let rhs = class_or_notimplemented!(Self, other);
             let lhs_len = zelf.length();
             let eq = if lhs_len != rhs.length() {
@@ -357,10 +360,10 @@ impl Comparable for PyRange {
                 true
             } else if zelf.start.borrow_value() != rhs.start.borrow_value() {
                 false
+            } else if lhs_len.is_one() {
+                true
             } else {
-                let lhs_step = zelf.step.borrow_value();
-                let rhs_step = rhs.step.borrow_value();
-                lhs_step.is_one() || lhs_step == rhs_step
+                zelf.step.borrow_value() == rhs.step.borrow_value()
             };
             Ok(eq.into())
         })

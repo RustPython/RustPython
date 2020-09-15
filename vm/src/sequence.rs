@@ -1,4 +1,4 @@
-use crate::pyobject::{IdProtocol, PyObjectRef, PyResult};
+use crate::pyobject::{PyObjectRef, PyResult};
 use crate::slots::PyComparisonOp;
 use crate::vm::VirtualMachine;
 use num_traits::cast::ToPrimitive;
@@ -27,10 +27,7 @@ where
 pub(crate) fn eq(vm: &VirtualMachine, zelf: DynPyIter, other: DynPyIter) -> PyResult<bool> {
     if zelf.len() == other.len() {
         for (a, b) in Iterator::zip(zelf, other) {
-            if a.is(b) {
-                continue;
-            }
-            if !vm.bool_eq(a.clone(), b.clone())? {
+            if !vm.identical_or_equal(a, b)? {
                 return Ok(false);
             }
         }
@@ -46,23 +43,24 @@ pub fn cmp(
     other: DynPyIter,
     op: PyComparisonOp,
 ) -> PyResult<bool> {
-    match op {
+    let less = match op {
         PyComparisonOp::Eq => return eq(vm, zelf, other),
         PyComparisonOp::Ne => return eq(vm, zelf, other).map(|eq| !eq),
-        _ => {}
-    }
-    let fallback = op.eval_ord(zelf.len().cmp(&other.len()));
+        PyComparisonOp::Lt | PyComparisonOp::Le => true,
+        PyComparisonOp::Gt | PyComparisonOp::Ge => false,
+    };
+    let (lhs_len, rhs_len) = (zelf.len(), other.len());
     for (a, b) in Iterator::zip(zelf, other) {
-        let ret = match op {
-            PyComparisonOp::Lt | PyComparisonOp::Le => vm.bool_seq_lt(a.clone(), b.clone())?,
-            PyComparisonOp::Gt | PyComparisonOp::Ge => vm.bool_seq_gt(a.clone(), b.clone())?,
-            _ => unreachable!(),
+        let ret = if less {
+            vm.bool_seq_lt(a.clone(), b.clone())?
+        } else {
+            vm.bool_seq_gt(a.clone(), b.clone())?
         };
         if let Some(v) = ret {
             return Ok(v);
         }
     }
-    Ok(fallback)
+    Ok(op.eval_ord(lhs_len.cmp(&rhs_len)))
 }
 
 pub(crate) struct SeqMul<'a> {

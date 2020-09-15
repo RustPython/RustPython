@@ -1409,8 +1409,7 @@ impl VirtualMachine {
         let call_cmp = |obj: PyObjectRef, other, op| {
             let ret = if let Some(ref cmp) = obj.class().slots.cmp {
                 Some(cmp(obj, other, op, self)?.map(Either::B))
-            } else if let Some(method_or_err) = self.get_method(obj, op.method_name()) {
-                let method = method_or_err?;
+            } else if let Some(method) = self.get_method(obj, op.method_name()).transpose()? {
                 let ret = self.invoke(&method, vec![other])?;
                 Some(PyArithmaticValue::from_object(self, ret).map(Either::A))
             } else {

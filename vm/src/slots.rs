@@ -324,9 +324,9 @@ impl PyComparisonOp {
             }
             Self::Ne => {
                 if f() {
-                    None
-                } else {
                     Some(false)
+                } else {
+                    None
                 }
             }
             _ => None,
