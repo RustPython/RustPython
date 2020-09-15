@@ -127,13 +127,14 @@ fn browser_request_animation_frame(func: PyCallable, vm: &VirtualMachine) -> PyR
         let stored_vm = weak_vm
             .upgrade()
             .expect("that the vm is valid from inside of request_animation_frame");
-        let vm = &stored_vm.vm;
-        let func = func.clone();
-        let args = vec![vm.ctx.new_float(time)];
-        let _ = vm.invoke(&func.into_object(), args);
+        stored_vm.interp.enter(|vm| {
+            let func = func.clone();
+            let args = vec![vm.ctx.new_float(time)];
+            let _ = vm.invoke(&func.into_object(), args);
 
-        let closure = f.borrow_mut().take();
-        drop(closure);
+            let closure = f.borrow_mut().take();
+            drop(closure);
+        })
     }) as Box<dyn Fn(f64)>));
 
     let id = window()
@@ -195,26 +196,32 @@ impl PyPromise {
             let stored_vm = &weak_vm
                 .upgrade()
                 .expect("that the vm is valid when the promise resolves");
-            let vm = &stored_vm.vm;
-            let ret = match prom.await {
-                Ok(val) => {
+            let res = prom.await;
+            match res {
+                Ok(val) => stored_vm.interp.enter(move |vm| {
                     let args = if val.is_null() {
                         vec![]
                     } else {
                         vec![convert::js_to_py(vm, val)]
                     };
-                    vm.invoke(&on_fulfill.into_object(), PyFuncArgs::new(args, vec![]))
-                }
+                    let res = vm.invoke(&on_fulfill.into_object(), PyFuncArgs::new(args, vec![]));
+                    convert::pyresult_to_jsresult(vm, res)
+                }),
                 Err(err) => {
                     if let OptionalArg::Present(on_reject) = on_reject {
-                        let err = convert::js_to_py(vm, err);
-                        vm.invoke(&on_reject.into_object(), PyFuncArgs::new(vec![err], vec![]))
+                        stored_vm.interp.enter(move |vm| {
+                            let err = convert::js_to_py(vm, err);
+                            let res = vm.invoke(
+                                &on_reject.into_object(),
+                                PyFuncArgs::new(vec![err], vec![]),
+                            );
+                            convert::pyresult_to_jsresult(vm, res)
+                        })
                     } else {
-                        return Err(err);
+                        Err(err)
                     }
                 }
-            };
-            convert::pyresult_to_jsresult(vm, ret)
+            }
         };
 
         PyPromise::from_future(ret_future).into_ref(vm)
@@ -233,10 +240,11 @@ impl PyPromise {
             let stored_vm = weak_vm
                 .upgrade()
                 .expect("that the vm is valid when the promise resolves");
-            let vm = &stored_vm.vm;
-            let err = convert::js_to_py(vm, err);
-            let res = vm.invoke(&on_reject.into_object(), PyFuncArgs::new(vec![err], vec![]));
-            convert::pyresult_to_jsresult(vm, res)
+            stored_vm.interp.enter(move |vm| {
+                let err = convert::js_to_py(vm, err);
+                let res = vm.invoke(&on_reject.into_object(), PyFuncArgs::new(vec![err], vec![]));
+                convert::pyresult_to_jsresult(vm, res)
+            })
         };
 
         PyPromise::from_future(ret_future).into_ref(vm)
@@ -327,13 +335,14 @@ fn browser_load_module(module: PyStringRef, path: PyStringRef, vm: &VirtualMachi
         let stored_vm = &weak_vm
             .upgrade()
             .expect("that the vm is valid when the promise resolves");
-        let vm = &stored_vm.vm;
-        let resp_text = text.as_string().unwrap();
-        let res = import_file(vm, module.borrow_value(), "WEB".to_owned(), resp_text);
-        match res {
-            Ok(_) => Ok(JsValue::null()),
-            Err(err) => Err(convert::py_err_to_js_err(vm, &err)),
-        }
+        stored_vm.interp.enter(move |vm| {
+            let resp_text = text.as_string().unwrap();
+            let res = import_file(vm, module.borrow_value(), "WEB".to_owned(), resp_text);
+            match res {
+                Ok(_) => Ok(JsValue::null()),
+                Err(err) => Err(convert::py_err_to_js_err(vm, &err)),
+            }
+        })
     };
 
     Ok(PyPromise::from_future(future).into_object(vm))

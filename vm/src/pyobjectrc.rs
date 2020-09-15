@@ -147,7 +147,7 @@ where
         // CPython-compatible drop implementation
         let zelf = Self::into_ref(self.clone());
         if let Some(del_method) = zelf.inner.get_class_attr("__del__") {
-            crate::vm::thread::with_vm(|vm| {
+            crate::vm::thread::with_vm(&zelf, |vm| {
                 if let Err(e) = vm.invoke(&del_method, vec![zelf.clone()]) {
                     // exception in del will be ignored but printed
                     print!("Exception ignored in: ",);

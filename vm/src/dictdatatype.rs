@@ -504,39 +504,41 @@ impl DictKey for &str {
 
 #[cfg(test)]
 mod tests {
-    use super::{Dict, DictKey, VirtualMachine};
+    use super::{Dict, DictKey};
+    use crate::Interpreter;
 
     #[test]
     fn test_insert() {
-        let vm: VirtualMachine = Default::default();
-        let dict = Dict::default();
-        assert_eq!(0, dict.len());
+        Interpreter::default().enter(|vm| {
+            let dict = Dict::default();
+            assert_eq!(0, dict.len());
 
-        let key1 = vm.ctx.new_bool(true);
-        let value1 = vm.ctx.new_str("abc");
-        dict.insert(&vm, key1.clone(), value1.clone()).unwrap();
-        assert_eq!(1, dict.len());
+            let key1 = vm.ctx.new_bool(true);
+            let value1 = vm.ctx.new_str("abc");
+            dict.insert(&vm, key1.clone(), value1.clone()).unwrap();
+            assert_eq!(1, dict.len());
 
-        let key2 = vm.ctx.new_str("x");
-        let value2 = vm.ctx.new_str("def");
-        dict.insert(&vm, key2.clone(), value2.clone()).unwrap();
-        assert_eq!(2, dict.len());
+            let key2 = vm.ctx.new_str("x");
+            let value2 = vm.ctx.new_str("def");
+            dict.insert(&vm, key2.clone(), value2.clone()).unwrap();
+            assert_eq!(2, dict.len());
 
-        dict.insert(&vm, key1.clone(), value2.clone()).unwrap();
-        assert_eq!(2, dict.len());
+            dict.insert(&vm, key1.clone(), value2.clone()).unwrap();
+            assert_eq!(2, dict.len());
 
-        dict.delete(&vm, key1.clone()).unwrap();
-        assert_eq!(1, dict.len());
+            dict.delete(&vm, key1.clone()).unwrap();
+            assert_eq!(1, dict.len());
 
-        dict.insert(&vm, key1.clone(), value2.clone()).unwrap();
-        assert_eq!(2, dict.len());
+            dict.insert(&vm, key1.clone(), value2.clone()).unwrap();
+            assert_eq!(2, dict.len());
 
-        assert_eq!(true, dict.contains(&vm, &key1).unwrap());
-        assert_eq!(true, dict.contains(&vm, &"x").unwrap());
+            assert_eq!(true, dict.contains(&vm, &key1).unwrap());
+            assert_eq!(true, dict.contains(&vm, &"x").unwrap());
 
-        let val = dict.get(&vm, &"x").unwrap().unwrap();
-        vm.bool_eq(val, value2)
-            .expect("retrieved value must be equal to inserted value.");
+            let val = dict.get(&vm, &"x").unwrap().unwrap();
+            vm.bool_eq(val, value2)
+                .expect("retrieved value must be equal to inserted value.");
+        })
     }
 
     macro_rules! hash_tests {
@@ -556,12 +558,13 @@ mod tests {
     }
 
     fn check_hash_equivalence(text: &str) {
-        let vm: VirtualMachine = Default::default();
-        let value1 = text;
-        let value2 = vm.ctx.new_str(value1.to_owned());
+        Interpreter::default().enter(|vm| {
+            let value1 = text;
+            let value2 = vm.ctx.new_str(value1.to_owned());
 
-        let hash1 = value1.key_hash(&vm).expect("Hash should not fail.");
-        let hash2 = value2.key_hash(&vm).expect("Hash should not fail.");
-        assert_eq!(hash1, hash2);
+            let hash1 = value1.key_hash(&vm).expect("Hash should not fail.");
+            let hash2 = value2.key_hash(&vm).expect("Hash should not fail.");
+            assert_eq!(hash1, hash2);
+        })
     }
 }

@@ -83,23 +83,24 @@ pub fn py_to_js(vm: &VirtualMachine, py_obj: PyObjectRef) -> JsValue {
                             return Err(err);
                         }
                     };
-                    let vm = &stored_vm_from_wasm(&wasm_vm).vm;
-                    let mut py_func_args = PyFuncArgs::default();
-                    if let Some(ref args) = args {
-                        for arg in args.values() {
-                            py_func_args.args.push(js_to_py(vm, arg?));
+                    stored_vm_from_wasm(&wasm_vm).interp.enter(move |vm| {
+                        let mut py_func_args = PyFuncArgs::default();
+                        if let Some(ref args) = args {
+                            for arg in args.values() {
+                                py_func_args.args.push(js_to_py(vm, arg?));
+                            }
                         }
-                    }
-                    if let Some(ref kwargs) = kwargs {
-                        for pair in object_entries(kwargs) {
-                            let (key, val) = pair?;
-                            py_func_args
-                                .kwargs
-                                .insert(js_sys::JsString::from(key).into(), js_to_py(vm, val));
+                        if let Some(ref kwargs) = kwargs {
+                            for pair in object_entries(kwargs) {
+                                let (key, val) = pair?;
+                                py_func_args
+                                    .kwargs
+                                    .insert(js_sys::JsString::from(key).into(), js_to_py(vm, val));
+                            }
                         }
-                    }
-                    let result = vm.invoke(&py_obj, py_func_args);
-                    pyresult_to_jsresult(vm, result)
+                        let result = vm.invoke(&py_obj, py_func_args);
+                        pyresult_to_jsresult(vm, result)
+                    })
                 };
             let closure = Closure::wrap(Box::new(closure)
                 as Box<dyn FnMut(Option<Array>, Option<Object>) -> Result<JsValue, JsValue>>);

@@ -221,44 +221,46 @@ fn thread_start_new_thread(
     kwargs: OptionalArg<PyDictRef>,
     vm: &VirtualMachine,
 ) -> PyResult<u64> {
+    let args = PyFuncArgs::from((
+        Args::from(args.borrow_value().to_owned()),
+        KwArgs::from(kwargs.map_or_else(Default::default, |k| k.to_attributes())),
+    ));
     let thread_vm = vm.new_thread();
     let mut thread_builder = thread::Builder::new();
     let stacksize = vm.state.stacksize.load();
     if stacksize != 0 {
         thread_builder = thread_builder.stack_size(stacksize);
     }
-    let res = thread_builder.spawn(move || {
-        let vm = &thread_vm;
-        let prior_vm = crate::vm::thread::VM.with(|tvm| tvm.replace(vm as *const _));
-        assert!(prior_vm.is_null());
-        let args = Args::from(args.borrow_value().to_owned());
-        let kwargs = KwArgs::from(kwargs.map_or_else(Default::default, |k| k.to_attributes()));
-        if let Err(exc) = func.invoke(PyFuncArgs::from((args, kwargs)), vm) {
-            // TODO: sys.unraisablehook
-            let stderr = std::io::stderr();
-            let mut stderr = stderr.lock();
-            let repr = vm.to_repr(&func.into_object()).ok();
-            let repr = repr
-                .as_ref()
-                .map_or("<object repr() failed>", |s| s.borrow_value());
-            writeln!(stderr, "Exception ignored in thread started by: {}", repr)
-                .and_then(|()| exceptions::write_exception(&mut stderr, vm, &exc))
-                .ok();
-        }
-        SENTINELS.with(|sents| {
-            for lock in sents.replace(Default::default()) {
-                if lock.mu.is_locked() {
-                    unsafe { lock.mu.unlock() };
-                }
+    thread_builder
+        .spawn(move || thread_vm.enter(move |vm| run_thread(func, args, vm)))
+        .map(|handle| {
+            vm.state.thread_count.fetch_add(1);
+            thread_to_id(&handle.thread())
+        })
+        .map_err(|err| err.into_pyexception(vm))
+}
+
+fn run_thread(func: PyCallable, args: PyFuncArgs, vm: &VirtualMachine) {
+    if let Err(exc) = func.invoke(args, vm) {
+        // TODO: sys.unraisablehook
+        let stderr = std::io::stderr();
+        let mut stderr = stderr.lock();
+        let repr = vm.to_repr(&func.into_object()).ok();
+        let repr = repr
+            .as_ref()
+            .map_or("<object repr() failed>", |s| s.borrow_value());
+        writeln!(stderr, "Exception ignored in thread started by: {}", repr)
+            .and_then(|()| exceptions::write_exception(&mut stderr, vm, &exc))
+            .ok();
+    }
+    SENTINELS.with(|sents| {
+        for lock in sents.replace(Default::default()) {
+            if lock.mu.is_locked() {
+                unsafe { lock.mu.unlock() };
             }
-        });
-        vm.state.thread_count.fetch_sub(1);
+        }
     });
-    res.map(|handle| {
-        vm.state.thread_count.fetch_add(1);
-        thread_to_id(&handle.thread())
-    })
-    .map_err(|err| err.into_pyexception(vm))
+    vm.state.thread_count.fetch_sub(1);
 }
 
 thread_local!(static SENTINELS: RefCell<Vec<PyLockRef>> = RefCell::default());

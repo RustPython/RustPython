@@ -69,24 +69,39 @@ pub struct VirtualMachine {
 }
 
 pub(crate) mod thread {
-    use super::VirtualMachine;
-    use std::cell::Cell;
+    use super::{Interpreter, PyObjectRef, VirtualMachine};
+    use itertools::Itertools;
+    use std::cell::RefCell;
+    use std::ptr::NonNull;
     use std::thread_local;
 
     thread_local! {
-        pub(crate) static VM: Cell<*const VirtualMachine> = Cell::new(std::ptr::null());
+        pub(super) static VM_STACK: RefCell<Vec<NonNull<Interpreter>>> = Vec::with_capacity(1).into();
     }
 
-    pub(crate) fn with_vm<F, R>(f: F) -> R
+    pub(crate) fn with_vm<F, R>(obj: &PyObjectRef, f: F) -> R
     where
         F: Fn(&VirtualMachine) -> R,
     {
-        VM.with(|tvm| {
-            // vm is guaranteed to be existing unless it is not null
-            let pvm = tvm.get();
-            debug_assert!(!pvm.is_null());
-            let vm = unsafe { &*pvm };
-            f(vm)
+        let vm_owns_obj = |intp: NonNull<Interpreter>| {
+            // SAFETY: all references in VM_STACK should be valid
+            let vm = unsafe { &intp.as_ref().vm };
+            crate::obj::objtype::isinstance(obj, &vm.ctx.types.object_type)
+        };
+        VM_STACK.with(|vms| {
+            let intp = match vms.borrow().iter().copied().exactly_one() {
+                Ok(x) => {
+                    debug_assert!(vm_owns_obj(x));
+                    x
+                }
+                Err(mut others) => others
+                    .find(|x| vm_owns_obj(*x))
+                    .expect("can't get a vm; none on stack"),
+            };
+            // SAFETY: all references in VM_STACK should be valid, and should not be changed or moved
+            // at least until this function returns and the stack unwinds to an Interpreter::enter call
+            let intp = unsafe { intp.as_ref() };
+            f(&intp.vm)
         })
     }
 }
@@ -191,7 +206,7 @@ impl Default for PySettings {
 
 impl VirtualMachine {
     /// Create a new `VirtualMachine` structure.
-    pub fn new(settings: PySettings) -> VirtualMachine {
+    fn new(settings: PySettings) -> VirtualMachine {
         flame_guard!("new VirtualMachine");
         let ctx = PyContext::new();
 
@@ -244,7 +259,6 @@ impl VirtualMachine {
             }),
             initialized: false,
         };
-        thread::VM.with(|tvm| tvm.replace(&vm as *const _));
 
         objmodule::init_module_dict(
             &vm,
@@ -316,8 +330,8 @@ impl VirtualMachine {
     }
 
     #[cfg(feature = "threading")]
-    pub(crate) fn new_thread(&self) -> VirtualMachine {
-        VirtualMachine {
+    pub(crate) fn new_thread(&self) -> Interpreter {
+        let vm = VirtualMachine {
             builtins: self.builtins.clone(),
             sys_module: self.sys_module.clone(),
             ctx: self.ctx.clone(),
@@ -333,7 +347,8 @@ impl VirtualMachine {
             repr_guards: RefCell::default(),
             state: self.state.clone(),
             initialized: self.initialized,
-        }
+        };
+        Interpreter { vm }
     }
 
     pub fn run_code_obj(&self, code: PyCodeRef, scope: Scope) -> PyResult {
@@ -1526,12 +1541,6 @@ impl VirtualMachine {
     }
 }
 
-impl Default for VirtualMachine {
-    fn default() -> Self {
-        VirtualMachine::new(Default::default())
-    }
-}
-
 pub struct ReprGuard<'vm> {
     vm: &'vm VirtualMachine,
     id: usize,
@@ -1561,29 +1570,69 @@ impl<'vm> Drop for ReprGuard<'vm> {
     }
 }
 
+pub struct Interpreter {
+    vm: VirtualMachine,
+}
+
+impl Interpreter {
+    pub fn new(settings: PySettings) -> Self {
+        Self {
+            vm: VirtualMachine::new(settings),
+        }
+    }
+
+    pub fn new_with_init<F>(settings: PySettings, init: F) -> Self
+    where
+        F: FnOnce(&mut VirtualMachine) -> InitParameter,
+    {
+        let mut vm = VirtualMachine::new(settings);
+        let init = init(&mut vm);
+        vm.initialize(init);
+        Self { vm }
+    }
+
+    pub fn enter<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&VirtualMachine) -> R,
+    {
+        thread::VM_STACK.with(|vms| vms.borrow_mut().push(self.into()));
+        let ret = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(&self.vm)));
+        thread::VM_STACK.with(|vms| vms.borrow_mut().pop());
+        ret.unwrap_or_else(|e| std::panic::resume_unwind(e))
+    }
+}
+
+impl Default for Interpreter {
+    fn default() -> Self {
+        Self::new(PySettings::default())
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::VirtualMachine;
+    use super::Interpreter;
     use crate::obj::{objint, objstr};
     use num_bigint::ToBigInt;
 
     #[test]
     fn test_add_py_integers() {
-        let vm: VirtualMachine = Default::default();
-        let a = vm.ctx.new_int(33_i32);
-        let b = vm.ctx.new_int(12_i32);
-        let res = vm._add(a, b).unwrap();
-        let value = objint::get_value(&res);
-        assert_eq!(*value, 45_i32.to_bigint().unwrap());
+        Interpreter::default().enter(|vm| {
+            let a = vm.ctx.new_int(33_i32);
+            let b = vm.ctx.new_int(12_i32);
+            let res = vm._add(a, b).unwrap();
+            let value = objint::get_value(&res);
+            assert_eq!(*value, 45_i32.to_bigint().unwrap());
+        })
     }
 
     #[test]
     fn test_multiply_str() {
-        let vm: VirtualMachine = Default::default();
-        let a = vm.ctx.new_str(String::from("Hello "));
-        let b = vm.ctx.new_int(4_i32);
-        let res = vm._mul(a, b).unwrap();
-        let value = objstr::borrow_value(&res);
-        assert_eq!(value, String::from("Hello Hello Hello Hello "))
+        Interpreter::default().enter(|vm| {
+            let a = vm.ctx.new_str(String::from("Hello "));
+            let b = vm.ctx.new_int(4_i32);
+            let res = vm._mul(a, b).unwrap();
+            let value = objstr::borrow_value(&res);
+            assert_eq!(value, String::from("Hello Hello Hello Hello "))
+        })
     }
 }

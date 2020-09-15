@@ -12,7 +12,7 @@ use rustpython_vm::{
     obj::{objint::PyInt, objtype},
     pyobject::{BorrowValue, ItemProtocol, PyResult},
     scope::Scope,
-    util, InitParameter, PySettings, VirtualMachine,
+    util, InitParameter, Interpreter, PySettings, VirtualMachine,
 };
 
 use std::convert::TryInto;
@@ -49,49 +49,51 @@ fn main() {
         }
     }
 
-    let vm = VirtualMachine::new(settings);
+    let interp = Interpreter::new(settings);
 
-    let res = run_rustpython(&vm, &matches);
+    interp.enter(move |vm| {
+        let res = run_rustpython(vm, &matches);
 
-    #[cfg(feature = "flame-it")]
-    {
-        main_guard.end();
-        if let Err(e) = write_profile(&matches) {
-            error!("Error writing profile information: {}", e);
+        #[cfg(feature = "flame-it")]
+        {
+            main_guard.end();
+            if let Err(e) = write_profile(&matches) {
+                error!("Error writing profile information: {}", e);
+            }
         }
-    }
 
-    // See if any exception leaked out:
-    if let Err(err) = res {
-        if objtype::isinstance(&err, &vm.ctx.exceptions.system_exit) {
-            let args = err.args();
-            match args.borrow_value().len() {
-                0 => return,
-                1 => match_class!(match args.borrow_value()[0].clone() {
-                    i @ PyInt => {
-                        use num_traits::cast::ToPrimitive;
-                        process::exit(i.borrow_value().to_i32().unwrap_or(0));
-                    }
-                    arg => {
-                        if vm.is_none(&arg) {
-                            return;
+        // See if any exception leaked out:
+        if let Err(err) = res {
+            if objtype::isinstance(&err, &vm.ctx.exceptions.system_exit) {
+                let args = err.args();
+                match args.borrow_value().len() {
+                    0 => return,
+                    1 => match_class!(match args.borrow_value()[0].clone() {
+                        i @ PyInt => {
+                            use num_traits::cast::ToPrimitive;
+                            process::exit(i.borrow_value().to_i32().unwrap_or(0));
                         }
-                        if let Ok(s) = vm.to_str(&arg) {
-                            eprintln!("{}", s);
+                        arg => {
+                            if vm.is_none(&arg) {
+                                return;
+                            }
+                            if let Ok(s) = vm.to_str(&arg) {
+                                eprintln!("{}", s);
+                            }
                         }
-                    }
-                }),
-                _ => {
-                    if let Ok(r) = vm.to_repr(args.as_object()) {
-                        eprintln!("{}", r);
+                    }),
+                    _ => {
+                        if let Ok(r) = vm.to_repr(args.as_object()) {
+                            eprintln!("{}", r);
+                        }
                     }
                 }
+            } else {
+                print_exception(&vm, err);
             }
-        } else {
-            print_exception(&vm, err);
+            process::exit(1);
         }
-        process::exit(1);
-    }
+    })
 }
 
 fn parse_arguments<'a>(app: App<'a, '_>) -> ArgMatches<'a> {
@@ -493,21 +495,21 @@ fn run_script(vm: &VirtualMachine, scope: Scope, script_file: &str) -> PyResult<
 
 #[test]
 fn test_run_script() {
-    let vm: VirtualMachine = Default::default();
+    Interpreter::default().enter(|vm| {
+        // test file run
+        let r = run_script(
+            vm,
+            vm.new_scope_with_builtins(),
+            "extra_tests/snippets/dir_main/__main__.py",
+        );
+        assert!(r.is_ok());
 
-    // test file run
-    let r = run_script(
-        &vm,
-        vm.new_scope_with_builtins(),
-        "extra_tests/snippets/dir_main/__main__.py",
-    );
-    assert!(r.is_ok());
-
-    // test module run
-    let r = run_script(
-        &vm,
-        vm.new_scope_with_builtins(),
-        "extra_tests/snippets/dir_main",
-    );
-    assert!(r.is_ok());
+        // test module run
+        let r = run_script(
+            vm,
+            vm.new_scope_with_builtins(),
+            "extra_tests/snippets/dir_main",
+        );
+        assert!(r.is_ok());
+    })
 }
