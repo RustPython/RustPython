@@ -1,0 +1,110 @@
+.header {
+    font-family: 'Sen', sans-serif;
+    ;
+}
+
+.d-flex {
+    display: flex;
+}
+
+.d-none {
+    display: none;
+}
+
+.mr-1 {
+    margin-right: 1rem;
+}
+
+.mt-1 {
+    margin-top: 1rem;
+}
+
+.text-small {
+    font-size: 0.75rem;
+}
+
+mark {
+    background-color: #000;
+    color: #fff;
+    font-size: 0.75rem;
+}
+
+.nav-bar {
+    border-bottom: 2px solid #F74C00;
+    display: flex;
+    justify-content: space-between;
+    position: sticky;
+    top: 0px;
+    background-color: #fff;
+    height: 20px;
+    z-index: 99;
+}
+
+.split-view {
+    display: flex;
+    justify-content: space-between;
+}
+
+.split-view div {
+    flex-basis: 50%;
+}
+
+.full-height {
+    height: calc(90vh - 60px);
+}
+
+#console {
+    padding: 1rem;
+}
+
+.CodeMirror {
+    height: 90% !important;
+    border-right: 1px solid gray;
+}
+
+#run-btn,
+.secondary-btn {
+    border: 0px;
+    color: white;
+    cursor: pointer;
+}
+
+#run-btn {
+    background-color: #F74C00;
+}
+
+input[type="url"] {
+    border: 1px solid black;
+    border-radius: 0px;
+    width: 55%;
+    margin: 5px 0px 5px 0px;
+    font-size: 0.7rem;
+    padding: 4px;
+    font-family: monospace;
+}
+
+.url-container {
+    padding: 10px;
+    background-color: white;
+    font-size: smaller;
+}
+
+.secondary-btn {
+    background-color: #000;
+}
+
+.secondary-btn.active,
+.secondary-btn:hover {
+    background-color: #F74C00;
+}
+
+#error {
+    color: tomato;
+    margin-top: 10px;
+    font-family: monospace;
+    white-space: pre;
+}
+
+#code-wrapper {
+    position: relative;
+}
