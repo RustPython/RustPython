@@ -69,23 +69,32 @@ pub struct VirtualMachine {
 }
 
 pub(crate) mod thread {
-    use super::{Interpreter, PyObjectRef, VirtualMachine};
+    use super::{PyObjectRef, VirtualMachine};
     use itertools::Itertools;
     use std::cell::RefCell;
     use std::ptr::NonNull;
     use std::thread_local;
 
     thread_local! {
-        pub(super) static VM_STACK: RefCell<Vec<NonNull<Interpreter>>> = Vec::with_capacity(1).into();
+        pub(super) static VM_STACK: RefCell<Vec<NonNull<VirtualMachine>>> = Vec::with_capacity(1).into();
     }
 
-    pub(crate) fn with_vm<F, R>(obj: &PyObjectRef, f: F) -> R
+    pub fn enter_vm<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
+        VM_STACK.with(|vms| {
+            vms.borrow_mut().push(vm.into());
+            let ret = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+            vms.borrow_mut().pop();
+            ret.unwrap_or_else(|e| std::panic::resume_unwind(e))
+        })
+    }
+
+    pub fn with_vm<F, R>(obj: &PyObjectRef, f: F) -> R
     where
         F: Fn(&VirtualMachine) -> R,
     {
-        let vm_owns_obj = |intp: NonNull<Interpreter>| {
+        let vm_owns_obj = |intp: NonNull<VirtualMachine>| {
             // SAFETY: all references in VM_STACK should be valid
-            let vm = unsafe { &intp.as_ref().vm };
+            let vm = unsafe { intp.as_ref() };
             crate::obj::objtype::isinstance(obj, &vm.ctx.types.object_type)
         };
         VM_STACK.with(|vms| {
@@ -96,12 +105,12 @@ pub(crate) mod thread {
                 }
                 Err(mut others) => others
                     .find(|x| vm_owns_obj(*x))
-                    .expect("can't get a vm; none on stack"),
+                    .unwrap_or_else(|| panic!("can't get a vm for {:?}; none on stack", obj)),
             };
             // SAFETY: all references in VM_STACK should be valid, and should not be changed or moved
-            // at least until this function returns and the stack unwinds to an Interpreter::enter call
-            let intp = unsafe { intp.as_ref() };
-            f(&intp.vm)
+            // at least until this function returns and the stack unwinds to an enter_vm() call
+            let vm = unsafe { intp.as_ref() };
+            f(vm)
         })
     }
 }
@@ -225,7 +234,6 @@ impl VirtualMachine {
         let profile_func = RefCell::new(ctx.none());
         let trace_func = RefCell::new(ctx.none());
         let signal_handlers = RefCell::new(arr![ctx.none(); 64]);
-        let initialize_parameter = settings.initialization_parameter;
 
         let stdlib_inits = stdlib::get_module_inits();
         let frozen = frozen::get_module_inits();
@@ -235,7 +243,7 @@ impl VirtualMachine {
             None => rand::random(),
         };
 
-        let mut vm = VirtualMachine {
+        let vm = VirtualMachine {
             builtins,
             sys_module: sysmod,
             ctx: PyRc::new(ctx),
@@ -267,7 +275,6 @@ impl VirtualMachine {
             vm.get_none(),
         );
         objmodule::init_module_dict(&vm, &sysmod_dict, vm.ctx.new_str("sys"), vm.get_none());
-        vm.initialize(initialize_parameter);
         vm
     }
 
@@ -1576,9 +1583,8 @@ pub struct Interpreter {
 
 impl Interpreter {
     pub fn new(settings: PySettings) -> Self {
-        Self {
-            vm: VirtualMachine::new(settings),
-        }
+        let init = settings.initialization_parameter;
+        Self::new_with_init(settings, |_| init)
     }
 
     pub fn new_with_init<F>(settings: PySettings, init: F) -> Self
@@ -1595,11 +1601,18 @@ impl Interpreter {
     where
         F: FnOnce(&VirtualMachine) -> R,
     {
-        thread::VM_STACK.with(|vms| vms.borrow_mut().push(self.into()));
-        let ret = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(&self.vm)));
-        thread::VM_STACK.with(|vms| vms.borrow_mut().pop());
-        ret.unwrap_or_else(|e| std::panic::resume_unwind(e))
+        thread::enter_vm(&self.vm, || f(&self.vm))
     }
+
+    pub fn run<F>(self, f: F)
+    where
+        F: FnOnce(&VirtualMachine),
+    {
+        self.enter(f);
+        self.shutdown();
+    }
+
+    pub fn shutdown(self) {}
 }
 
 impl Default for Interpreter {

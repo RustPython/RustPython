@@ -14,45 +14,57 @@ use crate::vm::{InitParameter, VirtualMachine};
 #[cfg(feature = "rustpython-compiler")]
 use rustpython_compiler::compile;
 
-pub fn init_importlib(vm: &mut VirtualMachine, initialize_parameter: InitParameter) -> PyResult {
+pub fn init_importlib(
+    vm: &mut VirtualMachine,
+    initialize_parameter: InitParameter,
+) -> PyResult<()> {
+    use crate::vm::thread::enter_vm;
     flame_guard!("init importlib");
-    let importlib = import_frozen(vm, "_frozen_importlib")?;
-    let impmod = import_builtin(vm, "_imp")?;
-    let install = vm.get_attribute(importlib.clone(), "_install")?;
-    vm.invoke(&install, vec![vm.sys_module.clone(), impmod])?;
+
+    let importlib = enter_vm(vm, || {
+        let importlib = import_frozen(vm, "_frozen_importlib")?;
+        let impmod = import_builtin(vm, "_imp")?;
+        let install = vm.get_attribute(importlib.clone(), "_install")?;
+        vm.invoke(&install, vec![vm.sys_module.clone(), impmod])?;
+        Ok(importlib)
+    })?;
     vm.import_func = vm.get_attribute(importlib.clone(), "__import__")?;
 
     match initialize_parameter {
         InitParameter::InitializeExternal if cfg!(feature = "rustpython-compiler") => {
-            flame_guard!("install_external");
-            let install_external = vm.get_attribute(importlib, "_install_external_importers")?;
-            vm.invoke(&install_external, vec![])?;
-            // Set pyc magic number to commit hash. Should be changed when bytecode will be more stable.
-            let importlib_external = vm.import("_frozen_importlib_external", &[], 0)?;
-            let mut magic = get_git_revision().into_bytes();
-            magic.truncate(4);
-            if magic.len() != 4 {
-                magic = rand::thread_rng().gen::<[u8; 4]>().to_vec();
-            }
-            vm.set_attr(&importlib_external, "MAGIC_NUMBER", vm.ctx.new_bytes(magic))?;
-            let zipimport_res = (|| -> PyResult<()> {
-                let zipimport = vm.import("zipimport", &[], 0)?;
-                let zipimporter = vm.get_attribute(zipimport, "zipimporter")?;
-                let path_hooks = vm.get_attribute(vm.sys_module.clone(), "path_hooks")?;
-                let path_hooks = objlist::PyListRef::try_from_object(vm, path_hooks)?;
-                path_hooks.insert(0, zipimporter);
+            enter_vm(vm, || {
+                flame_guard!("install_external");
+                let install_external =
+                    vm.get_attribute(importlib, "_install_external_importers")?;
+                vm.invoke(&install_external, vec![])?;
+                // Set pyc magic number to commit hash. Should be changed when bytecode will be more stable.
+                let importlib_external = vm.import("_frozen_importlib_external", &[], 0)?;
+                let mut magic = get_git_revision().into_bytes();
+                magic.truncate(4);
+                if magic.len() != 4 {
+                    magic = rand::thread_rng().gen::<[u8; 4]>().to_vec();
+                }
+                vm.set_attr(&importlib_external, "MAGIC_NUMBER", vm.ctx.new_bytes(magic))?;
+                let zipimport_res = (|| -> PyResult<()> {
+                    let zipimport = vm.import("zipimport", &[], 0)?;
+                    let zipimporter = vm.get_attribute(zipimport, "zipimporter")?;
+                    let path_hooks = vm.get_attribute(vm.sys_module.clone(), "path_hooks")?;
+                    let path_hooks = objlist::PyListRef::try_from_object(vm, path_hooks)?;
+                    path_hooks.insert(0, zipimporter);
+                    Ok(())
+                })();
+                if zipimport_res.is_err() {
+                    warn!("couldn't init zipimport")
+                }
                 Ok(())
-            })();
-            if zipimport_res.is_err() {
-                warn!("couldn't init zipimport")
-            }
+            })?
         }
         InitParameter::NoInitialize => {
             panic!("Import library initialize should be InitializeInternal or InitializeExternal");
         }
         _ => {}
     }
-    Ok(vm.get_none())
+    Ok(())
 }
 
 pub fn import_frozen(vm: &VirtualMachine, module_name: &str) -> PyResult {
