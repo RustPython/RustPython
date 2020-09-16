@@ -67,7 +67,6 @@ function runCodeFromTextarea() {
 }
 
 function onReady() {
-    // snippets.addEventListener('change', updateSnippet);
     document
         .getElementById('run-btn')
         .addEventListener('click', runCodeFromTextarea);
@@ -78,33 +77,30 @@ function onReady() {
     document.head.appendChild(readyElement);
 }
 
-// when clicking the import code button
-// show a UI with a url input + fetch button
-// only accepts api.github.com urls (for now)
-// add another function to parse a regular url
+// import button
+// show a url input + fetch button
+// takes a url where there is raw code
 fetchbtnElement.addEventListener("click", function () {
-    // https://developer.github.com/v3/repos/contents/#get-repository-content
-    // Format:
-    // https://api.github.com/repos/username/reponame/contents/filename.py
     let url = document
         .getElementById('snippet-url')
         .value;
     // minimal js fetch code
     // needs better error handling
     fetch(url)
-        .then(res => res.json())
-        .then(data => {
-            // The Python code is in data.content
-            // it is encoded with Base64. Use atob to decode it.
-            //https://developer.mozilla.org/en-US/docs/Web/API/WindowOrWorkerGlobalScope/atob
-            var decodedData = atob(data.content);
+        .then( response => {
+            if (!response.ok) { throw response }
+            return response.text() 
+        })
+        .then(text => {
             // set the value of the code editor
-            editor.setValue(decodedData);
+            editor.setValue(text);
+            // hide the ui
             urlConainerElement.classList.add("d-none");
         }).catch(err => {
+            // show the error as is for troubleshooting.
             document
-                .getElementById("errors")
-                .innerHTML = "Couldn't fetch code. Make sure the link is public."
+                .getElementById("error")
+                .innerHTML = err
         });
 
 });
