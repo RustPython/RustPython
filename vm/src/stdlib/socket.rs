@@ -1,6 +1,6 @@
 use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use std::io::{self, prelude::*};
-use std::net::{Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, ToSocketAddrs};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, ToSocketAddrs};
 use std::time::Duration;
 
 use byteorder::{BigEndian, ByteOrder};
@@ -673,21 +673,27 @@ fn socket_getnameinfo(
     })
 }
 
-fn get_addr<T, I>(vm: &VirtualMachine, addr: T) -> PyResult<socket2::SockAddr>
-where
-    T: ToSocketAddrs<Iter = I>,
-    I: ExactSizeIterator<Item = SocketAddr>,
-{
+fn get_addr(vm: &VirtualMachine, addr: impl ToSocketAddrs) -> PyResult<socket2::SockAddr> {
     match addr.to_socket_addrs() {
         Ok(mut sock_addrs) => {
-            if sock_addrs.len() == 0 {
+            if let Some(mut addr) = sock_addrs.next() {
+                if option_env!("RUSTPYTHON_NO_IPV6").is_some() {
+                    while addr.ip() == IpAddr::V6(Ipv6Addr::LOCALHOST) {
+                        if let Some(other) = sock_addrs.next() {
+                            addr = other
+                        } else {
+                            break;
+                        }
+                    }
+                }
+
+                Ok(addr.into())
+            } else {
                 let error_type = vm.class("_socket", "gaierror");
                 Err(vm.new_exception_msg(
                     error_type,
                     "nodename nor servname provided, or not known".to_owned(),
                 ))
-            } else {
-                Ok(sock_addrs.next().unwrap().into())
             }
         }
         Err(e) => {
