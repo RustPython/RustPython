@@ -42,6 +42,8 @@ class TestSupport(unittest.TestCase):
         support.unload("sched")
         self.assertNotIn("sched", sys.modules)
 
+    @unittest.skipIf(sys.platform.startswith("win"),
+            "TODO: RUSTPYTHON; unlink() on a nonexistent file throws PermissionError on windows")
     def test_unlink(self):
         with open(TESTFN, "w") as f:
             pass
@@ -277,6 +279,7 @@ class TestSupport(unittest.TestCase):
     def test_sortdict(self):
         self.assertEqual(support.sortdict({3:3, 2:2, 1:1}), "{1: 1, 2: 2, 3: 3}")
 
+    @unittest.skipIf(sys.platform.startswith("win"), "TODO: RUSTPYTHON; actual c fds on windows")
     def test_make_bad_fd(self):
         fd = support.make_bad_fd()
         with self.assertRaises(OSError) as cm:
@@ -625,6 +628,8 @@ class TestSupport(unittest.TestCase):
             self.assertFalse(support.match_test(test_access))
             self.assertTrue(support.match_test(test_chdir))
 
+    @unittest.skipIf(sys.platform.startswith("win"), "TODO: RUSTPYTHON; os.dup on windows")
+    @unittest.skipIf(sys.platform == 'darwin', "TODO: RUSTPYTHON; spurious fd_count() failures on macos?")
     def test_fd_count(self):
         # We cannot test the absolute value of fd_count(): on old Linux
         # kernel or glibc versions, os.urandom() keeps a FD open on

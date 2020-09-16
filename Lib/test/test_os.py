@@ -3589,8 +3589,7 @@ class FDInheritanceTests(unittest.TestCase):
         self.assertEqual(os.get_inheritable(rfd), False)
         self.assertEqual(os.get_inheritable(wfd), False)
 
-    # TODO: RUSTPYTHON (AttributeError: module 'os' has no attribute 'dup')
-    @unittest.expectedFailure
+    @unittest.skipIf(sys.platform == 'win32', "TODO: RUSTPYTHON; os.dup on windows")
     def test_dup(self):
         fd1 = os.open(__file__, os.O_RDONLY)
         self.addCleanup(os.close, fd1)
@@ -3599,8 +3598,7 @@ class FDInheritanceTests(unittest.TestCase):
         self.addCleanup(os.close, fd2)
         self.assertEqual(os.get_inheritable(fd2), False)
 
-    # TODO: RUSTPYTHON (AttributeError: module 'os' has no attribute 'dup')
-    @unittest.expectedFailure
+    @unittest.skipIf(sys.platform == 'win32', "TODO: RUSTPYTHON; os.dup on windows")
     def test_dup_standard_stream(self):
         fd = os.dup(1)
         self.addCleanup(os.close, fd)
