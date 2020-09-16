@@ -162,10 +162,10 @@ pub fn print_exception(vm: &VirtualMachine, exc: PyBaseExceptionRef) {
         }
     };
     if let Ok(excepthook) = vm.get_attribute(vm.sys_module.clone(), "excepthook") {
-        let (exc_type, exc_val, exc_tb) = split(exc, vm);
+        let (exc_type, exc_val, exc_tb) = split(exc.clone(), vm);
         if let Err(eh_exc) = vm.invoke(&excepthook, vec![exc_type, exc_val, exc_tb]) {
             write_fallback(&eh_exc, "Error in sys.excepthook:");
-            write_fallback(&eh_exc, "Original exception was:");
+            write_fallback(&exc, "Original exception was:");
         }
     } else {
         write_fallback(&exc, "missing sys.excepthook");

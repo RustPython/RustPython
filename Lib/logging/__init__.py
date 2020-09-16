@@ -2051,8 +2051,8 @@ def shutdown(handlerList=_handlerList):
             #else, swallow
 
 #Let's try and shutdown automatically on application exit...
-# import atexit
-# atexit.register(shutdown)
+import atexit
+atexit.register(shutdown)
 
 # Null handler
 

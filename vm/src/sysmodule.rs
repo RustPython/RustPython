@@ -332,6 +332,34 @@ pub fn get_stderr(vm: &VirtualMachine) -> PyResult {
         .map_err(|_| vm.new_runtime_error("lost sys.stderr".to_owned()))
 }
 
+/// Similar to PySys_WriteStderr in CPython.
+///
+/// # Usage
+///
+/// ```rust,ignore
+/// writeln!(sysmodule::PyStderr(vm), "foo bar baz :)");
+/// ```
+///
+/// Unlike writing to a `std::io::Write` with the `write[ln]!()` macro, there's no error condition here;
+/// this is intended to be a replacement for the `eprint[ln]!()` macro, so `write!()`-ing to PyStderr just
+/// returns `()`.
+pub struct PyStderr<'vm>(pub &'vm VirtualMachine);
+
+impl PyStderr<'_> {
+    pub fn write_fmt(&self, args: std::fmt::Arguments<'_>) {
+        use py_io::Write;
+
+        let vm = self.0;
+        if let Ok(stderr) = get_stderr(vm) {
+            let mut stderr = py_io::PyWriter(stderr, vm);
+            if let Ok(()) = stderr.write_fmt(args) {
+                return;
+            }
+        }
+        eprint!("{}", args)
+    }
+}
+
 fn sys_excepthook(
     exc_type: PyObjectRef,
     exc_val: PyObjectRef,
