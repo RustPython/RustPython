@@ -42,8 +42,6 @@ class TestSupport(unittest.TestCase):
         support.unload("sched")
         self.assertNotIn("sched", sys.modules)
 
-    @unittest.skipIf(sys.platform.startswith("win"),
-            "TODO: RUSTPYTHON; unlink() on a nonexistent file throws PermissionError on windows")
     def test_unlink(self):
         with open(TESTFN, "w") as f:
             pass
