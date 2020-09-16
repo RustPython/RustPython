@@ -1,6 +1,9 @@
+body {
+    font-family: 'Fira Sans', sans-serif;
+}
+
 .header {
-    font-family: 'Sen', sans-serif;
-    ;
+    font-family: 'Sen', sans-serif;;
 }
 
 .d-flex {
@@ -19,25 +22,39 @@
     margin-top: 1rem;
 }
 
-.text-small {
-    font-size: 0.75rem;
+.p-1 {
+    padding: 1rem;
+}
+
+.bg-light {
+    background-color: #f7f7f9;
 }
 
 mark {
     background-color: #000;
     color: #fff;
-    font-size: 0.75rem;
 }
 
 .nav-bar {
     border-bottom: 2px solid #F74C00;
     display: flex;
-    justify-content: space-between;
     position: sticky;
     top: 0px;
     background-color: #fff;
-    height: 20px;
     z-index: 99;
+}
+
+.nav-bar div {
+    width: 300px;
+}
+
+.item-center { 
+    flex-grow: 1;
+    text-align: center;
+}
+
+.text-right {
+    text-align: right;
 }
 
 .split-view {
@@ -55,18 +72,23 @@ mark {
 
 #console {
     padding: 1rem;
+    font-family: monospace;
+    font-size: 1.1rem;
 }
 
 .CodeMirror {
-    height: 90% !important;
-    border-right: 1px solid gray;
+    height: 100% !important;
+    border-right: 4px solid #f7f7f9;
 }
 
 #run-btn,
-.secondary-btn {
+.btn-secondary {
     border: 0px;
     color: white;
     cursor: pointer;
+    font-size: 1rem;
+    height: 25px;
+    vertical-align: middle;
 }
 
 #run-btn {
@@ -78,7 +100,7 @@ input[type="url"] {
     border-radius: 0px;
     width: 55%;
     margin: 5px 0px 5px 0px;
-    font-size: 0.7rem;
+    font-size: 0.9rem;
     padding: 4px;
     font-family: monospace;
 }
@@ -86,16 +108,10 @@ input[type="url"] {
 .url-container {
     padding: 10px;
     background-color: white;
-    font-size: smaller;
 }
 
-.secondary-btn {
+.btn-secondary{
     background-color: #000;
-}
-
-.secondary-btn.active,
-.secondary-btn:hover {
-    background-color: #F74C00;
 }
 
 #error {
