@@ -1604,15 +1604,16 @@ impl Interpreter {
         thread::enter_vm(&self.vm, || f(&self.vm))
     }
 
-    pub fn run<F>(self, f: F)
-    where
-        F: FnOnce(&VirtualMachine),
-    {
-        self.enter(f);
-        self.shutdown();
-    }
+    // TODO: interpreter shutdown
+    // pub fn run<F>(self, f: F)
+    // where
+    //     F: FnOnce(&VirtualMachine),
+    // {
+    //     self.enter(f);
+    //     self.shutdown();
+    // }
 
-    pub fn shutdown(self) {}
+    // pub fn shutdown(self) {}
 }
 
 impl Default for Interpreter {
