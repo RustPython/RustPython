@@ -243,12 +243,14 @@ pub trait Comparable: PyValue {
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum PyComparisonOp {
-    Lt,
-    Le,
-    Eq,
-    Ne,
-    Ge,
-    Gt,
+    // be intentional with bits so that we can do eval_ord with just a bitwise and
+    // bits: | Equal | Greater | Less |
+    Lt = 0b001,
+    Gt = 0b010,
+    Ne = 0b011,
+    Eq = 0b100,
+    Le = 0b101,
+    Ge = 0b110,
 }
 
 use PyComparisonOp::*;
@@ -265,11 +267,12 @@ impl PyComparisonOp {
     }
 
     pub fn eval_ord(self, ord: Ordering) -> bool {
-        match ord {
-            Ordering::Less => matches!(self, Lt | Le | Ne),
-            Ordering::Equal => matches!(self, Le | Eq | Ge),
-            Ordering::Greater => matches!(self, Ne | Ge | Gt),
-        }
+        let bit = match ord {
+            Ordering::Less => Lt,
+            Ordering::Equal => Eq,
+            Ordering::Greater => Gt,
+        };
+        self as u8 & bit as u8 != 0
     }
 
     pub fn swapped(self) -> Self {
