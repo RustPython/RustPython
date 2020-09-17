@@ -324,8 +324,8 @@ impl VirtualMachine {
     }
 
     #[cfg(feature = "threading")]
-    pub(crate) fn new_thread(&self) -> Interpreter {
-        let vm = VirtualMachine {
+    pub(crate) fn new_thread(&self) -> VirtualMachine {
+        VirtualMachine {
             builtins: self.builtins.clone(),
             sys_module: self.sys_module.clone(),
             ctx: self.ctx.clone(),
@@ -341,8 +341,7 @@ impl VirtualMachine {
             repr_guards: RefCell::default(),
             state: self.state.clone(),
             initialized: self.initialized,
-        };
-        Interpreter { vm }
+        }
     }
 
     pub fn run_code_obj(&self, code: PyCodeRef, scope: Scope) -> PyResult {

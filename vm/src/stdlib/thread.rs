@@ -232,7 +232,10 @@ fn thread_start_new_thread(
         thread_builder = thread_builder.stack_size(stacksize);
     }
     thread_builder
-        .spawn(move || thread_vm.enter(move |vm| run_thread(func, args, vm)))
+        .spawn(move || {
+            let vm = &thread_vm;
+            crate::vm::thread::enter_vm(vm, move || run_thread(func, args, vm))
+        })
         .map(|handle| {
             vm.state.thread_count.fetch_add(1);
             thread_to_id(&handle.thread())
