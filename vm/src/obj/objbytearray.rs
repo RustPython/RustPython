@@ -15,6 +15,7 @@ use crate::bytesinner::{
 use crate::byteslike::PyBytesLike;
 use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::function::{OptionalArg, OptionalOption};
+use crate::obj::objbytes::PyBytes;
 use crate::obj::objtuple::PyTuple;
 use crate::pyobject::{
     BorrowValue, Either, IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext,
@@ -566,20 +567,14 @@ impl PyByteArray {
     }
 
     #[pymethod(magic)]
-    fn reduce_ex(&self, _proto: usize, vm: &VirtualMachine) -> (PyClassRef, PyTuple) {
-        self.reduce(vm)
+    fn reduce_ex(zelf: PyRef<Self>, _proto: usize, vm: &VirtualMachine) -> (PyClassRef, PyTuple) {
+        Self::reduce(zelf, vm)
     }
 
     #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> (PyClassRef, PyTuple) {
-        let param: Vec<PyObjectRef> = self
-            .borrow_value()
-            .elements
-            .iter()
-            .map(|x| x.into_pyobject(vm))
-            .collect();
-        let param = PyTuple::from(vec![vm.ctx.new_tuple(param)]);
-        (Self::class(vm), param)
+    fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> (PyClassRef, PyTuple) {
+        let bytes = PyBytes::from(zelf.borrow_value().elements.clone()).into_pyobject(vm);
+        (Self::class(vm), PyTuple::from(vec![bytes]))
     }
 }
 

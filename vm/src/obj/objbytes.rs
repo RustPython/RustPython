@@ -14,7 +14,7 @@ use crate::bytesinner::{
 };
 use crate::byteslike::PyBytesLike;
 use crate::function::{OptionalArg, OptionalOption};
-use crate::obj::objtuple::PyTuple;
+use crate::obj::objtuple::{PyTuple, PyTupleRef};
 use crate::pyobject::{
     BorrowValue, Either, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyIterable,
     PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
@@ -466,20 +466,14 @@ impl PyBytes {
     }
 
     #[pymethod(magic)]
-    fn reduce_ex(&self, _proto: usize, vm: &VirtualMachine) -> (PyClassRef, PyTuple) {
-        self.reduce(vm)
-    }
-
-    #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> (PyClassRef, PyTuple) {
+    fn getnewargs(&self, vm: &VirtualMachine) -> PyTupleRef {
         let param: Vec<PyObjectRef> = self
             .inner
             .elements
             .iter()
             .map(|x| x.into_pyobject(vm))
             .collect();
-        let param = PyTuple::from(vec![vm.ctx.new_tuple(param)]);
-        (Self::class(vm), param)
+        PyTuple::from(param).into_ref(vm)
     }
 }
 
