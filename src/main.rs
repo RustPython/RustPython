@@ -29,12 +29,7 @@ fn main() {
     env_logger::init();
     let app = App::new("RustPython");
     let matches = parse_arguments(app);
-    let mut settings = create_settings(&matches);
-
-    // We only include the standard library bytecode in WASI when initializing
-    if cfg!(target_os = "wasi") {
-        settings.initialization_parameter = InitParameter::InitializeInternal;
-    }
+    let settings = create_settings(&matches);
 
     // don't translate newlines (\r\n <=> \n)
     #[cfg(windows)]
@@ -49,7 +44,14 @@ fn main() {
         }
     }
 
-    let interp = Interpreter::new(settings);
+    // We only include the standard library bytecode in WASI when initializing
+    let init = if cfg!(target_os = "wasi") {
+        InitParameter::Internal
+    } else {
+        InitParameter::External
+    };
+
+    let interp = Interpreter::new(settings, init);
 
     interp.enter(move |vm| {
         let res = run_rustpython(vm, &matches);

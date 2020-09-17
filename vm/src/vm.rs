@@ -126,11 +126,10 @@ pub struct PyGlobalState {
 
 pub const NSIG: usize = 64;
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq, Eq)]
 pub enum InitParameter {
-    NoInitialize,
-    InitializeInternal,
-    InitializeExternal,
+    Internal,
+    External,
 }
 
 /// Struct containing all kind of settings for the python vm.
@@ -168,10 +167,6 @@ pub struct PySettings {
     /// sys.argv
     pub argv: Vec<String>,
 
-    /// Initialization parameter to decide to initialize or not,
-    /// and to decide the importer required external filesystem access or not
-    pub initialization_parameter: InitParameter,
-
     /// PYTHONHASHSEED=x
     pub hash_seed: Option<u32>,
 }
@@ -207,7 +202,6 @@ impl Default for PySettings {
             dont_write_bytecode: false,
             path_list: vec![],
             argv: vec![],
-            initialization_parameter: InitParameter::InitializeExternal,
             hash_seed: None,
         }
     }
@@ -278,62 +272,55 @@ impl VirtualMachine {
         vm
     }
 
-    pub fn initialize(&mut self, initialize_parameter: InitParameter) {
+    fn initialize(&mut self, initialize_parameter: InitParameter) {
         flame_guard!("init VirtualMachine");
 
-        match initialize_parameter {
-            InitParameter::NoInitialize => {}
-            _ => {
-                if self.initialized {
-                    panic!("Double Initialize Error");
-                }
+        if self.initialized {
+            panic!("Double Initialize Error");
+        }
 
-                builtins::make_module(self, self.builtins.clone());
-                sysmodule::make_module(self, self.sys_module.clone(), self.builtins.clone());
+        builtins::make_module(self, self.builtins.clone());
+        sysmodule::make_module(self, self.sys_module.clone(), self.builtins.clone());
 
-                let mut inner_init = || -> PyResult<()> {
-                    #[cfg(not(target_arch = "wasm32"))]
-                    import::import_builtin(self, "signal")?;
+        let mut inner_init = || -> PyResult<()> {
+            #[cfg(not(target_arch = "wasm32"))]
+            import::import_builtin(self, "signal")?;
 
-                    import::init_importlib(self, initialize_parameter)?;
+            import::init_importlib(self, initialize_parameter)?;
 
-                    #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
-                    {
-                        // this isn't fully compatible with CPython; it imports "io" and sets
-                        // builtins.open to io.OpenWrapper, but this is easier, since it doesn't
-                        // require the Python stdlib to be present
-                        let io = self.import("_io", &[], 0)?;
-                        let io_open = self.get_attribute(io, "open")?;
-                        let set_stdio = |name, fd, mode: &str| {
-                            let stdio = self.invoke(
-                                &io_open,
-                                vec![self.ctx.new_int(fd), self.new_pyobj(mode)],
-                            )?;
-                            self.set_attr(
-                                &self.sys_module,
-                                format!("__{}__", name), // e.g. __stdin__
-                                stdio.clone(),
-                            )?;
-                            self.set_attr(&self.sys_module, name, stdio)?;
-                            Ok(())
-                        };
-                        set_stdio("stdin", 0, "r")?;
-                        set_stdio("stdout", 1, "w")?;
-                        set_stdio("stderr", 2, "w")?;
-
-                        self.set_attr(&self.builtins, "open", io_open)?;
-                    }
-
+            #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+            {
+                // this isn't fully compatible with CPython; it imports "io" and sets
+                // builtins.open to io.OpenWrapper, but this is easier, since it doesn't
+                // require the Python stdlib to be present
+                let io = self.import("_io", &[], 0)?;
+                let io_open = self.get_attribute(io, "open")?;
+                let set_stdio = |name, fd, mode: &str| {
+                    let stdio =
+                        self.invoke(&io_open, vec![self.ctx.new_int(fd), self.new_pyobj(mode)])?;
+                    self.set_attr(
+                        &self.sys_module,
+                        format!("__{}__", name), // e.g. __stdin__
+                        stdio.clone(),
+                    )?;
+                    self.set_attr(&self.sys_module, name, stdio)?;
                     Ok(())
                 };
+                set_stdio("stdin", 0, "r")?;
+                set_stdio("stdout", 1, "w")?;
+                set_stdio("stderr", 2, "w")?;
 
-                let res = inner_init();
-
-                self.expect_pyresult(res, "initializiation failed");
-
-                self.initialized = true;
+                self.set_attr(&self.builtins, "open", io_open)?;
             }
-        }
+
+            Ok(())
+        };
+
+        let res = inner_init();
+
+        self.expect_pyresult(res, "initializiation failed");
+
+        self.initialized = true;
     }
 
     #[cfg(feature = "threading")]
@@ -1582,8 +1569,7 @@ pub struct Interpreter {
 }
 
 impl Interpreter {
-    pub fn new(settings: PySettings) -> Self {
-        let init = settings.initialization_parameter;
+    pub fn new(settings: PySettings, init: InitParameter) -> Self {
         Self::new_with_init(settings, |_| init)
     }
 
@@ -1618,7 +1604,7 @@ impl Interpreter {
 
 impl Default for Interpreter {
     fn default() -> Self {
-        Self::new(PySettings::default())
+        Self::new(PySettings::default(), InitParameter::External)
     }
 }
 

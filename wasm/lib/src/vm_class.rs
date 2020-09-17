@@ -27,14 +27,8 @@ pub(crate) struct StoredVirtualMachine {
 
 impl StoredVirtualMachine {
     fn new(id: String, inject_browser_module: bool) -> StoredVirtualMachine {
-        let settings = PySettings {
-            // After js, browser modules injected, the VM will not be initialized.
-            initialization_parameter: InitParameter::NoInitialize,
-            ..Default::default()
-        };
-
         let mut scope = None;
-        let interp = Interpreter::new_with_init(settings, |vm| {
+        let interp = Interpreter::new_with_init(PySettings::default(), |vm| {
             vm.wasm_id = Some(id);
 
             js_module::setup_js_module(vm);
@@ -52,7 +46,7 @@ impl StoredVirtualMachine {
 
             scope = Some(vm.new_scope_with_builtins());
 
-            InitParameter::InitializeInternal
+            InitParameter::Internal
         });
 
         StoredVirtualMachine {
