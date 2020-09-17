@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link defer async href="https://fonts.googleapis.com/css?family=Fira+Sans|Sen:800&display=swap" rel="stylesheet">
+    <title>🐍 RustPython Notebook</title>
+</head>
+
+<body>
+    <!-- navigation bar -->
+    <div class="nav-bar">
+        <div>
+            <button id="run-btn">run notebook &#9658; </button>
+            <button id="snippet-btn" class="btn-secondary mr-1">import code</button>
+        </div>
+        <div class="header item-center">RustPython 🐍 😱 🤘</div>
+        <div class="text-right"><a href="https://github.com/RustPython/">github</a></div>
+    </div>
+
+    <!-- user interface elements for importing code -->
+    <div id="url-container" class="d-none p-1 bg-light">
+        <div><label for="url">public url:</label></div>
+        <div>
+            <input type="url" name="url" id="snippet-url">
+            <button id="fetch-code" class="btn-secondary">fetch</button>
+        </div>
+    </div>
+
+    <!-- code editor and output display -->
+    <!-- split view -->
+    <div class="split-view full-height">
+        <textarea id="code"></textarea>
+        <div id="console"></div>
+    </div>
+
+    <!-- errors and keyboard shortcuts -->
+    <div class="split-view">
+        <div class="mt-1">
+            <div class="header">Error(s):</div>
+            <div id="error"></div>
+        </div>
+        <div class="mt-1">
+            <div class="header">Keyboard Shortcuts:</div>
+            <div>
+                <div>Run code: 'Ctrl-Enter' or 'Cmd-Enter'</div>
+                <div>Decrease Indent: 'Shift-Tab' </div>
+                <div>Toggle comment: 'Ctrl-/' or 'Cmd-/'</div>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>
