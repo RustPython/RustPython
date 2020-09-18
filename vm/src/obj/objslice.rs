@@ -1,3 +1,5 @@
+// sliceobject.{h,c} in CPython
+
 use super::objint::PyInt;
 use super::objtype::PyClassRef;
 use crate::function::{OptionalArg, PyFuncArgs};
@@ -333,7 +335,35 @@ fn to_index_value(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Option<Big
     Ok(Some(result.borrow_value().clone()))
 }
 
+#[pyclass(module = false, name = "EllipsisType")]
+#[derive(Debug)]
+pub struct PyEllipsis;
+
+impl PyValue for PyEllipsis {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.ctx.types.ellipsis_type.clone()
+    }
+}
+
+#[pyimpl]
+impl PyEllipsis {
+    #[pyslot]
+    fn tp_new(_cls: PyClassRef, vm: &VirtualMachine) -> PyRef<Self> {
+        vm.ctx.ellipsis.clone()
+    }
+
+    #[pymethod(magic)]
+    fn repr(&self) -> String {
+        "Ellipsis".to_owned()
+    }
+
+    #[pymethod(magic)]
+    fn reduce(&self) -> String {
+        "Ellipsis".to_owned()
+    }
+}
+
 pub fn init(context: &PyContext) {
-    let slice_type = &context.types.slice_type;
-    PySlice::extend_class(context, slice_type);
+    PySlice::extend_class(context, &context.types.slice_type);
+    PyEllipsis::extend_class(context, &context.types.ellipsis_type);
 }

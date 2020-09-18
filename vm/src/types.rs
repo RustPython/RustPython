@@ -8,7 +8,6 @@ use crate::obj::objcode;
 use crate::obj::objcomplex;
 use crate::obj::objcoroutine;
 use crate::obj::objdict;
-use crate::obj::objellipsis;
 use crate::obj::objenumerate;
 use crate::obj::objfilter;
 use crate::obj::objfloat;
@@ -166,7 +165,7 @@ impl TypeZoo {
             dict_reversevalueiterator_type: create_type!(objdict::PyDictReverseValueIterator),
             dict_itemiterator_type: create_type!(objdict::PyDictItemIterator),
             dict_reverseitemiterator_type: create_type!(objdict::PyDictReverseItemIterator),
-            ellipsis_type: create_type!(objellipsis::PyEllipsis),
+            ellipsis_type: create_type!(objslice::PyEllipsis),
             enumerate_type: create_type!(objenumerate::PyEnumerate),
             filter_type: create_type!(objfilter::PyFilter),
             float_type: create_type!(objfloat::PyFloat),
@@ -361,7 +360,6 @@ pub fn initialize_types(context: &PyContext) {
     objslice::init(&context);
     objsuper::init(&context);
     objiter::init(&context);
-    objellipsis::init(&context);
     objenumerate::init(&context);
     objfilter::init(&context);
     objmap::init(&context);
