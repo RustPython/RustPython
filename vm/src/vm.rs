@@ -669,7 +669,7 @@ impl VirtualMachine {
 
     /// Test whether a python object is `None`.
     pub fn is_none(&self, obj: &PyObjectRef) -> bool {
-        obj.is(&self.get_none())
+        obj.is(&self.ctx.none)
     }
     pub fn option_if_none(&self, obj: PyObjectRef) -> Option<PyObjectRef> {
         if self.is_none(&obj) {

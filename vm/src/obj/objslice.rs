@@ -4,8 +4,8 @@ use super::objint::PyInt;
 use super::objtype::PyClassRef;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    BorrowValue, IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
-    PyValue, TryIntoRef, TypeProtocol,
+    BorrowValue, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    TryIntoRef, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use num_bigint::{BigInt, ToBigInt};
@@ -315,7 +315,7 @@ impl PySlice {
 }
 
 fn to_index_value(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Option<BigInt>> {
-    if obj.is(&vm.ctx.none) {
+    if vm.is_none(obj) {
         return Ok(None);
     }
 
