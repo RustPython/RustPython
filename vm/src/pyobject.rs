@@ -102,7 +102,7 @@ pub struct PyContext {
 
     pub types: TypeZoo,
     pub exceptions: exceptions::ExceptionZoo,
-    pub int_cache_pool: Vec<PyObjectRef>,
+    pub int_cache_pool: Vec<PyIntRef>,
     tp_new_wrapper: PyObjectRef,
 }
 
@@ -144,7 +144,7 @@ impl PyContext {
         let not_implemented = create_object(PyNotImplemented, &not_implemented_type);
 
         let int_cache_pool = (Self::INT_CACHE_POOL_MIN..=Self::INT_CACHE_POOL_MAX)
-            .map(|v| PyObject::new(PyInt::from(BigInt::from(v)), types.int_type.clone(), None))
+            .map(|v| PyRef::new_ref(PyInt::from(BigInt::from(v)), types.int_type.clone(), None))
             .collect();
 
         let true_value = create_object(PyInt::from(1), &types.bool_type);
@@ -194,7 +194,7 @@ impl PyContext {
         if let Some(i) = i.to_i32() {
             if i >= Self::INT_CACHE_POOL_MIN && i <= Self::INT_CACHE_POOL_MAX {
                 let inner_idx = (i - Self::INT_CACHE_POOL_MIN) as usize;
-                return self.int_cache_pool[inner_idx].clone();
+                return self.int_cache_pool[inner_idx].as_object().clone();
             }
         }
         PyObject::new(PyInt::from(i), self.types.int_type.clone(), None)
@@ -205,7 +205,7 @@ impl PyContext {
         if let Some(i) = i.to_i32() {
             if i >= Self::INT_CACHE_POOL_MIN && i <= Self::INT_CACHE_POOL_MAX {
                 let inner_idx = (i - Self::INT_CACHE_POOL_MIN) as usize;
-                return self.int_cache_pool[inner_idx].clone();
+                return self.int_cache_pool[inner_idx].as_object().clone();
             }
         }
         PyObject::new(PyInt::from(i.clone()), self.types.int_type.clone(), None)
