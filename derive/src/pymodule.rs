@@ -366,8 +366,43 @@ impl ModuleItem for AttributeItem {
                 let ident = match &*path.tree {
                     UseTree::Name(name) => &name.ident,
                     UseTree::Rename(rename) => &rename.rename,
+                    UseTree::Group(syn::UseGroup { items, .. }) => {
+                        for item in items {
+                            let ident = match item {
+                                UseTree::Name(name) => &name.ident,
+                                UseTree::Rename(rename) => &rename.rename,
+                                other => {
+                                    return Err(self.new_syn_error(
+                                        other.span(),
+                                        "can only contains a simple use or a group of simple uses",
+                                    ));
+                                }
+                            };
+                            let item_meta = SimpleItemMeta::from_attr(ident.clone(), &attr)?;
+                            if item_meta.optional_name().is_some() {
+                                // this check actually doesn't need to be placed in loop
+                                return Err(self.new_syn_error(
+                                    ident.span(),
+                                    "`name` attribute is not allowed for multiple use items",
+                                ));
+                            }
+                            let py_name = ident.to_string();
+                            let tokens = quote! {
+                                vm.__module_set_attr(&module, #py_name, vm.new_pyobj(#ident)).unwrap();
+                            };
+                            args.context.module_extend_items.add_item(
+                                py_name,
+                                cfgs.clone(),
+                                tokens,
+                            )?;
+                        }
+                        return Ok(());
+                    }
                     other => {
-                        return Err(self.new_syn_error(other.span(), "can only be a simple use"));
+                        return Err(self.new_syn_error(
+                            other.span(),
+                            "can only contains a simple use or a group of simple uses",
+                        ));
                     }
                 };
 

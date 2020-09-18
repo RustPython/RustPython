@@ -23,15 +23,10 @@ mod decl {
     use std::io::Write;
 
     #[pyattr]
-    use libz::Z_BEST_COMPRESSION;
-    #[pyattr]
-    use libz::Z_BEST_SPEED;
-    #[pyattr]
-    use libz::Z_DEFAULT_COMPRESSION;
-    #[pyattr]
-    use libz::Z_DEFLATED as DEFLATED;
-    #[pyattr]
-    use libz::Z_NO_COMPRESSION;
+    use libz::{
+        Z_BEST_COMPRESSION, Z_BEST_SPEED, Z_DEFAULT_COMPRESSION, Z_DEFLATED as DEFLATED,
+        Z_NO_COMPRESSION,
+    };
 
     // copied from zlibmodule.c (commit 530f506ac91338)
     #[pyattr]
