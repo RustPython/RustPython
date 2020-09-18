@@ -5,7 +5,7 @@ use num_traits::{One, Signed, ToPrimitive, Zero};
 
 use super::objint::{PyInt, PyIntRef};
 use super::objlist::PyList;
-use super::objnone::PyNone;
+use super::objsingletons::PyNone;
 use super::objslice::{PySlice, PySliceRef};
 use super::objtuple::PyTuple;
 use crate::function::OptionalArg;

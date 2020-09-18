@@ -4,8 +4,8 @@ use super::objint::PyInt;
 use super::objtype::PyClassRef;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    BorrowValue, IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TryIntoRef, IntoPyObject,
+    BorrowValue, IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
+    PyValue, TryIntoRef,
 };
 use crate::vm::VirtualMachine;
 use num_bigint::{BigInt, ToBigInt};

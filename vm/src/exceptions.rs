@@ -1,6 +1,6 @@
 use crate::common::cell::PyRwLock;
 use crate::function::PyFuncArgs;
-use crate::obj::objnone::PyNone;
+use crate::obj::objsingletons::PyNone;
 use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtraceback::PyTracebackRef;
 use crate::obj::objtuple::{PyTuple, PyTupleRef};

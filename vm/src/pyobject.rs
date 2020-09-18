@@ -27,9 +27,9 @@ use crate::obj::objint::{PyInt, PyIntRef};
 use crate::obj::objiter;
 use crate::obj::objlist::PyList;
 use crate::obj::objnamespace::PyNamespace;
-use crate::obj::objnone::{PyNone, PyNoneRef};
 use crate::obj::objobject;
 use crate::obj::objset::PySet;
+use crate::obj::objsingletons::{PyNone, PyNoneRef, PyNotImplemented, PyNotImplementedRef};
 use crate::obj::objslice::PyEllipsis;
 use crate::obj::objstaticmethod::PyStaticMethod;
 use crate::obj::objstr;
@@ -104,17 +104,6 @@ pub struct PyContext {
     pub exceptions: exceptions::ExceptionZoo,
     pub int_cache_pool: Vec<PyObjectRef>,
     tp_new_wrapper: PyObjectRef,
-}
-
-pub type PyNotImplementedRef = PyRef<PyNotImplemented>;
-
-#[derive(Debug)]
-pub struct PyNotImplemented;
-
-impl PyValue for PyNotImplemented {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.not_implemented().class()
-    }
 }
 
 // Basic objects:
