@@ -7,6 +7,9 @@
 
 // for methods like vm.to_str(), not the typical use of 'to' as a method prefix
 #![allow(clippy::wrong_self_convention, clippy::implicit_hasher)]
+// to allow `mod foo {}` in foo.rs; clippy thinks this is a mistake/misunderstanding of
+// how `mod` works, but we want this sometimes for pymodule declarations
+#![allow(clippy::module_inception)]
 #![doc(html_logo_url = "https://raw.githubusercontent.com/RustPython/RustPython/master/logo.png")]
 #![doc(html_root_url = "https://docs.rs/rustpython-vm/")]
 #![cfg_attr(

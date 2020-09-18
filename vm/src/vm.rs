@@ -19,7 +19,7 @@ use rustpython_compiler::{
 
 use crate::builtins::{self, to_ascii};
 use crate::bytecode;
-use crate::common::{hash::HashSecret, rc::PyRc};
+use crate::common::{cell::PyMutex, hash::HashSecret, rc::PyRc};
 use crate::exceptions::{self, PyBaseException, PyBaseExceptionRef};
 use crate::frame::{ExecutionResult, Frame, FrameRef};
 use crate::frozen;
@@ -122,6 +122,7 @@ pub struct PyGlobalState {
     pub stacksize: AtomicCell<usize>,
     pub thread_count: AtomicCell<usize>,
     pub hash_secret: HashSecret,
+    pub atexit_funcs: PyMutex<Vec<(PyObjectRef, PyFuncArgs)>>,
 }
 
 pub const NSIG: usize = 64;
@@ -258,6 +259,7 @@ impl VirtualMachine {
                 stacksize: AtomicCell::new(0),
                 thread_count: AtomicCell::new(0),
                 hash_secret,
+                atexit_funcs: PyMutex::default(),
             }),
             initialized: false,
         };
@@ -341,6 +343,23 @@ impl VirtualMachine {
             repr_guards: RefCell::default(),
             state: self.state.clone(),
             initialized: self.initialized,
+        }
+    }
+
+    pub fn run_atexit_funcs(&self) -> PyResult<()> {
+        let mut last_exc = None;
+        for (func, args) in self.state.atexit_funcs.lock().drain(..).rev() {
+            if let Err(e) = self.invoke(&func, args) {
+                last_exc = Some(e.clone());
+                if !objtype::isinstance(&e, &self.ctx.exceptions.system_exit) {
+                    writeln!(sysmodule::PyStderr(self), "Error in atexit._run_exitfuncs:");
+                    exceptions::print_exception(self, e);
+                }
+            }
+        }
+        match last_exc {
+            None => Ok(()),
+            Some(e) => Err(e),
         }
     }
 

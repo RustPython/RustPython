@@ -53,7 +53,7 @@ fn main() {
 
     let interp = Interpreter::new(settings, init);
 
-    interp.enter(move |vm| {
+    let exitcode = interp.enter(move |vm| {
         let res = run_rustpython(vm, &matches);
 
         #[cfg(feature = "flame-it")]
@@ -65,22 +65,25 @@ fn main() {
         }
 
         // See if any exception leaked out:
-        if let Err(err) = res {
-            if objtype::isinstance(&err, &vm.ctx.exceptions.system_exit) {
+        let exitcode = match res {
+            Ok(()) => 0,
+            Err(err) if objtype::isinstance(&err, &vm.ctx.exceptions.system_exit) => {
                 let args = err.args();
                 match args.borrow_value().len() {
-                    0 => return,
+                    0 => 0,
                     1 => match_class!(match args.borrow_value()[0].clone() {
                         i @ PyInt => {
                             use num_traits::cast::ToPrimitive;
-                            process::exit(i.borrow_value().to_i32().unwrap_or(0));
+                            i.borrow_value().to_i32().unwrap_or(0)
                         }
                         arg => {
                             if vm.is_none(&arg) {
-                                return;
-                            }
-                            if let Ok(s) = vm.to_str(&arg) {
-                                eprintln!("{}", s);
+                                0
+                            } else {
+                                if let Ok(s) = vm.to_str(&arg) {
+                                    eprintln!("{}", s);
+                                }
+                                1
                             }
                         }
                     }),
@@ -88,14 +91,22 @@ fn main() {
                         if let Ok(r) = vm.to_repr(args.as_object()) {
                             eprintln!("{}", r);
                         }
+                        1
                     }
                 }
-            } else {
-                print_exception(&vm, err);
             }
-            process::exit(1);
-        }
-    })
+            Err(err) => {
+                print_exception(&vm, err);
+                1
+            }
+        };
+
+        let _ = vm.run_atexit_funcs();
+
+        exitcode
+    });
+
+    process::exit(exitcode);
 }
 
 fn parse_arguments<'a>(app: App<'a, '_>) -> ArgMatches<'a> {

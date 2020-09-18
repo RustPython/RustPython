@@ -5,6 +5,7 @@ use std::collections::HashMap;
 pub mod array;
 #[cfg(feature = "rustpython-parser")]
 pub(crate) mod ast;
+mod atexit;
 mod binascii;
 mod collections;
 mod csv;
@@ -73,6 +74,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
     #[allow(unused_mut)]
     let mut modules = hashmap! {
         "array".to_owned() => Box::new(array::make_module) as StdlibInitFunc,
+        "atexit".to_owned() => Box::new(atexit::make_module),
         "binascii".to_owned() => Box::new(binascii::make_module),
         "_collections".to_owned() => Box::new(collections::make_module),
         "_csv".to_owned() => Box::new(csv::make_module),
