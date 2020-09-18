@@ -38,7 +38,7 @@ use crate::obj::objtype::{self, PyClass, PyClassRef};
 pub use crate::pyobjectrc::{PyObjectRc, PyObjectWeak};
 use crate::scope::Scope;
 use crate::slots::{PyClassSlots, PyTpFlags};
-use crate::types::{create_type, create_type_with_slots, initialize_types, TypeZoo};
+use crate::types::{create_type_with_slots, initialize_types, TypeZoo};
 use crate::vm::VirtualMachine;
 use rustpython_common::cell::{PyRwLock, PyRwLockReadGuard};
 use rustpython_common::rc::PyRc;
@@ -125,11 +125,8 @@ impl PyContext {
 
         let ellipsis = create_object(PyEllipsis, &types.ellipsis_type);
 
-        let not_implemented_type = create_type(
-            "NotImplementedType",
-            &types.type_type,
-            types.object_type.clone(),
-        );
+        let not_implemented_type =
+            PyNotImplemented::create_bare_type(&types.type_type, types.object_type.clone());
         let not_implemented = create_object(PyNotImplemented, &not_implemented_type);
 
         let int_cache_pool = (Self::INT_CACHE_POOL_MIN..=Self::INT_CACHE_POOL_MAX)

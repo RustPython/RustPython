@@ -68,10 +68,10 @@ impl PyNone {
     }
 }
 
-pub type PyNotImplementedRef = PyRef<PyNotImplemented>;
-
+#[pyclass(module = false, name = "NotImplementedType")]
 #[derive(Debug)]
 pub struct PyNotImplemented;
+pub type PyNotImplementedRef = PyRef<PyNotImplemented>;
 
 impl PyValue for PyNotImplemented {
     fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -79,6 +79,10 @@ impl PyValue for PyNotImplemented {
     }
 }
 
+#[pyimpl]
+impl PyNotImplemented {}
+
 pub fn init(context: &PyContext) {
     PyNone::extend_class(context, &context.none.class());
+    PyNotImplemented::extend_class(context, &context.not_implemented.class());
 }
