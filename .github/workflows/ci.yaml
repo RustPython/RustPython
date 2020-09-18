@@ -187,6 +187,13 @@ jobs:
           npm install
           npm run test
         working-directory: ./wasm/demo
+      - name: build notebook demo
+        if: github.ref == 'refs/heads/release'
+        run: |
+          npm install
+          npm run dist
+          mv dist ../demo/dist/notebook
+        working-directory: ./wasm/notebook
       - name: Deploy demo to Github Pages
         if: success() && github.ref == 'refs/heads/release'
         uses: peaceiris/actions-gh-pages@v2
