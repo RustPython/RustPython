@@ -128,17 +128,13 @@ impl StackMachine {
                 let mut values = Vec::new();
 
                 // Pop all values from stack:
-                for _ in 0..amount {
-                    values.push(self.stack.pop().unwrap());
-                }
+                values.extend(self.stack.drain(self.stack.len() - amount..));
 
                 // Push top of stack back first:
-                self.stack.push(values.remove(0));
+                self.stack.push(values.pop().unwrap());
 
                 // Push other value back in order:
-                for value in values.into_iter().rev() {
-                    self.stack.push(value);
-                }
+                self.stack.extend(values);
             }
             Instruction::ReturnValue => return true,
             _ => unimplemented!(
