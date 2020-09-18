@@ -382,8 +382,7 @@ pub fn setup_browser_module(vm: &mut VirtualMachine) {
     state
         .stdlib_inits
         .insert("_browser".to_owned(), Box::new(make_module));
-    state.frozen.extend(py_compile_bytecode!(
-        file = "src/browser.py",
-        module_name = "browser",
-    ));
+    state
+        .frozen
+        .extend(py_freeze!(file = "src/browser.py", module_name = "browser",));
 }

@@ -6,7 +6,7 @@ pub fn get_module_inits() -> HashMap<String, FrozenModule> {
 
     macro_rules! ext_modules {
         ($($t:tt)*) => {
-            modules.extend(py_compile_bytecode!($($t)*));
+            modules.extend(py_freeze!($($t)*));
         };
     }
 
