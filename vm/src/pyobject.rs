@@ -123,7 +123,9 @@ impl PyContext {
         let none_type = PyNone::create_bare_type(&types.type_type, types.object_type.clone());
         let none = create_object(PyNone, &none_type);
 
-        let ellipsis = create_object(PyEllipsis, &types.ellipsis_type);
+        let ellipsis_type =
+            PyEllipsis::create_bare_type(&types.type_type, types.object_type.clone());
+        let ellipsis = create_object(PyEllipsis, &ellipsis_type);
 
         let not_implemented_type =
             PyNotImplemented::create_bare_type(&types.type_type, types.object_type.clone());

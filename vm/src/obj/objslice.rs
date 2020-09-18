@@ -5,7 +5,7 @@ use super::objtype::PyClassRef;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
     BorrowValue, IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
-    PyValue, TryIntoRef,
+    PyValue, TryIntoRef, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use num_bigint::{BigInt, ToBigInt};
@@ -333,7 +333,7 @@ pub struct PyEllipsis;
 
 impl PyValue for PyEllipsis {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.types.ellipsis_type.clone()
+        vm.ctx.ellipsis.class()
     }
 }
 
@@ -357,5 +357,5 @@ impl PyEllipsis {
 
 pub fn init(context: &PyContext) {
     PySlice::extend_class(context, &context.types.slice_type);
-    PyEllipsis::extend_class(context, &context.types.ellipsis_type);
+    PyEllipsis::extend_class(context, &context.ellipsis.class());
 }
