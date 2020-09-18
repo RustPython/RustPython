@@ -14,16 +14,24 @@ use crate::vm::{InitParameter, VirtualMachine};
 #[cfg(feature = "rustpython-compiler")]
 use rustpython_compiler::compile;
 
-pub fn init_importlib(vm: &mut VirtualMachine, initialize_parameter: InitParameter) -> PyResult {
+pub(crate) fn init_importlib(
+    vm: &mut VirtualMachine,
+    initialize_parameter: InitParameter,
+) -> PyResult<()> {
+    use crate::vm::thread::enter_vm;
     flame_guard!("init importlib");
-    let importlib = import_frozen(vm, "_frozen_importlib")?;
-    let impmod = import_builtin(vm, "_imp")?;
-    let install = vm.get_attribute(importlib.clone(), "_install")?;
-    vm.invoke(&install, vec![vm.sys_module.clone(), impmod])?;
+
+    let importlib = enter_vm(vm, || {
+        let importlib = import_frozen(vm, "_frozen_importlib")?;
+        let impmod = import_builtin(vm, "_imp")?;
+        let install = vm.get_attribute(importlib.clone(), "_install")?;
+        vm.invoke(&install, vec![vm.sys_module.clone(), impmod])?;
+        Ok(importlib)
+    })?;
     vm.import_func = vm.get_attribute(importlib.clone(), "__import__")?;
 
-    match initialize_parameter {
-        InitParameter::InitializeExternal if cfg!(feature = "rustpython-compiler") => {
+    if initialize_parameter == InitParameter::External && cfg!(feature = "rustpython-compiler") {
+        enter_vm(vm, || {
             flame_guard!("install_external");
             let install_external = vm.get_attribute(importlib, "_install_external_importers")?;
             vm.invoke(&install_external, vec![])?;
@@ -46,13 +54,10 @@ pub fn init_importlib(vm: &mut VirtualMachine, initialize_parameter: InitParamet
             if zipimport_res.is_err() {
                 warn!("couldn't init zipimport")
             }
-        }
-        InitParameter::NoInitialize => {
-            panic!("Import library initialize should be InitializeInternal or InitializeExternal");
-        }
-        _ => {}
+            Ok(())
+        })?
     }
-    Ok(vm.get_none())
+    Ok(())
 }
 
 pub fn import_frozen(vm: &VirtualMachine, module_name: &str) -> PyResult {

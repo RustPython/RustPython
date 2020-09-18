@@ -1,5 +1,5 @@
 use crate::common::rc::{PyRc, PyWeak};
-use crate::pyobject::{IdProtocol, PyObject, PyObjectPayload};
+use crate::pyobject::{IdProtocol, PyObject, PyObjectPayload, TypeProtocol};
 use std::borrow;
 use std::fmt;
 use std::ops::Deref;
@@ -50,7 +50,8 @@ where
     }
 
     unsafe fn into_rc(this: Self) -> PyRc<PyObject<T>> {
-        std::mem::transmute(this)
+        let raw = Self::into_raw(this);
+        PyRc::from_raw(raw)
     }
 
     pub fn into_ref(this: Self) -> PyObjectRc<dyn PyObjectPayload> {
@@ -129,6 +130,48 @@ where
 unsafe impl<T> Send for PyObjectWeak<T> where T: ?Sized + PyObjectPayload {}
 #[cfg(feature = "threading")]
 unsafe impl<T> Sync for PyObjectWeak<T> where T: ?Sized + PyObjectPayload {}
+
+impl<T> Drop for PyObjectRc<T>
+where
+    T: ?Sized + PyObjectPayload,
+    PyRc<PyObject<T>>: AsPyObjectRef,
+{
+    fn drop(&mut self) {
+        use crate::pyobject::BorrowValue;
+
+        // PyObjectRc will drop the value when its count goes to 0
+        if PyRc::strong_count(&self.inner) != 1 {
+            return;
+        }
+
+        // CPython-compatible drop implementation
+        let zelf = Self::into_ref(self.clone());
+        if let Some(del_method) = zelf.inner.get_class_attr("__del__") {
+            crate::vm::thread::with_vm(&zelf, |vm| {
+                if let Err(e) = vm.invoke(&del_method, vec![zelf.clone()]) {
+                    // exception in del will be ignored but printed
+                    print!("Exception ignored in: ",);
+                    let repr = vm.to_repr(&del_method);
+                    match repr {
+                        Ok(v) => println!("{}", v.to_string()),
+                        Err(_) => println!("{}", &del_method.class().name),
+                    }
+                    let tb_module = vm.import("traceback", &[], 0).unwrap();
+                    // TODO: set exc traceback
+                    let print_stack = vm.get_attribute(tb_module, "print_stack").unwrap();
+                    vm.invoke(&print_stack, vec![]).unwrap();
+
+                    if let Ok(repr) = vm.to_repr(e.as_object()) {
+                        println!("{}", repr.borrow_value());
+                    }
+                }
+            });
+        }
+
+        let _ = unsafe { PyObjectRc::<dyn PyObjectPayload>::into_rc(zelf) };
+        debug_assert!(PyRc::strong_count(&self.inner) == 1); // make sure to keep same state
+    }
+}
 
 impl<T> Deref for PyObjectRc<T>
 where

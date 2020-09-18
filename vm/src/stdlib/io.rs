@@ -1,7 +1,6 @@
 /*
  * I/O core tools.
  */
-use std::fs;
 use std::io::{self, prelude::*, Cursor, SeekFrom};
 
 use bstr::ByteSlice;
@@ -408,6 +407,11 @@ fn io_base_cm_enter(instance: PyObjectRef) -> PyObjectRef {
     instance
 }
 
+fn io_base_cm_del(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    vm.call_method(&instance, "close", vec![])?;
+    Ok(())
+}
+
 fn io_base_cm_exit(instance: PyObjectRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<()> {
     vm.call_method(&instance, "close", vec![])?;
     Ok(())
@@ -756,12 +760,12 @@ mod fileio {
             }
         }
 
-        fn get_file(&self, vm: &VirtualMachine) -> PyResult<fs::File> {
+        fn get_file(&self, vm: &VirtualMachine) -> PyResult<std::fs::File> {
             let fileno = self.fileno(vm)?;
             Ok(os::rust_file(fileno))
         }
 
-        fn set_file(&self, f: fs::File) -> PyResult<()> {
+        fn set_file(&self, f: std::fs::File) -> PyResult<()> {
             let updated = os::raw_file_number(f);
             self.fd.store(updated);
             Ok(())
@@ -1269,6 +1273,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     // IOBase the abstract base class of the IO Module
     let io_base = py_class!(ctx, "_IOBase", &ctx.types.object_type, {
         "__enter__" => ctx.new_method(io_base_cm_enter),
+        "__del__" => ctx.new_method(io_base_cm_del),
         "__exit__" => ctx.new_method(io_base_cm_exit),
         "seekable" => ctx.new_method(io_base_seekable),
         "readable" => ctx.new_method(io_base_readable),

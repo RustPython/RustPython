@@ -71,6 +71,6 @@ mod version;
 mod vm;
 
 // pub use self::pyobject::Executor;
-pub use self::vm::{InitParameter, PySettings, VirtualMachine};
+pub use self::vm::{InitParameter, Interpreter, PySettings, VirtualMachine};
 pub use rustpython_bytecode::*;
 pub use rustpython_common as common;

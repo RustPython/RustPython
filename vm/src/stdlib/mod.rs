@@ -31,7 +31,6 @@ mod string;
 #[cfg(feature = "rustpython-compiler")]
 mod symtable;
 mod sysconfigdata;
-#[cfg(not(target_arch = "wasm32"))]
 #[cfg(feature = "threading")]
 mod thread;
 mod time_module;

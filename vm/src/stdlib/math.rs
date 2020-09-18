@@ -337,7 +337,7 @@ fn math_nextafter(x: IntoPyFloat, y: IntoPyFloat) -> PyResult<f64> {
 }
 
 #[cfg(target_arch = "wasm32")]
-fn math_nextafter(x: IntoPyFloat, y: IntoPyFloat, vm: &VirtualMachine) -> PyResult<f64> {
+fn math_nextafter(_x: IntoPyFloat, _y: IntoPyFloat, vm: &VirtualMachine) -> PyResult<f64> {
     Err(vm.new_not_implemented_error("not implemented for this platform".to_owned()))
 }
 

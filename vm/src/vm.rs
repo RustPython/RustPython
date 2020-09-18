@@ -7,7 +7,7 @@
 use std::cell::{Cell, Ref, RefCell};
 use std::collections::hash_map::HashMap;
 use std::collections::hash_set::HashSet;
-use std::{env, fmt};
+use std::fmt;
 
 use arr_macro::arr;
 use crossbeam_utils::atomic::AtomicCell;
@@ -68,6 +68,53 @@ pub struct VirtualMachine {
     pub initialized: bool,
 }
 
+pub(crate) mod thread {
+    use super::{PyObjectRef, VirtualMachine};
+    use itertools::Itertools;
+    use std::cell::RefCell;
+    use std::ptr::NonNull;
+    use std::thread_local;
+
+    thread_local! {
+        pub(super) static VM_STACK: RefCell<Vec<NonNull<VirtualMachine>>> = Vec::with_capacity(1).into();
+    }
+
+    pub fn enter_vm<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
+        VM_STACK.with(|vms| {
+            vms.borrow_mut().push(vm.into());
+            let ret = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+            vms.borrow_mut().pop();
+            ret.unwrap_or_else(|e| std::panic::resume_unwind(e))
+        })
+    }
+
+    pub fn with_vm<F, R>(obj: &PyObjectRef, f: F) -> R
+    where
+        F: Fn(&VirtualMachine) -> R,
+    {
+        let vm_owns_obj = |intp: NonNull<VirtualMachine>| {
+            // SAFETY: all references in VM_STACK should be valid
+            let vm = unsafe { intp.as_ref() };
+            crate::obj::objtype::isinstance(obj, &vm.ctx.types.object_type)
+        };
+        VM_STACK.with(|vms| {
+            let intp = match vms.borrow().iter().copied().exactly_one() {
+                Ok(x) => {
+                    debug_assert!(vm_owns_obj(x));
+                    x
+                }
+                Err(mut others) => others
+                    .find(|x| vm_owns_obj(*x))
+                    .unwrap_or_else(|| panic!("can't get a vm for {:?}; none on stack", obj)),
+            };
+            // SAFETY: all references in VM_STACK should be valid, and should not be changed or moved
+            // at least until this function returns and the stack unwinds to an enter_vm() call
+            let vm = unsafe { intp.as_ref() };
+            f(vm)
+        })
+    }
+}
+
 pub struct PyGlobalState {
     pub settings: PySettings,
     pub stdlib_inits: HashMap<String, stdlib::StdlibInitFunc>,
@@ -79,11 +126,10 @@ pub struct PyGlobalState {
 
 pub const NSIG: usize = 64;
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq, Eq)]
 pub enum InitParameter {
-    NoInitialize,
-    InitializeInternal,
-    InitializeExternal,
+    Internal,
+    External,
 }
 
 /// Struct containing all kind of settings for the python vm.
@@ -121,10 +167,6 @@ pub struct PySettings {
     /// sys.argv
     pub argv: Vec<String>,
 
-    /// Initialization parameter to decide to initialize or not,
-    /// and to decide the importer required external filesystem access or not
-    pub initialization_parameter: InitParameter,
-
     /// PYTHONHASHSEED=x
     pub hash_seed: Option<u32>,
 }
@@ -160,7 +202,6 @@ impl Default for PySettings {
             dont_write_bytecode: false,
             path_list: vec![],
             argv: vec![],
-            initialization_parameter: InitParameter::InitializeExternal,
             hash_seed: None,
         }
     }
@@ -168,7 +209,7 @@ impl Default for PySettings {
 
 impl VirtualMachine {
     /// Create a new `VirtualMachine` structure.
-    pub fn new(settings: PySettings) -> VirtualMachine {
+    fn new(settings: PySettings) -> VirtualMachine {
         flame_guard!("new VirtualMachine");
         let ctx = PyContext::new();
 
@@ -187,7 +228,6 @@ impl VirtualMachine {
         let profile_func = RefCell::new(ctx.none());
         let trace_func = RefCell::new(ctx.none());
         let signal_handlers = RefCell::new(arr![ctx.none(); 64]);
-        let initialize_parameter = settings.initialization_parameter;
 
         let stdlib_inits = stdlib::get_module_inits();
         let frozen = frozen::get_module_inits();
@@ -197,7 +237,7 @@ impl VirtualMachine {
             None => rand::random(),
         };
 
-        let mut vm = VirtualMachine {
+        let vm = VirtualMachine {
             builtins,
             sys_module: sysmod,
             ctx: PyRc::new(ctx),
@@ -229,66 +269,58 @@ impl VirtualMachine {
             vm.get_none(),
         );
         objmodule::init_module_dict(&vm, &sysmod_dict, vm.ctx.new_str("sys"), vm.get_none());
-        vm.initialize(initialize_parameter);
         vm
     }
 
-    pub fn initialize(&mut self, initialize_parameter: InitParameter) {
+    fn initialize(&mut self, initialize_parameter: InitParameter) {
         flame_guard!("init VirtualMachine");
 
-        match initialize_parameter {
-            InitParameter::NoInitialize => {}
-            _ => {
-                if self.initialized {
-                    panic!("Double Initialize Error");
-                }
+        if self.initialized {
+            panic!("Double Initialize Error");
+        }
 
-                builtins::make_module(self, self.builtins.clone());
-                sysmodule::make_module(self, self.sys_module.clone(), self.builtins.clone());
+        builtins::make_module(self, self.builtins.clone());
+        sysmodule::make_module(self, self.sys_module.clone(), self.builtins.clone());
 
-                let mut inner_init = || -> PyResult<()> {
-                    #[cfg(not(target_arch = "wasm32"))]
-                    import::import_builtin(self, "signal")?;
+        let mut inner_init = || -> PyResult<()> {
+            #[cfg(not(target_arch = "wasm32"))]
+            import::import_builtin(self, "signal")?;
 
-                    import::init_importlib(self, initialize_parameter)?;
+            import::init_importlib(self, initialize_parameter)?;
 
-                    #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
-                    {
-                        // this isn't fully compatible with CPython; it imports "io" and sets
-                        // builtins.open to io.OpenWrapper, but this is easier, since it doesn't
-                        // require the Python stdlib to be present
-                        let io = self.import("_io", &[], 0)?;
-                        let io_open = self.get_attribute(io, "open")?;
-                        let set_stdio = |name, fd, mode: &str| {
-                            let stdio = self.invoke(
-                                &io_open,
-                                vec![self.ctx.new_int(fd), self.new_pyobj(mode)],
-                            )?;
-                            self.set_attr(
-                                &self.sys_module,
-                                format!("__{}__", name), // e.g. __stdin__
-                                stdio.clone(),
-                            )?;
-                            self.set_attr(&self.sys_module, name, stdio)?;
-                            Ok(())
-                        };
-                        set_stdio("stdin", 0, "r")?;
-                        set_stdio("stdout", 1, "w")?;
-                        set_stdio("stderr", 2, "w")?;
-
-                        self.set_attr(&self.builtins, "open", io_open)?;
-                    }
-
+            #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+            {
+                // this isn't fully compatible with CPython; it imports "io" and sets
+                // builtins.open to io.OpenWrapper, but this is easier, since it doesn't
+                // require the Python stdlib to be present
+                let io = self.import("_io", &[], 0)?;
+                let io_open = self.get_attribute(io, "open")?;
+                let set_stdio = |name, fd, mode: &str| {
+                    let stdio =
+                        self.invoke(&io_open, vec![self.ctx.new_int(fd), self.new_pyobj(mode)])?;
+                    self.set_attr(
+                        &self.sys_module,
+                        format!("__{}__", name), // e.g. __stdin__
+                        stdio.clone(),
+                    )?;
+                    self.set_attr(&self.sys_module, name, stdio)?;
                     Ok(())
                 };
+                set_stdio("stdin", 0, "r")?;
+                set_stdio("stdout", 1, "w")?;
+                set_stdio("stderr", 2, "w")?;
 
-                let res = inner_init();
-
-                self.expect_pyresult(res, "initializiation failed");
-
-                self.initialized = true;
+                self.set_attr(&self.builtins, "open", io_open)?;
             }
-        }
+
+            Ok(())
+        };
+
+        let res = inner_init();
+
+        self.expect_pyresult(res, "initializiation failed");
+
+        self.initialized = true;
     }
 
     #[cfg(feature = "threading")]
@@ -576,7 +608,7 @@ impl VirtualMachine {
     fn _py_panic_failed(&self, exc: PyBaseExceptionRef, msg: &str) -> ! {
         #[cfg(not(all(target_arch = "wasm32", not(target_os = "wasi"))))]
         {
-            let show_backtrace = env::var_os("RUST_BACKTRACE").map_or(false, |v| &v != "0");
+            let show_backtrace = std::env::var_os("RUST_BACKTRACE").map_or(false, |v| &v != "0");
             let after = if show_backtrace {
                 exceptions::print_exception(self, exc);
                 "exception backtrace above"
@@ -1502,12 +1534,6 @@ impl VirtualMachine {
     }
 }
 
-impl Default for VirtualMachine {
-    fn default() -> Self {
-        VirtualMachine::new(Default::default())
-    }
-}
-
 pub struct ReprGuard<'vm> {
     vm: &'vm VirtualMachine,
     id: usize,
@@ -1537,29 +1563,75 @@ impl<'vm> Drop for ReprGuard<'vm> {
     }
 }
 
+pub struct Interpreter {
+    vm: VirtualMachine,
+}
+
+impl Interpreter {
+    pub fn new(settings: PySettings, init: InitParameter) -> Self {
+        Self::new_with_init(settings, |_| init)
+    }
+
+    pub fn new_with_init<F>(settings: PySettings, init: F) -> Self
+    where
+        F: FnOnce(&mut VirtualMachine) -> InitParameter,
+    {
+        let mut vm = VirtualMachine::new(settings);
+        let init = init(&mut vm);
+        vm.initialize(init);
+        Self { vm }
+    }
+
+    pub fn enter<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&VirtualMachine) -> R,
+    {
+        thread::enter_vm(&self.vm, || f(&self.vm))
+    }
+
+    // TODO: interpreter shutdown
+    // pub fn run<F>(self, f: F)
+    // where
+    //     F: FnOnce(&VirtualMachine),
+    // {
+    //     self.enter(f);
+    //     self.shutdown();
+    // }
+
+    // pub fn shutdown(self) {}
+}
+
+impl Default for Interpreter {
+    fn default() -> Self {
+        Self::new(PySettings::default(), InitParameter::External)
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::VirtualMachine;
+    use super::Interpreter;
     use crate::obj::{objint, objstr};
     use num_bigint::ToBigInt;
 
     #[test]
     fn test_add_py_integers() {
-        let vm: VirtualMachine = Default::default();
-        let a = vm.ctx.new_int(33_i32);
-        let b = vm.ctx.new_int(12_i32);
-        let res = vm._add(a, b).unwrap();
-        let value = objint::get_value(&res);
-        assert_eq!(*value, 45_i32.to_bigint().unwrap());
+        Interpreter::default().enter(|vm| {
+            let a = vm.ctx.new_int(33_i32);
+            let b = vm.ctx.new_int(12_i32);
+            let res = vm._add(a, b).unwrap();
+            let value = objint::get_value(&res);
+            assert_eq!(*value, 45_i32.to_bigint().unwrap());
+        })
     }
 
     #[test]
     fn test_multiply_str() {
-        let vm: VirtualMachine = Default::default();
-        let a = vm.ctx.new_str(String::from("Hello "));
-        let b = vm.ctx.new_int(4_i32);
-        let res = vm._mul(a, b).unwrap();
-        let value = objstr::borrow_value(&res);
-        assert_eq!(value, String::from("Hello Hello Hello Hello "))
+        Interpreter::default().enter(|vm| {
+            let a = vm.ctx.new_str(String::from("Hello "));
+            let b = vm.ctx.new_int(4_i32);
+            let res = vm._mul(a, b).unwrap();
+            let value = objstr::borrow_value(&res);
+            assert_eq!(value, String::from("Hello Hello Hello Hello "))
+        })
     }
 }

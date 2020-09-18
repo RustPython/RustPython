@@ -93,13 +93,12 @@ macro_rules! py_namespace {
 /// use num_bigint::ToBigInt;
 /// use num_traits::Zero;
 ///
-/// use rustpython_vm::VirtualMachine;
 /// use rustpython_vm::match_class;
 /// use rustpython_vm::obj::objfloat::PyFloat;
 /// use rustpython_vm::obj::objint::PyInt;
 /// use rustpython_vm::pyobject::PyValue;
 ///
-/// let vm: VirtualMachine = Default::default();
+/// # rustpython_vm::Interpreter::default().enter(|vm| {
 /// let obj = PyInt::from(0).into_ref(&vm).into_object();
 /// assert_eq!(
 ///     "int",
@@ -109,6 +108,7 @@ macro_rules! py_namespace {
 ///         _ => "neither",
 ///     })
 /// );
+/// # });
 ///
 /// ```
 ///
@@ -118,13 +118,12 @@ macro_rules! py_namespace {
 /// use num_bigint::ToBigInt;
 /// use num_traits::Zero;
 ///
-/// use rustpython_vm::VirtualMachine;
 /// use rustpython_vm::match_class;
 /// use rustpython_vm::obj::objfloat::PyFloat;
 /// use rustpython_vm::obj::objint::PyInt;
 /// use rustpython_vm::pyobject::{PyValue, BorrowValue};
 ///
-/// let vm: VirtualMachine = Default::default();
+/// # rustpython_vm::Interpreter::default().enter(|vm| {
 /// let obj = PyInt::from(0).into_ref(&vm).into_object();
 ///
 /// let int_value = match_class!(match obj {
@@ -134,6 +133,7 @@ macro_rules! py_namespace {
 /// });
 ///
 /// assert!(int_value.is_zero());
+/// # });
 /// ```
 #[macro_export]
 macro_rules! match_class {

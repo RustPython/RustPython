@@ -1326,8 +1326,6 @@ class DictTest(unittest.TestCase):
         pair = [X(), 123]
         dict([pair])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_oob_indexing_dictiter_iternextitem(self):
         class X(int):
             def __del__(self):
