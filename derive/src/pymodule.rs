@@ -253,11 +253,7 @@ impl ModuleItem for FunctionItem {
         };
 
         let item_attr = args.attrs.remove(self.index());
-        let item_meta = SimpleItemMeta::from_nested(
-            ident.clone(),
-            item_attr.get_ident().unwrap().clone(),
-            item_attr.promoted_nested()?.into_iter(),
-        )?;
+        let item_meta = SimpleItemMeta::from_attr(ident.clone(), &item_attr)?;
 
         let py_name = item_meta.simple_name()?;
         let item = {
@@ -283,7 +279,7 @@ impl ModuleItem for ClassItem {
         let (module_name, class_name) = {
             let class_attr = &mut args.attrs[self.inner.index];
             if self.pyattrs.is_empty() {
-                // check noattr before ClassItemMeta::from_nested
+                // check noattr before ClassItemMeta::from_attr
                 let noattr = class_attr.try_remove_name("noattr")?;
                 if noattr.is_none() {
                     return Err(syn::Error::new_spanned(
@@ -297,11 +293,7 @@ impl ModuleItem for ClassItem {
                 }
             }
 
-            let class_meta = ClassItemMeta::from_nested(
-                ident.clone(),
-                class_attr.get_ident().unwrap().clone(),
-                class_attr.promoted_nested()?.into_iter(),
-            )?;
+            let class_meta = ClassItemMeta::from_attr(ident.clone(), class_attr)?;
             let module_name = args.context.name.clone();
             class_attr.fill_nested_meta("module", || {
                 parse_quote! {module = #module_name}
@@ -312,12 +304,7 @@ impl ModuleItem for ClassItem {
         for attr_index in self.pyattrs.iter().rev() {
             let mut loop_unit = || {
                 let attr_attr = args.attrs.remove(*attr_index);
-                let (meta_ident, nested) = attr_attr.ident_and_promoted_nested()?;
-                let item_meta = SimpleItemMeta::from_nested(
-                    ident.clone(),
-                    meta_ident.clone(),
-                    nested.into_iter(),
-                )?;
+                let item_meta = SimpleItemMeta::from_attr(ident.clone(), &attr_attr)?;
 
                 let py_name = item_meta
                     .optional_name()
@@ -345,17 +332,17 @@ impl ModuleItem for ClassItem {
 
 impl ModuleItem for AttributeItem {
     fn gen_module_item(&self, args: ModuleItemArgs<'_>) -> Result<()> {
-        let get_py_name = |attrs: &mut Vec<Attribute>, ident: &Ident| -> Result<_> {
-            let (meta_ident, nested) = attrs[self.inner.index].ident_and_promoted_nested()?;
-            let item_meta =
-                SimpleItemMeta::from_nested(ident.clone(), meta_ident.clone(), nested.into_iter())?;
+        let cfgs = args.cfgs.to_vec();
+        let attr = args.attrs.remove(self.index());
+        let get_py_name = |attr: &Attribute, ident: &Ident| -> Result<_> {
+            let item_meta = SimpleItemMeta::from_attr(ident.clone(), attr)?;
             let py_name = item_meta.simple_name()?;
             Ok(py_name)
         };
         let (py_name, tokens) = match args.item {
             Item::Fn(syn::ItemFn { sig, .. }) => {
                 let ident = &sig.ident;
-                let py_name = get_py_name(args.attrs, &ident)?;
+                let py_name = get_py_name(&attr, &ident)?;
                 (
                     py_name.clone(),
                     quote! {
@@ -364,7 +351,7 @@ impl ModuleItem for AttributeItem {
                 )
             }
             Item::Const(syn::ItemConst { ident, .. }) => {
-                let py_name = get_py_name(args.attrs, &ident)?;
+                let py_name = get_py_name(&attr, &ident)?;
                 (
                     py_name.clone(),
                     quote! {
@@ -384,7 +371,7 @@ impl ModuleItem for AttributeItem {
                     }
                 };
 
-                let py_name = get_py_name(args.attrs, &ident)?;
+                let py_name = get_py_name(&attr, &ident)?;
                 (
                     py_name.clone(),
                     quote! {
@@ -398,11 +385,10 @@ impl ModuleItem for AttributeItem {
                 )
             }
         };
-        args.attrs.remove(self.index());
 
         args.context
             .module_extend_items
-            .add_item(py_name, args.cfgs.to_vec(), tokens)?;
+            .add_item(py_name, cfgs, tokens)?;
 
         Ok(())
     }
