@@ -1538,9 +1538,9 @@ dependencies = [
 
 [[package]]
 name = "result-like"
-version = "0.2.1"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "656a4c5b3da40e99028cf562dd5b475a0e6c678adf165526ea5943103f4eeb9b"
+checksum = "0d3e152e91c7b35822c7aeafc7019479ebb6180a5380139c9b5809645d668f2d"
 dependencies = [
  "is-macro",
 ]
