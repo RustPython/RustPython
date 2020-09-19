@@ -1,6 +1,6 @@
 use super::objtype::PyClassRef;
 use crate::pyobject::{
-    IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -11,7 +11,7 @@ pub type PyNoneRef = PyRef<PyNone>;
 
 impl PyValue for PyNone {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.none().class()
+        vm.ctx.none.class()
     }
 }
 
@@ -39,35 +39,37 @@ impl PyNone {
         vm.ctx.none.clone()
     }
 
-    #[pymethod(name = "__repr__")]
-    fn repr(&self) -> PyResult<String> {
-        Ok("None".to_owned())
+    #[pymethod(magic)]
+    fn repr(&self) -> String {
+        "None".to_owned()
     }
 
-    #[pymethod(name = "__bool__")]
-    fn bool(&self) -> PyResult<bool> {
-        Ok(false)
+    #[pymethod(magic)]
+    fn bool(&self) -> bool {
+        false
     }
+}
 
-    #[pymethod(name = "__eq__")]
-    fn eq(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        if vm.is_none(&rhs) {
-            vm.ctx.new_bool(true)
-        } else {
-            vm.ctx.not_implemented()
-        }
+#[pyclass(module = false, name = "NotImplementedType")]
+#[derive(Debug)]
+pub struct PyNotImplemented;
+pub type PyNotImplementedRef = PyRef<PyNotImplemented>;
+
+impl PyValue for PyNotImplemented {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.ctx.not_implemented.class()
     }
+}
 
-    #[pymethod(name = "__ne__")]
-    fn ne(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        if vm.is_none(&rhs) {
-            vm.ctx.new_bool(false)
-        } else {
-            vm.ctx.not_implemented()
-        }
+#[pyimpl]
+impl PyNotImplemented {
+    #[pymethod(magic)]
+    fn repr(&self) -> String {
+        "PyNotImplemented".to_owned()
     }
 }
 
 pub fn init(context: &PyContext) {
     PyNone::extend_class(context, &context.none.class());
+    PyNotImplemented::extend_class(context, &context.not_implemented.class());
 }

@@ -15,8 +15,8 @@ use crate::obj::objgenerator::PyGenerator;
 #[cfg(feature = "jit")]
 use crate::pyobject::IntoPyObject;
 use crate::pyobject::{
-    BorrowValue, IdProtocol, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
-    PyValue, TypeProtocol,
+    BorrowValue, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    TypeProtocol,
 };
 use crate::scope::Scope;
 use crate::slots::{SlotCall, SlotDescriptor};
@@ -48,7 +48,7 @@ impl SlotDescriptor for PyFunction {
         cls: OptionalArg<PyObjectRef>,
     ) -> PyResult {
         let (zelf, obj) = Self::_unwrap(zelf, obj, vm)?;
-        if obj.is(&vm.get_none()) && !Self::_cls_is(&cls, &obj.class()) {
+        if vm.is_none(&obj) && !Self::_cls_is(&cls, &obj.class()) {
             Ok(zelf.into_object())
         } else {
             Ok(vm.ctx.new_bound_method(zelf.into_object(), obj))

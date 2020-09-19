@@ -6,7 +6,7 @@ use crate::common::cell::PyRwLock;
 use super::objtype::PyClassRef;
 use crate::function::OptionalArg;
 use crate::pyobject::{
-    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::slots::SlotDescriptor;
 use crate::vm::VirtualMachine;
@@ -198,7 +198,7 @@ impl PyProperty {
 
 /// Take a python object and turn it into an option object, where python None maps to rust None.
 fn py_none_to_option(vm: &VirtualMachine, value: &PyObjectRef) -> Option<PyObjectRef> {
-    if vm.ctx.none().is(value) {
+    if vm.is_none(value) {
         None
     } else {
         Some(value.clone())

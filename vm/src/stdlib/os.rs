@@ -23,8 +23,8 @@ use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtuple::PyTupleRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
-    BorrowValue, Either, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyStructSequence,
-    PyValue, TryFromObject, TypeProtocol,
+    BorrowValue, Either, IntoPyObject, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult,
+    PyStructSequence, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -155,10 +155,7 @@ impl IntoPyException for io::Error {
             },
         };
         let os_error = vm.new_exception_msg(exc_type, self.to_string());
-        let errno = match self.raw_os_error() {
-            Some(errno) => vm.ctx.new_int(errno),
-            None => vm.get_none(),
-        };
+        let errno = self.raw_os_error().into_pyobject(vm);
         vm.set_attr(os_error.as_object(), "errno", errno).unwrap();
         os_error
     }

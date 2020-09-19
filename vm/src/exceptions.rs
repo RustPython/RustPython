@@ -1,14 +1,14 @@
 use crate::common::cell::PyRwLock;
 use crate::function::PyFuncArgs;
-use crate::obj::objnone::PyNone;
+use crate::obj::objsingletons::{PyNone, PyNoneRef};
 use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtraceback::PyTracebackRef;
 use crate::obj::objtuple::{PyTuple, PyTupleRef};
 use crate::obj::objtype::{self, PyClass, PyClassRef};
 use crate::py_io::{self, Write};
 use crate::pyobject::{
-    BorrowValue, PyClassDef, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult,
-    PyValue, TryFromObject, TypeProtocol,
+    BorrowValue, IntoPyObject, PyClassDef, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef,
+    PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::types::create_type_with_slots;
 use crate::VirtualMachine;
@@ -371,7 +371,7 @@ pub fn split(
     exc: PyBaseExceptionRef,
     vm: &VirtualMachine,
 ) -> (PyObjectRef, PyObjectRef, PyObjectRef) {
-    let tb = exc.traceback().map_or(vm.get_none(), |tb| tb.into_object());
+    let tb = exc.traceback().into_pyobject(vm);
     (exc.class().into_object(), exc.into_object(), tb)
 }
 
@@ -626,35 +626,22 @@ fn import_error_init(exc_self: PyObjectRef, args: PyFuncArgs, vm: &VirtualMachin
     vm.set_attr(
         &exc_self,
         "name",
-        args.kwargs
-            .get("name")
-            .cloned()
-            .unwrap_or_else(|| vm.get_none()),
+        vm.unwrap_or_none(args.kwargs.get("name").cloned()),
     )?;
     vm.set_attr(
         &exc_self,
         "path",
-        args.kwargs
-            .get("path")
-            .cloned()
-            .unwrap_or_else(|| vm.get_none()),
+        vm.unwrap_or_none(args.kwargs.get("path").cloned()),
     )?;
     Ok(())
 }
 
-fn none_getter(_obj: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-    vm.get_none()
+fn none_getter(_obj: PyObjectRef, vm: &VirtualMachine) -> PyNoneRef {
+    vm.ctx.none.clone()
 }
 
-fn make_arg_getter(idx: usize) -> impl Fn(PyBaseExceptionRef, &VirtualMachine) -> PyObjectRef {
-    move |exc, vm| {
-        exc.args
-            .read()
-            .borrow_value()
-            .get(idx)
-            .cloned()
-            .unwrap_or_else(|| vm.get_none())
-    }
+fn make_arg_getter(idx: usize) -> impl Fn(PyBaseExceptionRef) -> Option<PyObjectRef> {
+    move |exc| exc.args.read().borrow_value().get(idx).cloned()
 }
 
 fn key_error_str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyStringRef {
@@ -669,17 +656,16 @@ fn key_error_str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyStringRef {
     }
 }
 
-fn system_exit_code(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyObjectRef {
-    match exc.args.read().borrow_value().first() {
-        Some(code) => match_class!(match code {
+fn system_exit_code(exc: PyBaseExceptionRef) -> Option<PyObjectRef> {
+    exc.args.read().borrow_value().first().map(|code| {
+        match_class!(match code {
             ref tup @ PyTuple => match tup.borrow_value() {
                 [x] => x.clone(),
                 _ => code.clone(),
             },
             other => other.clone(),
-        }),
-        None => vm.get_none(),
-    }
+        })
+    })
 }
 
 pub fn init(ctx: &PyContext) {

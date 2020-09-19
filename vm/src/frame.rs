@@ -170,7 +170,7 @@ impl Frame {
                 stack: Vec::new(),
                 blocks: Vec::new(),
             }),
-            trace: PyMutex::new(vm.get_none()),
+            trace: PyMutex::new(vm.ctx.none()),
         }
     }
 }
@@ -540,14 +540,11 @@ impl ExecutingFrame<'_> {
                 let exit = self.pop_value();
 
                 let args = if let Some(exc) = exc {
-                    let exc_type = exc.class().into_object();
-                    let exc_val = exc.clone();
-                    let exc_tb = exc.traceback().map_or(vm.get_none(), |tb| tb.into_object());
-                    vec![exc_type, exc_val.into_object(), exc_tb]
+                    exceptions::split(exc, vm)
                 } else {
-                    vec![vm.ctx.none(), vm.ctx.none(), vm.ctx.none()]
+                    (vm.ctx.none(), vm.ctx.none(), vm.ctx.none())
                 };
-                let exit_res = vm.invoke(&exit, args)?;
+                let exit_res = vm.invoke(&exit, vec![args.0, args.1, args.2])?;
                 self.push_value(exit_res);
 
                 Ok(None)
@@ -1287,7 +1284,7 @@ impl ExecutingFrame<'_> {
             .ctx
             .new_pyfunction(code_obj, scope, defaults, kw_only_defaults);
 
-        vm.set_attr(&func_obj, "__doc__", vm.get_none())?;
+        vm.set_attr(&func_obj, "__doc__", vm.ctx.none())?;
 
         let name = qualified_name
             .borrow_value()
@@ -1296,11 +1293,7 @@ impl ExecutingFrame<'_> {
             .unwrap();
         vm.set_attr(&func_obj, "__name__", vm.ctx.new_str(name))?;
         vm.set_attr(&func_obj, "__qualname__", qualified_name)?;
-        let module = self
-            .scope
-            .globals
-            .get_item_option("__name__", vm)?
-            .unwrap_or_else(|| vm.get_none());
+        let module = vm.unwrap_or_none(self.scope.globals.get_item_option("__name__", vm)?);
         vm.set_attr(&func_obj, "__module__", module)?;
         vm.set_attr(&func_obj, "__annotations__", annotations)?;
 

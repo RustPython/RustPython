@@ -20,7 +20,6 @@ use crate::obj::objcode;
 use crate::obj::objcode::PyCodeRef;
 use crate::obj::objcomplex::PyComplex;
 use crate::obj::objdict::{PyDict, PyDictRef};
-use crate::obj::objellipsis::PyEllipsis;
 use crate::obj::objfloat::PyFloat;
 use crate::obj::objfunction::{PyBoundMethod, PyFunction};
 use crate::obj::objgetset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetSet};
@@ -28,9 +27,10 @@ use crate::obj::objint::{PyInt, PyIntRef};
 use crate::obj::objiter;
 use crate::obj::objlist::PyList;
 use crate::obj::objnamespace::PyNamespace;
-use crate::obj::objnone::{PyNone, PyNoneRef};
 use crate::obj::objobject;
 use crate::obj::objset::PySet;
+use crate::obj::objsingletons::{PyNone, PyNoneRef, PyNotImplemented, PyNotImplementedRef};
+use crate::obj::objslice::PyEllipsis;
 use crate::obj::objstaticmethod::PyStaticMethod;
 use crate::obj::objstr;
 use crate::obj::objtuple::{PyTuple, PyTupleRef};
@@ -38,7 +38,7 @@ use crate::obj::objtype::{self, PyClass, PyClassRef};
 pub use crate::pyobjectrc::{PyObjectRc, PyObjectWeak};
 use crate::scope::Scope;
 use crate::slots::{PyClassSlots, PyTpFlags};
-use crate::types::{create_type, create_type_with_slots, initialize_types, TypeZoo};
+use crate::types::{create_type_with_slots, initialize_types, TypeZoo};
 use crate::vm::VirtualMachine;
 use rustpython_common::cell::{PyRwLock, PyRwLockReadGuard};
 use rustpython_common::rc::PyRc;
@@ -106,17 +106,6 @@ pub struct PyContext {
     tp_new_wrapper: PyObjectRef,
 }
 
-pub type PyNotImplementedRef = PyRef<PyNotImplemented>;
-
-#[derive(Debug)]
-pub struct PyNotImplemented;
-
-impl PyValue for PyNotImplemented {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.not_implemented().class()
-    }
-}
-
 // Basic objects:
 impl PyContext {
     pub const INT_CACHE_POOL_MIN: i32 = -5;
@@ -134,13 +123,12 @@ impl PyContext {
         let none_type = PyNone::create_bare_type(&types.type_type, types.object_type.clone());
         let none = create_object(PyNone, &none_type);
 
-        let ellipsis = create_object(PyEllipsis, &types.ellipsis_type);
+        let ellipsis_type =
+            PyEllipsis::create_bare_type(&types.type_type, types.object_type.clone());
+        let ellipsis = create_object(PyEllipsis, &ellipsis_type);
 
-        let not_implemented_type = create_type(
-            "NotImplementedType",
-            &types.type_type,
-            types.object_type.clone(),
-        );
+        let not_implemented_type =
+            PyNotImplemented::create_bare_type(&types.type_type, types.object_type.clone());
         let not_implemented = create_object(PyNotImplemented, &not_implemented_type);
 
         let int_cache_pool = (Self::INT_CACHE_POOL_MIN..=Self::INT_CACHE_POOL_MAX)
@@ -951,7 +939,7 @@ impl TryFromObject for PyObjectRef {
 
 impl<T: TryFromObject> TryFromObject for Option<T> {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        if vm.get_none().is(&obj) {
+        if vm.is_none(&obj) {
             Ok(None)
         } else {
             T::try_from_object(vm, obj).map(Some)

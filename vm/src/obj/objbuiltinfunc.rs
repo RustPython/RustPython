@@ -3,9 +3,7 @@ use std::fmt;
 use crate::function::{OptionalArg, PyFuncArgs, PyNativeFunc};
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{
-    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue, TypeProtocol,
-};
+use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue, TypeProtocol};
 use crate::slots::{SlotCall, SlotDescriptor};
 use crate::vm::VirtualMachine;
 
@@ -118,7 +116,7 @@ impl SlotDescriptor for PyBuiltinMethod {
             Ok(obj) => obj,
             Err(result) => return result,
         };
-        if obj.is(&vm.get_none()) && !Self::_cls_is(&cls, &obj.class()) {
+        if vm.is_none(&obj) && !Self::_cls_is(&cls, &obj.class()) {
             Ok(zelf.into_object())
         } else {
             Ok(vm.ctx.new_bound_method(zelf.into_object(), obj))

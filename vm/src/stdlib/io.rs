@@ -963,11 +963,7 @@ fn text_io_wrapper_init(
 
     // let readuniversal = args.newline.map_or_else(true, |s| s.borrow_value().is_empty());
 
-    vm.set_attr(
-        &instance,
-        "encoding",
-        self_encoding.map_or_else(|| vm.get_none(), |s| vm.ctx.new_str(s)),
-    )?;
+    vm.set_attr(&instance, "encoding", self_encoding.into_pyobject(vm))?;
     vm.set_attr(&instance, "errors", errors)?;
     vm.set_attr(&instance, "buffer", args.buffer)?;
 
@@ -1022,11 +1018,7 @@ fn text_io_wrapper_read(
         return Err(vm.new_value_error("not readable".to_owned()));
     }
 
-    let bytes = vm.call_method(
-        &raw,
-        "read",
-        vec![size.flatten().unwrap_or_else(|| vm.get_none())],
-    )?;
+    let bytes = vm.call_method(&raw, "read", vec![vm.unwrap_or_none(size.flatten())])?;
     let bytes = PyBytesLike::try_from_object(vm, bytes)?;
     //format bytes into string
     let rust_string = String::from_utf8(bytes.to_cow().into_owned()).map_err(|e| {
@@ -1079,11 +1071,7 @@ fn text_io_wrapper_readline(
         return Err(vm.new_value_error("not readable".to_owned()));
     }
 
-    let bytes = vm.call_method(
-        &raw,
-        "readline",
-        vec![size.flatten().unwrap_or_else(|| vm.get_none())],
-    )?;
+    let bytes = vm.call_method(&raw, "readline", vec![vm.unwrap_or_none(size.flatten())])?;
     let bytes = PyBytesLike::try_from_object(vm, bytes)?;
     //format bytes into string
     let rust_string = String::from_utf8(bytes.to_cow().into_owned()).map_err(|e| {
@@ -1224,7 +1212,7 @@ pub fn io_open(
             Args::new(vec![file, vm.ctx.new_str(mode.clone())]),
             KwArgs::new(maplit::hashmap! {
                 "closefd".to_owned() => vm.ctx.new_bool(opts.closefd),
-                "opener".to_owned() => opts.opener.unwrap_or_else(|| vm.get_none()),
+                "opener".to_owned() => vm.unwrap_or_none(opts.opener),
             }),
         )),
     )?;

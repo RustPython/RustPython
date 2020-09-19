@@ -13,7 +13,9 @@ use crate::function::{Args, OptionalArg};
 use crate::obj::objint::{PyInt, PyIntRef};
 use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{BorrowValue, PyClassImpl, PyObjectRef, PyResult, PyValue, TryFromObject};
+use crate::pyobject::{
+    BorrowValue, IntoPyObject, PyClassImpl, PyObjectRef, PyResult, PyValue, TryFromObject,
+};
 use crate::vm::VirtualMachine;
 
 #[pyclass(module = "re", name = "Pattern")]
@@ -95,10 +97,10 @@ fn re_match(
     string: PyStringRef,
     flags: OptionalArg<usize>,
     vm: &VirtualMachine,
-) -> PyResult {
+) -> PyResult<Option<PyMatch>> {
     let flags = extract_flags(flags);
     let regex = make_regex(vm, pattern.borrow_value(), flags)?;
-    do_match(vm, &regex, string)
+    Ok(do_match(&regex, string))
 }
 
 fn re_search(
@@ -106,10 +108,10 @@ fn re_search(
     string: PyStringRef,
     flags: OptionalArg<usize>,
     vm: &VirtualMachine,
-) -> PyResult {
+) -> PyResult<Option<PyMatch>> {
     let flags = extract_flags(flags);
     let regex = make_regex(vm, pattern.borrow_value(), flags)?;
-    do_search(vm, &regex, string)
+    Ok(do_search(&regex, string))
 }
 
 fn re_sub(
@@ -119,11 +121,11 @@ fn re_sub(
     count: OptionalArg<usize>,
     flags: OptionalArg<usize>,
     vm: &VirtualMachine,
-) -> PyResult {
+) -> PyResult<String> {
     let flags = extract_flags(flags);
     let regex = make_regex(vm, pattern.borrow_value(), flags)?;
     let limit = count.unwrap_or(0);
-    do_sub(vm, &regex, repl, string, limit)
+    Ok(do_sub(&regex, repl, string, limit))
 }
 
 fn re_findall(
@@ -150,38 +152,34 @@ fn re_split(
 }
 
 fn do_sub(
-    vm: &VirtualMachine,
     pattern: &PyPattern,
     repl: PyStringRef,
     search_text: PyStringRef,
     limit: usize,
-) -> PyResult {
+) -> String {
     let out = pattern.regex.replacen(
         search_text.borrow_value().as_bytes(),
         limit,
         repl.borrow_value().as_bytes(),
     );
-    let out = String::from_utf8_lossy(&out).into_owned();
-    Ok(vm.ctx.new_str(out))
+    String::from_utf8_lossy(&out).into_owned()
 }
 
-fn do_match(vm: &VirtualMachine, pattern: &PyPattern, search_text: PyStringRef) -> PyResult {
+fn do_match(pattern: &PyPattern, search_text: PyStringRef) -> Option<PyMatch> {
     // I really wish there was a better way to do this; I don't think there is
-    let mut regex = r"\A".to_owned();
-    regex.push_str(pattern.regex.as_str());
-    let regex = Regex::new(&regex).unwrap();
-
-    match regex.captures(search_text.borrow_value().as_bytes()) {
-        None => Ok(vm.get_none()),
-        Some(captures) => Ok(create_match(vm, search_text.clone(), captures)),
-    }
+    let mut regex_text = r"\A".to_owned();
+    regex_text.push_str(pattern.regex.as_str());
+    let regex = Regex::new(&regex_text).unwrap();
+    regex
+        .captures(search_text.borrow_value().as_bytes())
+        .map(|captures| create_match(search_text.clone(), captures))
 }
 
-fn do_search(vm: &VirtualMachine, regex: &PyPattern, search_text: PyStringRef) -> PyResult {
-    match regex.regex.captures(search_text.borrow_value().as_bytes()) {
-        None => Ok(vm.get_none()),
-        Some(captures) => Ok(create_match(vm, search_text.clone(), captures)),
-    }
+fn do_search(regex: &PyPattern, search_text: PyStringRef) -> Option<PyMatch> {
+    regex
+        .regex
+        .captures(search_text.borrow_value().as_bytes())
+        .map(|captures| create_match(search_text.clone(), captures))
 }
 
 fn do_findall(vm: &VirtualMachine, pattern: &PyPattern, search_text: PyStringRef) -> PyResult {
@@ -255,8 +253,7 @@ fn do_split(
     let split = output
         .into_iter()
         .map(|v| {
-            v.map(|v| vm.ctx.new_str(String::from_utf8_lossy(v).into_owned()))
-                .unwrap_or_else(|| vm.get_none())
+            vm.unwrap_or_none(v.map(|v| vm.ctx.new_str(String::from_utf8_lossy(v).into_owned())))
         })
         .collect();
     Ok(vm.ctx.new_list(split))
@@ -286,12 +283,12 @@ fn make_regex(vm: &VirtualMachine, pattern: &str, flags: PyRegexFlags) -> PyResu
 }
 
 /// Take a found regular expression and convert it to proper match object.
-fn create_match(vm: &VirtualMachine, haystack: PyStringRef, captures: Captures) -> PyObjectRef {
+fn create_match(haystack: PyStringRef, captures: Captures) -> PyMatch {
     let captures = captures
         .iter()
         .map(|opt| opt.map(|m| m.start()..m.end()))
         .collect();
-    PyMatch { haystack, captures }.into_object(vm)
+    PyMatch { haystack, captures }
 }
 
 fn extract_flags(flags: OptionalArg<usize>) -> PyRegexFlags {
@@ -319,13 +316,13 @@ fn re_purge(_vm: &VirtualMachine) {}
 #[pyimpl]
 impl PyPattern {
     #[pymethod(name = "match")]
-    fn match_(&self, text: PyStringRef, vm: &VirtualMachine) -> PyResult {
-        do_match(vm, self, text)
+    fn match_(&self, text: PyStringRef) -> Option<PyMatch> {
+        do_match(self, text)
     }
 
     #[pymethod(name = "search")]
-    fn search(&self, text: PyStringRef, vm: &VirtualMachine) -> PyResult {
-        do_search(vm, self, text)
+    fn search(&self, text: PyStringRef) -> Option<PyMatch> {
+        do_search(self, text)
     }
 
     #[pymethod(name = "sub")]
@@ -384,8 +381,8 @@ impl PyMatch {
         Ok(end)
     }
 
-    fn subgroup(&self, bounds: Range<usize>, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_str(&self.haystack.borrow_value()[bounds])
+    fn subgroup(&self, bounds: Range<usize>) -> String {
+        self.haystack.borrow_value()[bounds].to_owned()
     }
 
     fn get_bounds(&self, id: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<Range<usize>>> {
@@ -403,27 +400,27 @@ impl PyMatch {
         })
     }
 
-    fn get_group(&self, id: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn get_group(&self, id: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<String>> {
         let bounds = self.get_bounds(id, vm)?;
-        let group = match bounds {
-            Some(bounds) => self.subgroup(bounds, vm),
-            None => vm.get_none(),
-        };
-        Ok(group)
+        Ok(bounds.map(|b| self.subgroup(b)))
     }
 
     #[pymethod]
     fn group(&self, groups: Args, vm: &VirtualMachine) -> PyResult {
         let mut groups = groups.into_vec();
         match groups.len() {
-            0 => Ok(self.subgroup(self.captures[0].clone().unwrap(), vm)),
-            1 => self.get_group(groups.pop().unwrap(), vm),
-            len => {
-                let mut output = Vec::with_capacity(len);
-                for id in groups {
-                    output.push(self.get_group(id, vm)?);
-                }
-                Ok(vm.ctx.new_tuple(output))
+            0 => Ok(self
+                .subgroup(self.captures[0].clone().unwrap())
+                .into_pyobject(vm)),
+            1 => self
+                .get_group(groups.pop().unwrap(), vm)
+                .map(|g| g.into_pyobject(vm)),
+            _ => {
+                let output: Result<Vec<_>, _> = groups
+                    .into_iter()
+                    .map(|id| self.get_group(id, vm).map(|g| g.into_pyobject(vm)))
+                    .collect();
+                Ok(vm.ctx.new_tuple(output?))
             }
         }
     }
@@ -435,11 +432,12 @@ impl PyMatch {
             .captures
             .iter()
             .map(|capture| {
-                capture
-                    .as_ref()
-                    .map(|bounds| self.subgroup(bounds.clone(), vm))
-                    .or_else(|| default.clone())
-                    .unwrap_or_else(|| vm.get_none())
+                vm.unwrap_or_none(
+                    capture
+                        .as_ref()
+                        .map(|bounds| self.subgroup(bounds.clone()).into_pyobject(vm))
+                        .or_else(|| default.clone()),
+                )
             })
             .collect();
         vm.ctx.new_tuple(groups)

@@ -732,7 +732,7 @@ mod decl {
                         PyObjectRef,
                     ) = args.bind(vm)?;
 
-                    let start = if !start.is(&vm.get_none()) {
+                    let start = if !vm.is_none(&start) {
                         pyobject_to_opt_usize(start, &vm).ok_or_else(|| {
                         vm.new_value_error(
                             "Indices for islice() must be None or an integer: 0 <= x <= sys.maxsize.".to_owned(),
@@ -742,7 +742,7 @@ mod decl {
                         0usize
                     };
 
-                    let step = if !step.is(&vm.get_none()) {
+                    let step = if !vm.is_none(&step) {
                         pyobject_to_opt_usize(step, &vm).ok_or_else(|| {
                             vm.new_value_error(
                                 "Step for islice() must be a positive integer or None.".to_owned(),
@@ -756,7 +756,7 @@ mod decl {
                 }
             };
 
-            let stop = if !stop.is(&vm.get_none()) {
+            let stop = if !vm.is_none(&stop) {
                 Some(pyobject_to_opt_usize(stop, &vm).ok_or_else(|| {
                     vm.new_value_error(
                     "Stop argument for islice() must be None or an integer: 0 <= x <= sys.maxsize."
@@ -847,7 +847,7 @@ mod decl {
 
             loop {
                 let obj = call_next(vm, iterable)?;
-                let pred_value = if predicate.is(&vm.get_none()) {
+                let pred_value = if vm.is_none(predicate) {
                     obj.clone()
                 } else {
                     vm.invoke(predicate, vec![obj.clone()])?
@@ -893,7 +893,7 @@ mod decl {
 
             PyItertoolsAccumulate {
                 iterable: iter,
-                binop: binop.unwrap_or_else(|| vm.get_none()),
+                binop: binop.unwrap_or_none(vm),
                 acc_value: PyRwLock::new(None),
             }
             .into_ref_with_type(vm, cls)
@@ -909,7 +909,7 @@ mod decl {
             let next_acc_value = match acc_value {
                 None => obj,
                 Some(value) => {
-                    if self.binop.is(&vm.get_none()) {
+                    if vm.is_none(&self.binop) {
                         vm._add(value, obj)?
                     } else {
                         vm.invoke(&self.binop, vec![value, obj])?
@@ -1502,11 +1502,7 @@ mod decl {
             args: ZiplongestArgs,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
-            let fillvalue = match args.fillvalue.into_option() {
-                Some(i) => i,
-                None => vm.get_none(),
-            };
-
+            let fillvalue = args.fillvalue.unwrap_or_none(vm);
             let iterators = iterables
                 .into_iter()
                 .map(|iterable| get_iter(vm, &iterable))

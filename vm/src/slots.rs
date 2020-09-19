@@ -105,7 +105,7 @@ pub trait SlotDescriptor: PyValue {
         vm: &VirtualMachine,
     ) -> PyResult<(PyRef<Self>, PyObjectRef)> {
         let zelf = Self::_zelf(zelf, vm)?;
-        let obj = obj.unwrap_or_else(|| vm.get_none());
+        let obj = vm.unwrap_or_none(obj);
         Ok((zelf, obj))
     }
 

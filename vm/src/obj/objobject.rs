@@ -140,9 +140,7 @@ impl PyBaseObject {
     }
 
     #[pyclassmethod(magic)]
-    fn init_subclass(_cls: PyClassRef, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.none())
-    }
+    fn init_subclass(_cls: PyClassRef) {}
 
     #[pymethod(magic)]
     pub fn dir(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyList> {
@@ -176,9 +174,7 @@ impl PyBaseObject {
     }
 
     #[pymethod(magic)]
-    fn init(_args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.none())
-    }
+    fn init(_args: PyFuncArgs) {}
 
     #[pyproperty(name = "__class__")]
     fn get_class(obj: PyObjectRef) -> PyObjectRef {

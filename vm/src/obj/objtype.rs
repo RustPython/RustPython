@@ -194,7 +194,7 @@ impl PyClassRef {
             } else if let Some(ref descriptor) = attr_class.get_attr("__get__") {
                 drop(mcl);
                 // TODO: is this nessessary?
-                return vm.invoke(descriptor, vec![attr, vm.get_none(), self.into_object()]);
+                return vm.invoke(descriptor, vec![attr, vm.ctx.none(), self.into_object()]);
             }
         }
 

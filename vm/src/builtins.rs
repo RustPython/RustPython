@@ -4,6 +4,9 @@
 use crate::pyobject::PyObjectRef;
 use crate::vm::VirtualMachine;
 
+/// Built-in functions, exceptions, and other objects.
+///
+/// Noteworthy: None is the `nil' object; Ellipsis represents `...' in slices.
 #[pymodule(name = "builtins")]
 mod decl {
     use num_bigint::Sign;

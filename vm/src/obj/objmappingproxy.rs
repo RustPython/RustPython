@@ -57,12 +57,15 @@ impl PyMappingProxy {
     }
 
     #[pymethod]
-    fn get(&self, key: PyObjectRef, default: OptionalArg, vm: &VirtualMachine) -> PyResult {
+    fn get(
+        &self,
+        key: PyObjectRef,
+        default: OptionalArg,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyObjectRef>> {
         let default = default.into_option();
-        Ok(self
-            .get_inner(key, vm)?
-            .or(default)
-            .unwrap_or_else(|| vm.get_none()))
+        let value = self.get_inner(key, vm)?.or(default);
+        Ok(value)
     }
 
     #[pymethod(name = "__getitem__")]

@@ -1011,7 +1011,7 @@ impl PyString {
                         }
                         if let OptionalArg::Present(none_str) = none_str {
                             for c in none_str.value.chars() {
-                                new_dict.set_item(vm.ctx.new_int(c as u32), vm.get_none(), vm)?;
+                                new_dict.set_item(vm.ctx.new_int(c as u32), vm.ctx.none(), vm)?;
                             }
                         }
                         Ok(new_dict.into_pyobject(vm))
@@ -1311,7 +1311,7 @@ mod tests {
         Interpreter::default().enter(|vm| {
             let table = vm.ctx.new_dict();
             table.set_item("a", vm.ctx.new_str("🎅"), &vm).unwrap();
-            table.set_item("b", vm.get_none(), &vm).unwrap();
+            table.set_item("b", vm.ctx.none(), &vm).unwrap();
             table.set_item("c", vm.ctx.new_str("xda"), &vm).unwrap();
             let translated = PyString::maketrans(
                 table.into_object(),

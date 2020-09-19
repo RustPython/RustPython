@@ -8,7 +8,6 @@ use crate::obj::objcode;
 use crate::obj::objcomplex;
 use crate::obj::objcoroutine;
 use crate::obj::objdict;
-use crate::obj::objellipsis;
 use crate::obj::objenumerate;
 use crate::obj::objfilter;
 use crate::obj::objfloat;
@@ -24,11 +23,11 @@ use crate::obj::objmappingproxy;
 use crate::obj::objmemory;
 use crate::obj::objmodule;
 use crate::obj::objnamespace;
-use crate::obj::objnone;
 use crate::obj::objobject;
 use crate::obj::objproperty;
 use crate::obj::objrange;
 use crate::obj::objset;
+use crate::obj::objsingletons;
 use crate::obj::objslice;
 use crate::obj::objstaticmethod;
 use crate::obj::objstr;
@@ -66,7 +65,6 @@ pub struct TypeZoo {
     pub coroutine_wrapper_type: PyClassRef,
     pub dict_type: PyClassRef,
     pub enumerate_type: PyClassRef,
-    pub ellipsis_type: PyClassRef,
     pub filter_type: PyClassRef,
     pub float_type: PyClassRef,
     pub frame_type: PyClassRef,
@@ -166,7 +164,6 @@ impl TypeZoo {
             dict_reversevalueiterator_type: create_type!(objdict::PyDictReverseValueIterator),
             dict_itemiterator_type: create_type!(objdict::PyDictItemIterator),
             dict_reverseitemiterator_type: create_type!(objdict::PyDictReverseItemIterator),
-            ellipsis_type: create_type!(objellipsis::PyEllipsis),
             enumerate_type: create_type!(objenumerate::PyEnumerate),
             filter_type: create_type!(objfilter::PyFilter),
             float_type: create_type!(objfloat::PyFloat),
@@ -361,7 +358,6 @@ pub fn initialize_types(context: &PyContext) {
     objslice::init(&context);
     objsuper::init(&context);
     objiter::init(&context);
-    objellipsis::init(&context);
     objenumerate::init(&context);
     objfilter::init(&context);
     objmap::init(&context);
@@ -371,7 +367,7 @@ pub fn initialize_types(context: &PyContext) {
     objframe::init(&context);
     objweakref::init(&context);
     objweakproxy::init(&context);
-    objnone::init(&context);
+    objsingletons::init(&context);
     objmodule::init(&context);
     objnamespace::init(&context);
     objmappingproxy::init(&context);

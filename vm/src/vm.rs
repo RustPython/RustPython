@@ -268,9 +268,9 @@ impl VirtualMachine {
             &vm,
             &builtins_dict,
             vm.ctx.new_str("builtins"),
-            vm.get_none(),
+            vm.ctx.none(),
         );
-        objmodule::init_module_dict(&vm, &sysmod_dict, vm.ctx.new_str("sys"), vm.get_none());
+        objmodule::init_module_dict(&vm, &sysmod_dict, vm.ctx.new_str("sys"), vm.ctx.none());
         vm
     }
 
@@ -335,8 +335,8 @@ impl VirtualMachine {
             wasm_id: self.wasm_id.clone(),
             exceptions: RefCell::new(vec![]),
             import_func: self.import_func.clone(),
-            profile_func: RefCell::new(self.get_none()),
-            trace_func: RefCell::new(self.get_none()),
+            profile_func: RefCell::new(self.ctx.none()),
+            trace_func: RefCell::new(self.ctx.none()),
             use_tracing: Cell::new(false),
             recursion_limit: self.recursion_limit.clone(),
             signal_handlers: None,
@@ -446,7 +446,7 @@ impl VirtualMachine {
             self,
             &dict,
             self.new_pyobj(name.to_owned()),
-            self.get_none(),
+            self.ctx.none(),
         );
         PyObject::new(PyModule {}, self.ctx.types.module_type.clone(), Some(dict))
     }
@@ -663,13 +663,9 @@ impl VirtualMachine {
         Scope::with_builtins(None, self.ctx.new_dict(), self)
     }
 
-    pub fn get_none(&self) -> PyObjectRef {
-        self.ctx.none()
-    }
-
     /// Test whether a python object is `None`.
     pub fn is_none(&self, obj: &PyObjectRef) -> bool {
-        obj.is(&self.get_none())
+        obj.is(&self.ctx.none)
     }
     pub fn option_if_none(&self, obj: PyObjectRef) -> Option<PyObjectRef> {
         if self.is_none(&obj) {
@@ -677,6 +673,9 @@ impl VirtualMachine {
         } else {
             Some(obj)
         }
+    }
+    pub fn unwrap_or_none(&self, obj: Option<PyObjectRef>) -> PyObjectRef {
+        obj.unwrap_or_else(|| self.ctx.none())
     }
 
     pub fn get_locals(&self) -> PyDictRef {
@@ -767,7 +766,7 @@ impl VirtualMachine {
                         frame.scope.globals.clone().into_object(),
                     )
                 } else {
-                    (self.get_none(), self.get_none())
+                    (self.ctx.none(), self.ctx.none())
                 };
                 let from_list = self
                     .ctx
@@ -824,11 +823,7 @@ impl VirtualMachine {
         } else if let Some(ref descriptor) = descr_class.get_attr("__get__") {
             Some(self.invoke(
                 descriptor,
-                vec![
-                    descr,
-                    obj.unwrap_or_else(|| self.get_none()),
-                    cls.unwrap_or_else(|| self.get_none()),
-                ],
+                vec![descr, self.unwrap_or_none(obj), self.unwrap_or_none(cls)],
             ))
         } else {
             None
@@ -910,8 +905,7 @@ impl VirtualMachine {
 
             let frame = frame_ref.unwrap().as_object().clone();
             let event = self.ctx.new_str(event.to_string());
-            let arg = self.get_none();
-            let args = vec![frame, event, arg];
+            let args = vec![frame, event, self.ctx.none()];
 
             // temporarily disable tracing, during the call to the
             // tracing function itself.
@@ -1164,10 +1158,7 @@ impl VirtualMachine {
     ) -> PyResult {
         let codecsmodule = self.import("_codecs", &[], 0)?;
         let func = self.get_attribute(codecsmodule, func)?;
-        let mut args = vec![
-            obj,
-            encoding.map_or_else(|| self.get_none(), |s| s.into_object()),
-        ];
+        let mut args = vec![obj, encoding.into_pyobject(self)];
         if let Some(errors) = errors {
             args.push(errors.into_object());
         }

@@ -9,7 +9,8 @@ use rustpython_vm::function::{OptionalArg, PyFuncArgs};
 use rustpython_vm::import::import_file;
 use rustpython_vm::obj::{objdict::PyDictRef, objstr::PyStringRef, objtype::PyClassRef};
 use rustpython_vm::pyobject::{
-    BorrowValue, PyCallable, PyClassImpl, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
+    BorrowValue, IntoPyObject, PyCallable, PyClassImpl, PyObject, PyObjectRef, PyRef, PyResult,
+    PyValue,
 };
 use rustpython_vm::VirtualMachine;
 
@@ -146,12 +147,12 @@ fn browser_request_animation_frame(func: PyCallable, vm: &VirtualMachine) -> PyR
     Ok(vm.ctx.new_int(id))
 }
 
-fn browser_cancel_animation_frame(id: i32, vm: &VirtualMachine) -> PyResult {
+fn browser_cancel_animation_frame(id: i32, vm: &VirtualMachine) -> PyResult<()> {
     window()
         .cancel_animation_frame(id)
         .map_err(|err| convert::js_py_typeerror(vm, err))?;
 
-    Ok(vm.get_none())
+    Ok(())
 }
 
 #[pyclass(module = "browser", name = "Promise")]
@@ -270,11 +271,9 @@ impl Document {
         let elem = self
             .doc
             .query_selector(query.borrow_value())
-            .map_err(|err| convert::js_py_typeerror(vm, err))?;
-        let elem = match elem {
-            Some(elem) => Element { elem }.into_object(vm),
-            None => vm.get_none(),
-        };
+            .map_err(|err| convert::js_py_typeerror(vm, err))?
+            .map(|elem| Element { elem })
+            .into_pyobject(vm);
         Ok(elem)
     }
 }
@@ -302,7 +301,7 @@ impl Element {
     ) -> PyObjectRef {
         match self.elem.get_attribute(attr.borrow_value()) {
             Some(s) => vm.ctx.new_str(s),
-            None => default.into_option().unwrap_or_else(|| vm.get_none()),
+            None => default.unwrap_or_none(vm),
         }
     }
 

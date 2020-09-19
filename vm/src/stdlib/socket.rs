@@ -545,10 +545,7 @@ fn socket_getaddrinfo(opts: GAIOptions, vm: &VirtualMachine) -> PyResult {
                     vm.ctx.new_int(ai.address),
                     vm.ctx.new_int(ai.socktype),
                     vm.ctx.new_int(ai.protocol),
-                    match ai.canonname {
-                        Some(s) => vm.ctx.new_str(s),
-                        None => vm.get_none(),
-                    },
+                    ai.canonname.into_pyobject(vm),
                     get_addr_tuple(ai.sockaddr).into_pyobject(vm),
                 ])
             })
@@ -786,7 +783,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "htons" => ctx.new_function(u16::to_be),
         "ntohl" => ctx.new_function(u32::from_be),
         "ntohs" => ctx.new_function(u16::from_be),
-        "getdefaulttimeout" => ctx.new_function(|vm: &VirtualMachine| vm.get_none()),
+        "getdefaulttimeout" => ctx.new_function(|vm: &VirtualMachine| vm.ctx.none()),
         "has_ipv6" => ctx.new_bool(false),
         "inet_pton" => ctx.new_function(socket_inet_pton),
         "inet_ntop" => ctx.new_function(socket_inet_ntop),

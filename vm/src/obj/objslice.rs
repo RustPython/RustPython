@@ -1,9 +1,11 @@
+// sliceobject.{h,c} in CPython
+
 use super::objint::PyInt;
 use super::objtype::PyClassRef;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    BorrowValue, IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TryIntoRef,
+    BorrowValue, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    TryIntoRef, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use num_bigint::{BigInt, ToBigInt};
@@ -25,19 +27,11 @@ impl PyValue for PySlice {
 
 pub type PySliceRef = PyRef<PySlice>;
 
-fn get_property_value(vm: &VirtualMachine, value: &Option<PyObjectRef>) -> PyObjectRef {
-    if let Some(value) = value {
-        value.clone()
-    } else {
-        vm.get_none()
-    }
-}
-
 #[pyimpl]
 impl PySlice {
     #[pyproperty(name = "start")]
     fn start(&self, vm: &VirtualMachine) -> PyObjectRef {
-        get_property_value(vm, &self.start)
+        self.start.clone().into_pyobject(vm)
     }
 
     #[pyproperty(name = "stop")]
@@ -47,7 +41,7 @@ impl PySlice {
 
     #[pyproperty(name = "step")]
     fn step(&self, vm: &VirtualMachine) -> PyObjectRef {
-        get_property_value(vm, &self.step)
+        self.step.clone().into_pyobject(vm)
     }
 
     #[pymethod(name = "__repr__")]
@@ -321,7 +315,7 @@ impl PySlice {
 }
 
 fn to_index_value(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Option<BigInt>> {
-    if obj.is(&vm.ctx.none) {
+    if vm.is_none(obj) {
         return Ok(None);
     }
 
@@ -333,7 +327,35 @@ fn to_index_value(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Option<Big
     Ok(Some(result.borrow_value().clone()))
 }
 
+#[pyclass(module = false, name = "EllipsisType")]
+#[derive(Debug)]
+pub struct PyEllipsis;
+
+impl PyValue for PyEllipsis {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.ctx.ellipsis.class()
+    }
+}
+
+#[pyimpl]
+impl PyEllipsis {
+    #[pyslot]
+    fn tp_new(_cls: PyClassRef, vm: &VirtualMachine) -> PyRef<Self> {
+        vm.ctx.ellipsis.clone()
+    }
+
+    #[pymethod(magic)]
+    fn repr(&self) -> String {
+        "Ellipsis".to_owned()
+    }
+
+    #[pymethod(magic)]
+    fn reduce(&self) -> String {
+        "Ellipsis".to_owned()
+    }
+}
+
 pub fn init(context: &PyContext) {
-    let slice_type = &context.types.slice_type;
-    PySlice::extend_class(context, slice_type);
+    PySlice::extend_class(context, &context.types.slice_type);
+    PyEllipsis::extend_class(context, &context.ellipsis.class());
 }
