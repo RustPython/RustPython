@@ -260,9 +260,7 @@ impl PyContext {
     }
 
     pub fn new_dict(&self) -> PyDictRef {
-        PyObject::new(PyDict::default(), self.types.dict_type.clone(), None)
-            .downcast()
-            .unwrap()
+        PyRef::new_ref(PyDict::default(), self.types.dict_type.clone(), None)
     }
 
     pub fn new_class(&self, name: &str, base: PyClassRef, slots: PyClassSlots) -> PyClassRef {
@@ -345,13 +343,11 @@ impl PyContext {
     }
 
     pub fn new_code_object(&self, code: bytecode::CodeObject) -> PyCodeRef {
-        PyObject::new(
+        PyRef::new_ref(
             objcode::PyCode::new(code),
             self.types.code_type.clone(),
             None,
         )
-        .downcast()
-        .unwrap()
     }
 
     pub fn new_pyfunction(
