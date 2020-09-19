@@ -6,9 +6,8 @@ use super::objsequence::get_item;
 use super::objtype::PyClassRef;
 use crate::function::OptionalArg;
 use crate::pyobject::{
-    self, BorrowValue, Either, IdProtocol, IntoPyObject,
-    PyArithmaticValue::{self, *},
-    PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    self, BorrowValue, Either, IdProtocol, IntoPyObject, PyArithmaticValue, PyClassImpl,
+    PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::sequence::{self, SimpleSeq};
 use crate::slots::{Comparable, Hashable, PyComparisonOp};
@@ -21,13 +20,19 @@ use rustpython_common::hash::PyHash;
 /// If the argument is a tuple, the return value is the same object.
 #[pyclass(module = false, name = "tuple")]
 pub struct PyTuple {
-    elements: Vec<PyObjectRef>,
+    elements: Box<[PyObjectRef]>,
 }
 
 impl fmt::Debug for PyTuple {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // TODO: implement more informational, non-recursive Debug formatter
         f.write_str("tuple")
+    }
+}
+
+impl From<Box<[PyObjectRef]>> for PyTuple {
+    fn from(elements: Box<[PyObjectRef]>) -> Self {
+        PyTuple { elements }
     }
 }
 
@@ -64,12 +69,6 @@ impl_intopyobj_tuple!((A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5));
 impl_intopyobj_tuple!((A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6));
 
 impl PyTuple {
-    // this is designed to be only used to skip empty tuple optimization
-    // not unsafe as meaning of rust, but a warning because this is performance critical
-    pub(crate) unsafe fn _new(elements: Vec<PyObjectRef>) -> Self {
-        Self { elements }
-    }
-
     pub(crate) fn fast_getitem(&self, idx: usize) -> PyObjectRef {
         self.elements[idx].clone()
     }
@@ -82,6 +81,7 @@ impl PyTupleRef {
         if elements.is_empty() {
             ctx.empty_tuple.clone()
         } else {
+            let elements = elements.into_boxed_slice();
             Self::new_ref(PyTuple { elements }, ctx.types.tuple_type.clone(), None)
         }
     }
@@ -110,7 +110,8 @@ impl PyTuple {
                     .boxed_iter()
                     .chain(other.borrow_value().boxed_iter())
                     .cloned()
-                    .collect::<Vec<_>>();
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice();
                 Self { elements }.into_ref(vm)
             }
         });
@@ -172,9 +173,10 @@ impl PyTuple {
         if self.elements.is_empty() || counter == 0 {
             vm.ctx.empty_tuple.clone()
         } else {
-            let elements: Vec<_> = sequence::seq_mul(&self.elements, counter)
+            let elements = sequence::seq_mul(&self.elements, counter)
                 .cloned()
-                .collect();
+                .collect::<Vec<_>>()
+                .into_boxed_slice();
             Self { elements }.into_ref(vm)
         }
     }
@@ -227,7 +229,8 @@ impl PyTuple {
             vm.extract_elements(&iterable)?
         } else {
             vec![]
-        };
+        }
+        .into_boxed_slice();
 
         Self { elements }.into_ref_with_type(vm, cls)
     }

@@ -139,7 +139,10 @@ impl PyContext {
         let true_value = create_object(PyInt::from(1), &types.bool_type);
         let false_value = create_object(PyInt::from(0), &types.bool_type);
 
-        let empty_tuple = create_object(unsafe { PyTuple::_new(Vec::new()) }, &types.tuple_type);
+        let empty_tuple = create_object(
+            PyTuple::from(Vec::new().into_boxed_slice()),
+            &types.tuple_type,
+        );
 
         let tp_new_wrapper = create_object(
             PyFuncDef::from(objtype::tp_new_wrapper.into_func()).into_function(),
