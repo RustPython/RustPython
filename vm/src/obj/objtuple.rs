@@ -6,7 +6,7 @@ use super::objsequence::get_item;
 use super::objtype::PyClassRef;
 use crate::function::OptionalArg;
 use crate::pyobject::{
-    self, BorrowValue, IdProtocol, IntoPyObject,
+    self, BorrowValue, Either, IdProtocol, IntoPyObject,
     PyArithmaticValue::{self, *},
     PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
 };
@@ -168,7 +168,12 @@ impl PyTuple {
 
     #[pymethod(name = "__getitem__")]
     fn getitem(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        get_item(vm, zelf.as_object(), &zelf.elements, needle)
+        Ok(
+            match get_item(vm, zelf.as_object(), &zelf.elements, needle)? {
+                Either::A(obj) => obj,
+                Either::B(vec) => vm.ctx.new_tuple(vec),
+            },
+        )
     }
 
     #[pymethod(name = "index")]

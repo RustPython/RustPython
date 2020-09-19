@@ -17,7 +17,7 @@ use crate::bytesinner;
 use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::function::OptionalArg;
 use crate::pyobject::{
-    BorrowValue, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef,
+    BorrowValue, Either, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef,
     PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::sequence::{self, SimpleSeq};
@@ -192,7 +192,12 @@ impl PyList {
 
     #[pymethod(name = "__getitem__")]
     fn getitem(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        get_item(vm, zelf.as_object(), &zelf.borrow_value(), needle)
+        Ok(
+            match get_item(vm, zelf.as_object(), &zelf.borrow_value(), needle)? {
+                Either::A(obj) => obj,
+                Either::B(vec) => vm.ctx.new_list(vec),
+            },
+        )
     }
 
     #[pymethod(name = "__iter__")]
