@@ -136,7 +136,7 @@ impl PyDict {
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
         let dict = DictContentType::default();
-        let value = value.unwrap_or_else(|| vm.ctx.none());
+        let value = value.unwrap_or_none(vm);
         for elem in iterable.iter(vm)? {
             let elem = elem?;
             dict.insert(vm, elem, value.clone())?;
@@ -314,7 +314,7 @@ impl PyDict {
     ) -> PyResult {
         match self.entries.get(vm, &key)? {
             Some(value) => Ok(value),
-            None => Ok(default.unwrap_or_else(|| vm.ctx.none())),
+            None => Ok(default.unwrap_or_none(vm)),
         }
     }
 
@@ -328,7 +328,7 @@ impl PyDict {
         match self.entries.get(vm, &key)? {
             Some(value) => Ok(value),
             None => {
-                let set_value = default.unwrap_or_else(|| vm.ctx.none());
+                let set_value = default.unwrap_or_none(vm);
                 self.entries.insert(vm, key, set_value.clone())?;
                 Ok(set_value)
             }

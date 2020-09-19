@@ -37,7 +37,7 @@ impl PyCoroutine {
     // TODO: fix function names situation
     #[pyproperty(magic)]
     fn name(&self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.get_none()
+        vm.ctx.none()
     }
 
     #[pymethod]
@@ -55,8 +55,8 @@ impl PyCoroutine {
     ) -> PyResult {
         self.inner.throw(
             exc_type,
-            exc_val.unwrap_or_else(|| vm.get_none()),
-            exc_tb.unwrap_or_else(|| vm.get_none()),
+            exc_val.unwrap_or_none(vm),
+            exc_tb.unwrap_or_none(vm),
             vm,
         )
     }
@@ -116,7 +116,7 @@ impl PyCoroutineWrapper {
 
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult {
-        self.coro.send(vm.get_none(), vm)
+        self.coro.send(vm.ctx.none(), vm)
     }
 
     #[pymethod]

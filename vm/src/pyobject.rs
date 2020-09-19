@@ -939,7 +939,7 @@ impl TryFromObject for PyObjectRef {
 
 impl<T: TryFromObject> TryFromObject for Option<T> {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        if vm.get_none().is(&obj) {
+        if vm.is_none(&obj) {
             Ok(None)
         } else {
             T::try_from_object(vm, obj).map(Some)

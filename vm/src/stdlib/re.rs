@@ -172,14 +172,14 @@ fn do_match(vm: &VirtualMachine, pattern: &PyPattern, search_text: PyStringRef) 
     let regex = Regex::new(&regex).unwrap();
 
     match regex.captures(search_text.borrow_value().as_bytes()) {
-        None => Ok(vm.get_none()),
+        None => Ok(vm.ctx.none()),
         Some(captures) => Ok(create_match(vm, search_text.clone(), captures)),
     }
 }
 
 fn do_search(vm: &VirtualMachine, regex: &PyPattern, search_text: PyStringRef) -> PyResult {
     match regex.regex.captures(search_text.borrow_value().as_bytes()) {
-        None => Ok(vm.get_none()),
+        None => Ok(vm.ctx.none()),
         Some(captures) => Ok(create_match(vm, search_text.clone(), captures)),
     }
 }
@@ -255,8 +255,7 @@ fn do_split(
     let split = output
         .into_iter()
         .map(|v| {
-            v.map(|v| vm.ctx.new_str(String::from_utf8_lossy(v).into_owned()))
-                .unwrap_or_else(|| vm.get_none())
+            vm.unwrap_or_none(v.map(|v| vm.ctx.new_str(String::from_utf8_lossy(v).into_owned())))
         })
         .collect();
     Ok(vm.ctx.new_list(split))
@@ -407,7 +406,7 @@ impl PyMatch {
         let bounds = self.get_bounds(id, vm)?;
         let group = match bounds {
             Some(bounds) => self.subgroup(bounds, vm),
-            None => vm.get_none(),
+            None => vm.ctx.none(),
         };
         Ok(group)
     }
@@ -435,11 +434,12 @@ impl PyMatch {
             .captures
             .iter()
             .map(|capture| {
-                capture
-                    .as_ref()
-                    .map(|bounds| self.subgroup(bounds.clone(), vm))
-                    .or_else(|| default.clone())
-                    .unwrap_or_else(|| vm.get_none())
+                vm.unwrap_or_none(
+                    capture
+                        .as_ref()
+                        .map(|bounds| self.subgroup(bounds.clone(), vm))
+                        .or_else(|| default.clone()),
+                )
             })
             .collect();
         vm.ctx.new_tuple(groups)

@@ -67,7 +67,7 @@ fn imp_create_builtin(spec: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     } else if let Some(make_module_func) = vm.state.stdlib_inits.get(name) {
         Ok(make_module_func(vm))
     } else {
-        Ok(vm.get_none())
+        Ok(vm.ctx.none())
     }
 }
 
@@ -108,7 +108,7 @@ fn imp_fix_co_filename(_code: PyObjectRef, _path: PyStringRef) {
 
 fn imp_source_hash(_key: u64, _source: PyBytesRef, vm: &VirtualMachine) -> PyResult {
     // TODO:
-    Ok(vm.get_none())
+    Ok(vm.ctx.none())
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {

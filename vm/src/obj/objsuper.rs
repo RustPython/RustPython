@@ -122,7 +122,7 @@ impl PySuper {
                         vm.new_type_error(format!("super argument {} was not supplied", first_arg))
                     })?
             } else {
-                vm.get_none()
+                vm.ctx.none()
             }
         };
 
@@ -147,7 +147,7 @@ impl SlotDescriptor for PySuper {
                 .into_ref(vm)
                 .into_object())
         } else {
-            let obj = zelf.obj.clone().map_or(vm.get_none(), |(o, _)| o);
+            let obj = vm.unwrap_or_none(zelf.obj.clone().map(|(o, _)| o));
             vm.invoke(
                 zelf_class.as_object(),
                 vec![zelf.typ.clone().into_object(), obj],

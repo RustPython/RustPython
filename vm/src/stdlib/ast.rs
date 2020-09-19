@@ -559,8 +559,8 @@ fn parameters_to_ast(vm: &VirtualMachine, args: &ast::Parameters) -> PyResult<As
 
 fn vararg_to_ast(vm: &VirtualMachine, vararg: &ast::Varargs) -> PyResult {
     let py_node = match vararg {
-        ast::Varargs::None => vm.get_none(),
-        ast::Varargs::Unnamed => vm.get_none(),
+        ast::Varargs::None => vm.ctx.none(),
+        ast::Varargs::Unnamed => vm.ctx.none(),
         ast::Varargs::Named(parameter) => parameter_to_ast(vm, parameter)?.into_object(),
     };
     Ok(py_node)

@@ -1,7 +1,7 @@
 use super::objbool;
 use super::objiter;
 use super::objtype::PyClassRef;
-use crate::pyobject::{IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 pub type PyFilterRef = PyRef<PyFilter>;
@@ -47,7 +47,7 @@ impl PyFilter {
         let iterator = &self.iterator;
         loop {
             let next_obj = objiter::call_next(vm, iterator)?;
-            let predicate_value = if predicate.is(&vm.get_none()) {
+            let predicate_value = if vm.is_none(predicate) {
                 next_obj.clone()
             } else {
                 // the predicate itself can raise StopIteration which does stop the filter

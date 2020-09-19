@@ -67,9 +67,8 @@ impl PyHasher {
     }
 
     #[pymethod(name = "update")]
-    fn update(&self, data: PyBytesRef, vm: &VirtualMachine) -> PyResult {
+    fn update(&self, data: PyBytesRef) {
         self.borrow_value_mut().input(data.borrow_value());
-        Ok(vm.get_none())
     }
 
     #[pymethod(name = "digest")]
@@ -94,74 +93,70 @@ fn hashlib_new(
     vm: &VirtualMachine,
 ) -> PyResult<PyHasher> {
     match name.borrow_value() {
-        "md5" => md5(data, vm),
-        "sha1" => sha1(data, vm),
-        "sha224" => sha224(data, vm),
-        "sha256" => sha256(data, vm),
-        "sha384" => sha384(data, vm),
-        "sha512" => sha512(data, vm),
-        "sha3_224" => sha3_224(data, vm),
-        "sha3_256" => sha3_256(data, vm),
-        "sha3_384" => sha3_384(data, vm),
-        "sha3_512" => sha3_512(data, vm),
-        // TODO: "shake128" => shake128(data, vm),
-        // TODO: "shake256" => shake256(data, vm),
-        "blake2b" => blake2b(data, vm),
-        "blake2s" => blake2s(data, vm),
+        "md5" => md5(data),
+        "sha1" => sha1(data),
+        "sha224" => sha224(data),
+        "sha256" => sha256(data),
+        "sha384" => sha384(data),
+        "sha512" => sha512(data),
+        "sha3_224" => sha3_224(data),
+        "sha3_256" => sha3_256(data),
+        "sha3_384" => sha3_384(data),
+        "sha3_512" => sha3_512(data),
+        // TODO: "shake128" => shake128(data, ),
+        // TODO: "shake256" => shake256(data, ),
+        "blake2b" => blake2b(data),
+        "blake2s" => blake2s(data),
         other => Err(vm.new_value_error(format!("Unknown hashing algorithm: {}", other))),
     }
 }
 
-fn init(
-    hasher: PyHasher,
-    data: OptionalArg<PyBytesRef>,
-    vm: &VirtualMachine,
-) -> PyResult<PyHasher> {
+fn init(hasher: PyHasher, data: OptionalArg<PyBytesRef>) -> PyResult<PyHasher> {
     if let OptionalArg::Present(data) = data {
-        hasher.update(data, vm)?;
+        hasher.update(data);
     }
 
     Ok(hasher)
 }
 
-fn md5(data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
-    init(PyHasher::new("md5", HashWrapper::md5()), data, vm)
+fn md5(data: OptionalArg<PyBytesRef>) -> PyResult<PyHasher> {
+    init(PyHasher::new("md5", HashWrapper::md5()), data)
 }
 
-fn sha1(data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
-    init(PyHasher::new("sha1", HashWrapper::sha1()), data, vm)
+fn sha1(data: OptionalArg<PyBytesRef>) -> PyResult<PyHasher> {
+    init(PyHasher::new("sha1", HashWrapper::sha1()), data)
 }
 
-fn sha224(data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
-    init(PyHasher::new("sha224", HashWrapper::sha224()), data, vm)
+fn sha224(data: OptionalArg<PyBytesRef>) -> PyResult<PyHasher> {
+    init(PyHasher::new("sha224", HashWrapper::sha224()), data)
 }
 
-fn sha256(data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
-    init(PyHasher::new("sha256", HashWrapper::sha256()), data, vm)
+fn sha256(data: OptionalArg<PyBytesRef>) -> PyResult<PyHasher> {
+    init(PyHasher::new("sha256", HashWrapper::sha256()), data)
 }
 
-fn sha384(data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
-    init(PyHasher::new("sha384", HashWrapper::sha384()), data, vm)
+fn sha384(data: OptionalArg<PyBytesRef>) -> PyResult<PyHasher> {
+    init(PyHasher::new("sha384", HashWrapper::sha384()), data)
 }
 
-fn sha512(data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
-    init(PyHasher::new("sha512", HashWrapper::sha512()), data, vm)
+fn sha512(data: OptionalArg<PyBytesRef>) -> PyResult<PyHasher> {
+    init(PyHasher::new("sha512", HashWrapper::sha512()), data)
 }
 
-fn sha3_224(data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
-    init(PyHasher::new("sha3_224", HashWrapper::sha3_224()), data, vm)
+fn sha3_224(data: OptionalArg<PyBytesRef>) -> PyResult<PyHasher> {
+    init(PyHasher::new("sha3_224", HashWrapper::sha3_224()), data)
 }
 
-fn sha3_256(data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
-    init(PyHasher::new("sha3_256", HashWrapper::sha3_256()), data, vm)
+fn sha3_256(data: OptionalArg<PyBytesRef>) -> PyResult<PyHasher> {
+    init(PyHasher::new("sha3_256", HashWrapper::sha3_256()), data)
 }
 
-fn sha3_384(data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
-    init(PyHasher::new("sha3_384", HashWrapper::sha3_384()), data, vm)
+fn sha3_384(data: OptionalArg<PyBytesRef>) -> PyResult<PyHasher> {
+    init(PyHasher::new("sha3_384", HashWrapper::sha3_384()), data)
 }
 
-fn sha3_512(data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
-    init(PyHasher::new("sha3_512", HashWrapper::sha3_512()), data, vm)
+fn sha3_512(data: OptionalArg<PyBytesRef>) -> PyResult<PyHasher> {
+    init(PyHasher::new("sha3_512", HashWrapper::sha3_512()), data)
 }
 
 fn shake128(_data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
@@ -172,14 +167,14 @@ fn shake256(_data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyH
     Err(vm.new_not_implemented_error("shake256".to_owned()))
 }
 
-fn blake2b(data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
+fn blake2b(data: OptionalArg<PyBytesRef>) -> PyResult<PyHasher> {
     // TODO: handle parameters
-    init(PyHasher::new("blake2b", HashWrapper::blake2b()), data, vm)
+    init(PyHasher::new("blake2b", HashWrapper::blake2b()), data)
 }
 
-fn blake2s(data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
+fn blake2s(data: OptionalArg<PyBytesRef>) -> PyResult<PyHasher> {
     // TODO: handle parameters
-    init(PyHasher::new("blake2s", HashWrapper::blake2s()), data, vm)
+    init(PyHasher::new("blake2s", HashWrapper::blake2s()), data)
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {

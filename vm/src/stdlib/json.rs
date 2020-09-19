@@ -104,10 +104,8 @@ mod _json {
                                 .new_tuple(vec![pystr.into_object(), vm.ctx.new_int(next_idx)]),
                             vm.ctx.new_bool(self.strict),
                             scan_once,
-                            self.object_hook.clone().unwrap_or_else(|| vm.get_none()),
-                            self.object_pairs_hook
-                                .clone()
-                                .unwrap_or_else(|| vm.get_none()),
+                            vm.unwrap_or_none(self.object_hook.clone()),
+                            vm.unwrap_or_none(self.object_pairs_hook.clone()),
                         ],
                     );
                 }
@@ -134,7 +132,7 @@ mod _json {
                 };
             }
 
-            parse_const!("null", vm.get_none());
+            parse_const!("null", vm.ctx.none());
             parse_const!("true", vm.ctx.new_bool(true));
             parse_const!("false", vm.ctx.new_bool(false));
 

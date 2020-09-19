@@ -39,9 +39,7 @@ impl PyAsyncGen {
 
     // TODO: fix function names situation
     #[pyproperty(magic)]
-    fn name(&self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.get_none()
-    }
+    fn name(&self) {}
 
     #[pymethod(name = "__aiter__")]
     fn aiter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
@@ -50,7 +48,7 @@ impl PyAsyncGen {
 
     #[pymethod(name = "__anext__")]
     fn anext(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyAsyncGenASend {
-        Self::asend(zelf, vm.get_none(), vm)
+        Self::asend(zelf, vm.ctx.none(), vm)
     }
 
     #[pymethod]
@@ -76,8 +74,8 @@ impl PyAsyncGen {
             state: AtomicCell::new(AwaitableState::Init),
             value: (
                 exc_type,
-                exc_val.unwrap_or_else(|| vm.get_none()),
-                exc_tb.unwrap_or_else(|| vm.get_none()),
+                exc_val.unwrap_or_none(vm),
+                exc_tb.unwrap_or_none(vm),
             ),
         }
     }
@@ -90,8 +88,8 @@ impl PyAsyncGen {
             state: AtomicCell::new(AwaitableState::Init),
             value: (
                 vm.ctx.exceptions.generator_exit.clone().into_object(),
-                vm.get_none(),
-                vm.get_none(),
+                vm.ctx.none(),
+                vm.ctx.none(),
             ),
         }
     }
@@ -185,7 +183,7 @@ impl PyAsyncGenASend {
 
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult {
-        self.send(vm.get_none(), vm)
+        self.send(vm.ctx.none(), vm)
     }
 
     #[pymethod]
@@ -236,8 +234,8 @@ impl PyAsyncGenASend {
 
         let res = self.ag.inner.throw(
             exc_type,
-            exc_val.unwrap_or_else(|| vm.get_none()),
-            exc_tb.unwrap_or_else(|| vm.get_none()),
+            exc_val.unwrap_or_none(vm),
+            exc_tb.unwrap_or_none(vm),
             vm,
         );
         let res = PyAsyncGenWrappedValue::unbox(&self.ag, res, vm);
@@ -281,7 +279,7 @@ impl PyAsyncGenAThrow {
 
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult {
-        self.send(vm.get_none(), vm)
+        self.send(vm.ctx.none(), vm)
     }
 
     #[pymethod]
@@ -353,8 +351,8 @@ impl PyAsyncGenAThrow {
     ) -> PyResult {
         let ret = self.ag.inner.throw(
             exc_type,
-            exc_val.unwrap_or_else(|| vm.get_none()),
-            exc_tb.unwrap_or_else(|| vm.get_none()),
+            exc_val.unwrap_or_none(vm),
+            exc_tb.unwrap_or_none(vm),
             vm,
         );
         let res = if self.aclose {

@@ -558,13 +558,13 @@ impl PySet {
     #[pymethod]
     fn update(&self, others: Args<PyIterable>, vm: &VirtualMachine) -> PyResult {
         self.inner.update(others, vm)?;
-        Ok(vm.get_none())
+        Ok(vm.ctx.none())
     }
 
     #[pymethod]
     fn intersection_update(&self, others: Args<PyIterable>, vm: &VirtualMachine) -> PyResult {
         self.inner.intersection_update(others, vm)?;
-        Ok(vm.get_none())
+        Ok(vm.ctx.none())
     }
 
     #[pymethod(name = "__iand__")]
@@ -576,7 +576,7 @@ impl PySet {
     #[pymethod]
     fn difference_update(&self, others: Args<PyIterable>, vm: &VirtualMachine) -> PyResult {
         self.inner.difference_update(others, vm)?;
-        Ok(vm.get_none())
+        Ok(vm.ctx.none())
     }
 
     #[pymethod(name = "__isub__")]
@@ -592,7 +592,7 @@ impl PySet {
         vm: &VirtualMachine,
     ) -> PyResult {
         self.inner.symmetric_difference_update(others, vm)?;
-        Ok(vm.get_none())
+        Ok(vm.ctx.none())
     }
 
     #[pymethod(name = "__ixor__")]

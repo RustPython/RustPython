@@ -394,6 +394,12 @@ pub enum OptionalArg<T = PyObjectRef> {
 
 impl_option_like!(OptionalArg, Present, Missing);
 
+impl OptionalArg<PyObjectRef> {
+    pub fn unwrap_or_none(self, vm: &VirtualMachine) -> PyObjectRef {
+        self.unwrap_or_else(|| vm.ctx.none())
+    }
+}
+
 pub type OptionalOption<T> = OptionalArg<Option<T>>;
 
 impl<T> OptionalOption<T> {

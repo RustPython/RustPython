@@ -668,10 +668,7 @@ fn cert_to_py(vm: &VirtualMachine, cert: &X509Ref, binary: bool) -> PyResult {
         let name_to_py = |name: &x509::X509NameRef| {
             name.entries()
                 .map(|entry| {
-                    let txt = match obj2txt(entry.object(), false) {
-                        Some(s) => vm.ctx.new_str(s),
-                        None => vm.get_none(),
-                    };
+                    let txt = obj2txt(entry.object(), false).into_pyobject(vm);
                     let data = vm.ctx.new_str(entry.data().as_utf8()?.to_owned());
                     Ok(vm.ctx.new_tuple(vec![vm.ctx.new_tuple(vec![txt, data])]))
                 })

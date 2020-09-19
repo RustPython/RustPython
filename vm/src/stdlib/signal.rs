@@ -112,7 +112,7 @@ pub fn check_signals(vm: &VirtualMachine) -> PyResult<()> {
         if triggerd {
             let handler = &signal_handlers[signum];
             if vm.is_callable(handler) {
-                vm.invoke(handler, vec![vm.ctx.new_int(signum), vm.get_none()])?;
+                vm.invoke(handler, vec![vm.ctx.new_int(signum), vm.ctx.none()])?;
             }
         }
     }
@@ -156,7 +156,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         } else if handler == SIG_IGN {
             sig_ign.clone()
         } else {
-            vm.get_none()
+            vm.ctx.none()
         };
         vm.signal_handlers.as_ref().unwrap().borrow_mut()[signum] = py_handler;
     }

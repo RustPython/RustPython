@@ -216,10 +216,10 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
         js_err_to_py_err(vm, err).into_object()
     } else if js_val.is_undefined() {
         // Because `JSON.stringify(undefined)` returns undefined
-        vm.get_none()
+        vm.ctx.none()
     } else {
         py_serde::deserialize(vm, serde_wasm_bindgen::Deserializer::from(js_val))
-            .unwrap_or_else(|_| vm.get_none())
+            .unwrap_or_else(|_| vm.ctx.none())
     }
 }
 

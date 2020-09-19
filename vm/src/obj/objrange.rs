@@ -369,12 +369,12 @@ impl PyRange {
     fn hash(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
         let length = zelf.length();
         let elements = if length.is_zero() {
-            vec![vm.ctx.new_int(length), vm.get_none(), vm.get_none()]
+            vec![vm.ctx.new_int(length), vm.ctx.none(), vm.ctx.none()]
         } else if length.is_one() {
             vec![
                 vm.ctx.new_int(length),
                 zelf.start().into_object(),
-                vm.get_none(),
+                vm.ctx.none(),
             ]
         } else {
             vec![

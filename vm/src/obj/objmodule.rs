@@ -3,7 +3,8 @@ use super::objstr::{PyString, PyStringRef};
 use super::objtype::PyClassRef;
 use crate::function::{OptionalOption, PyFuncArgs};
 use crate::pyobject::{
-    BorrowValue, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    BorrowValue, IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
+    PyValue,
 };
 use crate::vm::VirtualMachine;
 
@@ -31,13 +32,13 @@ pub fn init_module_dict(
         .set_item("__doc__", doc, vm)
         .expect("Failed to set __doc__ on module");
     module_dict
-        .set_item("__package__", vm.get_none(), vm)
+        .set_item("__package__", vm.ctx.none(), vm)
         .expect("Failed to set __package__ on module");
     module_dict
-        .set_item("__loader__", vm.get_none(), vm)
+        .set_item("__loader__", vm.ctx.none(), vm)
         .expect("Failed to set __loader__ on module");
     module_dict
-        .set_item("__spec__", vm.get_none(), vm)
+        .set_item("__spec__", vm.ctx.none(), vm)
         .expect("Failed to set __spec__ on module");
 }
 
@@ -63,8 +64,7 @@ impl PyModuleRef {
             vm,
             &self.as_object().dict().unwrap(),
             name.into_object(),
-            doc.flatten()
-                .map_or_else(|| vm.get_none(), PyRef::into_object),
+            doc.flatten().into_pyobject(vm),
         );
         Ok(())
     }

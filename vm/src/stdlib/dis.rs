@@ -37,7 +37,7 @@ mod decl {
     fn disassemble(co: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let code = &PyCodeRef::try_from_object(vm, co)?.code;
         print!("{}", code);
-        Ok(vm.get_none())
+        Ok(vm.ctx.none())
     }
 
     #[pyattr(name = "COMPILER_FLAG_NAMES")]

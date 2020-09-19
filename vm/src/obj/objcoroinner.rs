@@ -139,8 +139,8 @@ impl Coro {
             f.gen_throw(
                 vm,
                 vm.ctx.exceptions.generator_exit.clone().into_object(),
-                vm.get_none(),
-                vm.get_none(),
+                vm.ctx.none(),
+                vm.ctx.none(),
             )
         });
         self.closed.store(true);

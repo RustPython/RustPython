@@ -215,7 +215,7 @@ fn sys_intern(value: PyStringRef) -> PyStringRef {
 fn sys_exc_info(vm: &VirtualMachine) -> PyObjectRef {
     let (ty, val, tb) = match vm.current_exception() {
         Some(exception) => exceptions::split(exception, vm),
-        None => (vm.get_none(), vm.get_none(), vm.get_none()),
+        None => (vm.ctx.none(), vm.ctx.none(), vm.ctx.none()),
     };
     vm.ctx.new_tuple(vec![ty, val, tb])
 }
@@ -229,7 +229,7 @@ fn sys_git_info(vm: &VirtualMachine) -> PyObjectRef {
 }
 
 fn sys_exit(code: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
-    let code = code.unwrap_or_else(|| vm.get_none());
+    let code = code.unwrap_or_none(vm);
     Err(vm.new_exception(vm.ctx.exceptions.system_exit.clone(), vec![code]))
 }
 
@@ -243,7 +243,7 @@ fn sys_displayhook(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         return Ok(());
     }
     // set to none to avoid recursion while printing
-    vm.set_attr(&vm.builtins, "_", vm.get_none())?;
+    vm.set_attr(&vm.builtins, "_", vm.ctx.none())?;
     // TODO: catch encoding errors
     let repr = vm.to_repr(&obj)?.into_object();
     builtins::builtin_print(Args::new(vec![repr]), Default::default(), vm)?;
@@ -651,7 +651,7 @@ settrace() -- set the global debug tracing function
       "meta_path" => ctx.new_list(vec![]),
       "path_hooks" => ctx.new_list(vec![]),
       "path_importer_cache" => ctx.new_dict(),
-      "pycache_prefix" => vm.get_none(),
+      "pycache_prefix" => vm.ctx.none(),
       "dont_write_bytecode" => vm.ctx.new_bool(vm.state.settings.dont_write_bytecode),
       "setprofile" => ctx.new_function(sys_setprofile),
       "setrecursionlimit" => ctx.new_function(sys_setrecursionlimit),

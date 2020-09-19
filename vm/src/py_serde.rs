@@ -7,7 +7,7 @@ use crate::obj::{
     objbool, objdict::PyDictRef, objfloat, objint, objlist::PyList, objstr, objtuple::PyTuple,
     objtype,
 };
-use crate::pyobject::{BorrowValue, IdProtocol, ItemProtocol, PyObjectRef, TypeProtocol};
+use crate::pyobject::{BorrowValue, ItemProtocol, PyObjectRef, TypeProtocol};
 use crate::VirtualMachine;
 
 #[inline]
@@ -96,7 +96,7 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
                 map.serialize_entry(&self.clone_with_object(key), &self.clone_with_object(&e))?;
             }
             map.end()
-        } else if self.pyobject.is(&self.vm.get_none()) {
+        } else if self.vm.is_none(&self.pyobject) {
             serializer.serialize_none()
         } else {
             Err(serde::ser::Error::custom(format!(
@@ -187,7 +187,7 @@ impl<'de> Visitor<'de> for PyObjectDeserializer<'de> {
     where
         E: serde::de::Error,
     {
-        Ok(self.vm.get_none())
+        Ok(self.vm.ctx.none())
     }
 
     fn visit_seq<A>(self, mut access: A) -> Result<Self::Value, A::Error>
