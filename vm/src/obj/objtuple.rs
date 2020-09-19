@@ -31,12 +31,6 @@ impl fmt::Debug for PyTuple {
     }
 }
 
-impl From<Vec<PyObjectRef>> for PyTuple {
-    fn from(elements: Vec<PyObjectRef>) -> Self {
-        PyTuple { elements }
-    }
-}
-
 impl<'a> BorrowValue<'a> for PyTuple {
     type Borrowed = &'a [PyObjectRef];
 
@@ -70,12 +64,28 @@ impl_intopyobj_tuple!((A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5));
 impl_intopyobj_tuple!((A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6));
 
 impl PyTuple {
+    // this is designed to be only used to skip empty tuple optimization
+    // not unsafe as meaning of rust, but a warning because this is performance critical
+    pub(crate) unsafe fn _new(elements: Vec<PyObjectRef>) -> Self {
+        Self { elements }
+    }
+
     pub(crate) fn fast_getitem(&self, idx: usize) -> PyObjectRef {
         self.elements[idx].clone()
     }
 }
 
 pub type PyTupleRef = PyRef<PyTuple>;
+
+impl PyTupleRef {
+    pub(crate) fn with_elements(elements: Vec<PyObjectRef>, ctx: &PyContext) -> Self {
+        if elements.is_empty() {
+            ctx.empty_tuple.clone()
+        } else {
+            Self::new_ref(PyTuple { elements }, ctx.types.tuple_type.clone(), None)
+        }
+    }
+}
 
 pub(crate) fn get_value(obj: &PyObjectRef) -> &[PyObjectRef] {
     obj.payload::<PyTuple>().unwrap().borrow_value()
@@ -92,7 +102,7 @@ impl PyTuple {
                 .chain(other.borrow_value().boxed_iter())
                 .cloned()
                 .collect();
-            Implemented(elements.into())
+            Implemented(PyTuple { elements })
         } else {
             NotImplemented
         }
@@ -150,10 +160,10 @@ impl PyTuple {
     #[pymethod(name = "__mul__")]
     #[pymethod(name = "__rmul__")]
     fn mul(&self, counter: isize) -> PyTuple {
-        let new_elements: Vec<_> = sequence::seq_mul(&self.elements, counter)
+        let elements: Vec<_> = sequence::seq_mul(&self.elements, counter)
             .cloned()
             .collect();
-        new_elements.into()
+        Self { elements }
     }
 
     #[pymethod(name = "__getitem__")]
@@ -186,10 +196,10 @@ impl PyTuple {
         cls: PyClassRef,
         iterable: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<PyTupleRef> {
+    ) -> PyResult<PyRef<Self>> {
         let elements = if let OptionalArg::Present(iterable) = iterable {
             let iterable = if cls.is(&vm.ctx.types.tuple_type) {
-                match iterable.downcast_exact::<PyTuple>(vm) {
+                match iterable.downcast_exact::<Self>(vm) {
                     Ok(tuple) => return Ok(tuple),
                     Err(iterable) => iterable,
                 }
@@ -201,7 +211,7 @@ impl PyTuple {
             vec![]
         };
 
-        PyTuple::from(elements).into_ref_with_type(vm, cls)
+        Self { elements }.into_ref_with_type(vm, cls)
     }
 }
 

@@ -139,7 +139,7 @@ impl PyContext {
         let true_value = create_object(PyInt::from(1), &types.bool_type);
         let false_value = create_object(PyInt::from(0), &types.bool_type);
 
-        let empty_tuple = create_object(PyTuple::from(vec![]), &types.tuple_type);
+        let empty_tuple = create_object(unsafe { PyTuple::_new(Vec::new()) }, &types.tuple_type);
 
         let tp_new_wrapper = create_object(
             PyFuncDef::from(objtype::tp_new_wrapper.into_func()).into_function(),
@@ -246,11 +246,7 @@ impl PyContext {
     }
 
     pub fn new_tuple(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
-        if elements.is_empty() {
-            self.empty_tuple.clone().into_object()
-        } else {
-            PyObject::new(PyTuple::from(elements), self.types.tuple_type.clone(), None)
-        }
+        PyTupleRef::with_elements(elements, self).into_object()
     }
 
     pub fn new_list(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {

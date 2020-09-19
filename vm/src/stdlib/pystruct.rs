@@ -27,7 +27,7 @@ mod _struct {
     use crate::function::Args;
     use crate::obj::{
         objbool::IntoPyBool, objbytes::PyBytesRef, objiter, objstr::PyStr, objstr::PyStrRef,
-        objtuple::PyTuple, objtype::PyClassRef,
+        objtuple::PyTupleRef, objtype::PyClassRef,
     };
     use crate::pyobject::{
         BorrowValue, Either, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
@@ -159,7 +159,7 @@ mod _struct {
             Ok(())
         }
 
-        fn unpack(&self, data: &[u8], vm: &VirtualMachine) -> PyResult<PyTuple> {
+        fn unpack(&self, data: &[u8], vm: &VirtualMachine) -> PyResult<PyTupleRef> {
             if self.size() != data.len() {
                 return Err(new_struct_error(
                     vm,
@@ -187,7 +187,7 @@ mod _struct {
                 };
             }
 
-            Ok(PyTuple::from(items))
+            Ok(PyTupleRef::with_elements(items, &vm.ctx))
         }
 
         fn size(&self) -> usize {
@@ -714,7 +714,7 @@ mod _struct {
         fmt: Either<PyStrRef, PyBytesRef>,
         buffer: PyBytesLike,
         vm: &VirtualMachine,
-    ) -> PyResult<PyTuple> {
+    ) -> PyResult<PyTupleRef> {
         let format_spec = FormatSpec::decode_and_parse(vm, &fmt)?;
         buffer.with_ref(|buf| format_spec.unpack(buf, vm))
     }
@@ -778,7 +778,7 @@ mod _struct {
         fmt: Either<PyStrRef, PyBytesRef>,
         args: UpdateFromArgs,
         vm: &VirtualMachine,
-    ) -> PyResult<PyTuple> {
+    ) -> PyResult<PyTupleRef> {
         let format_spec = FormatSpec::decode_and_parse(vm, &fmt)?;
         let size = format_spec.size();
         let offset = get_buffer_offset(args.buffer.len(), args.offset, size, false, vm)?;
@@ -833,7 +833,7 @@ mod _struct {
     #[pyimpl]
     impl UnpackIterator {
         #[pymethod(magic)]
-        fn next(&self, vm: &VirtualMachine) -> PyResult<PyTuple> {
+        fn next(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
             let size = self.format_spec.size();
             let offset = self.offset.fetch_add(size);
             if offset + size > self.buffer.len() {
@@ -933,12 +933,12 @@ mod _struct {
         }
 
         #[pymethod]
-        fn unpack(&self, data: PyBytesLike, vm: &VirtualMachine) -> PyResult<PyTuple> {
+        fn unpack(&self, data: PyBytesLike, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
             data.with_ref(|buf| self.spec.unpack(buf, vm))
         }
 
         #[pymethod]
-        fn unpack_from(&self, args: UpdateFromArgs, vm: &VirtualMachine) -> PyResult<PyTuple> {
+        fn unpack_from(&self, args: UpdateFromArgs, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
             let size = self.size();
             let offset = get_buffer_offset(args.buffer.len(), args.offset, size, false, vm)?;
             args.buffer

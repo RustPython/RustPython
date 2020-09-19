@@ -15,7 +15,7 @@ use crate::bytesinner::{
 };
 use crate::byteslike::PyBytesLike;
 use crate::function::{OptionalArg, OptionalOption};
-use crate::obj::objtuple::{PyTuple, PyTupleRef};
+use crate::obj::objtuple::PyTupleRef;
 use crate::pyobject::{
     BorrowValue, Either, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyIterable,
     PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
@@ -452,7 +452,7 @@ impl PyBytes {
             .iter()
             .map(|x| x.into_pyobject(vm))
             .collect();
-        PyTuple::from(param).into_ref(vm)
+        PyTupleRef::with_elements(param, &vm.ctx)
     }
 }
 

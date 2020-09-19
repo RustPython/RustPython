@@ -481,18 +481,14 @@ pub fn get_item(
             sequence.lease_class().name
         ))
     })?;
-    let items = if sequence.payload::<PyList>().is_some() {
+    let items = if sequence.payload_is::<PyList>() {
         PyObject::new(
             PyList::from(elements.get_slice_items(vm, slice)?),
             sequence.class(),
             None,
         )
-    } else if sequence.payload::<PyTuple>().is_some() {
-        PyObject::new(
-            PyTuple::from(elements.get_slice_items(vm, slice)?),
-            sequence.class(),
-            None,
-        )
+    } else if sequence.payload_is::<PyTuple>() {
+        vm.ctx.new_tuple(elements.get_slice_items(vm, slice)?)
     } else {
         panic!("sequence get_item called for non-sequence")
     };

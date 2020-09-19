@@ -184,7 +184,7 @@ impl PyClass {
     #[pyproperty(name = "__mro__")]
     fn get_mro(zelf: PyRef<Self>) -> PyTuple {
         let elements: Vec<PyObjectRef> = zelf.iter_mro().map(|x| x.as_object().clone()).collect();
-        PyTuple::from(elements)
+        unsafe { PyTuple::_new(elements) }
     }
 
     #[pyproperty(magic)]
