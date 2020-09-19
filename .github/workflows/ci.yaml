@@ -16,6 +16,7 @@ env:
     -p rustpython-jit
     -p rustpython-derive
     -p rustpython
+  RUSTPYTHON_NO_IPV6: 1
 
 jobs:
   rust_tests:

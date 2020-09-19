@@ -1150,12 +1150,18 @@ class Popen(object):
                 p2cread, p2cwrite = _winapi.CreatePipe(None, 0)
                 p2cread, p2cwrite = Handle(p2cread), Handle(p2cwrite)
             elif stdin == DEVNULL:
-                p2cread = msvcrt.get_osfhandle(self._get_devnull())
+                # XXX RustPython TODO: have fds for fs functions be actual CRT fds on windows, not handles
+                # p2cread = msvcrt.get_osfhandle(self._get_devnull())
+                p2cread = self._get_devnull()
             elif isinstance(stdin, int):
-                p2cread = msvcrt.get_osfhandle(stdin)
+                # XXX RustPython TODO: have fds for fs functions be actual CRT fds on windows, not handles
+                # p2cread = msvcrt.get_osfhandle(stdin)
+                p2cread = stdin
             else:
                 # Assuming file-like object
-                p2cread = msvcrt.get_osfhandle(stdin.fileno())
+                # XXX RustPython TODO: have fds for fs functions be actual CRT fds on windows, not handles
+                # p2cread = msvcrt.get_osfhandle(stdin.fileno())
+                p2cread = stdin.fileno()
             # XXX RUSTPYTHON TODO: figure out why closing these old, non-inheritable
             # pipe handles is necessary for us, but not CPython
             old = p2cread
@@ -1172,12 +1178,18 @@ class Popen(object):
                 c2pread, c2pwrite = _winapi.CreatePipe(None, 0)
                 c2pread, c2pwrite = Handle(c2pread), Handle(c2pwrite)
             elif stdout == DEVNULL:
-                c2pwrite = msvcrt.get_osfhandle(self._get_devnull())
+                # XXX RustPython TODO: have fds for fs functions be actual CRT fds on windows, not handles
+                # c2pwrite = msvcrt.get_osfhandle(self._get_devnull())
+                c2pwrite = self._get_devnull()
             elif isinstance(stdout, int):
-                c2pwrite = msvcrt.get_osfhandle(stdout)
+                # XXX RustPython TODO: have fds for fs functions be actual CRT fds on windows, not handles
+                # c2pwrite = msvcrt.get_osfhandle(stdout)
+                c2pwrite = stdout
             else:
                 # Assuming file-like object
-                c2pwrite = msvcrt.get_osfhandle(stdout.fileno())
+                # XXX RustPython TODO: have fds for fs functions be actual CRT fds on windows, not handles
+                # c2pwrite = msvcrt.get_osfhandle(stdout.fileno())
+                c2pwrite = stdout.fileno()
             # XXX RUSTPYTHON TODO: figure out why closing these old, non-inheritable
             # pipe handles is necessary for us, but not CPython
             old = c2pwrite
@@ -1196,12 +1208,18 @@ class Popen(object):
             elif stderr == STDOUT:
                 errwrite = c2pwrite
             elif stderr == DEVNULL:
-                errwrite = msvcrt.get_osfhandle(self._get_devnull())
+                # XXX RustPython TODO: have fds for fs functions be actual CRT fds on windows, not handles
+                # errwrite = msvcrt.get_osfhandle(self._get_devnull())
+                errwrite = self._get_devnull()
             elif isinstance(stderr, int):
-                errwrite = msvcrt.get_osfhandle(stderr)
+                # XXX RustPython TODO: have fds for fs functions be actual CRT fds on windows, not handles
+                # errwrite = msvcrt.get_osfhandle(stderr)
+                errwrite = stderr
             else:
                 # Assuming file-like object
-                errwrite = msvcrt.get_osfhandle(stderr.fileno())
+                # XXX RustPython TODO: have fds for fs functions be actual CRT fds on windows, not handles
+                # errwrite = msvcrt.get_osfhandle(stderr.fileno())
+                errwrite = stderr.fileno()
             # XXX RUSTPYTHON TODO: figure out why closing these old, non-inheritable
             # pipe handles is necessary for us, but not CPython
             old = errwrite

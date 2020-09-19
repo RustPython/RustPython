@@ -39,8 +39,8 @@ mod decl {
     use crate::scope::Scope;
     #[cfg(feature = "rustpython-parser")]
     use crate::stdlib::ast;
-    use crate::sysmodule;
     use crate::vm::VirtualMachine;
+    use crate::{py_io, sysmodule};
     use rustpython_common::hash::PyHash;
 
     #[pyfunction]
@@ -354,20 +354,44 @@ mod decl {
     }
 
     #[pyfunction]
-    fn input(prompt: OptionalArg<PyStringRef>, vm: &VirtualMachine) -> PyResult<String> {
-        let prompt = prompt.as_ref().map_or("", |s| s.borrow_value());
-        let mut readline = Readline::new(());
-        match readline.readline(prompt) {
-            ReadlineResult::Line(s) => Ok(s),
-            ReadlineResult::EOF => Err(vm.new_exception_empty(vm.ctx.exceptions.eof_error.clone())),
-            ReadlineResult::Interrupt => {
-                Err(vm.new_exception_empty(vm.ctx.exceptions.keyboard_interrupt.clone()))
+    fn input(prompt: OptionalArg<PyStringRef>, vm: &VirtualMachine) -> PyResult {
+        let stdin = sysmodule::get_stdin(vm)?;
+        let stdout = sysmodule::get_stdout(vm)?;
+        let stderr = sysmodule::get_stderr(vm)?;
+
+        let _ = vm.call_method(&stderr, "flush", vec![]);
+
+        let fd_matches = |obj, expected| {
+            vm.call_method(obj, "fileno", vec![])
+                .and_then(|o| i64::try_from_object(vm, o))
+                .ok()
+                .map_or(false, |fd| fd == expected)
+        };
+
+        // everything is normalish, we can just rely on rustyline to use stdin/stdout
+        if fd_matches(&stdin, 0) && fd_matches(&stdout, 1) && atty::is(atty::Stream::Stdin) {
+            let prompt = prompt.as_ref().map_or("", |s| s.borrow_value());
+            let mut readline = Readline::new(());
+            match readline.readline(prompt) {
+                ReadlineResult::Line(s) => Ok(vm.ctx.new_str(s)),
+                ReadlineResult::EOF => {
+                    Err(vm.new_exception_empty(vm.ctx.exceptions.eof_error.clone()))
+                }
+                ReadlineResult::Interrupt => {
+                    Err(vm.new_exception_empty(vm.ctx.exceptions.keyboard_interrupt.clone()))
+                }
+                ReadlineResult::IO(e) => Err(vm.new_os_error(e.to_string())),
+                ReadlineResult::EncodingError => {
+                    Err(vm.new_unicode_decode_error("Error decoding readline input".to_owned()))
+                }
+                ReadlineResult::Other(e) => Err(vm.new_runtime_error(e.to_string())),
             }
-            ReadlineResult::IO(e) => Err(vm.new_os_error(e.to_string())),
-            ReadlineResult::EncodingError => {
-                Err(vm.new_unicode_decode_error("Error decoding readline input".to_owned()))
+        } else {
+            if let OptionalArg::Present(prompt) = prompt {
+                vm.call_method(&stdout, "write", vec![prompt.into_object()])?;
             }
-            ReadlineResult::Other(e) => Err(vm.new_runtime_error(e.to_string())),
+            let _ = vm.call_method(&stdout, "flush", vec![]);
+            py_io::file_readline(&stdin, None, vm)
         }
     }
 

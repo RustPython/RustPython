@@ -15,8 +15,8 @@ use crate::obj::objgenerator::PyGenerator;
 #[cfg(feature = "jit")]
 use crate::pyobject::IntoPyObject;
 use crate::pyobject::{
-    BorrowValue, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TypeProtocol,
+    BorrowValue, IdProtocol, ItemProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef,
+    PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::scope::Scope;
 use crate::slots::{SlotCall, SlotDescriptor};
@@ -341,14 +341,12 @@ impl SlotCall for PyBoundMethod {
     }
 }
 
+#[pyimpl(with(SlotCall), flags(HAS_DICT))]
 impl PyBoundMethod {
     pub fn new(object: PyObjectRef, function: PyObjectRef) -> Self {
         PyBoundMethod { object, function }
     }
-}
 
-#[pyimpl(with(SlotCall), flags(HAS_DICT))]
-impl PyBoundMethod {
     #[pymethod(magic)]
     fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
         Ok(format!(
@@ -378,6 +376,19 @@ impl PyBoundMethod {
     #[pyproperty(magic)]
     fn module(&self, vm: &VirtualMachine) -> Option<PyObjectRef> {
         vm.get_attribute(self.function.clone(), "__module__").ok()
+    }
+
+    #[pymethod(magic)]
+    fn eq(&self, other: PyObjectRef) -> PyResult<PyComparisonValue> {
+        let other = class_or_notimplemented!(Self, other);
+        Ok(PyComparisonValue::Implemented(
+            self.function.is(&other.function) && self.object.is(&other.object),
+        ))
+    }
+
+    #[pymethod(magic)]
+    fn ne(&self, other: PyObjectRef) -> PyResult<PyComparisonValue> {
+        Ok(self.eq(other)?.map(|v| !v))
     }
 }
 

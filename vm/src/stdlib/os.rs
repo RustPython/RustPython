@@ -2171,6 +2171,15 @@ mod posix {
         }
     }
 
+    #[pyfunction]
+    fn dup(fd: i32, vm: &VirtualMachine) -> PyResult<i32> {
+        let fd = nix::unistd::dup(fd).map_err(|e| e.into_pyexception(vm))?;
+        raw_set_inheritable(fd, false).map(|()| fd).map_err(|e| {
+            let _ = nix::unistd::close(fd);
+            e.into_pyexception(vm)
+        })
+    }
+
     pub(super) fn support_funcs(vm: &VirtualMachine) -> Vec<SupportFunc> {
         vec![
             SupportFunc::new(vm, "chmod", chmod, Some(false), Some(false), Some(false)),

@@ -199,11 +199,8 @@ impl PyFuncArgs {
                 T::arity().end(),
                 given_args,
             )))
-        } else if !self.kwargs.is_empty() {
-            Err(vm.new_type_error(format!(
-                "Unexpected keyword argument {}",
-                self.kwargs.keys().next().unwrap()
-            )))
+        } else if let Some(k) = self.kwargs.keys().next() {
+            Err(vm.new_type_error(format!("Unexpected keyword argument {}", k)))
         } else {
             Ok(bound)
         }

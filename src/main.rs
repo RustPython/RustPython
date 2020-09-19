@@ -196,13 +196,21 @@ fn parse_arguments<'a>(app: App<'a, '_>) -> ArgMatches<'a> {
             Arg::with_name("implementation-option")
                 .short("X")
                 .takes_value(true)
+                .multiple(true)
                 .help("set implementation-specific option"),
         )
         .arg(
             Arg::with_name("warning-control")
                 .short("W")
                 .takes_value(true)
+                .multiple(true)
                 .help("warning control; arg is action:message:category:module:lineno"),
+        )
+        .arg(
+            Arg::with_name("bytes-warning")
+                .short("b")
+                .multiple(true)
+                .help("issue warnings about using bytes where strings are usually expected (-bb: issue errors)"),
         );
     #[cfg(feature = "flame-it")]
     let app = app
@@ -224,10 +232,14 @@ fn parse_arguments<'a>(app: App<'a, '_>) -> ArgMatches<'a> {
 /// Create settings by examining command line arguments and environment
 /// variables.
 fn create_settings(matches: &ArgMatches) -> PySettings {
-    let ignore_environment =
-        matches.is_present("ignore-environment") || matches.is_present("isolate");
     let mut settings = PySettings::default();
-    settings.ignore_environment = ignore_environment;
+    settings.isolated = matches.is_present("isolate");
+    settings.ignore_environment = matches.is_present("ignore-environment");
+    let ignore_environment = settings.ignore_environment || settings.isolated;
+
+    settings.interactive = !matches.is_present("c")
+        && !matches.is_present("m")
+        && (!matches.is_present("script") || matches.is_present("inspect"));
 
     // add the current directory to sys.path
     settings.path_list.push("".to_owned());
@@ -275,6 +287,8 @@ fn create_settings(matches: &ArgMatches) -> PySettings {
         }
     }
 
+    settings.bytes_warning = matches.occurrences_of("bytes-warning");
+
     settings.no_site = matches.is_present("no-site");
 
     if matches.is_present("no-user-site")
@@ -292,6 +306,35 @@ fn create_settings(matches: &ArgMatches) -> PySettings {
         || (!ignore_environment && env::var_os("PYTHONDONTWRITEBYTECODE").is_some())
     {
         settings.dont_write_bytecode = true;
+    }
+
+    let mut dev_mode = false;
+    if let Some(xopts) = matches.values_of("implementation-option") {
+        settings.xopts.extend(xopts.map(|s| {
+            let mut parts = s.splitn(2, '=');
+            let name = parts.next().unwrap().to_owned();
+            if name == "dev" {
+                dev_mode = true
+            }
+            let value = parts.next().map(ToOwned::to_owned);
+            (name, value)
+        }));
+    }
+    settings.dev_mode = dev_mode;
+
+    if dev_mode {
+        settings.warnopts.push("default".to_owned())
+    }
+    if settings.bytes_warning > 0 {
+        let warn = if settings.bytes_warning > 1 {
+            "error::BytesWarning"
+        } else {
+            "default::BytesWarning"
+        };
+        settings.warnopts.push(warn.to_owned());
+    }
+    if let Some(warnings) = matches.values_of("warning-control") {
+        settings.warnopts.extend(warnings.map(ToOwned::to_owned));
     }
 
     let argv = if let Some(script) = matches.values_of("script") {

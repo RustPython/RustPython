@@ -72,7 +72,7 @@ fn getframe(offset: OptionalArg<usize>, vm: &VirtualMachine) -> PyResult<FrameRe
 ///
 /// Flags provided through command line arguments or environment vars.
 #[pyclass(name = "flags", module = "sys")]
-#[derive(Default, Debug, PyStructSequence)]
+#[derive(Debug, PyStructSequence)]
 struct SysFlags {
     /// -d
     debug: u8,
@@ -93,7 +93,7 @@ struct SysFlags {
     /// -v
     verbose: u8,
     /// -b
-    bytes_warning: u8,
+    bytes_warning: u64,
     /// -q
     quiet: u8,
     /// -R
@@ -109,18 +109,23 @@ struct SysFlags {
 #[pyimpl(with(PyStructSequence))]
 impl SysFlags {
     fn from_settings(settings: &PySettings) -> Self {
-        // Start with sensible defaults:
-        let mut flags: SysFlags = Default::default();
-        flags.debug = settings.debug as u8;
-        flags.inspect = settings.inspect as u8;
-        flags.optimize = settings.optimize;
-        flags.no_user_site = settings.no_user_site as u8;
-        flags.no_site = settings.no_site as u8;
-        flags.ignore_environment = settings.ignore_environment as u8;
-        flags.verbose = settings.verbose;
-        flags.quiet = settings.quiet as u8;
-        flags.dont_write_bytecode = settings.dont_write_bytecode as u8;
-        flags
+        SysFlags {
+            debug: settings.debug as u8,
+            inspect: settings.inspect as u8,
+            interactive: settings.interactive as u8,
+            optimize: settings.optimize,
+            dont_write_bytecode: settings.dont_write_bytecode as u8,
+            no_user_site: settings.no_user_site as u8,
+            no_site: settings.no_site as u8,
+            ignore_environment: settings.ignore_environment as u8,
+            verbose: settings.verbose,
+            bytes_warning: settings.bytes_warning,
+            quiet: settings.quiet as u8,
+            hash_randomization: settings.hash_seed.is_none() as u8,
+            isolated: settings.isolated as u8,
+            dev_mode: settings.dev_mode,
+            utf8_mode: 0,
+        }
     }
 
     #[pyslot]
@@ -321,6 +326,10 @@ fn sys_getwindowsversion(vm: &VirtualMachine) -> PyResult<crate::obj::objtuple::
     }
 }
 
+pub fn get_stdin(vm: &VirtualMachine) -> PyResult {
+    vm.get_attribute(vm.sys_module.clone(), "stdin")
+        .map_err(|_| vm.new_runtime_error("lost sys.stdin".to_owned()))
+}
 pub fn get_stdout(vm: &VirtualMachine) -> PyResult {
     vm.get_attribute(vm.sys_module.clone(), "stdout")
         .map_err(|_| vm.new_runtime_error("lost sys.stdout".to_owned()))
@@ -413,7 +422,7 @@ impl PyHashInfo {
     const INFO: Self = {
         use rustpython_common::hash::*;
         PyHashInfo {
-            width: BITS,
+            width: std::mem::size_of::<PyHash>() * 8,
             modulus: MODULUS,
             inf: INF,
             nan: NAN,
@@ -519,6 +528,23 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectR
     );
 
     let framework = "".to_owned();
+
+    let xopts = ctx.new_dict();
+    for (key, value) in &vm.state.settings.xopts {
+        let value = value
+            .as_ref()
+            .map_or_else(|| ctx.new_bool(true), |s| ctx.new_str(s.clone()));
+        xopts.set_item(&**key, value, vm).unwrap();
+    }
+
+    let warnopts = ctx.new_list(
+        vm.state
+            .settings
+            .warnopts
+            .iter()
+            .map(|s| ctx.new_str(s.clone()))
+            .collect(),
+    );
 
     // https://doc.rust-lang.org/reference/conditional-compilation.html#target_endian
     let bytorder = if cfg!(target_endian = "little") {
@@ -674,6 +700,8 @@ settrace() -- set the global debug tracing function
       "float_info" => float_info,
       "int_info" => int_info,
       "float_repr_style" => ctx.new_str("short"),
+      "_xoptions" => xopts,
+      "warnoptions" => warnopts,
     });
 
     #[cfg(windows)]

@@ -770,7 +770,7 @@ impl PyArray {
     fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
         // we cannot use zelf.is(other) for shortcut because if we contenting a
         // float value NaN we always return False even they are the same object.
-        let other = class_or_notimplemented!(vm, Self, other);
+        let other = class_or_notimplemented!(Self, other);
         if self.len() != other.len() {
             return Ok(Implemented(false));
         }
@@ -802,7 +802,7 @@ impl PyArray {
 
     #[pymethod(name = "__lt__")]
     fn lt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
-        let other = class_or_notimplemented!(vm, Self, other);
+        let other = class_or_notimplemented!(Self, other);
         // fast path for same ArrayContentType type
         if let Ok(ord) = self.borrow_value().cmp(&*other.borrow_value()) {
             let r = match ord {
@@ -816,7 +816,7 @@ impl PyArray {
 
     #[pymethod(name = "__le__")]
     fn le(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
-        let other = class_or_notimplemented!(vm, Self, other);
+        let other = class_or_notimplemented!(Self, other);
         // fast path for same ArrayContentType type
         if let Ok(ord) = self.borrow_value().cmp(&*other.borrow_value()) {
             let r = match ord {
@@ -830,7 +830,7 @@ impl PyArray {
 
     #[pymethod(name = "__gt__")]
     fn gt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
-        let other = class_or_notimplemented!(vm, Self, other);
+        let other = class_or_notimplemented!(Self, other);
         // fast path for same ArrayContentType type
         if let Ok(ord) = self.borrow_value().cmp(&*other.borrow_value()) {
             let r = match ord {
@@ -844,7 +844,7 @@ impl PyArray {
 
     #[pymethod(name = "__ge__")]
     fn ge(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
-        let other = class_or_notimplemented!(vm, Self, other);
+        let other = class_or_notimplemented!(Self, other);
         // fast path for same ArrayContentType type
         if let Ok(ord) = self.borrow_value().cmp(&*other.borrow_value()) {
             let r = match ord {
