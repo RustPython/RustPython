@@ -170,10 +170,9 @@ fn sys_gettrace(vm: &VirtualMachine) -> PyObjectRef {
     vm.trace_func.borrow().clone()
 }
 
-fn sys_settrace(tracefunc: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+fn sys_settrace(tracefunc: PyObjectRef, vm: &VirtualMachine) {
     vm.trace_func.replace(tracefunc);
     update_use_tracing(vm);
-    vm.ctx.none()
 }
 
 fn update_use_tracing(vm: &VirtualMachine) {
@@ -187,7 +186,7 @@ fn sys_getrecursionlimit(vm: &VirtualMachine) -> usize {
     vm.recursion_limit.get()
 }
 
-fn sys_setrecursionlimit(recursion_limit: i32, vm: &VirtualMachine) -> PyResult {
+fn sys_setrecursionlimit(recursion_limit: i32, vm: &VirtualMachine) -> PyResult<()> {
     let recursion_limit = recursion_limit
         .to_usize()
         .filter(|&u| u >= 1)
@@ -198,7 +197,7 @@ fn sys_setrecursionlimit(recursion_limit: i32, vm: &VirtualMachine) -> PyResult 
 
     if recursion_limit > recursion_depth + 1 {
         vm.recursion_limit.set(recursion_limit);
-        Ok(vm.ctx.none())
+        Ok(())
     } else {
         Err(vm.new_recursion_error(format!(
             "cannot set the recursion limit to {} at the recursion depth {}: the limit is too low",
@@ -212,12 +211,11 @@ fn sys_intern(value: PyStringRef) -> PyStringRef {
     value
 }
 
-fn sys_exc_info(vm: &VirtualMachine) -> PyObjectRef {
-    let (ty, val, tb) = match vm.current_exception() {
+fn sys_exc_info(vm: &VirtualMachine) -> (PyObjectRef, PyObjectRef, PyObjectRef) {
+    match vm.current_exception() {
         Some(exception) => exceptions::split(exception, vm),
         None => (vm.ctx.none(), vm.ctx.none(), vm.ctx.none()),
-    };
-    vm.ctx.new_tuple(vec![ty, val, tb])
+    }
 }
 
 fn sys_git_info(vm: &VirtualMachine) -> PyObjectRef {

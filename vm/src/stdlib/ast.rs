@@ -11,7 +11,7 @@ use rustpython_parser::{ast, mode::Mode, parser};
 
 use crate::obj::objlist::PyListRef;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::slots::PyTpFlags;
 use crate::vm::VirtualMachine;
 
@@ -204,7 +204,7 @@ fn statement_to_ast(vm: &VirtualMachine, statement: &ast::Statement) -> PyResult
             names,
         } => node!(vm, ImportFrom, {
             level => vm.ctx.new_int(*level),
-            module => optional_string_to_py_obj(vm, module),
+            module => module.as_ref().into_pyobject(vm),
             names => map_ast(alias_to_ast, vm, names)?
         }),
         Nonlocal { names } => node!(vm, Nonlocal, {
@@ -247,7 +247,7 @@ fn statement_to_ast(vm: &VirtualMachine, statement: &ast::Statement) -> PyResult
 fn alias_to_ast(vm: &VirtualMachine, alias: &ast::ImportSymbol) -> PyResult<AstNodeRef> {
     Ok(node!(vm, alias, {
         name => vm.ctx.new_str(&alias.symbol),
-        asname => optional_string_to_py_obj(vm, &alias.alias)
+        asname => alias.alias.as_ref().into_pyobject(vm),
     }))
 }
 
@@ -274,7 +274,7 @@ fn with_item_to_ast(vm: &VirtualMachine, with_item: &ast::WithItem) -> PyResult<
 fn handler_to_ast(vm: &VirtualMachine, handler: &ast::ExceptHandler) -> PyResult<AstNodeRef> {
     let node = node!(vm, ExceptHandler, {
         typ => optional_expression_to_ast(vm, &handler.typ)?,
-        name => optional_string_to_py_obj(vm, &handler.name),
+        name => handler.name.as_ref().into_pyobject(vm),
         body => statements_to_ast(vm, &handler.body)?,
     });
     Ok(node)
@@ -297,12 +297,11 @@ fn optional_expressions_to_ast(
 }
 
 fn optional_expression_to_ast(vm: &VirtualMachine, value: &Option<ast::Expression>) -> PyResult {
-    let value = if let Some(value) = value {
-        expression_to_ast(vm, value)?.into_object()
-    } else {
-        vm.ctx.none()
-    };
-    Ok(value)
+    let ast = value
+        .as_ref()
+        .map(|expr| expression_to_ast(vm, expr))
+        .transpose()?;
+    Ok(ast.into_pyobject(vm))
 }
 
 fn expressions_to_ast(vm: &VirtualMachine, expressions: &[ast::Expression]) -> PyResult<PyListRef> {
@@ -439,11 +438,8 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyRes
             let mut keys = Vec::new();
             let mut values = Vec::new();
             for (k, v) in elements {
-                if let Some(k) = k {
-                    keys.push(expression_to_ast(vm, k)?.into_object());
-                } else {
-                    keys.push(vm.ctx.none());
-                }
+                let k = k.as_ref().map(|k| expression_to_ast(vm, k)).transpose()?;
+                keys.push(k.into_pyobject(vm));
                 values.push(expression_to_ast(vm, v)?.into_object());
             }
 
@@ -484,13 +480,12 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyRes
             })
         }
         Yield { value } => {
-            let py_value = if let Some(value) = value {
-                expression_to_ast(vm, value)?.into_object()
-            } else {
-                vm.ctx.none()
-            };
+            let py_value = value
+                .as_ref()
+                .map(|v| expression_to_ast(vm, v))
+                .transpose()?;
             node!(vm, Yield, {
-                value => py_value
+                value => py_value.into_pyobject(vm)
             })
         }
         YieldFrom { value } => {
@@ -567,12 +562,12 @@ fn vararg_to_ast(vm: &VirtualMachine, vararg: &ast::Varargs) -> PyResult {
 }
 
 fn parameter_to_ast(vm: &VirtualMachine, parameter: &ast::Parameter) -> PyResult<AstNodeRef> {
-    let py_annotation = if let Some(annotation) = &parameter.annotation {
-        expression_to_ast(vm, annotation)?.into_object()
-    } else {
-        vm.ctx.none()
-    };
-
+    let py_annotation = parameter
+        .annotation
+        .as_ref()
+        .map(|expr| expression_to_ast(vm, expr))
+        .transpose()?
+        .into_pyobject(vm);
     let py_node = node!(vm, arg, {
         arg => vm.ctx.new_str(&parameter.arg),
         annotation => py_annotation
@@ -584,17 +579,9 @@ fn parameter_to_ast(vm: &VirtualMachine, parameter: &ast::Parameter) -> PyResult
     Ok(py_node)
 }
 
-fn optional_string_to_py_obj(vm: &VirtualMachine, name: &Option<String>) -> PyObjectRef {
-    if let Some(name) = name {
-        vm.ctx.new_str(name)
-    } else {
-        vm.ctx.none()
-    }
-}
-
 fn keyword_to_ast(vm: &VirtualMachine, keyword: &ast::Keyword) -> PyResult<AstNodeRef> {
     Ok(node!(vm, keyword, {
-        arg => optional_string_to_py_obj(vm, &keyword.name),
+        arg => keyword.name.as_ref().into_pyobject(vm),
         value => expression_to_ast(vm, &keyword.value)?
     }))
 }

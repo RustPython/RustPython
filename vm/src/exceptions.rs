@@ -656,17 +656,16 @@ fn key_error_str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyStringRef {
     }
 }
 
-fn system_exit_code(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyObjectRef {
-    match exc.args.read().borrow_value().first() {
-        Some(code) => match_class!(match code {
+fn system_exit_code(exc: PyBaseExceptionRef) -> Option<PyObjectRef> {
+    exc.args.read().borrow_value().first().map(|code| {
+        match_class!(match code {
             ref tup @ PyTuple => match tup.borrow_value() {
                 [x] => x.clone(),
                 _ => code.clone(),
             },
             other => other.clone(),
-        }),
-        None => vm.ctx.none(),
-    }
+        })
+    })
 }
 
 pub fn init(ctx: &PyContext) {
