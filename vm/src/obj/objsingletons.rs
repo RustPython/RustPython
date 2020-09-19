@@ -65,7 +65,7 @@ impl PyValue for PyNotImplemented {
 impl PyNotImplemented {
     #[pymethod(magic)]
     fn repr(&self) -> String {
-        "PyNotImplemented".to_owned()
+        "NotImplemented".to_owned()
     }
 }
 
