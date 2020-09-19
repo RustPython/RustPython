@@ -257,19 +257,10 @@ mod _os {
     use super::*;
 
     #[pyattr]
-    const O_RDONLY: libc::c_int = libc::O_RDONLY;
-    #[pyattr]
-    const O_WRONLY: libc::c_int = libc::O_WRONLY;
-    #[pyattr]
-    const O_RDWR: libc::c_int = libc::O_RDWR;
-    #[pyattr]
-    const O_APPEND: libc::c_int = libc::O_APPEND;
-    #[pyattr]
-    const O_EXCL: libc::c_int = libc::O_EXCL;
-    #[pyattr]
-    const O_CREAT: libc::c_int = libc::O_CREAT;
-    #[pyattr]
-    const O_TRUNC: libc::c_int = libc::O_TRUNC;
+    use libc::{
+        O_APPEND, O_CREAT, O_EXCL, O_RDONLY, O_RDWR, O_TRUNC, O_WRONLY, SEEK_CUR, SEEK_END,
+        SEEK_SET,
+    };
     #[pyattr]
     pub(super) const F_OK: u8 = 0;
     #[pyattr]
@@ -278,12 +269,6 @@ mod _os {
     pub(super) const W_OK: u8 = 2;
     #[pyattr]
     pub(super) const X_OK: u8 = 1;
-    #[pyattr]
-    const SEEK_SET: libc::c_int = libc::SEEK_SET;
-    #[pyattr]
-    const SEEK_CUR: libc::c_int = libc::SEEK_CUR;
-    #[pyattr]
-    const SEEK_END: libc::c_int = libc::SEEK_END;
 
     #[pyfunction]
     fn close(fileno: i64) {
@@ -1010,7 +995,11 @@ mod posix {
     use std::os::unix::io::RawFd;
 
     #[pyattr]
-    const WNOHANG: libc::c_int = libc::WNOHANG;
+    use libc::{O_CLOEXEC, O_NONBLOCK, WNOHANG};
+    #[cfg(not(target_os = "redox"))]
+    #[pyattr]
+    use libc::{O_DSYNC, O_NDELAY, O_NOCTTY};
+
     #[pyattr]
     const EX_OK: i8 = exitcode::OK as i8;
     #[pyattr]
@@ -1043,20 +1032,6 @@ mod posix {
     const EX_NOPERM: i8 = exitcode::NOPERM as i8;
     #[pyattr]
     const EX_CONFIG: i8 = exitcode::CONFIG as i8;
-    #[pyattr]
-    const O_NONBLOCK: libc::c_int = libc::O_NONBLOCK;
-    #[pyattr]
-    const O_CLOEXEC: libc::c_int = libc::O_CLOEXEC;
-
-    #[cfg(not(target_os = "redox"))]
-    #[pyattr]
-    const O_DSYNC: libc::c_int = libc::O_DSYNC;
-    #[cfg(not(target_os = "redox"))]
-    #[pyattr]
-    const O_NDELAY: libc::c_int = libc::O_NDELAY;
-    #[cfg(not(target_os = "redox"))]
-    #[pyattr]
-    const O_NOCTTY: libc::c_int = libc::O_NOCTTY;
 
     // cfg taken from nix
     #[cfg(any(
@@ -2228,7 +2203,7 @@ mod nt {
     use winapi::vc::vcruntime::intptr_t;
 
     #[pyattr]
-    const O_BINARY: libc::c_int = libc::O_BINARY;
+    use libc::O_BINARY;
 
     pub(super) type OpenFlags = u32;
 

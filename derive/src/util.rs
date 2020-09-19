@@ -177,6 +177,11 @@ impl ItemMetaInner {
 pub(crate) trait ItemMeta: Sized {
     const ALLOWED_NAMES: &'static [&'static str];
 
+    fn from_attr(item_ident: Ident, attr: &Attribute) -> Result<Self> {
+        let (meta_ident, nested) = attr.ident_and_promoted_nested()?;
+        Self::from_nested(item_ident, meta_ident.clone(), nested.into_iter())
+    }
+
     fn from_nested<I>(item_ident: Ident, meta_ident: Ident, nested: I) -> Result<Self>
     where
         I: std::iter::Iterator<Item = NestedMeta>,

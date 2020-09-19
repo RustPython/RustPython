@@ -1,7 +1,7 @@
 use super::Diagnostic;
 use crate::util::{
-    path_eq, pyclass_ident_and_attrs, AttributeExt, ClassItemMeta, ContentItem, ContentItemInner,
-    ErrorVec, ItemMeta, ItemMetaInner, ItemNursery, ALL_ALLOWED_NAMES,
+    path_eq, pyclass_ident_and_attrs, ClassItemMeta, ContentItem, ContentItemInner, ErrorVec,
+    ItemMeta, ItemMetaInner, ItemNursery, ALL_ALLOWED_NAMES,
 };
 use proc_macro2::TokenStream;
 use quote::{quote, quote_spanned, ToTokens};
@@ -268,11 +268,7 @@ where
         }?;
 
         let item_attr = args.attrs.remove(self.index());
-        let item_meta = MethodItemMeta::from_nested(
-            ident.clone(),
-            item_attr.get_ident().unwrap().clone(),
-            item_attr.promoted_nested()?.into_iter(),
-        )?;
+        let item_meta = MethodItemMeta::from_attr(ident.clone(), &item_attr)?;
 
         let py_name = item_meta.method_name()?;
         let new_func = Ident::new(&format!("new_{}", &self.method_type), args.item.span());
@@ -304,11 +300,7 @@ where
         }?;
 
         let item_attr = args.attrs.remove(self.index());
-        let item_meta = PropertyItemMeta::from_nested(
-            ident.clone(),
-            item_attr.get_ident().unwrap().clone(),
-            item_attr.promoted_nested()?.into_iter(),
-        )?;
+        let item_meta = PropertyItemMeta::from_attr(ident.clone(), &item_attr)?;
 
         let py_name = item_meta.property_name()?;
         let setter = item_meta.setter()?;
@@ -331,11 +323,7 @@ where
         }?;
 
         let item_attr = args.attrs.remove(self.index());
-        let item_meta = SlotItemMeta::from_nested(
-            ident.clone(),
-            item_attr.get_ident().unwrap().clone(),
-            item_attr.promoted_nested()?.into_iter(),
-        )?;
+        let item_meta = SlotItemMeta::from_attr(ident.clone(), &item_attr)?;
 
         let slot_ident = item_meta.slot_name()?;
         let slot_name = slot_ident.to_string();
