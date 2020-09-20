@@ -28,6 +28,7 @@ jobs:
       fail-fast: false
     steps:
       - uses: actions/checkout@master
+      - uses: actions-rs/toolchain@v1
       - name: Set up the Windows environment
         run: |
           choco install llvm
@@ -64,6 +65,7 @@ jobs:
       fail-fast: false
     steps:
       - uses: actions/checkout@master
+      - uses: actions-rs/toolchain@v1
       - name: Set up the Windows environment
         run: |
           choco install llvm
