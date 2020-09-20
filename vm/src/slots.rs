@@ -66,7 +66,7 @@ impl std::fmt::Debug for PyClassSlots {
 pub trait SlotCall: PyValue {
     #[pymethod(magic)]
     #[pyslot]
-    fn call(&self, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult;
+    fn call(zelf: PyRef<Self>, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult;
 }
 
 pub type PyDescrGetFunc = Box<

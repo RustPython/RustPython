@@ -5,7 +5,7 @@ use crate::function::{OptionalArg, PyFuncArgs, PyNativeFunc};
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
-    PyClassImpl, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
+    PyClassImpl, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::slots::{SlotCall, SlotDescriptor};
 use crate::vm::VirtualMachine;
@@ -107,8 +107,8 @@ impl PyBuiltinFunction {
 }
 
 impl SlotCall for PyBuiltinFunction {
-    fn call(&self, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
-        (self.value.func)(vm, args)
+    fn call(zelf: PyRef<Self>, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+        (zelf.value.func)(vm, args)
     }
 }
 
@@ -187,8 +187,8 @@ impl SlotDescriptor for PyBuiltinMethod {
 }
 
 impl SlotCall for PyBuiltinMethod {
-    fn call(&self, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
-        (self.value.func)(vm, args)
+    fn call(zelf: PyRef<Self>, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+        (zelf.value.func)(vm, args)
     }
 }
 

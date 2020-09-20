@@ -40,22 +40,6 @@ pub struct PyFunction {
     kw_only_defaults: Option<PyDictRef>,
 }
 
-impl SlotDescriptor for PyFunction {
-    fn descr_get(
-        vm: &VirtualMachine,
-        zelf: PyObjectRef,
-        obj: Option<PyObjectRef>,
-        cls: OptionalArg<PyObjectRef>,
-    ) -> PyResult {
-        let (zelf, obj) = Self::_unwrap(zelf, obj, vm)?;
-        if vm.is_none(&obj) && !Self::_cls_is(&cls, &obj.class()) {
-            Ok(zelf.into_object())
-        } else {
-            Ok(vm.ctx.new_bound_method(zelf.into_object(), obj))
-        }
-    }
-}
-
 impl PyFunction {
     pub fn new(
         code: PyCodeRef,
@@ -285,14 +269,8 @@ impl PyValue for PyFunction {
     }
 }
 
-#[pyimpl(with(SlotDescriptor), flags(HAS_DICT))]
+#[pyimpl(with(SlotDescriptor, SlotCall), flags(HAS_DICT))]
 impl PyFunction {
-    #[pyslot]
-    #[pymethod(magic)]
-    fn call(&self, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
-        self.invoke(args, vm)
-    }
-
     #[pyproperty(magic)]
     fn code(&self) -> PyCodeRef {
         self.code.clone()
@@ -326,6 +304,28 @@ impl PyFunction {
     }
 }
 
+impl SlotDescriptor for PyFunction {
+    fn descr_get(
+        vm: &VirtualMachine,
+        zelf: PyObjectRef,
+        obj: Option<PyObjectRef>,
+        cls: OptionalArg<PyObjectRef>,
+    ) -> PyResult {
+        let (zelf, obj) = Self::_unwrap(zelf, obj, vm)?;
+        if vm.is_none(&obj) && !Self::_cls_is(&cls, &obj.class()) {
+            Ok(zelf.into_object())
+        } else {
+            Ok(vm.ctx.new_bound_method(zelf.into_object(), obj))
+        }
+    }
+}
+
+impl SlotCall for PyFunction {
+    fn call(zelf: PyRef<Self>, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+        zelf.invoke(args, vm)
+    }
+}
+
 #[pyclass(module = false, name = "method")]
 #[derive(Debug)]
 pub struct PyBoundMethod {
@@ -335,9 +335,9 @@ pub struct PyBoundMethod {
 }
 
 impl SlotCall for PyBoundMethod {
-    fn call(&self, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
-        let args = args.insert(self.object.clone());
-        vm.invoke(&self.function, args)
+    fn call(zelf: PyRef<Self>, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+        let args = args.insert(zelf.object.clone());
+        vm.invoke(&zelf.function, args)
     }
 }
 
