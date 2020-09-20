@@ -77,6 +77,19 @@ impl PyClassRef {
         std::iter::once(self).chain(self.mro.iter())
     }
 
+    pub(crate) fn first_in_mro<F, R>(&self, f: F) -> Option<R>
+    where
+        F: Fn(&Self) -> Option<R>,
+    {
+        // the hot path will be primitive types which usually hit the result from itself.
+        // try std::intrinsics::likely once it is stablized
+        if let Some(r) = f(self) {
+            Some(r)
+        } else {
+            self.mro.iter().filter_map(|cls| f(cls)).next()
+        }
+    }
+
     pub fn iter_base_chain(&self) -> impl Iterator<Item = &PyClassRef> {
         std::iter::successors(Some(self), |cls| cls.base.as_ref())
     }
@@ -252,7 +265,7 @@ impl PyClass {
                 return Ok(());
             }
         }
-
+        zelf.slots.update_slot_func(attr_name.borrow_value());
         zelf.attributes.write().insert(attr_name.to_string(), value);
         Ok(())
     }
@@ -692,6 +705,11 @@ pub fn new(
 
     if base.slots.flags.has_feature(PyTpFlags::HAS_DICT) {
         slots.flags |= PyTpFlags::HAS_DICT
+    }
+    for slot_name in ["__call__"].iter() {
+        if attrs.contains_key(*slot_name) {
+            slots.update_slot_func(*slot_name);
+        }
     }
     let new_type = PyRef::new_ref(
         PyClass {

@@ -2,11 +2,12 @@ use std::cmp::Ordering;
 
 use crate::common::cell::PyRwLock;
 use crate::common::hash::PyHash;
-use crate::function::{OptionalArg, PyFuncArgs, PyNativeFunc};
+use crate::function::{IntoPyNativeFunc, OptionalArg, PyFuncArgs, PyNativeFunc};
 use crate::pyobject::{
     IdProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
 };
 use crate::VirtualMachine;
+use crossbeam_utils::atomic::AtomicCell;
 
 bitflags! {
     pub struct PyTpFlags: u64 {
@@ -44,7 +45,7 @@ pub struct PyClassSlots {
     pub flags: PyTpFlags,
     pub name: PyRwLock<Option<String>>, // tp_name, not class name
     pub new: Option<PyNativeFunc>,
-    pub call: Option<PyNativeFunc>,
+    pub call: AtomicCell<Option<fn(&VirtualMachine, PyFuncArgs) -> PyResult>>,
     pub descr_get: Option<PyDescrGetFunc>,
     pub hash: Option<HashFunc>,
     pub cmp: Option<CmpFunc>,
@@ -69,6 +70,19 @@ impl PyClassSlots {
             ..Default::default()
         }
     }
+
+    #[inline]
+    pub(crate) fn update_slot_func(&self, name: &str) {
+        match name {
+            "__call__" => {
+                self.call
+                    .store(Some(|vm: &VirtualMachine, args: PyFuncArgs| -> PyResult {
+                        IntoPyNativeFunc::call(&call_magic_call, vm, args)
+                    } as _))
+            }
+            _ => (),
+        }
+    }
 }
 
 impl std::fmt::Debug for PyClassSlots {
@@ -82,6 +96,19 @@ pub trait SlotCall: PyValue {
     #[pymethod(magic)]
     #[pyslot]
     fn call(zelf: PyRef<Self>, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult;
+}
+
+fn call_magic_call(zelf: PyObjectRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+    use crate::obj::objstr::PyString;
+    use crate::pyobject::IntoPyRef;
+
+    let magic_call = vm.generic_getattribute(zelf, PyString::from("__call__").into_pyref(vm))?;
+    vm.invoke(&magic_call, args)
+
+    // use crate::pyobject::TypeProtocol;
+    // let magic_call = zelf.get_class_attr("__call__").unwrap();
+    // args.insert( zelf);
+    // vm.invoke(&magic_call, args)
 }
 
 pub type PyDescrGetFunc = Box<

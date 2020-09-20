@@ -342,8 +342,20 @@ where
             let into_func = quote_spanned! {ident.span() =>
                 #transform(Self::#ident)
             };
-            quote! {
-                slots.#slot_ident = Some(#into_func);
+            if slot_name == "call" {
+                quote! {
+                    slots.#slot_ident.store(
+                        Some(
+                            |vm: &::rustpython_vm::VirtualMachine, args: ::rustpython_vm::function::PyFuncArgs| -> ::rustpython_vm::pyobject::PyResult {
+                                ::rustpython_vm::function::IntoPyNativeFunc::call(&Self::#ident, vm, args)
+                            } as _
+                        )
+                    );
+                }
+            } else {
+                quote! {
+                    slots.#slot_ident = Some(#into_func);
+                }
             }
         };
 
