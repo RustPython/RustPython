@@ -803,20 +803,6 @@ where
     }
 }
 
-pub trait BufferProtocol {
-    fn readonly(&self) -> bool;
-}
-
-impl BufferProtocol for PyObjectRef {
-    fn readonly(&self) -> bool {
-        match self.lease_class().name.as_str() {
-            "bytes" => false,
-            "bytearray" | "memoryview" => true,
-            _ => panic!("Bytes-Like type expected not {:?}", self),
-        }
-    }
-}
-
 impl fmt::Debug for PyObject<dyn PyObjectPayload> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "[PyObj {:?}]", &self.payload)

@@ -344,16 +344,22 @@ where
         let slot_ident = item_meta.slot_name()?;
         let slot_name = slot_ident.to_string();
         let tokens = {
-            if slot_name == "new" {
-                let into_func = quote_spanned! {ident.span() =>
+            let into_func = if slot_name == "new" {
+                quote_spanned! {ident.span() =>
                     ::rustpython_vm::function::IntoPyNativeFunc::into_func(Self::#ident)
-                };
+                }
+            } else {
+                quote_spanned! {ident.span() =>
+                    Self::#ident as _
+                }
+            };
+            if slot_name == "new" || slot_name == "buffer" {
                 quote! {
                     slots.#slot_ident = Some(#into_func);
                 }
             } else {
                 quote! {
-                    slots.#slot_ident.store(Some(Self::#ident as _))
+                    slots.#slot_ident.store(Some(#into_func))
                 }
             }
         };

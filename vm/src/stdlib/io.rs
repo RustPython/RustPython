@@ -1402,21 +1402,17 @@ mod _io {
 #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
 mod fileio {
     use super::_io::*;
-    use crate::byteslike::PyBytesLike;
     use crate::exceptions::IntoPyException;
     use crate::function::{OptionalArg, PyFuncArgs};
-    use crate::obj::objbytearray::PyByteArray;
-    use crate::obj::objint;
     use crate::obj::objstr::PyStrRef;
     use crate::obj::objtype::PyTypeRef;
     use crate::pyobject::{
-        BorrowValue, BufferProtocol, Either, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
-        TryFromObject,
+        BorrowValue, Either, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     };
     use crate::stdlib::os;
     use crate::vm::VirtualMachine;
+    use crate::{byteslike::PyBytesLike, obj::objmemory::try_buffer_from_object};
     use crossbeam_utils::atomic::AtomicCell;
-    use num_traits::ToPrimitive;
     use std::io::{Read, Seek, SeekFrom, Write};
 
     fn compute_c_flag(mode: &str) -> u32 {
@@ -1571,32 +1567,28 @@ mod fileio {
         }
 
         #[pymethod]
-        fn readinto(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            if !obj.readonly() {
-                return Err(vm.new_type_error(
+        fn readinto(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+            let buffer = try_buffer_from_object(obj, vm).map_err(|_| {
+                vm.new_type_error(
                     "readinto() argument must be read-write bytes-like object".to_owned(),
-                ));
-            }
+                )
+            })?;
 
-            //extract length of buffer
-            let py_length = vm.call_method(&obj, "__len__", PyFuncArgs::default())?;
-            let length = objint::get_value(&py_length).to_u64().unwrap();
+            let mut writable = buffer
+                .as_contiguous_mut()
+                .ok_or_else(|| vm.new_value_error("buffer is not contiguous".to_owned()))?;
+            let length = writable.len() as u64;
 
             let handle = self.get_file(vm)?;
 
             let mut f = handle.take(length);
-            if let Some(bytes) = obj.payload::<PyByteArray>() {
-                //TODO: Implement for MemoryView
-
-                let value_mut = &mut bytes.borrow_value_mut().elements;
-                value_mut.clear();
-                f.read_to_end(value_mut)
-                    .map_err(|_| vm.new_value_error("Error reading from Take".to_owned()))?;
-            };
+            let ret = f
+                .read(&mut *writable)
+                .map_err(|_| vm.new_value_error("Error reading from Take".to_owned()))?;
 
             self.set_file(f.into_inner())?;
 
-            Ok(())
+            Ok(ret)
         }
 
         #[pymethod]

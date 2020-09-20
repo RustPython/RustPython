@@ -3,6 +3,7 @@ use std::cmp::Ordering;
 use crate::common::hash::PyHash;
 use crate::common::lock::PyRwLock;
 use crate::function::{OptionalArg, PyFuncArgs, PyNativeFunc};
+use crate::obj::objmemory::Buffer;
 use crate::obj::objstr::PyStrRef;
 use crate::pyobject::{
     Either, IdProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
@@ -65,7 +66,10 @@ pub struct PyTypeSlots {
     pub hash: AtomicCell<Option<HashFunc>>,
     pub cmp: AtomicCell<Option<CmpFunc>>,
     pub getattro: AtomicCell<Option<GetattroFunc>>,
+    pub buffer: Option<BufferFunc>,
 }
+
+type BufferFunc = fn(PyObjectRef, &VirtualMachine) -> PyResult<Box<dyn Buffer>>;
 
 impl PyTypeSlots {
     pub fn from_flags(flags: PyTpFlags) -> Self {
@@ -401,4 +405,14 @@ pub trait SlotGetattro: PyValue {
     fn __getattribute__(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
         Self::getattro(zelf, name, vm)
     }
+}
+#[pyimpl]
+pub trait BufferProtocol: PyValue {
+    #[pyslot]
+    fn tp_buffer(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<Box<dyn Buffer>> {
+        let zelf = PyRef::try_from_object(vm, zelf)?;
+        Self::get_buffer(zelf, vm)
+    }
+
+    fn get_buffer(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<Box<dyn Buffer>>;
 }

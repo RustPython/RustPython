@@ -262,29 +262,11 @@ pub trait PySliceableSequence {
     }
 
     fn saturate_big_index(&self, slice_pos: &BigInt) -> usize {
-        let len = self.len();
-        if let Some(pos) = slice_pos.to_isize() {
-            self.saturate_index(pos)
-        } else if slice_pos.is_negative() {
-            // slice past start bound, round to start
-            0
-        } else {
-            // slice past end bound, round to end
-            len
-        }
+        saturate_big_index(slice_pos, self.len())
     }
 
     fn saturate_range(&self, start: &Option<BigInt>, stop: &Option<BigInt>) -> Range<usize> {
-        let start = start
-            .as_ref()
-            .map(|x| self.saturate_big_index(x))
-            .unwrap_or(0);
-        let stop = stop
-            .as_ref()
-            .map(|x| self.saturate_big_index(x))
-            .unwrap_or_else(|| self.len());
-
-        start..stop
+        saturate_range(start, stop, self.len())
     }
 
     fn get_slice_items(&self, vm: &VirtualMachine, slice: &PySlice) -> PyResult<Self::Sliced> {
@@ -489,12 +471,24 @@ pub(crate) fn saturate_index(p: isize, len: usize) -> usize {
     p as usize
 }
 
-// pub fn saturate_range(start: &Option<BigInt>, stop: &Option<BigInt>, len: usize) -> Range<usize> {
-//     let start = start.as_ref().map_or(0, |x| saturate_big_index(x, len));
-//     let stop = stop.as_ref().map_or(len, |x| saturate_big_index(x, len));
+fn saturate_big_index(slice_pos: &BigInt, len: usize) -> usize {
+    if let Some(pos) = slice_pos.to_isize() {
+        saturate_index(pos, len)
+    } else if slice_pos.is_negative() {
+        // slice past start bound, round to start
+        0
+    } else {
+        // slice past end bound, round to end
+        len
+    }
+}
 
-//     start..stop
-// }
+pub fn saturate_range(start: &Option<BigInt>, stop: &Option<BigInt>, len: usize) -> Range<usize> {
+    let start = start.as_ref().map_or(0, |x| saturate_big_index(x, len));
+    let stop = stop.as_ref().map_or(len, |x| saturate_big_index(x, len));
+
+    start..stop
+}
 
 //Check if given arg could be used with PySliceableSequence.saturate_range()
 // pub fn is_valid_slice_arg(

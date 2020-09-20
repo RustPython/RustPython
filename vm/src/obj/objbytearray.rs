@@ -1,6 +1,7 @@
 //! Implementation of the python bytearray object.
 use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;
+use rustpython_common::borrow::{BorrowedValue, BorrowedValueMut};
 use std::mem::size_of;
 
 use super::objint::PyIntRef;
@@ -13,15 +14,19 @@ use crate::bytesinner::{
     ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
 };
 use crate::byteslike::PyBytesLike;
-use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
+use crate::common::lock::{
+    PyRwLock, PyRwLockReadGuard, PyRwLockUpgradableReadGuard, PyRwLockWriteGuard,
+};
 use crate::function::{OptionalArg, OptionalOption};
 use crate::obj::objbytes::PyBytes;
+use crate::obj::objmemory::{Buffer, BufferOptions};
 use crate::obj::objtuple::PyTupleRef;
 use crate::pyobject::{
     BorrowValue, Either, IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext,
     PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
 };
 use crate::sliceable::SequenceIndex;
+use crate::slots::BufferProtocol;
 use crate::slots::{Comparable, Hashable, PyComparisonOp, Unhashable};
 use crate::vm::VirtualMachine;
 
@@ -40,6 +45,8 @@ use crate::vm::VirtualMachine;
 #[derive(Debug)]
 pub struct PyByteArray {
     inner: PyRwLock<PyBytesInner>,
+    exports: AtomicCell<usize>,
+    buffer_options: PyRwLock<Option<Box<BufferOptions>>>,
 }
 
 pub type PyByteArrayRef = PyRef<PyByteArray>;
@@ -56,6 +63,8 @@ impl PyByteArray {
     fn from_inner(inner: PyBytesInner) -> Self {
         PyByteArray {
             inner: PyRwLock::new(inner),
+            exports: AtomicCell::new(0),
+            buffer_options: PyRwLock::new(None),
         }
     }
 
@@ -66,9 +75,7 @@ impl PyByteArray {
 
 impl From<PyBytesInner> for PyByteArray {
     fn from(inner: PyBytesInner) -> Self {
-        Self {
-            inner: PyRwLock::new(inner),
-        }
+        Self::from_inner(inner)
     }
 }
 
@@ -95,7 +102,7 @@ pub(crate) fn init(context: &PyContext) {
     PyByteArrayIterator::extend_class(context, &context.types.bytearray_iterator_type);
 }
 
-#[pyimpl(with(Hashable, Comparable), flags(BASETYPE))]
+#[pyimpl(flags(BASETYPE), with(Hashable, Comparable, BufferProtocol))]
 impl PyByteArray {
     #[pyslot]
     fn tp_new(
@@ -137,6 +144,7 @@ impl PyByteArray {
 
     #[pymethod(name = "__iadd__")]
     fn iadd(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        zelf.try_resizable(vm)?;
         let other = PyBytesLike::try_from_object(vm, other)?;
         zelf.borrow_value_mut().iadd(other);
         Ok(zelf)
@@ -176,8 +184,9 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "__delitem__")]
-    fn delitem(&self, needle: SequenceIndex, vm: &VirtualMachine) -> PyResult<()> {
-        self.borrow_value_mut().delitem(needle, vm)
+    fn delitem(zelf: PyRef<Self>, needle: SequenceIndex, vm: &VirtualMachine) -> PyResult<()> {
+        zelf.try_resizable(vm)?;
+        zelf.borrow_value_mut().delitem(needle, vm)
     }
 
     #[pymethod(name = "isalnum")]
@@ -458,8 +467,10 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "clear")]
-    fn clear(&self) {
-        self.borrow_value_mut().elements.clear();
+    fn clear(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<()> {
+        zelf.try_resizable(vm)?;
+        zelf.borrow_value_mut().elements.clear();
+        Ok(())
     }
 
     #[pymethod(name = "copy")]
@@ -468,12 +479,14 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "append")]
-    fn append(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.borrow_value_mut().append(value, vm)
+    fn append(zelf: PyRef<Self>, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        zelf.try_resizable(vm)?;
+        zelf.borrow_value_mut().append(value, vm)
     }
 
     #[pymethod(name = "extend")]
     fn extend(zelf: PyRef<Self>, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        zelf.try_resizable(vm)?;
         if zelf.is(&value) {
             zelf.borrow_value_mut().irepeat(2);
             Ok(())
@@ -483,14 +496,21 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "insert")]
-    fn insert(&self, index: isize, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.borrow_value_mut().insert(index, value, vm)
+    fn insert(
+        zelf: PyRef<Self>,
+        index: isize,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        zelf.try_resizable(vm)?;
+        zelf.borrow_value_mut().insert(index, value, vm)
     }
 
     #[pymethod(name = "pop")]
-    fn pop(&self, index: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult<u8> {
+    fn pop(zelf: PyRef<Self>, index: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult<u8> {
+        zelf.try_resizable(vm)?;
         let index = index.unwrap_or(-1);
-        self.borrow_value_mut().pop(index, vm)
+        zelf.borrow_value_mut().pop(index, vm)
     }
 
     #[pymethod(name = "title")]
@@ -505,9 +525,10 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "__imul__")]
-    fn imul(zelf: PyRef<Self>, n: isize) -> PyRef<Self> {
+    fn imul(zelf: PyRef<Self>, n: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        zelf.try_resizable(vm)?;
         zelf.borrow_value_mut().irepeat(n);
-        zelf
+        Ok(zelf)
     }
 
     #[pymethod(name = "__mod__")]
@@ -554,11 +575,54 @@ impl Comparable for PyByteArray {
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
-        Ok(if let Some(res) = op.identical_optimization(zelf, other) {
-            res.into()
+        if let Some(res) = op.identical_optimization(&zelf, &other) {
+            return Ok(res.into());
+        }
+        Ok(zelf.borrow_value().cmp(other, op, vm))
+    }
+}
+
+impl BufferProtocol for PyByteArray {
+    fn get_buffer(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyResult<Box<dyn Buffer>> {
+        zelf.exports.fetch_add(1);
+        Ok(Box::new(zelf))
+    }
+}
+
+impl Buffer for PyByteArrayRef {
+    fn obj_bytes(&self) -> BorrowedValue<[u8]> {
+        PyRwLockReadGuard::map(self.borrow_value(), |x| x.elements.as_slice()).into()
+    }
+
+    fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
+        PyRwLockWriteGuard::map(self.borrow_value_mut(), |x| x.elements.as_mut_slice()).into()
+    }
+
+    fn release(&self) {
+        let mut w = self.buffer_options.write();
+        if self.exports.fetch_sub(1) == 1 {
+            *w = None;
+        }
+    }
+
+    fn is_resizable(&self) -> bool {
+        self.exports.load() == 0
+    }
+
+    fn get_options(&self) -> BorrowedValue<BufferOptions> {
+        let guard = self.buffer_options.upgradable_read();
+        let guard = if guard.is_none() {
+            let mut w = PyRwLockUpgradableReadGuard::upgrade(guard);
+            *w = Some(Box::new(BufferOptions {
+                readonly: false,
+                len: self.len(),
+                ..Default::default()
+            }));
+            PyRwLockWriteGuard::downgrade(w)
         } else {
-            zelf.borrow_value().cmp(other, op, vm)
-        })
+            PyRwLockUpgradableReadGuard::downgrade(guard)
+        };
+        PyRwLockReadGuard::map(guard, |x| x.as_ref().unwrap().as_ref()).into()
     }
 }
 

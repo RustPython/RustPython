@@ -13,7 +13,7 @@ use crate::pyobject::PyObjectRef;
 use crate::VirtualMachine;
 
 #[pymodule]
-mod _struct {
+pub(crate) mod _struct {
     use byteorder::{ReadBytesExt, WriteBytesExt};
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
@@ -56,11 +56,12 @@ mod _struct {
 
     impl FormatCode {
         fn unit_size(&self) -> usize {
+            // XXX: size of l L q Q is platform depended?
             match self.code {
                 'x' | 'c' | 'b' | 'B' | '?' | 's' | 'p' => 1,
                 'h' | 'H' => 2,
-                'i' | 'l' | 'I' | 'L' | 'f' => 4,
-                'q' | 'Q' | 'd' => 8,
+                'i' | 'I' | 'f' => 4,
+                'l' | 'L' | 'q' | 'Q' | 'd' => 8,
                 'n' | 'N' | 'P' => std::mem::size_of::<usize>(),
                 c => {
                     panic!("Unsupported format code {:?}", c);
@@ -82,7 +83,7 @@ mod _struct {
     }
 
     #[derive(Debug, Clone)]
-    struct FormatSpec {
+    pub(crate) struct FormatSpec {
         endianness: Endianness,
         codes: Vec<FormatCode>,
     }
@@ -104,7 +105,7 @@ mod _struct {
             FormatSpec::parse(decoded_fmt).map_err(|err| new_struct_error(vm, err))
         }
 
-        fn parse(fmt: &str) -> Result<FormatSpec, String> {
+        pub fn parse(fmt: &str) -> Result<FormatSpec, String> {
             let mut chars = fmt.chars().peekable();
 
             // First determine "@", "<", ">","!" or "="
@@ -159,7 +160,7 @@ mod _struct {
             Ok(())
         }
 
-        fn unpack(&self, data: &[u8], vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        pub fn unpack(&self, data: &[u8], vm: &VirtualMachine) -> PyResult<PyTupleRef> {
             if self.size() != data.len() {
                 return Err(new_struct_error(
                     vm,
@@ -500,8 +501,10 @@ mod _struct {
             '?' => pack_bool,
             'h' => pack_i16::<Endianness>,
             'H' => pack_u16::<Endianness>,
-            'i' | 'l' => pack_i32::<Endianness>,
-            'I' | 'L' => pack_u32::<Endianness>,
+            'i' => pack_i32::<Endianness>,
+            'I' => pack_u32::<Endianness>,
+            'l' => pack_i64::<Endianness>,
+            'L' => pack_u64::<Endianness>,
             'q' => pack_i64::<Endianness>,
             'Q' => pack_u64::<Endianness>,
             'n' => pack_isize::<Endianness>,
@@ -738,8 +741,10 @@ mod _struct {
             '?' => unpack_bool,
             'h' => unpack_i16::<Endianness>,
             'H' => unpack_u16::<Endianness>,
-            'i' | 'l' => unpack_i32::<Endianness>,
-            'I' | 'L' => unpack_u32::<Endianness>,
+            'i' => unpack_i32::<Endianness>,
+            'I' => unpack_u32::<Endianness>,
+            'l' => unpack_i64::<Endianness>,
+            'L' => unpack_u64::<Endianness>,
             'q' => unpack_i64::<Endianness>,
             'Q' => unpack_u64::<Endianness>,
             'n' => unpack_isize::<Endianness>,

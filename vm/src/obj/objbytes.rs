@@ -1,5 +1,9 @@
 use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;
+use rustpython_common::{
+    borrow::{BorrowedValue, BorrowedValueMut},
+    lock::OnceCell,
+};
 use std::mem::size_of;
 use std::ops::Deref;
 
@@ -13,15 +17,17 @@ use crate::bytesinner::{
     ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
 };
 use crate::byteslike::PyBytesLike;
+use crate::common::hash::PyHash;
 use crate::function::{OptionalArg, OptionalOption};
 use crate::obj::objtuple::PyTupleRef;
 use crate::pyobject::{
     BorrowValue, Either, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyIterable,
     PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
 };
-use crate::slots::{Comparable, Hashable, PyComparisonOp};
+use crate::slots::{BufferProtocol, Comparable, Hashable, PyComparisonOp};
 use crate::vm::VirtualMachine;
-use rustpython_common::hash::PyHash;
+
+use crate::obj::objmemory::{Buffer, BufferOptions};
 
 /// "bytes(iterable_of_ints) -> bytes\n\
 /// bytes(string, encoding[, errors]) -> bytes\n\
@@ -36,6 +42,7 @@ use rustpython_common::hash::PyHash;
 #[derive(Clone, Debug)]
 pub struct PyBytes {
     inner: PyBytesInner,
+    buffer_options: OnceCell<Box<BufferOptions>>,
 }
 
 pub type PyBytesRef = PyRef<PyBytes>;
@@ -52,6 +59,7 @@ impl From<Vec<u8>> for PyBytes {
     fn from(elements: Vec<u8>) -> Self {
         Self {
             inner: PyBytesInner { elements },
+            buffer_options: OnceCell::new(),
         }
     }
 }
@@ -85,7 +93,7 @@ pub(crate) fn init(context: &PyContext) {
     PyBytesIterator::extend_class(context, &context.types.bytes_iterator_type);
 }
 
-#[pyimpl(flags(BASETYPE), with(Hashable, Comparable))]
+#[pyimpl(flags(BASETYPE), with(Hashable, Comparable, BufferProtocol))]
 impl PyBytes {
     #[pyslot]
     fn tp_new(
@@ -95,6 +103,7 @@ impl PyBytes {
     ) -> PyResult<PyBytesRef> {
         PyBytes {
             inner: options.get_value(vm)?,
+            buffer_options: OnceCell::new(),
         }
         .into_ref_with_type(vm, cls)
     }
@@ -452,6 +461,40 @@ impl PyBytes {
             .map(|x| x.into_pyobject(vm))
             .collect();
         PyTupleRef::with_elements(param, &vm.ctx)
+    }
+}
+
+impl BufferProtocol for PyBytes {
+    fn get_buffer(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyResult<Box<dyn Buffer>> {
+        Ok(Box::new(zelf))
+    }
+}
+
+impl Buffer for PyBytesRef {
+    fn obj_bytes(&self) -> BorrowedValue<[u8]> {
+        self.inner.elements.as_slice().into()
+    }
+
+    fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
+        unreachable!("bytes is not mutable")
+    }
+
+    fn is_resizable(&self) -> bool {
+        false
+    }
+
+    fn release(&self) {}
+
+    fn get_options(&self) -> BorrowedValue<BufferOptions> {
+        self.buffer_options
+            .get_or_init(|| {
+                Box::new(BufferOptions {
+                    len: self.len(),
+                    ..Default::default()
+                })
+            })
+            .as_ref()
+            .into()
     }
 }
 

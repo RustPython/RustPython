@@ -134,8 +134,6 @@ class AbstractMemoryTests:
             with self.assertRaises(TypeError):
                 del m[1:4]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_tobytes(self):
         for tp in self._types:
             m = self._view(tp(self._source))
@@ -146,16 +144,12 @@ class AbstractMemoryTests:
             self.assertEqual(b, expected)
             self.assertIsInstance(b, bytes)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_tolist(self):
         for tp in self._types:
             m = self._view(tp(self._source))
             l = m.tolist()
             self.assertEqual(l, list(b"abcdef"))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_compare(self):
         # memoryviews can compare for equality with other objects
         # having the buffer interface.
@@ -379,8 +373,6 @@ class AbstractMemoryTests:
             self.assertIs(wr(), None)
             self.assertIs(L[0], b)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_reversed(self):
         for tp in self._types:
             b = tp(self._source)
@@ -389,8 +381,6 @@ class AbstractMemoryTests:
             self.assertEqual(list(reversed(m)), aslist)
             self.assertEqual(list(reversed(m)), list(m[::-1]))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_toreadonly(self):
         for tp in self._types:
             b = tp(self._source)
@@ -526,7 +516,6 @@ class BytesMemorySliceTest(unittest.TestCase,
     BaseMemorySliceTests, BaseBytesMemoryTests):
     pass
 
-@unittest.skip("TODO: RUSTPYTHON")
 class ArrayMemorySliceTest(unittest.TestCase,
     BaseMemorySliceTests, BaseArrayMemoryTests):
     pass
@@ -535,7 +524,6 @@ class BytesMemorySliceSliceTest(unittest.TestCase,
     BaseMemorySliceSliceTests, BaseBytesMemoryTests):
     pass
 
-@unittest.skip("TODO: RUSTPYTHON")
 class ArrayMemorySliceSliceTest(unittest.TestCase,
     BaseMemorySliceSliceTests, BaseArrayMemoryTests):
     pass
@@ -561,6 +549,8 @@ class OtherTest(unittest.TestCase):
                 m[2:] = memoryview(p6).cast(format)[2:]
                 self.assertEqual(d.value, 0.6)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_memoryview_hex(self):
         # Issue #9951: memoryview.hex() segfaults with non-contiguous buffers.
         x = b'0' * 200000
