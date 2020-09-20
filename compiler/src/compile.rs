@@ -1188,6 +1188,7 @@ impl<O: OutputStream> Compiler<O> {
     }
 
     fn store_docstring(&mut self, doc_str: Option<String>) {
+        // TODO: __doc__ must be default None and no bytecodes unless it is Some
         // Duplicate top of stack (the function or class object)
         self.emit(Instruction::Duplicate);
 

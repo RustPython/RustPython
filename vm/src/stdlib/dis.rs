@@ -20,7 +20,7 @@ mod decl {
             vm.compile(
                 co_str.borrow_value(),
                 compile::Mode::Exec,
-                "<string>".to_owned(),
+                "<dis>".to_owned(),
             )
             .map_err(|err| vm.new_syntax_error(&err))?
             .into_object()

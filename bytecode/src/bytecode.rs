@@ -488,7 +488,17 @@ impl CodeObject {
 
 impl fmt::Display for CodeObject {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.display_inner(f, false, 1)
+        self.display_inner(f, false, 1)?;
+        for constant in self.get_constants() {
+            match constant {
+                Constant::Code { code } => {
+                    write!(f, "\nDisassembly of {}\n", constant)?;
+                    code.fmt(f)?;
+                }
+                _ => continue,
+            }
+        }
+        Ok(())
     }
 }
 
