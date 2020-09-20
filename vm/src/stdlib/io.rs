@@ -416,9 +416,13 @@ fn io_base_cm_enter(instance: PyObjectRef) -> PyObjectRef {
     instance
 }
 
-fn io_base_cm_del(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-    vm.call_method(&instance, "close", vec![])?;
+fn io_base_cm_del_slot(instance: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    vm.call_method(instance, "close", vec![])?;
     Ok(())
+}
+
+fn io_base_cm_del(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    io_base_cm_del_slot(&instance, vm)
 }
 
 fn io_base_cm_exit(instance: PyObjectRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<()> {
@@ -1271,6 +1275,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let io_base = py_class!(ctx, "_IOBase", &ctx.types.object_type, {
         "__enter__" => ctx.new_method(io_base_cm_enter),
         "__del__" => ctx.new_method(io_base_cm_del),
+        (slot del) => io_base_cm_del_slot,
         "__exit__" => ctx.new_method(io_base_cm_exit),
         "seekable" => ctx.new_method(io_base_seekable),
         "readable" => ctx.new_method(io_base_readable),

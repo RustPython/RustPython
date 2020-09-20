@@ -41,6 +41,7 @@ impl Default for PyTpFlags {
 }
 
 pub(crate) type GenericMethod = fn(PyObjectRef, PyFuncArgs, &VirtualMachine) -> PyResult;
+pub(crate) type DelFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<()>;
 pub(crate) type DescrGetFunc =
     fn(PyObjectRef, Option<PyObjectRef>, Option<PyObjectRef>, &VirtualMachine) -> PyResult;
 pub(crate) type HashFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<PyHash>;
@@ -50,6 +51,7 @@ pub struct PyClassSlots {
     pub flags: PyTpFlags,
     pub name: PyRwLock<Option<String>>, // tp_name, not class name
     pub new: Option<PyNativeFunc>,
+    pub del: AtomicCell<Option<DelFunc>>,
     pub call: AtomicCell<Option<GenericMethod>>,
     pub descr_get: AtomicCell<Option<DescrGetFunc>>,
     pub hash: AtomicCell<Option<HashFunc>>,
@@ -80,6 +82,25 @@ impl std::fmt::Debug for PyClassSlots {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("PyClassSlots")
     }
+}
+
+#[pyimpl]
+pub trait SlotDesctuctor: PyValue {
+    #[pyslot]
+    fn tp_del(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        if let Some(zelf) = zelf.downcast_ref() {
+            Self::del(zelf, vm)
+        } else {
+            Err(vm.new_type_error("unexpected payload for __del__".to_owned()))
+        }
+    }
+
+    #[pymethod(magic)]
+    fn __del__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<()> {
+        Self::del(&zelf, vm)
+    }
+
+    fn del(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<()>;
 }
 
 #[pyimpl]

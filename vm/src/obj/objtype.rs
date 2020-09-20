@@ -150,6 +150,13 @@ impl PyClassRef {
                 } as _;
                 self.slots.hash.store(Some(func));
             }
+            "__del__" => {
+                let func: slots::DelFunc = |zelf, vm| {
+                    let magic = get_class_magic(&zelf, "__del__");
+                    vm.invoke(&magic, vec![zelf.clone()]).map(|_| ())
+                } as _;
+                self.slots.del.store(Some(func));
+            }
             _ => (),
         }
     }

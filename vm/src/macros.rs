@@ -47,10 +47,13 @@ macro_rules! py_class {
             py_class
         }
     };
-    (@extract_slots($ctx:expr, $slots:expr, (slot $slot_name:ident), $value:expr)) => {
-        $slots.$slot_name = Some(
+    (@extract_slots($ctx:expr, $slots:expr, (slot new), $value:expr)) => {
+        $slots.new = Some(
             $crate::function::IntoPyNativeFunc::into_func($value)
         );
+    };
+    (@extract_slots($ctx:expr, $slots:expr, (slot $slot_name:ident), $value:expr)) => {
+        $slots.$slot_name.store(Some($value));
     };
     (@extract_slots($ctx:expr, $class:expr, $name:expr, $value:expr)) => {};
     (@extract_attrs($ctx:expr, $slots:expr, (slot $slot_name:ident), $value:expr)) => {};

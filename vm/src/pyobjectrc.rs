@@ -146,11 +146,12 @@ where
 
         // CPython-compatible drop implementation
         let zelf = Self::into_ref(self.clone());
-        if let Some(del_method) = zelf.inner.get_class_attr("__del__") {
+        if let Some(del_slot) = zelf.class().first_in_mro(|cls| cls.slots.del.load()) {
             crate::vm::thread::with_vm(&zelf, |vm| {
-                if let Err(e) = vm.invoke(&del_method, vec![zelf.clone()]) {
+                if let Err(e) = del_slot(&zelf, vm) {
                     // exception in del will be ignored but printed
                     print!("Exception ignored in: ",);
+                    let del_method = zelf.get_class_attr("__del__").unwrap();
                     let repr = vm.to_repr(&del_method);
                     match repr {
                         Ok(v) => println!("{}", v.to_string()),
