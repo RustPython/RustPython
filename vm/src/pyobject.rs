@@ -1411,11 +1411,9 @@ impl PyArithmaticValue<PyObjectRef> {
 
 impl<T: TryFromObject> TryFromObject for PyArithmaticValue<T> {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        let arith = match PyArithmaticValue::from_object(vm, obj) {
-            PyArithmaticValue::Implemented(x) => Self::Implemented(T::try_from_object(vm, x)?),
-            PyArithmaticValue::NotImplemented => Self::NotImplemented,
-        };
-        Ok(arith)
+        PyArithmaticValue::from_object(vm, obj)
+            .map(|x| T::try_from_object(vm, x))
+            .transpose()
     }
 }
 
