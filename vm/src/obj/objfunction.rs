@@ -8,7 +8,7 @@ use super::objtuple::PyTupleRef;
 use super::objtype::PyClassRef;
 use crate::bytecode;
 use crate::frame::Frame;
-use crate::function::{OptionalArg, PyFuncArgs};
+use crate::function::PyFuncArgs;
 use crate::obj::objasyncgenerator::PyAsyncGen;
 use crate::obj::objcoroutine::PyCoroutine;
 use crate::obj::objgenerator::PyGenerator;
@@ -306,10 +306,10 @@ impl PyFunction {
 
 impl SlotDescriptor for PyFunction {
     fn descr_get(
-        vm: &VirtualMachine,
         zelf: PyObjectRef,
         obj: Option<PyObjectRef>,
-        cls: OptionalArg<PyObjectRef>,
+        cls: Option<PyObjectRef>,
+        vm: &VirtualMachine,
     ) -> PyResult {
         let (zelf, obj) = Self::_unwrap(zelf, obj, vm)?;
         if vm.is_none(&obj) && !Self::_cls_is(&cls, &obj.class()) {

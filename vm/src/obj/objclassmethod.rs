@@ -1,5 +1,4 @@
 use super::objtype::PyClassRef;
-use crate::function::OptionalArg;
 use crate::pyobject::{
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
@@ -47,10 +46,10 @@ impl PyValue for PyClassMethod {
 
 impl SlotDescriptor for PyClassMethod {
     fn descr_get(
-        vm: &VirtualMachine,
         zelf: PyObjectRef,
         obj: Option<PyObjectRef>,
-        cls: OptionalArg<PyObjectRef>,
+        cls: Option<PyObjectRef>,
+        vm: &VirtualMachine,
     ) -> PyResult {
         let (zelf, obj) = Self::_unwrap(zelf, obj, vm)?;
         let cls = cls.unwrap_or_else(|| obj.class().into_object());

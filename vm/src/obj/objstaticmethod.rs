@@ -1,5 +1,4 @@
 use super::objtype::PyClassRef;
-use crate::function::OptionalArg;
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::slots::SlotDescriptor;
 use crate::vm::VirtualMachine;
@@ -19,10 +18,10 @@ impl PyValue for PyStaticMethod {
 
 impl SlotDescriptor for PyStaticMethod {
     fn descr_get(
-        vm: &VirtualMachine,
         zelf: PyObjectRef,
         _obj: Option<PyObjectRef>,
-        _cls: OptionalArg<PyObjectRef>,
+        _cls: Option<PyObjectRef>,
+        vm: &VirtualMachine,
     ) -> PyResult {
         let zelf = Self::_zelf(zelf, vm)?;
         Ok(zelf.callable.clone())

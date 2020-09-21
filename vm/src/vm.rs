@@ -23,7 +23,7 @@ use crate::common::{cell::PyMutex, hash::HashSecret, rc::PyRc};
 use crate::exceptions::{self, PyBaseException, PyBaseExceptionRef};
 use crate::frame::{ExecutionResult, Frame, FrameRef};
 use crate::frozen;
-use crate::function::{OptionalArg, PyFuncArgs};
+use crate::function::PyFuncArgs;
 use crate::import;
 use crate::obj::objbool;
 use crate::obj::objcode::{PyCode, PyCodeRef};
@@ -844,7 +844,7 @@ impl VirtualMachine {
         descr
             .class()
             .first_in_mro(|cls| cls.slots.descr_get.load())
-            .map(|descr_get| descr_get(self, descr, obj, OptionalArg::from_option(cls)))
+            .map(|descr_get| descr_get(descr, obj, cls, self))
     }
 
     pub fn call_get_descriptor(&self, descr: PyObjectRef, obj: PyObjectRef) -> Option<PyResult> {
@@ -882,21 +882,19 @@ impl VirtualMachine {
 
     fn _invoke(&self, callable: &PyObjectRef, args: PyFuncArgs) -> PyResult {
         vm_trace!("Invoke: {:?} {:?}", callable, args);
-        let invoked = callable.class().first_in_mro(|cls| {
-            cls.slots.call.load().map(|slot_call| {
+        let slot_call = callable.class().first_in_mro(|cls| cls.slots.call.load());
+        match slot_call {
+            Some(slot_call) => {
                 self.trace_event(TraceEvent::Call)?;
-                let args = args.insert(callable.clone());
-                let result = slot_call(self, args);
+                let result = slot_call(callable.clone(), args, self);
                 self.trace_event(TraceEvent::Return)?;
                 result
-            })
-        });
-        invoked.unwrap_or_else(|| {
-            Err(self.new_type_error(format!(
+            }
+            None => Err(self.new_type_error(format!(
                 "'{}' object is not callable",
                 callable.lease_class().name
-            )))
-        })
+            ))),
+        }
     }
 
     #[inline]

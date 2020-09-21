@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 
 use crate::common::cell::PyRwLock;
 use crate::common::hash::PyHash;
-use crate::function::{IntoPyNativeFunc, OptionalArg, PyFuncArgs, PyNativeFunc};
+use crate::function::{OptionalArg, PyFuncArgs, PyNativeFunc};
 use crate::pyobject::{
     IdProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
@@ -41,9 +41,9 @@ impl Default for PyTpFlags {
     }
 }
 
-type GenericFunc = fn(&VirtualMachine, PyFuncArgs) -> PyResult;
+type GenericMethod = fn(PyObjectRef, PyFuncArgs, &VirtualMachine) -> PyResult;
 type DescrGetFunc =
-    fn(&VirtualMachine, PyObjectRef, Option<PyObjectRef>, OptionalArg<PyObjectRef>) -> PyResult;
+    fn(PyObjectRef, Option<PyObjectRef>, Option<PyObjectRef>, &VirtualMachine) -> PyResult;
 type HashFunc = Box<py_dyn_fn!(dyn Fn(PyObjectRef, &VirtualMachine) -> PyResult<PyHash>)>;
 
 #[derive(Default)]
@@ -51,7 +51,7 @@ pub struct PyClassSlots {
     pub flags: PyTpFlags,
     pub name: PyRwLock<Option<String>>, // tp_name, not class name
     pub new: Option<PyNativeFunc>,
-    pub call: AtomicCell<Option<GenericFunc>>,
+    pub call: AtomicCell<Option<GenericMethod>>,
     pub descr_get: AtomicCell<Option<DescrGetFunc>>,
     pub hash: Option<HashFunc>,
     pub cmp: Option<CmpFunc>,
@@ -80,18 +80,36 @@ impl PyClassSlots {
     pub(crate) fn update_slot_func(&self, name: &str) {
         match name {
             "__call__" => {
-                let func: GenericFunc =
-                    |vm, args| { IntoPyNativeFunc::call(&call_magic_call, vm, args) } as _;
+                let func: GenericMethod = |zelf, args, vm| {
+                    let magic = get_class_magic(&zelf, "__call__");
+                    let magic = vm.call_if_get_descriptor(magic, zelf.clone())?;
+                    vm.invoke(&magic, args)
+                } as _;
                 self.call.store(Some(func))
             }
             "__get__" => {
-                let func: DescrGetFunc =
-                    |vm, zelf, obj, cls| { call_magic_descr_get(vm, zelf, obj, cls) } as _;
+                let func: DescrGetFunc = |zelf, obj, cls, vm| {
+                    let magic = get_class_magic(&zelf, "__get__");
+                    vm.invoke(
+                        &magic,
+                        vec![zelf, vm.unwrap_or_none(obj), vm.unwrap_or_none(cls)],
+                    )
+                } as _;
                 self.descr_get.store(Some(func))
             }
             _ => (),
         }
     }
+}
+
+#[inline]
+fn get_class_magic(zelf: &PyObjectRef, name: &str) -> PyObjectRef {
+    zelf.get_class_attr(name).unwrap()
+
+    // TODO: we already looked up the matching class but lost the information here
+    // let cls = zelf.lease_class();
+    // let attrs = cls.attributes.read();
+    // attrs.get(name).unwrap().clone()
 }
 
 impl std::fmt::Debug for PyClassSlots {
@@ -107,53 +125,14 @@ pub trait SlotCall: PyValue {
     fn call(zelf: PyRef<Self>, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult;
 }
 
-#[inline]
-fn get_class_magic(zelf: &PyObjectRef, name: &str) -> PyObjectRef {
-    zelf.get_class_attr(name).unwrap()
-    // let cls = zelf.lease_class();
-    // let attrs = cls.attributes.read();
-    // let attr = attrs.get(name);
-    // attr.unwrap().clone()
-}
-
-fn call_magic_call(zelf: PyObjectRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
-    let magic = get_class_magic(&zelf, "__call__");
-    let magic = vm.call_if_get_descriptor(magic, zelf.clone())?;
-    args.insert(zelf);
-    vm.invoke(&magic, args)
-}
-
-fn call_magic_descr_get(
-    vm: &VirtualMachine,
-    zelf: PyObjectRef,
-    obj: Option<PyObjectRef>,
-    cls: OptionalArg<PyObjectRef>,
-) -> PyResult {
-    let magic = get_class_magic(&zelf, "__get__");
-    vm.invoke(
-        &magic,
-        vec![
-            zelf,
-            vm.unwrap_or_none(obj),
-            vm.unwrap_or_none(cls.into_option()),
-        ],
-    )
-}
-
-pub type PyDescrGetFunc = Box<
-    dyn Fn(&VirtualMachine, PyObjectRef, Option<PyObjectRef>, OptionalArg<PyObjectRef>) -> PyResult
-        + Send
-        + Sync,
->;
-
 #[pyimpl]
 pub trait SlotDescriptor: PyValue {
     #[pyslot]
     fn descr_get(
-        vm: &VirtualMachine,
         zelf: PyObjectRef,
         obj: Option<PyObjectRef>,
-        cls: OptionalArg<PyObjectRef>,
+        cls: Option<PyObjectRef>,
+        vm: &VirtualMachine,
     ) -> PyResult;
 
     #[pymethod(magic)]
@@ -163,7 +142,7 @@ pub trait SlotDescriptor: PyValue {
         cls: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        Self::descr_get(vm, zelf, Some(obj), cls)
+        Self::descr_get(zelf, Some(obj), cls.into_option(), vm)
     }
 
     fn _zelf(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
@@ -204,14 +183,11 @@ pub trait SlotDescriptor: PyValue {
         }
     }
 
-    fn _cls_is<T>(cls: &OptionalArg<PyObjectRef>, other: &T) -> bool
+    fn _cls_is<T>(cls: &Option<PyObjectRef>, other: &T) -> bool
     where
         T: IdProtocol,
     {
-        match cls {
-            OptionalArg::Present(cls) => cls.is(other),
-            OptionalArg::Missing => false,
-        }
+        cls.as_ref().map_or(false, |cls| cls.is(other))
     }
 }
 

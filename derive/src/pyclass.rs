@@ -345,8 +345,10 @@ where
             match slot_name.as_str() {
                 "call" => quote! {
                     slots.#slot_ident.store(Some(
-                        |vm: &::rustpython_vm::VirtualMachine, args: ::rustpython_vm::function::PyFuncArgs| -> ::rustpython_vm::pyobject::PyResult {
-                            ::rustpython_vm::function::IntoPyNativeFunc::call(&Self::#ident, vm, args)
+                        |zelf: ::rustpython_vm::pyobject::PyObjectRef,  args: ::rustpython_vm::function::PyFuncArgs, vm: &::rustpython_vm::VirtualMachine| -> ::rustpython_vm::pyobject::PyResult {
+                            use ::rustpython_vm::pyobject::TryFromObject;
+                            let zelf = PyRef::<Self>::try_from_object(vm, zelf)?;
+                            Self::#ident(zelf, args, vm)
                         } as _
                     ));
                 },

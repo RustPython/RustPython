@@ -11,7 +11,7 @@ use super::objstaticmethod::PyStaticMethod;
 use super::objstr::PyStringRef;
 use super::objtuple::PyTuple;
 use super::objweakref::PyWeak;
-use crate::function::{KwArgs, OptionalArg, PyFuncArgs};
+use crate::function::{KwArgs, PyFuncArgs};
 use crate::pyobject::{
     BorrowValue, IdProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable, PyLease,
     PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
@@ -214,12 +214,7 @@ impl PyClass {
                     PyLease::into_pyref(attr_class).first_in_mro(|cls| cls.slots.descr_get.load())
                 {
                     let mcl = PyLease::into_pyref(mcl).into_object();
-                    return descr_get(
-                        vm,
-                        attr,
-                        Some(zelf.into_object()),
-                        OptionalArg::Present(mcl),
-                    );
+                    return descr_get(attr, Some(zelf.into_object()), Some(mcl), vm);
                 }
             }
         }
@@ -228,7 +223,7 @@ impl PyClass {
             let attr_class = attr.class();
             if let Some(ref descr_get) = attr_class.first_in_mro(|cls| cls.slots.descr_get.load()) {
                 drop(mcl);
-                return descr_get(vm, attr, None, OptionalArg::Present(zelf.into_object()));
+                return descr_get(attr, None, Some(zelf.into_object()), vm);
             }
         }
 
