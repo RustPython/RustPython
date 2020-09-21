@@ -36,7 +36,7 @@ fn assert_in_range(signum: i32, vm: &VirtualMachine) -> PyResult<()> {
     }
 }
 
-fn signal(signalnum: i32, handler: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+fn _signal_signal(signalnum: i32, handler: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     assert_in_range(signalnum, vm)?;
     let signal_handlers = vm
         .signal_handlers
@@ -78,7 +78,7 @@ fn signal(signalnum: i32, handler: PyObjectRef, vm: &VirtualMachine) -> PyResult
     Ok(old_handler)
 }
 
-fn getsignal(signalnum: i32, vm: &VirtualMachine) -> PyResult {
+fn _signal_getsignal(signalnum: i32, vm: &VirtualMachine) -> PyResult {
     assert_in_range(signalnum, vm)?;
     let signal_handlers = vm
         .signal_handlers
@@ -88,7 +88,7 @@ fn getsignal(signalnum: i32, vm: &VirtualMachine) -> PyResult {
 }
 
 #[cfg(unix)]
-fn alarm(time: u32) -> u32 {
+fn _signal_alarm(time: u32) -> u32 {
     let prev_time = if time == 0 {
         sig_alarm::cancel()
     } else {
@@ -119,21 +119,25 @@ pub fn check_signals(vm: &VirtualMachine) -> PyResult<()> {
     Ok(())
 }
 
-fn default_int_handler(_signum: PyObjectRef, _arg: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+fn _signal_default_int_handler(
+    _signum: PyObjectRef,
+    _arg: PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult {
     Err(vm.new_exception_empty(vm.ctx.exceptions.keyboard_interrupt.clone()))
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
-    let int_handler = ctx.new_function(default_int_handler);
+    let int_handler = named_function!(ctx, _signal, default_int_handler);
 
     let sig_dfl = ctx.new_int(SIG_DFL as u8);
     let sig_ign = ctx.new_int(SIG_IGN as u8);
 
-    let module = py_module!(vm, "signal", {
-        "signal" => ctx.new_function(signal),
-        "getsignal" => ctx.new_function(getsignal),
+    let module = py_module!(vm, "_signal", {
+        "signal" => named_function!(ctx, _signal, signal),
+        "getsignal" => named_function!(ctx, _signal, getsignal),
         "SIG_DFL" => sig_dfl.clone(),
         "SIG_IGN" => sig_ign.clone(),
         "SIGABRT" => ctx.new_int(libc::SIGABRT as u8),
@@ -161,7 +165,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         vm.signal_handlers.as_ref().unwrap().borrow_mut()[signum] = py_handler;
     }
 
-    signal(libc::SIGINT, int_handler, vm).expect("Failed to set sigint handler");
+    _signal_signal(libc::SIGINT, int_handler, vm).expect("Failed to set sigint handler");
 
     module
 }
@@ -171,7 +175,7 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: &PyObjectRef) {
     let ctx = &vm.ctx;
 
     extend_module!(vm, module, {
-        "alarm" => ctx.new_function(alarm),
+        "alarm" => named_function!(ctx, _signal, alarm),
         "SIGHUP" => ctx.new_int(libc::SIGHUP as u8),
         "SIGQUIT" => ctx.new_int(libc::SIGQUIT as u8),
         "SIGTRAP" => ctx.new_int(libc::SIGTRAP as u8),

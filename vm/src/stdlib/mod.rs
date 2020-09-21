@@ -129,7 +129,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
             "_multiprocessing".to_owned(),
             Box::new(multiprocessing::make_module),
         );
-        modules.insert("signal".to_owned(), Box::new(signal::make_module));
+        modules.insert("_signal".to_owned(), Box::new(signal::make_module));
         modules.insert("select".to_owned(), Box::new(select::make_module));
         #[cfg(feature = "ssl")]
         modules.insert("_ssl".to_owned(), Box::new(ssl::make_module));
