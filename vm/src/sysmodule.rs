@@ -58,7 +58,8 @@ fn _base_executable(ctx: &PyContext) -> PyObjectRef {
     }
 }
 
-fn getframe(offset: OptionalArg<usize>, vm: &VirtualMachine) -> PyResult<FrameRef> {
+#[allow(non_snake_case)] // it's the function sys._getframe -> sys__getframe
+fn sys__getframe(offset: OptionalArg<usize>, vm: &VirtualMachine) -> PyResult<FrameRef> {
     let offset = offset.into_option().unwrap_or(0);
     if offset > vm.frames.borrow().len() - 1 {
         return Err(vm.new_value_error("call stack is not deep enough".to_owned()));
@@ -650,24 +651,24 @@ settrace() -- set the global debug tracing function
       "_base_executable" => _base_executable(ctx),
       "executable" => executable(ctx),
       "flags" => flags,
-      "getrefcount" => ctx.new_function(sys_getrefcount),
-      "getrecursionlimit" => ctx.new_function(sys_getrecursionlimit),
-      "getsizeof" => ctx.new_function(sys_getsizeof),
+      "getrefcount" => named_function!(ctx, sys, getrefcount),
+      "getrecursionlimit" => named_function!(ctx, sys, getrecursionlimit),
+      "getsizeof" => named_function!(ctx, sys, getsizeof),
       "implementation" => implementation,
-      "getfilesystemencoding" => ctx.new_function(sys_getfilesystemencoding),
-      "getfilesystemencodeerrors" => ctx.new_function(sys_getfilesystemencodeerrors),
-      "getdefaultencoding" => ctx.new_function(sys_getdefaultencoding),
-      "getprofile" => ctx.new_function(sys_getprofile),
-      "gettrace" => ctx.new_function(sys_gettrace),
+      "getfilesystemencoding" => named_function!(ctx, sys, getfilesystemencoding),
+      "getfilesystemencodeerrors" => named_function!(ctx, sys, getfilesystemencodeerrors),
+      "getdefaultencoding" => named_function!(ctx, sys, getdefaultencoding),
+      "getprofile" => named_function!(ctx, sys, getprofile),
+      "gettrace" => named_function!(ctx, sys, gettrace),
       "hash_info" => hash_info,
-      "intern" => ctx.new_function(sys_intern),
+      "intern" => named_function!(ctx, sys, intern),
       "maxunicode" => ctx.new_int(std::char::MAX as u32),
       "maxsize" => ctx.new_int(std::isize::MAX),
       "path" => path,
       "ps1" => ctx.new_str(">>>>> "),
       "ps2" => ctx.new_str("..... "),
       "__doc__" => ctx.new_str(sys_doc),
-      "_getframe" => ctx.new_function(getframe),
+      "_getframe" => named_function!(ctx, sys, _getframe),
       "modules" => modules.clone(),
       "warnoptions" => ctx.new_list(vec![]),
       "platform" => ctx.new_str(PLATFORM.to_owned()),
@@ -677,24 +678,24 @@ settrace() -- set the global debug tracing function
       "path_importer_cache" => ctx.new_dict(),
       "pycache_prefix" => vm.ctx.none(),
       "dont_write_bytecode" => vm.ctx.new_bool(vm.state.settings.dont_write_bytecode),
-      "setprofile" => ctx.new_function(sys_setprofile),
-      "setrecursionlimit" => ctx.new_function(sys_setrecursionlimit),
-      "settrace" => ctx.new_function(sys_settrace),
+      "setprofile" => named_function!(ctx, sys, setprofile),
+      "setrecursionlimit" => named_function!(ctx, sys, setrecursionlimit),
+      "settrace" => named_function!(ctx, sys, settrace),
       "version" => vm.ctx.new_str(version::get_version()),
       "version_info" => version_info,
       "_git" => sys_git_info(vm),
-      "exc_info" => ctx.new_function(sys_exc_info),
+      "exc_info" => named_function!(ctx, sys, exc_info),
       "prefix" => ctx.new_str(prefix),
       "base_prefix" => ctx.new_str(base_prefix),
       "exec_prefix" => ctx.new_str(exec_prefix),
       "base_exec_prefix" => ctx.new_str(base_exec_prefix),
-      "exit" => ctx.new_function(sys_exit),
+      "exit" => named_function!(ctx, sys, exit),
       "abiflags" => ctx.new_str(ABIFLAGS.to_owned()),
-      "audit" => ctx.new_function(sys_audit),
-      "displayhook" => ctx.new_function(sys_displayhook),
-      "__displayhook__" => ctx.new_function(sys_displayhook),
-      "excepthook" => ctx.new_function(sys_excepthook),
-      "__excepthook__" => ctx.new_function(sys_excepthook),
+      "audit" => named_function!(ctx, sys, audit),
+      "displayhook" => named_function!(ctx, sys, displayhook),
+      "__displayhook__" => named_function!(ctx, sys, displayhook),
+      "excepthook" => named_function!(ctx, sys, excepthook),
+      "__excepthook__" => named_function!(ctx, sys, excepthook),
       "hexversion" => ctx.new_int(version::VERSION_HEX),
       "api_version" => ctx.new_int(0x0), // what C api?
       "float_info" => float_info,
@@ -708,7 +709,7 @@ settrace() -- set the global debug tracing function
     {
         let getwindowsversion = WindowsVersion::make_class(ctx);
         extend_module!(vm, module, {
-            "getwindowsversion" => ctx.new_function(sys_getwindowsversion),
+            "getwindowsversion" => named_function!(ctx, sys, getwindowsversion),
             "_getwindowsversion_type" => getwindowsversion, // XXX: This is not a python spec but required by current RustPython implementation
         })
     }

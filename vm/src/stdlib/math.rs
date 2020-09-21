@@ -404,69 +404,69 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     py_module!(vm, "math", {
         // Number theory functions:
-        "fabs" => ctx.new_function(math_fabs),
-        "isfinite" => ctx.new_function(math_isfinite),
-        "isinf" => ctx.new_function(math_isinf),
-        "isnan" => ctx.new_function(math_isnan),
-        "isclose" => ctx.new_function(math_isclose),
-        "copysign" => ctx.new_function(math_copysign),
+        "fabs" => named_function!(ctx, math, fabs),
+        "isfinite" => named_function!(ctx, math, isfinite),
+        "isinf" => named_function!(ctx, math, isinf),
+        "isnan" => named_function!(ctx, math, isnan),
+        "isclose" => named_function!(ctx, math, isclose),
+        "copysign" => named_function!(ctx, math, copysign),
 
         // Power and logarithmic functions:
-        "exp" => ctx.new_function(math_exp),
-        "expm1" => ctx.new_function(math_expm1),
-        "log" => ctx.new_function(math_log),
-        "log1p" => ctx.new_function(math_log1p),
-        "log2" => ctx.new_function(math_log2),
-        "log10" => ctx.new_function(math_log10),
-        "pow" => ctx.new_function(math_pow),
-        "sqrt" => ctx.new_function(math_sqrt),
+        "exp" => named_function!(ctx, math, exp),
+        "expm1" => named_function!(ctx, math, expm1),
+        "log" => named_function!(ctx, math, log),
+        "log1p" => named_function!(ctx, math, log1p),
+        "log2" => named_function!(ctx, math, log2),
+        "log10" => named_function!(ctx, math, log10),
+        "pow" => named_function!(ctx, math, pow),
+        "sqrt" => named_function!(ctx, math, sqrt),
 
         // Trigonometric functions:
-        "acos" => ctx.new_function(math_acos),
-        "asin" => ctx.new_function(math_asin),
-        "atan" => ctx.new_function(math_atan),
-        "atan2" => ctx.new_function(math_atan2),
-        "cos" => ctx.new_function(math_cos),
-        "hypot" => ctx.new_function(math_hypot),
-        "sin" => ctx.new_function(math_sin),
-        "tan" => ctx.new_function(math_tan),
+        "acos" => named_function!(ctx, math, acos),
+        "asin" => named_function!(ctx, math, asin),
+        "atan" => named_function!(ctx, math, atan),
+        "atan2" => named_function!(ctx, math, atan2),
+        "cos" => named_function!(ctx, math, cos),
+        "hypot" => named_function!(ctx, math, hypot),
+        "sin" => named_function!(ctx, math, sin),
+        "tan" => named_function!(ctx, math, tan),
 
-        "degrees" => ctx.new_function(math_degrees),
-        "radians" => ctx.new_function(math_radians),
+        "degrees" => named_function!(ctx, math, degrees),
+        "radians" => named_function!(ctx, math, radians),
 
         // Hyperbolic functions:
-        "acosh" => ctx.new_function(math_acosh),
-        "asinh" => ctx.new_function(math_asinh),
-        "atanh" => ctx.new_function(math_atanh),
-        "cosh" => ctx.new_function(math_cosh),
-        "sinh" => ctx.new_function(math_sinh),
-        "tanh" => ctx.new_function(math_tanh),
+        "acosh" => named_function!(ctx, math, acosh),
+        "asinh" => named_function!(ctx, math, asinh),
+        "atanh" => named_function!(ctx, math, atanh),
+        "cosh" => named_function!(ctx, math, cosh),
+        "sinh" => named_function!(ctx, math, sinh),
+        "tanh" => named_function!(ctx, math, tanh),
 
         // Special functions:
-        "erf" => ctx.new_function(math_erf),
-        "erfc" => ctx.new_function(math_erfc),
-        "gamma" => ctx.new_function(math_gamma),
-        "lgamma" => ctx.new_function(math_lgamma),
+        "erf" => named_function!(ctx, math, erf),
+        "erfc" => named_function!(ctx, math, erfc),
+        "gamma" => named_function!(ctx, math, gamma),
+        "lgamma" => named_function!(ctx, math, lgamma),
 
-        "frexp" => ctx.new_function(math_frexp),
-        "ldexp" => ctx.new_function(math_ldexp),
-        "modf" => ctx.new_function(math_modf),
-        "fmod" => ctx.new_function(math_fmod),
-        "remainder" => ctx.new_function(math_remainder),
+        "frexp" => named_function!(ctx, math, frexp),
+        "ldexp" => named_function!(ctx, math, ldexp),
+        "modf" => named_function!(ctx, math, modf),
+        "fmod" => named_function!(ctx, math, fmod),
+        "remainder" => named_function!(ctx, math, remainder),
 
         // Rounding functions:
-        "trunc" => ctx.new_function(math_trunc),
-        "ceil" => ctx.new_function(math_ceil),
-        "floor" => ctx.new_function(math_floor),
+        "trunc" => named_function!(ctx, math, trunc),
+        "ceil" => named_function!(ctx, math, ceil),
+        "floor" => named_function!(ctx, math, floor),
 
         // Gcd function
-        "gcd" => ctx.new_function(math_gcd),
-        "lcm" => ctx.new_function(math_lcm),
+        "gcd" => named_function!(ctx, math, gcd),
+        "lcm" => named_function!(ctx, math, lcm),
 
         // Factorial function
-        "factorial" => ctx.new_function(math_factorial),
+        "factorial" => named_function!(ctx, math, factorial),
 
-        "nextafter" => ctx.new_function(math_nextafter),
+        "nextafter" => named_function!(ctx, math, nextafter),
 
         // Constants:
         "pi" => ctx.new_float(std::f64::consts::PI), // 3.14159...

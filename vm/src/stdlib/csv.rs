@@ -186,7 +186,7 @@ impl Reader {
     }
 }
 
-fn csv_reader(fp: PyObjectRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+fn _csv_reader(fp: PyObjectRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
     if let Ok(iterable) = PyIterable::<PyObjectRef>::try_from_object(vm, fp) {
         build_reader(iterable, args, vm)
     } else {
@@ -206,7 +206,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     );
 
     py_module!(vm, "_csv", {
-        "reader" => ctx.new_function(csv_reader),
+        "reader" => named_function!(ctx, _csv, reader),
         "Reader" => reader_type,
         "Error"  => error,
         // constants
