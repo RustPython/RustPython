@@ -831,7 +831,7 @@ mod decl {
             } else if !objtype::issubclass(&metaclass, &base_class) {
                 return Err(vm.new_type_error(
                     "metaclass conflict: the metaclass of a derived class must be a (non-strict) \
-                 subclass of the metaclasses of all its bases"
+                     subclass of the metaclasses of all its bases"
                         .to_owned(),
                 ));
             }
