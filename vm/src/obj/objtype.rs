@@ -210,24 +210,25 @@ impl PyClass {
         if let Some(attr) = mcl.get_attr(&name) {
             let attr_class = attr.lease_class();
             if attr_class.has_attr("__set__") {
-                if let Some(ref descriptor) = attr_class.get_attr("__get__") {
-                    drop(attr_class);
+                if let Some(ref descr_get) =
+                    PyLease::into_pyref(attr_class).first_in_mro(|cls| cls.slots.descr_get.load())
+                {
                     let mcl = PyLease::into_pyref(mcl).into_object();
-                    return vm.invoke(descriptor, vec![attr, zelf.into_object(), mcl]);
+                    return descr_get(
+                        vm,
+                        attr,
+                        Some(zelf.into_object()),
+                        OptionalArg::Present(mcl),
+                    );
                 }
             }
         }
 
         if let Some(attr) = zelf.get_attr(&name) {
             let attr_class = attr.class();
-            let slots = &attr_class.slots;
-            if let Some(ref descr_get) = slots.descr_get {
+            if let Some(ref descr_get) = attr_class.first_in_mro(|cls| cls.slots.descr_get.load()) {
                 drop(mcl);
                 return descr_get(vm, attr, None, OptionalArg::Present(zelf.into_object()));
-            } else if let Some(ref descriptor) = attr_class.get_attr("__get__") {
-                drop(mcl);
-                // TODO: is this nessessary?
-                return vm.invoke(descriptor, vec![attr, vm.ctx.none(), zelf.into_object()]);
             }
         }
 
@@ -706,11 +707,12 @@ pub fn new(
     if base.slots.flags.has_feature(PyTpFlags::HAS_DICT) {
         slots.flags |= PyTpFlags::HAS_DICT
     }
-    for slot_name in ["__call__"].iter() {
+    for slot_name in ["__call__", "__get__"].iter() {
         if attrs.contains_key(*slot_name) {
             slots.update_slot_func(*slot_name);
         }
     }
+
     let new_type = PyRef::new_ref(
         PyClass {
             name: String::from(name),

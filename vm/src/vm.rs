@@ -841,18 +841,10 @@ impl VirtualMachine {
         obj: Option<PyObjectRef>,
         cls: Option<PyObjectRef>,
     ) -> Option<PyResult> {
-        let descr_class = descr.class();
-        let slots = &descr_class.slots;
-        if let Some(descr_get) = slots.descr_get.as_ref() {
-            Some(descr_get(self, descr, obj, OptionalArg::from_option(cls)))
-        } else if let Some(ref descriptor) = descr_class.get_attr("__get__") {
-            Some(self.invoke(
-                descriptor,
-                vec![descr, self.unwrap_or_none(obj), self.unwrap_or_none(cls)],
-            ))
-        } else {
-            None
-        }
+        descr
+            .class()
+            .first_in_mro(|cls| cls.slots.descr_get.load())
+            .map(|descr_get| descr_get(self, descr, obj, OptionalArg::from_option(cls)))
     }
 
     pub fn call_get_descriptor(&self, descr: PyObjectRef, obj: PyObjectRef) -> Option<PyResult> {

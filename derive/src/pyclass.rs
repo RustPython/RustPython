@@ -342,20 +342,22 @@ where
             let into_func = quote_spanned! {ident.span() =>
                 #transform(Self::#ident)
             };
-            if slot_name == "call" {
-                quote! {
-                    slots.#slot_ident.store(
-                        Some(
-                            |vm: &::rustpython_vm::VirtualMachine, args: ::rustpython_vm::function::PyFuncArgs| -> ::rustpython_vm::pyobject::PyResult {
-                                ::rustpython_vm::function::IntoPyNativeFunc::call(&Self::#ident, vm, args)
-                            } as _
-                        )
-                    );
-                }
-            } else {
-                quote! {
+            match slot_name.as_str() {
+                "call" => quote! {
+                    slots.#slot_ident.store(Some(
+                        |vm: &::rustpython_vm::VirtualMachine, args: ::rustpython_vm::function::PyFuncArgs| -> ::rustpython_vm::pyobject::PyResult {
+                            ::rustpython_vm::function::IntoPyNativeFunc::call(&Self::#ident, vm, args)
+                        } as _
+                    ));
+                },
+                "descr_get" => quote! {
+                    slots.#slot_ident.store(Some(
+                        Self::#ident as _
+                    ))
+                },
+                _ => quote! {
                     slots.#slot_ident = Some(#into_func);
-                }
+                },
             }
         };
 

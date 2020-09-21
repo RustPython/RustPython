@@ -9,3 +9,10 @@ class Callable():
 c = Callable()
 assert 1 == c()
 assert 2 == c()
+
+class Inherited(Callable):
+    pass
+
+i = Inherited()
+
+assert 1 == i()
