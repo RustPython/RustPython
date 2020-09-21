@@ -77,3 +77,8 @@ mod vm;
 pub use self::vm::{InitParameter, Interpreter, PySettings, VirtualMachine};
 pub use rustpython_bytecode::*;
 pub use rustpython_common as common;
+
+#[doc(hidden)]
+pub mod __exports {
+    pub use paste;
+}

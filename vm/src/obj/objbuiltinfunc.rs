@@ -1,17 +1,64 @@
 use std::fmt;
 
+use super::objclassmethod::PyClassMethod;
 use crate::function::{OptionalArg, PyFuncArgs, PyNativeFunc};
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue, TypeProtocol};
+use crate::pyobject::{
+    PyClassImpl, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
+};
 use crate::slots::{SlotCall, SlotDescriptor};
 use crate::vm::VirtualMachine;
 
+pub struct PyFuncDef {
+    pub func: PyNativeFunc,
+    pub name: Option<PyStringRef>,
+    pub doc: Option<PyStringRef>,
+}
+
+impl From<PyNativeFunc> for PyFuncDef {
+    fn from(func: PyNativeFunc) -> Self {
+        Self {
+            func,
+            name: None,
+            doc: None,
+        }
+    }
+}
+
+impl PyFuncDef {
+    pub fn with_doc(mut self, doc: String, ctx: &PyContext) -> Self {
+        self.doc = Some(ctx.new_stringref(doc));
+        self
+    }
+
+    pub fn into_function(self) -> PyBuiltinFunction {
+        self.into()
+    }
+    pub fn build_function(self, ctx: &PyContext) -> PyObjectRef {
+        self.into_function().build(ctx)
+    }
+    pub fn build_method(self, ctx: &PyContext) -> PyObjectRef {
+        PyObject::new(
+            PyBuiltinMethod::from(self),
+            ctx.types.method_descriptor_type.clone(),
+            None,
+        )
+    }
+    pub fn build_classmethod(self, ctx: &PyContext) -> PyObjectRef {
+        // TODO: classmethod_descriptor
+        PyObject::new(
+            PyClassMethod::from(self.build_method(ctx)),
+            ctx.types.classmethod_type.clone(),
+            None,
+        )
+    }
+}
+
 #[pyclass(name = "builtin_function_or_method", module = false)]
 pub struct PyBuiltinFunction {
-    value: PyNativeFunc,
-    module: Option<PyStringRef>,
-    name: Option<PyStringRef>,
+    value: PyFuncDef,
+    module: Option<PyObjectRef>,
 }
 
 impl PyValue for PyBuiltinFunction {
@@ -28,49 +75,62 @@ impl fmt::Debug for PyBuiltinFunction {
 
 impl From<PyNativeFunc> for PyBuiltinFunction {
     fn from(value: PyNativeFunc) -> Self {
+        PyFuncDef::from(value).into()
+    }
+}
+impl From<PyFuncDef> for PyBuiltinFunction {
+    fn from(value: PyFuncDef) -> Self {
         Self {
             value,
             module: None,
-            name: None,
         }
     }
 }
 
 impl PyBuiltinFunction {
-    pub fn new_with_name(value: PyNativeFunc, module: PyStringRef, name: PyStringRef) -> Self {
-        Self {
-            value,
-            module: Some(module),
-            name: Some(name),
-        }
+    pub fn with_module(mut self, module: PyObjectRef) -> Self {
+        self.module = Some(module);
+        self
+    }
+
+    pub fn build(self, ctx: &PyContext) -> PyObjectRef {
+        PyObject::new(
+            self,
+            ctx.types.builtin_function_or_method_type.clone(),
+            None,
+        )
     }
 
     pub fn as_func(&self) -> &PyNativeFunc {
-        &self.value
+        &self.value.func
     }
 }
 
 impl SlotCall for PyBuiltinFunction {
     fn call(&self, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
-        (self.value)(vm, args)
+        (self.value.func)(vm, args)
     }
 }
 
 #[pyimpl(with(SlotCall), flags(HAS_DICT))]
 impl PyBuiltinFunction {
     #[pyproperty(magic)]
-    fn module(&self) -> Option<PyStringRef> {
-        self.module.clone()
+    fn module(&self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.unwrap_or_none(self.module.clone())
     }
     #[pyproperty(magic)]
     fn name(&self) -> Option<PyStringRef> {
-        self.name.clone()
+        self.value.name.clone()
+    }
+    #[pyproperty(magic)]
+    fn doc(&self) -> Option<PyStringRef> {
+        self.value.doc.clone()
     }
 }
 
 #[pyclass(module = false, name = "method_descriptor")]
 pub struct PyBuiltinMethod {
-    function: PyBuiltinFunction,
+    value: PyFuncDef,
 }
 
 impl PyValue for PyBuiltinMethod {
@@ -85,23 +145,25 @@ impl fmt::Debug for PyBuiltinMethod {
     }
 }
 
-impl From<PyNativeFunc> for PyBuiltinMethod {
-    fn from(value: PyNativeFunc) -> Self {
-        Self {
-            function: value.into(),
-        }
+impl From<PyFuncDef> for PyBuiltinMethod {
+    fn from(value: PyFuncDef) -> Self {
+        Self { value }
     }
 }
 
 impl PyBuiltinMethod {
-    pub fn new_with_name(value: PyNativeFunc, module: PyStringRef, name: PyStringRef) -> Self {
+    pub fn new_with_name(func: PyNativeFunc, name: PyStringRef) -> Self {
         Self {
-            function: PyBuiltinFunction::new_with_name(value, module, name),
+            value: PyFuncDef {
+                func,
+                name: Some(name),
+                doc: None,
+            },
         }
     }
 
     pub fn as_func(&self) -> &PyNativeFunc {
-        &self.function.value
+        &self.value.func
     }
 }
 
@@ -126,19 +188,19 @@ impl SlotDescriptor for PyBuiltinMethod {
 
 impl SlotCall for PyBuiltinMethod {
     fn call(&self, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
-        (self.function.value)(vm, args)
+        (self.value.func)(vm, args)
     }
 }
 
 #[pyimpl(with(SlotDescriptor, SlotCall))]
 impl PyBuiltinMethod {
     #[pyproperty(magic)]
-    fn module(&self) -> Option<PyStringRef> {
-        self.function.module.clone()
+    fn name(&self) -> Option<PyStringRef> {
+        self.value.name.clone()
     }
     #[pyproperty(magic)]
-    fn name(&self) -> Option<PyStringRef> {
-        self.function.name.clone()
+    fn doc(&self) -> Option<PyStringRef> {
+        self.value.doc.clone()
     }
 }
 
