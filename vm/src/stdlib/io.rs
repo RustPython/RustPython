@@ -138,13 +138,22 @@ impl BufferedIO {
     }
 
     fn readline(&mut self, size: Option<usize>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        self.read_until(size, b'\n', vm)
+    }
+
+    fn read_until(
+        &mut self,
+        size: Option<usize>,
+        byte: u8,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<u8>> {
         let size = match size {
             None => {
-                let mut buf = String::new();
+                let mut buf: Vec<u8> = Vec::new();
                 self.cursor
-                    .read_line(&mut buf)
+                    .read_until(byte, &mut buf)
                     .map_err(|err| os_err(vm, err))?;
-                return Ok(buf.into_bytes());
+                return Ok(buf);
             }
             Some(0) => {
                 return Ok(Vec::new());
@@ -162,7 +171,7 @@ impl BufferedIO {
                 buf
             }
         };
-        let buf = match available.find_byte(b'\n') {
+        let buf = match available.find_byte(byte) {
             Some(i) => (available[..=i].to_vec()),
             _ => (available.to_vec()),
         };

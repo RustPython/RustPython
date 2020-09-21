@@ -1,4 +1,5 @@
 from testutils import assert_raises
+import pickle
 
 # new
 assert bytearray([1, 2, 3])
@@ -720,3 +721,11 @@ b = a.copy()
 assert a.__ne__(b) is False
 b = bytearray(b'my bytearray')
 assert a.__ne__(b) is True
+
+# pickle
+a = bytearray(b'\xffab\x80\0\0\370\0\0')
+assert pickle.dumps(a, 0) == b'c__builtin__\nbytearray\np0\n(c_codecs\nencode\np1\n(V\xffab\x80\\u0000\\u0000\xf8\\u0000\\u0000\np2\nVlatin1\np3\ntp4\nRp5\ntp6\nRp7\n.'
+assert pickle.dumps(a, 1) == b'c__builtin__\nbytearray\nq\x00(c_codecs\nencode\nq\x01(X\x0c\x00\x00\x00\xc3\xbfab\xc2\x80\x00\x00\xc3\xb8\x00\x00q\x02X\x06\x00\x00\x00latin1q\x03tq\x04Rq\x05tq\x06Rq\x07.'
+assert pickle.dumps(a, 2) == b'\x80\x02c__builtin__\nbytearray\nq\x00c_codecs\nencode\nq\x01X\x0c\x00\x00\x00\xc3\xbfab\xc2\x80\x00\x00\xc3\xb8\x00\x00q\x02X\x06\x00\x00\x00latin1q\x03\x86q\x04Rq\x05\x85q\x06Rq\x07.'
+assert pickle.dumps(a, 3) == b'\x80\x03cbuiltins\nbytearray\nq\x00C\t\xffab\x80\x00\x00\xf8\x00\x00q\x01\x85q\x02Rq\x03.'
+assert pickle.dumps(a, 4) == b'\x80\x04\x95*\x00\x00\x00\x00\x00\x00\x00\x8c\x08builtins\x94\x8c\tbytearray\x94\x93\x94C\t\xffab\x80\x00\x00\xf8\x00\x00\x94\x85\x94R\x94.'

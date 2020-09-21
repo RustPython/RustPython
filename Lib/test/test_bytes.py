@@ -113,8 +113,6 @@ class BaseBytesTest:
         b = self.type2test([1, 2, 3])
         self.assertEqual(b, b"\x01\x02\x03")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_from_mutating_list(self):
         # Issue #34973: Crash in bytes constructor with mutating list.
         class X:
@@ -132,8 +130,6 @@ class BaseBytesTest:
         a = [Y()]
         self.assertEqual(bytes(a), b'*' * 1000)  # should not crash
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_from_index(self):
         b = self.type2test([Indexable(), Indexable(1), Indexable(254),
                             Indexable(255)])
@@ -740,8 +736,6 @@ class BaseBytesTest:
         self.assertRaises(TypeError, self.type2test(b'a b').partition, 32)
         self.assertRaises(TypeError, self.type2test(b'a b').rpartition, 32)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pickling(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             for b in b"", b"a", b"abc", b"\xffab\x80", b"\0\0\377\0\0":

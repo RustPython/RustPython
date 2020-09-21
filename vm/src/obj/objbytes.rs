@@ -14,6 +14,7 @@ use crate::bytesinner::{
 };
 use crate::byteslike::PyBytesLike;
 use crate::function::{OptionalArg, OptionalOption};
+use crate::obj::objtuple::{PyTuple, PyTupleRef};
 use crate::pyobject::{
     BorrowValue, Either, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyIterable,
     PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
@@ -462,6 +463,17 @@ impl PyBytes {
     #[pymethod]
     fn decode(zelf: PyRef<Self>, args: DecodeArgs, vm: &VirtualMachine) -> PyResult<PyStringRef> {
         bytes_decode(zelf.into_object(), args, vm)
+    }
+
+    #[pymethod(magic)]
+    fn getnewargs(&self, vm: &VirtualMachine) -> PyTupleRef {
+        let param: Vec<PyObjectRef> = self
+            .inner
+            .elements
+            .iter()
+            .map(|x| x.into_pyobject(vm))
+            .collect();
+        PyTuple::from(param).into_ref(vm)
     }
 }
 

@@ -132,7 +132,7 @@ impl ByteInnerNewOptions {
                                         let bytes = vm.invoke(&bytes_method?, vec![])?;
                                         return PyBytesInner::try_from_object(vm, bytes);
                                     }
-                                    let elements = vm.extract_elements::<PyIntRef>(&obj)?;
+                                    PyBytesInner::value_seq_try_from_object(vm, obj.clone())
                                     // TODO: better error message
                                     // .map_err(|_| {
                                     //     vm.new_type_error(format!(
@@ -140,17 +140,6 @@ impl ByteInnerNewOptions {
                                     //         obj.class().name
                                     //     ))
                                     // })?;
-
-                                    elements
-                                        .into_iter()
-                                        .map(|elem| {
-                                            elem.borrow_value().to_u8().ok_or_else(|| {
-                                                vm.new_value_error(
-                                                    "bytes must be in range(0, 256)".to_owned(),
-                                                )
-                                            })
-                                        })
-                                        .collect()
                                 }
                             });
 
