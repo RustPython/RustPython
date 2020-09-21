@@ -39,9 +39,9 @@ impl PyValue for PyWeak {
 pub type PyWeakRef = PyRef<PyWeak>;
 
 impl SlotCall for PyWeak {
-    fn call(&self, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn call(zelf: PyRef<Self>, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
         args.bind::<()>(vm)?;
-        Ok(vm.unwrap_or_none(self.upgrade()))
+        Ok(vm.unwrap_or_none(zelf.upgrade()))
     }
 }
 

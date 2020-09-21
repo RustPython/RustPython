@@ -267,7 +267,7 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
             mro: vec![],
             subclasses: PyRwLock::default(),
             attributes: PyRwLock::new(PyAttributes::new()),
-            slots: objtype::PyClassRef::make_slots(),
+            slots: objtype::PyClass::make_slots(),
         };
         let object_payload = PyClass {
             name: objobject::PyBaseObject::NAME.to_owned(),

@@ -3,12 +3,14 @@ mod machinery;
 
 #[pymodule]
 mod _json {
+    use crate::function::PyFuncArgs;
     use crate::obj::objiter;
     use crate::obj::objstr::PyStringRef;
     use crate::obj::{objbool, objtype::PyClassRef};
     use crate::pyobject::{
         BorrowValue, IdProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
     };
+    use crate::slots::SlotCall;
     use crate::VirtualMachine;
 
     use num_bigint::BigInt;
@@ -33,7 +35,7 @@ mod _json {
         }
     }
 
-    #[pyimpl]
+    #[pyimpl(with(SlotCall))]
     impl JsonScanner {
         #[pyslot]
         fn tp_new(cls: PyClassRef, ctx: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
@@ -194,7 +196,6 @@ mod _json {
             Some((ret, buf.len()))
         }
 
-        #[pyslot]
         fn call(
             zelf: PyRef<Self>,
             pystr: PyStringRef,
@@ -218,6 +219,13 @@ mod _json {
                 zelf.clone().into_object(),
                 vm,
             )
+        }
+    }
+
+    impl SlotCall for JsonScanner {
+        fn call(zelf: PyRef<Self>, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+            let (pystr, idx) = args.bind::<(PyStringRef, isize)>(vm)?;
+            JsonScanner::call(zelf, pystr, idx, vm)
         }
     }
 

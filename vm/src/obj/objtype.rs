@@ -16,7 +16,7 @@ use crate::pyobject::{
     BorrowValue, IdProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable, PyLease,
     PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
-use crate::slots::{PyClassSlots, PyTpFlags};
+use crate::slots::{PyClassSlots, PyTpFlags, SlotCall};
 use crate::vm::VirtualMachine;
 use itertools::Itertools;
 use std::ops::Deref;
@@ -72,10 +72,7 @@ impl PyClassRef {
             new_name
         })
     }
-}
 
-#[pyimpl(flags(BASETYPE))]
-impl PyClassRef {
     pub fn iter_mro(&self) -> impl Iterator<Item = &PyClassRef> + DoubleEndedIterator {
         std::iter::once(self).chain(self.mro.iter())
     }
@@ -84,31 +81,54 @@ impl PyClassRef {
         std::iter::successors(Some(self), |cls| cls.base.as_ref())
     }
 
+    // This is used for class initialisation where the vm is not yet available.
+    pub fn set_str_attr<V: Into<PyObjectRef>>(&self, attr_name: &str, value: V) {
+        self.attributes
+            .write()
+            .insert(attr_name.to_owned(), value.into());
+    }
+
+    pub fn get_attributes(self) -> PyAttributes {
+        // Gather all members here:
+        let mut attributes = PyAttributes::new();
+
+        for bc in self.iter_mro().rev() {
+            for (name, value) in bc.attributes.read().clone().iter() {
+                attributes.insert(name.to_owned(), value.clone());
+            }
+        }
+
+        attributes
+    }
+}
+
+#[pyimpl(with(SlotCall), flags(BASETYPE))]
+impl PyClass {
     #[pyproperty(name = "__mro__")]
-    fn get_mro(self) -> PyTuple {
-        let elements: Vec<PyObjectRef> = self.iter_mro().map(|x| x.as_object().clone()).collect();
+    fn get_mro(zelf: PyRef<Self>) -> PyTuple {
+        let elements: Vec<PyObjectRef> = zelf.iter_mro().map(|x| x.as_object().clone()).collect();
         PyTuple::from(elements)
     }
 
     #[pyproperty(magic)]
-    fn bases(self, vm: &VirtualMachine) -> PyObjectRef {
+    fn bases(&self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx
             .new_tuple(self.bases.iter().map(|x| x.as_object().clone()).collect())
     }
 
     #[pyproperty(magic)]
-    fn base(self) -> Option<PyClassRef> {
+    fn base(&self) -> Option<PyClassRef> {
         self.base.clone()
     }
 
     #[pyproperty(magic)]
-    fn flags(self) -> u64 {
+    fn flags(&self) -> u64 {
         self.slots.flags.bits()
     }
 
     #[pymethod(magic)]
-    fn dir(self, vm: &VirtualMachine) -> PyList {
-        let attributes: Vec<PyObjectRef> = self
+    fn dir(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyList {
+        let attributes: Vec<PyObjectRef> = zelf
             .get_attributes()
             .drain()
             .map(|(k, _)| vm.ctx.new_str(k))
@@ -117,27 +137,27 @@ impl PyClassRef {
     }
 
     #[pymethod(magic)]
-    fn instancecheck(self, obj: PyObjectRef) -> bool {
-        isinstance(&obj, &self)
+    fn instancecheck(zelf: PyRef<Self>, obj: PyObjectRef) -> bool {
+        isinstance(&obj, &zelf)
     }
 
     #[pymethod(magic)]
-    fn subclasscheck(self, subclass: PyClassRef) -> bool {
-        issubclass(&subclass, &self)
+    fn subclasscheck(zelf: PyRef<Self>, subclass: PyClassRef) -> bool {
+        issubclass(&subclass, &zelf)
     }
 
     #[pyproperty(magic)]
-    fn name(self) -> String {
+    fn name(&self) -> String {
         self.name.clone()
     }
 
     #[pymethod(magic)]
-    fn repr(self, vm: &VirtualMachine) -> String {
-        format!("<class '{}'>", Self::tp_name(self, vm))
+    fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> String {
+        format!("<class '{}'>", PyRef::<Self>::tp_name(zelf, vm))
     }
 
     #[pyproperty(magic)]
-    fn qualname(self, vm: &VirtualMachine) -> PyObjectRef {
+    fn qualname(&self, vm: &VirtualMachine) -> PyObjectRef {
         self.attributes
             .read()
             .get("__qualname__")
@@ -146,7 +166,7 @@ impl PyClassRef {
     }
 
     #[pyproperty(magic)]
-    fn module(self, vm: &VirtualMachine) -> PyObjectRef {
+    fn module(&self, vm: &VirtualMachine) -> PyObjectRef {
         // TODO: Implement getting the actual module a builtin type is from
         self.attributes
             .read()
@@ -156,7 +176,7 @@ impl PyClassRef {
     }
 
     #[pyproperty(magic, setter)]
-    fn set_module(self, value: PyObjectRef) {
+    fn set_module(&self, value: PyObjectRef) {
         *self.slots.name.write() = None;
         self.attributes
             .write()
@@ -169,10 +189,10 @@ impl PyClassRef {
     }
 
     #[pymethod(magic)]
-    fn getattribute(self, name_ref: PyStringRef, vm: &VirtualMachine) -> PyResult {
+    fn getattribute(zelf: PyRef<Self>, name_ref: PyStringRef, vm: &VirtualMachine) -> PyResult {
         let name = name_ref.borrow_value();
-        vm_trace!("type.__getattribute__({:?}, {:?})", self, name);
-        let mcl = self.lease_class();
+        vm_trace!("type.__getattribute__({:?}, {:?})", zelf, name);
+        let mcl = zelf.lease_class();
 
         if let Some(attr) = mcl.get_attr(&name) {
             let attr_class = attr.lease_class();
@@ -180,30 +200,30 @@ impl PyClassRef {
                 if let Some(ref descriptor) = attr_class.get_attr("__get__") {
                     drop(attr_class);
                     let mcl = PyLease::into_pyref(mcl).into_object();
-                    return vm.invoke(descriptor, vec![attr, self.into_object(), mcl]);
+                    return vm.invoke(descriptor, vec![attr, zelf.into_object(), mcl]);
                 }
             }
         }
 
-        if let Some(attr) = self.get_attr(&name) {
+        if let Some(attr) = zelf.get_attr(&name) {
             let attr_class = attr.class();
             let slots = &attr_class.slots;
             if let Some(ref descr_get) = slots.descr_get {
                 drop(mcl);
-                return descr_get(vm, attr, None, OptionalArg::Present(self.into_object()));
+                return descr_get(vm, attr, None, OptionalArg::Present(zelf.into_object()));
             } else if let Some(ref descriptor) = attr_class.get_attr("__get__") {
                 drop(mcl);
                 // TODO: is this nessessary?
-                return vm.invoke(descriptor, vec![attr, vm.ctx.none(), self.into_object()]);
+                return vm.invoke(descriptor, vec![attr, vm.ctx.none(), zelf.into_object()]);
             }
         }
 
-        if let Some(cls_attr) = self.get_attr(&name) {
+        if let Some(cls_attr) = zelf.get_attr(&name) {
             Ok(cls_attr)
         } else if let Some(attr) = mcl.get_attr(&name) {
             drop(mcl);
-            vm.call_if_get_descriptor(attr, self.into_object())
-        } else if let Some(ref getter) = self.get_attr("__getattr__") {
+            vm.call_if_get_descriptor(attr, zelf.into_object())
+        } else if let Some(ref getter) = zelf.get_attr("__getattr__") {
             vm.invoke(
                 getter,
                 vec![
@@ -214,54 +234,47 @@ impl PyClassRef {
         } else {
             Err(vm.new_attribute_error(format!(
                 "type object '{}' has no attribute '{}'",
-                self, name
+                zelf, name
             )))
         }
     }
 
     #[pymethod(magic)]
     fn setattr(
-        self,
+        zelf: PyRef<Self>,
         attr_name: PyStringRef,
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        if let Some(attr) = self.get_class_attr(attr_name.borrow_value()) {
+        if let Some(attr) = zelf.get_class_attr(attr_name.borrow_value()) {
             if let Some(ref descriptor) = attr.get_class_attr("__set__") {
-                vm.invoke(descriptor, vec![attr, self.into_object(), value])?;
+                vm.invoke(descriptor, vec![attr, zelf.into_object(), value])?;
                 return Ok(());
             }
         }
 
-        self.attributes.write().insert(attr_name.to_string(), value);
+        zelf.attributes.write().insert(attr_name.to_string(), value);
         Ok(())
     }
 
     #[pymethod(magic)]
-    fn delattr(self, attr_name: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
-        if let Some(attr) = self.get_class_attr(attr_name.borrow_value()) {
+    fn delattr(zelf: PyRef<Self>, attr_name: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+        if let Some(attr) = zelf.get_class_attr(attr_name.borrow_value()) {
             if let Some(ref descriptor) = attr.get_class_attr("__delete__") {
                 return vm
-                    .invoke(descriptor, vec![attr, self.into_object()])
+                    .invoke(descriptor, vec![attr, zelf.into_object()])
                     .map(|_| ());
             }
         }
 
-        self.get_attr(attr_name.borrow_value())
+        zelf.get_attr(attr_name.borrow_value())
             .ok_or_else(|| vm.new_attribute_error(attr_name.borrow_value().to_owned()))?;
-        self.attributes.write().remove(attr_name.borrow_value());
+        zelf.attributes.write().remove(attr_name.borrow_value());
         Ok(())
     }
 
-    // This is used for class initialisation where the vm is not yet available.
-    pub fn set_str_attr<V: Into<PyObjectRef>>(&self, attr_name: &str, value: V) {
-        self.attributes
-            .write()
-            .insert(attr_name.to_owned(), value.into());
-    }
-
     #[pymethod(magic)]
-    fn subclasses(self) -> PyList {
+    fn subclasses(&self) -> PyList {
         let mut subclasses = self.subclasses.write();
         subclasses.retain(|x| x.upgrade().is_some());
         PyList::from(
@@ -273,9 +286,9 @@ impl PyClassRef {
     }
 
     #[pymethod]
-    fn mro(self, vm: &VirtualMachine) -> PyObjectRef {
+    fn mro(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_list(
-            self.iter_mro()
+            zelf.iter_mro()
                 .map(|cls| cls.clone().into_object())
                 .collect(),
         )
@@ -407,13 +420,25 @@ impl PyClassRef {
         Ok(typ.into_object())
     }
 
-    #[pyslot]
-    #[pymethod(magic)]
-    fn call(self, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
-        vm_trace!("type_call: {:?}", self);
-        let obj = call_tp_new(self.clone(), self.clone(), args.clone(), vm)?;
+    #[pyproperty(magic)]
+    fn dict(zelf: PyRef<Self>) -> PyMappingProxy {
+        PyMappingProxy::new(zelf)
+    }
 
-        if (self.is(&vm.ctx.types.type_type) && args.kwargs.is_empty()) || !isinstance(&obj, &self)
+    #[pyproperty(magic, setter)]
+    fn set_dict(&self, _value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        Err(vm.new_not_implemented_error(
+            "Setting __dict__ attribute on a type isn't yet implemented".to_owned(),
+        ))
+    }
+}
+
+impl SlotCall for PyClass {
+    fn call(zelf: PyRef<Self>, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+        vm_trace!("type_call: {:?}", zelf);
+        let obj = call_tp_new(zelf.clone(), zelf.clone(), args.clone(), vm)?;
+
+        if (zelf.is(&vm.ctx.types.type_type) && args.kwargs.is_empty()) || !isinstance(&obj, &zelf)
         {
             return Ok(obj);
         }
@@ -426,18 +451,6 @@ impl PyClassRef {
             }
         }
         Ok(obj)
-    }
-
-    #[pyproperty(magic)]
-    fn dict(self) -> PyMappingProxy {
-        PyMappingProxy::new(self)
-    }
-
-    #[pyproperty(magic, setter)]
-    fn set_dict(self, _value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        Err(vm.new_not_implemented_error(
-            "Setting __dict__ attribute on a type isn't yet implemented".to_owned(),
-        ))
     }
 }
 
@@ -491,7 +504,7 @@ fn subtype_set_dict(obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -
  */
 
 pub(crate) fn init(ctx: &PyContext) {
-    PyClassRef::extend_class(ctx, &ctx.types.type_type);
+    PyClass::extend_class(ctx, &ctx.types.type_type);
 }
 
 pub trait DerefToPyClass {
@@ -591,21 +604,6 @@ impl PyClass {
                 .mro
                 .iter()
                 .any(|c| c.attributes.read().contains_key(attr_name))
-    }
-}
-
-impl PyClassRef {
-    pub fn get_attributes(self) -> PyAttributes {
-        // Gather all members here:
-        let mut attributes = PyAttributes::new();
-
-        for bc in self.iter_mro().rev() {
-            for (name, value) in bc.attributes.read().clone().iter() {
-                attributes.insert(name.to_owned(), value.clone());
-            }
-        }
-
-        attributes
     }
 }
 
