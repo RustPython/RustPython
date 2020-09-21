@@ -252,13 +252,13 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let hkey_type = PyHKEY::make_class(ctx);
     let module = py_module!(vm, "winreg", {
         "HKEYType" => hkey_type,
-        "OpenKey" => ctx.new_function(winreg_OpenKey),
-        "OpenKeyEx" => ctx.new_function(winreg_OpenKey),
-        "QueryValue" => ctx.new_function(winreg_QueryValue),
-        "QueryValueEx" => ctx.new_function(winreg_QueryValueEx),
-        "EnumKey" => ctx.new_function(winreg_EnumKey),
-        "EnumValue" => ctx.new_function(winreg_EnumValue),
-        "CloseKey" => ctx.new_function(winreg_CloseKey),
+        "OpenKey" => named_function!(ctx, winreg, OpenKey),
+        "OpenKeyEx" => named_function!(ctx, winreg, OpenKey),
+        "QueryValue" => named_function!(ctx, winreg, QueryValue),
+        "QueryValueEx" => named_function!(ctx, winreg, QueryValueEx),
+        "EnumKey" => named_function!(ctx, winreg, EnumKey),
+        "EnumValue" => named_function!(ctx, winreg, EnumValue),
+        "CloseKey" => named_function!(ctx, winreg, CloseKey),
     });
 
     macro_rules! add_constants {

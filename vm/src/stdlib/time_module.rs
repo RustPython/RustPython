@@ -266,17 +266,17 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let struct_time_type = PyStructTime::make_class(ctx);
 
     py_module!(vm, "time", {
-        "asctime" => ctx.new_function(time_asctime),
-        "ctime" => ctx.new_function(time_ctime),
-        "gmtime" => ctx.new_function(time_gmtime),
-        "mktime" => ctx.new_function(time_mktime),
-        "localtime" => ctx.new_function(time_localtime),
-        "monotonic" => ctx.new_function(time_monotonic),
-        "strftime" => ctx.new_function(time_strftime),
-        "strptime" => ctx.new_function(time_strptime),
-        "sleep" => ctx.new_function(time_sleep),
+        "asctime" => named_function!(ctx, time, asctime),
+        "ctime" => named_function!(ctx, time, ctime),
+        "gmtime" => named_function!(ctx, time, gmtime),
+        "mktime" => named_function!(ctx, time, mktime),
+        "localtime" => named_function!(ctx, time, localtime),
+        "monotonic" => named_function!(ctx, time, monotonic),
+        "strftime" => named_function!(ctx, time, strftime),
+        "strptime" => named_function!(ctx, time, strptime),
+        "sleep" => named_function!(ctx, time, sleep),
         "struct_time" => struct_time_type,
-        "time" => ctx.new_function(time_time),
-        "perf_counter" => ctx.new_function(time_time), // TODO: fix
+        "time" => named_function!(ctx, time, time),
+        "perf_counter" => named_function!(ctx, time, time), // TODO: fix
     })
 }

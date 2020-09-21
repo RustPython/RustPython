@@ -6,7 +6,7 @@ use crate::pyobject::{BorrowValue, Either, PyObjectRef, PyResult, TypeProtocol};
 use crate::VirtualMachine;
 use volatile::Volatile;
 
-fn operator_length_hint(obj: PyObjectRef, default: OptionalArg, vm: &VirtualMachine) -> PyResult {
+fn _operator_length_hint(obj: PyObjectRef, default: OptionalArg, vm: &VirtualMachine) -> PyResult {
     let default = default.unwrap_or_else(|| vm.ctx.new_int(0));
     if !objtype::isinstance(&default, &vm.ctx.types.int_type) {
         return Err(vm.new_type_error(format!(
@@ -69,7 +69,7 @@ fn timing_safe_cmp(a: &[u8], b: &[u8]) -> bool {
     result == 0
 }
 
-fn operator_compare_digest(
+fn _operator_compare_digest(
     a: Either<PyStringRef, PyBytesLike>,
     b: Either<PyStringRef, PyBytesLike>,
     vm: &VirtualMachine,
@@ -93,8 +93,9 @@ fn operator_compare_digest(
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+    let ctx = &vm.ctx;
     py_module!(vm, "_operator", {
-        "length_hint" => vm.ctx.new_function(operator_length_hint),
-        "_compare_digest" => vm.ctx.new_function(operator_compare_digest),
+        "length_hint" => named_function!(ctx, _operator, length_hint),
+        "_compare_digest" => named_function!(ctx, _operator, compare_digest),
     })
 }

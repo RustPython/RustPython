@@ -201,7 +201,7 @@ impl PyRLock {
     }
 }
 
-fn thread_get_ident() -> u64 {
+fn _thread_get_ident() -> u64 {
     thread_to_id(&thread::current())
 }
 
@@ -211,11 +211,11 @@ fn thread_to_id(t: &thread::Thread) -> u64 {
     unsafe { std::mem::transmute(t.id()) }
 }
 
-fn thread_allocate_lock() -> PyLock {
+fn _thread_allocate_lock() -> PyLock {
     PyLock { mu: RawMutex::INIT }
 }
 
-fn thread_start_new_thread(
+fn _thread_start_new_thread(
     func: PyCallable,
     args: PyTupleRef,
     kwargs: OptionalArg<PyDictRef>,
@@ -268,19 +268,19 @@ fn run_thread(func: PyCallable, args: PyFuncArgs, vm: &VirtualMachine) {
 
 thread_local!(static SENTINELS: RefCell<Vec<PyLockRef>> = RefCell::default());
 
-fn thread_set_sentinel(vm: &VirtualMachine) -> PyLockRef {
+fn _thread_set_sentinel(vm: &VirtualMachine) -> PyLockRef {
     let lock = PyLock { mu: RawMutex::INIT }.into_ref(vm);
     SENTINELS.with(|sents| sents.borrow_mut().push(lock.clone()));
     lock
 }
 
-fn thread_stack_size(size: OptionalArg<usize>, vm: &VirtualMachine) -> usize {
+fn _thread_stack_size(size: OptionalArg<usize>, vm: &VirtualMachine) -> usize {
     let size = size.unwrap_or(0);
     // TODO: do validation on this to make sure it's not too small
     vm.state.stacksize.swap(size)
 }
 
-fn thread_count(vm: &VirtualMachine) -> usize {
+fn _thread_count(vm: &VirtualMachine) -> usize {
     vm.state.thread_count.load()
 }
 
@@ -363,12 +363,12 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "RLock" => PyRLock::make_class(ctx),
         "LockType" => PyLock::make_class(ctx),
         "_local" => PyLocal::make_class(ctx),
-        "get_ident" => ctx.new_function(thread_get_ident),
-        "allocate_lock" => ctx.new_function(thread_allocate_lock),
-        "start_new_thread" => ctx.new_function(thread_start_new_thread),
-        "_set_sentinel" => ctx.new_function(thread_set_sentinel),
-        "stack_size" => ctx.new_function(thread_stack_size),
-        "_count" => ctx.new_function(thread_count),
+        "get_ident" => named_function!(ctx, _thread, get_ident),
+        "allocate_lock" => named_function!(ctx, _thread, allocate_lock),
+        "start_new_thread" => named_function!(ctx, _thread, start_new_thread),
+        "_set_sentinel" => named_function!(ctx, _thread, set_sentinel),
+        "stack_size" => named_function!(ctx, _thread, stack_size),
+        "_count" => named_function!(ctx, _thread, count),
         "error" => ctx.exceptions.runtime_error.clone(),
         "TIMEOUT_MAX" => ctx.new_float(TIMEOUT_MAX),
     })

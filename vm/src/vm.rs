@@ -310,7 +310,7 @@ impl VirtualMachine {
 
         let mut inner_init = || -> PyResult<()> {
             #[cfg(not(target_arch = "wasm32"))]
-            import::import_builtin(self, "signal")?;
+            import::import_builtin(self, "_signal")?;
 
             #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
             {

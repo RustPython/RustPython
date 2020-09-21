@@ -257,9 +257,17 @@ impl ModuleItem for FunctionItem {
 
         let py_name = item_meta.simple_name()?;
         let item = {
+            let doc = args.attrs.doc().map_or_else(
+                TokenStream::new,
+                |doc| quote!(.with_doc(#doc.to_owned(), &vm.ctx)),
+            );
             let module = args.module_name();
-            let new_func = quote_spanned!(
-                ident.span() => vm.ctx.new_function_named(#ident, #module.to_owned(), #py_name.to_owned())
+            let new_func = quote_spanned!(ident.span()=>
+                vm.ctx.new_function_named(#ident, #py_name.to_owned())
+                    #doc
+                    .into_function()
+                    .with_module(vm.ctx.new_str(#module.to_owned()))
+                    .build(&vm.ctx)
             );
             quote! {
                 vm.__module_set_attr(&module, #py_name, #new_func).unwrap();

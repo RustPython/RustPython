@@ -271,13 +271,19 @@ where
         let item_meta = MethodItemMeta::from_attr(ident.clone(), &item_attr)?;
 
         let py_name = item_meta.method_name()?;
-        let new_func = Ident::new(&format!("new_{}", &self.method_type), args.item.span());
+        let build_func = Ident::new(&format!("build_{}", &self.method_type), args.item.span());
         let tokens = {
-            let new_func = quote_spanned!(
-                ident.span() => .#new_func(Self::#ident)
+            let doc = args.attrs.doc().map_or_else(
+                TokenStream::new,
+                |doc| quote!(.with_doc(#doc.to_owned(), ctx)),
             );
             quote! {
-                class.set_str_attr(#py_name, ctx#new_func);
+                class.set_str_attr(
+                    #py_name,
+                    ctx.new_function_named(Self::#ident, #py_name.to_owned())
+                        #doc
+                        .#build_func(ctx),
+                );
             }
         };
 

@@ -235,13 +235,16 @@ macro_rules! class_or_notimplemented {
 #[macro_export]
 macro_rules! named_function {
     ($ctx:expr, $module:ident, $func:ident) => {{
-        paste::expr! {
-            $crate::pyobject::PyContext::new_function_named(
-                &$ctx,
+        #[allow(unused_variables)] // weird lint, something to do with paste probably
+        let ctx: &$crate::pyobject::PyContext = &$ctx;
+        $crate::__exports::paste::expr! {
+            ctx.new_function_named(
                 [<$module _ $func>],
                 stringify!($module).to_owned(),
-                stringify!($func).to_owned(),
             )
+            .into_function()
+            .with_module(ctx.new_str(stringify!($func).to_owned()))
+            .build(ctx)
         }
     }};
 }

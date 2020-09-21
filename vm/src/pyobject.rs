@@ -12,10 +12,9 @@ use num_traits::ToPrimitive;
 use crate::bytecode;
 use crate::exceptions::{self, PyBaseExceptionRef};
 use crate::function::{IntoPyNativeFunc, PyFuncArgs};
-use crate::obj::objbuiltinfunc::{PyBuiltinFunction, PyBuiltinMethod};
+use crate::obj::objbuiltinfunc::PyFuncDef;
 use crate::obj::objbytearray;
 use crate::obj::objbytes;
-use crate::obj::objclassmethod::PyClassMethod;
 use crate::obj::objcode;
 use crate::obj::objcode::PyCodeRef;
 use crate::obj::objcomplex::PyComplex;
@@ -141,7 +140,7 @@ impl PyContext {
         let empty_tuple = create_object(PyTuple::from(vec![]), &types.tuple_type);
 
         let tp_new_wrapper = create_object(
-            PyBuiltinFunction::from(objtype::tp_new_wrapper.into_func()),
+            PyFuncDef::from(objtype::tp_new_wrapper.into_func()).into_function(),
             &types.builtin_function_or_method_type,
         )
         .into_object();
@@ -213,9 +212,9 @@ impl PyContext {
 
     pub fn new_str<S>(&self, s: S) -> PyObjectRef
     where
-        objstr::PyString: std::convert::From<S>,
+        S: Into<objstr::PyString>,
     {
-        PyObject::new(objstr::PyString::from(s), self.types.str_type.clone(), None)
+        PyObject::new(s.into(), self.types.str_type.clone(), None)
     }
 
     pub fn new_bytes(&self, data: Vec<u8>) -> PyObjectRef {
@@ -284,46 +283,34 @@ impl PyContext {
     where
         F: IntoPyNativeFunc<FKind>,
     {
-        PyObject::new(
-            PyBuiltinFunction::from(f.into_func()),
-            self.types.builtin_function_or_method_type.clone(),
-            None,
-        )
+        PyFuncDef::from(f.into_func()).build_function(self)
     }
 
-    pub fn new_function_named<F, FKind>(&self, f: F, module: String, name: String) -> PyObjectRef
+    pub(crate) fn new_stringref(&self, s: String) -> objstr::PyStringRef {
+        PyRef::new_ref(objstr::PyString::from(s), self.types.str_type.clone(), None)
+    }
+
+    pub fn new_function_named<F, FKind>(&self, f: F, name: String) -> PyFuncDef
     where
         F: IntoPyNativeFunc<FKind>,
     {
-        let stringref =
-            |s| PyRef::new_ref(objstr::PyString::from(s), self.types.str_type.clone(), None);
-        PyObject::new(
-            PyBuiltinFunction::new_with_name(f.into_func(), stringref(module), stringref(name)),
-            self.types.builtin_function_or_method_type.clone(),
-            None,
-        )
+        let mut f = PyFuncDef::from(f.into_func());
+        f.name = Some(self.new_stringref(name));
+        f
     }
 
     pub fn new_method<F, FKind>(&self, f: F) -> PyObjectRef
     where
         F: IntoPyNativeFunc<FKind>,
     {
-        PyObject::new(
-            PyBuiltinMethod::from(f.into_func()),
-            self.types.method_descriptor_type.clone(),
-            None,
-        )
+        PyFuncDef::from(f.into_func()).build_method(self)
     }
 
     pub fn new_classmethod<F, FKind>(&self, f: F) -> PyObjectRef
     where
         F: IntoPyNativeFunc<FKind>,
     {
-        PyObject::new(
-            PyClassMethod::from(self.new_method(f)),
-            self.types.classmethod_type.clone(),
-            None,
-        )
+        PyFuncDef::from(f.into_func()).build_classmethod(self)
     }
     pub fn new_staticmethod<F, FKind>(&self, f: F) -> PyObjectRef
     where

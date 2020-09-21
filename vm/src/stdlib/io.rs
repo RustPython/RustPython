@@ -1148,7 +1148,7 @@ fn split_mode_string(mode_string: &str) -> Result<(String, String), String> {
     Ok((mode, typ.to_string()))
 }
 
-fn io_open_wrapper(
+fn _io_open(
     file: PyObjectRef,
     mode: OptionalArg<PyStringRef>,
     opts: OpenArgs,
@@ -1161,9 +1161,9 @@ fn io_open_wrapper(
         vm,
     )
 }
-fn io_open_code(file: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+fn _io_open_code(file: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     // TODO: lifecycle hooks or something?
-    io_open(file, Some("rb"), Default::default(), vm)
+    io_open(file, Some("rb"), OpenArgs::default(), vm)
 }
 
 #[derive(FromArgs)]
@@ -1377,8 +1377,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     });
 
     let module = py_module!(vm, "_io", {
-        "open" => ctx.new_function(io_open_wrapper),
-        "open_code" => ctx.new_function(io_open_code),
+        "open" => named_function!(ctx, _io, open),
+        "open_code" => named_function!(ctx, _io, open_code),
         "_IOBase" => io_base,
         "_RawIOBase" => raw_io_base.clone(),
         "_BufferedIOBase" => buffered_io_base,
