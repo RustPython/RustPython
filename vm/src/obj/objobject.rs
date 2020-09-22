@@ -3,13 +3,15 @@ use super::objdict::{PyDict, PyDictRef};
 use super::objlist::PyList;
 use super::objstr::PyStringRef;
 use super::objtype::PyClassRef;
+use crate::common::hash::PyHash;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objtype::PyClass;
 use crate::pyobject::{
     BorrowValue, IdProtocol, ItemProtocol, PyArithmaticValue::*, PyAttributes, PyClassImpl,
-    PyComparisonValue, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject,
+    PyComparisonValue, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
 };
+use crate::slots::Hashable;
 use crate::vm::VirtualMachine;
 
 /// The most base type
@@ -23,7 +25,7 @@ impl PyValue for PyBaseObject {
     }
 }
 
-#[pyimpl(flags(BASETYPE))]
+#[pyimpl(with(Hashable), flags(BASETYPE))]
 impl PyBaseObject {
     #[pyslot]
     fn tp_new(mut args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -82,12 +84,6 @@ impl PyBaseObject {
     #[pymethod(magic)]
     fn ge(_zelf: PyObjectRef, _other: PyObjectRef) -> PyComparisonValue {
         NotImplemented
-    }
-
-    #[pymethod(magic)]
-    #[pyslot]
-    fn hash(zelf: PyObjectRef, _vm: &VirtualMachine) -> PyResult<rustpython_common::hash::PyHash> {
-        Ok(zelf.get_id() as _)
     }
 
     #[pymethod(magic)]
@@ -225,6 +221,15 @@ impl PyBaseObject {
             }
         }
         common_reduce(obj, proto, vm)
+    }
+}
+
+impl Hashable for PyBaseObject {
+    fn tp_hash(zelf: PyObjectRef, _vm: &VirtualMachine) -> PyResult<PyHash> {
+        Ok(zelf.get_id() as _)
+    }
+    fn hash(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+        Self::tp_hash(zelf.into_object(), vm)
     }
 }
 

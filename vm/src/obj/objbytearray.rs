@@ -22,6 +22,7 @@ use crate::pyobject::{
     PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
 };
 use crate::pystr::{self, PyCommonString};
+use crate::slots::{Hashable, Unhashable};
 use crate::vm::VirtualMachine;
 
 /// "bytearray(iterable_of_ints) -> bytearray\n\
@@ -94,7 +95,7 @@ pub(crate) fn init(context: &PyContext) {
     PyByteArrayIterator::extend_class(context, &context.types.bytearray_iterator_type);
 }
 
-#[pyimpl(flags(BASETYPE))]
+#[pyimpl(with(Hashable), flags(BASETYPE))]
 impl PyByteArray {
     #[pyslot]
     fn tp_new(
@@ -148,11 +149,6 @@ impl PyByteArray {
     #[pymethod(name = "__lt__")]
     fn lt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
         self.borrow_value().lt(other, vm)
-    }
-
-    #[pymethod(name = "__hash__")]
-    fn hash(&self, vm: &VirtualMachine) -> PyResult<()> {
-        Err(vm.new_type_error("unhashable type: bytearray".to_owned()))
     }
 
     #[pymethod(name = "__iter__")]
@@ -577,6 +573,8 @@ impl PyByteArray {
         (Self::class(vm), PyTuple::from(vec![bytes]))
     }
 }
+
+impl Unhashable for PyByteArray {}
 
 // fn set_value(obj: &PyObjectRef, value: Vec<u8>) {
 //     obj.borrow_mut().kind = PyObjectPayload::Bytes { value };

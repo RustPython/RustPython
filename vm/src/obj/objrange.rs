@@ -9,13 +9,14 @@ use super::objslice::{PySlice, PySliceRef};
 use super::objtuple::PyTuple;
 use super::objtype::PyClassRef;
 
+use crate::common::hash::PyHash;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
     self, BorrowValue, IntoPyRef, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol,
 };
+use crate::slots::Hashable;
 use crate::vm::VirtualMachine;
-use rustpython_common::hash::PyHash;
 
 /// range(stop) -> range object
 /// range(start, stop[, step]) -> range object
@@ -130,7 +131,7 @@ pub fn init(context: &PyContext) {
 
 type PyRangeRef = PyRef<PyRange>;
 
-#[pyimpl]
+#[pyimpl(with(Hashable))]
 impl PyRange {
     fn new(cls: PyClassRef, stop: PyIntRef, vm: &VirtualMachine) -> PyResult<PyRangeRef> {
         PyRange {
@@ -365,7 +366,21 @@ impl PyRange {
         }
     }
 
-    #[pymethod(name = "__hash__")]
+    #[pyslot]
+    fn tp_new(args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+        let range = if args.args.len() <= 2 {
+            let (cls, stop) = args.bind(vm)?;
+            PyRange::new(cls, stop, vm)
+        } else {
+            let (cls, start, stop, step) = args.bind(vm)?;
+            PyRange::new_from(cls, start, stop, step, vm)
+        }?;
+
+        Ok(range.into_object())
+    }
+}
+
+impl Hashable for PyRange {
     fn hash(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
         let length = zelf.length();
         let elements = if length.is_zero() {
@@ -384,19 +399,6 @@ impl PyRange {
             ]
         };
         pyobject::hash_iter(elements.iter(), vm)
-    }
-
-    #[pyslot]
-    fn tp_new(args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
-        let range = if args.args.len() <= 2 {
-            let (cls, stop) = args.bind(vm)?;
-            PyRange::new(cls, stop, vm)
-        } else {
-            let (cls, start, stop, step) = args.bind(vm)?;
-            PyRange::new_from(cls, start, stop, step, vm)
-        }?;
-
-        Ok(range.into_object())
     }
 }
 

@@ -22,6 +22,7 @@ use crate::pyobject::{
     PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::sequence::{self, SimpleSeq};
+use crate::slots::{Hashable, Unhashable};
 use crate::vm::{ReprGuard, VirtualMachine};
 
 /// Built-in mutable sequence.
@@ -103,7 +104,7 @@ pub(crate) struct SortOptions {
 
 pub type PyListRef = PyRef<PyList>;
 
-#[pyimpl(flags(BASETYPE))]
+#[pyimpl(with(Hashable), flags(BASETYPE))]
 impl PyList {
     #[pymethod]
     pub(crate) fn append(&self, x: PyObjectRef) {
@@ -252,11 +253,6 @@ impl PyList {
             "[...]".to_owned()
         };
         Ok(s)
-    }
-
-    #[pymethod(name = "__hash__")]
-    fn hash(&self, vm: &VirtualMachine) -> PyResult<()> {
-        Err(vm.new_type_error("unhashable type".to_owned()))
     }
 
     #[pymethod(name = "__mul__")]
@@ -465,6 +461,8 @@ impl PyList {
         PyList::from(elements).into_ref_with_type(vm, cls)
     }
 }
+
+impl Unhashable for PyList {}
 
 fn do_sort(
     vm: &VirtualMachine,
