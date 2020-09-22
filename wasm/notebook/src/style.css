@@ -1,9 +1,10 @@
 body {
-    font-family: 'Fira Sans', sans-serif;
+    font-family: 'IBM Plex Sans', sans-serif;
 }
 
 .header {
-    font-family: 'Sen', sans-serif;;
+    font-family: 'Sen', sans-serif;
+    ;
 }
 
 .d-flex {
@@ -48,7 +49,7 @@ mark {
     width: 300px;
 }
 
-.item-center { 
+.item-center {
     flex-grow: 1;
     text-align: center;
 }
@@ -70,10 +71,28 @@ mark {
     height: calc(90vh - 60px);
 }
 
-#console {
-    padding: 1rem;
-    font-family: monospace;
-    font-size: 1.1rem;
+#rp-notebook {
+    font-size: 1rem;
+    padding: 10px;
+    overflow-y: scroll;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p {
+    margin: 0 0 10px;
+}
+
+#rp-notebook p {
+    margin: 0;
+}
+
+.mspace.newline {
+    height: 20px;
 }
 
 .CodeMirror {
@@ -110,7 +129,7 @@ input[type="url"] {
     background-color: white;
 }
 
-.btn-secondary{
+.btn-secondary {
     background-color: #000;
 }
 
@@ -123,4 +142,8 @@ input[type="url"] {
 
 #code-wrapper {
     position: relative;
+}
+
+.gray {
+    color: gray;
 }
