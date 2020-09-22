@@ -4,10 +4,11 @@ use super::objint::PyInt;
 use super::objtype::PyClassRef;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    BorrowValue, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TryIntoRef, TypeProtocol,
+    BorrowValue, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
+    PyResult, PyValue, TryIntoRef, TypeProtocol,
 };
-use crate::vm::VirtualMachine;
+use crate::slots::{Comparable, PyComparisonOp};
+use crate::VirtualMachine;
 use num_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, Zero};
 
@@ -27,7 +28,7 @@ impl PyValue for PySlice {
 
 pub type PySliceRef = PyRef<PySlice>;
 
-#[pyimpl]
+#[pyimpl(with(Comparable))]
 impl PySlice {
     #[pyproperty(name = "start")]
     fn start(&self, vm: &VirtualMachine) -> PyObjectRef {
@@ -109,47 +110,6 @@ impl PySlice {
             }
         };
         slice.into_ref_with_type(vm, cls)
-    }
-
-    fn inner_eq(&self, other: &PySlice, vm: &VirtualMachine) -> PyResult<bool> {
-        if !vm.identical_or_equal(&self.start(vm), &other.start(vm))? {
-            return Ok(false);
-        }
-        if !vm.identical_or_equal(&self.stop(vm), &other.stop(vm))? {
-            return Ok(false);
-        }
-        if !vm.identical_or_equal(&self.step(vm), &other.step(vm))? {
-            return Ok(false);
-        }
-        Ok(true)
-    }
-
-    #[inline]
-    fn inner_lte(&self, other: &PySlice, eq: bool, vm: &VirtualMachine) -> PyResult<bool> {
-        if let Some(v) = vm.bool_seq_lt(self.start(vm), other.start(vm))? {
-            return Ok(v);
-        }
-        if let Some(v) = vm.bool_seq_lt(self.stop(vm), other.stop(vm))? {
-            return Ok(v);
-        }
-        if let Some(v) = vm.bool_seq_lt(self.step(vm), other.step(vm))? {
-            return Ok(v);
-        }
-        Ok(eq)
-    }
-
-    #[inline]
-    fn inner_gte(&self, other: &PySlice, eq: bool, vm: &VirtualMachine) -> PyResult<bool> {
-        if let Some(v) = vm.bool_seq_gt(self.start(vm), other.start(vm))? {
-            return Ok(v);
-        }
-        if let Some(v) = vm.bool_seq_gt(self.stop(vm), other.stop(vm))? {
-            return Ok(v);
-        }
-        if let Some(v) = vm.bool_seq_gt(self.step(vm), other.step(vm))? {
-            return Ok(v);
-        }
-        Ok(eq)
     }
 
     pub(crate) fn inner_indices(
@@ -234,66 +194,6 @@ impl PySlice {
         Ok((start, stop, step))
     }
 
-    #[pymethod(name = "__eq__")]
-    fn eq(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(rhs) = rhs.payload::<PySlice>() {
-            let eq = self.inner_eq(rhs, vm)?;
-            Ok(vm.ctx.new_bool(eq))
-        } else {
-            Ok(vm.ctx.not_implemented())
-        }
-    }
-
-    #[pymethod(name = "__ne__")]
-    fn ne(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(rhs) = rhs.payload::<PySlice>() {
-            let eq = self.inner_eq(rhs, vm)?;
-            Ok(vm.ctx.new_bool(!eq))
-        } else {
-            Ok(vm.ctx.not_implemented())
-        }
-    }
-
-    #[pymethod(name = "__lt__")]
-    fn lt(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(rhs) = rhs.payload::<PySlice>() {
-            let lt = self.inner_lte(rhs, false, vm)?;
-            Ok(vm.ctx.new_bool(lt))
-        } else {
-            Ok(vm.ctx.not_implemented())
-        }
-    }
-
-    #[pymethod(name = "__gt__")]
-    fn gt(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(rhs) = rhs.payload::<PySlice>() {
-            let gt = self.inner_gte(rhs, false, vm)?;
-            Ok(vm.ctx.new_bool(gt))
-        } else {
-            Ok(vm.ctx.not_implemented())
-        }
-    }
-
-    #[pymethod(name = "__ge__")]
-    fn ge(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(rhs) = rhs.payload::<PySlice>() {
-            let ge = self.inner_gte(rhs, true, vm)?;
-            Ok(vm.ctx.new_bool(ge))
-        } else {
-            Ok(vm.ctx.not_implemented())
-        }
-    }
-
-    #[pymethod(name = "__le__")]
-    fn le(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(rhs) = rhs.payload::<PySlice>() {
-            let le = self.inner_lte(rhs, true, vm)?;
-            Ok(vm.ctx.new_bool(le))
-        } else {
-            Ok(vm.ctx.not_implemented())
-        }
-    }
-
     #[pymethod(name = "__hash__")]
     fn hash(&self, vm: &VirtualMachine) -> PyResult<()> {
         Err(vm.new_type_error("unhashable type".to_owned()))
@@ -311,6 +211,42 @@ impl PySlice {
         } else {
             Ok(vm.ctx.not_implemented())
         }
+    }
+}
+
+impl Comparable for PySlice {
+    fn cmp(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        let other = class_or_notimplemented!(Self, other);
+
+        let ret = match op {
+            PyComparisonOp::Lt | PyComparisonOp::Le => None
+                .or_else(|| vm.bool_seq_lt(zelf.start(vm), other.start(vm)).transpose())
+                .or_else(|| vm.bool_seq_lt(zelf.stop(vm), other.stop(vm)).transpose())
+                .or_else(|| vm.bool_seq_lt(zelf.step(vm), other.step(vm)).transpose())
+                .unwrap_or_else(|| Ok(op == PyComparisonOp::Le))?,
+            PyComparisonOp::Eq | PyComparisonOp::Ne => {
+                let eq = vm.identical_or_equal(&zelf.start(vm), &other.start(vm))?
+                    && vm.identical_or_equal(&zelf.stop(vm), &other.stop(vm))?
+                    && vm.identical_or_equal(&zelf.step(vm), &other.step(vm))?;
+                if op == PyComparisonOp::Ne {
+                    !eq
+                } else {
+                    eq
+                }
+            }
+            PyComparisonOp::Gt | PyComparisonOp::Ge => None
+                .or_else(|| vm.bool_seq_gt(zelf.start(vm), other.start(vm)).transpose())
+                .or_else(|| vm.bool_seq_gt(zelf.stop(vm), other.stop(vm)).transpose())
+                .or_else(|| vm.bool_seq_gt(zelf.step(vm), other.step(vm)).transpose())
+                .unwrap_or_else(|| Ok(op == PyComparisonOp::Ge))?,
+        };
+
+        Ok(PyComparisonValue::Implemented(ret))
     }
 }
 

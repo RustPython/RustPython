@@ -1,7 +1,11 @@
+use std::cmp::Ordering;
+
 use crate::common::cell::PyRwLock;
 use crate::common::hash::PyHash;
 use crate::function::{OptionalArg, PyFuncArgs, PyNativeFunc};
-use crate::pyobject::{IdProtocol, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject};
+use crate::pyobject::{
+    IdProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+};
 use crate::VirtualMachine;
 
 bitflags! {
@@ -43,9 +47,20 @@ pub struct PyClassSlots {
     pub call: Option<PyNativeFunc>,
     pub descr_get: Option<PyDescrGetFunc>,
     pub hash: Option<HashFunc>,
+    pub cmp: Option<CmpFunc>,
 }
 
 type HashFunc = Box<py_dyn_fn!(dyn Fn(PyObjectRef, &VirtualMachine) -> PyResult<PyHash>)>;
+type CmpFunc = Box<
+    py_dyn_fn!(
+        dyn Fn(
+            PyObjectRef,
+            PyObjectRef,
+            PyComparisonOp,
+            &VirtualMachine,
+        ) -> PyResult<PyComparisonValue>
+    ),
+>;
 
 impl PyClassSlots {
     pub fn from_flags(flags: PyTpFlags) -> Self {
@@ -148,10 +163,176 @@ pub trait SlotDescriptor: PyValue {
 pub trait Hashable: PyValue {
     #[pyslot]
     fn tp_hash(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyHash> {
-        let zelf = <PyRef<Self>>::try_from_object(vm, zelf)?;
+        let zelf = PyRef::try_from_object(vm, zelf)?;
         Self::hash(zelf, vm)
     }
 
     #[pymethod(magic)]
     fn hash(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash>;
+}
+
+#[pyimpl]
+pub trait Comparable: PyValue {
+    #[pyslot]
+    fn tp_cmp(
+        zelf: PyObjectRef,
+        other: PyObjectRef,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        let zelf = PyRef::try_from_object(vm, zelf)?;
+        Self::cmp(zelf, other, op, vm)
+    }
+
+    fn cmp(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue>;
+
+    #[pymethod(magic)]
+    fn eq(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        Self::cmp(zelf, other, PyComparisonOp::Eq, vm)
+    }
+    #[pymethod(magic)]
+    fn ne(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        Self::cmp(zelf, other, PyComparisonOp::Ne, vm)
+    }
+    #[pymethod(magic)]
+    fn lt(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        Self::cmp(zelf, other, PyComparisonOp::Lt, vm)
+    }
+    #[pymethod(magic)]
+    fn le(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        Self::cmp(zelf, other, PyComparisonOp::Le, vm)
+    }
+    #[pymethod(magic)]
+    fn ge(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        Self::cmp(zelf, other, PyComparisonOp::Ge, vm)
+    }
+    #[pymethod(magic)]
+    fn gt(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        Self::cmp(zelf, other, PyComparisonOp::Gt, vm)
+    }
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum PyComparisonOp {
+    // be intentional with bits so that we can do eval_ord with just a bitwise and
+    // bits: | Equal | Greater | Less |
+    Lt = 0b001,
+    Gt = 0b010,
+    Ne = 0b011,
+    Eq = 0b100,
+    Le = 0b101,
+    Ge = 0b110,
+}
+
+use PyComparisonOp::*;
+impl PyComparisonOp {
+    pub fn eq_only(
+        self,
+        f: impl FnOnce() -> PyResult<PyComparisonValue>,
+    ) -> PyResult<PyComparisonValue> {
+        match self {
+            Self::Eq => f(),
+            Self::Ne => f().map(|x| x.map(|eq| !eq)),
+            _ => Ok(PyComparisonValue::NotImplemented),
+        }
+    }
+
+    pub fn eval_ord(self, ord: Ordering) -> bool {
+        let bit = match ord {
+            Ordering::Less => Lt,
+            Ordering::Equal => Eq,
+            Ordering::Greater => Gt,
+        };
+        self as u8 & bit as u8 != 0
+    }
+
+    pub fn swapped(self) -> Self {
+        match self {
+            Lt => Gt,
+            Le => Ge,
+            Eq => Eq,
+            Ne => Ne,
+            Ge => Le,
+            Gt => Lt,
+        }
+    }
+
+    pub fn method_name(self) -> &'static str {
+        match self {
+            Lt => "__lt__",
+            Le => "__le__",
+            Eq => "__eq__",
+            Ne => "__ne__",
+            Ge => "__ge__",
+            Gt => "__gt__",
+        }
+    }
+
+    pub fn operator_token(self) -> &'static str {
+        match self {
+            Lt => "<",
+            Le => "<=",
+            Eq => "==",
+            Ne => "!=",
+            Ge => ">=",
+            Gt => ">",
+        }
+    }
+
+    /// Returns an appropriate return value for the comparison when a and b are the same object, if an
+    /// appropriate return value exists.
+    pub fn identical_optimization(self, a: &impl IdProtocol, b: &impl IdProtocol) -> Option<bool> {
+        self.map_eq(|| a.is(b))
+    }
+
+    /// Returns `Some(true)` when self is `Eq` and `f()` returns true. Returns `Some(false)` when self
+    /// is `Ne` and `f()` returns true. Otherwise returns `None`.
+    pub fn map_eq(self, f: impl FnOnce() -> bool) -> Option<bool> {
+        match self {
+            Self::Eq => {
+                if f() {
+                    Some(true)
+                } else {
+                    None
+                }
+            }
+            Self::Ne => {
+                if f() {
+                    Some(false)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
 }

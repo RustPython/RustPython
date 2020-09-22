@@ -12,16 +12,15 @@ use crate::obj::objslice::PySliceRef;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
-    BorrowValue, Either, IdProtocol, IntoPyObject, PyArithmaticValue, PyClassImpl,
-    PyComparisonValue, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol,
+    BorrowValue, Either, IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyIterable,
+    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
+use crate::slots::{Comparable, PyComparisonOp};
 use crate::VirtualMachine;
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
 use std::cmp::Ordering;
 use std::fmt;
-use PyArithmaticValue::Implemented;
 
 struct ArrayTypeSpecifierError {
     _priv: (),
@@ -467,7 +466,7 @@ impl PyValue for PyArray {
     }
 }
 
-#[pyimpl(flags(BASETYPE))]
+#[pyimpl(flags(BASETYPE), with(Comparable))]
 impl PyArray {
     fn borrow_value(&self) -> PyRwLockReadGuard<'_, ArrayContentType> {
         self.array.read()
@@ -744,118 +743,6 @@ impl PyArray {
         zelf.borrow_value().repr(vm)
     }
 
-    fn cmp<L, O>(
-        &self,
-        other: PyArrayRef,
-        len_cmp: L,
-        obj_cmp: O,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyComparisonValue>
-    where
-        L: Fn(usize, usize) -> bool,
-        O: Fn(PyObjectRef, PyObjectRef) -> PyResult<Option<bool>>,
-    {
-        let array_a = self.borrow_value();
-        let array_b = other.borrow_value();
-        let iter = Iterator::zip(array_a.iter(vm), array_b.iter(vm));
-        for (a, b) in iter {
-            if let Some(v) = obj_cmp(a, b)? {
-                return Ok(Implemented(v));
-            }
-        }
-        Ok(Implemented(len_cmp(self.len(), other.len())))
-    }
-
-    #[pymethod(name = "__eq__")]
-    fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
-        // we cannot use zelf.is(other) for shortcut because if we contenting a
-        // float value NaN we always return False even they are the same object.
-        let other = class_or_notimplemented!(Self, other);
-        if self.len() != other.len() {
-            return Ok(Implemented(false));
-        }
-        let array_a = self.borrow_value();
-        let array_b = other.borrow_value();
-
-        // fast path for same ArrayContentType type
-        if let Ok(ord) = array_a.cmp(&*array_b) {
-            let r = match ord {
-                Some(Ordering::Equal) => true,
-                _ => false,
-            };
-            return Ok(Implemented(r));
-        }
-
-        let iter = Iterator::zip(array_a.iter(vm), array_b.iter(vm));
-        for (a, b) in iter {
-            if !vm.bool_eq(a, b)? {
-                return Ok(Implemented(false));
-            }
-        }
-        Ok(Implemented(true))
-    }
-
-    #[pymethod(name = "__ne__")]
-    fn ne(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
-        Ok(self.eq(other, vm)?.map(|v| !v))
-    }
-
-    #[pymethod(name = "__lt__")]
-    fn lt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
-        let other = class_or_notimplemented!(Self, other);
-        // fast path for same ArrayContentType type
-        if let Ok(ord) = self.borrow_value().cmp(&*other.borrow_value()) {
-            let r = match ord {
-                Some(Ordering::Less) => true,
-                _ => false,
-            };
-            return Ok(Implemented(r));
-        }
-        self.cmp(other, |a, b| a < b, |a, b| vm.bool_seq_lt(a, b), vm)
-    }
-
-    #[pymethod(name = "__le__")]
-    fn le(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
-        let other = class_or_notimplemented!(Self, other);
-        // fast path for same ArrayContentType type
-        if let Ok(ord) = self.borrow_value().cmp(&*other.borrow_value()) {
-            let r = match ord {
-                Some(Ordering::Less) | Some(Ordering::Equal) => true,
-                _ => false,
-            };
-            return Ok(Implemented(r));
-        }
-        self.cmp(other, |a, b| a <= b, |a, b| vm.bool_seq_lt(a, b), vm)
-    }
-
-    #[pymethod(name = "__gt__")]
-    fn gt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
-        let other = class_or_notimplemented!(Self, other);
-        // fast path for same ArrayContentType type
-        if let Ok(ord) = self.borrow_value().cmp(&*other.borrow_value()) {
-            let r = match ord {
-                Some(Ordering::Greater) => true,
-                _ => false,
-            };
-            return Ok(Implemented(r));
-        }
-        self.cmp(other, |a, b| a > b, |a, b| vm.bool_seq_gt(a, b), vm)
-    }
-
-    #[pymethod(name = "__ge__")]
-    fn ge(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
-        let other = class_or_notimplemented!(Self, other);
-        // fast path for same ArrayContentType type
-        if let Ok(ord) = self.borrow_value().cmp(&*other.borrow_value()) {
-            let r = match ord {
-                Some(Ordering::Greater) | Some(Ordering::Equal) => true,
-                _ => false,
-            };
-            return Ok(Implemented(r));
-        }
-        self.cmp(other, |a, b| a >= b, |a, b| vm.bool_seq_gt(a, b), vm)
-    }
-
     #[pymethod(name = "__len__")]
     pub(crate) fn len(&self) -> usize {
         self.borrow_value().len()
@@ -867,6 +754,78 @@ impl PyArray {
             position: AtomicCell::new(0),
             array: zelf,
         }
+    }
+
+    fn array_eq(&self, other: &Self, vm: &VirtualMachine) -> PyResult<bool> {
+        // we cannot use zelf.is(other) for shortcut because if we contenting a
+        // float value NaN we always return False even they are the same object.
+        if self.len() != other.len() {
+            return Ok(false);
+        }
+        let array_a = self.borrow_value();
+        let array_b = other.borrow_value();
+
+        // fast path for same ArrayContentType type
+        if let Ok(ord) = array_a.cmp(&*array_b) {
+            return Ok(ord == Some(Ordering::Equal));
+        }
+
+        let iter = Iterator::zip(array_a.iter(vm), array_b.iter(vm));
+
+        for (a, b) in iter {
+            if !vm.bool_eq(a, b)? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+}
+
+impl Comparable for PyArray {
+    fn cmp(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        // TODO: deduplicate this logic with sequence::cmp in sequence.rs. Maybe make it generic?
+
+        // we cannot use zelf.is(other) for shortcut because if we contenting a
+        // float value NaN we always return False even they are the same object.
+        let other = class_or_notimplemented!(Self, other);
+
+        if let PyComparisonValue::Implemented(x) =
+            op.eq_only(|| Ok(zelf.array_eq(&other, vm)?.into()))?
+        {
+            return Ok(x.into());
+        }
+
+        let array_a = zelf.borrow_value();
+        let array_b = other.borrow_value();
+
+        let res = match array_a.cmp(&*array_b) {
+            // fast path for same ArrayContentType type
+            Ok(partial_ord) => partial_ord.map_or(false, |ord| op.eval_ord(ord)),
+            Err(()) => {
+                let iter = Iterator::zip(array_a.iter(vm), array_b.iter(vm));
+
+                for (a, b) in iter {
+                    let ret = match op {
+                        PyComparisonOp::Lt | PyComparisonOp::Le => vm.bool_seq_lt(a, b)?,
+                        PyComparisonOp::Gt | PyComparisonOp::Ge => vm.bool_seq_gt(a, b)?,
+                        _ => unreachable!(),
+                    };
+                    if let Some(v) = ret {
+                        return Ok(PyComparisonValue::Implemented(v));
+                    }
+                }
+
+                // fallback:
+                op.eval_ord(array_a.len().cmp(&array_b.len()))
+            }
+        };
+
+        Ok(res.into())
     }
 }
 

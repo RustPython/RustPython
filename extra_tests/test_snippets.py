@@ -51,6 +51,7 @@ def run_via_cpython(filename):
     env = os.environ.copy()
     subprocess.check_call([sys.executable, filename], env=env)
 
+SKIP_BUILD = os.environ.get("RUSTPYTHON_TESTS_NOBUILD") == "true"
 RUST_DEBUG = os.environ.get("RUSTPYTHON_DEBUG") == "true"
 RUST_PROFILE = "debug" if RUST_DEBUG else "release"
 
@@ -136,9 +137,10 @@ class SampleTestCase(unittest.TestCase):
 
         generate_slices(cls.slices_resource_path)
 
-        # cargo stuff
-        profile_args = [] if RUST_DEBUG else ["--release"]
-        subprocess.check_call(["cargo", "build", "--features", ",".join(RUSTPYTHON_FEATURES), *profile_args])
+        if not SKIP_BUILD:
+            # cargo stuff
+            profile_args = [] if RUST_DEBUG else ["--release"]
+            subprocess.check_call(["cargo", "build", "--features", ",".join(RUSTPYTHON_FEATURES), *profile_args])
 
     @classmethod
     def tearDownClass(cls):

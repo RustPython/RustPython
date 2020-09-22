@@ -5,7 +5,7 @@ use crate::pyobject::{
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::pyobjectrc::{PyObjectRc, PyObjectWeak};
-use crate::slots::{Hashable, SlotCall};
+use crate::slots::{Comparable, Hashable, PyComparisonOp, SlotCall};
 use crate::vm::VirtualMachine;
 
 use crossbeam_utils::atomic::AtomicCell;
@@ -45,7 +45,7 @@ impl SlotCall for PyWeak {
     }
 }
 
-#[pyimpl(with(SlotCall, Hashable), flags(BASETYPE))]
+#[pyimpl(with(SlotCall, Hashable, Comparable), flags(BASETYPE))]
 impl PyWeak {
     // TODO callbacks
     #[pyslot]
@@ -56,18 +56,6 @@ impl PyWeak {
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
         PyWeak::downgrade(&referent).into_ref_with_type(vm, cls)
-    }
-
-    #[pymethod(magic)]
-    fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(other) = other.payload_if_subclass::<Self>(vm) {
-            self.upgrade()
-                .and_then(|s| other.upgrade().map(|o| (s, o)))
-                .map_or(Ok(false), |(a, b)| vm.bool_eq(a, b))
-                .map(|b| vm.ctx.new_bool(b))
-        } else {
-            Ok(vm.ctx.not_implemented())
-        }
     }
 
     #[pymethod(magic)]
@@ -99,6 +87,25 @@ impl Hashable for PyWeak {
                 Ok(hash)
             }
         }
+    }
+}
+
+impl Comparable for PyWeak {
+    fn cmp(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<crate::pyobject::PyComparisonValue> {
+        op.eq_only(|| {
+            let other = class_or_notimplemented!(Self, other);
+            let both = zelf.upgrade().and_then(|s| other.upgrade().map(|o| (s, o)));
+            let eq = match both {
+                Some((a, b)) => vm.bool_eq(a, b)?,
+                None => false,
+            };
+            Ok(eq.into())
+        })
     }
 }
 

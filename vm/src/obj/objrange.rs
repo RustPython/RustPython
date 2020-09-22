@@ -11,9 +11,10 @@ use super::objtype::PyClassRef;
 
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    self, BorrowValue, IntoPyRef, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
+    self, BorrowValue, IdProtocol, IntoPyRef, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
+    PyValue, TryFromObject, TypeProtocol,
 };
+use crate::slots::{Comparable, PyComparisonOp};
 use crate::vm::VirtualMachine;
 use rustpython_common::hash::PyHash;
 
@@ -130,7 +131,7 @@ pub fn init(context: &PyContext) {
 
 type PyRangeRef = PyRef<PyRange>;
 
-#[pyimpl]
+#[pyimpl(with(Comparable))]
 impl PyRange {
     fn new(cls: PyClassRef, stop: PyIntRef, vm: &VirtualMachine) -> PyResult<PyRangeRef> {
         PyRange {
@@ -242,66 +243,6 @@ impl PyRange {
         }
     }
 
-    fn inner_eq(&self, rhs: &PyRange) -> bool {
-        if self.length() != rhs.length() {
-            return false;
-        }
-
-        if self.length().is_zero() {
-            return true;
-        }
-
-        if self.start.borrow_value() != rhs.start.borrow_value() {
-            return false;
-        }
-        let step = self.step.borrow_value();
-        if step.is_one() || step == rhs.step.borrow_value() {
-            return true;
-        }
-
-        false
-    }
-
-    #[pymethod(name = "__eq__")]
-    fn eq(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        if let Some(rhs) = rhs.payload::<PyRange>() {
-            let eq = self.inner_eq(rhs);
-            vm.ctx.new_bool(eq)
-        } else {
-            vm.ctx.not_implemented()
-        }
-    }
-
-    #[pymethod(name = "__ne__")]
-    fn ne(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        if let Some(rhs) = rhs.payload::<PyRange>() {
-            let eq = self.inner_eq(rhs);
-            vm.ctx.new_bool(!eq)
-        } else {
-            vm.ctx.not_implemented()
-        }
-    }
-
-    #[pymethod(name = "__lt__")]
-    fn lt(&self, _rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.not_implemented()
-    }
-
-    #[pymethod(name = "__gt__")]
-    fn gt(&self, _rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.not_implemented()
-    }
-
-    #[pymethod(name = "__ge__")]
-    fn ge(&self, _rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.not_implemented()
-    }
-
-    #[pymethod(name = "__le__")]
-    fn le(&self, _rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.not_implemented()
-    }
-
     #[pymethod(name = "__reduce__")]
     fn reduce(&self, vm: &VirtualMachine) -> (PyClassRef, PyTuple) {
         let range_paramters: Vec<PyObjectRef> = vec![&self.start, &self.stop, &self.step]
@@ -397,6 +338,35 @@ impl PyRange {
         }?;
 
         Ok(range.into_object())
+    }
+}
+
+impl Comparable for PyRange {
+    fn cmp(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        op: PyComparisonOp,
+        _vm: &VirtualMachine,
+    ) -> PyResult<pyobject::PyComparisonValue> {
+        op.eq_only(|| {
+            if zelf.is(&other) {
+                return Ok(true.into());
+            }
+            let rhs = class_or_notimplemented!(Self, other);
+            let lhs_len = zelf.length();
+            let eq = if lhs_len != rhs.length() {
+                false
+            } else if lhs_len.is_zero() {
+                true
+            } else if zelf.start.borrow_value() != rhs.start.borrow_value() {
+                false
+            } else if lhs_len.is_one() {
+                true
+            } else {
+                zelf.step.borrow_value() == rhs.step.borrow_value()
+            };
+            Ok(eq.into())
+        })
     }
 }
 

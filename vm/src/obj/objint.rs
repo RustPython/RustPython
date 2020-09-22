@@ -22,7 +22,7 @@ use crate::pyobject::{
     PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
 };
-use crate::slots::Hashable;
+use crate::slots::{Comparable, Hashable, PyComparisonOp};
 use crate::stdlib::array::PyArray;
 use crate::VirtualMachine;
 use rustpython_common::hash;
@@ -231,7 +231,7 @@ fn inner_truediv(i1: &BigInt, i2: &BigInt, vm: &VirtualMachine) -> PyResult {
     }
 }
 
-#[pyimpl(flags(BASETYPE), with(Hashable))]
+#[pyimpl(flags(BASETYPE), with(Comparable, Hashable))]
 impl PyInt {
     fn with_value<T>(cls: PyClassRef, value: T, vm: &VirtualMachine) -> PyResult<PyIntRef>
     where
@@ -279,47 +279,6 @@ impl PyInt {
         }?;
 
         Self::with_value(cls, value, vm)
-    }
-
-    #[inline]
-    fn cmp<F>(&self, other: PyObjectRef, op: F, vm: &VirtualMachine) -> PyComparisonValue
-    where
-        F: Fn(&BigInt, &BigInt) -> bool,
-    {
-        let r = other
-            .payload_if_subclass::<PyInt>(vm)
-            .map(|other| op(&self.value, &other.value));
-        PyComparisonValue::from_option(r)
-    }
-
-    #[pymethod(name = "__eq__")]
-    fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
-        self.cmp(other, |a, b| a == b, vm)
-    }
-
-    #[pymethod(name = "__ne__")]
-    fn ne(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
-        self.cmp(other, |a, b| a != b, vm)
-    }
-
-    #[pymethod(name = "__lt__")]
-    fn lt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
-        self.cmp(other, |a, b| a < b, vm)
-    }
-
-    #[pymethod(name = "__le__")]
-    fn le(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
-        self.cmp(other, |a, b| a <= b, vm)
-    }
-
-    #[pymethod(name = "__gt__")]
-    fn gt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
-        self.cmp(other, |a, b| a > b, vm)
-    }
-
-    #[pymethod(name = "__ge__")]
-    fn ge(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
-        self.cmp(other, |a, b| a >= b, vm)
     }
 
     #[inline]
@@ -707,6 +666,20 @@ impl PyInt {
             .iter()
             .map(|n| n.count_ones())
             .sum()
+    }
+}
+
+impl Comparable for PyInt {
+    fn cmp(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        let r = other
+            .payload_if_subclass::<PyInt>(vm)
+            .map(|other| op.eval_ord(zelf.value.cmp(&other.value)));
+        Ok(PyComparisonValue::from_option(r))
     }
 }
 

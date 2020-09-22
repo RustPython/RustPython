@@ -11,7 +11,7 @@ use crate::pyobject::{
     PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
 };
 use crate::sequence::{self, SimpleSeq};
-use crate::slots::Hashable;
+use crate::slots::{Comparable, Hashable, PyComparisonOp};
 use crate::vm::{ReprGuard, VirtualMachine};
 use rustpython_common::hash::PyHash;
 
@@ -81,44 +81,8 @@ pub(crate) fn get_value(obj: &PyObjectRef) -> &[PyObjectRef] {
     obj.payload::<PyTuple>().unwrap().borrow_value()
 }
 
-#[pyimpl(flags(BASETYPE), with(Hashable))]
+#[pyimpl(flags(BASETYPE), with(Hashable, Comparable))]
 impl PyTuple {
-    #[inline]
-    fn cmp<F>(&self, other: PyObjectRef, op: F, vm: &VirtualMachine) -> PyResult<PyComparisonValue>
-    where
-        F: Fn(sequence::DynPyIter, sequence::DynPyIter) -> PyResult<bool>,
-    {
-        let r = if let Some(other) = other.payload_if_subclass::<PyTuple>(vm) {
-            Implemented(op(
-                self.borrow_value().boxed_iter(),
-                other.borrow_value().boxed_iter(),
-            )?)
-        } else {
-            NotImplemented
-        };
-        Ok(r)
-    }
-
-    #[pymethod(name = "__lt__")]
-    fn lt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
-        self.cmp(other, |a, b| sequence::lt(vm, a, b), vm)
-    }
-
-    #[pymethod(name = "__gt__")]
-    fn gt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
-        self.cmp(other, |a, b| sequence::gt(vm, a, b), vm)
-    }
-
-    #[pymethod(name = "__ge__")]
-    fn ge(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
-        self.cmp(other, |a, b| sequence::ge(vm, a, b), vm)
-    }
-
-    #[pymethod(name = "__le__")]
-    fn le(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
-        self.cmp(other, |a, b| sequence::le(vm, a, b), vm)
-    }
-
     #[pymethod(name = "__add__")]
     fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<PyTuple> {
         if let Some(other) = other.payload_if_subclass::<PyTuple>(vm) {
@@ -148,16 +112,6 @@ impl PyTuple {
             }
         }
         Ok(count)
-    }
-
-    #[pymethod(name = "__eq__")]
-    fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
-        self.cmp(other, |a, b| sequence::eq(vm, a, b), vm)
-    }
-
-    #[pymethod(name = "__ne__")]
-    fn ne(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
-        Ok(self.eq(other, vm)?.map(|v| !v))
     }
 
     #[pymethod(name = "__iter__")]
@@ -254,6 +208,23 @@ impl PyTuple {
 impl Hashable for PyTuple {
     fn hash(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
         pyobject::hash_iter(zelf.elements.iter(), vm)
+    }
+}
+
+impl Comparable for PyTuple {
+    fn cmp(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        if let Some(res) = op.identical_optimization(&zelf, &other) {
+            return Ok(res.into());
+        }
+        let other = class_or_notimplemented!(Self, other);
+        let a = zelf.borrow_value();
+        let b = other.borrow_value();
+        sequence::cmp(vm, a.boxed_iter(), b.boxed_iter(), op).map(PyComparisonValue::Implemented)
     }
 }
 

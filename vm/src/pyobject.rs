@@ -1199,6 +1199,15 @@ impl<A: PyValue, B: PyValue> Either<PyRef<A>, PyRef<B>> {
     }
 }
 
+impl<A: IntoPyObject, B: IntoPyObject> IntoPyObject for Either<A, B> {
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+        match self {
+            Self::A(a) => a.into_pyobject(vm),
+            Self::B(b) => b.into_pyobject(vm),
+        }
+    }
+}
+
 /// This allows a builtin method to accept arguments that may be one of two
 /// types, raising a `TypeError` if it is neither.
 ///
@@ -1376,6 +1385,24 @@ impl TryFromObject for std::time::Duration {
 }
 
 result_like::option_like!(pub PyArithmaticValue, Implemented, NotImplemented);
+
+impl PyArithmaticValue<PyObjectRef> {
+    pub fn from_object(vm: &VirtualMachine, obj: PyObjectRef) -> Self {
+        if obj.is(&vm.ctx.not_implemented) {
+            Self::NotImplemented
+        } else {
+            Self::Implemented(obj)
+        }
+    }
+}
+
+impl<T: TryFromObject> TryFromObject for PyArithmaticValue<T> {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        PyArithmaticValue::from_object(vm, obj)
+            .map(|x| T::try_from_object(vm, x))
+            .transpose()
+    }
+}
 
 impl<T> IntoPyObject for PyArithmaticValue<T>
 where

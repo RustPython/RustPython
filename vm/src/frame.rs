@@ -28,6 +28,7 @@ use crate::pyobject::{
     TypeProtocol,
 };
 use crate::scope::{NameProtocol, Scope};
+use crate::slots::PyComparisonOp;
 use crate::vm::VirtualMachine;
 
 #[derive(Clone, Debug)]
@@ -1406,12 +1407,12 @@ impl ExecutingFrame<'_> {
         let b = self.pop_value();
         let a = self.pop_value();
         let value = match *op {
-            bytecode::ComparisonOperator::Equal => vm._eq(a, b)?,
-            bytecode::ComparisonOperator::NotEqual => vm._ne(a, b)?,
-            bytecode::ComparisonOperator::Less => vm._lt(a, b)?,
-            bytecode::ComparisonOperator::LessOrEqual => vm._le(a, b)?,
-            bytecode::ComparisonOperator::Greater => vm._gt(a, b)?,
-            bytecode::ComparisonOperator::GreaterOrEqual => vm._ge(a, b)?,
+            bytecode::ComparisonOperator::Equal => vm.obj_cmp(a, b, PyComparisonOp::Eq)?,
+            bytecode::ComparisonOperator::NotEqual => vm.obj_cmp(a, b, PyComparisonOp::Ne)?,
+            bytecode::ComparisonOperator::Less => vm.obj_cmp(a, b, PyComparisonOp::Lt)?,
+            bytecode::ComparisonOperator::LessOrEqual => vm.obj_cmp(a, b, PyComparisonOp::Le)?,
+            bytecode::ComparisonOperator::Greater => vm.obj_cmp(a, b, PyComparisonOp::Gt)?,
+            bytecode::ComparisonOperator::GreaterOrEqual => vm.obj_cmp(a, b, PyComparisonOp::Ge)?,
             bytecode::ComparisonOperator::Is => vm.ctx.new_bool(self._is(a, b)),
             bytecode::ComparisonOperator::IsNot => vm.ctx.new_bool(self._is_not(a, b)),
             bytecode::ComparisonOperator::In => vm.ctx.new_bool(self._in(vm, a, b)?),

@@ -8,7 +8,7 @@ use crate::pyobject::{
     BorrowValue, IntoPyObject, Never, PyArithmaticValue, PyClassImpl, PyComparisonValue, PyContext,
     PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
-use crate::slots::Hashable;
+use crate::slots::{Comparable, Hashable, PyComparisonOp};
 use crate::VirtualMachine;
 use rustpython_common::{float_ops, hash};
 
@@ -56,7 +56,7 @@ fn try_complex(value: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<Comp
     Ok(r)
 }
 
-#[pyimpl(flags(BASETYPE), with(Hashable))]
+#[pyimpl(flags(BASETYPE), with(Comparable, Hashable))]
 impl PyComplex {
     #[pyproperty(name = "real")]
     fn real(&self) -> f64 {
@@ -121,25 +121,6 @@ impl PyComplex {
     #[pymethod(name = "conjugate")]
     fn conjugate(&self) -> Complex64 {
         self.value.conj()
-    }
-
-    #[pymethod(name = "__eq__")]
-    fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
-        let result = if let Some(other) = other.payload_if_subclass::<PyComplex>(vm) {
-            self.value == other.value
-        } else {
-            match objfloat::try_float(&other, vm) {
-                Ok(Some(other)) => self.value.im == 0.0f64 && self.value.re == other,
-                Err(_) => false,
-                Ok(None) => return PyComparisonValue::NotImplemented,
-            }
-        };
-        PyComparisonValue::Implemented(result)
-    }
-
-    #[pymethod(name = "__ne__")]
-    fn ne(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
-        self.eq(other, vm).map(|v| !v)
     }
 
     #[pymethod(name = "__float__")]
@@ -294,6 +275,28 @@ impl PyComplex {
         let Complex64 { re, im } = self.value;
         vm.ctx
             .new_tuple(vec![vm.ctx.new_float(re), vm.ctx.new_float(im)])
+    }
+}
+
+impl Comparable for PyComplex {
+    fn cmp(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        op.eq_only(|| {
+            let result = if let Some(other) = other.payload_if_subclass::<PyComplex>(vm) {
+                zelf.value == other.value
+            } else {
+                match objfloat::try_float(&other, vm) {
+                    Ok(Some(other)) => zelf.value == other.into(),
+                    Err(_) => false,
+                    Ok(None) => return Ok(PyComparisonValue::NotImplemented),
+                }
+            };
+            Ok(PyComparisonValue::Implemented(result))
+        })
     }
 }
 

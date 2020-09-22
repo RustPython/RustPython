@@ -1,4 +1,5 @@
-use crate::pyobject::{IdProtocol, PyObjectRef, PyResult};
+use crate::pyobject::{PyObjectRef, PyResult};
+use crate::slots::PyComparisonOp;
 use crate::vm::VirtualMachine;
 use num_traits::cast::ToPrimitive;
 
@@ -26,10 +27,7 @@ where
 pub(crate) fn eq(vm: &VirtualMachine, zelf: DynPyIter, other: DynPyIter) -> PyResult<bool> {
     if zelf.len() == other.len() {
         for (a, b) in Iterator::zip(zelf, other) {
-            if a.is(b) {
-                continue;
-            }
-            if !vm.bool_eq(a.clone(), b.clone())? {
+            if !vm.identical_or_equal(a, b)? {
                 return Ok(false);
             }
         }
@@ -39,34 +37,30 @@ pub(crate) fn eq(vm: &VirtualMachine, zelf: DynPyIter, other: DynPyIter) -> PyRe
     }
 }
 
-fn cmp<L, O>(zelf: DynPyIter, other: DynPyIter, len_cmp: L, obj_cmp: O) -> PyResult<bool>
-where
-    L: Fn(usize, usize) -> bool,
-    O: Fn(PyObjectRef, PyObjectRef) -> PyResult<Option<bool>>,
-{
-    let fallback = len_cmp(zelf.len(), other.len());
+pub fn cmp(
+    vm: &VirtualMachine,
+    zelf: DynPyIter,
+    other: DynPyIter,
+    op: PyComparisonOp,
+) -> PyResult<bool> {
+    let less = match op {
+        PyComparisonOp::Eq => return eq(vm, zelf, other),
+        PyComparisonOp::Ne => return eq(vm, zelf, other).map(|eq| !eq),
+        PyComparisonOp::Lt | PyComparisonOp::Le => true,
+        PyComparisonOp::Gt | PyComparisonOp::Ge => false,
+    };
+    let (lhs_len, rhs_len) = (zelf.len(), other.len());
     for (a, b) in Iterator::zip(zelf, other) {
-        if let Some(v) = obj_cmp(a.clone(), b.clone())? {
+        let ret = if less {
+            vm.bool_seq_lt(a.clone(), b.clone())?
+        } else {
+            vm.bool_seq_gt(a.clone(), b.clone())?
+        };
+        if let Some(v) = ret {
             return Ok(v);
         }
     }
-    Ok(fallback)
-}
-
-pub(crate) fn lt(vm: &VirtualMachine, zelf: DynPyIter, other: DynPyIter) -> PyResult<bool> {
-    cmp(zelf, other, |a, b| a < b, |a, b| vm.bool_seq_lt(a, b))
-}
-
-pub(crate) fn le(vm: &VirtualMachine, zelf: DynPyIter, other: DynPyIter) -> PyResult<bool> {
-    cmp(zelf, other, |a, b| a <= b, |a, b| vm.bool_seq_lt(a, b))
-}
-
-pub(crate) fn gt(vm: &VirtualMachine, zelf: DynPyIter, other: DynPyIter) -> PyResult<bool> {
-    cmp(zelf, other, |a, b| a > b, |a, b| vm.bool_seq_gt(a, b))
-}
-
-pub(crate) fn ge(vm: &VirtualMachine, zelf: DynPyIter, other: DynPyIter) -> PyResult<bool> {
-    cmp(zelf, other, |a, b| a >= b, |a, b| vm.bool_seq_gt(a, b))
+    Ok(op.eval_ord(lhs_len.cmp(&rhs_len)))
 }
 
 pub(crate) struct SeqMul<'a> {
