@@ -3,9 +3,10 @@ use std::cmp::Ordering;
 use crate::common::cell::PyRwLock;
 use crate::common::hash::PyHash;
 use crate::function::{OptionalArg, PyFuncArgs, PyNativeFunc};
+use crate::obj::objint::PyInt;
 use crate::pyobject::{
-    IdProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol,
+    BorrowValue, IdProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol,
 };
 use crate::VirtualMachine;
 use crossbeam_utils::atomic::AtomicCell;
@@ -44,7 +45,7 @@ impl Default for PyTpFlags {
 type GenericMethod = fn(PyObjectRef, PyFuncArgs, &VirtualMachine) -> PyResult;
 type DescrGetFunc =
     fn(PyObjectRef, Option<PyObjectRef>, Option<PyObjectRef>, &VirtualMachine) -> PyResult;
-type HashFunc = Box<py_dyn_fn!(dyn Fn(PyObjectRef, &VirtualMachine) -> PyResult<PyHash>)>;
+type HashFunc = fn(PyObjectRef, &VirtualMachine) -> PyResult<PyHash>;
 
 #[derive(Default)]
 pub struct PyClassSlots {
@@ -53,7 +54,7 @@ pub struct PyClassSlots {
     pub new: Option<PyNativeFunc>,
     pub call: AtomicCell<Option<GenericMethod>>,
     pub descr_get: AtomicCell<Option<DescrGetFunc>>,
-    pub hash: Option<HashFunc>,
+    pub hash: AtomicCell<Option<HashFunc>>,
     pub cmp: Option<CmpFunc>,
 }
 
@@ -96,6 +97,20 @@ impl PyClassSlots {
                     )
                 } as _;
                 self.descr_get.store(Some(func))
+            }
+            "__hash__" => {
+                let func: HashFunc = |zelf, vm| {
+                    let magic = get_class_magic(&zelf, "__hash__");
+                    let hash_obj = vm.invoke(&magic, vec![zelf])?;
+                    match hash_obj.payload_if_subclass::<PyInt>(vm) {
+                        Some(py_int) => {
+                            Ok(rustpython_common::hash::hash_bigint(py_int.borrow_value()))
+                        }
+                        None => Err(vm
+                            .new_type_error("__hash__ method should return an integer".to_owned())),
+                    }
+                } as _;
+                self.hash.store(Some(func));
             }
             _ => (),
         }

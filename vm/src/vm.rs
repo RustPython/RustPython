@@ -28,7 +28,7 @@ use crate::import;
 use crate::obj::objbool;
 use crate::obj::objcode::{PyCode, PyCodeRef};
 use crate::obj::objdict::PyDictRef;
-use crate::obj::objint::{PyInt, PyIntRef};
+use crate::obj::objint::PyIntRef;
 use crate::obj::objiter;
 use crate::obj::objlist::PyList;
 use crate::obj::objmodule::{self, PyModule};
@@ -1453,17 +1453,11 @@ impl VirtualMachine {
     }
 
     pub fn _hash(&self, obj: &PyObjectRef) -> PyResult<rustpython_common::hash::PyHash> {
-        if let Some(ref hash) = obj.lease_class().slots.hash {
-            hash(obj.clone(), self)
-        } else {
-            let hash_obj = self.call_method(obj, "__hash__", vec![])?;
-            match hash_obj.payload_if_subclass::<PyInt>(self) {
-                Some(py_int) => Ok(rustpython_common::hash::hash_bigint(py_int.borrow_value())),
-                None => {
-                    Err(self.new_type_error("__hash__ method should return an integer".to_owned()))
-                }
-            }
-        }
+        let hash = obj
+            .class()
+            .first_in_mro(|cls| cls.slots.hash.load())
+            .unwrap(); // hash always exist
+        hash(obj.clone(), self)
     }
 
     // https://docs.python.org/3/reference/expressions.html#membership-test-operations

@@ -702,7 +702,7 @@ pub fn new(
     if base.slots.flags.has_feature(PyTpFlags::HAS_DICT) {
         slots.flags |= PyTpFlags::HAS_DICT
     }
-    for slot_name in ["__call__", "__get__"].iter() {
+    for slot_name in ["__call__", "__get__", "__hash__"].iter() {
         if attrs.contains_key(*slot_name) {
             slots.update_slot_func(*slot_name);
         }
