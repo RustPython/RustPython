@@ -529,8 +529,9 @@ impl<T: PyValue> PyRef<T> {
             Ok(unsafe { Self::from_obj_unchecked(obj) })
         } else {
             Err(vm.new_runtime_error(format!(
-                "Unexpected payload for type {:?}",
-                obj.lease_class().name
+                "Unexpected payload '{}' for type '{}'",
+                T::class(vm).name,
+                obj.lease_class().name,
             )))
         }
     }

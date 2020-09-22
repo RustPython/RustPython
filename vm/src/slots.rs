@@ -171,6 +171,17 @@ pub trait Hashable: PyValue {
     fn hash(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash>;
 }
 
+pub trait Unhashable: PyValue {}
+
+impl<T> Hashable for T
+where
+    T: Unhashable,
+{
+    fn hash(_zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+        Err(vm.new_type_error("unhashable type".to_owned()))
+    }
+}
+
 #[pyimpl]
 pub trait Comparable: PyValue {
     #[pyslot]

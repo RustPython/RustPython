@@ -12,7 +12,7 @@ use crate::pyobject::{
     self, BorrowValue, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef,
     PyResult, PyValue, TryFromObject, TypeProtocol,
 };
-use crate::slots::{Comparable, Hashable, PyComparisonOp};
+use crate::slots::{Comparable, Hashable, PyComparisonOp, Unhashable};
 use crate::vm::{ReprGuard, VirtualMachine};
 use rustpython_common::hash::PyHash;
 
@@ -313,7 +313,7 @@ macro_rules! multi_args_set {
     }};
 }
 
-#[pyimpl(flags(BASETYPE), with(Comparable))]
+#[pyimpl(with(Hashable, Comparable), flags(BASETYPE))]
 impl PySet {
     #[pyslot]
     fn tp_new(
@@ -524,11 +524,6 @@ impl PySet {
             .symmetric_difference_update(iterable.iterable, vm)?;
         Ok(zelf.as_object().clone())
     }
-
-    #[pymethod(name = "__hash__")]
-    fn hash(&self, vm: &VirtualMachine) -> PyResult<()> {
-        Err(vm.new_type_error("unhashable type".to_owned()))
-    }
 }
 
 impl Comparable for PySet {
@@ -543,6 +538,8 @@ impl Comparable for PySet {
         })
     }
 }
+
+impl Unhashable for PySet {}
 
 macro_rules! multi_args_frozenset {
     ($vm:expr, $others:expr, $zelf:expr, $op:tt) => {{
