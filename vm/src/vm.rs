@@ -1457,7 +1457,7 @@ impl VirtualMachine {
             .class()
             .first_in_mro(|cls| cls.slots.hash.load())
             .unwrap(); // hash always exist
-        hash(obj.clone(), self)
+        hash(&obj, self)
     }
 
     // https://docs.python.org/3/reference/expressions.html#membership-test-operations

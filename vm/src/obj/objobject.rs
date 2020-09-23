@@ -257,9 +257,13 @@ impl PyBaseObject {
     }
 
     #[pyslot]
-    #[pymethod(magic)]
-    fn hash(zelf: PyObjectRef, _vm: &VirtualMachine) -> PyResult<PyHash> {
+    fn tp_hash(zelf: &PyObjectRef, _vm: &VirtualMachine) -> PyResult<PyHash> {
         Ok(zelf.get_id() as _)
+    }
+
+    #[pymethod(magic)]
+    fn hash(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyHash> {
+        Self::tp_hash(&zelf, vm)
     }
 }
 

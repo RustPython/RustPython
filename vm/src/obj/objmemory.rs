@@ -67,7 +67,7 @@ impl PyMemoryView {
 }
 
 impl Hashable for PyMemoryView {
-    fn hash(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+    fn hash(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
         vm._hash(&zelf.obj_ref)
     }
 }

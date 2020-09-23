@@ -206,7 +206,7 @@ impl PyTuple {
 }
 
 impl Hashable for PyTuple {
-    fn hash(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+    fn hash(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
         pyobject::hash_iter(zelf.elements.iter(), vm)
     }
 }

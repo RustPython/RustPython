@@ -43,7 +43,7 @@ impl Default for PyTpFlags {
 pub(crate) type GenericMethod = fn(PyObjectRef, PyFuncArgs, &VirtualMachine) -> PyResult;
 pub(crate) type DescrGetFunc =
     fn(PyObjectRef, Option<PyObjectRef>, Option<PyObjectRef>, &VirtualMachine) -> PyResult;
-pub(crate) type HashFunc = fn(PyObjectRef, &VirtualMachine) -> PyResult<PyHash>;
+pub(crate) type HashFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<PyHash>;
 
 #[derive(Default)]
 pub struct PyClassSlots {
@@ -158,13 +158,20 @@ pub trait SlotDescriptor: PyValue {
 #[pyimpl]
 pub trait Hashable: PyValue {
     #[pyslot]
-    fn tp_hash(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyHash> {
-        let zelf = PyRef::try_from_object(vm, zelf)?;
-        Self::hash(zelf, vm)
+    fn tp_hash(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<PyHash> {
+        if let Some(zelf) = zelf.downcast_ref() {
+            Self::hash(zelf, vm)
+        } else {
+            Err(vm.new_type_error("unexpected payload for __hash__".to_owned()))
+        }
     }
 
-    #[pymethod(magic)]
-    fn hash(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash>;
+    #[pymethod]
+    fn __hash__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+        Self::hash(&zelf, vm)
+    }
+
+    fn hash(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash>;
 }
 
 pub trait Unhashable: PyValue {}
@@ -173,7 +180,7 @@ impl<T> Hashable for T
 where
     T: Unhashable,
 {
-    fn hash(_zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+    fn hash(_zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
         Err(vm.new_type_error("unhashable type".to_owned()))
     }
 }

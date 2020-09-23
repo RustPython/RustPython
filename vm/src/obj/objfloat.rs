@@ -486,7 +486,7 @@ impl Comparable for PyFloat {
 }
 
 impl Hashable for PyFloat {
-    fn hash(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyResult<hash::PyHash> {
+    fn hash(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<hash::PyHash> {
         Ok(hash::hash_float(zelf.to_f64()))
     }
 }

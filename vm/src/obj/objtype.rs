@@ -139,7 +139,7 @@ impl PyClassRef {
             "__hash__" => {
                 let func: slots::HashFunc = |zelf, vm| {
                     let magic = get_class_magic(&zelf, "__hash__");
-                    let hash_obj = vm.invoke(&magic, vec![zelf])?;
+                    let hash_obj = vm.invoke(&magic, vec![zelf.clone()])?;
                     match hash_obj.payload_if_subclass::<PyInt>(vm) {
                         Some(py_int) => {
                             Ok(rustpython_common::hash::hash_bigint(py_int.borrow_value()))

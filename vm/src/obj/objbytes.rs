@@ -457,7 +457,7 @@ impl PyBytes {
 }
 
 impl Hashable for PyBytes {
-    fn hash(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+    fn hash(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
         Ok(zelf.inner.hash(vm))
     }
 }

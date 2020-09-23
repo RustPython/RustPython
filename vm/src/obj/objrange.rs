@@ -321,7 +321,7 @@ impl PyRange {
 }
 
 impl Hashable for PyRange {
-    fn hash(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+    fn hash(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
         let length = zelf.length();
         let elements = if length.is_zero() {
             [vm.ctx.new_int(length), vm.ctx.none(), vm.ctx.none()]

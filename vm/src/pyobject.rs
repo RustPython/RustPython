@@ -487,6 +487,15 @@ impl PyObjectRef {
             Err(self)
         }
     }
+
+    pub fn downcast_ref<T: PyObjectPayload + PyValue>(&self) -> Option<&PyRef<T>> {
+        if self.payload_is::<T>() {
+            // when payload exacts, PyObjectRef == PyRef { PyObject }
+            Some(unsafe { &*(self as *const PyObjectRef as *const PyRef<T>) })
+        } else {
+            None
+        }
+    }
 }
 
 /// A reference to a Python object.
