@@ -1,6 +1,6 @@
-use std::fmt;
-
 use crossbeam_utils::atomic::AtomicCell;
+use std::fmt;
+use std::mem::size_of;
 
 use super::objiter;
 use super::objset::PySet;
@@ -10,15 +10,12 @@ use crate::dictdatatype::{self, DictKey};
 use crate::exceptions::PyBaseExceptionRef;
 use crate::function::{KwArgs, OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    BorrowValue, IdProtocol, IntoPyObject, ItemProtocol, PyArithmaticValue, PyAttributes,
+    BorrowValue, IdProtocol, IntoPyObject, ItemProtocol, PyArithmaticValue::*, PyAttributes,
     PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol,
 };
-use crate::slots::{Comparable, PyComparisonOp};
+use crate::slots::{Comparable, Hashable, PyComparisonOp, Unhashable};
 use crate::vm::{ReprGuard, VirtualMachine};
-
-use std::mem::size_of;
-use PyArithmaticValue::{Implemented, NotImplemented};
 
 pub type DictContentType = dictdatatype::Dict;
 
@@ -53,7 +50,7 @@ impl PyValue for PyDict {
 
 // Python dict methods:
 #[allow(clippy::len_without_is_empty)]
-#[pyimpl(flags(BASETYPE), with(Comparable))]
+#[pyimpl(with(Hashable, Comparable), flags(BASETYPE))]
 impl PyDict {
     #[pyslot]
     fn tp_new(class: PyClassRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
@@ -397,11 +394,6 @@ impl PyDict {
         Ok(PyDict { entries: dict })
     }
 
-    #[pymethod(magic)]
-    fn hash(&self, vm: &VirtualMachine) -> PyResult<()> {
-        Err(vm.new_type_error("unhashable type".to_owned()))
-    }
-
     pub fn contains_key<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> bool {
         let key = key.into_pyobject(vm);
         self.entries.contains(vm, &key).unwrap()
@@ -430,6 +422,8 @@ impl Comparable for PyDict {
         })
     }
 }
+
+impl Unhashable for PyDict {}
 
 impl PyDictRef {
     /// Return an optional inner item, or an error (can be key error as well)

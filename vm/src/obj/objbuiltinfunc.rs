@@ -1,7 +1,7 @@
 use std::fmt;
 
 use super::objclassmethod::PyClassMethod;
-use crate::function::{OptionalArg, PyFuncArgs, PyNativeFunc};
+use crate::function::{PyFuncArgs, PyNativeFunc};
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
@@ -169,10 +169,10 @@ impl PyBuiltinMethod {
 
 impl SlotDescriptor for PyBuiltinMethod {
     fn descr_get(
-        vm: &VirtualMachine,
         zelf: PyObjectRef,
         obj: Option<PyObjectRef>,
-        cls: OptionalArg<PyObjectRef>,
+        cls: Option<PyObjectRef>,
+        vm: &VirtualMachine,
     ) -> PyResult {
         let (zelf, obj) = match Self::_check(zelf, obj, vm) {
             Ok(obj) => obj,

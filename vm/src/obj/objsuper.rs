@@ -132,10 +132,10 @@ impl PySuper {
 
 impl SlotDescriptor for PySuper {
     fn descr_get(
-        vm: &VirtualMachine,
         zelf: PyObjectRef,
         obj: Option<PyObjectRef>,
-        _cls: OptionalArg<PyObjectRef>,
+        _cls: Option<PyObjectRef>,
+        vm: &VirtualMachine,
     ) -> PyResult {
         let (zelf, obj) = Self::_unwrap(zelf, obj, vm)?;
         if vm.is_none(&obj) || zelf.obj.is_some() {

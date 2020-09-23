@@ -23,12 +23,12 @@ use crate::common::{cell::PyMutex, hash::HashSecret, rc::PyRc};
 use crate::exceptions::{self, PyBaseException, PyBaseExceptionRef};
 use crate::frame::{ExecutionResult, Frame, FrameRef};
 use crate::frozen;
-use crate::function::{OptionalArg, PyFuncArgs};
+use crate::function::PyFuncArgs;
 use crate::import;
 use crate::obj::objbool;
 use crate::obj::objcode::{PyCode, PyCodeRef};
 use crate::obj::objdict::PyDictRef;
-use crate::obj::objint::{PyInt, PyIntRef};
+use crate::obj::objint::PyIntRef;
 use crate::obj::objiter;
 use crate::obj::objlist::PyList;
 use crate::obj::objmodule::{self, PyModule};
@@ -841,18 +841,10 @@ impl VirtualMachine {
         obj: Option<PyObjectRef>,
         cls: Option<PyObjectRef>,
     ) -> Option<PyResult> {
-        let descr_class = descr.class();
-        let slots = &descr_class.slots;
-        if let Some(descr_get) = slots.descr_get.as_ref() {
-            Some(descr_get(self, descr, obj, OptionalArg::from_option(cls)))
-        } else if let Some(ref descriptor) = descr_class.get_attr("__get__") {
-            Some(self.invoke(
-                descriptor,
-                vec![descr, self.unwrap_or_none(obj), self.unwrap_or_none(cls)],
-            ))
-        } else {
-            None
-        }
+        descr
+            .class()
+            .first_in_mro(|cls| cls.slots.descr_get.load())
+            .map(|descr_get| descr_get(descr, obj, cls, self))
     }
 
     pub fn call_get_descriptor(&self, descr: PyObjectRef, obj: PyObjectRef) -> Option<PyResult> {
@@ -890,19 +882,18 @@ impl VirtualMachine {
 
     fn _invoke(&self, callable: &PyObjectRef, args: PyFuncArgs) -> PyResult {
         vm_trace!("Invoke: {:?} {:?}", callable, args);
-        if let Some(slot_call) = callable.lease_class().slots.call.as_ref() {
-            self.trace_event(TraceEvent::Call)?;
-            let args = args.insert(callable.clone());
-            let result = slot_call(self, args);
-            self.trace_event(TraceEvent::Return)?;
-            result
-        } else if callable.lease_class().has_attr("__call__") {
-            self.call_method(&callable, "__call__", args)
-        } else {
-            Err(self.new_type_error(format!(
+        let slot_call = callable.class().first_in_mro(|cls| cls.slots.call.load());
+        match slot_call {
+            Some(slot_call) => {
+                self.trace_event(TraceEvent::Call)?;
+                let result = slot_call(callable.clone(), args, self);
+                self.trace_event(TraceEvent::Return)?;
+                result
+            }
+            None => Err(self.new_type_error(format!(
                 "'{}' object is not callable",
                 callable.lease_class().name
-            )))
+            ))),
         }
     }
 
@@ -1125,8 +1116,9 @@ impl VirtualMachine {
     }
 
     pub fn is_callable(&self, obj: &PyObjectRef) -> bool {
-        let class = obj.lease_class();
-        class.slots.call.is_some() || class.has_attr("__call__")
+        obj.class()
+            .first_in_mro(|cls| cls.slots.call.load())
+            .is_some()
     }
 
     #[inline]
@@ -1461,17 +1453,11 @@ impl VirtualMachine {
     }
 
     pub fn _hash(&self, obj: &PyObjectRef) -> PyResult<rustpython_common::hash::PyHash> {
-        if let Some(ref hash) = obj.lease_class().slots.hash {
-            hash(obj.clone(), self)
-        } else {
-            let hash_obj = self.call_method(obj, "__hash__", vec![])?;
-            match hash_obj.payload_if_subclass::<PyInt>(self) {
-                Some(py_int) => Ok(rustpython_common::hash::hash_bigint(py_int.borrow_value())),
-                None => {
-                    Err(self.new_type_error("__hash__ method should return an integer".to_owned()))
-                }
-            }
-        }
+        let hash = obj
+            .class()
+            .first_in_mro(|cls| cls.slots.hash.load())
+            .unwrap(); // hash always exist
+        hash(&obj, self)
     }
 
     // https://docs.python.org/3/reference/expressions.html#membership-test-operations

@@ -7,7 +7,7 @@ use crate::pyobject::{
     BorrowValue, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
     PyResult, PyValue, TryIntoRef, TypeProtocol,
 };
-use crate::slots::{Comparable, PyComparisonOp};
+use crate::slots::{Comparable, Hashable, PyComparisonOp, Unhashable};
 use crate::VirtualMachine;
 use num_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, Zero};
@@ -28,7 +28,7 @@ impl PyValue for PySlice {
 
 pub type PySliceRef = PyRef<PySlice>;
 
-#[pyimpl(with(Comparable))]
+#[pyimpl(with(Hashable, Comparable))]
 impl PySlice {
     #[pyproperty(name = "start")]
     fn start(&self, vm: &VirtualMachine) -> PyObjectRef {
@@ -194,11 +194,6 @@ impl PySlice {
         Ok((start, stop, step))
     }
 
-    #[pymethod(name = "__hash__")]
-    fn hash(&self, vm: &VirtualMachine) -> PyResult<()> {
-        Err(vm.new_type_error("unhashable type".to_owned()))
-    }
-
     #[pymethod(name = "indices")]
     fn indices(&self, length: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(length) = length.payload::<PyInt>() {
@@ -249,6 +244,8 @@ impl Comparable for PySlice {
         Ok(PyComparisonValue::Implemented(ret))
     }
 }
+
+impl Unhashable for PySlice {}
 
 fn to_index_value(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Option<BigInt>> {
     if vm.is_none(obj) {

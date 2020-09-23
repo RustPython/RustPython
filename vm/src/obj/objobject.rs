@@ -3,6 +3,7 @@ use super::objdict::{PyDict, PyDictRef};
 use super::objlist::PyList;
 use super::objstr::PyStringRef;
 use super::objtype::PyClassRef;
+use crate::common::hash::PyHash;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objtype::PyClass;
 use crate::pyobject::{
@@ -116,12 +117,6 @@ impl PyBaseObject {
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
         Self::tp_cmp(zelf, other, PyComparisonOp::Gt, vm)
-    }
-
-    #[pymethod(magic)]
-    #[pyslot]
-    fn hash(zelf: PyObjectRef, _vm: &VirtualMachine) -> PyResult<rustpython_common::hash::PyHash> {
-        Ok(zelf.get_id() as _)
     }
 
     #[pymethod(magic)]
@@ -259,6 +254,16 @@ impl PyBaseObject {
             }
         }
         common_reduce(obj, proto, vm)
+    }
+
+    #[pyslot]
+    fn tp_hash(zelf: &PyObjectRef, _vm: &VirtualMachine) -> PyResult<PyHash> {
+        Ok(zelf.get_id() as _)
+    }
+
+    #[pymethod(magic)]
+    fn hash(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyHash> {
+        Self::tp_hash(&zelf, vm)
     }
 }
 

@@ -21,7 +21,7 @@ use crate::pyobject::{
     PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::sequence::{self, SimpleSeq};
-use crate::slots::{Comparable, PyComparisonOp};
+use crate::slots::{Comparable, Hashable, PyComparisonOp, Unhashable};
 use crate::vm::{ReprGuard, VirtualMachine};
 
 /// Built-in mutable sequence.
@@ -103,7 +103,7 @@ pub(crate) struct SortOptions {
 
 pub type PyListRef = PyRef<PyList>;
 
-#[pyimpl(flags(BASETYPE), with(Comparable))]
+#[pyimpl(with(Hashable, Comparable), flags(BASETYPE))]
 impl PyList {
     #[pymethod]
     pub(crate) fn append(&self, x: PyObjectRef) {
@@ -252,11 +252,6 @@ impl PyList {
             "[...]".to_owned()
         };
         Ok(s)
-    }
-
-    #[pymethod(name = "__hash__")]
-    fn hash(&self, vm: &VirtualMachine) -> PyResult<()> {
-        Err(vm.new_type_error("unhashable type".to_owned()))
     }
 
     #[pymethod(name = "__mul__")]
@@ -424,6 +419,8 @@ impl Comparable for PyList {
         sequence::cmp(vm, a.boxed_iter(), b.boxed_iter(), op).map(PyComparisonValue::Implemented)
     }
 }
+
+impl Unhashable for PyList {}
 
 fn do_sort(
     vm: &VirtualMachine,

@@ -75,7 +75,7 @@ impl PyWeak {
 }
 
 impl Hashable for PyWeak {
-    fn hash(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+    fn hash(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
         match zelf.hash.load() {
             Some(hash) => Ok(hash),
             None => {

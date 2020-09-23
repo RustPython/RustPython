@@ -4,7 +4,6 @@
 use crate::common::cell::PyRwLock;
 
 use super::objtype::PyClassRef;
-use crate::function::OptionalArg;
 use crate::pyobject::{
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
@@ -74,10 +73,10 @@ struct PropertyArgs {
 
 impl SlotDescriptor for PyProperty {
     fn descr_get(
-        vm: &VirtualMachine,
         zelf: PyObjectRef,
         obj: Option<PyObjectRef>,
-        _cls: OptionalArg<PyObjectRef>,
+        _cls: Option<PyObjectRef>,
+        vm: &VirtualMachine,
     ) -> PyResult {
         let (zelf, obj) = Self::_unwrap(zelf, obj, vm)?;
         if vm.is_none(&obj) {

@@ -2,7 +2,7 @@
 
 */
 use super::objtype::PyClassRef;
-use crate::function::{OptionalArg, OwnedParam, RefParam};
+use crate::function::{OwnedParam, RefParam};
 use crate::pyobject::{
     IntoPyResult, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
@@ -182,10 +182,10 @@ pub type PyGetSetRef = PyRef<PyGetSet>;
 
 impl SlotDescriptor for PyGetSet {
     fn descr_get(
-        vm: &VirtualMachine,
         zelf: PyObjectRef,
         obj: Option<PyObjectRef>,
-        _cls: OptionalArg<PyObjectRef>,
+        _cls: Option<PyObjectRef>,
+        vm: &VirtualMachine,
     ) -> PyResult {
         let (zelf, obj) = match Self::_check(zelf, obj, vm) {
             Ok(obj) => obj,

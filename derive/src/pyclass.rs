@@ -334,16 +334,37 @@ where
         let slot_ident = item_meta.slot_name()?;
         let slot_name = slot_ident.to_string();
         let tokens = {
-            let transform = if ["new", "call"].contains(&slot_name.as_str()) {
-                quote! { ::rustpython_vm::function::IntoPyNativeFunc::into_func }
+            if slot_name == "new" {
+                let into_func = quote_spanned! {ident.span() =>
+                    ::rustpython_vm::function::IntoPyNativeFunc::into_func(Self::#ident)
+                };
+                quote! {
+                    slots.#slot_ident = Some(#into_func);
+                }
+            } else if slot_name == "cmp" {
+                let into_func = quote_spanned! {ident.span() =>
+                    ::std::boxed::Box::new(Self::#ident)
+                };
+                quote! {
+                    slots.#slot_ident = Some(#into_func);
+                }
             } else {
-                quote! { ::std::boxed::Box::new }
-            };
-            let into_func = quote_spanned! {ident.span() =>
-                #transform(Self::#ident)
-            };
-            quote! {
-                slots.#slot_ident = Some(#into_func);
+                let into_func = if slot_name == "call" {
+                    quote_spanned! {ident.span() =>
+                        |zelf: ::rustpython_vm::pyobject::PyObjectRef,  args: ::rustpython_vm::function::PyFuncArgs, vm: &::rustpython_vm::VirtualMachine| -> ::rustpython_vm::pyobject::PyResult {
+                            use ::rustpython_vm::pyobject::TryFromObject;
+                            let zelf = PyRef::<Self>::try_from_object(vm, zelf)?;
+                            Self::#ident(zelf, args, vm)
+                        }
+                    }
+                } else {
+                    quote_spanned! {ident.span() =>
+                        Self::#ident
+                    }
+                };
+                quote! {
+                    slots.#slot_ident.store(Some(#into_func as _))
+                }
             }
         };
 

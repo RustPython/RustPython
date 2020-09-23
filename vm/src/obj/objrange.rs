@@ -9,14 +9,14 @@ use super::objslice::{PySlice, PySliceRef};
 use super::objtuple::PyTuple;
 use super::objtype::PyClassRef;
 
+use crate::common::hash::PyHash;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
     self, BorrowValue, IdProtocol, IntoPyRef, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
     PyValue, TryFromObject, TypeProtocol,
 };
-use crate::slots::{Comparable, PyComparisonOp};
+use crate::slots::{Comparable, Hashable, PyComparisonOp};
 use crate::vm::VirtualMachine;
-use rustpython_common::hash::PyHash;
 
 /// range(stop) -> range object
 /// range(start, stop[, step]) -> range object
@@ -131,7 +131,7 @@ pub fn init(context: &PyContext) {
 
 type PyRangeRef = PyRef<PyRange>;
 
-#[pyimpl(with(Comparable))]
+#[pyimpl(with(Hashable, Comparable))]
 impl PyRange {
     fn new(cls: PyClassRef, stop: PyIntRef, vm: &VirtualMachine) -> PyResult<PyRangeRef> {
         PyRange {
@@ -306,8 +306,22 @@ impl PyRange {
         }
     }
 
-    #[pymethod(name = "__hash__")]
-    fn hash(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+    #[pyslot]
+    fn tp_new(args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+        let range = if args.args.len() <= 2 {
+            let (cls, stop) = args.bind(vm)?;
+            PyRange::new(cls, stop, vm)
+        } else {
+            let (cls, start, stop, step) = args.bind(vm)?;
+            PyRange::new_from(cls, start, stop, step, vm)
+        }?;
+
+        Ok(range.into_object())
+    }
+}
+
+impl Hashable for PyRange {
+    fn hash(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
         let length = zelf.length();
         let elements = if length.is_zero() {
             [vm.ctx.new_int(length), vm.ctx.none(), vm.ctx.none()]
@@ -325,19 +339,6 @@ impl PyRange {
             ]
         };
         pyobject::hash_iter(elements.iter(), vm)
-    }
-
-    #[pyslot]
-    fn tp_new(args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
-        let range = if args.args.len() <= 2 {
-            let (cls, stop) = args.bind(vm)?;
-            PyRange::new(cls, stop, vm)
-        } else {
-            let (cls, start, stop, step) = args.bind(vm)?;
-            PyRange::new_from(cls, start, stop, step, vm)
-        }?;
-
-        Ok(range.into_object())
     }
 }
 

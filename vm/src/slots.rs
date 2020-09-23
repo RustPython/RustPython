@@ -7,6 +7,7 @@ use crate::pyobject::{
     IdProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
 };
 use crate::VirtualMachine;
+use crossbeam_utils::atomic::AtomicCell;
 
 bitflags! {
     pub struct PyTpFlags: u64 {
@@ -39,18 +40,22 @@ impl Default for PyTpFlags {
     }
 }
 
+pub(crate) type GenericMethod = fn(PyObjectRef, PyFuncArgs, &VirtualMachine) -> PyResult;
+pub(crate) type DescrGetFunc =
+    fn(PyObjectRef, Option<PyObjectRef>, Option<PyObjectRef>, &VirtualMachine) -> PyResult;
+pub(crate) type HashFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<PyHash>;
+
 #[derive(Default)]
 pub struct PyClassSlots {
     pub flags: PyTpFlags,
     pub name: PyRwLock<Option<String>>, // tp_name, not class name
     pub new: Option<PyNativeFunc>,
-    pub call: Option<PyNativeFunc>,
-    pub descr_get: Option<PyDescrGetFunc>,
-    pub hash: Option<HashFunc>,
+    pub call: AtomicCell<Option<GenericMethod>>,
+    pub descr_get: AtomicCell<Option<DescrGetFunc>>,
+    pub hash: AtomicCell<Option<HashFunc>>,
     pub cmp: Option<CmpFunc>,
 }
 
-type HashFunc = Box<py_dyn_fn!(dyn Fn(PyObjectRef, &VirtualMachine) -> PyResult<PyHash>)>;
 type CmpFunc = Box<
     py_dyn_fn!(
         dyn Fn(
@@ -84,20 +89,14 @@ pub trait SlotCall: PyValue {
     fn call(zelf: PyRef<Self>, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult;
 }
 
-pub type PyDescrGetFunc = Box<
-    dyn Fn(&VirtualMachine, PyObjectRef, Option<PyObjectRef>, OptionalArg<PyObjectRef>) -> PyResult
-        + Send
-        + Sync,
->;
-
 #[pyimpl]
 pub trait SlotDescriptor: PyValue {
     #[pyslot]
     fn descr_get(
-        vm: &VirtualMachine,
         zelf: PyObjectRef,
         obj: Option<PyObjectRef>,
-        cls: OptionalArg<PyObjectRef>,
+        cls: Option<PyObjectRef>,
+        vm: &VirtualMachine,
     ) -> PyResult;
 
     #[pymethod(magic)]
@@ -107,7 +106,7 @@ pub trait SlotDescriptor: PyValue {
         cls: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        Self::descr_get(vm, zelf, Some(obj), cls)
+        Self::descr_get(zelf, Some(obj), cls.into_option(), vm)
     }
 
     fn _zelf(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
@@ -148,27 +147,42 @@ pub trait SlotDescriptor: PyValue {
         }
     }
 
-    fn _cls_is<T>(cls: &OptionalArg<PyObjectRef>, other: &T) -> bool
+    fn _cls_is<T>(cls: &Option<PyObjectRef>, other: &T) -> bool
     where
         T: IdProtocol,
     {
-        match cls {
-            OptionalArg::Present(cls) => cls.is(other),
-            OptionalArg::Missing => false,
-        }
+        cls.as_ref().map_or(false, |cls| cls.is(other))
     }
 }
 
 #[pyimpl]
 pub trait Hashable: PyValue {
     #[pyslot]
-    fn tp_hash(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyHash> {
-        let zelf = PyRef::try_from_object(vm, zelf)?;
-        Self::hash(zelf, vm)
+    fn tp_hash(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<PyHash> {
+        if let Some(zelf) = zelf.downcast_ref() {
+            Self::hash(zelf, vm)
+        } else {
+            Err(vm.new_type_error("unexpected payload for __hash__".to_owned()))
+        }
     }
 
-    #[pymethod(magic)]
-    fn hash(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash>;
+    #[pymethod]
+    fn __hash__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+        Self::hash(&zelf, vm)
+    }
+
+    fn hash(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash>;
+}
+
+pub trait Unhashable: PyValue {}
+
+impl<T> Hashable for T
+where
+    T: Unhashable,
+{
+    fn hash(_zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+        Err(vm.new_type_error("unhashable type".to_owned()))
+    }
 }
 
 #[pyimpl]

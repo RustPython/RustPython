@@ -4,6 +4,7 @@ use std::fmt;
 
 use super::objclassmethod::PyClassMethod;
 use super::objdict::PyDictRef;
+use super::objint::PyInt;
 use super::objlist::PyList;
 use super::objmappingproxy::PyMappingProxy;
 use super::objobject;
@@ -11,12 +12,12 @@ use super::objstaticmethod::PyStaticMethod;
 use super::objstr::PyStringRef;
 use super::objtuple::PyTuple;
 use super::objweakref::PyWeak;
-use crate::function::{KwArgs, OptionalArg, PyFuncArgs};
+use crate::function::{KwArgs, PyFuncArgs};
 use crate::pyobject::{
     BorrowValue, IdProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable, PyLease,
     PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
-use crate::slots::{PyClassSlots, PyTpFlags, SlotCall};
+use crate::slots::{self, PyClassSlots, PyTpFlags, SlotCall};
 use crate::vm::VirtualMachine;
 use itertools::Itertools;
 use std::ops::Deref;
@@ -77,6 +78,19 @@ impl PyClassRef {
         std::iter::once(self).chain(self.mro.iter())
     }
 
+    pub(crate) fn first_in_mro<F, R>(&self, f: F) -> Option<R>
+    where
+        F: Fn(&Self) -> Option<R>,
+    {
+        // the hot path will be primitive types which usually hit the result from itself.
+        // try std::intrinsics::likely once it is stablized
+        if let Some(r) = f(self) {
+            Some(r)
+        } else {
+            self.mro.iter().filter_map(|cls| f(cls)).next()
+        }
+    }
+
     pub fn iter_base_chain(&self) -> impl Iterator<Item = &PyClassRef> {
         std::iter::successors(Some(self), |cls| cls.base.as_ref())
     }
@@ -88,7 +102,7 @@ impl PyClassRef {
             .insert(attr_name.to_owned(), value.into());
     }
 
-    pub fn get_attributes(self) -> PyAttributes {
+    pub fn get_attributes(&self) -> PyAttributes {
         // Gather all members here:
         let mut attributes = PyAttributes::new();
 
@@ -100,6 +114,55 @@ impl PyClassRef {
 
         attributes
     }
+
+    pub(crate) fn update_slot(&self, name: &str) {
+        // self is the resolved class in get_class_magic
+        match name {
+            "__call__" => {
+                let func: slots::GenericMethod = |zelf, args, vm| {
+                    let magic = get_class_magic(&zelf, "__call__");
+                    let magic = vm.call_if_get_descriptor(magic, zelf.clone())?;
+                    vm.invoke(&magic, args)
+                } as _;
+                self.slots.call.store(Some(func))
+            }
+            "__get__" => {
+                let func: slots::DescrGetFunc = |zelf, obj, cls, vm| {
+                    let magic = get_class_magic(&zelf, "__get__");
+                    vm.invoke(
+                        &magic,
+                        vec![zelf, vm.unwrap_or_none(obj), vm.unwrap_or_none(cls)],
+                    )
+                } as _;
+                self.slots.descr_get.store(Some(func))
+            }
+            "__hash__" => {
+                let func: slots::HashFunc = |zelf, vm| {
+                    let magic = get_class_magic(&zelf, "__hash__");
+                    let hash_obj = vm.invoke(&magic, vec![zelf.clone()])?;
+                    match hash_obj.payload_if_subclass::<PyInt>(vm) {
+                        Some(py_int) => {
+                            Ok(rustpython_common::hash::hash_bigint(py_int.borrow_value()))
+                        }
+                        None => Err(vm
+                            .new_type_error("__hash__ method should return an integer".to_owned())),
+                    }
+                } as _;
+                self.slots.hash.store(Some(func));
+            }
+            _ => (),
+        }
+    }
+}
+
+#[inline]
+fn get_class_magic(zelf: &PyObjectRef, name: &str) -> PyObjectRef {
+    zelf.get_class_attr(name).unwrap()
+
+    // TODO: we already looked up the matching class but lost the information here
+    // let cls = zelf.lease_class();
+    // let attrs = cls.attributes.read();
+    // attrs.get(name).unwrap().clone()
 }
 
 #[pyimpl(with(SlotCall), flags(BASETYPE))]
@@ -197,24 +260,20 @@ impl PyClass {
         if let Some(attr) = mcl.get_attr(&name) {
             let attr_class = attr.lease_class();
             if attr_class.has_attr("__set__") {
-                if let Some(ref descriptor) = attr_class.get_attr("__get__") {
-                    drop(attr_class);
+                if let Some(ref descr_get) =
+                    PyLease::into_pyref(attr_class).first_in_mro(|cls| cls.slots.descr_get.load())
+                {
                     let mcl = PyLease::into_pyref(mcl).into_object();
-                    return vm.invoke(descriptor, vec![attr, zelf.into_object(), mcl]);
+                    return descr_get(attr, Some(zelf.into_object()), Some(mcl), vm);
                 }
             }
         }
 
         if let Some(attr) = zelf.get_attr(&name) {
             let attr_class = attr.class();
-            let slots = &attr_class.slots;
-            if let Some(ref descr_get) = slots.descr_get {
+            if let Some(ref descr_get) = attr_class.first_in_mro(|cls| cls.slots.descr_get.load()) {
                 drop(mcl);
-                return descr_get(vm, attr, None, OptionalArg::Present(zelf.into_object()));
-            } else if let Some(ref descriptor) = attr_class.get_attr("__get__") {
-                drop(mcl);
-                // TODO: is this nessessary?
-                return vm.invoke(descriptor, vec![attr, vm.ctx.none(), zelf.into_object()]);
+                return descr_get(attr, None, Some(zelf.into_object()), vm);
             }
         }
 
@@ -252,8 +311,11 @@ impl PyClass {
                 return Ok(());
             }
         }
-
-        zelf.attributes.write().insert(attr_name.to_string(), value);
+        let attr_name = attr_name.borrow_value();
+        if attr_name.starts_with("__") && attr_name.ends_with("__") {
+            zelf.update_slot(attr_name);
+        }
+        zelf.attributes.write().insert(attr_name.to_owned(), value);
         Ok(())
     }
 
@@ -707,6 +769,11 @@ pub fn new(
         None,
     );
 
+    for attr_name in new_type.attributes.read().keys() {
+        if attr_name.starts_with("__") && attr_name.ends_with("__") {
+            new_type.update_slot(attr_name);
+        }
+    }
     for base in &new_type.bases {
         base.subclasses
             .write()

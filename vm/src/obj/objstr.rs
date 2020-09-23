@@ -1044,7 +1044,7 @@ impl PyString {
 }
 
 impl Hashable for PyString {
-    fn hash(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<hash::PyHash> {
+    fn hash(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<hash::PyHash> {
         Ok(zelf.hash(vm))
     }
 }

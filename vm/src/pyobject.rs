@@ -489,6 +489,15 @@ impl PyObjectRef {
             Err(self)
         }
     }
+
+    pub fn downcast_ref<T: PyObjectPayload + PyValue>(&self) -> Option<&PyRef<T>> {
+        if self.payload_is::<T>() {
+            // when payload exacts, PyObjectRef == PyRef { PyObject }
+            Some(unsafe { &*(self as *const PyObjectRef as *const PyRef<T>) })
+        } else {
+            None
+        }
+    }
 }
 
 /// A reference to a Python object.
@@ -531,8 +540,9 @@ impl<T: PyValue> PyRef<T> {
             Ok(unsafe { Self::from_obj_unchecked(obj) })
         } else {
             Err(vm.new_runtime_error(format!(
-                "Unexpected payload for type {:?}",
-                obj.lease_class().name
+                "Unexpected payload '{}' for type '{}'",
+                T::class(vm).name,
+                obj.lease_class().name,
             )))
         }
     }
