@@ -5,7 +5,7 @@ use crate::pyobject::{
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::pyobjectrc::{PyObjectRc, PyObjectWeak};
-use crate::slots::{Comparable, Hashable, PyComparisonOp, SlotCall};
+use crate::slots::{Callable, Comparable, Hashable, PyComparisonOp};
 use crate::vm::VirtualMachine;
 
 use crossbeam_utils::atomic::AtomicCell;
@@ -38,14 +38,14 @@ impl PyValue for PyWeak {
 
 pub type PyWeakRef = PyRef<PyWeak>;
 
-impl SlotCall for PyWeak {
-    fn call(zelf: PyRef<Self>, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+impl Callable for PyWeak {
+    fn call(zelf: &PyRef<Self>, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
         args.bind::<()>(vm)?;
         Ok(vm.unwrap_or_none(zelf.upgrade()))
     }
 }
 
-#[pyimpl(with(SlotCall, Hashable, Comparable), flags(BASETYPE))]
+#[pyimpl(with(Callable, Hashable, Comparable), flags(BASETYPE))]
 impl PyWeak {
     // TODO callbacks
     #[pyslot]

@@ -19,7 +19,7 @@ use crate::pyobject::{
     PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::scope::Scope;
-use crate::slots::{SlotCall, SlotDescriptor};
+use crate::slots::{Callable, SlotDescriptor};
 use crate::VirtualMachine;
 use itertools::Itertools;
 #[cfg(feature = "jit")]
@@ -269,7 +269,7 @@ impl PyValue for PyFunction {
     }
 }
 
-#[pyimpl(with(SlotDescriptor, SlotCall), flags(HAS_DICT))]
+#[pyimpl(with(SlotDescriptor, Callable), flags(HAS_DICT))]
 impl PyFunction {
     #[pyproperty(magic)]
     fn code(&self) -> PyCodeRef {
@@ -320,8 +320,8 @@ impl SlotDescriptor for PyFunction {
     }
 }
 
-impl SlotCall for PyFunction {
-    fn call(zelf: PyRef<Self>, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+impl Callable for PyFunction {
+    fn call(zelf: &PyRef<Self>, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
         zelf.invoke(args, vm)
     }
 }
@@ -334,14 +334,14 @@ pub struct PyBoundMethod {
     pub function: PyObjectRef,
 }
 
-impl SlotCall for PyBoundMethod {
-    fn call(zelf: PyRef<Self>, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+impl Callable for PyBoundMethod {
+    fn call(zelf: &PyRef<Self>, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
         let args = args.insert(zelf.object.clone());
         vm.invoke(&zelf.function, args)
     }
 }
 
-#[pyimpl(with(SlotCall), flags(HAS_DICT))]
+#[pyimpl(with(Callable), flags(HAS_DICT))]
 impl PyBoundMethod {
     pub fn new(object: PyObjectRef, function: PyObjectRef) -> Self {
         PyBoundMethod { object, function }

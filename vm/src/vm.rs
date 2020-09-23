@@ -886,7 +886,7 @@ impl VirtualMachine {
         match slot_call {
             Some(slot_call) => {
                 self.trace_event(TraceEvent::Call)?;
-                let result = slot_call(callable.clone(), args, self);
+                let result = slot_call(callable, args, self);
                 self.trace_event(TraceEvent::Return)?;
                 result
             }

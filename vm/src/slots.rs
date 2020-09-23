@@ -40,7 +40,7 @@ impl Default for PyTpFlags {
     }
 }
 
-pub(crate) type GenericMethod = fn(PyObjectRef, PyFuncArgs, &VirtualMachine) -> PyResult;
+pub(crate) type GenericMethod = fn(&PyObjectRef, PyFuncArgs, &VirtualMachine) -> PyResult;
 pub(crate) type DelFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<()>;
 pub(crate) type DescrGetFunc =
     fn(PyObjectRef, Option<PyObjectRef>, Option<PyObjectRef>, &VirtualMachine) -> PyResult;
@@ -104,10 +104,20 @@ pub trait SlotDesctuctor: PyValue {
 }
 
 #[pyimpl]
-pub trait SlotCall: PyValue {
-    #[pymethod(magic)]
+pub trait Callable: PyValue {
     #[pyslot]
-    fn call(zelf: PyRef<Self>, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult;
+    fn tp_call(zelf: &PyObjectRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+        if let Some(zelf) = zelf.downcast_ref() {
+            Self::call(zelf, args, vm)
+        } else {
+            Err(vm.new_type_error("unexpected payload for __call__".to_owned()))
+        }
+    }
+    #[pymethod]
+    fn __call__(zelf: PyRef<Self>, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+        Self::call(&zelf, args, vm)
+    }
+    fn call(zelf: &PyRef<Self>, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult;
 }
 
 #[pyimpl]

@@ -17,7 +17,7 @@ use crate::pyobject::{
     BorrowValue, IdProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable, PyLease,
     PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
-use crate::slots::{self, PyClassSlots, PyTpFlags, SlotCall};
+use crate::slots::{self, Callable, PyClassSlots, PyTpFlags};
 use crate::vm::VirtualMachine;
 use itertools::Itertools;
 use std::ops::Deref;
@@ -172,7 +172,7 @@ fn get_class_magic(zelf: &PyObjectRef, name: &str) -> PyObjectRef {
     // attrs.get(name).unwrap().clone()
 }
 
-#[pyimpl(with(SlotCall), flags(BASETYPE))]
+#[pyimpl(with(Callable), flags(BASETYPE))]
 impl PyClass {
     #[pyproperty(name = "__mro__")]
     fn get_mro(zelf: PyRef<Self>) -> PyTuple {
@@ -502,8 +502,8 @@ impl PyClass {
     }
 }
 
-impl SlotCall for PyClass {
-    fn call(zelf: PyRef<Self>, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+impl Callable for PyClass {
+    fn call(zelf: &PyRef<Self>, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
         vm_trace!("type_call: {:?}", zelf);
         let obj = call_tp_new(zelf.clone(), zelf.clone(), args.clone(), vm)?;
 
