@@ -42,6 +42,8 @@ use crate::vm::VirtualMachine;
 use rustpython_common::cell::{PyRwLock, PyRwLockReadGuard};
 use rustpython_common::rc::PyRc;
 
+pub use crate::common::borrow::BorrowValue;
+
 /* Python objects and references.
 
 Okay, so each python object itself is an class itself (PyObject). Each
@@ -1160,11 +1162,6 @@ pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
         };
         PyRef::new_ref(self, cls, dict)
     }
-}
-
-pub trait BorrowValue<'a>: PyValue {
-    type Borrowed: 'a + Deref;
-    fn borrow_value(&'a self) -> Self::Borrowed;
 }
 
 pub trait PyObjectPayload: Any + fmt::Debug + PyThreadingConstraint + 'static {
