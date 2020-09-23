@@ -1399,15 +1399,14 @@ impl VirtualMachine {
         // TODO: _Py_EnterRecursiveCall(tstate, " in comparison")
 
         let call_cmp = |obj: PyObjectRef, other, op| {
-            let ret = if let Some(ref cmp) = obj.class().first_in_mro(|cls| cls.slots.cmp.load()) {
-                Some(match cmp(obj, other, op, self)? {
-                    Either::A(obj) => PyArithmaticValue::from_object(self, obj).map(Either::A),
-                    Either::B(arithmatic) => arithmatic.map(Either::B),
-                })
-            } else {
-                None
-            };
-            Ok(ret)
+            let cmp = obj
+                .class()
+                .first_in_mro(|cls| cls.slots.cmp.load())
+                .unwrap();
+            Ok(match cmp(obj, other, op, self)? {
+                Either::A(obj) => PyArithmaticValue::from_object(self, obj).map(Either::A),
+                Either::B(arithmatic) => arithmatic.map(Either::B),
+            })
         };
 
         let mut checked_reverse_op = false;
@@ -1417,19 +1416,18 @@ impl VirtualMachine {
             !v_class.is(&w_class) && objtype::issubclass(&w_class, &v_class)
         };
         if is_strict_subclass {
-            if let Some(res) = call_cmp(w.clone(), v.clone(), swapped)? {
-                checked_reverse_op = true;
-                if let PyArithmaticValue::Implemented(x) = res {
-                    return Ok(x);
-                }
+            let res = call_cmp(w.clone(), v.clone(), swapped)?;
+            checked_reverse_op = true;
+            if let PyArithmaticValue::Implemented(x) = res {
+                return Ok(x);
             }
         }
-        if let Some(PyArithmaticValue::Implemented(x)) = call_cmp(v.clone(), w.clone(), op)? {
+        if let PyArithmaticValue::Implemented(x) = call_cmp(v.clone(), w.clone(), op)? {
             return Ok(x);
         }
         if !checked_reverse_op {
             let res = call_cmp(w.clone(), v.clone(), swapped)?;
-            if let Some(PyArithmaticValue::Implemented(x)) = res {
+            if let PyArithmaticValue::Implemented(x) = res {
                 return Ok(x);
             }
         }
