@@ -4,6 +4,7 @@ use std::fmt;
 
 use super::objclassmethod::PyClassMethod;
 use super::objdict::PyDictRef;
+use super::objint::PyInt;
 use super::objlist::PyList;
 use super::objmappingproxy::PyMappingProxy;
 use super::objobject;
@@ -16,7 +17,7 @@ use crate::pyobject::{
     BorrowValue, IdProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable, PyLease,
     PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
-use crate::slots::{PyClassSlots, PyTpFlags, SlotCall};
+use crate::slots::{self, PyClassSlots, PyTpFlags, SlotCall};
 use crate::vm::VirtualMachine;
 use itertools::Itertools;
 use std::ops::Deref;
@@ -101,7 +102,7 @@ impl PyClassRef {
             .insert(attr_name.to_owned(), value.into());
     }
 
-    pub fn get_attributes(self) -> PyAttributes {
+    pub fn get_attributes(&self) -> PyAttributes {
         // Gather all members here:
         let mut attributes = PyAttributes::new();
 
@@ -113,6 +114,55 @@ impl PyClassRef {
 
         attributes
     }
+
+    pub(crate) fn update_slot(&self, name: &str) {
+        // self is the resolved class in get_class_magic
+        match name {
+            "__call__" => {
+                let func: slots::GenericMethod = |zelf, args, vm| {
+                    let magic = get_class_magic(&zelf, "__call__");
+                    let magic = vm.call_if_get_descriptor(magic, zelf.clone())?;
+                    vm.invoke(&magic, args)
+                } as _;
+                self.slots.call.store(Some(func))
+            }
+            "__get__" => {
+                let func: slots::DescrGetFunc = |zelf, obj, cls, vm| {
+                    let magic = get_class_magic(&zelf, "__get__");
+                    vm.invoke(
+                        &magic,
+                        vec![zelf, vm.unwrap_or_none(obj), vm.unwrap_or_none(cls)],
+                    )
+                } as _;
+                self.slots.descr_get.store(Some(func))
+            }
+            "__hash__" => {
+                let func: slots::HashFunc = |zelf, vm| {
+                    let magic = get_class_magic(&zelf, "__hash__");
+                    let hash_obj = vm.invoke(&magic, vec![zelf])?;
+                    match hash_obj.payload_if_subclass::<PyInt>(vm) {
+                        Some(py_int) => {
+                            Ok(rustpython_common::hash::hash_bigint(py_int.borrow_value()))
+                        }
+                        None => Err(vm
+                            .new_type_error("__hash__ method should return an integer".to_owned())),
+                    }
+                } as _;
+                self.slots.hash.store(Some(func));
+            }
+            _ => (),
+        }
+    }
+}
+
+#[inline]
+fn get_class_magic(zelf: &PyObjectRef, name: &str) -> PyObjectRef {
+    zelf.get_class_attr(name).unwrap()
+
+    // TODO: we already looked up the matching class but lost the information here
+    // let cls = zelf.lease_class();
+    // let attrs = cls.attributes.read();
+    // attrs.get(name).unwrap().clone()
 }
 
 #[pyimpl(with(SlotCall), flags(BASETYPE))]
@@ -261,8 +311,11 @@ impl PyClass {
                 return Ok(());
             }
         }
-        zelf.slots.update_slot_func(attr_name.borrow_value());
-        zelf.attributes.write().insert(attr_name.to_string(), value);
+        let attr_name = attr_name.borrow_value();
+        if attr_name.starts_with("__") && attr_name.ends_with("__") {
+            zelf.update_slot(attr_name);
+        }
+        zelf.attributes.write().insert(attr_name.to_owned(), value);
         Ok(())
     }
 
@@ -702,12 +755,6 @@ pub fn new(
     if base.slots.flags.has_feature(PyTpFlags::HAS_DICT) {
         slots.flags |= PyTpFlags::HAS_DICT
     }
-    for slot_name in ["__call__", "__get__", "__hash__"].iter() {
-        if attrs.contains_key(*slot_name) {
-            slots.update_slot_func(*slot_name);
-        }
-    }
-
     let new_type = PyRef::new_ref(
         PyClass {
             name: String::from(name),
@@ -722,6 +769,11 @@ pub fn new(
         None,
     );
 
+    for attr_name in new_type.attributes.read().keys() {
+        if attr_name.starts_with("__") && attr_name.ends_with("__") {
+            new_type.update_slot(attr_name);
+        }
+    }
     for base in &new_type.bases {
         base.subclasses
             .write()

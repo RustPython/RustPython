@@ -3,10 +3,8 @@ use std::cmp::Ordering;
 use crate::common::cell::PyRwLock;
 use crate::common::hash::PyHash;
 use crate::function::{OptionalArg, PyFuncArgs, PyNativeFunc};
-use crate::obj::objint::PyInt;
 use crate::pyobject::{
-    BorrowValue, IdProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
+    IdProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
 };
 use crate::VirtualMachine;
 use crossbeam_utils::atomic::AtomicCell;
@@ -42,10 +40,10 @@ impl Default for PyTpFlags {
     }
 }
 
-type GenericMethod = fn(PyObjectRef, PyFuncArgs, &VirtualMachine) -> PyResult;
-type DescrGetFunc =
+pub(crate) type GenericMethod = fn(PyObjectRef, PyFuncArgs, &VirtualMachine) -> PyResult;
+pub(crate) type DescrGetFunc =
     fn(PyObjectRef, Option<PyObjectRef>, Option<PyObjectRef>, &VirtualMachine) -> PyResult;
-type HashFunc = fn(PyObjectRef, &VirtualMachine) -> PyResult<PyHash>;
+pub(crate) type HashFunc = fn(PyObjectRef, &VirtualMachine) -> PyResult<PyHash>;
 
 #[derive(Default)]
 pub struct PyClassSlots {
@@ -76,55 +74,6 @@ impl PyClassSlots {
             ..Default::default()
         }
     }
-
-    #[inline]
-    pub(crate) fn update_slot_func(&self, name: &str) {
-        match name {
-            "__call__" => {
-                let func: GenericMethod = |zelf, args, vm| {
-                    let magic = get_class_magic(&zelf, "__call__");
-                    let magic = vm.call_if_get_descriptor(magic, zelf.clone())?;
-                    vm.invoke(&magic, args)
-                } as _;
-                self.call.store(Some(func))
-            }
-            "__get__" => {
-                let func: DescrGetFunc = |zelf, obj, cls, vm| {
-                    let magic = get_class_magic(&zelf, "__get__");
-                    vm.invoke(
-                        &magic,
-                        vec![zelf, vm.unwrap_or_none(obj), vm.unwrap_or_none(cls)],
-                    )
-                } as _;
-                self.descr_get.store(Some(func))
-            }
-            "__hash__" => {
-                let func: HashFunc = |zelf, vm| {
-                    let magic = get_class_magic(&zelf, "__hash__");
-                    let hash_obj = vm.invoke(&magic, vec![zelf])?;
-                    match hash_obj.payload_if_subclass::<PyInt>(vm) {
-                        Some(py_int) => {
-                            Ok(rustpython_common::hash::hash_bigint(py_int.borrow_value()))
-                        }
-                        None => Err(vm
-                            .new_type_error("__hash__ method should return an integer".to_owned())),
-                    }
-                } as _;
-                self.hash.store(Some(func));
-            }
-            _ => (),
-        }
-    }
-}
-
-#[inline]
-fn get_class_magic(zelf: &PyObjectRef, name: &str) -> PyObjectRef {
-    zelf.get_class_attr(name).unwrap()
-
-    // TODO: we already looked up the matching class but lost the information here
-    // let cls = zelf.lease_class();
-    // let attrs = cls.attributes.read();
-    // attrs.get(name).unwrap().clone()
 }
 
 impl std::fmt::Debug for PyClassSlots {
