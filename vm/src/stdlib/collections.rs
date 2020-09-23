@@ -335,12 +335,12 @@ mod _collections {
 
     impl Comparable for PyDeque {
         fn cmp(
-            zelf: PyRef<Self>,
-            other: PyObjectRef,
+            zelf: &PyRef<Self>,
+            other: &PyObjectRef,
             op: PyComparisonOp,
             vm: &VirtualMachine,
         ) -> PyResult<PyComparisonValue> {
-            if let Some(res) = op.identical_optimization(&zelf, &other) {
+            if let Some(res) = op.identical_optimization(zelf, other) {
                 return Ok(res.into());
             }
             let other = class_or_notimplemented!(Self, other);

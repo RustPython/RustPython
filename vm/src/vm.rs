@@ -1391,14 +1391,14 @@ impl VirtualMachine {
     // see: CPython PyObject_RichCompare
     fn _cmp(
         &self,
-        v: PyObjectRef,
-        w: PyObjectRef,
+        v: &PyObjectRef,
+        w: &PyObjectRef,
         op: PyComparisonOp,
     ) -> PyResult<Either<PyObjectRef, bool>> {
         let swapped = op.swapped();
         // TODO: _Py_EnterRecursiveCall(tstate, " in comparison")
 
-        let call_cmp = |obj: PyObjectRef, other, op| {
+        let call_cmp = |obj: &PyObjectRef, other, op| {
             let cmp = obj
                 .class()
                 .first_in_mro(|cls| cls.slots.cmp.load())
@@ -1416,17 +1416,17 @@ impl VirtualMachine {
             !v_class.is(&w_class) && objtype::issubclass(&w_class, &v_class)
         };
         if is_strict_subclass {
-            let res = call_cmp(w.clone(), v.clone(), swapped)?;
+            let res = call_cmp(w, v, swapped)?;
             checked_reverse_op = true;
             if let PyArithmaticValue::Implemented(x) = res {
                 return Ok(x);
             }
         }
-        if let PyArithmaticValue::Implemented(x) = call_cmp(v.clone(), w.clone(), op)? {
+        if let PyArithmaticValue::Implemented(x) = call_cmp(v, w, op)? {
             return Ok(x);
         }
         if !checked_reverse_op {
-            let res = call_cmp(w.clone(), v.clone(), swapped)?;
+            let res = call_cmp(w, v, swapped)?;
             if let PyArithmaticValue::Implemented(x) = res {
                 return Ok(x);
             }
@@ -1434,12 +1434,12 @@ impl VirtualMachine {
         match op {
             PyComparisonOp::Eq => Ok(Either::B(v.is(&w))),
             PyComparisonOp::Ne => Ok(Either::B(!v.is(&w))),
-            _ => Err(self.new_unsupported_operand_error(v, w, op.operator_token())),
+            _ => Err(self.new_unsupported_operand_error(v.clone(), w.clone(), op.operator_token())),
         }
         // TODO: _Py_LeaveRecursiveCall(tstate);
     }
 
-    pub fn bool_cmp(&self, a: PyObjectRef, b: PyObjectRef, op: PyComparisonOp) -> PyResult<bool> {
+    pub fn bool_cmp(&self, a: &PyObjectRef, b: &PyObjectRef, op: PyComparisonOp) -> PyResult<bool> {
         match self._cmp(a, b, op)? {
             Either::A(obj) => objbool::boolval(self, obj),
             Either::B(b) => Ok(b),
@@ -1447,7 +1447,7 @@ impl VirtualMachine {
     }
 
     pub fn obj_cmp(&self, a: PyObjectRef, b: PyObjectRef, op: PyComparisonOp) -> PyResult {
-        self._cmp(a, b, op).map(|res| res.into_pyobject(self))
+        self._cmp(&a, &b, op).map(|res| res.into_pyobject(self))
     }
 
     pub fn _hash(&self, obj: &PyObjectRef) -> PyResult<rustpython_common::hash::PyHash> {
@@ -1463,7 +1463,7 @@ impl VirtualMachine {
         let iter = objiter::get_iter(self, &haystack)?;
         loop {
             if let Some(element) = objiter::get_next_object(self, &iter)? {
-                if self.bool_eq(needle.clone(), element.clone())? {
+                if self.bool_eq(&needle, &element)? {
                     return Ok(self.ctx.new_bool(true));
                 } else {
                     continue;
@@ -1495,7 +1495,7 @@ impl VirtualMachine {
         self.exceptions.borrow().last().cloned()
     }
 
-    pub fn bool_eq(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult<bool> {
+    pub fn bool_eq(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult<bool> {
         self.bool_cmp(a, b, PyComparisonOp::Eq)
     }
 
@@ -1503,12 +1503,12 @@ impl VirtualMachine {
         if a.is(b) {
             Ok(true)
         } else {
-            self.bool_eq(a.clone(), b.clone())
+            self.bool_eq(a, b)
         }
     }
 
-    pub fn bool_seq_lt(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult<Option<bool>> {
-        let value = if self.bool_cmp(a.clone(), b.clone(), PyComparisonOp::Lt)? {
+    pub fn bool_seq_lt(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult<Option<bool>> {
+        let value = if self.bool_cmp(a, b, PyComparisonOp::Lt)? {
             Some(true)
         } else if !self.bool_eq(a, b)? {
             Some(false)
@@ -1518,8 +1518,8 @@ impl VirtualMachine {
         Ok(value)
     }
 
-    pub fn bool_seq_gt(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult<Option<bool>> {
-        let value = if self.bool_cmp(a.clone(), b.clone(), PyComparisonOp::Gt)? {
+    pub fn bool_seq_gt(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult<Option<bool>> {
+        let value = if self.bool_cmp(a, b, PyComparisonOp::Gt)? {
             Some(true)
         } else if !self.bool_eq(a, b)? {
             Some(false)

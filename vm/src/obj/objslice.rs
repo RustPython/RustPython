@@ -35,6 +35,13 @@ impl PySlice {
         self.start.clone().into_pyobject(vm)
     }
 
+    fn start_ref<'a>(&'a self, vm: &'a VirtualMachine) -> &'a PyObjectRef {
+        match &self.start {
+            Some(v) => &v,
+            None => vm.ctx.none.as_object(),
+        }
+    }
+
     #[pyproperty(name = "stop")]
     fn stop(&self, _vm: &VirtualMachine) -> PyObjectRef {
         self.stop.clone()
@@ -45,15 +52,18 @@ impl PySlice {
         self.step.clone().into_pyobject(vm)
     }
 
+    fn step_ref<'a>(&'a self, vm: &'a VirtualMachine) -> &'a PyObjectRef {
+        match &self.step {
+            Some(v) => &v,
+            None => vm.ctx.none.as_object(),
+        }
+    }
+
     #[pymethod(name = "__repr__")]
     fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
-        let start = self.start(vm);
-        let stop = self.stop(vm);
-        let step = self.step(vm);
-
-        let start_repr = vm.to_repr(&start)?;
-        let stop_repr = vm.to_repr(&stop)?;
-        let step_repr = vm.to_repr(&step)?;
+        let start_repr = vm.to_repr(self.start_ref(vm))?;
+        let stop_repr = vm.to_repr(&self.stop)?;
+        let step_repr = vm.to_repr(self.step_ref(vm))?;
 
         Ok(format!(
             "slice({}, {}, {})",
@@ -119,7 +129,7 @@ impl PySlice {
     ) -> PyResult<(BigInt, BigInt, BigInt)> {
         // Calculate step
         let step: BigInt;
-        if vm.is_none(&self.step(vm)) {
+        if vm.is_none(self.step_ref(vm)) {
             step = One::one();
         } else {
             // Clone the value, not the reference.
@@ -149,7 +159,7 @@ impl PySlice {
 
         // Calculate start
         let mut start: BigInt;
-        if vm.is_none(&self.start(vm)) {
+        if vm.is_none(self.start_ref(vm)) {
             // Default
             start = if backwards {
                 upper.clone()
@@ -174,7 +184,7 @@ impl PySlice {
 
         // Calculate Stop
         let mut stop: BigInt;
-        if vm.is_none(&self.stop(vm)) {
+        if vm.is_none(&self.stop) {
             stop = if backwards { lower } else { upper };
         } else {
             let this_stop: PyRef<PyInt> = self.stop(vm).try_into_ref(vm)?;
@@ -211,8 +221,8 @@ impl PySlice {
 
 impl Comparable for PySlice {
     fn cmp(
-        zelf: PyRef<Self>,
-        other: PyObjectRef,
+        zelf: &PyRef<Self>,
+        other: &PyObjectRef,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
@@ -220,14 +230,20 @@ impl Comparable for PySlice {
 
         let ret = match op {
             PyComparisonOp::Lt | PyComparisonOp::Le => None
-                .or_else(|| vm.bool_seq_lt(zelf.start(vm), other.start(vm)).transpose())
-                .or_else(|| vm.bool_seq_lt(zelf.stop(vm), other.stop(vm)).transpose())
-                .or_else(|| vm.bool_seq_lt(zelf.step(vm), other.step(vm)).transpose())
+                .or_else(|| {
+                    vm.bool_seq_lt(zelf.start_ref(vm), other.start_ref(vm))
+                        .transpose()
+                })
+                .or_else(|| vm.bool_seq_lt(&zelf.stop, &other.stop).transpose())
+                .or_else(|| {
+                    vm.bool_seq_lt(zelf.step_ref(vm), other.step_ref(vm))
+                        .transpose()
+                })
                 .unwrap_or_else(|| Ok(op == PyComparisonOp::Le))?,
             PyComparisonOp::Eq | PyComparisonOp::Ne => {
-                let eq = vm.identical_or_equal(&zelf.start(vm), &other.start(vm))?
-                    && vm.identical_or_equal(&zelf.stop(vm), &other.stop(vm))?
-                    && vm.identical_or_equal(&zelf.step(vm), &other.step(vm))?;
+                let eq = vm.identical_or_equal(zelf.start_ref(vm), other.start_ref(vm))?
+                    && vm.identical_or_equal(&zelf.stop, &other.stop)?
+                    && vm.identical_or_equal(zelf.step_ref(vm), other.step_ref(vm))?;
                 if op == PyComparisonOp::Ne {
                     !eq
                 } else {
@@ -235,9 +251,15 @@ impl Comparable for PySlice {
                 }
             }
             PyComparisonOp::Gt | PyComparisonOp::Ge => None
-                .or_else(|| vm.bool_seq_gt(zelf.start(vm), other.start(vm)).transpose())
-                .or_else(|| vm.bool_seq_gt(zelf.stop(vm), other.stop(vm)).transpose())
-                .or_else(|| vm.bool_seq_gt(zelf.step(vm), other.step(vm)).transpose())
+                .or_else(|| {
+                    vm.bool_seq_gt(zelf.start_ref(vm), other.start_ref(vm))
+                        .transpose()
+                })
+                .or_else(|| vm.bool_seq_gt(&zelf.stop, &other.stop).transpose())
+                .or_else(|| {
+                    vm.bool_seq_gt(zelf.step_ref(vm), other.step_ref(vm))
+                        .transpose()
+                })
                 .unwrap_or_else(|| Ok(op == PyComparisonOp::Ge))?,
         };
 

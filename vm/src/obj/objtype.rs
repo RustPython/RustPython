@@ -160,7 +160,8 @@ impl PyClassRef {
             "__eq__" | "__ne__" | "__le__" | "__lt__" | "__ge__" | "__gt__" => {
                 let func: slots::CmpFunc = |zelf, other, op, vm| {
                     let magic = get_class_magic(&zelf, op.method_name());
-                    vm.invoke(&magic, vec![zelf, other]).map(Either::A)
+                    vm.invoke(&magic, vec![zelf.clone(), other.clone()])
+                        .map(Either::A)
                 } as _;
                 self.slots.cmp.store(Some(func))
             }

@@ -464,15 +464,16 @@ impl Hashable for PyBytes {
 
 impl Comparable for PyBytes {
     fn cmp(
-        zelf: PyRef<Self>,
-        other: PyObjectRef,
+        zelf: &PyRef<Self>,
+        other: &PyObjectRef,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
-        if let Some(res) = op.identical_optimization(&zelf, &other) {
-            return Ok(res.into());
-        }
-        Ok(zelf.inner.cmp(other, op, vm))
+        Ok(if let Some(res) = op.identical_optimization(zelf, other) {
+            res.into()
+        } else {
+            zelf.inner.cmp(other, op, vm)
+        })
     }
 }
 

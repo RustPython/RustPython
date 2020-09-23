@@ -773,7 +773,7 @@ impl PyArray {
         let iter = Iterator::zip(array_a.iter(vm), array_b.iter(vm));
 
         for (a, b) in iter {
-            if !vm.bool_eq(a, b)? {
+            if !vm.bool_eq(&a, &b)? {
                 return Ok(false);
             }
         }
@@ -783,8 +783,8 @@ impl PyArray {
 
 impl Comparable for PyArray {
     fn cmp(
-        zelf: PyRef<Self>,
-        other: PyObjectRef,
+        zelf: &PyRef<Self>,
+        other: &PyObjectRef,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
@@ -811,8 +811,8 @@ impl Comparable for PyArray {
 
                 for (a, b) in iter {
                     let ret = match op {
-                        PyComparisonOp::Lt | PyComparisonOp::Le => vm.bool_seq_lt(a, b)?,
-                        PyComparisonOp::Gt | PyComparisonOp::Ge => vm.bool_seq_gt(a, b)?,
+                        PyComparisonOp::Lt | PyComparisonOp::Le => vm.bool_seq_lt(&a, &b)?,
+                        PyComparisonOp::Gt | PyComparisonOp::Ge => vm.bool_seq_gt(&a, &b)?,
                         _ => unreachable!(),
                     };
                     if let Some(v) = ret {

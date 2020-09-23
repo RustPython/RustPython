@@ -495,14 +495,14 @@ mod decl {
             let mut x_key = vm.invoke(key_func, x.clone())?;
             for y in candidates_iter {
                 let y_key = vm.invoke(key_func, y.clone())?;
-                if vm.bool_cmp(y_key.clone(), x_key.clone(), PyComparisonOp::Gt)? {
+                if vm.bool_cmp(&y_key, &x_key, PyComparisonOp::Gt)? {
                     x = y;
                     x_key = y_key;
                 }
             }
         } else {
             for y in candidates_iter {
-                if vm.bool_cmp(y.clone(), x.clone(), PyComparisonOp::Gt)? {
+                if vm.bool_cmp(&y, &x, PyComparisonOp::Gt)? {
                     x = y;
                 }
             }
@@ -547,7 +547,7 @@ mod decl {
                 y.clone()
             };
 
-            if vm.bool_cmp(x_key.clone(), y_key.clone(), PyComparisonOp::Gt)? {
+            if vm.bool_cmp(&x_key, &y_key, PyComparisonOp::Gt)? {
                 x = y.clone();
                 x_key = y_key;
             }

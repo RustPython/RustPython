@@ -248,7 +248,7 @@ impl PyCallableIterator {
 
         let ret = self.callable.invoke(vec![], vm)?;
 
-        if vm.bool_eq(ret.clone(), self.sentinel.clone())? {
+        if vm.bool_eq(&ret, &self.sentinel)? {
             self.done.store(true);
             Err(new_stop_iteration(vm))
         } else {

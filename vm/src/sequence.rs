@@ -52,9 +52,9 @@ pub fn cmp(
     let (lhs_len, rhs_len) = (zelf.len(), other.len());
     for (a, b) in Iterator::zip(zelf, other) {
         let ret = if less {
-            vm.bool_seq_lt(a.clone(), b.clone())?
+            vm.bool_seq_lt(a, b)?
         } else {
-            vm.bool_seq_gt(a.clone(), b.clone())?
+            vm.bool_seq_gt(a, b)?
         };
         if let Some(v) = ret {
             return Ok(v);
