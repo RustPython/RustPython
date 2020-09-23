@@ -19,7 +19,7 @@ use crate::pyobject::{
     PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::scope::Scope;
-use crate::slots::{Callable, SlotDescriptor};
+use crate::slots::{Callable, Comparable, PyComparisonOp, SlotDescriptor};
 use crate::VirtualMachine;
 use itertools::Itertools;
 #[cfg(feature = "jit")]
@@ -341,7 +341,23 @@ impl Callable for PyBoundMethod {
     }
 }
 
-#[pyimpl(with(Callable), flags(HAS_DICT))]
+impl Comparable for PyBoundMethod {
+    fn cmp(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        op: PyComparisonOp,
+        _vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        op.eq_only(|| {
+            let other = class_or_notimplemented!(Self, other);
+            Ok(PyComparisonValue::Implemented(
+                zelf.function.is(&other.function) && zelf.object.is(&other.object),
+            ))
+        })
+    }
+}
+
+#[pyimpl(with(Callable, Comparable), flags(HAS_DICT))]
 impl PyBoundMethod {
     pub fn new(object: PyObjectRef, function: PyObjectRef) -> Self {
         PyBoundMethod { object, function }
@@ -376,19 +392,6 @@ impl PyBoundMethod {
     #[pyproperty(magic)]
     fn module(&self, vm: &VirtualMachine) -> Option<PyObjectRef> {
         vm.get_attribute(self.function.clone(), "__module__").ok()
-    }
-
-    #[pymethod(magic)]
-    fn eq(&self, other: PyObjectRef) -> PyResult<PyComparisonValue> {
-        let other = class_or_notimplemented!(Self, other);
-        Ok(PyComparisonValue::Implemented(
-            self.function.is(&other.function) && self.object.is(&other.object),
-        ))
-    }
-
-    #[pymethod(magic)]
-    fn ne(&self, other: PyObjectRef) -> PyResult<PyComparisonValue> {
-        Ok(self.eq(other)?.map(|v| !v))
     }
 }
 

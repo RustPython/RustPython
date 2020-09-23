@@ -14,7 +14,7 @@ use super::objtuple::PyTuple;
 use super::objweakref::PyWeak;
 use crate::function::{KwArgs, PyFuncArgs};
 use crate::pyobject::{
-    BorrowValue, IdProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable, PyLease,
+    BorrowValue, Either, IdProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable, PyLease,
     PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::slots::{self, Callable, PyClassSlots, PyTpFlags};
@@ -156,6 +156,13 @@ impl PyClassRef {
                     vm.invoke(&magic, vec![zelf.clone()]).map(|_| ())
                 } as _;
                 self.slots.del.store(Some(func));
+            }
+            "__eq__" | "__ne__" | "__le__" | "__lt__" | "__ge__" | "__gt__" => {
+                let func: slots::CmpFunc = |zelf, other, op, vm| {
+                    let magic = get_class_magic(&zelf, op.method_name());
+                    vm.invoke(&magic, vec![zelf, other]).map(Either::A)
+                } as _;
+                self.slots.cmp.store(Some(func))
             }
             _ => (),
         }

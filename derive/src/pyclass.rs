@@ -341,13 +341,6 @@ where
                 quote! {
                     slots.#slot_ident = Some(#into_func);
                 }
-            } else if slot_name == "cmp" {
-                let into_func = quote_spanned! {ident.span() =>
-                    ::std::boxed::Box::new(Self::#ident)
-                };
-                quote! {
-                    slots.#slot_ident = Some(#into_func);
-                }
             } else {
                 quote! {
                     slots.#slot_ident.store(Some(Self::#ident as _))

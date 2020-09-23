@@ -4,7 +4,7 @@ use crate::common::cell::PyRwLock;
 use crate::common::hash::PyHash;
 use crate::function::{OptionalArg, PyFuncArgs, PyNativeFunc};
 use crate::pyobject::{
-    IdProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    Either, IdProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
 };
 use crate::VirtualMachine;
 use crossbeam_utils::atomic::AtomicCell;
@@ -45,6 +45,12 @@ pub(crate) type DelFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<()>;
 pub(crate) type DescrGetFunc =
     fn(PyObjectRef, Option<PyObjectRef>, Option<PyObjectRef>, &VirtualMachine) -> PyResult;
 pub(crate) type HashFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<PyHash>;
+pub(crate) type CmpFunc = fn(
+    PyObjectRef,
+    PyObjectRef,
+    PyComparisonOp,
+    &VirtualMachine,
+) -> PyResult<Either<PyObjectRef, PyComparisonValue>>;
 
 #[derive(Default)]
 pub struct PyClassSlots {
@@ -55,19 +61,8 @@ pub struct PyClassSlots {
     pub call: AtomicCell<Option<GenericMethod>>,
     pub descr_get: AtomicCell<Option<DescrGetFunc>>,
     pub hash: AtomicCell<Option<HashFunc>>,
-    pub cmp: Option<CmpFunc>,
+    pub cmp: AtomicCell<Option<CmpFunc>>,
 }
-
-type CmpFunc = Box<
-    py_dyn_fn!(
-        dyn Fn(
-            PyObjectRef,
-            PyObjectRef,
-            PyComparisonOp,
-            &VirtualMachine,
-        ) -> PyResult<PyComparisonValue>
-    ),
->;
 
 impl PyClassSlots {
     pub fn from_flags(flags: PyTpFlags) -> Self {
@@ -224,9 +219,9 @@ pub trait Comparable: PyValue {
         other: PyObjectRef,
         op: PyComparisonOp,
         vm: &VirtualMachine,
-    ) -> PyResult<PyComparisonValue> {
+    ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
         let zelf = PyRef::try_from_object(vm, zelf)?;
-        Self::cmp(zelf, other, op, vm)
+        Self::cmp(zelf, other, op, vm).map(Either::B)
     }
 
     fn cmp(

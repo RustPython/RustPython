@@ -1399,11 +1399,11 @@ impl VirtualMachine {
         // TODO: _Py_EnterRecursiveCall(tstate, " in comparison")
 
         let call_cmp = |obj: PyObjectRef, other, op| {
-            let ret = if let Some(ref cmp) = obj.class().slots.cmp {
-                Some(cmp(obj, other, op, self)?.map(Either::B))
-            } else if let Some(method) = self.get_method(obj, op.method_name()).transpose()? {
-                let ret = self.invoke(&method, vec![other])?;
-                Some(PyArithmaticValue::from_object(self, ret).map(Either::A))
+            let ret = if let Some(ref cmp) = obj.class().first_in_mro(|cls| cls.slots.cmp.load()) {
+                Some(match cmp(obj, other, op, self)? {
+                    Either::A(obj) => PyArithmaticValue::from_object(self, obj).map(Either::A),
+                    Either::B(arithmatic) => arithmatic.map(Either::B),
+                })
             } else {
                 None
             };
