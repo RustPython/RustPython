@@ -911,7 +911,7 @@ mod decl {
                 None => obj,
                 Some(value) => {
                     if vm.is_none(&self.binop) {
-                        vm._add(value, obj)?
+                        vm._add(&value, &obj)?
                     } else {
                         vm.invoke(&self.binop, vec![value, obj])?
                     }

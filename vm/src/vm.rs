@@ -542,8 +542,8 @@ impl VirtualMachine {
 
     pub fn new_unsupported_operand_error(
         &self,
-        a: PyObjectRef,
-        b: PyObjectRef,
+        a: &PyObjectRef,
+        b: &PyObjectRef,
         op: &str,
     ) -> PyBaseExceptionRef {
         self.new_type_error(format!(
@@ -1025,13 +1025,13 @@ impl VirtualMachine {
     /// calls `unsupported` to determine fallback value.
     pub fn call_or_unsupported<F>(
         &self,
-        obj: PyObjectRef,
-        arg: PyObjectRef,
+        obj: &PyObjectRef,
+        arg: &PyObjectRef,
         method: &str,
         unsupported: F,
     ) -> PyResult
     where
-        F: Fn(&VirtualMachine, PyObjectRef, PyObjectRef) -> PyResult,
+        F: Fn(&VirtualMachine, &PyObjectRef, &PyObjectRef) -> PyResult,
     {
         if let Some(method_or_err) = self.get_method(obj.clone(), method) {
             let method = method_or_err?;
@@ -1056,11 +1056,11 @@ impl VirtualMachine {
     /// 3. If above is not implemented, invokes `unsupported` for the result.
     pub fn call_or_reflection(
         &self,
-        lhs: PyObjectRef,
-        rhs: PyObjectRef,
+        lhs: &PyObjectRef,
+        rhs: &PyObjectRef,
         default: &str,
         reflection: &str,
-        unsupported: fn(&VirtualMachine, PyObjectRef, PyObjectRef) -> PyResult,
+        unsupported: fn(&VirtualMachine, &PyObjectRef, &PyObjectRef) -> PyResult,
     ) -> PyResult {
         // Try to call the default method
         self.call_or_unsupported(lhs, rhs, default, move |vm, lhs, rhs| {
@@ -1204,13 +1204,13 @@ impl VirtualMachine {
         self.call_codec_func("encode", obj, encoding, errors)
     }
 
-    pub fn _sub(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+    pub fn _sub(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
         self.call_or_reflection(a, b, "__sub__", "__rsub__", |vm, a, b| {
             Err(vm.new_unsupported_operand_error(a, b, "-"))
         })
     }
 
-    pub fn _isub(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+    pub fn _isub(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
         self.call_or_unsupported(a, b, "__isub__", |vm, a, b| {
             vm.call_or_reflection(a, b, "__sub__", "__rsub__", |vm, a, b| {
                 Err(vm.new_unsupported_operand_error(a, b, "-="))
@@ -1218,13 +1218,13 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _add(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+    pub fn _add(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
         self.call_or_reflection(a, b, "__add__", "__radd__", |vm, a, b| {
             Err(vm.new_unsupported_operand_error(a, b, "+"))
         })
     }
 
-    pub fn _iadd(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+    pub fn _iadd(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
         self.call_or_unsupported(a, b, "__iadd__", |vm, a, b| {
             vm.call_or_reflection(a, b, "__add__", "__radd__", |vm, a, b| {
                 Err(vm.new_unsupported_operand_error(a, b, "+="))
@@ -1232,13 +1232,13 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _mul(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+    pub fn _mul(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
         self.call_or_reflection(a, b, "__mul__", "__rmul__", |vm, a, b| {
             Err(vm.new_unsupported_operand_error(a, b, "*"))
         })
     }
 
-    pub fn _imul(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+    pub fn _imul(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
         self.call_or_unsupported(a, b, "__imul__", |vm, a, b| {
             vm.call_or_reflection(a, b, "__mul__", "__rmul__", |vm, a, b| {
                 Err(vm.new_unsupported_operand_error(a, b, "*="))
@@ -1246,13 +1246,13 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _matmul(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+    pub fn _matmul(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
         self.call_or_reflection(a, b, "__matmul__", "__rmatmul__", |vm, a, b| {
             Err(vm.new_unsupported_operand_error(a, b, "@"))
         })
     }
 
-    pub fn _imatmul(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+    pub fn _imatmul(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
         self.call_or_unsupported(a, b, "__imatmul__", |vm, a, b| {
             vm.call_or_reflection(a, b, "__matmul__", "__rmatmul__", |vm, a, b| {
                 Err(vm.new_unsupported_operand_error(a, b, "@="))
@@ -1260,13 +1260,13 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _truediv(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+    pub fn _truediv(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
         self.call_or_reflection(a, b, "__truediv__", "__rtruediv__", |vm, a, b| {
             Err(vm.new_unsupported_operand_error(a, b, "/"))
         })
     }
 
-    pub fn _itruediv(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+    pub fn _itruediv(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
         self.call_or_unsupported(a, b, "__itruediv__", |vm, a, b| {
             vm.call_or_reflection(a, b, "__truediv__", "__rtruediv__", |vm, a, b| {
                 Err(vm.new_unsupported_operand_error(a, b, "/="))
@@ -1274,13 +1274,13 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _floordiv(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+    pub fn _floordiv(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
         self.call_or_reflection(a, b, "__floordiv__", "__rfloordiv__", |vm, a, b| {
             Err(vm.new_unsupported_operand_error(a, b, "//"))
         })
     }
 
-    pub fn _ifloordiv(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+    pub fn _ifloordiv(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
         self.call_or_unsupported(a, b, "__ifloordiv__", |vm, a, b| {
             vm.call_or_reflection(a, b, "__floordiv__", "__rfloordiv__", |vm, a, b| {
                 Err(vm.new_unsupported_operand_error(a, b, "//="))
@@ -1288,13 +1288,13 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _pow(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+    pub fn _pow(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
         self.call_or_reflection(a, b, "__pow__", "__rpow__", |vm, a, b| {
             Err(vm.new_unsupported_operand_error(a, b, "**"))
         })
     }
 
-    pub fn _ipow(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+    pub fn _ipow(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
         self.call_or_unsupported(a, b, "__ipow__", |vm, a, b| {
             vm.call_or_reflection(a, b, "__pow__", "__rpow__", |vm, a, b| {
                 Err(vm.new_unsupported_operand_error(a, b, "**="))
@@ -1302,13 +1302,13 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _mod(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+    pub fn _mod(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
         self.call_or_reflection(a, b, "__mod__", "__rmod__", |vm, a, b| {
             Err(vm.new_unsupported_operand_error(a, b, "%"))
         })
     }
 
-    pub fn _imod(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+    pub fn _imod(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
         self.call_or_unsupported(a, b, "__imod__", |vm, a, b| {
             vm.call_or_reflection(a, b, "__mod__", "__rmod__", |vm, a, b| {
                 Err(vm.new_unsupported_operand_error(a, b, "%="))
@@ -1316,13 +1316,13 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _lshift(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+    pub fn _lshift(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
         self.call_or_reflection(a, b, "__lshift__", "__rlshift__", |vm, a, b| {
             Err(vm.new_unsupported_operand_error(a, b, "<<"))
         })
     }
 
-    pub fn _ilshift(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+    pub fn _ilshift(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
         self.call_or_unsupported(a, b, "__ilshift__", |vm, a, b| {
             vm.call_or_reflection(a, b, "__lshift__", "__rlshift__", |vm, a, b| {
                 Err(vm.new_unsupported_operand_error(a, b, "<<="))
@@ -1330,13 +1330,13 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _rshift(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+    pub fn _rshift(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
         self.call_or_reflection(a, b, "__rshift__", "__rrshift__", |vm, a, b| {
             Err(vm.new_unsupported_operand_error(a, b, ">>"))
         })
     }
 
-    pub fn _irshift(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+    pub fn _irshift(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
         self.call_or_unsupported(a, b, "__irshift__", |vm, a, b| {
             vm.call_or_reflection(a, b, "__rshift__", "__rrshift__", |vm, a, b| {
                 Err(vm.new_unsupported_operand_error(a, b, ">>="))
@@ -1344,13 +1344,13 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _xor(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+    pub fn _xor(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
         self.call_or_reflection(a, b, "__xor__", "__rxor__", |vm, a, b| {
             Err(vm.new_unsupported_operand_error(a, b, "^"))
         })
     }
 
-    pub fn _ixor(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+    pub fn _ixor(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
         self.call_or_unsupported(a, b, "__ixor__", |vm, a, b| {
             vm.call_or_reflection(a, b, "__xor__", "__rxor__", |vm, a, b| {
                 Err(vm.new_unsupported_operand_error(a, b, "^="))
@@ -1358,13 +1358,13 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _or(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+    pub fn _or(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
         self.call_or_reflection(a, b, "__or__", "__ror__", |vm, a, b| {
             Err(vm.new_unsupported_operand_error(a, b, "|"))
         })
     }
 
-    pub fn _ior(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+    pub fn _ior(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
         self.call_or_unsupported(a, b, "__ior__", |vm, a, b| {
             vm.call_or_reflection(a, b, "__or__", "__ror__", |vm, a, b| {
                 Err(vm.new_unsupported_operand_error(a, b, "|="))
@@ -1372,13 +1372,13 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _and(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+    pub fn _and(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
         self.call_or_reflection(a, b, "__and__", "__rand__", |vm, a, b| {
             Err(vm.new_unsupported_operand_error(a, b, "&"))
         })
     }
 
-    pub fn _iand(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+    pub fn _iand(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
         self.call_or_unsupported(a, b, "__iand__", |vm, a, b| {
             vm.call_or_reflection(a, b, "__and__", "__rand__", |vm, a, b| {
                 Err(vm.new_unsupported_operand_error(a, b, "&="))
@@ -1434,7 +1434,7 @@ impl VirtualMachine {
         match op {
             PyComparisonOp::Eq => Ok(Either::B(v.is(&w))),
             PyComparisonOp::Ne => Ok(Either::B(!v.is(&w))),
-            _ => Err(self.new_unsupported_operand_error(v.clone(), w.clone(), op.operator_token())),
+            _ => Err(self.new_unsupported_operand_error(v, w, op.operator_token())),
         }
         // TODO: _Py_LeaveRecursiveCall(tstate);
     }
@@ -1625,7 +1625,7 @@ mod tests {
         Interpreter::default().enter(|vm| {
             let a = vm.ctx.new_int(33_i32);
             let b = vm.ctx.new_int(12_i32);
-            let res = vm._add(a, b).unwrap();
+            let res = vm._add(&a, &b).unwrap();
             let value = objint::get_value(&res);
             assert_eq!(*value, 45_i32.to_bigint().unwrap());
         })
@@ -1636,7 +1636,7 @@ mod tests {
         Interpreter::default().enter(|vm| {
             let a = vm.ctx.new_str(String::from("Hello "));
             let b = vm.ctx.new_int(4_i32);
-            let res = vm._mul(a, b).unwrap();
+            let res = vm._mul(&a, &b).unwrap();
             let value = objstr::borrow_value(&res);
             assert_eq!(value, String::from("Hello Hello Hello Hello "))
         })

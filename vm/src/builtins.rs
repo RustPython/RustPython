@@ -180,7 +180,7 @@ mod decl {
 
     #[pyfunction]
     fn divmod(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        vm.call_or_reflection(a, b, "__divmod__", "__rdivmod__", |vm, a, b| {
+        vm.call_or_reflection(&a, &b, "__divmod__", "__rdivmod__", |vm, a, b| {
             Err(vm.new_unsupported_operand_error(a, b, "divmod"))
         })
     }
@@ -630,7 +630,7 @@ mod decl {
     ) -> PyResult {
         match mod_value {
             OptionalArg::Missing => {
-                vm.call_or_reflection(x, y, "__pow__", "__rpow__", |vm, x, y| {
+                vm.call_or_reflection(&x, &y, "__pow__", "__rpow__", |vm, x, y| {
                     Err(vm.new_unsupported_operand_error(x, y, "pow"))
                 })
             }
@@ -780,7 +780,7 @@ mod decl {
         // Start with zero and add at will:
         let mut sum = start.into_option().unwrap_or_else(|| vm.ctx.new_int(0));
         for item in iterable.iter(vm)? {
-            sum = vm._add(sum, item?)?;
+            sum = vm._add(&sum, &item?)?;
         }
         Ok(sum)
     }
