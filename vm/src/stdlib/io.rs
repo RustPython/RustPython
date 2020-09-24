@@ -816,8 +816,16 @@ mod _io {
         }
     }
 
-    #[pyimpl(flags(BASETYPE))]
+    #[pyimpl(flags(BASETYPE), with(PyRef))]
     impl StringIO {
+        fn buffer(&self, vm: &VirtualMachine) -> PyResult<PyRwLockWriteGuard<'_, BufferedIO>> {
+            if !self.closed.load() {
+                Ok(self.buffer.write())
+            } else {
+                Err(io_closed_error(vm))
+            }
+        }
+
         #[pyslot]
         fn tp_new(
             cls: PyClassRef,
@@ -835,18 +843,27 @@ mod _io {
             }
             .into_ref_with_type(vm, cls)
         }
-    }
 
-    impl StringIORef {
-        fn buffer(&self, vm: &VirtualMachine) -> PyResult<PyRwLockWriteGuard<'_, BufferedIO>> {
-            if !self.closed.load() {
-                Ok(self.buffer.write())
-            } else {
-                Err(io_closed_error(vm))
-            }
+        #[pymethod]
+        fn seekable(&self) -> bool {
+            true
         }
 
+        #[pyproperty]
+        fn closed(&self) -> bool {
+            self.closed.load()
+        }
+
+        #[pymethod]
+        fn close(&self) {
+            self.closed.store(true);
+        }
+    }
+
+    #[pyimpl]
+    impl StringIORef {
         //write string to underlying vector
+        #[pymethod]
         fn write(self, data: PyStringRef, vm: &VirtualMachine) -> PyResult {
             let bytes = data.borrow_value().as_bytes();
 
@@ -857,6 +874,7 @@ mod _io {
         }
 
         //return the entire contents of the underlying
+        #[pymethod]
         fn getvalue(self, vm: &VirtualMachine) -> PyResult {
             match String::from_utf8(self.buffer(vm)?.getvalue()) {
                 Ok(result) => Ok(vm.ctx.new_str(result)),
@@ -865,6 +883,7 @@ mod _io {
         }
 
         //skip to the jth position
+        #[pymethod]
         fn seek(
             self,
             offset: PyObjectRef,
@@ -876,13 +895,10 @@ mod _io {
                 .map_err(|err| os_err(vm, err))
         }
 
-        fn seekable(self) -> bool {
-            true
-        }
-
         //Read k bytes from the object and return.
         //If k is undefined || k == -1, then we read all bytes until the end of the file.
         //This also increments the stream position by the value of k
+        #[pymethod]
         fn read(self, size: OptionalSize, vm: &VirtualMachine) -> PyResult {
             let data = match self.buffer(vm)?.read(size.to_usize()) {
                 Some(value) => value,
@@ -895,10 +911,12 @@ mod _io {
             }
         }
 
+        #[pymethod]
         fn tell(self, vm: &VirtualMachine) -> PyResult<u64> {
             Ok(self.buffer(vm)?.tell())
         }
 
+        #[pymethod]
         fn readline(self, size: OptionalSize, vm: &VirtualMachine) -> PyResult<String> {
             // TODO size should correspond to the number of characters, at the moments its the number of
             // bytes.
@@ -908,18 +926,11 @@ mod _io {
             }
         }
 
+        #[pymethod]
         fn truncate(self, pos: OptionalSize, vm: &VirtualMachine) -> PyResult<()> {
             let mut buffer = self.buffer(vm)?;
             buffer.truncate(pos.try_usize(vm)?)?;
             Ok(())
-        }
-
-        fn closed(self) -> bool {
-            self.closed.load()
-        }
-
-        fn close(self) {
-            self.closed.store(true);
         }
     }
 
@@ -938,8 +949,16 @@ mod _io {
         }
     }
 
-    #[pyimpl(flags(BASETYPE))]
+    #[pyimpl(flags(BASETYPE), with(PyRef))]
     impl BytesIO {
+        fn buffer(&self, vm: &VirtualMachine) -> PyResult<PyRwLockWriteGuard<'_, BufferedIO>> {
+            if !self.closed.load() {
+                Ok(self.buffer.write())
+            } else {
+                Err(io_closed_error(vm))
+            }
+        }
+
         #[pyslot]
         fn tp_new(
             cls: PyClassRef,
@@ -958,15 +977,9 @@ mod _io {
         }
     }
 
+    #[pyimpl]
     impl BytesIORef {
-        fn buffer(&self, vm: &VirtualMachine) -> PyResult<PyRwLockWriteGuard<'_, BufferedIO>> {
-            if !self.closed.load() {
-                Ok(self.buffer.write())
-            } else {
-                Err(io_closed_error(vm))
-            }
-        }
-
+        #[pymethod]
         fn write(self, data: PyBytesLike, vm: &VirtualMachine) -> PyResult<u64> {
             let mut buffer = self.buffer(vm)?;
             match data.with_ref(|b| buffer.write(b)) {
@@ -974,7 +987,9 @@ mod _io {
                 None => Err(vm.new_type_error("Error Writing Bytes".to_owned())),
             }
         }
+
         //Retrieves the entire bytes object value from the underlying buffer
+        #[pymethod]
         fn getvalue(self, vm: &VirtualMachine) -> PyResult {
             Ok(vm.ctx.new_bytes(self.buffer(vm)?.getvalue()))
         }
@@ -982,6 +997,8 @@ mod _io {
         //Takes an integer k (bytes) and returns them from the underlying buffer
         //If k is undefined || k == -1, then we read all bytes until the end of the file.
         //This also increments the stream position by the value of k
+        #[pymethod]
+        #[pymethod(name = "read1")]
         fn read(self, size: OptionalSize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
             let buf = self
                 .buffer(vm)?
@@ -991,6 +1008,7 @@ mod _io {
         }
 
         //skip to the jth position
+        #[pymethod]
         fn seek(
             self,
             offset: PyObjectRef,
@@ -1002,28 +1020,34 @@ mod _io {
                 .map_err(|err| os_err(vm, err))
         }
 
+        #[pymethod]
         fn seekable(self) -> bool {
             true
         }
 
+        #[pymethod]
         fn tell(self, vm: &VirtualMachine) -> PyResult<u64> {
             Ok(self.buffer(vm)?.tell())
         }
 
+        #[pymethod]
         fn readline(self, size: OptionalSize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
             self.buffer(vm)?.readline(size.to_usize(), vm)
         }
 
+        #[pymethod]
         fn truncate(self, pos: OptionalSize, vm: &VirtualMachine) -> PyResult<()> {
             let mut buffer = self.buffer(vm)?;
             buffer.truncate(pos.try_usize(vm)?)?;
             Ok(())
         }
 
+        #[pyproperty]
         fn closed(self) -> bool {
             self.closed.load()
         }
 
+        #[pymethod]
         fn close(self) {
             self.closed.store(true)
         }
@@ -1229,33 +1253,11 @@ mod _io {
         let string_io = StringIO::make_class_with_base(&vm.ctx, text_io_base.clone());
         extend_class!(ctx, &string_io, {
             "__module__" => ctx.new_str("_io"),
-            "seek" => ctx.new_method(StringIORef::seek),
-            "seekable" => ctx.new_method(StringIORef::seekable),
-            "read" => ctx.new_method(StringIORef::read),
-            "write" => ctx.new_method(StringIORef::write),
-            "getvalue" => ctx.new_method(StringIORef::getvalue),
-            "tell" => ctx.new_method(StringIORef::tell),
-            "readline" => ctx.new_method(StringIORef::readline),
-            "truncate" => ctx.new_method(StringIORef::truncate),
-            "closed" => ctx.new_readonly_getset("closed", StringIORef::closed),
-            "close" => ctx.new_method(StringIORef::close),
         });
 
         //BytesIO: in-memory bytes
         let bytes_io = BytesIO::make_class_with_base(&vm.ctx, buffered_io_base.clone());
-        extend_class!(ctx, &bytes_io, {
-            "read" => ctx.new_method(BytesIORef::read),
-            "read1" => ctx.new_method(BytesIORef::read),
-            "seek" => ctx.new_method(BytesIORef::seek),
-            "seekable" => ctx.new_method(BytesIORef::seekable),
-            "write" => ctx.new_method(BytesIORef::write),
-            "getvalue" => ctx.new_method(BytesIORef::getvalue),
-            "tell" => ctx.new_method(BytesIORef::tell),
-            "readline" => ctx.new_method(BytesIORef::readline),
-            "truncate" => ctx.new_method(BytesIORef::truncate),
-            "closed" => ctx.new_readonly_getset("closed", BytesIORef::closed),
-            "close" => ctx.new_method(BytesIORef::close),
-        });
+        extend_class!(ctx, &bytes_io, {});
 
         #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
         extend_module!(vm, module, {
@@ -1272,7 +1274,6 @@ mod _io {
             "TextIOWrapper" => text_io_wrapper,
             "StringIO" => string_io,
             "BytesIO" => bytes_io,
-            "DEFAULT_BUFFER_SIZE" => ctx.new_int(8 * 1024),
         });
     }
 
