@@ -133,6 +133,7 @@ fn generate_class_def(
     ident: &Ident,
     name: &str,
     module_name: Option<&str>,
+    base: Option<String>,
     attrs: &[Attribute],
 ) -> std::result::Result<TokenStream, Diagnostic> {
     let doc = if let Some(doc) = attrs.doc() {
@@ -159,11 +160,27 @@ fn generate_class_def(
                 false
             }
     });
+    if base.is_some() && is_pystruct {
+        return Err(syn::Error::new_spanned(
+            ident,
+            "PyStructSequence cannot have `base` class attr",
+        )
+        .into());
+    }
+    let base = base.map(|name| Ident::new(&name, ident.span()));
 
     let base_class = if is_pystruct {
         quote! {
-            fn base_class(ctx: &::rustpython_vm::pyobject::PyContext) -> ::rustpython_vm::builtins::PyTypeRef {
-                ctx.types.tuple_type.clone()
+            fn static_baseclass() -> &'static ::rustpython_vm::builtins::PyTypeRef {
+                use rustpython_vm::pyobject::StaticType;
+                rustpython_vm::builtins::PyTuple::static_type()
+            }
+        }
+    } else if let Some(base) = base {
+        quote! {
+            fn static_baseclass() -> &'static ::rustpython_vm::builtins::PyTypeRef {
+                use rustpython_vm::pyobject::StaticType;
+                #base::static_type()
             }
         }
     } else {
@@ -176,6 +193,17 @@ fn generate_class_def(
             const MODULE_NAME: Option<&'static str> = #module_name;
             const TP_NAME: &'static str = #module_class_name;
             const DOC: Option<&'static str> = #doc;
+        }
+
+        impl ::rustpython_vm::pyobject::StaticType for #ident {
+            fn static_cell() -> &'static ::rustpython_common::static_cell::StaticCell<::rustpython_vm::builtins::PyTypeRef> {
+                use ::rustpython_common::static_cells;
+                static_cells! {
+                    static CELL: ::rustpython_vm::builtins::PyTypeRef;
+                }
+                &CELL
+            }
+
             #base_class
         }
     };
@@ -191,7 +219,8 @@ pub(crate) fn impl_pyclass(
     let class_meta = ClassItemMeta::from_nested(ident.clone(), fake_ident, attr.into_iter())?;
     let class_name = class_meta.class_name()?;
     let module_name = class_meta.module()?;
-    let class_def = generate_class_def(&ident, &class_name, module_name.as_deref(), &attrs)?;
+    let base = class_meta.base()?;
+    let class_def = generate_class_def(&ident, &class_name, module_name.as_deref(), base, &attrs)?;
 
     let ret = quote! {
         #item

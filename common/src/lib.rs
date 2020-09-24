@@ -5,4 +5,5 @@ pub mod float_ops;
 pub mod hash;
 pub mod lock;
 pub mod rc;
+pub mod static_cell;
 pub mod str;

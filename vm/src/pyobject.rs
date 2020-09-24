@@ -1,12 +1,11 @@
+use num_bigint::BigInt;
+use num_complex::Complex64;
+use num_traits::ToPrimitive;
 use std::any::Any;
 use std::collections::HashMap;
 use std::fmt;
 use std::marker::PhantomData;
 use std::ops::Deref;
-
-use num_bigint::BigInt;
-use num_complex::Complex64;
-use num_traits::ToPrimitive;
 
 use crate::builtins::builtinfunc::PyNativeFuncDef;
 use crate::builtins::bytearray;
@@ -31,18 +30,18 @@ use crate::builtins::slice::PyEllipsis;
 use crate::builtins::staticmethod::PyStaticMethod;
 use crate::builtins::tuple::{PyTuple, PyTupleRef};
 use crate::bytecode;
+pub use crate::common::borrow::BorrowValue;
+use crate::common::lock::{PyRwLock, PyRwLockReadGuard};
+use crate::common::rc::PyRc;
+use crate::common::static_cell;
 use crate::exceptions::{self, PyBaseExceptionRef};
 use crate::function::{IntoFuncArgs, IntoPyNativeFunc};
 use crate::iterator;
 pub use crate::pyobjectrc::{PyObjectRc, PyObjectWeak};
 use crate::scope::Scope;
 use crate::slots::{PyTpFlags, PyTypeSlots};
-use crate::types::{create_type_with_slots, initialize_types, TypeZoo};
+use crate::types::{create_type_with_slots, TypeZoo};
 use crate::vm::VirtualMachine;
-use rustpython_common::lock::{PyRwLock, PyRwLockReadGuard};
-use rustpython_common::rc::PyRc;
-
-pub use crate::common::borrow::BorrowValue;
 
 /* Python objects and references.
 
@@ -92,7 +91,7 @@ impl fmt::Display for PyObject<dyn PyObjectPayload> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PyContext {
     pub true_value: PyIntRef,
     pub false_value: PyIntRef,
@@ -113,60 +112,62 @@ impl PyContext {
     pub const INT_CACHE_POOL_MAX: i32 = 256;
 
     pub fn new() -> Self {
-        flame_guard!("init PyContext");
-        let types = TypeZoo::new();
-        let exceptions = exceptions::ExceptionZoo::new(&types.type_type, &types.object_type);
-
-        fn create_object<T: PyObjectPayload + PyValue>(payload: T, cls: &PyTypeRef) -> PyRef<T> {
-            PyRef::new_ref(payload, cls.clone(), None)
+        use rustpython_common::static_cells;
+        static_cells! {
+            static CONTEXT: PyContext;
         }
+        static_cell::get_or_init(&CONTEXT, || {
+            flame_guard!("init PyContext");
+            let types = TypeZoo::init();
+            let exceptions = exceptions::ExceptionZoo::init();
 
-        let none_type = PyNone::create_bare_type(&types.type_type, types.object_type.clone());
-        let none = create_object(PyNone, &none_type);
+            fn create_object<T: PyObjectPayload + PyValue>(
+                payload: T,
+                cls: &PyTypeRef,
+            ) -> PyRef<T> {
+                PyRef::new_ref(payload, cls.clone(), None)
+            }
 
-        let ellipsis_type =
-            PyEllipsis::create_bare_type(&types.type_type, types.object_type.clone());
-        let ellipsis = create_object(PyEllipsis, &ellipsis_type);
+            let none = create_object(PyNone, PyNone::static_type());
+            let ellipsis = create_object(PyEllipsis, PyEllipsis::static_type());
+            let not_implemented = create_object(PyNotImplemented, PyNotImplemented::static_type());
 
-        let not_implemented_type =
-            PyNotImplemented::create_bare_type(&types.type_type, types.object_type.clone());
-        let not_implemented = create_object(PyNotImplemented, &not_implemented_type);
+            let int_cache_pool = (Self::INT_CACHE_POOL_MIN..=Self::INT_CACHE_POOL_MAX)
+                .map(|v| PyRef::new_ref(PyInt::from(BigInt::from(v)), types.int_type.clone(), None))
+                .collect();
 
-        let int_cache_pool = (Self::INT_CACHE_POOL_MIN..=Self::INT_CACHE_POOL_MAX)
-            .map(|v| PyRef::new_ref(PyInt::from(BigInt::from(v)), types.int_type.clone(), None))
-            .collect();
+            let true_value = create_object(PyInt::from(1), &types.bool_type);
+            let false_value = create_object(PyInt::from(0), &types.bool_type);
 
-        let true_value = create_object(PyInt::from(1), &types.bool_type);
-        let false_value = create_object(PyInt::from(0), &types.bool_type);
+            let empty_tuple = create_object(
+                PyTuple::_new(Vec::new().into_boxed_slice()),
+                &types.tuple_type,
+            );
 
-        let empty_tuple = create_object(
-            PyTuple::_new(Vec::new().into_boxed_slice()),
-            &types.tuple_type,
-        );
+            let tp_new_wrapper = create_object(
+                PyNativeFuncDef::from(pytype::tp_new_wrapper.into_func()).into_function(),
+                &types.builtin_function_or_method_type,
+            )
+            .into_object();
 
-        let tp_new_wrapper = create_object(
-            PyNativeFuncDef::from(pytype::tp_new_wrapper.into_func()).into_function(),
-            &types.builtin_function_or_method_type,
-        )
-        .into_object();
+            let context = PyContext {
+                true_value,
+                false_value,
+                not_implemented,
+                none,
+                empty_tuple,
+                ellipsis,
 
-        let context = PyContext {
-            true_value,
-            false_value,
-            not_implemented,
-            none,
-            empty_tuple,
-            ellipsis,
-
-            types,
-            exceptions,
-            int_cache_pool,
-            tp_new_wrapper,
-        };
-        initialize_types(&context);
-
-        exceptions::init(&context);
-        context
+                types,
+                exceptions,
+                int_cache_pool,
+                tp_new_wrapper,
+            };
+            TypeZoo::extend(&context);
+            exceptions::ExceptionZoo::extend(&context);
+            context
+        })
+        .clone()
     }
 
     pub fn none(&self) -> PyObjectRef {
@@ -1229,8 +1230,31 @@ pub trait PyClassDef {
     const MODULE_NAME: Option<&'static str>;
     const TP_NAME: &'static str;
     const DOC: Option<&'static str> = None;
-    fn base_class(ctx: &PyContext) -> PyTypeRef {
-        ctx.types.object_type.clone()
+}
+
+pub trait StaticType {
+    // Ideally, saving PyType is better than PyTypeRef
+    fn static_cell() -> &'static static_cell::StaticCell<PyTypeRef>;
+    fn static_metaclass() -> &'static PyTypeRef {
+        crate::builtins::pytype::PyType::static_type()
+    }
+    fn static_baseclass() -> &'static PyTypeRef {
+        crate::builtins::object::PyBaseObject::static_type()
+    }
+    fn static_type() -> &'static PyTypeRef {
+        static_cell::get(Self::static_cell()).unwrap()
+    }
+
+    fn init_manually(typ: PyTypeRef) -> &'static PyTypeRef {
+        static_cell::init_expect(Self::static_cell(), typ, "init_manually")
+    }
+    fn init_bare_type() -> &'static PyTypeRef
+    where
+        Self: PyClassImpl,
+    {
+        let typ =
+            Self::create_bare_type(Self::static_metaclass(), Self::static_baseclass().clone());
+        static_cell::init_expect(Self::static_cell(), typ, Self::NAME)
     }
 }
 
@@ -1270,14 +1294,17 @@ pub trait PyClassImpl: PyClassDef {
         }
     }
 
-    fn make_class(ctx: &PyContext) -> PyTypeRef {
-        Self::make_class_with_base(ctx, Self::base_class(ctx))
-    }
-
-    fn make_class_with_base(ctx: &PyContext, base: PyTypeRef) -> PyTypeRef {
-        let py_class = ctx.new_class(Self::NAME, base, Self::make_slots());
-        Self::extend_class(ctx, &py_class);
-        py_class
+    fn make_class(ctx: &PyContext) -> PyTypeRef
+    where
+        Self: StaticType,
+    {
+        static_cell::get_or_init(Self::static_cell(), || {
+            let typ =
+                Self::create_bare_type(Self::static_metaclass(), Self::static_baseclass().clone());
+            Self::extend_class(ctx, &typ);
+            typ
+        })
+        .clone()
     }
 
     fn create_bare_type(type_type: &PyTypeRef, base: PyTypeRef) -> PyTypeRef {

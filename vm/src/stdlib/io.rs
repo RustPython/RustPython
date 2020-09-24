@@ -7,7 +7,8 @@ pub(crate) use _io::io_open as open;
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let module = _io::make_module(vm);
-    _io::extend_more(vm, &module);
+    #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+    fileio::extend_module(vm, &module);
     module
 }
 
@@ -33,8 +34,8 @@ mod _io {
     use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
     use crate::function::{FuncArgs, OptionalArg, OptionalOption};
     use crate::pyobject::{
-        BorrowValue, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-        TryFromObject, TypeProtocol,
+        BorrowValue, IntoPyObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+        TypeProtocol,
     };
     use crate::vm::VirtualMachine;
 
@@ -211,10 +212,10 @@ mod _io {
 
     #[pyattr]
     #[pyclass(name = "_IOBase")]
-    struct IOBase;
+    struct _IOBase;
 
     #[pyimpl(flags(BASETYPE))]
-    impl IOBase {
+    impl _IOBase {
         #[pyattr]
         fn __closed(ctx: &PyContext) -> PyObjectRef {
             ctx.new_bool(false)
@@ -381,11 +382,12 @@ mod _io {
         }
     }
 
-    #[pyclass(name = "_RawIOBase", noattr)]
-    struct RawIOBase;
+    #[pyattr]
+    #[pyclass(name = "_RawIOBase", base = "_IOBase")]
+    pub(super) struct _RawIOBase;
 
     #[pyimpl(flags(BASETYPE))]
-    impl RawIOBase {
+    impl _RawIOBase {
         #[pymethod]
         fn read(instance: PyObjectRef, size: OptionalSize, vm: &VirtualMachine) -> PyResult {
             if let Some(size) = size.to_usize() {
@@ -407,11 +409,12 @@ mod _io {
         }
     }
 
-    #[pyclass(name = "_BufferedIOBase", noattr)]
-    struct BufferedIOBase;
+    #[pyattr]
+    #[pyclass(name = "_BufferedIOBase", base = "_IOBase")]
+    struct _BufferedIOBase;
 
     #[pyimpl(flags(BASETYPE))]
-    impl BufferedIOBase {
+    impl _BufferedIOBase {
         // #[pymethod(magic)]
         fn init(
             instance: PyObjectRef,
@@ -461,13 +464,15 @@ mod _io {
     }
 
     // TextIO Base has no public constructor
-    #[pyclass(name = "_TextIOBase", noattr)]
-    struct TextIOBase;
+    #[pyattr]
+    #[pyclass(name = "_TextIOBase", base = "_IOBase")]
+    struct _TextIOBase;
 
     #[pyimpl(flags(BASETYPE))]
-    impl TextIOBase {}
+    impl _TextIOBase {}
 
-    #[pyclass(name = "BufferedReader", noattr)]
+    #[pyattr]
+    #[pyclass(name = "BufferedReader", base = "_BufferedIOBase")]
     struct BufferedReader;
 
     #[pyimpl(flags(BASETYPE))]
@@ -483,32 +488,32 @@ mod _io {
             buffer_size: OptionalArg<usize>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            BufferedIOBase::init(instance, raw, buffer_size, vm)
+            _BufferedIOBase::init(instance, raw, buffer_size, vm)
         }
 
         #[pymethod]
         fn fileno(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            BufferedIOBase::fileno(instance, vm)
+            _BufferedIOBase::fileno(instance, vm)
         }
 
         #[pyproperty]
         fn mode(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            BufferedIOBase::mode(instance, vm)
+            _BufferedIOBase::mode(instance, vm)
         }
 
         #[pyproperty]
         fn name(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            BufferedIOBase::name(instance, vm)
+            _BufferedIOBase::name(instance, vm)
         }
 
         #[pymethod]
         fn tell(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            BufferedIOBase::tell(instance, vm)
+            _BufferedIOBase::tell(instance, vm)
         }
 
         #[pymethod]
         fn close(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            BufferedIOBase::close(instance, vm)
+            _BufferedIOBase::close(instance, vm)
         }
 
         #[pymethod]
@@ -538,7 +543,8 @@ mod _io {
         }
     }
 
-    #[pyclass(name = "BufferedWriter", noattr)]
+    #[pyattr]
+    #[pyclass(name = "BufferedWriter", base = "_BufferedIOBase")]
     struct BufferedWriter;
 
     #[pyimpl(flags(BASETYPE))]
@@ -554,32 +560,32 @@ mod _io {
             buffer_size: OptionalArg<usize>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            BufferedIOBase::init(instance, raw, buffer_size, vm)
+            _BufferedIOBase::init(instance, raw, buffer_size, vm)
         }
 
         #[pymethod]
         fn fileno(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            BufferedIOBase::fileno(instance, vm)
+            _BufferedIOBase::fileno(instance, vm)
         }
 
         #[pyproperty]
         fn mode(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            BufferedIOBase::mode(instance, vm)
+            _BufferedIOBase::mode(instance, vm)
         }
 
         #[pyproperty]
         fn name(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            BufferedIOBase::name(instance, vm)
+            _BufferedIOBase::name(instance, vm)
         }
 
         #[pymethod]
         fn tell(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            BufferedIOBase::tell(instance, vm)
+            _BufferedIOBase::tell(instance, vm)
         }
 
         #[pymethod]
         fn close(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            BufferedIOBase::close(instance, vm)
+            _BufferedIOBase::close(instance, vm)
         }
 
         #[pymethod]
@@ -635,7 +641,8 @@ mod _io {
         }
     }
 
-    #[pyclass(name = "TextIOWrapper", noattr)]
+    #[pyattr]
+    #[pyclass(name = "TextIOWrapper", base = "_TextIOBase")]
     struct TextIOWrapper;
 
     #[pyimpl]
@@ -803,7 +810,8 @@ mod _io {
         newline: Option<PyStrRef>,
     }
 
-    #[pyclass(name = "StringIO", noattr)]
+    #[pyattr]
+    #[pyclass(name = "StringIO", base = "_TextIOBase")]
     #[derive(Debug)]
     struct StringIO {
         buffer: PyRwLock<BufferedIO>,
@@ -936,7 +944,8 @@ mod _io {
         }
     }
 
-    #[pyclass(name = "BytesIO", noattr)]
+    #[pyattr]
+    #[pyclass(name = "BytesIO", base = "_BufferedIOBase")]
     #[derive(Debug)]
     struct BytesIO {
         buffer: PyRwLock<BufferedIO>,
@@ -1305,55 +1314,6 @@ mod _io {
         }
     }
 
-    pub(crate) fn extend_more(vm: &VirtualMachine, module: &PyObjectRef) {
-        let ctx = &vm.ctx;
-
-        // IOBase the abstract base class of the IO Module
-        let io_base = IOBase::make_class(&vm.ctx);
-        extend_class!(ctx, &io_base, {});
-
-        // IOBase Subclasses
-        let raw_io_base = RawIOBase::make_class_with_base(&vm.ctx, io_base.clone());
-        let buffered_io_base = BufferedIOBase::make_class_with_base(&vm.ctx, io_base.clone());
-        let text_io_base = TextIOBase::make_class_with_base(&vm.ctx, io_base.clone());
-
-        // BufferedIOBase Subclasses
-        let buffered_reader =
-            BufferedReader::make_class_with_base(&vm.ctx, buffered_io_base.clone());
-        let buffered_writer =
-            BufferedWriter::make_class_with_base(&vm.ctx, buffered_io_base.clone());
-
-        //TextIOBase Subclass
-        let text_io_wrapper = TextIOWrapper::make_class_with_base(&vm.ctx, text_io_base.clone());
-
-        //StringIO: in-memory text
-        let string_io = StringIO::make_class_with_base(&vm.ctx, text_io_base.clone());
-        extend_class!(ctx, &string_io, {
-            "__module__" => ctx.new_str("_io"),
-        });
-
-        //BytesIO: in-memory bytes
-        let bytes_io = BytesIO::make_class_with_base(&vm.ctx, buffered_io_base.clone());
-        extend_class!(ctx, &bytes_io, {});
-
-        #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
-        extend_module!(vm, module, {
-            "FileIO" => super::fileio::make_fileio(ctx, raw_io_base.clone()),
-        });
-
-        extend_module!(vm, module, {
-            "_IOBase" => io_base,
-            "_RawIOBase" => raw_io_base,
-            "_BufferedIOBase" => buffered_io_base,
-            "_TextIOBase" => text_io_base,
-            "BufferedReader" => buffered_reader,
-            "BufferedWriter" => buffered_writer,
-            "TextIOWrapper" => text_io_wrapper,
-            "StringIO" => string_io,
-            "BytesIO" => bytes_io,
-        });
-    }
-
     #[cfg(test)]
     mod tests {
         use super::*;
@@ -1477,6 +1437,7 @@ mod _io {
 
 // disable FileIO on WASM
 #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+#[pymodule]
 mod fileio {
     use super::_io::*;
     use crate::builtins::pystr::PyStrRef;
@@ -1485,7 +1446,7 @@ mod fileio {
     use crate::exceptions::IntoPyException;
     use crate::function::{FuncArgs, OptionalArg};
     use crate::pyobject::{
-        BorrowValue, Either, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+        BorrowValue, Either, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     };
     use crate::stdlib::os;
     use crate::vm::VirtualMachine;
@@ -1506,9 +1467,10 @@ mod fileio {
         flag as u32
     }
 
-    #[pyclass(module = "io", name)]
+    #[pyattr]
+    #[pyclass(module = "io", name, base = "_RawIOBase")]
     #[derive(Debug)]
-    struct FileIO {
+    pub(super) struct FileIO {
         fd: AtomicCell<i64>,
         closefd: AtomicCell<bool>,
     }
@@ -1716,9 +1678,5 @@ mod fileio {
 
             Ok(pos)
         }
-    }
-
-    pub fn make_fileio(ctx: &crate::pyobject::PyContext, raw_io_base: PyTypeRef) -> PyTypeRef {
-        FileIO::make_class_with_base(ctx, raw_io_base)
     }
 }

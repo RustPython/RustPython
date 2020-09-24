@@ -5,13 +5,16 @@
 use super::code::PyCodeRef;
 use super::dict::PyDictRef;
 use super::pystr::PyStrRef;
-use crate::frame::FrameRef;
-use crate::pyobject::{IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult};
+use crate::frame::{Frame, FrameRef};
+use crate::pyobject::{IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult};
 use crate::vm::VirtualMachine;
 
 pub fn init(context: &PyContext) {
     FrameRef::extend_class(context, &context.types.frame_type);
 }
+
+#[pyimpl(with(PyRef))]
+impl Frame {}
 
 #[pyimpl]
 impl FrameRef {

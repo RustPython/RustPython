@@ -42,6 +42,9 @@ impl PyValue for PyCode {
     }
 }
 
+#[pyimpl(with(PyRef))]
+impl PyCode {}
+
 #[pyimpl]
 impl PyCodeRef {
     #[pyslot]

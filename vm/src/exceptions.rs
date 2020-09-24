@@ -6,20 +6,20 @@ use crate::builtins::tuple::{PyTuple, PyTupleRef};
 use crate::common::lock::PyRwLock;
 use crate::function::FuncArgs;
 use crate::py_io::{self, Write};
+use crate::pyobject::StaticType;
 use crate::pyobject::{
-    BorrowValue, IntoPyObject, PyClassDef, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef,
-    PyResult, PyValue, TryFromObject, TypeProtocol,
+    BorrowValue, IntoPyObject, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult,
+    PyValue, TryFromObject, TypeProtocol,
 };
 use crate::types::create_type_with_slots;
 use crate::VirtualMachine;
 use crate::{py_serde, sysmodule};
 
+use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
 use std::fmt;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
-
-use crossbeam_utils::atomic::AtomicCell;
 
 #[pyclass(module = false, name = "BaseException")]
 pub struct PyBaseException {
@@ -394,7 +394,7 @@ pub fn normalize(
     Ok(exc)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ExceptionZoo {
     pub base_exception_type: PyTypeRef,
     pub system_exit: PyTypeRef,
@@ -468,12 +468,17 @@ pub struct ExceptionZoo {
 }
 
 impl ExceptionZoo {
-    pub fn new(type_type: &PyTypeRef, object_type: &PyTypeRef) -> Self {
+    pub(crate) fn init() -> Self {
+        let base_exception_type = PyBaseException::init_bare_type().clone();
         let create_exception_type = |name: &str, base: &PyTypeRef| {
-            create_type_with_slots(name, type_type, base.clone(), PyBaseException::make_slots())
+            create_type_with_slots(
+                name,
+                PyType::static_type(),
+                base.clone(),
+                PyBaseException::make_slots(),
+            )
         };
         // Sorted By Hierarchy then alphabetized.
-        let base_exception_type = create_exception_type(PyBaseExceptionRef::NAME, &object_type);
         let system_exit = create_exception_type("SystemExit", &base_exception_type);
         let keyboard_interrupt = create_exception_type("KeyboardInterrupt", &base_exception_type);
         let generator_exit = create_exception_type("GeneratorExit", &base_exception_type);
@@ -552,7 +557,7 @@ impl ExceptionZoo {
         let bytes_warning = create_exception_type("BytesWarning", &warning);
         let resource_warning = create_exception_type("ResourceWarning", &warning);
 
-        ExceptionZoo {
+        Self {
             base_exception_type,
             system_exit,
             keyboard_interrupt,
@@ -624,6 +629,62 @@ impl ExceptionZoo {
             resource_warning,
         }
     }
+
+    pub fn extend(ctx: &PyContext) {
+        let excs = &ctx.exceptions;
+
+        PyBaseException::extend_class(ctx, &excs.base_exception_type);
+
+        extend_class!(ctx, &excs.syntax_error, {
+            "msg" => ctx.new_readonly_getset("msg", make_arg_getter(0)),
+            // TODO: members
+            "filename" => ctx.none(),
+            "lineno" => ctx.none(),
+            "offset" => ctx.none(),
+            "text" => ctx.none(),
+        });
+
+        extend_class!(ctx, &excs.system_exit, {
+            "code" => ctx.new_readonly_getset("code", system_exit_code),
+        });
+
+        extend_class!(ctx, &excs.import_error, {
+            "__init__" => ctx.new_method(import_error_init),
+            "msg" => ctx.new_readonly_getset("msg", make_arg_getter(0)),
+        });
+
+        extend_class!(ctx, &excs.stop_iteration, {
+            "value" => ctx.new_readonly_getset("value", make_arg_getter(0)),
+        });
+
+        extend_class!(ctx, &excs.key_error, {
+            "__str__" => ctx.new_method(key_error_str),
+        });
+
+        extend_class!(ctx, &excs.unicode_decode_error, {
+            "encoding" => ctx.new_readonly_getset("encoding", make_arg_getter(0)),
+            "object" => ctx.new_readonly_getset("object", make_arg_getter(1)),
+            "start" => ctx.new_readonly_getset("start", make_arg_getter(2)),
+            "end" => ctx.new_readonly_getset("end", make_arg_getter(3)),
+            "reason" => ctx.new_readonly_getset("reason", make_arg_getter(4)),
+        });
+
+        extend_class!(ctx, &excs.unicode_encode_error, {
+            "encoding" => ctx.new_readonly_getset("encoding", make_arg_getter(0)),
+            "object" => ctx.new_readonly_getset("object", make_arg_getter(1)),
+            "start" => ctx.new_readonly_getset("start", make_arg_getter(2)),
+            "end" => ctx.new_readonly_getset("end", make_arg_getter(3)),
+            "reason" => ctx.new_readonly_getset("reason", make_arg_getter(4)),
+        });
+
+        extend_class!(ctx, &excs.unicode_translate_error, {
+            "encoding" => ctx.new_readonly_getset("encoding", none_getter),
+            "object" => ctx.new_readonly_getset("object", make_arg_getter(0)),
+            "start" => ctx.new_readonly_getset("start", make_arg_getter(1)),
+            "end" => ctx.new_readonly_getset("end", make_arg_getter(2)),
+            "reason" => ctx.new_readonly_getset("reason", make_arg_getter(3)),
+        });
+    }
 }
 
 fn import_error_init(exc_self: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
@@ -670,62 +731,6 @@ fn system_exit_code(exc: PyBaseExceptionRef) -> Option<PyObjectRef> {
             other => other.clone(),
         })
     })
-}
-
-pub fn init(ctx: &PyContext) {
-    let excs = &ctx.exceptions;
-
-    PyBaseException::extend_class(ctx, &excs.base_exception_type);
-
-    extend_class!(ctx, &excs.syntax_error, {
-        "msg" => ctx.new_readonly_getset("msg", make_arg_getter(0)),
-        // TODO: members
-        "filename" => ctx.none(),
-        "lineno" => ctx.none(),
-        "offset" => ctx.none(),
-        "text" => ctx.none(),
-    });
-
-    extend_class!(ctx, &excs.system_exit, {
-        "code" => ctx.new_readonly_getset("code", system_exit_code),
-    });
-
-    extend_class!(ctx, &excs.import_error, {
-        "__init__" => ctx.new_method(import_error_init),
-        "msg" => ctx.new_readonly_getset("msg", make_arg_getter(0)),
-    });
-
-    extend_class!(ctx, &excs.stop_iteration, {
-        "value" => ctx.new_readonly_getset("value", make_arg_getter(0)),
-    });
-
-    extend_class!(ctx, &excs.key_error, {
-        "__str__" => ctx.new_method(key_error_str),
-    });
-
-    extend_class!(ctx, &excs.unicode_decode_error, {
-        "encoding" => ctx.new_readonly_getset("encoding", make_arg_getter(0)),
-        "object" => ctx.new_readonly_getset("object", make_arg_getter(1)),
-        "start" => ctx.new_readonly_getset("start", make_arg_getter(2)),
-        "end" => ctx.new_readonly_getset("end", make_arg_getter(3)),
-        "reason" => ctx.new_readonly_getset("reason", make_arg_getter(4)),
-    });
-
-    extend_class!(ctx, &excs.unicode_encode_error, {
-        "encoding" => ctx.new_readonly_getset("encoding", make_arg_getter(0)),
-        "object" => ctx.new_readonly_getset("object", make_arg_getter(1)),
-        "start" => ctx.new_readonly_getset("start", make_arg_getter(2)),
-        "end" => ctx.new_readonly_getset("end", make_arg_getter(3)),
-        "reason" => ctx.new_readonly_getset("reason", make_arg_getter(4)),
-    });
-
-    extend_class!(ctx, &excs.unicode_translate_error, {
-        "encoding" => ctx.new_readonly_getset("encoding", none_getter),
-        "object" => ctx.new_readonly_getset("object", make_arg_getter(0)),
-        "start" => ctx.new_readonly_getset("start", make_arg_getter(1)),
-        "end" => ctx.new_readonly_getset("end", make_arg_getter(2)),
-        "reason" => ctx.new_readonly_getset("reason", make_arg_getter(3)),
-    });
 }
 
 pub struct SerializeException<'s> {

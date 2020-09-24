@@ -233,7 +233,7 @@ impl ItemMeta for SimpleItemMeta {
 pub(crate) struct ClassItemMeta(ItemMetaInner);
 
 impl ItemMeta for ClassItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] = &["module", "name"];
+    const ALLOWED_NAMES: &'static [&'static str] = &["module", "name", "base"];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)
@@ -266,6 +266,10 @@ impl ClassItemMeta {
             ),
         ))?;
         Ok(value)
+    }
+
+    pub fn base(&self) -> Result<Option<String>> {
+        self.inner()._optional_str("base")
     }
 
     pub fn module(&self) -> Result<Option<String>> {
