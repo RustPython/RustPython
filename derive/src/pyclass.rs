@@ -341,29 +341,9 @@ where
                 quote! {
                     slots.#slot_ident = Some(#into_func);
                 }
-            } else if slot_name == "cmp" {
-                let into_func = quote_spanned! {ident.span() =>
-                    ::std::boxed::Box::new(Self::#ident)
-                };
-                quote! {
-                    slots.#slot_ident = Some(#into_func);
-                }
             } else {
-                let into_func = if slot_name == "call" {
-                    quote_spanned! {ident.span() =>
-                        |zelf: ::rustpython_vm::pyobject::PyObjectRef,  args: ::rustpython_vm::function::PyFuncArgs, vm: &::rustpython_vm::VirtualMachine| -> ::rustpython_vm::pyobject::PyResult {
-                            use ::rustpython_vm::pyobject::TryFromObject;
-                            let zelf = PyRef::<Self>::try_from_object(vm, zelf)?;
-                            Self::#ident(zelf, args, vm)
-                        }
-                    }
-                } else {
-                    quote_spanned! {ident.span() =>
-                        Self::#ident
-                    }
-                };
                 quote! {
-                    slots.#slot_ident.store(Some(#into_func as _))
+                    slots.#slot_ident.store(Some(Self::#ident as _))
                 }
             }
         };

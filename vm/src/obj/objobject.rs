@@ -7,8 +7,8 @@ use crate::common::hash::PyHash;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objtype::PyClass;
 use crate::pyobject::{
-    BorrowValue, IdProtocol, ItemProtocol, PyAttributes, PyClassImpl, PyComparisonValue, PyContext,
-    PyObject, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    BorrowValue, Either, IdProtocol, ItemProtocol, PyAttributes, PyClassImpl, PyComparisonValue,
+    PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::slots::PyComparisonOp;
 use crate::vm::VirtualMachine;
@@ -40,6 +40,16 @@ impl PyBaseObject {
 
     #[pyslot]
     fn tp_cmp(
+        zelf: PyObjectRef,
+        other: PyObjectRef,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
+        Self::cmp(zelf, other, op, vm).map(Either::B)
+    }
+
+    #[inline(always)]
+    fn cmp(
         zelf: PyObjectRef,
         other: PyObjectRef,
         op: PyComparisonOp,
@@ -76,7 +86,7 @@ impl PyBaseObject {
         other: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
-        Self::tp_cmp(zelf, other, PyComparisonOp::Eq, vm)
+        Self::cmp(zelf, other, PyComparisonOp::Eq, vm)
     }
     #[pymethod(magic)]
     fn ne(
@@ -84,7 +94,7 @@ impl PyBaseObject {
         other: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
-        Self::tp_cmp(zelf, other, PyComparisonOp::Ne, vm)
+        Self::cmp(zelf, other, PyComparisonOp::Ne, vm)
     }
     #[pymethod(magic)]
     fn lt(
@@ -92,7 +102,7 @@ impl PyBaseObject {
         other: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
-        Self::tp_cmp(zelf, other, PyComparisonOp::Lt, vm)
+        Self::cmp(zelf, other, PyComparisonOp::Lt, vm)
     }
     #[pymethod(magic)]
     fn le(
@@ -100,7 +110,7 @@ impl PyBaseObject {
         other: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
-        Self::tp_cmp(zelf, other, PyComparisonOp::Le, vm)
+        Self::cmp(zelf, other, PyComparisonOp::Le, vm)
     }
     #[pymethod(magic)]
     fn ge(
@@ -108,7 +118,7 @@ impl PyBaseObject {
         other: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
-        Self::tp_cmp(zelf, other, PyComparisonOp::Ge, vm)
+        Self::cmp(zelf, other, PyComparisonOp::Ge, vm)
     }
     #[pymethod(magic)]
     fn gt(
@@ -116,7 +126,7 @@ impl PyBaseObject {
         other: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
-        Self::tp_cmp(zelf, other, PyComparisonOp::Gt, vm)
+        Self::cmp(zelf, other, PyComparisonOp::Gt, vm)
     }
 
     #[pymethod(magic)]

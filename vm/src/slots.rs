@@ -4,7 +4,7 @@ use crate::common::cell::PyRwLock;
 use crate::common::hash::PyHash;
 use crate::function::{OptionalArg, PyFuncArgs, PyNativeFunc};
 use crate::pyobject::{
-    IdProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    Either, IdProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
 };
 use crate::VirtualMachine;
 use crossbeam_utils::atomic::AtomicCell;
@@ -40,32 +40,29 @@ impl Default for PyTpFlags {
     }
 }
 
-pub(crate) type GenericMethod = fn(PyObjectRef, PyFuncArgs, &VirtualMachine) -> PyResult;
+pub(crate) type GenericMethod = fn(&PyObjectRef, PyFuncArgs, &VirtualMachine) -> PyResult;
+pub(crate) type DelFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<()>;
 pub(crate) type DescrGetFunc =
     fn(PyObjectRef, Option<PyObjectRef>, Option<PyObjectRef>, &VirtualMachine) -> PyResult;
 pub(crate) type HashFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<PyHash>;
+pub(crate) type CmpFunc = fn(
+    PyObjectRef,
+    PyObjectRef,
+    PyComparisonOp,
+    &VirtualMachine,
+) -> PyResult<Either<PyObjectRef, PyComparisonValue>>;
 
 #[derive(Default)]
 pub struct PyClassSlots {
     pub flags: PyTpFlags,
     pub name: PyRwLock<Option<String>>, // tp_name, not class name
     pub new: Option<PyNativeFunc>,
+    pub del: AtomicCell<Option<DelFunc>>,
     pub call: AtomicCell<Option<GenericMethod>>,
     pub descr_get: AtomicCell<Option<DescrGetFunc>>,
     pub hash: AtomicCell<Option<HashFunc>>,
-    pub cmp: Option<CmpFunc>,
+    pub cmp: AtomicCell<Option<CmpFunc>>,
 }
-
-type CmpFunc = Box<
-    py_dyn_fn!(
-        dyn Fn(
-            PyObjectRef,
-            PyObjectRef,
-            PyComparisonOp,
-            &VirtualMachine,
-        ) -> PyResult<PyComparisonValue>
-    ),
->;
 
 impl PyClassSlots {
     pub fn from_flags(flags: PyTpFlags) -> Self {
@@ -83,10 +80,39 @@ impl std::fmt::Debug for PyClassSlots {
 }
 
 #[pyimpl]
-pub trait SlotCall: PyValue {
-    #[pymethod(magic)]
+pub trait SlotDesctuctor: PyValue {
     #[pyslot]
-    fn call(zelf: PyRef<Self>, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult;
+    fn tp_del(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        if let Some(zelf) = zelf.downcast_ref() {
+            Self::del(zelf, vm)
+        } else {
+            Err(vm.new_type_error("unexpected payload for __del__".to_owned()))
+        }
+    }
+
+    #[pymethod(magic)]
+    fn __del__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<()> {
+        Self::del(&zelf, vm)
+    }
+
+    fn del(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<()>;
+}
+
+#[pyimpl]
+pub trait Callable: PyValue {
+    #[pyslot]
+    fn tp_call(zelf: &PyObjectRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+        if let Some(zelf) = zelf.downcast_ref() {
+            Self::call(zelf, args, vm)
+        } else {
+            Err(vm.new_type_error("unexpected payload for __call__".to_owned()))
+        }
+    }
+    #[pymethod]
+    fn __call__(zelf: PyRef<Self>, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+        Self::call(&zelf, args, vm)
+    }
+    fn call(zelf: &PyRef<Self>, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult;
 }
 
 #[pyimpl]
@@ -193,9 +219,9 @@ pub trait Comparable: PyValue {
         other: PyObjectRef,
         op: PyComparisonOp,
         vm: &VirtualMachine,
-    ) -> PyResult<PyComparisonValue> {
+    ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
         let zelf = PyRef::try_from_object(vm, zelf)?;
-        Self::cmp(zelf, other, op, vm)
+        Self::cmp(zelf, other, op, vm).map(Either::B)
     }
 
     fn cmp(

@@ -14,10 +14,10 @@ use super::objtuple::PyTuple;
 use super::objweakref::PyWeak;
 use crate::function::{KwArgs, PyFuncArgs};
 use crate::pyobject::{
-    BorrowValue, IdProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable, PyLease,
+    BorrowValue, Either, IdProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable, PyLease,
     PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
-use crate::slots::{self, PyClassSlots, PyTpFlags, SlotCall};
+use crate::slots::{self, Callable, PyClassSlots, PyTpFlags};
 use crate::vm::VirtualMachine;
 use itertools::Itertools;
 use std::ops::Deref;
@@ -150,6 +150,20 @@ impl PyClassRef {
                 } as _;
                 self.slots.hash.store(Some(func));
             }
+            "__del__" => {
+                let func: slots::DelFunc = |zelf, vm| {
+                    let magic = get_class_magic(&zelf, "__del__");
+                    vm.invoke(&magic, vec![zelf.clone()]).map(|_| ())
+                } as _;
+                self.slots.del.store(Some(func));
+            }
+            "__eq__" | "__ne__" | "__le__" | "__lt__" | "__ge__" | "__gt__" => {
+                let func: slots::CmpFunc = |zelf, other, op, vm| {
+                    let magic = get_class_magic(&zelf, op.method_name());
+                    vm.invoke(&magic, vec![zelf, other]).map(Either::A)
+                } as _;
+                self.slots.cmp.store(Some(func))
+            }
             _ => (),
         }
     }
@@ -165,7 +179,7 @@ fn get_class_magic(zelf: &PyObjectRef, name: &str) -> PyObjectRef {
     // attrs.get(name).unwrap().clone()
 }
 
-#[pyimpl(with(SlotCall), flags(BASETYPE))]
+#[pyimpl(with(Callable), flags(BASETYPE))]
 impl PyClass {
     #[pyproperty(name = "__mro__")]
     fn get_mro(zelf: PyRef<Self>) -> PyTuple {
@@ -495,8 +509,8 @@ impl PyClass {
     }
 }
 
-impl SlotCall for PyClass {
-    fn call(zelf: PyRef<Self>, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+impl Callable for PyClass {
+    fn call(zelf: &PyRef<Self>, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
         vm_trace!("type_call: {:?}", zelf);
         let obj = call_tp_new(zelf.clone(), zelf.clone(), args.clone(), vm)?;
 

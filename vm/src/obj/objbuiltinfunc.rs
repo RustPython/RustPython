@@ -7,7 +7,7 @@ use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
     PyClassImpl, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
-use crate::slots::{SlotCall, SlotDescriptor};
+use crate::slots::{Callable, SlotDescriptor};
 use crate::vm::VirtualMachine;
 
 pub struct PyFuncDef {
@@ -106,13 +106,13 @@ impl PyBuiltinFunction {
     }
 }
 
-impl SlotCall for PyBuiltinFunction {
-    fn call(zelf: PyRef<Self>, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+impl Callable for PyBuiltinFunction {
+    fn call(zelf: &PyRef<Self>, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
         (zelf.value.func)(vm, args)
     }
 }
 
-#[pyimpl(with(SlotCall), flags(HAS_DICT))]
+#[pyimpl(with(Callable), flags(HAS_DICT))]
 impl PyBuiltinFunction {
     #[pyproperty(magic)]
     fn module(&self, vm: &VirtualMachine) -> PyObjectRef {
@@ -186,13 +186,13 @@ impl SlotDescriptor for PyBuiltinMethod {
     }
 }
 
-impl SlotCall for PyBuiltinMethod {
-    fn call(zelf: PyRef<Self>, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+impl Callable for PyBuiltinMethod {
+    fn call(zelf: &PyRef<Self>, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
         (zelf.value.func)(vm, args)
     }
 }
 
-#[pyimpl(with(SlotDescriptor, SlotCall))]
+#[pyimpl(with(SlotDescriptor, Callable))]
 impl PyBuiltinMethod {
     #[pyproperty(magic)]
     fn name(&self) -> Option<PyStringRef> {
