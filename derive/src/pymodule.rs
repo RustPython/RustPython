@@ -1,11 +1,11 @@
 use crate::error::Diagnostic;
 use crate::util::{
-    pyclass_ident_and_attrs, AttributeExt, ClassItemMeta, ContentItem, ContentItemInner, ErrorVec,
-    ItemMeta, ItemNursery, SimpleItemMeta, ALL_ALLOWED_NAMES,
+    iter_use_idents, pyclass_ident_and_attrs, AttributeExt, ClassItemMeta, ContentItem,
+    ContentItemInner, ErrorVec, ItemMeta, ItemNursery, SimpleItemMeta, ALL_ALLOWED_NAMES,
 };
 use proc_macro2::TokenStream;
 use quote::{quote, quote_spanned, ToTokens};
-use syn::{parse_quote, spanned::Spanned, Attribute, AttributeArgs, Ident, Item, Result, UseTree};
+use syn::{parse_quote, spanned::Spanned, Attribute, AttributeArgs, Ident, Item, Result};
 use syn_ext::ext::*;
 
 #[derive(Default)]
@@ -367,60 +367,28 @@ impl ModuleItem for AttributeItem {
                     },
                 )
             }
-            Item::Use(syn::ItemUse {
-                tree: UseTree::Path(path),
-                ..
-            }) => {
-                let ident = match &*path.tree {
-                    UseTree::Name(name) => &name.ident,
-                    UseTree::Rename(rename) => &rename.rename,
-                    UseTree::Group(syn::UseGroup { items, .. }) => {
-                        for item in items {
-                            let ident = match item {
-                                UseTree::Name(name) => &name.ident,
-                                UseTree::Rename(rename) => &rename.rename,
-                                other => {
-                                    return Err(self.new_syn_error(
-                                        other.span(),
-                                        "can only contains a simple use or a group of simple uses",
-                                    ));
-                                }
-                            };
-                            let item_meta = SimpleItemMeta::from_attr(ident.clone(), &attr)?;
-                            if item_meta.optional_name().is_some() {
-                                // this check actually doesn't need to be placed in loop
-                                return Err(self.new_syn_error(
-                                    ident.span(),
-                                    "`name` attribute is not allowed for multiple use items",
-                                ));
-                            }
-                            let py_name = ident.to_string();
-                            let tokens = quote! {
-                                vm.__module_set_attr(&module, #py_name, vm.new_pyobj(#ident)).unwrap();
-                            };
-                            args.context.module_extend_items.add_item(
-                                py_name,
-                                cfgs.clone(),
-                                tokens,
-                            )?;
-                        }
-                        return Ok(());
-                    }
-                    other => {
+            Item::Use(item) => {
+                return iter_use_idents(item, |ident, is_unique| {
+                    let item_meta = SimpleItemMeta::from_attr(ident.clone(), &attr)?;
+                    let py_name = if is_unique {
+                        item_meta.simple_name()?
+                    } else if item_meta.optional_name().is_some() {
+                        // this check actually doesn't need to be placed in loop
                         return Err(self.new_syn_error(
-                            other.span(),
-                            "can only contains a simple use or a group of simple uses",
+                            ident.span(),
+                            "`name` attribute is not allowed for multiple use items",
                         ));
-                    }
-                };
-
-                let py_name = get_py_name(&attr, &ident)?;
-                (
-                    py_name.clone(),
-                    quote! {
+                    } else {
+                        ident.to_string()
+                    };
+                    let tokens = quote! {
                         vm.__module_set_attr(&module, #py_name, vm.new_pyobj(#ident)).unwrap();
-                    },
-                )
+                    };
+                    args.context
+                        .module_extend_items
+                        .add_item(py_name, cfgs.clone(), tokens)?;
+                    Ok(())
+                });
             }
             other => {
                 return Err(

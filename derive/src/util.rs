@@ -1,7 +1,7 @@
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, ToTokens};
 use std::collections::HashMap;
-use syn::{spanned::Spanned, Attribute, Ident, Meta, MetaList, NestedMeta, Path, Result};
+use syn::{spanned::Spanned, Attribute, Ident, Meta, MetaList, NestedMeta, Path, Result, UseTree};
 use syn_ext::ext::{AttributeExt as SynAttributeExt, *};
 use syn_ext::types::PunctuatedNestedMeta;
 
@@ -455,4 +455,42 @@ macro_rules! iter_chain {
         ::std::iter::empty()
             $(.chain(::std::iter::once($it)))*
     };
+}
+
+pub(crate) fn iter_use_idents<F>(item_use: &syn::ItemUse, mut f: F) -> Result<()>
+where
+    F: FnMut(&syn::Ident, bool) -> Result<()>,
+{
+    match &item_use.tree {
+        UseTree::Name(name) => f(&name.ident, true)?,
+        UseTree::Rename(rename) => f(&rename.rename, true)?,
+        UseTree::Path(path) => match &*path.tree {
+            UseTree::Name(name) => f(&name.ident, true)?,
+            UseTree::Rename(rename) => f(&rename.rename, true)?,
+            UseTree::Path(_) => unreachable!(),
+            other => iter_use_tree_idents(other, &mut f)?,
+        },
+        other => iter_use_tree_idents(other, &mut f)?,
+    }
+    Ok(())
+}
+
+fn iter_use_tree_idents<F>(tree: &syn::UseTree, f: &mut F) -> Result<()>
+where
+    F: FnMut(&syn::Ident, bool) -> Result<()>,
+{
+    match tree {
+        UseTree::Name(name) => f(&name.ident, false)?,
+        UseTree::Rename(rename) => f(&rename.rename, false)?,
+        UseTree::Path(path) => iter_use_tree_idents(&*path.tree, f)?,
+        UseTree::Group(syn::UseGroup { items, .. }) => {
+            for subtree in items {
+                iter_use_tree_idents(subtree, f)?;
+            }
+        }
+        UseTree::Glob(glob) => {
+            return Err(syn::Error::new_spanned(glob, "#[py*] doesn't allow '*'"))
+        }
+    }
+    Ok(())
 }
