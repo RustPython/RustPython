@@ -29,7 +29,7 @@ mod _io {
     use crate::obj::objstr::{self, PyString, PyStringRef};
     use crate::obj::objtype::{self, PyClassRef};
     use crate::pyobject::{
-        BorrowValue, IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
+        BorrowValue, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
         TryFromObject,
     };
     use crate::vm::VirtualMachine;
@@ -211,8 +211,10 @@ mod _io {
 
     #[pyimpl(flags(BASETYPE))]
     impl IOBase {
-        // #[pyattr]
-        // const __closed: bool = false;
+        #[pyattr]
+        fn __closed(ctx: &PyContext) -> PyObjectRef {
+            ctx.new_bool(false)
+        }
 
         #[pymethod(magic)]
         fn enter(instance: PyObjectRef) -> PyObjectRef {
@@ -1207,9 +1209,7 @@ mod _io {
 
         // IOBase the abstract base class of the IO Module
         let io_base = IOBase::make_class(&vm.ctx);
-        extend_class!(ctx, &io_base, {
-            "__closed" => ctx.new_bool(false),
-        });
+        extend_class!(ctx, &io_base, {});
 
         // IOBase Subclasses
         let raw_io_base = RawIOBase::make_class_with_base(&vm.ctx, io_base.clone());
