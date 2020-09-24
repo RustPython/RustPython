@@ -686,18 +686,27 @@ fn extract_impl_attrs(attr: AttributeArgs) -> std::result::Result<ExtractedImplA
             NestedMeta::Meta(Meta::List(syn::MetaList { path, nested, .. })) => {
                 if path_eq(&path, "with") {
                     for meta in nested {
-                        match meta {
-                            NestedMeta::Meta(Meta::Path(path)) => {
-                                withs.push(quote! {
-                                    <Self as #path>::__extend_py_class(ctx, class);
-                                });
-                                with_slots.push(quote! {
-                                    <Self as #path>::__extend_slots(slots);
-                                });
-                            }
+                        let path = match meta {
+                            NestedMeta::Meta(Meta::Path(path)) => path,
                             meta => {
                                 bail_span!(meta, "#[pyimpl(with(...))] arguments should be paths")
                             }
+                        };
+                        if path_eq(&path, "PyRef") {
+                            // special handling for PyRef
+                            withs.push(quote! {
+                                PyRef::<Self>::impl_extend_class(ctx, class);
+                            });
+                            with_slots.push(quote! {
+                                PyRef::<Self>::extend_slots(slots);
+                            });
+                        } else {
+                            withs.push(quote! {
+                                <Self as #path>::__extend_py_class(ctx, class);
+                            });
+                            with_slots.push(quote! {
+                                <Self as #path>::__extend_slots(slots);
+                            });
                         }
                     }
                 } else if path_eq(&path, "flags") {
