@@ -27,10 +27,10 @@ impl ItemNursery {
         cfgs: Vec<Attribute>,
         tokens: TokenStream,
     ) -> Result<()> {
-        if let Some(existing) = self.0.insert((name, cfgs), tokens) {
+        if let Some(existing) = self.0.insert((name.clone(), cfgs), tokens) {
             Err(syn::Error::new_spanned(
                 existing,
-                "Duplicated #[py*] attribute found",
+                format!("Duplicated #[py*] attribute found for '{}'", name),
             ))
         } else {
             Ok(())
