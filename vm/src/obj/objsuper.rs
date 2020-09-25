@@ -14,7 +14,7 @@ use crate::pyobject::{
     TryFromObject, TypeProtocol,
 };
 use crate::scope::NameProtocol;
-use crate::slots::SlotDescriptor;
+use crate::slots::{SlotDescriptor, SlotGetattro};
 use crate::vm::VirtualMachine;
 
 use itertools::Itertools;
@@ -34,7 +34,7 @@ impl PyValue for PySuper {
     }
 }
 
-#[pyimpl(with(SlotDescriptor))]
+#[pyimpl(with(SlotGetattro, SlotDescriptor))]
 impl PySuper {
     fn new(typ: PyTypeRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
         let obj = if vm.is_none(&obj) {
@@ -53,29 +53,6 @@ impl PySuper {
             Some((_, ref ty)) => format!("<super: <class '{}'>, <{} object>>", typname, ty.name),
             None => format!("<super: <class '{}'>, NULL>", typname),
         }
-    }
-
-    #[pymethod(name = "__getattribute__")]
-    fn getattribute(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        let (inst, obj_type) = match zelf.obj.clone() {
-            Some(o) => o,
-            None => return vm.generic_getattribute(zelf.into_object(), name),
-        };
-        // skip the classes in obj_type.mro up to and including zelf.typ
-        let mut it = obj_type.iter_mro().peekable();
-        for _ in it.peeking_take_while(|cls| !cls.is(&zelf.typ)) {}
-        for cls in it.skip(1) {
-            if let Some(descr) = cls.get_attr(name.borrow_value()) {
-                return vm
-                    .call_get_descriptor_specific(
-                        descr.clone(),
-                        if inst.is(&obj_type) { None } else { Some(inst) },
-                        Some(obj_type.clone().into_object()),
-                    )
-                    .unwrap_or(Ok(descr));
-            }
-        }
-        vm.generic_getattribute(zelf.into_object(), name)
     }
 
     #[pyslot]
@@ -127,6 +104,30 @@ impl PySuper {
         };
 
         PySuper::new(typ, obj, vm)?.into_ref_with_type(vm, cls)
+    }
+}
+
+impl SlotGetattro for PySuper {
+    fn getattro(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
+        let (inst, obj_type) = match zelf.obj.clone() {
+            Some(o) => o,
+            None => return vm.generic_getattribute(zelf.into_object(), name),
+        };
+        // skip the classes in obj_type.mro up to and including zelf.typ
+        let mut it = obj_type.iter_mro().peekable();
+        for _ in it.peeking_take_while(|cls| !cls.is(&zelf.typ)) {}
+        for cls in it.skip(1) {
+            if let Some(descr) = cls.get_attr(name.borrow_value()) {
+                return vm
+                    .call_get_descriptor_specific(
+                        descr.clone(),
+                        if inst.is(&obj_type) { None } else { Some(inst) },
+                        Some(obj_type.clone().into_object()),
+                    )
+                    .unwrap_or(Ok(descr));
+            }
+        }
+        vm.generic_getattribute(zelf.into_object(), name)
     }
 }
 

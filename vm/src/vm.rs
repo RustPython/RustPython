@@ -971,7 +971,11 @@ impl VirtualMachine {
     {
         let attr_name = attr_name.try_into_ref(self)?;
         vm_trace!("vm.__getattribute__: {:?} {:?}", obj, attr_name);
-        self.call_method(&obj, "__getattribute__", vec![attr_name.into_object()])
+        let getattro = obj
+            .class()
+            .first_in_mro(|cls| cls.slots.getattro.load())
+            .unwrap();
+        getattro(obj, attr_name, self)
     }
 
     pub fn set_attr<K, V>(&self, obj: &PyObjectRef, attr_name: K, attr_value: V) -> PyResult
@@ -1083,9 +1087,11 @@ impl VirtualMachine {
         let name = name_str.borrow_value();
         let cls = obj.class();
 
-        if let Some(attr) = cls.get_attr(&name) {
+        let cls_attr = cls.get_attr(name);
+
+        if let Some(ref attr) = cls_attr {
             if attr.lease_class().has_attr("__set__") {
-                if let Some(r) = self.call_get_descriptor(attr, obj.clone()) {
+                if let Some(r) = self.call_get_descriptor(attr.clone(), obj.clone()) {
                     return r.map(Some);
                 }
             }
@@ -1101,7 +1107,7 @@ impl VirtualMachine {
 
         if let Some(obj_attr) = attr {
             Ok(Some(obj_attr))
-        } else if let Some(attr) = cls.get_attr(&name) {
+        } else if let Some(attr) = cls_attr {
             self.call_if_get_descriptor(attr, obj).map(Some)
         } else if let Some(getter) = cls.get_attr("__getattr__") {
             self.invoke(&getter, vec![obj, name_str.into_object()])

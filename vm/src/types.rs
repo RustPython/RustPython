@@ -180,7 +180,7 @@ impl TypeZoo {
             map_type: create_type!(objmap::PyMap),
             mappingproxy_type: create_type!(objmappingproxy::PyMappingProxy),
             memoryview_type: create_type!(objmemory::PyMemoryView),
-            module_type: create_type!(objmodule::PyModuleRef),
+            module_type: create_type!(objmodule::PyModule),
             namespace_type: create_type!(objnamespace::PyNamespace),
             property_type: create_type!(objproperty::PyProperty),
             range_type: create_type!(objrange::PyRange),

@@ -3,6 +3,7 @@ use std::cmp::Ordering;
 use crate::common::cell::PyRwLock;
 use crate::common::hash::PyHash;
 use crate::function::{OptionalArg, PyFuncArgs, PyNativeFunc};
+use crate::obj::objstr::PyStrRef;
 use crate::pyobject::{
     Either, IdProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
 };
@@ -51,6 +52,7 @@ pub(crate) type CmpFunc = fn(
     PyComparisonOp,
     &VirtualMachine,
 ) -> PyResult<Either<PyObjectRef, PyComparisonValue>>;
+pub(crate) type GetattroFunc = fn(PyObjectRef, PyStrRef, &VirtualMachine) -> PyResult;
 
 #[derive(Default)]
 pub struct PyTypeSlots {
@@ -62,6 +64,7 @@ pub struct PyTypeSlots {
     pub descr_get: AtomicCell<Option<DescrGetFunc>>,
     pub hash: AtomicCell<Option<HashFunc>>,
     pub cmp: AtomicCell<Option<CmpFunc>>,
+    pub getattro: AtomicCell<Option<GetattroFunc>>,
 }
 
 impl PyTypeSlots {
@@ -377,5 +380,25 @@ impl PyComparisonOp {
             }
             _ => None,
         }
+    }
+}
+
+#[pyimpl]
+pub trait SlotGetattro: PyValue {
+    #[pyslot]
+    fn tp_getattro(obj: PyObjectRef, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
+        if let Ok(zelf) = obj.downcast::<Self>() {
+            Self::getattro(zelf, name, vm)
+        } else {
+            Err(vm.new_type_error("unexpected payload for __getattribute__".to_owned()))
+        }
+    }
+
+    // TODO: make zelf: &PyRef<Self>
+    fn getattro(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult;
+
+    #[pymethod]
+    fn __getattribute__(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
+        Self::getattro(zelf, name, vm)
     }
 }
