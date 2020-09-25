@@ -467,7 +467,7 @@ impl PyDictRef {
         // Test if this object is a true dict, or mabye a subclass?
         // If it is a dict, we can directly invoke inner_get_item_option,
         // and prevent the creation of the KeyError exception.
-        // Also note, that we prevent the creation of a full PyString object
+        // Also note, that we prevent the creation of a full PyStr object
         // if we lookup local names (which happens all of the time).
         if self.lease_class().is(&vm.ctx.types.dict_type) {
             // We can take the short path here!

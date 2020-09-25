@@ -29,7 +29,7 @@ mod decl {
     use crate::obj::objiter;
     use crate::obj::objlist::{PyList, SortOptions};
     use crate::obj::objsequence;
-    use crate::obj::objstr::{PyString, PyStringRef};
+    use crate::obj::objstr::{PyStr, PyStrRef};
     use crate::obj::objtype::{self, PyClassRef};
     use crate::pyobject::{
         BorrowValue, Either, IdProtocol, ItemProtocol, PyCallable, PyIterable, PyObjectRef,
@@ -108,11 +108,11 @@ mod decl {
     #[allow(dead_code)]
     struct CompileArgs {
         #[pyarg(positional_only, optional = false)]
-        source: Either<PyStringRef, PyBytesRef>,
+        source: Either<PyStrRef, PyBytesRef>,
         #[pyarg(positional_only, optional = false)]
-        filename: PyStringRef,
+        filename: PyStrRef,
         #[pyarg(positional_only, optional = false)]
-        mode: PyStringRef,
+        mode: PyStrRef,
         #[pyarg(positional_or_keyword, optional = true)]
         flags: OptionalArg<PyIntRef>,
         #[pyarg(positional_or_keyword, optional = true)]
@@ -162,7 +162,7 @@ mod decl {
     }
 
     #[pyfunction]
-    fn delattr(obj: PyObjectRef, attr: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn delattr(obj: PyObjectRef, attr: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
         vm.del_attr(&obj, attr.into_object())
     }
 
@@ -200,7 +200,7 @@ mod decl {
     #[cfg(feature = "rustpython-compiler")]
     #[pyfunction]
     fn eval(
-        source: Either<PyStringRef, PyCodeRef>,
+        source: Either<PyStrRef, PyCodeRef>,
         scope: ScopeArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
@@ -212,7 +212,7 @@ mod decl {
     #[cfg(feature = "rustpython-compiler")]
     #[pyfunction]
     fn exec(
-        source: Either<PyStringRef, PyCodeRef>,
+        source: Either<PyStrRef, PyCodeRef>,
         scope: ScopeArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
@@ -222,7 +222,7 @@ mod decl {
     #[cfg(feature = "rustpython-compiler")]
     fn run_code(
         vm: &VirtualMachine,
-        source: Either<PyStringRef, PyCodeRef>,
+        source: Either<PyStrRef, PyCodeRef>,
         scope: ScopeArgs,
         mode: compile::Mode,
     ) -> PyResult {
@@ -272,12 +272,12 @@ mod decl {
     #[pyfunction]
     fn format(
         value: PyObjectRef,
-        format_spec: OptionalArg<PyStringRef>,
+        format_spec: OptionalArg<PyStrRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<PyStringRef> {
+    ) -> PyResult<PyStrRef> {
         let format_spec = format_spec
             .into_option()
-            .unwrap_or_else(|| PyString::from("").into_ref(vm));
+            .unwrap_or_else(|| PyStr::from("").into_ref(vm));
 
         vm.call_method(&value, "__format__", vec![format_spec.into_object()])?
             .downcast()
@@ -304,7 +304,7 @@ mod decl {
     #[pyfunction]
     fn getattr(
         obj: PyObjectRef,
-        attr: PyStringRef,
+        attr: PyStrRef,
         default: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
@@ -322,7 +322,7 @@ mod decl {
     }
 
     #[pyfunction]
-    fn hasattr(obj: PyObjectRef, attr: PyStringRef, vm: &VirtualMachine) -> PyResult<bool> {
+    fn hasattr(obj: PyObjectRef, attr: PyStrRef, vm: &VirtualMachine) -> PyResult<bool> {
         if let Err(ex) = vm.get_attribute(obj, attr) {
             catch_attr_exception(ex, false, vm)
         } else {
@@ -355,7 +355,7 @@ mod decl {
     }
 
     #[pyfunction]
-    fn input(prompt: OptionalArg<PyStringRef>, vm: &VirtualMachine) -> PyResult {
+    fn input(prompt: OptionalArg<PyStrRef>, vm: &VirtualMachine) -> PyResult {
         let stdin = sysmodule::get_stdin(vm)?;
         let stdout = sysmodule::get_stdout(vm)?;
         let stderr = sysmodule::get_stderr(vm)?;
@@ -590,7 +590,7 @@ mod decl {
     }
 
     #[pyfunction]
-    fn ord(string: Either<PyBytesLike, PyStringRef>, vm: &VirtualMachine) -> PyResult<u32> {
+    fn ord(string: Either<PyBytesLike, PyStrRef>, vm: &VirtualMachine) -> PyResult<u32> {
         match string {
             Either::A(bytes) => bytes.with_ref(|bytes| {
                 let bytes_len = bytes.len();
@@ -670,9 +670,9 @@ mod decl {
     #[derive(Debug, Default, FromArgs)]
     pub struct PrintOptions {
         #[pyarg(keyword_only, default = "None")]
-        sep: Option<PyStringRef>,
+        sep: Option<PyStrRef>,
         #[pyarg(keyword_only, default = "None")]
-        end: Option<PyStringRef>,
+        end: Option<PyStrRef>,
         #[pyarg(keyword_only, default = "IntoPyBool::FALSE")]
         flush: IntoPyBool,
         #[pyarg(keyword_only, default = "None")]
@@ -685,11 +685,9 @@ mod decl {
             Some(f) => f,
             None => sysmodule::get_stdout(vm)?,
         };
-        let write = |obj: PyStringRef| vm.call_method(&file, "write", vec![obj.into_object()]);
+        let write = |obj: PyStrRef| vm.call_method(&file, "write", vec![obj.into_object()]);
 
-        let sep = options
-            .sep
-            .unwrap_or_else(|| PyString::from(" ").into_ref(vm));
+        let sep = options.sep.unwrap_or_else(|| PyStr::from(" ").into_ref(vm));
 
         let mut first = true;
         for object in objects {
@@ -704,7 +702,7 @@ mod decl {
 
         let end = options
             .end
-            .unwrap_or_else(|| PyString::from("\n").into_ref(vm));
+            .unwrap_or_else(|| PyStr::from("\n").into_ref(vm));
         write(end)?;
 
         if options.flush.to_bool() {
@@ -715,7 +713,7 @@ mod decl {
     }
 
     #[pyfunction]
-    fn repr(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStringRef> {
+    fn repr(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         vm.to_repr(&obj)
     }
 
@@ -759,7 +757,7 @@ mod decl {
     #[pyfunction]
     fn setattr(
         obj: PyObjectRef,
-        attr: PyStringRef,
+        attr: PyStrRef,
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -804,7 +802,7 @@ mod decl {
     #[pyfunction]
     pub fn __build_class__(
         function: PyFunctionRef,
-        qualified_name: PyStringRef,
+        qualified_name: PyStrRef,
         bases: Args<PyClassRef>,
         mut kwargs: KwArgs,
         vm: &VirtualMachine,

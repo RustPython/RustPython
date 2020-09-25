@@ -5,7 +5,7 @@ mod machinery;
 mod _json {
     use crate::function::PyFuncArgs;
     use crate::obj::objiter;
-    use crate::obj::objstr::PyStringRef;
+    use crate::obj::objstr::PyStrRef;
     use crate::obj::{objbool, objtype::PyClassRef};
     use crate::pyobject::{
         BorrowValue, IdProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
@@ -73,7 +73,7 @@ mod _json {
         fn parse(
             &self,
             s: &str,
-            pystr: PyStringRef,
+            pystr: PyStrRef,
             idx: usize,
             scan_once: PyObjectRef,
             vm: &VirtualMachine,
@@ -196,12 +196,7 @@ mod _json {
             Some((ret, buf.len()))
         }
 
-        fn call(
-            zelf: &PyRef<Self>,
-            pystr: PyStringRef,
-            idx: isize,
-            vm: &VirtualMachine,
-        ) -> PyResult {
+        fn call(zelf: &PyRef<Self>, pystr: PyStrRef, idx: isize, vm: &VirtualMachine) -> PyResult {
             if idx < 0 {
                 return Err(vm.new_value_error("idx cannot be negative".to_owned()));
             }
@@ -224,7 +219,7 @@ mod _json {
 
     impl Callable for JsonScanner {
         fn call(zelf: &PyRef<Self>, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
-            let (pystr, idx) = args.bind::<(PyStringRef, isize)>(vm)?;
+            let (pystr, idx) = args.bind::<(PyStrRef, isize)>(vm)?;
             JsonScanner::call(zelf, pystr, idx, vm)
         }
     }
@@ -239,12 +234,12 @@ mod _json {
     }
 
     #[pyfunction]
-    fn encode_basestring(s: PyStringRef) -> String {
+    fn encode_basestring(s: PyStrRef) -> String {
         encode_string(s.borrow_value(), false)
     }
 
     #[pyfunction]
-    fn encode_basestring_ascii(s: PyStringRef) -> String {
+    fn encode_basestring_ascii(s: PyStrRef) -> String {
         encode_string(s.borrow_value(), true)
     }
 }

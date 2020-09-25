@@ -1,6 +1,6 @@
 use crate::byteslike::PyBytesLike;
 use crate::function::OptionalArg;
-use crate::obj::objstr::PyStringRef;
+use crate::obj::objstr::PyStrRef;
 use crate::obj::{objiter, objtype};
 use crate::pyobject::{BorrowValue, Either, PyObjectRef, PyResult, TypeProtocol};
 use crate::VirtualMachine;
@@ -70,8 +70,8 @@ fn timing_safe_cmp(a: &[u8], b: &[u8]) -> bool {
 }
 
 fn _operator_compare_digest(
-    a: Either<PyStringRef, PyBytesLike>,
-    b: Either<PyStringRef, PyBytesLike>,
+    a: Either<PyStrRef, PyBytesLike>,
+    b: Either<PyStrRef, PyBytesLike>,
     vm: &VirtualMachine,
 ) -> PyResult<bool> {
     let res = match (a, b) {

@@ -4,7 +4,7 @@ use crate::common::cell::{PyRwLock, PyRwLockWriteGuard};
 use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
 use crate::function::OptionalArg;
 use crate::obj::objbytearray::PyByteArrayRef;
-use crate::obj::objstr::PyStringRef;
+use crate::obj::objstr::PyStrRef;
 use crate::obj::{objtype::PyClassRef, objweakref::PyWeak};
 use crate::pyobject::{
     BorrowValue, Either, IntoPyObject, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult,
@@ -112,7 +112,7 @@ fn obj2py(obj: &Asn1ObjectRef) -> PyNid {
 }
 
 #[cfg(windows)]
-fn ssl_enum_certificates(store_name: PyStringRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+fn ssl_enum_certificates(store_name: PyStrRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
     use crate::obj::objset::PyFrozenSet;
     use schannel::{cert_context::ValidUses, cert_store::CertStore, RawPointer};
     use winapi::um::wincrypt;
@@ -194,7 +194,7 @@ fn ssl_rand_status() -> i32 {
     unsafe { sys::RAND_status() }
 }
 
-fn ssl_rand_add(string: Either<PyStringRef, PyBytesLike>, entropy: f64) {
+fn ssl_rand_add(string: Either<PyStrRef, PyBytesLike>, entropy: f64) {
     let f = |b: &[u8]| {
         for buf in b.chunks(libc::c_int::max_value() as usize) {
             unsafe { sys::RAND_add(buf.as_ptr() as *const _, buf.len() as _, entropy) }
@@ -315,7 +315,7 @@ impl PySslContext {
     }
 
     #[pymethod]
-    fn set_ciphers(&self, cipherlist: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn set_ciphers(&self, cipherlist: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
         let ciphers = cipherlist.borrow_value();
         if ciphers.contains('\0') {
             return Err(vm.new_value_error("embedded null character".to_owned()));
@@ -487,7 +487,7 @@ struct WrapSocketArgs {
     #[pyarg(positional_or_keyword)]
     server_side: bool,
     #[pyarg(positional_or_keyword, default = "None")]
-    server_hostname: Option<PyStringRef>,
+    server_hostname: Option<PyStrRef>,
     #[pyarg(keyword_only, default = "None")]
     owner: Option<PyObjectRef>,
     #[pyarg(keyword_only, default = "None")]
@@ -501,7 +501,7 @@ struct LoadVerifyLocationsArgs {
     #[pyarg(positional_or_keyword, default = "None")]
     capath: Option<CString>,
     #[pyarg(positional_or_keyword, default = "None")]
-    cadata: Option<Either<PyStringRef, PyBytesLike>>,
+    cadata: Option<Either<PyStrRef, PyBytesLike>>,
 }
 
 #[pyclass(module = "ssl", name = "_SSLSocket")]
@@ -509,7 +509,7 @@ struct PySslSocket {
     ctx: PyRef<PySslContext>,
     stream: PyRwLock<Option<ssl::SslStreamBuilder<PySocketRef>>>,
     socket_type: SslServerOrClient,
-    server_hostname: Option<PyStringRef>,
+    server_hostname: Option<PyStrRef>,
     owner: PyRwLock<Option<PyWeak>>,
 }
 
@@ -560,7 +560,7 @@ impl PySslSocket {
         self.ctx.clone()
     }
     #[pyproperty]
-    fn server_hostname(&self) -> Option<PyStringRef> {
+    fn server_hostname(&self) -> Option<PyStrRef> {
         self.server_hostname.clone()
     }
 

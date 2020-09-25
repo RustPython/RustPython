@@ -5,7 +5,7 @@ mod decl {
     use crate::bytecode::CodeFlags;
     use crate::obj::objcode::PyCodeRef;
     use crate::obj::objdict::PyDictRef;
-    use crate::obj::objstr::PyStringRef;
+    use crate::obj::objstr::PyStrRef;
     use crate::pyobject::{BorrowValue, ItemProtocol, PyObjectRef, PyResult, TryFromObject};
     use crate::vm::VirtualMachine;
     use rustpython_compiler::compile;
@@ -15,7 +15,7 @@ mod decl {
         let co = if let Ok(co) = vm.get_attribute(obj.clone(), "__code__") {
             // Method or function:
             co
-        } else if let Ok(co_str) = PyStringRef::try_from_object(vm, obj.clone()) {
+        } else if let Ok(co_str) = PyStrRef::try_from_object(vm, obj.clone()) {
             // String:
             vm.compile(
                 co_str.borrow_value(),

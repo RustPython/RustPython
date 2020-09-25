@@ -5,12 +5,12 @@ pub(crate) use decl::make_module;
 mod decl {
     use rustpython_parser::lexer;
 
-    use crate::obj::objstr::PyStringRef;
+    use crate::obj::objstr::PyStrRef;
     use crate::pyobject::{BorrowValue, PyObjectRef, PyResult};
     use crate::vm::VirtualMachine;
 
     #[pyfunction]
-    fn iskeyword(s: PyStringRef, vm: &VirtualMachine) -> PyResult {
+    fn iskeyword(s: PyStrRef, vm: &VirtualMachine) -> PyResult {
         let keywords = lexer::get_keywords();
         let value = keywords.contains_key(s.borrow_value());
         let value = vm.ctx.new_bool(value);

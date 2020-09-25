@@ -1,6 +1,6 @@
 use crate::exceptions::PyBaseExceptionRef;
 use crate::obj::objbytes::PyBytes;
-use crate::obj::objstr::PyString;
+use crate::obj::objstr::PyStr;
 use crate::pyobject::{BorrowValue, PyObjectRef, PyResult};
 use crate::VirtualMachine;
 use std::{fmt, io};
@@ -41,7 +41,7 @@ pub fn file_readline(obj: &PyObjectRef, size: Option<usize>, vm: &VirtualMachine
         )
     };
     let ret = match_class!(match ret {
-        s @ PyString => {
+        s @ PyStr => {
             let sval = s.borrow_value();
             if sval.is_empty() {
                 return Err(eof_err());

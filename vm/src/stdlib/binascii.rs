@@ -6,7 +6,7 @@ mod decl {
     use crate::function::OptionalArg;
     use crate::obj::objbytearray::{PyByteArray, PyByteArrayRef};
     use crate::obj::objbytes::{PyBytes, PyBytesRef};
-    use crate::obj::objstr::{PyString, PyStringRef};
+    use crate::obj::objstr::{PyStr, PyStrRef};
     use crate::pyobject::{BorrowValue, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
     use crate::vm::VirtualMachine;
     use crc::{crc32, Hasher32};
@@ -15,7 +15,7 @@ mod decl {
     enum SerializedData {
         Bytes(PyBytesRef),
         Buffer(PyByteArrayRef),
-        Ascii(PyStringRef),
+        Ascii(PyStrRef),
     }
 
     impl TryFromObject for SerializedData {
@@ -23,7 +23,7 @@ mod decl {
             match_class!(match obj {
                 b @ PyBytes => Ok(SerializedData::Bytes(b)),
                 b @ PyByteArray => Ok(SerializedData::Buffer(b)),
-                a @ PyString => {
+                a @ PyStr => {
                     if a.borrow_value().is_ascii() {
                         Ok(SerializedData::Ascii(a))
                     } else {

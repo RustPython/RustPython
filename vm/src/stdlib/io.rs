@@ -26,7 +26,7 @@ mod _io {
     use crate::obj::objbytes::PyBytesRef;
     use crate::obj::objint;
     use crate::obj::objiter;
-    use crate::obj::objstr::{self, PyString, PyStringRef};
+    use crate::obj::objstr::{self, PyStr, PyStrRef};
     use crate::obj::objtype::{self, PyClassRef};
     use crate::pyobject::{
         BorrowValue, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
@@ -610,11 +610,11 @@ mod _io {
         #[pyarg(positional_or_keyword, optional = false)]
         buffer: PyObjectRef,
         #[pyarg(positional_or_keyword, default = "None")]
-        encoding: Option<PyStringRef>,
+        encoding: Option<PyStrRef>,
         #[pyarg(positional_or_keyword, default = "None")]
-        errors: Option<PyStringRef>,
+        errors: Option<PyStrRef>,
         #[pyarg(positional_or_keyword, default = "None")]
-        newline: Option<PyStringRef>,
+        newline: Option<PyStrRef>,
     }
 
     impl TextIOWrapperArgs {
@@ -645,14 +645,14 @@ mod _io {
         ) -> PyResult<()> {
             args.validate_newline(vm)?;
 
-            let mut encoding: Option<PyStringRef> = args.encoding.clone();
+            let mut encoding: Option<PyStrRef> = args.encoding.clone();
             let mut self_encoding = None; // TODO: Try os.device_encoding(fileno)
             if let (None, None) = (&encoding, &self_encoding) {
                 // TODO: locale module
                 self_encoding = Some("utf-8");
             }
             if let Some(self_encoding) = self_encoding {
-                encoding = Some(PyString::from(self_encoding).into_ref(vm));
+                encoding = Some(PyStr::from(self_encoding).into_ref(vm));
             } else if let Some(ref encoding) = encoding {
                 self_encoding = Some(encoding.borrow_value())
             } else {
@@ -741,7 +741,7 @@ mod _io {
         }
 
         #[pymethod]
-        fn write(instance: PyObjectRef, obj: PyStringRef, vm: &VirtualMachine) -> PyResult<usize> {
+        fn write(instance: PyObjectRef, obj: PyStrRef, vm: &VirtualMachine) -> PyResult<usize> {
             use std::str::from_utf8;
 
             let buffered_writer_class = vm.try_class("_io", "BufferedWriter")?;
@@ -798,7 +798,7 @@ mod _io {
         #[pyarg(positional_or_keyword, default = "None")]
         #[allow(dead_code)]
         // TODO: use this
-        newline: Option<PyStringRef>,
+        newline: Option<PyStrRef>,
     }
 
     #[pyclass(name = "StringIO", noattr)]
@@ -864,7 +864,7 @@ mod _io {
     impl StringIORef {
         //write string to underlying vector
         #[pymethod]
-        fn write(self, data: PyStringRef, vm: &VirtualMachine) -> PyResult {
+        fn write(self, data: PyStrRef, vm: &VirtualMachine) -> PyResult {
             let bytes = data.borrow_value().as_bytes();
 
             match self.buffer(vm)?.write(bytes) {
@@ -1112,7 +1112,7 @@ mod _io {
     #[pyfunction]
     fn open(
         file: PyObjectRef,
-        mode: OptionalArg<PyStringRef>,
+        mode: OptionalArg<PyStrRef>,
         opts: OpenArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
@@ -1136,11 +1136,11 @@ mod _io {
         #[pyarg(positional_or_keyword, default = "-1")]
         buffering: isize,
         #[pyarg(positional_or_keyword, default = "None")]
-        encoding: Option<PyStringRef>,
+        encoding: Option<PyStrRef>,
         #[pyarg(positional_or_keyword, default = "None")]
-        errors: Option<PyStringRef>,
+        errors: Option<PyStrRef>,
         #[pyarg(positional_or_keyword, default = "None")]
-        newline: Option<PyStringRef>,
+        newline: Option<PyStrRef>,
         #[pyarg(positional_or_keyword, default = "true")]
         closefd: bool,
         #[pyarg(positional_or_keyword, default = "None")]
@@ -1407,7 +1407,7 @@ mod fileio {
     use crate::function::{OptionalArg, PyFuncArgs};
     use crate::obj::objbytearray::PyByteArray;
     use crate::obj::objint;
-    use crate::obj::objstr::PyStringRef;
+    use crate::obj::objstr::PyStrRef;
     use crate::obj::objtype::PyClassRef;
     use crate::pyobject::{
         BorrowValue, BufferProtocol, Either, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
@@ -1451,9 +1451,9 @@ mod fileio {
     #[derive(FromArgs)]
     struct FileIOArgs {
         #[pyarg(positional_only)]
-        name: Either<PyStringRef, i64>,
+        name: Either<PyStrRef, i64>,
         #[pyarg(positional_or_keyword, default = "None")]
-        mode: Option<PyStringRef>,
+        mode: Option<PyStrRef>,
         #[pyarg(positional_or_keyword, default = "true")]
         closefd: bool,
         #[pyarg(positional_or_keyword, default = "None")]

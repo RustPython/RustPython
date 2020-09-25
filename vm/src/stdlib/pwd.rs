@@ -1,6 +1,6 @@
 use crate::exceptions::IntoPyException;
 use crate::obj::objint::PyIntRef;
-use crate::obj::objstr::PyStringRef;
+use crate::obj::objstr::PyStrRef;
 use crate::pyobject::{BorrowValue, PyClassImpl, PyObjectRef, PyResult, PyStructSequence};
 use crate::vm::VirtualMachine;
 use std::convert::TryFrom;
@@ -46,7 +46,7 @@ impl From<User> for Passwd {
     }
 }
 
-fn pwd_getpwnam(name: PyStringRef, vm: &VirtualMachine) -> PyResult {
+fn pwd_getpwnam(name: PyStrRef, vm: &VirtualMachine) -> PyResult {
     match User::from_name(name.borrow_value()).map_err(|err| err.into_pyexception(vm))? {
         Some(user) => Ok(Passwd::from(user)
             .into_struct_sequence(vm, vm.try_class("pwd", "struct_passwd")?)?

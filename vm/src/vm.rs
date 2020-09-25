@@ -33,7 +33,7 @@ use crate::obj::objiter;
 use crate::obj::objlist::PyList;
 use crate::obj::objmodule::{self, PyModule};
 use crate::obj::objobject;
-use crate::obj::objstr::{PyString, PyStringRef};
+use crate::obj::objstr::{PyStr, PyStrRef};
 use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype::{self, PyClassRef};
 use crate::pyobject::{
@@ -708,12 +708,12 @@ impl VirtualMachine {
     }
 
     // Container of the virtual machine state:
-    pub fn to_str(&self, obj: &PyObjectRef) -> PyResult<PyStringRef> {
+    pub fn to_str(&self, obj: &PyObjectRef) -> PyResult<PyStrRef> {
         if obj.lease_class().is(&self.ctx.types.str_type) {
             Ok(obj.clone().downcast().unwrap())
         } else {
             let s = self.call_method(&obj, "__str__", vec![])?;
-            PyStringRef::try_from_object(self, s)
+            PyStrRef::try_from_object(self, s)
         }
     }
 
@@ -722,14 +722,14 @@ impl VirtualMachine {
         Ok(py_str_obj.borrow_value().to_owned())
     }
 
-    pub fn to_repr(&self, obj: &PyObjectRef) -> PyResult<PyStringRef> {
+    pub fn to_repr(&self, obj: &PyObjectRef) -> PyResult<PyStrRef> {
         let repr = self.call_method(obj, "__repr__", vec![])?;
         TryFromObject::try_from_object(self, repr)
     }
 
     pub fn to_ascii(&self, obj: &PyObjectRef) -> PyResult {
         let repr = self.call_method(obj, "__repr__", vec![])?;
-        let repr: PyStringRef = TryFromObject::try_from_object(self, repr)?;
+        let repr: PyStrRef = TryFromObject::try_from_object(self, repr)?;
         let ascii = to_ascii(repr.borrow_value());
         Ok(self.ctx.new_str(ascii))
     }
@@ -971,7 +971,7 @@ impl VirtualMachine {
     #[cfg_attr(feature = "flame-it", flame("VirtualMachine"))]
     pub fn get_attribute<T>(&self, obj: PyObjectRef, attr_name: T) -> PyResult
     where
-        T: TryIntoRef<PyString>,
+        T: TryIntoRef<PyStr>,
     {
         let attr_name = attr_name.try_into_ref(self)?;
         vm_trace!("vm.__getattribute__: {:?} {:?}", obj, attr_name);
@@ -980,7 +980,7 @@ impl VirtualMachine {
 
     pub fn set_attr<K, V>(&self, obj: &PyObjectRef, attr_name: K, attr_value: V) -> PyResult
     where
-        K: TryIntoRef<PyString>,
+        K: TryIntoRef<PyStr>,
         V: Into<PyObjectRef>,
     {
         let attr_name = attr_name.try_into_ref(self)?;
@@ -1072,7 +1072,7 @@ impl VirtualMachine {
         })
     }
 
-    pub fn generic_getattribute(&self, obj: PyObjectRef, name: PyStringRef) -> PyResult {
+    pub fn generic_getattribute(&self, obj: PyObjectRef, name: PyStrRef) -> PyResult {
         self.generic_getattribute_opt(obj.clone(), name.clone(), None)?
             .ok_or_else(|| self.new_attribute_error(format!("{} has no attribute '{}'", obj, name)))
     }
@@ -1081,7 +1081,7 @@ impl VirtualMachine {
     pub fn generic_getattribute_opt(
         &self,
         obj: PyObjectRef,
-        name_str: PyStringRef,
+        name_str: PyStrRef,
         dict: Option<PyDictRef>,
     ) -> PyResult<Option<PyObjectRef>> {
         let name = name_str.borrow_value();
@@ -1174,8 +1174,8 @@ impl VirtualMachine {
         &self,
         func: &str,
         obj: PyObjectRef,
-        encoding: Option<PyStringRef>,
-        errors: Option<PyStringRef>,
+        encoding: Option<PyStrRef>,
+        errors: Option<PyStrRef>,
     ) -> PyResult {
         let codecsmodule = self.import("_codecs", &[], 0)?;
         let func = self.get_attribute(codecsmodule, func)?;
@@ -1189,8 +1189,8 @@ impl VirtualMachine {
     pub fn decode(
         &self,
         obj: PyObjectRef,
-        encoding: Option<PyStringRef>,
-        errors: Option<PyStringRef>,
+        encoding: Option<PyStrRef>,
+        errors: Option<PyStrRef>,
     ) -> PyResult {
         self.call_codec_func("decode", obj, encoding, errors)
     }
@@ -1198,8 +1198,8 @@ impl VirtualMachine {
     pub fn encode(
         &self,
         obj: PyObjectRef,
-        encoding: Option<PyStringRef>,
-        errors: Option<PyStringRef>,
+        encoding: Option<PyStrRef>,
+        errors: Option<PyStrRef>,
     ) -> PyResult {
         self.call_codec_func("encode", obj, encoding, errors)
     }
@@ -1533,7 +1533,7 @@ impl VirtualMachine {
     pub fn __module_set_attr(
         &self,
         module: &PyObjectRef,
-        attr_name: impl TryIntoRef<PyString>,
+        attr_name: impl TryIntoRef<PyStr>,
         attr_value: impl Into<PyObjectRef>,
     ) -> PyResult<()> {
         let val = attr_value.into();

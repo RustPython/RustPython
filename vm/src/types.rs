@@ -189,7 +189,7 @@ impl TypeZoo {
             set_iterator_type: create_type!(objset::PySetIterator),
             slice_type: create_type!(objslice::PySlice),
             staticmethod_type: create_type!(objstaticmethod::PyStaticMethod),
-            str_type: create_type!(objstr::PyString),
+            str_type: create_type!(objstr::PyStr),
             str_iterator_type: create_type!(objstr::PyStringIterator),
             str_reverseiterator_type: create_type!(objstr::PyStringReverseIterator),
             super_type: create_type!(objsuper::PySuper),

@@ -2,7 +2,7 @@
 use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::exceptions::IntoPyException;
 use crate::function::OptionalArg;
-use crate::obj::objstr::PyStringRef;
+use crate::obj::objstr::PyStrRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
     BorrowValue, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
@@ -102,7 +102,7 @@ impl Hkey {
 
 fn winreg_OpenKey(
     key: Hkey,
-    subkey: Option<PyStringRef>,
+    subkey: Option<PyStrRef>,
     reserved: OptionalArg<i32>,
     access: OptionalArg<u32>,
     vm: &VirtualMachine,
@@ -122,11 +122,7 @@ fn winreg_OpenKey(
     Ok(PyHKEY::new(key))
 }
 
-fn winreg_QueryValue(
-    key: Hkey,
-    subkey: Option<PyStringRef>,
-    vm: &VirtualMachine,
-) -> PyResult<String> {
+fn winreg_QueryValue(key: Hkey, subkey: Option<PyStrRef>, vm: &VirtualMachine) -> PyResult<String> {
     let subkey = subkey.as_ref().map_or("", |s| s.borrow_value());
     key.with_key(|k| k.get_value(subkey))
         .map_err(|e| e.into_pyexception(vm))
@@ -134,7 +130,7 @@ fn winreg_QueryValue(
 
 fn winreg_QueryValueEx(
     key: Hkey,
-    subkey: Option<PyStringRef>,
+    subkey: Option<PyStrRef>,
     vm: &VirtualMachine,
 ) -> PyResult<(PyObjectRef, usize)> {
     let subkey = subkey.as_ref().map_or("", |s| s.borrow_value());

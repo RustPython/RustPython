@@ -9,7 +9,7 @@ use super::objlist::PyList;
 use super::objmappingproxy::PyMappingProxy;
 use super::objobject;
 use super::objstaticmethod::PyStaticMethod;
-use super::objstr::PyStringRef;
+use super::objstr::PyStrRef;
 use super::objtuple::PyTuple;
 use super::objweakref::PyWeak;
 use crate::function::{KwArgs, PyFuncArgs};
@@ -63,7 +63,7 @@ impl PyClassRef {
             let module = zelf.attributes.read().get("__module__").cloned();
             let new_name = if let Some(module) = module {
                 // FIXME: "unknown" case is a bug.
-                let module_str = PyStringRef::try_from_object(vm, module)
+                let module_str = PyStrRef::try_from_object(vm, module)
                     .map_or("<unknown>".to_owned(), |m| m.borrow_value().to_owned());
                 format!("{}.{}", module_str, &zelf.name)
             } else {
@@ -261,12 +261,12 @@ impl PyClass {
     }
 
     #[pymethod(magic)]
-    fn prepare(_name: PyStringRef, _bases: PyObjectRef, vm: &VirtualMachine) -> PyDictRef {
+    fn prepare(_name: PyStrRef, _bases: PyObjectRef, vm: &VirtualMachine) -> PyDictRef {
         vm.ctx.new_dict()
     }
 
     #[pymethod(magic)]
-    fn getattribute(zelf: PyRef<Self>, name_ref: PyStringRef, vm: &VirtualMachine) -> PyResult {
+    fn getattribute(zelf: PyRef<Self>, name_ref: PyStrRef, vm: &VirtualMachine) -> PyResult {
         let name = name_ref.borrow_value();
         vm_trace!("type.__getattribute__({:?}, {:?})", zelf, name);
         let mcl = zelf.lease_class();
@@ -315,7 +315,7 @@ impl PyClass {
     #[pymethod(magic)]
     fn setattr(
         zelf: PyRef<Self>,
-        attr_name: PyStringRef,
+        attr_name: PyStrRef,
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -334,7 +334,7 @@ impl PyClass {
     }
 
     #[pymethod(magic)]
-    fn delattr(zelf: PyRef<Self>, attr_name: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn delattr(zelf: PyRef<Self>, attr_name: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
         if let Some(attr) = zelf.get_class_attr(attr_name.borrow_value()) {
             if let Some(ref descriptor) = attr.get_class_attr("__delete__") {
                 return vm
@@ -389,7 +389,7 @@ impl PyClass {
             }));
         }
 
-        let (name, bases, dict, kwargs): (PyStringRef, PyIterable<PyClassRef>, PyDictRef, KwArgs) =
+        let (name, bases, dict, kwargs): (PyStrRef, PyIterable<PyClassRef>, PyDictRef, KwArgs) =
             args.clone().bind(vm)?;
 
         let bases: Vec<PyClassRef> = bases.iter(vm)?.collect::<Result<Vec<_>, _>>()?;

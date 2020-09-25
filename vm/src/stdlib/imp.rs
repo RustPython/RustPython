@@ -3,7 +3,7 @@ use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objcode::PyCode;
 use crate::obj::objmodule::PyModuleRef;
 use crate::obj::objstr;
-use crate::obj::objstr::PyStringRef;
+use crate::obj::objstr::PyStrRef;
 use crate::pyobject::{BorrowValue, ItemProtocol, PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
 
@@ -49,11 +49,11 @@ fn _imp_extension_suffixes(vm: &VirtualMachine) -> PyResult {
     Ok(vm.ctx.new_list(vec![]))
 }
 
-fn _imp_is_builtin(name: PyStringRef, vm: &VirtualMachine) -> bool {
+fn _imp_is_builtin(name: PyStrRef, vm: &VirtualMachine) -> bool {
     vm.state.stdlib_inits.contains_key(name.borrow_value())
 }
 
-fn _imp_is_frozen(name: PyStringRef, vm: &VirtualMachine) -> bool {
+fn _imp_is_frozen(name: PyStrRef, vm: &VirtualMachine) -> bool {
     vm.state.frozen.contains_key(name.borrow_value())
 }
 
@@ -76,7 +76,7 @@ fn _imp_exec_builtin(_mod: PyModuleRef) -> i32 {
     0
 }
 
-fn _imp_get_frozen_object(name: PyStringRef, vm: &VirtualMachine) -> PyResult<PyCode> {
+fn _imp_get_frozen_object(name: PyStrRef, vm: &VirtualMachine) -> PyResult<PyCode> {
     let name = name.borrow_value();
     vm.state
         .frozen
@@ -89,11 +89,11 @@ fn _imp_get_frozen_object(name: PyStringRef, vm: &VirtualMachine) -> PyResult<Py
         .ok_or_else(|| vm.new_import_error(format!("No such frozen object named {}", name), name))
 }
 
-fn _imp_init_frozen(name: PyStringRef, vm: &VirtualMachine) -> PyResult {
+fn _imp_init_frozen(name: PyStrRef, vm: &VirtualMachine) -> PyResult {
     import::import_frozen(vm, name.borrow_value())
 }
 
-fn _imp_is_frozen_package(name: PyStringRef, vm: &VirtualMachine) -> PyResult<bool> {
+fn _imp_is_frozen_package(name: PyStrRef, vm: &VirtualMachine) -> PyResult<bool> {
     let name = name.borrow_value();
     vm.state
         .frozen
@@ -102,7 +102,7 @@ fn _imp_is_frozen_package(name: PyStringRef, vm: &VirtualMachine) -> PyResult<bo
         .ok_or_else(|| vm.new_import_error(format!("No such frozen object named {}", name), name))
 }
 
-fn _imp_fix_co_filename(_code: PyObjectRef, _path: PyStringRef) {
+fn _imp_fix_co_filename(_code: PyObjectRef, _path: PyStrRef) {
     // TODO:
 }
 

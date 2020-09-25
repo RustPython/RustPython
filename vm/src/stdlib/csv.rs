@@ -5,7 +5,7 @@ use std::fmt::{self, Debug, Formatter};
 use crate::common::cell::PyRwLock;
 use crate::function::PyFuncArgs;
 use crate::obj::objiter;
-use crate::obj::objstr::{self, PyString};
+use crate::obj::objstr::{self, PyStr};
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
     BorrowValue, IntoPyObject, PyClassImpl, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
@@ -77,7 +77,7 @@ fn into_strings(iterable: &PyIterable<PyObjectRef>, vm: &VirtualMachine) -> PyRe
         .iter(vm)?
         .map(|py_obj_ref| {
             match_class!(match py_obj_ref? {
-                py_str @ PyString => Ok(py_str.borrow_value().trim().to_owned()),
+                py_str @ PyStr => Ok(py_str.borrow_value().trim().to_owned()),
                 obj => {
                     let msg = format!(
             "iterator should return strings, not {} (did you open the file in text mode?)",

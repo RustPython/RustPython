@@ -2,7 +2,7 @@
 use crate::exceptions::{self, IntoPyException};
 use crate::function::{Args, KwArgs, OptionalArg, PyFuncArgs};
 use crate::obj::objdict::PyDictRef;
-use crate::obj::objstr::PyStringRef;
+use crate::obj::objstr::PyStrRef;
 use crate::obj::objtuple::PyTupleRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
@@ -311,7 +311,7 @@ impl PyLocal {
     }
 
     #[pymethod(magic)]
-    fn getattribute(zelf: PyRef<Self>, attr: PyStringRef, vm: &VirtualMachine) -> PyResult {
+    fn getattribute(zelf: PyRef<Self>, attr: PyStrRef, vm: &VirtualMachine) -> PyResult {
         let ldict = zelf.ldict(vm);
         if attr.borrow_value() == "__dict__" {
             Ok(ldict.into_object())
@@ -327,7 +327,7 @@ impl PyLocal {
     #[pymethod(magic)]
     fn setattr(
         zelf: PyRef<Self>,
-        attr: PyStringRef,
+        attr: PyStrRef,
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -343,7 +343,7 @@ impl PyLocal {
     }
 
     #[pymethod(magic)]
-    fn delattr(zelf: PyRef<Self>, attr: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn delattr(zelf: PyRef<Self>, attr: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
         if attr.borrow_value() == "__dict__" {
             Err(vm.new_attribute_error(format!(
                 "{} attribute '__dict__' is read-only",

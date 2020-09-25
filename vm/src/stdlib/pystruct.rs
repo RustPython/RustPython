@@ -26,7 +26,7 @@ mod _struct {
     use crate::exceptions::PyBaseExceptionRef;
     use crate::function::Args;
     use crate::obj::{
-        objbool::IntoPyBool, objbytes::PyBytesRef, objiter, objstr::PyString, objstr::PyStringRef,
+        objbool::IntoPyBool, objbytes::PyBytesRef, objiter, objstr::PyStr, objstr::PyStrRef,
         objtuple::PyTuple, objtype::PyClassRef,
     };
     use crate::pyobject::{
@@ -90,7 +90,7 @@ mod _struct {
     impl FormatSpec {
         fn decode_and_parse(
             vm: &VirtualMachine,
-            fmt: &Either<PyStringRef, PyBytesRef>,
+            fmt: &Either<PyStrRef, PyBytesRef>,
         ) -> PyResult<FormatSpec> {
             let decoded_fmt = match fmt {
                 Either::A(string) => string.borrow_value(),
@@ -532,7 +532,7 @@ mod _struct {
 
     #[pyfunction]
     fn pack(
-        fmt: Either<PyStringRef, PyBytesRef>,
+        fmt: Either<PyStrRef, PyBytesRef>,
         args: Args,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
@@ -542,7 +542,7 @@ mod _struct {
 
     #[pyfunction]
     fn pack_into(
-        fmt: Either<PyStringRef, PyBytesRef>,
+        fmt: Either<PyStrRef, PyBytesRef>,
         buffer: PyRwBytesLike,
         offset: isize,
         args: Args,
@@ -711,7 +711,7 @@ mod _struct {
 
     #[pyfunction]
     fn unpack(
-        fmt: Either<PyStringRef, PyBytesRef>,
+        fmt: Either<PyStrRef, PyBytesRef>,
         buffer: PyBytesLike,
         vm: &VirtualMachine,
     ) -> PyResult<PyTuple> {
@@ -775,7 +775,7 @@ mod _struct {
 
     #[pyfunction]
     fn unpack_from(
-        fmt: Either<PyStringRef, PyBytesRef>,
+        fmt: Either<PyStrRef, PyBytesRef>,
         args: UpdateFromArgs,
         vm: &VirtualMachine,
     ) -> PyResult<PyTuple> {
@@ -857,7 +857,7 @@ mod _struct {
 
     #[pyfunction]
     fn iter_unpack(
-        fmt: Either<PyStringRef, PyBytesRef>,
+        fmt: Either<PyStrRef, PyBytesRef>,
         buffer: PyBytesLike,
         vm: &VirtualMachine,
     ) -> PyResult<UnpackIterator> {
@@ -866,7 +866,7 @@ mod _struct {
     }
 
     #[pyfunction]
-    fn calcsize(fmt: Either<PyStringRef, PyBytesRef>, vm: &VirtualMachine) -> PyResult<usize> {
+    fn calcsize(fmt: Either<PyStrRef, PyBytesRef>, vm: &VirtualMachine) -> PyResult<usize> {
         let format_spec = FormatSpec::decode_and_parse(vm, &fmt)?;
         Ok(format_spec.size())
     }
@@ -876,7 +876,7 @@ mod _struct {
     #[derive(Debug)]
     struct PyStruct {
         spec: FormatSpec,
-        fmt_str: PyStringRef,
+        fmt_str: PyStrRef,
     }
 
     impl PyValue for PyStruct {
@@ -890,20 +890,20 @@ mod _struct {
         #[pyslot]
         fn tp_new(
             cls: PyClassRef,
-            fmt: Either<PyStringRef, PyBytesRef>,
+            fmt: Either<PyStrRef, PyBytesRef>,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
             let spec = FormatSpec::decode_and_parse(vm, &fmt)?;
             let fmt_str = match fmt {
                 Either::A(s) => s,
-                Either::B(b) => PyString::from(std::str::from_utf8(b.borrow_value()).unwrap())
+                Either::B(b) => PyStr::from(std::str::from_utf8(b.borrow_value()).unwrap())
                     .into_ref_with_type(vm, vm.ctx.types.str_type.clone())?,
             };
             PyStruct { spec, fmt_str }.into_ref_with_type(vm, cls)
         }
 
         #[pyproperty]
-        fn format(&self) -> PyStringRef {
+        fn format(&self) -> PyStrRef {
             self.fmt_str.clone()
         }
 

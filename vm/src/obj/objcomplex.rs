@@ -2,7 +2,7 @@ use num_complex::Complex64;
 use num_traits::Zero;
 
 use super::objfloat;
-use super::objstr::PyString;
+use super::objstr::PyStr;
 use super::objtype::{self, PyClassRef};
 use crate::pyobject::{
     BorrowValue, IntoPyObject, Never, PyArithmaticValue, PyClassImpl, PyComparisonValue, PyContext,
@@ -229,7 +229,7 @@ impl PyComplex {
             Some(obj) => {
                 if let Some(c) = try_complex(&obj, vm)? {
                     c
-                } else if let Some(s) = obj.payload_if_subclass::<PyString>(vm) {
+                } else if let Some(s) = obj.payload_if_subclass::<PyStr>(vm) {
                     if args.imag.is_some() {
                         return Err(vm.new_type_error(
                             "complex() can't take second arg if first is a string".to_owned(),

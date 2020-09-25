@@ -1,7 +1,7 @@
 use crate::common::cell::PyRwLock;
 use crate::function::PyFuncArgs;
 use crate::obj::objsingletons::{PyNone, PyNoneRef};
-use crate::obj::objstr::{PyString, PyStringRef};
+use crate::obj::objstr::{PyStr, PyStrRef};
 use crate::obj::objtraceback::PyTracebackRef;
 use crate::obj::objtuple::{PyTuple, PyTupleRef};
 use crate::obj::objtype::{self, PyClass, PyClassRef};
@@ -131,12 +131,12 @@ impl PyBaseException {
     }
 
     #[pymethod(name = "__str__")]
-    fn str(&self, vm: &VirtualMachine) -> PyStringRef {
+    fn str(&self, vm: &VirtualMachine) -> PyStrRef {
         let str_args = exception_args_as_string(vm, self.args(), true);
         match str_args.into_iter().exactly_one() {
-            Err(i) if i.len() == 0 => PyString::from("").into_ref(vm),
+            Err(i) if i.len() == 0 => PyStr::from("").into_ref(vm),
             Ok(s) => s,
-            Err(i) => PyString::from(format!("({})", i.format(", "))).into_ref(vm),
+            Err(i) => PyStr::from(format!("({})", i.format(", "))).into_ref(vm),
         }
     }
 
@@ -269,17 +269,17 @@ fn exception_args_as_string(
     vm: &VirtualMachine,
     varargs: PyTupleRef,
     str_single: bool,
-) -> Vec<PyStringRef> {
+) -> Vec<PyStrRef> {
     let varargs = varargs.borrow_value();
     match varargs.len() {
         0 => vec![],
         1 => {
             let args0_repr = if str_single {
                 vm.to_str(&varargs[0])
-                    .unwrap_or_else(|_| PyString::from("<element str() failed>").into_ref(vm))
+                    .unwrap_or_else(|_| PyStr::from("<element str() failed>").into_ref(vm))
             } else {
                 vm.to_repr(&varargs[0])
-                    .unwrap_or_else(|_| PyString::from("<element repr() failed>").into_ref(vm))
+                    .unwrap_or_else(|_| PyStr::from("<element repr() failed>").into_ref(vm))
             };
             vec![args0_repr]
         }
@@ -287,7 +287,7 @@ fn exception_args_as_string(
             .iter()
             .map(|vararg| {
                 vm.to_repr(vararg)
-                    .unwrap_or_else(|_| PyString::from("<element repr() failed>").into_ref(vm))
+                    .unwrap_or_else(|_| PyStr::from("<element repr() failed>").into_ref(vm))
             })
             .collect(),
     }
@@ -644,7 +644,7 @@ fn make_arg_getter(idx: usize) -> impl Fn(PyBaseExceptionRef) -> Option<PyObject
     move |exc| exc.args.read().borrow_value().get(idx).cloned()
 }
 
-fn key_error_str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyStringRef {
+fn key_error_str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyStrRef {
     let args = exc.args();
     if args.borrow_value().len() == 1 {
         exception_args_as_string(vm, args, false)

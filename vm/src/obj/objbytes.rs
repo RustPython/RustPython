@@ -6,8 +6,9 @@ use std::ops::Deref;
 use super::objint::PyIntRef;
 use super::objiter;
 use super::objsequence::SequenceIndex;
-use super::objstr::PyStringRef;
+use super::objstr::PyStrRef;
 use super::objtype::PyClassRef;
+use crate::anystr::{self, AnyStr};
 use crate::bytesinner::{
     bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
     ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
@@ -19,7 +20,6 @@ use crate::pyobject::{
     BorrowValue, Either, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyIterable,
     PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
 };
-use crate::pystr::{self, PyCommonString};
 use crate::slots::{Comparable, Hashable, PyComparisonOp};
 use crate::vm::VirtualMachine;
 use rustpython_common::hash::PyHash;
@@ -209,7 +209,7 @@ impl PyBytes {
     }
 
     #[pymethod]
-    fn fromhex(string: PyStringRef, vm: &VirtualMachine) -> PyResult<PyBytes> {
+    fn fromhex(string: PyStrRef, vm: &VirtualMachine) -> PyResult<PyBytes> {
         Ok(PyBytesInner::fromhex(string.borrow_value(), vm)?.into())
     }
 
@@ -239,7 +239,7 @@ impl PyBytes {
     }
 
     #[pymethod(name = "endswith")]
-    fn endswith(&self, options: pystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
+    fn endswith(&self, options: anystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
         self.inner.elements[..].py_startsendswith(
             options,
             "endswith",
@@ -252,7 +252,7 @@ impl PyBytes {
     #[pymethod(name = "startswith")]
     fn startswith(
         &self,
-        options: pystr::StartsEndsWithArgs,
+        options: anystr::StartsEndsWithArgs,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
         self.inner.elements[..].py_startsendswith(
@@ -379,12 +379,12 @@ impl PyBytes {
     }
 
     #[pymethod(name = "expandtabs")]
-    fn expandtabs(&self, options: pystr::ExpandTabsArgs) -> Self {
+    fn expandtabs(&self, options: anystr::ExpandTabsArgs) -> Self {
         self.inner.expandtabs(options).into()
     }
 
     #[pymethod(name = "splitlines")]
-    fn splitlines(&self, options: pystr::SplitLinesArgs, vm: &VirtualMachine) -> PyResult {
+    fn splitlines(&self, options: anystr::SplitLinesArgs, vm: &VirtualMachine) -> PyResult {
         let lines = self
             .inner
             .splitlines(options, |x| vm.ctx.new_bytes(x.to_vec()));
@@ -440,7 +440,7 @@ impl PyBytes {
     /// see https://docs.python.org/3/library/codecs.html#standard-encodings
     /// currently, only 'utf-8' and 'ascii' emplemented
     #[pymethod]
-    fn decode(zelf: PyRef<Self>, args: DecodeArgs, vm: &VirtualMachine) -> PyResult<PyStringRef> {
+    fn decode(zelf: PyRef<Self>, args: DecodeArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         bytes_decode(zelf.into_object(), args, vm)
     }
 
