@@ -43,6 +43,7 @@ pub use rustpython_derive::*;
 #[macro_use]
 pub mod macros;
 
+mod anystr;
 mod builtins;
 mod bytesinner;
 pub mod byteslike;
@@ -61,7 +62,6 @@ mod py_io;
 pub mod py_serde;
 pub mod pyobject;
 mod pyobjectrc;
-mod pystr;
 pub mod readline;
 pub mod scope;
 mod sequence;

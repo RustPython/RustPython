@@ -18,15 +18,13 @@ use super::objint::{PyInt, PyIntRef};
 use super::objiter;
 use super::objsequence::{PySliceableSequence, SequenceIndex};
 use super::objtype::{self, PyClassRef};
+use crate::anystr::{self, adjust_indices, AnyStr, AnyStrContainer, AnyStrWrapper};
 use crate::exceptions::IntoPyException;
 use crate::format::{FormatSpec, FormatString, FromTemplate};
 use crate::function::{OptionalArg, OptionalOption, PyFuncArgs};
 use crate::pyobject::{
     BorrowValue, IdProtocol, IntoPyObject, ItemProtocol, PyClassImpl, PyComparisonValue, PyContext,
     PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
-};
-use crate::pystr::{
-    self, adjust_indices, PyCommonString, PyCommonStringContainer, PyCommonStringWrapper,
 };
 use crate::slots::{Comparable, Hashable, PyComparisonOp};
 use crate::VirtualMachine;
@@ -468,7 +466,7 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn endswith(&self, args: pystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
+    fn endswith(&self, args: anystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
         self.value.py_startsendswith(
             args,
             "endswith",
@@ -479,7 +477,7 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn startswith(&self, args: pystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
+    fn startswith(&self, args: anystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
         self.value.py_startsendswith(
             args,
             "startswith",
@@ -705,7 +703,7 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn splitlines(&self, args: pystr::SplitLinesArgs, vm: &VirtualMachine) -> PyObjectRef {
+    fn splitlines(&self, args: anystr::SplitLinesArgs, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx
             .new_list(self.value.py_splitlines(args, |s| vm.ctx.new_str(s)))
     }
@@ -854,7 +852,7 @@ impl PyStr {
         fillchar: OptionalArg<PyStrRef>,
         vm: &VirtualMachine,
     ) -> PyResult<String> {
-        self._pad(width, fillchar, PyCommonString::<char>::py_center, vm)
+        self._pad(width, fillchar, AnyStr::<char>::py_center, vm)
     }
 
     #[pymethod]
@@ -864,7 +862,7 @@ impl PyStr {
         fillchar: OptionalArg<PyStrRef>,
         vm: &VirtualMachine,
     ) -> PyResult<String> {
-        self._pad(width, fillchar, PyCommonString::<char>::py_ljust, vm)
+        self._pad(width, fillchar, AnyStr::<char>::py_ljust, vm)
     }
 
     #[pymethod]
@@ -874,11 +872,11 @@ impl PyStr {
         fillchar: OptionalArg<PyStrRef>,
         vm: &VirtualMachine,
     ) -> PyResult<String> {
-        self._pad(width, fillchar, PyCommonString::<char>::py_rjust, vm)
+        self._pad(width, fillchar, AnyStr::<char>::py_rjust, vm)
     }
 
     #[pymethod]
-    fn expandtabs(&self, args: pystr::ExpandTabsArgs) -> String {
+    fn expandtabs(&self, args: anystr::ExpandTabsArgs) -> String {
         let tab_stop = args.tabsize();
         let mut expanded_str = String::with_capacity(self.value.len());
         let mut tab_size = tab_stop;
@@ -1133,7 +1131,7 @@ impl TryFromObject for std::ffi::OsString {
     }
 }
 
-type SplitArgs<'a> = pystr::SplitArgs<'a, PyStrRef, str, char>;
+type SplitArgs<'a> = anystr::SplitArgs<'a, PyStrRef, str, char>;
 
 #[derive(FromArgs)]
 pub struct FindArgs {
@@ -1312,13 +1310,13 @@ mod tests {
     }
 }
 
-impl PyCommonStringWrapper<str> for PyStrRef {
+impl AnyStrWrapper<str> for PyStrRef {
     fn as_ref(&self) -> &str {
         self.value.as_str()
     }
 }
 
-impl PyCommonStringContainer<str> for String {
+impl AnyStrContainer<str> for String {
     fn new() -> Self {
         String::new()
     }
@@ -1332,7 +1330,7 @@ impl PyCommonStringContainer<str> for String {
     }
 }
 
-impl<'s> PyCommonString<'s, char> for str {
+impl<'s> AnyStr<'s, char> for str {
     type Container = String;
     type CharIter = std::str::Chars<'s>;
     type ElementIter = std::str::Chars<'s>;

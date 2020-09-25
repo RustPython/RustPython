@@ -8,6 +8,7 @@ use super::objiter;
 use super::objsequence::SequenceIndex;
 use super::objstr::PyStrRef;
 use super::objtype::PyClassRef;
+use crate::anystr::{self, AnyStr};
 use crate::bytesinner::{
     bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
     ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
@@ -21,7 +22,6 @@ use crate::pyobject::{
     BorrowValue, Either, IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext,
     PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
 };
-use crate::pystr::{self, PyCommonString};
 use crate::slots::{Comparable, Hashable, PyComparisonOp, Unhashable};
 use crate::vm::VirtualMachine;
 
@@ -288,7 +288,7 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "endswith")]
-    fn endswith(&self, options: pystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
+    fn endswith(&self, options: anystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
         self.borrow_value().elements[..].py_startsendswith(
             options,
             "endswith",
@@ -301,7 +301,7 @@ impl PyByteArray {
     #[pymethod(name = "startswith")]
     fn startswith(
         &self,
-        options: pystr::StartsEndsWithArgs,
+        options: anystr::StartsEndsWithArgs,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
         self.borrow_value().elements[..].py_startsendswith(
@@ -429,12 +429,12 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "expandtabs")]
-    fn expandtabs(&self, options: pystr::ExpandTabsArgs) -> Self {
+    fn expandtabs(&self, options: anystr::ExpandTabsArgs) -> Self {
         self.borrow_value().expandtabs(options).into()
     }
 
     #[pymethod(name = "splitlines")]
-    fn splitlines(&self, options: pystr::SplitLinesArgs, vm: &VirtualMachine) -> PyResult {
+    fn splitlines(&self, options: anystr::SplitLinesArgs, vm: &VirtualMachine) -> PyResult {
         let lines = self
             .borrow_value()
             .splitlines(options, |x| vm.ctx.new_bytearray(x.to_vec()));

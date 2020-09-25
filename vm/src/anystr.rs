@@ -11,8 +11,8 @@ use std::str::FromStr;
 #[derive(FromArgs)]
 pub struct SplitArgs<'a, T, S, E>
 where
-    T: TryFromObject + PyCommonStringWrapper<S>,
-    S: ?Sized + PyCommonString<'a, E>,
+    T: TryFromObject + AnyStrWrapper<S>,
+    S: ?Sized + AnyStr<'a, E>,
     E: Copy,
 {
     #[pyarg(positional_or_keyword, default = "None")]
@@ -25,8 +25,8 @@ where
 
 impl<'a, T, S, E> SplitArgs<'a, T, S, E>
 where
-    T: TryFromObject + PyCommonStringWrapper<S>,
-    S: ?Sized + PyCommonString<'a, E>,
+    T: TryFromObject + AnyStrWrapper<S>,
+    S: ?Sized + AnyStr<'a, E>,
     E: Copy,
 {
     pub fn get_value(self, vm: &VirtualMachine) -> PyResult<(Option<T>, isize)> {
@@ -124,14 +124,14 @@ impl StringRange for std::ops::Range<usize> {
     }
 }
 
-pub trait PyCommonStringWrapper<S>
+pub trait AnyStrWrapper<S>
 where
     S: ?Sized,
 {
     fn as_ref(&self) -> &S;
 }
 
-pub trait PyCommonStringContainer<S>
+pub trait AnyStrContainer<S>
 where
     S: ?Sized,
 {
@@ -140,11 +140,11 @@ where
     fn push_str(&mut self, s: &S);
 }
 
-pub trait PyCommonString<'s, E>
+pub trait AnyStr<'s, E>
 where
     E: Copy,
     Self: 's,
-    Self::Container: PyCommonStringContainer<Self> + std::iter::Extend<E>,
+    Self::Container: AnyStrContainer<Self> + std::iter::Extend<E>,
     Self::CharIter: 's + std::iter::Iterator<Item = char>,
     Self::ElementIter: 's + std::iter::Iterator<Item = E>,
 {
@@ -182,7 +182,7 @@ where
         splitw: SW,
     ) -> PyResult<Vec<R>>
     where
-        T: TryFromObject + PyCommonStringWrapper<Self>,
+        T: TryFromObject + AnyStrWrapper<Self>,
         SP: Fn(&Self, &Self, &VirtualMachine) -> Vec<R>,
         SN: Fn(&Self, &Self, usize, &VirtualMachine) -> Vec<R>,
         SW: Fn(&Self, isize, &VirtualMachine) -> Vec<R>,
@@ -249,7 +249,7 @@ where
         func_default: FD,
     ) -> &'a Self
     where
-        S: PyCommonStringWrapper<Self>,
+        S: AnyStrWrapper<Self>,
         FC: Fn(&'a Self, &Self) -> &'a Self,
         FD: Fn(&'a Self) -> &'a Self,
     {
@@ -312,7 +312,7 @@ where
 
     fn py_join<'a>(
         &self,
-        mut iter: PyIterator<'a, impl PyCommonStringWrapper<Self> + TryFromObject>,
+        mut iter: PyIterator<'a, impl AnyStrWrapper<Self> + TryFromObject>,
     ) -> PyResult<Self::Container> {
         let mut joined = if let Some(elem) = iter.next() {
             elem?.as_ref().to_container()
