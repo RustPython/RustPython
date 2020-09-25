@@ -43,7 +43,7 @@ use rustpython_common::hash;
 #[pyclass(module = false, name = "str")]
 #[derive(Debug)]
 pub struct PyStr {
-    value: String,
+    value: Box<str>,
     hash: AtomicCell<Option<hash::PyHash>>,
     len: AtomicCell<Option<usize>>,
 }
@@ -74,7 +74,7 @@ where
 impl From<String> for PyStr {
     fn from(s: String) -> PyStr {
         PyStr {
-            value: s,
+            value: s.into_boxed_str(),
             hash: AtomicCell::default(),
             len: AtomicCell::default(),
         }
@@ -85,7 +85,7 @@ pub type PyStrRef = PyRef<PyStr>;
 
 impl fmt::Display for PyStr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(&self.value, f)
+        fmt::Display::fmt(self.borrow_value(), f)
     }
 }
 
@@ -224,7 +224,7 @@ impl PyStr {
 
     #[pymethod(name = "__contains__")]
     fn contains(&self, needle: PyStrRef) -> bool {
-        self.value.contains(&needle.value)
+        self.value.contains(needle.borrow_value())
     }
 
     #[pymethod(name = "__getitem__")]
@@ -252,7 +252,7 @@ impl PyStr {
 
     pub(crate) fn hash(&self, vm: &VirtualMachine) -> hash::PyHash {
         self.hash.load().unwrap_or_else(|| {
-            let hash = vm.state.hash_secret.hash_str(&self.value);
+            let hash = vm.state.hash_secret.hash_str(self.borrow_value());
             self.hash.store(Some(hash));
             hash
         })
@@ -270,7 +270,7 @@ impl PyStr {
 
     #[pymethod(name = "__sizeof__")]
     fn sizeof(&self) -> usize {
-        size_of::<Self>() + self.value.capacity() * size_of::<u8>()
+        size_of::<Self>() + self.borrow_value().len() * size_of::<u8>()
     }
 
     #[pymethod(name = "__mul__")]
@@ -339,7 +339,7 @@ impl PyStr {
         let mut repr = String::with_capacity(out_len);
         repr.push(quote);
         if unchanged {
-            repr.push_str(&self.value);
+            repr.push_str(self.borrow_value());
         } else {
             for ch in self.value.chars() {
                 if ch == quote || ch == '\\' {
@@ -383,7 +383,7 @@ impl PyStr {
     // casefold is much more aggressive than lower
     #[pymethod]
     fn casefold(&self) -> String {
-        caseless::default_case_fold_str(&self.value)
+        caseless::default_case_fold_str(self.borrow_value())
     }
 
     #[pymethod]
@@ -497,7 +497,9 @@ impl PyStr {
     #[pymethod]
     fn removeprefix(&self, pref: PyStrRef) -> String {
         self.value
-            .py_removeprefix(&pref.value, pref.value.len(), |s, p| s.starts_with(p))
+            .py_removeprefix(pref.borrow_value(), pref.value.len(), |s, p| {
+                s.starts_with(p)
+            })
             .to_owned()
     }
 
@@ -511,7 +513,7 @@ impl PyStr {
     #[pymethod]
     fn removesuffix(&self, suff: PyStrRef) -> String {
         self.value
-            .py_removesuffix(&suff.value, suff.value.len(), |s, p| s.ends_with(p))
+            .py_removesuffix(suff.borrow_value(), suff.value.len(), |s, p| s.ends_with(p))
             .to_owned()
     }
 
@@ -558,7 +560,7 @@ impl PyStr {
 
     #[pymethod]
     fn format(&self, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<String> {
-        match FormatString::from_str(&self.value) {
+        match FormatString::from_str(self.borrow_value()) {
             Ok(format_string) => format_string.format(&args, vm),
             Err(err) => Err(err.into_pyexception(vm)),
         }
@@ -570,7 +572,7 @@ impl PyStr {
     /// The substitutions are identified by braces ('{' and '}').
     #[pymethod]
     fn format_map(&self, mapping: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
-        match FormatString::from_str(&self.value) {
+        match FormatString::from_str(self.borrow_value()) {
             Ok(format_string) => format_string.format_map(&mapping, vm),
             Err(err) => Err(err.into_pyexception(vm)),
         }
@@ -579,7 +581,7 @@ impl PyStr {
     #[pymethod(name = "__format__")]
     fn format_str(&self, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
         match FormatSpec::parse(spec.borrow_value())
-            .and_then(|format_spec| format_spec.format_string(&self.value))
+            .and_then(|format_spec| format_spec.format_string(self.borrow_value()))
         {
             Ok(string) => Ok(string),
             Err(err) => Err(vm.new_value_error(err.to_string())),
@@ -642,12 +644,12 @@ impl PyStr {
             OptionalArg::Present(maxcount) if maxcount >= 0 => {
                 if maxcount == 0 || self.value.is_empty() {
                     // nothing to do; return the original bytes
-                    return self.value.clone();
+                    return String::from(self.borrow_value());
                 }
                 self.value
-                    .replacen(&old.value, &new.value, maxcount as usize)
+                    .replacen(old.borrow_value(), new.borrow_value(), maxcount as usize)
             }
-            _ => self.value.replace(&old.value, &new.value),
+            _ => self.value.replace(old.borrow_value(), new.borrow_value()),
         }
     }
 
@@ -720,7 +722,7 @@ impl PyStr {
         F: Fn(&str, &str) -> Option<usize>,
     {
         let (sub, range) = args.get_value(self.len());
-        self.value.py_find(&sub.value, range, find)
+        self.value.py_find(sub.borrow_value(), range, find)
     }
 
     #[pymethod]
@@ -749,9 +751,11 @@ impl PyStr {
 
     #[pymethod]
     fn partition(&self, sep: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        let (front, has_mid, back) =
-            self.value
-                .py_partition(&sep.value, || self.value.splitn(2, &sep.value), vm)?;
+        let (front, has_mid, back) = self.value.py_partition(
+            sep.borrow_value(),
+            || self.value.splitn(2, sep.borrow_value()),
+            vm,
+        )?;
         Ok(vm.ctx.new_tuple(vec![
             vm.ctx.new_str(front),
             if has_mid {
@@ -765,9 +769,11 @@ impl PyStr {
 
     #[pymethod]
     fn rpartition(&self, sep: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        let (back, has_mid, front) =
-            self.value
-                .py_partition(&sep.value, || self.value.rsplitn(2, &sep.value), vm)?;
+        let (back, has_mid, front) = self.value.py_partition(
+            sep.borrow_value(),
+            || self.value.rsplitn(2, sep.borrow_value()),
+            vm,
+        )?;
         Ok(vm.ctx.new_tuple(vec![
             vm.ctx.new_str(front),
             if has_mid {
@@ -813,7 +819,7 @@ impl PyStr {
     fn count(&self, args: FindArgs) -> usize {
         let (needle, range) = args.get_value(self.len());
         self.value
-            .py_count(&needle.value, range, |h, n| h.matches(n).count())
+            .py_count(needle.borrow_value(), range, |h, n| h.matches(n).count())
     }
 
     #[pymethod]
@@ -839,9 +845,9 @@ impl PyStr {
             OptionalArg::Missing => Ok(' '),
         }?;
         Ok(if self.len() as isize >= width {
-            String::from(&self.value)
+            String::from(self.borrow_value())
         } else {
-            pad(&self.value, width as usize, fillchar, self.len())
+            pad(self.borrow_value(), width as usize, fillchar, self.len())
         })
     }
 
@@ -926,7 +932,7 @@ impl PyStr {
             match table.get_item((c as u32).into_pyobject(vm), vm) {
                 Ok(value) => {
                     if let Some(text) = value.payload::<PyStr>() {
-                        translated.push_str(&text.value);
+                        translated.push_str(text.borrow_value());
                     } else if let Some(bigint) = value.payload::<PyInt>() {
                         let ch = bigint
                             .borrow_value()
@@ -1158,7 +1164,7 @@ pub fn init(ctx: &PyContext) {
 }
 
 pub fn clone_value(obj: &PyObjectRef) -> String {
-    obj.payload::<PyStr>().unwrap().value.clone()
+    String::from(obj.payload::<PyStr>().unwrap().borrow_value())
 }
 
 pub fn borrow_value(obj: &PyObjectRef) -> &str {
@@ -1312,7 +1318,7 @@ mod tests {
 
 impl AnyStrWrapper<str> for PyStrRef {
     fn as_ref(&self) -> &str {
-        self.value.as_str()
+        &*self.value
     }
 }
 
