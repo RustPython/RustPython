@@ -30,12 +30,6 @@ impl fmt::Debug for PyTuple {
     }
 }
 
-impl From<Box<[PyObjectRef]>> for PyTuple {
-    fn from(elements: Box<[PyObjectRef]>) -> Self {
-        PyTuple { elements }
-    }
-}
-
 impl<'a> BorrowValue<'a> for PyTuple {
     type Borrowed = &'a [PyObjectRef];
 
@@ -93,6 +87,13 @@ pub(crate) fn get_value(obj: &PyObjectRef) -> &[PyObjectRef] {
 
 #[pyimpl(flags(BASETYPE), with(Hashable, Comparable))]
 impl PyTuple {
+    /// Creating a new tuple with given boxed slice.
+    /// NOTE: for usual case, you probably want to use PyTupleRef::with_elements.
+    /// Calling this function implies trying micro optimization for non-zero-sized tuple.
+    pub(crate) fn _new(elements: Box<[PyObjectRef]>) -> Self {
+        Self { elements }
+    }
+
     #[pymethod(name = "__add__")]
     fn add(
         zelf: PyRef<Self>,
