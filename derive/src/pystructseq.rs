@@ -36,7 +36,7 @@ pub(crate) fn impl_pystruct_sequence(
                     self.#field_names,
                     vm,
                 )),*];
-                items.into()
+                ::rustpython_vm::obj::objtuple::PyTuple::_new(items.into_boxed_slice())
             }
         }
     };

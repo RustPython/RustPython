@@ -6,9 +6,8 @@ use super::objsequence::get_item;
 use super::objtype::PyClassRef;
 use crate::function::OptionalArg;
 use crate::pyobject::{
-    self, BorrowValue, IdProtocol, IntoPyObject,
-    PyArithmaticValue::{self, *},
-    PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    self, BorrowValue, Either, IdProtocol, IntoPyObject, PyArithmaticValue, PyClassImpl,
+    PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::sequence::{self, SimpleSeq};
 use crate::slots::{Comparable, Hashable, PyComparisonOp};
@@ -21,19 +20,13 @@ use rustpython_common::hash::PyHash;
 /// If the argument is a tuple, the return value is the same object.
 #[pyclass(module = false, name = "tuple")]
 pub struct PyTuple {
-    elements: Vec<PyObjectRef>,
+    elements: Box<[PyObjectRef]>,
 }
 
 impl fmt::Debug for PyTuple {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // TODO: implement more informational, non-recursive Debug formatter
         f.write_str("tuple")
-    }
-}
-
-impl From<Vec<PyObjectRef>> for PyTuple {
-    fn from(elements: Vec<PyObjectRef>) -> Self {
-        PyTuple { elements }
     }
 }
 
@@ -77,25 +70,53 @@ impl PyTuple {
 
 pub type PyTupleRef = PyRef<PyTuple>;
 
+impl PyTupleRef {
+    pub(crate) fn with_elements(elements: Vec<PyObjectRef>, ctx: &PyContext) -> Self {
+        if elements.is_empty() {
+            ctx.empty_tuple.clone()
+        } else {
+            let elements = elements.into_boxed_slice();
+            Self::new_ref(PyTuple { elements }, ctx.types.tuple_type.clone(), None)
+        }
+    }
+}
+
 pub(crate) fn get_value(obj: &PyObjectRef) -> &[PyObjectRef] {
     obj.payload::<PyTuple>().unwrap().borrow_value()
 }
 
 #[pyimpl(flags(BASETYPE), with(Hashable, Comparable))]
 impl PyTuple {
+    /// Creating a new tuple with given boxed slice.
+    /// NOTE: for usual case, you probably want to use PyTupleRef::with_elements.
+    /// Calling this function implies trying micro optimization for non-zero-sized tuple.
+    pub(crate) fn _new(elements: Box<[PyObjectRef]>) -> Self {
+        Self { elements }
+    }
+
     #[pymethod(name = "__add__")]
-    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<PyTuple> {
-        if let Some(other) = other.payload_if_subclass::<PyTuple>(vm) {
-            let elements: Vec<_> = self
-                .elements
-                .boxed_iter()
-                .chain(other.borrow_value().boxed_iter())
-                .cloned()
-                .collect();
-            Implemented(elements.into())
-        } else {
-            NotImplemented
-        }
+    fn add(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyArithmaticValue<PyRef<Self>> {
+        let added = other.downcast::<Self>().map(|other| {
+            if other.elements.is_empty() && zelf.class().is(&vm.ctx.types.tuple_type) {
+                zelf
+            } else if zelf.elements.is_empty() && other.class().is(&vm.ctx.types.tuple_type) {
+                other
+            } else {
+                let elements = zelf
+                    .elements
+                    .boxed_iter()
+                    .chain(other.borrow_value().boxed_iter())
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice();
+                Self { elements }.into_ref(vm)
+            }
+        });
+        PyArithmaticValue::from_option(added.ok())
     }
 
     #[pymethod(name = "__bool__")]
@@ -149,16 +170,26 @@ impl PyTuple {
 
     #[pymethod(name = "__mul__")]
     #[pymethod(name = "__rmul__")]
-    fn mul(&self, counter: isize) -> PyTuple {
-        let new_elements: Vec<_> = sequence::seq_mul(&self.elements, counter)
-            .cloned()
-            .collect();
-        new_elements.into()
+    fn mul(&self, counter: isize, vm: &VirtualMachine) -> PyRef<Self> {
+        if self.elements.is_empty() || counter == 0 {
+            vm.ctx.empty_tuple.clone()
+        } else {
+            let elements = sequence::seq_mul(&self.elements, counter)
+                .cloned()
+                .collect::<Vec<_>>()
+                .into_boxed_slice();
+            Self { elements }.into_ref(vm)
+        }
     }
 
     #[pymethod(name = "__getitem__")]
     fn getitem(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        get_item(vm, zelf.as_object(), &zelf.elements, needle)
+        Ok(
+            match get_item(vm, zelf.as_object(), &zelf.elements, needle)? {
+                Either::A(obj) => obj,
+                Either::B(vec) => vm.ctx.new_tuple(vec),
+            },
+        )
     }
 
     #[pymethod(name = "index")]
@@ -186,10 +217,10 @@ impl PyTuple {
         cls: PyClassRef,
         iterable: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<PyTupleRef> {
+    ) -> PyResult<PyRef<Self>> {
         let elements = if let OptionalArg::Present(iterable) = iterable {
             let iterable = if cls.is(&vm.ctx.types.tuple_type) {
-                match iterable.downcast_exact::<PyTuple>(vm) {
+                match iterable.downcast_exact::<Self>(vm) {
                     Ok(tuple) => return Ok(tuple),
                     Err(iterable) => iterable,
                 }
@@ -199,9 +230,10 @@ impl PyTuple {
             vm.extract_elements(&iterable)?
         } else {
             vec![]
-        };
+        }
+        .into_boxed_slice();
 
-        PyTuple::from(elements).into_ref_with_type(vm, cls)
+        Self { elements }.into_ref_with_type(vm, cls)
     }
 }
 

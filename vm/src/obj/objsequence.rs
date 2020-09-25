@@ -4,12 +4,10 @@ use num_bigint::BigInt;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
 use super::objint::{PyInt, PyIntRef};
-use super::objlist::PyList;
 use super::objsingletons::PyNone;
 use super::objslice::{PySlice, PySliceRef};
-use super::objtuple::PyTuple;
 use crate::function::OptionalArg;
-use crate::pyobject::{BorrowValue, PyObject, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
+use crate::pyobject::{BorrowValue, Either, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 pub trait PySliceableSequenceMut {
@@ -465,38 +463,23 @@ pub fn get_item(
     sequence: &PyObjectRef,
     elements: &[PyObjectRef],
     subscript: PyObjectRef,
-) -> PyResult {
+) -> PyResult<Either<PyObjectRef, Vec<PyObjectRef>>> {
     if let Some(i) = subscript.payload::<PyInt>() {
         let value = i.borrow_value().to_isize().ok_or_else(|| {
             vm.new_index_error("cannot fit 'int' into an index-sized integer".to_owned())
         })?;
         let pos_index = get_pos(value, elements.len())
             .ok_or_else(|| vm.new_index_error("Index out of bounds!".to_owned()))?;
-        return Ok(elements[pos_index].clone());
-    }
-
-    let slice = subscript.payload::<PySlice>().ok_or_else(|| {
-        vm.new_type_error(format!(
-            "{} indices must be integers or slices",
-            sequence.lease_class().name
-        ))
-    })?;
-    let items = if sequence.payload::<PyList>().is_some() {
-        PyObject::new(
-            PyList::from(elements.get_slice_items(vm, slice)?),
-            sequence.class(),
-            None,
-        )
-    } else if sequence.payload::<PyTuple>().is_some() {
-        PyObject::new(
-            PyTuple::from(elements.get_slice_items(vm, slice)?),
-            sequence.class(),
-            None,
-        )
+        Ok(Either::A(elements[pos_index].clone()))
     } else {
-        panic!("sequence get_item called for non-sequence")
-    };
-    Ok(items)
+        let slice = subscript.payload::<PySlice>().ok_or_else(|| {
+            vm.new_type_error(format!(
+                "{} indices must be integers or slices",
+                sequence.lease_class().name
+            ))
+        })?;
+        Ok(Either::B(elements.get_slice_items(vm, slice)?))
+    }
 }
 
 //Check if given arg could be used with PySliceableSequence.get_slice_range()

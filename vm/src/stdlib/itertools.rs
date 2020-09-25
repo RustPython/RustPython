@@ -14,7 +14,7 @@ mod decl {
     use crate::obj::objbool;
     use crate::obj::objint::{self, PyInt, PyIntRef};
     use crate::obj::objiter::{call_next, get_all, get_iter, get_next_object, new_stop_iteration};
-    use crate::obj::objtuple::PyTuple;
+    use crate::obj::objtuple::PyTupleRef;
     use crate::obj::objtype::{self, PyClassRef};
     use crate::pyobject::{
         BorrowValue, IdProtocol, IntoPyRef, PyCallable, PyClassImpl, PyObjectRc, PyObjectRef,
@@ -989,7 +989,7 @@ mod decl {
             iterable: PyObjectRef,
             n: OptionalArg<usize>,
             vm: &VirtualMachine,
-        ) -> PyResult<PyRef<PyTuple>> {
+        ) -> PyResult<PyTupleRef> {
             let n = n.unwrap_or(2);
 
             let copyable = if iterable.lease_class().has_attr("__copy__") {
@@ -1004,7 +1004,7 @@ mod decl {
                 tee_vec.push(vm.call_method(&copyable, "__copy__", no_args)?);
             }
 
-            Ok(PyTuple::from(tee_vec).into_ref(vm))
+            Ok(PyTupleRef::with_elements(tee_vec, &vm.ctx))
         }
 
         #[pymethod(name = "__copy__")]
@@ -1105,18 +1105,17 @@ mod decl {
             }
 
             let idxs = self.idxs.write();
-
-            let res = PyTuple::from(
+            let res = vm.ctx.new_tuple(
                 pools
                     .iter()
                     .zip(idxs.iter())
                     .map(|(pool, idx)| pool[*idx].clone())
-                    .collect::<Vec<PyObjectRef>>(),
+                    .collect(),
             );
 
             self.update_idxs(idxs);
 
-            Ok(res.into_object(vm))
+            Ok(res)
         }
 
         fn update_idxs(&self, mut idxs: PyRwLockWriteGuard<'_, Vec<usize>>) {
@@ -1213,12 +1212,12 @@ mod decl {
                 return Ok(vm.ctx.new_tuple(vec![]));
             }
 
-            let res = PyTuple::from(
+            let res = vm.ctx.new_tuple(
                 self.indices
                     .read()
                     .iter()
                     .map(|&i| self.pool[i].clone())
-                    .collect::<Vec<PyObjectRef>>(),
+                    .collect(),
             );
 
             let mut indices = self.indices.write();
@@ -1244,7 +1243,7 @@ mod decl {
                 }
             }
 
-            Ok(res.into_object(vm))
+            Ok(res)
         }
     }
 

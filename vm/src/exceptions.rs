@@ -57,7 +57,7 @@ impl PyBaseException {
             cause: PyRwLock::new(None),
             context: PyRwLock::new(None),
             suppress_context: AtomicCell::new(false),
-            args: PyRwLock::new(PyTuple::from(args).into_ref(vm)),
+            args: PyRwLock::new(PyTupleRef::with_elements(args, &vm.ctx)),
         }
     }
 
@@ -68,7 +68,7 @@ impl PyBaseException {
 
     #[pymethod(name = "__init__")]
     fn init(&self, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-        *self.args.write() = PyTuple::from(args.args).into_ref(vm);
+        *self.args.write() = PyTupleRef::with_elements(args.args, &vm.ctx);
         Ok(())
     }
 
@@ -80,7 +80,7 @@ impl PyBaseException {
     #[pyproperty(setter)]
     fn set_args(&self, args: PyIterable, vm: &VirtualMachine) -> PyResult<()> {
         let args = args.iter(vm)?.collect::<PyResult<Vec<_>>>()?;
-        *self.args.write() = PyTuple::from(args).into_ref(vm);
+        *self.args.write() = PyTupleRef::with_elements(args, &vm.ctx);
         Ok(())
     }
 

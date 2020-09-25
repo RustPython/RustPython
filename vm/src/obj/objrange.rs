@@ -6,7 +6,6 @@ use num_traits::{One, Signed, Zero};
 use super::objint::{PyInt, PyIntRef};
 use super::objiter;
 use super::objslice::{PySlice, PySliceRef};
-use super::objtuple::PyTuple;
 use super::objtype::PyClassRef;
 
 use crate::common::hash::PyHash;
@@ -244,12 +243,12 @@ impl PyRange {
     }
 
     #[pymethod(name = "__reduce__")]
-    fn reduce(&self, vm: &VirtualMachine) -> (PyClassRef, PyTuple) {
+    fn reduce(&self, vm: &VirtualMachine) -> (PyClassRef, PyObjectRef) {
         let range_paramters: Vec<PyObjectRef> = vec![&self.start, &self.stop, &self.step]
             .iter()
             .map(|x| x.as_object().clone())
             .collect();
-        let range_paramters_tuple = PyTuple::from(range_paramters);
+        let range_paramters_tuple = vm.ctx.new_tuple(range_paramters);
         (vm.ctx.types.range_type.clone(), range_paramters_tuple)
     }
 
