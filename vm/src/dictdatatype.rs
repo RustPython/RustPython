@@ -178,6 +178,15 @@ impl<T> DictInner<T> {
             filled: self.filled,
         }
     }
+
+    #[inline]
+    fn should_resize(&self) -> Option<usize> {
+        if self.filled * 3 > self.indices.len() * 2 {
+            Some(self.used * 2)
+        } else {
+            None
+        }
+    }
 }
 
 impl<T: Clone> Dict<T> {
@@ -217,8 +226,7 @@ impl<T: Clone> Dict<T> {
                 inner.unchecked_push(index_index, hash, key.into_pyobject(vm), value);
                 if let IndexEntry::Free = entry_index {
                     inner.filled += 1;
-                    if inner.filled * 3 > inner.indices.len() * 2 {
-                        let new_size = inner.used * 4;
+                    if let Some(new_size) = inner.should_resize() {
                         inner.resize(new_size)
                     }
                 }
