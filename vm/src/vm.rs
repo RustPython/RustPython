@@ -700,7 +700,7 @@ impl VirtualMachine {
     }
 
     pub fn get_locals(&self) -> PyDictRef {
-        self.current_scope().get_locals()
+        self.current_scope().get_locals().clone()
     }
 
     // Container of the virtual machine state:
@@ -783,7 +783,7 @@ impl VirtualMachine {
 
                 let (locals, globals) = if let Some(frame) = self.current_frame() {
                     (
-                        frame.scope.get_locals().into_object(),
+                        frame.scope.get_locals().clone().into_object(),
                         frame.scope.globals.clone().into_object(),
                     )
                 } else {

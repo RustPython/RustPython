@@ -10,19 +10,17 @@ use crate::common::cell::PyMutex;
 use crate::exceptions::{self, ExceptionCtor, PyBaseExceptionRef};
 use crate::function::PyFuncArgs;
 use crate::obj::objasyncgenerator::PyAsyncGenWrappedValue;
-use crate::obj::objbool;
 use crate::obj::objcode::PyCodeRef;
 use crate::obj::objcoroinner::Coro;
 use crate::obj::objcoroutine::PyCoroutine;
 use crate::obj::objdict::{PyDict, PyDictRef};
 use crate::obj::objgenerator::PyGenerator;
-use crate::obj::objiter;
-use crate::obj::objlist;
 use crate::obj::objslice::PySlice;
 use crate::obj::objstr::{self, PyStr, PyStrRef};
 use crate::obj::objtraceback::PyTraceback;
 use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype::{self, PyTypeRef};
+use crate::obj::{objbool, objiter, objlist, objset};
 use crate::pyobject::{
     BorrowValue, IdProtocol, ItemProtocol, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
@@ -177,6 +175,7 @@ impl Frame {
 }
 
 impl FrameRef {
+    #[inline]
     fn with_exec<R>(&self, f: impl FnOnce(ExecutingFrame) -> R) -> R {
         let mut state = self.state.lock();
         let exec = ExecutingFrame {
@@ -350,14 +349,10 @@ impl ExecutingFrame<'_> {
             } => self.import(vm, name, symbols, *level),
             bytecode::Instruction::ImportStar => self.import_star(vm),
             bytecode::Instruction::ImportFrom { ref name } => self.import_from(vm, name),
-            bytecode::Instruction::LoadName {
-                ref name,
-                ref scope,
-            } => self.load_name(vm, name, scope),
-            bytecode::Instruction::StoreName {
-                ref name,
-                ref scope,
-            } => self.store_name(vm, name, scope),
+            bytecode::Instruction::LoadName { ref name, scope } => self.load_name(vm, name, *scope),
+            bytecode::Instruction::StoreName { ref name, scope } => {
+                self.store_name(vm, name, *scope)
+            }
             bytecode::Instruction::DeleteName { ref name } => self.delete_name(vm, name),
             bytecode::Instruction::Subscript => self.execute_subscript(vm),
             bytecode::Instruction::StoreSubscript => self.execute_store_subscript(vm),
@@ -393,11 +388,11 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::BuildSet { size, unpack } => {
                 let elements = self.get_elements(vm, *size, *unpack)?;
-                let py_obj = vm.ctx.new_set();
+                let set = vm.ctx.new_set();
                 for item in elements {
-                    vm.call_method(&py_obj, "add", vec![item])?;
+                    set.add(item, vm)?;
                 }
-                self.push_value(py_obj);
+                self.push_value(set.into_object());
                 Ok(None)
             }
             bytecode::Instruction::BuildTuple { size, unpack } => {
@@ -421,14 +416,14 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::SetAdd { i } => {
                 let set_obj = self.nth_value(*i);
                 let item = self.pop_value();
-                vm.call_method(&set_obj, "add", vec![item])?;
+                objset::PySetRef::try_from_object(vm, set_obj)?.add(item, vm)?;
                 Ok(None)
             }
             bytecode::Instruction::MapAdd { i } => {
                 let dict_obj = self.nth_value(*i + 1);
                 let key = self.pop_value();
                 let value = self.pop_value();
-                vm.call_method(&dict_obj, "__setitem__", vec![key, value])?;
+                PyDictRef::try_from_object(vm, dict_obj)?.set_item(key, value, vm)?;
                 Ok(None)
             }
             bytecode::Instruction::MapAddRev { i } => {
@@ -436,7 +431,7 @@ impl ExecutingFrame<'_> {
                 let dict_obj = self.nth_value(*i + 1);
                 let value = self.pop_value();
                 let key = self.pop_value();
-                vm.call_method(&dict_obj, "__setitem__", vec![key, value])?;
+                PyDictRef::try_from_object(vm, dict_obj)?.set_item(key, value, vm)?;
                 Ok(None)
             }
             bytecode::Instruction::BinaryOperation { ref op, inplace } => {
@@ -882,7 +877,7 @@ impl ExecutingFrame<'_> {
         &mut self,
         vm: &VirtualMachine,
         name: &str,
-        name_scope: &bytecode::NameScope,
+        name_scope: bytecode::NameScope,
     ) -> FrameResult {
         let obj = self.pop_value();
         match name_scope {
@@ -910,11 +905,12 @@ impl ExecutingFrame<'_> {
     }
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
+    #[inline]
     fn load_name(
         &mut self,
         vm: &VirtualMachine,
         name: &str,
-        name_scope: &bytecode::NameScope,
+        name_scope: bytecode::NameScope,
     ) -> FrameResult {
         let optional_value = match name_scope {
             bytecode::NameScope::Global => self.scope.load_global(vm, name),
@@ -1210,8 +1206,7 @@ impl ExecutingFrame<'_> {
 
     fn jump(&mut self, label: bytecode::Label) {
         let target_pc = self.code.label_map[&label];
-        #[cfg(feature = "vm-tracing-logging")]
-        trace!("jump from {:?} to {:?}", self.lasti(), target_pc);
+        vm_trace!("jump from {:?} to {:?}", self.lasti(), target_pc);
         self.lasti.store(target_pc, Ordering::Relaxed);
     }
 

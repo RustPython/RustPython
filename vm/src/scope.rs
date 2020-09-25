@@ -45,10 +45,10 @@ impl Scope {
         Scope::new(locals, globals, vm)
     }
 
-    pub fn get_locals(&self) -> PyDictRef {
+    pub fn get_locals(&self) -> &PyDictRef {
         match self.locals.first() {
-            Some(dict) => dict.clone(),
-            None => self.globals.clone(),
+            Some(dict) => dict,
+            None => &self.globals,
         }
     }
 
