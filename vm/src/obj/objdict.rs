@@ -148,8 +148,8 @@ impl PyDict {
     }
 
     fn inner_cmp(
-        zelf: PyRef<Self>,
-        other: PyDictRef,
+        zelf: &PyRef<Self>,
+        other: &PyDictRef,
         op: PyComparisonOp,
         item: bool,
         vm: &VirtualMachine,
@@ -172,7 +172,7 @@ impl PyDict {
                     if v1.is(&v2) {
                         continue;
                     }
-                    if item && !vm.bool_eq(v1, v2)? {
+                    if item && !vm.bool_eq(&v1, &v2)? {
                         return Ok(Implemented(false));
                     }
                 }
@@ -405,8 +405,8 @@ impl PyDict {
 
 impl Comparable for PyDict {
     fn cmp(
-        zelf: PyRef<Self>,
-        other: PyObjectRef,
+        zelf: &PyRef<Self>,
+        other: &PyObjectRef,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
@@ -616,22 +616,22 @@ macro_rules! dict_iterator {
 
         impl Comparable for $name {
             fn cmp(
-                zelf: PyRef<Self>,
-                other: PyObjectRef,
+                zelf: &PyRef<Self>,
+                other: &PyObjectRef,
                 op: PyComparisonOp,
                 vm: &VirtualMachine,
             ) -> PyResult<PyComparisonValue> {
                 match_class!(match other {
-                    dictview @ Self => {
+                    ref dictview @ Self => {
                         PyDict::inner_cmp(
-                            zelf.dict.clone(),
-                            dictview.dict.clone(),
+                            &zelf.dict,
+                            &dictview.dict,
                             op,
                             !zelf.lease_class().is(&vm.ctx.types.dict_keys_type),
                             vm,
                         )
                     }
-                    _set @ PySet => {
+                    ref _set @ PySet => {
                         // TODO: Implement comparison for set
                         Ok(NotImplemented)
                     }

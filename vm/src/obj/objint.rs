@@ -671,8 +671,8 @@ impl PyInt {
 
 impl Comparable for PyInt {
     fn cmp(
-        zelf: PyRef<Self>,
-        other: PyObjectRef,
+        zelf: &PyRef<Self>,
+        other: &PyObjectRef,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {

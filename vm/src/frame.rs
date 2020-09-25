@@ -1310,8 +1310,8 @@ impl ExecutingFrame<'_> {
         op: &bytecode::BinaryOperator,
         inplace: bool,
     ) -> FrameResult {
-        let b_ref = self.pop_value();
-        let a_ref = self.pop_value();
+        let b_ref = &self.pop_value();
+        let a_ref = &self.pop_value();
         let value = if inplace {
             match *op {
                 bytecode::BinaryOperator::Subtract => vm._isub(a_ref, b_ref),

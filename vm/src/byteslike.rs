@@ -22,7 +22,7 @@ impl TryFromObject for PyBytesLike {
             array @ PyArray => Ok(PyBytesLike::Array(array)),
             obj => Err(vm.new_type_error(format!(
                 "a bytes-like object is required, not {}",
-                obj.class()
+                obj.lease_class().name
             ))),
         })
     }
@@ -70,6 +70,24 @@ impl PyBytesLike {
             PyBytesLike::Array(array) => f(&*array.get_bytes()),
         }
     }
+}
+
+pub(crate) fn try_bytes_like<R>(
+    vm: &VirtualMachine,
+    obj: &PyObjectRef,
+    f: impl FnOnce(&[u8]) -> R,
+) -> PyResult<R> {
+    let r = match_class!(match obj {
+        ref b @ PyBytes => f(b.borrow_value()),
+        ref b @ PyByteArray => f(&b.borrow_value().elements),
+        ref array @ PyArray => f(&*array.get_bytes()),
+        obj =>
+            return Err(vm.new_type_error(format!(
+                "a bytes-like object is required, not {}",
+                obj.lease_class().name
+            ))),
+    });
+    Ok(r)
 }
 
 pub enum PyRwBytesLike {

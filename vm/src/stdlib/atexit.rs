@@ -23,7 +23,7 @@ mod atexit {
 
         let mut i = 0;
         while i < funcs.len() {
-            if vm.bool_eq(funcs[i].0.clone(), func.clone())? {
+            if vm.bool_eq(&funcs[i].0, &func)? {
                 funcs.remove(i);
             } else {
                 i += 1;

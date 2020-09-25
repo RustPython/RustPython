@@ -92,8 +92,8 @@ impl Hashable for PyWeak {
 
 impl Comparable for PyWeak {
     fn cmp(
-        zelf: PyRef<Self>,
-        other: PyObjectRef,
+        zelf: &PyRef<Self>,
+        other: &PyObjectRef,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<crate::pyobject::PyComparisonValue> {
@@ -101,7 +101,7 @@ impl Comparable for PyWeak {
             let other = class_or_notimplemented!(Self, other);
             let both = zelf.upgrade().and_then(|s| other.upgrade().map(|o| (s, o)));
             let eq = match both {
-                Some((a, b)) => vm.bool_eq(a, b)?,
+                Some((a, b)) => vm.bool_eq(&a, &b)?,
                 None => false,
             };
             Ok(eq.into())

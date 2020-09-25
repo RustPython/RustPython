@@ -583,13 +583,14 @@ mod decl {
             state.grouper = None;
 
             if !state.next_group {
+                // FIXME: unnecessary clone. current_key always exist until assinging new
                 let current_key = state.current_key.clone();
                 drop(state);
 
                 let (value, key) = if let Some(old_key) = current_key {
                     loop {
                         let (value, new_key) = zelf.advance(vm)?;
-                        if !vm.bool_eq(new_key.clone(), old_key.clone())? {
+                        if !vm.bool_eq(&new_key, &old_key)? {
                             break (value, new_key);
                         }
                     }
@@ -663,7 +664,7 @@ mod decl {
                 state.current_key.as_ref().unwrap().clone()
             };
             let (value, key) = zelf.groupby.advance(vm)?;
-            if vm.bool_eq(key.clone(), old_key)? {
+            if vm.bool_eq(&key, &old_key)? {
                 Ok(value)
             } else {
                 let mut state = zelf.groupby.state.lock();
@@ -910,7 +911,7 @@ mod decl {
                 None => obj,
                 Some(value) => {
                     if vm.is_none(&self.binop) {
-                        vm._add(value, obj)?
+                        vm._add(&value, &obj)?
                     } else {
                         vm.invoke(&self.binop, vec![value, obj])?
                     }

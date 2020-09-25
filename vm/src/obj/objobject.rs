@@ -7,8 +7,9 @@ use crate::common::hash::PyHash;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objtype::PyClass;
 use crate::pyobject::{
-    BorrowValue, Either, IdProtocol, ItemProtocol, PyAttributes, PyClassImpl, PyComparisonValue,
-    PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    BorrowValue, Either, IdProtocol, ItemProtocol, PyArithmaticValue, PyAttributes, PyClassImpl,
+    PyComparisonValue, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol,
 };
 use crate::slots::PyComparisonOp;
 use crate::vm::VirtualMachine;
@@ -40,8 +41,8 @@ impl PyBaseObject {
 
     #[pyslot]
     fn tp_cmp(
-        zelf: PyObjectRef,
-        other: PyObjectRef,
+        zelf: &PyObjectRef,
+        other: &PyObjectRef,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
@@ -50,30 +51,31 @@ impl PyBaseObject {
 
     #[inline(always)]
     fn cmp(
-        zelf: PyObjectRef,
-        other: PyObjectRef,
+        zelf: &PyObjectRef,
+        other: &PyObjectRef,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
         let res = match op {
             PyComparisonOp::Eq => {
-                if zelf.is(&other) {
+                if zelf.is(other) {
                     PyComparisonValue::Implemented(true)
                 } else {
                     PyComparisonValue::NotImplemented
                 }
             }
             PyComparisonOp::Ne => {
-                let eq_method = match vm.get_method(zelf, "__eq__") {
-                    Some(func) => func?,
-                    None => return Ok(PyComparisonValue::NotImplemented), // XXX: is this a possible case?
+                let cmp = zelf
+                    .class()
+                    .first_in_mro(|cls| cls.slots.cmp.load())
+                    .unwrap();
+                let value = match cmp(zelf, other, PyComparisonOp::Eq, vm)? {
+                    Either::A(obj) => PyArithmaticValue::from_object(vm, obj)
+                        .map(|obj| objbool::boolval(vm, obj))
+                        .transpose()?,
+                    Either::B(value) => value,
                 };
-                let eq = vm.invoke(&eq_method, vec![other])?;
-                if eq.is(&vm.ctx.not_implemented) {
-                    return Ok(PyComparisonValue::NotImplemented);
-                }
-                let bool_eq = objbool::boolval(vm, eq)?;
-                PyComparisonValue::Implemented(!bool_eq)
+                value.map(|v| !v)
             }
             _ => PyComparisonValue::NotImplemented,
         };
@@ -86,7 +88,7 @@ impl PyBaseObject {
         other: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
-        Self::cmp(zelf, other, PyComparisonOp::Eq, vm)
+        Self::cmp(&zelf, &other, PyComparisonOp::Eq, vm)
     }
     #[pymethod(magic)]
     fn ne(
@@ -94,7 +96,7 @@ impl PyBaseObject {
         other: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
-        Self::cmp(zelf, other, PyComparisonOp::Ne, vm)
+        Self::cmp(&zelf, &other, PyComparisonOp::Ne, vm)
     }
     #[pymethod(magic)]
     fn lt(
@@ -102,7 +104,7 @@ impl PyBaseObject {
         other: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
-        Self::cmp(zelf, other, PyComparisonOp::Lt, vm)
+        Self::cmp(&zelf, &other, PyComparisonOp::Lt, vm)
     }
     #[pymethod(magic)]
     fn le(
@@ -110,7 +112,7 @@ impl PyBaseObject {
         other: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
-        Self::cmp(zelf, other, PyComparisonOp::Le, vm)
+        Self::cmp(&zelf, &other, PyComparisonOp::Le, vm)
     }
     #[pymethod(magic)]
     fn ge(
@@ -118,7 +120,7 @@ impl PyBaseObject {
         other: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
-        Self::cmp(zelf, other, PyComparisonOp::Ge, vm)
+        Self::cmp(&zelf, &other, PyComparisonOp::Ge, vm)
     }
     #[pymethod(magic)]
     fn gt(
@@ -126,7 +128,7 @@ impl PyBaseObject {
         other: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
-        Self::cmp(zelf, other, PyComparisonOp::Gt, vm)
+        Self::cmp(&zelf, &other, PyComparisonOp::Gt, vm)
     }
 
     #[pymethod(magic)]

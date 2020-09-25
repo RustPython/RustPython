@@ -344,13 +344,13 @@ impl Hashable for PyRange {
 
 impl Comparable for PyRange {
     fn cmp(
-        zelf: PyRef<Self>,
-        other: PyObjectRef,
+        zelf: &PyRef<Self>,
+        other: &PyObjectRef,
         op: PyComparisonOp,
         _vm: &VirtualMachine,
     ) -> PyResult<pyobject::PyComparisonValue> {
         op.eq_only(|| {
-            if zelf.is(&other) {
+            if zelf.is(other) {
                 return Ok(true.into());
             }
             let rhs = class_or_notimplemented!(Self, other);

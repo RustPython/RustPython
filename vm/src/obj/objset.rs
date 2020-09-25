@@ -529,12 +529,12 @@ impl PySet {
 
 impl Comparable for PySet {
     fn cmp(
-        zelf: PyRef<Self>,
-        other: PyObjectRef,
+        zelf: &PyRef<Self>,
+        other: &PyObjectRef,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
-        extract_set(&other).map_or(Ok(PyComparisonValue::NotImplemented), |other| {
+        extract_set(other).map_or(Ok(PyComparisonValue::NotImplemented), |other| {
             Ok(zelf.inner.compare(other, op, vm)?.into())
         })
     }
@@ -705,12 +705,12 @@ impl Hashable for PyFrozenSet {
 
 impl Comparable for PyFrozenSet {
     fn cmp(
-        zelf: PyRef<Self>,
-        other: PyObjectRef,
+        zelf: &PyRef<Self>,
+        other: &PyObjectRef,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
-        extract_set(&other).map_or(Ok(PyComparisonValue::NotImplemented), |other| {
+        extract_set(other).map_or(Ok(PyComparisonValue::NotImplemented), |other| {
             Ok(zelf.inner.compare(other, op, vm)?.into())
         })
     }

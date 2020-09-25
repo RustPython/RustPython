@@ -564,7 +564,7 @@ impl DictKey for PyStrRef {
         } else if let Some(py_str_value) = other_key.payload::<PyStr>() {
             Ok(py_str_value.borrow_value() == self.borrow_value())
         } else {
-            vm.bool_eq(self.clone().into_object(), other_key.clone())
+            vm.bool_eq(self.as_object(), other_key)
         }
     }
 }
@@ -630,7 +630,7 @@ mod tests {
             assert_eq!(true, dict.contains(&vm, &"x").unwrap());
 
             let val = dict.get(&vm, &"x").unwrap().unwrap();
-            vm.bool_eq(val, value2)
+            vm.bool_eq(&val, &value2)
                 .expect("retrieved value must be equal to inserted value.");
         })
     }

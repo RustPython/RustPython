@@ -4,7 +4,7 @@ use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 
 use crate::anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper};
-use crate::byteslike::PyBytesLike;
+use crate::byteslike::{try_bytes_like, PyBytesLike};
 use crate::function::{OptionalArg, OptionalOption};
 use crate::obj::objbytearray::PyByteArray;
 use crate::obj::objbytes::PyBytes;
@@ -259,13 +259,16 @@ impl PyBytesInner {
 
     pub fn cmp(
         &self,
-        other: PyObjectRef,
+        other: &PyObjectRef,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyComparisonValue {
-        let r = PyBytesLike::try_from_object(vm, other)
-            .map(|other| other.with_ref(|other| op.eval_ord(self.elements.as_slice().cmp(other))));
-        PyComparisonValue::from_option(r.ok())
+        PyComparisonValue::from_option(
+            try_bytes_like(vm, other, |other| {
+                op.eval_ord(self.elements.as_slice().cmp(other))
+            })
+            .ok(),
+        )
     }
 
     pub fn hash(&self, vm: &VirtualMachine) -> hash::PyHash {
