@@ -299,14 +299,8 @@ impl PyDict {
         default: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        match self.entries.get(vm, &key)? {
-            Some(value) => Ok(value),
-            None => {
-                let set_value = default.unwrap_or_none(vm);
-                self.entries.insert(vm, key, set_value.clone())?;
-                Ok(set_value)
-            }
-        }
+        self.entries
+            .setdefault(vm, key, || default.unwrap_or_none(vm))
     }
 
     #[pymethod]

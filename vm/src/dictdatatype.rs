@@ -157,6 +157,7 @@ impl<T> DictInner<T> {
         hash_value: HashValue,
         key: PyObjectRef,
         value: T,
+        index_entry: IndexEntry,
     ) {
         let entry = DictEntry {
             hash: hash_value,
@@ -168,6 +169,12 @@ impl<T> DictInner<T> {
         self.entries.push(entry);
         self.indices[index] = entry_index as i64;
         self.used += 1;
+        if let IndexEntry::Free = index_entry {
+            self.filled += 1;
+            if let Some(new_size) = self.should_resize() {
+                self.resize(new_size)
+            }
+        }
     }
 
     fn size(&self) -> DictSize {
@@ -223,13 +230,7 @@ impl<T: Clone> Dict<T> {
             } else {
                 // New key:
                 let mut inner = self.borrow_value_mut();
-                inner.unchecked_push(index_index, hash, key.into_pyobject(vm), value);
-                if let IndexEntry::Free = entry_index {
-                    inner.filled += 1;
-                    if let Some(new_size) = inner.should_resize() {
-                        inner.resize(new_size)
-                    }
-                }
+                inner.unchecked_push(index_index, hash, key.into_pyobject(vm), value, entry_index);
                 break None;
             }
         };
@@ -328,11 +329,41 @@ impl<T: Clone> Dict<T> {
                 }
             } else {
                 let mut inner = self.borrow_value_mut();
-                inner.unchecked_push(index_index, hash, key.clone(), value);
+                inner.unchecked_push(index_index, hash, key.clone(), value, entry);
                 break None;
             }
         };
         Ok(())
+    }
+
+    pub fn setdefault<F>(&self, vm: &VirtualMachine, key: PyObjectRef, default: F) -> PyResult<T>
+    where
+        F: FnOnce() -> T,
+    {
+        let hash = key.key_hash(vm)?;
+        let res = loop {
+            let lookup = self.lookup(vm, &key, hash, None)?;
+            let (entry, index_index) = lookup;
+            if let IndexEntry::Index(index) = entry {
+                let inner = self.borrow_value();
+                if let Some(entry) = inner.entries.get(index) {
+                    if entry.index == index_index {
+                        break entry.value.clone();
+                    } else {
+                        // stuff shifted around, let's try again
+                    }
+                } else {
+                    // The dict was changed since we did lookup, let's try again.
+                    continue;
+                }
+            } else {
+                let value = default();
+                let mut inner = self.borrow_value_mut();
+                inner.unchecked_push(index_index, hash, key, value.clone(), entry);
+                break value;
+            }
+        };
+        Ok(res)
     }
 
     pub fn len(&self) -> usize {
