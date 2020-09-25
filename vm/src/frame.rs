@@ -19,7 +19,7 @@ use crate::obj::objgenerator::PyGenerator;
 use crate::obj::objiter;
 use crate::obj::objlist;
 use crate::obj::objslice::PySlice;
-use crate::obj::objstr::{self, PyString, PyStringRef};
+use crate::obj::objstr::{self, PyStr, PyStrRef};
 use crate::obj::objtraceback::PyTraceback;
 use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype::{self, PyClassRef};
@@ -797,7 +797,7 @@ impl ExecutingFrame<'_> {
         if let Some(dict) = module.dict() {
             let filter_pred: Box<dyn Fn(&str) -> bool> =
                 if let Ok(all) = dict.get_item("__all__", vm) {
-                    let all: Vec<PyStringRef> = vm.extract_elements(&all)?;
+                    let all: Vec<PyStrRef> = vm.extract_elements(&all)?;
                     let all: Vec<String> = all
                         .into_iter()
                         .map(|name| name.as_ref().to_owned())
@@ -807,7 +807,7 @@ impl ExecutingFrame<'_> {
                     Box::new(|name| !name.starts_with('_'))
                 };
             for (k, v) in &dict {
-                let k = PyStringRef::try_from_object(vm, k)?;
+                let k = PyStrRef::try_from_object(vm, k)?;
                 let k = k.as_ref();
                 if filter_pred(k) {
                     self.scope.store_name(&vm, k, v);
@@ -1063,23 +1063,24 @@ impl ExecutingFrame<'_> {
                 PyFuncArgs::new(args, kwarg_names)
             }
             bytecode::CallType::Ex(has_kwargs) => {
-                let kwargs =
-                    if *has_kwargs {
-                        let kw_dict: PyDictRef = self.pop_value().downcast().map_err(|_| {
-                            // TODO: check collections.abc.Mapping
-                            vm.new_type_error("Kwargs must be a dict.".to_owned())
-                        })?;
-                        let mut kwargs = IndexMap::new();
-                        for (key, value) in kw_dict.into_iter() {
-                            let key = key.payload_if_subclass::<objstr::PyString>(vm).ok_or_else(
-                                || vm.new_type_error("keywords must be strings".to_owned()),
-                            )?;
-                            kwargs.insert(key.borrow_value().to_owned(), value);
-                        }
-                        kwargs
-                    } else {
-                        IndexMap::new()
-                    };
+                let kwargs = if *has_kwargs {
+                    let kw_dict: PyDictRef = self.pop_value().downcast().map_err(|_| {
+                        // TODO: check collections.abc.Mapping
+                        vm.new_type_error("Kwargs must be a dict.".to_owned())
+                    })?;
+                    let mut kwargs = IndexMap::new();
+                    for (key, value) in kw_dict.into_iter() {
+                        let key =
+                            key.payload_if_subclass::<objstr::PyStr>(vm)
+                                .ok_or_else(|| {
+                                    vm.new_type_error("keywords must be strings".to_owned())
+                                })?;
+                        kwargs.insert(key.borrow_value().to_owned(), value);
+                    }
+                    kwargs
+                } else {
+                    IndexMap::new()
+                };
                 let args = self.pop_value();
                 let args = vm.extract_elements(&args)?;
                 PyFuncArgs { args, kwargs }
@@ -1243,7 +1244,7 @@ impl ExecutingFrame<'_> {
     fn execute_make_function(&mut self, vm: &VirtualMachine) -> FrameResult {
         let qualified_name = self
             .pop_value()
-            .downcast::<PyString>()
+            .downcast::<PyStr>()
             .expect("qualified name to be a string");
         let code_obj: PyCodeRef = self
             .pop_value()

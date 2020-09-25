@@ -8,13 +8,13 @@ pub(crate) use decl::make_module;
 mod decl {
     use std::iter::FromIterator;
 
-    use crate::obj::objstr::PyStringRef;
+    use crate::obj::objstr::PyStrRef;
     use crate::pyobject::{BorrowValue, PyResult};
     use crate::vm::VirtualMachine;
     use rustpython_parser::lexer;
 
     #[pyfunction]
-    fn tokenize(s: PyStringRef, vm: &VirtualMachine) -> PyResult {
+    fn tokenize(s: PyStrRef, vm: &VirtualMachine) -> PyResult {
         let source = s.borrow_value();
 
         // TODO: implement generator when the time has come.

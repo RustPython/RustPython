@@ -15,7 +15,7 @@ use crate::obj::objsequence::{
 };
 use crate::obj::objsingletons::PyNoneRef;
 use crate::obj::objslice::PySliceRef;
-use crate::obj::objstr::{self, PyString, PyStringRef};
+use crate::obj::objstr::{self, PyStr, PyStrRef};
 use crate::pyobject::{
     BorrowValue, Either, PyComparisonValue, PyIterable, PyIterator, PyObjectRef, PyResult,
     TryFromObject, TypeProtocol,
@@ -67,9 +67,9 @@ pub struct ByteInnerNewOptions {
     #[pyarg(positional_or_keyword, optional = true)]
     source: OptionalArg<PyObjectRef>,
     #[pyarg(positional_or_keyword, optional = true)]
-    encoding: OptionalArg<PyStringRef>,
+    encoding: OptionalArg<PyStrRef>,
     #[pyarg(positional_or_keyword, optional = true)]
-    errors: OptionalArg<PyStringRef>,
+    errors: OptionalArg<PyStrRef>,
 }
 
 impl ByteInnerNewOptions {
@@ -87,7 +87,7 @@ impl ByteInnerNewOptions {
                 }
             }
             OptionalArg::Present(obj) => {
-                match obj.downcast::<PyString>() {
+                match obj.downcast::<PyStr>() {
                     Ok(s) => {
                         // Handle bytes(string, encoding[, errors])
                         if let OptionalArg::Present(enc) = self.encoding {
@@ -1188,19 +1188,19 @@ impl<'s> PyCommonString<'s, u8> for [u8] {
 #[derive(FromArgs)]
 pub struct DecodeArgs {
     #[pyarg(positional_or_keyword, default = "None")]
-    encoding: Option<PyStringRef>,
+    encoding: Option<PyStrRef>,
     #[pyarg(positional_or_keyword, default = "None")]
-    errors: Option<PyStringRef>,
+    errors: Option<PyStrRef>,
 }
 
 pub fn bytes_decode(
     zelf: PyObjectRef,
     args: DecodeArgs,
     vm: &VirtualMachine,
-) -> PyResult<PyStringRef> {
+) -> PyResult<PyStrRef> {
     let DecodeArgs { encoding, errors } = args;
     vm.decode(zelf, encoding.clone(), errors)?
-        .downcast::<PyString>()
+        .downcast::<PyStr>()
         .map_err(|obj| {
             vm.new_type_error(format!(
                 "'{}' decoder returned '{}' instead of 'str'; use codecs.encode() to \

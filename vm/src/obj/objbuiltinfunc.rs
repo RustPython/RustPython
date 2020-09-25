@@ -2,7 +2,7 @@ use std::fmt;
 
 use super::objclassmethod::PyClassMethod;
 use crate::function::{PyFuncArgs, PyNativeFunc};
-use crate::obj::objstr::PyStringRef;
+use crate::obj::objstr::PyStrRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
     PyClassImpl, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
@@ -12,8 +12,8 @@ use crate::vm::VirtualMachine;
 
 pub struct PyFuncDef {
     pub func: PyNativeFunc,
-    pub name: Option<PyStringRef>,
-    pub doc: Option<PyStringRef>,
+    pub name: Option<PyStrRef>,
+    pub doc: Option<PyStrRef>,
 }
 
 impl From<PyNativeFunc> for PyFuncDef {
@@ -119,11 +119,11 @@ impl PyBuiltinFunction {
         vm.unwrap_or_none(self.module.clone())
     }
     #[pyproperty(magic)]
-    fn name(&self) -> Option<PyStringRef> {
+    fn name(&self) -> Option<PyStrRef> {
         self.value.name.clone()
     }
     #[pyproperty(magic)]
-    fn doc(&self) -> Option<PyStringRef> {
+    fn doc(&self) -> Option<PyStrRef> {
         self.value.doc.clone()
     }
 }
@@ -152,7 +152,7 @@ impl From<PyFuncDef> for PyBuiltinMethod {
 }
 
 impl PyBuiltinMethod {
-    pub fn new_with_name(func: PyNativeFunc, name: PyStringRef) -> Self {
+    pub fn new_with_name(func: PyNativeFunc, name: PyStrRef) -> Self {
         Self {
             value: PyFuncDef {
                 func,
@@ -195,11 +195,11 @@ impl Callable for PyBuiltinMethod {
 #[pyimpl(with(SlotDescriptor, Callable))]
 impl PyBuiltinMethod {
     #[pyproperty(magic)]
-    fn name(&self) -> Option<PyStringRef> {
+    fn name(&self) -> Option<PyStrRef> {
         self.value.name.clone()
     }
     #[pyproperty(magic)]
-    fn doc(&self) -> Option<PyStringRef> {
+    fn doc(&self) -> Option<PyStrRef> {
         self.value.doc.clone()
     }
 }

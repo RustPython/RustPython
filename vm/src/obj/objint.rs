@@ -12,7 +12,7 @@ use super::objbytearray::PyByteArray;
 use super::objbytes::PyBytes;
 use super::objfloat;
 use super::objmemory::PyMemoryView;
-use super::objstr::{PyString, PyStringRef};
+use super::objstr::{PyStr, PyStrRef};
 use super::objtype::PyClassRef;
 use crate::bytesinner::PyBytesInner;
 use crate::format::FormatSpec;
@@ -518,7 +518,7 @@ impl PyInt {
     }
 
     #[pymethod(name = "__format__")]
-    fn format(&self, spec: PyStringRef, vm: &VirtualMachine) -> PyResult<String> {
+    fn format(&self, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
         match FormatSpec::parse(spec.borrow_value())
             .and_then(|format_spec| format_spec.format_int(&self.value))
         {
@@ -702,7 +702,7 @@ struct IntFromByteArgs {
     #[pyarg(positional_or_keyword)]
     bytes: PyBytesInner,
     #[pyarg(positional_or_keyword)]
-    byteorder: PyStringRef,
+    byteorder: PyStrRef,
     #[pyarg(keyword_only, optional = true)]
     signed: OptionalArg<IntoPyBool>,
 }
@@ -712,7 +712,7 @@ struct IntToByteArgs {
     #[pyarg(positional_or_keyword)]
     length: PyIntRef,
     #[pyarg(positional_or_keyword)]
-    byteorder: PyStringRef,
+    byteorder: PyStrRef,
     #[pyarg(keyword_only, optional = true)]
     signed: OptionalArg<IntoPyBool>,
 }
@@ -721,7 +721,7 @@ struct IntToByteArgs {
 pub(crate) fn to_int(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<BigInt> {
     let base = 10;
     let opt = match_class!(match obj.clone() {
-        string @ PyString => {
+        string @ PyStr => {
             let s = string.borrow_value();
             bytes_to_int(s.as_bytes(), base)
         }
@@ -774,7 +774,7 @@ fn to_int_radix(vm: &VirtualMachine, obj: &PyObjectRef, base: u32) -> PyResult<B
     debug_assert!(base == 0 || (2..=36).contains(&base));
 
     let opt = match_class!(match obj.clone() {
-        string @ PyString => {
+        string @ PyStr => {
             let s = string.borrow_value();
             bytes_to_int(s.as_bytes(), base)
         }

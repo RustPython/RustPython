@@ -6,7 +6,7 @@ https://github.com/python/cpython/blob/50b48572d9a90c5bb36e2bef6179548ea927a35a/
 
 */
 
-use super::objstr::PyStringRef;
+use super::objstr::PyStrRef;
 use super::objtype::{self, PyClass, PyClassRef};
 use crate::function::OptionalArg;
 use crate::pyobject::{
@@ -56,7 +56,7 @@ impl PySuper {
     }
 
     #[pymethod(name = "__getattribute__")]
-    fn getattribute(zelf: PyRef<Self>, name: PyStringRef, vm: &VirtualMachine) -> PyResult {
+    fn getattribute(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
         let (inst, obj_type) = match zelf.obj.clone() {
             Some(o) => o,
             None => return vm.generic_getattribute(zelf.into_object(), name),

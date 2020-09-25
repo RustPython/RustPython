@@ -6,7 +6,7 @@ use std::ops::Deref;
 use super::objint::PyIntRef;
 use super::objiter;
 use super::objsequence::SequenceIndex;
-use super::objstr::PyStringRef;
+use super::objstr::PyStrRef;
 use super::objtype::PyClassRef;
 use crate::bytesinner::{
     bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
@@ -209,7 +209,7 @@ impl PyBytes {
     }
 
     #[pymethod]
-    fn fromhex(string: PyStringRef, vm: &VirtualMachine) -> PyResult<PyBytes> {
+    fn fromhex(string: PyStrRef, vm: &VirtualMachine) -> PyResult<PyBytes> {
         Ok(PyBytesInner::fromhex(string.borrow_value(), vm)?.into())
     }
 
@@ -440,7 +440,7 @@ impl PyBytes {
     /// see https://docs.python.org/3/library/codecs.html#standard-encodings
     /// currently, only 'utf-8' and 'ascii' emplemented
     #[pymethod]
-    fn decode(zelf: PyRef<Self>, args: DecodeArgs, vm: &VirtualMachine) -> PyResult<PyStringRef> {
+    fn decode(zelf: PyRef<Self>, args: DecodeArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         bytes_decode(zelf.into_object(), args, vm)
     }
 

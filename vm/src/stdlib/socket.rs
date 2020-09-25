@@ -15,7 +15,7 @@ use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objbytearray::PyByteArrayRef;
 use crate::obj::objbytes::PyBytesRef;
-use crate::obj::objstr::{PyString, PyStringRef};
+use crate::obj::objstr::{PyStr, PyStrRef};
 use crate::obj::objtuple::PyTupleRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
@@ -428,7 +428,7 @@ impl io::Write for PySocketRef {
 }
 
 struct Address {
-    host: PyStringRef,
+    host: PyStrRef,
     port: u16,
 }
 
@@ -445,9 +445,9 @@ impl TryFromObject for Address {
         if tuple.borrow_value().len() != 2 {
             Err(vm.new_type_error("Address tuple should have only 2 values".to_owned()))
         } else {
-            let host = PyStringRef::try_from_object(vm, tuple.borrow_value()[0].clone())?;
+            let host = PyStrRef::try_from_object(vm, tuple.borrow_value()[0].clone())?;
             let host = if host.borrow_value().is_empty() {
-                PyString::from("0.0.0.0").into_ref(vm)
+                PyStr::from("0.0.0.0").into_ref(vm)
             } else {
                 host
             };
@@ -478,11 +478,11 @@ fn socket_gethostname(vm: &VirtualMachine) -> PyResult {
 }
 
 #[cfg(all(unix, not(target_os = "redox")))]
-fn socket_sethostname(hostname: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+fn socket_sethostname(hostname: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
     sethostname(hostname.borrow_value()).map_err(|err| err.into_pyexception(vm))
 }
 
-fn socket_inet_aton(ip_string: PyStringRef, vm: &VirtualMachine) -> PyResult {
+fn socket_inet_aton(ip_string: PyStrRef, vm: &VirtualMachine) -> PyResult {
     ip_string
         .borrow_value()
         .parse::<Ipv4Addr>()
@@ -501,9 +501,9 @@ fn socket_inet_ntoa(packed_ip: PyBytesRef, vm: &VirtualMachine) -> PyResult {
 #[derive(FromArgs)]
 struct GAIOptions {
     #[pyarg(positional_only)]
-    host: Option<PyStringRef>,
+    host: Option<PyStrRef>,
     #[pyarg(positional_only)]
-    port: Option<Either<PyStringRef, i32>>,
+    port: Option<Either<PyStrRef, i32>>,
 
     #[pyarg(positional_only, default = "0")]
     family: i32,
@@ -557,7 +557,7 @@ fn socket_getaddrinfo(opts: GAIOptions, vm: &VirtualMachine) -> PyResult {
 
 #[cfg(not(target_os = "redox"))]
 fn socket_gethostbyaddr(
-    addr: PyStringRef,
+    addr: PyStrRef,
     vm: &VirtualMachine,
 ) -> PyResult<(String, PyObjectRef, PyObjectRef)> {
     // TODO: figure out how to do this properly
@@ -577,10 +577,10 @@ fn socket_gethostbyaddr(
 }
 
 #[cfg(not(target_os = "redox"))]
-fn socket_gethostbyname(name: PyStringRef, vm: &VirtualMachine) -> PyResult<String> {
+fn socket_gethostbyname(name: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
     match socket_gethostbyaddr(name, vm) {
         Ok((_, _, hosts)) => {
-            let lst = vm.extract_elements::<PyStringRef>(&hosts)?;
+            let lst = vm.extract_elements::<PyStrRef>(&hosts)?;
             Ok(lst.get(0).unwrap().to_string())
         }
         Err(_) => {
@@ -593,7 +593,7 @@ fn socket_gethostbyname(name: PyStringRef, vm: &VirtualMachine) -> PyResult<Stri
     }
 }
 
-fn socket_inet_pton(af_inet: i32, ip_string: PyStringRef, vm: &VirtualMachine) -> PyResult {
+fn socket_inet_pton(af_inet: i32, ip_string: PyStrRef, vm: &VirtualMachine) -> PyResult {
     match af_inet {
         c::AF_INET => ip_string
             .borrow_value()
@@ -643,7 +643,7 @@ fn socket_inet_ntop(af_inet: i32, packed_ip: PyBytesRef, vm: &VirtualMachine) ->
     }
 }
 
-fn socket_getprotobyname(name: PyStringRef, vm: &VirtualMachine) -> PyResult {
+fn socket_getprotobyname(name: PyStrRef, vm: &VirtualMachine) -> PyResult {
     use std::ffi::CString;
     let cstr = CString::new(name.borrow_value())
         .map_err(|_| vm.new_value_error("embedded null character".to_owned()))?;

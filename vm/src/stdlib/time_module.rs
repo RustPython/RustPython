@@ -8,7 +8,7 @@ use chrono::naive::{NaiveDate, NaiveDateTime, NaiveTime};
 use chrono::{Datelike, Timelike};
 
 use crate::function::OptionalArg;
-use crate::obj::objstr::PyStringRef;
+use crate::obj::objstr::PyStrRef;
 use crate::obj::objtuple::PyTupleRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
@@ -144,11 +144,7 @@ fn time_ctime(secs: OptionalArg<Either<f64, i64>>, vm: &VirtualMachine) -> PyRes
     Ok(instant.format(&CFMT).to_string())
 }
 
-fn time_strftime(
-    format: PyStringRef,
-    t: OptionalArg<PyStructTime>,
-    vm: &VirtualMachine,
-) -> PyResult {
+fn time_strftime(format: PyStrRef, t: OptionalArg<PyStructTime>, vm: &VirtualMachine) -> PyResult {
     let default = chrono::offset::Local::now().naive_local();
     let instant = match t {
         OptionalArg::Present(t) => t.to_date_time(vm)?,
@@ -158,11 +154,7 @@ fn time_strftime(
     Ok(vm.ctx.new_str(formatted_time))
 }
 
-fn time_strptime(
-    string: PyStringRef,
-    format: OptionalArg<PyStringRef>,
-    vm: &VirtualMachine,
-) -> PyResult {
+fn time_strptime(string: PyStrRef, format: OptionalArg<PyStrRef>, vm: &VirtualMachine) -> PyResult {
     let format = match format {
         OptionalArg::Present(ref format) => format.borrow_value(),
         OptionalArg::Missing => "%a %b %H:%M:%S %Y",

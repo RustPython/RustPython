@@ -214,7 +214,7 @@ impl PyContext {
 
     pub fn new_str<S>(&self, s: S) -> PyObjectRef
     where
-        S: Into<objstr::PyString>,
+        S: Into<objstr::PyStr>,
     {
         PyObject::new(s.into(), self.types.str_type.clone(), None)
     }
@@ -288,8 +288,8 @@ impl PyContext {
         PyFuncDef::from(f.into_func()).build_function(self)
     }
 
-    pub(crate) fn new_stringref(&self, s: String) -> objstr::PyStringRef {
-        PyRef::new_ref(objstr::PyString::from(s), self.types.str_type.clone(), None)
+    pub(crate) fn new_stringref(&self, s: String) -> objstr::PyStrRef {
+        PyRef::new_ref(objstr::PyStr::from(s), self.types.str_type.clone(), None)
     }
 
     pub fn new_function_named<F, FKind>(&self, f: F, name: String) -> PyFuncDef
@@ -1222,10 +1222,10 @@ impl<A: IntoPyObject, B: IntoPyObject> IntoPyObject for Either<A, B> {
 ///
 /// ```
 /// use rustpython_vm::VirtualMachine;
-/// use rustpython_vm::obj::{objstr::PyStringRef, objint::PyIntRef};
+/// use rustpython_vm::obj::{objstr::PyStrRef, objint::PyIntRef};
 /// use rustpython_vm::pyobject::Either;
 ///
-/// fn do_something(arg: Either<PyIntRef, PyStringRef>, vm: &VirtualMachine) {
+/// fn do_something(arg: Either<PyIntRef, PyStrRef>, vm: &VirtualMachine) {
 ///     match arg {
 ///         Either::A(int)=> {
 ///             // do something with int

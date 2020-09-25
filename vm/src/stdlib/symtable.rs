@@ -4,7 +4,7 @@ pub(crate) use decl::make_module;
 mod decl {
     use std::fmt;
 
-    use crate::obj::objstr::PyStringRef;
+    use crate::obj::objstr::PyStrRef;
     use crate::obj::objtype::PyClassRef;
     use crate::pyobject::{BorrowValue, PyClassImpl, PyRef, PyResult, PyValue};
     use crate::vm::VirtualMachine;
@@ -15,9 +15,9 @@ mod decl {
     /// See docs: https://docs.python.org/3/library/symtable.html?highlight=symtable#symtable.symtable
     #[pyfunction]
     fn symtable(
-        source: PyStringRef,
-        filename: PyStringRef,
-        mode: PyStringRef,
+        source: PyStrRef,
+        filename: PyStrRef,
+        mode: PyStrRef,
         vm: &VirtualMachine,
     ) -> PyResult<PySymbolTableRef> {
         let mode = mode
@@ -106,7 +106,7 @@ mod decl {
         }
 
         #[pymethod(name = "lookup")]
-        fn lookup(&self, name: PyStringRef, vm: &VirtualMachine) -> PyResult<PySymbolRef> {
+        fn lookup(&self, name: PyStrRef, vm: &VirtualMachine) -> PyResult<PySymbolRef> {
             let name = name.borrow_value();
             if let Some(symbol) = self.symtable.symbols.get(name) {
                 Ok(PySymbol {

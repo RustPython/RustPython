@@ -487,7 +487,7 @@ pub type PyNativeFunc = Box<py_dyn_fn!(dyn Fn(&VirtualMachine, PyFuncArgs) -> Py
 ///
 /// For example, anything from `Fn()` to `Fn(vm: &VirtualMachine) -> u32` to
 /// `Fn(PyIntRef, PyIntRef) -> String` to
-/// `Fn(&self, PyStringRef, FooOptions, vm: &VirtualMachine) -> PyResult<PyInt>`
+/// `Fn(&self, PyStrRef, FooOptions, vm: &VirtualMachine) -> PyResult<PyInt>`
 /// is `IntoPyNativeFunc`. If you do want a really general function signature, e.g.
 /// to forward the args to another function, you can define a function like
 /// `Fn(PyFuncArgs [, &VirtualMachine]) -> ...`

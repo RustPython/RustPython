@@ -9,7 +9,7 @@ use crate::obj::objiter;
 use crate::obj::objlist::PyList;
 use crate::obj::objsequence::{get_saturated_pos, PySliceableSequence, PySliceableSequenceMut};
 use crate::obj::objslice::PySliceRef;
-use crate::obj::objstr::PyStringRef;
+use crate::obj::objstr::PyStrRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
     BorrowValue, Either, IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyIterable,
@@ -479,7 +479,7 @@ impl PyArray {
     #[pyslot]
     fn tp_new(
         cls: PyClassRef,
-        spec: PyStringRef,
+        spec: PyStrRef,
         init: OptionalArg<PyIterable>,
         vm: &VirtualMachine,
     ) -> PyResult<PyArrayRef> {

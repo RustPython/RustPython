@@ -44,13 +44,13 @@ use rustpython_common::hash;
 /// errors defaults to 'strict'."
 #[pyclass(module = false, name = "str")]
 #[derive(Debug)]
-pub struct PyString {
+pub struct PyStr {
     value: String,
     hash: AtomicCell<Option<hash::PyHash>>,
     len: AtomicCell<Option<usize>>,
 }
 
-impl<'a> BorrowValue<'a> for PyString {
+impl<'a> BorrowValue<'a> for PyStr {
     type Borrowed = &'a str;
 
     fn borrow_value(&'a self) -> Self::Borrowed {
@@ -58,24 +58,24 @@ impl<'a> BorrowValue<'a> for PyString {
     }
 }
 
-impl AsRef<str> for PyString {
+impl AsRef<str> for PyStr {
     fn as_ref(&self) -> &str {
         &self.value
     }
 }
 
-impl<T> From<&T> for PyString
+impl<T> From<&T> for PyStr
 where
     T: AsRef<str> + ?Sized,
 {
-    fn from(s: &T) -> PyString {
+    fn from(s: &T) -> PyStr {
         s.as_ref().to_owned().into()
     }
 }
 
-impl From<String> for PyString {
-    fn from(s: String) -> PyString {
-        PyString {
+impl From<String> for PyStr {
+    fn from(s: String) -> PyStr {
+        PyStr {
             value: s,
             hash: AtomicCell::default(),
             len: AtomicCell::default(),
@@ -83,30 +83,30 @@ impl From<String> for PyString {
     }
 }
 
-pub type PyStringRef = PyRef<PyString>;
+pub type PyStrRef = PyRef<PyStr>;
 
-impl fmt::Display for PyString {
+impl fmt::Display for PyStr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(&self.value, f)
     }
 }
 
-impl TryIntoRef<PyString> for String {
-    fn try_into_ref(self, vm: &VirtualMachine) -> PyResult<PyRef<PyString>> {
-        Ok(PyString::from(self).into_ref(vm))
+impl TryIntoRef<PyStr> for String {
+    fn try_into_ref(self, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
+        Ok(PyStr::from(self).into_ref(vm))
     }
 }
 
-impl TryIntoRef<PyString> for &str {
-    fn try_into_ref(self, vm: &VirtualMachine) -> PyResult<PyRef<PyString>> {
-        Ok(PyString::from(self).into_ref(vm))
+impl TryIntoRef<PyStr> for &str {
+    fn try_into_ref(self, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
+        Ok(PyStr::from(self).into_ref(vm))
     }
 }
 
 #[pyclass(module = false, name = "str_iterator")]
 #[derive(Debug)]
 pub struct PyStringIterator {
-    pub string: PyStringRef,
+    pub string: PyStrRef,
     position: AtomicCell<usize>,
 }
 
@@ -140,7 +140,7 @@ impl PyStringIterator {
 #[derive(Debug)]
 pub struct PyStringReverseIterator {
     pub position: AtomicCell<isize>,
-    pub string: PyStringRef,
+    pub string: PyStrRef,
 }
 
 impl PyValue for PyStringReverseIterator {
@@ -173,16 +173,16 @@ struct StrArgs {
     #[pyarg(positional_or_keyword, optional = true)]
     object: OptionalArg<PyObjectRef>,
     #[pyarg(positional_or_keyword, optional = true)]
-    encoding: OptionalArg<PyStringRef>,
+    encoding: OptionalArg<PyStrRef>,
     #[pyarg(positional_or_keyword, optional = true)]
-    errors: OptionalArg<PyStringRef>,
+    errors: OptionalArg<PyStrRef>,
 }
 
 #[pyimpl(flags(BASETYPE), with(Hashable, Comparable))]
-impl PyString {
+impl PyStr {
     #[pyslot]
-    fn tp_new(cls: PyClassRef, args: StrArgs, vm: &VirtualMachine) -> PyResult<PyStringRef> {
-        let string: PyStringRef = match args.object {
+    fn tp_new(cls: PyClassRef, args: StrArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        let string: PyStrRef = match args.object {
             OptionalArg::Present(input) => {
                 if let OptionalArg::Present(enc) = args.encoding {
                     vm.decode(input, Some(enc.clone()), args.errors.into_option())?
@@ -200,13 +200,13 @@ impl PyString {
                 }
             }
             OptionalArg::Missing => {
-                PyString::from(String::new()).into_ref_with_type(vm, cls.clone())?
+                PyStr::from(String::new()).into_ref_with_type(vm, cls.clone())?
             }
         };
         if string.class().is(&cls) {
             Ok(string)
         } else {
-            PyString::from(string.borrow_value()).into_ref_with_type(vm, cls)
+            PyStr::from(string.borrow_value()).into_ref_with_type(vm, cls)
         }
     }
 
@@ -225,7 +225,7 @@ impl PyString {
     }
 
     #[pymethod(name = "__contains__")]
-    fn contains(&self, needle: PyStringRef) -> bool {
+    fn contains(&self, needle: PyStrRef) -> bool {
         self.value.contains(&needle.value)
     }
 
@@ -282,7 +282,7 @@ impl PyString {
     }
 
     #[pymethod(name = "__str__")]
-    fn str(zelf: PyRef<Self>) -> PyStringRef {
+    fn str(zelf: PyRef<Self>) -> PyStrRef {
         zelf
     }
 
@@ -435,7 +435,7 @@ impl PyString {
     }
 
     #[pymethod]
-    fn strip(&self, chars: OptionalOption<PyStringRef>) -> String {
+    fn strip(&self, chars: OptionalOption<PyStrRef>) -> String {
         self.value
             .py_strip(
                 chars,
@@ -446,7 +446,7 @@ impl PyString {
     }
 
     #[pymethod]
-    fn lstrip(&self, chars: OptionalOption<PyStringRef>) -> String {
+    fn lstrip(&self, chars: OptionalOption<PyStrRef>) -> String {
         self.value
             .py_strip(
                 chars,
@@ -457,7 +457,7 @@ impl PyString {
     }
 
     #[pymethod]
-    fn rstrip(&self, chars: OptionalOption<PyStringRef>) -> String {
+    fn rstrip(&self, chars: OptionalOption<PyStrRef>) -> String {
         self.value
             .py_strip(
                 chars,
@@ -473,7 +473,7 @@ impl PyString {
             args,
             "endswith",
             "str",
-            |s, x: &PyStringRef| s.ends_with(x.borrow_value()),
+            |s, x: &PyStrRef| s.ends_with(x.borrow_value()),
             vm,
         )
     }
@@ -484,7 +484,7 @@ impl PyString {
             args,
             "startswith",
             "str",
-            |s, x: &PyStringRef| s.starts_with(x.borrow_value()),
+            |s, x: &PyStrRef| s.starts_with(x.borrow_value()),
             vm,
         )
     }
@@ -497,7 +497,7 @@ impl PyString {
     /// If the string starts with the prefix string, return string[len(prefix):]
     /// Otherwise, return a copy of the original string.
     #[pymethod]
-    fn removeprefix(&self, pref: PyStringRef) -> String {
+    fn removeprefix(&self, pref: PyStrRef) -> String {
         self.value
             .py_removeprefix(&pref.value, pref.value.len(), |s, p| s.starts_with(p))
             .to_owned()
@@ -511,7 +511,7 @@ impl PyString {
     /// If the string ends with the suffix string, return string[:len(suffix)]
     /// Otherwise, return a copy of the original string.
     #[pymethod]
-    fn removesuffix(&self, suff: PyStringRef) -> String {
+    fn removesuffix(&self, suff: PyStrRef) -> String {
         self.value
             .py_removesuffix(&suff.value, suff.value.len(), |s, p| s.ends_with(p))
             .to_owned()
@@ -579,7 +579,7 @@ impl PyString {
     }
 
     #[pymethod(name = "__format__")]
-    fn format_str(&self, spec: PyStringRef, vm: &VirtualMachine) -> PyResult<String> {
+    fn format_str(&self, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
         match FormatSpec::parse(spec.borrow_value())
             .and_then(|format_spec| format_spec.format_string(&self.value))
         {
@@ -639,7 +639,7 @@ impl PyString {
     }
 
     #[pymethod]
-    fn replace(&self, old: PyStringRef, new: PyStringRef, count: OptionalArg<isize>) -> String {
+    fn replace(&self, old: PyStrRef, new: PyStrRef, count: OptionalArg<isize>) -> String {
         match count {
             OptionalArg::Present(maxcount) if maxcount >= 0 => {
                 if maxcount == 0 || self.value.is_empty() {
@@ -711,7 +711,7 @@ impl PyString {
     }
 
     #[pymethod]
-    fn join(&self, iterable: PyIterable<PyStringRef>, vm: &VirtualMachine) -> PyResult<String> {
+    fn join(&self, iterable: PyIterable<PyStrRef>, vm: &VirtualMachine) -> PyResult<String> {
         let iter = iterable.iter(vm)?;
         self.value.py_join(iter)
     }
@@ -750,7 +750,7 @@ impl PyString {
     }
 
     #[pymethod]
-    fn partition(&self, sep: PyStringRef, vm: &VirtualMachine) -> PyResult {
+    fn partition(&self, sep: PyStrRef, vm: &VirtualMachine) -> PyResult {
         let (front, has_mid, back) =
             self.value
                 .py_partition(&sep.value, || self.value.splitn(2, &sep.value), vm)?;
@@ -766,7 +766,7 @@ impl PyString {
     }
 
     #[pymethod]
-    fn rpartition(&self, sep: PyStringRef, vm: &VirtualMachine) -> PyResult {
+    fn rpartition(&self, sep: PyStrRef, vm: &VirtualMachine) -> PyResult {
         let (back, has_mid, front) =
             self.value
                 .py_partition(&sep.value, || self.value.rsplitn(2, &sep.value), vm)?;
@@ -828,7 +828,7 @@ impl PyString {
     fn _pad(
         &self,
         width: isize,
-        fillchar: OptionalArg<PyStringRef>,
+        fillchar: OptionalArg<PyStrRef>,
         pad: fn(&str, usize, char, usize) -> String,
         vm: &VirtualMachine,
     ) -> PyResult<String> {
@@ -851,7 +851,7 @@ impl PyString {
     fn center(
         &self,
         width: isize,
-        fillchar: OptionalArg<PyStringRef>,
+        fillchar: OptionalArg<PyStrRef>,
         vm: &VirtualMachine,
     ) -> PyResult<String> {
         self._pad(width, fillchar, PyCommonString::<char>::py_center, vm)
@@ -861,7 +861,7 @@ impl PyString {
     fn ljust(
         &self,
         width: isize,
-        fillchar: OptionalArg<PyStringRef>,
+        fillchar: OptionalArg<PyStrRef>,
         vm: &VirtualMachine,
     ) -> PyResult<String> {
         self._pad(width, fillchar, PyCommonString::<char>::py_ljust, vm)
@@ -871,7 +871,7 @@ impl PyString {
     fn rjust(
         &self,
         width: isize,
-        fillchar: OptionalArg<PyStringRef>,
+        fillchar: OptionalArg<PyStrRef>,
         vm: &VirtualMachine,
     ) -> PyResult<String> {
         self._pad(width, fillchar, PyCommonString::<char>::py_rjust, vm)
@@ -927,7 +927,7 @@ impl PyString {
         for c in self.value.chars() {
             match table.get_item((c as u32).into_pyobject(vm), vm) {
                 Ok(value) => {
-                    if let Some(text) = value.payload::<PyString>() {
+                    if let Some(text) = value.payload::<PyStr>() {
                         translated.push_str(&text.value);
                     } else if let Some(bigint) = value.payload::<PyInt>() {
                         let ch = bigint
@@ -955,13 +955,13 @@ impl PyString {
     #[pymethod]
     fn maketrans(
         dict_or_str: PyObjectRef,
-        to_str: OptionalArg<PyStringRef>,
-        none_str: OptionalArg<PyStringRef>,
+        to_str: OptionalArg<PyStrRef>,
+        none_str: OptionalArg<PyStrRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
         let new_dict = vm.ctx.new_dict();
         if let OptionalArg::Present(to_str) = to_str {
-            match dict_or_str.downcast::<PyString>() {
+            match dict_or_str.downcast::<PyStr>() {
                 Ok(from_str) => {
                     if to_str.len() == from_str.len() {
                         for (c1, c2) in from_str.value.chars().zip(to_str.value.chars()) {
@@ -999,7 +999,7 @@ impl PyString {
                                 val,
                                 vm,
                             )?;
-                        } else if let Some(string) = key.payload::<PyString>() {
+                        } else if let Some(string) = key.payload::<PyStr>() {
                             if string.len() == 1 {
                                 let num_value = string.value.chars().next().unwrap() as u32;
                                 new_dict.set_item(num_value.into_pyobject(vm), val, vm)?;
@@ -1043,13 +1043,13 @@ impl PyString {
     }
 }
 
-impl Hashable for PyString {
+impl Hashable for PyStr {
     fn hash(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<hash::PyHash> {
         Ok(zelf.hash(vm))
     }
 }
 
-impl Comparable for PyString {
+impl Comparable for PyStr {
     fn cmp(
         zelf: PyRef<Self>,
         other: PyObjectRef,
@@ -1069,15 +1069,15 @@ impl Comparable for PyString {
 #[derive(FromArgs)]
 struct EncodeArgs {
     #[pyarg(positional_or_keyword, default = "None")]
-    encoding: Option<PyStringRef>,
+    encoding: Option<PyStrRef>,
     #[pyarg(positional_or_keyword, default = "None")]
-    errors: Option<PyStringRef>,
+    errors: Option<PyStrRef>,
 }
 
 pub(crate) fn encode_string(
-    s: PyStringRef,
-    encoding: Option<PyStringRef>,
-    errors: Option<PyStringRef>,
+    s: PyStrRef,
+    encoding: Option<PyStrRef>,
+    errors: Option<PyStrRef>,
     vm: &VirtualMachine,
 ) -> PyResult<PyBytesRef> {
     vm.encode(s.into_object(), encoding.clone(), errors)?
@@ -1092,7 +1092,7 @@ pub(crate) fn encode_string(
         })
 }
 
-impl PyValue for PyString {
+impl PyValue for PyStr {
     fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.types.str_type.clone()
     }
@@ -1118,7 +1118,7 @@ impl IntoPyObject for &String {
 
 impl TryFromObject for std::ffi::CString {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        let s = PyStringRef::try_from_object(vm, obj)?;
+        let s = PyStrRef::try_from_object(vm, obj)?;
         Self::new(s.borrow_value().to_owned())
             .map_err(|_| vm.new_value_error("embedded null character".to_owned()))
     }
@@ -1128,17 +1128,17 @@ impl TryFromObject for std::ffi::OsString {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         use std::str::FromStr;
 
-        let s = PyStringRef::try_from_object(vm, obj)?;
+        let s = PyStrRef::try_from_object(vm, obj)?;
         Ok(std::ffi::OsString::from_str(s.borrow_value()).unwrap())
     }
 }
 
-type SplitArgs<'a> = pystr::SplitArgs<'a, PyStringRef, str, char>;
+type SplitArgs<'a> = pystr::SplitArgs<'a, PyStrRef, str, char>;
 
 #[derive(FromArgs)]
 pub struct FindArgs {
     #[pyarg(positional_only, optional = false)]
-    sub: PyStringRef,
+    sub: PyStrRef,
     #[pyarg(positional_only, default = "None")]
     start: Option<PyIntRef>,
     #[pyarg(positional_only, default = "None")]
@@ -1146,28 +1146,28 @@ pub struct FindArgs {
 }
 
 impl FindArgs {
-    fn get_value(self, len: usize) -> (PyStringRef, std::ops::Range<usize>) {
+    fn get_value(self, len: usize) -> (PyStrRef, std::ops::Range<usize>) {
         let range = adjust_indices(self.start, self.end, len);
         (self.sub, range)
     }
 }
 
 pub fn init(ctx: &PyContext) {
-    PyString::extend_class(ctx, &ctx.types.str_type);
+    PyStr::extend_class(ctx, &ctx.types.str_type);
 
     PyStringIterator::extend_class(ctx, &ctx.types.str_iterator_type);
     PyStringReverseIterator::extend_class(ctx, &ctx.types.str_reverseiterator_type);
 }
 
 pub fn clone_value(obj: &PyObjectRef) -> String {
-    obj.payload::<PyString>().unwrap().value.clone()
+    obj.payload::<PyStr>().unwrap().value.clone()
 }
 
 pub fn borrow_value(obj: &PyObjectRef) -> &str {
-    &obj.payload::<PyString>().unwrap().value
+    &obj.payload::<PyStr>().unwrap().value
 }
 
-impl PySliceableSequence for PyString {
+impl PySliceableSequence for PyStr {
     type Sliced = String;
 
     fn do_slice(&self, range: Range<usize>) -> Self::Sliced {
@@ -1253,7 +1253,7 @@ mod tests {
             ("Greek ῼitlecases ...", "greek ῳitlecases ..."),
         ];
         for (title, input) in tests {
-            assert_eq!(PyString::from(input).title().as_str(), title);
+            assert_eq!(PyStr::from(input).title().as_str(), title);
         }
     }
 
@@ -1269,7 +1269,7 @@ mod tests {
         ];
 
         for s in pos {
-            assert!(PyString::from(s).istitle());
+            assert!(PyStr::from(s).istitle());
         }
 
         let neg = vec![
@@ -1282,7 +1282,7 @@ mod tests {
             "NOT",
         ];
         for s in neg {
-            assert!(!PyString::from(s).istitle());
+            assert!(!PyStr::from(s).istitle());
         }
     }
 
@@ -1293,14 +1293,14 @@ mod tests {
             table.set_item("a", vm.ctx.new_str("🎅"), &vm).unwrap();
             table.set_item("b", vm.ctx.none(), &vm).unwrap();
             table.set_item("c", vm.ctx.new_str("xda"), &vm).unwrap();
-            let translated = PyString::maketrans(
+            let translated = PyStr::maketrans(
                 table.into_object(),
                 OptionalArg::Missing,
                 OptionalArg::Missing,
                 &vm,
             )
             .unwrap();
-            let text = PyString::from("abc");
+            let text = PyStr::from("abc");
             let translated = text.translate(translated, &vm).unwrap();
             assert_eq!(translated, "🎅xda".to_owned());
             let translated = text.translate(vm.ctx.new_int(3), &vm);
@@ -1312,7 +1312,7 @@ mod tests {
     }
 }
 
-impl PyCommonStringWrapper<str> for PyStringRef {
+impl PyCommonStringWrapper<str> for PyStrRef {
     fn as_ref(&self) -> &str {
         self.value.as_str()
     }

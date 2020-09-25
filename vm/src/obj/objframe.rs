@@ -4,7 +4,7 @@
 
 use super::objcode::PyCodeRef;
 use super::objdict::PyDictRef;
-use super::objstr::PyStringRef;
+use super::objstr::PyStrRef;
 use crate::frame::FrameRef;
 use crate::pyobject::{IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
@@ -26,7 +26,7 @@ impl FrameRef {
     }
 
     #[pymethod(name = "__delattr__")]
-    fn delattr(self, value: PyStringRef, vm: &VirtualMachine) {
+    fn delattr(self, value: PyStrRef, vm: &VirtualMachine) {
         // CPython' Frame.f_trace is set to None when deleted.
         // The strange behavior is mimicked here make bdb.py happy about it.
         if value.to_string() == "f_trace" {

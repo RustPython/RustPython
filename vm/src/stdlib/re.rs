@@ -11,7 +11,7 @@ use std::ops::Range;
 
 use crate::function::{Args, OptionalArg};
 use crate::obj::objint::{PyInt, PyIntRef};
-use crate::obj::objstr::{PyString, PyStringRef};
+use crate::obj::objstr::{PyStr, PyStrRef};
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
     BorrowValue, IntoPyObject, PyClassImpl, PyObjectRef, PyResult, PyValue, TryFromObject,
@@ -73,7 +73,7 @@ impl PyValue for PyPattern {
 /// Inner data for a match object.
 #[pyclass(module = "re", name = "Match")]
 struct PyMatch {
-    haystack: PyStringRef,
+    haystack: PyStrRef,
     captures: Vec<Option<Range<usize>>>,
 }
 
@@ -93,8 +93,8 @@ impl PyValue for PyMatch {
 // type PyMatchRef = PyRef<PyMatch>;
 
 fn re_match(
-    pattern: PyStringRef,
-    string: PyStringRef,
+    pattern: PyStrRef,
+    string: PyStrRef,
     flags: OptionalArg<usize>,
     vm: &VirtualMachine,
 ) -> PyResult<Option<PyMatch>> {
@@ -104,8 +104,8 @@ fn re_match(
 }
 
 fn re_search(
-    pattern: PyStringRef,
-    string: PyStringRef,
+    pattern: PyStrRef,
+    string: PyStrRef,
     flags: OptionalArg<usize>,
     vm: &VirtualMachine,
 ) -> PyResult<Option<PyMatch>> {
@@ -115,9 +115,9 @@ fn re_search(
 }
 
 fn re_sub(
-    pattern: PyStringRef,
-    repl: PyStringRef,
-    string: PyStringRef,
+    pattern: PyStrRef,
+    repl: PyStrRef,
+    string: PyStrRef,
     count: OptionalArg<usize>,
     flags: OptionalArg<usize>,
     vm: &VirtualMachine,
@@ -129,8 +129,8 @@ fn re_sub(
 }
 
 fn re_findall(
-    pattern: PyStringRef,
-    string: PyStringRef,
+    pattern: PyStrRef,
+    string: PyStrRef,
     flags: OptionalArg<usize>,
     vm: &VirtualMachine,
 ) -> PyResult {
@@ -140,8 +140,8 @@ fn re_findall(
 }
 
 fn re_split(
-    pattern: PyStringRef,
-    string: PyStringRef,
+    pattern: PyStrRef,
+    string: PyStrRef,
     maxsplit: OptionalArg<PyIntRef>,
     flags: OptionalArg<usize>,
     vm: &VirtualMachine,
@@ -151,12 +151,7 @@ fn re_split(
     do_split(vm, &regex, string, maxsplit.into_option())
 }
 
-fn do_sub(
-    pattern: &PyPattern,
-    repl: PyStringRef,
-    search_text: PyStringRef,
-    limit: usize,
-) -> String {
+fn do_sub(pattern: &PyPattern, repl: PyStrRef, search_text: PyStrRef, limit: usize) -> String {
     let out = pattern.regex.replacen(
         search_text.borrow_value().as_bytes(),
         limit,
@@ -165,7 +160,7 @@ fn do_sub(
     String::from_utf8_lossy(&out).into_owned()
 }
 
-fn do_match(pattern: &PyPattern, search_text: PyStringRef) -> Option<PyMatch> {
+fn do_match(pattern: &PyPattern, search_text: PyStrRef) -> Option<PyMatch> {
     // I really wish there was a better way to do this; I don't think there is
     let mut regex_text = r"\A".to_owned();
     regex_text.push_str(pattern.regex.as_str());
@@ -175,14 +170,14 @@ fn do_match(pattern: &PyPattern, search_text: PyStringRef) -> Option<PyMatch> {
         .map(|captures| create_match(search_text.clone(), captures))
 }
 
-fn do_search(regex: &PyPattern, search_text: PyStringRef) -> Option<PyMatch> {
+fn do_search(regex: &PyPattern, search_text: PyStrRef) -> Option<PyMatch> {
     regex
         .regex
         .captures(search_text.borrow_value().as_bytes())
         .map(|captures| create_match(search_text.clone(), captures))
 }
 
-fn do_findall(vm: &VirtualMachine, pattern: &PyPattern, search_text: PyStringRef) -> PyResult {
+fn do_findall(vm: &VirtualMachine, pattern: &PyPattern, search_text: PyStrRef) -> PyResult {
     let out = pattern
         .regex
         .captures_iter(search_text.borrow_value().as_bytes())
@@ -218,7 +213,7 @@ fn do_findall(vm: &VirtualMachine, pattern: &PyPattern, search_text: PyStringRef
 fn do_split(
     vm: &VirtualMachine,
     pattern: &PyPattern,
-    search_text: PyStringRef,
+    search_text: PyStrRef,
     maxsplit: Option<PyIntRef>,
 ) -> PyResult {
     if maxsplit
@@ -283,7 +278,7 @@ fn make_regex(vm: &VirtualMachine, pattern: &str, flags: PyRegexFlags) -> PyResu
 }
 
 /// Take a found regular expression and convert it to proper match object.
-fn create_match(haystack: PyStringRef, captures: Captures) -> PyMatch {
+fn create_match(haystack: PyStrRef, captures: Captures) -> PyMatch {
     let captures = captures
         .iter()
         .map(|opt| opt.map(|m| m.start()..m.end()))
@@ -299,7 +294,7 @@ fn extract_flags(flags: OptionalArg<usize>) -> PyRegexFlags {
 }
 
 fn re_compile(
-    pattern: PyStringRef,
+    pattern: PyStrRef,
     flags: OptionalArg<usize>,
     vm: &VirtualMachine,
 ) -> PyResult<PyPattern> {
@@ -307,7 +302,7 @@ fn re_compile(
     make_regex(vm, pattern.borrow_value(), flags)
 }
 
-fn re_escape(pattern: PyStringRef) -> String {
+fn re_escape(pattern: PyStrRef) -> String {
     regex::escape(pattern.borrow_value())
 }
 
@@ -316,17 +311,17 @@ fn re_purge(_vm: &VirtualMachine) {}
 #[pyimpl]
 impl PyPattern {
     #[pymethod(name = "match")]
-    fn match_(&self, text: PyStringRef) -> Option<PyMatch> {
+    fn match_(&self, text: PyStrRef) -> Option<PyMatch> {
         do_match(self, text)
     }
 
     #[pymethod(name = "search")]
-    fn search(&self, text: PyStringRef) -> Option<PyMatch> {
+    fn search(&self, text: PyStrRef) -> Option<PyMatch> {
         do_search(self, text)
     }
 
     #[pymethod(name = "sub")]
-    fn sub(&self, repl: PyStringRef, text: PyStringRef, vm: &VirtualMachine) -> PyResult {
+    fn sub(&self, repl: PyStrRef, text: PyStrRef, vm: &VirtualMachine) -> PyResult {
         let replaced_text = self.regex.replace_all(
             text.borrow_value().as_bytes(),
             repl.borrow_value().as_bytes(),
@@ -336,7 +331,7 @@ impl PyPattern {
     }
 
     #[pymethod(name = "subn")]
-    fn subn(&self, repl: PyStringRef, text: PyStringRef, vm: &VirtualMachine) -> PyResult {
+    fn subn(&self, repl: PyStrRef, text: PyStrRef, vm: &VirtualMachine) -> PyResult {
         self.sub(repl, text, vm)
     }
 
@@ -348,7 +343,7 @@ impl PyPattern {
     #[pymethod]
     fn split(
         &self,
-        search_text: PyStringRef,
+        search_text: PyStrRef,
         maxsplit: OptionalArg<PyIntRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
@@ -356,7 +351,7 @@ impl PyPattern {
     }
 
     #[pymethod]
-    fn findall(&self, search_text: PyStringRef, vm: &VirtualMachine) -> PyResult {
+    fn findall(&self, search_text: PyStrRef, vm: &VirtualMachine) -> PyResult {
         do_findall(vm, self, search_text)
     }
 }
@@ -395,7 +390,7 @@ impl PyMatch {
                     .ok_or_else(|| vm.new_index_error("No such group".to_owned()))?;
                 Ok(capture.clone())
             }
-            _s @ PyString => unimplemented!(),
+            _s @ PyStr => unimplemented!(),
             _ => Err(vm.new_index_error("No such group".to_owned())),
         })
     }

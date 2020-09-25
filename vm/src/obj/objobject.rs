@@ -1,7 +1,7 @@
 use super::objbool;
 use super::objdict::{PyDict, PyDictRef};
 use super::objlist::PyList;
-use super::objstr::PyStringRef;
+use super::objstr::PyStrRef;
 use super::objtype::PyClassRef;
 use crate::common::hash::PyHash;
 use crate::function::{OptionalArg, PyFuncArgs};
@@ -132,7 +132,7 @@ impl PyBaseObject {
     #[pymethod(magic)]
     pub(crate) fn setattr(
         obj: PyObjectRef,
-        attr_name: PyStringRef,
+        attr_name: PyStrRef,
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -140,7 +140,7 @@ impl PyBaseObject {
     }
 
     #[pymethod(magic)]
-    fn delattr(obj: PyObjectRef, attr_name: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn delattr(obj: PyObjectRef, attr_name: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
         if let Some(attr) = obj.get_class_attr(attr_name.borrow_value()) {
             if let Some(descriptor) = attr.get_class_attr("__delete__") {
                 return vm.invoke(&descriptor, vec![attr, obj]).map(|_| ());
@@ -198,11 +198,7 @@ impl PyBaseObject {
     }
 
     #[pymethod(magic)]
-    fn format(
-        obj: PyObjectRef,
-        format_spec: PyStringRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyStringRef> {
+    fn format(obj: PyObjectRef, format_spec: PyStrRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         if format_spec.borrow_value().is_empty() {
             vm.to_str(&obj)
         } else {
@@ -245,7 +241,7 @@ impl PyBaseObject {
     }
 
     #[pymethod(magic)]
-    fn getattribute(obj: PyObjectRef, name: PyStringRef, vm: &VirtualMachine) -> PyResult {
+    fn getattribute(obj: PyObjectRef, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
         vm_trace!("object.__getattribute__({:?}, {:?})", obj, name);
         vm.generic_getattribute(obj, name)
     }
@@ -289,7 +285,7 @@ pub fn object_set_dict(obj: PyObjectRef, dict: PyDictRef, vm: &VirtualMachine) -
 #[cfg_attr(feature = "flame-it", flame)]
 pub(crate) fn setattr(
     obj: PyObjectRef,
-    attr_name: PyStringRef,
+    attr_name: PyStrRef,
     value: PyObjectRef,
     vm: &VirtualMachine,
 ) -> PyResult<()> {

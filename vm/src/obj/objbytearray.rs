@@ -6,7 +6,7 @@ use std::mem::size_of;
 use super::objint::PyIntRef;
 use super::objiter;
 use super::objsequence::SequenceIndex;
-use super::objstr::PyStringRef;
+use super::objstr::PyStrRef;
 use super::objtype::PyClassRef;
 use crate::bytesinner::{
     bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
@@ -246,7 +246,7 @@ impl PyByteArray {
     }
 
     #[pymethod]
-    fn fromhex(string: PyStringRef, vm: &VirtualMachine) -> PyResult<PyByteArray> {
+    fn fromhex(string: PyStrRef, vm: &VirtualMachine) -> PyResult<PyByteArray> {
         Ok(PyBytesInner::fromhex(string.borrow_value(), vm)?.into())
     }
 
@@ -528,7 +528,7 @@ impl PyByteArray {
     }
 
     #[pymethod]
-    fn decode(zelf: PyRef<Self>, args: DecodeArgs, vm: &VirtualMachine) -> PyResult<PyStringRef> {
+    fn decode(zelf: PyRef<Self>, args: DecodeArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         bytes_decode(zelf.into_object(), args, vm)
     }
 

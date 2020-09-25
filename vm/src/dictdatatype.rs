@@ -3,7 +3,7 @@
 /// And: https://www.youtube.com/watch?v=p33CVV29OG8
 /// And: http://code.activestate.com/recipes/578375/
 use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
-use crate::obj::objstr::{PyString, PyStringRef};
+use crate::obj::objstr::{PyStr, PyStrRef};
 use crate::pyobject::{BorrowValue, IdProtocol, IntoPyObject, PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
 use rustpython_common::hash;
@@ -455,7 +455,7 @@ impl DictKey for PyObjectRef {
     }
 }
 
-impl DictKey for PyStringRef {
+impl DictKey for PyStrRef {
     fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
         Ok(self.hash(vm))
     }
@@ -467,7 +467,7 @@ impl DictKey for PyStringRef {
     fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
         if self.is(other_key) {
             Ok(true)
-        } else if let Some(py_str_value) = other_key.payload::<PyString>() {
+        } else if let Some(py_str_value) = other_key.payload::<PyStr>() {
             Ok(py_str_value.borrow_value() == self.borrow_value())
         } else {
             vm.bool_eq(self.clone().into_object(), other_key.clone())
@@ -481,7 +481,7 @@ impl DictKey for PyStringRef {
 /// to index dictionaries.
 impl DictKey for &str {
     fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
-        // follow a similar route as the hashing of PyStringRef
+        // follow a similar route as the hashing of PyStrRef
         Ok(vm.state.hash_secret.hash_str(*self))
     }
 
@@ -492,7 +492,7 @@ impl DictKey for &str {
     }
 
     fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
-        if let Some(py_str_value) = other_key.payload::<PyString>() {
+        if let Some(py_str_value) = other_key.payload::<PyStr>() {
             Ok(py_str_value.borrow_value() == *self)
         } else {
             // Fall back to PyObjectRef implementation.
