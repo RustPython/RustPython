@@ -1,7 +1,7 @@
 use super::Diagnostic;
 use crate::util::{
     path_eq, pyclass_ident_and_attrs, ClassItemMeta, ContentItem, ContentItemInner, ErrorVec,
-    ItemMeta, ItemMetaInner, ItemNursery, ALL_ALLOWED_NAMES,
+    ItemMeta, ItemMetaInner, ItemNursery, SimpleItemMeta, ALL_ALLOWED_NAMES,
 };
 use proc_macro2::TokenStream;
 use quote::{quote, quote_spanned, ToTokens};
@@ -216,6 +216,11 @@ struct SlotItem {
     inner: ContentItemInner,
 }
 
+/// #[pyattr]
+struct AttributeItem {
+    inner: ContentItemInner,
+}
+
 /// #[extend_class]
 struct ExtendClassItem {
     inner: ContentItemInner,
@@ -232,6 +237,11 @@ impl ContentItem for PropertyItem {
     }
 }
 impl ContentItem for SlotItem {
+    fn inner(&self) -> &ContentItemInner {
+        &self.inner
+    }
+}
+impl ContentItem for AttributeItem {
     fn inner(&self) -> &ContentItemInner {
         &self.inner
     }
@@ -357,6 +367,51 @@ where
         Ok(())
     }
 }
+
+impl<Item> ImplItem<Item> for AttributeItem
+where
+    Item: ItemLike + ToTokens + GetIdent,
+{
+    fn gen_impl_item(&self, args: ImplItemArgs<'_, Item>) -> Result<()> {
+        let cfgs = args.cfgs.to_vec();
+        let attr = args.attrs.remove(self.index());
+
+        let get_py_name = |attr: &Attribute, ident: &Ident| -> Result<_> {
+            let item_meta = SimpleItemMeta::from_attr(ident.clone(), attr)?;
+            let py_name = item_meta.simple_name()?;
+            Ok(py_name)
+        };
+        let (py_name, tokens) = if args.item.is_function_or_method() || args.item.is_const() {
+            let ident = args.item.get_ident().unwrap();
+            let py_name = get_py_name(&attr, &ident)?;
+
+            let value = if args.item.is_const() {
+                // TODO: ctx.new_value
+                quote_spanned!(ident.span() => ctx.new_int(Self::#ident))
+            } else {
+                quote_spanned!(ident.span() => Self::#ident(ctx))
+            };
+            (
+                py_name.clone(),
+                quote! {
+                    class.set_str_attr(#py_name, #value);
+                },
+            )
+        } else {
+            return Err(self.new_syn_error(
+                args.item.span(),
+                "can only be on a const or an associated method without argument",
+            ));
+        };
+
+        args.context
+            .impl_extend_items
+            .add_item(py_name, cfgs, tokens)?;
+
+        Ok(())
+    }
+}
+
 impl<Item> ImplItem<Item> for ExtendClassItem
 where
     Item: ItemLike + ToTokens + GetIdent,
@@ -631,18 +686,27 @@ fn extract_impl_attrs(attr: AttributeArgs) -> std::result::Result<ExtractedImplA
             NestedMeta::Meta(Meta::List(syn::MetaList { path, nested, .. })) => {
                 if path_eq(&path, "with") {
                     for meta in nested {
-                        match meta {
-                            NestedMeta::Meta(Meta::Path(path)) => {
-                                withs.push(quote! {
-                                    <Self as #path>::__extend_py_class(ctx, class);
-                                });
-                                with_slots.push(quote! {
-                                    <Self as #path>::__extend_slots(slots);
-                                });
-                            }
+                        let path = match meta {
+                            NestedMeta::Meta(Meta::Path(path)) => path,
                             meta => {
                                 bail_span!(meta, "#[pyimpl(with(...))] arguments should be paths")
                             }
+                        };
+                        if path_eq(&path, "PyRef") {
+                            // special handling for PyRef
+                            withs.push(quote! {
+                                PyRef::<Self>::impl_extend_class(ctx, class);
+                            });
+                            with_slots.push(quote! {
+                                PyRef::<Self>::extend_slots(slots);
+                            });
+                        } else {
+                            withs.push(quote! {
+                                <Self as #path>::__extend_py_class(ctx, class);
+                            });
+                            with_slots.push(quote! {
+                                <Self as #path>::__extend_slots(slots);
+                            });
                         }
                     }
                 } else if path_eq(&path, "flags") {
@@ -703,6 +767,9 @@ where
             inner: ContentItemInner { index, attr_name },
         }),
         "pyslot" => Box::new(SlotItem {
+            inner: ContentItemInner { index, attr_name },
+        }),
+        "pyattr" => Box::new(AttributeItem {
             inner: ContentItemInner { index, attr_name },
         }),
         "extend_class" => Box::new(ExtendClassItem {

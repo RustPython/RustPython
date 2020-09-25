@@ -1300,11 +1300,11 @@ pub trait PyClassImpl: PyClassDef {
     }
 
     fn make_class(ctx: &PyContext) -> PyClassRef {
-        Self::make_class_with_base(ctx, Self::NAME, Self::base_class(ctx))
+        Self::make_class_with_base(ctx, Self::base_class(ctx))
     }
 
-    fn make_class_with_base(ctx: &PyContext, name: &str, base: PyClassRef) -> PyClassRef {
-        let py_class = ctx.new_class(name, base, Self::make_slots());
+    fn make_class_with_base(ctx: &PyContext, base: PyClassRef) -> PyClassRef {
+        let py_class = ctx.new_class(Self::NAME, base, Self::make_slots());
         Self::extend_class(ctx, &py_class);
         py_class
     }
