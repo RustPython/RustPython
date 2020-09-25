@@ -3,7 +3,7 @@ use num_traits::Zero;
 
 use super::objfloat;
 use super::objstr::PyStr;
-use super::objtype::{self, PyClassRef};
+use super::objtype::{self, PyTypeRef};
 use crate::pyobject::{
     BorrowValue, IntoPyObject, Never, PyArithmaticValue, PyClassImpl, PyComparisonValue, PyContext,
     PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
@@ -24,7 +24,7 @@ pub struct PyComplex {
 type PyComplexRef = PyRef<PyComplex>;
 
 impl PyValue for PyComplex {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.complex_type.clone()
     }
 }
@@ -223,7 +223,7 @@ impl PyComplex {
     }
 
     #[pyslot]
-    fn tp_new(cls: PyClassRef, args: ComplexArgs, vm: &VirtualMachine) -> PyResult<PyComplexRef> {
+    fn tp_new(cls: PyTypeRef, args: ComplexArgs, vm: &VirtualMachine) -> PyResult<PyComplexRef> {
         let real = match args.real {
             None => Complex64::new(0.0, 0.0),
             Some(obj) => {

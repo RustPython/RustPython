@@ -2,7 +2,7 @@ use js_sys::{Array, Object, Reflect};
 use rustpython_vm::common::rc::PyRc;
 use rustpython_vm::exceptions::PyBaseExceptionRef;
 use rustpython_vm::function::Args;
-use rustpython_vm::obj::{objfloat::PyFloatRef, objstr::PyStrRef, objtype::PyClassRef};
+use rustpython_vm::obj::{objfloat::PyFloatRef, objstr::PyStrRef, objtype::PyTypeRef};
 use rustpython_vm::pyobject::{
     BorrowValue, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
 };
@@ -42,7 +42,7 @@ unsafe impl Send for PyJsValue {}
 unsafe impl Sync for PyJsValue {}
 
 impl PyValue for PyJsValue {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.class("_js", "JsValue")
     }
 }

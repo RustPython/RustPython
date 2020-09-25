@@ -1,4 +1,4 @@
-use super::objtype::PyClassRef;
+use super::objtype::PyTypeRef;
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::slots::SlotDescriptor;
 use crate::vm::VirtualMachine;
@@ -11,7 +11,7 @@ pub struct PyStaticMethod {
 pub type PyStaticMethodRef = PyRef<PyStaticMethod>;
 
 impl PyValue for PyStaticMethod {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.staticmethod_type.clone()
     }
 }
@@ -38,7 +38,7 @@ impl From<PyObjectRef> for PyStaticMethod {
 impl PyStaticMethod {
     #[pyslot]
     fn tp_new(
-        cls: PyClassRef,
+        cls: PyTypeRef,
         callable: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyStaticMethodRef> {

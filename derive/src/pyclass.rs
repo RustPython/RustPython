@@ -73,7 +73,7 @@ pub(crate) fn impl_pyimpl(
 
                     fn impl_extend_class(
                         ctx: &::rustpython_vm::pyobject::PyContext,
-                        class: &::rustpython_vm::obj::objtype::PyClassRef,
+                        class: &::rustpython_vm::obj::objtype::PyTypeRef,
                     ) {
                         #getset_impl
                         #extend_impl
@@ -81,7 +81,7 @@ pub(crate) fn impl_pyimpl(
                         #(#class_extensions)*
                     }
 
-                    fn extend_slots(slots: &mut ::rustpython_vm::slots::PyClassSlots) {
+                    fn extend_slots(slots: &mut ::rustpython_vm::slots::PyTypeSlots) {
                         #with_slots
                         #slots_impl
                     }
@@ -100,7 +100,7 @@ pub(crate) fn impl_pyimpl(
                 parse_quote! {
                     fn __extend_py_class(
                         ctx: &::rustpython_vm::pyobject::PyContext,
-                        class: &::rustpython_vm::obj::objtype::PyClassRef,
+                        class: &::rustpython_vm::obj::objtype::PyTypeRef,
                     ) {
                         #getset_impl
                         #extend_impl
@@ -108,7 +108,7 @@ pub(crate) fn impl_pyimpl(
                     }
                 },
                 parse_quote! {
-                    fn __extend_slots(slots: &mut ::rustpython_vm::slots::PyClassSlots) {
+                    fn __extend_slots(slots: &mut ::rustpython_vm::slots::PyTypeSlots) {
                         #slots_impl
                     }
                 },
@@ -162,7 +162,7 @@ fn generate_class_def(
 
     let base_class = if is_pystruct {
         quote! {
-            fn base_class(ctx: &::rustpython_vm::pyobject::PyContext) -> ::rustpython_vm::obj::objtype::PyClassRef {
+            fn base_class(ctx: &::rustpython_vm::pyobject::PyContext) -> ::rustpython_vm::obj::objtype::PyTypeRef {
                 ctx.types.tuple_type.clone()
             }
         }

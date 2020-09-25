@@ -13,7 +13,7 @@ use super::objbytes::PyBytes;
 use super::objfloat;
 use super::objmemory::PyMemoryView;
 use super::objstr::{PyStr, PyStrRef};
-use super::objtype::PyClassRef;
+use super::objtype::PyTypeRef;
 use crate::bytesinner::PyBytesInner;
 use crate::format::FormatSpec;
 use crate::function::{OptionalArg, PyFuncArgs};
@@ -73,7 +73,7 @@ where
 }
 
 impl PyValue for PyInt {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.int_type.clone()
     }
 
@@ -233,7 +233,7 @@ fn inner_truediv(i1: &BigInt, i2: &BigInt, vm: &VirtualMachine) -> PyResult {
 
 #[pyimpl(flags(BASETYPE), with(Comparable, Hashable))]
 impl PyInt {
-    fn with_value<T>(cls: PyClassRef, value: T, vm: &VirtualMachine) -> PyResult<PyIntRef>
+    fn with_value<T>(cls: PyTypeRef, value: T, vm: &VirtualMachine) -> PyResult<PyIntRef>
     where
         T: Into<BigInt> + ToPrimitive,
     {
@@ -251,7 +251,7 @@ impl PyInt {
     }
 
     #[pyslot]
-    fn tp_new(cls: PyClassRef, options: IntOptions, vm: &VirtualMachine) -> PyResult<PyIntRef> {
+    fn tp_new(cls: PyTypeRef, options: IntOptions, vm: &VirtualMachine) -> PyResult<PyIntRef> {
         let value = if let OptionalArg::Present(val) = options.val_options {
             if let OptionalArg::Present(base) = options.base {
                 let base = vm
@@ -557,7 +557,7 @@ impl PyInt {
 
     #[pyclassmethod]
     fn from_bytes(
-        cls: PyClassRef,
+        cls: PyTypeRef,
         args: IntFromByteArgs,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {

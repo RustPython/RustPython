@@ -4,7 +4,7 @@ pub(crate) use _collections::make_module;
 mod _collections {
     use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
     use crate::function::OptionalArg;
-    use crate::obj::{objiter, objsequence, objtype::PyClassRef};
+    use crate::obj::{objiter, objsequence, objtype::PyTypeRef};
     use crate::pyobject::{
         PyClassImpl, PyComparisonValue, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
     };
@@ -27,7 +27,7 @@ mod _collections {
     type PyDequeRef = PyRef<PyDeque>;
 
     impl PyValue for PyDeque {
-        fn class(vm: &VirtualMachine) -> PyClassRef {
+        fn class(vm: &VirtualMachine) -> PyTypeRef {
             vm.class("_collections", "deque")
         }
     }
@@ -70,7 +70,7 @@ mod _collections {
     impl PyDeque {
         #[pyslot]
         fn tp_new(
-            cls: PyClassRef,
+            cls: PyTypeRef,
             iter: OptionalArg<PyIterable>,
             PyDequeOptions { maxlen }: PyDequeOptions,
             vm: &VirtualMachine,
@@ -359,7 +359,7 @@ mod _collections {
     }
 
     impl PyValue for PyDequeIterator {
-        fn class(vm: &VirtualMachine) -> PyClassRef {
+        fn class(vm: &VirtualMachine) -> PyTypeRef {
             vm.class("_collections", "_deque_iterator")
         }
     }

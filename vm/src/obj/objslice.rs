@@ -1,7 +1,7 @@
 // sliceobject.{h,c} in CPython
 
 use super::objint::PyInt;
-use super::objtype::PyClassRef;
+use super::objtype::PyTypeRef;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
     BorrowValue, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
@@ -21,7 +21,7 @@ pub struct PySlice {
 }
 
 impl PyValue for PySlice {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.slice_type.clone()
     }
 }
@@ -94,7 +94,7 @@ impl PySlice {
     }
 
     #[pyslot]
-    fn tp_new(cls: PyClassRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PySliceRef> {
+    fn tp_new(cls: PyTypeRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PySliceRef> {
         let slice: PySlice = match args.args.len() {
             0 => {
                 return Err(
@@ -287,7 +287,7 @@ fn to_index_value(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Option<Big
 pub struct PyEllipsis;
 
 impl PyValue for PyEllipsis {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.ellipsis.class()
     }
 }
@@ -295,7 +295,7 @@ impl PyValue for PyEllipsis {
 #[pyimpl]
 impl PyEllipsis {
     #[pyslot]
-    fn tp_new(_cls: PyClassRef, vm: &VirtualMachine) -> PyRef<Self> {
+    fn tp_new(_cls: PyTypeRef, vm: &VirtualMachine) -> PyRef<Self> {
         vm.ctx.ellipsis.clone()
     }
 

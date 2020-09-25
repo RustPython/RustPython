@@ -1,4 +1,4 @@
-use super::objtype::PyClassRef;
+use super::objtype::PyTypeRef;
 use super::objweakref::PyWeak;
 use crate::function::OptionalArg;
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
@@ -11,7 +11,7 @@ pub struct PyWeakProxy {
 }
 
 impl PyValue for PyWeakProxy {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.weakproxy_type.clone()
     }
 }
@@ -23,7 +23,7 @@ impl PyWeakProxy {
     // TODO: callbacks
     #[pyslot]
     fn tp_new(
-        cls: PyClassRef,
+        cls: PyTypeRef,
         referent: PyObjectRef,
         callback: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,

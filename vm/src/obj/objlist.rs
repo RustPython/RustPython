@@ -12,7 +12,7 @@ use super::objsequence::{
     get_item, get_pos, get_saturated_pos, PySliceableSequenceMut, SequenceIndex,
 };
 use super::objslice::PySliceRef;
-use super::objtype::PyClassRef;
+use super::objtype::PyTypeRef;
 use crate::bytesinner;
 use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::function::OptionalArg;
@@ -56,7 +56,7 @@ impl FromIterator<PyObjectRef> for PyList {
 }
 
 impl PyValue for PyList {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.list_type.clone()
     }
 }
@@ -394,7 +394,7 @@ impl PyList {
 
     #[pyslot]
     fn tp_new(
-        cls: PyClassRef,
+        cls: PyTypeRef,
         iterable: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyListRef> {
@@ -462,7 +462,7 @@ pub struct PyListIterator {
 }
 
 impl PyValue for PyListIterator {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.list_iterator_type.clone()
     }
 }
@@ -501,7 +501,7 @@ pub struct PyListReverseIterator {
 }
 
 impl PyValue for PyListReverseIterator {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.list_reverseiterator_type.clone()
     }
 }

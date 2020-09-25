@@ -1,4 +1,4 @@
-use super::objtype::PyClassRef;
+use super::objtype::PyTypeRef;
 use crate::pyobject::{
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
@@ -39,7 +39,7 @@ impl From<PyObjectRef> for PyClassMethod {
 }
 
 impl PyValue for PyClassMethod {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.classmethod_type.clone()
     }
 }
@@ -61,7 +61,7 @@ impl SlotDescriptor for PyClassMethod {
 impl PyClassMethod {
     #[pyslot]
     fn tp_new(
-        cls: PyClassRef,
+        cls: PyTypeRef,
         callable: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyClassMethodRef> {

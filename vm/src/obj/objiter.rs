@@ -7,7 +7,7 @@ use num_traits::Signed;
 
 use super::objint::{self, PyInt};
 use super::objsequence;
-use super::objtype::{self, PyClassRef};
+use super::objtype::{self, PyTypeRef};
 use crate::exceptions::PyBaseExceptionRef;
 use crate::pyobject::{
     BorrowValue, PyCallable, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
@@ -152,7 +152,7 @@ pub struct PySequenceIterator {
 }
 
 impl PyValue for PySequenceIterator {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.iter_type.clone()
     }
 }
@@ -225,7 +225,7 @@ pub struct PyCallableIterator {
 }
 
 impl PyValue for PyCallableIterator {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.callable_iterator.clone()
     }
 }

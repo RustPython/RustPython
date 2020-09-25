@@ -10,7 +10,7 @@ use num_complex::Complex64;
 use rustpython_parser::{ast, mode::Mode, parser};
 
 use crate::obj::objlist::PyListRef;
-use crate::obj::objtype::PyClassRef;
+use crate::obj::objtype::PyTypeRef;
 use crate::pyobject::{IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::slots::PyTpFlags;
 use crate::vm::VirtualMachine;
@@ -23,7 +23,7 @@ const MODULE_NAME: &str = "_ast";
 pub const PY_COMPILE_FLAG_AST_ONLY: i32 = 0x0400;
 
 impl PyValue for AstNode {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.class(MODULE_NAME, "AST")
     }
 }

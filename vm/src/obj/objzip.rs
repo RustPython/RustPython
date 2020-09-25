@@ -1,5 +1,5 @@
 use super::objiter;
-use super::objtype::PyClassRef;
+use super::objtype::PyTypeRef;
 use crate::function::Args;
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
@@ -13,7 +13,7 @@ pub struct PyZip {
 }
 
 impl PyValue for PyZip {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.zip_type.clone()
     }
 }
@@ -21,7 +21,7 @@ impl PyValue for PyZip {
 #[pyimpl(flags(BASETYPE))]
 impl PyZip {
     #[pyslot]
-    fn tp_new(cls: PyClassRef, iterables: Args, vm: &VirtualMachine) -> PyResult<PyZipRef> {
+    fn tp_new(cls: PyTypeRef, iterables: Args, vm: &VirtualMachine) -> PyResult<PyZipRef> {
         let iterators = iterables
             .into_iter()
             .map(|iterable| objiter::get_iter(vm, &iterable))

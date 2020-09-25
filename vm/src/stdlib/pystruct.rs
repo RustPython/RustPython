@@ -27,7 +27,7 @@ mod _struct {
     use crate::function::Args;
     use crate::obj::{
         objbool::IntoPyBool, objbytes::PyBytesRef, objiter, objstr::PyStr, objstr::PyStrRef,
-        objtuple::PyTupleRef, objtype::PyClassRef,
+        objtuple::PyTupleRef, objtype::PyTypeRef,
     };
     use crate::pyobject::{
         BorrowValue, Either, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
@@ -825,7 +825,7 @@ mod _struct {
     }
 
     impl PyValue for UnpackIterator {
-        fn class(vm: &VirtualMachine) -> PyClassRef {
+        fn class(vm: &VirtualMachine) -> PyTypeRef {
             vm.class("_struct", "unpack_iterator")
         }
     }
@@ -880,7 +880,7 @@ mod _struct {
     }
 
     impl PyValue for PyStruct {
-        fn class(vm: &VirtualMachine) -> PyClassRef {
+        fn class(vm: &VirtualMachine) -> PyTypeRef {
             vm.class("_struct", "Struct")
         }
     }
@@ -889,7 +889,7 @@ mod _struct {
     impl PyStruct {
         #[pyslot]
         fn tp_new(
-            cls: PyClassRef,
+            cls: PyTypeRef,
             fmt: Either<PyStrRef, PyBytesRef>,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {

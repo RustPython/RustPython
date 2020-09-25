@@ -8,7 +8,7 @@ use result_like::impl_option_like;
 
 use crate::exceptions::PyBaseExceptionRef;
 use crate::obj::objtuple::PyTupleRef;
-use crate::obj::objtype::{isinstance, PyClassRef};
+use crate::obj::objtype::{isinstance, PyTypeRef};
 use crate::pyobject::{
     BorrowValue, IntoPyResult, PyObjectRef, PyRef, PyResult, PyThreadingConstraint, PyValue,
     TryFromObject, TypeProtocol,
@@ -121,7 +121,7 @@ impl PyFuncArgs {
     pub fn get_optional_kwarg_with_type(
         &self,
         key: &str,
-        ty: PyClassRef,
+        ty: PyTypeRef,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
         match self.get_optional_kwarg(key) {

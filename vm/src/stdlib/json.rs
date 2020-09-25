@@ -6,7 +6,7 @@ mod _json {
     use crate::function::PyFuncArgs;
     use crate::obj::objiter;
     use crate::obj::objstr::PyStrRef;
-    use crate::obj::{objbool, objtype::PyClassRef};
+    use crate::obj::{objbool, objtype::PyTypeRef};
     use crate::pyobject::{
         BorrowValue, IdProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
     };
@@ -30,7 +30,7 @@ mod _json {
     }
 
     impl PyValue for JsonScanner {
-        fn class(vm: &VirtualMachine) -> PyClassRef {
+        fn class(vm: &VirtualMachine) -> PyTypeRef {
             vm.class("_json", "make_scanner")
         }
     }
@@ -38,7 +38,7 @@ mod _json {
     #[pyimpl(with(Callable))]
     impl JsonScanner {
         #[pyslot]
-        fn tp_new(cls: PyClassRef, ctx: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        fn tp_new(cls: PyTypeRef, ctx: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
             let strict = objbool::boolval(vm, vm.get_attribute(ctx.clone(), "strict")?)?;
             let object_hook = vm.option_if_none(vm.get_attribute(ctx.clone(), "object_hook")?);
             let object_pairs_hook =

@@ -1,7 +1,7 @@
 use super::objcode::PyCodeRef;
 use super::objcoroinner::{Coro, Variant};
 use super::objstr::PyStrRef;
-use super::objtype::PyClassRef;
+use super::objtype::PyTypeRef;
 use crate::frame::FrameRef;
 use crate::function::OptionalArg;
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
@@ -16,7 +16,7 @@ pub struct PyCoroutine {
 }
 
 impl PyValue for PyCoroutine {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.coroutine_type.clone()
     }
 }
@@ -102,7 +102,7 @@ pub struct PyCoroutineWrapper {
 }
 
 impl PyValue for PyCoroutineWrapper {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.coroutine_wrapper_type.clone()
     }
 }

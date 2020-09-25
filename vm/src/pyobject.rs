@@ -33,10 +33,10 @@ use crate::obj::objslice::PyEllipsis;
 use crate::obj::objstaticmethod::PyStaticMethod;
 use crate::obj::objstr;
 use crate::obj::objtuple::{PyTuple, PyTupleRef};
-use crate::obj::objtype::{self, PyClass, PyClassRef};
+use crate::obj::objtype::{self, PyType, PyTypeRef};
 pub use crate::pyobjectrc::{PyObjectRc, PyObjectWeak};
 use crate::scope::Scope;
-use crate::slots::{PyClassSlots, PyTpFlags};
+use crate::slots::{PyTpFlags, PyTypeSlots};
 use crate::types::{create_type_with_slots, initialize_types, TypeZoo};
 use crate::vm::VirtualMachine;
 use rustpython_common::cell::{PyRwLock, PyRwLockReadGuard};
@@ -77,7 +77,7 @@ pub type PyAttributes = HashMap<String, PyObjectRef>;
 
 impl fmt::Display for PyObject<dyn PyObjectPayload> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if let Some(PyClass { ref name, .. }) = self.payload::<PyClass>() {
+        if let Some(PyType { ref name, .. }) = self.payload::<PyType>() {
             let type_name = self.lease_class().name.clone();
             // We don't have access to a vm, so just assume that if its parent's name
             // is type, it's a type
@@ -117,7 +117,7 @@ impl PyContext {
         let types = TypeZoo::new();
         let exceptions = exceptions::ExceptionZoo::new(&types.type_type, &types.object_type);
 
-        fn create_object<T: PyObjectPayload + PyValue>(payload: T, cls: &PyClassRef) -> PyRef<T> {
+        fn create_object<T: PyObjectPayload + PyValue>(payload: T, cls: &PyTypeRef) -> PyRef<T> {
             PyRef::new_ref(payload, cls.clone(), None)
         }
 
@@ -266,7 +266,7 @@ impl PyContext {
         PyRef::new_ref(PyDict::default(), self.types.dict_type.clone(), None)
     }
 
-    pub fn new_class(&self, name: &str, base: PyClassRef, slots: PyClassSlots) -> PyClassRef {
+    pub fn new_class(&self, name: &str, base: PyTypeRef, slots: PyTypeSlots) -> PyTypeRef {
         create_type_with_slots(name, &self.types.type_type, base, slots)
     }
 
@@ -375,7 +375,7 @@ impl PyContext {
         )
     }
 
-    pub fn new_base_object(&self, class: PyClassRef, dict: Option<PyDictRef>) -> PyObjectRef {
+    pub fn new_base_object(&self, class: PyTypeRef, dict: Option<PyDictRef>) -> PyObjectRef {
         PyObject {
             typ: PyRwLock::new(class.into_typed_pyobj()),
             dict: dict.map(|d| PyRwLock::new(d.into_typed_pyobj())),
@@ -407,7 +407,7 @@ impl PyContext {
         }
     }
 
-    pub fn add_tp_new_wrapper(&self, ty: &PyClassRef) {
+    pub fn add_tp_new_wrapper(&self, ty: &PyTypeRef) {
         if !ty.attributes.read().contains_key("__new__") {
             let new_wrapper =
                 self.new_bound_method(self.tp_new_wrapper.clone(), ty.clone().into_object());
@@ -434,7 +434,7 @@ pub struct PyObject<T>
 where
     T: ?Sized + PyObjectPayload,
 {
-    pub(crate) typ: PyRwLock<PyObjectRc<PyClass>>, // __class__ member
+    pub(crate) typ: PyRwLock<PyObjectRc<PyType>>, // __class__ member
     pub(crate) dict: Option<PyRwLock<PyObjectRc<PyDict>>>, // __dict__ member
     pub payload: T,
 }
@@ -523,7 +523,7 @@ impl<T> Clone for PyRef<T> {
 
 impl<T: PyValue> PyRef<T> {
     #[allow(clippy::new_ret_no_self)]
-    pub fn new_ref(payload: T, typ: PyClassRef, dict: Option<PyDictRef>) -> Self {
+    pub fn new_ref(payload: T, typ: PyTypeRef, dict: Option<PyDictRef>) -> Self {
         let obj = PyObject::new(payload, typ, dict);
         // SAFETY: we just created the object from a payload of type T
         unsafe { Self::from_obj_unchecked(obj) }
@@ -654,7 +654,7 @@ impl TryFromObject for PyCallable {
 pub type Never = std::convert::Infallible;
 
 impl PyValue for Never {
-    fn class(_vm: &VirtualMachine) -> PyClassRef {
+    fn class(_vm: &VirtualMachine) -> PyTypeRef {
         unreachable!()
     }
 }
@@ -731,9 +731,9 @@ where
 }
 
 pub trait TypeProtocol {
-    fn lease_class(&self) -> PyLease<'_, PyClass>;
+    fn lease_class(&self) -> PyLease<'_, PyType>;
 
-    fn class(&self) -> PyClassRef {
+    fn class(&self) -> PyTypeRef {
         PyLease::into_pyref(self.lease_class())
     }
 
@@ -747,7 +747,7 @@ pub trait TypeProtocol {
 }
 
 impl TypeProtocol for PyObjectRef {
-    fn lease_class(&self) -> PyLease<'_, PyClass> {
+    fn lease_class(&self) -> PyLease<'_, PyType> {
         (**self).lease_class()
     }
 }
@@ -756,7 +756,7 @@ impl<T> TypeProtocol for PyObject<T>
 where
     T: ?Sized + PyObjectPayload,
 {
-    fn lease_class(&self) -> PyLease<'_, PyClass> {
+    fn lease_class(&self) -> PyLease<'_, PyType> {
         PyLease {
             inner: self.typ.read(),
         }
@@ -764,13 +764,13 @@ where
 }
 
 impl<T> TypeProtocol for PyRef<T> {
-    fn lease_class(&self) -> PyLease<'_, PyClass> {
+    fn lease_class(&self) -> PyLease<'_, PyType> {
         self.obj.lease_class()
     }
 }
 
 impl<T: TypeProtocol> TypeProtocol for &'_ T {
-    fn lease_class(&self) -> PyLease<'_, PyClass> {
+    fn lease_class(&self) -> PyLease<'_, PyType> {
         (&**self).lease_class()
     }
 }
@@ -1049,7 +1049,7 @@ where
     T: Sized + PyObjectPayload,
 {
     #[allow(clippy::new_ret_no_self)]
-    pub fn new(payload: T, typ: PyClassRef, dict: Option<PyDictRef>) -> PyObjectRef {
+    pub fn new(payload: T, typ: PyTypeRef, dict: Option<PyDictRef>) -> PyObjectRef {
         PyObject {
             typ: PyRwLock::new(typ.into_typed_pyobj()),
             dict: dict.map(|d| PyRwLock::new(d.into_typed_pyobj())),
@@ -1138,7 +1138,7 @@ cfg_if::cfg_if! {
 }
 
 pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
-    fn class(vm: &VirtualMachine) -> PyClassRef;
+    fn class(vm: &VirtualMachine) -> PyTypeRef;
 
     fn into_object(self, vm: &VirtualMachine) -> PyObjectRef {
         self.into_ref(vm).into_object()
@@ -1148,7 +1148,7 @@ pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
         self.into_ref_with_type_unchecked(Self::class(vm), vm)
     }
 
-    fn into_ref_with_type(self, vm: &VirtualMachine, cls: PyClassRef) -> PyResult<PyRef<Self>> {
+    fn into_ref_with_type(self, vm: &VirtualMachine, cls: PyTypeRef) -> PyResult<PyRef<Self>> {
         let class = Self::class(vm);
         if objtype::issubclass(&cls, &class) {
             Ok(self.into_ref_with_type_unchecked(cls, vm))
@@ -1159,7 +1159,7 @@ pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
         }
     }
 
-    fn into_ref_with_type_unchecked(self, cls: PyClassRef, vm: &VirtualMachine) -> PyRef<Self> {
+    fn into_ref_with_type_unchecked(self, cls: PyTypeRef, vm: &VirtualMachine) -> PyRef<Self> {
         let dict = if cls.slots.flags.has_feature(PyTpFlags::HAS_DICT) {
             Some(vm.ctx.new_dict())
         } else {
@@ -1249,7 +1249,7 @@ pub trait PyClassDef {
     const MODULE_NAME: Option<&'static str>;
     const TP_NAME: &'static str;
     const DOC: Option<&'static str> = None;
-    fn base_class(ctx: &PyContext) -> PyClassRef {
+    fn base_class(ctx: &PyContext) -> PyTypeRef {
         ctx.types.object_type.clone()
     }
 }
@@ -1267,9 +1267,9 @@ where
 pub trait PyClassImpl: PyClassDef {
     const TP_FLAGS: PyTpFlags = PyTpFlags::DEFAULT;
 
-    fn impl_extend_class(ctx: &PyContext, class: &PyClassRef);
+    fn impl_extend_class(ctx: &PyContext, class: &PyTypeRef);
 
-    fn extend_class(ctx: &PyContext, class: &PyClassRef) {
+    fn extend_class(ctx: &PyContext, class: &PyTypeRef) {
         #[cfg(debug_assertions)]
         {
             assert!(class.slots.flags.is_created_with_flags());
@@ -1294,24 +1294,24 @@ pub trait PyClassImpl: PyClassDef {
         }
     }
 
-    fn make_class(ctx: &PyContext) -> PyClassRef {
+    fn make_class(ctx: &PyContext) -> PyTypeRef {
         Self::make_class_with_base(ctx, Self::base_class(ctx))
     }
 
-    fn make_class_with_base(ctx: &PyContext, base: PyClassRef) -> PyClassRef {
+    fn make_class_with_base(ctx: &PyContext, base: PyTypeRef) -> PyTypeRef {
         let py_class = ctx.new_class(Self::NAME, base, Self::make_slots());
         Self::extend_class(ctx, &py_class);
         py_class
     }
 
-    fn create_bare_type(type_type: &PyClassRef, base: PyClassRef) -> PyClassRef {
+    fn create_bare_type(type_type: &PyTypeRef, base: PyTypeRef) -> PyTypeRef {
         create_type_with_slots(Self::NAME, type_type, base, Self::make_slots())
     }
 
-    fn extend_slots(slots: &mut PyClassSlots);
+    fn extend_slots(slots: &mut PyTypeSlots);
 
-    fn make_slots() -> PyClassSlots {
-        let mut slots = PyClassSlots::default();
+    fn make_slots() -> PyTypeSlots {
+        let mut slots = PyTypeSlots::default();
         slots.flags = Self::TP_FLAGS;
         slots.name = PyRwLock::new(Some(Self::TP_NAME.to_owned()));
         Self::extend_slots(&mut slots);
@@ -1325,7 +1325,7 @@ pub trait PyStructSequence: PyClassImpl + Sized + 'static {
 
     fn into_tuple(self, vm: &VirtualMachine) -> PyTuple;
 
-    fn into_struct_sequence(self, vm: &VirtualMachine, cls: PyClassRef) -> PyResult<PyTupleRef> {
+    fn into_struct_sequence(self, vm: &VirtualMachine, cls: PyTypeRef) -> PyResult<PyTupleRef> {
         self.into_tuple(vm).into_ref_with_type(vm, cls)
     }
 
@@ -1357,7 +1357,7 @@ pub trait PyStructSequence: PyClassImpl + Sized + 'static {
     }
 
     #[extend_class]
-    fn extend_pyclass(ctx: &PyContext, class: &PyClassRef) {
+    fn extend_pyclass(ctx: &PyContext, class: &PyTypeRef) {
         for (i, &name) in Self::FIELD_NAMES.iter().enumerate() {
             // cast i to a u8 so there's less to store in the getter closure.
             // Hopefully there's not struct sequences with >=256 elements :P

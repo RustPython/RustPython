@@ -1,5 +1,5 @@
 use crate::frame::FrameRef;
-use crate::obj::objtype::PyClassRef;
+use crate::obj::objtype::PyTypeRef;
 use crate::pyobject::{PyClassImpl, PyContext, PyRef, PyValue};
 use crate::vm::VirtualMachine;
 
@@ -15,7 +15,7 @@ pub struct PyTraceback {
 pub type PyTracebackRef = PyRef<PyTraceback>;
 
 impl PyValue for PyTraceback {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.traceback_type.clone()
     }
 }

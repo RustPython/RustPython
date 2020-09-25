@@ -1,4 +1,4 @@
-use super::objtype::{issubclass, PyClassRef};
+use super::objtype::{issubclass, PyTypeRef};
 use crate::bytesinner::try_as_bytes;
 use crate::common::hash::PyHash;
 use crate::pyobject::{
@@ -27,7 +27,7 @@ impl PyMemoryView {
 
     #[pyslot]
     fn tp_new(
-        cls: PyClassRef,
+        cls: PyTypeRef,
         bytes_object: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyMemoryViewRef> {
@@ -73,7 +73,7 @@ impl Hashable for PyMemoryView {
 }
 
 impl PyValue for PyMemoryView {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.memoryview_type.clone()
     }
 }

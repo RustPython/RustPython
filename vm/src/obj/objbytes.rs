@@ -7,7 +7,7 @@ use super::objint::PyIntRef;
 use super::objiter;
 use super::objsequence::SequenceIndex;
 use super::objstr::PyStrRef;
-use super::objtype::PyClassRef;
+use super::objtype::PyTypeRef;
 use crate::anystr::{self, AnyStr};
 use crate::bytesinner::{
     bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
@@ -72,7 +72,7 @@ impl Deref for PyBytes {
 }
 
 impl PyValue for PyBytes {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.bytes_type.clone()
     }
 }
@@ -90,7 +90,7 @@ pub(crate) fn init(context: &PyContext) {
 impl PyBytes {
     #[pyslot]
     fn tp_new(
-        cls: PyClassRef,
+        cls: PyTypeRef,
         options: ByteInnerNewOptions,
         vm: &VirtualMachine,
     ) -> PyResult<PyBytesRef> {
@@ -485,7 +485,7 @@ pub struct PyBytesIterator {
 }
 
 impl PyValue for PyBytesIterator {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.bytes_iterator_type.clone()
     }
 }

@@ -6,7 +6,7 @@ mod hashlib {
     use crate::function::{OptionalArg, PyFuncArgs};
     use crate::obj::objbytes::{PyBytes, PyBytesRef};
     use crate::obj::objstr::PyStrRef;
-    use crate::obj::objtype::PyClassRef;
+    use crate::obj::objtype::PyTypeRef;
     use crate::pyobject::{BorrowValue, PyClassImpl, PyResult, PyValue};
     use crate::vm::VirtualMachine;
     use std::fmt;
@@ -32,7 +32,7 @@ mod hashlib {
     }
 
     impl PyValue for PyHasher {
-        fn class(vm: &VirtualMachine) -> PyClassRef {
+        fn class(vm: &VirtualMachine) -> PyTypeRef {
             vm.class("hashlib", "hasher")
         }
     }
@@ -55,7 +55,7 @@ mod hashlib {
         }
 
         #[pyslot]
-        fn tp_new(_cls: PyClassRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+        fn tp_new(_cls: PyTypeRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
             Ok(PyHasher::new("md5", HashWrapper::md5())
                 .into_ref(vm)
                 .into_object())

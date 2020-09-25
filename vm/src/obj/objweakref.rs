@@ -1,4 +1,4 @@
-use super::objtype::PyClassRef;
+use super::objtype::PyTypeRef;
 use crate::common::hash::PyHash;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
@@ -31,7 +31,7 @@ impl PyWeak {
 }
 
 impl PyValue for PyWeak {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.weakref_type.clone()
     }
 }
@@ -50,7 +50,7 @@ impl PyWeak {
     // TODO callbacks
     #[pyslot]
     fn tp_new(
-        cls: PyClassRef,
+        cls: PyTypeRef,
         referent: PyObjectRef,
         _callback: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,

@@ -5,7 +5,7 @@ use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
 use crate::function::OptionalArg;
 use crate::obj::objbytearray::PyByteArrayRef;
 use crate::obj::objstr::PyStrRef;
-use crate::obj::{objtype::PyClassRef, objweakref::PyWeak};
+use crate::obj::{objtype::PyTypeRef, objweakref::PyWeak};
 use crate::pyobject::{
     BorrowValue, Either, IntoPyObject, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult,
     PyValue,
@@ -241,7 +241,7 @@ impl fmt::Debug for PySslContext {
 }
 
 impl PyValue for PySslContext {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.class("_ssl", "_SSLContext")
     }
 }
@@ -263,7 +263,7 @@ impl PySslContext {
     }
 
     #[pyslot]
-    fn tp_new(cls: PyClassRef, proto_version: i32, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    fn tp_new(cls: PyTypeRef, proto_version: i32, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         let proto = SslVersion::try_from(proto_version)
             .map_err(|_| vm.new_value_error("invalid protocol version".to_owned()))?;
         let method = match proto {
@@ -520,7 +520,7 @@ impl fmt::Debug for PySslSocket {
 }
 
 impl PyValue for PySslSocket {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.class("_ssl", "_SSLSocket")
     }
 }
@@ -629,7 +629,7 @@ impl PySslSocket {
     }
 }
 
-fn ssl_error(vm: &VirtualMachine) -> PyClassRef {
+fn ssl_error(vm: &VirtualMachine) -> PyTypeRef {
     vm.class("_ssl", "SSLError")
 }
 

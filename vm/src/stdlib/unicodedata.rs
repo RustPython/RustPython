@@ -4,7 +4,7 @@
 
 use crate::function::OptionalArg;
 use crate::obj::objstr::PyStrRef;
-use crate::obj::objtype::PyClassRef;
+use crate::obj::objtype::PyTypeRef;
 use crate::pyobject::{BorrowValue, PyClassImpl, PyObject, PyObjectRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
@@ -61,7 +61,7 @@ struct PyUCD {
 }
 
 impl PyValue for PyUCD {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.class("unicodedata", "UCD")
     }
 }

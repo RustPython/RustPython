@@ -6,7 +6,7 @@ use num_traits::{pow, ToPrimitive, Zero};
 use super::objbytes::PyBytes;
 use super::objint::{self, PyInt, PyIntRef};
 use super::objstr::{PyStr, PyStrRef};
-use super::objtype::PyClassRef;
+use super::objtype::PyTypeRef;
 use crate::format::FormatSpec;
 use crate::function::{OptionalArg, OptionalOption};
 use crate::pyobject::{
@@ -33,7 +33,7 @@ impl PyFloat {
 }
 
 impl PyValue for PyFloat {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.float_type.clone()
     }
 }
@@ -137,7 +137,7 @@ pub fn float_pow(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult {
 impl PyFloat {
     #[pyslot]
     fn tp_new(
-        cls: PyClassRef,
+        cls: PyTypeRef,
         arg: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyFloatRef> {

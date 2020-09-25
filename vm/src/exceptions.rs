@@ -4,7 +4,7 @@ use crate::obj::objsingletons::{PyNone, PyNoneRef};
 use crate::obj::objstr::{PyStr, PyStrRef};
 use crate::obj::objtraceback::PyTracebackRef;
 use crate::obj::objtuple::{PyTuple, PyTupleRef};
-use crate::obj::objtype::{self, PyClass, PyClassRef};
+use crate::obj::objtype::{self, PyType, PyTypeRef};
 use crate::py_io::{self, Write};
 use crate::pyobject::{
     BorrowValue, IntoPyObject, PyClassDef, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef,
@@ -44,7 +44,7 @@ pub trait IntoPyException {
 }
 
 impl PyValue for PyBaseException {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.exceptions.base_exception_type.clone()
     }
 }
@@ -62,7 +62,7 @@ impl PyBaseException {
     }
 
     #[pyslot]
-    fn tp_new(cls: PyClassRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    fn tp_new(cls: PyTypeRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         PyBaseException::new(args.args, vm).into_ref_with_type(vm, cls)
     }
 
@@ -295,13 +295,13 @@ fn exception_args_as_string(
 
 #[derive(Clone)]
 pub enum ExceptionCtor {
-    Class(PyClassRef),
+    Class(PyTypeRef),
     Instance(PyBaseExceptionRef),
 }
 
 impl TryFromObject for ExceptionCtor {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        obj.downcast::<PyClass>()
+        obj.downcast::<PyType>()
             .and_then(|cls| {
                 if objtype::issubclass(&cls, &vm.ctx.exceptions.base_exception_type) {
                     Ok(Self::Class(cls))
@@ -320,7 +320,7 @@ impl TryFromObject for ExceptionCtor {
 }
 
 pub fn invoke(
-    cls: PyClassRef,
+    cls: PyTypeRef,
     args: Vec<PyObjectRef>,
     vm: &VirtualMachine,
 ) -> PyResult<PyBaseExceptionRef> {
@@ -392,80 +392,80 @@ pub fn normalize(
 
 #[derive(Debug)]
 pub struct ExceptionZoo {
-    pub base_exception_type: PyClassRef,
-    pub system_exit: PyClassRef,
-    pub keyboard_interrupt: PyClassRef,
-    pub generator_exit: PyClassRef,
-    pub exception_type: PyClassRef,
-    pub stop_iteration: PyClassRef,
-    pub stop_async_iteration: PyClassRef,
-    pub arithmetic_error: PyClassRef,
-    pub floating_point_error: PyClassRef,
-    pub overflow_error: PyClassRef,
-    pub zero_division_error: PyClassRef,
-    pub assertion_error: PyClassRef,
-    pub attribute_error: PyClassRef,
-    pub buffer_error: PyClassRef,
-    pub eof_error: PyClassRef,
-    pub import_error: PyClassRef,
-    pub module_not_found_error: PyClassRef,
-    pub lookup_error: PyClassRef,
-    pub index_error: PyClassRef,
-    pub key_error: PyClassRef,
-    pub memory_error: PyClassRef,
-    pub name_error: PyClassRef,
-    pub unbound_local_error: PyClassRef,
-    pub os_error: PyClassRef,
-    pub blocking_io_error: PyClassRef,
-    pub child_process_error: PyClassRef,
-    pub connection_error: PyClassRef,
-    pub broken_pipe_error: PyClassRef,
-    pub connection_aborted_error: PyClassRef,
-    pub connection_refused_error: PyClassRef,
-    pub connection_reset_error: PyClassRef,
-    pub file_exists_error: PyClassRef,
-    pub file_not_found_error: PyClassRef,
-    pub interrupted_error: PyClassRef,
-    pub is_a_directory_error: PyClassRef,
-    pub not_a_directory_error: PyClassRef,
-    pub permission_error: PyClassRef,
-    pub process_lookup_error: PyClassRef,
-    pub timeout_error: PyClassRef,
-    pub reference_error: PyClassRef,
-    pub runtime_error: PyClassRef,
-    pub not_implemented_error: PyClassRef,
-    pub recursion_error: PyClassRef,
-    pub syntax_error: PyClassRef,
-    pub target_scope_error: PyClassRef,
-    pub indentation_error: PyClassRef,
-    pub tab_error: PyClassRef,
-    pub system_error: PyClassRef,
-    pub type_error: PyClassRef,
-    pub value_error: PyClassRef,
-    pub unicode_error: PyClassRef,
-    pub unicode_decode_error: PyClassRef,
-    pub unicode_encode_error: PyClassRef,
-    pub unicode_translate_error: PyClassRef,
+    pub base_exception_type: PyTypeRef,
+    pub system_exit: PyTypeRef,
+    pub keyboard_interrupt: PyTypeRef,
+    pub generator_exit: PyTypeRef,
+    pub exception_type: PyTypeRef,
+    pub stop_iteration: PyTypeRef,
+    pub stop_async_iteration: PyTypeRef,
+    pub arithmetic_error: PyTypeRef,
+    pub floating_point_error: PyTypeRef,
+    pub overflow_error: PyTypeRef,
+    pub zero_division_error: PyTypeRef,
+    pub assertion_error: PyTypeRef,
+    pub attribute_error: PyTypeRef,
+    pub buffer_error: PyTypeRef,
+    pub eof_error: PyTypeRef,
+    pub import_error: PyTypeRef,
+    pub module_not_found_error: PyTypeRef,
+    pub lookup_error: PyTypeRef,
+    pub index_error: PyTypeRef,
+    pub key_error: PyTypeRef,
+    pub memory_error: PyTypeRef,
+    pub name_error: PyTypeRef,
+    pub unbound_local_error: PyTypeRef,
+    pub os_error: PyTypeRef,
+    pub blocking_io_error: PyTypeRef,
+    pub child_process_error: PyTypeRef,
+    pub connection_error: PyTypeRef,
+    pub broken_pipe_error: PyTypeRef,
+    pub connection_aborted_error: PyTypeRef,
+    pub connection_refused_error: PyTypeRef,
+    pub connection_reset_error: PyTypeRef,
+    pub file_exists_error: PyTypeRef,
+    pub file_not_found_error: PyTypeRef,
+    pub interrupted_error: PyTypeRef,
+    pub is_a_directory_error: PyTypeRef,
+    pub not_a_directory_error: PyTypeRef,
+    pub permission_error: PyTypeRef,
+    pub process_lookup_error: PyTypeRef,
+    pub timeout_error: PyTypeRef,
+    pub reference_error: PyTypeRef,
+    pub runtime_error: PyTypeRef,
+    pub not_implemented_error: PyTypeRef,
+    pub recursion_error: PyTypeRef,
+    pub syntax_error: PyTypeRef,
+    pub target_scope_error: PyTypeRef,
+    pub indentation_error: PyTypeRef,
+    pub tab_error: PyTypeRef,
+    pub system_error: PyTypeRef,
+    pub type_error: PyTypeRef,
+    pub value_error: PyTypeRef,
+    pub unicode_error: PyTypeRef,
+    pub unicode_decode_error: PyTypeRef,
+    pub unicode_encode_error: PyTypeRef,
+    pub unicode_translate_error: PyTypeRef,
 
     #[cfg(feature = "jit")]
-    pub jit_error: PyClassRef,
+    pub jit_error: PyTypeRef,
 
-    pub warning: PyClassRef,
-    pub deprecation_warning: PyClassRef,
-    pub pending_deprecation_warning: PyClassRef,
-    pub runtime_warning: PyClassRef,
-    pub syntax_warning: PyClassRef,
-    pub user_warning: PyClassRef,
-    pub future_warning: PyClassRef,
-    pub import_warning: PyClassRef,
-    pub unicode_warning: PyClassRef,
-    pub bytes_warning: PyClassRef,
-    pub resource_warning: PyClassRef,
+    pub warning: PyTypeRef,
+    pub deprecation_warning: PyTypeRef,
+    pub pending_deprecation_warning: PyTypeRef,
+    pub runtime_warning: PyTypeRef,
+    pub syntax_warning: PyTypeRef,
+    pub user_warning: PyTypeRef,
+    pub future_warning: PyTypeRef,
+    pub import_warning: PyTypeRef,
+    pub unicode_warning: PyTypeRef,
+    pub bytes_warning: PyTypeRef,
+    pub resource_warning: PyTypeRef,
 }
 
 impl ExceptionZoo {
-    pub fn new(type_type: &PyClassRef, object_type: &PyClassRef) -> Self {
-        let create_exception_type = |name: &str, base: &PyClassRef| {
+    pub fn new(type_type: &PyTypeRef, object_type: &PyTypeRef) -> Self {
+        let create_exception_type = |name: &str, base: &PyTypeRef| {
             create_type_with_slots(name, type_type, base.clone(), PyBaseException::make_slots())
         };
         // Sorted By Hierarchy then alphabetized.

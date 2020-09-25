@@ -1,4 +1,4 @@
-use super::objtype::{self, PyClassRef};
+use super::objtype::{self, PyTypeRef};
 use crate::exceptions::{self, PyBaseExceptionRef};
 use crate::frame::{ExecutionResult, FrameRef};
 use crate::pyobject::{PyObjectRef, PyResult};
@@ -24,7 +24,7 @@ impl Variant {
             Self::AsyncGen => "async generator",
         }
     }
-    fn stop_iteration(self, vm: &VirtualMachine) -> PyClassRef {
+    fn stop_iteration(self, vm: &VirtualMachine) -> PyTypeRef {
         match self {
             Self::AsyncGen => vm.ctx.exceptions.stop_async_iteration.clone(),
             _ => vm.ctx.exceptions.stop_iteration.clone(),

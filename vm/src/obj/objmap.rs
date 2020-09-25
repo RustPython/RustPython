@@ -1,5 +1,5 @@
 use super::objiter;
-use super::objtype::PyClassRef;
+use super::objtype::PyTypeRef;
 use crate::function::Args;
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
@@ -17,7 +17,7 @@ pub struct PyMap {
 type PyMapRef = PyRef<PyMap>;
 
 impl PyValue for PyMap {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.map_type.clone()
     }
 }
@@ -26,7 +26,7 @@ impl PyValue for PyMap {
 impl PyMap {
     #[pyslot]
     fn tp_new(
-        cls: PyClassRef,
+        cls: PyTypeRef,
         function: PyObjectRef,
         iterables: Args,
         vm: &VirtualMachine,
