@@ -1,4 +1,4 @@
-use super::objtype::PyClassRef;
+use super::objtype::PyTypeRef;
 use crate::pyobject::{
     IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyValue, TypeProtocol,
 };
@@ -10,7 +10,7 @@ pub struct PyNone;
 pub type PyNoneRef = PyRef<PyNone>;
 
 impl PyValue for PyNone {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.none.class()
     }
 }
@@ -35,7 +35,7 @@ impl<T: IntoPyObject> IntoPyObject for Option<T> {
 #[pyimpl]
 impl PyNone {
     #[pyslot]
-    fn tp_new(_: PyClassRef, vm: &VirtualMachine) -> PyNoneRef {
+    fn tp_new(_: PyTypeRef, vm: &VirtualMachine) -> PyNoneRef {
         vm.ctx.none.clone()
     }
 
@@ -56,7 +56,7 @@ pub struct PyNotImplemented;
 pub type PyNotImplementedRef = PyRef<PyNotImplemented>;
 
 impl PyValue for PyNotImplemented {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.not_implemented.class()
     }
 }

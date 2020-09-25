@@ -7,7 +7,7 @@ mod decl {
     use crate::exceptions::PyBaseExceptionRef;
     use crate::function::OptionalArg;
     use crate::obj::objbytes::{PyBytes, PyBytesRef};
-    use crate::obj::objtype::PyClassRef;
+    use crate::obj::objtype::PyTypeRef;
     use crate::pyobject::{BorrowValue, IntoPyRef, PyClassImpl, PyResult, PyValue};
     use crate::types::create_type;
     use crate::vm::VirtualMachine;
@@ -35,7 +35,7 @@ mod decl {
     const DEF_BUF_SIZE: usize = 16 * 1024;
 
     #[pyattr]
-    fn error(vm: &VirtualMachine) -> PyClassRef {
+    fn error(vm: &VirtualMachine) -> PyTypeRef {
         create_type(
             "error",
             &vm.ctx.types.type_type,
@@ -218,7 +218,7 @@ mod decl {
         unconsumed_tail: PyMutex<PyBytesRef>,
     }
     impl PyValue for PyDecompress {
-        fn class(vm: &VirtualMachine) -> PyClassRef {
+        fn class(vm: &VirtualMachine) -> PyTypeRef {
             vm.class("zlib", "Decompress")
         }
     }
@@ -377,7 +377,7 @@ mod decl {
     }
 
     impl PyValue for PyCompress {
-        fn class(vm: &VirtualMachine) -> PyClassRef {
+        fn class(vm: &VirtualMachine) -> PyTypeRef {
             vm.class("zlib", "Compress")
         }
     }

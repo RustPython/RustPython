@@ -27,7 +27,7 @@ mod _io {
     use crate::obj::objint;
     use crate::obj::objiter;
     use crate::obj::objstr::{self, PyStr, PyStrRef};
-    use crate::obj::objtype::{self, PyClassRef};
+    use crate::obj::objtype::{self, PyTypeRef};
     use crate::pyobject::{
         BorrowValue, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
         TryFromObject,
@@ -811,7 +811,7 @@ mod _io {
     type StringIORef = PyRef<StringIO>;
 
     impl PyValue for StringIO {
-        fn class(vm: &VirtualMachine) -> PyClassRef {
+        fn class(vm: &VirtualMachine) -> PyTypeRef {
             vm.class("io", "StringIO")
         }
     }
@@ -828,7 +828,7 @@ mod _io {
 
         #[pyslot]
         fn tp_new(
-            cls: PyClassRef,
+            cls: PyTypeRef,
             object: OptionalArg<Option<PyObjectRef>>,
             _args: StringIOArgs,
             vm: &VirtualMachine,
@@ -944,7 +944,7 @@ mod _io {
     type BytesIORef = PyRef<BytesIO>;
 
     impl PyValue for BytesIO {
-        fn class(vm: &VirtualMachine) -> PyClassRef {
+        fn class(vm: &VirtualMachine) -> PyTypeRef {
             vm.class("io", "BytesIO")
         }
     }
@@ -961,7 +961,7 @@ mod _io {
 
         #[pyslot]
         fn tp_new(
-            cls: PyClassRef,
+            cls: PyTypeRef,
             object: OptionalArg<Option<PyBytesRef>>,
             vm: &VirtualMachine,
         ) -> PyResult<BytesIORef> {
@@ -1408,7 +1408,7 @@ mod fileio {
     use crate::obj::objbytearray::PyByteArray;
     use crate::obj::objint;
     use crate::obj::objstr::PyStrRef;
-    use crate::obj::objtype::PyClassRef;
+    use crate::obj::objtype::PyTypeRef;
     use crate::pyobject::{
         BorrowValue, BufferProtocol, Either, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
         TryFromObject,
@@ -1443,7 +1443,7 @@ mod fileio {
     type FileIORef = PyRef<FileIO>;
 
     impl PyValue for FileIO {
-        fn class(vm: &VirtualMachine) -> PyClassRef {
+        fn class(vm: &VirtualMachine) -> PyTypeRef {
             vm.class("_io", "FileIO")
         }
     }
@@ -1463,7 +1463,7 @@ mod fileio {
     #[pyimpl(flags(HAS_DICT))]
     impl FileIO {
         #[pyslot]
-        fn tp_new(cls: PyClassRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<FileIORef> {
+        fn tp_new(cls: PyTypeRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<FileIORef> {
             FileIO {
                 fd: AtomicCell::new(-1),
                 closefd: AtomicCell::new(false),
@@ -1662,7 +1662,7 @@ mod fileio {
         }
     }
 
-    pub fn make_fileio(ctx: &crate::pyobject::PyContext, raw_io_base: PyClassRef) -> PyClassRef {
+    pub fn make_fileio(ctx: &crate::pyobject::PyContext, raw_io_base: PyTypeRef) -> PyTypeRef {
         FileIO::make_class_with_base(ctx, raw_io_base)
     }
 }

@@ -6,7 +6,7 @@ use crate::common::cell::PyRwLock;
 use crate::function::PyFuncArgs;
 use crate::obj::objiter;
 use crate::obj::objstr::{self, PyStr};
-use crate::obj::objtype::PyClassRef;
+use crate::obj::objtype::PyTypeRef;
 use crate::pyobject::{
     BorrowValue, IntoPyObject, PyClassImpl, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol,
@@ -136,7 +136,7 @@ impl Debug for Reader {
 }
 
 impl PyValue for Reader {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.class("_csv", "Reader")
     }
 }

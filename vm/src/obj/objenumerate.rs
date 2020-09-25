@@ -6,7 +6,7 @@ use num_traits::Zero;
 
 use super::objint::PyIntRef;
 use super::objiter;
-use super::objtype::PyClassRef;
+use super::objtype::PyTypeRef;
 use crate::function::OptionalArg;
 use crate::pyobject::{BorrowValue, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
@@ -20,7 +20,7 @@ pub struct PyEnumerate {
 type PyEnumerateRef = PyRef<PyEnumerate>;
 
 impl PyValue for PyEnumerate {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.enumerate_type.clone()
     }
 }
@@ -29,7 +29,7 @@ impl PyValue for PyEnumerate {
 impl PyEnumerate {
     #[pyslot]
     fn tp_new(
-        cls: PyClassRef,
+        cls: PyTypeRef,
         iterable: PyObjectRef,
         start: OptionalArg<PyIntRef>,
         vm: &VirtualMachine,

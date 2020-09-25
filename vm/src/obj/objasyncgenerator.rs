@@ -1,6 +1,6 @@
 use super::objcode::PyCodeRef;
 use super::objcoroinner::{Coro, Variant};
-use super::objtype::{self, PyClassRef};
+use super::objtype::{self, PyTypeRef};
 use crate::exceptions::PyBaseExceptionRef;
 use crate::frame::FrameRef;
 use crate::function::OptionalArg;
@@ -18,7 +18,7 @@ pub struct PyAsyncGen {
 pub type PyAsyncGenRef = PyRef<PyAsyncGen>;
 
 impl PyValue for PyAsyncGen {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.async_generator.clone()
     }
 }
@@ -116,7 +116,7 @@ impl PyAsyncGen {
 #[derive(Debug)]
 pub(crate) struct PyAsyncGenWrappedValue(pub PyObjectRef);
 impl PyValue for PyAsyncGenWrappedValue {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.async_generator_wrapped_value.clone()
     }
 }
@@ -165,7 +165,7 @@ pub(crate) struct PyAsyncGenASend {
 }
 
 impl PyValue for PyAsyncGenASend {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.async_generator_asend.clone()
     }
 }
@@ -261,7 +261,7 @@ pub(crate) struct PyAsyncGenAThrow {
 }
 
 impl PyValue for PyAsyncGenAThrow {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.async_generator_athrow.clone()
     }
 }

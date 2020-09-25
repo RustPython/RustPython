@@ -21,7 +21,7 @@ use crate::obj::objiter;
 use crate::obj::objset::PySet;
 use crate::obj::objstr::{PyStr, PyStrRef};
 use crate::obj::objtuple::PyTupleRef;
-use crate::obj::objtype::PyClassRef;
+use crate::obj::objtype::PyTypeRef;
 use crate::pyobject::{
     BorrowValue, Either, IntoPyObject, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult,
     PyStructSequence, PyValue, TryFromObject, TypeProtocol,
@@ -465,7 +465,7 @@ mod _os {
     }
 
     impl PyValue for DirEntry {
-        fn class(vm: &VirtualMachine) -> PyClassRef {
+        fn class(vm: &VirtualMachine) -> PyTypeRef {
             vm.class(super::MODULE_NAME, "DirEntry")
         }
     }
@@ -550,7 +550,7 @@ mod _os {
     }
 
     impl PyValue for ScandirIterator {
-        fn class(vm: &VirtualMachine) -> PyClassRef {
+        fn class(vm: &VirtualMachine) -> PyTypeRef {
             vm.class(super::MODULE_NAME, "ScandirIter")
         }
     }
@@ -1097,7 +1097,7 @@ mod posix {
         unsafe { File::from_raw_fd(raw_fileno as i32) }
     }
 
-    pub(super) fn convert_nix_errno(vm: &VirtualMachine, errno: Errno) -> PyClassRef {
+    pub(super) fn convert_nix_errno(vm: &VirtualMachine, errno: Errno) -> PyTypeRef {
         match errno {
             Errno::EPERM => vm.ctx.exceptions.permission_error.clone(),
             _ => vm.ctx.exceptions.os_error.clone(),

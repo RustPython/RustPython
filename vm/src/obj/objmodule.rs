@@ -1,6 +1,6 @@
 use super::objdict::PyDictRef;
 use super::objstr::{PyStr, PyStrRef};
-use super::objtype::PyClassRef;
+use super::objtype::PyTypeRef;
 use crate::function::{OptionalOption, PyFuncArgs};
 use crate::pyobject::{
     BorrowValue, IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
@@ -14,7 +14,7 @@ pub struct PyModule {}
 pub type PyModuleRef = PyRef<PyModule>;
 
 impl PyValue for PyModule {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.module_type.clone()
     }
 }
@@ -45,7 +45,7 @@ pub fn init_module_dict(
 #[pyimpl(flags(BASETYPE, HAS_DICT))]
 impl PyModuleRef {
     #[pyslot]
-    fn tp_new(cls: PyClassRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyModuleRef> {
+    fn tp_new(cls: PyTypeRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyModuleRef> {
         PyModule {}.into_ref_with_type(vm, cls)
     }
 

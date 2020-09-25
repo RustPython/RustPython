@@ -22,7 +22,7 @@ use crate::obj::objslice::PySlice;
 use crate::obj::objstr::{self, PyStr, PyStrRef};
 use crate::obj::objtraceback::PyTraceback;
 use crate::obj::objtuple::PyTuple;
-use crate::obj::objtype::{self, PyClassRef};
+use crate::obj::objtype::{self, PyTypeRef};
 use crate::pyobject::{
     BorrowValue, IdProtocol, ItemProtocol, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
@@ -100,7 +100,7 @@ pub struct Frame {
 }
 
 impl PyValue for Frame {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.frame_type.clone()
     }
 }

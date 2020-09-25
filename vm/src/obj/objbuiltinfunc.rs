@@ -3,7 +3,7 @@ use std::fmt;
 use super::objclassmethod::PyClassMethod;
 use crate::function::{PyFuncArgs, PyNativeFunc};
 use crate::obj::objstr::PyStrRef;
-use crate::obj::objtype::PyClassRef;
+use crate::obj::objtype::PyTypeRef;
 use crate::pyobject::{
     PyClassImpl, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
@@ -62,7 +62,7 @@ pub struct PyBuiltinFunction {
 }
 
 impl PyValue for PyBuiltinFunction {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.builtin_function_or_method_type.clone()
     }
 }
@@ -134,7 +134,7 @@ pub struct PyBuiltinMethod {
 }
 
 impl PyValue for PyBuiltinMethod {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.method_descriptor_type.clone()
     }
 }

@@ -1,6 +1,6 @@
 use super::objbool;
 use super::objiter;
-use super::objtype::PyClassRef;
+use super::objtype::PyTypeRef;
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
@@ -18,7 +18,7 @@ pub struct PyFilter {
 }
 
 impl PyValue for PyFilter {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.filter_type.clone()
     }
 }
@@ -27,7 +27,7 @@ impl PyValue for PyFilter {
 impl PyFilter {
     #[pyslot]
     fn tp_new(
-        cls: PyClassRef,
+        cls: PyTypeRef,
         function: PyObjectRef,
         iterable: PyObjectRef,
         vm: &VirtualMachine,

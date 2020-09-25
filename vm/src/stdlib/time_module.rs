@@ -10,7 +10,7 @@ use chrono::{Datelike, Timelike};
 use crate::function::OptionalArg;
 use crate::obj::objstr::PyStrRef;
 use crate::obj::objtuple::PyTupleRef;
-use crate::obj::objtype::PyClassRef;
+use crate::obj::objtype::PyTypeRef;
 use crate::pyobject::{
     BorrowValue, Either, PyClassImpl, PyObjectRef, PyResult, PyStructSequence, TryFromObject,
 };
@@ -224,7 +224,7 @@ impl PyStructTime {
     }
 
     #[pyslot]
-    fn tp_new(cls: PyClassRef, seq: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+    fn tp_new(cls: PyTypeRef, seq: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         Self::try_from_object(vm, seq)?.into_struct_sequence(vm, cls)
     }
 }

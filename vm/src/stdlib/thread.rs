@@ -4,7 +4,7 @@ use crate::function::{Args, KwArgs, OptionalArg, PyFuncArgs};
 use crate::obj::objdict::PyDictRef;
 use crate::obj::objstr::PyStrRef;
 use crate::obj::objtuple::PyTupleRef;
-use crate::obj::objtype::PyClassRef;
+use crate::obj::objtype::PyTypeRef;
 use crate::pyobject::{
     BorrowValue, Either, IdProtocol, ItemProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef,
     PyResult, PyValue, TypeProtocol,
@@ -99,7 +99,7 @@ struct PyLock {
 type PyLockRef = PyRef<PyLock>;
 
 impl PyValue for PyLock {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.class("_thread", "LockType")
     }
 }
@@ -152,7 +152,7 @@ struct PyRLock {
 }
 
 impl PyValue for PyRLock {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.class("_thread", "RLock")
     }
 }
@@ -166,7 +166,7 @@ impl fmt::Debug for PyRLock {
 #[pyimpl]
 impl PyRLock {
     #[pyslot]
-    fn tp_new(cls: PyClassRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    fn tp_new(cls: PyTypeRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         PyRLock {
             mu: RawRMutex::INIT,
         }
@@ -291,7 +291,7 @@ struct PyLocal {
 }
 
 impl PyValue for PyLocal {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.class("_thread", "_local")
     }
 }
@@ -303,7 +303,7 @@ impl PyLocal {
     }
 
     #[pyslot]
-    fn tp_new(cls: PyClassRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    fn tp_new(cls: PyTypeRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         PyLocal {
             data: ThreadLocal::new(),
         }

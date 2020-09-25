@@ -30,7 +30,7 @@ mod decl {
     use crate::obj::objlist::{PyList, SortOptions};
     use crate::obj::objsequence;
     use crate::obj::objstr::{PyStr, PyStrRef};
-    use crate::obj::objtype::{self, PyClassRef};
+    use crate::obj::objtype::{self, PyTypeRef};
     use crate::pyobject::{
         BorrowValue, Either, IdProtocol, ItemProtocol, PyCallable, PyIterable, PyObjectRef,
         PyResult, PyValue, TryFromObject, TypeProtocol,
@@ -400,7 +400,7 @@ mod decl {
     pub fn isinstance(obj: PyObjectRef, typ: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         single_or_tuple_any(
             typ,
-            &|cls: &PyClassRef| vm.isinstance(&obj, cls),
+            &|cls: &PyTypeRef| vm.isinstance(&obj, cls),
             &|o| {
                 format!(
                     "isinstance() arg 2 must be a type or tuple of types, not {}",
@@ -412,10 +412,10 @@ mod decl {
     }
 
     #[pyfunction]
-    fn issubclass(subclass: PyClassRef, typ: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+    fn issubclass(subclass: PyTypeRef, typ: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         single_or_tuple_any(
             typ,
-            &|cls: &PyClassRef| vm.issubclass(&subclass, cls),
+            &|cls: &PyTypeRef| vm.issubclass(&subclass, cls),
             &|o| {
                 format!(
                     "issubclass() arg 2 must be a class or tuple of classes, not {}",
@@ -803,7 +803,7 @@ mod decl {
     pub fn __build_class__(
         function: PyFunctionRef,
         qualified_name: PyStrRef,
-        bases: Args<PyClassRef>,
+        bases: Args<PyTypeRef>,
         mut kwargs: KwArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
@@ -815,7 +815,7 @@ mod decl {
         let name_obj = vm.ctx.new_str(name);
 
         let mut metaclass = if let Some(metaclass) = kwargs.pop_kwarg("metaclass") {
-            PyClassRef::try_from_object(vm, metaclass)?
+            PyTypeRef::try_from_object(vm, metaclass)?
         } else {
             vm.ctx.types.type_type.clone()
         };

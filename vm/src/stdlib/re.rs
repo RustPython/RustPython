@@ -12,7 +12,7 @@ use std::ops::Range;
 use crate::function::{Args, OptionalArg};
 use crate::obj::objint::{PyInt, PyIntRef};
 use crate::obj::objstr::{PyStr, PyStrRef};
-use crate::obj::objtype::PyClassRef;
+use crate::obj::objtype::PyTypeRef;
 use crate::pyobject::{
     BorrowValue, IntoPyObject, PyClassImpl, PyObjectRef, PyResult, PyValue, TryFromObject,
 };
@@ -65,7 +65,7 @@ impl PyRegexFlags {
 }
 
 impl PyValue for PyPattern {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.class("re", "Pattern")
     }
 }
@@ -84,7 +84,7 @@ impl fmt::Debug for PyMatch {
 }
 
 impl PyValue for PyMatch {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.class("re", "Match")
     }
 }

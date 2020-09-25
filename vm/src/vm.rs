@@ -35,7 +35,7 @@ use crate::obj::objmodule::{self, PyModule};
 use crate::obj::objobject;
 use crate::obj::objstr::{PyStr, PyStrRef};
 use crate::obj::objtuple::PyTuple;
-use crate::obj::objtype::{self, PyClassRef};
+use crate::obj::objtype::{self, PyTypeRef};
 use crate::pyobject::{
     BorrowValue, Either, IdProtocol, IntoPyObject, ItemProtocol, PyArithmaticValue, PyContext,
     PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
@@ -443,7 +443,7 @@ impl VirtualMachine {
         Ref::map(frame, |f| &f.scope)
     }
 
-    pub fn try_class(&self, module: &str, class: &str) -> PyResult<PyClassRef> {
+    pub fn try_class(&self, module: &str, class: &str) -> PyResult<PyTypeRef> {
         let class = self
             .get_attribute(self.import(module, &[], 0)?, class)?
             .downcast()
@@ -451,7 +451,7 @@ impl VirtualMachine {
         Ok(class)
     }
 
-    pub fn class(&self, module: &str, class: &str) -> PyClassRef {
+    pub fn class(&self, module: &str, class: &str) -> PyTypeRef {
         let module = self
             .import(module, &[], 0)
             .unwrap_or_else(|_| panic!("unable to import {}", module));
@@ -483,11 +483,7 @@ impl VirtualMachine {
     ///
     /// [invoke]: rustpython_vm::exceptions::invoke
     /// [ctor]: rustpython_vm::exceptions::ExceptionCtor
-    pub fn new_exception(
-        &self,
-        exc_type: PyClassRef,
-        args: Vec<PyObjectRef>,
-    ) -> PyBaseExceptionRef {
+    pub fn new_exception(&self, exc_type: PyTypeRef, args: Vec<PyObjectRef>) -> PyBaseExceptionRef {
         // TODO: add repr of args into logging?
         vm_trace!("New exception created: {}", exc_type.name);
 
@@ -505,7 +501,7 @@ impl VirtualMachine {
     ///
     /// [invoke]: rustpython_vm::exceptions::invoke
     /// [ctor]: rustpython_vm::exceptions::ExceptionCtor
-    pub fn new_exception_empty(&self, exc_type: PyClassRef) -> PyBaseExceptionRef {
+    pub fn new_exception_empty(&self, exc_type: PyTypeRef) -> PyBaseExceptionRef {
         self.new_exception(exc_type, vec![])
     }
 
@@ -516,7 +512,7 @@ impl VirtualMachine {
     ///
     /// [invoke]: rustpython_vm::exceptions::invoke
     /// [ctor]: rustpython_vm::exceptions::ExceptionCtor
-    pub fn new_exception_msg(&self, exc_type: PyClassRef, msg: String) -> PyBaseExceptionRef {
+    pub fn new_exception_msg(&self, exc_type: PyTypeRef, msg: String) -> PyBaseExceptionRef {
         self.new_exception(exc_type, vec![self.ctx.new_str(msg)])
     }
 
@@ -813,7 +809,7 @@ impl VirtualMachine {
 
     /// Determines if `obj` is an instance of `cls`, either directly, indirectly or virtually via
     /// the __instancecheck__ magic method.
-    pub fn isinstance(&self, obj: &PyObjectRef, cls: &PyClassRef) -> PyResult<bool> {
+    pub fn isinstance(&self, obj: &PyObjectRef, cls: &PyTypeRef) -> PyResult<bool> {
         // cpython first does an exact check on the type, although documentation doesn't state that
         // https://github.com/python/cpython/blob/a24107b04c1277e3c1105f98aff5bfa3a98b33a0/Objects/abstract.c#L2408
         if obj.class().is(cls) {
@@ -826,7 +822,7 @@ impl VirtualMachine {
 
     /// Determines if `subclass` is a subclass of `cls`, either directly, indirectly or virtually
     /// via the __subclasscheck__ magic method.
-    pub fn issubclass(&self, subclass: &PyClassRef, cls: &PyClassRef) -> PyResult<bool> {
+    pub fn issubclass(&self, subclass: &PyTypeRef, cls: &PyTypeRef) -> PyResult<bool> {
         let ret = self.call_method(
             cls.as_object(),
             "__subclasscheck__",

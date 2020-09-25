@@ -5,7 +5,7 @@ mod decl {
     use std::fmt;
 
     use crate::obj::objstr::PyStrRef;
-    use crate::obj::objtype::PyClassRef;
+    use crate::obj::objtype::PyTypeRef;
     use crate::pyobject::{BorrowValue, PyClassImpl, PyRef, PyResult, PyValue};
     use crate::vm::VirtualMachine;
     use rustpython_compiler::{compile, error::CompileError, symboltable};
@@ -73,7 +73,7 @@ mod decl {
     }
 
     impl PyValue for PySymbolTable {
-        fn class(vm: &VirtualMachine) -> PyClassRef {
+        fn class(vm: &VirtualMachine) -> PyTypeRef {
             vm.class("symtable", "SymbolTable")
         }
     }
@@ -191,7 +191,7 @@ mod decl {
     }
 
     impl PyValue for PySymbol {
-        fn class(vm: &VirtualMachine) -> PyClassRef {
+        fn class(vm: &VirtualMachine) -> PyTypeRef {
             vm.class("symtable", "Symbol")
         }
     }

@@ -6,7 +6,7 @@ use num_traits::{One, Signed, Zero};
 use super::objint::{PyInt, PyIntRef};
 use super::objiter;
 use super::objslice::{PySlice, PySliceRef};
-use super::objtype::PyClassRef;
+use super::objtype::PyTypeRef;
 
 use crate::common::hash::PyHash;
 use crate::function::{OptionalArg, PyFuncArgs};
@@ -34,7 +34,7 @@ pub struct PyRange {
 }
 
 impl PyValue for PyRange {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.range_type.clone()
     }
 }
@@ -132,7 +132,7 @@ type PyRangeRef = PyRef<PyRange>;
 
 #[pyimpl(with(Hashable, Comparable))]
 impl PyRange {
-    fn new(cls: PyClassRef, stop: PyIntRef, vm: &VirtualMachine) -> PyResult<PyRangeRef> {
+    fn new(cls: PyTypeRef, stop: PyIntRef, vm: &VirtualMachine) -> PyResult<PyRangeRef> {
         PyRange {
             start: (0).into_pyref(vm),
             stop,
@@ -142,7 +142,7 @@ impl PyRange {
     }
 
     fn new_from(
-        cls: PyClassRef,
+        cls: PyTypeRef,
         start: PyIntRef,
         stop: PyIntRef,
         step: OptionalArg<PyIntRef>,
@@ -243,7 +243,7 @@ impl PyRange {
     }
 
     #[pymethod(name = "__reduce__")]
-    fn reduce(&self, vm: &VirtualMachine) -> (PyClassRef, PyObjectRef) {
+    fn reduce(&self, vm: &VirtualMachine) -> (PyTypeRef, PyObjectRef) {
         let range_paramters: Vec<PyObjectRef> = vec![&self.start, &self.stop, &self.step]
             .iter()
             .map(|x| x.as_object().clone())
@@ -378,7 +378,7 @@ pub struct PyRangeIterator {
 }
 
 impl PyValue for PyRangeIterator {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.range_iterator_type.clone()
     }
 }

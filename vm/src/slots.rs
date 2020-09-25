@@ -53,7 +53,7 @@ pub(crate) type CmpFunc = fn(
 ) -> PyResult<Either<PyObjectRef, PyComparisonValue>>;
 
 #[derive(Default)]
-pub struct PyClassSlots {
+pub struct PyTypeSlots {
     pub flags: PyTpFlags,
     pub name: PyRwLock<Option<String>>, // tp_name, not class name
     pub new: Option<PyNativeFunc>,
@@ -64,7 +64,7 @@ pub struct PyClassSlots {
     pub cmp: AtomicCell<Option<CmpFunc>>,
 }
 
-impl PyClassSlots {
+impl PyTypeSlots {
     pub fn from_flags(flags: PyTpFlags) -> Self {
         Self {
             flags,
@@ -73,9 +73,9 @@ impl PyClassSlots {
     }
 }
 
-impl std::fmt::Debug for PyClassSlots {
+impl std::fmt::Debug for PyTypeSlots {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("PyClassSlots")
+        f.write_str("PyTypeSlots")
     }
 }
 

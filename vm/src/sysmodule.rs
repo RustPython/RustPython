@@ -5,7 +5,7 @@ use crate::common::hash::{PyHash, PyUHash};
 use crate::frame::FrameRef;
 use crate::function::{Args, OptionalArg, PyFuncArgs};
 use crate::obj::objstr::PyStrRef;
-use crate::obj::objtype::PyClassRef;
+use crate::obj::objtype::PyTypeRef;
 use crate::pyobject::{
     IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRc, PyObjectRef, PyResult,
     PyStructSequence,
@@ -130,7 +130,7 @@ impl SysFlags {
     }
 
     #[pyslot]
-    fn tp_new(_cls: PyClassRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn tp_new(_cls: PyTypeRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
         Err(vm.new_type_error("cannot create 'sys.flags' instances".to_owned()))
     }
 }

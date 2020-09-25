@@ -5,7 +5,7 @@
 use std::fmt;
 use std::ops::Deref;
 
-use super::objtype::PyClassRef;
+use super::objtype::PyTypeRef;
 use crate::bytecode;
 use crate::pyobject::{IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
@@ -37,7 +37,7 @@ impl fmt::Debug for PyCode {
 }
 
 impl PyValue for PyCode {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.code_type.clone()
     }
 }
@@ -45,7 +45,7 @@ impl PyValue for PyCode {
 #[pyimpl]
 impl PyCodeRef {
     #[pyslot]
-    fn new(_cls: PyClassRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    fn new(_cls: PyTypeRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         Err(vm.new_type_error("Cannot directly create code object".to_owned()))
     }
 

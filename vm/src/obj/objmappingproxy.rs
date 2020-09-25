@@ -1,7 +1,7 @@
 use super::objdict::PyDict;
 use super::objiter;
 use super::objstr::PyStrRef;
-use super::objtype::PyClassRef;
+use super::objtype::PyTypeRef;
 use crate::function::OptionalArg;
 use crate::pyobject::{
     BorrowValue, IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
@@ -17,28 +17,28 @@ pub struct PyMappingProxy {
 
 #[derive(Debug)]
 enum MappingProxyInner {
-    Class(PyClassRef),
+    Class(PyTypeRef),
     Dict(PyObjectRef),
 }
 
 pub type PyMappingProxyRef = PyRef<PyMappingProxy>;
 
 impl PyValue for PyMappingProxy {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.mappingproxy_type.clone()
     }
 }
 
 #[pyimpl]
 impl PyMappingProxy {
-    pub fn new(class: PyClassRef) -> PyMappingProxy {
+    pub fn new(class: PyTypeRef) -> PyMappingProxy {
         PyMappingProxy {
             mapping: MappingProxyInner::Class(class),
         }
     }
 
     #[pyslot]
-    fn tp_new(cls: PyClassRef, mapping: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    fn tp_new(cls: PyTypeRef, mapping: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         PyMappingProxy {
             mapping: MappingProxyInner::Dict(mapping),
         }

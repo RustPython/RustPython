@@ -4,7 +4,7 @@ pub(crate) use _warnings::make_module;
 mod _warnings {
     use crate::function::OptionalArg;
     use crate::obj::objstr::PyStrRef;
-    use crate::obj::objtype::{self, PyClassRef};
+    use crate::obj::objtype::{self, PyTypeRef};
     use crate::pyobject::{PyResult, TypeProtocol};
     use crate::vm::VirtualMachine;
 
@@ -13,7 +13,7 @@ mod _warnings {
         #[pyarg(positional_only, optional = false)]
         message: PyStrRef,
         #[pyarg(positional_or_keyword, optional = true)]
-        category: OptionalArg<PyClassRef>,
+        category: OptionalArg<PyTypeRef>,
         #[pyarg(positional_or_keyword, optional = true)]
         stacklevel: OptionalArg<u32>,
     }

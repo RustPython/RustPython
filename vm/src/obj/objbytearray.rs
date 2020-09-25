@@ -7,7 +7,7 @@ use super::objint::PyIntRef;
 use super::objiter;
 use super::objsequence::SequenceIndex;
 use super::objstr::PyStrRef;
-use super::objtype::PyClassRef;
+use super::objtype::PyTypeRef;
 use crate::anystr::{self, AnyStr};
 use crate::bytesinner::{
     bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
@@ -79,7 +79,7 @@ impl From<Vec<u8>> for PyByteArray {
 }
 
 impl PyValue for PyByteArray {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.bytearray_type.clone()
     }
 }
@@ -99,7 +99,7 @@ pub(crate) fn init(context: &PyContext) {
 impl PyByteArray {
     #[pyslot]
     fn tp_new(
-        cls: PyClassRef,
+        cls: PyTypeRef,
         options: ByteInnerNewOptions,
         vm: &VirtualMachine,
     ) -> PyResult<PyByteArrayRef> {
@@ -533,16 +533,12 @@ impl PyByteArray {
     }
 
     #[pymethod(magic)]
-    fn reduce_ex(
-        zelf: PyRef<Self>,
-        _proto: usize,
-        vm: &VirtualMachine,
-    ) -> (PyClassRef, PyTupleRef) {
+    fn reduce_ex(zelf: PyRef<Self>, _proto: usize, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef) {
         Self::reduce(zelf, vm)
     }
 
     #[pymethod(magic)]
-    fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> (PyClassRef, PyTupleRef) {
+    fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef) {
         let bytes = PyBytes::from(zelf.borrow_value().elements.clone()).into_pyobject(vm);
         (
             Self::class(vm),
@@ -580,7 +576,7 @@ pub struct PyByteArrayIterator {
 }
 
 impl PyValue for PyByteArrayIterator {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.bytearray_iterator_type.clone()
     }
 }

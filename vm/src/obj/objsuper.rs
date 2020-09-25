@@ -7,7 +7,7 @@ https://github.com/python/cpython/blob/50b48572d9a90c5bb36e2bef6179548ea927a35a/
 */
 
 use super::objstr::PyStrRef;
-use super::objtype::{self, PyClass, PyClassRef};
+use super::objtype::{self, PyType, PyTypeRef};
 use crate::function::OptionalArg;
 use crate::pyobject::{
     BorrowValue, IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
@@ -24,19 +24,19 @@ pub type PySuperRef = PyRef<PySuper>;
 #[pyclass(module = false, name = "super")]
 #[derive(Debug)]
 pub struct PySuper {
-    typ: PyClassRef,
-    obj: Option<(PyObjectRef, PyClassRef)>,
+    typ: PyTypeRef,
+    obj: Option<(PyObjectRef, PyTypeRef)>,
 }
 
 impl PyValue for PySuper {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.super_type.clone()
     }
 }
 
 #[pyimpl(with(SlotDescriptor))]
 impl PySuper {
-    fn new(typ: PyClassRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
+    fn new(typ: PyTypeRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
         let obj = if vm.is_none(&obj) {
             None
         } else {
@@ -80,8 +80,8 @@ impl PySuper {
 
     #[pyslot]
     fn tp_new(
-        cls: PyClassRef,
-        py_type: OptionalArg<PyClassRef>,
+        cls: PyTypeRef,
+        py_type: OptionalArg<PyTypeRef>,
         py_obj: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PySuperRef> {
@@ -98,7 +98,7 @@ impl PySuper {
                             .to_owned(),
                     )
                 })?;
-            PyClassRef::try_from_object(vm, obj)?
+            PyTypeRef::try_from_object(vm, obj)?
         };
 
         // Check type argument:
@@ -156,8 +156,8 @@ impl SlotDescriptor for PySuper {
     }
 }
 
-fn supercheck(ty: PyClassRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyClassRef> {
-    if let Ok(cls) = obj.clone().downcast::<PyClass>() {
+fn supercheck(ty: PyTypeRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTypeRef> {
+    if let Ok(cls) = obj.clone().downcast::<PyType>() {
         if objtype::issubclass(&cls, &ty) {
             return Ok(cls);
         }
@@ -166,7 +166,7 @@ fn supercheck(ty: PyClassRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult
         return Ok(obj.class());
     }
     let class_attr = vm.get_attribute(obj, "__class__")?;
-    if let Ok(cls) = class_attr.downcast::<PyClass>() {
+    if let Ok(cls) = class_attr.downcast::<PyType>() {
         if !cls.is(&ty) && objtype::issubclass(&cls, &ty) {
             return Ok(cls);
         }

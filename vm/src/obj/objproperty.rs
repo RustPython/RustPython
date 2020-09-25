@@ -3,7 +3,7 @@
 */
 use crate::common::cell::PyRwLock;
 
-use super::objtype::PyClassRef;
+use super::objtype::PyTypeRef;
 use crate::pyobject::{
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
@@ -52,7 +52,7 @@ pub struct PyProperty {
 }
 
 impl PyValue for PyProperty {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.property_type.clone()
     }
 }
@@ -92,7 +92,7 @@ impl SlotDescriptor for PyProperty {
 #[pyimpl(with(SlotDescriptor), flags(BASETYPE))]
 impl PyProperty {
     #[pyslot]
-    fn tp_new(cls: PyClassRef, args: PropertyArgs, vm: &VirtualMachine) -> PyResult<PyPropertyRef> {
+    fn tp_new(cls: PyTypeRef, args: PropertyArgs, vm: &VirtualMachine) -> PyResult<PyPropertyRef> {
         PyProperty {
             getter: args.fget,
             setter: args.fset,

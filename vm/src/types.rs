@@ -34,14 +34,14 @@ use crate::obj::objstr;
 use crate::obj::objsuper;
 use crate::obj::objtraceback;
 use crate::obj::objtuple;
-use crate::obj::objtype::{self, PyClass, PyClassRef};
+use crate::obj::objtype::{self, PyType, PyTypeRef};
 use crate::obj::objweakproxy;
 use crate::obj::objweakref;
 use crate::obj::objzip;
 use crate::pyobject::{
     PyAttributes, PyClassDef, PyClassImpl, PyContext, PyObject, PyObjectRc, PyObjectRef,
 };
-use crate::slots::PyClassSlots;
+use crate::slots::PyTypeSlots;
 use rustpython_common::{cell::PyRwLock, rc::PyRc};
 use std::mem::MaybeUninit;
 use std::ptr;
@@ -49,71 +49,71 @@ use std::ptr;
 /// Holder of references to builtin types.
 #[derive(Debug)]
 pub struct TypeZoo {
-    pub async_generator: PyClassRef,
-    pub async_generator_asend: PyClassRef,
-    pub async_generator_athrow: PyClassRef,
-    pub async_generator_wrapped_value: PyClassRef,
-    pub bytes_type: PyClassRef,
-    pub bytes_iterator_type: PyClassRef,
-    pub bytearray_type: PyClassRef,
-    pub bytearray_iterator_type: PyClassRef,
-    pub bool_type: PyClassRef,
-    pub callable_iterator: PyClassRef,
-    pub classmethod_type: PyClassRef,
-    pub code_type: PyClassRef,
-    pub coroutine_type: PyClassRef,
-    pub coroutine_wrapper_type: PyClassRef,
-    pub dict_type: PyClassRef,
-    pub enumerate_type: PyClassRef,
-    pub filter_type: PyClassRef,
-    pub float_type: PyClassRef,
-    pub frame_type: PyClassRef,
-    pub frozenset_type: PyClassRef,
-    pub generator_type: PyClassRef,
-    pub int_type: PyClassRef,
-    pub iter_type: PyClassRef,
-    pub complex_type: PyClassRef,
-    pub list_type: PyClassRef,
-    pub list_iterator_type: PyClassRef,
-    pub list_reverseiterator_type: PyClassRef,
-    pub str_iterator_type: PyClassRef,
-    pub str_reverseiterator_type: PyClassRef,
-    pub dict_keyiterator_type: PyClassRef,
-    pub dict_reversekeyiterator_type: PyClassRef,
-    pub dict_valueiterator_type: PyClassRef,
-    pub dict_reversevalueiterator_type: PyClassRef,
-    pub dict_itemiterator_type: PyClassRef,
-    pub dict_reverseitemiterator_type: PyClassRef,
-    pub dict_keys_type: PyClassRef,
-    pub dict_values_type: PyClassRef,
-    pub dict_items_type: PyClassRef,
-    pub map_type: PyClassRef,
-    pub memoryview_type: PyClassRef,
-    pub tuple_type: PyClassRef,
-    pub tuple_iterator_type: PyClassRef,
-    pub set_type: PyClassRef,
-    pub set_iterator_type: PyClassRef,
-    pub staticmethod_type: PyClassRef,
-    pub super_type: PyClassRef,
-    pub str_type: PyClassRef,
-    pub range_type: PyClassRef,
-    pub range_iterator_type: PyClassRef,
-    pub slice_type: PyClassRef,
-    pub type_type: PyClassRef,
-    pub zip_type: PyClassRef,
-    pub function_type: PyClassRef,
-    pub builtin_function_or_method_type: PyClassRef,
-    pub method_descriptor_type: PyClassRef,
-    pub property_type: PyClassRef,
-    pub getset_type: PyClassRef,
-    pub module_type: PyClassRef,
-    pub namespace_type: PyClassRef,
-    pub bound_method_type: PyClassRef,
-    pub weakref_type: PyClassRef,
-    pub weakproxy_type: PyClassRef,
-    pub mappingproxy_type: PyClassRef,
-    pub traceback_type: PyClassRef,
-    pub object_type: PyClassRef,
+    pub async_generator: PyTypeRef,
+    pub async_generator_asend: PyTypeRef,
+    pub async_generator_athrow: PyTypeRef,
+    pub async_generator_wrapped_value: PyTypeRef,
+    pub bytes_type: PyTypeRef,
+    pub bytes_iterator_type: PyTypeRef,
+    pub bytearray_type: PyTypeRef,
+    pub bytearray_iterator_type: PyTypeRef,
+    pub bool_type: PyTypeRef,
+    pub callable_iterator: PyTypeRef,
+    pub classmethod_type: PyTypeRef,
+    pub code_type: PyTypeRef,
+    pub coroutine_type: PyTypeRef,
+    pub coroutine_wrapper_type: PyTypeRef,
+    pub dict_type: PyTypeRef,
+    pub enumerate_type: PyTypeRef,
+    pub filter_type: PyTypeRef,
+    pub float_type: PyTypeRef,
+    pub frame_type: PyTypeRef,
+    pub frozenset_type: PyTypeRef,
+    pub generator_type: PyTypeRef,
+    pub int_type: PyTypeRef,
+    pub iter_type: PyTypeRef,
+    pub complex_type: PyTypeRef,
+    pub list_type: PyTypeRef,
+    pub list_iterator_type: PyTypeRef,
+    pub list_reverseiterator_type: PyTypeRef,
+    pub str_iterator_type: PyTypeRef,
+    pub str_reverseiterator_type: PyTypeRef,
+    pub dict_keyiterator_type: PyTypeRef,
+    pub dict_reversekeyiterator_type: PyTypeRef,
+    pub dict_valueiterator_type: PyTypeRef,
+    pub dict_reversevalueiterator_type: PyTypeRef,
+    pub dict_itemiterator_type: PyTypeRef,
+    pub dict_reverseitemiterator_type: PyTypeRef,
+    pub dict_keys_type: PyTypeRef,
+    pub dict_values_type: PyTypeRef,
+    pub dict_items_type: PyTypeRef,
+    pub map_type: PyTypeRef,
+    pub memoryview_type: PyTypeRef,
+    pub tuple_type: PyTypeRef,
+    pub tuple_iterator_type: PyTypeRef,
+    pub set_type: PyTypeRef,
+    pub set_iterator_type: PyTypeRef,
+    pub staticmethod_type: PyTypeRef,
+    pub super_type: PyTypeRef,
+    pub str_type: PyTypeRef,
+    pub range_type: PyTypeRef,
+    pub range_iterator_type: PyTypeRef,
+    pub slice_type: PyTypeRef,
+    pub type_type: PyTypeRef,
+    pub zip_type: PyTypeRef,
+    pub function_type: PyTypeRef,
+    pub builtin_function_or_method_type: PyTypeRef,
+    pub method_descriptor_type: PyTypeRef,
+    pub property_type: PyTypeRef,
+    pub getset_type: PyTypeRef,
+    pub module_type: PyTypeRef,
+    pub namespace_type: PyTypeRef,
+    pub bound_method_type: PyTypeRef,
+    pub weakref_type: PyTypeRef,
+    pub weakproxy_type: PyTypeRef,
+    pub mappingproxy_type: PyTypeRef,
+    pub traceback_type: PyTypeRef,
+    pub object_type: PyTypeRef,
 }
 
 impl Default for TypeZoo {
@@ -206,16 +206,16 @@ impl TypeZoo {
     }
 }
 
-pub fn create_type(name: &str, type_type: &PyClassRef, base: PyClassRef) -> PyClassRef {
+pub fn create_type(name: &str, type_type: &PyTypeRef, base: PyTypeRef) -> PyTypeRef {
     create_type_with_slots(name, type_type, base, Default::default())
 }
 
 pub fn create_type_with_slots(
     name: &str,
-    type_type: &PyClassRef,
-    base: PyClassRef,
-    slots: PyClassSlots,
-) -> PyClassRef {
+    type_type: &PyTypeRef,
+    base: PyTypeRef,
+    slots: PyTypeSlots,
+) -> PyTypeRef {
     let dict = PyAttributes::new();
     objtype::new(
         type_type.clone(),
@@ -251,25 +251,25 @@ macro_rules! partially_init {
     }};
 }
 
-fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
+fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef) {
     // `type` inherits from `object`
     // and both `type` and `object are instances of `type`.
     // to produce this circular dependency, we need an unsafe block.
     // (and yes, this will never get dropped. TODO?)
     let (type_type, object_type) = {
-        type PyClassObj = PyObject<PyClass>;
+        type PyTypeObj = PyObject<PyType>;
         type UninitRef<T> = PyRwLock<PyRc<MaybeUninit<PyObject<T>>>>;
 
-        let type_payload = PyClass {
-            name: PyClassRef::NAME.to_owned(),
+        let type_payload = PyType {
+            name: PyTypeRef::NAME.to_owned(),
             base: None,
             bases: vec![],
             mro: vec![],
             subclasses: PyRwLock::default(),
             attributes: PyRwLock::new(PyAttributes::new()),
-            slots: objtype::PyClass::make_slots(),
+            slots: objtype::PyType::make_slots(),
         };
-        let object_payload = PyClass {
+        let object_payload = PyType {
             name: objobject::PyBaseObject::NAME.to_owned(),
             base: None,
             bases: vec![],
@@ -278,15 +278,15 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
             attributes: PyRwLock::new(PyAttributes::new()),
             slots: objobject::PyBaseObject::make_slots(),
         };
-        let type_type: PyRc<MaybeUninit<PyClassObj>> = PyRc::new(partially_init!(
-            PyObject::<PyClass> {
+        let type_type: PyRc<MaybeUninit<PyTypeObj>> = PyRc::new(partially_init!(
+            PyObject::<PyType> {
                 dict: None,
                 payload: type_payload,
             },
             Uninit { typ }
         ));
-        let object_type: PyRc<MaybeUninit<PyClassObj>> = PyRc::new(partially_init!(
-            PyObject::<PyClass> {
+        let object_type: PyRc<MaybeUninit<PyTypeObj>> = PyRc::new(partially_init!(
+            PyObject::<PyType> {
                 dict: None,
                 payload: object_payload,
             },
@@ -294,25 +294,24 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
         ));
 
         let object_type_ptr =
-            PyRc::into_raw(object_type) as *mut MaybeUninit<PyClassObj> as *mut PyClassObj;
+            PyRc::into_raw(object_type) as *mut MaybeUninit<PyTypeObj> as *mut PyTypeObj;
         let type_type_ptr =
-            PyRc::into_raw(type_type.clone()) as *mut MaybeUninit<PyClassObj> as *mut PyClassObj;
+            PyRc::into_raw(type_type.clone()) as *mut MaybeUninit<PyTypeObj> as *mut PyTypeObj;
 
         unsafe {
             ptr::write(
-                &mut (*object_type_ptr).typ as *mut PyRwLock<PyObjectRc<PyClass>>
-                    as *mut UninitRef<PyClass>,
+                &mut (*object_type_ptr).typ as *mut PyRwLock<PyObjectRc<PyType>>
+                    as *mut UninitRef<PyType>,
                 PyRwLock::new(type_type.clone()),
             );
             ptr::write(
-                &mut (*type_type_ptr).typ as *mut PyRwLock<PyObjectRc<PyClass>>
-                    as *mut UninitRef<PyClass>,
+                &mut (*type_type_ptr).typ as *mut PyRwLock<PyObjectRc<PyType>>
+                    as *mut UninitRef<PyType>,
                 PyRwLock::new(type_type),
             );
 
-            let type_type = PyClassRef::from_obj_unchecked(PyObjectRef::from_raw(type_type_ptr));
-            let object_type =
-                PyClassRef::from_obj_unchecked(PyObjectRef::from_raw(object_type_ptr));
+            let type_type = PyTypeRef::from_obj_unchecked(PyObjectRef::from_raw(type_type_ptr));
+            let object_type = PyTypeRef::from_obj_unchecked(PyObjectRef::from_raw(object_type_ptr));
 
             (*type_type_ptr).payload.mro = vec![object_type.clone()];
             (*type_type_ptr).payload.bases = vec![object_type.clone()];

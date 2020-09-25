@@ -17,7 +17,7 @@ use crate::obj::objbytearray::PyByteArrayRef;
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objstr::{PyStr, PyStrRef};
 use crate::obj::objtuple::PyTupleRef;
-use crate::obj::objtype::PyClassRef;
+use crate::obj::objtype::PyTypeRef;
 use crate::pyobject::{
     BorrowValue, Either, IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject,
@@ -64,7 +64,7 @@ pub struct PySocket {
 }
 
 impl PyValue for PySocket {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.class("_socket", "socket")
     }
 }
@@ -82,7 +82,7 @@ impl PySocket {
     }
 
     #[pyslot]
-    fn tp_new(cls: PyClassRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    fn tp_new(cls: PyTypeRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         PySocket {
             kind: AtomicCell::default(),
             family: AtomicCell::default(),

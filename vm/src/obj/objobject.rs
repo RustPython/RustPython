@@ -2,10 +2,10 @@ use super::objbool;
 use super::objdict::{PyDict, PyDictRef};
 use super::objlist::PyList;
 use super::objstr::PyStrRef;
-use super::objtype::PyClassRef;
+use super::objtype::PyTypeRef;
 use crate::common::hash::PyHash;
 use crate::function::{OptionalArg, PyFuncArgs};
-use crate::obj::objtype::PyClass;
+use crate::obj::objtype::PyType;
 use crate::pyobject::{
     BorrowValue, Either, IdProtocol, ItemProtocol, PyArithmaticValue, PyAttributes, PyClassImpl,
     PyComparisonValue, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject,
@@ -20,7 +20,7 @@ use crate::vm::VirtualMachine;
 pub struct PyBaseObject;
 
 impl PyValue for PyBaseObject {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.object_type.clone()
     }
 }
@@ -30,7 +30,7 @@ impl PyBaseObject {
     #[pyslot]
     fn tp_new(mut args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
         // more or less __new__ operator
-        let cls = PyClassRef::try_from_object(vm, args.shift())?;
+        let cls = PyTypeRef::try_from_object(vm, args.shift())?;
         let dict = if cls.is(&vm.ctx.types.object_type) {
             None
         } else {
@@ -181,7 +181,7 @@ impl PyBaseObject {
     }
 
     #[pyclassmethod(magic)]
-    fn init_subclass(_cls: PyClassRef) {}
+    fn init_subclass(_cls: PyTypeRef) {}
 
     #[pymethod(magic)]
     pub fn dir(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyList> {
@@ -221,7 +221,7 @@ impl PyBaseObject {
     #[pyproperty(name = "__class__", setter)]
     fn set_class(instance: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if instance.payload_is::<PyBaseObject>() {
-            match value.downcast_generic::<PyClass>() {
+            match value.downcast_generic::<PyType>() {
                 Ok(cls) => {
                     // FIXME(#1979) cls instances might have a payload
                     *instance.typ.write() = cls;

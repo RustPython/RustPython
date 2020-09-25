@@ -5,7 +5,7 @@ use rustpython_common::rc::PyRc;
 use std::fmt;
 
 use super::objiter;
-use super::objtype::{self, PyClassRef};
+use super::objtype::{self, PyTypeRef};
 use crate::dictdatatype;
 use crate::function::{Args, OptionalArg};
 use crate::pyobject::{
@@ -55,13 +55,13 @@ impl fmt::Debug for PyFrozenSet {
 }
 
 impl PyValue for PySet {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.set_type.clone()
     }
 }
 
 impl PyValue for PyFrozenSet {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.frozenset_type.clone()
     }
 }
@@ -318,7 +318,7 @@ macro_rules! multi_args_set {
 impl PySet {
     #[pyslot]
     fn tp_new(
-        cls: PyClassRef,
+        cls: PyTypeRef,
         iterable: OptionalArg<PyIterable>,
         vm: &VirtualMachine,
     ) -> PyResult<PySetRef> {
@@ -567,7 +567,7 @@ impl PyFrozenSet {
 
     #[pyslot]
     fn tp_new(
-        cls: PyClassRef,
+        cls: PyTypeRef,
         iterable: OptionalArg<PyIterable>,
         vm: &VirtualMachine,
     ) -> PyResult<PyFrozenSetRef> {
@@ -795,7 +795,7 @@ impl PySetIterator {
 }
 
 impl PyValue for PySetIterator {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.set_iterator_type.clone()
     }
 }

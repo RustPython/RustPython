@@ -17,7 +17,7 @@ use crate::pyobject::{
     BorrowValue, Either, IdProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable, PyLease,
     PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
-use crate::slots::{self, Callable, PyClassSlots, PyTpFlags};
+use crate::slots::{self, Callable, PyTpFlags, PyTypeSlots};
 use crate::vm::VirtualMachine;
 use itertools::Itertools;
 use std::ops::Deref;
@@ -26,37 +26,37 @@ use std::ops::Deref;
 /// type(object) -> the object's type
 /// type(name, bases, dict) -> a new type
 #[pyclass(module = false, name = "type")]
-pub struct PyClass {
+pub struct PyType {
     pub name: String,
-    pub base: Option<PyClassRef>,
-    pub bases: Vec<PyClassRef>,
-    pub mro: Vec<PyClassRef>,
+    pub base: Option<PyTypeRef>,
+    pub bases: Vec<PyTypeRef>,
+    pub mro: Vec<PyTypeRef>,
     pub subclasses: PyRwLock<Vec<PyWeak>>,
     pub attributes: PyRwLock<PyAttributes>,
-    pub slots: PyClassSlots,
+    pub slots: PyTypeSlots,
 }
 
-impl fmt::Display for PyClass {
+impl fmt::Display for PyType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(&self.name, f)
     }
 }
 
-impl fmt::Debug for PyClass {
+impl fmt::Debug for PyType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "[PyClass {}]", &self.name)
+        write!(f, "[PyType {}]", &self.name)
     }
 }
 
-pub type PyClassRef = PyRef<PyClass>;
+pub type PyTypeRef = PyRef<PyType>;
 
-impl PyValue for PyClass {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+impl PyValue for PyType {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.type_type.clone()
     }
 }
 
-impl PyClassRef {
+impl PyTypeRef {
     fn tp_name(zelf: Self, vm: &VirtualMachine) -> String {
         let opt_name = zelf.slots.name.read().clone();
         opt_name.unwrap_or_else(|| {
@@ -74,7 +74,7 @@ impl PyClassRef {
         })
     }
 
-    pub fn iter_mro(&self) -> impl Iterator<Item = &PyClassRef> + DoubleEndedIterator {
+    pub fn iter_mro(&self) -> impl Iterator<Item = &PyTypeRef> + DoubleEndedIterator {
         std::iter::once(self).chain(self.mro.iter())
     }
 
@@ -91,7 +91,7 @@ impl PyClassRef {
         }
     }
 
-    pub fn iter_base_chain(&self) -> impl Iterator<Item = &PyClassRef> {
+    pub fn iter_base_chain(&self) -> impl Iterator<Item = &PyTypeRef> {
         std::iter::successors(Some(self), |cls| cls.base.as_ref())
     }
 
@@ -181,7 +181,7 @@ fn get_class_magic(zelf: &PyObjectRef, name: &str) -> PyObjectRef {
 }
 
 #[pyimpl(with(Callable), flags(BASETYPE))]
-impl PyClass {
+impl PyType {
     #[pyproperty(name = "__mro__")]
     fn get_mro(zelf: PyRef<Self>) -> PyTuple {
         let elements: Vec<PyObjectRef> = zelf.iter_mro().map(|x| x.as_object().clone()).collect();
@@ -195,7 +195,7 @@ impl PyClass {
     }
 
     #[pyproperty(magic)]
-    fn base(&self) -> Option<PyClassRef> {
+    fn base(&self) -> Option<PyTypeRef> {
         self.base.clone()
     }
 
@@ -220,7 +220,7 @@ impl PyClass {
     }
 
     #[pymethod(magic)]
-    fn subclasscheck(zelf: PyRef<Self>, subclass: PyClassRef) -> bool {
+    fn subclasscheck(zelf: PyRef<Self>, subclass: PyTypeRef) -> bool {
         issubclass(&subclass, &zelf)
     }
 
@@ -371,7 +371,7 @@ impl PyClass {
         )
     }
     #[pyslot]
-    fn tp_new(metatype: PyClassRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn tp_new(metatype: PyTypeRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
         vm_trace!("type.__new__ {:?}", args);
 
         let is_type_type = metatype.is(&vm.ctx.types.type_type);
@@ -390,10 +390,10 @@ impl PyClass {
             }));
         }
 
-        let (name, bases, dict, kwargs): (PyStrRef, PyIterable<PyClassRef>, PyDictRef, KwArgs) =
+        let (name, bases, dict, kwargs): (PyStrRef, PyIterable<PyTypeRef>, PyDictRef, KwArgs) =
             args.clone().bind(vm)?;
 
-        let bases: Vec<PyClassRef> = bases.iter(vm)?.collect::<Result<Vec<_>, _>>()?;
+        let bases: Vec<PyTypeRef> = bases.iter(vm)?.collect::<Result<Vec<_>, _>>()?;
         let (metatype, base, bases) = if bases.is_empty() {
             let base = vm.ctx.types.object_type.clone();
             (metatype, base.clone(), vec![base])
@@ -449,7 +449,7 @@ impl PyClass {
         // TODO: how do we know if it should have a dict?
         let flags = base.slots.flags | PyTpFlags::HAS_DICT;
 
-        let slots = PyClassSlots::from_flags(flags);
+        let slots = PyTypeSlots::from_flags(flags);
 
         let typ = new(
             metatype,
@@ -510,7 +510,7 @@ impl PyClass {
     }
 }
 
-impl Callable for PyClass {
+impl Callable for PyType {
     fn call(zelf: &PyRef<Self>, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
         vm_trace!("type_call: {:?}", zelf);
         let obj = call_tp_new(zelf.clone(), zelf.clone(), args.clone(), vm)?;
@@ -531,7 +531,7 @@ impl Callable for PyClass {
     }
 }
 
-fn find_base_dict_descr(cls: &PyClassRef, vm: &VirtualMachine) -> Option<PyObjectRef> {
+fn find_base_dict_descr(cls: &PyTypeRef, vm: &VirtualMachine) -> Option<PyObjectRef> {
     cls.iter_base_chain().skip(1).find_map(|cls| {
         // TODO: should actually be some translation of:
         // cls.tp_dictoffset != 0 && !cls.flags.contains(HEAPTYPE)
@@ -581,27 +581,27 @@ fn subtype_set_dict(obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -
  */
 
 pub(crate) fn init(ctx: &PyContext) {
-    PyClass::extend_class(ctx, &ctx.types.type_type);
+    PyType::extend_class(ctx, &ctx.types.type_type);
 }
 
 pub trait DerefToPyClass {
-    fn deref_to_class(&self) -> &PyClass;
+    fn deref_to_class(&self) -> &PyType;
 }
 
-impl DerefToPyClass for PyClassRef {
-    fn deref_to_class(&self) -> &PyClass {
+impl DerefToPyClass for PyTypeRef {
+    fn deref_to_class(&self) -> &PyType {
         self.deref()
     }
 }
 
-impl<'a> DerefToPyClass for PyLease<'a, PyClass> {
-    fn deref_to_class(&self) -> &PyClass {
+impl<'a> DerefToPyClass for PyLease<'a, PyType> {
+    fn deref_to_class(&self) -> &PyType {
         self.deref()
     }
 }
 
 impl<T: DerefToPyClass> DerefToPyClass for &'_ T {
-    fn deref_to_class(&self) -> &PyClass {
+    fn deref_to_class(&self) -> &PyType {
         (&**self).deref_to_class()
     }
 }
@@ -609,7 +609,7 @@ impl<T: DerefToPyClass> DerefToPyClass for &'_ T {
 /// Determines if `obj` actually an instance of `cls`, this doesn't call __instancecheck__, so only
 /// use this if `cls` is known to have not overridden the base __instancecheck__ magic method.
 #[inline]
-pub fn isinstance<T: TypeProtocol>(obj: &T, cls: &PyClassRef) -> bool {
+pub fn isinstance<T: TypeProtocol>(obj: &T, cls: &PyTypeRef) -> bool {
     issubclass(obj.lease_class(), &cls)
 }
 
@@ -621,8 +621,8 @@ pub fn issubclass<T: DerefToPyClass + IdProtocol, R: IdProtocol>(subclass: T, cl
 }
 
 fn call_tp_new(
-    typ: PyClassRef,
-    subtype: PyClassRef,
+    typ: PyTypeRef,
+    subtype: PyTypeRef,
     args: PyFuncArgs,
     vm: &VirtualMachine,
 ) -> PyResult {
@@ -641,8 +641,8 @@ fn call_tp_new(
 }
 
 pub fn tp_new_wrapper(
-    zelf: PyClassRef,
-    cls: PyClassRef,
+    zelf: PyTypeRef,
+    cls: PyTypeRef,
     args: PyFuncArgs,
     vm: &VirtualMachine,
 ) -> PyResult {
@@ -656,7 +656,7 @@ pub fn tp_new_wrapper(
     call_tp_new(zelf, cls, args, vm)
 }
 
-impl PyClass {
+impl PyType {
     /// This is the internal get_attr implementation for fast lookup on a class.
     pub fn get_attr(&self, attr_name: &str) -> Option<PyObjectRef> {
         flame_guard!(format!("class_get_attr({:?})", attr_name));
@@ -684,7 +684,7 @@ impl PyClass {
     }
 }
 
-fn take_next_base(mut bases: Vec<Vec<PyClassRef>>) -> (Option<PyClassRef>, Vec<Vec<PyClassRef>>) {
+fn take_next_base(mut bases: Vec<Vec<PyTypeRef>>) -> (Option<PyTypeRef>, Vec<Vec<PyTypeRef>>) {
     bases = bases.into_iter().filter(|x| !x.is_empty()).collect();
 
     for base in &bases {
@@ -704,7 +704,7 @@ fn take_next_base(mut bases: Vec<Vec<PyClassRef>>) -> (Option<PyClassRef>, Vec<V
     (None, bases)
 }
 
-fn linearise_mro(mut bases: Vec<Vec<PyClassRef>>) -> Result<Vec<PyClassRef>, String> {
+fn linearise_mro(mut bases: Vec<Vec<PyTypeRef>>) -> Result<Vec<PyTypeRef>, String> {
     vm_trace!("Linearising MRO: {:?}", bases);
     // Python requires that the class direct bases are kept in the same order.
     // This is called local precedence ordering.
@@ -746,13 +746,13 @@ fn linearise_mro(mut bases: Vec<Vec<PyClassRef>>) -> Result<Vec<PyClassRef>, Str
 }
 
 pub fn new(
-    typ: PyClassRef,
+    typ: PyTypeRef,
     name: &str,
-    base: PyClassRef,
-    bases: Vec<PyClassRef>,
+    base: PyTypeRef,
+    bases: Vec<PyTypeRef>,
     attrs: HashMap<String, PyObjectRef>,
-    mut slots: PyClassSlots,
-) -> Result<PyClassRef, String> {
+    mut slots: PyTypeSlots,
+) -> Result<PyTypeRef, String> {
     // Check for duplicates in bases.
     let mut unique_bases = HashSet::new();
     for base in bases.iter() {
@@ -771,7 +771,7 @@ pub fn new(
         slots.flags |= PyTpFlags::HAS_DICT
     }
     let new_type = PyRef::new_ref(
-        PyClass {
+        PyType {
             name: String::from(name),
             base: Some(base),
             bases,
@@ -799,10 +799,10 @@ pub fn new(
 }
 
 fn calculate_meta_class(
-    metatype: PyClassRef,
-    bases: &[PyClassRef],
+    metatype: PyTypeRef,
+    bases: &[PyTypeRef],
     vm: &VirtualMachine,
-) -> PyResult<PyClassRef> {
+) -> PyResult<PyTypeRef> {
     // = _PyType_CalculateMetaclass
     let mut winner = metatype;
     for base in bases {
@@ -823,7 +823,7 @@ fn calculate_meta_class(
     Ok(winner)
 }
 
-fn best_base<'a>(bases: &'a [PyClassRef], vm: &VirtualMachine) -> PyResult<PyClassRef> {
+fn best_base<'a>(bases: &'a [PyTypeRef], vm: &VirtualMachine) -> PyResult<PyTypeRef> {
     // let mut base = None;
     // let mut winner = None;
 
@@ -874,9 +874,9 @@ fn best_base<'a>(bases: &'a [PyClassRef], vm: &VirtualMachine) -> PyResult<PyCla
 #[cfg(test)]
 mod tests {
     use super::{linearise_mro, new};
-    use super::{HashMap, IdProtocol, PyClassRef, PyContext};
+    use super::{HashMap, IdProtocol, PyContext, PyTypeRef};
 
-    fn map_ids(obj: Result<Vec<PyClassRef>, String>) -> Result<Vec<usize>, String> {
+    fn map_ids(obj: Result<Vec<PyTypeRef>, String>) -> Result<Vec<usize>, String> {
         Ok(obj?.into_iter().map(|x| x.get_id()).collect())
     }
 

@@ -1,7 +1,7 @@
 /*! Python `attribute` descriptor class. (PyGetSet)
 
 */
-use super::objtype::PyClassRef;
+use super::objtype::PyTypeRef;
 use crate::function::{OwnedParam, RefParam};
 use crate::pyobject::{
     IntoPyResult, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
@@ -173,7 +173,7 @@ impl std::fmt::Debug for PyGetSet {
 }
 
 impl PyValue for PyGetSet {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.getset_type.clone()
     }
 }

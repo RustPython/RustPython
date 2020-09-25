@@ -5,7 +5,7 @@ use super::objcode::PyCodeRef;
 use super::objdict::PyDictRef;
 use super::objstr::PyStrRef;
 use super::objtuple::PyTupleRef;
-use super::objtype::PyClassRef;
+use super::objtype::PyTypeRef;
 use crate::bytecode;
 use crate::frame::Frame;
 use crate::function::PyFuncArgs;
@@ -264,7 +264,7 @@ impl PyFunction {
 }
 
 impl PyValue for PyFunction {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.function_type.clone()
     }
 }
@@ -396,7 +396,7 @@ impl PyBoundMethod {
 }
 
 impl PyValue for PyBoundMethod {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.bound_method_type.clone()
     }
 }

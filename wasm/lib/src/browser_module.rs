@@ -7,7 +7,7 @@ use wasm_bindgen_futures::{future_to_promise, JsFuture};
 use rustpython_vm::common::rc::PyRc;
 use rustpython_vm::function::{OptionalArg, PyFuncArgs};
 use rustpython_vm::import::import_file;
-use rustpython_vm::obj::{objdict::PyDictRef, objstr::PyStrRef, objtype::PyClassRef};
+use rustpython_vm::obj::{objdict::PyDictRef, objstr::PyStrRef, objtype::PyTypeRef};
 use rustpython_vm::pyobject::{
     BorrowValue, IntoPyObject, PyCallable, PyClassImpl, PyObject, PyObjectRef, PyRef, PyResult,
     PyValue,
@@ -163,7 +163,7 @@ pub struct PyPromise {
 pub type PyPromiseRef = PyRef<PyPromise>;
 
 impl PyValue for PyPromise {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.class("browser", "Promise")
     }
 }
@@ -259,7 +259,7 @@ struct Document {
 }
 
 impl PyValue for Document {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.class("browser", "Document")
     }
 }
@@ -285,7 +285,7 @@ struct Element {
 }
 
 impl PyValue for Element {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.class("browser", "Element")
     }
 }

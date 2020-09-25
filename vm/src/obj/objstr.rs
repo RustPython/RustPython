@@ -17,7 +17,7 @@ use super::objdict::PyDict;
 use super::objint::{PyInt, PyIntRef};
 use super::objiter;
 use super::objsequence::{PySliceableSequence, SequenceIndex};
-use super::objtype::{self, PyClassRef};
+use super::objtype::{self, PyTypeRef};
 use crate::anystr::{self, adjust_indices, AnyStr, AnyStrContainer, AnyStrWrapper};
 use crate::exceptions::IntoPyException;
 use crate::format::{FormatSpec, FormatString, FromTemplate};
@@ -109,7 +109,7 @@ pub struct PyStringIterator {
 }
 
 impl PyValue for PyStringIterator {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.str_iterator_type.clone()
     }
 }
@@ -142,7 +142,7 @@ pub struct PyStringReverseIterator {
 }
 
 impl PyValue for PyStringReverseIterator {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.str_reverseiterator_type.clone()
     }
 }
@@ -179,7 +179,7 @@ struct StrArgs {
 #[pyimpl(flags(BASETYPE), with(Hashable, Comparable))]
 impl PyStr {
     #[pyslot]
-    fn tp_new(cls: PyClassRef, args: StrArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    fn tp_new(cls: PyTypeRef, args: StrArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         let string: PyStrRef = match args.object {
             OptionalArg::Present(input) => {
                 if let OptionalArg::Present(enc) = args.encoding {
@@ -1091,7 +1091,7 @@ pub(crate) fn encode_string(
 }
 
 impl PyValue for PyStr {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.str_type.clone()
     }
 }

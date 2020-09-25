@@ -15,7 +15,7 @@ mod decl {
     use crate::obj::objint::{self, PyInt, PyIntRef};
     use crate::obj::objiter::{call_next, get_all, get_iter, get_next_object, new_stop_iteration};
     use crate::obj::objtuple::PyTupleRef;
-    use crate::obj::objtype::{self, PyClassRef};
+    use crate::obj::objtype::{self, PyTypeRef};
     use crate::pyobject::{
         BorrowValue, IdProtocol, IntoPyRef, PyCallable, PyClassImpl, PyObjectRc, PyObjectRef,
         PyObjectWeak, PyRef, PyResult, PyValue, TypeProtocol,
@@ -32,7 +32,7 @@ mod decl {
     }
 
     impl PyValue for PyItertoolsChain {
-        fn class(vm: &VirtualMachine) -> PyClassRef {
+        fn class(vm: &VirtualMachine) -> PyTypeRef {
             vm.class("itertools", "chain")
         }
     }
@@ -40,7 +40,7 @@ mod decl {
     #[pyimpl]
     impl PyItertoolsChain {
         #[pyslot]
-        fn tp_new(cls: PyClassRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        fn tp_new(cls: PyTypeRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
             PyItertoolsChain {
                 iterables: args.args,
                 cur_idx: AtomicCell::new(0),
@@ -92,7 +92,7 @@ mod decl {
 
         #[pyclassmethod(name = "from_iterable")]
         fn from_iterable(
-            cls: PyClassRef,
+            cls: PyTypeRef,
             iterable: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
@@ -117,7 +117,7 @@ mod decl {
     }
 
     impl PyValue for PyItertoolsCompress {
-        fn class(vm: &VirtualMachine) -> PyClassRef {
+        fn class(vm: &VirtualMachine) -> PyTypeRef {
             vm.class("itertools", "compress")
         }
     }
@@ -126,7 +126,7 @@ mod decl {
     impl PyItertoolsCompress {
         #[pyslot]
         fn tp_new(
-            cls: PyClassRef,
+            cls: PyTypeRef,
             data: PyObjectRef,
             selector: PyObjectRef,
             vm: &VirtualMachine,
@@ -169,7 +169,7 @@ mod decl {
     }
 
     impl PyValue for PyItertoolsCount {
-        fn class(vm: &VirtualMachine) -> PyClassRef {
+        fn class(vm: &VirtualMachine) -> PyTypeRef {
             vm.class("itertools", "count")
         }
     }
@@ -178,7 +178,7 @@ mod decl {
     impl PyItertoolsCount {
         #[pyslot]
         fn tp_new(
-            cls: PyClassRef,
+            cls: PyTypeRef,
             start: OptionalArg<PyIntRef>,
             step: OptionalArg<PyIntRef>,
             vm: &VirtualMachine,
@@ -223,7 +223,7 @@ mod decl {
     }
 
     impl PyValue for PyItertoolsCycle {
-        fn class(vm: &VirtualMachine) -> PyClassRef {
+        fn class(vm: &VirtualMachine) -> PyTypeRef {
             vm.class("itertools", "cycle")
         }
     }
@@ -232,7 +232,7 @@ mod decl {
     impl PyItertoolsCycle {
         #[pyslot]
         fn tp_new(
-            cls: PyClassRef,
+            cls: PyTypeRef,
             iterable: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
@@ -284,7 +284,7 @@ mod decl {
     }
 
     impl PyValue for PyItertoolsRepeat {
-        fn class(vm: &VirtualMachine) -> PyClassRef {
+        fn class(vm: &VirtualMachine) -> PyTypeRef {
             vm.class("itertools", "repeat")
         }
     }
@@ -293,7 +293,7 @@ mod decl {
     impl PyItertoolsRepeat {
         #[pyslot]
         fn tp_new(
-            cls: PyClassRef,
+            cls: PyTypeRef,
             object: PyObjectRef,
             times: OptionalArg<PyIntRef>,
             vm: &VirtualMachine,
@@ -342,7 +342,7 @@ mod decl {
     }
 
     impl PyValue for PyItertoolsStarmap {
-        fn class(vm: &VirtualMachine) -> PyClassRef {
+        fn class(vm: &VirtualMachine) -> PyTypeRef {
             vm.class("itertools", "starmap")
         }
     }
@@ -351,7 +351,7 @@ mod decl {
     impl PyItertoolsStarmap {
         #[pyslot]
         fn tp_new(
-            cls: PyClassRef,
+            cls: PyTypeRef,
             function: PyObjectRef,
             iterable: PyObjectRef,
             vm: &VirtualMachine,
@@ -385,7 +385,7 @@ mod decl {
     }
 
     impl PyValue for PyItertoolsTakewhile {
-        fn class(vm: &VirtualMachine) -> PyClassRef {
+        fn class(vm: &VirtualMachine) -> PyTypeRef {
             vm.class("itertools", "takewhile")
         }
     }
@@ -394,7 +394,7 @@ mod decl {
     impl PyItertoolsTakewhile {
         #[pyslot]
         fn tp_new(
-            cls: PyClassRef,
+            cls: PyTypeRef,
             predicate: PyObjectRef,
             iterable: PyObjectRef,
             vm: &VirtualMachine,
@@ -445,7 +445,7 @@ mod decl {
     }
 
     impl PyValue for PyItertoolsDropwhile {
-        fn class(vm: &VirtualMachine) -> PyClassRef {
+        fn class(vm: &VirtualMachine) -> PyTypeRef {
             vm.class("itertools", "dropwhile")
         }
     }
@@ -454,7 +454,7 @@ mod decl {
     impl PyItertoolsDropwhile {
         #[pyslot]
         fn tp_new(
-            cls: PyClassRef,
+            cls: PyTypeRef,
             predicate: PyCallable,
             iterable: PyObjectRef,
             vm: &VirtualMachine,
@@ -529,7 +529,7 @@ mod decl {
     }
 
     impl PyValue for PyItertoolsGroupBy {
-        fn class(vm: &VirtualMachine) -> PyClassRef {
+        fn class(vm: &VirtualMachine) -> PyTypeRef {
             vm.class("itertools", "groupby")
         }
     }
@@ -554,11 +554,7 @@ mod decl {
     #[pyimpl]
     impl PyItertoolsGroupBy {
         #[pyslot]
-        fn tp_new(
-            cls: PyClassRef,
-            args: GroupByArgs,
-            vm: &VirtualMachine,
-        ) -> PyResult<PyRef<Self>> {
+        fn tp_new(cls: PyTypeRef, args: GroupByArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
             let iter = get_iter(vm, &args.iterable)?;
 
             PyItertoolsGroupBy {
@@ -640,7 +636,7 @@ mod decl {
     type PyItertoolsGrouperRef = PyRef<PyItertoolsGrouper>;
 
     impl PyValue for PyItertoolsGrouper {
-        fn class(vm: &VirtualMachine) -> PyClassRef {
+        fn class(vm: &VirtualMachine) -> PyTypeRef {
             vm.class("itertools", "_grouper")
         }
     }
@@ -694,7 +690,7 @@ mod decl {
     }
 
     impl PyValue for PyItertoolsIslice {
-        fn class(vm: &VirtualMachine) -> PyClassRef {
+        fn class(vm: &VirtualMachine) -> PyTypeRef {
             vm.class("itertools", "islice")
         }
     }
@@ -711,7 +707,7 @@ mod decl {
     #[pyimpl]
     impl PyItertoolsIslice {
         #[pyslot]
-        fn tp_new(cls: PyClassRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        fn tp_new(cls: PyTypeRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
             let (iter, start, stop, step) = match args.args.len() {
                 0 | 1 => {
                     return Err(vm.new_type_error(format!(
@@ -818,7 +814,7 @@ mod decl {
     }
 
     impl PyValue for PyItertoolsFilterFalse {
-        fn class(vm: &VirtualMachine) -> PyClassRef {
+        fn class(vm: &VirtualMachine) -> PyTypeRef {
             vm.class("itertools", "filterfalse")
         }
     }
@@ -827,7 +823,7 @@ mod decl {
     impl PyItertoolsFilterFalse {
         #[pyslot]
         fn tp_new(
-            cls: PyClassRef,
+            cls: PyTypeRef,
             predicate: PyObjectRef,
             iterable: PyObjectRef,
             vm: &VirtualMachine,
@@ -876,7 +872,7 @@ mod decl {
     }
 
     impl PyValue for PyItertoolsAccumulate {
-        fn class(vm: &VirtualMachine) -> PyClassRef {
+        fn class(vm: &VirtualMachine) -> PyTypeRef {
             vm.class("itertools", "accumulate")
         }
     }
@@ -885,7 +881,7 @@ mod decl {
     impl PyItertoolsAccumulate {
         #[pyslot]
         fn tp_new(
-            cls: PyClassRef,
+            cls: PyTypeRef,
             iterable: PyObjectRef,
             binop: OptionalArg<PyObjectRef>,
             vm: &VirtualMachine,
@@ -960,7 +956,7 @@ mod decl {
     }
 
     impl PyValue for PyItertoolsTee {
-        fn class(vm: &VirtualMachine) -> PyClassRef {
+        fn class(vm: &VirtualMachine) -> PyTypeRef {
             vm.class("itertools", "tee")
         }
     }
@@ -985,7 +981,7 @@ mod decl {
         #[pyslot]
         #[allow(clippy::new_ret_no_self)]
         fn tp_new(
-            _cls: PyClassRef,
+            _cls: PyTypeRef,
             iterable: PyObjectRef,
             n: OptionalArg<usize>,
             vm: &VirtualMachine,
@@ -1041,7 +1037,7 @@ mod decl {
     }
 
     impl PyValue for PyItertoolsProduct {
-        fn class(vm: &VirtualMachine) -> PyClassRef {
+        fn class(vm: &VirtualMachine) -> PyTypeRef {
             vm.class("itertools", "product")
         }
     }
@@ -1056,7 +1052,7 @@ mod decl {
     impl PyItertoolsProduct {
         #[pyslot]
         fn tp_new(
-            cls: PyClassRef,
+            cls: PyTypeRef,
             iterables: Args<PyObjectRef>,
             args: ProductArgs,
             vm: &VirtualMachine,
@@ -1158,7 +1154,7 @@ mod decl {
     }
 
     impl PyValue for PyItertoolsCombinations {
-        fn class(vm: &VirtualMachine) -> PyClassRef {
+        fn class(vm: &VirtualMachine) -> PyTypeRef {
             vm.class("itertools", "combinations")
         }
     }
@@ -1167,7 +1163,7 @@ mod decl {
     impl PyItertoolsCombinations {
         #[pyslot]
         fn tp_new(
-            cls: PyClassRef,
+            cls: PyTypeRef,
             iterable: PyObjectRef,
             r: PyIntRef,
             vm: &VirtualMachine,
@@ -1258,7 +1254,7 @@ mod decl {
     }
 
     impl PyValue for PyItertoolsCombinationsWithReplacement {
-        fn class(vm: &VirtualMachine) -> PyClassRef {
+        fn class(vm: &VirtualMachine) -> PyTypeRef {
             vm.class("itertools", "combinations_with_replacement")
         }
     }
@@ -1267,7 +1263,7 @@ mod decl {
     impl PyItertoolsCombinationsWithReplacement {
         #[pyslot]
         fn tp_new(
-            cls: PyClassRef,
+            cls: PyTypeRef,
             iterable: PyObjectRef,
             r: PyIntRef,
             vm: &VirtualMachine,
@@ -1355,7 +1351,7 @@ mod decl {
     }
 
     impl PyValue for PyItertoolsPermutations {
-        fn class(vm: &VirtualMachine) -> PyClassRef {
+        fn class(vm: &VirtualMachine) -> PyTypeRef {
             vm.class("itertools", "permutations")
         }
     }
@@ -1364,7 +1360,7 @@ mod decl {
     impl PyItertoolsPermutations {
         #[pyslot]
         fn tp_new(
-            cls: PyClassRef,
+            cls: PyTypeRef,
             iterable: PyObjectRef,
             r: OptionalOption<PyObjectRef>,
             vm: &VirtualMachine,
@@ -1482,7 +1478,7 @@ mod decl {
     }
 
     impl PyValue for PyItertoolsZipLongest {
-        fn class(vm: &VirtualMachine) -> PyClassRef {
+        fn class(vm: &VirtualMachine) -> PyTypeRef {
             vm.class("itertools", "zip_longest")
         }
     }
@@ -1497,7 +1493,7 @@ mod decl {
     impl PyItertoolsZipLongest {
         #[pyslot]
         fn tp_new(
-            cls: PyClassRef,
+            cls: PyTypeRef,
             iterables: Args,
             args: ZiplongestArgs,
             vm: &VirtualMachine,

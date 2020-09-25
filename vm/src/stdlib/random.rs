@@ -7,7 +7,7 @@ mod _random {
     use crate::common::cell::PyMutex;
     use crate::function::OptionalOption;
     use crate::obj::objint::PyIntRef;
-    use crate::obj::objtype::PyClassRef;
+    use crate::obj::objtype::PyTypeRef;
     use crate::pyobject::{BorrowValue, PyClassImpl, PyRef, PyResult, PyValue};
     use crate::VirtualMachine;
     use num_bigint::{BigInt, Sign};
@@ -61,7 +61,7 @@ mod _random {
     }
 
     impl PyValue for PyRandom {
-        fn class(vm: &VirtualMachine) -> PyClassRef {
+        fn class(vm: &VirtualMachine) -> PyTypeRef {
             vm.class("_random", "Random")
         }
     }
@@ -69,7 +69,7 @@ mod _random {
     #[pyimpl(flags(BASETYPE))]
     impl PyRandom {
         #[pyslot(new)]
-        fn new(cls: PyClassRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        fn new(cls: PyTypeRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
             PyRandom {
                 rng: PyMutex::default(),
             }

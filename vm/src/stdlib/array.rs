@@ -10,7 +10,7 @@ use crate::obj::objlist::PyList;
 use crate::obj::objsequence::{get_saturated_pos, PySliceableSequence, PySliceableSequenceMut};
 use crate::obj::objslice::PySliceRef;
 use crate::obj::objstr::PyStrRef;
-use crate::obj::objtype::PyClassRef;
+use crate::obj::objtype::PyTypeRef;
 use crate::pyobject::{
     BorrowValue, Either, IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyIterable,
     PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
@@ -461,7 +461,7 @@ pub struct PyArray {
 pub type PyArrayRef = PyRef<PyArray>;
 
 impl PyValue for PyArray {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.class("array", "array")
     }
 }
@@ -478,7 +478,7 @@ impl PyArray {
 
     #[pyslot]
     fn tp_new(
-        cls: PyClassRef,
+        cls: PyTypeRef,
         spec: PyStrRef,
         init: OptionalArg<PyIterable>,
         vm: &VirtualMachine,
@@ -837,7 +837,7 @@ pub struct PyArrayIter {
 }
 
 impl PyValue for PyArrayIter {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.class("array", "arrayiterator")
     }
 }

@@ -5,7 +5,7 @@ use std::mem::size_of;
 use super::objiter;
 use super::objset::PySet;
 use super::objstr;
-use super::objtype::{self, PyClassRef};
+use super::objtype::{self, PyTypeRef};
 use crate::dictdatatype::{self, DictKey};
 use crate::exceptions::PyBaseExceptionRef;
 use crate::function::{KwArgs, OptionalArg, PyFuncArgs};
@@ -43,7 +43,7 @@ impl fmt::Debug for PyDict {
 }
 
 impl PyValue for PyDict {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.dict_type.clone()
     }
 }
@@ -53,7 +53,7 @@ impl PyValue for PyDict {
 #[pyimpl(with(Hashable, Comparable), flags(BASETYPE))]
 impl PyDict {
     #[pyslot]
-    fn tp_new(class: PyClassRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    fn tp_new(class: PyTypeRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         PyDict {
             entries: DictContentType::default(),
         }
@@ -128,7 +128,7 @@ impl PyDict {
 
     #[pyclassmethod]
     fn fromkeys(
-        class: PyClassRef,
+        class: PyTypeRef,
         iterable: PyIterable,
         value: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
@@ -643,7 +643,7 @@ macro_rules! dict_iterator {
         }
 
         impl PyValue for $name {
-            fn class(vm: &VirtualMachine) -> PyClassRef {
+            fn class(vm: &VirtualMachine) -> PyTypeRef {
                 vm.ctx.types.$class.clone()
             }
         }
@@ -696,7 +696,7 @@ macro_rules! dict_iterator {
         }
 
         impl PyValue for $iter_name {
-            fn class(vm: &VirtualMachine) -> PyClassRef {
+            fn class(vm: &VirtualMachine) -> PyTypeRef {
                 vm.ctx.types.$iter_class.clone()
             }
         }
@@ -752,7 +752,7 @@ macro_rules! dict_iterator {
         }
 
         impl PyValue for $reverse_iter_name {
-            fn class(vm: &VirtualMachine) -> PyClassRef {
+            fn class(vm: &VirtualMachine) -> PyTypeRef {
                 vm.ctx.types.$reverse_iter_class.clone()
             }
         }

@@ -3,7 +3,7 @@ use std::fmt;
 
 use super::objiter;
 use super::objsequence::get_item;
-use super::objtype::PyClassRef;
+use super::objtype::PyTypeRef;
 use crate::function::OptionalArg;
 use crate::pyobject::{
     self, BorrowValue, Either, IdProtocol, IntoPyObject, PyArithmaticValue, PyClassImpl,
@@ -39,7 +39,7 @@ impl<'a> BorrowValue<'a> for PyTuple {
 }
 
 impl PyValue for PyTuple {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.tuple_type.clone()
     }
 }
@@ -214,7 +214,7 @@ impl PyTuple {
 
     #[pyslot]
     fn tp_new(
-        cls: PyClassRef,
+        cls: PyTypeRef,
         iterable: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
@@ -268,7 +268,7 @@ pub struct PyTupleIterator {
 }
 
 impl PyValue for PyTupleIterator {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
+    fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.tuple_iterator_type.clone()
     }
 }
