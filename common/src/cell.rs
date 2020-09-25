@@ -119,7 +119,31 @@ cfg_if::cfg_if! {
         type RwLockInner<T> = RefCell<T>;
         type RwLockReadInner<'a, T> = Ref<'a, T>;
         type MappedRwLockReadInner<'a, T> = Ref<'a, T>;
-        type RwLockWriteInner<'a, T> = RefMut<'a, T>;
+        #[derive(Debug)]
+        struct RwLockWriteInner<'a, T: ?Sized>(&'a RefCell<T>, RefMut<'a, T>);
+        impl<'a, T: ?Sized> RwLockWriteInner<'a, T> {
+            fn map<U: ?Sized, F>(s: Self, f: F) -> MappedRwLockWriteInner<'a, U>
+            where
+                F: FnOnce(&mut T) -> &mut U,
+            {
+                RefMut::map(s.1, f)
+            }
+            fn downgrade(s: Self) -> RwLockReadInner<'a, T> {
+                drop(s.1);
+                read_rwlock(s.0)
+            }
+        }
+        impl<'a, T: ?Sized> Deref for RwLockWriteInner<'a, T> {
+            type Target = T;
+            fn deref(&self) -> &T {
+                self.1.deref()
+            }
+        }
+        impl<'a, T: ?Sized> DerefMut for RwLockWriteInner<'a, T> {
+            fn deref_mut(&mut self) -> &mut T {
+                self.1.deref_mut()
+            }
+        }
         type MappedRwLockWriteInner<'a, T> = RefMut<'a, T>;
         const fn new_rwlock<T>(value: T) -> RwLockInner<T> {
             RefCell::new(value)
@@ -128,7 +152,7 @@ cfg_if::cfg_if! {
             m.borrow()
         }
         fn write_rwlock<T: ?Sized>(m: &RwLockInner<T>) -> RwLockWriteInner<T> {
-            m.borrow_mut()
+            RwLockWriteInner(m, m.borrow_mut())
         }
     }
 }
@@ -228,6 +252,9 @@ impl<'a, T: ?Sized> PyRwLockWriteGuard<'a, T> {
         F: FnOnce(&mut T) -> &mut U,
     {
         PyMappedRwLockWriteGuard(RwLockWriteInner::map(s.0, f))
+    }
+    pub fn downgrade(s: Self) -> PyRwLockReadGuard<'a, T> {
+        PyRwLockReadGuard(RwLockWriteInner::downgrade(s.0))
     }
 }
 impl<'a, T: ?Sized> PyMappedRwLockWriteGuard<'a, T> {
