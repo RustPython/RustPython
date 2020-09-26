@@ -351,33 +351,23 @@ where
         Ok((front, has_mid, back))
     }
 
-    fn py_removeprefix<FC>(
-        &self,
-        prefix: &Self::Container,
-        prefix_len: usize,
-        is_prefix: FC,
-    ) -> &Self
+    fn py_removeprefix<FC>(&self, prefix: &Self, prefix_len: usize, is_prefix: FC) -> &Self
     where
-        FC: Fn(&Self, &Self::Container) -> bool,
+        FC: Fn(&Self, &Self) -> bool,
     {
         //if self.py_starts_with(prefix) {
-        if is_prefix(&self, &prefix) {
+        if is_prefix(&self, prefix) {
             self.get_bytes(prefix_len..self.bytes_len())
         } else {
             &self
         }
     }
 
-    fn py_removesuffix<FC>(
-        &self,
-        suffix: &Self::Container,
-        suffix_len: usize,
-        is_suffix: FC,
-    ) -> &Self
+    fn py_removesuffix<FC>(&self, suffix: &Self, suffix_len: usize, is_suffix: FC) -> &Self
     where
-        FC: Fn(&Self, &Self::Container) -> bool,
+        FC: Fn(&Self, &Self) -> bool,
     {
-        if is_suffix(&self, &suffix) {
+        if is_suffix(&self, suffix) {
             self.get_bytes(0..self.bytes_len() - suffix_len)
         } else {
             &self
