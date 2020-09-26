@@ -1,11 +1,11 @@
 use std::char;
 use std::fmt;
 use std::mem::size_of;
-use std::mem::ManuallyDrop;
 use std::ops::Range;
 use std::string::ToString;
 
 use crossbeam_utils::atomic::AtomicCell;
+use embed_str::EmbeddingStr;
 use itertools::Itertools;
 use num_traits::ToPrimitive;
 use unic_ucd_bidi::BidiClass;
@@ -20,6 +20,7 @@ use super::objiter;
 use super::objsequence::{PySliceableSequence, SequenceIndex};
 use super::objtype::{self, PyTypeRef};
 use crate::anystr::{self, adjust_indices, AnyStr, AnyStrContainer, AnyStrWrapper};
+use crate::common::hash;
 use crate::exceptions::IntoPyException;
 use crate::format::{FormatSpec, FormatString, FromTemplate};
 use crate::function::{OptionalArg, OptionalOption, PyFuncArgs};
@@ -29,59 +30,6 @@ use crate::pyobject::{
 };
 use crate::slots::{Comparable, Hashable, PyComparisonOp};
 use crate::VirtualMachine;
-use rustpython_common::hash;
-
-#[derive(Debug)]
-struct StrInner(ManuallyDrop<Box<str>>);
-
-enum StrInnerMode {
-    Boxed,
-    Embedded,
-}
-
-impl StrInner {
-    fn as_box_repr(&self) -> &[usize; 2] {
-        unsafe { &*(self as *const Self as *const _) }
-    }
-
-    fn mode(&self) -> StrInnerMode {
-        // SAFETY: std::mem::align_of::<&str>() > 1
-        let x = self.as_box_repr();
-        if (self.as_box_repr()[0] & 1) == 0 {
-            StrInnerMode::Boxed
-        } else {
-            StrInnerMode::Embedded
-        }
-    }
-
-    fn as_str(&self) -> &str {
-        match self.mode() {
-            StrInnerMode::Boxed => &*self.0,
-            StrInnerMode::Embedded => {
-                assert!(self.0.len() == 0);
-                &""
-            }
-        }
-    }
-}
-
-impl Drop for StrInner {
-    fn drop(&mut self) {
-        match self.mode() {
-            StrInnerMode::Boxed => unsafe { ManuallyDrop::drop(&mut self.0) },
-            StrInnerMode::Embedded => {
-                // nothing to do
-            }
-        }
-    }
-}
-
-impl From<String> for StrInner {
-    #[inline]
-    fn from(s: String) -> Self {
-        Self(ManuallyDrop::new(s.into_boxed_str()))
-    }
-}
 
 /// str(object='') -> str
 /// str(bytes_or_buffer[, encoding[, errors]]) -> str
@@ -96,7 +44,7 @@ impl From<String> for StrInner {
 #[pyclass(module = false, name = "str")]
 #[derive(Debug)]
 pub struct PyStr {
-    value: StrInner,
+    value: EmbeddingStr,
     hash: AtomicCell<Option<hash::PyHash>>,
     len: AtomicCell<Option<usize>>,
 }
@@ -115,22 +63,25 @@ impl AsRef<str> for PyStr {
     }
 }
 
-impl<T> From<&T> for PyStr
-where
-    T: AsRef<str> + ?Sized,
-{
-    fn from(s: &T) -> PyStr {
-        s.as_ref().to_owned().into()
-    }
-}
-
 impl From<String> for PyStr {
     fn from(s: String) -> PyStr {
         PyStr {
-            value: StrInner::from(s),
+            value: s.into(),
             hash: AtomicCell::default(),
             len: AtomicCell::default(),
         }
+    }
+}
+
+impl From<&str> for PyStr {
+    fn from(s: &str) -> PyStr {
+        s.to_owned().into()
+    }
+}
+
+impl From<&String> for PyStr {
+    fn from(s: &String) -> PyStr {
+        s.as_str().into()
     }
 }
 

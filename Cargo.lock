@@ -626,6 +626,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e78d4f1cc4ae33bbfc157ed5d5a5ef3bc29227303d595861deb238fcec4e9457"
 
 [[package]]
+name = "embed-str"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "830cffe974f499bc442a3d95b08c6fb4598ca1529d53d2afc914792ca84eaeec"
+
+[[package]]
 name = "ena"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1730,6 +1736,7 @@ dependencies = [
  "csv",
  "digest",
  "dns-lookup",
+ "embed-str",
  "exitcode",
  "flame",
  "flamer",
