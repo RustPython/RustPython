@@ -17,7 +17,7 @@ use crate::pyobject::{
     BorrowValue, Either, IdProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable, PyLease,
     PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
-use crate::slots::{self, Callable, PyTpFlags, PyTypeSlots};
+use crate::slots::{self, Callable, PyTpFlags, PyTypeSlots, SlotGetattro};
 use crate::vm::VirtualMachine;
 use itertools::Itertools;
 use std::ops::Deref;
@@ -165,7 +165,14 @@ impl PyTypeRef {
                 } as _;
                 self.slots.cmp.store(Some(func))
             }
-            _ => (),
+            "__getattribute__" => {
+                let func: slots::GetattroFunc = |zelf, name, vm| {
+                    let magic = get_class_magic(&zelf, "__getattribute__");
+                    vm.invoke(&magic, vec![zelf, name.into_object()])
+                };
+                self.slots.getattro.store(Some(func))
+            }
+            _ => {}
         }
     }
 }
@@ -180,7 +187,7 @@ fn get_class_magic(zelf: &PyObjectRef, name: &str) -> PyObjectRef {
     // attrs.get(name).unwrap().clone()
 }
 
-#[pyimpl(with(Callable), flags(BASETYPE))]
+#[pyimpl(with(SlotGetattro, Callable), flags(BASETYPE))]
 impl PyType {
     #[pyproperty(name = "__mro__")]
     fn get_mro(zelf: PyRef<Self>) -> PyTuple {
@@ -264,53 +271,6 @@ impl PyType {
     #[pymethod(magic)]
     fn prepare(_name: PyStrRef, _bases: PyObjectRef, vm: &VirtualMachine) -> PyDictRef {
         vm.ctx.new_dict()
-    }
-
-    #[pymethod(magic)]
-    fn getattribute(zelf: PyRef<Self>, name_ref: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        let name = name_ref.borrow_value();
-        vm_trace!("type.__getattribute__({:?}, {:?})", zelf, name);
-        let mcl = zelf.lease_class();
-
-        if let Some(attr) = mcl.get_attr(&name) {
-            let attr_class = attr.lease_class();
-            if attr_class.has_attr("__set__") {
-                if let Some(ref descr_get) =
-                    PyLease::into_pyref(attr_class).first_in_mro(|cls| cls.slots.descr_get.load())
-                {
-                    let mcl = PyLease::into_pyref(mcl).into_object();
-                    return descr_get(attr, Some(zelf.into_object()), Some(mcl), vm);
-                }
-            }
-        }
-
-        if let Some(attr) = zelf.get_attr(&name) {
-            let attr_class = attr.class();
-            if let Some(ref descr_get) = attr_class.first_in_mro(|cls| cls.slots.descr_get.load()) {
-                drop(mcl);
-                return descr_get(attr, None, Some(zelf.into_object()), vm);
-            }
-        }
-
-        if let Some(cls_attr) = zelf.get_attr(&name) {
-            Ok(cls_attr)
-        } else if let Some(attr) = mcl.get_attr(&name) {
-            drop(mcl);
-            vm.call_if_get_descriptor(attr, zelf.into_object())
-        } else if let Some(ref getter) = zelf.get_attr("__getattr__") {
-            vm.invoke(
-                getter,
-                vec![
-                    PyLease::into_pyref(mcl).into_object(),
-                    name_ref.into_object(),
-                ],
-            )
-        } else {
-            Err(vm.new_attribute_error(format!(
-                "type object '{}' has no attribute '{}'",
-                zelf, name
-            )))
-        }
     }
 
     #[pymethod(magic)]
@@ -507,6 +467,58 @@ impl PyType {
         Err(vm.new_not_implemented_error(
             "Setting __dict__ attribute on a type isn't yet implemented".to_owned(),
         ))
+    }
+}
+
+impl SlotGetattro for PyType {
+    fn getattro(zelf: PyRef<Self>, name_ref: PyStrRef, vm: &VirtualMachine) -> PyResult {
+        let name = name_ref.borrow_value();
+        vm_trace!("type.__getattribute__({:?}, {:?})", zelf, name);
+        let mcl = zelf.lease_class();
+
+        let mcl_attr = mcl.get_attr(name);
+
+        if let Some(ref attr) = mcl_attr {
+            let attr_class = attr.lease_class();
+            if attr_class.has_attr("__set__") {
+                if let Some(ref descr_get) =
+                    PyLease::into_pyref(attr_class).first_in_mro(|cls| cls.slots.descr_get.load())
+                {
+                    let mcl = PyLease::into_pyref(mcl).into_object();
+                    return descr_get(attr.clone(), Some(zelf.into_object()), Some(mcl), vm);
+                }
+            }
+        }
+
+        let zelf_attr = zelf.get_attr(name);
+
+        if let Some(ref attr) = zelf_attr {
+            let attr_class = attr.class();
+            if let Some(descr_get) = attr_class.first_in_mro(|cls| cls.slots.descr_get.load()) {
+                drop(mcl);
+                return descr_get(attr.clone(), None, Some(zelf.into_object()), vm);
+            }
+        }
+
+        if let Some(cls_attr) = zelf_attr {
+            Ok(cls_attr)
+        } else if let Some(attr) = mcl_attr {
+            drop(mcl);
+            vm.call_if_get_descriptor(attr, zelf.into_object())
+        } else if let Some(ref getter) = zelf.get_attr("__getattr__") {
+            vm.invoke(
+                getter,
+                vec![
+                    PyLease::into_pyref(mcl).into_object(),
+                    name_ref.into_object(),
+                ],
+            )
+        } else {
+            Err(vm.new_attribute_error(format!(
+                "type object '{}' has no attribute '{}'",
+                zelf, name
+            )))
+        }
     }
 }
 

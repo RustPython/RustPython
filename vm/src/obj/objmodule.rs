@@ -6,6 +6,7 @@ use crate::pyobject::{
     BorrowValue, IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
     PyValue,
 };
+use crate::slots::SlotGetattro;
 use crate::vm::VirtualMachine;
 
 #[pyclass(module = false, name = "module")]
@@ -42,8 +43,8 @@ pub fn init_module_dict(
         .expect("Failed to set __spec__ on module");
 }
 
-#[pyimpl(flags(BASETYPE, HAS_DICT))]
-impl PyModuleRef {
+#[pyimpl(with(SlotGetattro), flags(BASETYPE, HAS_DICT))]
+impl PyModule {
     #[pyslot]
     fn tp_new(cls: PyTypeRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyModuleRef> {
         PyModule {}.into_ref_with_type(vm, cls)
@@ -51,27 +52,27 @@ impl PyModuleRef {
 
     #[pymethod(magic)]
     fn init(
-        self,
+        zelf: PyRef<Self>,
         name: PyStrRef,
         doc: OptionalOption<PyStrRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        debug_assert!(crate::pyobject::TypeProtocol::lease_class(self.as_object())
+        debug_assert!(crate::pyobject::TypeProtocol::lease_class(zelf.as_object())
             .slots
             .flags
             .has_feature(crate::slots::PyTpFlags::HAS_DICT));
         init_module_dict(
             vm,
-            &self.as_object().dict().unwrap(),
+            &zelf.as_object().dict().unwrap(),
             name.into_object(),
             doc.flatten().into_pyobject(vm),
         );
         Ok(())
     }
 
-    fn name(self, vm: &VirtualMachine) -> Option<String> {
+    fn name(zelf: PyRef<Self>, vm: &VirtualMachine) -> Option<String> {
         vm.generic_getattribute_opt(
-            self.as_object().clone(),
+            zelf.as_object().clone(),
             PyStr::from("__name__").into_ref(vm),
             None,
         )
@@ -80,10 +81,28 @@ impl PyModuleRef {
     }
 
     #[pymethod(magic)]
-    fn getattribute(self, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        vm.generic_getattribute_opt(self.as_object().clone(), name.clone(), None)?
+    fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        let importlib = vm.import("_frozen_importlib", &[], 0)?;
+        let module_repr = vm.get_attribute(importlib, "_module_repr")?;
+        vm.invoke(&module_repr, vec![zelf.into_object()])
+    }
+
+    #[pymethod(magic)]
+    fn dir(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        let dict = zelf
+            .as_object()
+            .dict()
+            .ok_or_else(|| vm.new_value_error("module has no dict".to_owned()))?;
+        let attrs = dict.into_iter().map(|(k, _v)| k).collect();
+        Ok(vm.ctx.new_list(attrs))
+    }
+}
+
+impl SlotGetattro for PyModule {
+    fn getattro(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
+        vm.generic_getattribute_opt(zelf.as_object().clone(), name.clone(), None)?
             .ok_or_else(|| {
-                let module_name = if let Some(name) = self.name(vm) {
+                let module_name = if let Some(name) = Self::name(zelf, vm) {
                     format!(" '{}'", name)
                 } else {
                     "".to_owned()
@@ -93,25 +112,8 @@ impl PyModuleRef {
                 )
             })
     }
-
-    #[pymethod(magic)]
-    fn repr(self, vm: &VirtualMachine) -> PyResult {
-        let importlib = vm.import("_frozen_importlib", &[], 0)?;
-        let module_repr = vm.get_attribute(importlib, "_module_repr")?;
-        vm.invoke(&module_repr, vec![self.into_object()])
-    }
-
-    #[pymethod(magic)]
-    fn dir(self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        let dict = self
-            .as_object()
-            .dict()
-            .ok_or_else(|| vm.new_value_error("module has no dict".to_owned()))?;
-        let attrs = dict.into_iter().map(|(k, _v)| k).collect();
-        Ok(vm.ctx.new_list(attrs))
-    }
 }
 
 pub(crate) fn init(context: &PyContext) {
-    PyModuleRef::extend_class(&context, &context.types.module_type);
+    PyModule::extend_class(&context, &context.types.module_type);
 }

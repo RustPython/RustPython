@@ -19,7 +19,7 @@ use crate::pyobject::{
     PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::scope::Scope;
-use crate::slots::{Callable, Comparable, PyComparisonOp, SlotDescriptor};
+use crate::slots::{Callable, Comparable, PyComparisonOp, SlotDescriptor, SlotGetattro};
 use crate::VirtualMachine;
 use itertools::Itertools;
 #[cfg(feature = "jit")]
@@ -357,7 +357,16 @@ impl Comparable for PyBoundMethod {
     }
 }
 
-#[pyimpl(with(Callable, Comparable), flags(HAS_DICT))]
+impl SlotGetattro for PyBoundMethod {
+    fn getattro(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
+        if let Some(obj) = zelf.get_class_attr(name.borrow_value()) {
+            return vm.call_if_get_descriptor(obj, zelf.into_object());
+        }
+        vm.get_attribute(zelf.function.clone(), name)
+    }
+}
+
+#[pyimpl(with(Callable, Comparable, SlotGetattro), flags(HAS_DICT))]
 impl PyBoundMethod {
     pub fn new(object: PyObjectRef, function: PyObjectRef) -> Self {
         PyBoundMethod { object, function }
@@ -374,14 +383,6 @@ impl PyBoundMethod {
     #[pyproperty(magic)]
     fn doc(&self, vm: &VirtualMachine) -> PyResult {
         vm.get_attribute(self.function.clone(), "__doc__")
-    }
-
-    #[pymethod(magic)]
-    fn getattribute(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(obj) = zelf.get_class_attr(name.borrow_value()) {
-            return vm.call_if_get_descriptor(obj, zelf.into_object());
-        }
-        vm.get_attribute(zelf.function.clone(), name)
     }
 
     #[pyproperty(magic)]

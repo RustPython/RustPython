@@ -46,7 +46,7 @@ impl FrameRef {
 
     #[pyproperty]
     fn f_locals(self) -> PyDictRef {
-        self.scope.get_locals()
+        self.scope.get_locals().clone()
     }
 
     #[pyproperty]

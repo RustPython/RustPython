@@ -27,7 +27,7 @@ use crate::obj::objiter;
 use crate::obj::objlist::PyList;
 use crate::obj::objnamespace::PyNamespace;
 use crate::obj::objobject;
-use crate::obj::objset::PySet;
+use crate::obj::objset;
 use crate::obj::objsingletons::{PyNone, PyNoneRef, PyNotImplemented, PyNotImplementedRef};
 use crate::obj::objslice::PyEllipsis;
 use crate::obj::objstaticmethod::PyStaticMethod;
@@ -256,10 +256,10 @@ impl PyContext {
         PyObject::new(PyList::from(elements), self.types.list_type.clone(), None)
     }
 
-    pub fn new_set(&self) -> PyObjectRef {
+    pub fn new_set(&self) -> objset::PySetRef {
         // Initialized empty, as calling __hash__ is required for adding each object to the set
         // which requires a VM context - this is done in the objset code itself.
-        PyObject::new(PySet::default(), self.types.set_type.clone(), None)
+        PyRef::new_ref(objset::PySet::default(), self.types.set_type.clone(), None)
     }
 
     pub fn new_dict(&self) -> PyDictRef {

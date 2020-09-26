@@ -9,6 +9,7 @@ use crate::pyobject::{
     BorrowValue, Either, IdProtocol, ItemProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef,
     PyResult, PyValue, TypeProtocol,
 };
+use crate::slots::SlotGetattro;
 use crate::vm::VirtualMachine;
 
 use parking_lot::{
@@ -296,7 +297,7 @@ impl PyValue for PyLocal {
     }
 }
 
-#[pyimpl(flags(BASETYPE))]
+#[pyimpl(with(SlotGetattro), flags(BASETYPE))]
 impl PyLocal {
     fn ldict(&self, vm: &VirtualMachine) -> PyDictRef {
         self.data.get_or(|| vm.ctx.new_dict()).clone()
@@ -308,20 +309,6 @@ impl PyLocal {
             data: ThreadLocal::new(),
         }
         .into_ref_with_type(vm, cls)
-    }
-
-    #[pymethod(magic)]
-    fn getattribute(zelf: PyRef<Self>, attr: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        let ldict = zelf.ldict(vm);
-        if attr.borrow_value() == "__dict__" {
-            Ok(ldict.into_object())
-        } else {
-            let zelf = zelf.into_object();
-            vm.generic_getattribute_opt(zelf.clone(), attr.clone(), Some(ldict))?
-                .ok_or_else(|| {
-                    vm.new_attribute_error(format!("{} has no attribute '{}'", zelf, attr))
-                })
-        }
     }
 
     #[pymethod(magic)]
@@ -352,6 +339,21 @@ impl PyLocal {
         } else {
             zelf.ldict(vm).del_item(attr.into_object(), vm)?;
             Ok(())
+        }
+    }
+}
+
+impl SlotGetattro for PyLocal {
+    fn getattro(zelf: PyRef<Self>, attr: PyStrRef, vm: &VirtualMachine) -> PyResult {
+        let ldict = zelf.ldict(vm);
+        if attr.borrow_value() == "__dict__" {
+            Ok(ldict.into_object())
+        } else {
+            let zelf = zelf.into_object();
+            vm.generic_getattribute_opt(zelf.clone(), attr.clone(), Some(ldict))?
+                .ok_or_else(|| {
+                    vm.new_attribute_error(format!("{} has no attribute '{}'", zelf, attr))
+                })
         }
     }
 }

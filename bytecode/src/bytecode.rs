@@ -91,7 +91,7 @@ impl Label {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 /// An indication where the name must be accessed.
 pub enum NameScope {
     /// The name will be in the local scope.

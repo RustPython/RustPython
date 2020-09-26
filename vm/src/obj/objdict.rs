@@ -388,7 +388,7 @@ impl PyDict {
         Ok(PyDict { entries: dict })
     }
 
-    pub fn contains_key<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> bool {
+    pub fn contains_key<K: IntoPyObject>(&self, key: K, vm: &VirtualMachine) -> bool {
         let key = key.into_pyobject(vm);
         self.entries.contains(vm, &key).unwrap()
     }
@@ -421,6 +421,7 @@ impl Unhashable for PyDict {}
 
 impl PyDictRef {
     /// Return an optional inner item, or an error (can be key error as well)
+    #[inline]
     fn inner_getitem_option<K: DictKey>(
         &self,
         key: K,
@@ -453,9 +454,9 @@ impl PyDictRef {
     /// python value, or None.
     /// Note that we can pass any type which implements the DictKey
     /// trait. Notable examples are String and PyObjectRef.
-    pub fn get_item_option<T: IntoPyObject + DictKey>(
+    pub fn get_item_option<K: IntoPyObject + DictKey>(
         &self,
-        key: T,
+        key: K,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
         // Test if this object is a true dict, or mabye a subclass?
@@ -492,15 +493,15 @@ impl PyDictRef {
     }
 }
 
-impl<T> ItemProtocol<T> for PyDictRef
+impl<K> ItemProtocol<K> for PyDictRef
 where
-    T: DictKey,
+    K: DictKey,
 {
-    fn get_item(&self, key: T, vm: &VirtualMachine) -> PyResult {
+    fn get_item(&self, key: K, vm: &VirtualMachine) -> PyResult {
         self.as_object().get_item(key, vm)
     }
 
-    fn set_item(&self, key: T, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn set_item(&self, key: K, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if self.lease_class().is(&vm.ctx.types.dict_type) {
             self.inner_setitem_fast(key, value, vm)
                 .map(|_| vm.ctx.none())
@@ -510,7 +511,7 @@ where
         }
     }
 
-    fn del_item(&self, key: T, vm: &VirtualMachine) -> PyResult {
+    fn del_item(&self, key: K, vm: &VirtualMachine) -> PyResult {
         if self.lease_class().is(&vm.ctx.types.dict_type) {
             self.entries.delete(vm, key).map(|_| vm.ctx.none())
         } else {
