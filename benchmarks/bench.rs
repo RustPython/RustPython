@@ -11,6 +11,7 @@ use rustpython_vm::Interpreter;
 const MINIDOM: &str = include_str!("./benchmarks/minidom.py");
 const NBODY: &str = include_str!("./benchmarks/nbody.py");
 const MANDELBROT: &str = include_str!("./benchmarks/mandelbrot.py");
+const PYSTONE: &str = include_str!("./benchmarks/pystone.py");
 
 #[bench]
 fn bench_tokenization(b: &mut Bencher) {
@@ -81,6 +82,11 @@ fn bench_cpython_mandelbrot(b: &mut Bencher) {
     bench_cpython(b, MANDELBROT)
 }
 
+#[bench]
+fn bench_cpython_pystone(b: &mut Bencher) {
+    bench_cpython(b, PYSTONE)
+}
+
 fn bench_rustpy(b: &mut Bencher, name: &str, source: &str) {
     // NOTE: Take long time.
     Interpreter::default().enter(|vm| {
@@ -104,4 +110,9 @@ fn bench_rustpy_nbody(b: &mut Bencher) {
 #[bench]
 fn bench_rustpy_mandelbrot(b: &mut Bencher) {
     bench_rustpy(b, "mandelbrot.py", MANDELBROT)
+}
+
+#[bench]
+fn bench_rustpy_pystone(b: &mut Bencher) {
+    bench_rustpy(b, "pystone.py", PYSTONE)
 }
