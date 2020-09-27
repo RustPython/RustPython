@@ -3,6 +3,7 @@
  */
 use crate::pyobject::PyObjectRef;
 use crate::VirtualMachine;
+pub(crate) use _io::io_open as open;
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let module = _io::make_module(vm);
