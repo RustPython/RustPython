@@ -20,3 +20,4 @@ rustpython-bytecode = { path = "../bytecode", version = "0.1.1" }
 maplit = "1.0"
 once_cell = "1.3.1"
 textwrap = "0.12.1"
+indexmap = "^1"

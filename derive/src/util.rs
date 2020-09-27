@@ -1,3 +1,4 @@
+use indexmap::map::IndexMap;
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, ToTokens};
 use std::collections::HashMap;
@@ -18,7 +19,7 @@ pub(crate) const ALL_ALLOWED_NAMES: &[&str] = &[
 ];
 
 #[derive(Default)]
-pub(crate) struct ItemNursery(HashMap<(String, Vec<Attribute>), TokenStream>);
+pub(crate) struct ItemNursery(IndexMap<(String, Vec<Attribute>), TokenStream>);
 
 impl ItemNursery {
     pub fn add_item(

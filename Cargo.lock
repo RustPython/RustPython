@@ -1670,6 +1670,7 @@ dependencies = [
 name = "rustpython-derive"
 version = "0.1.2"
 dependencies = [
+ "indexmap",
  "maplit",
  "once_cell",
  "proc-macro2",
