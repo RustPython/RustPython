@@ -1,5 +1,5 @@
 use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
-use crate::common::cell::{PyRwLockReadGuard, PyRwLockWriteGuard};
+use crate::common::lock::{PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::obj::objbytearray::{PyByteArray, PyByteArrayRef};
 use crate::obj::objbytes::{PyBytes, PyBytesRef};
 use crate::pyobject::PyObjectRef;

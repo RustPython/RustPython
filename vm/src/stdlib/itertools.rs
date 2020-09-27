@@ -8,7 +8,7 @@ mod decl {
     use std::fmt;
     use std::iter;
 
-    use crate::common::cell::{PyMutex, PyRwLock, PyRwLockWriteGuard};
+    use crate::common::lock::{PyMutex, PyRwLock, PyRwLockWriteGuard};
     use crate::common::rc::PyRc;
     use crate::function::{Args, OptionalArg, OptionalOption, PyFuncArgs};
     use crate::obj::objbool;

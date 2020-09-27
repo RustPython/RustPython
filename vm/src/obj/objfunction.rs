@@ -23,7 +23,7 @@ use crate::slots::{Callable, Comparable, PyComparisonOp, SlotDescriptor, SlotGet
 use crate::VirtualMachine;
 use itertools::Itertools;
 #[cfg(feature = "jit")]
-use rustpython_common::cell::OnceCell;
+use rustpython_common::lock::OnceCell;
 #[cfg(feature = "jit")]
 use rustpython_jit::CompiledCode;
 

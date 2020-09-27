@@ -3,7 +3,7 @@ pub(crate) use decl::make_module;
 #[pymodule(name = "zlib")]
 mod decl {
     use crate::byteslike::PyBytesLike;
-    use crate::common::cell::PyMutex;
+    use crate::common::lock::PyMutex;
     use crate::exceptions::PyBaseExceptionRef;
     use crate::function::OptionalArg;
     use crate::obj::objbytes::{PyBytes, PyBytesRef};

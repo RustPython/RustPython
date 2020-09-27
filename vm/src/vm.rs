@@ -19,7 +19,7 @@ use rustpython_compiler::{
 
 use crate::builtins::{self, to_ascii};
 use crate::bytecode;
-use crate::common::{cell::PyMutex, hash::HashSecret, rc::PyRc};
+use crate::common::{hash::HashSecret, lock::PyMutex, rc::PyRc};
 use crate::exceptions::{self, PyBaseException, PyBaseExceptionRef};
 use crate::frame::{ExecutionResult, Frame, FrameRef};
 use crate::frozen;

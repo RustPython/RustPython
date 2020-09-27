@@ -18,7 +18,7 @@ mod _io {
     use std::io::{self, prelude::*, Cursor, SeekFrom};
 
     use crate::byteslike::PyBytesLike;
-    use crate::common::cell::{PyRwLock, PyRwLockWriteGuard};
+    use crate::common::lock::{PyRwLock, PyRwLockWriteGuard};
     use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
     use crate::function::{Args, KwArgs, OptionalArg, OptionalOption, PyFuncArgs};
     use crate::obj::objbool;

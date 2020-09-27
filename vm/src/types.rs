@@ -42,7 +42,7 @@ use crate::pyobject::{
     PyAttributes, PyClassDef, PyClassImpl, PyContext, PyObject, PyObjectRc, PyObjectRef,
 };
 use crate::slots::PyTypeSlots;
-use rustpython_common::{cell::PyRwLock, rc::PyRc};
+use rustpython_common::{lock::PyRwLock, rc::PyRc};
 use std::mem::MaybeUninit;
 use std::ptr;
 

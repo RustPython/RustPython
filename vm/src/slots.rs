@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 
-use crate::common::cell::PyRwLock;
 use crate::common::hash::PyHash;
+use crate::common::lock::PyRwLock;
 use crate::function::{OptionalArg, PyFuncArgs, PyNativeFunc};
 use crate::obj::objstr::PyStrRef;
 use crate::pyobject::{

@@ -14,7 +14,7 @@ use super::objsequence::{
 use super::objslice::PySliceRef;
 use super::objtype::PyTypeRef;
 use crate::bytesinner;
-use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
+use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::function::OptionalArg;
 use crate::pyobject::{
     BorrowValue, Either, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef,

@@ -39,7 +39,7 @@ use crate::scope::Scope;
 use crate::slots::{PyTpFlags, PyTypeSlots};
 use crate::types::{create_type_with_slots, initialize_types, TypeZoo};
 use crate::vm::VirtualMachine;
-use rustpython_common::cell::{PyRwLock, PyRwLockReadGuard};
+use rustpython_common::lock::{PyRwLock, PyRwLockReadGuard};
 use rustpython_common::rc::PyRc;
 
 pub use crate::common::borrow::BorrowValue;

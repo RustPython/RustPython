@@ -6,7 +6,7 @@ use itertools::Itertools;
 
 use crate::builtins::builtin_isinstance;
 use crate::bytecode;
-use crate::common::cell::PyMutex;
+use crate::common::lock::PyMutex;
 use crate::exceptions::{self, ExceptionCtor, PyBaseExceptionRef};
 use crate::function::PyFuncArgs;
 use crate::obj::objasyncgenerator::PyAsyncGenWrappedValue;

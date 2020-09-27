@@ -1,7 +1,7 @@
 /*! Python `property` descriptor class.
 
 */
-use crate::common::cell::PyRwLock;
+use crate::common::lock::PyRwLock;
 
 use super::objtype::PyTypeRef;
 use crate::pyobject::{
