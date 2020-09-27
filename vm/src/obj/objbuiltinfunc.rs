@@ -1,6 +1,7 @@
 use std::fmt;
 
 use super::objclassmethod::PyClassMethod;
+use crate::common::borrow::BorrowValue;
 use crate::function::{PyFuncArgs, PyNativeFunc};
 use crate::obj::objstr::PyStrRef;
 use crate::obj::objtype::PyTypeRef;
@@ -69,7 +70,11 @@ impl PyValue for PyBuiltinFunction {
 
 impl fmt::Debug for PyBuiltinFunction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "builtin function")
+        let name = match &self.value.name {
+            Some(s) => s.borrow_value(),
+            None => "<unknown name>",
+        };
+        write!(f, "builtin function {}", name)
     }
 }
 

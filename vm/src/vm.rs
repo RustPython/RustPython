@@ -862,13 +862,7 @@ impl VirtualMachine {
         // This is only used in the vm for magic methods, which use a greatly simplified attribute lookup.
         match obj.get_class_attr(method_name) {
             Some(func) => {
-                vm_trace!(
-                    "vm.call_method {:?} {:?} {:?} -> {:?}",
-                    obj,
-                    cls,
-                    method_name,
-                    func
-                );
+                vm_trace!("vm.call_method {:?} {:?} -> {:?}", obj, method_name, func);
                 let wrapped = self.call_if_get_descriptor(func, obj.clone())?;
                 self.invoke(&wrapped, args)
             }

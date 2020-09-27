@@ -78,6 +78,7 @@ enum UnwindReason {
     Continue,
 }
 
+#[derive(Debug)]
 struct FrameState {
     // We need 1 stack per frame
     /// The main data frame of the stack machine
@@ -237,6 +238,17 @@ struct ExecutingFrame<'a> {
     state: &'a mut FrameState,
 }
 
+impl fmt::Debug for ExecutingFrame<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("ExecutingFrame")
+            .field("code", self.code)
+            .field("scope", self.scope)
+            .field("lasti", self.lasti)
+            .field("state", self.state)
+            .finish()
+    }
+}
+
 impl ExecutingFrame<'_> {
     fn run(&mut self, vm: &VirtualMachine) -> PyResult<ExecutionResult> {
         flame_guard!(format!("Frame::run({})", self.code.obj_name));
@@ -259,8 +271,8 @@ impl ExecutingFrame<'_> {
 
                     let new_traceback =
                         PyTraceback::new(next, self.object.clone(), self.lasti(), loc.row());
+                    vm_trace!("Adding to traceback: {:?} {:?}", new_traceback, loc.row());
                     exception.set_traceback(Some(new_traceback.into_ref(vm)));
-                    vm_trace!("Adding to traceback: {:?} {:?}", new_traceback, loc.row);
 
                     match self.unwind_blocks(vm, UnwindReason::Raising { exception }) {
                         Ok(None) => {}
@@ -331,7 +343,7 @@ impl ExecutingFrame<'_> {
                 trace!("  {:?}", frame);
             }
             */
-            trace!("  {:?}", self);
+            trace!("  {:#?}", self);
             trace!("  Executing op code: {:?}", instruction);
             trace!("=======");
         }
