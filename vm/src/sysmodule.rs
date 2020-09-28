@@ -287,44 +287,44 @@ fn sys_getwindowsversion(vm: &VirtualMachine) -> PyResult<crate::builtins::tuple
     version.dwOSVersionInfoSize = std::mem::size_of::<OSVERSIONINFOEXW>() as u32;
     let result = unsafe {
         let osvi = &mut version as LPOSVERSIONINFOEXW as LPOSVERSIONINFOW;
-        // SAFE: GetVersionExW accepts a pointer of OSVERSIONINFOW, but winapi crate's type currently doesn't allow to do so.
+        // SAFETY: GetVersionExW accepts a pointer of OSVERSIONINFOW, but winapi crate's type currently doesn't allow to do so.
         // https://docs.microsoft.com/en-us/windows/win32/api/sysinfoapi/nf-sysinfoapi-getversionexw#parameters
         GetVersionExW(osvi)
     };
 
     if result == 0 {
-        Err(vm.new_os_error("failed to get windows version".to_owned()))
-    } else {
-        let service_pack = {
-            let (last, _) = version
-                .szCSDVersion
-                .iter()
-                .take_while(|&x| x != &0)
-                .enumerate()
-                .last()
-                .unwrap_or((0, &0));
-            let sp = OsString::from_wide(&version.szCSDVersion[..last]);
-            sp.into_string()
-                .map_err(|_| vm.new_os_error("service pack is not ASCII".to_owned()))?
-        };
-        WindowsVersion {
-            major: version.dwMajorVersion,
-            minor: version.dwMinorVersion,
-            build: version.dwBuildNumber,
-            platform: version.dwPlatformId,
-            service_pack,
-            service_pack_major: version.wServicePackMajor,
-            service_pack_minor: version.wServicePackMinor,
-            suite_mask: version.wSuiteMask,
-            product_type: version.wProductType,
-            platform_version: (
-                version.dwMajorVersion,
-                version.dwMinorVersion,
-                version.dwBuildNumber,
-            ), // TODO Provide accurate version, like CPython impl
-        }
-        .into_struct_sequence(vm)
+        return Err(vm.new_os_error("failed to get windows version".to_owned()));
     }
+
+    let service_pack = {
+        let (last, _) = version
+            .szCSDVersion
+            .iter()
+            .take_while(|&x| x != &0)
+            .enumerate()
+            .last()
+            .unwrap_or((0, &0));
+        let sp = OsString::from_wide(&version.szCSDVersion[..last]);
+        sp.into_string()
+            .map_err(|_| vm.new_os_error("service pack is not ASCII".to_owned()))?
+    };
+    WindowsVersion {
+        major: version.dwMajorVersion,
+        minor: version.dwMinorVersion,
+        build: version.dwBuildNumber,
+        platform: version.dwPlatformId,
+        service_pack,
+        service_pack_major: version.wServicePackMajor,
+        service_pack_minor: version.wServicePackMinor,
+        suite_mask: version.wSuiteMask,
+        product_type: version.wProductType,
+        platform_version: (
+            version.dwMajorVersion,
+            version.dwMinorVersion,
+            version.dwBuildNumber,
+        ), // TODO Provide accurate version, like CPython impl
+    }
+    .into_struct_sequence(vm)
 }
 
 pub fn get_stdin(vm: &VirtualMachine) -> PyResult {
@@ -704,7 +704,6 @@ settrace() -- set the global debug tracing function
         let getwindowsversion = WindowsVersion::make_class(ctx);
         extend_module!(vm, module, {
             "getwindowsversion" => named_function!(ctx, sys, getwindowsversion),
-            "_getwindowsversion_type" => getwindowsversion, // XXX: This is not a python spec but required by current RustPython implementation
         })
     }
 
