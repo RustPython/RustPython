@@ -12,7 +12,8 @@ use crate::builtins::pytype::PyTypeRef;
 use crate::builtins::tuple::PyTupleRef;
 use crate::function::OptionalArg;
 use crate::pyobject::{
-    BorrowValue, Either, PyClassImpl, PyObjectRef, PyResult, PyStructSequence, TryFromObject,
+    BorrowValue, Either, PyClassImpl, PyObjectRef, PyResult, PyStructSequence, StaticType,
+    TryFromObject,
 };
 use crate::vm::VirtualMachine;
 
@@ -218,7 +219,7 @@ impl PyStructTime {
     }
 
     fn into_obj(self, vm: &VirtualMachine) -> PyObjectRef {
-        self.into_struct_sequence(vm, vm.class("time", "struct_time"))
+        self.into_struct_sequence(vm, PyStructTime::static_type().clone())
             .unwrap()
             .into_object()
     }

@@ -636,7 +636,7 @@ mod _os {
     #[pyimpl(with(PyStructSequence))]
     impl StatResult {
         pub(super) fn into_obj(self, vm: &VirtualMachine) -> PyObjectRef {
-            self.into_struct_sequence(vm, vm.class(super::MODULE_NAME, "stat_result"))
+            self.into_struct_sequence(vm, StatResult::static_type().clone())
                 .unwrap()
                 .into_object()
         }
@@ -1745,7 +1745,7 @@ mod posix {
     #[pyimpl(with(PyStructSequence))]
     impl UnameResult {
         fn into_obj(self, vm: &VirtualMachine) -> PyObjectRef {
-            self.into_struct_sequence(vm, vm.class(super::MODULE_NAME, "uname_result"))
+            self.into_struct_sequence(vm, UnameResult::static_type().clone())
                 .unwrap()
                 .into_object()
         }
