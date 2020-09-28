@@ -226,17 +226,16 @@ fn _thread_start_new_thread(
         Args::from(args.borrow_value().to_owned()),
         KwArgs::from(kwargs.map_or_else(Default::default, |k| k.to_attributes())),
     ));
-    let thread_vm = vm.new_thread();
     let mut thread_builder = thread::Builder::new();
     let stacksize = vm.state.stacksize.load();
     if stacksize != 0 {
         thread_builder = thread_builder.stack_size(stacksize);
     }
     thread_builder
-        .spawn(move || {
-            let vm = &thread_vm;
-            crate::vm::thread::enter_vm(vm, move || run_thread(func, args, vm))
-        })
+        .spawn(
+            vm.new_thread()
+                .make_spawn_func(move |vm| run_thread(func, args, vm)),
+        )
         .map(|handle| {
             vm.state.thread_count.fetch_add(1);
             thread_to_id(&handle.thread())
