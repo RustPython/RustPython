@@ -10,7 +10,7 @@ use crate::pyobject::{
     BorrowValue, IntoPyObject, PyClassImpl, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
     StaticType, TryFromObject, TypeProtocol,
 };
-use crate::types::create_type;
+use crate::types::create_simple_type;
 use crate::VirtualMachine;
 
 #[repr(i32)]
@@ -198,11 +198,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     let reader_type = Reader::make_class(ctx);
 
-    let error = create_type(
-        "Error",
-        &ctx.types.type_type,
-        ctx.exceptions.exception_type.clone(),
-    );
+    let error = create_simple_type("Error", &ctx.exceptions.exception_type);
 
     py_module!(vm, "_csv", {
         "reader" => named_function!(ctx, _csv, reader),

@@ -10,7 +10,7 @@ use crate::pyobject::{
     BorrowValue, Either, IntoPyObject, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult,
     PyValue, StaticType,
 };
-use crate::types::create_type;
+use crate::types::create_simple_type;
 use crate::VirtualMachine;
 
 use foreign_types_shared::{ForeignType, ForeignTypeRef};
@@ -751,11 +751,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     }
     openssl::init();
     let ctx = &vm.ctx;
-    let ssl_error = create_type(
-        "SSLError",
-        &vm.ctx.types.type_type,
-        vm.ctx.exceptions.os_error.clone(),
-    );
+    let ssl_error = create_simple_type("SSLError", &vm.ctx.exceptions.os_error);
     let module = py_module!(vm, "_ssl", {
         "_SSLContext" => PySslContext::make_class(ctx),
         "_SSLSocket" => PySslSocket::make_class(ctx),

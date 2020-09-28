@@ -248,14 +248,14 @@ impl TypeZoo {
     }
 }
 
-pub fn create_type(name: &str, type_type: &PyTypeRef, base: PyTypeRef) -> PyTypeRef {
-    create_type_with_slots(name, type_type, base, Default::default())
+pub fn create_simple_type(name: &str, base: &PyTypeRef) -> PyTypeRef {
+    create_type_with_slots(name, PyType::static_type(), base, Default::default())
 }
 
 pub fn create_type_with_slots(
     name: &str,
     type_type: &PyTypeRef,
-    base: PyTypeRef,
+    base: &PyTypeRef,
     slots: PyTypeSlots,
 ) -> PyTypeRef {
     let dict = PyAttributes::new();
@@ -263,7 +263,7 @@ pub fn create_type_with_slots(
         type_type.clone(),
         name,
         base.clone(),
-        vec![base],
+        vec![base.clone()],
         dict,
         slots,
     )

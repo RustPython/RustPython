@@ -267,7 +267,7 @@ impl PyContext {
         PyRef::new_ref(PyDict::default(), self.types.dict_type.clone(), None)
     }
 
-    pub fn new_class(&self, name: &str, base: PyTypeRef, slots: PyTypeSlots) -> PyTypeRef {
+    pub fn new_class(&self, name: &str, base: &PyTypeRef, slots: PyTypeSlots) -> PyTypeRef {
         create_type_with_slots(name, &self.types.type_type, base, slots)
     }
 
@@ -1257,9 +1257,19 @@ pub trait StaticType {
     where
         Self: PyClassImpl,
     {
-        let typ =
-            Self::create_bare_type(Self::static_metaclass(), Self::static_baseclass().clone());
+        let typ = Self::create_bare_type();
         static_cell::init_expect(Self::static_cell(), typ, Self::NAME)
+    }
+    fn create_bare_type() -> PyTypeRef
+    where
+        Self: PyClassImpl,
+    {
+        create_type_with_slots(
+            Self::NAME,
+            Self::static_metaclass(),
+            Self::static_baseclass(),
+            Self::make_slots(),
+        )
     }
 }
 
@@ -1304,16 +1314,11 @@ pub trait PyClassImpl: PyClassDef {
         Self: StaticType,
     {
         static_cell::get_or_init(Self::static_cell(), || {
-            let typ =
-                Self::create_bare_type(Self::static_metaclass(), Self::static_baseclass().clone());
+            let typ = Self::create_bare_type();
             Self::extend_class(ctx, &typ);
             typ
         })
         .clone()
-    }
-
-    fn create_bare_type(type_type: &PyTypeRef, base: PyTypeRef) -> PyTypeRef {
-        create_type_with_slots(Self::NAME, type_type, base, Self::make_slots())
     }
 
     fn extend_slots(slots: &mut PyTypeSlots);

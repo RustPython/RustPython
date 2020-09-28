@@ -474,7 +474,7 @@ impl ExceptionZoo {
             create_type_with_slots(
                 name,
                 PyType::static_type(),
-                base.clone(),
+                base,
                 PyBaseException::make_slots(),
             )
         };
