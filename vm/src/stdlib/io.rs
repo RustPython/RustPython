@@ -34,8 +34,8 @@ mod _io {
     use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
     use crate::function::{FuncArgs, OptionalArg, OptionalOption};
     use crate::pyobject::{
-        BorrowValue, IntoPyObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-        TypeProtocol,
+        BorrowValue, IntoPyObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
+        TryFromObject, TypeProtocol,
     };
     use crate::vm::VirtualMachine;
 
@@ -821,8 +821,8 @@ mod _io {
     type StringIORef = PyRef<StringIO>;
 
     impl PyValue for StringIO {
-        fn class(vm: &VirtualMachine) -> PyTypeRef {
-            vm.class("io", "StringIO")
+        fn class(_vm: &VirtualMachine) -> PyTypeRef {
+            Self::static_type().clone()
         }
     }
 
@@ -957,8 +957,8 @@ mod _io {
     type BytesIORef = PyRef<BytesIO>;
 
     impl PyValue for BytesIO {
-        fn class(vm: &VirtualMachine) -> PyTypeRef {
-            vm.class("io", "BytesIO")
+        fn class(_vm: &VirtualMachine) -> PyTypeRef {
+            Self::static_type().clone()
         }
     }
 
@@ -1446,7 +1446,7 @@ mod fileio {
     use crate::exceptions::IntoPyException;
     use crate::function::{FuncArgs, OptionalArg};
     use crate::pyobject::{
-        BorrowValue, Either, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+        BorrowValue, Either, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject,
     };
     use crate::stdlib::os;
     use crate::vm::VirtualMachine;
@@ -1478,8 +1478,8 @@ mod fileio {
     type FileIORef = PyRef<FileIO>;
 
     impl PyValue for FileIO {
-        fn class(vm: &VirtualMachine) -> PyTypeRef {
-            vm.class("_io", "FileIO")
+        fn class(_vm: &VirtualMachine) -> PyTypeRef {
+            Self::static_type().clone()
         }
     }
 

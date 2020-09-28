@@ -1,14 +1,12 @@
-use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
-use std::io::{self, prelude::*};
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, ToSocketAddrs};
-use std::time::Duration;
-
 use byteorder::{BigEndian, ByteOrder};
 use crossbeam_utils::atomic::AtomicCell;
 use gethostname::gethostname;
 #[cfg(all(unix, not(target_os = "redox")))]
 use nix::unistd::sethostname;
 use socket2::{Domain, Protocol, Socket, Type as SocketType};
+use std::io::{self, prelude::*};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, ToSocketAddrs};
+use std::time::Duration;
 
 use crate::builtins::bytearray::PyByteArrayRef;
 use crate::builtins::bytes::PyBytesRef;
@@ -16,11 +14,12 @@ use crate::builtins::pystr::{PyStr, PyStrRef};
 use crate::builtins::pytype::PyTypeRef;
 use crate::builtins::tuple::PyTupleRef;
 use crate::byteslike::PyBytesLike;
+use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
 use crate::function::{FuncArgs, OptionalArg};
 use crate::pyobject::{
     BorrowValue, Either, IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject,
+    StaticType, TryFromObject,
 };
 use crate::vm::VirtualMachine;
 
@@ -64,8 +63,8 @@ pub struct PySocket {
 }
 
 impl PyValue for PySocket {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.class("_socket", "socket")
+    fn class(_vm: &VirtualMachine) -> PyTypeRef {
+        Self::static_type().clone()
     }
 }
 

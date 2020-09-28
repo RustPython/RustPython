@@ -23,7 +23,7 @@ use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
 use crate::function::{FuncArgs, IntoPyNativeFunc, OptionalArg};
 use crate::pyobject::{
     BorrowValue, Either, IntoPyObject, ItemProtocol, PyObjectRef, PyRef, PyResult,
-    PyStructSequence, PyValue, TryFromObject, TypeProtocol,
+    PyStructSequence, PyValue, StaticType, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -464,8 +464,8 @@ mod _os {
     }
 
     impl PyValue for DirEntry {
-        fn class(vm: &VirtualMachine) -> PyTypeRef {
-            vm.class(super::MODULE_NAME, "DirEntry")
+        fn class(_vm: &VirtualMachine) -> PyTypeRef {
+            Self::static_type().clone()
         }
     }
 
@@ -549,8 +549,8 @@ mod _os {
     }
 
     impl PyValue for ScandirIterator {
-        fn class(vm: &VirtualMachine) -> PyTypeRef {
-            vm.class(super::MODULE_NAME, "ScandirIter")
+        fn class(_vm: &VirtualMachine) -> PyTypeRef {
+            Self::static_type().clone()
         }
     }
 

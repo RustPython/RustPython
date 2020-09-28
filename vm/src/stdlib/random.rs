@@ -8,7 +8,7 @@ mod _random {
     use crate::builtins::pytype::PyTypeRef;
     use crate::common::lock::PyMutex;
     use crate::function::OptionalOption;
-    use crate::pyobject::{BorrowValue, PyRef, PyResult, PyValue};
+    use crate::pyobject::{BorrowValue, PyRef, PyResult, PyValue, StaticType};
     use crate::VirtualMachine;
     use num_bigint::{BigInt, Sign};
     use num_traits::Signed;
@@ -61,8 +61,8 @@ mod _random {
     }
 
     impl PyValue for PyRandom {
-        fn class(vm: &VirtualMachine) -> PyTypeRef {
-            vm.class("_random", "Random")
+        fn class(_vm: &VirtualMachine) -> PyTypeRef {
+            Self::static_type().clone()
         }
     }
 

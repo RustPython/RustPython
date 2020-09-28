@@ -8,7 +8,7 @@ use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
 use crate::function::OptionalArg;
 use crate::pyobject::{
     BorrowValue, Either, IntoPyObject, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult,
-    PyValue,
+    PyValue, StaticType,
 };
 use crate::types::create_type;
 use crate::VirtualMachine;
@@ -241,8 +241,8 @@ impl fmt::Debug for PySslContext {
 }
 
 impl PyValue for PySslContext {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.class("_ssl", "_SSLContext")
+    fn class(_vm: &VirtualMachine) -> PyTypeRef {
+        Self::static_type().clone()
     }
 }
 
@@ -520,8 +520,8 @@ impl fmt::Debug for PySslSocket {
 }
 
 impl PyValue for PySslSocket {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.class("_ssl", "_SSLSocket")
+    fn class(_vm: &VirtualMachine) -> PyTypeRef {
+        Self::static_type().clone()
     }
 }
 

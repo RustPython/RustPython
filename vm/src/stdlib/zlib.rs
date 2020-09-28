@@ -8,7 +8,7 @@ mod decl {
     use crate::common::lock::PyMutex;
     use crate::exceptions::PyBaseExceptionRef;
     use crate::function::OptionalArg;
-    use crate::pyobject::{BorrowValue, IntoPyRef, PyResult, PyValue};
+    use crate::pyobject::{BorrowValue, IntoPyRef, PyResult, PyValue, StaticType};
     use crate::types::create_type;
     use crate::vm::VirtualMachine;
 
@@ -218,8 +218,8 @@ mod decl {
         unconsumed_tail: PyMutex<PyBytesRef>,
     }
     impl PyValue for PyDecompress {
-        fn class(vm: &VirtualMachine) -> PyTypeRef {
-            vm.class("zlib", "Decompress")
+        fn class(_vm: &VirtualMachine) -> PyTypeRef {
+            Self::static_type().clone()
         }
     }
     #[pyimpl]
@@ -377,8 +377,8 @@ mod decl {
     }
 
     impl PyValue for PyCompress {
-        fn class(vm: &VirtualMachine) -> PyTypeRef {
-            vm.class("zlib", "Compress")
+        fn class(_vm: &VirtualMachine) -> PyTypeRef {
+            Self::static_type().clone()
         }
     }
 

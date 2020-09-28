@@ -8,7 +8,7 @@ use crate::common::lock::PyRwLock;
 use crate::function::FuncArgs;
 use crate::pyobject::{
     BorrowValue, IntoPyObject, PyClassImpl, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
+    StaticType, TryFromObject, TypeProtocol,
 };
 use crate::types::create_type;
 use crate::VirtualMachine;
@@ -135,8 +135,8 @@ impl Debug for Reader {
 }
 
 impl PyValue for Reader {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.class("_csv", "Reader")
+    fn class(_vm: &VirtualMachine) -> PyTypeRef {
+        Self::static_type().clone()
     }
 }
 

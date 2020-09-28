@@ -10,7 +10,8 @@ mod _json {
     use crate::function::{FuncArgs, OptionalArg};
     use crate::iterator;
     use crate::pyobject::{
-        BorrowValue, IdProtocol, IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+        BorrowValue, IdProtocol, IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
+        TryFromObject,
     };
     use crate::slots::Callable;
     use crate::VirtualMachine;
@@ -32,8 +33,8 @@ mod _json {
     }
 
     impl PyValue for JsonScanner {
-        fn class(vm: &VirtualMachine) -> PyTypeRef {
-            vm.class("_json", "make_scanner")
+        fn class(_vm: &VirtualMachine) -> PyTypeRef {
+            Self::static_type().clone()
         }
     }
 

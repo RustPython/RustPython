@@ -5,7 +5,9 @@
 use crate::builtins::pystr::PyStrRef;
 use crate::builtins::pytype::PyTypeRef;
 use crate::function::OptionalArg;
-use crate::pyobject::{BorrowValue, PyClassImpl, PyObject, PyObjectRef, PyResult, PyValue};
+use crate::pyobject::{
+    BorrowValue, PyClassImpl, PyObject, PyObjectRef, PyResult, PyValue, StaticType,
+};
 use crate::vm::VirtualMachine;
 
 use itertools::Itertools;
@@ -61,8 +63,8 @@ struct PyUCD {
 }
 
 impl PyValue for PyUCD {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.class("unicodedata", "UCD")
+    fn class(_vm: &VirtualMachine) -> PyTypeRef {
+        Self::static_type().clone()
     }
 }
 

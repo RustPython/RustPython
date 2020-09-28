@@ -13,7 +13,7 @@ use crate::common::lock::{
 use crate::function::OptionalArg;
 use crate::pyobject::{
     BorrowValue, Either, IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyIterable,
-    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
 };
 use crate::sliceable::{saturate_index, PySliceableSequence, PySliceableSequenceMut};
 use crate::slots::{BufferProtocol, Comparable, PyComparisonOp};
@@ -473,8 +473,8 @@ pub struct PyArray {
 pub type PyArrayRef = PyRef<PyArray>;
 
 impl PyValue for PyArray {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.class("array", "array")
+    fn class(_vm: &VirtualMachine) -> PyTypeRef {
+        Self::static_type().clone()
     }
 }
 
@@ -914,8 +914,8 @@ pub struct PyArrayIter {
 }
 
 impl PyValue for PyArrayIter {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.class("array", "arrayiterator")
+    fn class(_vm: &VirtualMachine) -> PyTypeRef {
+        Self::static_type().clone()
     }
 }
 

@@ -14,7 +14,8 @@ use crate::builtins::pystr::{PyStr, PyStrRef};
 use crate::builtins::pytype::PyTypeRef;
 use crate::function::{Args, OptionalArg};
 use crate::pyobject::{
-    BorrowValue, IntoPyObject, PyClassImpl, PyObjectRef, PyResult, PyValue, TryFromObject,
+    BorrowValue, IntoPyObject, PyClassImpl, PyObjectRef, PyResult, PyValue, StaticType,
+    TryFromObject,
 };
 use crate::vm::VirtualMachine;
 
@@ -65,8 +66,8 @@ impl PyRegexFlags {
 }
 
 impl PyValue for PyPattern {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.class("re", "Pattern")
+    fn class(_vm: &VirtualMachine) -> PyTypeRef {
+        Self::static_type().clone()
     }
 }
 
@@ -84,8 +85,8 @@ impl fmt::Debug for PyMatch {
 }
 
 impl PyValue for PyMatch {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.class("re", "Match")
+    fn class(_vm: &VirtualMachine) -> PyTypeRef {
+        Self::static_type().clone()
     }
 }
 
