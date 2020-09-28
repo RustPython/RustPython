@@ -11,20 +11,25 @@ use rustpython_parser::{ast, mode::Mode, parser};
 
 use crate::builtins::list::PyListRef;
 use crate::builtins::pytype::PyTypeRef;
-use crate::pyobject::{IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue};
-use crate::slots::PyTpFlags;
+use crate::pyobject::{
+    IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
+};
 use crate::vm::VirtualMachine;
 
+#[pyclass(module = "_ast", name = "AST")]
 #[derive(Debug)]
 struct AstNode;
 type AstNodeRef = PyRef<AstNode>;
+
+#[pyimpl(flags(HAS_DICT))]
+impl AstNode {}
 
 const MODULE_NAME: &str = "_ast";
 pub const PY_COMPILE_FLAG_AST_ONLY: i32 = 0x0400;
 
 impl PyValue for AstNode {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.class(MODULE_NAME, "AST")
+    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+        Self::static_type()
     }
 }
 
@@ -631,7 +636,7 @@ pub(crate) fn parse(vm: &VirtualMachine, source: &str, mode: Mode) -> PyResult {
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
-    let ast_base = py_class!(ctx, "AST", &ctx.types.object_type, PyTpFlags::HAS_DICT, {});
+    let ast_base = AstNode::make_class(ctx);
     py_module!(vm, MODULE_NAME, {
         // TODO: There's got to be a better way!
         "alias" => py_class!(ctx, "alias", &ast_base, {}),

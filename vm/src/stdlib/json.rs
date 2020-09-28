@@ -33,8 +33,8 @@ mod _json {
     }
 
     impl PyValue for JsonScanner {
-        fn class(_vm: &VirtualMachine) -> PyTypeRef {
-            Self::static_type().clone()
+        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+            Self::static_type()
         }
     }
 

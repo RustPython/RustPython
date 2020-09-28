@@ -766,8 +766,8 @@ impl Hashable for PyMemoryView {
 }
 
 impl PyValue for PyMemoryView {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.memoryview_type.clone()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.memoryview_type
     }
 }
 

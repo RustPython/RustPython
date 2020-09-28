@@ -31,8 +31,8 @@ impl PyWeak {
 }
 
 impl PyValue for PyWeak {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.weakref_type.clone()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.weakref_type
     }
 }
 

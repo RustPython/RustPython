@@ -31,8 +31,8 @@ mod decl {
     }
 
     impl PyValue for PyItertoolsChain {
-        fn class(_vm: &VirtualMachine) -> PyTypeRef {
-            Self::static_type().clone()
+        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+            Self::static_type()
         }
     }
 
@@ -116,8 +116,8 @@ mod decl {
     }
 
     impl PyValue for PyItertoolsCompress {
-        fn class(_vm: &VirtualMachine) -> PyTypeRef {
-            Self::static_type().clone()
+        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+            Self::static_type()
         }
     }
 
@@ -168,8 +168,8 @@ mod decl {
     }
 
     impl PyValue for PyItertoolsCount {
-        fn class(_vm: &VirtualMachine) -> PyTypeRef {
-            Self::static_type().clone()
+        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+            Self::static_type()
         }
     }
 
@@ -222,8 +222,8 @@ mod decl {
     }
 
     impl PyValue for PyItertoolsCycle {
-        fn class(_vm: &VirtualMachine) -> PyTypeRef {
-            Self::static_type().clone()
+        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+            Self::static_type()
         }
     }
 
@@ -283,8 +283,8 @@ mod decl {
     }
 
     impl PyValue for PyItertoolsRepeat {
-        fn class(_vm: &VirtualMachine) -> PyTypeRef {
-            Self::static_type().clone()
+        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+            Self::static_type()
         }
     }
 
@@ -341,8 +341,8 @@ mod decl {
     }
 
     impl PyValue for PyItertoolsStarmap {
-        fn class(_vm: &VirtualMachine) -> PyTypeRef {
-            Self::static_type().clone()
+        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+            Self::static_type()
         }
     }
 
@@ -384,8 +384,8 @@ mod decl {
     }
 
     impl PyValue for PyItertoolsTakewhile {
-        fn class(_vm: &VirtualMachine) -> PyTypeRef {
-            Self::static_type().clone()
+        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+            Self::static_type()
         }
     }
 
@@ -444,8 +444,8 @@ mod decl {
     }
 
     impl PyValue for PyItertoolsDropwhile {
-        fn class(_vm: &VirtualMachine) -> PyTypeRef {
-            Self::static_type().clone()
+        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+            Self::static_type()
         }
     }
 
@@ -528,8 +528,8 @@ mod decl {
     }
 
     impl PyValue for PyItertoolsGroupBy {
-        fn class(_vm: &VirtualMachine) -> PyTypeRef {
-            Self::static_type().clone()
+        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+            Self::static_type()
         }
     }
 
@@ -635,8 +635,8 @@ mod decl {
     type PyItertoolsGrouperRef = PyRef<PyItertoolsGrouper>;
 
     impl PyValue for PyItertoolsGrouper {
-        fn class(_vm: &VirtualMachine) -> PyTypeRef {
-            Self::static_type().clone()
+        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+            Self::static_type()
         }
     }
 
@@ -689,8 +689,8 @@ mod decl {
     }
 
     impl PyValue for PyItertoolsIslice {
-        fn class(_vm: &VirtualMachine) -> PyTypeRef {
-            Self::static_type().clone()
+        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+            Self::static_type()
         }
     }
 
@@ -813,8 +813,8 @@ mod decl {
     }
 
     impl PyValue for PyItertoolsFilterFalse {
-        fn class(_vm: &VirtualMachine) -> PyTypeRef {
-            Self::static_type().clone()
+        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+            Self::static_type()
         }
     }
 
@@ -871,8 +871,8 @@ mod decl {
     }
 
     impl PyValue for PyItertoolsAccumulate {
-        fn class(_vm: &VirtualMachine) -> PyTypeRef {
-            Self::static_type().clone()
+        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+            Self::static_type()
         }
     }
 
@@ -955,23 +955,24 @@ mod decl {
     }
 
     impl PyValue for PyItertoolsTee {
-        fn class(_vm: &VirtualMachine) -> PyTypeRef {
-            Self::static_type().clone()
+        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+            Self::static_type()
         }
     }
 
     #[pyimpl]
     impl PyItertoolsTee {
         fn from_iter(iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            let class = PyItertoolsTee::class(vm);
             let it = get_iter(vm, &iterable)?;
-            if it.class().is(&PyItertoolsTee::class(vm)) {
+            if it.class().is(PyItertoolsTee::class(vm)) {
                 return vm.call_method(&it, "__copy__", ());
             }
             Ok(PyItertoolsTee {
                 tee_data: PyItertoolsTeeData::new(it, vm)?,
                 index: AtomicCell::new(0),
             }
-            .into_ref_with_type(vm, PyItertoolsTee::class(vm))?
+            .into_ref_with_type(vm, class.clone())?
             .into_object())
         }
 
@@ -1007,7 +1008,7 @@ mod decl {
                 tee_data: PyRc::clone(&self.tee_data),
                 index: AtomicCell::new(self.index.load()),
             }
-            .into_ref_with_type(vm, Self::class(vm))?
+            .into_ref_with_type(vm, Self::class(vm).clone())?
             .into_object())
         }
 
@@ -1035,8 +1036,8 @@ mod decl {
     }
 
     impl PyValue for PyItertoolsProduct {
-        fn class(_vm: &VirtualMachine) -> PyTypeRef {
-            Self::static_type().clone()
+        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+            Self::static_type()
         }
     }
 
@@ -1152,8 +1153,8 @@ mod decl {
     }
 
     impl PyValue for PyItertoolsCombinations {
-        fn class(_vm: &VirtualMachine) -> PyTypeRef {
-            Self::static_type().clone()
+        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+            Self::static_type()
         }
     }
 
@@ -1252,8 +1253,8 @@ mod decl {
     }
 
     impl PyValue for PyItertoolsCombinationsWithReplacement {
-        fn class(_vm: &VirtualMachine) -> PyTypeRef {
-            Self::static_type().clone()
+        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+            Self::static_type()
         }
     }
 
@@ -1349,8 +1350,8 @@ mod decl {
     }
 
     impl PyValue for PyItertoolsPermutations {
-        fn class(_vm: &VirtualMachine) -> PyTypeRef {
-            Self::static_type().clone()
+        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+            Self::static_type()
         }
     }
 
@@ -1476,8 +1477,8 @@ mod decl {
     }
 
     impl PyValue for PyItertoolsZipLongest {
-        fn class(_vm: &VirtualMachine) -> PyTypeRef {
-            Self::static_type().clone()
+        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+            Self::static_type()
         }
     }
 

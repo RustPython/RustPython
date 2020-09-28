@@ -114,12 +114,15 @@ pub struct TypeZoo {
     pub mappingproxy_type: PyTypeRef,
     pub traceback_type: PyTypeRef,
     pub object_type: PyTypeRef,
+    pub ellipsis_type: PyTypeRef,
+    pub none_type: PyTypeRef,
+    pub not_implemented_type: PyTypeRef,
 }
 
 impl TypeZoo {
     pub(crate) fn init() -> Self {
         let (type_type, object_type) = init_type_hierarchy();
-        let new = Self {
+        Self {
             // the order matters for type, object and int
             type_type: pytype::PyType::init_manually(type_type).clone(),
             object_type: object::PyBaseObject::init_manually(object_type).clone(),
@@ -175,6 +178,7 @@ impl TypeZoo {
             dict_itemiterator_type: dict::PyDictItemIterator::init_bare_type().clone(),
             dict_reverseitemiterator_type: dict::PyDictReverseItemIterator::init_bare_type()
                 .clone(),
+            ellipsis_type: slice::PyEllipsis::init_bare_type().clone(),
             frame_type: crate::frame::Frame::init_bare_type().clone(),
             function_type: function::PyFunction::init_bare_type().clone(),
             generator_type: generator::PyGenerator::init_bare_type().clone(),
@@ -194,11 +198,9 @@ impl TypeZoo {
             weakproxy_type: weakproxy::PyWeakProxy::init_bare_type().clone(),
             weakref_type: weakref::PyWeak::init_bare_type().clone(),
             method_descriptor_type: builtinfunc::PyBuiltinMethod::init_bare_type().clone(),
-        };
-        singletons::PyNone::init_bare_type();
-        singletons::PyNotImplemented::init_bare_type();
-        slice::PyEllipsis::init_bare_type();
-        new
+            none_type: singletons::PyNone::init_bare_type().clone(),
+            not_implemented_type: singletons::PyNotImplemented::init_bare_type().clone(),
+        }
     }
 
     /// Fill attributes of builtin types.

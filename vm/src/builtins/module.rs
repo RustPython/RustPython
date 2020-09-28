@@ -15,8 +15,8 @@ pub struct PyModule {}
 pub type PyModuleRef = PyRef<PyModule>;
 
 impl PyValue for PyModule {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.module_type.clone()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.module_type
     }
 }
 

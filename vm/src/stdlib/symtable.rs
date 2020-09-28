@@ -73,8 +73,8 @@ mod decl {
     }
 
     impl PyValue for PySymbolTable {
-        fn class(_vm: &VirtualMachine) -> PyTypeRef {
-            Self::static_type().clone()
+        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+            Self::static_type()
         }
     }
 
@@ -191,8 +191,8 @@ mod decl {
     }
 
     impl PyValue for PySymbol {
-        fn class(_vm: &VirtualMachine) -> PyTypeRef {
-            Self::static_type().clone()
+        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+            Self::static_type()
         }
     }
 

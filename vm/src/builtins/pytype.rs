@@ -51,8 +51,8 @@ impl fmt::Debug for PyType {
 pub type PyTypeRef = PyRef<PyType>;
 
 impl PyValue for PyType {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.type_type.clone()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.type_type
     }
 }
 

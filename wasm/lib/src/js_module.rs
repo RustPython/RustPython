@@ -12,7 +12,7 @@ use rustpython_vm::exceptions::PyBaseExceptionRef;
 use rustpython_vm::function::{Args, OptionalArg};
 use rustpython_vm::pyobject::{
     BorrowValue, IntoPyObject, PyCallable, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject,
+    StaticType, TryFromObject,
 };
 use rustpython_vm::types::create_type;
 use rustpython_vm::VirtualMachine;
@@ -58,8 +58,8 @@ pub struct PyJsValue {
 type PyJsValueRef = PyRef<PyJsValue>;
 
 impl PyValue for PyJsValue {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.class("_js", "JSValue")
+    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+        Self::static_type()
     }
 }
 
@@ -289,8 +289,8 @@ impl fmt::Debug for JsClosure {
 }
 
 impl PyValue for JsClosure {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.class("_js", "JSClosure")
+    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+        Self::static_type()
     }
 }
 
@@ -378,8 +378,8 @@ pub struct PyPromise {
 pub type PyPromiseRef = PyRef<PyPromise>;
 
 impl PyValue for PyPromise {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.class("browser", "Promise")
+    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+        Self::static_type()
     }
 }
 

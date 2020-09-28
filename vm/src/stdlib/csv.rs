@@ -135,8 +135,8 @@ impl Debug for Reader {
 }
 
 impl PyValue for Reader {
-    fn class(_vm: &VirtualMachine) -> PyTypeRef {
-        Self::static_type().clone()
+    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+        Self::static_type()
     }
 }
 

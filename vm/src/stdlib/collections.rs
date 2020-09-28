@@ -27,8 +27,8 @@ mod _collections {
     type PyDequeRef = PyRef<PyDeque>;
 
     impl PyValue for PyDeque {
-        fn class(_vm: &VirtualMachine) -> PyTypeRef {
-            Self::static_type().clone()
+        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+            Self::static_type()
         }
     }
 
@@ -359,8 +359,8 @@ mod _collections {
     }
 
     impl PyValue for PyDequeIterator {
-        fn class(_vm: &VirtualMachine) -> PyTypeRef {
-            Self::static_type().clone()
+        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+            Self::static_type()
         }
     }
 

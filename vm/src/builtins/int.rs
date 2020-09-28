@@ -71,8 +71,8 @@ where
 }
 
 impl PyValue for PyInt {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.int_type.clone()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.int_type
     }
 
     fn into_object(self, vm: &VirtualMachine) -> PyObjectRef {

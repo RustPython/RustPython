@@ -821,8 +821,8 @@ mod _io {
     type StringIORef = PyRef<StringIO>;
 
     impl PyValue for StringIO {
-        fn class(_vm: &VirtualMachine) -> PyTypeRef {
-            Self::static_type().clone()
+        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+            Self::static_type()
         }
     }
 
@@ -957,8 +957,8 @@ mod _io {
     type BytesIORef = PyRef<BytesIO>;
 
     impl PyValue for BytesIO {
-        fn class(_vm: &VirtualMachine) -> PyTypeRef {
-            Self::static_type().clone()
+        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+            Self::static_type()
         }
     }
 
@@ -1478,8 +1478,8 @@ mod fileio {
     type FileIORef = PyRef<FileIO>;
 
     impl PyValue for FileIO {
-        fn class(_vm: &VirtualMachine) -> PyTypeRef {
-            Self::static_type().clone()
+        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+            Self::static_type()
         }
     }
 

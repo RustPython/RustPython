@@ -43,8 +43,8 @@ impl fmt::Debug for PyDict {
 }
 
 impl PyValue for PyDict {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.dict_type.clone()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.dict_type
     }
 }
 
@@ -645,8 +645,8 @@ macro_rules! dict_iterator {
         }
 
         impl PyValue for $name {
-            fn class(vm: &VirtualMachine) -> PyTypeRef {
-                vm.ctx.types.$class.clone()
+            fn class(vm: &VirtualMachine) -> &PyTypeRef {
+                &vm.ctx.types.$class
             }
         }
 
@@ -698,8 +698,8 @@ macro_rules! dict_iterator {
         }
 
         impl PyValue for $iter_name {
-            fn class(vm: &VirtualMachine) -> PyTypeRef {
-                vm.ctx.types.$iter_class.clone()
+            fn class(vm: &VirtualMachine) -> &PyTypeRef {
+                &vm.ctx.types.$iter_class
             }
         }
 
@@ -754,8 +754,8 @@ macro_rules! dict_iterator {
         }
 
         impl PyValue for $reverse_iter_name {
-            fn class(vm: &VirtualMachine) -> PyTypeRef {
-                vm.ctx.types.$reverse_iter_class.clone()
+            fn class(vm: &VirtualMachine) -> &PyTypeRef {
+                &vm.ctx.types.$reverse_iter_class
             }
         }
     };

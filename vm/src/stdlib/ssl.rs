@@ -241,8 +241,8 @@ impl fmt::Debug for PySslContext {
 }
 
 impl PyValue for PySslContext {
-    fn class(_vm: &VirtualMachine) -> PyTypeRef {
-        Self::static_type().clone()
+    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+        Self::static_type()
     }
 }
 
@@ -520,8 +520,8 @@ impl fmt::Debug for PySslSocket {
 }
 
 impl PyValue for PySslSocket {
-    fn class(_vm: &VirtualMachine) -> PyTypeRef {
-        Self::static_type().clone()
+    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+        Self::static_type()
     }
 }
 

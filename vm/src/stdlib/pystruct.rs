@@ -841,8 +841,8 @@ pub(crate) mod _struct {
     }
 
     impl PyValue for UnpackIterator {
-        fn class(_vm: &VirtualMachine) -> PyTypeRef {
-            Self::static_type().clone()
+        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+            Self::static_type()
         }
     }
 
@@ -896,8 +896,8 @@ pub(crate) mod _struct {
     }
 
     impl PyValue for PyStruct {
-        fn class(_vm: &VirtualMachine) -> PyTypeRef {
-            Self::static_type().clone()
+        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+            Self::static_type()
         }
     }
 

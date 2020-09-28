@@ -44,8 +44,8 @@ pub trait IntoPyException {
 }
 
 impl PyValue for PyBaseException {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.exceptions.base_exception_type.clone()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.exceptions.base_exception_type
     }
 }
 

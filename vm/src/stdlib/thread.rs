@@ -100,8 +100,8 @@ struct PyLock {
 type PyLockRef = PyRef<PyLock>;
 
 impl PyValue for PyLock {
-    fn class(_vm: &VirtualMachine) -> PyTypeRef {
-        Self::static_type().clone()
+    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+        Self::static_type()
     }
 }
 
@@ -153,8 +153,8 @@ struct PyRLock {
 }
 
 impl PyValue for PyRLock {
-    fn class(_vm: &VirtualMachine) -> PyTypeRef {
-        Self::static_type().clone()
+    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+        Self::static_type()
     }
 }
 
@@ -291,8 +291,8 @@ struct PyLocal {
 }
 
 impl PyValue for PyLocal {
-    fn class(_vm: &VirtualMachine) -> PyTypeRef {
-        Self::static_type().clone()
+    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+        Self::static_type()
     }
 }
 

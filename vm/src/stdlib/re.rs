@@ -66,8 +66,8 @@ impl PyRegexFlags {
 }
 
 impl PyValue for PyPattern {
-    fn class(_vm: &VirtualMachine) -> PyTypeRef {
-        Self::static_type().clone()
+    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+        Self::static_type()
     }
 }
 
@@ -85,8 +85,8 @@ impl fmt::Debug for PyMatch {
 }
 
 impl PyValue for PyMatch {
-    fn class(_vm: &VirtualMachine) -> PyTypeRef {
-        Self::static_type().clone()
+    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+        Self::static_type()
     }
 }
 

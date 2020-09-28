@@ -16,8 +16,8 @@ pub struct PyCoroutine {
 }
 
 impl PyValue for PyCoroutine {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.coroutine_type.clone()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.coroutine_type
     }
 }
 
@@ -102,8 +102,8 @@ pub struct PyCoroutineWrapper {
 }
 
 impl PyValue for PyCoroutineWrapper {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.coroutine_wrapper_type.clone()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.coroutine_wrapper_type
     }
 }
 

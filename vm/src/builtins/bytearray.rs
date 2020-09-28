@@ -83,8 +83,8 @@ impl From<Vec<u8>> for PyByteArray {
 }
 
 impl PyValue for PyByteArray {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.bytearray_type.clone()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.bytearray_type
     }
 }
 
@@ -562,7 +562,7 @@ impl PyByteArray {
     fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef) {
         let bytes = PyBytes::from(zelf.borrow_value().elements.clone()).into_pyobject(vm);
         (
-            Self::class(vm),
+            Self::class(vm).clone(),
             PyTupleRef::with_elements(vec![bytes], &vm.ctx),
         )
     }
@@ -650,8 +650,8 @@ pub struct PyByteArrayIterator {
 }
 
 impl PyValue for PyByteArrayIterator {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.bytearray_iterator_type.clone()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.bytearray_iterator_type
     }
 }
 

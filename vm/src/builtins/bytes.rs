@@ -89,8 +89,8 @@ impl Deref for PyBytes {
 }
 
 impl PyValue for PyBytes {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.bytes_type.clone()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.bytes_type
     }
 }
 
@@ -537,8 +537,8 @@ pub struct PyBytesIterator {
 }
 
 impl PyValue for PyBytesIterator {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.bytes_iterator_type.clone()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.bytes_iterator_type
     }
 }
 

@@ -37,8 +37,8 @@ impl fmt::Debug for PyCode {
 }
 
 impl PyValue for PyCode {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.code_type.clone()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.code_type
     }
 }
 

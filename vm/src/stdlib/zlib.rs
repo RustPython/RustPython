@@ -218,8 +218,8 @@ mod decl {
         unconsumed_tail: PyMutex<PyBytesRef>,
     }
     impl PyValue for PyDecompress {
-        fn class(_vm: &VirtualMachine) -> PyTypeRef {
-            Self::static_type().clone()
+        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+            Self::static_type()
         }
     }
     #[pyimpl]
@@ -377,8 +377,8 @@ mod decl {
     }
 
     impl PyValue for PyCompress {
-        fn class(_vm: &VirtualMachine) -> PyTypeRef {
-            Self::static_type().clone()
+        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+            Self::static_type()
         }
     }
 

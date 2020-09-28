@@ -25,8 +25,8 @@ type PyHKEYRef = PyRef<PyHKEY>;
 unsafe impl Sync for PyHKEY {}
 
 impl PyValue for PyHKEY {
-    fn class(_vm: &VirtualMachine) -> PyTypeRef {
-        Self::static_type().clone()
+    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+        Self::static_type()
     }
 }
 

@@ -109,8 +109,8 @@ pub struct PyStrIterator {
 }
 
 impl PyValue for PyStrIterator {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.str_iterator_type.clone()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.str_iterator_type
     }
 }
 
@@ -156,8 +156,8 @@ pub struct PyStrReverseIterator {
 }
 
 impl PyValue for PyStrReverseIterator {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.str_reverseiterator_type.clone()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.str_reverseiterator_type
     }
 }
 
@@ -1113,8 +1113,8 @@ pub(crate) fn encode_string(
 }
 
 impl PyValue for PyStr {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.str_type.clone()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.str_type
     }
 }
 

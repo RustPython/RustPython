@@ -13,8 +13,8 @@ pub struct PyZip {
 }
 
 impl PyValue for PyZip {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.zip_type.clone()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.zip_type
     }
 }
 

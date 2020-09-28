@@ -53,8 +53,8 @@ pub struct PyProperty {
 }
 
 impl PyValue for PyProperty {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.property_type.clone()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.property_type
     }
 }
 

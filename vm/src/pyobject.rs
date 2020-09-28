@@ -457,7 +457,7 @@ impl PyObjectRef {
         self,
         vm: &VirtualMachine,
     ) -> Result<PyRef<T>, Self> {
-        if self.class().is(&T::class(vm)) {
+        if self.class().is(T::class(vm)) {
             // TODO: is this always true?
             assert!(
                 self.payload_is::<T>(),
@@ -582,10 +582,10 @@ where
     T: PyValue,
 {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        if obj.isinstance(&T::class(vm)) {
+        let class = T::class(vm);
+        if obj.isinstance(class) {
             PyRef::from_obj(obj, vm)
         } else {
-            let class = T::class(vm);
             let expected_type = &class.name;
             let actual_type = &obj.class().name;
             Err(vm.new_type_error(format!(
@@ -648,7 +648,7 @@ impl TryFromObject for PyCallable {
 pub type Never = std::convert::Infallible;
 
 impl PyValue for Never {
-    fn class(_vm: &VirtualMachine) -> PyTypeRef {
+    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
         unreachable!()
     }
 }
@@ -1082,7 +1082,7 @@ impl PyObject<dyn PyObjectPayload> {
         &self,
         vm: &VirtualMachine,
     ) -> Option<&T> {
-        if self.class().issubclass(&T::class(vm)) {
+        if self.class().issubclass(T::class(vm)) {
             self.payload()
         } else {
             None
@@ -1119,19 +1119,19 @@ cfg_if::cfg_if! {
 }
 
 pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
-    fn class(vm: &VirtualMachine) -> PyTypeRef;
+    fn class(vm: &VirtualMachine) -> &PyTypeRef;
 
     fn into_object(self, vm: &VirtualMachine) -> PyObjectRef {
         self.into_ref(vm).into_object()
     }
 
     fn into_ref(self, vm: &VirtualMachine) -> PyRef<Self> {
-        self.into_ref_with_type_unchecked(Self::class(vm), vm)
+        self.into_ref_with_type_unchecked(Self::class(vm).clone(), vm)
     }
 
     fn into_ref_with_type(self, vm: &VirtualMachine, cls: PyTypeRef) -> PyResult<PyRef<Self>> {
         let class = Self::class(vm);
-        if cls.issubclass(&class) {
+        if cls.issubclass(class) {
             Ok(self.into_ref_with_type_unchecked(cls, vm))
         } else {
             let subtype = vm.to_str(&cls.obj)?;

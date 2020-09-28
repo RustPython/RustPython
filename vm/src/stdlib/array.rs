@@ -473,8 +473,8 @@ pub struct PyArray {
 pub type PyArrayRef = PyRef<PyArray>;
 
 impl PyValue for PyArray {
-    fn class(_vm: &VirtualMachine) -> PyTypeRef {
-        Self::static_type().clone()
+    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+        Self::static_type()
     }
 }
 
@@ -914,8 +914,8 @@ pub struct PyArrayIter {
 }
 
 impl PyValue for PyArrayIter {
-    fn class(_vm: &VirtualMachine) -> PyTypeRef {
-        Self::static_type().clone()
+    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+        Self::static_type()
     }
 }
 

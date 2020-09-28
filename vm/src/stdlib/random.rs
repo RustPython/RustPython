@@ -61,8 +61,8 @@ mod _random {
     }
 
     impl PyValue for PyRandom {
-        fn class(_vm: &VirtualMachine) -> PyTypeRef {
-            Self::static_type().clone()
+        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+            Self::static_type()
         }
     }
 
