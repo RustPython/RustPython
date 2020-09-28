@@ -1242,7 +1242,12 @@ pub trait StaticType {
         crate::builtins::object::PyBaseObject::static_type()
     }
     fn static_type() -> &'static PyTypeRef {
-        static_cell::get(Self::static_cell()).unwrap()
+        static_cell::get(Self::static_cell()).unwrap_or_else(|| unsafe {
+            // SAFETY: object must be initialized by init_* method.
+            // So this is actually not safe as itself.
+            // But easy to find out when it happened in debug build
+            std::hint::unreachable_unchecked()
+        })
     }
 
     fn init_manually(typ: PyTypeRef) -> &'static PyTypeRef {
