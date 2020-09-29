@@ -636,9 +636,7 @@ mod _os {
     #[pyimpl(with(PyStructSequence))]
     impl StatResult {
         pub(super) fn into_obj(self, vm: &VirtualMachine) -> PyObjectRef {
-            self.into_struct_sequence(vm, StatResult::static_type().clone())
-                .unwrap()
-                .into_object()
+            self.into_struct_sequence(vm).unwrap().into_object()
         }
     }
 
@@ -1745,9 +1743,7 @@ mod posix {
     #[pyimpl(with(PyStructSequence))]
     impl UnameResult {
         fn into_obj(self, vm: &VirtualMachine) -> PyObjectRef {
-            self.into_struct_sequence(vm, UnameResult::static_type().clone())
-                .unwrap()
-                .into_object()
+            self.into_struct_sequence(vm).unwrap().into_object()
         }
     }
 
@@ -2143,8 +2139,7 @@ mod posix {
                 (w.ws_col.into(), w.ws_row.into())
             }
         };
-        super::_os::PyTerminalSize { columns, lines }
-            .into_struct_sequence(vm, vm.try_class(super::MODULE_NAME, "terminal_size")?)
+        super::_os::PyTerminalSize { columns, lines }.into_struct_sequence(vm)
     }
 
     // from libstd:
@@ -2466,8 +2461,7 @@ mod nt {
                 )
             }
         };
-        super::_os::PyTerminalSize { columns, lines }
-            .into_struct_sequence(vm, vm.try_class(super::MODULE_NAME, "terminal_size")?)
+        super::_os::PyTerminalSize { columns, lines }.into_struct_sequence(vm)
     }
 
     #[cfg(target_env = "msvc")]

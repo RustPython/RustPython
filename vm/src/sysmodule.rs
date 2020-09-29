@@ -323,7 +323,7 @@ fn sys_getwindowsversion(vm: &VirtualMachine) -> PyResult<crate::builtins::tuple
                 version.dwBuildNumber,
             ), // TODO Provide accurate version, like CPython impl
         }
-        .into_struct_sequence(vm, vm.try_class("sys", "_getwindowsversion_type")?)
+        .into_struct_sequence(vm)
     }
 }
 
@@ -485,30 +485,24 @@ impl PyIntInfo {
 pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectRef) {
     let ctx = &vm.ctx;
 
-    let flags_type = SysFlags::make_class(ctx);
+    let _flags_type = SysFlags::make_class(ctx);
     let flags = SysFlags::from_settings(&vm.state.settings)
-        .into_struct_sequence(vm, flags_type)
+        .into_struct_sequence(vm)
         .unwrap();
 
-    let version_info_type = version::VersionInfo::make_class(ctx);
+    let _version_info_type = version::VersionInfo::make_class(ctx);
     let version_info = version::VersionInfo::VERSION
-        .into_struct_sequence(vm, version_info_type)
+        .into_struct_sequence(vm)
         .unwrap();
 
-    let hash_info_type = PyHashInfo::make_class(ctx);
-    let hash_info = PyHashInfo::INFO
-        .into_struct_sequence(vm, hash_info_type)
-        .unwrap();
+    let _hash_info_type = PyHashInfo::make_class(ctx);
+    let hash_info = PyHashInfo::INFO.into_struct_sequence(vm).unwrap();
 
-    let float_info_type = PyFloatInfo::make_class(ctx);
-    let float_info = PyFloatInfo::INFO
-        .into_struct_sequence(vm, float_info_type)
-        .unwrap();
+    let _float_info_type = PyFloatInfo::make_class(ctx);
+    let float_info = PyFloatInfo::INFO.into_struct_sequence(vm).unwrap();
 
-    let int_info_type = PyIntInfo::make_class(ctx);
-    let int_info = PyIntInfo::INFO
-        .into_struct_sequence(vm, int_info_type)
-        .unwrap();
+    let _int_info_type = PyIntInfo::make_class(ctx);
+    let int_info = PyIntInfo::INFO.into_struct_sequence(vm).unwrap();
 
     // TODO Add crate version to this namespace
     let implementation = py_namespace!(vm, {

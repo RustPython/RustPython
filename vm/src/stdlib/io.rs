@@ -730,7 +730,7 @@ mod _io {
             size: OptionalOption<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<String> {
-            let buffered_reader_class = vm.try_class("_io", "BufferedReader")?;
+            let buffered_reader_class = BufferedReader::static_type();
             let raw = vm.get_attribute(instance, "buffer").unwrap();
 
             if !raw.isinstance(&buffered_reader_class) {
@@ -754,7 +754,7 @@ mod _io {
         fn write(instance: PyObjectRef, obj: PyStrRef, vm: &VirtualMachine) -> PyResult<usize> {
             use std::str::from_utf8;
 
-            let buffered_writer_class = vm.try_class("_io", "BufferedWriter")?;
+            let buffered_writer_class = BufferedWriter::static_type();
             let raw = vm.get_attribute(instance, "buffer").unwrap();
 
             if !raw.isinstance(&buffered_writer_class) {
@@ -781,7 +781,7 @@ mod _io {
             size: OptionalOption<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<String> {
-            let buffered_reader_class = vm.try_class("_io", "BufferedReader")?;
+            let buffered_reader_class = BufferedReader::static_type();
             let raw = vm.get_attribute(instance, "buffer").unwrap();
 
             if !raw.isinstance(&buffered_reader_class) {
