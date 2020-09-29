@@ -9,19 +9,19 @@ import 'codemirror/lib/codemirror.css';
 // MarkedJs (https://marked.js.org/)
 // Renders Markdown
 // https://github.com/markedjs/marked
-import marked from 'marked'
+import marked from 'marked';
 
 // KaTex (https://katex.org/)
 // Renders Math
 // https://github.com/KaTeX/KaTeX
-import katex from "katex";
-import "katex/dist/katex.min.css";
+import katex from 'katex';
+import 'katex/dist/katex.min.css';
 
 // Parses the code and splits it to chunks
 // uses %% keyword for separators
 // copied from iodide project
 // https://github.com/iodide-project/iodide/blob/master/src/editor/iomd-tools/iomd-parser.js
-import { iomdParser } from "./parser";
+import { iomdParser } from './parser';
 
 let rp;
 
@@ -30,13 +30,13 @@ const error = document.getElementById('error');
 
 // A dependency graph that contains any wasm must be imported asynchronously.
 import('rustpython')
-    .then(rustpy => {
+    .then((rustpy) => {
         rp = rustpy;
         // so people can play around with it
         window.rp = rustpy;
         onReady();
     })
-    .catch(e => {
+    .catch((e) => {
         console.error('Error importing `rustpython`:', e);
         document.getElementById('error').textContent = e;
     });
@@ -49,16 +49,16 @@ const editor = CodeMirror.fromTextArea(document.getElementById('code'), {
         'Shift-Tab': 'indentLess',
         'Ctrl-/': 'toggleComment',
         'Cmd-/': 'toggleComment',
-        Tab: editor => {
+        Tab: (editor) => {
             var spaces = Array(editor.getOption('indentUnit') + 1).join(' ');
             editor.replaceSelection(spaces);
-        }
+        },
     },
     lineNumbers: true,
     mode: 'text/x-python',
     indentUnit: 4,
     autofocus: true,
-    lineWrapping: true
+    lineWrapping: true,
 });
 
 // Parses what is the code editor
@@ -70,7 +70,7 @@ function parseCodeFromEditor() {
 
     // gets the code from code editor
     let code = editor.getValue();
-    
+
     /* 
     Split code into chunks.
     Uses %%keyword or %% keyword as separator
@@ -81,7 +81,7 @@ function parseCodeFromEditor() {
     */
     let parsed_code = iomdParser(code);
 
-    parsed_code.forEach(chunk => {
+    parsed_code.forEach((chunk) => {
         // For each type of chunk, do somthing
         // so far have py for python, md for markdown and math for math ;p
         let content = chunk.chunkContent;
@@ -96,24 +96,23 @@ function parseCodeFromEditor() {
                 notebook.innerHTML += renderMath(content, true);
                 break;
             case 'math-inline':
-                notebook.innerHTML += renderMath(content, false )
+                notebook.innerHTML += renderMath(content, false);
                 break;
             default:
                 // by default assume this is python code
                 // so users don't have to type py manually
                 runPython(code);
         }
-    }); 
-
+    });
 }
 
 // Run Python code
 function runPython(code) {
     try {
         rp.pyExec(code, {
-            stdout: output => {
+            stdout: (output) => {
                 notebook.innerHTML += output;
-            }
+            },
         });
     } catch (err) {
         if (err instanceof WebAssembly.RuntimeError) {
@@ -128,23 +127,22 @@ function renderMarkdown(md) {
     // TODO: add error handling and output sanitization
     let settings = {
         headerIds: true,
-        breaks: true
-    }
+        breaks: true,
+    };
 
-    return marked(md , settings );
+    return marked(md, settings);
 }
 
 // Render Math with Katex
-function renderMath(math , display_mode) {
+function renderMath(math, display_mode) {
     // TODO: definetly add error handling.
     return katex.renderToString(math, {
         displayMode: display_mode,
-        "macros": { "\\f": "#1f(#2)" } 
+        macros: { '\\f': '#1f(#2)' },
     });
 }
 
 function onReady() {
-
     /* By default the notebook has the keyword "loading"
     once python and doc is ready:
     create an empty div and set the id to 'rp_loaded'
@@ -153,42 +151,42 @@ function onReady() {
     readyElement.id = 'rp_loaded';
     document.head.appendChild(readyElement);
     // set the notebook to empty
-    notebook.innerHTML = "";
+    notebook.innerHTML = '';
 }
 
 // on click, parse the code
-document.getElementById('run-btn').addEventListener('click', parseCodeFromEditor);
+document
+    .getElementById('run-btn')
+    .addEventListener('click', parseCodeFromEditor);
 
 // import button
 // show a url input + fetch button
 // takes a url where there is raw code
-document.getElementById("fetch-code").addEventListener("click", function () {
-    let url = document
-        .getElementById('snippet-url')
-        .value;
+document.getElementById('fetch-code').addEventListener('click', function () {
+    let url = document.getElementById('snippet-url').value;
     // minimal js fetch code
     // TODO: better error handling
     fetch(url)
-        .then(response => {
-            if (!response.ok) { throw response }
-            return response.text()
+        .then((response) => {
+            if (!response.ok) {
+                throw response;
+            }
+            return response.text();
         })
-        .then(text => {
+        .then((text) => {
             // set the value of the code editor
             editor.setValue(text);
             // hide the ui
-            document.getElementById('url-container').classList.add("d-none");
-        }).catch(err => {
+            document.getElementById('url-container').classList.add('d-none');
+        })
+        .catch((err) => {
             // show the error as is for troubleshooting.
-            document
-                .getElementById("error")
-                .innerHTML = err
+            document.getElementById('error').innerHTML = err;
         });
-
 });
 
 // UI for the fetch button
 // after clicking fetch, hide the UI
-document.getElementById("snippet-btn").addEventListener("click", function () {
-    document.getElementById('url-container').classList.remove("d-none");
+document.getElementById('snippet-btn').addEventListener('click', function () {
+    document.getElementById('url-container').classList.remove('d-none');
 });
