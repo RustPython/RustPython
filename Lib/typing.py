@@ -1144,7 +1144,9 @@ class GenericMeta(TypingMeta, abc.ABCMeta):
 
     def __subclasscheck__(self, cls):
         if self.__origin__ is not None:
-            if sys._getframe(1).f_globals['__name__'] not in ['abc', 'functools']:
+            # XXX RUSTPYTHON: added _py_abc; I think CPython was fine because abc called
+            # directly into the _abc builtin module, which wasn't in the frame stack
+            if sys._getframe(1).f_globals['__name__'] not in ['abc', 'functools', '_py_abc']:
                 raise TypeError("Parameterized generics cannot be used with class "
                                 "or instance checks")
             return False
