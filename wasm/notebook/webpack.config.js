@@ -71,7 +71,8 @@ module.exports = (env = {}) => {
     if (!env.noWasmPack) {
         config.plugins.push(
             new WasmPackPlugin({
-                crateDirectory: path.join(__dirname, '../lib')
+                crateDirectory: path.join(__dirname, '../lib'),
+                forceMode: 'release'
             })
         );
     }

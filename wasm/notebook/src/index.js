@@ -3,6 +3,8 @@ import './style.css';
 // https://github.com/codemirror/codemirror
 import CodeMirror from 'codemirror';
 import 'codemirror/mode/python/python';
+import 'codemirror/mode/markdown/markdown';
+import 'codemirror/mode/stex/stex';
 import 'codemirror/addon/comment/comment';
 import 'codemirror/lib/codemirror.css';
 
@@ -55,7 +57,7 @@ const editor = CodeMirror.fromTextArea(document.getElementById('code'), {
         },
     },
     lineNumbers: true,
-    mode: 'text/x-python',
+    mode: 'text/x-notebook',
     indentUnit: 4,
     autofocus: true,
     lineWrapping: true,
@@ -86,6 +88,9 @@ function parseCodeFromEditor() {
         // so far have py for python, md for markdown and math for math ;p
         let content = chunk.chunkContent;
         switch (chunk.chunkType) {
+            // by default assume this is python code
+            // so users don't have to type py manually
+            case '':
             case 'py':
                 runPython(content);
                 break;
@@ -99,9 +104,7 @@ function parseCodeFromEditor() {
                 notebook.innerHTML += renderMath(content, false);
                 break;
             default:
-                // by default assume this is python code
-                // so users don't have to type py manually
-                runPython(code);
+            // do nothing when we see an unknown chunk for now
         }
     });
 }

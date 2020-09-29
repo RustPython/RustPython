@@ -6,7 +6,7 @@ print("Javascript called. It wants its DOM elements back.")
 
 ## RustPython Notebook with Markdown and Math
 
-Look! I can write markdown in the notebook. It messes up code highligting, but at least it works.
+Look! I can write markdown in the notebook. It's even syntax-highlighted correctly!
 
 1. i can make a list
 1. i can haz many lines and numbers
