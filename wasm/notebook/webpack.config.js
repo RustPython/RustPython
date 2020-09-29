@@ -29,8 +29,15 @@ module.exports = (env = {}) => {
                 {
                     test: /\.css$/,
                     use: [MiniCssExtractPlugin.loader, 'css-loader']
+                },
+                {
+                    test: /\.(woff(2)?|ttf)$/,
+                    use: {
+                        loader:"file-loader",
+                        options: { name: "fonts/[name].[ext]" }
+                    },
                 }
-            ]
+            ]   
         },
         plugins: [
             new CleanWebpackPlugin(),
@@ -38,15 +45,15 @@ module.exports = (env = {}) => {
                 filename: 'index.html',
                 template: 'src/index.ejs',
                 // templateParameters: {
-                    // snippets: fs
-                    //     .readdirSync(path.join(__dirname, 'snippets'))
-                    //     .map(filename =>
-                    //         path.basename(filename, path.extname(filename))
-                    //     ),
-                    // defaultSnippetName: 'fibonacci',
-                    // defaultSnippet: fs.readFileSync(
-                    //     path.join(__dirname, 'snippets/fibonacci.py')
-                    // )
+                // snippets: fs
+                //     .readdirSync(path.join(__dirname, 'snippets'))
+                //     .map(filename =>
+                //         path.basename(filename, path.extname(filename))
+                //     ),
+                // defaultSnippetName: 'fibonacci',
+                // defaultSnippet: fs.readFileSync(
+                //     path.join(__dirname, 'snippets/fibonacci.py')
+                // )
                 // }
             }),
             new MiniCssExtractPlugin({
