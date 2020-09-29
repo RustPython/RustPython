@@ -4,6 +4,7 @@
 use crate::common::cell::PyRwLock;
 
 use super::objtype::PyTypeRef;
+use crate::function::PyFuncArgs;
 use crate::pyobject::{
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
@@ -45,9 +46,9 @@ use crate::vm::VirtualMachine;
 #[pyclass(module = false, name = "property")]
 #[derive(Debug)]
 pub struct PyProperty {
-    getter: Option<PyObjectRef>,
-    setter: Option<PyObjectRef>,
-    deleter: Option<PyObjectRef>,
+    getter: PyRwLock<Option<PyObjectRef>>,
+    setter: PyRwLock<Option<PyObjectRef>>,
+    deleter: PyRwLock<Option<PyObjectRef>>,
     doc: PyRwLock<Option<PyObjectRef>>,
 }
 
@@ -81,7 +82,7 @@ impl SlotDescriptor for PyProperty {
         let (zelf, obj) = Self::_unwrap(zelf, obj, vm)?;
         if vm.is_none(&obj) {
             Ok(zelf.into_object())
-        } else if let Some(getter) = zelf.getter.as_ref() {
+        } else if let Some(getter) = zelf.getter.read().as_ref() {
             vm.invoke(&getter, obj)
         } else {
             Err(vm.new_attribute_error("unreadable attribute".to_string()))
@@ -92,21 +93,29 @@ impl SlotDescriptor for PyProperty {
 #[pyimpl(with(SlotDescriptor), flags(BASETYPE))]
 impl PyProperty {
     #[pyslot]
-    fn tp_new(cls: PyTypeRef, args: PropertyArgs, vm: &VirtualMachine) -> PyResult<PyPropertyRef> {
+    fn tp_new(cls: PyTypeRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyPropertyRef> {
         PyProperty {
-            getter: args.fget,
-            setter: args.fset,
-            deleter: args.fdel,
-            doc: PyRwLock::new(args.doc),
+            getter: PyRwLock::new(None),
+            setter: PyRwLock::new(None),
+            deleter: PyRwLock::new(None),
+            doc: PyRwLock::new(None),
         }
         .into_ref_with_type(vm, cls)
+    }
+
+    #[pymethod(magic)]
+    fn init(&self, args: PropertyArgs) {
+        *self.getter.write() = args.fget;
+        *self.setter.write() = args.fset;
+        *self.deleter.write() = args.fdel;
+        *self.doc.write() = args.doc;
     }
 
     // Descriptor methods
 
     #[pymethod(name = "__set__")]
     fn set(&self, obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(ref setter) = self.setter.as_ref() {
+        if let Some(ref setter) = self.setter.read().as_ref() {
             vm.invoke(setter, vec![obj, value])
         } else {
             Err(vm.new_attribute_error("can't set attribute".to_owned()))
@@ -115,7 +124,7 @@ impl PyProperty {
 
     #[pymethod(name = "__delete__")]
     fn delete(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(ref deleter) = self.deleter.as_ref() {
+        if let Some(ref deleter) = self.deleter.read().as_ref() {
             vm.invoke(deleter, obj)
         } else {
             Err(vm.new_attribute_error("can't delete attribute".to_owned()))
@@ -126,25 +135,24 @@ impl PyProperty {
 
     #[pyproperty]
     fn fget(&self) -> Option<PyObjectRef> {
-        self.getter.clone()
+        self.getter.read().clone()
     }
 
     #[pyproperty]
     fn fset(&self) -> Option<PyObjectRef> {
-        self.setter.clone()
+        self.setter.read().clone()
     }
 
     #[pyproperty]
     fn fdel(&self) -> Option<PyObjectRef> {
-        self.deleter.clone()
+        self.deleter.read().clone()
     }
 
     fn doc_getter(&self) -> Option<PyObjectRef> {
         self.doc.read().clone()
     }
-
-    fn doc_setter(&self, value: PyObjectRef, vm: &VirtualMachine) {
-        *self.doc.write() = py_none_to_option(vm, &value);
+    fn doc_setter(&self, value: Option<PyObjectRef>) {
+        *self.doc.write() = value;
     }
 
     // Python builder functions
@@ -156,9 +164,9 @@ impl PyProperty {
         vm: &VirtualMachine,
     ) -> PyResult<PyPropertyRef> {
         PyProperty {
-            getter: getter.or_else(|| zelf.getter.clone()),
-            setter: zelf.setter.clone(),
-            deleter: zelf.deleter.clone(),
+            getter: PyRwLock::new(getter.or_else(|| zelf.fget())),
+            setter: PyRwLock::new(zelf.fset()),
+            deleter: PyRwLock::new(zelf.fdel()),
             doc: PyRwLock::new(None),
         }
         .into_ref_with_type(vm, TypeProtocol::class(&zelf))
@@ -171,9 +179,9 @@ impl PyProperty {
         vm: &VirtualMachine,
     ) -> PyResult<PyPropertyRef> {
         PyProperty {
-            getter: zelf.getter.clone(),
-            setter: setter.or_else(|| zelf.setter.clone()),
-            deleter: zelf.deleter.clone(),
+            getter: PyRwLock::new(zelf.fget()),
+            setter: PyRwLock::new(setter.or_else(|| zelf.fset())),
+            deleter: PyRwLock::new(zelf.fdel()),
             doc: PyRwLock::new(None),
         }
         .into_ref_with_type(vm, TypeProtocol::class(&zelf))
@@ -186,21 +194,12 @@ impl PyProperty {
         vm: &VirtualMachine,
     ) -> PyResult<PyPropertyRef> {
         PyProperty {
-            getter: zelf.getter.clone(),
-            setter: zelf.setter.clone(),
-            deleter: deleter.or_else(|| zelf.deleter.clone()),
+            getter: PyRwLock::new(zelf.fget()),
+            setter: PyRwLock::new(zelf.fset()),
+            deleter: PyRwLock::new(deleter.or_else(|| zelf.fdel())),
             doc: PyRwLock::new(None),
         }
         .into_ref_with_type(vm, TypeProtocol::class(&zelf))
-    }
-}
-
-/// Take a python object and turn it into an option object, where python None maps to rust None.
-fn py_none_to_option(vm: &VirtualMachine, value: &PyObjectRef) -> Option<PyObjectRef> {
-    if vm.is_none(value) {
-        None
-    } else {
-        Some(value.clone())
     }
 }
 
