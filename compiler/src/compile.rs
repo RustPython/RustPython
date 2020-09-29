@@ -989,7 +989,13 @@ impl<O: OutputStream> Compiler<O> {
 
         // Turn code object into function object:
         self.emit(Instruction::MakeFunction);
-        self.store_docstring(doc_str);
+
+        self.emit(Instruction::Duplicate);
+        self.load_docstring(doc_str);
+        self.emit(Instruction::Rotate { amount: 2 });
+        self.emit(Instruction::StoreAttr {
+            name: "__doc__".to_owned(),
+        });
         self.apply_decorators(decorator_list);
 
         self.store_name(name);
@@ -1109,6 +1115,11 @@ impl<O: OutputStream> Compiler<O> {
             name: "__qualname__".to_owned(),
             scope: bytecode::NameScope::Free,
         });
+        self.load_docstring(doc_str);
+        self.emit(Instruction::StoreName {
+            name: "__doc__".to_owned(),
+            scope: bytecode::NameScope::Free,
+        });
         // setup annotations
         if self.find_ann(body) {
             self.emit(Instruction::SetupAnnotation);
@@ -1175,7 +1186,6 @@ impl<O: OutputStream> Compiler<O> {
             });
         }
 
-        self.store_docstring(doc_str);
         self.apply_decorators(decorator_list);
 
         self.store_name(name);
@@ -1184,10 +1194,9 @@ impl<O: OutputStream> Compiler<O> {
         Ok(())
     }
 
-    fn store_docstring(&mut self, doc_str: Option<String>) {
+    fn load_docstring(&mut self, doc_str: Option<String>) {
         // TODO: __doc__ must be default None and no bytecodes unless it is Some
         // Duplicate top of stack (the function or class object)
-        self.emit(Instruction::Duplicate);
 
         // Doc string value:
         self.emit(Instruction::LoadConst {
@@ -1195,11 +1204,6 @@ impl<O: OutputStream> Compiler<O> {
                 Some(doc) => bytecode::Constant::String { value: doc },
                 None => bytecode::Constant::None, // set docstring None if not declared
             },
-        });
-
-        self.emit(Instruction::Rotate { amount: 2 });
-        self.emit(Instruction::StoreAttr {
-            name: "__doc__".to_owned(),
         });
     }
 
