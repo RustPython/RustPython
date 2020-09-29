@@ -27,6 +27,21 @@ class JSONDecodeError(ValueError):
     colno: The column corresponding to pos
 
     """
+    # RUSTPYTHON SPECIFIC
+    @classmethod
+    def _from_serde(cls, msg, doc, line, col):
+        pos = 0
+        # 0-indexed
+        line -= 1
+        col -= 1
+        while line > 0:
+            i = doc.index('\n', pos)
+            line -= 1
+            pos = i
+        pos += col
+        return cls(msg, doc, pos)
+
+
     # Note that this exception is used from _json
     def __init__(self, msg, doc, pos):
         lineno = doc.count('\n', 0, pos) + 1
