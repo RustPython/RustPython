@@ -20,62 +20,25 @@ pub trait PySliceableSequenceMut {
         I: Iterator<Item = usize>;
     fn as_slice(&self) -> &[Self::Item];
 
-    fn set_slice_items(
+    fn set_slice_items_no_resize(
         &mut self,
         vm: &VirtualMachine,
         slice: &PySlice,
         items: &[Self::Item],
     ) -> PyResult<()> {
-        let start = slice.start_index(vm)?;
-        let stop = slice.stop_index(vm)?;
-        let step = slice.step_index(vm)?.unwrap_or_else(BigInt::one);
-
-        if step.is_zero() {
-            return Err(vm.new_value_error("slice step cannot be zero".to_owned()));
-        }
-        if step == BigInt::one() {
-            let range = self.as_slice().saturate_range(&start, &stop);
-            let range = if range.end < range.start {
-                range.start..range.start
+        let (range, step, is_negative_step) = convert_slice(slice, self.as_slice().len(), vm)?;
+        if !is_negative_step && step == Some(1) {
+            return if range.end - range.start == items.len() {
+                self.do_set_range(range, items);
+                Ok(())
             } else {
-                range
+                Err(vm.new_exception_msg(
+                    vm.ctx.exceptions.buffer_error.clone(),
+                    "Existing exports of data: object cannot be re-sized".to_owned(),
+                ))
             };
-            self.do_set_range(range, items);
-            return Ok(());
         }
-
-        let (start, stop, step, is_negative_step) = if step.is_negative() {
-            (
-                stop.map(|x| {
-                    if x == -BigInt::one() {
-                        self.as_slice().len() + BigInt::one()
-                    } else {
-                        x + 1
-                    }
-                }),
-                start.map(|x| {
-                    if x == -BigInt::one() {
-                        BigInt::from(self.as_slice().len())
-                    } else {
-                        x + 1
-                    }
-                }),
-                -step,
-                true,
-            )
-        } else {
-            (start, stop, step, false)
-        };
-
-        let range = self.as_slice().saturate_range(&start, &stop);
-        let range = if range.end < range.start {
-            range.start..range.start
-        } else {
-            range
-        };
-
-        // step is not negative here
-        if let Some(step) = step.to_usize() {
+        if let Some(step) = step {
             let slicelen = if range.end > range.start {
                 (range.end - range.start - 1) / step + 1
             } else {
@@ -104,14 +67,63 @@ pub trait PySliceableSequenceMut {
             if match items.len() {
                 0 => slicelen == 0,
                 1 => {
-                    self.do_set_range(
-                        if is_negative_step {
-                            (range.end - 1)..range.end
-                        } else {
-                            range.start..(range.start + 1)
-                        },
-                        items,
-                    );
+                    self.do_set_range(range, items);
+                    true
+                }
+                _ => false,
+            } {
+                Ok(())
+            } else {
+                Err(vm.new_value_error(format!(
+                    "attempt to assign sequence of size {} to extended slice of size {}",
+                    items.len(),
+                    slicelen
+                )))
+            }
+        }
+    }
+
+    fn set_slice_items(
+        &mut self,
+        vm: &VirtualMachine,
+        slice: &PySlice,
+        items: &[Self::Item],
+    ) -> PyResult<()> {
+        let (range, step, is_negative_step) = convert_slice(slice, self.as_slice().len(), vm)?;
+        if !is_negative_step && step == Some(1) {
+            self.do_set_range(range, items);
+            return Ok(());
+        }
+        if let Some(step) = step {
+            let slicelen = if range.end > range.start {
+                (range.end - range.start - 1) / step + 1
+            } else {
+                0
+            };
+
+            if slicelen == items.len() {
+                let indexes = if is_negative_step {
+                    itertools::Either::Left(range.rev().step_by(step))
+                } else {
+                    itertools::Either::Right(range.step_by(step))
+                };
+                self.do_replace_indexes(indexes, items);
+                Ok(())
+            } else {
+                Err(vm.new_value_error(format!(
+                    "attempt to assign sequence of size {} to extended slice of size {}",
+                    items.len(),
+                    slicelen
+                )))
+            }
+        } else {
+            // edge case, step is too big for usize
+            // same behaviour as CPython
+            let slicelen = if range.start < range.end { 1 } else { 0 };
+            if match items.len() {
+                0 => slicelen == 0,
+                1 => {
+                    self.do_set_range(range, items);
                     true
                 }
                 _ => false,
@@ -128,52 +140,18 @@ pub trait PySliceableSequenceMut {
     }
 
     fn delete_slice(&mut self, vm: &VirtualMachine, slice: &PySlice) -> PyResult<()> {
-        let start = slice.start_index(vm)?;
-        let stop = slice.stop_index(vm)?;
-        let step = slice.step_index(vm)?.unwrap_or_else(BigInt::one);
-
-        if step.is_zero() {
-            return Err(vm.new_value_error("slice step cannot be zero".to_owned()));
-        }
-
-        if step == BigInt::one() {
-            let range = self.as_slice().saturate_range(&start, &stop);
-            if range.start < range.end {
-                self.do_delete_range(range);
-            }
-            return Ok(());
-        }
-
-        let (start, stop, step, is_negative_step) = if step.is_negative() {
-            (
-                stop.map(|x| {
-                    if x == -BigInt::one() {
-                        self.as_slice().len() + BigInt::one()
-                    } else {
-                        x + 1
-                    }
-                }),
-                start.map(|x| {
-                    if x == -BigInt::one() {
-                        BigInt::from(self.as_slice().len())
-                    } else {
-                        x + 1
-                    }
-                }),
-                -step,
-                true,
-            )
-        } else {
-            (start, stop, step, false)
-        };
-
-        let range = self.as_slice().saturate_range(&start, &stop);
+        let (range, step, is_negative_step) = convert_slice(slice, self.as_slice().len(), vm)?;
         if range.start >= range.end {
             return Ok(());
         }
 
+        if !is_negative_step && step == Some(1) {
+            self.do_delete_range(range);
+            return Ok(());
+        }
+
         // step is not negative here
-        if let Some(step) = step.to_usize() {
+        if let Some(step) = step {
             let indexes = if is_negative_step {
                 itertools::Either::Left(range.clone().rev().step_by(step).rev())
             } else {
@@ -184,11 +162,7 @@ pub trait PySliceableSequenceMut {
         } else {
             // edge case, step is too big for usize
             // same behaviour as CPython
-            self.do_delete_range(if is_negative_step {
-                (range.end - 1)..range.end
-            } else {
-                range.start..(range.start + 1)
-            });
+            self.do_delete_range(range);
         }
         Ok(())
     }
@@ -270,50 +244,27 @@ pub trait PySliceableSequence {
     }
 
     fn get_slice_items(&self, vm: &VirtualMachine, slice: &PySlice) -> PyResult<Self::Sliced> {
-        let start = slice.start_index(vm)?;
-        let stop = slice.stop_index(vm)?;
-        let step = slice.step_index(vm)?.unwrap_or_else(BigInt::one);
-        if step.is_zero() {
-            Err(vm.new_value_error("slice step cannot be zero".to_owned()))
-        } else if step.is_positive() {
-            let range = self.saturate_range(&start, &stop);
-            if range.start < range.end {
-                #[allow(clippy::range_plus_one)]
-                match step.to_i32() {
-                    Some(1) => Ok(self.do_slice(range)),
-                    Some(num) => Ok(self.do_stepped_slice(range, num as usize)),
-                    None => Ok(self.do_slice(range.start..range.start + 1)),
-                }
+        let (range, step, is_negative_step) = convert_slice(slice, self.len(), vm)?;
+        if range.start >= range.end {
+            return Ok(Self::empty());
+        }
+
+        if step == Some(1) {
+            return Ok(if is_negative_step {
+                self.do_slice_reverse(range)
             } else {
-                Ok(Self::empty())
-            }
+                self.do_slice(range)
+            });
+        }
+
+        if let Some(step) = step {
+            Ok(if is_negative_step {
+                self.do_stepped_slice_reverse(range, step)
+            } else {
+                self.do_stepped_slice(range, step)
+            })
         } else {
-            // calculate the range for the reverse slice, first the bounds needs to be made
-            // exclusive around stop, the lower number
-            let start = start.map(|x| {
-                if x == -BigInt::one() {
-                    self.len() + BigInt::one()
-                } else {
-                    x + 1
-                }
-            });
-            let stop = stop.map(|x| {
-                if x == -BigInt::one() {
-                    BigInt::from(self.len())
-                } else {
-                    x + 1
-                }
-            });
-            let range = self.saturate_range(&stop, &start);
-            if range.start < range.end {
-                match (-step).to_i32() {
-                    Some(1) => Ok(self.do_slice_reverse(range)),
-                    Some(num) => Ok(self.do_stepped_slice_reverse(range, num as usize)),
-                    None => Ok(self.do_slice(range.end - 1..range.end)),
-                }
-            } else {
-                Ok(Self::empty())
-            }
+            Ok(self.do_slice(range))
         }
     }
 
@@ -490,20 +441,59 @@ pub fn saturate_range(start: &Option<BigInt>, stop: &Option<BigInt>, len: usize)
     start..stop
 }
 
-//Check if given arg could be used with PySliceableSequence.saturate_range()
-// pub fn is_valid_slice_arg(
-//     arg: OptionalArg<PyObjectRef>,
-//     vm: &VirtualMachine,
-// ) -> PyResult<Option<BigInt>> {
-//     if let OptionalArg::Present(value) = arg {
-//         match_class!(match value {
-//             i @ PyInt => Ok(Some(i.borrow_value().clone())),
-//             _obj @ PyNone => Ok(None),
-//             _ => Err(vm.new_type_error(
-//                 "slice indices must be integers or None or have an __index__ method".to_owned()
-//             )), // TODO: check for an __index__ method
-//         })
-//     } else {
-//         Ok(None)
-//     }
-// }
+fn convert_slice(
+    slice: &PySlice,
+    len: usize,
+    vm: &VirtualMachine,
+) -> PyResult<(Range<usize>, Option<usize>, bool)> {
+    let start = slice.start_index(vm)?;
+    let stop = slice.stop_index(vm)?;
+    let step = slice.step_index(vm)?.unwrap_or_else(BigInt::one);
+
+    if step.is_zero() {
+        return Err(vm.new_value_error("slice step cannot be zero".to_owned()));
+    }
+
+    let (start, stop, step, is_negative_step) = if step.is_negative() {
+        (
+            stop.map(|x| {
+                if x == -BigInt::one() {
+                    len + BigInt::one()
+                } else {
+                    x + 1
+                }
+            }),
+            start.map(|x| {
+                if x == -BigInt::one() {
+                    BigInt::from(len)
+                } else {
+                    x + 1
+                }
+            }),
+            -step,
+            true,
+        )
+    } else {
+        (start, stop, step, false)
+    };
+
+    let step = step.to_usize();
+
+    let range = saturate_range(&start, &stop, len);
+    let range = if range.start >= range.end {
+        range.start..range.start
+    } else {
+        // step overflow
+        if step.is_none() {
+            if is_negative_step {
+                (range.end - 1)..range.end
+            } else {
+                range.start..(range.start + 1)
+            }
+        } else {
+            range
+        }
+    };
+
+    Ok((range, step, is_negative_step))
+}

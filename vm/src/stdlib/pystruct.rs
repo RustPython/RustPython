@@ -60,8 +60,10 @@ pub(crate) mod _struct {
             match self.code {
                 'x' | 'c' | 'b' | 'B' | '?' | 's' | 'p' => 1,
                 'h' | 'H' => 2,
-                'i' | 'I' | 'f' => 4,
-                'l' | 'L' | 'q' | 'Q' | 'd' => 8,
+                // 'i' | 'I' | 'f' => 4,
+                // 'l' | 'L' | 'q' | 'Q' | 'd' => 8,
+                'i' | 'I' | 'l' | 'L' | 'f' => 4,
+                'q' | 'Q' | 'd' => 8,
                 'n' | 'N' | 'P' => std::mem::size_of::<usize>(),
                 c => {
                     panic!("Unsupported format code {:?}", c);
@@ -503,8 +505,11 @@ pub(crate) mod _struct {
             'H' => pack_u16::<Endianness>,
             'i' => pack_i32::<Endianness>,
             'I' => pack_u32::<Endianness>,
-            'l' => pack_i64::<Endianness>,
-            'L' => pack_u64::<Endianness>,
+            'l' => pack_i32::<Endianness>,
+            'L' => pack_u32::<Endianness>,
+            // FIXME
+            // 'l' => pack_i64::<Endianness>,
+            // 'L' => pack_u64::<Endianness>,
             'q' => pack_i64::<Endianness>,
             'Q' => pack_u64::<Endianness>,
             'n' => pack_isize::<Endianness>,
@@ -743,8 +748,11 @@ pub(crate) mod _struct {
             'H' => unpack_u16::<Endianness>,
             'i' => unpack_i32::<Endianness>,
             'I' => unpack_u32::<Endianness>,
-            'l' => unpack_i64::<Endianness>,
-            'L' => unpack_u64::<Endianness>,
+            'l' => unpack_i32::<Endianness>,
+            'L' => unpack_u32::<Endianness>,
+            // FIXME: arch depended
+            // 'l' => unpack_i64::<Endianness>,
+            // 'L' => unpack_u64::<Endianness>,
             'q' => unpack_i64::<Endianness>,
             'Q' => unpack_u64::<Endianness>,
             'n' => unpack_isize::<Endianness>,

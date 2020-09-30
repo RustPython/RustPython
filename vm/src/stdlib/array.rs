@@ -17,8 +17,7 @@ use crate::pyobject::{
     PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::sliceable::{saturate_index, PySliceableSequence, PySliceableSequenceMut};
-use crate::slots::BufferProtocol;
-use crate::slots::{Comparable, PyComparisonOp};
+use crate::slots::{BufferProtocol, Comparable, PyComparisonOp};
 use crate::VirtualMachine;
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
@@ -256,6 +255,16 @@ macro_rules! def_array_enum {
                 }
             }
 
+            fn setitem_by_slice_no_resize(&mut self, slice: PySliceRef, items: &ArrayContentType, vm: &VirtualMachine) -> PyResult<()> {
+                match self {
+                    $(ArrayContentType::$n(elements) => if let ArrayContentType::$n(items) = items {
+                        elements.set_slice_items_no_resize(vm, &slice, items)
+                    } else {
+                        Err(vm.new_type_error("bad argument type for built-in operation".to_owned()))
+                    },)*
+                }
+            }
+
             fn setitem_by_idx(&mut self, i: isize, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
                 let i = self.idx(i, "array assignment", vm)?;
                 match self {
@@ -393,8 +402,11 @@ def_array_enum!(
     (UnsignedShort, u16, 'H'),
     (SignedInt, i32, 'i'),
     (UnsignedInt, u32, 'I'),
-    (SignedLong, i64, 'l'),
-    (UnsignedLong, u64, 'L'),
+    (SignedLong, i32, 'l'),
+    (UnsignedLong, u32, 'L'),
+    // FIXME: architecture depended size
+    // (SignedLong, i64, 'l'),
+    // (UnsignedLong, u64, 'L'),
     (SignedLongLong, i64, 'q'),
     (UnsignedLongLong, u64, 'Q'),
     (Float, f32, 'f'),
@@ -693,7 +705,12 @@ impl PyArray {
                         }
                     }
                 };
-                zelf.borrow_value_mut().setitem_by_slice(slice, items, vm)
+                if zelf.is_resizable() {
+                    zelf.borrow_value_mut().setitem_by_slice(slice, items, vm)
+                } else {
+                    zelf.borrow_value_mut()
+                        .setitem_by_slice_no_resize(slice, items, vm)
+                }
             }
         }
     }

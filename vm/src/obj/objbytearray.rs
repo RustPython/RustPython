@@ -26,8 +26,7 @@ use crate::pyobject::{
     PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
 };
 use crate::sliceable::SequenceIndex;
-use crate::slots::BufferProtocol;
-use crate::slots::{Comparable, Hashable, PyComparisonOp, Unhashable};
+use crate::slots::{BufferProtocol, Comparable, Hashable, PyComparisonOp, Unhashable};
 use crate::vm::VirtualMachine;
 
 /// "bytearray(iterable_of_ints) -> bytearray\n\
@@ -173,13 +172,14 @@ impl PyByteArray {
     ) -> PyResult<()> {
         match needle {
             SequenceIndex::Int(int) => zelf.borrow_value_mut().setindex(int, value, vm),
-            SequenceIndex::Slice(slice) => {
-                if zelf.is(&value) {
-                    zelf.borrow_value_mut().setslice_from_self(slice, vm)
-                } else {
-                    zelf.borrow_value_mut().setslice(slice, value, vm)
-                }
-            }
+            SequenceIndex::Slice(slice) => match (zelf.is(&value), zelf.is_resizable()) {
+                (true, true) => zelf.borrow_value_mut().setslice_from_self(slice, vm),
+                (true, false) => zelf
+                    .borrow_value_mut()
+                    .setslice_from_self_no_resize(slice, vm),
+                (false, true) => zelf.borrow_value_mut().setslice(slice, value, vm),
+                (false, false) => zelf.borrow_value_mut().setslice_no_resize(slice, value, vm),
+            },
         }
     }
 

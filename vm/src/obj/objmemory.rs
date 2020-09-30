@@ -9,10 +9,9 @@ use crate::pyobject::{
     PyValue, TypeProtocol,
 };
 use crate::sliceable::{saturate_range, wrap_index, SequenceIndex};
-use crate::slots::{BufferProtocol, Hashable};
+use crate::slots::{BufferProtocol, Comparable, Hashable};
 use crate::stdlib::pystruct::_struct::FormatSpec;
 use crate::VirtualMachine;
-use crate::{bytesinner::try_as_bytes, slots::Comparable};
 use crate::{common::hash::PyHash, pyobject::PyComparisonValue};
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
@@ -140,11 +139,14 @@ impl PyMemoryView {
         })
     }
 
-    pub fn try_bytes<F, R>(&self, f: F) -> Option<R>
+    pub fn try_bytes<F, R>(&self, vm: &VirtualMachine, f: F) -> PyResult<R>
     where
-        F: Fn(&[u8]) -> R,
+        F: FnOnce(&[u8]) -> R,
     {
-        try_as_bytes(self.obj.clone(), f)
+        self.try_not_released(vm)?;
+        self.buffer.as_contiguous().map(|x| f(&*x)).ok_or_else(|| {
+            vm.new_type_error("non-contiguous memoryview is not a bytes-like object".to_owned())
+        })
     }
 
     #[pyslot]
@@ -562,7 +564,7 @@ pub fn try_buffer_from_object(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult
         .and_then(|buffer_func| buffer_func(obj, vm).ok().map(|x| BufferRef(x)))
         .ok_or_else(|| {
             vm.new_type_error(format!(
-                "memoryview: a bytes-like object is required, not '{}'",
+                "a bytes-like object is required, not '{}'",
                 obj_cls.name
             ))
         })

@@ -64,6 +64,15 @@ impl From<Vec<u8>> for PyBytes {
     }
 }
 
+impl From<PyBytesInner> for PyBytes {
+    fn from(inner: PyBytesInner) -> Self {
+        Self {
+            inner,
+            buffer_options: OnceCell::new(),
+        }
+    }
+}
+
 impl IntoPyObject for Vec<u8> {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_bytes(self)
@@ -547,5 +556,11 @@ impl PyBytesIterator {
     #[pymethod(name = "__iter__")]
     fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
+    }
+}
+
+impl TryFromObject for PyBytes {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        PyBytesInner::try_from_object(vm, obj).map(|x| x.into())
     }
 }

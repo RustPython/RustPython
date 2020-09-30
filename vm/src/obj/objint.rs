@@ -11,7 +11,7 @@ use super::objbool::IntoPyBool;
 use super::objbytearray::PyByteArray;
 use super::objbytes::PyBytes;
 use super::objfloat;
-use super::objmemory::PyMemoryView;
+use super::objmemory::try_buffer_from_object;
 use super::objstr::{PyStr, PyStrRef};
 use super::objtype::PyTypeRef;
 use crate::bytesinner::PyBytesInner;
@@ -733,31 +733,31 @@ pub(crate) fn to_int(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<BigInt>
             let inner = bytearray.borrow_value();
             bytes_to_int(&inner.elements, base)
         }
-        memoryview @ PyMemoryView => {
-            // TODO: proper error handling instead of `unwrap()`
-            memoryview
-                .try_bytes(|bytes| bytes_to_int(&bytes, base))
-                .unwrap()
-        }
         array @ PyArray => {
-            let bytes = array.tobytes();
-            bytes_to_int(&bytes, base)
+            let bytes = array.get_bytes();
+            bytes_to_int(&*bytes, base)
         }
         obj => {
-            let method = vm.get_method_or_type_error(obj.clone(), "__int__", || {
-                format!(
-                    "int() argument must be a string or a number, not '{}'",
-                    obj.lease_class().name
-                )
-            })?;
-            let result = vm.invoke(&method, PyFuncArgs::default())?;
-            return match result.payload::<PyInt>() {
-                Some(int_obj) => Ok(int_obj.borrow_value().clone()),
-                None => Err(vm.new_type_error(format!(
-                    "TypeError: __int__ returned non-int (type '{}')",
-                    result.lease_class().name
-                ))),
-            };
+            if let Some(method) = vm.get_method(obj.clone(), "__int__") {
+                let result = vm.invoke(&method?, PyFuncArgs::default())?;
+                return match result.payload::<PyInt>() {
+                    Some(int_obj) => Ok(int_obj.borrow_value().clone()),
+                    None => Err(vm.new_type_error(format!(
+                        "TypeError: __int__ returned non-int (type '{}')",
+                        result.class().name
+                    ))),
+                };
+            }
+
+            if let Ok(bytes) = try_buffer_from_object(obj.clone(), vm) {
+                let bytes = bytes.as_contiguous()
+                    .ok_or_else(|| vm.new_value_error(
+                        format!("int() argument must be a string, a bytes-like object or a number, not '{}'",
+                        obj.lease_class().name)))?;
+                bytes_to_int(&*bytes, base)
+            } else {
+                None
+            }
         }
     });
     match opt {
