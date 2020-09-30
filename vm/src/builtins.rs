@@ -49,7 +49,7 @@ mod decl {
         let method = vm.get_method_or_type_error(x.clone(), "__abs__", || {
             format!("bad operand type for abs(): '{}'", x.class().name)
         })?;
-        vm.invoke(&method, PyFuncArgs::new(vec![], vec![]))
+        vm.invoke(&method, vec![])
     }
 
     #[pyfunction]
@@ -857,10 +857,7 @@ mod decl {
 
         let class = vm.invoke(
             metaclass.as_object(),
-            (
-                Args::from(vec![name_obj, bases, namespace.into_object()]),
-                kwargs,
-            ),
+            PyFuncArgs::new(vec![name_obj, bases, namespace.into_object()], kwargs),
         )?;
         cells.set_item("__class__", class.clone(), vm)?;
         Ok(class)

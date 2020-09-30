@@ -1,6 +1,6 @@
 /// Implementation of the _thread module
 use crate::exceptions::{self, IntoPyException};
-use crate::function::{Args, KwArgs, OptionalArg, PyFuncArgs};
+use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objdict::PyDictRef;
 use crate::obj::objstr::PyStrRef;
 use crate::obj::objtuple::PyTupleRef;
@@ -222,10 +222,10 @@ fn _thread_start_new_thread(
     kwargs: OptionalArg<PyDictRef>,
     vm: &VirtualMachine,
 ) -> PyResult<u64> {
-    let args = PyFuncArgs::from((
-        Args::from(args.borrow_value().to_owned()),
-        KwArgs::from(kwargs.map_or_else(Default::default, |k| k.to_attributes())),
-    ));
+    let args = PyFuncArgs::new(
+        args.borrow_value().to_owned(),
+        kwargs.map_or_else(Default::default, |k| k.to_attributes()),
+    );
     let mut thread_builder = thread::Builder::new();
     let stacksize = vm.state.stacksize.load();
     if stacksize != 0 {

@@ -49,23 +49,14 @@ impl From<PyObjectRef> for PyFuncArgs {
     }
 }
 
-impl From<(Args, KwArgs)> for PyFuncArgs {
-    fn from(arg: (Args, KwArgs)) -> Self {
-        let Args(args) = arg.0;
-        let KwArgs(kwargs) = arg.1;
+impl<T> From<PyRef<T>> for PyFuncArgs
+where
+    T: PyValue,
+{
+    fn from(arg: PyRef<T>) -> Self {
         PyFuncArgs {
-            args,
-            kwargs: kwargs.into_iter().collect(),
-        }
-    }
-}
-impl From<(&Args, &KwArgs)> for PyFuncArgs {
-    fn from(arg: (&Args, &KwArgs)) -> Self {
-        let Args(args) = arg.0;
-        let KwArgs(kwargs) = arg.1;
-        PyFuncArgs {
-            args: args.clone(),
-            kwargs: kwargs.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            args: vec![arg.into_object()],
+            kwargs: IndexMap::new(),
         }
     }
 }
@@ -74,7 +65,7 @@ impl From<KwArgs> for PyFuncArgs {
     fn from(kwargs: KwArgs) -> Self {
         PyFuncArgs {
             args: Vec::new(),
-            kwargs: kwargs.into_iter().collect(),
+            kwargs: kwargs.0,
         }
     }
 }
@@ -86,7 +77,17 @@ impl FromArgs for PyFuncArgs {
 }
 
 impl PyFuncArgs {
-    pub fn new(mut args: Vec<PyObjectRef>, kwarg_names: Vec<String>) -> PyFuncArgs {
+    pub fn new<A, K>(args: A, kwargs: K) -> Self
+    where
+        A: Into<Args>,
+        K: Into<KwArgs>,
+    {
+        let Args(args) = args.into();
+        let KwArgs(kwargs) = kwargs.into();
+        Self { args, kwargs }
+    }
+
+    pub fn with_kwargs_names(mut args: Vec<PyObjectRef>, kwarg_names: Vec<String>) -> Self {
         // last `kwarg_names.len()` elements of args in order of appearance in the call signature
         let kwarg_values = args.drain((args.len() - kwarg_names.len())..);
 

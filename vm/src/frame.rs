@@ -1065,7 +1065,7 @@ impl ExecutingFrame<'_> {
                     .iter()
                     .map(|pyobj| objstr::clone_value(pyobj))
                     .collect();
-                PyFuncArgs::new(args, kwarg_names)
+                PyFuncArgs::with_kwargs_names(args, kwarg_names)
             }
             bytecode::CallType::Ex(has_kwargs) => {
                 let kwargs = if *has_kwargs {

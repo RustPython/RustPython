@@ -23,7 +23,7 @@ mod _io {
         PyRwLock, PyRwLockReadGuard, PyRwLockUpgradableReadGuard, PyRwLockWriteGuard,
     };
     use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
-    use crate::function::{Args, KwArgs, OptionalArg, OptionalOption, PyFuncArgs};
+    use crate::function::{OptionalArg, OptionalOption, PyFuncArgs};
     use crate::obj::objbool;
     use crate::obj::objbytearray::PyByteArray;
     use crate::obj::objbytes::PyBytesRef;
@@ -1251,13 +1251,13 @@ mod _io {
         })?;
         let file_io_obj = vm.invoke(
             &file_io_class,
-            PyFuncArgs::from((
-                Args::new(vec![file, vm.ctx.new_str(mode.clone())]),
-                KwArgs::from(maplit::hashmap! {
+            PyFuncArgs::new(
+                vec![file, vm.ctx.new_str(mode.clone())],
+                maplit::hashmap! {
                     "closefd".to_owned() => vm.ctx.new_bool(opts.closefd),
                     "opener".to_owned() => vm.unwrap_or_none(opts.opener),
-                }),
-            )),
+                },
+            ),
         )?;
 
         vm.set_attr(&file_io_obj, "mode", vm.ctx.new_str(mode_string))?;
