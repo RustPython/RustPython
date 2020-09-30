@@ -28,10 +28,13 @@ pub struct PyFuncArgs {
 }
 
 /// Conversion from vector of python objects to function arguments.
-impl From<Vec<PyObjectRef>> for PyFuncArgs {
-    fn from(args: Vec<PyObjectRef>) -> Self {
+impl<A> From<A> for PyFuncArgs
+where
+    A: Into<Args>,
+{
+    fn from(args: A) -> Self {
         PyFuncArgs {
-            args,
+            args: args.into().into_vec(),
             kwargs: IndexMap::new(),
         }
     }
