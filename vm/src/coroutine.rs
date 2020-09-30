@@ -1,6 +1,6 @@
-use super::objtype::{self, PyTypeRef};
 use crate::exceptions::{self, PyBaseExceptionRef};
 use crate::frame::{ExecutionResult, FrameRef};
+use crate::obj::objtype::{self, PyTypeRef};
 use crate::pyobject::{PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
 

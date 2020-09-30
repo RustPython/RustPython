@@ -48,6 +48,7 @@ mod builtins;
 mod bytesinner;
 pub mod byteslike;
 pub mod cformat;
+mod coroutine;
 mod dictdatatype;
 #[cfg(feature = "rustpython-compiler")]
 pub mod eval;

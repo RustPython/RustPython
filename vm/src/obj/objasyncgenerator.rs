@@ -1,6 +1,6 @@
 use super::objcode::PyCodeRef;
-use super::objcoroinner::{Coro, Variant};
 use super::objtype::{self, PyTypeRef};
+use crate::coroutine::{Coro, Variant};
 use crate::exceptions::PyBaseExceptionRef;
 use crate::frame::FrameRef;
 use crate::function::OptionalArg;
