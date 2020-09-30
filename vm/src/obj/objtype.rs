@@ -596,25 +596,25 @@ pub(crate) fn init(ctx: &PyContext) {
     PyType::extend_class(ctx, &ctx.types.type_type);
 }
 
-pub trait DerefToPyClass {
-    fn deref_to_class(&self) -> &PyType;
+pub trait DerefToPyType {
+    fn deref_to_type(&self) -> &PyType;
 }
 
-impl DerefToPyClass for PyTypeRef {
-    fn deref_to_class(&self) -> &PyType {
+impl DerefToPyType for PyTypeRef {
+    fn deref_to_type(&self) -> &PyType {
         self.deref()
     }
 }
 
-impl<'a> DerefToPyClass for PyLease<'a, PyType> {
-    fn deref_to_class(&self) -> &PyType {
+impl<'a> DerefToPyType for PyLease<'a, PyType> {
+    fn deref_to_type(&self) -> &PyType {
         self.deref()
     }
 }
 
-impl<T: DerefToPyClass> DerefToPyClass for &'_ T {
-    fn deref_to_class(&self) -> &PyType {
-        (&**self).deref_to_class()
+impl<T: DerefToPyType> DerefToPyType for &'_ T {
+    fn deref_to_type(&self) -> &PyType {
+        (&**self).deref_to_type()
     }
 }
 
@@ -628,8 +628,8 @@ pub fn isinstance<T: TypeProtocol>(obj: &T, cls: &PyTypeRef) -> bool {
 /// Determines if `subclass` is actually a subclass of `cls`, this doesn't call __subclasscheck__,
 /// so only use this if `cls` is known to have not overridden the base __subclasscheck__ magic
 /// method.
-pub fn issubclass<T: DerefToPyClass + IdProtocol, R: IdProtocol>(subclass: T, cls: R) -> bool {
-    subclass.is(&cls) || subclass.deref_to_class().mro.iter().any(|c| c.is(&cls))
+pub fn issubclass<T: DerefToPyType + IdProtocol, R: IdProtocol>(subclass: T, cls: R) -> bool {
+    subclass.is(&cls) || subclass.deref_to_type().mro.iter().any(|c| c.is(&cls))
 }
 
 fn call_tp_new(
