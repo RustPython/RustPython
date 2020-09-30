@@ -1778,6 +1778,7 @@ dependencies = [
  "rustyline",
  "schannel",
  "serde",
+ "serde_json",
  "sha-1",
  "sha2",
  "sha3",
