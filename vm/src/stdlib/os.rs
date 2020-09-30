@@ -23,7 +23,7 @@ use crate::obj::objstr::{PyStr, PyStrRef};
 use crate::obj::objtuple::PyTupleRef;
 use crate::obj::objtype::PyTypeRef;
 use crate::pyobject::{
-    BorrowValue, Either, IntoPyObject, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult,
+    BorrowValue, Either, IntoPyObject, ItemProtocol, PyObjectRef, PyRef, PyResult,
     PyStructSequence, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;

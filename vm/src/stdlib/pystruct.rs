@@ -30,7 +30,7 @@ mod _struct {
         objtuple::PyTupleRef, objtype::PyTypeRef,
     };
     use crate::pyobject::{
-        BorrowValue, Either, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+        BorrowValue, Either, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     };
     use crate::VirtualMachine;
 

@@ -8,7 +8,7 @@ mod _random {
     use crate::function::OptionalOption;
     use crate::obj::objint::PyIntRef;
     use crate::obj::objtype::PyTypeRef;
-    use crate::pyobject::{BorrowValue, PyClassImpl, PyRef, PyResult, PyValue};
+    use crate::pyobject::{BorrowValue, PyRef, PyResult, PyValue};
     use crate::VirtualMachine;
     use num_bigint::{BigInt, Sign};
     use num_traits::Signed;

@@ -17,8 +17,8 @@ mod decl {
     use crate::obj::objtuple::PyTupleRef;
     use crate::obj::objtype::{self, PyTypeRef};
     use crate::pyobject::{
-        BorrowValue, IdProtocol, IntoPyRef, PyCallable, PyClassImpl, PyObjectRc, PyObjectRef,
-        PyObjectWeak, PyRef, PyResult, PyValue, TypeProtocol,
+        BorrowValue, IdProtocol, IntoPyRef, PyCallable, PyObjectRc, PyObjectRef, PyObjectWeak,
+        PyRef, PyResult, PyValue, TypeProtocol,
     };
     use crate::vm::VirtualMachine;
 

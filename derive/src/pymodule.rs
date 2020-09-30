@@ -318,7 +318,7 @@ impl ModuleItem for ClassItem {
                     .optional_name()
                     .unwrap_or_else(|| class_name.clone());
                 let new_class = quote_spanned!(ident.span() =>
-                    #ident::make_class(&vm.ctx);
+                    <#ident as ::rustpython_vm::pyobject::PyClassImpl>::make_class(&vm.ctx);
                 );
                 let item = quote! {
                     let new_class = #new_class;

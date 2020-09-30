@@ -6,7 +6,7 @@ mod decl {
 
     use crate::obj::objstr::PyStrRef;
     use crate::obj::objtype::PyTypeRef;
-    use crate::pyobject::{BorrowValue, PyClassImpl, PyRef, PyResult, PyValue};
+    use crate::pyobject::{BorrowValue, PyRef, PyResult, PyValue};
     use crate::vm::VirtualMachine;
     use rustpython_compiler::{compile, error::CompileError, symboltable};
     use rustpython_parser::parser;
