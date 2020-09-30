@@ -78,7 +78,7 @@ impl PyType {
         std::iter::once(self).chain(self.mro.iter().map(|cls| cls.deref()))
     }
 
-    pub(crate) fn first_in_mro<F, R>(&self, f: F) -> Option<R>
+    pub(crate) fn mro_find_map<F, R>(&self, f: F) -> Option<R>
     where
         F: Fn(&Self) -> Option<R>,
     {
@@ -515,7 +515,7 @@ impl SlotGetattro for PyType {
             let attr_class = attr.lease_class();
             if attr_class.has_attr("__set__") {
                 if let Some(ref descr_get) =
-                    PyLease::into_pyref(attr_class).first_in_mro(|cls| cls.slots.descr_get.load())
+                    attr_class.mro_find_map(|cls| cls.slots.descr_get.load())
                 {
                     let mcl = PyLease::into_pyref(mcl).into_object();
                     return descr_get(attr.clone(), Some(zelf.into_object()), Some(mcl), vm);
@@ -526,8 +526,10 @@ impl SlotGetattro for PyType {
         let zelf_attr = zelf.get_attr(name);
 
         if let Some(ref attr) = zelf_attr {
-            let attr_class = attr.class();
-            if let Some(descr_get) = attr_class.first_in_mro(|cls| cls.slots.descr_get.load()) {
+            if let Some(descr_get) = attr
+                .lease_class()
+                .mro_find_map(|cls| cls.slots.descr_get.load())
+            {
                 drop(mcl);
                 return descr_get(attr.clone(), None, Some(zelf.into_object()), vm);
             }
