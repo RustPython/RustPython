@@ -7,9 +7,7 @@ mod _json {
     use crate::obj::objiter;
     use crate::obj::objstr::PyStrRef;
     use crate::obj::{objbool, objtype::PyTypeRef};
-    use crate::pyobject::{
-        BorrowValue, IdProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
-    };
+    use crate::pyobject::{BorrowValue, IdProtocol, PyObjectRef, PyRef, PyResult, PyValue};
     use crate::slots::Callable;
     use crate::VirtualMachine;
 

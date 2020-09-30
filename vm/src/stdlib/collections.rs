@@ -5,9 +5,7 @@ mod _collections {
     use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
     use crate::function::OptionalArg;
     use crate::obj::{objiter, objsequence, objtype::PyTypeRef};
-    use crate::pyobject::{
-        PyClassImpl, PyComparisonValue, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
-    };
+    use crate::pyobject::{PyComparisonValue, PyIterable, PyObjectRef, PyRef, PyResult, PyValue};
     use crate::sequence;
     use crate::slots::{Comparable, PyComparisonOp};
     use crate::vm::ReprGuard;

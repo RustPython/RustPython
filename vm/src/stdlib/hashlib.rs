@@ -7,7 +7,7 @@ mod hashlib {
     use crate::obj::objbytes::{PyBytes, PyBytesRef};
     use crate::obj::objstr::PyStrRef;
     use crate::obj::objtype::PyTypeRef;
-    use crate::pyobject::{BorrowValue, PyClassImpl, PyResult, PyValue};
+    use crate::pyobject::{BorrowValue, PyResult, PyValue};
     use crate::vm::VirtualMachine;
     use std::fmt;
 

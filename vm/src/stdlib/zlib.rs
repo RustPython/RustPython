@@ -8,7 +8,7 @@ mod decl {
     use crate::function::OptionalArg;
     use crate::obj::objbytes::{PyBytes, PyBytesRef};
     use crate::obj::objtype::PyTypeRef;
-    use crate::pyobject::{BorrowValue, IntoPyRef, PyClassImpl, PyResult, PyValue};
+    use crate::pyobject::{BorrowValue, IntoPyRef, PyResult, PyValue};
     use crate::types::create_type;
     use crate::vm::VirtualMachine;
 
