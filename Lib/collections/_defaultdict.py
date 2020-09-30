@@ -1,13 +1,12 @@
 class defaultdict(dict):
-    def __new__(cls, *args, **kwargs):
+    def __init__(self, *args, **kwargs):
         if len(args) >= 1:
             default_factory = args[0]
             args = args[1:]
         else:
             default_factory = None
-        self = dict.__new__(cls, *args, **kwargs)
+        super().__init__(*args, **kwargs)
         self.default_factory = default_factory
-        return self
 
     def __missing__(self, key):
         if self.default_factory:
