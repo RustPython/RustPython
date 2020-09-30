@@ -83,7 +83,7 @@ impl PyDict {
                     dict.insert(vm, key, value)?;
                 }
             } else if let Some(keys) = vm.get_method(dict_obj.clone(), "keys") {
-                let keys = objiter::get_iter(vm, &vm.invoke(&keys?, vec![])?)?;
+                let keys = objiter::get_iter(vm, &vm.invoke(&keys?, ())?)?;
                 while let Some(key) = objiter::get_next_object(vm, &keys)? {
                     let val = dict_obj.get_item(key.clone(), vm)?;
                     dict.insert(vm, key, val)?;
@@ -433,7 +433,7 @@ impl PyDictRef {
 
         if let Some(method_or_err) = vm.get_method(self.clone().into_object(), "__missing__") {
             let method = method_or_err?;
-            Ok(Some(vm.invoke(&method, vec![key.into_pyobject(vm)])?))
+            Ok(Some(vm.invoke(&method, (key,))?))
         } else {
             Ok(None)
         }

@@ -419,7 +419,7 @@ mod decl {
             let obj = call_next(vm, &self.iterable)?;
             let predicate = &self.predicate;
 
-            let verdict = vm.invoke(predicate, vec![obj.clone()])?;
+            let verdict = vm.invoke(predicate, (obj.clone(),))?;
             let verdict = objbool::boolval(vm, verdict)?;
             if verdict {
                 Ok(obj)
@@ -478,7 +478,7 @@ mod decl {
                 loop {
                     let obj = call_next(vm, iterable)?;
                     let pred = predicate.clone();
-                    let pred_value = vm.invoke(&pred.into_object(), vec![obj.clone()])?;
+                    let pred_value = vm.invoke(&pred.into_object(), (obj.clone(),))?;
                     if !objbool::boolval(vm, pred_value)? {
                         self.start_flag.store(true);
                         return Ok(obj);
@@ -618,7 +618,7 @@ mod decl {
         pub(super) fn advance(&self, vm: &VirtualMachine) -> PyResult<(PyObjectRef, PyObjectRef)> {
             let new_value = call_next(vm, &self.iterable)?;
             let new_key = if let Some(ref kf) = self.key_func {
-                vm.invoke(kf, new_value.clone())?
+                vm.invoke(kf, vec![new_value.clone()])?
             } else {
                 new_value.clone()
             };
@@ -966,7 +966,7 @@ mod decl {
         fn from_iter(iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             let it = get_iter(vm, &iterable)?;
             if it.class().is(&PyItertoolsTee::class(vm)) {
-                return vm.call_method(&it, "__copy__", PyFuncArgs::from(vec![]));
+                return vm.call_method(&it, "__copy__", ());
             }
             Ok(PyItertoolsTee {
                 tee_data: PyItertoolsTeeData::new(it, vm)?,
@@ -989,15 +989,14 @@ mod decl {
             let n = n.unwrap_or(2);
 
             let copyable = if iterable.class().has_attr("__copy__") {
-                vm.call_method(&iterable, "__copy__", PyFuncArgs::from(vec![]))?
+                vm.call_method(&iterable, "__copy__", ())?
             } else {
                 PyItertoolsTee::from_iter(iterable, vm)?
             };
 
             let mut tee_vec: Vec<PyObjectRef> = Vec::with_capacity(n);
             for _ in 0..n {
-                let no_args = PyFuncArgs::from(vec![]);
-                tee_vec.push(vm.call_method(&copyable, "__copy__", no_args)?);
+                tee_vec.push(vm.call_method(&copyable, "__copy__", ())?);
             }
 
             Ok(PyTupleRef::with_elements(tee_vec, &vm.ctx))

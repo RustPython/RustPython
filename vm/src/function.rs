@@ -71,27 +71,6 @@ where
     }
 }
 
-impl From<PyObjectRef> for PyFuncArgs {
-    fn from(arg: PyObjectRef) -> Self {
-        PyFuncArgs {
-            args: vec![arg],
-            kwargs: IndexMap::new(),
-        }
-    }
-}
-
-impl<T> From<PyRef<T>> for PyFuncArgs
-where
-    T: PyValue,
-{
-    fn from(arg: PyRef<T>) -> Self {
-        PyFuncArgs {
-            args: vec![arg.into_object()],
-            kwargs: IndexMap::new(),
-        }
-    }
-}
-
 impl From<KwArgs> for PyFuncArgs {
     fn from(kwargs: KwArgs) -> Self {
         PyFuncArgs {

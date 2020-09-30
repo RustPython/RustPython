@@ -95,14 +95,14 @@ mod _json {
                     let parse_obj = vm.get_attribute(self.ctx.clone(), "parse_object")?;
                     return vm.invoke(
                         &parse_obj,
-                        vec![
+                        (
                             vm.ctx
                                 .new_tuple(vec![pystr.into_object(), vm.ctx.new_int(next_idx)]),
-                            vm.ctx.new_bool(self.strict),
+                            self.strict,
                             scan_once,
-                            vm.unwrap_or_none(self.object_hook.clone()),
-                            vm.unwrap_or_none(self.object_pairs_hook.clone()),
-                        ],
+                            self.object_hook.clone(),
+                            self.object_pairs_hook.clone(),
+                        ),
                     );
                 }
                 '[' => {
@@ -140,7 +140,7 @@ mod _json {
                 ($s:literal) => {
                     if s.starts_with($s) {
                         return Ok(vm.ctx.new_tuple(vec![
-                            vm.invoke(&self.parse_constant, vec![vm.ctx.new_str($s.to_owned())])?,
+                            vm.invoke(&self.parse_constant, ($s.to_owned(),))?,
                             vm.ctx.new_int(idx + $s.len()),
                         ]));
                     }
@@ -178,12 +178,12 @@ mod _json {
             let ret = if has_decimal || has_exponent {
                 // float
                 if let Some(ref parse_float) = self.parse_float {
-                    vm.invoke(parse_float, vec![vm.ctx.new_str(buf.to_owned())])
+                    vm.invoke(parse_float, (buf.to_owned(),))
                 } else {
                     Ok(vm.ctx.new_float(f64::from_str(buf).unwrap()))
                 }
             } else if let Some(ref parse_int) = self.parse_int {
-                vm.invoke(parse_int, vec![vm.ctx.new_str(buf.to_owned())])
+                vm.invoke(parse_int, (buf.to_owned(),))
             } else {
                 Ok(vm.ctx.new_int(BigInt::from_str(buf).unwrap()))
             };
@@ -244,14 +244,7 @@ mod _json {
     ) -> PyBaseExceptionRef {
         let get_error = || -> PyResult<_> {
             let cls = vm.try_class("json", "JSONDecodeError")?;
-            let exc = vm.invoke(
-                cls.as_object(),
-                vec![
-                    vm.ctx.new_str(e.msg),
-                    s.into_object(),
-                    vm.ctx.new_int(e.pos),
-                ],
-            )?;
+            let exc = vm.invoke(cls.as_object(), (e.msg, s, e.pos))?;
             PyBaseExceptionRef::try_from_object(vm, exc)
         };
         match get_error() {

@@ -49,7 +49,7 @@ mod decl {
         let method = vm.get_method_or_type_error(x.clone(), "__abs__", || {
             format!("bad operand type for abs(): '{}'", x.class().name)
         })?;
-        vm.invoke(&method, vec![])
+        vm.invoke(&method, ())
     }
 
     #[pyfunction]
@@ -169,10 +169,8 @@ mod decl {
     #[pyfunction]
     fn dir(obj: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<PyList> {
         let seq = match obj {
-            OptionalArg::Present(obj) => vm.call_method(&obj, "__dir__", vec![])?,
-            OptionalArg::Missing => {
-                vm.call_method(&vm.get_locals().into_object(), "keys", vec![])?
-            }
+            OptionalArg::Present(obj) => vm.call_method(&obj, "__dir__", ())?,
+            OptionalArg::Missing => vm.call_method(&vm.get_locals().into_object(), "keys", ())?,
         };
         let sorted = sorted(seq, Default::default(), vm)?;
         Ok(sorted)
@@ -279,7 +277,7 @@ mod decl {
             .into_option()
             .unwrap_or_else(|| PyStr::from("").into_ref(vm));
 
-        vm.call_method(&value, "__format__", vec![format_spec.into_object()])?
+        vm.call_method(&value, "__format__", (format_spec,))?
             .downcast()
             .map_err(|obj| {
                 vm.new_type_error(format!(
@@ -360,10 +358,10 @@ mod decl {
         let stdout = sysmodule::get_stdout(vm)?;
         let stderr = sysmodule::get_stderr(vm)?;
 
-        let _ = vm.call_method(&stderr, "flush", vec![]);
+        let _ = vm.call_method(&stderr, "flush", ());
 
         let fd_matches = |obj, expected| {
-            vm.call_method(obj, "fileno", vec![])
+            vm.call_method(obj, "fileno", ())
                 .and_then(|o| i64::try_from_object(vm, o))
                 .ok()
                 .map_or(false, |fd| fd == expected)
@@ -389,9 +387,9 @@ mod decl {
             }
         } else {
             if let OptionalArg::Present(prompt) = prompt {
-                vm.call_method(&stdout, "write", vec![prompt.into_object()])?;
+                vm.call_method(&stdout, "write", (prompt,))?;
             }
-            let _ = vm.call_method(&stdout, "flush", vec![]);
+            let _ = vm.call_method(&stdout, "flush", ());
             py_io::file_readline(&stdin, None, vm)
         }
     }
@@ -497,9 +495,9 @@ mod decl {
 
         let key_func = key_func.filter(|f| !vm.is_none(f));
         if let Some(ref key_func) = key_func {
-            let mut x_key = vm.invoke(key_func, x.clone())?;
+            let mut x_key = vm.invoke(key_func, (x.clone(),))?;
             for y in candidates_iter {
-                let y_key = vm.invoke(key_func, y.clone())?;
+                let y_key = vm.invoke(key_func, (y.clone(),))?;
                 if vm.bool_cmp(&y_key, &x_key, PyComparisonOp::Gt)? {
                     x = y;
                     x_key = y_key;
@@ -540,14 +538,14 @@ mod decl {
         // TODO: this key function looks pretty duplicate. Maybe we can create
         // a local function?
         let mut x_key = if let Some(ref f) = &key_func {
-            vm.invoke(f, vec![x.clone()])?
+            vm.invoke(f, (x.clone(),))?
         } else {
             x.clone()
         };
 
         for y in candidates_iter {
             let y_key = if let Some(ref f) = &key_func {
-                vm.invoke(f, vec![y.clone()])?
+                vm.invoke(f, (y.clone(),))?
             } else {
                 y.clone()
             };
@@ -567,7 +565,7 @@ mod decl {
         default_value: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        match vm.call_method(&iterator, "__next__", vec![]) {
+        match vm.call_method(&iterator, "__next__", ()) {
             Ok(value) => Ok(value),
             Err(value) => {
                 if objtype::isinstance(&value, &vm.ctx.exceptions.stop_iteration) {
@@ -690,7 +688,7 @@ mod decl {
             Some(f) => f,
             None => sysmodule::get_stdout(vm)?,
         };
-        let write = |obj: PyStrRef| vm.call_method(&file, "write", vec![obj.into_object()]);
+        let write = |obj: PyStrRef| vm.call_method(&file, "write", (obj,));
 
         let sep = options.sep.unwrap_or_else(|| PyStr::from(" ").into_ref(vm));
 
@@ -711,7 +709,7 @@ mod decl {
         write(end)?;
 
         if options.flush.to_bool() {
-            vm.call_method(&file, "flush", vec![])?;
+            vm.call_method(&file, "flush", ())?;
         }
 
         Ok(())
@@ -725,12 +723,12 @@ mod decl {
     #[pyfunction]
     fn reversed(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(reversed_method) = vm.get_method(obj.clone(), "__reversed__") {
-            vm.invoke(&reversed_method?, PyFuncArgs::default())
+            vm.invoke(&reversed_method?, ())
         } else {
             vm.get_method_or_type_error(obj.clone(), "__getitem__", || {
                 "argument to reversed() must be a sequence".to_owned()
             })?;
-            let len = vm.call_method(&obj, "__len__", PyFuncArgs::default())?;
+            let len = vm.call_method(&obj, "__len__", ())?;
             let len = objint::get_value(&len).to_isize().unwrap();
             let obj_iterator = objiter::PySequenceIterator::new_reversed(obj, len);
             Ok(obj_iterator.into_object(vm))
@@ -746,14 +744,14 @@ mod decl {
         let rounded = match ndigits {
             OptionalArg::Present(ndigits) => match ndigits {
                 Some(int) => {
-                    let ndigits = vm.call_method(int.as_object(), "__int__", vec![])?;
-                    vm.call_method(&number, "__round__", vec![ndigits])?
+                    let ndigits = vm.call_method(int.as_object(), "__int__", ())?;
+                    vm.call_method(&number, "__round__", (ndigits,))?
                 }
-                None => vm.call_method(&number, "__round__", vec![])?,
+                None => vm.call_method(&number, "__round__", ())?,
             },
             OptionalArg::Missing => {
                 // without a parameter, the result type is coerced to int
-                vm.call_method(&number, "__round__", vec![])?
+                vm.call_method(&number, "__round__", ())?
             }
         };
         Ok(rounded)
@@ -853,7 +851,7 @@ mod decl {
             .new_child_scope_with_locals(cells.clone())
             .new_child_scope_with_locals(namespace.clone());
 
-        function.invoke_with_scope(vec![].into(), &scope, vm)?;
+        function.invoke_with_scope(().into(), &scope, vm)?;
 
         let class = vm.invoke(
             metaclass.as_object(),

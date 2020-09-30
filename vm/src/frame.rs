@@ -516,7 +516,7 @@ impl ExecutingFrame<'_> {
                 let exit = vm.get_attribute(context_manager.clone(), "__exit__")?;
                 self.push_value(exit);
                 // Call enter:
-                let enter_res = vm.call_method(&context_manager, "__enter__", vec![])?;
+                let enter_res = vm.call_method(&context_manager, "__enter__", ())?;
                 self.push_block(BlockType::Finally { handler: *end });
                 self.push_value(enter_res);
                 Ok(None)
@@ -525,7 +525,7 @@ impl ExecutingFrame<'_> {
                 let mgr = self.pop_value();
                 let aexit = vm.get_attribute(mgr.clone(), "__aexit__")?;
                 self.push_value(aexit);
-                let aenter_res = vm.call_method(&mgr, "__aenter__", vec![])?;
+                let aenter_res = vm.call_method(&mgr, "__aenter__", ())?;
                 self.push_value(aenter_res);
 
                 Ok(None)
@@ -552,7 +552,7 @@ impl ExecutingFrame<'_> {
                 } else {
                     (vm.ctx.none(), vm.ctx.none(), vm.ctx.none())
                 };
-                let exit_res = vm.invoke(&exit, vec![args.0, args.1, args.2])?;
+                let exit_res = vm.invoke(&exit, args)?;
                 self.push_value(exit_res);
 
                 Ok(None)
@@ -596,24 +596,24 @@ impl ExecutingFrame<'_> {
                                 awaited_obj.class().name,
                             )
                         })?;
-                    vm.invoke(&await_method, vec![])?
+                    vm.invoke(&await_method, ())?
                 };
                 self.push_value(awaitable);
                 Ok(None)
             }
             bytecode::Instruction::GetAIter => {
                 let aiterable = self.pop_value();
-                let aiter = vm.call_method(&aiterable, "__aiter__", vec![])?;
+                let aiter = vm.call_method(&aiterable, "__aiter__", ())?;
                 self.push_value(aiter);
                 Ok(None)
             }
             bytecode::Instruction::GetANext => {
                 let aiter = self.last_value();
-                let awaitable = vm.call_method(&aiter, "__anext__", vec![])?;
+                let awaitable = vm.call_method(&aiter, "__anext__", ())?;
                 let awaitable = if awaitable.payload_is::<PyCoroutine>() {
                     awaitable
                 } else {
-                    vm.call_method(&awaitable, "__await__", vec![])?
+                    vm.call_method(&awaitable, "__await__", ())?
                 };
                 self.push_value(awaitable);
                 Ok(None)
@@ -675,7 +675,7 @@ impl ExecutingFrame<'_> {
                 let displayhook = vm
                     .get_attribute(vm.sys_module.clone(), "displayhook")
                     .map_err(|_| vm.new_runtime_error("lost sys.displayhook".to_owned()))?;
-                vm.invoke(&displayhook, vec![expr])?;
+                vm.invoke(&displayhook, (expr,))?;
 
                 Ok(None)
             }
@@ -729,8 +729,8 @@ impl ExecutingFrame<'_> {
                     None => self.pop_value(),
                 };
 
-                let spec = vm.to_str(&self.pop_value())?.into_object();
-                let formatted = vm.call_method(&value, "__format__", vec![spec])?;
+                let spec = self.pop_value();
+                let formatted = vm.call_method(&value, "__format__", (spec,))?;
                 self.push_value(formatted);
                 Ok(None)
             }
@@ -1149,7 +1149,7 @@ impl ExecutingFrame<'_> {
         match self.builtin_coro(&coro) {
             Some(coro) => coro.send(val, vm),
             None if vm.is_none(&val) => objiter::call_next(vm, &coro),
-            None => vm.call_method(&coro, "send", vec![val]),
+            None => vm.call_method(&coro, "send", (val,)),
         }
     }
 
@@ -1358,9 +1358,9 @@ impl ExecutingFrame<'_> {
     fn execute_unop(&mut self, vm: &VirtualMachine, op: &bytecode::UnaryOperator) -> FrameResult {
         let a = self.pop_value();
         let value = match *op {
-            bytecode::UnaryOperator::Minus => vm.call_method(&a, "__neg__", vec![])?,
-            bytecode::UnaryOperator::Plus => vm.call_method(&a, "__pos__", vec![])?,
-            bytecode::UnaryOperator::Invert => vm.call_method(&a, "__invert__", vec![])?,
+            bytecode::UnaryOperator::Minus => vm.call_method(&a, "__neg__", ())?,
+            bytecode::UnaryOperator::Plus => vm.call_method(&a, "__pos__", ())?,
+            bytecode::UnaryOperator::Invert => vm.call_method(&a, "__invert__", ())?,
             bytecode::UnaryOperator::Not => {
                 let value = objbool::boolval(vm, a)?;
                 vm.ctx.new_bool(!value)

@@ -22,7 +22,7 @@ use crate::vm::VirtualMachine;
 pub fn get_iter(vm: &VirtualMachine, iter_target: &PyObjectRef) -> PyResult {
     if let Some(method_or_err) = vm.get_method(iter_target.clone(), "__iter__") {
         let method = method_or_err?;
-        let iter = vm.invoke(&method, vec![])?;
+        let iter = vm.invoke(&method, ())?;
         if iter.has_class_attr("__next__") {
             Ok(iter)
         } else {
@@ -42,7 +42,7 @@ pub fn get_iter(vm: &VirtualMachine, iter_target: &PyObjectRef) -> PyResult {
 }
 
 pub fn call_next(vm: &VirtualMachine, iter_obj: &PyObjectRef) -> PyResult {
-    vm.call_method(iter_obj, "__next__", vec![])
+    vm.call_method(iter_obj, "__next__", ())
 }
 
 /*
@@ -113,7 +113,7 @@ pub fn length_hint(vm: &VirtualMachine, iter: PyObjectRef) -> PyResult<Option<us
         Some(hint) => hint?,
         None => return Ok(None),
     };
-    let result = match vm.invoke(&hint, vec![]) {
+    let result = match vm.invoke(&hint, ()) {
         Ok(res) => res,
         Err(e) => {
             return if objtype::isinstance(&e, &vm.ctx.exceptions.type_error) {
@@ -176,7 +176,7 @@ impl PySequenceIterator {
         let step: isize = if self.reversed { -1 } else { 1 };
         let pos = self.position.fetch_add(step);
         if pos >= 0 {
-            match vm.call_method(&self.obj, "__getitem__", vec![vm.ctx.new_int(pos)]) {
+            match vm.call_method(&self.obj, "__getitem__", (pos,)) {
                 Err(ref e) if objtype::isinstance(&e, &vm.ctx.exceptions.index_error) => {
                     Err(new_stop_iteration(vm))
                 }
@@ -242,7 +242,7 @@ impl PyCallableIterator {
             return Err(new_stop_iteration(vm));
         }
 
-        let ret = self.callable.invoke(vec![], vm)?;
+        let ret = self.callable.invoke((), vm)?;
 
         if vm.bool_eq(&ret, &self.sentinel)? {
             self.done.store(true);

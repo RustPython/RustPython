@@ -5,7 +5,7 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::{future_to_promise, JsFuture};
 
 use rustpython_vm::common::rc::PyRc;
-use rustpython_vm::function::{OptionalArg, PyFuncArgs};
+use rustpython_vm::function::OptionalArg;
 use rustpython_vm::import::import_file;
 use rustpython_vm::obj::{objdict::PyDictRef, objstr::PyStrRef, objtype::PyTypeRef};
 use rustpython_vm::pyobject::{
@@ -205,17 +205,14 @@ impl PyPromise {
                     } else {
                         vec![convert::js_to_py(vm, val)]
                     };
-                    let res = vm.invoke(&on_fulfill.into_object(), PyFuncArgs::new(args, vec![]));
+                    let res = vm.invoke(&on_fulfill.into_object(), args);
                     convert::pyresult_to_jsresult(vm, res)
                 }),
                 Err(err) => {
                     if let OptionalArg::Present(on_reject) = on_reject {
                         stored_vm.interp.enter(move |vm| {
                             let err = convert::js_to_py(vm, err);
-                            let res = vm.invoke(
-                                &on_reject.into_object(),
-                                PyFuncArgs::new(vec![err], vec![]),
-                            );
+                            let res = vm.invoke(&on_reject.into_object(), (err,));
                             convert::pyresult_to_jsresult(vm, res)
                         })
                     } else {
@@ -243,7 +240,7 @@ impl PyPromise {
                 .expect("that the vm is valid when the promise resolves");
             stored_vm.interp.enter(move |vm| {
                 let err = convert::js_to_py(vm, err);
-                let res = vm.invoke(&on_reject.into_object(), PyFuncArgs::new(vec![err], vec![]));
+                let res = vm.invoke(&on_reject.into_object(), (err,));
                 convert::pyresult_to_jsresult(vm, res)
             })
         };

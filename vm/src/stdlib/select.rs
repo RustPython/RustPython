@@ -62,7 +62,7 @@ impl TryFromObject for Selectable {
             let meth = vm.get_method_or_type_error(obj.clone(), "fileno", || {
                 "select arg must be an int or object with a fileno() method".to_owned()
             })?;
-            RawFd::try_from_object(vm, vm.invoke(&meth, vec![])?)
+            RawFd::try_from_object(vm, vm.invoke(&meth, ())?)
         })?;
         Ok(Selectable { obj, fno })
     }

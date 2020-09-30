@@ -115,7 +115,7 @@ impl TryFromObject for PyPathLike {
                 obj.class().name
             )
         })?;
-        let result = vm.invoke(&method, PyFuncArgs::default())?;
+        let result = vm.invoke(&method, ())?;
         match1(&result)?.ok_or_else(|| {
             vm.new_type_error(format!(
                 "expected {}.__fspath__() to return str or bytes, not '{}'",

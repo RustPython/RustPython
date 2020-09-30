@@ -163,7 +163,7 @@ impl PyBaseObject {
 
     #[pymethod(magic)]
     fn str(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        vm.call_method(&zelf, "__repr__", vec![])
+        vm.call_method(&zelf, "__repr__", ())
     }
 
     #[pymethod(magic)]
@@ -187,7 +187,7 @@ impl PyBaseObject {
 
         // Get instance attributes:
         if let Some(object_dict) = obj.dict() {
-            vm.call_method(dict.as_object(), "update", vec![object_dict.into_object()])?;
+            vm.call_method(dict.as_object(), "update", (object_dict,))?;
         }
 
         let attributes: Vec<_> = dict.into_iter().map(|(k, _v)| k).collect();
@@ -255,7 +255,7 @@ impl PyBaseObject {
         if let Some(reduce) = obj.get_class_attr("__reduce__") {
             let object_reduce = vm.ctx.types.object_type.get_attr("__reduce__").unwrap();
             if !reduce.is(&object_reduce) {
-                return vm.invoke(&reduce, vec![]);
+                return vm.invoke(&reduce, ());
             }
         }
         common_reduce(obj, proto, vm)
@@ -316,10 +316,10 @@ fn common_reduce(obj: PyObjectRef, proto: usize, vm: &VirtualMachine) -> PyResul
     if proto >= 2 {
         let reducelib = vm.import("__reducelib", &[], 0)?;
         let reduce_2 = vm.get_attribute(reducelib, "reduce_2")?;
-        vm.invoke(&reduce_2, vec![obj])
+        vm.invoke(&reduce_2, (obj,))
     } else {
         let copyreg = vm.import("copyreg", &[], 0)?;
         let reduce_ex = vm.get_attribute(copyreg, "_reduce_ex")?;
-        vm.invoke(&reduce_ex, vec![obj, vm.ctx.new_int(proto)])
+        vm.invoke(&reduce_ex, (obj, proto))
     }
 }

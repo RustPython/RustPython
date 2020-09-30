@@ -83,7 +83,7 @@ impl SlotDescriptor for PyProperty {
         if vm.is_none(&obj) {
             Ok(zelf.into_object())
         } else if let Some(getter) = zelf.getter.read().as_ref() {
-            vm.invoke(&getter, obj)
+            vm.invoke(&getter, (obj,))
         } else {
             Err(vm.new_attribute_error("unreadable attribute".to_string()))
         }
@@ -125,7 +125,7 @@ impl PyProperty {
     #[pymethod(name = "__delete__")]
     fn delete(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(ref deleter) = self.deleter.read().as_ref() {
-            vm.invoke(deleter, obj)
+            vm.invoke(deleter, (obj,))
         } else {
             Err(vm.new_attribute_error("can't delete attribute".to_owned()))
         }

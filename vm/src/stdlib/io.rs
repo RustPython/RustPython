@@ -227,7 +227,7 @@ mod _io {
 
         #[pyslot]
         fn tp_del(instance: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            vm.call_method(instance, "close", vec![])?;
+            vm.call_method(instance, "close", ())?;
             Ok(())
         }
 
@@ -238,7 +238,7 @@ mod _io {
 
         #[pymethod(magic)]
         fn exit(instance: PyObjectRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-            vm.call_method(&instance, "close", vec![])?;
+            vm.call_method(&instance, "close", ())?;
             Ok(())
         }
 
@@ -268,7 +268,7 @@ mod _io {
         fn close(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             let closed = objbool::boolval(vm, Self::closed(instance.clone(), vm)?)?;
             if !closed {
-                let res = vm.call_method(&instance, "flush", vec![]);
+                let res = vm.call_method(&instance, "flush", ());
                 vm.set_attr(&instance, "__closed", vm.ctx.new_bool(true))?;
                 res?;
             }
@@ -285,8 +285,7 @@ mod _io {
             let read = vm.get_attribute(instance, "read")?;
             let mut res = Vec::new();
             while size.map_or(true, |s| res.len() < s) {
-                let read_res =
-                    PyBytesLike::try_from_object(vm, vm.invoke(&read, vec![vm.ctx.new_int(1)])?)?;
+                let read_res = PyBytesLike::try_from_object(vm, vm.invoke(&read, (1,))?)?;
                 if read_res.with_ref(|b| b.is_empty()) {
                     break;
                 }
@@ -325,7 +324,7 @@ mod _io {
             msg: OptionalOption<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            if !objbool::boolval(vm, vm.call_method(&instance, "readable", vec![])?)? {
+            if !objbool::boolval(vm, vm.call_method(&instance, "readable", ())?)? {
                 let msg = msg
                     .flatten()
                     .unwrap_or_else(|| vm.ctx.new_str("File or stream is not readable."));
@@ -341,7 +340,7 @@ mod _io {
             msg: OptionalOption<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            if !objbool::boolval(vm, vm.call_method(&instance, "writable", vec![])?)? {
+            if !objbool::boolval(vm, vm.call_method(&instance, "writable", ())?)? {
                 let msg = msg
                     .flatten()
                     .unwrap_or_else(|| vm.ctx.new_str("File or stream is not writable."));
@@ -357,7 +356,7 @@ mod _io {
             msg: OptionalOption<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            if !objbool::boolval(vm, vm.call_method(&instance, "seekable", vec![])?)? {
+            if !objbool::boolval(vm, vm.call_method(&instance, "seekable", ())?)? {
                 let msg = msg
                     .flatten()
                     .unwrap_or_else(|| vm.ctx.new_str("File or stream is not seekable."));
@@ -373,7 +372,7 @@ mod _io {
         }
         #[pymethod(magic)]
         fn next(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            let line = vm.call_method(&instance, "readline", vec![])?;
+            let line = vm.call_method(&instance, "readline", ())?;
             if !objbool::boolval(vm, line.clone())? {
                 Err(objiter::new_stop_iteration(vm))
             } else {
@@ -394,7 +393,7 @@ mod _io {
                 let b = PyByteArray::from(vec![0; size]).into_ref(vm);
                 let n = <Option<usize>>::try_from_object(
                     vm,
-                    vm.call_method(&instance, "readinto", vec![b.as_object().clone()])?,
+                    vm.call_method(&instance, "readinto", (b.clone(),))?,
                 )?;
                 Ok(n.map(|n| {
                     let bytes = &mut b.borrow_value_mut().elements;
@@ -403,7 +402,7 @@ mod _io {
                 })
                 .into_pyobject(vm))
             } else {
-                vm.call_method(&instance, "readall", vec![])
+                vm.call_method(&instance, "readall", ())
             }
         }
     }
@@ -432,7 +431,7 @@ mod _io {
         // #[pymethod]
         fn fileno(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             let raw = vm.get_attribute(instance, "raw")?;
-            vm.call_method(&raw, "fileno", vec![])
+            vm.call_method(&raw, "fileno", ())
         }
 
         // #[pyproperty]
@@ -450,13 +449,13 @@ mod _io {
         // #[pymethod]
         fn tell(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             let raw = vm.get_attribute(instance, "raw")?;
-            vm.invoke(&vm.get_attribute(raw, "tell")?, vec![])
+            vm.invoke(&vm.get_attribute(raw, "tell")?, ())
         }
 
         // #[pymethod]
         fn close(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             let raw = vm.get_attribute(instance, "raw")?;
-            vm.invoke(&vm.get_attribute(raw, "close")?, vec![])?;
+            vm.invoke(&vm.get_attribute(raw, "close")?, ())?;
             Ok(())
         }
     }
@@ -517,7 +516,7 @@ mod _io {
             vm.call_method(
                 &vm.get_attribute(instance, "raw")?,
                 "read",
-                vec![size.to_usize().into_pyobject(vm)],
+                (size.to_usize(),),
             )
         }
 
@@ -588,7 +587,7 @@ mod _io {
             let raw = vm.get_attribute(instance, "raw").unwrap();
 
             //This should be replaced with a more appropriate chunking implementation
-            vm.call_method(&raw, "write", vec![obj])
+            vm.call_method(&raw, "write", (obj,))
         }
 
         #[pymethod]
@@ -697,7 +696,7 @@ mod _io {
         #[pymethod]
         fn tell(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             let raw = vm.get_attribute(instance, "buffer")?;
-            vm.invoke(&vm.get_attribute(raw, "tell")?, vec![])
+            vm.invoke(&vm.get_attribute(raw, "tell")?, ())
         }
 
         #[pyproperty]
@@ -715,7 +714,7 @@ mod _io {
         #[pymethod]
         fn fileno(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             let raw = vm.get_attribute(instance, "buffer")?;
-            vm.call_method(&raw, "fileno", vec![])
+            vm.call_method(&raw, "fileno", ())
         }
 
         #[pymethod]
@@ -732,7 +731,7 @@ mod _io {
                 return Err(vm.new_value_error("not readable".to_owned()));
             }
 
-            let bytes = vm.call_method(&raw, "read", vec![vm.unwrap_or_none(size.flatten())])?;
+            let bytes = vm.call_method(&raw, "read", (size.flatten(),))?;
             let bytes = PyBytesLike::try_from_object(vm, bytes)?;
             //format bytes into string
             let rust_string = String::from_utf8(bytes.to_cow().into_owned()).map_err(|e| {
@@ -758,7 +757,7 @@ mod _io {
 
             let bytes = obj.borrow_value().to_owned().into_bytes();
 
-            let len = vm.call_method(&raw, "write", vec![vm.ctx.new_bytes(bytes.clone())])?;
+            let len = vm.call_method(&raw, "write", (vm.ctx.new_bytes(bytes.clone()),))?;
             let len = objint::try_to_primitive(objint::get_value(&len), vm)?;
 
             // returns the count of unicode code points written
@@ -783,8 +782,7 @@ mod _io {
                 return Err(vm.new_value_error("not readable".to_owned()));
             }
 
-            let bytes =
-                vm.call_method(&raw, "readline", vec![vm.unwrap_or_none(size.flatten())])?;
+            let bytes = vm.call_method(&raw, "readline", (size.flatten(),))?;
             let bytes = PyBytesLike::try_from_object(vm, bytes)?;
             //format bytes into string
             let rust_string = String::from_utf8(bytes.to_cow().into_owned()).map_err(|e| {
@@ -1271,13 +1269,13 @@ mod _io {
                 let buffered_writer_class = vm
                     .get_attribute(io_module.clone(), "BufferedWriter")
                     .unwrap();
-                vm.invoke(&buffered_writer_class, vec![file_io_obj])
+                vm.invoke(&buffered_writer_class, (file_io_obj,))
             }
             'r' => {
                 let buffered_reader_class = vm
                     .get_attribute(io_module.clone(), "BufferedReader")
                     .unwrap();
-                vm.invoke(&buffered_reader_class, vec![file_io_obj])
+                vm.invoke(&buffered_reader_class, (file_io_obj,))
             }
             //TODO: updating => PyBufferedRandom
             _ => unimplemented!("'+' modes is not yet implemented"),
@@ -1288,7 +1286,7 @@ mod _io {
             // a TextIOWrapper which is subsequently returned.
             't' => {
                 let text_io_wrapper_class = vm.get_attribute(io_module, "TextIOWrapper").unwrap();
-                vm.invoke(&text_io_wrapper_class, vec![buffered.unwrap()])
+                vm.invoke(&text_io_wrapper_class, (buffered.unwrap(),))
             }
             // If the mode is binary this Buffered class is returned directly at
             // this point.
@@ -1546,7 +1544,7 @@ mod fileio {
             let name = args.name.clone();
             let fd = if let Some(opener) = args.opener {
                 let mode = compute_c_flag(&mode);
-                let fd = vm.invoke(&opener, vec![name.clone(), vm.ctx.new_int(mode)])?;
+                let fd = vm.invoke(&opener, (name.clone(), mode))?;
                 if !vm.isinstance(&fd, &vm.ctx.types.int_type)? {
                     return Err(vm.new_type_error("expected integer from opener".to_owned()));
                 }

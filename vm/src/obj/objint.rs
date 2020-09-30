@@ -14,7 +14,7 @@ use super::objfloat;
 use super::objstr::{PyStr, PyStrRef};
 use super::objtype::PyTypeRef;
 use crate::format::FormatSpec;
-use crate::function::{OptionalArg, PyFuncArgs};
+use crate::function::OptionalArg;
 use crate::pyobject::{
     BorrowValue, IdProtocol, IntoPyObject, IntoPyResult, PyArithmaticValue, PyClassImpl,
     PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
@@ -732,7 +732,7 @@ pub(crate) fn to_int(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<BigInt>
         return try_convert(s.borrow_value().as_bytes());
     }
     if let Some(method) = vm.get_method(obj.clone(), "__int__") {
-        let result = vm.invoke(&method?, PyFuncArgs::default())?;
+        let result = vm.invoke(&method?, ())?;
         return match result.payload::<PyInt>() {
             Some(int_obj) => Ok(int_obj.borrow_value().clone()),
             None => Err(vm.new_type_error(format!(

@@ -151,7 +151,7 @@ impl SlotDescriptor for PySuper {
             let obj = vm.unwrap_or_none(zelf.obj.clone().map(|(o, _)| o));
             vm.invoke(
                 zelf.as_object().clone_class().as_object(),
-                vec![zelf.typ.clone().into_object(), obj],
+                (zelf.typ.clone(), obj),
             )
         }
     }

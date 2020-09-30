@@ -4,14 +4,13 @@ use std::fmt;
 use std::marker::PhantomData;
 use std::ops::Deref;
 
-use indexmap::IndexMap;
 use num_bigint::BigInt;
 use num_complex::Complex64;
 use num_traits::ToPrimitive;
 
 use crate::bytecode;
 use crate::exceptions::{self, PyBaseExceptionRef};
-use crate::function::{IntoPyNativeFunc, PyFuncArgs};
+use crate::function::{IntoFuncArgs, IntoPyNativeFunc};
 use crate::obj::objbuiltinfunc::PyFuncDef;
 use crate::obj::objbytearray;
 use crate::obj::objbytes;
@@ -628,7 +627,7 @@ pub struct PyCallable {
 
 impl PyCallable {
     #[inline]
-    pub fn invoke(&self, args: impl Into<PyFuncArgs>, vm: &VirtualMachine) -> PyResult {
+    pub fn invoke(&self, args: impl IntoFuncArgs, vm: &VirtualMachine) -> PyResult {
         vm.invoke(&self.obj, args)
     }
 
@@ -788,15 +787,15 @@ where
     T: IntoPyObject,
 {
     fn get_item(&self, key: T, vm: &VirtualMachine) -> PyResult {
-        vm.call_method(self, "__getitem__", key.into_pyobject(vm))
+        vm.call_method(self, "__getitem__", (key,))
     }
 
     fn set_item(&self, key: T, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        vm.call_method(self, "__setitem__", vec![key.into_pyobject(vm), value])
+        vm.call_method(self, "__setitem__", (key, value))
     }
 
     fn del_item(&self, key: T, vm: &VirtualMachine) -> PyResult {
-        vm.call_method(self, "__delitem__", key.into_pyobject(vm))
+        vm.call_method(self, "__delitem__", (key,))
     }
 }
 
@@ -832,13 +831,7 @@ impl<T> PyIterable<T> {
     /// `__iter__` method of the iterable object.
     pub fn iter<'a>(&self, vm: &'a VirtualMachine) -> PyResult<PyIterator<'a, T>> {
         let method = &self.method;
-        let iter_obj = vm.invoke(
-            method,
-            PyFuncArgs {
-                args: vec![],
-                kwargs: IndexMap::new(),
-            },
-        )?;
+        let iter_obj = vm.invoke(method, ())?;
 
         let length_hint = objiter::length_hint(vm, iter_obj.clone())?;
 
@@ -865,7 +858,7 @@ where
     type Item = PyResult<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match self.vm.call_method(&self.obj, "__next__", vec![]) {
+        match self.vm.call_method(&self.obj, "__next__", ()) {
             Ok(value) => Some(T::try_from_object(self.vm, value)),
             Err(err) => {
                 if objtype::isinstance(&err, &self.vm.ctx.exceptions.stop_iteration) {

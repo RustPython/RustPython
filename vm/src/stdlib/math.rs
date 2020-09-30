@@ -251,7 +251,7 @@ fn try_magic_method(func_name: &str, vm: &VirtualMachine, value: &PyObjectRef) -
             func_name,
         )
     })?;
-    vm.invoke(&method, vec![])
+    vm.invoke(&method, ())
 }
 
 fn math_trunc(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {

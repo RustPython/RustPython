@@ -160,7 +160,7 @@ where
                     let tb_module = vm.import("traceback", &[], 0).unwrap();
                     // TODO: set exc traceback
                     let print_stack = vm.get_attribute(tb_module, "print_stack").unwrap();
-                    vm.invoke(&print_stack, vec![]).unwrap();
+                    vm.invoke(&print_stack, ()).unwrap();
 
                     if let Ok(repr) = vm.to_repr(e.as_object()) {
                         println!("{}", repr.borrow_value());

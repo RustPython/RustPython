@@ -322,8 +322,7 @@ impl VirtualMachine {
                 let io = import::import_builtin(self, "_io")?;
                 let io_open = self.get_attribute(io, "open")?;
                 let set_stdio = |name, fd, mode: &str| {
-                    let stdio =
-                        self.invoke(&io_open, vec![self.ctx.new_int(fd), self.new_pyobj(mode)])?;
+                    let stdio = self.invoke(&io_open, (fd, mode))?;
                     self.set_attr(
                         &self.sys_module,
                         format!("__{}__", name), // e.g. __stdin__
@@ -756,7 +755,7 @@ impl VirtualMachine {
         if obj.class().is(&self.ctx.types.str_type) {
             Ok(obj.clone().downcast().unwrap())
         } else {
-            let s = self.call_method(&obj, "__str__", vec![])?;
+            let s = self.call_method(&obj, "__str__", ())?;
             PyStrRef::try_from_object(self, s)
         }
     }
@@ -767,12 +766,12 @@ impl VirtualMachine {
     }
 
     pub fn to_repr(&self, obj: &PyObjectRef) -> PyResult<PyStrRef> {
-        let repr = self.call_method(obj, "__repr__", vec![])?;
+        let repr = self.call_method(obj, "__repr__", ())?;
         TryFromObject::try_from_object(self, repr)
     }
 
     pub fn to_ascii(&self, obj: &PyObjectRef) -> PyResult {
-        let repr = self.call_method(obj, "__repr__", vec![])?;
+        let repr = self.call_method(obj, "__repr__", ())?;
         let repr: PyStrRef = TryFromObject::try_from_object(self, repr)?;
         let ascii = to_ascii(repr.borrow_value());
         Ok(self.ctx.new_str(ascii))
@@ -783,7 +782,7 @@ impl VirtualMachine {
             if let Ok(val) = TryFromObject::try_from_object(self, obj.clone()) {
                 Ok(val)
             } else if obj.class().has_attr("__index__") {
-                self.call_method(obj, "__index__", vec![]).and_then(|r| {
+                self.call_method(obj, "__index__", ()).and_then(|r| {
                     if let Ok(val) = TryFromObject::try_from_object(self, r) {
                         Ok(val)
                     } else {
@@ -840,17 +839,8 @@ impl VirtualMachine {
                 let from_list = self
                     .ctx
                     .new_tuple(from_list.iter().map(|name| self.new_pyobj(name)).collect());
-                self.invoke(
-                    &import_func,
-                    vec![
-                        self.new_pyobj(module),
-                        globals,
-                        locals,
-                        from_list,
-                        self.ctx.new_int(level),
-                    ],
-                )
-                .map_err(|exc| import::remove_importlib_frames(self, &exc))
+                self.invoke(&import_func, (module, globals, locals, from_list, level))
+                    .map_err(|exc| import::remove_importlib_frames(self, &exc))
             }
         }
     }
@@ -863,7 +853,7 @@ impl VirtualMachine {
         if obj.class().is(cls) {
             Ok(true)
         } else {
-            let ret = self.call_method(cls.as_object(), "__instancecheck__", vec![obj.clone()])?;
+            let ret = self.call_method(cls.as_object(), "__instancecheck__", (obj.clone(),))?;
             objbool::boolval(self, ret)
         }
     }
@@ -871,11 +861,7 @@ impl VirtualMachine {
     /// Determines if `subclass` is a subclass of `cls`, either directly, indirectly or virtually
     /// via the __subclasscheck__ magic method.
     pub fn issubclass(&self, subclass: &PyTypeRef, cls: &PyTypeRef) -> PyResult<bool> {
-        let ret = self.call_method(
-            cls.as_object(),
-            "__subclasscheck__",
-            vec![subclass.clone().into_object()],
-        )?;
+        let ret = self.call_method(cls.as_object(), "__subclasscheck__", (subclass.clone(),))?;
         objbool::boolval(self, ret)
     }
 
@@ -1024,15 +1010,11 @@ impl VirtualMachine {
         V: Into<PyObjectRef>,
     {
         let attr_name = attr_name.try_into_ref(self)?;
-        self.call_method(
-            obj,
-            "__setattr__",
-            vec![attr_name.into_object(), attr_value.into()],
-        )
+        self.call_method(obj, "__setattr__", (attr_name, attr_value.into()))
     }
 
     pub fn del_attr(&self, obj: &PyObjectRef, attr_name: PyObjectRef) -> PyResult<()> {
-        self.call_method(&obj, "__delattr__", vec![attr_name])?;
+        self.call_method(&obj, "__delattr__", (attr_name,))?;
         Ok(())
     }
 
@@ -1075,7 +1057,7 @@ impl VirtualMachine {
     {
         if let Some(method_or_err) = self.get_method(obj.clone(), method) {
             let method = method_or_err?;
-            let result = self.invoke(&method, vec![arg.clone()])?;
+            let result = self.invoke(&method, (arg.clone(),))?;
             if let PyArithmaticValue::Implemented(x) = PyArithmaticValue::from_object(self, result)
             {
                 return Ok(x);
@@ -1148,8 +1130,7 @@ impl VirtualMachine {
         } else if let Some(attr) = cls_attr {
             self.call_if_get_descriptor(attr, obj).map(Some)
         } else if let Some(getter) = obj.clone_class().get_attr("__getattr__") {
-            self.invoke(&getter, vec![obj, name_str.into_object()])
-                .map(Some)
+            self.invoke(&getter, (obj, name_str)).map(Some)
         } else {
             Ok(None)
         }
@@ -1500,7 +1481,7 @@ impl VirtualMachine {
 
     pub fn _len(&self, obj: &PyObjectRef) -> Option<PyResult<usize>> {
         self.get_method(obj.clone(), "__len__").map(|len| {
-            let len = self.invoke(&len?, vec![])?;
+            let len = self.invoke(&len?, ())?;
             let len = len
                 .payload_if_subclass::<PyInt>(self)
                 .ok_or_else(|| {

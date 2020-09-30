@@ -1,7 +1,7 @@
 use num_bigint::Sign;
 use num_traits::Zero;
 
-use crate::function::{OptionalArg, PyFuncArgs};
+use crate::function::OptionalArg;
 use crate::pyobject::{
     BorrowValue, IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyResult,
     TryFromObject, TypeProtocol,
@@ -40,7 +40,7 @@ pub fn boolval(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
         Some(method_or_err) => {
             // If descriptor returns Error, propagate it further
             let method = method_or_err?;
-            let bool_obj = vm.invoke(&method, PyFuncArgs::default())?;
+            let bool_obj = vm.invoke(&method, ())?;
             if !objtype::isinstance(&bool_obj, &vm.ctx.types.bool_type) {
                 return Err(vm.new_type_error(format!(
                     "__bool__ should return bool, returned type {}",
@@ -53,7 +53,7 @@ pub fn boolval(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
         None => match vm.get_method(obj, "__len__") {
             Some(method_or_err) => {
                 let method = method_or_err?;
-                let bool_obj = vm.invoke(&method, PyFuncArgs::default())?;
+                let bool_obj = vm.invoke(&method, ())?;
                 let int_obj = bool_obj.payload::<PyInt>().ok_or_else(|| {
                     vm.new_type_error(format!(
                         "'{}' object cannot be interpreted as an integer",

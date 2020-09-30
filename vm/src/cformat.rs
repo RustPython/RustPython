@@ -296,7 +296,7 @@ impl CFormatSpec {
                     CFormatPreconversor::Str => vm.to_str(&obj)?,
                     CFormatPreconversor::Repr | CFormatPreconversor::Ascii => vm.to_repr(&obj)?,
                     CFormatPreconversor::Bytes => {
-                        TryFromObject::try_from_object(vm, vm.call_method(&obj, "decode", vec![])?)?
+                        TryFromObject::try_from_object(vm, vm.call_method(&obj, "decode", ())?)?
                     }
                 };
                 self.format_string(result.borrow_value().to_owned())

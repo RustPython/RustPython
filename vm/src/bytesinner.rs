@@ -131,7 +131,7 @@ impl ByteInnerNewOptions {
                                     if let Some(bytes_method) =
                                         vm.get_method(obj.clone(), "__bytes__")
                                     {
-                                        let bytes = vm.invoke(&bytes_method?, vec![])?;
+                                        let bytes = vm.invoke(&bytes_method?, ())?;
                                         return PyBytesInner::try_from_object(vm, bytes);
                                     }
                                     PyBytesInner::value_seq_try_from_object(vm, obj.clone())
