@@ -467,7 +467,6 @@ where
         UseTree::Path(path) => match &*path.tree {
             UseTree::Name(name) => f(&name.ident, true)?,
             UseTree::Rename(rename) => f(&rename.rename, true)?,
-            UseTree::Path(_) => unreachable!(),
             other => iter_use_tree_idents(other, &mut f)?,
         },
         other => iter_use_tree_idents(other, &mut f)?,
