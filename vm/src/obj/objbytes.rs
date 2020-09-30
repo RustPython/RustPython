@@ -5,7 +5,6 @@ use std::ops::Deref;
 
 use super::objint::PyIntRef;
 use super::objiter;
-use super::objsequence::SequenceIndex;
 use super::objstr::PyStrRef;
 use super::objtype::PyTypeRef;
 use crate::anystr::{self, AnyStr};
@@ -20,6 +19,7 @@ use crate::pyobject::{
     BorrowValue, Either, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyIterable,
     PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
 };
+use crate::sliceable::SequenceIndex;
 use crate::slots::{Comparable, Hashable, PyComparisonOp};
 use crate::vm::VirtualMachine;
 use rustpython_common::hash::PyHash;

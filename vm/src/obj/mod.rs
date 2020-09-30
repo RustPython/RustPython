@@ -29,7 +29,6 @@ pub mod objnamespace;
 pub mod objobject;
 pub mod objproperty;
 pub mod objrange;
-pub mod objsequence;
 pub mod objset;
 pub mod objsingletons;
 pub mod objslice;

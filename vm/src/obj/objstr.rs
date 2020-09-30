@@ -16,7 +16,6 @@ use super::objbytes::{PyBytes, PyBytesRef};
 use super::objdict::PyDict;
 use super::objint::{PyInt, PyIntRef};
 use super::objiter;
-use super::objsequence::{PySliceableSequence, SequenceIndex};
 use super::objtype::{self, PyTypeRef};
 use crate::anystr::{self, adjust_indices, AnyStr, AnyStrContainer, AnyStrWrapper};
 use crate::exceptions::IntoPyException;
@@ -26,6 +25,7 @@ use crate::pyobject::{
     BorrowValue, IdProtocol, IntoPyObject, ItemProtocol, PyClassImpl, PyComparisonValue, PyContext,
     PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
 };
+use crate::sliceable::{PySliceableSequence, SequenceIndex};
 use crate::slots::{Comparable, Hashable, PyComparisonOp};
 use crate::VirtualMachine;
 use rustpython_common::hash;

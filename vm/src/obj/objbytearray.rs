@@ -5,7 +5,6 @@ use std::mem::size_of;
 
 use super::objint::PyIntRef;
 use super::objiter;
-use super::objsequence::SequenceIndex;
 use super::objstr::PyStrRef;
 use super::objtype::PyTypeRef;
 use crate::anystr::{self, AnyStr};
@@ -22,6 +21,7 @@ use crate::pyobject::{
     BorrowValue, Either, IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext,
     PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
 };
+use crate::sliceable::SequenceIndex;
 use crate::slots::{Comparable, Hashable, PyComparisonOp, Unhashable};
 use crate::vm::VirtualMachine;
 

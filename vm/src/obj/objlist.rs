@@ -8,9 +8,6 @@ use num_traits::ToPrimitive;
 
 use super::objint::PyIntRef;
 use super::objiter;
-use super::objsequence::{
-    get_item, get_pos, get_saturated_pos, PySliceableSequenceMut, SequenceIndex,
-};
 use super::objslice::PySliceRef;
 use super::objtype::PyTypeRef;
 use crate::bytesinner;
@@ -21,6 +18,9 @@ use crate::pyobject::{
     PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::sequence::{self, SimpleSeq};
+use crate::sliceable::{
+    get_item, get_pos, get_saturated_pos, PySliceableSequenceMut, SequenceIndex,
+};
 use crate::slots::{Comparable, Hashable, PyComparisonOp, Unhashable};
 use crate::vm::{ReprGuard, VirtualMachine};
 

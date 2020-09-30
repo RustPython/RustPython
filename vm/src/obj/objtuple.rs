@@ -2,7 +2,6 @@ use crossbeam_utils::atomic::AtomicCell;
 use std::fmt;
 
 use super::objiter;
-use super::objsequence::get_item;
 use super::objtype::PyTypeRef;
 use crate::function::OptionalArg;
 use crate::pyobject::{
@@ -10,6 +9,7 @@ use crate::pyobject::{
     PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::sequence::{self, SimpleSeq};
+use crate::sliceable::get_item;
 use crate::slots::{Comparable, Hashable, PyComparisonOp};
 use crate::vm::{ReprGuard, VirtualMachine};
 use rustpython_common::hash::PyHash;

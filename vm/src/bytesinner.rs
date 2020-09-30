@@ -11,15 +11,15 @@ use crate::obj::objbytes::PyBytes;
 use crate::obj::objint::{self, PyInt, PyIntRef};
 use crate::obj::objlist::PyList;
 use crate::obj::objmemory::PyMemoryView;
-use crate::obj::objsequence::{
-    get_saturated_pos, PySliceableSequence, PySliceableSequenceMut, SequenceIndex,
-};
 use crate::obj::objsingletons::PyNoneRef;
 use crate::obj::objslice::PySliceRef;
 use crate::obj::objstr::{self, PyStr, PyStrRef};
 use crate::pyobject::{
     BorrowValue, Either, PyComparisonValue, PyIterable, PyIterator, PyObjectRef, PyResult,
     TryFromObject, TypeProtocol,
+};
+use crate::sliceable::{
+    get_saturated_pos, PySliceableSequence, PySliceableSequenceMut, SequenceIndex,
 };
 use crate::slots::PyComparisonOp;
 use crate::vm::VirtualMachine;

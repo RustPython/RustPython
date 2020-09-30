@@ -1,12 +1,9 @@
-use std::ops::Range;
-
 use num_bigint::BigInt;
 use num_traits::{One, Signed, ToPrimitive, Zero};
+use std::ops::Range;
 
-use super::objint::{PyInt, PyIntRef};
-use super::objsingletons::PyNone;
-use super::objslice::{PySlice, PySliceRef};
-use crate::function::OptionalArg;
+use crate::obj::objint::PyInt;
+use crate::obj::objslice::{PySlice, PySliceRef};
 use crate::pyobject::{BorrowValue, Either, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
 use crate::vm::VirtualMachine;
 
@@ -383,28 +380,28 @@ impl TryFromObject for SequenceIndex {
 
 /// Get the index into a sequence like type. Get it from a python integer
 /// object, accounting for negative index, and out of bounds issues.
-pub fn get_sequence_index(vm: &VirtualMachine, index: &PyIntRef, length: usize) -> PyResult<usize> {
-    if let Some(value) = index.borrow_value().to_i64() {
-        if value < 0 {
-            let from_end: usize = -value as usize;
-            if from_end > length {
-                Err(vm.new_index_error("Index out of bounds!".to_owned()))
-            } else {
-                let index = length - from_end;
-                Ok(index)
-            }
-        } else {
-            let index = value as usize;
-            if index >= length {
-                Err(vm.new_index_error("Index out of bounds!".to_owned()))
-            } else {
-                Ok(index)
-            }
-        }
-    } else {
-        Err(vm.new_index_error("cannot fit 'int' into an index-sized integer".to_owned()))
-    }
-}
+// pub fn get_sequence_index(vm: &VirtualMachine, index: &PyIntRef, length: usize) -> PyResult<usize> {
+//     if let Some(value) = index.borrow_value().to_i64() {
+//         if value < 0 {
+//             let from_end: usize = -value as usize;
+//             if from_end > length {
+//                 Err(vm.new_index_error("Index out of bounds!".to_owned()))
+//             } else {
+//                 let index = length - from_end;
+//                 Ok(index)
+//             }
+//         } else {
+//             let index = value as usize;
+//             if index >= length {
+//                 Err(vm.new_index_error("Index out of bounds!".to_owned()))
+//             } else {
+//                 Ok(index)
+//             }
+//         }
+//     } else {
+//         Err(vm.new_index_error("cannot fit 'int' into an index-sized integer".to_owned()))
+//     }
+// }
 
 pub fn get_pos(p: isize, len: usize) -> Option<usize> {
     let neg = p.is_negative();
@@ -451,12 +448,12 @@ pub fn get_slice_pos(slice_pos: &BigInt, len: usize) -> usize {
     }
 }
 
-pub fn get_slice_range(start: &Option<BigInt>, stop: &Option<BigInt>, len: usize) -> Range<usize> {
-    let start = start.as_ref().map_or(0, |x| get_slice_pos(x, len));
-    let stop = stop.as_ref().map_or(len, |x| get_slice_pos(x, len));
+// pub fn get_slice_range(start: &Option<BigInt>, stop: &Option<BigInt>, len: usize) -> Range<usize> {
+//     let start = start.as_ref().map_or(0, |x| get_slice_pos(x, len));
+//     let stop = stop.as_ref().map_or(len, |x| get_slice_pos(x, len));
 
-    start..stop
-}
+//     start..stop
+// }
 
 pub fn get_item(
     vm: &VirtualMachine,
@@ -483,50 +480,19 @@ pub fn get_item(
 }
 
 //Check if given arg could be used with PySliceableSequence.get_slice_range()
-pub fn is_valid_slice_arg(
-    arg: OptionalArg<PyObjectRef>,
-    vm: &VirtualMachine,
-) -> PyResult<Option<BigInt>> {
-    if let OptionalArg::Present(value) = arg {
-        match_class!(match value {
-            i @ PyInt => Ok(Some(i.borrow_value().clone())),
-            _obj @ PyNone => Ok(None),
-            _ => Err(vm.new_type_error(
-                "slice indices must be integers or None or have an __index__ method".to_owned()
-            )), // TODO: check for an __index__ method
-        })
-    } else {
-        Ok(None)
-    }
-}
-
-pub fn opt_len(obj: &PyObjectRef, vm: &VirtualMachine) -> Option<PyResult<usize>> {
-    vm.get_method(obj.clone(), "__len__").map(|len| {
-        let len = vm.invoke(&len?, vec![])?;
-        let len = len
-            .payload_if_subclass::<PyInt>(vm)
-            .ok_or_else(|| {
-                vm.new_type_error(format!(
-                    "'{}' object cannot be interpreted as an integer",
-                    len.lease_class().name
-                ))
-            })?
-            .borrow_value();
-        if len.is_negative() {
-            return Err(vm.new_value_error("__len__() should return >= 0".to_owned()));
-        }
-        let len = len.to_isize().ok_or_else(|| {
-            vm.new_overflow_error("cannot fit 'int' into an index-sized integer".to_owned())
-        })?;
-        Ok(len as usize)
-    })
-}
-
-pub fn len(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-    opt_len(obj, vm).unwrap_or_else(|| {
-        Err(vm.new_type_error(format!(
-            "object of type '{}' has no len()",
-            obj.lease_class().name
-        )))
-    })
-}
+// pub fn is_valid_slice_arg(
+//     arg: OptionalArg<PyObjectRef>,
+//     vm: &VirtualMachine,
+// ) -> PyResult<Option<BigInt>> {
+//     if let OptionalArg::Present(value) = arg {
+//         match_class!(match value {
+//             i @ PyInt => Ok(Some(i.borrow_value().clone())),
+//             _obj @ PyNone => Ok(None),
+//             _ => Err(vm.new_type_error(
+//                 "slice indices must be integers or None or have an __index__ method".to_owned()
+//             )), // TODO: check for an __index__ method
+//         })
+//     } else {
+//         Ok(None)
+//     }
+// }

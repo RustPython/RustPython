@@ -6,7 +6,6 @@ use crossbeam_utils::atomic::AtomicCell;
 use num_traits::Signed;
 
 use super::objint::{self, PyInt};
-use super::objsequence;
 use super::objtype::{self, PyTypeRef};
 use crate::exceptions::PyBaseExceptionRef;
 use crate::pyobject::{
@@ -103,7 +102,7 @@ pub fn stop_iter_value(vm: &VirtualMachine, exc: &PyBaseExceptionRef) -> PyResul
 }
 
 pub fn length_hint(vm: &VirtualMachine, iter: PyObjectRef) -> PyResult<Option<usize>> {
-    if let Some(len) = objsequence::opt_len(&iter, vm) {
+    if let Some(len) = vm._len(&iter) {
         match len {
             Ok(len) => return Ok(Some(len)),
             Err(e) => {
@@ -203,7 +202,7 @@ impl PySequenceIterator {
         let hint = if self.reversed {
             pos + 1
         } else {
-            let len = objsequence::opt_len(&self.obj, vm).unwrap_or_else(|| {
+            let len = vm._len(&self.obj).unwrap_or_else(|| {
                 Err(vm.new_type_error("sequence has no __len__ method".to_owned()))
             })?;
             len as isize - pos
