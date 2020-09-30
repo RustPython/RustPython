@@ -242,7 +242,7 @@ impl PyComplex {
                 } else {
                     return Err(vm.new_type_error(format!(
                         "complex() first argument must be a string or a number, not '{}'",
-                        obj.class()
+                        obj.lease_class().name
                     )));
                 }
             }
@@ -260,7 +260,7 @@ impl PyComplex {
                 } else {
                     return Err(vm.new_type_error(format!(
                         "complex() second argument must be a number, not '{}'",
-                        obj.class()
+                        obj.lease_class().name
                     )));
                 }
             }

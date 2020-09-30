@@ -112,15 +112,15 @@ impl TryFromObject for PyPathLike {
         let method = vm.get_method_or_type_error(obj.clone(), "__fspath__", || {
             format!(
                 "expected str, bytes or os.PathLike object, not '{}'",
-                obj.class().name
+                obj.lease_class().name
             )
         })?;
         let result = vm.invoke(&method, PyFuncArgs::default())?;
         match1(&result)?.ok_or_else(|| {
             vm.new_type_error(format!(
                 "expected {}.__fspath__() to return str or bytes, not '{}'",
-                obj.class().name,
-                result.class().name,
+                obj.lease_class().name,
+                result.lease_class().name,
             ))
         })
     }

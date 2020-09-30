@@ -80,7 +80,7 @@ impl PyList {
             let py_int = PyIntRef::try_from_object(vm, elem.clone()).map_err(|_| {
                 vm.new_type_error(format!(
                     "'{}' object cannot be interpreted as an integer",
-                    elem.class().name
+                    elem.lease_class().name
                 ))
             })?;
             let result = py_int

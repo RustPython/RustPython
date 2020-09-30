@@ -101,9 +101,9 @@ impl PyTuple {
         vm: &VirtualMachine,
     ) -> PyArithmaticValue<PyRef<Self>> {
         let added = other.downcast::<Self>().map(|other| {
-            if other.elements.is_empty() && zelf.class().is(&vm.ctx.types.tuple_type) {
+            if other.elements.is_empty() && zelf.lease_class().is(&vm.ctx.types.tuple_type) {
                 zelf
-            } else if zelf.elements.is_empty() && other.class().is(&vm.ctx.types.tuple_type) {
+            } else if zelf.elements.is_empty() && other.lease_class().is(&vm.ctx.types.tuple_type) {
                 other
             } else {
                 let elements = zelf

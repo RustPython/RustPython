@@ -130,7 +130,7 @@ impl PyFuncArgs {
                     Ok(Some(kwarg))
                 } else {
                     let expected_ty_name = &ty.name;
-                    let actual_ty_name = &kwarg.class().name;
+                    let actual_ty_name = &kwarg.lease_class().name;
                     Err(vm.new_type_error(format!(
                         "argument of type {} is required for named parameter `{}` (got: {})",
                         expected_ty_name, key, actual_ty_name

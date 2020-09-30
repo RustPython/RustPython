@@ -965,7 +965,7 @@ mod decl {
     impl PyItertoolsTee {
         fn from_iter(iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             let it = get_iter(vm, &iterable)?;
-            if it.class().is(&PyItertoolsTee::class(vm)) {
+            if it.lease_class().is(&PyItertoolsTee::class(vm)) {
                 return vm.call_method(&it, "__copy__", PyFuncArgs::from(vec![]));
             }
             Ok(PyItertoolsTee {

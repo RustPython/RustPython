@@ -201,7 +201,7 @@ impl PyStr {
                 PyStr::from(String::new()).into_ref_with_type(vm, cls.clone())?
             }
         };
-        if string.class().is(&cls) {
+        if string.lease_class().is(&cls) {
             Ok(string)
         } else {
             PyStr::from(string.borrow_value()).into_ref_with_type(vm, cls)
