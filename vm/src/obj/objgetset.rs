@@ -245,9 +245,10 @@ impl PyGetSet {
         }
     }
 
-    // TODO: give getset_descriptors names
     #[pyproperty(magic)]
-    fn name(&self) {}
+    fn name(&self) -> String {
+        self.name.clone()
+    }
 }
 
 pub(crate) fn init(context: &PyContext) {
