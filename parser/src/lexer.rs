@@ -393,23 +393,11 @@ where
     /// Test if a digit is of a certain radix.
     fn is_digit_of_radix(c: Option<char>, radix: u32) -> bool {
         match radix {
-            2 => match c {
-                Some('0'..='1') => true,
-                _ => false,
-            },
-            8 => match c {
-                Some('0'..='7') => true,
-                _ => false,
-            },
-            10 => match c {
-                Some('0'..='9') => true,
-                _ => false,
-            },
-            16 => match c {
-                Some('0'..='9') | Some('a'..='f') | Some('A'..='F') => true,
-                _ => false,
-            },
-            x => unimplemented!("Radix not implemented: {}", x),
+            2 => matches!(c, Some('0'..='1')),
+            8 => matches!(c, Some('0'..='7')),
+            10 => matches!(c, Some('0'..='9')),
+            16 => matches!(c, Some('0'..='9') | Some('a'..='f') | Some('A'..='F')),
+            other => unimplemented!("Radix not implemented: {}", other),
         }
     }
 
@@ -417,10 +405,7 @@ where
     fn at_exponent(&self) -> bool {
         match self.chr0 {
             Some('e') | Some('E') => match self.chr1 {
-                Some('+') | Some('-') => match self.chr2 {
-                    Some('0'..='9') => true,
-                    _ => false,
-                },
+                Some('+') | Some('-') => matches!(self.chr2, Some('0'..='9')),
                 Some('0'..='9') => true,
                 _ => false,
             },

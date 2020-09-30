@@ -78,7 +78,7 @@ impl StartsEndsWithArgs {
     }
 }
 
-fn cap_to_isize(py_int: PyIntRef) -> isize {
+fn saturate_to_isize(py_int: PyIntRef) -> isize {
     let big = py_int.borrow_value();
     big.to_isize().unwrap_or_else(|| {
         if big.is_negative() {
@@ -95,8 +95,8 @@ pub fn adjust_indices(
     end: Option<PyIntRef>,
     len: usize,
 ) -> std::ops::Range<usize> {
-    let mut start = start.map_or(0, cap_to_isize);
-    let mut end = end.map_or(len as isize, cap_to_isize);
+    let mut start = start.map_or(0, saturate_to_isize);
+    let mut end = end.map_or(len as isize, saturate_to_isize);
     if end > len as isize {
         end = len as isize;
     } else if end < 0 {

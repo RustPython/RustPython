@@ -61,10 +61,7 @@ enum FunctionContext {
 
 impl CompileContext {
     fn in_func(self) -> bool {
-        match self.func {
-            FunctionContext::NoFunction => false,
-            _ => true,
-        }
+        !matches!(self.func, FunctionContext::NoFunction)
     }
 }
 
@@ -2006,13 +2003,9 @@ impl<O: OutputStream> Compiler<O> {
     // a list of expressions on the stack, or a list of tuples.
     fn gather_elements(&mut self, elements: &[ast::Expression]) -> CompileResult<bool> {
         // First determine if we have starred elements:
-        let has_stars = elements.iter().any(|e| {
-            if let ast::ExpressionType::Starred { .. } = &e.node {
-                true
-            } else {
-                false
-            }
-        });
+        let has_stars = elements
+            .iter()
+            .any(|e| matches!(e.node, ast::ExpressionType::Starred { .. }));
 
         for element in elements {
             if let ast::ExpressionType::Starred { value } = &element.node {

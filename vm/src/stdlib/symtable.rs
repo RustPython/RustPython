@@ -226,10 +226,7 @@ mod decl {
 
         #[pymethod(name = "is_nonlocal")]
         fn is_nonlocal(&self) -> bool {
-            match self.symbol.scope {
-                symboltable::SymbolScope::Nonlocal => true,
-                _ => false,
-            }
+            matches!(self.symbol.scope, symboltable::SymbolScope::Nonlocal)
         }
 
         #[pymethod(name = "is_referenced")]
