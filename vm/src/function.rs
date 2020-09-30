@@ -1,21 +1,52 @@
-use std::collections::HashMap;
-use std::marker::PhantomData;
-use std::mem;
-use std::ops::RangeInclusive;
-
-use indexmap::IndexMap;
-use result_like::impl_option_like;
-
+use self::OptionalArg::*;
 use crate::exceptions::PyBaseExceptionRef;
 use crate::obj::objtuple::PyTupleRef;
 use crate::obj::objtype::{isinstance, PyTypeRef};
 use crate::pyobject::{
-    BorrowValue, IntoPyResult, PyObjectRef, PyRef, PyResult, PyThreadingConstraint, PyValue,
-    TryFromObject, TypeProtocol,
+    BorrowValue, IntoPyObject, IntoPyResult, PyObjectRef, PyRef, PyResult, PyThreadingConstraint,
+    PyValue, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
+use indexmap::IndexMap;
+use result_like::impl_option_like;
+use std::collections::HashMap;
+use std::marker::PhantomData;
+use std::ops::RangeInclusive;
 
-use self::OptionalArg::*;
+pub trait IntoFuncArgs {
+    fn into_args(self, vm: &VirtualMachine) -> PyFuncArgs;
+}
+
+impl<T> IntoFuncArgs for T
+where
+    T: Into<PyFuncArgs>,
+{
+    fn into_args(self, _vm: &VirtualMachine) -> PyFuncArgs {
+        self.into()
+    }
+}
+
+// A tuple of values that each implement `IntoPyObject` represents a sequence of
+// arguments that can be bound and passed to a built-in function.
+macro_rules! into_func_args_from_tuple {
+    ($(($n:tt, $T:ident)),*) => {
+        impl<$($T,)*> IntoFuncArgs for ($($T,)*)
+        where
+            $($T: IntoPyObject,)*
+        {
+            fn into_args(self, vm: &VirtualMachine) -> PyFuncArgs {
+                let ($($n,)*) = self;
+                vec![$($n.into_pyobject(vm),)*].into()
+            }
+        }
+    };
+}
+
+into_func_args_from_tuple!((v1, T1));
+into_func_args_from_tuple!((v1, T1), (v2, T2));
+into_func_args_from_tuple!((v1, T1), (v2, T2), (v3, T3));
+into_func_args_from_tuple!((v1, T1), (v2, T2), (v3, T3), (v4, T4));
+into_func_args_from_tuple!((v1, T1), (v2, T2), (v3, T3), (v4, T4), (v5, T5));
 
 /// The `PyFuncArgs` struct is one of the most used structs then creating
 /// a rust function that can be called from python. It holds both positional
@@ -72,7 +103,7 @@ impl From<KwArgs> for PyFuncArgs {
 
 impl FromArgs for PyFuncArgs {
     fn from_args(_vm: &VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
-        Ok(mem::take(args))
+        Ok(std::mem::take(args))
     }
 }
 
@@ -343,9 +374,16 @@ impl<T> Args<T> {
         self.0
     }
 }
+
 impl<T> From<Vec<T>> for Args<T> {
     fn from(v: Vec<T>) -> Self {
         Args(v)
+    }
+}
+
+impl From<()> for Args<PyObjectRef> {
+    fn from(_args: ()) -> Self {
+        Args(Vec::new())
     }
 }
 

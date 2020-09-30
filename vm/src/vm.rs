@@ -19,7 +19,7 @@ use crate::common::{hash::HashSecret, lock::PyMutex, rc::PyRc};
 use crate::exceptions::{self, PyBaseException, PyBaseExceptionRef};
 use crate::frame::{ExecutionResult, Frame, FrameRef};
 use crate::frozen;
-use crate::function::PyFuncArgs;
+use crate::function::{IntoFuncArgs, PyFuncArgs};
 use crate::import;
 use crate::obj::objbool;
 use crate::obj::objcode::{PyCode, PyCodeRef};
@@ -901,7 +901,7 @@ impl VirtualMachine {
 
     pub fn call_method<T>(&self, obj: &PyObjectRef, method_name: &str, args: T) -> PyResult
     where
-        T: Into<PyFuncArgs>,
+        T: IntoFuncArgs,
     {
         flame_guard!(format!("call_method({:?})", method_name));
 
@@ -936,9 +936,9 @@ impl VirtualMachine {
     #[inline]
     pub fn invoke<T>(&self, func_ref: &PyObjectRef, args: T) -> PyResult
     where
-        T: Into<PyFuncArgs>,
+        T: IntoFuncArgs,
     {
-        self._invoke(func_ref, args.into())
+        self._invoke(func_ref, args.into_args(self))
     }
 
     /// Call registered trace function.
