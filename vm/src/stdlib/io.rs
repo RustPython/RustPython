@@ -1253,7 +1253,7 @@ mod _io {
             &file_io_class,
             PyFuncArgs::from((
                 Args::new(vec![file, vm.ctx.new_str(mode.clone())]),
-                KwArgs::new(maplit::hashmap! {
+                KwArgs::from(maplit::hashmap! {
                     "closefd".to_owned() => vm.ctx.new_bool(opts.closefd),
                     "opener".to_owned() => vm.unwrap_or_none(opts.opener),
                 }),

@@ -278,10 +278,10 @@ impl<T: TryFromObject> FromArgOptional for T {
 /// KwArgs is only for functions that accept arbitrary keyword arguments. For
 /// functions that accept only *specific* named arguments, a rust struct with
 /// an appropriate FromArgs implementation must be created.
-pub struct KwArgs<T = PyObjectRef>(HashMap<String, T>);
+pub struct KwArgs<T = PyObjectRef>(IndexMap<String, T>);
 
 impl<T> KwArgs<T> {
-    pub fn new(map: HashMap<String, T>) -> Self {
+    pub fn new(map: IndexMap<String, T>) -> Self {
         KwArgs(map)
     }
 
@@ -290,13 +290,13 @@ impl<T> KwArgs<T> {
     }
 }
 impl<T> From<HashMap<String, T>> for KwArgs<T> {
-    fn from(map: HashMap<String, T>) -> Self {
-        KwArgs(map)
+    fn from(kwargs: HashMap<String, T>) -> Self {
+        KwArgs(kwargs.into_iter().collect())
     }
 }
 impl<T> Default for KwArgs<T> {
     fn default() -> Self {
-        KwArgs(HashMap::new())
+        KwArgs(IndexMap::new())
     }
 }
 
@@ -305,7 +305,7 @@ where
     T: TryFromObject,
 {
     fn from_args(vm: &VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
-        let mut kwargs = HashMap::new();
+        let mut kwargs = IndexMap::new();
         for (name, value) in args.remaining_keywords() {
             kwargs.insert(name, T::try_from_object(vm, value)?);
         }
@@ -315,7 +315,7 @@ where
 
 impl<T> IntoIterator for KwArgs<T> {
     type Item = (String, T);
-    type IntoIter = std::collections::hash_map::IntoIter<String, T>;
+    type IntoIter = indexmap::map::IntoIter<String, T>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
