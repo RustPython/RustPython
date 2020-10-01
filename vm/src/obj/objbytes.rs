@@ -19,7 +19,6 @@ use crate::pyobject::{
     BorrowValue, Either, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyIterable,
     PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
 };
-use crate::sliceable::SequenceIndex;
 use crate::slots::{Comparable, Hashable, PyComparisonOp};
 use crate::vm::VirtualMachine;
 use rustpython_common::hash::PyHash;
@@ -139,8 +138,8 @@ impl PyBytes {
     }
 
     #[pymethod(name = "__getitem__")]
-    fn getitem(&self, needle: SequenceIndex, vm: &VirtualMachine) -> PyResult {
-        self.inner.getitem(needle, vm)
+    fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self.inner.getitem("byte", needle, vm)
     }
 
     #[pymethod(name = "isalnum")]

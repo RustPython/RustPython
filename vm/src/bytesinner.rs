@@ -295,19 +295,17 @@ impl PyBytesInner {
         })
     }
 
-    pub fn getitem(&self, needle: SequenceIndex, vm: &VirtualMachine) -> PyResult {
-        match needle {
-            SequenceIndex::Int(int) => {
-                if let Some(idx) = self.elements.wrap_index(int) {
-                    Ok(vm.ctx.new_int(self.elements[idx]))
-                } else {
-                    Err(vm.new_index_error("index out of range".to_owned()))
-                }
-            }
-            SequenceIndex::Slice(slice) => {
-                Ok(vm.ctx.new_bytes(self.elements.get_slice_items(vm, &slice)?))
-            }
-        }
+    pub fn getitem(
+        &self,
+        name: &'static str,
+        needle: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let obj = match self.elements.get_item(vm, needle, name)? {
+            Either::A(byte) => vm.new_pyobj(byte),
+            Either::B(bytes) => vm.ctx.new_bytes(bytes),
+        };
+        Ok(obj)
     }
 
     pub fn setindex(

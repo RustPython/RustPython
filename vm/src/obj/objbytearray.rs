@@ -152,8 +152,8 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "__getitem__")]
-    fn getitem(&self, needle: SequenceIndex, vm: &VirtualMachine) -> PyResult {
-        self.borrow_value().getitem(needle, vm)
+    fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self.borrow_value().getitem("bytearray", needle, vm)
     }
 
     #[pymethod(name = "__setitem__")]
