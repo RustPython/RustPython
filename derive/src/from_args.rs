@@ -131,7 +131,7 @@ fn generate_field(field: &Field) -> Result<TokenStream2, Diagnostic> {
     if let Some(name) = name {
         if name.to_string().starts_with("_phantom") {
             return Ok(quote! {
-                #name: std::marker::PhantomData,
+                #name: ::std::marker::PhantomData,
             });
         }
     }
@@ -205,7 +205,7 @@ pub fn impl_from_args(input: DeriveInput) -> Result<TokenStream2, Diagnostic> {
             fn from_args(
                 vm: &::rustpython_vm::VirtualMachine,
                 args: &mut ::rustpython_vm::function::PyFuncArgs
-            ) -> Result<Self, ::rustpython_vm::function::ArgumentError> {
+            ) -> ::std::result::Result<Self, ::rustpython_vm::function::ArgumentError> {
                 Ok(#name { #fields })
             }
         }
