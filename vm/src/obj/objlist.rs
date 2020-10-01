@@ -18,7 +18,7 @@ use crate::pyobject::{
     PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::sequence::{self, SimpleSeq};
-use crate::sliceable::{get_item, PySliceableSequence, PySliceableSequenceMut, SequenceIndex};
+use crate::sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex};
 use crate::slots::{Comparable, Hashable, PyComparisonOp, Unhashable};
 use crate::vm::{ReprGuard, VirtualMachine};
 
@@ -190,12 +190,11 @@ impl PyList {
 
     #[pymethod(name = "__getitem__")]
     fn getitem(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Ok(
-            match get_item(vm, zelf.as_object(), &zelf.borrow_value(), needle)? {
-                Either::A(obj) => obj,
-                Either::B(vec) => vm.ctx.new_list(vec),
-            },
-        )
+        let result = match zelf.borrow_value().get_item(vm, needle, "list")? {
+            Either::A(obj) => obj,
+            Either::B(vec) => vm.ctx.new_list(vec),
+        };
+        Ok(result)
     }
 
     #[pymethod(name = "__iter__")]

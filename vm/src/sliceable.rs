@@ -240,8 +240,10 @@ impl<T: Clone> PySliceableSequenceMut for Vec<T> {
 }
 
 pub trait PySliceableSequence {
+    type Item;
     type Sliced;
 
+    fn do_get(&self, index: usize) -> Self::Item;
     fn do_slice(&self, range: Range<usize>) -> Self::Sliced;
     fn do_slice_reverse(&self, range: Range<usize>) -> Self::Sliced;
     fn do_stepped_slice(&self, range: Range<usize>, step: usize) -> Self::Sliced;
@@ -332,25 +334,53 @@ pub trait PySliceableSequence {
             }
         }
     }
+
+    fn get_item(
+        &self,
+        vm: &VirtualMachine,
+        needle: PyObjectRef,
+        owner_type: &'static str,
+    ) -> PyResult<Either<Self::Item, Self::Sliced>> {
+        let needle = SequenceIndex::try_from_object_for(vm, needle, owner_type)?;
+        match needle {
+            SequenceIndex::Int(value) => {
+                let pos_index = self.wrap_index(value).ok_or_else(|| {
+                    vm.new_index_error(format!("{} index out of range", owner_type))
+                })?;
+                Ok(Either::A(self.do_get(pos_index)))
+            }
+            SequenceIndex::Slice(slice) => Ok(Either::B(self.get_slice_items(vm, &slice)?)),
+        }
+    }
 }
 
 impl<T: Clone> PySliceableSequence for [T] {
+    type Item = T;
     type Sliced = Vec<T>;
 
+    #[inline]
+    fn do_get(&self, index: usize) -> Self::Item {
+        self[index].clone()
+    }
+
+    #[inline]
     fn do_slice(&self, range: Range<usize>) -> Self::Sliced {
         self[range].to_vec()
     }
 
+    #[inline]
     fn do_slice_reverse(&self, range: Range<usize>) -> Self::Sliced {
         let mut slice = self[range].to_vec();
         slice.reverse();
         slice
     }
 
+    #[inline]
     fn do_stepped_slice(&self, range: Range<usize>, step: usize) -> Self::Sliced {
         self[range].iter().step_by(step).cloned().collect()
     }
 
+    #[inline]
     fn do_stepped_slice_reverse(&self, range: Range<usize>, step: usize) -> Self::Sliced {
         self[range].iter().rev().step_by(step).cloned().collect()
     }
@@ -376,8 +406,12 @@ pub enum SequenceIndex {
     Slice(PySliceRef),
 }
 
-impl TryFromObject for SequenceIndex {
-    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+impl SequenceIndex {
+    fn try_from_object_for(
+        vm: &VirtualMachine,
+        obj: PyObjectRef,
+        owner_type: &'static str,
+    ) -> PyResult<Self> {
         match_class!(match obj {
             i @ PyInt => i
                 .borrow_value()
@@ -387,10 +421,17 @@ impl TryFromObject for SequenceIndex {
                     .new_index_error("cannot fit 'int' into an index-sized integer".to_owned())),
             s @ PySlice => Ok(SequenceIndex::Slice(s)),
             obj => Err(vm.new_type_error(format!(
-                "sequence indices be integers or slices, not {}",
-                obj.class(),
+                "{} indices must be integers or slices, not {}",
+                owner_type,
+                obj.lease_class().name,
             ))),
         })
+    }
+}
+
+impl TryFromObject for SequenceIndex {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        Self::try_from_object_for(vm, obj, "sequence")
     }
 }
 
@@ -454,31 +495,6 @@ pub(crate) fn saturate_index(p: isize, len: usize) -> usize {
 
 //     start..stop
 // }
-
-pub fn get_item(
-    vm: &VirtualMachine,
-    sequence: &PyObjectRef,
-    elements: &[PyObjectRef],
-    subscript: PyObjectRef,
-) -> PyResult<Either<PyObjectRef, Vec<PyObjectRef>>> {
-    if let Some(i) = subscript.payload::<PyInt>() {
-        let value = i.borrow_value().to_isize().ok_or_else(|| {
-            vm.new_index_error("cannot fit 'int' into an index-sized integer".to_owned())
-        })?;
-        let pos_index = elements
-            .wrap_index(value)
-            .ok_or_else(|| vm.new_index_error("Index out of bounds!".to_owned()))?;
-        Ok(Either::A(elements[pos_index].clone()))
-    } else {
-        let slice = subscript.payload::<PySlice>().ok_or_else(|| {
-            vm.new_type_error(format!(
-                "{} indices must be integers or slices",
-                sequence.lease_class().name
-            ))
-        })?;
-        Ok(Either::B(elements.get_slice_items(vm, slice)?))
-    }
-}
 
 //Check if given arg could be used with PySliceableSequence.saturate_range()
 // pub fn is_valid_slice_arg(
