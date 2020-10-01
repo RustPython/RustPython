@@ -18,9 +18,7 @@ use crate::pyobject::{
     PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::sequence::{self, SimpleSeq};
-use crate::sliceable::{
-    get_item, get_saturated_pos, PySliceableSequence, PySliceableSequenceMut, SequenceIndex,
-};
+use crate::sliceable::{get_item, PySliceableSequence, PySliceableSequenceMut, SequenceIndex};
 use crate::slots::{Comparable, Hashable, PyComparisonOp, Unhashable};
 use crate::vm::{ReprGuard, VirtualMachine};
 
@@ -120,7 +118,7 @@ impl PyList {
     #[pymethod]
     pub(crate) fn insert(&self, position: isize, element: PyObjectRef) {
         let mut elements = self.borrow_value_mut();
-        let position = get_saturated_pos(position, elements.len());
+        let position = elements.saturate_index(position);
         elements.insert(position, element);
     }
 
@@ -228,7 +226,7 @@ impl PyList {
 
     fn setindex(&self, index: isize, mut value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let mut elements = self.borrow_value_mut();
-        if let Some(pos_index) = elements.get_pos(index) {
+        if let Some(pos_index) = elements.wrap_index(index) {
             std::mem::swap(&mut elements[pos_index], &mut value);
             Ok(())
         } else {
@@ -361,7 +359,7 @@ impl PyList {
     fn delindex(&self, index: isize, vm: &VirtualMachine) -> PyResult<()> {
         let removed = {
             let mut elements = self.borrow_value_mut();
-            if let Some(pos_index) = elements.get_pos(index) {
+            if let Some(pos_index) = elements.wrap_index(index) {
                 // defer delete out of borrow
                 Ok(elements.remove(pos_index))
             } else {

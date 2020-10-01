@@ -14,7 +14,7 @@ use crate::pyobject::{
     BorrowValue, Either, IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyIterable,
     PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
-use crate::sliceable::{get_saturated_pos, PySliceableSequence, PySliceableSequenceMut};
+use crate::sliceable::{saturate_index, PySliceableSequence, PySliceableSequenceMut};
 use crate::slots::{Comparable, PyComparisonOp};
 use crate::VirtualMachine;
 use crossbeam_utils::atomic::AtomicCell;
@@ -581,7 +581,7 @@ impl PyArray {
 
     #[pymethod]
     fn insert(&self, i: isize, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let i = get_saturated_pos(i, self.len());
+        let i = saturate_index(i, self.len());
         self.borrow_value_mut().insert(i, x, vm)
     }
 

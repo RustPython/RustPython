@@ -18,9 +18,7 @@ use crate::pyobject::{
     BorrowValue, Either, PyComparisonValue, PyIterable, PyIterator, PyObjectRef, PyResult,
     TryFromObject, TypeProtocol,
 };
-use crate::sliceable::{
-    get_saturated_pos, PySliceableSequence, PySliceableSequenceMut, SequenceIndex,
-};
+use crate::sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex};
 use crate::slots::PyComparisonOp;
 use crate::vm::VirtualMachine;
 use rustpython_common::hash;
@@ -300,7 +298,7 @@ impl PyBytesInner {
     pub fn getitem(&self, needle: SequenceIndex, vm: &VirtualMachine) -> PyResult {
         match needle {
             SequenceIndex::Int(int) => {
-                if let Some(idx) = self.elements.get_pos(int) {
+                if let Some(idx) = self.elements.wrap_index(int) {
                     Ok(vm.ctx.new_int(self.elements[idx]))
                 } else {
                     Err(vm.new_index_error("index out of range".to_owned()))
@@ -318,7 +316,7 @@ impl PyBytesInner {
         object: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        if let Some(idx) = self.elements.get_pos(int) {
+        if let Some(idx) = self.elements.wrap_index(int) {
             let value = Self::value_try_from_object(vm, object)?;
             self.elements[idx] = value;
             Ok(())
@@ -374,7 +372,7 @@ impl PyBytesInner {
     pub fn delitem(&mut self, needle: SequenceIndex, vm: &VirtualMachine) -> PyResult<()> {
         match needle {
             SequenceIndex::Int(int) => {
-                if let Some(idx) = self.elements.get_pos(int) {
+                if let Some(idx) = self.elements.wrap_index(int) {
                     self.elements.remove(idx);
                     Ok(())
                 } else {
@@ -390,7 +388,7 @@ impl PyBytesInner {
     }
 
     pub fn pop(&mut self, index: isize, vm: &VirtualMachine) -> PyResult<u8> {
-        if let Some(index) = self.elements.get_pos(index) {
+        if let Some(index) = self.elements.wrap_index(index) {
             Ok(self.elements.remove(index))
         } else {
             Err(vm.new_index_error("index out of range".to_owned()))
@@ -404,7 +402,7 @@ impl PyBytesInner {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let value = Self::value_try_from_object(vm, object)?;
-        let index = get_saturated_pos(index, self.len());
+        let index = self.elements.saturate_index(index);
         self.elements.insert(index, value);
         Ok(())
     }

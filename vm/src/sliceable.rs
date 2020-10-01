@@ -34,7 +34,7 @@ pub trait PySliceableSequenceMut {
             return Err(vm.new_value_error("slice step cannot be zero".to_owned()));
         }
         if step == BigInt::one() {
-            let range = self.as_slice().get_slice_range(&start, &stop);
+            let range = self.as_slice().saturate_range(&start, &stop);
             let range = if range.end < range.start {
                 range.start..range.start
             } else {
@@ -67,7 +67,7 @@ pub trait PySliceableSequenceMut {
             (start, stop, step, false)
         };
 
-        let range = self.as_slice().get_slice_range(&start, &stop);
+        let range = self.as_slice().saturate_range(&start, &stop);
         let range = if range.end < range.start {
             range.start..range.start
         } else {
@@ -137,7 +137,7 @@ pub trait PySliceableSequenceMut {
         }
 
         if step == BigInt::one() {
-            let range = self.as_slice().get_slice_range(&start, &stop);
+            let range = self.as_slice().saturate_range(&start, &stop);
             if range.start < range.end {
                 self.do_delete_range(range);
             }
@@ -167,7 +167,7 @@ pub trait PySliceableSequenceMut {
             (start, stop, step, false)
         };
 
-        let range = self.as_slice().get_slice_range(&start, &stop);
+        let range = self.as_slice().saturate_range(&start, &stop);
         if range.start >= range.end {
             return Ok(());
         }
@@ -251,19 +251,35 @@ pub trait PySliceableSequence {
     fn len(&self) -> usize;
     fn is_empty(&self) -> bool;
 
-    fn get_pos(&self, p: isize) -> Option<usize> {
-        get_pos(p, self.len())
+    fn wrap_index(&self, p: isize) -> Option<usize> {
+        wrap_index(p, self.len())
     }
 
-    fn get_slice_pos(&self, slice_pos: &BigInt) -> usize {
-        get_slice_pos(slice_pos, self.len())
+    fn saturate_index(&self, p: isize) -> usize {
+        saturate_index(p, self.len())
     }
 
-    fn get_slice_range(&self, start: &Option<BigInt>, stop: &Option<BigInt>) -> Range<usize> {
-        let start = start.as_ref().map(|x| self.get_slice_pos(x)).unwrap_or(0);
+    fn saturate_big_index(&self, slice_pos: &BigInt) -> usize {
+        let len = self.len();
+        if let Some(pos) = slice_pos.to_isize() {
+            self.saturate_index(pos)
+        } else if slice_pos.is_negative() {
+            // slice past start bound, round to start
+            0
+        } else {
+            // slice past end bound, round to end
+            len
+        }
+    }
+
+    fn saturate_range(&self, start: &Option<BigInt>, stop: &Option<BigInt>) -> Range<usize> {
+        let start = start
+            .as_ref()
+            .map(|x| self.saturate_big_index(x))
+            .unwrap_or(0);
         let stop = stop
             .as_ref()
-            .map(|x| self.get_slice_pos(x))
+            .map(|x| self.saturate_big_index(x))
             .unwrap_or_else(|| self.len());
 
         start..stop
@@ -276,7 +292,7 @@ pub trait PySliceableSequence {
         if step.is_zero() {
             Err(vm.new_value_error("slice step cannot be zero".to_owned()))
         } else if step.is_positive() {
-            let range = self.get_slice_range(&start, &stop);
+            let range = self.saturate_range(&start, &stop);
             if range.start < range.end {
                 #[allow(clippy::range_plus_one)]
                 match step.to_i32() {
@@ -304,7 +320,7 @@ pub trait PySliceableSequence {
                     x + 1
                 }
             });
-            let range = self.get_slice_range(&stop, &start);
+            let range = self.saturate_range(&stop, &start);
             if range.start < range.end {
                 match (-step).to_i32() {
                     Some(1) => Ok(self.do_slice_reverse(range)),
@@ -403,7 +419,8 @@ impl TryFromObject for SequenceIndex {
 //     }
 // }
 
-pub fn get_pos(p: isize, len: usize) -> Option<usize> {
+// Use PySliceableSequence::wrap_index for implementors
+pub(crate) fn wrap_index(p: isize, len: usize) -> Option<usize> {
     let neg = p.is_negative();
     let p = p.abs().to_usize()?;
     if neg {
@@ -416,7 +433,7 @@ pub fn get_pos(p: isize, len: usize) -> Option<usize> {
 }
 
 // return pos is in range [0, len] inclusive
-pub fn get_saturated_pos(p: isize, len: usize) -> usize {
+pub(crate) fn saturate_index(p: isize, len: usize) -> usize {
     let mut p = p;
     let len = len.to_isize().unwrap();
     if p < 0 {
@@ -431,26 +448,9 @@ pub fn get_saturated_pos(p: isize, len: usize) -> usize {
     p as usize
 }
 
-pub fn get_slice_pos(slice_pos: &BigInt, len: usize) -> usize {
-    if let Some(pos) = slice_pos.to_isize() {
-        if let Some(index) = get_pos(pos, len) {
-            // within bounds
-            return index;
-        }
-    }
-
-    if slice_pos.is_negative() {
-        // slice past start bound, round to start
-        0
-    } else {
-        // slice past end bound, round to end
-        len
-    }
-}
-
-// pub fn get_slice_range(start: &Option<BigInt>, stop: &Option<BigInt>, len: usize) -> Range<usize> {
-//     let start = start.as_ref().map_or(0, |x| get_slice_pos(x, len));
-//     let stop = stop.as_ref().map_or(len, |x| get_slice_pos(x, len));
+// pub fn saturate_range(start: &Option<BigInt>, stop: &Option<BigInt>, len: usize) -> Range<usize> {
+//     let start = start.as_ref().map_or(0, |x| saturate_big_index(x, len));
+//     let stop = stop.as_ref().map_or(len, |x| saturate_big_index(x, len));
 
 //     start..stop
 // }
@@ -466,7 +466,7 @@ pub fn get_item(
             vm.new_index_error("cannot fit 'int' into an index-sized integer".to_owned())
         })?;
         let pos_index = elements
-            .get_pos(value)
+            .wrap_index(value)
             .ok_or_else(|| vm.new_index_error("Index out of bounds!".to_owned()))?;
         Ok(Either::A(elements[pos_index].clone()))
     } else {
@@ -480,7 +480,7 @@ pub fn get_item(
     }
 }
 
-//Check if given arg could be used with PySliceableSequence.get_slice_range()
+//Check if given arg could be used with PySliceableSequence.saturate_range()
 // pub fn is_valid_slice_arg(
 //     arg: OptionalArg<PyObjectRef>,
 //     vm: &VirtualMachine,
