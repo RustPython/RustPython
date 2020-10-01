@@ -136,19 +136,11 @@ impl Symbol {
     }
 
     pub fn is_global(&self) -> bool {
-        if let SymbolScope::Global = self.scope {
-            true
-        } else {
-            false
-        }
+        matches!(self.scope, SymbolScope::Global)
     }
 
     pub fn is_local(&self) -> bool {
-        if let SymbolScope::Local = self.scope {
-            true
-        } else {
-            false
-        }
+        matches!(self.scope, SymbolScope::Local)
     }
 }
 

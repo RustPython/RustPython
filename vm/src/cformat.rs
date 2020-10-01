@@ -378,10 +378,7 @@ enum CFormatPart {
 
 impl CFormatPart {
     fn is_specifier(&self) -> bool {
-        match self {
-            CFormatPart::Spec(_) => true,
-            _ => false,
-        }
+        matches!(self, CFormatPart::Spec(_))
     }
 
     fn has_key(&self) -> bool {

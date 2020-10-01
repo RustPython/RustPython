@@ -79,9 +79,5 @@ pub fn parse_args(func_args: Vec<FunctionArgument>) -> Result<ast::ArgumentList,
 }
 
 fn is_starred(exp: &ast::Expression) -> bool {
-    if let ast::ExpressionType::Starred { .. } = exp.node {
-        true
-    } else {
-        false
-    }
+    matches!(exp.node, ast::ExpressionType::Starred { .. })
 }
