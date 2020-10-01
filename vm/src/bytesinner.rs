@@ -3,7 +3,8 @@ use itertools::Itertools;
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 
-use crate::byteslike::{try_bytes_like, PyBytesLike};
+use crate::anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper};
+use crate::byteslike::try_bytes_like;
 use crate::function::{OptionalArg, OptionalOption};
 use crate::obj::objbytearray::PyByteArray;
 use crate::obj::objbytes::PyBytes;
@@ -20,10 +21,6 @@ use crate::pyobject::{
 use crate::sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex};
 use crate::slots::PyComparisonOp;
 use crate::vm::VirtualMachine;
-use crate::{
-    anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper},
-    obj::objmemory::try_buffer_from_object,
-};
 use rustpython_common::hash;
 
 #[derive(Debug, Default, Clone)]
@@ -39,11 +36,8 @@ impl From<Vec<u8>> for PyBytesInner {
 
 impl TryFromObject for PyBytesInner {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        if let Ok(buffer) = try_buffer_from_object(obj.clone(), vm) {
-            let bytes = buffer
-                .as_contiguous()
-                .ok_or_else(|| vm.new_buffer_error("buffer is not contiguous".to_owned()))?;
-            return Ok(Self::from(bytes.to_vec()));
+        if let Ok(zelf) = try_bytes_like(vm, &obj, |bytes| Self::from(bytes.to_vec())) {
+            return Ok(zelf);
         }
 
         match_class!(match obj {
@@ -266,6 +260,8 @@ impl PyBytesInner {
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyComparisonValue {
+        // TODO: bytes can compare with any object implemented buffer protocol
+        // but not memoryview, and not equal if compare with unicode str(PyStr)
         PyComparisonValue::from_option(
             try_bytes_like(vm, other, |other| {
                 op.eval_ord(self.elements.as_slice().cmp(other))
@@ -278,12 +274,12 @@ impl PyBytesInner {
         vm.state.hash_secret.hash_bytes(&self.elements)
     }
 
-    pub fn add(&self, other: PyBytesLike) -> Vec<u8> {
-        other.with_ref(|other| self.elements.py_add(other))
+    pub fn add(&self, other: &[u8]) -> Vec<u8> {
+        self.elements.py_add(other)
     }
 
-    pub fn iadd(&mut self, other: PyBytesLike) {
-        other.with_ref(|other| self.elements.extend(other));
+    pub fn iadd(&mut self, other: &[u8]) {
+        self.elements.extend(other);
     }
 
     pub fn contains(

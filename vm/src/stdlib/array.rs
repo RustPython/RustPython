@@ -868,9 +868,9 @@ impl Comparable for PyArray {
 }
 
 impl BufferProtocol for PyArray {
-    fn get_buffer(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyResult<Box<dyn Buffer>> {
+    fn get_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<Box<dyn Buffer>> {
         zelf.exports.fetch_add(1);
-        Ok(Box::new(zelf))
+        Ok(Box::new(zelf.clone()))
     }
 }
 

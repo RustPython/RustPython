@@ -54,6 +54,7 @@ pub(crate) type CmpFunc = fn(
     &VirtualMachine,
 ) -> PyResult<Either<PyObjectRef, PyComparisonValue>>;
 pub(crate) type GetattroFunc = fn(PyObjectRef, PyStrRef, &VirtualMachine) -> PyResult;
+pub(crate) type BufferFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<Box<dyn Buffer>>;
 
 #[derive(Default)]
 pub struct PyTypeSlots {
@@ -68,8 +69,6 @@ pub struct PyTypeSlots {
     pub getattro: AtomicCell<Option<GetattroFunc>>,
     pub buffer: Option<BufferFunc>,
 }
-
-type BufferFunc = fn(PyObjectRef, &VirtualMachine) -> PyResult<Box<dyn Buffer>>;
 
 impl PyTypeSlots {
     pub fn from_flags(flags: PyTpFlags) -> Self {
@@ -409,10 +408,13 @@ pub trait SlotGetattro: PyValue {
 #[pyimpl]
 pub trait BufferProtocol: PyValue {
     #[pyslot]
-    fn tp_buffer(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<Box<dyn Buffer>> {
-        let zelf = PyRef::try_from_object(vm, zelf)?;
-        Self::get_buffer(zelf, vm)
+    fn tp_buffer(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Box<dyn Buffer>> {
+        if let Some(zelf) = zelf.downcast_ref() {
+            Self::get_buffer(zelf, vm)
+        } else {
+            Err(vm.new_type_error("unexpected payload for get_buffer".to_owned()))
+        }
     }
 
-    fn get_buffer(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<Box<dyn Buffer>>;
+    fn get_buffer(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<Box<dyn Buffer>>;
 }

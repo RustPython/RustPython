@@ -21,9 +21,8 @@ class C():
 
 memoryview(bytearray('abcde', encoding='utf-8'))
 memoryview(array.array('i', [1, 2, 3]))
-# TODO: deal with subclass for buffer protocol
-# memoryview(A('b', [0]))
-# memoryview(B('abcde', encoding='utf-8'))
+memoryview(A('b', [0]))
+memoryview(B('abcde', encoding='utf-8'))
 
 assert_raises(TypeError, lambda: memoryview([1, 2, 3]))
 assert_raises(TypeError, lambda: memoryview((1, 2, 3)))

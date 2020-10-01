@@ -11,12 +11,10 @@ use super::objint::PyIntRef;
 use super::objiter;
 use super::objstr::PyStrRef;
 use super::objtype::PyTypeRef;
-use crate::anystr::{self, AnyStr};
 use crate::bytesinner::{
     bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
     ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
 };
-use crate::byteslike::PyBytesLike;
 use crate::common::hash::PyHash;
 use crate::function::{OptionalArg, OptionalOption};
 use crate::obj::objtuple::PyTupleRef;
@@ -26,6 +24,10 @@ use crate::pyobject::{
 };
 use crate::slots::{BufferProtocol, Comparable, Hashable, PyComparisonOp};
 use crate::vm::VirtualMachine;
+use crate::{
+    anystr::{self, AnyStr},
+    byteslike::PyBytesLike,
+};
 
 use crate::obj::objmemory::{Buffer, BufferOptions};
 
@@ -141,9 +143,8 @@ impl PyBytes {
     }
 
     #[pymethod(name = "__add__")]
-    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let other = PyBytesLike::try_from_object(vm, other)?;
-        Ok(vm.ctx.new_bytes(self.inner.add(other)))
+    fn add(&self, other: PyBytesLike, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.new_bytes(self.inner.add(&*other.borrow_value()))
     }
 
     #[pymethod(name = "__contains__")]
@@ -474,8 +475,8 @@ impl PyBytes {
 }
 
 impl BufferProtocol for PyBytes {
-    fn get_buffer(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyResult<Box<dyn Buffer>> {
-        Ok(Box::new(zelf))
+    fn get_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<Box<dyn Buffer>> {
+        Ok(Box::new(zelf.clone()))
     }
 }
 

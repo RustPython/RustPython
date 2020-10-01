@@ -9,7 +9,7 @@ use crate::pyobject::{
     PyValue, TypeProtocol,
 };
 use crate::sliceable::{saturate_range, wrap_index, SequenceIndex};
-use crate::slots::{BufferProtocol, Comparable, Hashable};
+use crate::slots::{BufferProtocol, Comparable, Hashable, PyComparisonOp};
 use crate::stdlib::pystruct::_struct::FormatSpec;
 use crate::VirtualMachine;
 use crate::{common::hash::PyHash, pyobject::PyComparisonValue};
@@ -33,6 +33,12 @@ impl Deref for BufferRef {
         self.0.deref()
     }
 }
+impl From<Box<dyn Buffer>> for BufferRef {
+    fn from(buffer: Box<dyn Buffer>) -> Self {
+        BufferRef(buffer)
+    }
+}
+
 pub trait Buffer: Debug + PyThreadingConstraint {
     fn get_options(&self) -> BorrowedValue<BufferOptions>;
     fn obj_bytes(&self) -> BorrowedValue<[u8]>;
@@ -125,6 +131,7 @@ impl PyMemoryView {
         // as memoryview is still alive
         let options = buffer.get_options().clone();
         let len = options.len;
+        let itemsize = options.itemsize;
         let format_spec = Self::parse_format(&options.format, vm)?;
         Ok(PyMemoryView {
             obj,
@@ -132,7 +139,7 @@ impl PyMemoryView {
             options,
             released: AtomicCell::new(false),
             start: 0,
-            stop: len,
+            stop: len * itemsize,
             step: 1,
             exports: AtomicCell::new(0),
             format_spec,
@@ -151,7 +158,7 @@ impl PyMemoryView {
 
     #[pyslot]
     fn tp_new(_cls: PyTypeRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyMemoryViewRef> {
-        let buffer = try_buffer_from_object(obj.clone(), vm)?;
+        let buffer = try_buffer_from_object(vm, &obj)?;
         Ok(PyMemoryView::from_buffer(obj, buffer, vm)?.into_ref(vm))
     }
 
@@ -434,6 +441,40 @@ impl PyMemoryView {
             format!("<memory at 0x{:x}>", zelf.get_id())
         }
     }
+
+    fn eq(zelf: &PyRef<Self>, other: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        zelf.try_not_released(vm)?;
+        if zelf.is(other) {
+            return Ok(true);
+        }
+        let options_cmp = |a: &BufferOptions, b: &BufferOptions| -> bool {
+            a.len == b.len && a.itemsize == b.itemsize
+        };
+        // TODO: fast pass for contiguous buffer
+        match other.clone().downcast::<PyMemoryView>() {
+            Ok(other) => {
+                if options_cmp(&zelf.options, &other.options) {
+                    let a = Self::tolist(zelf.clone(), vm)?;
+                    let b = Self::tolist(other, vm)?;
+                    if vm.bool_eq(a.as_object(), b.as_object())? {
+                        return Ok(true);
+                    }
+                }
+            }
+            Err(other) => {
+                if let Ok(buffer) = try_buffer_from_object(vm, &other) {
+                    let options = buffer.get_options();
+                    // FIXME
+                    if options_cmp(&zelf.options, &options)
+                        && (**(Self::tobytes(zelf.clone(), vm)?) == *buffer.obj_bytes())
+                    {
+                        return Ok(true);
+                    }
+                }
+            }
+        }
+        Ok(false)
+    }
 }
 
 impl Drop for PyMemoryView {
@@ -443,11 +484,11 @@ impl Drop for PyMemoryView {
 }
 
 impl BufferProtocol for PyMemoryView {
-    fn get_buffer(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<Box<dyn Buffer>> {
+    fn get_buffer(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<Box<dyn Buffer>> {
         if zelf.released.load() {
             Err(vm.new_value_error("operation forbidden on released memoryview object".to_owned()))
         } else {
-            Ok(Box::new(zelf))
+            Ok(Box::new(zelf.clone()))
         }
     }
 }
@@ -500,42 +541,21 @@ impl Comparable for PyMemoryView {
     fn cmp(
         zelf: &PyRef<Self>,
         other: &PyObjectRef,
-        op: crate::slots::PyComparisonOp,
+        op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
-        op.eq_only(|| {
-            zelf.try_not_released(vm)?;
-            if zelf.is(other) {
-                return Ok(PyComparisonValue::Implemented(true));
+        match op {
+            PyComparisonOp::Ne => {
+                Self::eq(zelf, other, vm).map(|x| PyComparisonValue::Implemented(!x))
             }
-            let options_cmp = |a: &BufferOptions, b: &BufferOptions| -> bool {
-                a.len == b.len && a.itemsize == b.itemsize
-            };
-            // TODO: fast pass for contiguous buffer
-            match other.clone().downcast::<PyMemoryView>() {
-                Ok(other) => {
-                    if options_cmp(&zelf.options, &other.options) {
-                        let a = Self::tolist(zelf.clone(), vm)?;
-                        let b = Self::tolist(other, vm)?;
-                        if vm.bool_eq(a.as_object(), b.as_object())? {
-                            return Ok(PyComparisonValue::Implemented(true));
-                        }
-                    }
-                }
-                Err(other) => {
-                    if let Ok(buffer) = try_buffer_from_object(other, vm) {
-                        let options = buffer.get_options();
-                        // FIXME
-                        if options_cmp(&zelf.options, &options)
-                            && (**(Self::tobytes(zelf.clone(), vm)?) == *buffer.obj_bytes())
-                        {
-                            return Ok(PyComparisonValue::Implemented(true));
-                        }
-                    }
-                }
-            }
-            Ok(PyComparisonValue::Implemented(false))
-        })
+            PyComparisonOp::Eq => Self::eq(zelf, other, vm).map(PyComparisonValue::Implemented),
+            _ => Err(vm.new_type_error(format!(
+                "'{}' not supported between instances of '{}' and '{}'",
+                op.operator_token(),
+                zelf.class().name,
+                other.class().name
+            ))),
+        }
     }
 }
 
@@ -555,17 +575,15 @@ pub(crate) fn init(ctx: &PyContext) {
     PyMemoryView::extend_class(ctx, &ctx.types.memoryview_type)
 }
 
-pub fn try_buffer_from_object(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<BufferRef> {
+pub fn try_buffer_from_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<BufferRef> {
     let obj_cls = obj.class();
-    obj_cls
-        .slots
-        .buffer
-        .as_ref()
-        .and_then(|buffer_func| buffer_func(obj, vm).ok().map(|x| BufferRef(x)))
-        .ok_or_else(|| {
-            vm.new_type_error(format!(
-                "a bytes-like object is required, not '{}'",
-                obj_cls.name
-            ))
-        })
+    for cls in obj_cls.iter_mro() {
+        if let Some(f) = cls.slots.buffer.as_ref() {
+            return f(obj, vm).map(|x| BufferRef(x));
+        }
+    }
+    Err(vm.new_type_error(format!(
+        "a bytes-like object is required, not '{}'",
+        obj_cls.name
+    )))
 }

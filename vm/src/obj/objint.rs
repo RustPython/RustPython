@@ -11,10 +11,8 @@ use super::objbool::IntoPyBool;
 use super::objbytearray::PyByteArray;
 use super::objbytes::PyBytes;
 use super::objfloat;
-use super::objmemory::try_buffer_from_object;
 use super::objstr::{PyStr, PyStrRef};
 use super::objtype::PyTypeRef;
-use crate::bytesinner::PyBytesInner;
 use crate::format::FormatSpec;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
@@ -23,8 +21,8 @@ use crate::pyobject::{
     TypeProtocol,
 };
 use crate::slots::{Comparable, Hashable, PyComparisonOp};
-use crate::stdlib::array::PyArray;
 use crate::VirtualMachine;
+use crate::{bytesinner::PyBytesInner, byteslike::try_bytes_like};
 use rustpython_common::hash;
 
 /// int(x=0) -> integer
@@ -719,55 +717,39 @@ struct IntToByteArgs {
 
 // Casting function:
 pub(crate) fn to_int(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<BigInt> {
-    let base = 10;
-    let opt = match_class!(match obj.clone() {
-        string @ PyStr => {
-            let s = string.borrow_value();
-            bytes_to_int(s.as_bytes(), base)
+    let try_convert = |lit: &[u8]| -> PyResult<BigInt> {
+        let base = 10;
+        match bytes_to_int(lit, base) {
+            Some(i) => Ok(i),
+            None => Err(vm.new_value_error(format!(
+                "invalid literal for int() with base {}: {}",
+                base,
+                vm.to_repr(obj)?,
+            ))),
         }
-        bytes @ PyBytes => {
-            let bytes = bytes.borrow_value();
-            bytes_to_int(bytes, base)
-        }
-        bytearray @ PyByteArray => {
-            let inner = bytearray.borrow_value();
-            bytes_to_int(&inner.elements, base)
-        }
-        array @ PyArray => {
-            let bytes = array.get_bytes();
-            bytes_to_int(&*bytes, base)
-        }
-        obj => {
-            if let Some(method) = vm.get_method(obj.clone(), "__int__") {
-                let result = vm.invoke(&method?, PyFuncArgs::default())?;
-                return match result.payload::<PyInt>() {
-                    Some(int_obj) => Ok(int_obj.borrow_value().clone()),
-                    None => Err(vm.new_type_error(format!(
-                        "TypeError: __int__ returned non-int (type '{}')",
-                        result.class().name
-                    ))),
-                };
-            }
-
-            if let Ok(bytes) = try_buffer_from_object(obj.clone(), vm) {
-                let bytes = bytes.as_contiguous()
-                    .ok_or_else(|| vm.new_value_error(
-                        format!("int() argument must be a string, a bytes-like object or a number, not '{}'",
-                        obj.lease_class().name)))?;
-                bytes_to_int(&*bytes, base)
-            } else {
-                None
-            }
-        }
-    });
-    match opt {
-        Some(int) => Ok(int),
-        None => Err(vm.new_value_error(format!(
-            "invalid literal for int() with base {}: {}",
-            base,
-            vm.to_repr(obj)?,
-        ))),
+    };
+    if let Some(s) = obj.downcast_ref::<PyStr>() {
+        return try_convert(s.borrow_value().as_bytes());
     }
+    if let Some(method) = vm.get_method(obj.clone(), "__int__") {
+        let result = vm.invoke(&method?, PyFuncArgs::default())?;
+        return match result.payload::<PyInt>() {
+            Some(int_obj) => Ok(int_obj.borrow_value().clone()),
+            None => Err(vm.new_type_error(format!(
+                "__int__ returned non-int (type '{}')",
+                result.class().name
+            ))),
+        };
+    }
+
+    if let Ok(r) = try_bytes_like(vm, &obj, |x| try_convert(x)) {
+        return r;
+    }
+
+    Err(vm.new_type_error(format!(
+        "int() argument must be a string, a bytes-like object or a number, not '{}'",
+        obj.class().name
+    )))
 }
 
 fn to_int_radix(vm: &VirtualMachine, obj: &PyObjectRef, base: u32) -> PyResult<BigInt> {

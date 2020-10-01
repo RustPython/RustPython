@@ -23,7 +23,7 @@ use crate::obj::objmemory::{Buffer, BufferOptions};
 use crate::obj::objtuple::PyTupleRef;
 use crate::pyobject::{
     BorrowValue, Either, IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext,
-    PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
 };
 use crate::sliceable::SequenceIndex;
 use crate::slots::{BufferProtocol, Comparable, Hashable, PyComparisonOp, Unhashable};
@@ -136,16 +136,15 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "__add__")]
-    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let other = PyBytesLike::try_from_object(vm, other)?;
-        Ok(vm.ctx.new_bytearray(self.borrow_value().add(other)))
+    fn add(&self, other: PyBytesLike, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx
+            .new_bytearray(self.borrow_value().add(&*other.borrow_value()))
     }
 
     #[pymethod(name = "__iadd__")]
-    fn iadd(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    fn iadd(zelf: PyRef<Self>, other: PyBytesLike, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         zelf.try_resizable(vm)?;
-        let other = PyBytesLike::try_from_object(vm, other)?;
-        zelf.borrow_value_mut().iadd(other);
+        zelf.borrow_value_mut().iadd(&*other.borrow_value());
         Ok(zelf)
     }
 
@@ -583,9 +582,9 @@ impl Comparable for PyByteArray {
 }
 
 impl BufferProtocol for PyByteArray {
-    fn get_buffer(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyResult<Box<dyn Buffer>> {
+    fn get_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<Box<dyn Buffer>> {
         zelf.exports.fetch_add(1);
-        Ok(Box::new(zelf))
+        Ok(Box::new(zelf.clone()))
     }
 }
 

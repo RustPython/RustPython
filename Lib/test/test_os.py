@@ -222,8 +222,6 @@ class FileTests(unittest.TestCase):
         # operating system is free to return less bytes than requested.
         self.assertEqual(data, b'test')
 
-    # TODO: RUSTPYTHON (TypeError: a bytes-like object is required, not memoryview)
-    @unittest.expectedFailure
     def test_write(self):
         # os.write() accepts bytes- and buffer-like objects but not strings
         fd = os.open(support.TESTFN, os.O_CREAT | os.O_WRONLY)
