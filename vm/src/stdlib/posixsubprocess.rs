@@ -43,7 +43,7 @@ macro_rules! gen_args {
     ($($field:ident: $t:ty),*$(,)?) => {
         #[derive(FromArgs)]
         struct ForkExecArgs {
-            $(#[pyarg(positional_only)] $field: $t,)*
+            $(#[pyarg(positional)] $field: $t,)*
         }
     };
 }

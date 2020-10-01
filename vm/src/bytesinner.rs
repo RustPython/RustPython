@@ -64,11 +64,11 @@ impl TryFromObject for PyBytesInner {
 
 #[derive(FromArgs)]
 pub struct ByteInnerNewOptions {
-    #[pyarg(positional_or_keyword, optional = true)]
+    #[pyarg(any, optional)]
     source: OptionalArg<PyObjectRef>,
-    #[pyarg(positional_or_keyword, optional = true)]
+    #[pyarg(any, optional)]
     encoding: OptionalArg<PyStrRef>,
-    #[pyarg(positional_or_keyword, optional = true)]
+    #[pyarg(any, optional)]
     errors: OptionalArg<PyStrRef>,
 }
 
@@ -155,11 +155,11 @@ impl ByteInnerNewOptions {
 
 #[derive(FromArgs)]
 pub struct ByteInnerFindOptions {
-    #[pyarg(positional_only, optional = false)]
+    #[pyarg(positional)]
     sub: Either<PyBytesInner, PyIntRef>,
-    #[pyarg(positional_only, default = "None")]
+    #[pyarg(positional, default)]
     start: Option<PyIntRef>,
-    #[pyarg(positional_only, default = "None")]
+    #[pyarg(positional, default)]
     end: Option<PyIntRef>,
 }
 
@@ -180,9 +180,9 @@ impl ByteInnerFindOptions {
 
 #[derive(FromArgs)]
 pub struct ByteInnerPaddingOptions {
-    #[pyarg(positional_only, optional = false)]
+    #[pyarg(positional)]
     width: isize,
-    #[pyarg(positional_only, optional = true)]
+    #[pyarg(positional, optional)]
     fillchar: OptionalArg<PyObjectRef>,
 }
 
@@ -207,9 +207,9 @@ impl ByteInnerPaddingOptions {
 
 #[derive(FromArgs)]
 pub struct ByteInnerTranslateOptions {
-    #[pyarg(positional_only, optional = false)]
+    #[pyarg(positional)]
     table: Either<PyBytesInner, PyNoneRef>,
-    #[pyarg(positional_or_keyword, optional = true)]
+    #[pyarg(any, optional)]
     delete: OptionalArg<PyBytesInner>,
 }
 
@@ -1190,9 +1190,9 @@ impl<'s> AnyStr<'s, u8> for [u8] {
 
 #[derive(FromArgs)]
 pub struct DecodeArgs {
-    #[pyarg(positional_or_keyword, default = "None")]
+    #[pyarg(any, default)]
     encoding: Option<PyStrRef>,
-    #[pyarg(positional_or_keyword, default = "None")]
+    #[pyarg(any, default)]
     errors: Option<PyStrRef>,
 }
 

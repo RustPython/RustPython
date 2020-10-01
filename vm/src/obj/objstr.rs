@@ -168,11 +168,11 @@ impl PyStringReverseIterator {
 
 #[derive(FromArgs)]
 struct StrArgs {
-    #[pyarg(positional_or_keyword, optional = true)]
+    #[pyarg(any, optional)]
     object: OptionalArg<PyObjectRef>,
-    #[pyarg(positional_or_keyword, optional = true)]
+    #[pyarg(any, optional)]
     encoding: OptionalArg<PyStrRef>,
-    #[pyarg(positional_or_keyword, optional = true)]
+    #[pyarg(any, optional)]
     errors: OptionalArg<PyStrRef>,
 }
 
@@ -1072,9 +1072,9 @@ impl Comparable for PyStr {
 
 #[derive(FromArgs)]
 struct EncodeArgs {
-    #[pyarg(positional_or_keyword, default = "None")]
+    #[pyarg(any, default)]
     encoding: Option<PyStrRef>,
-    #[pyarg(positional_or_keyword, default = "None")]
+    #[pyarg(any, default)]
     errors: Option<PyStrRef>,
 }
 
@@ -1141,11 +1141,11 @@ type SplitArgs<'a> = anystr::SplitArgs<'a, PyStrRef, str, char>;
 
 #[derive(FromArgs)]
 pub struct FindArgs {
-    #[pyarg(positional_only, optional = false)]
+    #[pyarg(positional)]
     sub: PyStrRef,
-    #[pyarg(positional_only, default = "None")]
+    #[pyarg(positional, default)]
     start: Option<PyIntRef>,
-    #[pyarg(positional_only, default = "None")]
+    #[pyarg(positional, default)]
     end: Option<PyIntRef>,
 }
 

@@ -691,29 +691,29 @@ impl Hashable for PyInt {
 
 #[derive(FromArgs)]
 struct IntOptions {
-    #[pyarg(positional_only, optional = true)]
+    #[pyarg(positional, optional)]
     val_options: OptionalArg<PyObjectRef>,
-    #[pyarg(positional_or_keyword, optional = true)]
+    #[pyarg(any, optional)]
     base: OptionalArg<PyObjectRef>,
 }
 
 #[derive(FromArgs)]
 struct IntFromByteArgs {
-    #[pyarg(positional_or_keyword)]
+    #[pyarg(any)]
     bytes: PyBytesInner,
-    #[pyarg(positional_or_keyword)]
+    #[pyarg(any)]
     byteorder: PyStrRef,
-    #[pyarg(keyword_only, optional = true)]
+    #[pyarg(named, optional)]
     signed: OptionalArg<IntoPyBool>,
 }
 
 #[derive(FromArgs)]
 struct IntToByteArgs {
-    #[pyarg(positional_or_keyword)]
+    #[pyarg(any)]
     length: PyIntRef,
-    #[pyarg(positional_or_keyword)]
+    #[pyarg(any)]
     byteorder: PyStrRef,
-    #[pyarg(keyword_only, optional = true)]
+    #[pyarg(named, optional)]
     signed: OptionalArg<IntoPyBool>,
 }
 

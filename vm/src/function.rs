@@ -244,6 +244,23 @@ pub trait FromArgs: Sized {
     fn from_args(vm: &VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError>;
 }
 
+pub trait FromArgOptional {
+    type Inner: TryFromObject;
+    fn from_inner(x: Self::Inner) -> Self;
+}
+impl<T: TryFromObject> FromArgOptional for OptionalArg<T> {
+    type Inner = T;
+    fn from_inner(x: T) -> Self {
+        Self::Present(x)
+    }
+}
+impl<T: TryFromObject> FromArgOptional for T {
+    type Inner = Self;
+    fn from_inner(x: Self) -> Self {
+        x
+    }
+}
+
 /// A map of keyword arguments to their values.
 ///
 /// A built-in function with a `KwArgs` parameter is analagous to a Python

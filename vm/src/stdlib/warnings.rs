@@ -10,11 +10,11 @@ mod _warnings {
 
     #[derive(FromArgs)]
     struct WarnArgs {
-        #[pyarg(positional_only, optional = false)]
+        #[pyarg(positional)]
         message: PyStrRef,
-        #[pyarg(positional_or_keyword, optional = true)]
+        #[pyarg(any, optional)]
         category: OptionalArg<PyTypeRef>,
-        #[pyarg(positional_or_keyword, optional = true)]
+        #[pyarg(any, optional)]
         stacklevel: OptionalArg<u32>,
     }
 

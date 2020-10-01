@@ -500,18 +500,18 @@ fn socket_inet_ntoa(packed_ip: PyBytesRef, vm: &VirtualMachine) -> PyResult {
 
 #[derive(FromArgs)]
 struct GAIOptions {
-    #[pyarg(positional_only)]
+    #[pyarg(positional)]
     host: Option<PyStrRef>,
-    #[pyarg(positional_only)]
+    #[pyarg(positional)]
     port: Option<Either<PyStrRef, i32>>,
 
-    #[pyarg(positional_only, default = "0")]
+    #[pyarg(positional, default = "0")]
     family: i32,
-    #[pyarg(positional_only, default = "0")]
+    #[pyarg(positional, default = "0")]
     ty: i32,
-    #[pyarg(positional_only, default = "0")]
+    #[pyarg(positional, default = "0")]
     proto: i32,
-    #[pyarg(positional_only, default = "0")]
+    #[pyarg(positional, default = "0")]
     flags: i32,
 }
 

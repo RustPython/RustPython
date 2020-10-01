@@ -15,9 +15,9 @@ where
     S: ?Sized + AnyStr<'a, E>,
     E: Copy,
 {
-    #[pyarg(positional_or_keyword, default = "None")]
+    #[pyarg(any, default)]
     sep: Option<T>,
-    #[pyarg(positional_or_keyword, default = "-1")]
+    #[pyarg(any, default = "-1")]
     maxsplit: isize,
     _phantom1: std::marker::PhantomData<&'a S>,
     _phantom2: std::marker::PhantomData<E>,
@@ -45,13 +45,13 @@ where
 
 #[derive(FromArgs)]
 pub struct SplitLinesArgs {
-    #[pyarg(positional_or_keyword, default = "false")]
+    #[pyarg(any, default = "false")]
     pub keepends: bool,
 }
 
 #[derive(FromArgs)]
 pub struct ExpandTabsArgs {
-    #[pyarg(positional_or_keyword, default = "8")]
+    #[pyarg(any, default = "8")]
     tabsize: isize,
 }
 
@@ -63,11 +63,11 @@ impl ExpandTabsArgs {
 
 #[derive(FromArgs)]
 pub struct StartsEndsWithArgs {
-    #[pyarg(positional_only, optional = false)]
+    #[pyarg(positional)]
     affix: PyObjectRef,
-    #[pyarg(positional_only, default = "None")]
+    #[pyarg(positional, default)]
     start: Option<PyIntRef>,
-    #[pyarg(positional_only, default = "None")]
+    #[pyarg(positional, default)]
     end: Option<PyIntRef>,
 }
 

@@ -308,9 +308,9 @@ impl Hashable for PyComplex {
 
 #[derive(FromArgs)]
 struct ComplexArgs {
-    #[pyarg(positional_or_keyword, default = "None")]
+    #[pyarg(any, default)]
     real: Option<PyObjectRef>,
-    #[pyarg(positional_or_keyword, default = "None")]
+    #[pyarg(any, default)]
     imag: Option<PyObjectRef>,
 }
 

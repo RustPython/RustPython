@@ -769,7 +769,7 @@ mod _struct {
     #[derive(FromArgs)]
     struct UpdateFromArgs {
         buffer: PyBytesLike,
-        #[pyarg(positional_or_keyword, default = "0")]
+        #[pyarg(any, default = "0")]
         offset: isize,
     }
 
