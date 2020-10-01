@@ -179,11 +179,22 @@ SRE_INFO_LITERAL = 2 # entire pattern is literal (given by prefix)
 SRE_INFO_CHARSET = 4 # pattern starts with character from given set
 
 if __name__ == "__main__":
-    def dump(f, d, prefix):
+    def dump(f, d, typ, int_t, prefix):
         items = sorted(d)
+        f.write(f"""\
+#[derive(num_enum::TryFromPrimitive, Debug)]
+#[repr({int_t})]
+#[allow(non_camel_case_types)]
+pub enum {typ} {{
+""")
         for item in items:
-            f.write("#define %s_%s %d\n" % (prefix, item, item))
-    with open("sre_constants.h", "w") as f:
+            name = str(item).removeprefix(prefix)
+            val = int(item)
+            f.write(f"    {name} = {val},\n")
+        f.write("""\
+}
+""")
+    with open("vm/src/stdlib/sre/constants.rs", "w") as f:
         f.write("""\
 /*
  * Secret Labs' Regular Expression Engine
@@ -200,24 +211,41 @@ if __name__ == "__main__":
 
 """)
 
-        f.write("#define SRE_MAGIC %d\n" % MAGIC)
+        f.write("use bitflags::bitflags;\n\n");
 
-        dump(f, OPCODES, "SRE_OP")
-        dump(f, ATCODES, "SRE")
-        dump(f, CHCODES, "SRE")
+        f.write("pub const SRE_MAGIC: usize = %d;\n" % MAGIC)
 
-        f.write("#define SRE_FLAG_TEMPLATE %d\n" % SRE_FLAG_TEMPLATE)
-        f.write("#define SRE_FLAG_IGNORECASE %d\n" % SRE_FLAG_IGNORECASE)
-        f.write("#define SRE_FLAG_LOCALE %d\n" % SRE_FLAG_LOCALE)
-        f.write("#define SRE_FLAG_MULTILINE %d\n" % SRE_FLAG_MULTILINE)
-        f.write("#define SRE_FLAG_DOTALL %d\n" % SRE_FLAG_DOTALL)
-        f.write("#define SRE_FLAG_UNICODE %d\n" % SRE_FLAG_UNICODE)
-        f.write("#define SRE_FLAG_VERBOSE %d\n" % SRE_FLAG_VERBOSE)
-        f.write("#define SRE_FLAG_DEBUG %d\n" % SRE_FLAG_DEBUG)
-        f.write("#define SRE_FLAG_ASCII %d\n" % SRE_FLAG_ASCII)
+        dump(f, OPCODES, "SreOpcode", "u32", "")
+        dump(f, ATCODES, "SreAtCode", "u32", "AT_")
+        dump(f, CHCODES, "SreCatCode", "u32", "CATEGORY_")
 
-        f.write("#define SRE_INFO_PREFIX %d\n" % SRE_INFO_PREFIX)
-        f.write("#define SRE_INFO_LITERAL %d\n" % SRE_INFO_LITERAL)
-        f.write("#define SRE_INFO_CHARSET %d\n" % SRE_INFO_CHARSET)
+        def bitflags(typ, int_t, prefix, flags):
+            f.write(f"""\
+bitflags! {{
+    pub struct {typ}: {int_t} {{
+""")
+            for name in flags:
+                val = globals()[prefix + name]
+                f.write(f"        const {name} = {val};\n")
+            f.write("""\
+    }
+}
+""")
+
+        bitflags("SreFlag", "u16", "SRE_FLAG_", [
+            "TEMPLATE",
+            "IGNORECASE",
+            "LOCALE",
+            "MULTILINE",
+            "DOTALL",
+            "UNICODE",
+            "VERBOSE",
+            "DEBUG",
+            "ASCII",
+        ])
+
+        bitflags("SreInfo", "u32", "SRE_INFO_", [
+            "PREFIX", "LITERAL", "CHARSET",
+        ])
 
     print("done")

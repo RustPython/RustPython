@@ -860,3 +860,18 @@ impl PyMapping {
         self.dict
     }
 }
+
+impl<K, V> TryFromObject for std::collections::HashMap<K, V>
+where
+    K: TryFromObject + std::hash::Hash + Eq,
+    V: TryFromObject,
+{
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        let mapping = PyMapping::try_from_object(vm, obj)?;
+        mapping
+            .into_dict()
+            .into_iter()
+            .map(|(k, v)| Ok((K::try_from_object(vm, k)?, V::try_from_object(vm, v)?)))
+            .collect()
+    }
+}
