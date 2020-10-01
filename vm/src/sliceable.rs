@@ -434,14 +434,18 @@ fn saturate_big_index(slice_pos: &BigInt, len: usize) -> usize {
     }
 }
 
-pub fn saturate_range(start: &Option<BigInt>, stop: &Option<BigInt>, len: usize) -> Range<usize> {
+pub(crate) fn saturate_range(
+    start: &Option<BigInt>,
+    stop: &Option<BigInt>,
+    len: usize,
+) -> Range<usize> {
     let start = start.as_ref().map_or(0, |x| saturate_big_index(x, len));
     let stop = stop.as_ref().map_or(len, |x| saturate_big_index(x, len));
 
     start..stop
 }
 
-fn convert_slice(
+pub(crate) fn convert_slice(
     slice: &PySlice,
     len: usize,
     vm: &VirtualMachine,

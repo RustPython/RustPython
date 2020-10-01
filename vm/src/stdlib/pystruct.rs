@@ -119,7 +119,7 @@ pub(crate) mod _struct {
             Ok(FormatSpec { endianness, codes })
         }
 
-        fn pack(&self, args: &[PyObjectRef], vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        pub fn pack(&self, args: &[PyObjectRef], vm: &VirtualMachine) -> PyResult<Vec<u8>> {
             // Create data vector:
             let mut data = Vec::<u8>::new();
 

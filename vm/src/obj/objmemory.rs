@@ -1,23 +1,24 @@
-use super::objtype::PyTypeRef;
 use std::{fmt::Debug, ops::Deref};
 
+use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
+use crate::common::hash::PyHash;
 use crate::obj::objbytes::{PyBytes, PyBytesRef};
 use crate::obj::objlist::{PyList, PyListRef};
-use crate::obj::{objslice::PySliceRef, objstr::PyStr};
+use crate::obj::objslice::PySliceRef;
+use crate::obj::objstr::PyStr;
+use crate::obj::objtype::PyTypeRef;
 use crate::pyobject::{
-    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyThreadingConstraint,
-    PyValue, TypeProtocol,
+    IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult,
+    PyThreadingConstraint, PyValue, TypeProtocol,
 };
-use crate::sliceable::{saturate_range, wrap_index, SequenceIndex};
+use crate::sliceable::{convert_slice, saturate_range, wrap_index, SequenceIndex};
 use crate::slots::{BufferProtocol, Comparable, Hashable, PyComparisonOp};
 use crate::stdlib::pystruct::_struct::FormatSpec;
 use crate::VirtualMachine;
-use crate::{common::hash::PyHash, pyobject::PyComparisonValue};
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
 use num_bigint::BigInt;
 use num_traits::{One, Signed, ToPrimitive, Zero};
-use rustpython_common::borrow::{BorrowedValue, BorrowedValueMut};
 
 #[derive(Debug)]
 pub struct BufferRef(Box<dyn Buffer>);
@@ -60,6 +61,10 @@ pub trait Buffer: Debug + PyThreadingConstraint {
             return None;
         }
         Some(self.obj_bytes_mut())
+    }
+
+    fn to_contiguous(&self) -> Vec<u8> {
+        self.obj_bytes().to_vec()
     }
 
     fn try_resizable(&self, vm: &VirtualMachine) -> PyResult<()> {
@@ -371,24 +376,152 @@ impl PyMemoryView {
         }
     }
 
+    fn setitem_by_idx(
+        zelf: PyRef<Self>,
+        i: isize,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let i = zelf
+            .get_pos(i)
+            .ok_or_else(|| vm.new_index_error("index out of range".to_owned()))?;
+        let itemsize = zelf.options.itemsize;
+        let data = zelf.format_spec.pack(&[value], vm)?;
+        zelf.obj_bytes_mut()[i..i + itemsize].copy_from_slice(&data);
+        Ok(())
+    }
+
+    fn setitem_by_slice(
+        zelf: PyRef<Self>,
+        slice: PySliceRef,
+        items: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let items = try_buffer_from_object(vm, &items)?;
+        let options = items.get_options();
+        let len = options.len;
+        let itemsize = options.itemsize;
+
+        if itemsize != zelf.options.itemsize {
+            return Err(vm.new_type_error(format!(
+                "memoryview: invalid type for format '{}'",
+                zelf.options.format
+            )));
+        }
+
+        let diff_err = || {
+            Err(vm.new_value_error(
+                "memoryview assignment: lvalue and rvalue have different structures".to_owned(),
+            ))
+        };
+
+        if options.format != zelf.options.format {
+            return diff_err();
+        }
+
+        let (range, step, is_negative_step) = convert_slice(&slice, zelf.options.len, vm)?;
+
+        let bytes = items.to_contiguous();
+        assert_eq!(bytes.len(), len * itemsize);
+
+        if !is_negative_step && step == Some(1) {
+            if range.end - range.start != len {
+                return diff_err();
+            }
+
+            if let Some(mut buffer) = zelf.as_contiguous_mut() {
+                buffer[range.start * itemsize..range.end * itemsize].copy_from_slice(&bytes);
+                return Ok(());
+            }
+        }
+
+        if let Some(step) = step {
+            let slicelen = if range.end > range.start {
+                (range.end - range.start - 1) / step + 1
+            } else {
+                0
+            };
+
+            if slicelen != len {
+                return diff_err();
+            }
+
+            let indexes = if is_negative_step {
+                itertools::Either::Left(range.rev().step_by(step))
+            } else {
+                itertools::Either::Right(range.step_by(step))
+            };
+
+            let item_index = (0..len).step_by(itemsize);
+
+            let mut buffer = zelf.obj_bytes_mut();
+
+            indexes
+                .map(|i| zelf.get_pos(i as isize).unwrap())
+                .zip(item_index)
+                .for_each(|(i, item_i)| {
+                    buffer[i..i + itemsize].copy_from_slice(&bytes[item_i..item_i + itemsize]);
+                });
+            Ok(())
+        } else {
+            let slicelen = if range.start < range.end { 1 } else { 0 };
+            if match len {
+                0 => slicelen == 0,
+                1 => {
+                    let mut buffer = zelf.obj_bytes_mut();
+                    let i = zelf.get_pos(range.start as isize).unwrap();
+                    buffer[i..i + itemsize].copy_from_slice(&bytes);
+                    true
+                }
+                _ => false,
+            } {
+                Ok(())
+            } else {
+                diff_err()
+            }
+        }
+    }
+
+    #[pymethod(magic)]
+    fn setitem(
+        zelf: PyRef<Self>,
+        needle: SequenceIndex,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        zelf.try_not_released(vm)?;
+        if zelf.options.readonly {
+            return Err(vm.new_type_error("cannot modify read-only memory".to_owned()));
+        }
+        match needle {
+            SequenceIndex::Int(i) => Self::setitem_by_idx(zelf, i, value, vm),
+            SequenceIndex::Slice(slice) => Self::setitem_by_slice(zelf, slice, value, vm),
+        }
+    }
+
     #[pymethod(magic)]
     fn len(&self, vm: &VirtualMachine) -> PyResult<usize> {
         self.try_not_released(vm).map(|_| self.options.len)
     }
 
+    fn to_bytes_vec(zelf: &PyRef<Self>) -> Vec<u8> {
+        if let Some(bytes) = zelf.as_contiguous() {
+            bytes.to_vec()
+        } else {
+            let bytes = &*zelf.obj_bytes();
+            let len = zelf.options.len;
+            let itemsize = zelf.options.itemsize;
+            (0..len)
+                .map(|i| zelf.get_pos(i as isize).unwrap())
+                .flat_map(|i| bytes[i..i + itemsize].to_vec())
+                .collect()
+        }
+    }
+
     #[pymethod]
     fn tobytes(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
         zelf.try_not_released(vm)?;
-        if let Some(bytes) = zelf.as_contiguous() {
-            Ok(PyBytes::from(bytes.to_vec()).into_ref(vm))
-        } else {
-            let bytes = &*zelf.obj_bytes();
-            let bytes = (0..zelf.options.len)
-                .map(|i| zelf.get_pos(i as isize).unwrap())
-                .flat_map(|i| (i..i + zelf.options.itemsize).map(|i| bytes[i]))
-                .collect::<Vec<u8>>();
-            Ok(PyBytes::from(bytes).into_ref(vm))
-        }
+        Ok(PyBytes::from(Self::to_bytes_vec(&zelf)).into_ref(vm))
     }
 
     #[pymethod]
@@ -433,7 +566,7 @@ impl PyMemoryView {
         .into_ref(vm))
     }
 
-    #[pymethod]
+    #[pymethod(magic)]
     fn repr(zelf: PyRef<Self>) -> String {
         if zelf.released.load() {
             format!("<released memory at 0x{:x}>", zelf.get_id())
@@ -443,9 +576,11 @@ impl PyMemoryView {
     }
 
     fn eq(zelf: &PyRef<Self>, other: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        zelf.try_not_released(vm)?;
         if zelf.is(other) {
             return Ok(true);
+        }
+        if zelf.released.load() {
+            return Ok(false);
         }
         let options_cmp = |a: &BufferOptions, b: &BufferOptions| -> bool {
             a.len == b.len && a.itemsize == b.itemsize
@@ -534,6 +669,10 @@ impl Buffer for PyMemoryViewRef {
         Some(BorrowedValueMut::map(self.obj_bytes_mut(), |x| {
             &mut x[self.start..self.stop]
         }))
+    }
+
+    fn to_contiguous(&self) -> Vec<u8> {
+        PyMemoryView::to_bytes_vec(self)
     }
 }
 
