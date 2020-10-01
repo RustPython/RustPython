@@ -465,7 +465,8 @@ pub fn get_item(
         let value = i.borrow_value().to_isize().ok_or_else(|| {
             vm.new_index_error("cannot fit 'int' into an index-sized integer".to_owned())
         })?;
-        let pos_index = get_pos(value, elements.len())
+        let pos_index = elements
+            .get_pos(value)
             .ok_or_else(|| vm.new_index_error("Index out of bounds!".to_owned()))?;
         Ok(Either::A(elements[pos_index].clone()))
     } else {
