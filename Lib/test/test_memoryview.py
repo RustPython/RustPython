@@ -71,6 +71,8 @@ class AbstractMemoryTests:
         m = None
         self.assertEqual(sys.getrefcount(b), oldrefcount)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_setitem_writable(self):
         if not self.rw_type:
             self.skipTest("no writable type to test")
@@ -112,13 +114,11 @@ class AbstractMemoryTests:
         self.assertRaises(TypeError, setitem, "a", b"a")
         # Not implemented: multidimensional slices
         slices = (slice(0,1,1), slice(0,1,2))
-        # TODO: RUSTPYTHON
-        # self.assertRaises(NotImplementedError, setitem, slices, b"a")
+        self.assertRaises(NotImplementedError, setitem, slices, b"a")
         # Trying to resize the memory object
         exc = ValueError if m.format == 'c' else TypeError
-        # TODO: RUSTPYTHON
-        # self.assertRaises(exc, setitem, 0, b"")
-        # self.assertRaises(exc, setitem, 0, b"ab")
+        self.assertRaises(exc, setitem, 0, b"")
+        self.assertRaises(exc, setitem, 0, b"ab")
         self.assertRaises(ValueError, setitem, slice(1,1), b"a")
         self.assertRaises(ValueError, setitem, slice(0,2), b"a")
 
@@ -150,6 +150,8 @@ class AbstractMemoryTests:
             l = m.tolist()
             self.assertEqual(l, list(b"abcdef"))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_compare(self):
         # memoryviews can compare for equality with other objects
         # having the buffer interface.
@@ -174,12 +176,11 @@ class AbstractMemoryTests:
             self.assertTrue("abcdef" != m)
 
             # Unordered comparisons
-            # TODO: RUSTPYTHON
-            # for c in (m, b"abcdef"):
-            #     self.assertRaises(TypeError, lambda: m < c)
-            #     self.assertRaises(TypeError, lambda: c <= m)
-            #     self.assertRaises(TypeError, lambda: m >= c)
-            #     self.assertRaises(TypeError, lambda: c > m)
+            for c in (m, b"abcdef"):
+                self.assertRaises(TypeError, lambda: m < c)
+                self.assertRaises(TypeError, lambda: c <= m)
+                self.assertRaises(TypeError, lambda: m >= c)
+                self.assertRaises(TypeError, lambda: c > m)
 
     def check_attributes_with_type(self, tp):
         m = self._view(tp(self._source))
@@ -272,12 +273,11 @@ class AbstractMemoryTests:
         with check: m.itemsize
         with check: m.ndim
         with check: m.readonly
-        # TODO: RUSTPYTHON
-        # with check: m.shape
-        # with check: m.strides
-        # with check:
-        #     with m:
-        #         pass
+        with check: m.shape
+        with check: m.strides
+        with check:
+            with m:
+                pass
         # str() and repr() still function
         self.assertIn("released memory", str(m))
         self.assertIn("released memory", repr(m))

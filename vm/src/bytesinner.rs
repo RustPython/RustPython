@@ -3,7 +3,6 @@ use itertools::Itertools;
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 
-use crate::anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper};
 use crate::byteslike::try_bytes_like;
 use crate::function::{OptionalArg, OptionalOption};
 use crate::obj::objbytearray::PyByteArray;
@@ -21,6 +20,10 @@ use crate::pyobject::{
 use crate::sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex};
 use crate::slots::PyComparisonOp;
 use crate::vm::VirtualMachine;
+use crate::{
+    anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper},
+    obj::objtuple::PyTuple,
+};
 use rustpython_common::hash;
 
 #[derive(Debug, Default, Clone)]
@@ -41,8 +44,9 @@ impl TryFromObject for PyBytesInner {
         }
 
         match_class!(match obj {
+            // TODO: generic way from &[PyObjectRef]
             l @ PyList => l.to_byte_inner(vm),
-            // TODO: PyTyple
+            t @ PyTuple => t.to_bytes_inner(vm),
             obj => {
                 let iter = vm.get_method_or_type_error(obj.clone(), "__iter__", || {
                     format!(

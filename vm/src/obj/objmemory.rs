@@ -8,8 +8,8 @@ use crate::obj::objslice::PySliceRef;
 use crate::obj::objstr::PyStr;
 use crate::obj::objtype::PyTypeRef;
 use crate::pyobject::{
-    IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult,
-    PyThreadingConstraint, PyValue, TypeProtocol,
+    IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
+    PyResult, PyThreadingConstraint, PyValue, TypeProtocol,
 };
 use crate::sliceable::{convert_slice, saturate_range, wrap_index, SequenceIndex};
 use crate::slots::{BufferProtocol, Comparable, Hashable, PyComparisonOp};
@@ -85,9 +85,11 @@ pub struct BufferOptions {
     pub len: usize,
     pub itemsize: usize,
     pub contiguous: bool,
+    pub format: String,
     // TODO: support multiple dimension array
     pub ndim: usize,
-    pub format: String,
+    pub shape: Vec<usize>,
+    pub strides: Vec<isize>,
 }
 
 impl Default for BufferOptions {
@@ -97,8 +99,10 @@ impl Default for BufferOptions {
             len: 0,
             itemsize: 1,
             contiguous: true,
-            ndim: 1,
             format: "B".to_owned(),
+            ndim: 1,
+            shape: Vec::new(),
+            strides: Vec::new(),
         }
     }
 }
@@ -209,10 +213,33 @@ impl PyMemoryView {
         self.try_not_released(vm).map(|_| self.options.ndim)
     }
 
+    // TODO
+    #[pyproperty]
+    fn shape(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        self.try_not_released(vm)
+            .map(|_| (self.options.len,).into_pyobject(vm))
+    }
+
+    // TODO
+    #[pyproperty]
+    fn strides(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        self.try_not_released(vm).map(|_| (0,).into_pyobject(vm))
+    }
+
     #[pyproperty]
     fn format(&self, vm: &VirtualMachine) -> PyResult<PyStr> {
         self.try_not_released(vm)
             .map(|_| PyStr::from(&self.options.format))
+    }
+
+    #[pymethod(magic)]
+    fn enter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        zelf.try_not_released(vm).map(|_| zelf)
+    }
+
+    #[pymethod(magic)]
+    fn exit(&self) {
+        self.release();
     }
 
     // translate the slice index to memory index
