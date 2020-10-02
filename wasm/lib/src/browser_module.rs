@@ -42,15 +42,15 @@ impl FetchResponseFormat {
 
 #[derive(FromArgs)]
 struct FetchArgs {
-    #[pyarg(keyword_only, default = "None")]
+    #[pyarg(named, default)]
     response_format: Option<PyStrRef>,
-    #[pyarg(keyword_only, default = "None")]
+    #[pyarg(named, default)]
     method: Option<PyStrRef>,
-    #[pyarg(keyword_only, default = "None")]
+    #[pyarg(named, default)]
     headers: Option<PyDictRef>,
-    #[pyarg(keyword_only, default = "None")]
+    #[pyarg(named, default)]
     body: Option<PyObjectRef>,
-    #[pyarg(keyword_only, default = "None")]
+    #[pyarg(named, default)]
     content_type: Option<PyStrRef>,
 }
 

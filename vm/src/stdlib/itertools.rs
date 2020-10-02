@@ -547,7 +547,7 @@ mod decl {
     #[derive(FromArgs)]
     struct GroupByArgs {
         iterable: PyObjectRef,
-        #[pyarg(positional_or_keyword, optional = true)]
+        #[pyarg(any, optional)]
         key: OptionalOption<PyObjectRef>,
     }
 
@@ -1044,7 +1044,7 @@ mod decl {
 
     #[derive(FromArgs)]
     struct ProductArgs {
-        #[pyarg(keyword_only, optional = true)]
+        #[pyarg(named, optional)]
         repeat: OptionalArg<usize>,
     }
 
@@ -1485,7 +1485,7 @@ mod decl {
 
     #[derive(FromArgs)]
     struct ZiplongestArgs {
-        #[pyarg(keyword_only, optional = true)]
+        #[pyarg(named, optional)]
         fillvalue: OptionalArg<PyObjectRef>,
     }
 

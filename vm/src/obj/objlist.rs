@@ -95,9 +95,9 @@ impl PyList {
 
 #[derive(FromArgs, Default)]
 pub(crate) struct SortOptions {
-    #[pyarg(keyword_only, default = "None")]
+    #[pyarg(named, default)]
     key: Option<PyObjectRef>,
-    #[pyarg(keyword_only, default = "false")]
+    #[pyarg(named, default = "false")]
     reverse: bool,
 }
 

@@ -332,9 +332,9 @@ mod decl {
 
     #[derive(FromArgs)]
     struct DecompressArgs {
-        #[pyarg(positional_only)]
+        #[pyarg(positional)]
         data: PyBytesRef,
-        #[pyarg(positional_or_keyword, default = "0")]
+        #[pyarg(any, default = "0")]
         max_length: usize,
     }
 

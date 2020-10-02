@@ -61,13 +61,13 @@ pub type PyPropertyRef = PyRef<PyProperty>;
 
 #[derive(FromArgs)]
 struct PropertyArgs {
-    #[pyarg(positional_or_keyword, default = "None")]
+    #[pyarg(any, default)]
     fget: Option<PyObjectRef>,
-    #[pyarg(positional_or_keyword, default = "None")]
+    #[pyarg(any, default)]
     fset: Option<PyObjectRef>,
-    #[pyarg(positional_or_keyword, default = "None")]
+    #[pyarg(any, default)]
     fdel: Option<PyObjectRef>,
-    #[pyarg(positional_or_keyword, default = "None")]
+    #[pyarg(any, default)]
     doc: Option<PyObjectRef>,
 }
 

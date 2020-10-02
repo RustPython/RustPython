@@ -107,17 +107,17 @@ mod decl {
     #[derive(FromArgs)]
     #[allow(dead_code)]
     struct CompileArgs {
-        #[pyarg(positional_only, optional = false)]
+        #[pyarg(positional)]
         source: Either<PyStrRef, PyBytesRef>,
-        #[pyarg(positional_only, optional = false)]
+        #[pyarg(positional)]
         filename: PyStrRef,
-        #[pyarg(positional_only, optional = false)]
+        #[pyarg(positional)]
         mode: PyStrRef,
-        #[pyarg(positional_or_keyword, optional = true)]
+        #[pyarg(any, optional)]
         flags: OptionalArg<PyIntRef>,
-        #[pyarg(positional_or_keyword, optional = true)]
+        #[pyarg(any, optional)]
         dont_inherit: OptionalArg<bool>,
-        #[pyarg(positional_or_keyword, optional = true)]
+        #[pyarg(any, optional)]
         optimize: OptionalArg<PyIntRef>,
     }
 
@@ -188,10 +188,10 @@ mod decl {
     #[cfg(feature = "rustpython-compiler")]
     #[derive(FromArgs)]
     struct ScopeArgs {
-        #[pyarg(positional_or_keyword, default = "None")]
+        #[pyarg(any, default)]
         globals: Option<PyDictRef>,
         // TODO: support any mapping for `locals`
-        #[pyarg(positional_or_keyword, default = "None")]
+        #[pyarg(any, default)]
         locals: Option<PyDictRef>,
     }
 
@@ -669,13 +669,13 @@ mod decl {
 
     #[derive(Debug, Default, FromArgs)]
     pub struct PrintOptions {
-        #[pyarg(keyword_only, default = "None")]
+        #[pyarg(named, default)]
         sep: Option<PyStrRef>,
-        #[pyarg(keyword_only, default = "None")]
+        #[pyarg(named, default)]
         end: Option<PyStrRef>,
-        #[pyarg(keyword_only, default = "IntoPyBool::FALSE")]
+        #[pyarg(named, default = "IntoPyBool::FALSE")]
         flush: IntoPyBool,
-        #[pyarg(keyword_only, default = "None")]
+        #[pyarg(named, default)]
         file: Option<PyObjectRef>,
     }
 

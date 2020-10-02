@@ -32,7 +32,7 @@ mod _collections {
 
     #[derive(FromArgs)]
     struct PyDequeOptions {
-        #[pyarg(positional_or_keyword, default = "None")]
+        #[pyarg(any, default)]
         maxlen: Option<usize>,
     }
 

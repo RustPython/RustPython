@@ -38,7 +38,7 @@ mod _io {
     pub(super) struct OptionalSize {
         // In a few functions, the default value is -1 rather than None.
         // Make sure the default value doesn't affect compatibility.
-        #[pyarg(positional_only, default = "None")]
+        #[pyarg(positional, default)]
         size: Option<isize>,
     }
 
@@ -607,13 +607,13 @@ mod _io {
 
     #[derive(FromArgs)]
     struct TextIOWrapperArgs {
-        #[pyarg(positional_or_keyword, optional = false)]
+        #[pyarg(any)]
         buffer: PyObjectRef,
-        #[pyarg(positional_or_keyword, default = "None")]
+        #[pyarg(any, default)]
         encoding: Option<PyStrRef>,
-        #[pyarg(positional_or_keyword, default = "None")]
+        #[pyarg(any, default)]
         errors: Option<PyStrRef>,
-        #[pyarg(positional_or_keyword, default = "None")]
+        #[pyarg(any, default)]
         newline: Option<PyStrRef>,
     }
 
@@ -795,7 +795,7 @@ mod _io {
 
     #[derive(FromArgs)]
     struct StringIOArgs {
-        #[pyarg(positional_or_keyword, default = "None")]
+        #[pyarg(any, default)]
         #[allow(dead_code)]
         // TODO: use this
         newline: Option<PyStrRef>,
@@ -1133,17 +1133,17 @@ mod _io {
     #[derive(FromArgs)]
     #[allow(unused)]
     pub struct OpenArgs {
-        #[pyarg(positional_or_keyword, default = "-1")]
+        #[pyarg(any, default = "-1")]
         buffering: isize,
-        #[pyarg(positional_or_keyword, default = "None")]
+        #[pyarg(any, default)]
         encoding: Option<PyStrRef>,
-        #[pyarg(positional_or_keyword, default = "None")]
+        #[pyarg(any, default)]
         errors: Option<PyStrRef>,
-        #[pyarg(positional_or_keyword, default = "None")]
+        #[pyarg(any, default)]
         newline: Option<PyStrRef>,
-        #[pyarg(positional_or_keyword, default = "true")]
+        #[pyarg(any, default = "true")]
         closefd: bool,
-        #[pyarg(positional_or_keyword, default = "None")]
+        #[pyarg(any, default)]
         opener: Option<PyObjectRef>,
     }
     impl Default for OpenArgs {
@@ -1450,13 +1450,13 @@ mod fileio {
 
     #[derive(FromArgs)]
     struct FileIOArgs {
-        #[pyarg(positional_only)]
+        #[pyarg(positional)]
         name: Either<PyStrRef, i64>,
-        #[pyarg(positional_or_keyword, default = "None")]
+        #[pyarg(any, default)]
         mode: Option<PyStrRef>,
-        #[pyarg(positional_or_keyword, default = "true")]
+        #[pyarg(any, default = "true")]
         closefd: bool,
-        #[pyarg(positional_or_keyword, default = "None")]
+        #[pyarg(any, default)]
         opener: Option<PyObjectRef>,
     }
 

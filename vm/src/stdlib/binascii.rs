@@ -114,7 +114,7 @@ mod decl {
 
     #[derive(FromArgs)]
     struct NewlineArg {
-        #[pyarg(keyword_only, default = "true")]
+        #[pyarg(named, default = "true")]
         newline: bool,
     }
 

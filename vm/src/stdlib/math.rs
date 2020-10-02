@@ -47,13 +47,13 @@ make_math_func_bool!(math_isnan, is_nan);
 
 #[derive(FromArgs)]
 struct IsCloseArgs {
-    #[pyarg(positional_only, optional = false)]
+    #[pyarg(positional)]
     a: IntoPyFloat,
-    #[pyarg(positional_only, optional = false)]
+    #[pyarg(positional)]
     b: IntoPyFloat,
-    #[pyarg(keyword_only, optional = true)]
+    #[pyarg(named, optional)]
     rel_tol: OptionalArg<IntoPyFloat>,
-    #[pyarg(keyword_only, optional = true)]
+    #[pyarg(named, optional)]
     abs_tol: OptionalArg<IntoPyFloat>,
 }
 
