@@ -136,8 +136,24 @@ fn math_sqrt(value: IntoPyFloat, vm: &VirtualMachine) -> PyResult<f64> {
 }
 
 // Trigonometric functions:
-make_math_func!(math_acos, acos);
-make_math_func!(math_asin, asin);
+fn math_acos(x: IntoPyFloat, vm: &VirtualMachine) -> PyResult<f64> {
+    let x = x.to_f64();
+    if x.is_nan() || (-1.0_f64..=1.0_f64).contains(&x) {
+        Ok(x.acos())
+    } else {
+        Err(vm.new_value_error("math domain error".to_owned()))
+    }
+}
+
+fn math_asin(x: IntoPyFloat, vm: &VirtualMachine) -> PyResult<f64> {
+    let x = x.to_f64();
+    if x.is_nan() || (-1.0_f64..=1.0_f64).contains(&x) {
+        Ok(x.asin())
+    } else {
+        Err(vm.new_value_error("math domain error".to_owned()))
+    }
+}
+
 make_math_func!(math_atan, atan);
 
 fn math_atan2(y: IntoPyFloat, x: IntoPyFloat) -> f64 {
