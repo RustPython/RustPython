@@ -127,7 +127,13 @@ fn math_pow(x: IntoPyFloat, y: IntoPyFloat) -> f64 {
     x.to_f64().powf(y.to_f64())
 }
 
-make_math_func!(math_sqrt, sqrt);
+fn math_sqrt(value: IntoPyFloat, vm: &VirtualMachine) -> PyResult<f64> {
+    let value = value.to_f64();
+    if value.is_sign_negative() {
+        return Err(vm.new_value_error("math domain error".to_owned()));
+    }
+    Ok(value.sqrt())
+}
 
 // Trigonometric functions:
 make_math_func!(math_acos, acos);

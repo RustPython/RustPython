@@ -1455,7 +1455,6 @@ class MathTests(unittest.TestCase):
         self.assertEqual(math.sinh(NINF), NINF)
         self.assertTrue(math.isnan(math.sinh(NAN)))
 
-    @unittest.skip('TODO: RUSTPYTHON')
     def testSqrt(self):
         self.assertRaises(TypeError, math.sqrt)
         self.ftest('sqrt(0)', math.sqrt(0), 0)
