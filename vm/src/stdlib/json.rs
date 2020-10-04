@@ -225,10 +225,10 @@ mod _json {
     fn encode_string(s: &str, ascii_only: bool) -> String {
         let mut buf = Vec::<u8>::with_capacity(s.len() + 2);
         super::machinery::write_json_string(s, ascii_only, &mut buf)
-            // writing to a vec can't fail
+            // SAFETY: writing to a vec can't fail
             .unwrap_or_else(|_| unsafe { std::hint::unreachable_unchecked() });
-        // TODO: verify that the implementation is correct enough to use `from_utf8_unchecked`
-        String::from_utf8(buf).expect("invalid utf-8 in json output")
+        // SAFETY: we only output valid utf8 from write_json_string
+        unsafe { String::from_utf8_unchecked(buf) }
     }
 
     #[pyfunction]
