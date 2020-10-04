@@ -96,3 +96,133 @@ pub fn write_json_string<W: io::Write>(s: &str, ascii_only: bool, w: &mut W) -> 
     w.write_all(&bytes[write_start_idx..])?;
     w.write_all(b"\"")
 }
+
+#[derive(Debug)]
+pub struct DecodeError {
+    pub msg: String,
+    pub pos: usize,
+}
+impl DecodeError {
+    fn new(msg: impl Into<String>, pos: usize) -> Self {
+        Self {
+            msg: msg.into(),
+            pos,
+        }
+    }
+}
+
+enum StrOrChar<'a> {
+    Str(&'a str),
+    Char(char),
+}
+impl StrOrChar<'_> {
+    fn len(&self) -> usize {
+        match self {
+            StrOrChar::Str(s) => s.len(),
+            StrOrChar::Char(c) => c.len_utf8(),
+        }
+    }
+}
+pub fn scanstring(s: &str, end: usize, strict: bool) -> Result<(String, usize), DecodeError> {
+    let mut chunks: Vec<StrOrChar> = Vec::new();
+    let mut chunk_start = end;
+    let mut chars = s.char_indices().enumerate().skip(end).peekable();
+    while let Some((char_i, (i, c))) = chars.next() {
+        match c {
+            '"' => {
+                chunks.push(StrOrChar::Str(&s[chunk_start..i]));
+                let len = chunks.iter().map(|x| x.len()).sum();
+                let mut out = String::with_capacity(len);
+                for x in chunks {
+                    match x {
+                        StrOrChar::Str(s) => out.push_str(s),
+                        StrOrChar::Char(c) => out.push(c),
+                    }
+                }
+                return Ok((out, char_i + 1));
+            }
+            '\\' => {
+                let (_, (_, c)) = match chars.next() {
+                    Some(next) => next,
+                    // unterminated string
+                    None => break,
+                };
+                let esc = match c {
+                    '"' => "\"",
+                    '\\' => "\\",
+                    '/' => "/",
+                    'b' => "\x08",
+                    'f' => "\x0c",
+                    'n' => "\n",
+                    'r' => "\r",
+                    't' => "\t",
+                    'u' => {
+                        let surrogate_err = || DecodeError::new("unpaired surrogate", char_i);
+                        chunks.push(StrOrChar::Str(&s[chunk_start..i]));
+                        let mut uni = decode_unicode(&mut chars, char_i)?;
+                        chunk_start = char_i + 6;
+                        if (0xd800..=0xdbff).contains(&uni) {
+                            // uni is a surrogate -- try to find its pair
+                            if let Some(&(pos2, (_, '\\'))) = chars.peek() {
+                                // ok, the next char starts an escape
+                                chars.next();
+                                if let Some((_, (_, 'u'))) = chars.peek() {
+                                    // ok, it's a unicode escape
+                                    chars.next();
+                                    let uni2 = decode_unicode(&mut chars, pos2)?;
+                                    chunk_start = pos2 + 6;
+                                    if (0xdc00..=0xdfff).contains(&uni2) {
+                                        // ok, we found what we were looking for -- \uXXXX\uXXXX, both surrogates
+                                        uni = 0x10000 + (((uni - 0xd800) << 10) | (uni2 - 0xdc00));
+                                    } else {
+                                        // if we don't find a matching surrogate, error -- until str
+                                        // isn't utf8 internally, we can't parse surrogates
+                                        return Err(surrogate_err());
+                                    }
+                                } else {
+                                    return Err(surrogate_err());
+                                }
+                            }
+                        }
+                        chunks.push(StrOrChar::Char(
+                            std::char::from_u32(uni).ok_or_else(surrogate_err)?,
+                        ));
+                        continue;
+                    }
+                    _ => {
+                        return Err(DecodeError::new(
+                            format!("Invalid \\escape: {:?}", c),
+                            char_i,
+                        ))
+                    }
+                };
+                chunks.push(StrOrChar::Str(&s[chunk_start..i]));
+                chunk_start = i + 2;
+                chunks.push(StrOrChar::Str(esc));
+            }
+            '\x00'..='\x1f' if strict => {
+                return Err(DecodeError::new(
+                    format!("Invalid control character {:?} at", c),
+                    char_i,
+                ));
+            }
+            _ => {}
+        }
+    }
+    Err(DecodeError::new("Unterminated string starting at", end - 1))
+}
+
+#[inline]
+fn decode_unicode<I>(it: &mut I, pos: usize) -> Result<u32, DecodeError>
+where
+    I: Iterator<Item = (usize, (usize, char))>,
+{
+    let err = || DecodeError::new("Invalid \\uXXXX escape", pos);
+    let mut uni = 0;
+    for x in (0..4).rev() {
+        let (_, (_, c)) = it.next().ok_or_else(err)?;
+        let d = c.to_digit(16).ok_or_else(err)?;
+        uni += d * 16u32.pow(x);
+    }
+    Ok(uni)
+}

@@ -8,8 +8,6 @@ class BadBool:
 
 
 class TestSpeedups(CTest):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_scanstring(self):
         self.assertEqual(self.json.decoder.scanstring.__module__, "_json")
         self.assertIs(self.json.decoder.scanstring, self.json.decoder.c_scanstring)
