@@ -135,6 +135,23 @@ fn math_sqrt(value: IntoPyFloat, vm: &VirtualMachine) -> PyResult<f64> {
     Ok(value.sqrt())
 }
 
+fn math_isqrt(x: PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt> {
+    let index = vm.to_index(&x).ok_or_else(|| {
+        vm.new_type_error(format!(
+            "'{}' object cannot be interpreted as an integer",
+            x.class().name
+        ))
+    })?;
+    // __index__ may have returned non-int type
+    let python_value = index?;
+    let value = python_value.borrow_value();
+
+    if value.is_negative() {
+        return Err(vm.new_value_error("isqrt() argument must be nonnegative".to_owned()));
+    }
+    Ok(value.sqrt())
+}
+
 // Trigonometric functions:
 fn math_acos(x: IntoPyFloat, vm: &VirtualMachine) -> PyResult<f64> {
     let x = x.to_f64();
@@ -442,6 +459,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "log10" => named_function!(ctx, math, log10),
         "pow" => named_function!(ctx, math, pow),
         "sqrt" => named_function!(ctx, math, sqrt),
+        "isqrt" => named_function!(ctx, math, isqrt),
 
         // Trigonometric functions:
         "acos" => named_function!(ctx, math, acos),
