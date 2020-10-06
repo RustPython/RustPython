@@ -558,17 +558,7 @@ impl PyMemoryView {
         let bytes = &*zelf.obj_bytes();
         let elements: Vec<PyObjectRef> = (0..zelf.options.len)
             .map(|i| zelf.get_pos(i as isize).unwrap())
-            .map(|i| {
-                zelf.format_spec
-                    .unpack(&bytes[i..i + zelf.options.itemsize], vm)
-                    .map(|x| {
-                        if x.len() == 1 {
-                            x.fast_getitem(0)
-                        } else {
-                            x.into_object()
-                        }
-                    })
-            })
+            .map(|i| format_unpack(&zelf.format_spec, &bytes[i..i + zelf.options.itemsize], vm))
             .try_collect()?;
 
         Ok(PyList::from(elements).into_ref(vm))
@@ -633,33 +623,52 @@ impl PyMemoryView {
         if zelf.released.load() {
             return Ok(false);
         }
-        let options_cmp = |a: &BufferOptions, b: &BufferOptions| -> bool {
-            a.len == b.len && a.itemsize == b.itemsize
-        };
-        // TODO: fast pass for contiguous buffer
-        match other.clone().downcast::<PyMemoryView>() {
-            Ok(other) => {
-                if options_cmp(&zelf.options, &other.options) {
-                    let a = Self::tolist(zelf.clone(), vm)?;
-                    let b = Self::tolist(other, vm)?;
-                    if vm.bool_eq(a.as_object(), b.as_object())? {
-                        return Ok(true);
-                    }
-                }
-            }
-            Err(other) => {
-                if let Ok(buffer) = try_buffer_from_object(vm, &other) {
-                    let options = buffer.get_options();
-                    // FIXME
-                    if options_cmp(&zelf.options, &options)
-                        && (**(Self::tobytes(zelf.clone(), vm)?) == *buffer.obj_bytes())
-                    {
-                        return Ok(true);
-                    }
-                }
-            }
+
+        let other = try_buffer_from_object(vm, other)?;
+
+        let a_options = &zelf.options;
+        let b_options = &*other.get_options();
+
+        if a_options.len != b_options.len
+            || a_options.ndim != b_options.ndim
+            || a_options.shape != b_options.shape
+        {
+            return Ok(false);
         }
-        Ok(false)
+
+        let a_guard;
+        let a_vec;
+        let a = match zelf.as_contiguous() {
+            Some(bytes) => {
+                a_guard = bytes;
+                &*a_guard
+            }
+            None => {
+                a_vec = zelf.to_contiguous();
+                a_vec.as_slice()
+            }
+        };
+        let b_guard;
+        let b_vec;
+        let b = match other.as_contiguous() {
+            Some(bytes) => {
+                b_guard = bytes;
+                &*b_guard
+            }
+            None => {
+                b_vec = other.to_contiguous();
+                b_vec.as_slice()
+            }
+        };
+
+        if a_options.format == b_options.format {
+            Ok(a == b)
+        } else {
+            let a_list = unpack_bytes_seq_to_list(a, &a_options.format, vm)?;
+            let b_list = unpack_bytes_seq_to_list(b, &b_options.format, vm)?;
+
+            Ok(vm.bool_eq(a_list.as_object(), b_list.as_object())?)
+        }
     }
 }
 
@@ -777,4 +786,39 @@ pub fn try_buffer_from_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResul
         "a bytes-like object is required, not '{}'",
         obj_cls.name
     )))
+}
+
+fn format_unpack(
+    format_spec: &FormatSpec,
+    bytes: &[u8],
+    vm: &VirtualMachine,
+) -> PyResult<PyObjectRef> {
+    format_spec.unpack(bytes, vm).map(|x| {
+        if x.len() == 1 {
+            x.fast_getitem(0)
+        } else {
+            x.into_object()
+        }
+    })
+}
+
+pub fn unpack_bytes_seq_to_list(
+    bytes: &[u8],
+    format: &str,
+    vm: &VirtualMachine,
+) -> PyResult<PyListRef> {
+    let format_spec = PyMemoryView::parse_format(format, vm)?;
+    let itemsize = format_spec.size();
+
+    if bytes.len() % itemsize != 0 {
+        return Err(vm.new_value_error("bytes length not a multiple of item size".to_owned()));
+    }
+
+    let len = bytes.len() / itemsize;
+
+    let elements: Vec<PyObjectRef> = (0..len)
+        .map(|i| format_unpack(&format_spec, &bytes[i..i + itemsize], vm))
+        .try_collect()?;
+
+    Ok(PyList::from(elements).into_ref(vm))
 }

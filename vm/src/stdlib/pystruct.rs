@@ -193,7 +193,7 @@ pub(crate) mod _struct {
             Ok(PyTupleRef::with_elements(items, &vm.ctx))
         }
 
-        fn size(&self) -> usize {
+        pub fn size(&self) -> usize {
             self.codes.iter().map(FormatCode::size).sum()
         }
     }
