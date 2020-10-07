@@ -18,7 +18,10 @@ mod _io {
     use std::io::{self, prelude::*, Cursor, SeekFrom};
 
     use crate::byteslike::{PyBytesLike, PyRwBytesLike};
-    use crate::common::lock::{PyRwLock, PyRwLockWriteGuard};
+    use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
+    use crate::common::lock::{
+        PyRwLock, PyRwLockReadGuard, PyRwLockUpgradableReadGuard, PyRwLockWriteGuard,
+    };
     use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
     use crate::function::{Args, KwArgs, OptionalArg, OptionalOption, PyFuncArgs};
     use crate::obj::objbool;
@@ -26,6 +29,7 @@ mod _io {
     use crate::obj::objbytes::PyBytesRef;
     use crate::obj::objint;
     use crate::obj::objiter;
+    use crate::obj::objmemory::{Buffer, BufferOptions, BufferRef, PyMemoryView, PyMemoryViewRef};
     use crate::obj::objstr::{self, PyStr, PyStrRef};
     use crate::obj::objtype::{self, PyTypeRef};
     use crate::pyobject::{
@@ -939,6 +943,8 @@ mod _io {
     struct BytesIO {
         buffer: PyRwLock<BufferedIO>,
         closed: AtomicCell<bool>,
+        exports: AtomicCell<usize>,
+        buffer_options: PyRwLock<Option<Box<BufferOptions>>>,
     }
 
     type BytesIORef = PyRef<BytesIO>;
@@ -972,6 +978,8 @@ mod _io {
             BytesIO {
                 buffer: PyRwLock::new(BufferedIO::new(Cursor::new(raw_bytes))),
                 closed: AtomicCell::new(false),
+                exports: AtomicCell::new(0),
+                buffer_options: PyRwLock::new(None),
             }
             .into_ref_with_type(vm, cls)
         }
@@ -981,6 +989,7 @@ mod _io {
     impl BytesIORef {
         #[pymethod]
         fn write(self, data: PyBytesLike, vm: &VirtualMachine) -> PyResult<u64> {
+            self.try_resizable(vm)?;
             let mut buffer = self.buffer(vm)?;
             match data.with_ref(|b| buffer.write(b)) {
                 Some(value) => Ok(value),
@@ -1048,6 +1057,7 @@ mod _io {
 
         #[pymethod]
         fn truncate(self, pos: OptionalSize, vm: &VirtualMachine) -> PyResult<()> {
+            self.try_resizable(vm)?;
             let mut buffer = self.buffer(vm)?;
             buffer.truncate(pos.try_usize(vm)?)?;
             Ok(())
@@ -1059,8 +1069,57 @@ mod _io {
         }
 
         #[pymethod]
-        fn close(self) {
-            self.closed.store(true)
+        fn close(self, vm: &VirtualMachine) -> PyResult<()> {
+            self.try_resizable(vm)?;
+            self.closed.store(true);
+            Ok(())
+        }
+
+        #[pymethod]
+        fn getbuffer(self, vm: &VirtualMachine) -> PyResult<PyMemoryViewRef> {
+            let buffer: Box<dyn Buffer> = Box::new(self.clone());
+            let buffer = BufferRef::from(buffer);
+            let view = PyMemoryView::from_buffer(self.clone().into_object(), buffer, vm)?;
+            self.exports.fetch_add(1);
+            Ok(view.into_ref(vm))
+        }
+    }
+
+    impl Buffer for BytesIORef {
+        fn get_options(&self) -> BorrowedValue<BufferOptions> {
+            let guard = self.buffer_options.upgradable_read();
+            let guard = if guard.is_none() {
+                let mut w = PyRwLockUpgradableReadGuard::upgrade(guard);
+                *w = Some(Box::new(BufferOptions {
+                    readonly: false,
+                    len: self.buffer.read().cursor.get_ref().len(),
+                    ..Default::default()
+                }));
+                PyRwLockWriteGuard::downgrade(w)
+            } else {
+                PyRwLockUpgradableReadGuard::downgrade(guard)
+            };
+            PyRwLockReadGuard::map(guard, |x| x.as_ref().unwrap().as_ref()).into()
+        }
+
+        fn obj_bytes(&self) -> BorrowedValue<[u8]> {
+            PyRwLockReadGuard::map(self.buffer.read(), |x| x.cursor.get_ref().as_slice()).into()
+        }
+
+        fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
+            PyRwLockWriteGuard::map(self.buffer.write(), |x| x.cursor.get_mut().as_mut_slice())
+                .into()
+        }
+
+        fn release(&self) {
+            let mut w = self.buffer_options.write();
+            if self.exports.fetch_sub(1) == 1 {
+                *w = None;
+            }
+        }
+
+        fn is_resizable(&self) -> bool {
+            self.exports.load() == 0
         }
     }
 
