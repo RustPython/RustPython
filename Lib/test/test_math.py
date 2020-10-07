@@ -927,7 +927,6 @@ class MathTests(unittest.TestCase):
             self.assertEqual(math.dist(p, q), 5*scale)
             self.assertEqual(math.dist(q, p), 5*scale)
 
-    @unittest.skip('TODO: RUSTPYTHON')
     def testIsqrt(self):
         # Test a variety of inputs, large and small.
         test_values = (
