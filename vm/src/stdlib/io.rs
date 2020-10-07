@@ -17,7 +17,7 @@ mod _io {
     use num_traits::ToPrimitive;
     use std::io::{self, prelude::*, Cursor, SeekFrom};
 
-    use crate::byteslike::PyBytesLike;
+    use crate::byteslike::{PyBytesLike, PyRwBytesLike};
     use crate::common::lock::{PyRwLock, PyRwLockWriteGuard};
     use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
     use crate::function::{Args, KwArgs, OptionalArg, OptionalOption, PyFuncArgs};
@@ -1005,6 +1005,17 @@ mod _io {
                 .read(size.to_usize())
                 .unwrap_or_else(Vec::new);
             Ok(buf)
+        }
+
+        #[pymethod]
+        fn readinto(self, obj: PyRwBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
+            let mut buf = self.buffer(vm)?;
+            let ret = buf
+                .cursor
+                .read(&mut *obj.borrow_value())
+                .map_err(|_| vm.new_value_error("Error readinto from Take".to_owned()))?;
+
+            Ok(ret)
         }
 
         //skip to the jth position
