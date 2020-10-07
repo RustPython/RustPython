@@ -134,6 +134,7 @@ pub fn scanstring<'a>(
         output_len += chunk.len();
         chunks.push(chunk);
     };
+    let unterminated_err = || DecodeError::new("Unterminated string starting at", end - 1);
     let mut chunk_start = end;
     let mut chars = s.char_indices().enumerate().skip(end).peekable();
     while let Some((char_i, (i, c))) = chars.next() {
@@ -150,11 +151,8 @@ pub fn scanstring<'a>(
                 return Ok((out, char_i + 1));
             }
             '\\' => {
-                let (_, (_, c)) = match chars.next() {
-                    Some(next) => next,
-                    // unterminated string
-                    None => break,
-                };
+                push_chunk(StrOrChar::Str(&s[chunk_start..i]));
+                let (_, (_, c)) = chars.next().ok_or_else(unterminated_err)?;
                 let esc = match c {
                     '"' => "\"",
                     '\\' => "\\",
@@ -166,7 +164,6 @@ pub fn scanstring<'a>(
                     't' => "\t",
                     'u' => {
                         let surrogate_err = || DecodeError::new("unpaired surrogate", char_i);
-                        push_chunk(StrOrChar::Str(&s[chunk_start..i]));
                         let mut uni = decode_unicode(&mut chars, char_i)?;
                         chunk_start = char_i + 6;
                         if (0xd800..=0xdbff).contains(&uni) {
@@ -204,7 +201,6 @@ pub fn scanstring<'a>(
                         ))
                     }
                 };
-                push_chunk(StrOrChar::Str(&s[chunk_start..i]));
                 chunk_start = i + 2;
                 push_chunk(StrOrChar::Str(esc));
             }
@@ -217,7 +213,7 @@ pub fn scanstring<'a>(
             _ => {}
         }
     }
-    Err(DecodeError::new("Unterminated string starting at", end - 1))
+    Err(unterminated_err())
 }
 
 #[inline]
