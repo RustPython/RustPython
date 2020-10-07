@@ -602,6 +602,30 @@ impl PyMemoryView {
         }
     }
 
+    // TODO: Changed in version 3.8: memoryview.hex() now supports optional sep and bytes_per_sep
+    // parameters to insert separators between bytes in the hex output.
+    #[pymethod]
+    fn hex(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        zelf.try_not_released(vm)?;
+        let guard;
+        let vec;
+        let bytes = match zelf.as_contiguous() {
+            Some(bytes) => {
+                guard = bytes;
+                &*guard
+            }
+            None => {
+                vec = zelf.to_contiguous();
+                vec.as_slice()
+            }
+        };
+        let s = bytes
+            .iter()
+            .map(|x| format!("{:02x}", x))
+            .collect::<String>();
+        Ok(s)
+    }
+
     fn eq(zelf: &PyRef<Self>, other: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         if zelf.is(other) {
             return Ok(true);
@@ -675,7 +699,8 @@ impl Buffer for PyMemoryViewRef {
     }
 
     fn is_resizable(&self) -> bool {
-        self.buffer.is_resizable()
+        // memoryview cannot resize
+        false
     }
 
     fn as_contiguous(&self) -> Option<BorrowedValue<[u8]>> {

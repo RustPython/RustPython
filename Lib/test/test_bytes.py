@@ -416,8 +416,6 @@ class BaseBytesTest:
                 self.type2test.fromhex(data)
             self.assertIn('at position %s' % pos, str(cm.exception))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_hex(self):
         self.assertRaises(TypeError, self.type2test.hex)
         self.assertRaises(TypeError, self.type2test.hex, 1)

@@ -221,8 +221,10 @@ impl PyBytes {
         self.inner.swapcase().into()
     }
 
+    // TODO: Changed in version 3.8: bytes.hex() now supports optional sep and
+    // bytes_per_sep parameters to insert separators between bytes in the hex output.
     #[pymethod(name = "hex")]
-    fn hex(&self) -> String {
+    pub(crate) fn hex(&self) -> String {
         self.inner.hex()
     }
 
