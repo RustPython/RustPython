@@ -2,7 +2,7 @@ use csv as rust_csv;
 use itertools::{self, Itertools};
 use std::fmt::{self, Debug, Formatter};
 
-use crate::common::cell::PyRwLock;
+use crate::common::lock::PyRwLock;
 use crate::function::PyFuncArgs;
 use crate::obj::objiter;
 use crate::obj::objstr::{self, PyStr};

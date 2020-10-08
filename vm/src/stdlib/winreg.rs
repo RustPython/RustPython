@@ -1,5 +1,5 @@
 #![allow(non_snake_case)]
-use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
+use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::exceptions::IntoPyException;
 use crate::function::OptionalArg;
 use crate::obj::objstr::PyStrRef;

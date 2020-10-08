@@ -1,6 +1,6 @@
 use super::socket::PySocketRef;
 use crate::byteslike::PyBytesLike;
-use crate::common::cell::{PyRwLock, PyRwLockWriteGuard};
+use crate::common::lock::{PyRwLock, PyRwLockWriteGuard};
 use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
 use crate::function::OptionalArg;
 use crate::obj::objbytearray::PyByteArrayRef;

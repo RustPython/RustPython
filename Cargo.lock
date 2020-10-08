@@ -1635,6 +1635,7 @@ dependencies = [
  "derive_more",
  "hexf-parse",
  "lexical-core",
+ "lock_api",
  "num-bigint",
  "num-complex",
  "num-traits",

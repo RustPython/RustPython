@@ -2,7 +2,7 @@ pub(crate) use hashlib::make_module;
 
 #[pymodule]
 mod hashlib {
-    use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
+    use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
     use crate::function::{OptionalArg, PyFuncArgs};
     use crate::obj::objbytes::{PyBytes, PyBytesRef};
     use crate::obj::objstr::PyStrRef;

@@ -1,4 +1,4 @@
-use crate::common::cell::PyRwLock;
+use crate::common::lock::PyRwLock;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 

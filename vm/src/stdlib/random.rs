@@ -4,7 +4,7 @@ pub(crate) use _random::make_module;
 
 #[pymodule]
 mod _random {
-    use crate::common::cell::PyMutex;
+    use crate::common::lock::PyMutex;
     use crate::function::OptionalOption;
     use crate::obj::objint::PyIntRef;
     use crate::obj::objtype::PyTypeRef;

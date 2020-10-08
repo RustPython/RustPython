@@ -1,4 +1,4 @@
-use crate::common::cell::{
+use crate::common::lock::{
     PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyRwLock, PyRwLockReadGuard,
     PyRwLockWriteGuard,
 };

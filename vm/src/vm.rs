@@ -19,7 +19,7 @@ use rustpython_compiler::{
 
 use crate::builtins::{self, to_ascii};
 use crate::bytecode;
-use crate::common::{cell::PyMutex, hash::HashSecret, rc::PyRc};
+use crate::common::{hash::HashSecret, lock::PyMutex, rc::PyRc};
 use crate::exceptions::{self, PyBaseException, PyBaseExceptionRef};
 use crate::frame::{ExecutionResult, Frame, FrameRef};
 use crate::frozen;
@@ -904,13 +904,7 @@ impl VirtualMachine {
         // This is only used in the vm for magic methods, which use a greatly simplified attribute lookup.
         match obj.get_class_attr(method_name) {
             Some(func) => {
-                vm_trace!(
-                    "vm.call_method {:?} {:?} {:?} -> {:?}",
-                    obj,
-                    cls,
-                    method_name,
-                    func
-                );
+                vm_trace!("vm.call_method {:?} {:?} -> {:?}", obj, method_name, func);
                 let wrapped = self.call_if_get_descriptor(func, obj.clone())?;
                 self.invoke(&wrapped, args)
             }
