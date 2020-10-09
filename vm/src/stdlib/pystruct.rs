@@ -267,12 +267,13 @@ mod _struct {
         Ok(codes)
     }
 
+    #[rustfmt::skip] // rustfmt makes it way too long
     fn is_supported_format_character(c: char) -> bool {
-        match c {
+        matches!(
+            c,
             'x' | 'c' | 'b' | 'B' | '?' | 'h' | 'H' | 'i' | 'I' | 'l' | 'L' | 'q' | 'Q' | 'n'
-            | 'N' | 'f' | 'd' | 's' | 'p' | 'P' => true,
-            _ => false,
-        }
+            | 'N' | 'f' | 'd' | 's' | 'p' | 'P'
+        )
     }
 
     fn get_int_or_index<T>(vm: &VirtualMachine, arg: &PyObjectRef) -> PyResult<T>
