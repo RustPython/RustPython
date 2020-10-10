@@ -150,7 +150,7 @@ impl SlotDescriptor for PySuper {
         } else {
             let obj = vm.unwrap_or_none(zelf.obj.clone().map(|(o, _)| o));
             vm.invoke(
-                zelf_class.as_object(),
+                zelf.as_object().clone_class().as_object(),
                 vec![zelf.typ.clone().into_object(), obj],
             )
         }
@@ -164,7 +164,7 @@ fn supercheck(ty: PyTypeRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<
         }
     }
     if objtype::isinstance(&obj, &ty) {
-        return Ok(obj.class());
+        return Ok(obj.clone_class());
     }
     let class_attr = vm.get_attribute(obj, "__class__")?;
     if let Ok(cls) = class_attr.downcast::<PyType>() {

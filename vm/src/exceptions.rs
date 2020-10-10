@@ -372,7 +372,7 @@ pub fn split(
     vm: &VirtualMachine,
 ) -> (PyObjectRef, PyObjectRef, PyObjectRef) {
     let tb = exc.traceback().into_pyobject(vm);
-    (exc.class().into_object(), exc.into_object(), tb)
+    (exc.clone_class().into_object(), exc.into_object(), tb)
 }
 
 /// Similar to PyErr_NormalizeException in CPython

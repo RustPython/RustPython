@@ -733,7 +733,7 @@ where
 pub trait TypeProtocol {
     fn lease_class(&self) -> PyLease<'_, PyType>;
 
-    fn class(&self) -> PyTypeRef {
+    fn clone_class(&self) -> PyTypeRef {
         PyLease::into_pyref(self.lease_class())
     }
 

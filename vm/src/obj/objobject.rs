@@ -215,7 +215,7 @@ impl PyBaseObject {
 
     #[pyproperty(name = "__class__")]
     fn get_class(obj: PyObjectRef) -> PyObjectRef {
-        obj.class().into_object()
+        obj.clone_class().into_object()
     }
 
     #[pyproperty(name = "__class__", setter)]

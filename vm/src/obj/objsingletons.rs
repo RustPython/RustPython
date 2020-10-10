@@ -11,7 +11,7 @@ pub type PyNoneRef = PyRef<PyNone>;
 
 impl PyValue for PyNone {
     fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.none.class()
+        vm.ctx.none.clone_class()
     }
 }
 
@@ -57,7 +57,7 @@ pub type PyNotImplementedRef = PyRef<PyNotImplemented>;
 
 impl PyValue for PyNotImplemented {
     fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.not_implemented.class()
+        vm.ctx.not_implemented.clone_class()
     }
 }
 
@@ -70,6 +70,6 @@ impl PyNotImplemented {
 }
 
 pub fn init(context: &PyContext) {
-    PyNone::extend_class(context, &context.none.class());
-    PyNotImplemented::extend_class(context, &context.not_implemented.class());
+    PyNone::extend_class(context, &context.none.clone_class());
+    PyNotImplemented::extend_class(context, &context.not_implemented.clone_class());
 }

@@ -892,7 +892,7 @@ impl VirtualMachine {
     }
 
     pub fn call_get_descriptor(&self, descr: PyObjectRef, obj: PyObjectRef) -> Option<PyResult> {
-        let cls = obj.class().into_object();
+        let cls = obj.clone_class().into_object();
         self.call_get_descriptor_specific(descr, Some(obj), Some(cls))
     }
 
@@ -1151,7 +1151,7 @@ impl VirtualMachine {
             Ok(Some(obj_attr))
         } else if let Some(attr) = cls_attr {
             self.call_if_get_descriptor(attr, obj).map(Some)
-        } else if let Some(getter) = obj.class().get_attr("__getattr__") {
+        } else if let Some(getter) = obj.clone_class().get_attr("__getattr__") {
             self.invoke(&getter, vec![obj, name_str.into_object()])
                 .map(Some)
         } else {

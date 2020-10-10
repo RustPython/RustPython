@@ -828,7 +828,7 @@ mod decl {
         for base in bases.clone() {
             let base_class = base.lease_class();
             if objtype::issubclass(&base_class, &metaclass) {
-                metaclass = base.class();
+                metaclass = base.clone_class();
             } else if !objtype::issubclass(&metaclass, &base_class) {
                 return Err(vm.new_type_error(
                     "metaclass conflict: the metaclass of a derived class must be a (non-strict) \

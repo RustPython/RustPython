@@ -288,7 +288,7 @@ pub struct PyEllipsis;
 
 impl PyValue for PyEllipsis {
     fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.ellipsis.class()
+        vm.ctx.ellipsis.clone_class()
     }
 }
 
@@ -312,5 +312,5 @@ impl PyEllipsis {
 
 pub fn init(context: &PyContext) {
     PySlice::extend_class(context, &context.types.slice_type);
-    PyEllipsis::extend_class(context, &context.ellipsis.class());
+    PyEllipsis::extend_class(context, &context.ellipsis.clone_class());
 }
