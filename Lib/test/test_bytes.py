@@ -424,8 +424,6 @@ class BaseBytesTest:
         self.assertEqual(self.type2test(b"\x1a\x2b\x30").hex(), '1a2b30')
         self.assertEqual(memoryview(b"\x1a\x2b\x30").hex(), '1a2b30')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_hex_separator_basics(self):
         three_bytes = self.type2test(b'\xb9\x01\xef')
         self.assertEqual(three_bytes.hex(), 'b901ef')
@@ -467,8 +465,6 @@ class BaseBytesTest:
         five_bytes = self.type2test(range(90,95))
         self.assertEqual(five_bytes.hex(), '5a5b5c5d5e')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_hex_separator_six_bytes(self):
         six_bytes = self.type2test(x*3 for x in range(1, 7))
         self.assertEqual(six_bytes.hex(), '0306090c0f12')

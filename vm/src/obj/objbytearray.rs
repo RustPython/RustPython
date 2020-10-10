@@ -4,10 +4,10 @@ use crossbeam_utils::atomic::AtomicCell;
 use rustpython_common::borrow::{BorrowedValue, BorrowedValueMut};
 use std::mem::size_of;
 
-use super::objint::PyIntRef;
 use super::objiter;
 use super::objstr::PyStrRef;
 use super::objtype::PyTypeRef;
+use super::{objbytes::PyBytesRef, objint::PyIntRef};
 use crate::anystr::{self, AnyStr};
 use crate::bytesinner::{
     bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
@@ -249,8 +249,13 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "hex")]
-    fn hex(&self) -> String {
-        self.borrow_value().hex()
+    fn hex(
+        &self,
+        sep: OptionalArg<Either<PyStrRef, PyBytesRef>>,
+        bytes_per_sep: OptionalArg<isize>,
+        vm: &VirtualMachine,
+    ) -> PyResult<String> {
+        self.borrow_value().hex(sep, bytes_per_sep, vm)
     }
 
     #[pymethod]

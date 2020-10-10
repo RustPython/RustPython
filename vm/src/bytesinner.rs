@@ -3,7 +3,6 @@ use itertools::Itertools;
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 
-use crate::byteslike::try_bytes_like;
 use crate::function::{OptionalArg, OptionalOption};
 use crate::obj::objbytearray::PyByteArray;
 use crate::obj::objbytes::PyBytes;
@@ -24,6 +23,7 @@ use crate::{
     anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper},
     obj::objtuple::PyTuple,
 };
+use crate::{byteslike::try_bytes_like, obj::objbytes::PyBytesRef};
 use rustpython_common::hash;
 
 #[derive(Debug, Default, Clone)]
@@ -549,11 +549,13 @@ impl PyBytesInner {
         new
     }
 
-    pub fn hex(&self) -> String {
-        self.elements
-            .iter()
-            .map(|x| format!("{:02x}", x))
-            .collect::<String>()
+    pub fn hex(
+        &self,
+        sep: OptionalArg<Either<PyStrRef, PyBytesRef>>,
+        bytes_per_sep: OptionalArg<isize>,
+        vm: &VirtualMachine,
+    ) -> PyResult<String> {
+        bytes_to_hex(self.elements.as_slice(), sep, bytes_per_sep, vm)
     }
 
     pub fn fromhex(string: &str, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
@@ -1234,4 +1236,96 @@ pub fn bytes_decode(
                 obj.class().name,
             ))
         })
+}
+
+fn hex_no_sep(bytes: &[u8]) -> String {
+    let mut buf: Vec<u8> = vec![0; bytes.len() * 2];
+    hex::encode_to_slice(bytes, buf.as_mut_slice()).unwrap();
+    unsafe { String::from_utf8_unchecked(buf) }
+}
+
+pub fn bytes_to_hex(
+    bytes: &[u8],
+    sep: OptionalArg<Either<PyStrRef, PyBytesRef>>,
+    bytes_per_sep: OptionalArg<isize>,
+    vm: &VirtualMachine,
+) -> PyResult<String> {
+    if bytes.is_empty() {
+        return Ok("".to_owned());
+    }
+
+    match sep {
+        OptionalArg::Present(sep) => {
+            let bytes_per_sep = bytes_per_sep.unwrap_or(1);
+            if bytes_per_sep == 0 {
+                return Ok(hex_no_sep(bytes));
+            }
+
+            let s_guard;
+            let b_guard;
+            let sep = match &sep {
+                Either::A(s) => {
+                    s_guard = s.borrow_value();
+                    s_guard.as_bytes()
+                }
+                Either::B(bytes) => {
+                    b_guard = bytes.borrow_value();
+                    b_guard
+                }
+            };
+
+            if sep.len() != 1 {
+                return Err(vm.new_value_error("sep must be length 1.".to_owned()));
+            }
+            let sep = sep[0];
+            if sep > 127 {
+                return Err(vm.new_value_error("sep must be ASCII.".to_owned()));
+            }
+
+            let len = bytes.len();
+
+            let buf = if bytes_per_sep < 0 {
+                let bytes_per_sep = std::cmp::min(len, (-bytes_per_sep) as usize);
+                let chunks = (len - 1) / bytes_per_sep;
+                let chunked = chunks * bytes_per_sep;
+                let unchunked = len - chunked;
+                let mut buf = vec![0; len * 2 + chunks];
+                let mut j = 0;
+                for i in (0..chunks).map(|i| i * bytes_per_sep) {
+                    hex::encode_to_slice(
+                        &bytes[i..i + bytes_per_sep],
+                        &mut buf[j..j + bytes_per_sep * 2],
+                    )
+                    .unwrap();
+                    j += bytes_per_sep * 2;
+                    buf[j] = sep;
+                    j += 1;
+                }
+                hex::encode_to_slice(&bytes[chunked..], &mut buf[j..j + unchunked * 2]).unwrap();
+                buf
+            } else {
+                let bytes_per_sep = std::cmp::min(len, bytes_per_sep as usize);
+                let chunks = (len - 1) / bytes_per_sep;
+                let chunked = chunks * bytes_per_sep;
+                let unchunked = len - chunked;
+                let mut buf = vec![0; len * 2 + chunks];
+                hex::encode_to_slice(&bytes[..unchunked], &mut buf[..unchunked * 2]).unwrap();
+                let mut j = unchunked * 2;
+                for i in (0..chunks).map(|i| i * bytes_per_sep + unchunked) {
+                    buf[j] = sep;
+                    j += 1;
+                    hex::encode_to_slice(
+                        &bytes[i..i + bytes_per_sep],
+                        &mut buf[j..j + bytes_per_sep * 2],
+                    )
+                    .unwrap();
+                    j += bytes_per_sep * 2;
+                }
+                buf
+            };
+
+            Ok(unsafe { String::from_utf8_unchecked(buf) })
+        }
+        OptionalArg::Missing => Ok(hex_no_sep(bytes)),
+    }
 }
