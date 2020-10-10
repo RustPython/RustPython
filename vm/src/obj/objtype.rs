@@ -56,29 +56,29 @@ impl PyValue for PyType {
     }
 }
 
-impl PyTypeRef {
-    fn tp_name(zelf: Self, vm: &VirtualMachine) -> String {
-        let opt_name = zelf.slots.name.read().clone();
+impl PyType {
+    fn tp_name(&self, vm: &VirtualMachine) -> String {
+        let opt_name = self.slots.name.read().clone();
         opt_name.unwrap_or_else(|| {
-            let module = zelf.attributes.read().get("__module__").cloned();
+            let module = self.attributes.read().get("__module__").cloned();
             let new_name = if let Some(module) = module {
                 // FIXME: "unknown" case is a bug.
                 let module_str = PyStrRef::try_from_object(vm, module)
                     .map_or("<unknown>".to_owned(), |m| m.borrow_value().to_owned());
-                format!("{}.{}", module_str, &zelf.name)
+                format!("{}.{}", module_str, &self.name)
             } else {
-                zelf.name.clone()
+                self.name.clone()
             };
-            *zelf.slots.name.write() = Some(new_name.clone());
+            *self.slots.name.write() = Some(new_name.clone());
             new_name
         })
     }
 
-    pub fn iter_mro(&self) -> impl Iterator<Item = &PyTypeRef> + DoubleEndedIterator {
-        std::iter::once(self).chain(self.mro.iter())
+    pub fn iter_mro(&self) -> impl Iterator<Item = &PyType> + DoubleEndedIterator {
+        std::iter::once(self).chain(self.mro.iter().map(|cls| cls.deref()))
     }
 
-    pub(crate) fn first_in_mro<F, R>(&self, f: F) -> Option<R>
+    pub(crate) fn mro_find_map<F, R>(&self, f: F) -> Option<R>
     where
         F: Fn(&Self) -> Option<R>,
     {
@@ -87,12 +87,8 @@ impl PyTypeRef {
         if let Some(r) = f(self) {
             Some(r)
         } else {
-            self.mro.iter().filter_map(|cls| f(cls)).next()
+            self.mro.iter().find_map(|cls| f(&cls))
         }
-    }
-
-    pub fn iter_base_chain(&self) -> impl Iterator<Item = &PyTypeRef> {
-        std::iter::successors(Some(self), |cls| cls.base.as_ref())
     }
 
     // This is used for class initialisation where the vm is not yet available.
@@ -102,12 +98,39 @@ impl PyTypeRef {
             .insert(attr_name.to_owned(), value.into());
     }
 
+    /// This is the internal get_attr implementation for fast lookup on a class.
+    pub fn get_attr(&self, attr_name: &str) -> Option<PyObjectRef> {
+        flame_guard!(format!("class_get_attr({:?})", attr_name));
+
+        self.get_direct_attr(attr_name)
+            .or_else(|| self.get_super_attr(attr_name))
+    }
+
+    pub fn get_direct_attr(&self, attr_name: &str) -> Option<PyObjectRef> {
+        self.attributes.read().get(attr_name).cloned()
+    }
+
+    pub fn get_super_attr(&self, attr_name: &str) -> Option<PyObjectRef> {
+        self.mro
+            .iter()
+            .find_map(|class| class.attributes.read().get(attr_name).cloned())
+    }
+
+    // This is the internal has_attr implementation for fast lookup on a class.
+    pub fn has_attr(&self, attr_name: &str) -> bool {
+        self.attributes.read().contains_key(attr_name)
+            || self
+                .mro
+                .iter()
+                .any(|c| c.attributes.read().contains_key(attr_name))
+    }
+
     pub fn get_attributes(&self) -> PyAttributes {
         // Gather all members here:
         let mut attributes = PyAttributes::new();
 
         for bc in self.iter_mro().rev() {
-            for (name, value) in bc.attributes.read().clone().iter() {
+            for (name, value) in bc.attributes.read().iter() {
                 attributes.insert(name.to_owned(), value.clone());
             }
         }
@@ -177,6 +200,16 @@ impl PyTypeRef {
     }
 }
 
+impl PyTypeRef {
+    pub fn iter_mro(&self) -> impl Iterator<Item = &PyTypeRef> + DoubleEndedIterator {
+        std::iter::once(self).chain(self.mro.iter())
+    }
+
+    pub fn iter_base_chain(&self) -> impl Iterator<Item = &PyTypeRef> {
+        std::iter::successors(Some(self), |cls| cls.base.as_ref())
+    }
+}
+
 #[inline]
 fn get_class_magic(zelf: &PyObjectRef, name: &str) -> PyObjectRef {
     zelf.get_class_attr(name).unwrap()
@@ -237,8 +270,8 @@ impl PyType {
     }
 
     #[pymethod(magic)]
-    fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> String {
-        format!("<class '{}'>", PyRef::<Self>::tp_name(zelf, vm))
+    fn repr(&self, vm: &VirtualMachine) -> String {
+        format!("<class '{}'>", self.tp_name(vm))
     }
 
     #[pyproperty(magic)]
@@ -471,8 +504,8 @@ impl PyType {
 }
 
 impl SlotGetattro for PyType {
-    fn getattro(zelf: PyRef<Self>, name_ref: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        let name = name_ref.borrow_value();
+    fn getattro(zelf: PyRef<Self>, name_str: PyStrRef, vm: &VirtualMachine) -> PyResult {
+        let name = name_str.borrow_value();
         vm_trace!("type.__getattribute__({:?}, {:?})", zelf, name);
         let mcl = zelf.lease_class();
 
@@ -482,7 +515,7 @@ impl SlotGetattro for PyType {
             let attr_class = attr.lease_class();
             if attr_class.has_attr("__set__") {
                 if let Some(ref descr_get) =
-                    PyLease::into_pyref(attr_class).first_in_mro(|cls| cls.slots.descr_get.load())
+                    attr_class.mro_find_map(|cls| cls.slots.descr_get.load())
                 {
                     let mcl = PyLease::into_pyref(mcl).into_object();
                     return descr_get(attr.clone(), Some(zelf.into_object()), Some(mcl), vm);
@@ -493,8 +526,10 @@ impl SlotGetattro for PyType {
         let zelf_attr = zelf.get_attr(name);
 
         if let Some(ref attr) = zelf_attr {
-            let attr_class = attr.class();
-            if let Some(descr_get) = attr_class.first_in_mro(|cls| cls.slots.descr_get.load()) {
+            if let Some(descr_get) = attr
+                .lease_class()
+                .mro_find_map(|cls| cls.slots.descr_get.load())
+            {
                 drop(mcl);
                 return descr_get(attr.clone(), None, Some(zelf.into_object()), vm);
             }
@@ -510,7 +545,7 @@ impl SlotGetattro for PyType {
                 getter,
                 vec![
                     PyLease::into_pyref(mcl).into_object(),
-                    name_ref.into_object(),
+                    name_str.into_object(),
                 ],
             )
         } else {
@@ -596,25 +631,25 @@ pub(crate) fn init(ctx: &PyContext) {
     PyType::extend_class(ctx, &ctx.types.type_type);
 }
 
-pub trait DerefToPyClass {
-    fn deref_to_class(&self) -> &PyType;
+pub trait DerefToPyType {
+    fn deref_to_type(&self) -> &PyType;
 }
 
-impl DerefToPyClass for PyTypeRef {
-    fn deref_to_class(&self) -> &PyType {
+impl DerefToPyType for PyTypeRef {
+    fn deref_to_type(&self) -> &PyType {
         self.deref()
     }
 }
 
-impl<'a> DerefToPyClass for PyLease<'a, PyType> {
-    fn deref_to_class(&self) -> &PyType {
+impl<'a> DerefToPyType for PyLease<'a, PyType> {
+    fn deref_to_type(&self) -> &PyType {
         self.deref()
     }
 }
 
-impl<T: DerefToPyClass> DerefToPyClass for &'_ T {
-    fn deref_to_class(&self) -> &PyType {
-        (&**self).deref_to_class()
+impl<T: DerefToPyType> DerefToPyType for &'_ T {
+    fn deref_to_type(&self) -> &PyType {
+        (&**self).deref_to_type()
     }
 }
 
@@ -628,8 +663,8 @@ pub fn isinstance<T: TypeProtocol>(obj: &T, cls: &PyTypeRef) -> bool {
 /// Determines if `subclass` is actually a subclass of `cls`, this doesn't call __subclasscheck__,
 /// so only use this if `cls` is known to have not overridden the base __subclasscheck__ magic
 /// method.
-pub fn issubclass<T: DerefToPyClass + IdProtocol, R: IdProtocol>(subclass: T, cls: R) -> bool {
-    subclass.is(&cls) || subclass.deref_to_class().mro.iter().any(|c| c.is(&cls))
+pub fn issubclass<T: DerefToPyType + IdProtocol, R: IdProtocol>(subclass: T, cls: R) -> bool {
+    subclass.is(&cls) || subclass.deref_to_type().mro.iter().any(|c| c.is(&cls))
 }
 
 fn call_tp_new(
@@ -638,7 +673,7 @@ fn call_tp_new(
     args: PyFuncArgs,
     vm: &VirtualMachine,
 ) -> PyResult {
-    for cls in typ.iter_mro() {
+    for cls in typ.deref().iter_mro() {
         if let Some(new_meth) = cls.get_attr("__new__") {
             if !vm.ctx.is_tp_new_wrapper(&new_meth) {
                 let new_meth = vm.call_if_get_descriptor(new_meth, typ.clone().into_object())?;
@@ -666,35 +701,6 @@ pub fn tp_new_wrapper(
         )));
     }
     call_tp_new(zelf, cls, args, vm)
-}
-
-impl PyType {
-    /// This is the internal get_attr implementation for fast lookup on a class.
-    pub fn get_attr(&self, attr_name: &str) -> Option<PyObjectRef> {
-        flame_guard!(format!("class_get_attr({:?})", attr_name));
-
-        self.get_direct_attr(attr_name)
-            .or_else(|| self.get_super_attr(attr_name))
-    }
-
-    pub fn get_direct_attr(&self, attr_name: &str) -> Option<PyObjectRef> {
-        self.attributes.read().get(attr_name).cloned()
-    }
-
-    pub fn get_super_attr(&self, attr_name: &str) -> Option<PyObjectRef> {
-        self.mro
-            .iter()
-            .find_map(|class| class.attributes.read().get(attr_name).cloned())
-    }
-
-    // This is the internal has_attr implementation for fast lookup on a class.
-    pub fn has_attr(&self, attr_name: &str) -> bool {
-        self.attributes.read().contains_key(attr_name)
-            || self
-                .mro
-                .iter()
-                .any(|c| c.attributes.read().contains_key(attr_name))
-    }
 }
 
 fn take_next_base(mut bases: Vec<Vec<PyTypeRef>>) -> (Option<PyTypeRef>, Vec<Vec<PyTypeRef>>) {

@@ -146,7 +146,7 @@ where
 
         // CPython-compatible drop implementation
         let zelf = Self::into_ref(self.clone());
-        if let Some(del_slot) = zelf.class().first_in_mro(|cls| cls.slots.del.load()) {
+        if let Some(del_slot) = zelf.lease_class().mro_find_map(|cls| cls.slots.del.load()) {
             crate::vm::thread::with_vm(&zelf, |vm| {
                 if let Err(e) = del_slot(&zelf, vm) {
                     // exception in del will be ignored but printed

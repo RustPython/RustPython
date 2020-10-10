@@ -66,8 +66,8 @@ impl PyBaseObject {
             }
             PyComparisonOp::Ne => {
                 let cmp = zelf
-                    .class()
-                    .first_in_mro(|cls| cls.slots.cmp.load())
+                    .lease_class()
+                    .mro_find_map(|cls| cls.slots.cmp.load())
                     .unwrap();
                 let value = match cmp(zelf, other, PyComparisonOp::Eq, vm)? {
                     Either::A(obj) => PyArithmaticValue::from_object(vm, obj)

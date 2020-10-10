@@ -885,10 +885,10 @@ impl VirtualMachine {
         obj: Option<PyObjectRef>,
         cls: Option<PyObjectRef>,
     ) -> Option<PyResult> {
-        descr
-            .class()
-            .first_in_mro(|cls| cls.slots.descr_get.load())
-            .map(|descr_get| descr_get(descr, obj, cls, self))
+        let descr_get = descr
+            .lease_class()
+            .mro_find_map(|cls| cls.slots.descr_get.load());
+        descr_get.map(|descr_get| descr_get(descr, obj, cls, self))
     }
 
     pub fn call_get_descriptor(&self, descr: PyObjectRef, obj: PyObjectRef) -> Option<PyResult> {
@@ -920,7 +920,9 @@ impl VirtualMachine {
 
     fn _invoke(&self, callable: &PyObjectRef, args: PyFuncArgs) -> PyResult {
         vm_trace!("Invoke: {:?} {:?}", callable, args);
-        let slot_call = callable.class().first_in_mro(|cls| cls.slots.call.load());
+        let slot_call = callable
+            .lease_class()
+            .mro_find_map(|cls| cls.slots.call.load());
         match slot_call {
             Some(slot_call) => {
                 self.trace_event(TraceEvent::Call)?;
@@ -1014,8 +1016,8 @@ impl VirtualMachine {
         let attr_name = attr_name.try_into_ref(self)?;
         vm_trace!("vm.__getattribute__: {:?} {:?}", obj, attr_name);
         let getattro = obj
-            .class()
-            .first_in_mro(|cls| cls.slots.getattro.load())
+            .lease_class()
+            .mro_find_map(|cls| cls.slots.getattro.load())
             .unwrap();
         getattro(obj, attr_name, self)
     }
@@ -1158,8 +1160,8 @@ impl VirtualMachine {
     }
 
     pub fn is_callable(&self, obj: &PyObjectRef) -> bool {
-        obj.class()
-            .first_in_mro(|cls| cls.slots.call.load())
+        obj.lease_class()
+            .mro_find_map(|cls| cls.slots.call.load())
             .is_some()
     }
 
@@ -1442,8 +1444,8 @@ impl VirtualMachine {
 
         let call_cmp = |obj: &PyObjectRef, other, op| {
             let cmp = obj
-                .class()
-                .first_in_mro(|cls| cls.slots.cmp.load())
+                .lease_class()
+                .mro_find_map(|cls| cls.slots.cmp.load())
                 .unwrap();
             Ok(match cmp(obj, other, op, self)? {
                 Either::A(obj) => PyArithmaticValue::from_object(self, obj).map(Either::A),
@@ -1494,8 +1496,8 @@ impl VirtualMachine {
 
     pub fn _hash(&self, obj: &PyObjectRef) -> PyResult<rustpython_common::hash::PyHash> {
         let hash = obj
-            .class()
-            .first_in_mro(|cls| cls.slots.hash.load())
+            .lease_class()
+            .mro_find_map(|cls| cls.slots.hash.load())
             .unwrap(); // hash always exist
         hash(&obj, self)
     }
