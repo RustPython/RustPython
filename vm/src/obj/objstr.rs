@@ -103,28 +103,42 @@ impl TryIntoRef<PyStr> for &str {
 
 #[pyclass(module = false, name = "str_iterator")]
 #[derive(Debug)]
-pub struct PyStringIterator {
-    pub string: PyStrRef,
+pub struct PyStrIterator {
+    string: PyStrRef,
     position: AtomicCell<usize>,
 }
 
-impl PyValue for PyStringIterator {
+impl PyValue for PyStrIterator {
     fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.str_iterator_type.clone()
     }
 }
 
 #[pyimpl]
-impl PyStringIterator {
+impl PyStrIterator {
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult<String> {
-        // TODO: use something more performant than chars().nth() that's still atomic
-        let pos = self.position.fetch_add(1);
+        let value = &*self.string.value;
+        let start = self.position.load();
+        if start == value.len() {
+            return Err(objiter::new_stop_iteration(vm));
+        }
+        let end = {
+            let mut end = None;
+            for i in 1..4 {
+                if value.is_char_boundary(start + i) {
+                    end = Some(start + i);
+                    break;
+                }
+            }
+            end.unwrap_or(start + 4)
+        };
 
-        if let Some(c) = self.string.value.chars().nth(pos) {
-            Ok(c.to_string())
+        if let Ok(_stored) = self.position.compare_exchange(start, end) {
+            Ok(value[start..end].to_owned())
         } else {
-            Err(objiter::new_stop_iteration(vm))
+            // already taken from elsewhere
+            self.next(vm)
         }
     }
 
@@ -136,28 +150,44 @@ impl PyStringIterator {
 
 #[pyclass(module = false, name = "str_reverseiterator")]
 #[derive(Debug)]
-pub struct PyStringReverseIterator {
-    pub position: AtomicCell<isize>,
-    pub string: PyStrRef,
+pub struct PyStrReverseIterator {
+    string: PyStrRef,
+    position: AtomicCell<usize>,
 }
 
-impl PyValue for PyStringReverseIterator {
+impl PyValue for PyStrReverseIterator {
     fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.str_reverseiterator_type.clone()
     }
 }
 
 #[pyimpl]
-impl PyStringReverseIterator {
+impl PyStrReverseIterator {
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult<String> {
-        let pos = self.position.fetch_sub(1);
-        if pos > 0 {
-            if let Some(c) = self.string.value.chars().nth(pos as usize - 1) {
-                return Ok(c.to_string());
-            }
+        let value = &*self.string.value;
+        let end = self.position.load();
+        if end == 0 {
+            return Err(objiter::new_stop_iteration(vm));
         }
-        Err(objiter::new_stop_iteration(vm))
+        let start = {
+            let mut start = None;
+            for i in 1..4 {
+                if value.is_char_boundary(end - i) {
+                    start = Some(end - i);
+                    break;
+                }
+            }
+            start.unwrap_or(end - 4)
+        };
+
+        let stored = self.position.swap(start);
+        if end != stored {
+            // already taken from elsewhere
+            return self.next(vm);
+        }
+
+        Ok(value[start..end].to_owned())
     }
 
     #[pymethod(name = "__iter__")]
@@ -1029,19 +1059,19 @@ impl PyStr {
     }
 
     #[pymethod(magic)]
-    fn iter(zelf: PyRef<Self>) -> PyStringIterator {
-        PyStringIterator {
+    fn iter(zelf: PyRef<Self>) -> PyStrIterator {
+        PyStrIterator {
             position: AtomicCell::new(0),
             string: zelf,
         }
     }
 
     #[pymethod(magic)]
-    fn reversed(zelf: PyRef<Self>) -> PyStringReverseIterator {
-        let begin = zelf.value.chars().count();
+    fn reversed(zelf: PyRef<Self>) -> PyStrReverseIterator {
+        let end = zelf.value.len();
 
-        PyStringReverseIterator {
-            position: AtomicCell::new(begin as isize),
+        PyStrReverseIterator {
+            position: AtomicCell::new(end),
             string: zelf,
         }
     }
@@ -1159,8 +1189,8 @@ impl FindArgs {
 pub fn init(ctx: &PyContext) {
     PyStr::extend_class(ctx, &ctx.types.str_type);
 
-    PyStringIterator::extend_class(ctx, &ctx.types.str_iterator_type);
-    PyStringReverseIterator::extend_class(ctx, &ctx.types.str_reverseiterator_type);
+    PyStrIterator::extend_class(ctx, &ctx.types.str_iterator_type);
+    PyStrReverseIterator::extend_class(ctx, &ctx.types.str_reverseiterator_type);
 }
 
 pub fn clone_value(obj: &PyObjectRef) -> String {
