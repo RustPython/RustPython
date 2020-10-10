@@ -3,11 +3,15 @@ mod machinery;
 
 #[pymodule]
 mod _json {
-    use crate::function::PyFuncArgs;
+    use super::*;
+    use crate::exceptions::PyBaseExceptionRef;
+    use crate::function::{OptionalArg, PyFuncArgs};
     use crate::obj::objiter;
     use crate::obj::objstr::PyStrRef;
     use crate::obj::{objbool, objtype::PyTypeRef};
-    use crate::pyobject::{BorrowValue, IdProtocol, PyObjectRef, PyRef, PyResult, PyValue};
+    use crate::pyobject::{
+        BorrowValue, IdProtocol, IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    };
     use crate::slots::Callable;
     use crate::VirtualMachine;
 
@@ -83,16 +87,8 @@ mod _json {
             let next_idx = idx + c.len_utf8();
             match c {
                 '"' => {
-                    // TODO: parse the string in rust
-                    let parse_str = vm.get_attribute(self.ctx.clone(), "parse_string")?;
-                    return vm.invoke(
-                        &parse_str,
-                        vec![
-                            pystr.into_object(),
-                            vm.ctx.new_int(next_idx),
-                            vm.ctx.new_bool(self.strict),
-                        ],
-                    );
+                    return scanstring(pystr, next_idx, OptionalArg::Present(self.strict), vm)
+                        .map(|x| x.into_pyobject(vm))
                 }
                 '{' => {
                     // TODO: parse the object in rust
@@ -224,11 +220,11 @@ mod _json {
 
     fn encode_string(s: &str, ascii_only: bool) -> String {
         let mut buf = Vec::<u8>::with_capacity(s.len() + 2);
-        super::machinery::write_json_string(s, ascii_only, &mut buf)
-            // writing to a vec can't fail
+        machinery::write_json_string(s, ascii_only, &mut buf)
+            // SAFETY: writing to a vec can't fail
             .unwrap_or_else(|_| unsafe { std::hint::unreachable_unchecked() });
-        // TODO: verify that the implementation is correct enough to use `from_utf8_unchecked`
-        String::from_utf8(buf).expect("invalid utf-8 in json output")
+        // SAFETY: we only output valid utf8 from write_json_string
+        unsafe { String::from_utf8_unchecked(buf) }
     }
 
     #[pyfunction]
@@ -239,5 +235,38 @@ mod _json {
     #[pyfunction]
     fn encode_basestring_ascii(s: PyStrRef) -> String {
         encode_string(s.borrow_value(), true)
+    }
+
+    fn py_decode_error(
+        e: machinery::DecodeError,
+        s: PyStrRef,
+        vm: &VirtualMachine,
+    ) -> PyBaseExceptionRef {
+        let get_error = || -> PyResult<_> {
+            let cls = vm.try_class("json", "JSONDecodeError")?;
+            let exc = vm.invoke(
+                cls.as_object(),
+                vec![
+                    vm.ctx.new_str(e.msg),
+                    s.into_object(),
+                    vm.ctx.new_int(e.pos),
+                ],
+            )?;
+            PyBaseExceptionRef::try_from_object(vm, exc)
+        };
+        match get_error() {
+            Ok(x) | Err(x) => x,
+        }
+    }
+
+    #[pyfunction]
+    fn scanstring(
+        s: PyStrRef,
+        end: usize,
+        strict: OptionalArg<bool>,
+        vm: &VirtualMachine,
+    ) -> PyResult<(String, usize)> {
+        machinery::scanstring(s.borrow_value(), end, strict.unwrap_or(true))
+            .map_err(|e| py_decode_error(e, s, vm))
     }
 }
