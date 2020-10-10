@@ -660,6 +660,7 @@ impl fmt::Debug for CodeObject {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct FrozenModule {
     pub code: CodeObject,
     pub package: bool,
