@@ -183,7 +183,7 @@ pub trait SlotDescriptor: PyValue {
     where
         T: IdProtocol,
     {
-        cls.as_ref().map_or(false, |cls| cls.is(other))
+        cls.as_ref().map_or(false, |cls| other.is(cls))
     }
 }
 

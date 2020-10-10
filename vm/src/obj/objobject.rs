@@ -185,7 +185,7 @@ impl PyBaseObject {
 
     #[pymethod(magic)]
     pub fn dir(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyList> {
-        let attributes: PyAttributes = obj.class().get_attributes();
+        let attributes: PyAttributes = obj.lease_class().get_attributes();
 
         let dict = PyDict::from_attributes(attributes, vm)?.into_ref(vm);
 
