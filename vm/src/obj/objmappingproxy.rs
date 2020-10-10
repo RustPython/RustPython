@@ -126,6 +126,15 @@ impl PyMappingProxy {
         };
         vm.call_method(&obj, "values", vec![])
     }
+    #[pymethod]
+    pub fn copy(&self, vm: &VirtualMachine) -> PyResult {
+        match &self.mapping {
+            MappingProxyInner::Dict(d) => vm.call_method(d, "copy", vec![]),
+            MappingProxyInner::Class(c) => {
+                Ok(PyDict::from_attributes(c.attributes.read().clone(), vm)?.into_pyobject(vm))
+            }
+        }
+    }
 }
 
 pub fn init(context: &PyContext) {

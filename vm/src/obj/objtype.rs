@@ -673,11 +673,12 @@ impl PyType {
     pub fn get_attr(&self, attr_name: &str) -> Option<PyObjectRef> {
         flame_guard!(format!("class_get_attr({:?})", attr_name));
 
-        self.attributes
-            .read()
-            .get(attr_name)
-            .cloned()
+        self.get_direct_attr(attr_name)
             .or_else(|| self.get_super_attr(attr_name))
+    }
+
+    pub fn get_direct_attr(&self, attr_name: &str) -> Option<PyObjectRef> {
+        self.attributes.read().get(attr_name).cloned()
     }
 
     pub fn get_super_attr(&self, attr_name: &str) -> Option<PyObjectRef> {

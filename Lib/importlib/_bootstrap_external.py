@@ -261,11 +261,16 @@ _code_type = type(_write_atomic.__code__)
 #     Python 3.7a2  3391 (update GET_AITER #31709)
 #     Python 3.7a4  3392 (PEP 552: Deterministic pycs #31650)
 #     Python 3.7b1  3393 (remove STORE_ANNOTATION opcode #32550)
-#     Python 3.7b5  3394 (restored docstring as the firts stmt in the body;
+#     Python 3.7b5  3394 (restored docstring as the first stmt in the body;
 #                         this might affected the first line number #32911)
 #     Python 3.8a1  3400 (move frame block handling to compiler #17611)
 #     Python 3.8a1  3401 (add END_ASYNC_FOR #33041)
 #     Python 3.8a1  3410 (PEP570 Python Positional-Only Parameters #36540)
+#     Python 3.8b2  3411 (Reverse evaluation order of key: value in dict
+#                         comprehensions #35224)
+#     Python 3.8b2  3412 (Swap the position of positional args and positional
+#                         only args in ast.arguments #37593)
+#     Python 3.8b4  3413 (Fix "break" and "continue" in "finally" #37830)
 #
 # MAGIC must change whenever the bytecode emitted by the compiler may no
 # longer be understood by older implementations of the eval loop (usually
@@ -963,8 +968,12 @@ class FileLoader:
 
     def get_data(self, path):
         """Return the data from path as raw bytes."""
-        with _io.FileIO(path, 'r') as file:
-            return file.read()
+        if isinstance(self, (SourceLoader, ExtensionFileLoader)):
+            with _io.open_code(str(path)) as file:
+                return file.read()
+        else:
+            with _io.FileIO(path, 'r') as file:
+                return file.read()
 
     # ResourceReader ABC API.
 
@@ -1358,6 +1367,19 @@ class PathFinder:
         if spec is None:
             return None
         return spec.loader
+
+    @classmethod
+    def find_distributions(cls, *args, **kwargs):
+        """
+        Find distributions.
+
+        Return an iterable of all Distribution instances capable of
+        loading the metadata for packages matching ``context.name``
+        (or all names if ``None`` indicated) along the paths in the list
+        of directories ``context.path``.
+        """
+        from importlib.metadata import MetadataPathFinder
+        return MetadataPathFinder.find_distributions(*args, **kwargs)
 
 
 class FileFinder:

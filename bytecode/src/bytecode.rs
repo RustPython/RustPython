@@ -435,6 +435,8 @@ impl CodeObject {
             .iter()
             .map(String::as_str)
             .chain(self.kwonlyarg_names.iter().map(String::as_str))
+            .chain(self.varargs_name.as_deref())
+            .chain(self.varkeywords_name.as_deref())
             .chain(
                 self.instructions
                     .iter()

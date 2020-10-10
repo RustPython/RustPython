@@ -789,8 +789,6 @@ class MappingProxyTests(unittest.TestCase):
         self.assertEqual(set(view.values()), set(values))
         self.assertEqual(set(view.items()), set(items))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_copy(self):
         original = {'key1': 27, 'key2': 51, 'key3': 93}
         view = self.mappingproxy(original)

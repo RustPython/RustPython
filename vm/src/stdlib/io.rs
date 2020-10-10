@@ -1451,7 +1451,7 @@ mod fileio {
     #[derive(FromArgs)]
     struct FileIOArgs {
         #[pyarg(positional)]
-        name: Either<PyStrRef, i64>,
+        name: PyObjectRef,
         #[pyarg(any, default)]
         mode: Option<PyStrRef>,
         #[pyarg(any, default = "true")]
@@ -1477,44 +1477,40 @@ mod fileio {
                 .mode
                 .map(|mode| mode.borrow_value().to_owned())
                 .unwrap_or_else(|| "r".to_owned());
-            let (name, file_no) = match args.name {
-                Either::A(name) => {
-                    if !args.closefd {
-                        return Err(vm.new_value_error(
-                            "Cannot use closefd=False with file name".to_owned(),
-                        ));
-                    }
-                    let mode = compute_c_flag(&mode);
-                    let fd = if let Some(opener) = args.opener {
-                        let fd = vm.invoke(
-                            &opener,
-                            vec![name.clone().into_object(), vm.ctx.new_int(mode)],
-                        )?;
-                        if !vm.isinstance(&fd, &vm.ctx.types.int_type)? {
-                            return Err(
-                                vm.new_type_error("expected integer from opener".to_owned())
-                            );
+            let name = args.name.clone();
+            let fd = if let Some(opener) = args.opener {
+                let mode = compute_c_flag(&mode);
+                let fd = vm.invoke(&opener, vec![name.clone(), vm.ctx.new_int(mode)])?;
+                if !vm.isinstance(&fd, &vm.ctx.types.int_type)? {
+                    return Err(vm.new_type_error("expected integer from opener".to_owned()));
+                }
+                let fd = i64::try_from_object(vm, fd)?;
+                if fd < 0 {
+                    return Err(vm.new_os_error("Negative file descriptor".to_owned()));
+                }
+                fd
+            } else {
+                match Either::<i64, os::PyPathLike>::try_from_object(vm, args.name)? {
+                    Either::A(fno) => fno,
+                    Either::B(path) => {
+                        if !args.closefd {
+                            return Err(vm.new_value_error(
+                                "Cannot use closefd=False with file name".to_owned(),
+                            ));
                         }
-                        let fd = i64::try_from_object(vm, fd)?;
-                        if fd < 0 {
-                            return Err(vm.new_os_error("Negative file descriptor".to_owned()));
-                        }
-                        fd
-                    } else {
+                        let mode = compute_c_flag(&mode);
                         os::open(
-                            os::PyPathLike::new_str(name.borrow_value().to_owned()),
+                            path,
                             mode as _,
                             OptionalArg::Missing,
                             OptionalArg::Missing,
                             vm,
                         )?
-                    };
-                    (name.into_object(), fd)
+                    }
                 }
-                Either::B(fno) => (vm.ctx.new_int(fno), fno),
             };
 
-            zelf.fd.store(file_no);
+            zelf.fd.store(fd);
             zelf.closefd.store(args.closefd);
             vm.set_attr(zelf.as_object(), "name", name)?;
             vm.set_attr(zelf.as_object(), "mode", vm.ctx.new_str(mode))?;
