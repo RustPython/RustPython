@@ -2,7 +2,6 @@ use crossbeam_utils::atomic::AtomicCell;
 use std::fmt;
 
 use super::objiter;
-use super::objsequence::get_item;
 use super::objtype::PyTypeRef;
 use crate::function::OptionalArg;
 use crate::pyobject::{
@@ -10,6 +9,7 @@ use crate::pyobject::{
     PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::sequence::{self, SimpleSeq};
+use crate::sliceable::PySliceableSequence;
 use crate::slots::{Comparable, Hashable, PyComparisonOp};
 use crate::vm::{ReprGuard, VirtualMachine};
 use rustpython_common::hash::PyHash;
@@ -184,12 +184,11 @@ impl PyTuple {
 
     #[pymethod(name = "__getitem__")]
     fn getitem(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Ok(
-            match get_item(vm, zelf.as_object(), &zelf.elements, needle)? {
-                Either::A(obj) => obj,
-                Either::B(vec) => vm.ctx.new_tuple(vec),
-            },
-        )
+        let result = match zelf.elements.as_ref().get_item(vm, needle, "tuple")? {
+            Either::A(obj) => obj,
+            Either::B(vec) => vm.ctx.new_tuple(vec),
+        };
+        Ok(result)
     }
 
     #[pymethod(name = "index")]

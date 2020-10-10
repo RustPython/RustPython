@@ -3,8 +3,8 @@
  */
 
 use super::objcode::PyCodeRef;
-use super::objcoroinner::{Coro, Variant};
 use super::objtype::PyTypeRef;
+use crate::coroutine::{Coro, Variant};
 use crate::frame::FrameRef;
 use crate::function::OptionalArg;
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};

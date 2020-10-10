@@ -5,7 +5,6 @@ use std::ops::Deref;
 
 use super::objint::PyIntRef;
 use super::objiter;
-use super::objsequence::SequenceIndex;
 use super::objstr::PyStrRef;
 use super::objtype::PyTypeRef;
 use crate::anystr::{self, AnyStr};
@@ -139,8 +138,8 @@ impl PyBytes {
     }
 
     #[pymethod(name = "__getitem__")]
-    fn getitem(&self, needle: SequenceIndex, vm: &VirtualMachine) -> PyResult {
-        self.inner.getitem(needle, vm)
+    fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self.inner.getitem("byte", needle, vm)
     }
 
     #[pymethod(name = "isalnum")]

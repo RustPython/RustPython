@@ -16,16 +16,17 @@ use super::objbytes::{PyBytes, PyBytesRef};
 use super::objdict::PyDict;
 use super::objint::{PyInt, PyIntRef};
 use super::objiter;
-use super::objsequence::{PySliceableSequence, SequenceIndex};
 use super::objtype::{self, PyTypeRef};
 use crate::anystr::{self, adjust_indices, AnyStr, AnyStrContainer, AnyStrWrapper};
 use crate::exceptions::IntoPyException;
 use crate::format::{FormatSpec, FormatString, FromTemplate};
 use crate::function::{OptionalArg, OptionalOption, PyFuncArgs};
 use crate::pyobject::{
-    BorrowValue, IdProtocol, IntoPyObject, ItemProtocol, PyClassImpl, PyComparisonValue, PyContext,
-    PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
+    BorrowValue, Either, IdProtocol, IntoPyObject, ItemProtocol, PyClassImpl, PyComparisonValue,
+    PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TryIntoRef,
+    TypeProtocol,
 };
+use crate::sliceable::PySliceableSequence;
 use crate::slots::{Comparable, Hashable, PyComparisonOp};
 use crate::VirtualMachine;
 use rustpython_common::hash;
@@ -258,26 +259,12 @@ impl PyStr {
     }
 
     #[pymethod(name = "__getitem__")]
-    fn getitem(&self, needle: SequenceIndex, vm: &VirtualMachine) -> PyResult {
-        match needle {
-            SequenceIndex::Int(pos) => {
-                let index: usize = if pos.is_negative() {
-                    (self.value.chars().count() as isize + pos) as usize
-                } else {
-                    pos.abs() as usize
-                };
-
-                if let Some(character) = self.value.chars().nth(index) {
-                    Ok(vm.ctx.new_str(character.to_string()))
-                } else {
-                    Err(vm.new_index_error("string index out of range".to_owned()))
-                }
-            }
-            SequenceIndex::Slice(slice) => {
-                let string = self.get_slice_items(vm, &slice)?;
-                Ok(vm.ctx.new_str(string))
-            }
-        }
+    fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let s = match self.get_item(vm, needle, "string")? {
+            Either::A(ch) => ch.to_string(),
+            Either::B(s) => s,
+        };
+        Ok(vm.ctx.new_str(s))
     }
 
     pub(crate) fn hash(&self, vm: &VirtualMachine) -> hash::PyHash {
@@ -1202,7 +1189,12 @@ pub fn borrow_value(obj: &PyObjectRef) -> &str {
 }
 
 impl PySliceableSequence for PyStr {
+    type Item = char;
     type Sliced = String;
+
+    fn do_get(&self, index: usize) -> Self::Item {
+        self.value.chars().nth(index).unwrap()
+    }
 
     fn do_slice(&self, range: Range<usize>) -> Self::Sliced {
         self.value

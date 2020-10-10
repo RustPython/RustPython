@@ -11,11 +11,7 @@ use std::fmt;
 
 use arr_macro::arr;
 use crossbeam_utils::atomic::AtomicCell;
-#[cfg(feature = "rustpython-compiler")]
-use rustpython_compiler::{
-    compile::{self, CompileOpts},
-    error::CompileError,
-};
+use num_traits::{Signed, ToPrimitive};
 
 use crate::builtins::{self, to_ascii};
 use crate::bytecode;
@@ -28,7 +24,7 @@ use crate::import;
 use crate::obj::objbool;
 use crate::obj::objcode::{PyCode, PyCodeRef};
 use crate::obj::objdict::PyDictRef;
-use crate::obj::objint::PyIntRef;
+use crate::obj::objint::{PyInt, PyIntRef};
 use crate::obj::objiter;
 use crate::obj::objlist::PyList;
 use crate::obj::objmodule::{self, PyModule};
@@ -44,6 +40,11 @@ use crate::scope::Scope;
 use crate::slots::PyComparisonOp;
 use crate::stdlib;
 use crate::sysmodule;
+#[cfg(feature = "rustpython-compiler")]
+use rustpython_compiler::{
+    compile::{self, CompileOpts},
+    error::CompileError,
+};
 
 // use objects::objects;
 
@@ -1492,6 +1493,28 @@ impl VirtualMachine {
             .first_in_mro(|cls| cls.slots.hash.load())
             .unwrap(); // hash always exist
         hash(&obj, self)
+    }
+
+    pub fn _len(&self, obj: &PyObjectRef) -> Option<PyResult<usize>> {
+        self.get_method(obj.clone(), "__len__").map(|len| {
+            let len = self.invoke(&len?, vec![])?;
+            let len = len
+                .payload_if_subclass::<PyInt>(self)
+                .ok_or_else(|| {
+                    self.new_type_error(format!(
+                        "'{}' object cannot be interpreted as an integer",
+                        len.lease_class().name
+                    ))
+                })?
+                .borrow_value();
+            if len.is_negative() {
+                return Err(self.new_value_error("__len__() should return >= 0".to_owned()));
+            }
+            let len = len.to_isize().ok_or_else(|| {
+                self.new_overflow_error("cannot fit 'int' into an index-sized integer".to_owned())
+            })?;
+            Ok(len as usize)
+        })
     }
 
     // https://docs.python.org/3/reference/expressions.html#membership-test-operations
