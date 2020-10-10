@@ -737,7 +737,7 @@ pub(crate) fn to_int(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<BigInt>
             Some(int_obj) => Ok(int_obj.borrow_value().clone()),
             None => Err(vm.new_type_error(format!(
                 "__int__ returned non-int (type '{}')",
-                result.class().name
+                result.lease_class().name
             ))),
         };
     }
@@ -748,7 +748,7 @@ pub(crate) fn to_int(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<BigInt>
 
     Err(vm.new_type_error(format!(
         "int() argument must be a string, a bytes-like object or a number, not '{}'",
-        obj.class().name
+        obj.lease_class().name
     )))
 }
 

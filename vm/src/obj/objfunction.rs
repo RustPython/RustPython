@@ -312,7 +312,7 @@ impl SlotDescriptor for PyFunction {
         vm: &VirtualMachine,
     ) -> PyResult {
         let (zelf, obj) = Self::_unwrap(zelf, obj, vm)?;
-        if vm.is_none(&obj) && !Self::_cls_is(&cls, &obj.class()) {
+        if vm.is_none(&obj) && !Self::_cls_is(&cls, &obj.lease_class()) {
             Ok(zelf.into_object())
         } else {
             Ok(vm.ctx.new_bound_method(zelf.into_object(), obj))

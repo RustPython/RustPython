@@ -139,7 +139,7 @@ impl ByteInnerNewOptions {
                                     // .map_err(|_| {
                                     //     vm.new_type_error(format!(
                                     //         "cannot convert '{}' object to bytes",
-                                    //         obj.class().name
+                                    //         obj.lease_class().name
                                     //     ))
                                     // })?;
                                 }

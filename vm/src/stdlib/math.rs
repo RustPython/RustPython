@@ -139,7 +139,7 @@ fn math_isqrt(x: PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt> {
     let index = vm.to_index(&x).ok_or_else(|| {
         vm.new_type_error(format!(
             "'{}' object cannot be interpreted as an integer",
-            x.class().name
+            x.lease_class().name
         ))
     })?;
     // __index__ may have returned non-int type
