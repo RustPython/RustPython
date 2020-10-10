@@ -142,7 +142,7 @@ impl SlotDescriptor for PySuper {
         if vm.is_none(&obj) || zelf.obj.is_some() {
             return Ok(zelf.into_object());
         }
-        let zelf_class = zelf.as_object().class();
+        let zelf_class = zelf.as_object().lease_class();
         if zelf_class.is(&vm.ctx.types.super_type) {
             Ok(PySuper::new(zelf.typ.clone(), obj, vm)?
                 .into_ref(vm)

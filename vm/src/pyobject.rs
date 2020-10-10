@@ -711,6 +711,10 @@ impl<'a, T: PyObjectPayload + PyValue> PyLease<'a, T> {
     pub fn into_pyref(zelf: Self) -> PyRef<T> {
         zelf.inner.clone().into_pyref()
     }
+
+    pub fn as_object(&self) -> &PyObjectRef {
+        PyObjectRc::as_ref(&self.inner)
+    }
 }
 
 impl<'a, T: PyObjectPayload + PyValue> Deref for PyLease<'a, T> {

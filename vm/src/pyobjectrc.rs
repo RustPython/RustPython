@@ -7,7 +7,7 @@ use std::ops::Deref;
 pub struct PyObjectRc<T = dyn PyObjectPayload>
 where
     T: ?Sized + PyObjectPayload,
-    PyRc<PyObject<T>>: AsPyObjectRef,
+    PyRc<PyObject<T>>: IntoDynRef,
 {
     inner: PyRc<PyObject<T>>,
 }
@@ -19,21 +19,21 @@ where
     inner: PyWeak<PyObject<T>>,
 }
 
-pub trait AsPyObjectRef {
-    fn _as_ref(self) -> PyRc<PyObject<dyn PyObjectPayload>>;
+pub trait IntoDynRef {
+    fn _into_ref(self) -> PyRc<PyObject<dyn PyObjectPayload>>;
 }
 
-impl<T> AsPyObjectRef for PyRc<PyObject<T>>
+impl<T> IntoDynRef for PyRc<PyObject<T>>
 where
     T: PyObjectPayload,
 {
-    fn _as_ref(self) -> PyRc<PyObject<dyn PyObjectPayload>> {
+    fn _into_ref(self) -> PyRc<PyObject<dyn PyObjectPayload>> {
         self
     }
 }
 
-impl AsPyObjectRef for PyRc<PyObject<dyn PyObjectPayload>> {
-    fn _as_ref(self) -> PyRc<PyObject<dyn PyObjectPayload>> {
+impl IntoDynRef for PyRc<PyObject<dyn PyObjectPayload>> {
+    fn _into_ref(self) -> PyRc<PyObject<dyn PyObjectPayload>> {
         self
     }
 }
@@ -41,7 +41,7 @@ impl AsPyObjectRef for PyRc<PyObject<dyn PyObjectPayload>> {
 impl<T> PyObjectRc<T>
 where
     T: ?Sized + PyObjectPayload,
-    PyRc<PyObject<T>>: AsPyObjectRef,
+    PyRc<PyObject<T>>: IntoDynRef,
 {
     pub fn into_raw(this: Self) -> *const PyObject<T> {
         let ptr = PyRc::as_ptr(&this.inner);
@@ -56,8 +56,13 @@ where
 
     pub fn into_ref(this: Self) -> PyObjectRc<dyn PyObjectPayload> {
         PyObjectRc::<dyn PyObjectPayload> {
-            inner: unsafe { Self::into_rc(this) }._as_ref(),
+            inner: unsafe { Self::into_rc(this) }._into_ref(),
         }
+    }
+
+    #[allow(clippy::should_implement_trait)]
+    pub fn as_ref(this: &Self) -> &PyObjectRc<dyn PyObjectPayload> {
+        unsafe { &*(this as *const _ as *const _) }
     }
 
     /// # Safety
@@ -94,7 +99,7 @@ where
 
 impl<T: ?Sized + PyObjectPayload> IdProtocol for PyObjectRc<T>
 where
-    PyRc<PyObject<T>>: IdProtocol + AsPyObjectRef,
+    PyRc<PyObject<T>>: IdProtocol + IntoDynRef,
 {
     fn get_id(&self) -> usize {
         self.inner.get_id()
@@ -104,7 +109,7 @@ where
 impl<T> PyObjectWeak<T>
 where
     T: ?Sized + PyObjectPayload,
-    PyRc<PyObject<T>>: AsPyObjectRef,
+    PyRc<PyObject<T>>: IntoDynRef,
 {
     pub fn upgrade(&self) -> Option<PyObjectRc<T>> {
         self.inner.upgrade().map(|inner| PyObjectRc { inner })
@@ -115,14 +120,14 @@ where
 unsafe impl<T> Send for PyObjectRc<T>
 where
     T: ?Sized + PyObjectPayload,
-    PyRc<PyObject<T>>: AsPyObjectRef,
+    PyRc<PyObject<T>>: IntoDynRef,
 {
 }
 #[cfg(feature = "threading")]
 unsafe impl<T> Sync for PyObjectRc<T>
 where
     T: ?Sized + PyObjectPayload,
-    PyRc<PyObject<T>>: AsPyObjectRef,
+    PyRc<PyObject<T>>: IntoDynRef,
 {
 }
 
@@ -134,7 +139,7 @@ unsafe impl<T> Sync for PyObjectWeak<T> where T: ?Sized + PyObjectPayload {}
 impl<T> Drop for PyObjectRc<T>
 where
     T: ?Sized + PyObjectPayload,
-    PyRc<PyObject<T>>: AsPyObjectRef,
+    PyRc<PyObject<T>>: IntoDynRef,
 {
     fn drop(&mut self) {
         use crate::pyobject::BorrowValue;
@@ -177,7 +182,7 @@ where
 impl<T> Deref for PyObjectRc<T>
 where
     T: ?Sized + PyObjectPayload,
-    PyRc<PyObject<T>>: AsPyObjectRef,
+    PyRc<PyObject<T>>: IntoDynRef,
 {
     type Target = PyObject<T>;
 
@@ -190,7 +195,7 @@ where
 impl<T> Clone for PyObjectRc<T>
 where
     T: ?Sized + PyObjectPayload,
-    PyRc<PyObject<T>>: AsPyObjectRef,
+    PyRc<PyObject<T>>: IntoDynRef,
 {
     fn clone(&self) -> Self {
         PyObjectRc {
@@ -202,7 +207,7 @@ where
 impl<T> fmt::Display for PyObjectRc<T>
 where
     T: ?Sized + PyObjectPayload,
-    PyRc<PyObject<T>>: AsPyObjectRef,
+    PyRc<PyObject<T>>: IntoDynRef,
     PyObject<T>: fmt::Display,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -213,7 +218,7 @@ where
 impl<T> fmt::Debug for PyObjectRc<T>
 where
     T: ?Sized + PyObjectPayload,
-    PyRc<PyObject<T>>: AsPyObjectRef,
+    PyRc<PyObject<T>>: IntoDynRef,
     PyObject<T>: fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -224,7 +229,7 @@ where
 impl<T> fmt::Pointer for PyObjectRc<T>
 where
     T: ?Sized + PyObjectPayload,
-    PyRc<PyObject<T>>: AsPyObjectRef,
+    PyRc<PyObject<T>>: IntoDynRef,
     PyObject<T>: fmt::Pointer,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -235,7 +240,7 @@ where
 impl<T> borrow::Borrow<T> for PyObjectRc<T>
 where
     T: ?Sized + PyObjectPayload,
-    PyRc<PyObject<T>>: AsPyObjectRef + borrow::Borrow<T>,
+    PyRc<PyObject<T>>: IntoDynRef + borrow::Borrow<T>,
 {
     fn borrow(&self) -> &T {
         self.inner.borrow()
@@ -245,7 +250,7 @@ where
 impl<T> borrow::BorrowMut<T> for PyObjectRc<T>
 where
     T: ?Sized + PyObjectPayload,
-    PyRc<PyObject<T>>: AsPyObjectRef + borrow::BorrowMut<T>,
+    PyRc<PyObject<T>>: IntoDynRef + borrow::BorrowMut<T>,
 {
     fn borrow_mut(&mut self) -> &mut T {
         self.inner.borrow_mut()
@@ -255,7 +260,7 @@ where
 impl<T> AsRef<T> for PyObjectRc<T>
 where
     T: ?Sized + PyObjectPayload,
-    PyRc<PyObject<T>>: AsPyObjectRef + AsRef<T>,
+    PyRc<PyObject<T>>: IntoDynRef + AsRef<T>,
 {
     fn as_ref(&self) -> &T {
         self.inner.as_ref()
