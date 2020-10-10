@@ -267,13 +267,13 @@ mod _struct {
         Ok(codes)
     }
 
-    #[rustfmt::skip] // rustfmt makes it way too long
+    #[allow(clippy::match_like_matches_macro)] // if we change it to matches!() rustc hangs forever
     fn is_supported_format_character(c: char) -> bool {
-        matches!(
-            c,
+        match c {
             'x' | 'c' | 'b' | 'B' | '?' | 'h' | 'H' | 'i' | 'I' | 'l' | 'L' | 'q' | 'Q' | 'n'
-            | 'N' | 'f' | 'd' | 's' | 'p' | 'P'
-        )
+            | 'N' | 'f' | 'd' | 's' | 'p' | 'P' => true,
+            _ => false,
+        }
     }
 
     fn get_int_or_index<T>(vm: &VirtualMachine, arg: &PyObjectRef) -> PyResult<T>
