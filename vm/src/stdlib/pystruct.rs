@@ -269,6 +269,8 @@ mod _struct {
 
     #[allow(clippy::match_like_matches_macro)] // if we change it to matches!() rustc hangs forever
     fn is_supported_format_character(c: char) -> bool {
+        // https://github.com/rust-lang/rustfmt/issues/4462
+        #[allow(clippy::match_like_matches_macro)]
         match c {
             'x' | 'c' | 'b' | 'B' | '?' | 'h' | 'H' | 'i' | 'I' | 'l' | 'L' | 'q' | 'Q' | 'n'
             | 'N' | 'f' | 'd' | 's' | 'p' | 'P' => true,
