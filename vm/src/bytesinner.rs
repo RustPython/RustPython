@@ -51,7 +51,10 @@ impl TryFromObject for PyBytesInner {
             l @ PyList => l.to_byte_inner(vm),
             obj => {
                 let iter = vm.get_method_or_type_error(obj.clone(), "__iter__", || {
-                    format!("a bytes-like object is required, not {}", obj.class())
+                    format!(
+                        "a bytes-like object is required, not '{}'",
+                        obj.lease_class().name
+                    )
                 })?;
                 let iter = PyIterable::from_method(iter);
                 Ok(PyBytesInner {
@@ -328,7 +331,7 @@ impl PyBytesInner {
         let value = vm.to_index(&object).ok_or_else(|| {
             vm.new_type_error(format!(
                 "'{}' object cannot be interpreted as an integer",
-                object.class().name
+                object.lease_class().name
             ))
         })?;
         // __index__ returned non-int type

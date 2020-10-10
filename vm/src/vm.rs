@@ -854,7 +854,7 @@ impl VirtualMachine {
     pub fn isinstance(&self, obj: &PyObjectRef, cls: &PyTypeRef) -> PyResult<bool> {
         // cpython first does an exact check on the type, although documentation doesn't state that
         // https://github.com/python/cpython/blob/a24107b04c1277e3c1105f98aff5bfa3a98b33a0/Objects/abstract.c#L2408
-        if obj.class().is(cls) {
+        if obj.lease_class().is(cls) {
             Ok(true)
         } else {
             let ret = self.call_method(cls.as_object(), "__instancecheck__", vec![obj.clone()])?;
@@ -976,7 +976,7 @@ impl VirtualMachine {
 
     pub fn extract_elements<T: TryFromObject>(&self, value: &PyObjectRef) -> PyResult<Vec<T>> {
         // Extract elements from item, if possible:
-        let cls = value.class();
+        let cls = value.lease_class();
         if cls.is(&self.ctx.types.tuple_type) {
             value
                 .payload::<PyTuple>()
@@ -1121,9 +1121,7 @@ impl VirtualMachine {
         dict: Option<PyDictRef>,
     ) -> PyResult<Option<PyObjectRef>> {
         let name = name_str.borrow_value();
-        let cls = obj.class();
-
-        let cls_attr = cls.get_attr(name);
+        let cls_attr = obj.lease_class().get_attr(name);
 
         if let Some(ref attr) = cls_attr {
             if attr.lease_class().has_attr("__set__") {
@@ -1145,7 +1143,7 @@ impl VirtualMachine {
             Ok(Some(obj_attr))
         } else if let Some(attr) = cls_attr {
             self.call_if_get_descriptor(attr, obj).map(Some)
-        } else if let Some(getter) = cls.get_attr("__getattr__") {
+        } else if let Some(getter) = obj.class().get_attr("__getattr__") {
             self.invoke(&getter, vec![obj, name_str.into_object()])
                 .map(Some)
         } else {

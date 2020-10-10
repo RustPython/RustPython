@@ -100,8 +100,10 @@ impl TryFromObject for PyRwBytesLike {
         match_class!(match obj {
             b @ PyByteArray => Ok(PyRwBytesLike::Bytearray(b)),
             array @ PyArray => Ok(PyRwBytesLike::Array(array)),
-            obj =>
-                Err(vm.new_type_error(format!("a buffer object is required, not {}", obj.class()))),
+            obj => Err(vm.new_type_error(format!(
+                "a buffer object is required, not '{}'",
+                obj.lease_class().name
+            ))),
         })
     }
 }

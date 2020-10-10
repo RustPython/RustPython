@@ -155,7 +155,7 @@ where
                     let repr = vm.to_repr(&del_method);
                     match repr {
                         Ok(v) => println!("{}", v.to_string()),
-                        Err(_) => println!("{}", &del_method.class().name),
+                        Err(_) => println!("{}", del_method.lease_class().name),
                     }
                     let tb_module = vm.import("traceback", &[], 0).unwrap();
                     // TODO: set exc traceback

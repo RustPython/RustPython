@@ -87,7 +87,7 @@ macro_rules! repr_lock_impl {
         format!(
             "<{} {} object at {}>",
             status,
-            $zelf.class().name,
+            $zelf.lease_class().name,
             $zelf.get_id()
         )
     }};

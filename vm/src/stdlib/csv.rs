@@ -81,7 +81,7 @@ fn into_strings(iterable: &PyIterable<PyObjectRef>, vm: &VirtualMachine) -> PyRe
                 obj => {
                     let msg = format!(
             "iterator should return strings, not {} (did you open the file in text mode?)",
-            obj.class().name
+            obj.lease_class().name
           );
                     Err(vm.new_type_error(msg))
                 }
