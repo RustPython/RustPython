@@ -464,7 +464,7 @@ impl PyDictRef {
         // and prevent the creation of the KeyError exception.
         // Also note, that we prevent the creation of a full PyStr object
         // if we lookup local names (which happens all of the time).
-        if self.lease_class().is(&vm.ctx.types.dict_type) {
+        if self.class().is(&vm.ctx.types.dict_type) {
             // We can take the short path here!
             match self.inner_getitem_option(key, vm) {
                 Err(exc) => {
@@ -502,7 +502,7 @@ where
     }
 
     fn set_item(&self, key: K, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if self.lease_class().is(&vm.ctx.types.dict_type) {
+        if self.class().is(&vm.ctx.types.dict_type) {
             self.inner_setitem_fast(key, value, vm)
                 .map(|_| vm.ctx.none())
         } else {
@@ -512,7 +512,7 @@ where
     }
 
     fn del_item(&self, key: K, vm: &VirtualMachine) -> PyResult {
-        if self.lease_class().is(&vm.ctx.types.dict_type) {
+        if self.class().is(&vm.ctx.types.dict_type) {
             self.entries.delete(vm, key).map(|_| vm.ctx.none())
         } else {
             // Fall back to slow path if we are in a dict subclass:
@@ -628,7 +628,7 @@ macro_rules! dict_iterator {
                             &zelf.dict,
                             &dictview.dict,
                             op,
-                            !zelf.lease_class().is(&vm.ctx.types.dict_keys_type),
+                            !zelf.class().is(&vm.ctx.types.dict_keys_type),
                             vm,
                         )
                     }

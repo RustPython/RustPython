@@ -23,10 +23,7 @@ impl TryFromObject for bool {
         if objtype::isinstance(&obj, &vm.ctx.types.int_type) {
             Ok(get_value(&obj))
         } else {
-            Err(vm.new_type_error(format!(
-                "Expected type bool, not {}",
-                obj.lease_class().name
-            )))
+            Err(vm.new_type_error(format!("Expected type bool, not {}", obj.class().name)))
         }
     }
 }
@@ -47,7 +44,7 @@ pub fn boolval(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
             if !objtype::isinstance(&bool_obj, &vm.ctx.types.bool_type) {
                 return Err(vm.new_type_error(format!(
                     "__bool__ should return bool, returned type {}",
-                    bool_obj.lease_class().name
+                    bool_obj.class().name
                 )));
             }
 
@@ -60,7 +57,7 @@ pub fn boolval(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
                 let int_obj = bool_obj.payload::<PyInt>().ok_or_else(|| {
                     vm.new_type_error(format!(
                         "'{}' object cannot be interpreted as an integer",
-                        bool_obj.lease_class().name
+                        bool_obj.class().name
                     ))
                 })?;
 
@@ -145,7 +142,7 @@ impl PyBool {
     #[pyslot]
     fn tp_new(zelf: PyObjectRef, x: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
         if !objtype::isinstance(&zelf, &vm.ctx.types.type_type) {
-            let actual_type = &zelf.lease_class().name;
+            let actual_type = &zelf.class().name;
             return Err(vm.new_type_error(format!(
                 "requires a 'type' object but received a '{}'",
                 actual_type

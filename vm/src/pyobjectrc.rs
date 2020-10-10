@@ -146,7 +146,7 @@ where
 
         // CPython-compatible drop implementation
         let zelf = Self::into_ref(self.clone());
-        if let Some(del_slot) = zelf.lease_class().mro_find_map(|cls| cls.slots.del.load()) {
+        if let Some(del_slot) = zelf.class().mro_find_map(|cls| cls.slots.del.load()) {
             crate::vm::thread::with_vm(&zelf, |vm| {
                 if let Err(e) = del_slot(&zelf, vm) {
                     // exception in del will be ignored but printed
@@ -155,7 +155,7 @@ where
                     let repr = vm.to_repr(&del_method);
                     match repr {
                         Ok(v) => println!("{}", v.to_string()),
-                        Err(_) => println!("{}", del_method.lease_class().name),
+                        Err(_) => println!("{}", del_method.class().name),
                     }
                     let tb_module = vm.import("traceback", &[], 0).unwrap();
                     // TODO: set exc traceback

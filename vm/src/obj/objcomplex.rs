@@ -242,7 +242,7 @@ impl PyComplex {
                 } else {
                     return Err(vm.new_type_error(format!(
                         "complex() first argument must be a string or a number, not '{}'",
-                        obj.lease_class().name
+                        obj.class().name
                     )));
                 }
             }
@@ -253,14 +253,14 @@ impl PyComplex {
             Some(obj) => {
                 if let Some(c) = try_complex(&obj, vm)? {
                     c
-                } else if objtype::issubclass(obj.lease_class(), &vm.ctx.types.str_type) {
+                } else if objtype::issubclass(obj.class(), &vm.ctx.types.str_type) {
                     return Err(
                         vm.new_type_error("complex() second arg can't be a string".to_owned())
                     );
                 } else {
                     return Err(vm.new_type_error(format!(
                         "complex() second argument must be a number, not '{}'",
-                        obj.lease_class().name
+                        obj.class().name
                     )));
                 }
             }

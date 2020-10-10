@@ -51,7 +51,7 @@ impl TryFromObject for PyBytesInner {
                 let iter = vm.get_method_or_type_error(obj.clone(), "__iter__", || {
                     format!(
                         "a bytes-like object is required, not '{}'",
-                        obj.lease_class().name
+                        obj.class().name
                     )
                 })?;
                 let iter = PyIterable::from_method(iter);
@@ -139,7 +139,7 @@ impl ByteInnerNewOptions {
                                     // .map_err(|_| {
                                     //     vm.new_type_error(format!(
                                     //         "cannot convert '{}' object to bytes",
-                                    //         obj.lease_class().name
+                                    //         obj.class().name
                                     //     ))
                                     // })?;
                                 }
@@ -329,7 +329,7 @@ impl PyBytesInner {
         let value = vm.to_index(&object).ok_or_else(|| {
             vm.new_type_error(format!(
                 "'{}' object cannot be interpreted as an integer",
-                object.lease_class().name
+                object.class().name
             ))
         })?;
         // __index__ returned non-int type
@@ -1231,7 +1231,7 @@ pub fn bytes_decode(
                 "'{}' decoder returned '{}' instead of 'str'; use codecs.encode() to \
                      encode arbitrary types",
                 encoding.as_ref().map_or("utf-8", |s| s.borrow_value()),
-                obj.lease_class().name,
+                obj.class().name,
             ))
         })
 }

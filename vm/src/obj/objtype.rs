@@ -215,7 +215,7 @@ fn get_class_magic(zelf: &PyObjectRef, name: &str) -> PyObjectRef {
     zelf.get_class_attr(name).unwrap()
 
     // TODO: we already looked up the matching class but lost the information here
-    // let cls = zelf.lease_class();
+    // let cls = zelf.class();
     // let attrs = cls.attributes.read();
     // attrs.get(name).unwrap().clone()
 }
@@ -420,13 +420,13 @@ impl PyType {
 
         let mut attributes = dict.to_attributes();
         if let Some(f) = attributes.get_mut("__new__") {
-            if f.lease_class().is(&vm.ctx.types.function_type) {
+            if f.class().is(&vm.ctx.types.function_type) {
                 *f = PyStaticMethod::from(f.clone()).into_object(vm);
             }
         }
 
         if let Some(f) = attributes.get_mut("__init_subclass__") {
-            if f.lease_class().is(&vm.ctx.types.function_type) {
+            if f.class().is(&vm.ctx.types.function_type) {
                 *f = PyClassMethod::from(f.clone()).into_object(vm);
             }
         }
@@ -466,7 +466,7 @@ impl PyType {
                 .map_err(|e| {
                     let err = vm.new_runtime_error(format!(
                         "Error calling __set_name__ on '{}' instance {} in '{}'",
-                        obj.lease_class().name,
+                        obj.class().name,
                         name,
                         typ.name
                     ));
@@ -507,12 +507,12 @@ impl SlotGetattro for PyType {
     fn getattro(zelf: PyRef<Self>, name_str: PyStrRef, vm: &VirtualMachine) -> PyResult {
         let name = name_str.borrow_value();
         vm_trace!("type.__getattribute__({:?}, {:?})", zelf, name);
-        let mcl = zelf.lease_class();
+        let mcl = zelf.class();
 
         let mcl_attr = mcl.get_attr(name);
 
         if let Some(ref attr) = mcl_attr {
-            let attr_class = attr.lease_class();
+            let attr_class = attr.class();
             if attr_class.has_attr("__set__") {
                 if let Some(ref descr_get) =
                     attr_class.mro_find_map(|cls| cls.slots.descr_get.load())
@@ -526,10 +526,7 @@ impl SlotGetattro for PyType {
         let zelf_attr = zelf.get_attr(name);
 
         if let Some(ref attr) = zelf_attr {
-            if let Some(descr_get) = attr
-                .lease_class()
-                .mro_find_map(|cls| cls.slots.descr_get.load())
-            {
+            if let Some(descr_get) = attr.class().mro_find_map(|cls| cls.slots.descr_get.load()) {
                 drop(mcl);
                 return descr_get(attr.clone(), None, Some(zelf.into_object()), vm);
             }
@@ -591,7 +588,7 @@ fn find_base_dict_descr(cls: &PyTypeRef, vm: &VirtualMachine) -> Option<PyObject
 }
 
 fn subtype_get_dict(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    // TODO: obj.lease_class().as_pyref() need to be supported
+    // TODO: obj.class().as_pyref() need to be supported
     let cls = obj.clone_class();
     let ret = match find_base_dict_descr(&cls, vm) {
         Some(descr) => vm.call_get_descriptor(descr, obj).unwrap_or_else(|| {
@@ -658,7 +655,7 @@ impl<T: DerefToPyType> DerefToPyType for &'_ T {
 /// use this if `cls` is known to have not overridden the base __instancecheck__ magic method.
 #[inline]
 pub fn isinstance<T: TypeProtocol>(obj: &T, cls: &PyTypeRef) -> bool {
-    issubclass(obj.lease_class(), &cls)
+    issubclass(obj.class(), &cls)
 }
 
 /// Determines if `subclass` is actually a subclass of `cls`, this doesn't call __subclasscheck__,
@@ -826,7 +823,7 @@ fn calculate_meta_class(
     // = _PyType_CalculateMetaclass
     let mut winner = metatype;
     for base in bases {
-        let base_type = base.lease_class();
+        let base_type = base.class();
         if issubclass(&winner, &base_type) {
             continue;
         } else if issubclass(&base_type, &winner) {

@@ -105,7 +105,7 @@ pub fn get_jit_arg_types(func: &PyFunctionRef, vm: &VirtualMachine) -> PyResult<
 
 fn get_jit_value(vm: &VirtualMachine, obj: &PyObjectRef) -> Result<AbiValue, ArgsError> {
     // This does exact type checks as subclasses of int/float can't be passed to jitted functions
-    let cls = obj.lease_class();
+    let cls = obj.class();
     if cls.is(&vm.ctx.types.int_type) {
         objint::get_value(&obj)
             .to_i64()

@@ -415,7 +415,7 @@ impl TryFromObject for RangeIndex {
             s @ PySlice => Ok(RangeIndex::Slice(s)),
             obj => Err(vm.new_type_error(format!(
                 "sequence indices be integers or slices, not '{}'",
-                obj.lease_class().name,
+                obj.class().name,
             ))),
         })
     }

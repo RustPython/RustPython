@@ -80,7 +80,7 @@ impl PySuper {
         if !objtype::isinstance(typ.as_object(), &vm.ctx.types.type_type) {
             return Err(vm.new_type_error(format!(
                 "super() argument 1 must be type, not {}",
-                typ.lease_class().name
+                typ.class().name
             )));
         }
 

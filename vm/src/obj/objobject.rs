@@ -66,7 +66,7 @@ impl PyBaseObject {
             }
             PyComparisonOp::Ne => {
                 let cmp = zelf
-                    .lease_class()
+                    .class()
                     .mro_find_map(|cls| cls.slots.cmp.load())
                     .unwrap();
                 let value = match cmp(zelf, other, PyComparisonOp::Eq, vm)? {
@@ -155,7 +155,7 @@ impl PyBaseObject {
         } else {
             Err(vm.new_attribute_error(format!(
                 "'{}' object has no attribute '{}'",
-                obj.lease_class().name,
+                obj.class().name,
                 attr_name.borrow_value()
             )))
         }
@@ -168,11 +168,7 @@ impl PyBaseObject {
 
     #[pymethod(magic)]
     fn repr(zelf: PyObjectRef) -> String {
-        format!(
-            "<{} object at 0x{:x}>",
-            zelf.lease_class().name,
-            zelf.get_id()
-        )
+        format!("<{} object at 0x{:x}>", zelf.class().name, zelf.get_id())
     }
 
     #[pyclassmethod(magic)]
@@ -185,7 +181,7 @@ impl PyBaseObject {
 
     #[pymethod(magic)]
     pub fn dir(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyList> {
-        let attributes: PyAttributes = obj.lease_class().get_attributes();
+        let attributes: PyAttributes = obj.class().get_attributes();
 
         let dict = PyDict::from_attributes(attributes, vm)?.into_ref(vm);
 
@@ -228,7 +224,7 @@ impl PyBaseObject {
                     Ok(())
                 }
                 Err(value) => {
-                    let type_repr = &value.lease_class().name;
+                    let type_repr = &value.class().name;
                     Err(vm.new_type_error(format!(
                         "__class__ must be set to a class, not '{}' object",
                         type_repr
@@ -306,7 +302,7 @@ pub(crate) fn setattr(
     } else {
         Err(vm.new_attribute_error(format!(
             "'{}' object has no attribute '{}'",
-            obj.lease_class().name,
+            obj.class().name,
             attr_name.borrow_value()
         )))
     }

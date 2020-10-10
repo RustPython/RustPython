@@ -906,7 +906,7 @@ fn call_object_format(
     if !objtype::isinstance(&result, &vm.ctx.types.str_type) {
         return Err(vm.new_type_error(format!(
             "__format__ must return a str, not {}",
-            &result.lease_class().name
+            &result.class().name
         )));
     }
     Ok(result)

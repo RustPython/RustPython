@@ -26,7 +26,7 @@ mod _warnings {
             if !objtype::issubclass(&category, &vm.ctx.exceptions.warning) {
                 return Err(vm.new_type_error(format!(
                     "category must be a Warning subclass, not '{}'",
-                    category.lease_class().name
+                    category.class().name
                 )));
             }
             category

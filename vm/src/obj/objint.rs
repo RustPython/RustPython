@@ -257,7 +257,7 @@ impl PyInt {
                     .unwrap_or_else(|| {
                         Err(vm.new_type_error(format!(
                             "'{}' object cannot be interpreted as an integer",
-                            base.lease_class().name
+                            base.class().name
                         )))
                     })?
                     .borrow_value()
@@ -456,13 +456,13 @@ impl PyInt {
                     let _ndigits = value.payload_if_subclass::<PyInt>(vm).ok_or_else(|| {
                         vm.new_type_error(format!(
                             "'{}' object cannot be interpreted as an integer",
-                            value.lease_class().name
+                            value.class().name
                         ))
                     })?;
                 } else {
                     return Err(vm.new_type_error(format!(
                         "'{}' object cannot be interpreted as an integer",
-                        value.lease_class().name
+                        value.class().name
                     )));
                 }
             }
@@ -737,7 +737,7 @@ pub(crate) fn to_int(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<BigInt>
             Some(int_obj) => Ok(int_obj.borrow_value().clone()),
             None => Err(vm.new_type_error(format!(
                 "__int__ returned non-int (type '{}')",
-                result.lease_class().name
+                result.class().name
             ))),
         };
     }
@@ -748,7 +748,7 @@ pub(crate) fn to_int(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<BigInt>
 
     Err(vm.new_type_error(format!(
         "int() argument must be a string, a bytes-like object or a number, not '{}'",
-        obj.lease_class().name
+        obj.class().name
     )))
 }
 

@@ -231,7 +231,7 @@ where
                         func_name,
                         py_type_name,
                         py_type_name,
-                        o.lease_class(),
+                        o.class(),
                     )
                 },
                 vm,

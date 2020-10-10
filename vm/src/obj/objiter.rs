@@ -28,15 +28,12 @@ pub fn get_iter(vm: &VirtualMachine, iter_target: &PyObjectRef) -> PyResult {
         } else {
             Err(vm.new_type_error(format!(
                 "iter() returned non-iterator of type '{}'",
-                iter.lease_class().name
+                iter.class().name
             )))
         }
     } else {
         vm.get_method_or_type_error(iter_target.clone(), "__getitem__", || {
-            format!(
-                "'{}' object is not iterable",
-                iter_target.lease_class().name
-            )
+            format!("'{}' object is not iterable", iter_target.class().name)
         })?;
         Ok(PySequenceIterator::new_forward(iter_target.clone())
             .into_ref(vm)
@@ -131,7 +128,7 @@ pub fn length_hint(vm: &VirtualMachine, iter: PyObjectRef) -> PyResult<Option<us
         .ok_or_else(|| {
             vm.new_type_error(format!(
                 "'{}' object cannot be interpreted as an integer",
-                result.lease_class().name
+                result.class().name
             ))
         })?
         .borrow_value();

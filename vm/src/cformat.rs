@@ -311,7 +311,7 @@ impl CFormatSpec {
                         "%{} format: {} is required, not {}",
                         self.format_char,
                         required_type_string,
-                        obj.lease_class()
+                        obj.class()
                     ))
                 };
                 match_class!(match &obj {
@@ -334,7 +334,7 @@ impl CFormatSpec {
                     vm.new_type_error(format!(
                         "%{} format: an floating point or integer is required, not {}",
                         self.format_char,
-                        obj.lease_class().name
+                        obj.class().name
                     ))
                 })?;
                 self.format_float(value)

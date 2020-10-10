@@ -139,7 +139,7 @@ fn math_isqrt(x: PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt> {
     let index = vm.to_index(&x).ok_or_else(|| {
         vm.new_type_error(format!(
             "'{}' object cannot be interpreted as an integer",
-            x.lease_class().name
+            x.class().name
         ))
     })?;
     // __index__ may have returned non-int type
@@ -247,7 +247,7 @@ fn try_magic_method(func_name: &str, vm: &VirtualMachine, value: &PyObjectRef) -
     let method = vm.get_method_or_type_error(value.clone(), func_name, || {
         format!(
             "type '{}' doesn't define '{}' method",
-            value.lease_class().name,
+            value.class().name,
             func_name,
         )
     })?;
