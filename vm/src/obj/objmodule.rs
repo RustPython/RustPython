@@ -1,7 +1,7 @@
 use super::objdict::PyDictRef;
 use super::objstr::{PyStr, PyStrRef};
 use super::objtype::PyTypeRef;
-use crate::function::{OptionalOption, PyFuncArgs};
+use crate::function::{FuncArgs, OptionalOption};
 use crate::pyobject::{
     BorrowValue, IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
     PyValue,
@@ -46,7 +46,7 @@ pub fn init_module_dict(
 #[pyimpl(with(SlotGetattro), flags(BASETYPE, HAS_DICT))]
 impl PyModule {
     #[pyslot]
-    fn tp_new(cls: PyTypeRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyModuleRef> {
+    fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyModuleRef> {
         PyModule {}.into_ref_with_type(vm, cls)
     }
 

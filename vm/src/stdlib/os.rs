@@ -13,7 +13,7 @@ use super::errno::errors;
 use crate::byteslike::PyBytesLike;
 use crate::common::lock::PyRwLock;
 use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
-use crate::function::{IntoPyNativeFunc, OptionalArg, PyFuncArgs};
+use crate::function::{FuncArgs, IntoPyNativeFunc, OptionalArg};
 use crate::obj::objbytes::{PyBytes, PyBytesRef};
 use crate::obj::objdict::PyDictRef;
 use crate::obj::objint::{PyInt, PyIntRef};
@@ -334,7 +334,7 @@ mod _os {
 
     #[cfg(not(any(unix, windows, target_os = "wasi")))]
     #[pyfunction]
-    pub(crate) fn open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    pub(crate) fn open(vm: &VirtualMachine, args: FuncArgs) -> PyResult {
         Err(vm.new_os_error("os.open not implemented on this platform".to_owned()))
     }
 
@@ -596,7 +596,7 @@ mod _os {
         }
 
         #[pymethod(name = "__exit__")]
-        fn exit(zelf: PyRef<Self>, _args: PyFuncArgs) {
+        fn exit(zelf: PyRef<Self>, _args: FuncArgs) {
             zelf.close()
         }
     }
@@ -1957,7 +1957,7 @@ mod posix {
                     let id = PosixSpawnFileActionIdentifier::try_from(id).map_err(|_| {
                         vm.new_type_error("Unknown file_actions identifier".to_owned())
                     })?;
-                    let args = PyFuncArgs::from(args.to_vec());
+                    let args = FuncArgs::from(args.to_vec());
                     let ret = match id {
                         PosixSpawnFileActionIdentifier::Open => {
                             let (fd, path, oflag, mode): (_, PyPathLike, _, _) = args.bind(vm)?;

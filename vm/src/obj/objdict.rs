@@ -8,7 +8,7 @@ use super::objstr;
 use super::objtype::{self, PyTypeRef};
 use crate::dictdatatype::{self, DictKey};
 use crate::exceptions::PyBaseExceptionRef;
-use crate::function::{KwArgs, OptionalArg, PyFuncArgs};
+use crate::function::{FuncArgs, KwArgs, OptionalArg};
 use crate::pyobject::{
     BorrowValue, IdProtocol, IntoPyObject, ItemProtocol, PyArithmaticValue::*, PyAttributes,
     PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
@@ -53,7 +53,7 @@ impl PyValue for PyDict {
 #[pyimpl(with(Hashable, Comparable), flags(BASETYPE))]
 impl PyDict {
     #[pyslot]
-    fn tp_new(class: PyTypeRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    fn tp_new(class: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         PyDict {
             entries: DictContentType::default(),
         }

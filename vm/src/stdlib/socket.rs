@@ -12,7 +12,7 @@ use socket2::{Domain, Protocol, Socket, Type as SocketType};
 
 use crate::byteslike::PyBytesLike;
 use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
-use crate::function::{OptionalArg, PyFuncArgs};
+use crate::function::{FuncArgs, OptionalArg};
 use crate::obj::objbytearray::PyByteArrayRef;
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objstr::{PyStr, PyStrRef};
@@ -82,7 +82,7 @@ impl PySocket {
     }
 
     #[pyslot]
-    fn tp_new(cls: PyTypeRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         PySocket {
             kind: AtomicCell::default(),
             family: AtomicCell::default(),

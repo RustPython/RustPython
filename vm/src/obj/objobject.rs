@@ -4,7 +4,7 @@ use super::objlist::PyList;
 use super::objstr::PyStrRef;
 use super::objtype::PyTypeRef;
 use crate::common::hash::PyHash;
-use crate::function::{OptionalArg, PyFuncArgs};
+use crate::function::{FuncArgs, OptionalArg};
 use crate::obj::objtype::PyType;
 use crate::pyobject::{
     BorrowValue, Either, IdProtocol, ItemProtocol, PyArithmaticValue, PyAttributes, PyClassImpl,
@@ -28,7 +28,7 @@ impl PyValue for PyBaseObject {
 #[pyimpl(flags(BASETYPE))]
 impl PyBaseObject {
     #[pyslot]
-    fn tp_new(mut args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn tp_new(mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         // more or less __new__ operator
         let cls = PyTypeRef::try_from_object(vm, args.shift())?;
         let dict = if cls.is(&vm.ctx.types.object_type) {
@@ -172,7 +172,7 @@ impl PyBaseObject {
     }
 
     #[pyclassmethod(magic)]
-    fn subclasshook(_args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn subclasshook(_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         Ok(vm.ctx.not_implemented())
     }
 
@@ -207,7 +207,7 @@ impl PyBaseObject {
     }
 
     #[pymethod(magic)]
-    fn init(_args: PyFuncArgs) {}
+    fn init(_args: FuncArgs) {}
 
     #[pyproperty(name = "__class__")]
     fn get_class(obj: PyObjectRef) -> PyObjectRef {

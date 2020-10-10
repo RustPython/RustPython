@@ -9,7 +9,7 @@ use crate::bytecode;
 use crate::common::lock::PyMutex;
 use crate::coroutine::Coro;
 use crate::exceptions::{self, ExceptionCtor, PyBaseExceptionRef};
-use crate::function::PyFuncArgs;
+use crate::function::FuncArgs;
 use crate::obj::objasyncgenerator::PyAsyncGenWrappedValue;
 use crate::obj::objcode::PyCodeRef;
 use crate::obj::objcoroutine::PyCoroutine;
@@ -1051,7 +1051,7 @@ impl ExecutingFrame<'_> {
         let args = match typ {
             bytecode::CallType::Positional(count) => {
                 let args: Vec<PyObjectRef> = self.pop_multiple(*count);
-                PyFuncArgs {
+                FuncArgs {
                     args,
                     kwargs: IndexMap::new(),
                 }
@@ -1065,7 +1065,7 @@ impl ExecutingFrame<'_> {
                     .iter()
                     .map(|pyobj| objstr::clone_value(pyobj))
                     .collect();
-                PyFuncArgs::with_kwargs_names(args, kwarg_names)
+                FuncArgs::with_kwargs_names(args, kwarg_names)
             }
             bytecode::CallType::Ex(has_kwargs) => {
                 let kwargs = if *has_kwargs {
@@ -1088,7 +1088,7 @@ impl ExecutingFrame<'_> {
                 };
                 let args = self.pop_value();
                 let args = vm.extract_elements(&args)?;
-                PyFuncArgs { args, kwargs }
+                FuncArgs { args, kwargs }
             }
         };
 

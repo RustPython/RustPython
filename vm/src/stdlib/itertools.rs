@@ -10,7 +10,7 @@ mod decl {
 
     use crate::common::lock::{PyMutex, PyRwLock, PyRwLockWriteGuard};
     use crate::common::rc::PyRc;
-    use crate::function::{Args, OptionalArg, OptionalOption, PyFuncArgs};
+    use crate::function::{Args, FuncArgs, OptionalArg, OptionalOption};
     use crate::obj::objbool;
     use crate::obj::objint::{self, PyInt, PyIntRef};
     use crate::obj::objiter::{call_next, get_all, get_iter, get_next_object, new_stop_iteration};
@@ -40,7 +40,7 @@ mod decl {
     #[pyimpl]
     impl PyItertoolsChain {
         #[pyslot]
-        fn tp_new(cls: PyTypeRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        fn tp_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
             PyItertoolsChain {
                 iterables: args.args,
                 cur_idx: AtomicCell::new(0),
@@ -707,7 +707,7 @@ mod decl {
     #[pyimpl]
     impl PyItertoolsIslice {
         #[pyslot]
-        fn tp_new(cls: PyTypeRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        fn tp_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
             let (iter, start, stop, step) = match args.args.len() {
                 0 | 1 => {
                     return Err(vm.new_type_error(format!(

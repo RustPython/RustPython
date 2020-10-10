@@ -19,7 +19,7 @@ use crate::common::{hash::HashSecret, lock::PyMutex, rc::PyRc};
 use crate::exceptions::{self, PyBaseException, PyBaseExceptionRef};
 use crate::frame::{ExecutionResult, Frame, FrameRef};
 use crate::frozen;
-use crate::function::{IntoFuncArgs, PyFuncArgs};
+use crate::function::{FuncArgs, IntoFuncArgs};
 use crate::import;
 use crate::obj::objbool;
 use crate::obj::objcode::{PyCode, PyCodeRef};
@@ -124,7 +124,7 @@ pub struct PyGlobalState {
     pub stacksize: AtomicCell<usize>,
     pub thread_count: AtomicCell<usize>,
     pub hash_secret: HashSecret,
-    pub atexit_funcs: PyMutex<Vec<(PyObjectRef, PyFuncArgs)>>,
+    pub atexit_funcs: PyMutex<Vec<(PyObjectRef, FuncArgs)>>,
 }
 
 pub const NSIG: usize = 64;
@@ -902,7 +902,7 @@ impl VirtualMachine {
         }
     }
 
-    fn _invoke(&self, callable: &PyObjectRef, args: PyFuncArgs) -> PyResult {
+    fn _invoke(&self, callable: &PyObjectRef, args: FuncArgs) -> PyResult {
         vm_trace!("Invoke: {:?} {:?}", callable, args);
         let slot_call = callable.class().mro_find_map(|cls| cls.slots.call.load());
         match slot_call {

@@ -1,6 +1,6 @@
 use super::objtype::PyTypeRef;
 use crate::common::hash::PyHash;
-use crate::function::{OptionalArg, PyFuncArgs};
+use crate::function::{FuncArgs, OptionalArg};
 use crate::pyobject::{
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
@@ -39,7 +39,7 @@ impl PyValue for PyWeak {
 pub type PyWeakRef = PyRef<PyWeak>;
 
 impl Callable for PyWeak {
-    fn call(zelf: &PyRef<Self>, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn call(zelf: &PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         args.bind::<()>(vm)?;
         Ok(vm.unwrap_or_none(zelf.upgrade()))
     }

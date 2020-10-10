@@ -5,7 +5,7 @@ use rustpython_compiler::error::{CompileError, CompileErrorType};
 use rustpython_parser::error::ParseErrorType;
 use rustpython_vm::byteslike::PyBytesLike;
 use rustpython_vm::exceptions::PyBaseExceptionRef;
-use rustpython_vm::function::PyFuncArgs;
+use rustpython_vm::function::FuncArgs;
 use rustpython_vm::obj::objtype;
 use rustpython_vm::pyobject::{ItemProtocol, PyObjectRef, PyResult, PyValue, TryFromObject};
 use rustpython_vm::VirtualMachine;
@@ -84,7 +84,7 @@ pub fn py_to_js(vm: &VirtualMachine, py_obj: PyObjectRef) -> JsValue {
                         }
                     };
                     stored_vm_from_wasm(&wasm_vm).interp.enter(move |vm| {
-                        let mut py_func_args = PyFuncArgs::default();
+                        let mut py_func_args = FuncArgs::default();
                         if let Some(ref args) = args {
                             for arg in args.values() {
                                 py_func_args.args.push(js_to_py(vm, arg?));
@@ -198,7 +198,7 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
     } else if js_val.is_function() {
         let func = js_sys::Function::from(js_val);
         vm.ctx
-            .new_method(move |args: PyFuncArgs, vm: &VirtualMachine| -> PyResult {
+            .new_method(move |args: FuncArgs, vm: &VirtualMachine| -> PyResult {
                 let this = Object::new();
                 for (k, v) in args.kwargs {
                     Reflect::set(&this, &k.into(), &py_to_js(vm, v))

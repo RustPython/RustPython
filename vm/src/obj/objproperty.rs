@@ -4,7 +4,7 @@
 use crate::common::lock::PyRwLock;
 
 use super::objtype::PyTypeRef;
-use crate::function::PyFuncArgs;
+use crate::function::FuncArgs;
 use crate::pyobject::{
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
@@ -93,7 +93,7 @@ impl SlotDescriptor for PyProperty {
 #[pyimpl(with(SlotDescriptor), flags(BASETYPE))]
 impl PyProperty {
     #[pyslot]
-    fn tp_new(cls: PyTypeRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyPropertyRef> {
+    fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyPropertyRef> {
         PyProperty {
             getter: PyRwLock::new(None),
             setter: PyRwLock::new(None),

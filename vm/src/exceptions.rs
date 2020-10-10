@@ -1,5 +1,5 @@
 use crate::common::lock::PyRwLock;
-use crate::function::PyFuncArgs;
+use crate::function::FuncArgs;
 use crate::obj::objsingletons::{PyNone, PyNoneRef};
 use crate::obj::objstr::{PyStr, PyStrRef};
 use crate::obj::objtraceback::PyTracebackRef;
@@ -62,12 +62,12 @@ impl PyBaseException {
     }
 
     #[pyslot]
-    fn tp_new(cls: PyTypeRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    fn tp_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         PyBaseException::new(args.args, vm).into_ref_with_type(vm, cls)
     }
 
     #[pymethod(name = "__init__")]
-    fn init(&self, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+    fn init(&self, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         *self.args.write() = PyTupleRef::with_elements(args.args, &vm.ctx);
         Ok(())
     }
@@ -622,7 +622,7 @@ impl ExceptionZoo {
     }
 }
 
-fn import_error_init(exc_self: PyObjectRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+fn import_error_init(exc_self: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
     vm.set_attr(
         &exc_self,
         "name",

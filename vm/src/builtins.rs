@@ -19,7 +19,7 @@ mod decl {
     use super::to_ascii;
     use crate::byteslike::PyBytesLike;
     use crate::exceptions::PyBaseExceptionRef;
-    use crate::function::{single_or_tuple_any, Args, KwArgs, OptionalArg, PyFuncArgs};
+    use crate::function::{single_or_tuple_any, Args, FuncArgs, KwArgs, OptionalArg};
     use crate::obj::objbool::{self, IntoPyBool};
     use crate::obj::objbytes::PyBytesRef;
     use crate::obj::objcode::PyCodeRef;
@@ -457,7 +457,7 @@ mod decl {
     }
 
     #[pyfunction]
-    fn max(mut args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn max(mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let default = args.take_keyword("default");
         let key_func = args.take_keyword("key");
         if !args.kwargs.is_empty() {
@@ -515,7 +515,7 @@ mod decl {
     }
 
     #[pyfunction]
-    fn min(args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn min(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let candidates = match args.args.len().cmp(&1) {
             std::cmp::Ordering::Greater => args.args.clone(),
             std::cmp::Ordering::Equal => vm.extract_elements(&args.args[0])?,
@@ -789,7 +789,7 @@ mod decl {
     }
 
     #[pyfunction]
-    fn __import__(args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn __import__(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         vm.invoke(&vm.import_func, args)
     }
 
@@ -855,7 +855,7 @@ mod decl {
 
         let class = vm.invoke(
             metaclass.as_object(),
-            PyFuncArgs::new(vec![name_obj, bases, namespace.into_object()], kwargs),
+            FuncArgs::new(vec![name_obj, bases, namespace.into_object()], kwargs),
         )?;
         cells.set_item("__class__", class.clone(), vm)?;
         Ok(class)

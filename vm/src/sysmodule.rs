@@ -3,7 +3,7 @@ use std::{env, mem, path};
 
 use crate::common::hash::{PyHash, PyUHash};
 use crate::frame::FrameRef;
-use crate::function::{Args, OptionalArg, PyFuncArgs};
+use crate::function::{Args, FuncArgs, OptionalArg};
 use crate::obj::objstr::PyStrRef;
 use crate::obj::objtype::PyTypeRef;
 use crate::pyobject::{
@@ -130,7 +130,7 @@ impl SysFlags {
     }
 
     #[pyslot]
-    fn tp_new(_cls: PyTypeRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn tp_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         Err(vm.new_type_error("cannot create 'sys.flags' instances".to_owned()))
     }
 }
@@ -237,7 +237,7 @@ fn sys_exit(code: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
     Err(vm.new_exception(vm.ctx.exceptions.system_exit.clone(), vec![code]))
 }
 
-fn sys_audit(_args: PyFuncArgs) {
+fn sys_audit(_args: FuncArgs) {
     // TODO: sys.audit implementation
 }
 

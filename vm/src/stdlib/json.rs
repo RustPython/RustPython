@@ -5,7 +5,7 @@ mod machinery;
 mod _json {
     use super::*;
     use crate::exceptions::PyBaseExceptionRef;
-    use crate::function::{OptionalArg, PyFuncArgs};
+    use crate::function::{FuncArgs, OptionalArg};
     use crate::obj::objiter;
     use crate::obj::objstr::PyStrRef;
     use crate::obj::{objbool, objtype::PyTypeRef};
@@ -212,7 +212,7 @@ mod _json {
     }
 
     impl Callable for JsonScanner {
-        fn call(zelf: &PyRef<Self>, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+        fn call(zelf: &PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             let (pystr, idx) = args.bind::<(PyStrRef, isize)>(vm)?;
             JsonScanner::call(zelf, pystr, idx, vm)
         }

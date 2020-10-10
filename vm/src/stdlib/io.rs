@@ -23,7 +23,7 @@ mod _io {
         PyRwLock, PyRwLockReadGuard, PyRwLockUpgradableReadGuard, PyRwLockWriteGuard,
     };
     use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
-    use crate::function::{OptionalArg, OptionalOption, PyFuncArgs};
+    use crate::function::{FuncArgs, OptionalArg, OptionalOption};
     use crate::obj::objbool;
     use crate::obj::objbytearray::PyByteArray;
     use crate::obj::objbytes::PyBytesRef;
@@ -237,7 +237,7 @@ mod _io {
         }
 
         #[pymethod(magic)]
-        fn exit(instance: PyObjectRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        fn exit(instance: PyObjectRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             vm.call_method(&instance, "close", ())?;
             Ok(())
         }
@@ -1249,7 +1249,7 @@ mod _io {
         })?;
         let file_io_obj = vm.invoke(
             &file_io_class,
-            PyFuncArgs::new(
+            FuncArgs::new(
                 vec![file, vm.ctx.new_str(mode.clone())],
                 maplit::hashmap! {
                     "closefd".to_owned() => vm.ctx.new_bool(opts.closefd),
@@ -1472,7 +1472,7 @@ mod fileio {
     use super::_io::*;
     use crate::byteslike::{PyBytesLike, PyRwBytesLike};
     use crate::exceptions::IntoPyException;
-    use crate::function::{OptionalArg, PyFuncArgs};
+    use crate::function::{FuncArgs, OptionalArg};
     use crate::obj::objstr::PyStrRef;
     use crate::obj::objtype::PyTypeRef;
     use crate::pyobject::{
@@ -1527,7 +1527,7 @@ mod fileio {
     #[pyimpl(flags(HAS_DICT))]
     impl FileIO {
         #[pyslot]
-        fn tp_new(cls: PyTypeRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<FileIORef> {
+        fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<FileIORef> {
             FileIO {
                 fd: AtomicCell::new(-1),
                 closefd: AtomicCell::new(false),

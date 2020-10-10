@@ -12,7 +12,7 @@ use super::objstaticmethod::PyStaticMethod;
 use super::objstr::PyStrRef;
 use super::objtuple::PyTuple;
 use super::objweakref::PyWeak;
-use crate::function::{KwArgs, PyFuncArgs};
+use crate::function::{FuncArgs, KwArgs};
 use crate::pyobject::{
     BorrowValue, Either, IdProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable, PyLease,
     PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
@@ -360,7 +360,7 @@ impl PyType {
         )
     }
     #[pyslot]
-    fn tp_new(metatype: PyTypeRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn tp_new(metatype: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         vm_trace!("type.__new__ {:?}", args);
 
         let is_type_type = metatype.is(&vm.ctx.types.type_type);
@@ -542,7 +542,7 @@ impl SlotGetattro for PyType {
 }
 
 impl Callable for PyType {
-    fn call(zelf: &PyRef<Self>, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn call(zelf: &PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         vm_trace!("type_call: {:?}", zelf);
         let obj = call_tp_new(zelf.clone(), zelf.clone(), args.clone(), vm)?;
 
@@ -655,7 +655,7 @@ pub fn issubclass<T: DerefToPyType + IdProtocol, R: IdProtocol>(subclass: T, cls
 fn call_tp_new(
     typ: PyTypeRef,
     subtype: PyTypeRef,
-    args: PyFuncArgs,
+    args: FuncArgs,
     vm: &VirtualMachine,
 ) -> PyResult {
     for cls in typ.deref().iter_mro() {
@@ -675,7 +675,7 @@ fn call_tp_new(
 pub fn tp_new_wrapper(
     zelf: PyTypeRef,
     cls: PyTypeRef,
-    args: PyFuncArgs,
+    args: FuncArgs,
     vm: &VirtualMachine,
 ) -> PyResult {
     if !issubclass(&cls, &zelf) {

@@ -1,5 +1,5 @@
 use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
-use crate::function::PyFuncArgs;
+use crate::function::FuncArgs;
 use crate::obj::{objstr, objtype};
 use crate::pyobject::{ItemProtocol, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
@@ -839,7 +839,7 @@ impl FormatString {
         Ok(final_string)
     }
 
-    pub(crate) fn format(&self, arguments: &PyFuncArgs, vm: &VirtualMachine) -> PyResult<String> {
+    pub(crate) fn format(&self, arguments: &FuncArgs, vm: &VirtualMachine) -> PyResult<String> {
         let mut auto_argument_index: usize = 0;
         let mut seen_index = false;
         self.format_internal(vm, &mut |field_type| match field_type {

@@ -3,7 +3,7 @@ use itertools::{self, Itertools};
 use std::fmt::{self, Debug, Formatter};
 
 use crate::common::lock::PyRwLock;
-use crate::function::PyFuncArgs;
+use crate::function::FuncArgs;
 use crate::obj::objiter;
 use crate::obj::objstr::{self, PyStr};
 use crate::obj::objtype::PyTypeRef;
@@ -28,7 +28,7 @@ struct ReaderOption {
 }
 
 impl ReaderOption {
-    fn new(args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+    fn new(args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         let delimiter = if let Some(delimiter) = args.get_optional_kwarg("delimiter") {
             *objstr::borrow_value(&delimiter)
                 .as_bytes()
@@ -64,7 +64,7 @@ impl ReaderOption {
 
 pub fn build_reader(
     iterable: PyIterable<PyObjectRef>,
-    args: PyFuncArgs,
+    args: FuncArgs,
     vm: &VirtualMachine,
 ) -> PyResult {
     let config = ReaderOption::new(args, vm)?;
@@ -186,7 +186,7 @@ impl Reader {
     }
 }
 
-fn _csv_reader(fp: PyObjectRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+fn _csv_reader(fp: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
     if let Ok(iterable) = PyIterable::<PyObjectRef>::try_from_object(vm, fp) {
         build_reader(iterable, args, vm)
     } else {

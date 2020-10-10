@@ -20,7 +20,7 @@ use super::objtype::{self, PyTypeRef};
 use crate::anystr::{self, adjust_indices, AnyStr, AnyStrContainer, AnyStrWrapper};
 use crate::exceptions::IntoPyException;
 use crate::format::{FormatSpec, FormatString, FromTemplate};
-use crate::function::{OptionalArg, OptionalOption, PyFuncArgs};
+use crate::function::{FuncArgs, OptionalArg, OptionalOption};
 use crate::pyobject::{
     BorrowValue, Either, IdProtocol, IntoPyObject, ItemProtocol, PyClassImpl, PyComparisonValue,
     PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TryIntoRef,
@@ -576,7 +576,7 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn format(&self, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<String> {
+    fn format(&self, args: FuncArgs, vm: &VirtualMachine) -> PyResult<String> {
         match FormatString::from_str(self.borrow_value()) {
             Ok(format_string) => format_string.format(&args, vm),
             Err(err) => Err(err.into_pyexception(vm)),

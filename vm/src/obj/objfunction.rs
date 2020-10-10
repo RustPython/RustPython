@@ -8,7 +8,7 @@ use super::objtuple::PyTupleRef;
 use super::objtype::PyTypeRef;
 use crate::bytecode;
 use crate::frame::Frame;
-use crate::function::PyFuncArgs;
+use crate::function::FuncArgs;
 use crate::obj::objasyncgenerator::PyAsyncGen;
 use crate::obj::objcoroutine::PyCoroutine;
 use crate::obj::objgenerator::PyGenerator;
@@ -65,7 +65,7 @@ impl PyFunction {
         &self,
         code_object: &bytecode::CodeObject,
         locals: &PyDictRef,
-        func_args: PyFuncArgs,
+        func_args: FuncArgs,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let nargs = func_args.args.len();
@@ -216,7 +216,7 @@ impl PyFunction {
 
     pub fn invoke_with_scope(
         &self,
-        func_args: PyFuncArgs,
+        func_args: FuncArgs,
         scope: &Scope,
         vm: &VirtualMachine,
     ) -> PyResult {
@@ -258,7 +258,7 @@ impl PyFunction {
         }
     }
 
-    pub fn invoke(&self, func_args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+    pub fn invoke(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         self.invoke_with_scope(func_args, &self.scope, vm)
     }
 }
@@ -321,7 +321,7 @@ impl SlotDescriptor for PyFunction {
 }
 
 impl Callable for PyFunction {
-    fn call(zelf: &PyRef<Self>, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn call(zelf: &PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         zelf.invoke(args, vm)
     }
 }
@@ -335,7 +335,7 @@ pub struct PyBoundMethod {
 }
 
 impl Callable for PyBoundMethod {
-    fn call(zelf: &PyRef<Self>, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn call(zelf: &PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let args = args.insert(zelf.object.clone());
         vm.invoke(&zelf.function, args)
     }

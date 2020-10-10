@@ -2,7 +2,7 @@
 
 use super::objint::PyInt;
 use super::objtype::PyTypeRef;
-use crate::function::{OptionalArg, PyFuncArgs};
+use crate::function::{FuncArgs, OptionalArg};
 use crate::pyobject::{
     BorrowValue, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
     PyResult, PyValue, TryIntoRef, TypeProtocol,
@@ -94,7 +94,7 @@ impl PySlice {
     }
 
     #[pyslot]
-    fn tp_new(cls: PyTypeRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PySliceRef> {
+    fn tp_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<PySliceRef> {
         let slice: PySlice = match args.args.len() {
             0 => {
                 return Err(
