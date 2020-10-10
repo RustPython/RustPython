@@ -42,7 +42,7 @@ use crate::pyobject::{
     PyAttributes, PyClassDef, PyClassImpl, PyContext, PyObject, PyObjectRc, PyObjectRef,
 };
 use crate::slots::PyTypeSlots;
-use rustpython_common::{cell::PyRwLock, rc::PyRc};
+use rustpython_common::{lock::PyRwLock, rc::PyRc};
 use std::mem::MaybeUninit;
 use std::ptr;
 
@@ -190,8 +190,8 @@ impl TypeZoo {
             slice_type: create_type!(objslice::PySlice),
             staticmethod_type: create_type!(objstaticmethod::PyStaticMethod),
             str_type: create_type!(objstr::PyStr),
-            str_iterator_type: create_type!(objstr::PyStringIterator),
-            str_reverseiterator_type: create_type!(objstr::PyStringReverseIterator),
+            str_iterator_type: create_type!(objstr::PyStrIterator),
+            str_reverseiterator_type: create_type!(objstr::PyStrReverseIterator),
             super_type: create_type!(objsuper::PySuper),
             traceback_type: create_type!(objtraceback::PyTraceback),
             tuple_type: create_type!(objtuple::PyTuple),

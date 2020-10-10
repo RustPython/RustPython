@@ -2,7 +2,7 @@ use csv as rust_csv;
 use itertools::{self, Itertools};
 use std::fmt::{self, Debug, Formatter};
 
-use crate::common::cell::PyRwLock;
+use crate::common::lock::PyRwLock;
 use crate::function::PyFuncArgs;
 use crate::obj::objiter;
 use crate::obj::objstr::{self, PyStr};
@@ -81,7 +81,7 @@ fn into_strings(iterable: &PyIterable<PyObjectRef>, vm: &VirtualMachine) -> PyRe
                 obj => {
                     let msg = format!(
             "iterator should return strings, not {} (did you open the file in text mode?)",
-            obj.class().name
+            obj.lease_class().name
           );
                     Err(vm.new_type_error(msg))
                 }

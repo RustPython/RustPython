@@ -3,12 +3,12 @@ pub(crate) use decl::make_module;
 #[pymodule(name = "zlib")]
 mod decl {
     use crate::byteslike::PyBytesLike;
-    use crate::common::cell::PyMutex;
+    use crate::common::lock::PyMutex;
     use crate::exceptions::PyBaseExceptionRef;
     use crate::function::OptionalArg;
     use crate::obj::objbytes::{PyBytes, PyBytesRef};
     use crate::obj::objtype::PyTypeRef;
-    use crate::pyobject::{BorrowValue, IntoPyRef, PyClassImpl, PyResult, PyValue};
+    use crate::pyobject::{BorrowValue, IntoPyRef, PyResult, PyValue};
     use crate::types::create_type;
     use crate::vm::VirtualMachine;
 
@@ -332,9 +332,9 @@ mod decl {
 
     #[derive(FromArgs)]
     struct DecompressArgs {
-        #[pyarg(positional_only)]
+        #[pyarg(positional)]
         data: PyBytesRef,
-        #[pyarg(positional_or_keyword, default = "0")]
+        #[pyarg(any, default = "0")]
         max_length: usize,
     }
 

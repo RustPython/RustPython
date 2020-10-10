@@ -1,4 +1,4 @@
-use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
+use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use std::io::{self, prelude::*};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, ToSocketAddrs};
 use std::time::Duration;
@@ -498,20 +498,39 @@ fn socket_inet_ntoa(packed_ip: PyBytesRef, vm: &VirtualMachine) -> PyResult {
     Ok(vm.ctx.new_str(Ipv4Addr::from(ip_num).to_string()))
 }
 
+fn socket_getservbyname(
+    servicename: PyStrRef,
+    protocolname: OptionalArg<PyStrRef>,
+    vm: &VirtualMachine,
+) -> PyResult {
+    use std::ffi::CString;
+    let cstr_name = CString::new(servicename.borrow_value())
+        .map_err(|_| vm.new_value_error("embedded null character".to_owned()))?;
+    let protocolname = protocolname.as_ref().map_or("", |s| s.borrow_value());
+    let cstr_proto = CString::new(protocolname)
+        .map_err(|_| vm.new_value_error("embedded null character".to_owned()))?;
+    let serv = unsafe { c::getservbyname(cstr_name.as_ptr(), cstr_proto.as_ptr()) };
+    if serv.is_null() {
+        return Err(vm.new_os_error("service/proto not found".to_owned()));
+    }
+    let port = unsafe { (*serv).s_port };
+    Ok(vm.ctx.new_int(u16::from_be(port as u16)))
+}
+
 #[derive(FromArgs)]
 struct GAIOptions {
-    #[pyarg(positional_only)]
+    #[pyarg(positional)]
     host: Option<PyStrRef>,
-    #[pyarg(positional_only)]
+    #[pyarg(positional)]
     port: Option<Either<PyStrRef, i32>>,
 
-    #[pyarg(positional_only, default = "0")]
+    #[pyarg(positional, default = "0")]
     family: i32,
-    #[pyarg(positional_only, default = "0")]
+    #[pyarg(positional, default = "0")]
     ty: i32,
-    #[pyarg(positional_only, default = "0")]
+    #[pyarg(positional, default = "0")]
     proto: i32,
-    #[pyarg(positional_only, default = "0")]
+    #[pyarg(positional, default = "0")]
     flags: i32,
 }
 
@@ -795,6 +814,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "inet_ntop" => ctx.new_function(socket_inet_ntop),
         "getprotobyname" => ctx.new_function(socket_getprotobyname),
         "getnameinfo" => ctx.new_function(socket_getnameinfo),
+        "getservbyname" => ctx.new_function(socket_getservbyname),
         // constants
         "AF_UNSPEC" => ctx.new_int(0),
         "AF_INET" => ctx.new_int(c::AF_INET),

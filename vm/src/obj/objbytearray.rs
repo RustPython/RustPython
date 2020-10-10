@@ -5,7 +5,6 @@ use std::mem::size_of;
 
 use super::objint::PyIntRef;
 use super::objiter;
-use super::objsequence::SequenceIndex;
 use super::objstr::PyStrRef;
 use super::objtype::PyTypeRef;
 use crate::anystr::{self, AnyStr};
@@ -14,7 +13,7 @@ use crate::bytesinner::{
     ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
 };
 use crate::byteslike::PyBytesLike;
-use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
+use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::function::{OptionalArg, OptionalOption};
 use crate::obj::objbytes::PyBytes;
 use crate::obj::objtuple::PyTupleRef;
@@ -22,6 +21,7 @@ use crate::pyobject::{
     BorrowValue, Either, IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext,
     PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
 };
+use crate::sliceable::SequenceIndex;
 use crate::slots::{Comparable, Hashable, PyComparisonOp, Unhashable};
 use crate::vm::VirtualMachine;
 
@@ -152,8 +152,8 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "__getitem__")]
-    fn getitem(&self, needle: SequenceIndex, vm: &VirtualMachine) -> PyResult {
-        self.borrow_value().getitem(needle, vm)
+    fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self.borrow_value().getitem("bytearray", needle, vm)
     }
 
     #[pymethod(name = "__setitem__")]

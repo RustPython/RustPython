@@ -47,13 +47,13 @@ make_math_func_bool!(math_isnan, is_nan);
 
 #[derive(FromArgs)]
 struct IsCloseArgs {
-    #[pyarg(positional_only, optional = false)]
+    #[pyarg(positional)]
     a: IntoPyFloat,
-    #[pyarg(positional_only, optional = false)]
+    #[pyarg(positional)]
     b: IntoPyFloat,
-    #[pyarg(keyword_only, optional = true)]
+    #[pyarg(named, optional)]
     rel_tol: OptionalArg<IntoPyFloat>,
-    #[pyarg(keyword_only, optional = true)]
+    #[pyarg(named, optional)]
     abs_tol: OptionalArg<IntoPyFloat>,
 }
 
@@ -127,11 +127,50 @@ fn math_pow(x: IntoPyFloat, y: IntoPyFloat) -> f64 {
     x.to_f64().powf(y.to_f64())
 }
 
-make_math_func!(math_sqrt, sqrt);
+fn math_sqrt(value: IntoPyFloat, vm: &VirtualMachine) -> PyResult<f64> {
+    let value = value.to_f64();
+    if value.is_sign_negative() {
+        return Err(vm.new_value_error("math domain error".to_owned()));
+    }
+    Ok(value.sqrt())
+}
+
+fn math_isqrt(x: PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt> {
+    let index = vm.to_index(&x).ok_or_else(|| {
+        vm.new_type_error(format!(
+            "'{}' object cannot be interpreted as an integer",
+            x.class().name
+        ))
+    })?;
+    // __index__ may have returned non-int type
+    let python_value = index?;
+    let value = python_value.borrow_value();
+
+    if value.is_negative() {
+        return Err(vm.new_value_error("isqrt() argument must be nonnegative".to_owned()));
+    }
+    Ok(value.sqrt())
+}
 
 // Trigonometric functions:
-make_math_func!(math_acos, acos);
-make_math_func!(math_asin, asin);
+fn math_acos(x: IntoPyFloat, vm: &VirtualMachine) -> PyResult<f64> {
+    let x = x.to_f64();
+    if x.is_nan() || (-1.0_f64..=1.0_f64).contains(&x) {
+        Ok(x.acos())
+    } else {
+        Err(vm.new_value_error("math domain error".to_owned()))
+    }
+}
+
+fn math_asin(x: IntoPyFloat, vm: &VirtualMachine) -> PyResult<f64> {
+    let x = x.to_f64();
+    if x.is_nan() || (-1.0_f64..=1.0_f64).contains(&x) {
+        Ok(x.asin())
+    } else {
+        Err(vm.new_value_error("math domain error".to_owned()))
+    }
+}
+
 make_math_func!(math_atan, atan);
 
 fn math_atan2(y: IntoPyFloat, x: IntoPyFloat) -> f64 {
@@ -420,6 +459,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "log10" => named_function!(ctx, math, log10),
         "pow" => named_function!(ctx, math, pow),
         "sqrt" => named_function!(ctx, math, sqrt),
+        "isqrt" => named_function!(ctx, math, isqrt),
 
         // Trigonometric functions:
         "acos" => named_function!(ctx, math, acos),

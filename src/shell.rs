@@ -77,7 +77,7 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
                 } else {
                     full_input.push_str(&line);
                 }
-                full_input.push_str("\n");
+                full_input.push('\n');
 
                 if continuing {
                     if stop_continuing {

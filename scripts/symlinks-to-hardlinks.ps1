@@ -1,4 +1,7 @@
 #!/usr/bin/env powershell
+
+Set-Location -Path $(Split-Path -Parent $PSScriptRoot)
+
 git ls-files -s | Select-String '^120000' | ConvertFrom-String -PropertyNames Get-Content,Hash,_,Path | ForEach-Object {
   $symlink = $_.Path
 

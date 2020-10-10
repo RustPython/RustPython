@@ -11,7 +11,7 @@ use num_traits::ToPrimitive;
 
 use super::errno::errors;
 use crate::byteslike::PyBytesLike;
-use crate::common::cell::PyRwLock;
+use crate::common::lock::PyRwLock;
 use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
 use crate::function::{IntoPyNativeFunc, OptionalArg, PyFuncArgs};
 use crate::obj::objbytes::{PyBytes, PyBytesRef};
@@ -23,7 +23,7 @@ use crate::obj::objstr::{PyStr, PyStrRef};
 use crate::obj::objtuple::PyTupleRef;
 use crate::obj::objtype::PyTypeRef;
 use crate::pyobject::{
-    BorrowValue, Either, IntoPyObject, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult,
+    BorrowValue, Either, IntoPyObject, ItemProtocol, PyObjectRef, PyRef, PyResult,
     PyStructSequence, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
@@ -112,15 +112,15 @@ impl TryFromObject for PyPathLike {
         let method = vm.get_method_or_type_error(obj.clone(), "__fspath__", || {
             format!(
                 "expected str, bytes or os.PathLike object, not '{}'",
-                obj.class().name
+                obj.lease_class().name
             )
         })?;
         let result = vm.invoke(&method, PyFuncArgs::default())?;
         match1(&result)?.ok_or_else(|| {
             vm.new_type_error(format!(
                 "expected {}.__fspath__() to return str or bytes, not '{}'",
-                obj.class().name,
-                result.class().name,
+                obj.lease_class().name,
+                result.lease_class().name,
             ))
         })
     }
@@ -198,19 +198,19 @@ pub fn errno_err(vm: &VirtualMachine) -> PyBaseExceptionRef {
 #[allow(dead_code)]
 #[derive(FromArgs, Default)]
 pub struct TargetIsDirectory {
-    #[pyarg(keyword_only, default = "false")]
+    #[pyarg(named, default = "false")]
     target_is_directory: bool,
 }
 
 #[derive(FromArgs, Default)]
 pub struct DirFd {
-    #[pyarg(keyword_only, default = "None")]
+    #[pyarg(named, default)]
     dir_fd: Option<PyIntRef>,
 }
 
 #[derive(FromArgs)]
 struct FollowSymlinks {
-    #[pyarg(keyword_only, default = "true")]
+    #[pyarg(named, default = "true")]
     follow_symlinks: bool,
 }
 
@@ -769,11 +769,11 @@ mod _os {
 
     #[derive(FromArgs)]
     struct UtimeArgs {
-        #[pyarg(positional_or_keyword)]
+        #[pyarg(any)]
         path: PyPathLike,
-        #[pyarg(positional_or_keyword, default = "None")]
+        #[pyarg(any, default)]
         times: Option<PyTupleRef>,
-        #[pyarg(keyword_only, default = "None")]
+        #[pyarg(named, default)]
         ns: Option<PyTupleRef>,
         #[pyarg(flatten)]
         _dir_fd: DirFd,
@@ -1913,15 +1913,15 @@ mod posix {
     #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
     #[derive(FromArgs)]
     pub(super) struct PosixSpawnArgs {
-        #[pyarg(positional_only)]
+        #[pyarg(positional)]
         path: PyPathLike,
-        #[pyarg(positional_only)]
+        #[pyarg(positional)]
         args: PyIterable<PyPathLike>,
-        #[pyarg(positional_only)]
+        #[pyarg(positional)]
         env: PyMapping,
-        #[pyarg(keyword_only, default = "None")]
+        #[pyarg(named, default)]
         file_actions: Option<PyIterable<PyTupleRef>>,
-        #[pyarg(keyword_only, default = "None")]
+        #[pyarg(named, default)]
         setsigdef: Option<PyIterable<i32>>,
     }
 

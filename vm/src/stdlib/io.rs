@@ -18,7 +18,7 @@ mod _io {
     use std::io::{self, prelude::*, Cursor, SeekFrom};
 
     use crate::byteslike::PyBytesLike;
-    use crate::common::cell::{PyRwLock, PyRwLockWriteGuard};
+    use crate::common::lock::{PyRwLock, PyRwLockWriteGuard};
     use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
     use crate::function::{Args, KwArgs, OptionalArg, OptionalOption, PyFuncArgs};
     use crate::obj::objbool;
@@ -38,7 +38,7 @@ mod _io {
     pub(super) struct OptionalSize {
         // In a few functions, the default value is -1 rather than None.
         // Make sure the default value doesn't affect compatibility.
-        #[pyarg(positional_only, default = "None")]
+        #[pyarg(positional, default)]
         size: Option<isize>,
     }
 
@@ -607,13 +607,13 @@ mod _io {
 
     #[derive(FromArgs)]
     struct TextIOWrapperArgs {
-        #[pyarg(positional_or_keyword, optional = false)]
+        #[pyarg(any)]
         buffer: PyObjectRef,
-        #[pyarg(positional_or_keyword, default = "None")]
+        #[pyarg(any, default)]
         encoding: Option<PyStrRef>,
-        #[pyarg(positional_or_keyword, default = "None")]
+        #[pyarg(any, default)]
         errors: Option<PyStrRef>,
-        #[pyarg(positional_or_keyword, default = "None")]
+        #[pyarg(any, default)]
         newline: Option<PyStrRef>,
     }
 
@@ -795,7 +795,7 @@ mod _io {
 
     #[derive(FromArgs)]
     struct StringIOArgs {
-        #[pyarg(positional_or_keyword, default = "None")]
+        #[pyarg(any, default)]
         #[allow(dead_code)]
         // TODO: use this
         newline: Option<PyStrRef>,
@@ -1133,17 +1133,17 @@ mod _io {
     #[derive(FromArgs)]
     #[allow(unused)]
     pub struct OpenArgs {
-        #[pyarg(positional_or_keyword, default = "-1")]
+        #[pyarg(any, default = "-1")]
         buffering: isize,
-        #[pyarg(positional_or_keyword, default = "None")]
+        #[pyarg(any, default)]
         encoding: Option<PyStrRef>,
-        #[pyarg(positional_or_keyword, default = "None")]
+        #[pyarg(any, default)]
         errors: Option<PyStrRef>,
-        #[pyarg(positional_or_keyword, default = "None")]
+        #[pyarg(any, default)]
         newline: Option<PyStrRef>,
-        #[pyarg(positional_or_keyword, default = "true")]
+        #[pyarg(any, default = "true")]
         closefd: bool,
-        #[pyarg(positional_or_keyword, default = "None")]
+        #[pyarg(any, default)]
         opener: Option<PyObjectRef>,
     }
     impl Default for OpenArgs {
@@ -1450,13 +1450,13 @@ mod fileio {
 
     #[derive(FromArgs)]
     struct FileIOArgs {
-        #[pyarg(positional_only)]
-        name: Either<PyStrRef, i64>,
-        #[pyarg(positional_or_keyword, default = "None")]
+        #[pyarg(positional)]
+        name: PyObjectRef,
+        #[pyarg(any, default)]
         mode: Option<PyStrRef>,
-        #[pyarg(positional_or_keyword, default = "true")]
+        #[pyarg(any, default = "true")]
         closefd: bool,
-        #[pyarg(positional_or_keyword, default = "None")]
+        #[pyarg(any, default)]
         opener: Option<PyObjectRef>,
     }
 
@@ -1477,44 +1477,40 @@ mod fileio {
                 .mode
                 .map(|mode| mode.borrow_value().to_owned())
                 .unwrap_or_else(|| "r".to_owned());
-            let (name, file_no) = match args.name {
-                Either::A(name) => {
-                    if !args.closefd {
-                        return Err(vm.new_value_error(
-                            "Cannot use closefd=False with file name".to_owned(),
-                        ));
-                    }
-                    let mode = compute_c_flag(&mode);
-                    let fd = if let Some(opener) = args.opener {
-                        let fd = vm.invoke(
-                            &opener,
-                            vec![name.clone().into_object(), vm.ctx.new_int(mode)],
-                        )?;
-                        if !vm.isinstance(&fd, &vm.ctx.types.int_type)? {
-                            return Err(
-                                vm.new_type_error("expected integer from opener".to_owned())
-                            );
+            let name = args.name.clone();
+            let fd = if let Some(opener) = args.opener {
+                let mode = compute_c_flag(&mode);
+                let fd = vm.invoke(&opener, vec![name.clone(), vm.ctx.new_int(mode)])?;
+                if !vm.isinstance(&fd, &vm.ctx.types.int_type)? {
+                    return Err(vm.new_type_error("expected integer from opener".to_owned()));
+                }
+                let fd = i64::try_from_object(vm, fd)?;
+                if fd < 0 {
+                    return Err(vm.new_os_error("Negative file descriptor".to_owned()));
+                }
+                fd
+            } else {
+                match Either::<i64, os::PyPathLike>::try_from_object(vm, args.name)? {
+                    Either::A(fno) => fno,
+                    Either::B(path) => {
+                        if !args.closefd {
+                            return Err(vm.new_value_error(
+                                "Cannot use closefd=False with file name".to_owned(),
+                            ));
                         }
-                        let fd = i64::try_from_object(vm, fd)?;
-                        if fd < 0 {
-                            return Err(vm.new_os_error("Negative file descriptor".to_owned()));
-                        }
-                        fd
-                    } else {
+                        let mode = compute_c_flag(&mode);
                         os::open(
-                            os::PyPathLike::new_str(name.borrow_value().to_owned()),
+                            path,
                             mode as _,
                             OptionalArg::Missing,
                             OptionalArg::Missing,
                             vm,
                         )?
-                    };
-                    (name.into_object(), fd)
+                    }
                 }
-                Either::B(fno) => (vm.ctx.new_int(fno), fno),
             };
 
-            zelf.fd.store(file_no);
+            zelf.fd.store(fd);
             zelf.closefd.store(args.closefd);
             vm.set_attr(zelf.as_object(), "name", name)?;
             vm.set_attr(zelf.as_object(), "mode", vm.ctx.new_str(mode))?;

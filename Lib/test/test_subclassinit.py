@@ -112,8 +112,6 @@ class Test(unittest.TestCase):
         self.assertEqual(A.d.name, "d")
         self.assertIs(A.d.owner, A)
 
-    #TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_set_name_metaclass(self):
         class Meta(type):
             def __new__(cls, name, bases, ns):

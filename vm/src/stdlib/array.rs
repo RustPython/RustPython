@@ -1,4 +1,4 @@
-use crate::common::cell::{
+use crate::common::lock::{
     PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyRwLock, PyRwLockReadGuard,
     PyRwLockWriteGuard,
 };
@@ -7,7 +7,6 @@ use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objfloat::try_float;
 use crate::obj::objiter;
 use crate::obj::objlist::PyList;
-use crate::obj::objsequence::{get_saturated_pos, PySliceableSequence, PySliceableSequenceMut};
 use crate::obj::objslice::PySliceRef;
 use crate::obj::objstr::PyStrRef;
 use crate::obj::objtype::PyTypeRef;
@@ -15,6 +14,7 @@ use crate::pyobject::{
     BorrowValue, Either, IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyIterable,
     PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
+use crate::sliceable::{saturate_index, PySliceableSequence, PySliceableSequenceMut};
 use crate::slots::{Comparable, PyComparisonOp};
 use crate::VirtualMachine;
 use crossbeam_utils::atomic::AtomicCell;
@@ -442,14 +442,21 @@ fn f64_swap_bytes(x: f64) -> f64 {
 }
 
 fn f32_try_into_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<f32> {
-    try_float(&obj, vm)?
-        .map(|x| x as f32)
-        .ok_or_else(|| vm.new_type_error(format!("must be real number, not {}", obj.class().name)))
+    try_float(&obj, vm)?.map(|x| x as f32).ok_or_else(|| {
+        vm.new_type_error(format!(
+            "must be real number, not {}",
+            obj.lease_class().name
+        ))
+    })
 }
 
 fn f64_try_into_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<f64> {
-    try_float(&obj, vm)?
-        .ok_or_else(|| vm.new_type_error(format!("must be real number, not {}", obj.class().name)))
+    try_float(&obj, vm)?.ok_or_else(|| {
+        vm.new_type_error(format!(
+            "must be real number, not {}",
+            obj.lease_class().name
+        ))
+    })
 }
 
 #[pyclass(module = "array", name = "array")]
@@ -574,7 +581,7 @@ impl PyArray {
 
     #[pymethod]
     fn insert(&self, i: isize, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let i = get_saturated_pos(i, self.len());
+        let i = saturate_index(i, self.len());
         self.borrow_value_mut().insert(i, x, vm)
     }
 
@@ -666,7 +673,7 @@ impl PyArray {
                         None => {
                             return Err(vm.new_type_error(format!(
                                 "can only assign array (not \"{}\") to array slice",
-                                obj.class().name
+                                obj.lease_class().name
                             )));
                         }
                     }
@@ -698,7 +705,7 @@ impl PyArray {
         } else {
             Err(vm.new_type_error(format!(
                 "can only append array (not \"{}\") to array",
-                other.class().name
+                other.lease_class().name
             )))
         }
     }
@@ -714,7 +721,7 @@ impl PyArray {
         } else {
             Err(vm.new_type_error(format!(
                 "can only extend array with array (not \"{}\")",
-                other.class().name
+                other.lease_class().name
             )))
         }
     }

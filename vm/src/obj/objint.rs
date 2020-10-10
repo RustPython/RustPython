@@ -691,29 +691,29 @@ impl Hashable for PyInt {
 
 #[derive(FromArgs)]
 struct IntOptions {
-    #[pyarg(positional_only, optional = true)]
+    #[pyarg(positional, optional)]
     val_options: OptionalArg<PyObjectRef>,
-    #[pyarg(positional_or_keyword, optional = true)]
+    #[pyarg(any, optional)]
     base: OptionalArg<PyObjectRef>,
 }
 
 #[derive(FromArgs)]
 struct IntFromByteArgs {
-    #[pyarg(positional_or_keyword)]
+    #[pyarg(any)]
     bytes: PyBytesInner,
-    #[pyarg(positional_or_keyword)]
+    #[pyarg(any)]
     byteorder: PyStrRef,
-    #[pyarg(keyword_only, optional = true)]
+    #[pyarg(named, optional)]
     signed: OptionalArg<IntoPyBool>,
 }
 
 #[derive(FromArgs)]
 struct IntToByteArgs {
-    #[pyarg(positional_or_keyword)]
+    #[pyarg(any)]
     length: PyIntRef,
-    #[pyarg(positional_or_keyword)]
+    #[pyarg(any)]
     byteorder: PyStrRef,
-    #[pyarg(keyword_only, optional = true)]
+    #[pyarg(named, optional)]
     signed: OptionalArg<IntoPyBool>,
 }
 
@@ -747,7 +747,7 @@ pub(crate) fn to_int(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<BigInt>
             let method = vm.get_method_or_type_error(obj.clone(), "__int__", || {
                 format!(
                     "int() argument must be a string or a number, not '{}'",
-                    obj.class().name
+                    obj.lease_class().name
                 )
             })?;
             let result = vm.invoke(&method, PyFuncArgs::default())?;
@@ -755,7 +755,7 @@ pub(crate) fn to_int(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<BigInt>
                 Some(int_obj) => Ok(int_obj.borrow_value().clone()),
                 None => Err(vm.new_type_error(format!(
                     "TypeError: __int__ returned non-int (type '{}')",
-                    result.class().name
+                    result.lease_class().name
                 ))),
             };
         }

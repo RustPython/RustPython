@@ -1,4 +1,4 @@
-use crate::common::cell::PyRwLock;
+use crate::common::lock::PyRwLock;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
@@ -387,13 +387,13 @@ impl PyType {
 
         let mut attributes = dict.to_attributes();
         if let Some(f) = attributes.get_mut("__new__") {
-            if f.class().is(&vm.ctx.types.function_type) {
+            if f.lease_class().is(&vm.ctx.types.function_type) {
                 *f = PyStaticMethod::from(f.clone()).into_object(vm);
             }
         }
 
         if let Some(f) = attributes.get_mut("__init_subclass__") {
-            if f.class().is(&vm.ctx.types.function_type) {
+            if f.lease_class().is(&vm.ctx.types.function_type) {
                 *f = PyClassMethod::from(f.clone()).into_object(vm);
             }
         }
@@ -673,11 +673,12 @@ impl PyType {
     pub fn get_attr(&self, attr_name: &str) -> Option<PyObjectRef> {
         flame_guard!(format!("class_get_attr({:?})", attr_name));
 
-        self.attributes
-            .read()
-            .get(attr_name)
-            .cloned()
+        self.get_direct_attr(attr_name)
             .or_else(|| self.get_super_attr(attr_name))
+    }
+
+    pub fn get_direct_attr(&self, attr_name: &str) -> Option<PyObjectRef> {
+        self.attributes.read().get(attr_name).cloned()
     }
 
     pub fn get_super_attr(&self, attr_name: &str) -> Option<PyObjectRef> {

@@ -35,9 +35,9 @@ const TIMEOUT_MAX: f64 = (PY_TIMEOUT_MAX / 1_000_000) as f64;
 
 #[derive(FromArgs)]
 struct AcquireArgs {
-    #[pyarg(positional_or_keyword, default = "true")]
+    #[pyarg(any, default = "true")]
     blocking: bool,
-    #[pyarg(positional_or_keyword, default = "Either::A(-1.0)")]
+    #[pyarg(any, default = "Either::A(-1.0)")]
     timeout: Either<f64, i64>,
 }
 
@@ -87,7 +87,7 @@ macro_rules! repr_lock_impl {
         format!(
             "<{} {} object at {}>",
             status,
-            $zelf.class().name,
+            $zelf.lease_class().name,
             $zelf.get_id()
         )
     }};

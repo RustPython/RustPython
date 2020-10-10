@@ -11,7 +11,7 @@ fn _operator_length_hint(obj: PyObjectRef, default: OptionalArg, vm: &VirtualMac
     if !objtype::isinstance(&default, &vm.ctx.types.int_type) {
         return Err(vm.new_type_error(format!(
             "'{}' type cannot be interpreted as an integer",
-            default.class().name
+            default.lease_class().name
         )));
     }
     let hint = objiter::length_hint(vm, obj)?

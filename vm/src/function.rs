@@ -130,7 +130,7 @@ impl PyFuncArgs {
                     Ok(Some(kwarg))
                 } else {
                     let expected_ty_name = &ty.name;
-                    let actual_ty_name = &kwarg.class().name;
+                    let actual_ty_name = &kwarg.lease_class().name;
                     Err(vm.new_type_error(format!(
                         "argument of type {} is required for named parameter `{}` (got: {})",
                         expected_ty_name, key, actual_ty_name
@@ -242,6 +242,23 @@ pub trait FromArgs: Sized {
 
     /// Extracts this item from the next argument(s).
     fn from_args(vm: &VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError>;
+}
+
+pub trait FromArgOptional {
+    type Inner: TryFromObject;
+    fn from_inner(x: Self::Inner) -> Self;
+}
+impl<T: TryFromObject> FromArgOptional for OptionalArg<T> {
+    type Inner = T;
+    fn from_inner(x: T) -> Self {
+        Self::Present(x)
+    }
+}
+impl<T: TryFromObject> FromArgOptional for T {
+    type Inner = Self;
+    fn from_inner(x: Self) -> Self {
+        x
+    }
 }
 
 /// A map of keyword arguments to their values.

@@ -8,7 +8,7 @@ mod decl {
     use std::fmt;
     use std::iter;
 
-    use crate::common::cell::{PyMutex, PyRwLock, PyRwLockWriteGuard};
+    use crate::common::lock::{PyMutex, PyRwLock, PyRwLockWriteGuard};
     use crate::common::rc::PyRc;
     use crate::function::{Args, OptionalArg, OptionalOption, PyFuncArgs};
     use crate::obj::objbool;
@@ -17,8 +17,8 @@ mod decl {
     use crate::obj::objtuple::PyTupleRef;
     use crate::obj::objtype::{self, PyTypeRef};
     use crate::pyobject::{
-        BorrowValue, IdProtocol, IntoPyRef, PyCallable, PyClassImpl, PyObjectRc, PyObjectRef,
-        PyObjectWeak, PyRef, PyResult, PyValue, TypeProtocol,
+        BorrowValue, IdProtocol, IntoPyRef, PyCallable, PyObjectRc, PyObjectRef, PyObjectWeak,
+        PyRef, PyResult, PyValue, TypeProtocol,
     };
     use crate::vm::VirtualMachine;
 
@@ -547,7 +547,7 @@ mod decl {
     #[derive(FromArgs)]
     struct GroupByArgs {
         iterable: PyObjectRef,
-        #[pyarg(positional_or_keyword, optional = true)]
+        #[pyarg(any, optional)]
         key: OptionalOption<PyObjectRef>,
     }
 
@@ -965,7 +965,7 @@ mod decl {
     impl PyItertoolsTee {
         fn from_iter(iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             let it = get_iter(vm, &iterable)?;
-            if it.class().is(&PyItertoolsTee::class(vm)) {
+            if it.lease_class().is(&PyItertoolsTee::class(vm)) {
                 return vm.call_method(&it, "__copy__", PyFuncArgs::from(vec![]));
             }
             Ok(PyItertoolsTee {
@@ -1044,7 +1044,7 @@ mod decl {
 
     #[derive(FromArgs)]
     struct ProductArgs {
-        #[pyarg(keyword_only, optional = true)]
+        #[pyarg(named, optional)]
         repeat: OptionalArg<usize>,
     }
 
@@ -1485,7 +1485,7 @@ mod decl {
 
     #[derive(FromArgs)]
     struct ZiplongestArgs {
-        #[pyarg(keyword_only, optional = true)]
+        #[pyarg(named, optional)]
         fillvalue: OptionalArg<PyObjectRef>,
     }
 

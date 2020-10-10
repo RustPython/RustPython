@@ -11,9 +11,6 @@ use crate::obj::objbytes::PyBytes;
 use crate::obj::objint::{self, PyInt, PyIntRef};
 use crate::obj::objlist::PyList;
 use crate::obj::objmemory::PyMemoryView;
-use crate::obj::objsequence::{
-    get_saturated_pos, PySliceableSequence, PySliceableSequenceMut, SequenceIndex,
-};
 use crate::obj::objsingletons::PyNoneRef;
 use crate::obj::objslice::PySliceRef;
 use crate::obj::objstr::{self, PyStr, PyStrRef};
@@ -21,6 +18,7 @@ use crate::pyobject::{
     BorrowValue, Either, PyComparisonValue, PyIterable, PyIterator, PyObjectRef, PyResult,
     TryFromObject, TypeProtocol,
 };
+use crate::sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex};
 use crate::slots::PyComparisonOp;
 use crate::vm::VirtualMachine;
 use rustpython_common::hash;
@@ -51,7 +49,10 @@ impl TryFromObject for PyBytesInner {
             l @ PyList => l.to_byte_inner(vm),
             obj => {
                 let iter = vm.get_method_or_type_error(obj.clone(), "__iter__", || {
-                    format!("a bytes-like object is required, not {}", obj.class())
+                    format!(
+                        "a bytes-like object is required, not '{}'",
+                        obj.lease_class().name
+                    )
                 })?;
                 let iter = PyIterable::from_method(iter);
                 Ok(PyBytesInner {
@@ -64,11 +65,11 @@ impl TryFromObject for PyBytesInner {
 
 #[derive(FromArgs)]
 pub struct ByteInnerNewOptions {
-    #[pyarg(positional_or_keyword, optional = true)]
+    #[pyarg(any, optional)]
     source: OptionalArg<PyObjectRef>,
-    #[pyarg(positional_or_keyword, optional = true)]
+    #[pyarg(any, optional)]
     encoding: OptionalArg<PyStrRef>,
-    #[pyarg(positional_or_keyword, optional = true)]
+    #[pyarg(any, optional)]
     errors: OptionalArg<PyStrRef>,
 }
 
@@ -155,11 +156,11 @@ impl ByteInnerNewOptions {
 
 #[derive(FromArgs)]
 pub struct ByteInnerFindOptions {
-    #[pyarg(positional_only, optional = false)]
+    #[pyarg(positional)]
     sub: Either<PyBytesInner, PyIntRef>,
-    #[pyarg(positional_only, default = "None")]
+    #[pyarg(positional, default)]
     start: Option<PyIntRef>,
-    #[pyarg(positional_only, default = "None")]
+    #[pyarg(positional, default)]
     end: Option<PyIntRef>,
 }
 
@@ -180,9 +181,9 @@ impl ByteInnerFindOptions {
 
 #[derive(FromArgs)]
 pub struct ByteInnerPaddingOptions {
-    #[pyarg(positional_only, optional = false)]
+    #[pyarg(positional)]
     width: isize,
-    #[pyarg(positional_only, optional = true)]
+    #[pyarg(positional, optional)]
     fillchar: OptionalArg<PyObjectRef>,
 }
 
@@ -207,9 +208,9 @@ impl ByteInnerPaddingOptions {
 
 #[derive(FromArgs)]
 pub struct ByteInnerTranslateOptions {
-    #[pyarg(positional_only, optional = false)]
+    #[pyarg(positional)]
     table: Either<PyBytesInner, PyNoneRef>,
-    #[pyarg(positional_or_keyword, optional = true)]
+    #[pyarg(any, optional)]
     delete: OptionalArg<PyBytesInner>,
 }
 
@@ -294,19 +295,17 @@ impl PyBytesInner {
         })
     }
 
-    pub fn getitem(&self, needle: SequenceIndex, vm: &VirtualMachine) -> PyResult {
-        match needle {
-            SequenceIndex::Int(int) => {
-                if let Some(idx) = self.elements.get_pos(int) {
-                    Ok(vm.ctx.new_int(self.elements[idx]))
-                } else {
-                    Err(vm.new_index_error("index out of range".to_owned()))
-                }
-            }
-            SequenceIndex::Slice(slice) => {
-                Ok(vm.ctx.new_bytes(self.elements.get_slice_items(vm, &slice)?))
-            }
-        }
+    pub fn getitem(
+        &self,
+        name: &'static str,
+        needle: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let obj = match self.elements.get_item(vm, needle, name)? {
+            Either::A(byte) => vm.new_pyobj(byte),
+            Either::B(bytes) => vm.ctx.new_bytes(bytes),
+        };
+        Ok(obj)
     }
 
     pub fn setindex(
@@ -315,7 +314,7 @@ impl PyBytesInner {
         object: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        if let Some(idx) = self.elements.get_pos(int) {
+        if let Some(idx) = self.elements.wrap_index(int) {
             let value = Self::value_try_from_object(vm, object)?;
             self.elements[idx] = value;
             Ok(())
@@ -328,7 +327,7 @@ impl PyBytesInner {
         let value = vm.to_index(&object).ok_or_else(|| {
             vm.new_type_error(format!(
                 "'{}' object cannot be interpreted as an integer",
-                object.class().name
+                object.lease_class().name
             ))
         })?;
         // __index__ returned non-int type
@@ -371,7 +370,7 @@ impl PyBytesInner {
     pub fn delitem(&mut self, needle: SequenceIndex, vm: &VirtualMachine) -> PyResult<()> {
         match needle {
             SequenceIndex::Int(int) => {
-                if let Some(idx) = self.elements.get_pos(int) {
+                if let Some(idx) = self.elements.wrap_index(int) {
                     self.elements.remove(idx);
                     Ok(())
                 } else {
@@ -387,7 +386,7 @@ impl PyBytesInner {
     }
 
     pub fn pop(&mut self, index: isize, vm: &VirtualMachine) -> PyResult<u8> {
-        if let Some(index) = self.elements.get_pos(index) {
+        if let Some(index) = self.elements.wrap_index(index) {
             Ok(self.elements.remove(index))
         } else {
             Err(vm.new_index_error("index out of range".to_owned()))
@@ -401,7 +400,7 @@ impl PyBytesInner {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let value = Self::value_try_from_object(vm, object)?;
-        let index = get_saturated_pos(index, self.len());
+        let index = self.elements.saturate_index(index);
         self.elements.insert(index, value);
         Ok(())
     }
@@ -1190,9 +1189,9 @@ impl<'s> AnyStr<'s, u8> for [u8] {
 
 #[derive(FromArgs)]
 pub struct DecodeArgs {
-    #[pyarg(positional_or_keyword, default = "None")]
+    #[pyarg(any, default)]
     encoding: Option<PyStrRef>,
-    #[pyarg(positional_or_keyword, default = "None")]
+    #[pyarg(any, default)]
     errors: Option<PyStrRef>,
 }
 

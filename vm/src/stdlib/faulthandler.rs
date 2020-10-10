@@ -31,9 +31,9 @@ mod decl {
     #[derive(FromArgs)]
     #[allow(unused)]
     struct EnableArgs {
-        #[pyarg(positional_or_keyword, default = "None")]
+        #[pyarg(any, default)]
         file: Option<i64>,
-        #[pyarg(positional_or_keyword, default = "true")]
+        #[pyarg(any, default = "true")]
         all_threads: bool,
     }
 
@@ -45,13 +45,13 @@ mod decl {
     #[derive(FromArgs)]
     #[allow(unused)]
     struct RegisterArgs {
-        #[pyarg(positional_only)]
+        #[pyarg(positional)]
         signum: i64,
-        #[pyarg(positional_or_keyword, default = "None")]
+        #[pyarg(any, default)]
         file: Option<i64>,
-        #[pyarg(positional_or_keyword, default = "true")]
+        #[pyarg(any, default = "true")]
         all_threads: bool,
-        #[pyarg(positional_or_keyword, default = "false")]
+        #[pyarg(any, default = "false")]
         chain: bool,
     }
 

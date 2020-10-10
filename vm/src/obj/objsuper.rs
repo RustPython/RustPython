@@ -17,8 +17,6 @@ use crate::scope::NameProtocol;
 use crate::slots::{SlotDescriptor, SlotGetattro};
 use crate::vm::VirtualMachine;
 
-use itertools::Itertools;
-
 pub type PySuperRef = PyRef<PySuper>;
 
 #[pyclass(module = false, name = "super")]
@@ -114,10 +112,12 @@ impl SlotGetattro for PySuper {
             None => return vm.generic_getattribute(zelf.into_object(), name),
         };
         // skip the classes in obj_type.mro up to and including zelf.typ
-        let mut it = obj_type.iter_mro().peekable();
-        for _ in it.peeking_take_while(|cls| !cls.is(&zelf.typ)) {}
-        for cls in it.skip(1) {
-            if let Some(descr) = cls.get_attr(name.borrow_value()) {
+        let it = obj_type
+            .iter_mro()
+            .skip_while(|cls| !cls.is(&zelf.typ))
+            .skip(1);
+        for cls in it {
+            if let Some(descr) = cls.get_direct_attr(name.borrow_value()) {
                 return vm
                     .call_get_descriptor_specific(
                         descr.clone(),

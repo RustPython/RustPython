@@ -136,19 +136,11 @@ impl Symbol {
     }
 
     pub fn is_global(&self) -> bool {
-        if let SymbolScope::Global = self.scope {
-            true
-        } else {
-            false
-        }
+        matches!(self.scope, SymbolScope::Global)
     }
 
     pub fn is_local(&self) -> bool {
-        if let SymbolScope::Local = self.scope {
-            true
-        } else {
-            false
-        }
+        matches!(self.scope, SymbolScope::Local)
     }
 }
 
@@ -243,15 +235,7 @@ impl<'a> SymbolTableAnalyzer<'a> {
                     if scope_depth > 0 {
                         // check if the name is already defined in any outer scope
                         // therefore
-                        if scope_depth < 2
-                            || !self
-                                .tables
-                                .iter()
-                                .skip(1) // omit the global scope as it is not non-local
-                                .rev() // revert the order for better performance
-                                .any(|t| t.0.contains_key(&symbol.name))
-                        // true when any of symbol tables contains the name -> then negate
-                        {
+                        if scope_depth < 2 || !self.found_in_outer_scope(symbol) {
                             return Err(SymbolTableError {
                                 error: format!("no binding for nonlocal '{}' found", symbol.name),
                                 location: Default::default(),
@@ -282,27 +266,27 @@ impl<'a> SymbolTableAnalyzer<'a> {
         Ok(())
     }
 
+    fn found_in_outer_scope(&self, symbol: &Symbol) -> bool {
+        // Interesting stuff about the __class__ variable:
+        // https://docs.python.org/3/reference/datamodel.html?highlight=__class__#creating-the-class-object
+        symbol.name == "__class__"
+            || self.tables.iter().skip(1).any(|(symbols, typ)| {
+                *typ != SymbolTableType::Class && symbols.contains_key(&symbol.name)
+            })
+    }
+
     fn analyze_unknown_symbol(&self, symbol: &mut Symbol) {
         if symbol.is_assigned || symbol.is_parameter {
             symbol.scope = SymbolScope::Local;
+        } else if self.found_in_outer_scope(symbol) {
+            // Symbol is in some outer scope.
+            symbol.is_free = true;
+        } else if self.tables.is_empty() {
+            // Don't make assumptions when we don't know.
+            symbol.scope = SymbolScope::Unknown;
         } else {
-            // Interesting stuff about the __class__ variable:
-            // https://docs.python.org/3/reference/datamodel.html?highlight=__class__#creating-the-class-object
-            let found_in_outer_scope = symbol.name == "__class__"
-                || self.tables.iter().skip(1).any(|(symbols, typ)| {
-                    *typ != SymbolTableType::Class && symbols.contains_key(&symbol.name)
-                });
-
-            if found_in_outer_scope {
-                // Symbol is in some outer scope.
-                symbol.is_free = true;
-            } else if self.tables.is_empty() {
-                // Don't make assumptions when we don't know.
-                symbol.scope = SymbolScope::Unknown;
-            } else {
-                // If there are scopes above we can assume global.
-                symbol.scope = SymbolScope::Global;
-            }
+            // If there are scopes above we can assume global.
+            symbol.scope = SymbolScope::Global;
         }
     }
 
@@ -539,6 +523,7 @@ impl SymbolTableBuilder {
                 self.enter_scope(name, SymbolTableType::Class, statement.location.row());
                 self.register_name("__module__", SymbolUsage::Assigned)?;
                 self.register_name("__qualname__", SymbolUsage::Assigned)?;
+                self.register_name("__doc__", SymbolUsage::Assigned)?;
                 self.scan_statements(body)?;
                 self.leave_scope();
                 self.scan_expressions(bases, &ExpressionContext::Load)?;

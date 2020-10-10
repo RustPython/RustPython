@@ -11,15 +11,11 @@ use std::fmt;
 
 use arr_macro::arr;
 use crossbeam_utils::atomic::AtomicCell;
-#[cfg(feature = "rustpython-compiler")]
-use rustpython_compiler::{
-    compile::{self, CompileOpts},
-    error::CompileError,
-};
+use num_traits::{Signed, ToPrimitive};
 
 use crate::builtins::{self, to_ascii};
 use crate::bytecode;
-use crate::common::{cell::PyMutex, hash::HashSecret, rc::PyRc};
+use crate::common::{hash::HashSecret, lock::PyMutex, rc::PyRc};
 use crate::exceptions::{self, PyBaseException, PyBaseExceptionRef};
 use crate::frame::{ExecutionResult, Frame, FrameRef};
 use crate::frozen;
@@ -28,7 +24,7 @@ use crate::import;
 use crate::obj::objbool;
 use crate::obj::objcode::{PyCode, PyCodeRef};
 use crate::obj::objdict::PyDictRef;
-use crate::obj::objint::PyIntRef;
+use crate::obj::objint::{PyInt, PyIntRef};
 use crate::obj::objiter;
 use crate::obj::objlist::PyList;
 use crate::obj::objmodule::{self, PyModule};
@@ -44,6 +40,11 @@ use crate::scope::Scope;
 use crate::slots::PyComparisonOp;
 use crate::stdlib;
 use crate::sysmodule;
+#[cfg(feature = "rustpython-compiler")]
+use rustpython_compiler::{
+    compile::{self, CompileOpts},
+    error::CompileError,
+};
 
 // use objects::objects;
 
@@ -854,7 +855,7 @@ impl VirtualMachine {
     pub fn isinstance(&self, obj: &PyObjectRef, cls: &PyTypeRef) -> PyResult<bool> {
         // cpython first does an exact check on the type, although documentation doesn't state that
         // https://github.com/python/cpython/blob/a24107b04c1277e3c1105f98aff5bfa3a98b33a0/Objects/abstract.c#L2408
-        if obj.class().is(cls) {
+        if obj.lease_class().is(cls) {
             Ok(true)
         } else {
             let ret = self.call_method(cls.as_object(), "__instancecheck__", vec![obj.clone()])?;
@@ -904,13 +905,7 @@ impl VirtualMachine {
         // This is only used in the vm for magic methods, which use a greatly simplified attribute lookup.
         match obj.get_class_attr(method_name) {
             Some(func) => {
-                vm_trace!(
-                    "vm.call_method {:?} {:?} {:?} -> {:?}",
-                    obj,
-                    cls,
-                    method_name,
-                    func
-                );
+                vm_trace!("vm.call_method {:?} {:?} -> {:?}", obj, method_name, func);
                 let wrapped = self.call_if_get_descriptor(func, obj.clone())?;
                 self.invoke(&wrapped, args)
             }
@@ -982,7 +977,7 @@ impl VirtualMachine {
 
     pub fn extract_elements<T: TryFromObject>(&self, value: &PyObjectRef) -> PyResult<Vec<T>> {
         // Extract elements from item, if possible:
-        let cls = value.class();
+        let cls = value.lease_class();
         if cls.is(&self.ctx.types.tuple_type) {
             value
                 .payload::<PyTuple>()
@@ -1127,9 +1122,7 @@ impl VirtualMachine {
         dict: Option<PyDictRef>,
     ) -> PyResult<Option<PyObjectRef>> {
         let name = name_str.borrow_value();
-        let cls = obj.class();
-
-        let cls_attr = cls.get_attr(name);
+        let cls_attr = obj.lease_class().get_attr(name);
 
         if let Some(ref attr) = cls_attr {
             if attr.lease_class().has_attr("__set__") {
@@ -1151,7 +1144,7 @@ impl VirtualMachine {
             Ok(Some(obj_attr))
         } else if let Some(attr) = cls_attr {
             self.call_if_get_descriptor(attr, obj).map(Some)
-        } else if let Some(getter) = cls.get_attr("__getattr__") {
+        } else if let Some(getter) = obj.class().get_attr("__getattr__") {
             self.invoke(&getter, vec![obj, name_str.into_object()])
                 .map(Some)
         } else {
@@ -1500,6 +1493,28 @@ impl VirtualMachine {
             .first_in_mro(|cls| cls.slots.hash.load())
             .unwrap(); // hash always exist
         hash(&obj, self)
+    }
+
+    pub fn _len(&self, obj: &PyObjectRef) -> Option<PyResult<usize>> {
+        self.get_method(obj.clone(), "__len__").map(|len| {
+            let len = self.invoke(&len?, vec![])?;
+            let len = len
+                .payload_if_subclass::<PyInt>(self)
+                .ok_or_else(|| {
+                    self.new_type_error(format!(
+                        "'{}' object cannot be interpreted as an integer",
+                        len.lease_class().name
+                    ))
+                })?
+                .borrow_value();
+            if len.is_negative() {
+                return Err(self.new_value_error("__len__() should return >= 0".to_owned()));
+            }
+            let len = len.to_isize().ok_or_else(|| {
+                self.new_overflow_error("cannot fit 'int' into an index-sized integer".to_owned())
+            })?;
+            Ok(len as usize)
+        })
     }
 
     // https://docs.python.org/3/reference/expressions.html#membership-test-operations

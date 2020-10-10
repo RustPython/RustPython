@@ -135,10 +135,12 @@ pub fn from_hex(s: &str) -> Option<f64> {
             }
 
             for (index, ch) in value.chars().enumerate() {
-                if ch == 'p' && has_dot {
-                    hex.push_str("p");
-                } else if ch == 'p' && !has_dot {
-                    hex.push_str(".p");
+                if ch == 'p' {
+                    if has_dot {
+                        hex.push('p');
+                    } else {
+                        hex.push_str(".p");
+                    }
                 } else if index >= start {
                     hex.push(ch);
                 }

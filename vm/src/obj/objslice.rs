@@ -146,7 +146,7 @@ impl PySlice {
 
         // Each end of the array
         let lower = if backwards {
-            -1_i8.to_bigint().unwrap()
+            (-1_i8).to_bigint().unwrap()
         } else {
             Zero::zero()
         };

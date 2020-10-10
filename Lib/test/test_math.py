@@ -249,7 +249,6 @@ class MathTests(unittest.TestCase):
         self.ftest('e', math.e, 2.718281828459045235360287)
         self.assertEqual(math.tau, 2*math.pi)
 
-    @unittest.skip('TODO: RUSTPYTHON')
     def testAcos(self):
         self.assertRaises(TypeError, math.acos)
         self.ftest('acos(-1)', math.acos(-1), math.pi)
@@ -272,7 +271,6 @@ class MathTests(unittest.TestCase):
         self.assertRaises(ValueError, math.acosh, NINF)
         self.assertTrue(math.isnan(math.acosh(NAN)))
 
-    @unittest.skip('TODO: RUSTPYTHON')
     def testAsin(self):
         self.assertRaises(TypeError, math.asin)
         self.ftest('asin(-1)', math.asin(-1), -math.pi/2)
@@ -929,7 +927,6 @@ class MathTests(unittest.TestCase):
             self.assertEqual(math.dist(p, q), 5*scale)
             self.assertEqual(math.dist(q, p), 5*scale)
 
-    @unittest.skip('TODO: RUSTPYTHON')
     def testIsqrt(self):
         # Test a variety of inputs, large and small.
         test_values = (
@@ -1455,7 +1452,6 @@ class MathTests(unittest.TestCase):
         self.assertEqual(math.sinh(NINF), NINF)
         self.assertTrue(math.isnan(math.sinh(NAN)))
 
-    @unittest.skip('TODO: RUSTPYTHON')
     def testSqrt(self):
         self.assertRaises(TypeError, math.sqrt)
         self.ftest('sqrt(0)', math.sqrt(0), 0)

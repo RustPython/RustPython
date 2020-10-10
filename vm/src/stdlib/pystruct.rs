@@ -30,7 +30,7 @@ mod _struct {
         objtuple::PyTupleRef, objtype::PyTypeRef,
     };
     use crate::pyobject::{
-        BorrowValue, Either, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+        BorrowValue, Either, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     };
     use crate::VirtualMachine;
 
@@ -267,7 +267,10 @@ mod _struct {
         Ok(codes)
     }
 
+    #[allow(clippy::match_like_matches_macro)] // if we change it to matches!() rustc hangs forever
     fn is_supported_format_character(c: char) -> bool {
+        // https://github.com/rust-lang/rustfmt/issues/4462
+        #[allow(clippy::match_like_matches_macro)]
         match c {
             'x' | 'c' | 'b' | 'B' | '?' | 'h' | 'H' | 'i' | 'I' | 'l' | 'L' | 'q' | 'Q' | 'n'
             | 'N' | 'f' | 'd' | 's' | 'p' | 'P' => true,
@@ -769,7 +772,7 @@ mod _struct {
     #[derive(FromArgs)]
     struct UpdateFromArgs {
         buffer: PyBytesLike,
-        #[pyarg(positional_or_keyword, default = "0")]
+        #[pyarg(any, default = "0")]
         offset: isize,
     }
 

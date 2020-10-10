@@ -1,6 +1,6 @@
 use super::socket::PySocketRef;
 use crate::byteslike::PyBytesLike;
-use crate::common::cell::{PyRwLock, PyRwLockWriteGuard};
+use crate::common::lock::{PyRwLock, PyRwLockWriteGuard};
 use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
 use crate::function::OptionalArg;
 use crate::obj::objbytearray::PyByteArrayRef;
@@ -153,9 +153,9 @@ fn ssl_enum_certificates(store_name: PyStrRef, vm: &VirtualMachine) -> PyResult<
 
 #[derive(FromArgs)]
 struct Txt2ObjArgs {
-    #[pyarg(positional_or_keyword)]
+    #[pyarg(any)]
     txt: CString,
-    #[pyarg(positional_or_keyword, default = "false")]
+    #[pyarg(any, default = "false")]
     name: bool,
 }
 fn ssl_txt2obj(args: Txt2ObjArgs, vm: &VirtualMachine) -> PyResult<PyNid> {
@@ -482,25 +482,25 @@ impl PySslContext {
 #[derive(FromArgs)]
 // #[allow(dead_code)]
 struct WrapSocketArgs {
-    #[pyarg(positional_or_keyword)]
+    #[pyarg(any)]
     sock: PySocketRef,
-    #[pyarg(positional_or_keyword)]
+    #[pyarg(any)]
     server_side: bool,
-    #[pyarg(positional_or_keyword, default = "None")]
+    #[pyarg(any, default)]
     server_hostname: Option<PyStrRef>,
-    #[pyarg(keyword_only, default = "None")]
+    #[pyarg(named, default)]
     owner: Option<PyObjectRef>,
-    #[pyarg(keyword_only, default = "None")]
+    #[pyarg(named, default)]
     session: Option<PyObjectRef>,
 }
 
 #[derive(FromArgs)]
 struct LoadVerifyLocationsArgs {
-    #[pyarg(positional_or_keyword, default = "None")]
+    #[pyarg(any, default)]
     cafile: Option<CString>,
-    #[pyarg(positional_or_keyword, default = "None")]
+    #[pyarg(any, default)]
     capath: Option<CString>,
-    #[pyarg(positional_or_keyword, default = "None")]
+    #[pyarg(any, default)]
     cadata: Option<Either<PyStrRef, PyBytesLike>>,
 }
 

@@ -34,7 +34,7 @@ mod decl {
                 }
                 obj => Err(vm.new_type_error(format!(
                     "argument should be bytes, buffer or ASCII string, not '{}'",
-                    obj.class().name,
+                    obj.lease_class().name,
                 ))),
             })
         }
@@ -114,7 +114,7 @@ mod decl {
 
     #[derive(FromArgs)]
     struct NewlineArg {
-        #[pyarg(keyword_only, default = "true")]
+        #[pyarg(named, default = "true")]
         newline: bool,
     }
 

@@ -24,18 +24,19 @@ RustPython requires Rust latest stable version (e.g 1.43.0 at May 24th 2020).
 To check Rust version: `rustc --version` If you wish to update,
 `rustup update stable`.
 
-To test RustPython, do the following:
+To build RustPython locally, do the following:
 
     $ git clone https://github.com/RustPython/RustPython
     $ cd RustPython
-    # if you're on windows:
+      # if you're on windows:
     $ powershell scripts\symlinks-to-hardlinks.ps1
-    $ cargo run demo.py
+      # --release is needed (at least on windows) to prevent stack overflow
+    $ cargo run --release demo.py
     Hello, RustPython!
 
 Or use the interactive shell:
 
-    $ cargo run
+    $ cargo run --release
     Welcome to rustpython
     >>>>> 2+2
     4
@@ -74,7 +75,7 @@ cargo build --release --target wasm32-wasi --features="freeze-stdlib"
 
 > Note: we use the `freeze-stdlib` to include the standard library inside the binary.
 
-### JIT(Just in time) compiler
+### JIT (Just in time) compiler
 
 RustPython has an **very** experimental JIT compiler that compile python functions into native code. 
 
@@ -107,12 +108,11 @@ Then `examples/hello_embed.rs` and `examples/mini_repl.rs` may be of some assist
 
 ## Disclaimer
 
-RustPython is in a development phase and should not be used in production or a
-fault intolerant setting.
+RustPython is in development, and while the interpreter certainly can be used
+in interesting use cases like running Python in WASM and embedding into a Rust
+project, do note that RustPython is not totally production-ready.
 
-Our current build supports only a subset of Python syntax.
-
-Contribution is also more than welcome! See our contribution section for more
+Contribution is more than welcome! See our contribution section for more
 information on this.
 
 ## Conference videos
@@ -124,7 +124,8 @@ Checkout those talks on conferences:
 
 ## Use cases
 
-Allthough rustpython is a very young project, it is already used in the wild:
+Although RustPython is a fairly young project, a few people have used it to
+make cool projects:
 
 - [pyckitup](https://github.com/pickitup247/pyckitup): a game engine written in
   rust.
@@ -173,21 +174,6 @@ methods are often the simplest and easiest way to contribute.
 
 You can also simply run `./whats_left.sh` to assist in finding any unimplemented
 method.
-
-## Using a different standard library
-
-As of now the standard library is under construction. You can change a standard
-library by setting the RUSTPYTHONPATH environment variable.
-
-To do this, follow this method:
-
-```shell
-$ export RUSTPYTHONPATH=./Lib  # this is same as the default value
-$ cargo run -- -c 'import xdrlib'
-```
-
-You can play around with other standard libraries for python. For example, the
-[ouroboros library](https://github.com/pybee/ouroboros) or CPython Lib.
 
 ## Compiling to WebAssembly
 

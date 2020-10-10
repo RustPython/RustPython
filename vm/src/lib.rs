@@ -48,6 +48,7 @@ mod builtins;
 mod bytesinner;
 pub mod byteslike;
 pub mod cformat;
+mod coroutine;
 mod dictdatatype;
 #[cfg(feature = "rustpython-compiler")]
 pub mod eval;
@@ -65,6 +66,7 @@ mod pyobjectrc;
 pub mod readline;
 pub mod scope;
 mod sequence;
+mod sliceable;
 pub mod slots;
 pub mod stdlib;
 mod sysmodule;

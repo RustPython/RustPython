@@ -92,7 +92,7 @@ impl PyDict {
                 let iter = objiter::get_iter(vm, &dict_obj)?;
                 loop {
                     fn err(vm: &VirtualMachine) -> PyBaseExceptionRef {
-                        vm.new_type_error("Iterator must have exactly two elements".to_owned())
+                        vm.new_value_error("Iterator must have exactly two elements".to_owned())
                     }
                     let element = match objiter::get_next_object(vm, &iter)? {
                         Some(obj) => obj,

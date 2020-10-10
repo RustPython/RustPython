@@ -1,4 +1,4 @@
-use crate::common::cell::PyRwLock;
+use crate::common::lock::PyRwLock;
 use crate::function::PyFuncArgs;
 use crate::obj::objsingletons::{PyNone, PyNoneRef};
 use crate::obj::objstr::{PyStr, PyStrRef};

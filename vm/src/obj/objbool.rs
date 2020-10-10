@@ -145,7 +145,7 @@ impl PyBool {
     #[pyslot]
     fn tp_new(zelf: PyObjectRef, x: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
         if !objtype::isinstance(&zelf, &vm.ctx.types.type_type) {
-            let actual_type = &zelf.class().name;
+            let actual_type = &zelf.lease_class().name;
             return Err(vm.new_type_error(format!(
                 "requires a 'type' object but received a '{}'",
                 actual_type

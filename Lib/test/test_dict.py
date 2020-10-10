@@ -138,8 +138,6 @@ class DictTest(unittest.TestCase):
 
         self.assertRaises(TypeError, d.clear, None)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_update(self):
         d = {}
         d.update({1:100})

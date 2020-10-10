@@ -6,7 +6,7 @@ mod decl {
 
     use crate::obj::objstr::PyStrRef;
     use crate::obj::objtype::PyTypeRef;
-    use crate::pyobject::{BorrowValue, PyClassImpl, PyRef, PyResult, PyValue};
+    use crate::pyobject::{BorrowValue, PyRef, PyResult, PyValue};
     use crate::vm::VirtualMachine;
     use rustpython_compiler::{compile, error::CompileError, symboltable};
     use rustpython_parser::parser;
@@ -226,10 +226,7 @@ mod decl {
 
         #[pymethod(name = "is_nonlocal")]
         fn is_nonlocal(&self) -> bool {
-            match self.symbol.scope {
-                symboltable::SymbolScope::Nonlocal => true,
-                _ => false,
-            }
+            matches!(self.symbol.scope, symboltable::SymbolScope::Nonlocal)
         }
 
         #[pymethod(name = "is_referenced")]

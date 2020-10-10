@@ -106,23 +106,23 @@ fn _winapi_GetFileType(h: usize, vm: &VirtualMachine) -> PyResult<u32> {
 
 #[derive(FromArgs)]
 struct CreateProcessArgs {
-    #[pyarg(positional_only)]
+    #[pyarg(positional)]
     name: Option<PyStrRef>,
-    #[pyarg(positional_only)]
+    #[pyarg(positional)]
     command_line: Option<PyStrRef>,
-    #[pyarg(positional_only)]
+    #[pyarg(positional)]
     _proc_attrs: PyObjectRef,
-    #[pyarg(positional_only)]
+    #[pyarg(positional)]
     _thread_attrs: PyObjectRef,
-    #[pyarg(positional_only)]
+    #[pyarg(positional)]
     inherit_handles: i32,
-    #[pyarg(positional_only)]
+    #[pyarg(positional)]
     creation_flags: u32,
-    #[pyarg(positional_only)]
+    #[pyarg(positional)]
     env_mapping: Option<PyMapping>,
-    #[pyarg(positional_only)]
+    #[pyarg(positional)]
     current_dir: Option<PyStrRef>,
-    #[pyarg(positional_only)]
+    #[pyarg(positional)]
     startup_info: PyObjectRef,
 }
 

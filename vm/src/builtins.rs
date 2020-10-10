@@ -28,7 +28,6 @@ mod decl {
     use crate::obj::objint::{self, PyIntRef};
     use crate::obj::objiter;
     use crate::obj::objlist::{PyList, SortOptions};
-    use crate::obj::objsequence;
     use crate::obj::objstr::{PyStr, PyStrRef};
     use crate::obj::objtype::{self, PyTypeRef};
     use crate::pyobject::{
@@ -37,6 +36,7 @@ mod decl {
     };
     use crate::readline::{Readline, ReadlineResult};
     use crate::scope::Scope;
+    use crate::sliceable;
     use crate::slots::PyComparisonOp;
     #[cfg(feature = "rustpython-parser")]
     use crate::stdlib::ast;
@@ -107,17 +107,17 @@ mod decl {
     #[derive(FromArgs)]
     #[allow(dead_code)]
     struct CompileArgs {
-        #[pyarg(positional_only, optional = false)]
+        #[pyarg(positional)]
         source: Either<PyStrRef, PyBytesRef>,
-        #[pyarg(positional_only, optional = false)]
+        #[pyarg(positional)]
         filename: PyStrRef,
-        #[pyarg(positional_only, optional = false)]
+        #[pyarg(positional)]
         mode: PyStrRef,
-        #[pyarg(positional_or_keyword, optional = true)]
+        #[pyarg(any, optional)]
         flags: OptionalArg<PyIntRef>,
-        #[pyarg(positional_or_keyword, optional = true)]
+        #[pyarg(any, optional)]
         dont_inherit: OptionalArg<bool>,
-        #[pyarg(positional_or_keyword, optional = true)]
+        #[pyarg(any, optional)]
         optimize: OptionalArg<PyIntRef>,
     }
 
@@ -188,10 +188,10 @@ mod decl {
     #[cfg(feature = "rustpython-compiler")]
     #[derive(FromArgs)]
     struct ScopeArgs {
-        #[pyarg(positional_or_keyword, default = "None")]
+        #[pyarg(any, default)]
         globals: Option<PyDictRef>,
         // TODO: support any mapping for `locals`
-        #[pyarg(positional_or_keyword, default = "None")]
+        #[pyarg(any, default)]
         locals: Option<PyDictRef>,
     }
 
@@ -444,7 +444,12 @@ mod decl {
 
     #[pyfunction]
     fn len(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-        objsequence::len(&obj, vm)
+        vm._len(&obj).unwrap_or_else(|| {
+            Err(vm.new_type_error(format!(
+                "object of type '{}' has no len()",
+                obj.lease_class().name
+            )))
+        })
     }
 
     #[pyfunction]
@@ -669,13 +674,13 @@ mod decl {
 
     #[derive(Debug, Default, FromArgs)]
     pub struct PrintOptions {
-        #[pyarg(keyword_only, default = "None")]
+        #[pyarg(named, default)]
         sep: Option<PyStrRef>,
-        #[pyarg(keyword_only, default = "None")]
+        #[pyarg(named, default)]
         end: Option<PyStrRef>,
-        #[pyarg(keyword_only, default = "IntoPyBool::FALSE")]
+        #[pyarg(named, default = "IntoPyBool::FALSE")]
         flush: IntoPyBool,
-        #[pyarg(keyword_only, default = "None")]
+        #[pyarg(named, default)]
         file: Option<PyObjectRef>,
     }
 

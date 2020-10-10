@@ -1,10 +1,10 @@
-use super::objtype::{self, PyTypeRef};
 use crate::exceptions::{self, PyBaseExceptionRef};
 use crate::frame::{ExecutionResult, FrameRef};
+use crate::obj::objtype::{self, PyTypeRef};
 use crate::pyobject::{PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
 
-use crate::common::cell::PyRwLock;
+use crate::common::lock::PyRwLock;
 use crossbeam_utils::atomic::AtomicCell;
 
 #[derive(Debug, PartialEq, Clone, Copy)]

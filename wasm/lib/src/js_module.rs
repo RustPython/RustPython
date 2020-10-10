@@ -231,13 +231,13 @@ impl PyJsValue {
 
 #[derive(FromArgs)]
 struct CallOptions {
-    #[pyarg(keyword_only, default = "None")]
+    #[pyarg(named, default)]
     this: Option<PyJsValueRef>,
 }
 
 #[derive(FromArgs)]
 struct NewObjectOptions {
-    #[pyarg(keyword_only, default = "None")]
+    #[pyarg(named, default)]
     prototype: Option<PyJsValueRef>,
 }
 

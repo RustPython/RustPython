@@ -8,19 +8,17 @@ use num_traits::ToPrimitive;
 
 use super::objint::PyIntRef;
 use super::objiter;
-use super::objsequence::{
-    get_item, get_pos, get_saturated_pos, PySliceableSequenceMut, SequenceIndex,
-};
 use super::objslice::PySliceRef;
 use super::objtype::PyTypeRef;
 use crate::bytesinner;
-use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
+use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::function::OptionalArg;
 use crate::pyobject::{
     BorrowValue, Either, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef,
     PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::sequence::{self, SimpleSeq};
+use crate::sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex};
 use crate::slots::{Comparable, Hashable, PyComparisonOp, Unhashable};
 use crate::vm::{ReprGuard, VirtualMachine};
 
@@ -80,7 +78,7 @@ impl PyList {
             let py_int = PyIntRef::try_from_object(vm, elem.clone()).map_err(|_| {
                 vm.new_type_error(format!(
                     "'{}' object cannot be interpreted as an integer",
-                    elem.class().name
+                    elem.lease_class().name
                 ))
             })?;
             let result = py_int
@@ -95,9 +93,9 @@ impl PyList {
 
 #[derive(FromArgs, Default)]
 pub(crate) struct SortOptions {
-    #[pyarg(keyword_only, default = "None")]
+    #[pyarg(named, default)]
     key: Option<PyObjectRef>,
-    #[pyarg(keyword_only, default = "false")]
+    #[pyarg(named, default = "false")]
     reverse: bool,
 }
 
@@ -120,7 +118,7 @@ impl PyList {
     #[pymethod]
     pub(crate) fn insert(&self, position: isize, element: PyObjectRef) {
         let mut elements = self.borrow_value_mut();
-        let position = get_saturated_pos(position, elements.len());
+        let position = elements.saturate_index(position);
         elements.insert(position, element);
     }
 
@@ -192,12 +190,11 @@ impl PyList {
 
     #[pymethod(name = "__getitem__")]
     fn getitem(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Ok(
-            match get_item(vm, zelf.as_object(), &zelf.borrow_value(), needle)? {
-                Either::A(obj) => obj,
-                Either::B(vec) => vm.ctx.new_list(vec),
-            },
-        )
+        let result = match zelf.borrow_value().get_item(vm, needle, "list")? {
+            Either::A(obj) => obj,
+            Either::B(vec) => vm.ctx.new_list(vec),
+        };
+        Ok(result)
     }
 
     #[pymethod(name = "__iter__")]
@@ -228,7 +225,7 @@ impl PyList {
 
     fn setindex(&self, index: isize, mut value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let mut elements = self.borrow_value_mut();
-        if let Some(pos_index) = get_pos(index, elements.len()) {
+        if let Some(pos_index) = elements.wrap_index(index) {
             std::mem::swap(&mut elements[pos_index], &mut value);
             Ok(())
         } else {
@@ -361,7 +358,7 @@ impl PyList {
     fn delindex(&self, index: isize, vm: &VirtualMachine) -> PyResult<()> {
         let removed = {
             let mut elements = self.borrow_value_mut();
-            if let Some(pos_index) = get_pos(index, elements.len()) {
+            if let Some(pos_index) = elements.wrap_index(index) {
                 // defer delete out of borrow
                 Ok(elements.remove(pos_index))
             } else {

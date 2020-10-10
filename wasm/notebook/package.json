@@ -5,7 +5,10 @@
     "main": "index.js",
     "dependencies": {
         "codemirror": "^5.42.0",
+        "file-loader": "^6.1.0",
+        "katex": "^0.12.0",
         "local-echo": "^0.2.0",
+        "marked": "^1.1.1",
         "xterm": "^3.8.0"
     },
     "devDependencies": {
