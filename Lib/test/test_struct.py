@@ -469,8 +469,6 @@ class StructTest(unittest.TestCase):
         self.assertRaises((ValueError, struct.error), pack_into, small_buf, 2,
                           test_string)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_unpack_with_buffer(self):
         # SF bug 1563759: struct.unpack doesn't support buffer protocol objects
         data1 = array.array('B', b'\x12\x34\x56\x78')
@@ -697,8 +695,6 @@ class UnpackIteratorTest(unittest.TestCase):
         self.assertRaises(StopIteration, next, it)
         self.assertRaises(StopIteration, next, it)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_arbitrary_buffer(self):
         s = struct.Struct('>IB')
         b = bytes(range(1, 11))

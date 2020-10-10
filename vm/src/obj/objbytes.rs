@@ -1,5 +1,9 @@
 use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;
+use rustpython_common::{
+    borrow::{BorrowedValue, BorrowedValueMut},
+    lock::OnceCell,
+};
 use std::mem::size_of;
 use std::ops::Deref;
 
@@ -7,21 +11,25 @@ use super::objint::PyIntRef;
 use super::objiter;
 use super::objstr::PyStrRef;
 use super::objtype::PyTypeRef;
-use crate::anystr::{self, AnyStr};
 use crate::bytesinner::{
     bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
     ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
 };
-use crate::byteslike::PyBytesLike;
+use crate::common::hash::PyHash;
 use crate::function::{OptionalArg, OptionalOption};
 use crate::obj::objtuple::PyTupleRef;
 use crate::pyobject::{
     BorrowValue, Either, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyIterable,
     PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
 };
-use crate::slots::{Comparable, Hashable, PyComparisonOp};
+use crate::slots::{BufferProtocol, Comparable, Hashable, PyComparisonOp};
 use crate::vm::VirtualMachine;
-use rustpython_common::hash::PyHash;
+use crate::{
+    anystr::{self, AnyStr},
+    byteslike::PyBytesLike,
+};
+
+use crate::obj::objmemory::{Buffer, BufferOptions};
 
 /// "bytes(iterable_of_ints) -> bytes\n\
 /// bytes(string, encoding[, errors]) -> bytes\n\
@@ -36,6 +44,7 @@ use rustpython_common::hash::PyHash;
 #[derive(Clone, Debug)]
 pub struct PyBytes {
     inner: PyBytesInner,
+    buffer_options: OnceCell<Box<BufferOptions>>,
 }
 
 pub type PyBytesRef = PyRef<PyBytes>;
@@ -52,6 +61,16 @@ impl From<Vec<u8>> for PyBytes {
     fn from(elements: Vec<u8>) -> Self {
         Self {
             inner: PyBytesInner { elements },
+            buffer_options: OnceCell::new(),
+        }
+    }
+}
+
+impl From<PyBytesInner> for PyBytes {
+    fn from(inner: PyBytesInner) -> Self {
+        Self {
+            inner,
+            buffer_options: OnceCell::new(),
         }
     }
 }
@@ -85,7 +104,7 @@ pub(crate) fn init(context: &PyContext) {
     PyBytesIterator::extend_class(context, &context.types.bytes_iterator_type);
 }
 
-#[pyimpl(flags(BASETYPE), with(Hashable, Comparable))]
+#[pyimpl(flags(BASETYPE), with(Hashable, Comparable, BufferProtocol))]
 impl PyBytes {
     #[pyslot]
     fn tp_new(
@@ -95,6 +114,7 @@ impl PyBytes {
     ) -> PyResult<PyBytesRef> {
         PyBytes {
             inner: options.get_value(vm)?,
+            buffer_options: OnceCell::new(),
         }
         .into_ref_with_type(vm, cls)
     }
@@ -123,9 +143,8 @@ impl PyBytes {
     }
 
     #[pymethod(name = "__add__")]
-    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let other = PyBytesLike::try_from_object(vm, other)?;
-        Ok(vm.ctx.new_bytes(self.inner.add(other)))
+    fn add(&self, other: PyBytesLike, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.new_bytes(self.inner.add(&*other.borrow_value()))
     }
 
     #[pymethod(name = "__contains__")]
@@ -202,8 +221,10 @@ impl PyBytes {
         self.inner.swapcase().into()
     }
 
+    // TODO: Changed in version 3.8: bytes.hex() now supports optional sep and
+    // bytes_per_sep parameters to insert separators between bytes in the hex output.
     #[pymethod(name = "hex")]
-    fn hex(&self) -> String {
+    pub(crate) fn hex(&self) -> String {
         self.inner.hex()
     }
 
@@ -455,6 +476,40 @@ impl PyBytes {
     }
 }
 
+impl BufferProtocol for PyBytes {
+    fn get_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<Box<dyn Buffer>> {
+        Ok(Box::new(zelf.clone()))
+    }
+}
+
+impl Buffer for PyBytesRef {
+    fn obj_bytes(&self) -> BorrowedValue<[u8]> {
+        self.inner.elements.as_slice().into()
+    }
+
+    fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
+        unreachable!("bytes is not mutable")
+    }
+
+    fn is_resizable(&self) -> bool {
+        false
+    }
+
+    fn release(&self) {}
+
+    fn get_options(&self) -> BorrowedValue<BufferOptions> {
+        self.buffer_options
+            .get_or_init(|| {
+                Box::new(BufferOptions {
+                    len: self.len(),
+                    ..Default::default()
+                })
+            })
+            .as_ref()
+            .into()
+    }
+}
+
 impl Hashable for PyBytes {
     fn hash(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
         Ok(zelf.inner.hash(vm))
@@ -504,5 +559,11 @@ impl PyBytesIterator {
     #[pymethod(name = "__iter__")]
     fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
+    }
+}
+
+impl TryFromObject for PyBytes {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        PyBytesInner::try_from_object(vm, obj).map(|x| x.into())
     }
 }

@@ -1,18 +1,21 @@
 use crossbeam_utils::atomic::AtomicCell;
+use num_traits::ToPrimitive;
 use std::fmt;
 
+use super::objint::PyIntRef;
 use super::objiter;
 use super::objtype::PyTypeRef;
-use crate::function::OptionalArg;
+use crate::common::hash::PyHash;
 use crate::pyobject::{
     self, BorrowValue, Either, IdProtocol, IntoPyObject, PyArithmaticValue, PyClassImpl,
-    PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol,
 };
 use crate::sequence::{self, SimpleSeq};
 use crate::sliceable::PySliceableSequence;
 use crate::slots::{Comparable, Hashable, PyComparisonOp};
 use crate::vm::{ReprGuard, VirtualMachine};
-use rustpython_common::hash::PyHash;
+use crate::{bytesinner::PyBytesInner, function::OptionalArg};
 
 /// tuple() -> empty tuple
 /// tuple(iterable) -> tuple initialized from iterable's items
@@ -65,6 +68,25 @@ impl_intopyobj_tuple!((A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6));
 impl PyTuple {
     pub(crate) fn fast_getitem(&self, idx: usize) -> PyObjectRef {
         self.elements[idx].clone()
+    }
+
+    // TODO: more generic way to do so
+    pub(crate) fn to_bytes_inner(&self, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
+        let mut elements = Vec::<u8>::with_capacity(self.borrow_value().len());
+        for elem in self.borrow_value().iter() {
+            let py_int = PyIntRef::try_from_object(vm, elem.clone()).map_err(|_| {
+                vm.new_type_error(format!(
+                    "'{}' object cannot be interpreted as an integer",
+                    elem.class().name
+                ))
+            })?;
+            let result = py_int
+                .borrow_value()
+                .to_u8()
+                .ok_or_else(|| vm.new_value_error("bytes must be in range (0, 256)".to_owned()))?;
+            elements.push(result);
+        }
+        Ok(elements.into())
     }
 }
 
@@ -144,7 +166,7 @@ impl PyTuple {
     }
 
     #[pymethod(name = "__len__")]
-    fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.elements.len()
     }
 

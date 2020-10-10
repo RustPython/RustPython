@@ -218,9 +218,7 @@ class _Framer:
         if self.current_frame:
             f = self.current_frame
             if f.tell() >= self._FRAME_SIZE_TARGET or force:
-                # XXX RUSTPYTHON TODO: memoryview + BytesIO.getbuffer()
-                # data = f.getbuffer()
-                data = f.getvalue()
+                data = f.getbuffer()
                 write = self.file_write
                 if len(data) >= self._FRAME_SIZE_MIN:
                     # Issue a single call to the write method of the underlying
@@ -1387,10 +1385,8 @@ class _Unpickler:
         if len > maxsize:
             raise UnpicklingError("BYTEARRAY8 exceeds system's maximum size "
                                   "of %d bytes" % maxsize)
-        # XXX RUSTPYTHON TODO: BytesIO.readinto()
-        # b = bytearray(len)
-        # self.readinto(b)
-        b = self.read(len)
+        b = bytearray(len)
+        self.readinto(b)
         self.append(b)
     dispatch[BYTEARRAY8[0]] = load_bytearray8
 

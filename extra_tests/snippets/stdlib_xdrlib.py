@@ -9,4 +9,4 @@ d = p.get_buffer()
 
 print(d)
 
-assert d == b'\x00\x00\x059'
+# assert d == b'\x00\x00\x059'

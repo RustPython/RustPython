@@ -23,7 +23,7 @@ mod marshal;
 mod math;
 mod operator;
 mod platform;
-mod pystruct;
+pub(crate) mod pystruct;
 mod random;
 mod re;
 mod serde_json;

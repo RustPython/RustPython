@@ -1013,8 +1013,6 @@ class BaseTest:
         l.append(l)
         gc.collect()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_buffer(self):
         a = array.array(self.typecode, self.example)
         m = memoryview(a)

@@ -72,6 +72,7 @@ impl PyList {
         self.elements.write()
     }
 
+    // TODO: more generic way to do so
     pub(crate) fn to_byte_inner(&self, vm: &VirtualMachine) -> PyResult<bytesinner::PyBytesInner> {
         let mut elements = Vec::<u8>::with_capacity(self.borrow_value().len());
         for elem in self.borrow_value().iter() {

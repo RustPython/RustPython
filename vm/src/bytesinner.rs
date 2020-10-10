@@ -3,8 +3,7 @@ use itertools::Itertools;
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 
-use crate::anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper};
-use crate::byteslike::{try_bytes_like, PyBytesLike};
+use crate::byteslike::try_bytes_like;
 use crate::function::{OptionalArg, OptionalOption};
 use crate::obj::objbytearray::PyByteArray;
 use crate::obj::objbytes::PyBytes;
@@ -21,6 +20,10 @@ use crate::pyobject::{
 use crate::sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex};
 use crate::slots::PyComparisonOp;
 use crate::vm::VirtualMachine;
+use crate::{
+    anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper},
+    obj::objtuple::PyTuple,
+};
 use rustpython_common::hash;
 
 #[derive(Debug, Default, Clone)]
@@ -36,17 +39,14 @@ impl From<Vec<u8>> for PyBytesInner {
 
 impl TryFromObject for PyBytesInner {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        if let Ok(zelf) = try_bytes_like(vm, &obj, |bytes| Self::from(bytes.to_vec())) {
+            return Ok(zelf);
+        }
+
         match_class!(match obj {
-            i @ PyBytes => Ok(PyBytesInner {
-                elements: i.borrow_value().to_vec()
-            }),
-            j @ PyByteArray => Ok(PyBytesInner {
-                elements: j.borrow_value().elements.to_vec()
-            }),
-            k @ PyMemoryView => Ok(PyBytesInner {
-                elements: k.try_bytes(|v| v.to_vec()).unwrap()
-            }),
+            // TODO: generic way from &[PyObjectRef]
             l @ PyList => l.to_byte_inner(vm),
+            t @ PyTuple => t.to_bytes_inner(vm),
             obj => {
                 let iter = vm.get_method_or_type_error(obj.clone(), "__iter__", || {
                     format!(
@@ -264,6 +264,8 @@ impl PyBytesInner {
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyComparisonValue {
+        // TODO: bytes can compare with any object implemented buffer protocol
+        // but not memoryview, and not equal if compare with unicode str(PyStr)
         PyComparisonValue::from_option(
             try_bytes_like(vm, other, |other| {
                 op.eval_ord(self.elements.as_slice().cmp(other))
@@ -276,12 +278,12 @@ impl PyBytesInner {
         vm.state.hash_secret.hash_bytes(&self.elements)
     }
 
-    pub fn add(&self, other: PyBytesLike) -> Vec<u8> {
-        other.with_ref(|other| self.elements.py_add(other))
+    pub fn add(&self, other: &[u8]) -> Vec<u8> {
+        self.elements.py_add(other)
     }
 
-    pub fn iadd(&mut self, other: PyBytesLike) {
-        other.with_ref(|other| self.elements.extend(other));
+    pub fn iadd(&mut self, other: &[u8]) {
+        self.elements.extend(other);
     }
 
     pub fn contains(
@@ -344,7 +346,7 @@ impl PyBytesInner {
             iter.map(|obj| Self::value_try_from_object(vm, obj?))
                 .try_collect()
         } else if let Some(mview) = object.payload_if_subclass::<PyMemoryView>(vm) {
-            Ok(mview.try_bytes(|v| v.to_vec()).unwrap())
+            mview.try_bytes(vm, |v| v.to_vec())
         } else {
             Err(vm.new_type_error(
                 "can assign only bytes, buffers, or iterables of ints in range(0, 256)".to_owned(),
@@ -362,9 +364,30 @@ impl PyBytesInner {
         self.elements.set_slice_items(vm, &slice, items.as_slice())
     }
 
+    pub fn setslice_no_resize(
+        &mut self,
+        slice: PySliceRef,
+        object: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let items = Self::value_seq_try_from_object(vm, object)?;
+        self.elements
+            .set_slice_items_no_resize(vm, &slice, items.as_slice())
+    }
+
     pub fn setslice_from_self(&mut self, slice: PySliceRef, vm: &VirtualMachine) -> PyResult<()> {
         let items = self.elements.clone();
         self.elements.set_slice_items(vm, &slice, items.as_slice())
+    }
+
+    pub fn setslice_from_self_no_resize(
+        &mut self,
+        slice: PySliceRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let items = self.elements.clone();
+        self.elements
+            .set_slice_items_no_resize(vm, &slice, items.as_slice())
     }
 
     pub fn delitem(&mut self, needle: SequenceIndex, vm: &VirtualMachine) -> PyResult<()> {

@@ -17,8 +17,11 @@ mod _io {
     use num_traits::ToPrimitive;
     use std::io::{self, prelude::*, Cursor, SeekFrom};
 
-    use crate::byteslike::PyBytesLike;
-    use crate::common::lock::{PyRwLock, PyRwLockWriteGuard};
+    use crate::byteslike::{PyBytesLike, PyRwBytesLike};
+    use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
+    use crate::common::lock::{
+        PyRwLock, PyRwLockReadGuard, PyRwLockUpgradableReadGuard, PyRwLockWriteGuard,
+    };
     use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
     use crate::function::{Args, KwArgs, OptionalArg, OptionalOption, PyFuncArgs};
     use crate::obj::objbool;
@@ -26,6 +29,7 @@ mod _io {
     use crate::obj::objbytes::PyBytesRef;
     use crate::obj::objint;
     use crate::obj::objiter;
+    use crate::obj::objmemory::{Buffer, BufferOptions, BufferRef, PyMemoryView, PyMemoryViewRef};
     use crate::obj::objstr::{self, PyStr, PyStrRef};
     use crate::obj::objtype::{self, PyTypeRef};
     use crate::pyobject::{
@@ -939,6 +943,8 @@ mod _io {
     struct BytesIO {
         buffer: PyRwLock<BufferedIO>,
         closed: AtomicCell<bool>,
+        exports: AtomicCell<usize>,
+        buffer_options: PyRwLock<Option<Box<BufferOptions>>>,
     }
 
     type BytesIORef = PyRef<BytesIO>;
@@ -972,6 +978,8 @@ mod _io {
             BytesIO {
                 buffer: PyRwLock::new(BufferedIO::new(Cursor::new(raw_bytes))),
                 closed: AtomicCell::new(false),
+                exports: AtomicCell::new(0),
+                buffer_options: PyRwLock::new(None),
             }
             .into_ref_with_type(vm, cls)
         }
@@ -981,6 +989,7 @@ mod _io {
     impl BytesIORef {
         #[pymethod]
         fn write(self, data: PyBytesLike, vm: &VirtualMachine) -> PyResult<u64> {
+            self.try_resizable(vm)?;
             let mut buffer = self.buffer(vm)?;
             match data.with_ref(|b| buffer.write(b)) {
                 Some(value) => Ok(value),
@@ -1005,6 +1014,17 @@ mod _io {
                 .read(size.to_usize())
                 .unwrap_or_else(Vec::new);
             Ok(buf)
+        }
+
+        #[pymethod]
+        fn readinto(self, obj: PyRwBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
+            let mut buf = self.buffer(vm)?;
+            let ret = buf
+                .cursor
+                .read(&mut *obj.borrow_value())
+                .map_err(|_| vm.new_value_error("Error readinto from Take".to_owned()))?;
+
+            Ok(ret)
         }
 
         //skip to the jth position
@@ -1037,6 +1057,7 @@ mod _io {
 
         #[pymethod]
         fn truncate(self, pos: OptionalSize, vm: &VirtualMachine) -> PyResult<()> {
+            self.try_resizable(vm)?;
             let mut buffer = self.buffer(vm)?;
             buffer.truncate(pos.try_usize(vm)?)?;
             Ok(())
@@ -1048,8 +1069,57 @@ mod _io {
         }
 
         #[pymethod]
-        fn close(self) {
-            self.closed.store(true)
+        fn close(self, vm: &VirtualMachine) -> PyResult<()> {
+            self.try_resizable(vm)?;
+            self.closed.store(true);
+            Ok(())
+        }
+
+        #[pymethod]
+        fn getbuffer(self, vm: &VirtualMachine) -> PyResult<PyMemoryViewRef> {
+            let buffer: Box<dyn Buffer> = Box::new(self.clone());
+            let buffer = BufferRef::from(buffer);
+            let view = PyMemoryView::from_buffer(self.clone().into_object(), buffer, vm)?;
+            self.exports.fetch_add(1);
+            Ok(view.into_ref(vm))
+        }
+    }
+
+    impl Buffer for BytesIORef {
+        fn get_options(&self) -> BorrowedValue<BufferOptions> {
+            let guard = self.buffer_options.upgradable_read();
+            let guard = if guard.is_none() {
+                let mut w = PyRwLockUpgradableReadGuard::upgrade(guard);
+                *w = Some(Box::new(BufferOptions {
+                    readonly: false,
+                    len: self.buffer.read().cursor.get_ref().len(),
+                    ..Default::default()
+                }));
+                PyRwLockWriteGuard::downgrade(w)
+            } else {
+                PyRwLockUpgradableReadGuard::downgrade(guard)
+            };
+            PyRwLockReadGuard::map(guard, |x| x.as_ref().unwrap().as_ref()).into()
+        }
+
+        fn obj_bytes(&self) -> BorrowedValue<[u8]> {
+            PyRwLockReadGuard::map(self.buffer.read(), |x| x.cursor.get_ref().as_slice()).into()
+        }
+
+        fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
+            PyRwLockWriteGuard::map(self.buffer.write(), |x| x.cursor.get_mut().as_mut_slice())
+                .into()
+        }
+
+        fn release(&self) {
+            let mut w = self.buffer_options.write();
+            if self.exports.fetch_sub(1) == 1 {
+                *w = None;
+            }
+        }
+
+        fn is_resizable(&self) -> bool {
+            self.exports.load() == 0
         }
     }
 
@@ -1402,21 +1472,17 @@ mod _io {
 #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
 mod fileio {
     use super::_io::*;
-    use crate::byteslike::PyBytesLike;
+    use crate::byteslike::{PyBytesLike, PyRwBytesLike};
     use crate::exceptions::IntoPyException;
     use crate::function::{OptionalArg, PyFuncArgs};
-    use crate::obj::objbytearray::PyByteArray;
-    use crate::obj::objint;
     use crate::obj::objstr::PyStrRef;
     use crate::obj::objtype::PyTypeRef;
     use crate::pyobject::{
-        BorrowValue, BufferProtocol, Either, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
-        TryFromObject,
+        BorrowValue, Either, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     };
     use crate::stdlib::os;
     use crate::vm::VirtualMachine;
     use crossbeam_utils::atomic::AtomicCell;
-    use num_traits::ToPrimitive;
     use std::io::{Read, Seek, SeekFrom, Write};
 
     fn compute_c_flag(mode: &str) -> u32 {
@@ -1571,32 +1637,19 @@ mod fileio {
         }
 
         #[pymethod]
-        fn readinto(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            if !obj.readonly() {
-                return Err(vm.new_type_error(
-                    "readinto() argument must be read-write bytes-like object".to_owned(),
-                ));
-            }
-
-            //extract length of buffer
-            let py_length = vm.call_method(&obj, "__len__", PyFuncArgs::default())?;
-            let length = objint::get_value(&py_length).to_u64().unwrap();
+        fn readinto(&self, obj: PyRwBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
+            let length = obj.len() as u64;
 
             let handle = self.get_file(vm)?;
 
             let mut f = handle.take(length);
-            if let Some(bytes) = obj.payload::<PyByteArray>() {
-                //TODO: Implement for MemoryView
-
-                let value_mut = &mut bytes.borrow_value_mut().elements;
-                value_mut.clear();
-                f.read_to_end(value_mut)
-                    .map_err(|_| vm.new_value_error("Error reading from Take".to_owned()))?;
-            };
+            let ret = f
+                .read(&mut *obj.borrow_value())
+                .map_err(|_| vm.new_value_error("Error reading from Take".to_owned()))?;
 
             self.set_file(f.into_inner())?;
 
-            Ok(())
+            Ok(ret)
         }
 
         #[pymethod]
