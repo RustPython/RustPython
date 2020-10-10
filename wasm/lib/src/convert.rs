@@ -231,10 +231,7 @@ pub fn syntax_err(err: CompileError) -> SyntaxError {
         &"col".into(),
         &(err.location.column() as u32).into(),
     );
-    let can_continue = match &err.error {
-        CompileErrorType::Parse(ParseErrorType::EOF) => true,
-        _ => false,
-    };
+    let can_continue = matches!(&err.error, CompileErrorType::Parse(ParseErrorType::EOF));
     let _ = Reflect::set(&js_err, &"canContinue".into(), &can_continue.into());
     js_err
 }
