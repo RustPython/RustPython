@@ -1,6 +1,6 @@
 use crate::builtins::dict::PyDictRef;
 use crate::builtins::function::{PyFunction, PyFunctionRef};
-use crate::builtins::{float, int};
+use crate::builtins::{float, int, pybool};
 use crate::exceptions::PyBaseExceptionRef;
 use crate::function::FuncArgs;
 use crate::pyobject::{
@@ -35,6 +35,7 @@ impl IntoPyObject for AbiValue {
         match self {
             AbiValue::Int(i) => i.into_pyobject(vm),
             AbiValue::Float(f) => f.into_pyobject(vm),
+            AbiValue::Bool(b) => b.into_pyobject(vm),
         }
     }
 }
@@ -50,6 +51,8 @@ fn get_jit_arg_type(dict: &PyDictRef, name: &str, vm: &VirtualMachine) -> PyResu
             Ok(JitType::Int)
         } else if value.is(&vm.ctx.types.float_type) {
             Ok(JitType::Float)
+        } else if value.is(&vm.ctx.types.bool_type) {
+            Ok(JitType::Bool)
         } else {
             Err(new_jit_error(
                 "Jit requires argument to be either int or float".to_owned(),
@@ -113,6 +116,8 @@ fn get_jit_value(vm: &VirtualMachine, obj: &PyObjectRef) -> Result<AbiValue, Arg
             .ok_or(ArgsError::IntOverflow)
     } else if cls.is(&vm.ctx.types.float_type) {
         Ok(AbiValue::Float(float::get_value(&obj)))
+    } else if cls.is(&vm.ctx.types.bool_type) {
+        Ok(AbiValue::Bool(pybool::get_value(&obj)))
     } else {
         Err(ArgsError::NonJitType)
     }

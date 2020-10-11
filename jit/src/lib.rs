@@ -166,6 +166,7 @@ impl JitSig {
 pub enum JitType {
     Int,
     Float,
+    Bool,
 }
 
 impl JitType {
@@ -173,6 +174,7 @@ impl JitType {
         match self {
             Self::Int => types::I64,
             Self::Float => types::F64,
+            Self::Bool => types::I8,
         }
     }
 
@@ -180,6 +182,7 @@ impl JitType {
         match self {
             Self::Int => libffi::middle::Type::i64(),
             Self::Float => libffi::middle::Type::f64(),
+            Self::Bool => libffi::middle::Type::u8(),
         }
     }
 }
@@ -188,6 +191,7 @@ impl JitType {
 pub enum AbiValue {
     Float(f64),
     Int(i64),
+    Bool(bool),
 }
 
 impl AbiValue {
@@ -195,6 +199,7 @@ impl AbiValue {
         match self {
             AbiValue::Int(ref i) => libffi::middle::Arg::new(i),
             AbiValue::Float(ref f) => libffi::middle::Arg::new(f),
+            AbiValue::Bool(ref b) => libffi::middle::Arg::new(b),
         }
     }
 }
@@ -217,7 +222,7 @@ impl TryFrom<AbiValue> for i64 {
     fn try_from(value: AbiValue) -> Result<Self, Self::Error> {
         match value {
             AbiValue::Int(i) => Ok(i),
-            AbiValue::Float(_) => Err(()),
+            _ => Err(()),
         }
     }
 }
@@ -227,8 +232,8 @@ impl TryFrom<AbiValue> for f64 {
 
     fn try_from(value: AbiValue) -> Result<Self, Self::Error> {
         match value {
-            AbiValue::Int(_) => Err(()),
             AbiValue::Float(f) => Ok(f),
+            _ => Err(()),
         }
     }
 }
@@ -244,6 +249,7 @@ fn type_check(ty: &JitType, val: &AbiValue) -> Result<(), JitArgumentError> {
 union UnTypedAbiValue {
     float: f64,
     int: i64,
+    boolean: u8,
     _void: (),
 }
 
@@ -252,6 +258,7 @@ impl UnTypedAbiValue {
         match ty {
             JitType::Int => AbiValue::Int(self.int),
             JitType::Float => AbiValue::Float(self.float),
+            JitType::Bool => AbiValue::Bool(self.boolean != 0),
         }
     }
 }

@@ -1,7 +1,8 @@
 use cranelift::prelude::*;
 use num_traits::cast::ToPrimitive;
 use rustpython_bytecode::bytecode::{
-    UnaryOperator, BinaryOperator, CodeObject, ComparisonOperator, Constant, Instruction, Label, NameScope,
+    BinaryOperator, CodeObject, ComparisonOperator, Constant, Instruction, Label, NameScope,
+    UnaryOperator,
 };
 use std::collections::HashMap;
 
@@ -85,9 +86,14 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             JitType::Float => {
                 let zero = self.builder.ins().f64const(0);
                 let val = self.builder.ins().fcmp(FloatCC::NotEqual, val.val, zero);
-                Ok(self.builder.ins().bint(types::I64, val))
-            },
-            JitType::Int => Ok(val.val),
+                Ok(self.builder.ins().bint(types::I8, val))
+            }
+            JitType::Int => {
+                let zero = self.builder.ins().iconst(types::I64, 0);
+                let val = self.builder.ins().icmp(IntCC::NotEqual, val.val, zero);
+                Ok(self.builder.ins().bint(types::I8, val))
+            }
+            JitType::Bool => Ok(val.val),
         }
     }
 
@@ -228,8 +234,8 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
 
                         let val = self.builder.ins().icmp(cond, a.val, b.val);
                         self.stack.push(JitValue {
-                            val,
-                            ty: JitType::Int, // TODO: Boolean
+                            val: self.builder.ins().bint(types::I8, val),
+                            ty: JitType::Bool,
                         });
 
                         Ok(())
@@ -260,6 +266,18 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                         UnaryOperator::Plus => {
                             // Nothing to do
                             self.stack.push(a);
+                            Ok(())
+                        }
+                        _ => Err(JitCompileError::NotSupported),
+                    },
+                    JitType::Bool => match op {
+                        UnaryOperator::Not => {
+                            let val = self.boolean_val(a)?;
+                            let not_val = self.builder.ins().bxor_imm(val, 1);
+                            self.stack.push(JitValue {
+                                val: not_val,
+                                ty: JitType::Bool,
+                            });
                             Ok(())
                         }
                         _ => Err(JitCompileError::NotSupported),
