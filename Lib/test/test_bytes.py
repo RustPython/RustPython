@@ -377,8 +377,6 @@ class BaseBytesTest:
             self.assertNotIn(f(b"dab"), b)
             self.assertNotIn(f(b"abd"), b)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_fromhex(self):
         self.assertRaises(TypeError, self.type2test.fromhex)
         self.assertRaises(TypeError, self.type2test.fromhex, 1)
