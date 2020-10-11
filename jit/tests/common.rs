@@ -18,6 +18,7 @@ impl Function {
                 Some(StackValue::String(annotation)) => match annotation.as_str() {
                     "int" => JitType::Int,
                     "float" => JitType::Float,
+                    "bool" => JitType::Bool,
                     _ => panic!("Unrecognised jit type"),
                 },
                 _ => panic!("Argument have annotation"),

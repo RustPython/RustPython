@@ -216,6 +216,12 @@ impl From<f64> for AbiValue {
     }
 }
 
+impl From<bool> for AbiValue {
+    fn from(b: bool) -> Self {
+        AbiValue::Bool(b)
+    }
+}
+
 impl TryFrom<AbiValue> for i64 {
     type Error = ();
 
@@ -238,9 +244,21 @@ impl TryFrom<AbiValue> for f64 {
     }
 }
 
+impl TryFrom<AbiValue> for bool {
+    type Error = ();
+
+    fn try_from(value: AbiValue) -> Result<Self, Self::Error> {
+        match value {
+            AbiValue::Bool(b) => Ok(b),
+            _ => Err(())
+        }
+    }
+}
+
 fn type_check(ty: &JitType, val: &AbiValue) -> Result<(), JitArgumentError> {
     match (ty, val) {
-        (JitType::Int, AbiValue::Int(_)) | (JitType::Float, AbiValue::Float(_)) => Ok(()),
+        (JitType::Int, AbiValue::Int(_)) | (JitType::Float, AbiValue::Float(_)) |
+        (JitType::Bool, AbiValue::Bool(_)) => Ok(()),
         _ => Err(JitArgumentError::ArgumentTypeMismatch),
     }
 }
