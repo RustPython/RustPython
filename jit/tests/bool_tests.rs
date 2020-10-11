@@ -50,4 +50,3 @@ fn test_if_not() {
     assert_eq!(if_not(true), Ok(1));
     assert_eq!(if_not(false), Ok(0));
 }
-

@@ -159,7 +159,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 });
                 Ok(())
             }
-            _ => Err(JitCompileError::NotSupported)
+            _ => Err(JitCompileError::NotSupported),
         }
     }
 
@@ -223,7 +223,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                 self.store_variable(name.clone(), val)
             }
-            Instruction::LoadConst { value } => { self.load_const(value) }
+            Instruction::LoadConst { value } => self.load_const(value),
             Instruction::ReturnValue => {
                 let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                 if let Some(ref ty) = self.sig.ret {

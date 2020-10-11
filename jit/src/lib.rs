@@ -250,15 +250,16 @@ impl TryFrom<AbiValue> for bool {
     fn try_from(value: AbiValue) -> Result<Self, Self::Error> {
         match value {
             AbiValue::Bool(b) => Ok(b),
-            _ => Err(())
+            _ => Err(()),
         }
     }
 }
 
 fn type_check(ty: &JitType, val: &AbiValue) -> Result<(), JitArgumentError> {
     match (ty, val) {
-        (JitType::Int, AbiValue::Int(_)) | (JitType::Float, AbiValue::Float(_)) |
-        (JitType::Bool, AbiValue::Bool(_)) => Ok(()),
+        (JitType::Int, AbiValue::Int(_))
+        | (JitType::Float, AbiValue::Float(_))
+        | (JitType::Bool, AbiValue::Bool(_)) => Ok(()),
         _ => Err(JitArgumentError::ArgumentTypeMismatch),
     }
 }
