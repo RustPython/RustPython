@@ -82,7 +82,11 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
 
     fn boolean_val(&mut self, val: JitValue) -> Result<Value, JitCompileError> {
         match val.ty {
-            JitType::Float => Err(JitCompileError::NotSupported),
+            JitType::Float => {
+                let zero = self.builder.ins().f64const(0);
+                let val = self.builder.ins().fcmp(FloatCC::NotEqual, val.val, zero);
+                Ok(self.builder.ins().bint(types::I64, val))
+            },
             JitType::Int => Ok(val.val),
         }
     }
