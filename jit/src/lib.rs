@@ -63,20 +63,18 @@ impl Jit {
         let entry_block = builder.create_block();
         builder.append_block_params_for_function_params(entry_block);
         builder.switch_to_block(entry_block);
-        builder.seal_block(entry_block);
 
         let sig = {
             let mut arg_names = bytecode.arg_names.clone();
             arg_names.extend(bytecode.kwonlyarg_names.iter().cloned());
             let mut compiler = FunctionCompiler::new(&mut builder, &arg_names, args, entry_block);
 
-            for instruction in &bytecode.instructions {
-                compiler.add_instruction(instruction)?;
-            }
+            compiler.compile(bytecode)?;
 
             compiler.sig
         };
 
+        builder.seal_all_blocks();
         builder.finalize();
 
         let id = self.module.declare_function(

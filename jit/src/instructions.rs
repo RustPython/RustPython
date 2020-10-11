@@ -1,6 +1,8 @@
 use cranelift::prelude::*;
 use num_traits::cast::ToPrimitive;
-use rustpython_bytecode::bytecode::{BinaryOperator, Constant, Instruction, NameScope};
+use rustpython_bytecode::bytecode::{
+    BinaryOperator, CodeObject, ComparisonOperator, Constant, Instruction, Label, NameScope,
+};
 use std::collections::HashMap;
 
 use super::{JitCompileError, JitSig, JitType};
@@ -26,6 +28,7 @@ pub struct FunctionCompiler<'a, 'b> {
     builder: &'a mut FunctionBuilder<'b>,
     stack: Vec<JitValue>,
     variables: HashMap<String, Local>,
+    label_to_block: HashMap<Label, Block>,
     pub(crate) sig: JitSig,
 }
 
@@ -40,6 +43,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             builder,
             stack: Vec::new(),
             variables: HashMap::new(),
+            label_to_block: HashMap::new(),
             sig: JitSig {
                 args: arg_types.to_vec(),
                 ret: None,
@@ -76,8 +80,70 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         }
     }
 
-    pub fn add_instruction(&mut self, instruction: &Instruction) -> Result<(), JitCompileError> {
+    fn boolean_val(&mut self, val: JitValue) -> Result<Value, JitCompileError> {
+        match val.ty {
+            JitType::Float => Err(JitCompileError::NotSupported),
+            JitType::Int => Ok(val.val),
+        }
+    }
+
+    pub fn compile(&mut self, bytecode: &CodeObject) -> Result<(), JitCompileError> {
+        let offset_to_label: HashMap<&usize, &Label> =
+            bytecode.label_map.iter().map(|(k, v)| (v, k)).collect();
+
+        for (offset, instruction) in bytecode.instructions.iter().enumerate() {
+            if let Some(&label) = offset_to_label.get(&offset) {
+                let builder = &mut self.builder;
+                let block = self
+                    .label_to_block
+                    .entry(*label)
+                    .or_insert_with(|| builder.create_block());
+
+                // If the current block is not terminated/filled just jump
+                // into the new block.
+                if !self.builder.is_filled() {
+                    self.builder.ins().jump(*block, &[]);
+                }
+
+                self.builder.switch_to_block(*block);
+            }
+
+            // Sometimes the bytecode contains instructions after a return
+            // just ignore those until we are at the next label
+            if self.builder.is_filled() {
+                continue;
+            }
+
+            self.add_instruction(&instruction)?;
+        }
+
+        Ok(())
+    }
+
+    fn add_instruction(&mut self, instruction: &Instruction) -> Result<(), JitCompileError> {
         match instruction {
+            Instruction::JumpIfFalse { target } => {
+                let cond = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
+
+                let then_block = self.builder.create_block();
+                self.label_to_block.insert(*target, then_block);
+
+                let val = self.boolean_val(cond)?;
+                self.builder.ins().brz(val, then_block, &[]);
+
+                let block = self.builder.create_block();
+                self.builder.ins().fallthrough(block, &[]);
+                self.builder.switch_to_block(block);
+
+                Ok(())
+            }
+            Instruction::Jump { target } => {
+                let target_block = self.builder.create_block();
+                self.label_to_block.insert(*target, target_block);
+                self.builder.ins().jump(target_block, &[]);
+
+                Ok(())
+            }
             Instruction::LoadName {
                 name,
                 scope: NameScope::Local,
@@ -138,6 +204,34 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 }
                 self.builder.ins().return_(&[val.val]);
                 Ok(())
+            }
+            Instruction::CompareOperation { op, .. } => {
+                // the rhs is popped off first
+                let b = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
+                let a = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
+
+                match (a.ty, b.ty) {
+                    (JitType::Int, JitType::Int) => {
+                        let cond = match op {
+                            ComparisonOperator::Equal => IntCC::Equal,
+                            ComparisonOperator::NotEqual => IntCC::NotEqual,
+                            ComparisonOperator::Less => IntCC::SignedLessThan,
+                            ComparisonOperator::LessOrEqual => IntCC::SignedLessThanOrEqual,
+                            ComparisonOperator::Greater => IntCC::SignedGreaterThan,
+                            ComparisonOperator::GreaterOrEqual => IntCC::SignedLessThanOrEqual,
+                            _ => return Err(JitCompileError::NotSupported),
+                        };
+
+                        let val = self.builder.ins().icmp(cond, a.val, b.val);
+                        self.stack.push(JitValue {
+                            val,
+                            ty: JitType::Int, // TODO: Boolean
+                        });
+
+                        Ok(())
+                    }
+                    _ => Err(JitCompileError::NotSupported),
+                }
             }
             Instruction::BinaryOperation { op, .. } => {
                 // the rhs is popped off first
