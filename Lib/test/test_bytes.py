@@ -814,7 +814,6 @@ class BaseBytesTest:
         self.assertRaises(ValueError, self.type2test.maketrans, b'abc', b'xyzq')
         self.assertRaises(TypeError, self.type2test.maketrans, 'abc', 'def')
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_none_arguments(self):
         # issue 11828
         b = self.type2test(b'hello')
