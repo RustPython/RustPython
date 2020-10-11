@@ -1,26 +1,22 @@
 //! Implementation of the python bytearray object.
-use bstr::ByteSlice;
-use crossbeam_utils::atomic::AtomicCell;
-use rustpython_common::borrow::{BorrowedValue, BorrowedValueMut};
-use std::mem::size_of;
-
-use super::objiter;
-use super::objstr::PyStrRef;
-use super::objtype::PyTypeRef;
-use super::{objbytes::PyBytesRef, objint::PyIntRef};
 use crate::anystr::{self, AnyStr};
 use crate::bytesinner::{
     bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
     ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
 };
 use crate::byteslike::PyBytesLike;
+use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
 use crate::common::lock::{
     PyRwLock, PyRwLockReadGuard, PyRwLockUpgradableReadGuard, PyRwLockWriteGuard,
 };
 use crate::function::{OptionalArg, OptionalOption};
-use crate::obj::objbytes::PyBytes;
+use crate::obj::objbytes::{PyBytes, PyBytesRef};
+use crate::obj::objint::PyIntRef;
+use crate::obj::objiter;
 use crate::obj::objmemory::{Buffer, BufferOptions};
+use crate::obj::objstr::PyStrRef;
 use crate::obj::objtuple::PyTupleRef;
+use crate::obj::objtype::PyTypeRef;
 use crate::pyobject::{
     BorrowValue, Either, IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext,
     PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
@@ -28,6 +24,9 @@ use crate::pyobject::{
 use crate::sliceable::SequenceIndex;
 use crate::slots::{BufferProtocol, Comparable, Hashable, PyComparisonOp, Unhashable};
 use crate::vm::VirtualMachine;
+use bstr::ByteSlice;
+use crossbeam_utils::atomic::AtomicCell;
+use std::mem::size_of;
 
 /// "bytearray(iterable_of_ints) -> bytearray\n\
 ///  bytearray(string, encoding[, errors]) -> bytearray\n\
