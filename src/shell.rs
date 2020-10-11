@@ -4,7 +4,7 @@ use rustpython_compiler::{compile, error::CompileError, error::CompileErrorType}
 use rustpython_parser::error::{LexicalErrorType, ParseErrorType};
 use rustpython_vm::readline::{Readline, ReadlineResult};
 use rustpython_vm::{
-    builtins::pytype,
+    builtins::isinstance,
     exceptions::{print_exception, PyBaseExceptionRef},
     pyobject::{BorrowValue, PyResult},
     scope::Scope,
@@ -127,7 +127,7 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
         };
 
         if let Err(exc) = result {
-            if pytype::isinstance(&exc, &vm.ctx.exceptions.system_exit) {
+            if isinstance(&exc, &vm.ctx.exceptions.system_exit) {
                 repl.save_history(&repl_history_path).unwrap();
                 return Err(exc);
             }

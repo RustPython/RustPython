@@ -1189,7 +1189,7 @@ impl<A: IntoPyObject, B: IntoPyObject> IntoPyObject for Either<A, B> {
 ///
 /// ```
 /// use rustpython_vm::VirtualMachine;
-/// use rustpython_vm::builtins::{pystr::PyStrRef, int::PyIntRef};
+/// use rustpython_vm::builtins::{PyStrRef, PyIntRef};
 /// use rustpython_vm::pyobject::Either;
 ///
 /// fn do_something(arg: Either<PyIntRef, PyStrRef>, vm: &VirtualMachine) {

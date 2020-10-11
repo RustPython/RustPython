@@ -73,7 +73,7 @@ pub(crate) fn impl_pyimpl(
 
                     fn impl_extend_class(
                         ctx: &::rustpython_vm::pyobject::PyContext,
-                        class: &::rustpython_vm::builtins::pytype::PyTypeRef,
+                        class: &::rustpython_vm::builtins::PyTypeRef,
                     ) {
                         #getset_impl
                         #extend_impl
@@ -100,7 +100,7 @@ pub(crate) fn impl_pyimpl(
                 parse_quote! {
                     fn __extend_py_class(
                         ctx: &::rustpython_vm::pyobject::PyContext,
-                        class: &::rustpython_vm::builtins::pytype::PyTypeRef,
+                        class: &::rustpython_vm::builtins::PyTypeRef,
                     ) {
                         #getset_impl
                         #extend_impl
@@ -162,7 +162,7 @@ fn generate_class_def(
 
     let base_class = if is_pystruct {
         quote! {
-            fn base_class(ctx: &::rustpython_vm::pyobject::PyContext) -> ::rustpython_vm::builtins::pytype::PyTypeRef {
+            fn base_class(ctx: &::rustpython_vm::pyobject::PyContext) -> ::rustpython_vm::builtins::PyTypeRef {
                 ctx.types.tuple_type.clone()
             }
         }

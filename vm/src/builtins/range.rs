@@ -119,9 +119,9 @@ impl PyRange {
     }
 }
 
-pub fn get_value(obj: &PyObjectRef) -> PyRange {
-    obj.payload::<PyRange>().unwrap().clone()
-}
+// pub fn get_value(obj: &PyObjectRef) -> PyRange {
+//     obj.payload::<PyRange>().unwrap().clone()
+// }
 
 pub fn init(context: &PyContext) {
     PyRange::extend_class(context, &context.types.range_type);

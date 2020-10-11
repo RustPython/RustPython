@@ -4,7 +4,7 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::{future_to_promise, JsFuture};
 
-use rustpython_vm::builtins::{dict::PyDictRef, pystr::PyStrRef, pytype::PyTypeRef};
+use rustpython_vm::builtins::{PyDictRef, PyStrRef, PyTypeRef};
 use rustpython_vm::common::rc::PyRc;
 use rustpython_vm::function::OptionalArg;
 use rustpython_vm::import::import_file;

@@ -1,5 +1,5 @@
 use js_sys::{Array, Object, Reflect};
-use rustpython_vm::builtins::{float::PyFloatRef, pystr::PyStrRef, pytype::PyTypeRef};
+use rustpython_vm::builtins::{PyFloatRef, PyStrRef, PyTypeRef};
 use rustpython_vm::common::rc::PyRc;
 use rustpython_vm::exceptions::PyBaseExceptionRef;
 use rustpython_vm::function::Args;

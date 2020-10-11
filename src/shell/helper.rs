@@ -1,4 +1,4 @@
-use rustpython_vm::builtins::pystr::PyStrRef;
+use rustpython_vm::builtins::PyStrRef;
 use rustpython_vm::pyobject::{BorrowValue, PyIterable, PyResult, TryFromObject};
 use rustpython_vm::scope::{NameProtocol, Scope};
 use rustpython_vm::VirtualMachine;
