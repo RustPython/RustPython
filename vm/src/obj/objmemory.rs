@@ -1,15 +1,17 @@
 use std::{fmt::Debug, ops::Deref};
 
+use crate::bytesinner::bytes_to_hex;
 use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
 use crate::common::hash::PyHash;
+use crate::function::OptionalArg;
 use crate::obj::objbytes::{PyBytes, PyBytesRef};
 use crate::obj::objlist::{PyList, PyListRef};
 use crate::obj::objslice::PySliceRef;
-use crate::obj::objstr::PyStr;
+use crate::obj::objstr::{PyStr, PyStrRef};
 use crate::obj::objtype::PyTypeRef;
 use crate::pyobject::{
-    IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
-    PyResult, PyThreadingConstraint, PyValue, TypeProtocol,
+    Either, IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef,
+    PyRef, PyResult, PyThreadingConstraint, PyValue, TypeProtocol,
 };
 use crate::sliceable::{convert_slice, saturate_range, wrap_index, SequenceIndex};
 use crate::slots::{BufferProtocol, Comparable, Hashable, PyComparisonOp};
@@ -592,10 +594,13 @@ impl PyMemoryView {
         }
     }
 
-    // TODO: Changed in version 3.8: memoryview.hex() now supports optional sep and bytes_per_sep
-    // parameters to insert separators between bytes in the hex output.
     #[pymethod]
-    fn hex(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
+    fn hex(
+        zelf: PyRef<Self>,
+        sep: OptionalArg<Either<PyStrRef, PyBytesRef>>,
+        bytes_per_sep: OptionalArg<isize>,
+        vm: &VirtualMachine,
+    ) -> PyResult<String> {
         zelf.try_not_released(vm)?;
         let guard;
         let vec;
@@ -609,11 +614,8 @@ impl PyMemoryView {
                 vec.as_slice()
             }
         };
-        let s = bytes
-            .iter()
-            .map(|x| format!("{:02x}", x))
-            .collect::<String>();
-        Ok(s)
+
+        bytes_to_hex(bytes, sep, bytes_per_sep, vm)
     }
 
     fn eq(zelf: &PyRef<Self>, other: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
