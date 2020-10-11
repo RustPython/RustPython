@@ -1,7 +1,7 @@
 use cranelift::prelude::*;
 use num_traits::cast::ToPrimitive;
 use rustpython_bytecode::bytecode::{
-    BinaryOperator, CodeObject, ComparisonOperator, Constant, Instruction, Label, NameScope,
+    UnaryOperator, BinaryOperator, CodeObject, ComparisonOperator, Constant, Instruction, Label, NameScope,
 };
 use std::collections::HashMap;
 
@@ -230,6 +230,36 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
 
                         Ok(())
                     }
+                    _ => Err(JitCompileError::NotSupported),
+                }
+            }
+            Instruction::UnaryOperation { op, .. } => {
+                let a = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
+
+                match a.ty {
+                    JitType::Int => match op {
+                        UnaryOperator::Minus => {
+                            // Compile minus as 0 - a.
+                            let zero = self.builder.ins().iconst(types::I64, 0);
+                            let (out, carry) = self.builder.ins().isub_ifbout(zero, a.val);
+                            self.builder.ins().trapif(
+                                IntCC::Overflow,
+                                carry,
+                                TrapCode::IntegerOverflow,
+                            );
+                            self.stack.push(JitValue {
+                                val: out,
+                                ty: JitType::Int,
+                            });
+                            Ok(())
+                        }
+                        UnaryOperator::Plus => {
+                            // Nothing to do
+                            self.stack.push(a);
+                            Ok(())
+                        }
+                        _ => Err(JitCompileError::NotSupported),
+                    },
                     _ => Err(JitCompileError::NotSupported),
                 }
             }

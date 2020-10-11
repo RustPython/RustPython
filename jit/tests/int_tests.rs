@@ -54,3 +54,31 @@ fn test_gt() {
     assert_eq!(gt(-1, -10), Ok(1));
     assert_eq!(gt(1, -1), Ok(1));
 }
+
+#[test]
+fn test_minus() {
+    let minus = jit_function! { minus(a:i64) -> i64 => r##"
+        def minus(a: int):
+            return -a
+    "## };
+
+    assert_eq!(minus(5), Ok(-5));
+    assert_eq!(minus(12), Ok(-12));
+    assert_eq!(minus(-7), Ok(7));
+    assert_eq!(minus(-3), Ok(3));
+    assert_eq!(minus(0), Ok(0));
+}
+
+#[test]
+fn test_plus() {
+    let plus = jit_function! { plus(a:i64) -> i64 => r##"
+        def plus(a: int):
+            return +a
+    "## };
+
+    assert_eq!(plus(5), Ok(5));
+    assert_eq!(plus(12), Ok(12));
+    assert_eq!(plus(-7), Ok(-7));
+    assert_eq!(plus(-3), Ok(-3));
+    assert_eq!(plus(0), Ok(0));
+}
