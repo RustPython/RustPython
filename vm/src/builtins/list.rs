@@ -4,12 +4,9 @@ use std::mem::size_of;
 use std::ops::DerefMut;
 
 use crossbeam_utils::atomic::AtomicCell;
-use num_traits::ToPrimitive;
 
-use super::int::PyIntRef;
 use super::pytype::PyTypeRef;
 use super::slice::PySliceRef;
-use crate::bytesinner;
 use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::function::OptionalArg;
 use crate::pyobject::{
@@ -69,25 +66,6 @@ impl<'a> BorrowValue<'a> for PyList {
 impl PyList {
     pub fn borrow_value_mut(&self) -> PyRwLockWriteGuard<'_, Vec<PyObjectRef>> {
         self.elements.write()
-    }
-
-    // TODO: more generic way to do so
-    pub(crate) fn to_byte_inner(&self, vm: &VirtualMachine) -> PyResult<bytesinner::PyBytesInner> {
-        let mut elements = Vec::<u8>::with_capacity(self.borrow_value().len());
-        for elem in self.borrow_value().iter() {
-            let py_int = PyIntRef::try_from_object(vm, elem.clone()).map_err(|_| {
-                vm.new_type_error(format!(
-                    "'{}' object cannot be interpreted as an integer",
-                    elem.class().name
-                ))
-            })?;
-            let result = py_int
-                .borrow_value()
-                .to_u8()
-                .ok_or_else(|| vm.new_value_error("bytes must be in range (0, 256)".to_owned()))?;
-            elements.push(result);
-        }
-        Ok(elements.into())
     }
 }
 

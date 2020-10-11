@@ -3,25 +3,23 @@ use itertools::Itertools;
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 
-use crate::anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper};
 use crate::builtins::bytearray::PyByteArray;
 use crate::builtins::bytes::{PyBytes, PyBytesRef};
 use crate::builtins::int::{self, PyInt, PyIntRef};
-use crate::builtins::list::PyList;
-use crate::builtins::memory::PyMemoryView;
 use crate::builtins::pystr::{self, PyStr, PyStrRef};
 use crate::builtins::singletons::PyNoneRef;
-use crate::builtins::slice::PySliceRef;
-use crate::builtins::tuple::PyTuple;
 use crate::byteslike::try_bytes_like;
 use crate::function::{OptionalArg, OptionalOption};
 use crate::pyobject::{
-    BorrowValue, Either, PyComparisonValue, PyIterable, PyIterator, PyObjectRef, PyResult,
-    TryFromObject, TypeProtocol,
+    BorrowValue, Either, PyComparisonValue, PyIterable, PyObjectRef, PyResult, TryFromObject,
+    TypeProtocol,
 };
-use crate::sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex};
 use crate::slots::PyComparisonOp;
 use crate::vm::VirtualMachine;
+use crate::{
+    anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper},
+    sliceable::PySliceableSequence,
+};
 use rustpython_common::hash;
 
 #[derive(Debug, Default, Clone)]
@@ -37,27 +35,7 @@ impl From<Vec<u8>> for PyBytesInner {
 
 impl TryFromObject for PyBytesInner {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        if let Ok(zelf) = try_bytes_like(vm, &obj, |bytes| Self::from(bytes.to_vec())) {
-            return Ok(zelf);
-        }
-
-        match_class!(match obj {
-            // TODO: generic way from &[PyObjectRef]
-            l @ PyList => l.to_byte_inner(vm),
-            t @ PyTuple => t.to_bytes_inner(vm),
-            obj => {
-                let iter = vm.get_method_or_type_error(obj.clone(), "__iter__", || {
-                    format!(
-                        "a bytes-like object is required, not '{}'",
-                        obj.class().name
-                    )
-                })?;
-                let iter = PyIterable::from_method(iter);
-                Ok(PyBytesInner {
-                    elements: iter.iter(vm)?.collect::<PyResult<_>>()?,
-                })
-            }
-        })
+        bytes_from_object(vm, &obj).map(Self::from)
     }
 }
 
@@ -132,7 +110,8 @@ impl ByteInnerNewOptions {
                                         let bytes = vm.invoke(&bytes_method?, ())?;
                                         return PyBytesInner::try_from_object(vm, bytes);
                                     }
-                                    PyBytesInner::value_seq_try_from_object(vm, obj.clone())
+                                    bytes_from_object(vm, &obj)
+                                    // PyBytesInner::from_elements(vm, obj.clone())
                                     // TODO: better error message
                                     // .map_err(|_| {
                                     //     vm.new_type_error(format!(
@@ -280,10 +259,6 @@ impl PyBytesInner {
         self.elements.py_add(other)
     }
 
-    pub fn iadd(&mut self, other: &[u8]) {
-        self.elements.extend(other);
-    }
-
     pub fn contains(
         &self,
         needle: Either<PyBytesInner, PyIntRef>,
@@ -306,146 +281,6 @@ impl PyBytesInner {
             Either::B(bytes) => vm.ctx.new_bytes(bytes),
         };
         Ok(obj)
-    }
-
-    pub fn setindex(
-        &mut self,
-        int: isize,
-        object: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        if let Some(idx) = self.elements.wrap_index(int) {
-            let value = Self::value_try_from_object(vm, object)?;
-            self.elements[idx] = value;
-            Ok(())
-        } else {
-            Err(vm.new_index_error("index out of range".to_owned()))
-        }
-    }
-
-    fn value_try_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<u8> {
-        let value = vm.to_index(&object).ok_or_else(|| {
-            vm.new_type_error(format!(
-                "'{}' object cannot be interpreted as an integer",
-                object.class().name
-            ))
-        })?;
-        // __index__ returned non-int type
-        let value = value?;
-        value
-            .borrow_value()
-            .to_u8()
-            .ok_or_else(|| vm.new_value_error("byte must be in range(0, 256)".to_owned()))
-    }
-
-    fn value_seq_try_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Vec<u8>> {
-        if let Ok(iterable) = PyIterable::try_from_object(vm, object.clone()) {
-            let iter: PyIterator<PyObjectRef> = iterable.iter(vm)?;
-            iter.map(|obj| Self::value_try_from_object(vm, obj?))
-                .try_collect()
-        } else if let Some(mview) = object.payload_if_subclass::<PyMemoryView>(vm) {
-            mview.try_bytes(vm, |v| v.to_vec())
-        } else {
-            Err(vm.new_type_error(
-                "can assign only bytes, buffers, or iterables of ints in range(0, 256)".to_owned(),
-            ))
-        }
-    }
-
-    pub fn setslice(
-        &mut self,
-        slice: PySliceRef,
-        object: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        let items = Self::value_seq_try_from_object(vm, object)?;
-        self.elements.set_slice_items(vm, &slice, items.as_slice())
-    }
-
-    pub fn setslice_no_resize(
-        &mut self,
-        slice: PySliceRef,
-        object: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        let items = Self::value_seq_try_from_object(vm, object)?;
-        self.elements
-            .set_slice_items_no_resize(vm, &slice, items.as_slice())
-    }
-
-    pub fn setslice_from_self(&mut self, slice: PySliceRef, vm: &VirtualMachine) -> PyResult<()> {
-        let items = self.elements.clone();
-        self.elements.set_slice_items(vm, &slice, items.as_slice())
-    }
-
-    pub fn setslice_from_self_no_resize(
-        &mut self,
-        slice: PySliceRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        let items = self.elements.clone();
-        self.elements
-            .set_slice_items_no_resize(vm, &slice, items.as_slice())
-    }
-
-    pub fn delitem(&mut self, needle: SequenceIndex, vm: &VirtualMachine) -> PyResult<()> {
-        match needle {
-            SequenceIndex::Int(int) => {
-                if let Some(idx) = self.elements.wrap_index(int) {
-                    self.elements.remove(idx);
-                    Ok(())
-                } else {
-                    Err(vm.new_index_error("index out of range".to_owned()))
-                }
-            }
-            SequenceIndex::Slice(slice) => self.delslice(slice, vm),
-        }
-    }
-
-    fn delslice(&mut self, slice: PySliceRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.elements.delete_slice(vm, &slice)
-    }
-
-    pub fn pop(&mut self, index: isize, vm: &VirtualMachine) -> PyResult<u8> {
-        if let Some(index) = self.elements.wrap_index(index) {
-            Ok(self.elements.remove(index))
-        } else {
-            Err(vm.new_index_error("index out of range".to_owned()))
-        }
-    }
-
-    pub fn insert(
-        &mut self,
-        index: isize,
-        object: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        let value = Self::value_try_from_object(vm, object)?;
-        let index = self.elements.saturate_index(index);
-        self.elements.insert(index, value);
-        Ok(())
-    }
-
-    pub fn append(&mut self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let value = Self::value_try_from_object(vm, object)?;
-        self.elements.push(value);
-        Ok(())
-    }
-
-    pub fn remove(&mut self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let value = Self::value_try_from_object(vm, object)?;
-        if let Some(index) = self.elements.find_byte(value) {
-            self.elements.remove(index);
-            Ok(())
-        } else {
-            Err(vm.new_value_error("value not found in bytearray".to_owned()))
-        }
-    }
-
-    pub fn extend(&mut self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let items = Self::value_seq_try_from_object(vm, object)?;
-        self.elements.extend(items);
-        Ok(())
     }
 
     pub fn isalnum(&self) -> bool {
@@ -1053,26 +888,6 @@ impl PyBytesInner {
     pub fn repeat(&self, n: isize) -> Vec<u8> {
         self.elements.repeat(n.to_usize().unwrap_or(0))
     }
-
-    pub fn irepeat(&mut self, n: isize) {
-        if self.elements.is_empty() {
-            // We can multiple an empty vector by any integer, even if it doesn't fit in an isize.
-            return;
-        }
-
-        if n <= 0 {
-            self.elements.clear();
-        } else if n != 1 {
-            let n = n as usize;
-
-            let old = self.elements.clone();
-
-            self.elements.reserve((n - 1) * old.len());
-            for _ in 1..n {
-                self.elements.extend(&old);
-            }
-        }
-    }
 }
 
 pub fn try_as_bytes<F, R>(obj: PyObjectRef, f: F) -> Option<R>
@@ -1344,4 +1159,33 @@ pub fn bytes_to_hex(
 
 const fn is_py_ascii_whitespace(b: u8) -> bool {
     matches!(b, b'\t' | b'\n' | b'\x0C' | b'\r' | b' ' | b'\x0B')
+}
+
+pub fn bytes_from_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Vec<u8>> {
+    if let Ok(elements) = try_bytes_like(vm, obj, |bytes| bytes.to_vec()) {
+        return Ok(elements);
+    }
+
+    if let Ok(elements) = vm.map_iterable_object(obj, |x| value_from_object(vm, &x)) {
+        return Ok(elements?);
+    }
+
+    Err(vm.new_type_error(
+        "can assign only bytes, buffers, or iterables of ints in range(0, 256)".to_owned(),
+    ))
+}
+
+pub fn value_from_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<u8> {
+    let value = vm.to_index(obj).ok_or_else(|| {
+        vm.new_type_error(format!(
+            "'{}' object cannot be interpreted as an integer",
+            obj.class().name
+        ))
+    })?;
+    // __index__ returned non-int type
+    let value = value?;
+    value
+        .borrow_value()
+        .to_u8()
+        .ok_or_else(|| vm.new_value_error("byte must be in range(0, 256)".to_owned()))
 }

@@ -992,6 +992,29 @@ impl VirtualMachine {
         }
     }
 
+    pub fn map_elements<F, T, R>(&self, obj: &PyObjectRef, mut f: F) -> PyResult<PyResult<Vec<R>>>
+    where
+        T: TryFromObject,
+        F: FnMut(T) -> PyResult<R>,
+    {
+        self.map_iterable_object(obj, |elem| f(T::try_from_object(self, elem.clone())?))
+    }
+
+    pub fn map_iterable_object<F, R>(&self, obj: &PyObjectRef, f: F) -> PyResult<PyResult<Vec<R>>>
+    where
+        F: FnMut(&PyObjectRef) -> PyResult<R>,
+    {
+        Ok(match_class!(match obj {
+            ref l @ PyList => l.borrow_value().iter().map(f).collect(),
+            ref t @ PyTuple => t.borrow_value().iter().map(f).collect(),
+            // TODO: put internal iterable type
+            obj => {
+                let iter = iterator::get_iter(self, obj)?;
+                iterator::try_map(self, &iter, f)
+            }
+        }))
+    }
+
     // get_attribute should be used for full attribute access (usually from user code).
     #[cfg_attr(feature = "flame-it", flame("VirtualMachine"))]
     pub fn get_attribute<T>(&self, obj: PyObjectRef, attr_name: T) -> PyResult
