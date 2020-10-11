@@ -1,9 +1,9 @@
 use num_complex::Complex64;
 use num_traits::Zero;
 
-use super::objfloat;
-use super::objstr::PyStr;
-use super::objtype::{self, PyTypeRef};
+use super::float;
+use super::pystr::PyStr;
+use super::pytype::{self, PyTypeRef};
 use crate::pyobject::{
     BorrowValue, IntoPyObject, Never, PyArithmaticValue, PyClassImpl, PyComparisonValue, PyContext,
     PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
@@ -48,7 +48,7 @@ pub fn init(context: &PyContext) {
 fn try_complex(value: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<Complex64>> {
     let r = if let Some(complex) = value.payload_if_subclass::<PyComplex>(vm) {
         Some(complex.value)
-    } else if let Some(float) = objfloat::try_float(value, vm)? {
+    } else if let Some(float) = float::try_float(value, vm)? {
         Some(Complex64::new(float, 0.0))
     } else {
         None
@@ -253,7 +253,7 @@ impl PyComplex {
             Some(obj) => {
                 if let Some(c) = try_complex(&obj, vm)? {
                     c
-                } else if objtype::issubclass(obj.class(), &vm.ctx.types.str_type) {
+                } else if pytype::issubclass(obj.class(), &vm.ctx.types.str_type) {
                     return Err(
                         vm.new_type_error("complex() second arg can't be a string".to_owned())
                     );
@@ -289,7 +289,7 @@ impl Comparable for PyComplex {
             let result = if let Some(other) = other.payload_if_subclass::<PyComplex>(vm) {
                 zelf.value == other.value
             } else {
-                match objfloat::try_float(&other, vm) {
+                match float::try_float(&other, vm) {
                     Ok(Some(other)) => zelf.value == other.into(),
                     Err(_) => false,
                     Ok(None) => return Ok(PyComparisonValue::NotImplemented),

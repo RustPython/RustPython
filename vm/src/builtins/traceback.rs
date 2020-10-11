@@ -1,5 +1,5 @@
+use crate::builtins::pytype::PyTypeRef;
 use crate::frame::FrameRef;
-use crate::obj::objtype::PyTypeRef;
 use crate::pyobject::{PyClassImpl, PyContext, PyRef, PyValue};
 use crate::vm::VirtualMachine;
 

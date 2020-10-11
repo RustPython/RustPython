@@ -2,9 +2,9 @@ pub(crate) use _collections::make_module;
 
 #[pymodule]
 mod _collections {
+    use crate::builtins::{iter, pytype::PyTypeRef};
     use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
     use crate::function::OptionalArg;
-    use crate::obj::{objiter, objtype::PyTypeRef};
     use crate::pyobject::{PyComparisonValue, PyIterable, PyObjectRef, PyRef, PyResult, PyValue};
     use crate::slots::{Comparable, PyComparisonOp};
     use crate::vm::ReprGuard;
@@ -372,7 +372,7 @@ mod _collections {
                 let ret = deque[pos].clone();
                 Ok(ret)
             } else {
-                Err(objiter::new_stop_iteration(vm))
+                Err(iter::new_stop_iteration(vm))
             }
         }
 

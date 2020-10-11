@@ -2,10 +2,10 @@ use crossbeam_utils::atomic::AtomicCell;
 use std::fmt;
 use std::mem::size_of;
 
-use super::objiter;
-use super::objset::PySet;
-use super::objstr;
-use super::objtype::{self, PyTypeRef};
+use super::iter;
+use super::pystr;
+use super::pytype::{self, PyTypeRef};
+use super::set::PySet;
 use crate::dictdatatype::{self, DictKey};
 use crate::exceptions::PyBaseExceptionRef;
 use crate::function::{FuncArgs, KwArgs, OptionalArg};
@@ -83,25 +83,25 @@ impl PyDict {
                     dict.insert(vm, key, value)?;
                 }
             } else if let Some(keys) = vm.get_method(dict_obj.clone(), "keys") {
-                let keys = objiter::get_iter(vm, &vm.invoke(&keys?, ())?)?;
-                while let Some(key) = objiter::get_next_object(vm, &keys)? {
+                let keys = iter::get_iter(vm, &vm.invoke(&keys?, ())?)?;
+                while let Some(key) = iter::get_next_object(vm, &keys)? {
                     let val = dict_obj.get_item(key.clone(), vm)?;
                     dict.insert(vm, key, val)?;
                 }
             } else {
-                let iter = objiter::get_iter(vm, &dict_obj)?;
+                let iter = iter::get_iter(vm, &dict_obj)?;
                 loop {
                     fn err(vm: &VirtualMachine) -> PyBaseExceptionRef {
                         vm.new_value_error("Iterator must have exactly two elements".to_owned())
                     }
-                    let element = match objiter::get_next_object(vm, &iter)? {
+                    let element = match iter::get_next_object(vm, &iter)? {
                         Some(obj) => obj,
                         None => break,
                     };
-                    let elem_iter = objiter::get_iter(vm, &element)?;
-                    let key = objiter::get_next_object(vm, &elem_iter)?.ok_or_else(|| err(vm))?;
-                    let value = objiter::get_next_object(vm, &elem_iter)?.ok_or_else(|| err(vm))?;
-                    if objiter::get_next_object(vm, &elem_iter)?.is_some() {
+                    let elem_iter = iter::get_iter(vm, &element)?;
+                    let key = iter::get_next_object(vm, &elem_iter)?.ok_or_else(|| err(vm))?;
+                    let value = iter::get_next_object(vm, &elem_iter)?.ok_or_else(|| err(vm))?;
+                    if iter::get_next_object(vm, &elem_iter)?.is_some() {
                         return Err(err(vm));
                     }
                     dict.insert(vm, key, value)?;
@@ -443,7 +443,7 @@ impl PyDictRef {
     pub fn to_attributes(self) -> PyAttributes {
         let mut attrs = PyAttributes::new();
         for (key, value) in self {
-            let key = objstr::clone_value(&key);
+            let key = pystr::clone_value(&key);
             attrs.insert(key, value);
         }
         attrs
@@ -468,7 +468,7 @@ impl PyDictRef {
             // We can take the short path here!
             match self.inner_getitem_option(key, vm) {
                 Err(exc) => {
-                    if objtype::isinstance(&exc, &vm.ctx.exceptions.key_error) {
+                    if pytype::isinstance(&exc, &vm.ctx.exceptions.key_error) {
                         Ok(None)
                     } else {
                         Err(exc)
@@ -482,7 +482,7 @@ impl PyDictRef {
             match self.get_item(key, vm) {
                 Ok(value) => Ok(Some(value)),
                 Err(exc) => {
-                    if objtype::isinstance(&exc, &vm.ctx.exceptions.key_error) {
+                    if pytype::isinstance(&exc, &vm.ctx.exceptions.key_error) {
                         Ok(None)
                     } else {
                         Err(exc)
@@ -681,7 +681,7 @@ macro_rules! dict_iterator {
                         self.position.store(position);
                         Ok($result_fn(vm, key, value))
                     }
-                    None => Err(objiter::new_stop_iteration(vm)),
+                    None => Err(iter::new_stop_iteration(vm)),
                 }
             }
 
@@ -736,7 +736,7 @@ macro_rules! dict_iterator {
                     }
                     None => {
                         self.position.store(std::isize::MAX as usize);
-                        Err(objiter::new_stop_iteration(vm))
+                        Err(iter::new_stop_iteration(vm))
                     }
                 }
             }

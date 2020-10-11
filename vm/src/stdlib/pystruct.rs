@@ -22,13 +22,13 @@ pub(crate) mod _struct {
     use std::io::{Cursor, Read, Write};
     use std::iter::Peekable;
 
+    use crate::builtins::{
+        bytes::PyBytesRef, iter, pybool::IntoPyBool, pystr::PyStr, pystr::PyStrRef,
+        pytype::PyTypeRef, tuple::PyTupleRef,
+    };
     use crate::byteslike::{PyBytesLike, PyRwBytesLike};
     use crate::exceptions::PyBaseExceptionRef;
     use crate::function::Args;
-    use crate::obj::{
-        objbool::IntoPyBool, objbytes::PyBytesRef, objiter, objstr::PyStr, objstr::PyStrRef,
-        objtuple::PyTupleRef, objtype::PyTypeRef,
-    };
     use crate::pyobject::{
         BorrowValue, Either, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     };
@@ -853,7 +853,7 @@ pub(crate) mod _struct {
             let size = self.format_spec.size();
             let offset = self.offset.fetch_add(size);
             if offset + size > self.buffer.len() {
-                Err(objiter::new_stop_iteration(vm))
+                Err(iter::new_stop_iteration(vm))
             } else {
                 self.buffer
                     .with_ref(|buf| self.format_spec.unpack(&buf[offset..offset + size], vm))

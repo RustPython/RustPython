@@ -1,7 +1,7 @@
 /*! Python `attribute` descriptor class. (PyGetSet)
 
 */
-use super::objtype::PyTypeRef;
+use super::pytype::PyTypeRef;
 use crate::function::{OwnedParam, RefParam};
 use crate::pyobject::{
     IntoPyResult, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,

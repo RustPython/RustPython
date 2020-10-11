@@ -1,6 +1,6 @@
+use crate::builtins::{pystr, pytype};
 use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
 use crate::function::FuncArgs;
-use crate::obj::{objstr, objtype};
 use crate::pyobject::{ItemProtocol, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 use itertools::{Itertools, PeekingNext};
@@ -830,7 +830,7 @@ impl FormatString {
 
                     let value =
                         call_object_format(vm, argument, *preconversion_spec, &format_spec)?;
-                    objstr::clone_value(&value)
+                    pystr::clone_value(&value)
                 }
                 FormatPart::Literal(literal) => literal.clone(),
             };
@@ -901,7 +901,7 @@ fn call_object_format(
         None => argument,
     };
     let result = vm.call_method(&argument, "__format__", (format_spec,))?;
-    if !objtype::isinstance(&result, &vm.ctx.types.str_type) {
+    if !pytype::isinstance(&result, &vm.ctx.types.str_type) {
         return Err(vm.new_type_error(format!(
             "__format__ must return a str, not {}",
             &result.class().name

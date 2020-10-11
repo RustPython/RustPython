@@ -6,10 +6,10 @@ use std::ops::DerefMut;
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::ToPrimitive;
 
-use super::objint::PyIntRef;
-use super::objiter;
-use super::objslice::PySliceRef;
-use super::objtype::PyTypeRef;
+use super::int::PyIntRef;
+use super::iter;
+use super::pytype::PyTypeRef;
+use super::slice::PySliceRef;
 use crate::bytesinner;
 use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::function::OptionalArg;
@@ -474,7 +474,7 @@ impl PyListIterator {
         if let Some(obj) = list.get(pos) {
             Ok(obj.clone())
         } else {
-            Err(objiter::new_stop_iteration(vm))
+            Err(iter::new_stop_iteration(vm))
         }
     }
 
@@ -515,7 +515,7 @@ impl PyListReverseIterator {
                 return Ok(ret.clone());
             }
         }
-        Err(objiter::new_stop_iteration(vm))
+        Err(iter::new_stop_iteration(vm))
     }
 
     #[pymethod(name = "__iter__")]

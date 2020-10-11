@@ -1,11 +1,11 @@
 use num_traits::ToPrimitive;
 use std::{env, mem, path};
 
+use crate::builtins::pystr::PyStrRef;
+use crate::builtins::pytype::PyTypeRef;
 use crate::common::hash::{PyHash, PyUHash};
 use crate::frame::FrameRef;
 use crate::function::{Args, FuncArgs, OptionalArg};
-use crate::obj::objstr::PyStrRef;
-use crate::obj::objtype::PyTypeRef;
 use crate::pyobject::{
     IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRc, PyObjectRef, PyResult,
     PyStructSequence,
@@ -275,7 +275,7 @@ struct WindowsVersion {
 impl WindowsVersion {}
 
 #[cfg(windows)]
-fn sys_getwindowsversion(vm: &VirtualMachine) -> PyResult<crate::obj::objtuple::PyTupleRef> {
+fn sys_getwindowsversion(vm: &VirtualMachine) -> PyResult<crate::builtins::tuple::PyTupleRef> {
     use std::ffi::OsString;
     use std::os::windows::ffi::OsStringExt;
     use winapi::um::{

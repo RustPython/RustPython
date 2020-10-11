@@ -3,10 +3,10 @@ use num_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_traits::{One, Signed, Zero};
 
-use super::objint::{PyInt, PyIntRef};
-use super::objiter;
-use super::objslice::{PySlice, PySliceRef};
-use super::objtype::PyTypeRef;
+use super::int::{PyInt, PyIntRef};
+use super::iter;
+use super::pytype::PyTypeRef;
+use super::slice::{PySlice, PySliceRef};
 
 use crate::common::hash::PyHash;
 use crate::function::{FuncArgs, OptionalArg};
@@ -393,7 +393,7 @@ impl PyRangeIterator {
         if let Some(int) = self.range.get(&position) {
             Ok(int)
         } else {
-            Err(objiter::new_stop_iteration(vm))
+            Err(iter::new_stop_iteration(vm))
         }
     }
 

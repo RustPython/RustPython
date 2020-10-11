@@ -1,4 +1,4 @@
-use super::objtype::PyTypeRef;
+use super::pytype::PyTypeRef;
 use crate::pyobject::{
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };

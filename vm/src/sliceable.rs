@@ -2,8 +2,8 @@ use num_bigint::BigInt;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 use std::ops::Range;
 
-use crate::obj::objint::PyInt;
-use crate::obj::objslice::{PySlice, PySliceRef};
+use crate::builtins::int::PyInt;
+use crate::builtins::slice::{PySlice, PySliceRef};
 use crate::pyobject::{BorrowValue, Either, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
 use crate::vm::VirtualMachine;
 

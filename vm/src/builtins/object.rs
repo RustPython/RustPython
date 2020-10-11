@@ -1,11 +1,11 @@
-use super::objbool;
-use super::objdict::{PyDict, PyDictRef};
-use super::objlist::PyList;
-use super::objstr::PyStrRef;
-use super::objtype::PyTypeRef;
+use super::dict::{PyDict, PyDictRef};
+use super::list::PyList;
+use super::pybool;
+use super::pystr::PyStrRef;
+use super::pytype::PyTypeRef;
+use crate::builtins::pytype::PyType;
 use crate::common::hash::PyHash;
 use crate::function::{FuncArgs, OptionalArg};
-use crate::obj::objtype::PyType;
 use crate::pyobject::{
     BorrowValue, Either, IdProtocol, ItemProtocol, PyArithmaticValue, PyAttributes, PyClassImpl,
     PyComparisonValue, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject,
@@ -71,7 +71,7 @@ impl PyBaseObject {
                     .unwrap();
                 let value = match cmp(zelf, other, PyComparisonOp::Eq, vm)? {
                     Either::A(obj) => PyArithmaticValue::from_object(vm, obj)
-                        .map(|obj| objbool::boolval(vm, obj))
+                        .map(|obj| pybool::boolval(vm, obj))
                         .transpose()?,
                     Either::B(value) => value,
                 };

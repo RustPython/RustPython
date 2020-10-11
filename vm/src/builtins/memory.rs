@@ -1,14 +1,14 @@
 use std::{fmt::Debug, ops::Deref};
 
+use crate::builtins::bytes::{PyBytes, PyBytesRef};
+use crate::builtins::list::{PyList, PyListRef};
+use crate::builtins::pystr::{PyStr, PyStrRef};
+use crate::builtins::pytype::PyTypeRef;
+use crate::builtins::slice::PySliceRef;
 use crate::bytesinner::bytes_to_hex;
 use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
 use crate::common::hash::PyHash;
 use crate::function::OptionalArg;
-use crate::obj::objbytes::{PyBytes, PyBytesRef};
-use crate::obj::objlist::{PyList, PyListRef};
-use crate::obj::objslice::PySliceRef;
-use crate::obj::objstr::{PyStr, PyStrRef};
-use crate::obj::objtype::PyTypeRef;
 use crate::pyobject::{
     Either, IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef,
     PyRef, PyResult, PyThreadingConstraint, PyValue, TypeProtocol,

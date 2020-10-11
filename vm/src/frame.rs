@@ -4,23 +4,23 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use indexmap::IndexMap;
 use itertools::Itertools;
 
+use crate::builtins::asyncgenerator::PyAsyncGenWrappedValue;
 use crate::builtins::builtin_isinstance;
+use crate::builtins::code::PyCodeRef;
+use crate::builtins::coroutine::PyCoroutine;
+use crate::builtins::dict::{PyDict, PyDictRef};
+use crate::builtins::generator::PyGenerator;
+use crate::builtins::pystr::{self, PyStr, PyStrRef};
+use crate::builtins::pytype::{self, PyTypeRef};
+use crate::builtins::slice::PySlice;
+use crate::builtins::traceback::PyTraceback;
+use crate::builtins::tuple::PyTuple;
+use crate::builtins::{iter, list, pybool, set};
 use crate::bytecode;
 use crate::common::lock::PyMutex;
 use crate::coroutine::Coro;
 use crate::exceptions::{self, ExceptionCtor, PyBaseExceptionRef};
 use crate::function::FuncArgs;
-use crate::obj::objasyncgenerator::PyAsyncGenWrappedValue;
-use crate::obj::objcode::PyCodeRef;
-use crate::obj::objcoroutine::PyCoroutine;
-use crate::obj::objdict::{PyDict, PyDictRef};
-use crate::obj::objgenerator::PyGenerator;
-use crate::obj::objslice::PySlice;
-use crate::obj::objstr::{self, PyStr, PyStrRef};
-use crate::obj::objtraceback::PyTraceback;
-use crate::obj::objtuple::PyTuple;
-use crate::obj::objtype::{self, PyTypeRef};
-use crate::obj::{objbool, objiter, objlist, objset};
 use crate::pyobject::{
     BorrowValue, IdProtocol, ItemProtocol, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
@@ -116,8 +116,8 @@ impl ExecutionResult {
         match res {
             Ok(val) => Ok(ExecutionResult::Yield(val)),
             Err(err) => {
-                if objtype::isinstance(&err, &vm.ctx.exceptions.stop_iteration) {
-                    objiter::stop_iter_value(vm, &err).map(ExecutionResult::Return)
+                if pytype::isinstance(&err, &vm.ctx.exceptions.stop_iteration) {
+                    iter::stop_iter_value(vm, &err).map(ExecutionResult::Return)
                 } else {
                     Err(err)
                 }
@@ -313,7 +313,7 @@ impl ExecutingFrame<'_> {
             res.or_else(|err| {
                 self.pop_value();
                 self.lasti.fetch_add(1, Ordering::Relaxed);
-                let val = objiter::stop_iter_value(vm, &err)?;
+                let val = iter::stop_iter_value(vm, &err)?;
                 self._send(coro, val, vm)
             })
             .map(ExecutionResult::Yield)
@@ -386,7 +386,7 @@ impl ExecutingFrame<'_> {
                 let s = self
                     .pop_multiple(*size)
                     .into_iter()
-                    .map(|pyobj| objstr::clone_value(&pyobj))
+                    .map(|pyobj| pystr::clone_value(&pyobj))
                     .collect::<String>();
                 let str_obj = vm.ctx.new_str(s);
                 self.push_value(str_obj);
@@ -422,13 +422,13 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::ListAppend { i } => {
                 let list_obj = self.nth_value(*i);
                 let item = self.pop_value();
-                objlist::PyListRef::try_from_object(vm, list_obj)?.append(item);
+                list::PyListRef::try_from_object(vm, list_obj)?.append(item);
                 Ok(None)
             }
             bytecode::Instruction::SetAdd { i } => {
                 let set_obj = self.nth_value(*i);
                 let item = self.pop_value();
-                objset::PySetRef::try_from_object(vm, set_obj)?.add(item, vm)?;
+                set::PySetRef::try_from_object(vm, set_obj)?.add(item, vm)?;
                 Ok(None)
             }
             bytecode::Instruction::MapAdd { i } => {
@@ -564,7 +564,7 @@ impl ExecutingFrame<'_> {
                     _ => panic!("WithCleanupFinish expects a FinallyHandler block on stack"),
                 };
 
-                let suppress_exception = objbool::boolval(vm, self.pop_value())?;
+                let suppress_exception = pybool::boolval(vm, self.pop_value())?;
                 if suppress_exception {
                     // suppress exception
                     Ok(None)
@@ -580,7 +580,7 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::GetIter => {
                 let iterated_obj = self.pop_value();
-                let iter_obj = objiter::get_iter(vm, &iterated_obj)?;
+                let iter_obj = iter::get_iter(vm, &iterated_obj)?;
                 self.push_value(iter_obj);
                 Ok(None)
             }
@@ -627,7 +627,7 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::JumpIfTrue { target } => {
                 let obj = self.pop_value();
-                let value = objbool::boolval(vm, obj)?;
+                let value = pybool::boolval(vm, obj)?;
                 if value {
                     self.jump(*target);
                 }
@@ -636,7 +636,7 @@ impl ExecutingFrame<'_> {
 
             bytecode::Instruction::JumpIfFalse { target } => {
                 let obj = self.pop_value();
-                let value = objbool::boolval(vm, obj)?;
+                let value = pybool::boolval(vm, obj)?;
                 if !value {
                     self.jump(*target);
                 }
@@ -645,7 +645,7 @@ impl ExecutingFrame<'_> {
 
             bytecode::Instruction::JumpIfTrueOrPop { target } => {
                 let obj = self.last_value();
-                let value = objbool::boolval(vm, obj)?;
+                let value = pybool::boolval(vm, obj)?;
                 if value {
                     self.jump(*target);
                 } else {
@@ -656,7 +656,7 @@ impl ExecutingFrame<'_> {
 
             bytecode::Instruction::JumpIfFalseOrPop { target } => {
                 let obj = self.last_value();
-                let value = objbool::boolval(vm, obj)?;
+                let value = pybool::boolval(vm, obj)?;
                 if !value {
                     self.jump(*target);
                 } else {
@@ -1063,7 +1063,7 @@ impl ExecutingFrame<'_> {
                 let kwarg_names = vm
                     .extract_elements(&kwarg_names)?
                     .iter()
-                    .map(|pyobj| objstr::clone_value(pyobj))
+                    .map(|pyobj| pystr::clone_value(pyobj))
                     .collect();
                 FuncArgs::with_kwargs_names(args, kwarg_names)
             }
@@ -1075,11 +1075,9 @@ impl ExecutingFrame<'_> {
                     })?;
                     let mut kwargs = IndexMap::new();
                     for (key, value) in kw_dict.into_iter() {
-                        let key =
-                            key.payload_if_subclass::<objstr::PyStr>(vm)
-                                .ok_or_else(|| {
-                                    vm.new_type_error("keywords must be strings".to_owned())
-                                })?;
+                        let key = key.payload_if_subclass::<pystr::PyStr>(vm).ok_or_else(|| {
+                            vm.new_type_error("keywords must be strings".to_owned())
+                        })?;
                         kwargs.insert(key.borrow_value().to_owned(), value);
                     }
                     kwargs
@@ -1148,7 +1146,7 @@ impl ExecutingFrame<'_> {
     fn _send(&self, coro: PyObjectRef, val: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         match self.builtin_coro(&coro) {
             Some(coro) => coro.send(val, vm),
-            None if vm.is_none(&val) => objiter::call_next(vm, &coro),
+            None if vm.is_none(&val) => iter::call_next(vm, &coro),
             None => vm.call_method(&coro, "send", (val,)),
         }
     }
@@ -1222,7 +1220,7 @@ impl ExecutingFrame<'_> {
     /// The top of stack contains the iterator, lets push it forward
     fn execute_for_iter(&mut self, vm: &VirtualMachine, target: bytecode::Label) -> FrameResult {
         let top_of_stack = self.last_value();
-        let next_obj = objiter::get_next_object(vm, &top_of_stack);
+        let next_obj = iter::get_next_object(vm, &top_of_stack);
 
         // Check the next object:
         match next_obj {
@@ -1362,7 +1360,7 @@ impl ExecutingFrame<'_> {
             bytecode::UnaryOperator::Plus => vm.call_method(&a, "__pos__", ())?,
             bytecode::UnaryOperator::Invert => vm.call_method(&a, "__invert__", ())?,
             bytecode::UnaryOperator::Not => {
-                let value = objbool::boolval(vm, a)?;
+                let value = pybool::boolval(vm, a)?;
                 vm.ctx.new_bool(!value)
             }
         };
@@ -1381,7 +1379,7 @@ impl ExecutingFrame<'_> {
         haystack: PyObjectRef,
     ) -> PyResult<bool> {
         let found = vm._membership(haystack, needle)?;
-        Ok(objbool::boolval(vm, found)?)
+        Ok(pybool::boolval(vm, found)?)
     }
 
     fn _not_in(
@@ -1391,7 +1389,7 @@ impl ExecutingFrame<'_> {
         haystack: PyObjectRef,
     ) -> PyResult<bool> {
         let found = vm._membership(haystack, needle)?;
-        Ok(!objbool::boolval(vm, found)?)
+        Ok(!pybool::boolval(vm, found)?)
     }
 
     fn _is(&self, a: PyObjectRef, b: PyObjectRef) -> bool {

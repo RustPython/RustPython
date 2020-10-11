@@ -34,7 +34,7 @@ macro_rules! add_python_function {
         $scope.globals.set_item(
             def.obj_name.as_str(),
             $vm.ctx.new_pyfunction(
-                vm::obj::objcode::PyCode::new(*def.clone()).into_ref(&$vm),
+                vm::builtins::code::PyCode::new(*def.clone()).into_ref(&$vm),
                 $scope.clone(),
                 None,
                 None,

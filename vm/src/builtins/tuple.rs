@@ -2,9 +2,9 @@ use crossbeam_utils::atomic::AtomicCell;
 use num_traits::ToPrimitive;
 use std::fmt;
 
-use super::objint::PyIntRef;
-use super::objiter;
-use super::objtype::PyTypeRef;
+use super::int::PyIntRef;
+use super::iter;
+use super::pytype::PyTypeRef;
 use crate::common::hash::PyHash;
 use crate::pyobject::{
     self, BorrowValue, Either, IdProtocol, IntoPyObject, PyArithmaticValue, PyClassImpl,
@@ -302,7 +302,7 @@ impl PyTupleIterator {
         if let Some(obj) = self.tuple.borrow_value().get(pos) {
             Ok(obj.clone())
         } else {
-            Err(objiter::new_stop_iteration(vm))
+            Err(iter::new_stop_iteration(vm))
         }
     }
 

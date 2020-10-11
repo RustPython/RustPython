@@ -10,9 +10,9 @@ use winapi::um::{
 };
 
 use super::os::errno_err;
+use crate::builtins::dict::{PyDictRef, PyMapping};
+use crate::builtins::pystr::PyStrRef;
 use crate::function::OptionalArg;
-use crate::obj::objdict::{PyDictRef, PyMapping};
-use crate::obj::objstr::PyStrRef;
 use crate::pyobject::{BorrowValue, PyObjectRef, PyResult, PySequence, TryFromObject};
 use crate::VirtualMachine;
 

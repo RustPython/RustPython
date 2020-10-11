@@ -1,17 +1,17 @@
 #[cfg(feature = "jit")]
 mod jitfunc;
 
-use super::objcode::PyCodeRef;
-use super::objdict::PyDictRef;
-use super::objstr::PyStrRef;
-use super::objtuple::PyTupleRef;
-use super::objtype::PyTypeRef;
+use super::code::PyCodeRef;
+use super::dict::PyDictRef;
+use super::pystr::PyStrRef;
+use super::pytype::PyTypeRef;
+use super::tuple::PyTupleRef;
+use crate::builtins::asyncgenerator::PyAsyncGen;
+use crate::builtins::coroutine::PyCoroutine;
+use crate::builtins::generator::PyGenerator;
 use crate::bytecode;
 use crate::frame::Frame;
 use crate::function::FuncArgs;
-use crate::obj::objasyncgenerator::PyAsyncGen;
-use crate::obj::objcoroutine::PyCoroutine;
-use crate::obj::objgenerator::PyGenerator;
 #[cfg(feature = "jit")]
 use crate::pyobject::IntoPyObject;
 use crate::pyobject::{

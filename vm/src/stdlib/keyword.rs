@@ -5,7 +5,7 @@ pub(crate) use decl::make_module;
 mod decl {
     use rustpython_parser::lexer;
 
-    use crate::obj::objstr::PyStrRef;
+    use crate::builtins::pystr::PyStrRef;
     use crate::pyobject::{BorrowValue, PyObjectRef, PyResult};
     use crate::vm::VirtualMachine;
 

@@ -2,8 +2,8 @@
  * The mythical generator.
  */
 
-use super::objcode::PyCodeRef;
-use super::objtype::PyTypeRef;
+use super::code::PyCodeRef;
+use super::pytype::PyTypeRef;
 use crate::coroutine::{Coro, Variant};
 use crate::frame::FrameRef;
 use crate::function::OptionalArg;

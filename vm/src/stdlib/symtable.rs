@@ -4,8 +4,8 @@ pub(crate) use decl::make_module;
 mod decl {
     use std::fmt;
 
-    use crate::obj::objstr::PyStrRef;
-    use crate::obj::objtype::PyTypeRef;
+    use crate::builtins::pystr::PyStrRef;
+    use crate::builtins::pytype::PyTypeRef;
     use crate::pyobject::{BorrowValue, PyRef, PyResult, PyValue};
     use crate::vm::VirtualMachine;
     use rustpython_compiler::{compile, error::CompileError, symboltable};

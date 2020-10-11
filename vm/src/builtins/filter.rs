@@ -1,6 +1,6 @@
-use super::objbool;
-use super::objiter;
-use super::objtype::PyTypeRef;
+use super::iter;
+use super::pybool;
+use super::pytype::PyTypeRef;
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
@@ -32,7 +32,7 @@ impl PyFilter {
         iterable: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyFilterRef> {
-        let iterator = objiter::get_iter(vm, &iterable)?;
+        let iterator = iter::get_iter(vm, &iterable)?;
 
         PyFilter {
             predicate: function,
@@ -46,7 +46,7 @@ impl PyFilter {
         let predicate = &self.predicate;
         let iterator = &self.iterator;
         loop {
-            let next_obj = objiter::call_next(vm, iterator)?;
+            let next_obj = iter::call_next(vm, iterator)?;
             let predicate_value = if vm.is_none(predicate) {
                 next_obj.clone()
             } else {
@@ -54,7 +54,7 @@ impl PyFilter {
                 // iteration
                 vm.invoke(&predicate, vec![next_obj.clone()])?
             };
-            if objbool::boolval(vm, predicate_value)? {
+            if pybool::boolval(vm, predicate_value)? {
                 return Ok(next_obj);
             }
         }

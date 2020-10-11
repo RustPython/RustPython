@@ -7,17 +7,17 @@ use rustpython_common::{
 use std::mem::size_of;
 use std::ops::Deref;
 
-use super::objint::PyIntRef;
-use super::objiter;
-use super::objstr::PyStrRef;
-use super::objtype::PyTypeRef;
+use super::int::PyIntRef;
+use super::iter;
+use super::pystr::PyStrRef;
+use super::pytype::PyTypeRef;
+use crate::builtins::tuple::PyTupleRef;
 use crate::bytesinner::{
     bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
     ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
 };
 use crate::common::hash::PyHash;
 use crate::function::{OptionalArg, OptionalOption};
-use crate::obj::objtuple::PyTupleRef;
 use crate::pyobject::{
     BorrowValue, Either, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyIterable,
     PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
@@ -29,7 +29,7 @@ use crate::{
     byteslike::PyBytesLike,
 };
 
-use crate::obj::objmemory::{Buffer, BufferOptions};
+use crate::builtins::memory::{Buffer, BufferOptions};
 
 /// "bytes(iterable_of_ints) -> bytes\n\
 /// bytes(string, encoding[, errors]) -> bytes\n\
@@ -555,7 +555,7 @@ impl PyBytesIterator {
         if let Some(&ret) = self.bytes.borrow_value().get(pos) {
             Ok(ret)
         } else {
-            Err(objiter::new_stop_iteration(vm))
+            Err(iter::new_stop_iteration(vm))
         }
     }
 

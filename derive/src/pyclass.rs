@@ -73,7 +73,7 @@ pub(crate) fn impl_pyimpl(
 
                     fn impl_extend_class(
                         ctx: &::rustpython_vm::pyobject::PyContext,
-                        class: &::rustpython_vm::obj::objtype::PyTypeRef,
+                        class: &::rustpython_vm::builtins::pytype::PyTypeRef,
                     ) {
                         #getset_impl
                         #extend_impl
@@ -100,7 +100,7 @@ pub(crate) fn impl_pyimpl(
                 parse_quote! {
                     fn __extend_py_class(
                         ctx: &::rustpython_vm::pyobject::PyContext,
-                        class: &::rustpython_vm::obj::objtype::PyTypeRef,
+                        class: &::rustpython_vm::builtins::pytype::PyTypeRef,
                     ) {
                         #getset_impl
                         #extend_impl
@@ -162,7 +162,7 @@ fn generate_class_def(
 
     let base_class = if is_pystruct {
         quote! {
-            fn base_class(ctx: &::rustpython_vm::pyobject::PyContext) -> ::rustpython_vm::obj::objtype::PyTypeRef {
+            fn base_class(ctx: &::rustpython_vm::pyobject::PyContext) -> ::rustpython_vm::builtins::pytype::PyTypeRef {
                 ctx.types.tuple_type.clone()
             }
         }
@@ -502,7 +502,7 @@ impl ToTokens for GetSetNursery {
                 class.set_str_attr(
                     #name,
                     ::rustpython_vm::pyobject::PyObject::new(
-                        ::rustpython_vm::obj::objgetset::PyGetSet::#constructor(#name.into(), &Self::#getter #setter),
+                        ::rustpython_vm::builtins::getset::PyGetSet::#constructor(#name.into(), &Self::#getter #setter),
                         ctx.types.getset_type.clone(), None)
                 );
             }

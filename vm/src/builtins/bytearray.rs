@@ -1,4 +1,11 @@
 //! Implementation of the python bytearray object.
+use super::bytes::{PyBytes, PyBytesRef};
+use super::int::PyIntRef;
+use super::iter;
+use super::memory::{Buffer, BufferOptions};
+use super::pystr::PyStrRef;
+use super::pytype::PyTypeRef;
+use super::tuple::PyTupleRef;
 use crate::anystr::{self, AnyStr};
 use crate::bytesinner::{
     bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
@@ -10,13 +17,6 @@ use crate::common::lock::{
     PyRwLock, PyRwLockReadGuard, PyRwLockUpgradableReadGuard, PyRwLockWriteGuard,
 };
 use crate::function::{OptionalArg, OptionalOption};
-use crate::obj::objbytes::{PyBytes, PyBytesRef};
-use crate::obj::objint::PyIntRef;
-use crate::obj::objiter;
-use crate::obj::objmemory::{Buffer, BufferOptions};
-use crate::obj::objstr::PyStrRef;
-use crate::obj::objtuple::PyTupleRef;
-use crate::obj::objtype::PyTypeRef;
 use crate::pyobject::{
     BorrowValue, Either, IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext,
     PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
@@ -656,7 +656,7 @@ impl PyByteArrayIterator {
         if let Some(&ret) = self.bytearray.borrow_value().elements.get(pos) {
             Ok(ret)
         } else {
-            Err(objiter::new_stop_iteration(vm))
+            Err(iter::new_stop_iteration(vm))
         }
     }
 

@@ -2,11 +2,11 @@ pub(crate) use decl::make_module;
 
 #[pymodule(name = "marshal")]
 mod decl {
+    use crate::builtins::bytes::PyBytes;
+    use crate::builtins::code::{PyCode, PyCodeRef};
     use crate::bytecode;
     use crate::byteslike::PyBytesLike;
     use crate::common::borrow::BorrowValue;
-    use crate::obj::objbytes::PyBytes;
-    use crate::obj::objcode::{PyCode, PyCodeRef};
     use crate::pyobject::{PyObjectRef, PyResult, TryFromObject};
     use crate::vm::VirtualMachine;
 

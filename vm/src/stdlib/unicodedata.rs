@@ -2,9 +2,9 @@
    See also: https://docs.python.org/3/library/unicodedata.html
 */
 
+use crate::builtins::pystr::PyStrRef;
+use crate::builtins::pytype::PyTypeRef;
 use crate::function::OptionalArg;
-use crate::obj::objstr::PyStrRef;
-use crate::obj::objtype::PyTypeRef;
 use crate::pyobject::{BorrowValue, PyClassImpl, PyObject, PyObjectRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 

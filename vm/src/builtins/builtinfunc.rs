@@ -1,10 +1,10 @@
 use std::fmt;
 
-use super::objclassmethod::PyClassMethod;
+use super::classmethod::PyClassMethod;
+use crate::builtins::pystr::PyStrRef;
+use crate::builtins::pytype::PyTypeRef;
 use crate::common::borrow::BorrowValue;
 use crate::function::{FuncArgs, PyNativeFunc};
-use crate::obj::objstr::PyStrRef;
-use crate::obj::objtype::PyTypeRef;
 use crate::pyobject::{
     PyClassImpl, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };

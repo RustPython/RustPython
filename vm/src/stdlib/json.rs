@@ -4,11 +4,11 @@ mod machinery;
 #[pymodule]
 mod _json {
     use super::*;
+    use crate::builtins::iter;
+    use crate::builtins::pystr::PyStrRef;
+    use crate::builtins::{pybool, pytype::PyTypeRef};
     use crate::exceptions::PyBaseExceptionRef;
     use crate::function::{FuncArgs, OptionalArg};
-    use crate::obj::objiter;
-    use crate::obj::objstr::PyStrRef;
-    use crate::obj::{objbool, objtype::PyTypeRef};
     use crate::pyobject::{
         BorrowValue, IdProtocol, IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     };
@@ -41,7 +41,7 @@ mod _json {
     impl JsonScanner {
         #[pyslot]
         fn tp_new(cls: PyTypeRef, ctx: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-            let strict = objbool::boolval(vm, vm.get_attribute(ctx.clone(), "strict")?)?;
+            let strict = pybool::boolval(vm, vm.get_attribute(ctx.clone(), "strict")?)?;
             let object_hook = vm.option_if_none(vm.get_attribute(ctx.clone(), "object_hook")?);
             let object_pairs_hook =
                 vm.option_if_none(vm.get_attribute(ctx.clone(), "object_pairs_hook")?);
@@ -83,7 +83,7 @@ mod _json {
             let c = s
                 .chars()
                 .next()
-                .ok_or_else(|| objiter::stop_iter_with_value(vm.ctx.new_int(idx), vm))?;
+                .ok_or_else(|| iter::stop_iter_with_value(vm.ctx.new_int(idx), vm))?;
             let next_idx = idx + c.len_utf8();
             match c {
                 '"' => {
@@ -151,7 +151,7 @@ mod _json {
             parse_constant!("Infinity");
             parse_constant!("-Infinity");
 
-            Err(objiter::stop_iter_with_value(vm.ctx.new_int(idx), vm))
+            Err(iter::stop_iter_with_value(vm.ctx.new_int(idx), vm))
         }
 
         fn parse_number(&self, s: &str, vm: &VirtualMachine) -> Option<(PyResult, usize)> {
@@ -199,7 +199,7 @@ mod _json {
             if idx > 0 {
                 chars
                     .nth(idx - 1)
-                    .ok_or_else(|| objiter::stop_iter_with_value(vm.ctx.new_int(idx), vm))?;
+                    .ok_or_else(|| iter::stop_iter_with_value(vm.ctx.new_int(idx), vm))?;
             }
             zelf.parse(
                 chars.as_str(),

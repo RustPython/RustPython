@@ -1,6 +1,6 @@
+use crate::builtins::bytes::PyBytes;
+use crate::builtins::pystr::PyStr;
 use crate::exceptions::PyBaseExceptionRef;
-use crate::obj::objbytes::PyBytes;
-use crate::obj::objstr::PyStr;
 use crate::pyobject::{BorrowValue, PyObjectRef, PyResult};
 use crate::VirtualMachine;
 use std::{fmt, io};

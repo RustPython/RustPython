@@ -2,9 +2,9 @@
 
 */
 
-use super::objcode::PyCodeRef;
-use super::objdict::PyDictRef;
-use super::objstr::PyStrRef;
+use super::code::PyCodeRef;
+use super::dict::PyDictRef;
+use super::pystr::PyStrRef;
 use crate::frame::FrameRef;
 use crate::pyobject::{IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;

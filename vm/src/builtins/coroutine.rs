@@ -1,6 +1,6 @@
-use super::objcode::PyCodeRef;
-use super::objstr::PyStrRef;
-use super::objtype::PyTypeRef;
+use super::code::PyCodeRef;
+use super::pystr::PyStrRef;
+use super::pytype::PyTypeRef;
 use crate::coroutine::{Coro, Variant};
 use crate::frame::FrameRef;
 use crate::function::OptionalArg;

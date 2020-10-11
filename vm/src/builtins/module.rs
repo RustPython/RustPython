@@ -1,6 +1,6 @@
-use super::objdict::PyDictRef;
-use super::objstr::{PyStr, PyStrRef};
-use super::objtype::PyTypeRef;
+use super::dict::PyDictRef;
+use super::pystr::{PyStr, PyStrRef};
+use super::pytype::PyTypeRef;
 use crate::function::{FuncArgs, OptionalOption};
 use crate::pyobject::{
     BorrowValue, IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,

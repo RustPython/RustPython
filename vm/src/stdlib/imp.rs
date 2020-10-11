@@ -1,9 +1,9 @@
+use crate::builtins::bytes::PyBytesRef;
+use crate::builtins::code::PyCode;
+use crate::builtins::module::PyModuleRef;
+use crate::builtins::pystr;
+use crate::builtins::pystr::PyStrRef;
 use crate::import;
-use crate::obj::objbytes::PyBytesRef;
-use crate::obj::objcode::PyCode;
-use crate::obj::objmodule::PyModuleRef;
-use crate::obj::objstr;
-use crate::obj::objstr::PyStrRef;
 use crate::pyobject::{BorrowValue, ItemProtocol, PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
 
@@ -60,7 +60,7 @@ fn _imp_is_frozen(name: PyStrRef, vm: &VirtualMachine) -> bool {
 fn _imp_create_builtin(spec: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     let sys_modules = vm.get_attribute(vm.sys_module.clone(), "modules").unwrap();
     let spec = vm.get_attribute(spec, "name")?;
-    let name = objstr::borrow_value(&spec);
+    let name = pystr::borrow_value(&spec);
 
     if let Ok(module) = sys_modules.get_item(name, vm) {
         Ok(module)

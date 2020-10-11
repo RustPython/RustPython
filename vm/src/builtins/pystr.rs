@@ -12,11 +12,11 @@ use unic_ucd_category::GeneralCategory;
 use unic_ucd_ident::{is_xid_continue, is_xid_start};
 use unicode_casing::CharExt;
 
-use super::objbytes::{PyBytes, PyBytesRef};
-use super::objdict::PyDict;
-use super::objint::{PyInt, PyIntRef};
-use super::objiter;
-use super::objtype::{self, PyTypeRef};
+use super::bytes::{PyBytes, PyBytesRef};
+use super::dict::PyDict;
+use super::int::{PyInt, PyIntRef};
+use super::iter;
+use super::pytype::{self, PyTypeRef};
 use crate::anystr::{self, adjust_indices, AnyStr, AnyStrContainer, AnyStrWrapper};
 use crate::exceptions::IntoPyException;
 use crate::format::{FormatSpec, FormatString, FromTemplate};
@@ -122,7 +122,7 @@ impl PyStrIterator {
         let value = &*self.string.value;
         let start = self.position.load();
         if start == value.len() {
-            return Err(objiter::new_stop_iteration(vm));
+            return Err(iter::new_stop_iteration(vm));
         }
         let end = {
             let mut end = None;
@@ -169,7 +169,7 @@ impl PyStrReverseIterator {
         let value = &*self.string.value;
         let end = self.position.load();
         if end == 0 {
-            return Err(objiter::new_stop_iteration(vm));
+            return Err(iter::new_stop_iteration(vm));
         }
         let start = {
             let mut start = None;
@@ -241,7 +241,7 @@ impl PyStr {
 
     #[pymethod(name = "__add__")]
     fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
-        if objtype::isinstance(&other, &vm.ctx.types.str_type) {
+        if pytype::isinstance(&other, &vm.ctx.types.str_type) {
             Ok(self.value.py_add(borrow_value(&other)))
         } else {
             Err(vm.new_type_error(format!("Cannot add {} and {}", self, other)))

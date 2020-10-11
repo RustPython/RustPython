@@ -17,19 +17,19 @@ mod decl {
     use rustpython_parser::parser;
 
     use super::to_ascii;
+    use crate::builtins::bytes::PyBytesRef;
+    use crate::builtins::code::PyCodeRef;
+    use crate::builtins::dict::PyDictRef;
+    use crate::builtins::function::PyFunctionRef;
+    use crate::builtins::int::{self, PyIntRef};
+    use crate::builtins::iter;
+    use crate::builtins::list::{PyList, SortOptions};
+    use crate::builtins::pybool::{self, IntoPyBool};
+    use crate::builtins::pystr::{PyStr, PyStrRef};
+    use crate::builtins::pytype::{self, PyTypeRef};
     use crate::byteslike::PyBytesLike;
     use crate::exceptions::PyBaseExceptionRef;
     use crate::function::{single_or_tuple_any, Args, FuncArgs, KwArgs, OptionalArg};
-    use crate::obj::objbool::{self, IntoPyBool};
-    use crate::obj::objbytes::PyBytesRef;
-    use crate::obj::objcode::PyCodeRef;
-    use crate::obj::objdict::PyDictRef;
-    use crate::obj::objfunction::PyFunctionRef;
-    use crate::obj::objint::{self, PyIntRef};
-    use crate::obj::objiter;
-    use crate::obj::objlist::{PyList, SortOptions};
-    use crate::obj::objstr::{PyStr, PyStrRef};
-    use crate::obj::objtype::{self, PyTypeRef};
     use crate::pyobject::{
         BorrowValue, Either, IdProtocol, ItemProtocol, PyCallable, PyIterable, PyObjectRef,
         PyResult, PyValue, TryFromObject, TypeProtocol,
@@ -292,7 +292,7 @@ mod decl {
         default: T,
         vm: &VirtualMachine,
     ) -> PyResult<T> {
-        if objtype::isinstance(&ex, &vm.ctx.exceptions.attribute_error) {
+        if pytype::isinstance(&ex, &vm.ctx.exceptions.attribute_error) {
             Ok(default)
         } else {
             Err(ex)
@@ -432,11 +432,11 @@ mod decl {
     ) -> PyResult {
         if let OptionalArg::Present(sentinel) = sentinel {
             let callable = PyCallable::try_from_object(vm, iter_target)?;
-            Ok(objiter::PyCallableIterator::new(callable, sentinel)
+            Ok(iter::PyCallableIterator::new(callable, sentinel)
                 .into_ref(vm)
                 .into_object())
         } else {
-            objiter::get_iter(vm, &iter_target)
+            iter::get_iter(vm, &iter_target)
         }
     }
 
@@ -568,7 +568,7 @@ mod decl {
         match vm.call_method(&iterator, "__next__", ()) {
             Ok(value) => Ok(value),
             Err(value) => {
-                if objtype::isinstance(&value, &vm.ctx.exceptions.stop_iteration) {
+                if pytype::isinstance(&value, &vm.ctx.exceptions.stop_iteration) {
                     match default_value {
                         OptionalArg::Missing => Err(value),
                         OptionalArg::Present(value) => Ok(value),
@@ -639,15 +639,15 @@ mod decl {
             }
             OptionalArg::Present(m) => {
                 // Check if the 3rd argument is defined and perform modulus on the result
-                if !(objtype::isinstance(&x, &vm.ctx.types.int_type)
-                    && objtype::isinstance(&y, &vm.ctx.types.int_type))
+                if !(pytype::isinstance(&x, &vm.ctx.types.int_type)
+                    && pytype::isinstance(&y, &vm.ctx.types.int_type))
                 {
                     return Err(vm.new_type_error(
                         "pow() 3rd argument not allowed unless all arguments are integers"
                             .to_owned(),
                     ));
                 }
-                let y = objint::get_value(&y);
+                let y = int::get_value(&y);
                 if y.sign() == Sign::Minus {
                     return Err(vm.new_value_error(
                         "pow() 2nd argument cannot be negative when 3rd argument specified"
@@ -658,7 +658,7 @@ mod decl {
                 if m.is_zero() {
                     return Err(vm.new_value_error("pow() 3rd argument cannot be 0".to_owned()));
                 }
-                let x = objint::get_value(&x);
+                let x = int::get_value(&x);
                 Ok(vm.ctx.new_int(x.modpow(&y, &m)))
             }
         }
@@ -729,8 +729,8 @@ mod decl {
                 "argument to reversed() must be a sequence".to_owned()
             })?;
             let len = vm.call_method(&obj, "__len__", ())?;
-            let len = objint::get_value(&len).to_isize().unwrap();
-            let obj_iterator = objiter::PySequenceIterator::new_reversed(obj, len);
+            let len = int::get_value(&len).to_isize().unwrap();
+            let obj_iterator = iter::PySequenceIterator::new_reversed(obj, len);
             Ok(obj_iterator.into_object(vm))
         }
     }
@@ -825,9 +825,9 @@ mod decl {
 
         for base in bases.clone() {
             let base_class = base.class();
-            if objtype::issubclass(&base_class, &metaclass) {
+            if pytype::issubclass(&base_class, &metaclass) {
                 metaclass = base.clone_class();
-            } else if !objtype::issubclass(&metaclass, &base_class) {
+            } else if !pytype::issubclass(&metaclass, &base_class) {
                 return Err(vm.new_type_error(
                     "metaclass conflict: the metaclass of a derived class must be a (non-strict) \
                      subclass of the metaclasses of all its bases"

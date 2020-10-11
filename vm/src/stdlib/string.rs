@@ -7,12 +7,12 @@ pub(crate) use _string::make_module;
 mod _string {
     use std::mem;
 
+    use crate::builtins::list::PyList;
+    use crate::builtins::pystr::PyStrRef;
     use crate::exceptions::IntoPyException;
     use crate::format::{
         FieldName, FieldNamePart, FieldType, FormatPart, FormatString, FromTemplate,
     };
-    use crate::obj::objlist::PyList;
-    use crate::obj::objstr::PyStrRef;
     use crate::pyobject::{BorrowValue, IntoPyObject, PyObjectRef, PyResult};
     use crate::vm::VirtualMachine;
 

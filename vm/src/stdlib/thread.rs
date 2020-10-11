@@ -1,10 +1,10 @@
+use crate::builtins::dict::PyDictRef;
+use crate::builtins::pystr::PyStrRef;
+use crate::builtins::pytype::PyTypeRef;
+use crate::builtins::tuple::PyTupleRef;
 /// Implementation of the _thread module
 use crate::exceptions::{self, IntoPyException};
 use crate::function::{FuncArgs, OptionalArg};
-use crate::obj::objdict::PyDictRef;
-use crate::obj::objstr::PyStrRef;
-use crate::obj::objtuple::PyTupleRef;
-use crate::obj::objtype::PyTypeRef;
 use crate::pyobject::{
     BorrowValue, Either, IdProtocol, ItemProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef,
     PyResult, PyValue, TypeProtocol,

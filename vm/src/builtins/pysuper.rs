@@ -6,8 +6,8 @@ https://github.com/python/cpython/blob/50b48572d9a90c5bb36e2bef6179548ea927a35a/
 
 */
 
-use super::objstr::PyStrRef;
-use super::objtype::{self, PyType, PyTypeRef};
+use super::pystr::PyStrRef;
+use super::pytype::{self, PyType, PyTypeRef};
 use crate::function::OptionalArg;
 use crate::pyobject::{
     BorrowValue, IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
@@ -77,7 +77,7 @@ impl PySuper {
         };
 
         // Check type argument:
-        if !objtype::isinstance(typ.as_object(), &vm.ctx.types.type_type) {
+        if !pytype::isinstance(typ.as_object(), &vm.ctx.types.type_type) {
             return Err(vm.new_type_error(format!(
                 "super() argument 1 must be type, not {}",
                 typ.class().name
@@ -159,16 +159,16 @@ impl SlotDescriptor for PySuper {
 
 fn supercheck(ty: PyTypeRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTypeRef> {
     if let Ok(cls) = obj.clone().downcast::<PyType>() {
-        if objtype::issubclass(&cls, &ty) {
+        if pytype::issubclass(&cls, &ty) {
             return Ok(cls);
         }
     }
-    if objtype::isinstance(&obj, &ty) {
+    if pytype::isinstance(&obj, &ty) {
         return Ok(obj.clone_class());
     }
     let class_attr = vm.get_attribute(obj, "__class__")?;
     if let Ok(cls) = class_attr.downcast::<PyType>() {
-        if !cls.is(&ty) && objtype::issubclass(&cls, &ty) {
+        if !cls.is(&ty) && pytype::issubclass(&cls, &ty) {
             return Ok(cls);
         }
     }

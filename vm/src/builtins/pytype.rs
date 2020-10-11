@@ -2,16 +2,16 @@ use crate::common::lock::PyRwLock;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
-use super::objclassmethod::PyClassMethod;
-use super::objdict::PyDictRef;
-use super::objint::PyInt;
-use super::objlist::PyList;
-use super::objmappingproxy::PyMappingProxy;
-use super::objobject;
-use super::objstaticmethod::PyStaticMethod;
-use super::objstr::PyStrRef;
-use super::objtuple::PyTuple;
-use super::objweakref::PyWeak;
+use super::classmethod::PyClassMethod;
+use super::dict::PyDictRef;
+use super::int::PyInt;
+use super::list::PyList;
+use super::mappingproxy::PyMappingProxy;
+use super::object;
+use super::pystr::PyStrRef;
+use super::staticmethod::PyStaticMethod;
+use super::tuple::PyTuple;
+use super::weakref::PyWeak;
 use crate::function::{FuncArgs, KwArgs};
 use crate::pyobject::{
     BorrowValue, Either, IdProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable, PyLease,
@@ -584,7 +584,7 @@ fn subtype_get_dict(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
                 cls.name
             )))
         })?,
-        None => objobject::object_get_dict(obj, vm)?.into_object(),
+        None => object::object_get_dict(obj, vm)?.into_object(),
     };
     Ok(ret)
 }
@@ -603,7 +603,7 @@ fn subtype_set_dict(obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -
                     )))
                 })?;
         }
-        None => objobject::object_set_dict(obj, PyDictRef::try_from_object(vm, value)?, vm)?,
+        None => object::object_set_dict(obj, PyDictRef::try_from_object(vm, value)?, vm)?,
     }
     Ok(())
 }

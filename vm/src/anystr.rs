@@ -1,6 +1,6 @@
+use crate::builtins::int::PyIntRef;
 use crate::cformat::CFormatString;
 use crate::function::{single_or_tuple_any, OptionalOption};
-use crate::obj::objint::PyIntRef;
 use crate::pyobject::{
     BorrowValue, PyIterator, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
 };

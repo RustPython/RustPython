@@ -4,8 +4,8 @@
 use rustpython_common::rc::PyRc;
 use std::fmt;
 
-use super::objiter;
-use super::objtype::{self, PyTypeRef};
+use super::iter;
+use super::pytype::{self, PyTypeRef};
 use crate::dictdatatype;
 use crate::function::{Args, OptionalArg};
 use crate::pyobject::{
@@ -723,8 +723,8 @@ struct SetIterable {
 impl TryFromObject for SetIterable {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let class = obj.class();
-        if objtype::issubclass(&class, &vm.ctx.types.set_type)
-            || objtype::issubclass(&class, &vm.ctx.types.frozenset_type)
+        if pytype::issubclass(&class, &vm.ctx.types.set_type)
+            || pytype::issubclass(&class, &vm.ctx.types.frozenset_type)
         {
             // the class lease needs to be drop to be able to return the object
             drop(class);
@@ -768,7 +768,7 @@ impl PySetIterator {
                 let keys = self.dict.keys();
                 let item = keys
                     .get(index)
-                    .ok_or_else(|| objiter::new_stop_iteration(vm))?;
+                    .ok_or_else(|| iter::new_stop_iteration(vm))?;
                 size_info.position += 1;
                 self.size_info.store(size_info);
                 return Ok(item.clone());

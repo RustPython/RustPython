@@ -5,7 +5,7 @@
 use std::fmt;
 use std::ops::Deref;
 
-use super::objtype::PyTypeRef;
+use super::pytype::PyTypeRef;
 use crate::bytecode;
 use crate::pyobject::{IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;

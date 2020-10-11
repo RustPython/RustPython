@@ -1,10 +1,10 @@
 use std::cmp::Ordering;
 
+use crate::builtins::memory::Buffer;
+use crate::builtins::pystr::PyStrRef;
 use crate::common::hash::PyHash;
 use crate::common::lock::PyRwLock;
 use crate::function::{FuncArgs, OptionalArg, PyNativeFunc};
-use crate::obj::objmemory::Buffer;
-use crate::obj::objstr::PyStrRef;
 use crate::pyobject::{
     Either, IdProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
 };

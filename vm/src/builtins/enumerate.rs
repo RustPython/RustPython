@@ -4,9 +4,9 @@ use std::ops::AddAssign;
 use num_bigint::BigInt;
 use num_traits::Zero;
 
-use super::objint::PyIntRef;
-use super::objiter;
-use super::objtype::PyTypeRef;
+use super::int::PyIntRef;
+use super::iter;
+use super::pytype::PyTypeRef;
 use crate::function::OptionalArg;
 use crate::pyobject::{BorrowValue, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
@@ -39,7 +39,7 @@ impl PyEnumerate {
             OptionalArg::Missing => BigInt::zero(),
         };
 
-        let iterator = objiter::get_iter(vm, &iterable)?;
+        let iterator = iter::get_iter(vm, &iterable)?;
         PyEnumerate {
             counter: PyRwLock::new(counter),
             iterator,
@@ -49,7 +49,7 @@ impl PyEnumerate {
 
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult<(BigInt, PyObjectRef)> {
-        let next_obj = objiter::call_next(vm, &self.iterator)?;
+        let next_obj = iter::call_next(vm, &self.iterator)?;
         let mut counter = self.counter.write();
         let position = counter.clone();
         AddAssign::add_assign(&mut counter as &mut BigInt, 1);

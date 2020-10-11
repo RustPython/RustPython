@@ -1,5 +1,5 @@
-use super::objtype::PyTypeRef;
-use super::objweakref::PyWeak;
+use super::pytype::PyTypeRef;
+use super::weakref::PyWeak;
 use crate::function::OptionalArg;
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;

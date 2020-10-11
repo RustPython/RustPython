@@ -1,4 +1,4 @@
-use super::objtype::PyTypeRef;
+use super::pytype::PyTypeRef;
 use crate::common::hash::PyHash;
 use crate::function::{FuncArgs, OptionalArg};
 use crate::pyobject::{

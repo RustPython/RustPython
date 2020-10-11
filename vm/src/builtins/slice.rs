@@ -1,7 +1,7 @@
 // sliceobject.{h,c} in CPython
 
-use super::objint::PyInt;
-use super::objtype::PyTypeRef;
+use super::int::PyInt;
+use super::pytype::PyTypeRef;
 use crate::function::{FuncArgs, OptionalArg};
 use crate::pyobject::{
     BorrowValue, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,

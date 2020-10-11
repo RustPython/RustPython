@@ -3,10 +3,10 @@ use num_complex::Complex64;
 use num_rational::Ratio;
 use num_traits::{pow, ToPrimitive, Zero};
 
-use super::objbytes::PyBytes;
-use super::objint::{self, PyInt, PyIntRef};
-use super::objstr::{PyStr, PyStrRef};
-use super::objtype::PyTypeRef;
+use super::bytes::PyBytes;
+use super::int::{self, PyInt, PyIntRef};
+use super::pystr::{PyStr, PyStrRef};
+use super::pytype::PyTypeRef;
 use crate::format::FormatSpec;
 use crate::function::{OptionalArg, OptionalOption};
 use crate::pyobject::{
@@ -59,7 +59,7 @@ pub fn try_float(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<f64>
     let v = if let Some(float) = obj.payload_if_subclass::<PyFloat>(vm) {
         Some(float.value)
     } else if let Some(int) = obj.payload_if_subclass::<PyInt>(vm) {
-        Some(objint::try_float(int.borrow_value(), vm)?)
+        Some(int::try_float(int.borrow_value(), vm)?)
     } else {
         None
     };
@@ -495,7 +495,7 @@ fn to_float(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<f64> {
     let value = if let Some(float) = obj.payload_if_subclass::<PyFloat>(vm) {
         float.value
     } else if let Some(int) = obj.payload_if_subclass::<PyInt>(vm) {
-        objint::try_float(int.borrow_value(), vm)?
+        int::try_float(int.borrow_value(), vm)?
     } else if let Some(s) = obj.payload_if_subclass::<PyStr>(vm) {
         float_ops::parse_str(s.borrow_value().trim()).ok_or_else(|| {
             vm.new_value_error(format!("could not convert string to float: '{}'", s))

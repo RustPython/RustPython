@@ -8,31 +8,31 @@ use num_bigint::BigInt;
 use num_complex::Complex64;
 use num_traits::ToPrimitive;
 
+use crate::builtins::builtinfunc::PyFuncDef;
+use crate::builtins::bytearray;
+use crate::builtins::bytes;
+use crate::builtins::code;
+use crate::builtins::code::PyCodeRef;
+use crate::builtins::complex::PyComplex;
+use crate::builtins::dict::{PyDict, PyDictRef};
+use crate::builtins::float::PyFloat;
+use crate::builtins::function::{PyBoundMethod, PyFunction};
+use crate::builtins::getset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetSet};
+use crate::builtins::int::{PyInt, PyIntRef};
+use crate::builtins::iter;
+use crate::builtins::list::PyList;
+use crate::builtins::namespace::PyNamespace;
+use crate::builtins::object;
+use crate::builtins::pystr;
+use crate::builtins::pytype::{self, PyType, PyTypeRef};
+use crate::builtins::set;
+use crate::builtins::singletons::{PyNone, PyNoneRef, PyNotImplemented, PyNotImplementedRef};
+use crate::builtins::slice::PyEllipsis;
+use crate::builtins::staticmethod::PyStaticMethod;
+use crate::builtins::tuple::{PyTuple, PyTupleRef};
 use crate::bytecode;
 use crate::exceptions::{self, PyBaseExceptionRef};
 use crate::function::{IntoFuncArgs, IntoPyNativeFunc};
-use crate::obj::objbuiltinfunc::PyFuncDef;
-use crate::obj::objbytearray;
-use crate::obj::objbytes;
-use crate::obj::objcode;
-use crate::obj::objcode::PyCodeRef;
-use crate::obj::objcomplex::PyComplex;
-use crate::obj::objdict::{PyDict, PyDictRef};
-use crate::obj::objfloat::PyFloat;
-use crate::obj::objfunction::{PyBoundMethod, PyFunction};
-use crate::obj::objgetset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetSet};
-use crate::obj::objint::{PyInt, PyIntRef};
-use crate::obj::objiter;
-use crate::obj::objlist::PyList;
-use crate::obj::objnamespace::PyNamespace;
-use crate::obj::objobject;
-use crate::obj::objset;
-use crate::obj::objsingletons::{PyNone, PyNoneRef, PyNotImplemented, PyNotImplementedRef};
-use crate::obj::objslice::PyEllipsis;
-use crate::obj::objstaticmethod::PyStaticMethod;
-use crate::obj::objstr;
-use crate::obj::objtuple::{PyTuple, PyTupleRef};
-use crate::obj::objtype::{self, PyType, PyTypeRef};
 pub use crate::pyobjectrc::{PyObjectRc, PyObjectWeak};
 use crate::scope::Scope;
 use crate::slots::{PyTpFlags, PyTypeSlots};
@@ -144,7 +144,7 @@ impl PyContext {
         );
 
         let tp_new_wrapper = create_object(
-            PyFuncDef::from(objtype::tp_new_wrapper.into_func()).into_function(),
+            PyFuncDef::from(pytype::tp_new_wrapper.into_func()).into_function(),
             &types.builtin_function_or_method_type,
         )
         .into_object();
@@ -216,14 +216,14 @@ impl PyContext {
 
     pub fn new_str<S>(&self, s: S) -> PyObjectRef
     where
-        S: Into<objstr::PyStr>,
+        S: Into<pystr::PyStr>,
     {
         PyObject::new(s.into(), self.types.str_type.clone(), None)
     }
 
     pub fn new_bytes(&self, data: Vec<u8>) -> PyObjectRef {
         PyObject::new(
-            objbytes::PyBytes::from(data),
+            bytes::PyBytes::from(data),
             self.types.bytes_type.clone(),
             None,
         )
@@ -231,7 +231,7 @@ impl PyContext {
 
     pub fn new_bytearray(&self, data: Vec<u8>) -> PyObjectRef {
         PyObject::new(
-            objbytearray::PyByteArray::from(data),
+            bytearray::PyByteArray::from(data),
             self.types.bytearray_type.clone(),
             None,
         )
@@ -255,10 +255,10 @@ impl PyContext {
         PyObject::new(PyList::from(elements), self.types.list_type.clone(), None)
     }
 
-    pub fn new_set(&self) -> objset::PySetRef {
+    pub fn new_set(&self) -> set::PySetRef {
         // Initialized empty, as calling __hash__ is required for adding each object to the set
-        // which requires a VM context - this is done in the objset code itself.
-        PyRef::new_ref(objset::PySet::default(), self.types.set_type.clone(), None)
+        // which requires a VM context - this is done in the set code itself.
+        PyRef::new_ref(set::PySet::default(), self.types.set_type.clone(), None)
     }
 
     pub fn new_dict(&self) -> PyDictRef {
@@ -284,8 +284,8 @@ impl PyContext {
         PyFuncDef::from(f.into_func()).build_function(self)
     }
 
-    pub(crate) fn new_stringref(&self, s: String) -> objstr::PyStrRef {
-        PyRef::new_ref(objstr::PyStr::from(s), self.types.str_type.clone(), None)
+    pub(crate) fn new_stringref(&self, s: String) -> pystr::PyStrRef {
+        PyRef::new_ref(pystr::PyStr::from(s), self.types.str_type.clone(), None)
     }
 
     pub fn new_function_named<F, FKind>(&self, f: F, name: String) -> PyFuncDef
@@ -345,11 +345,7 @@ impl PyContext {
     }
 
     pub fn new_code_object(&self, code: bytecode::CodeObject) -> PyCodeRef {
-        PyRef::new_ref(
-            objcode::PyCode::new(code),
-            self.types.code_type.clone(),
-            None,
-        )
+        PyRef::new_ref(code::PyCode::new(code), self.types.code_type.clone(), None)
     }
 
     pub fn new_pyfunction(
@@ -378,7 +374,7 @@ impl PyContext {
         PyObject {
             typ: PyRwLock::new(class.into_typed_pyobj()),
             dict: dict.map(|d| PyRwLock::new(d.into_typed_pyobj())),
-            payload: objobject::PyBaseObject,
+            payload: object::PyBaseObject,
         }
         .into_ref()
     }
@@ -584,7 +580,7 @@ where
     T: PyValue,
 {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        if objtype::isinstance(&obj, &T::class(vm)) {
+        if pytype::isinstance(&obj, &T::class(vm)) {
             PyRef::from_obj(obj, vm)
         } else {
             let class = T::class(vm);
@@ -833,7 +829,7 @@ impl<T> PyIterable<T> {
         let method = &self.method;
         let iter_obj = vm.invoke(method, ())?;
 
-        let length_hint = objiter::length_hint(vm, iter_obj.clone())?;
+        let length_hint = iter::length_hint(vm, iter_obj.clone())?;
 
         Ok(PyIterator {
             vm,
@@ -861,7 +857,7 @@ where
         match self.vm.call_method(&self.obj, "__next__", ()) {
             Ok(value) => Some(T::try_from_object(self.vm, value)),
             Err(err) => {
-                if objtype::isinstance(&err, &self.vm.ctx.exceptions.stop_iteration) {
+                if pytype::isinstance(&err, &self.vm.ctx.exceptions.stop_iteration) {
                     None
                 } else {
                     Some(Err(err))
@@ -892,7 +888,7 @@ where
             })?;
             Self::try_from_object(
                 vm,
-                objiter::PySequenceIterator::new_forward(obj)
+                iter::PySequenceIterator::new_forward(obj)
                     .into_ref(vm)
                     .into_object(),
             )
@@ -1077,7 +1073,7 @@ impl PyObject<dyn PyObjectPayload> {
         &self,
         vm: &VirtualMachine,
     ) -> Option<&T> {
-        if objtype::issubclass(self.class(), &T::class(vm)) {
+        if pytype::issubclass(self.class(), &T::class(vm)) {
             self.payload()
         } else {
             None
@@ -1126,7 +1122,7 @@ pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
 
     fn into_ref_with_type(self, vm: &VirtualMachine, cls: PyTypeRef) -> PyResult<PyRef<Self>> {
         let class = Self::class(vm);
-        if objtype::issubclass(&cls, &class) {
+        if pytype::issubclass(&cls, &class) {
             Ok(self.into_ref_with_type_unchecked(cls, vm))
         } else {
             let subtype = vm.to_str(&cls.obj)?;
@@ -1193,7 +1189,7 @@ impl<A: IntoPyObject, B: IntoPyObject> IntoPyObject for Either<A, B> {
 ///
 /// ```
 /// use rustpython_vm::VirtualMachine;
-/// use rustpython_vm::obj::{objstr::PyStrRef, objint::PyIntRef};
+/// use rustpython_vm::builtins::{pystr::PyStrRef, int::PyIntRef};
 /// use rustpython_vm::pyobject::Either;
 ///
 /// fn do_something(arg: Either<PyIntRef, PyStrRef>, vm: &VirtualMachine) {
@@ -1253,11 +1249,7 @@ pub trait PyClassImpl: PyClassDef {
         if Self::TP_FLAGS.has_feature(PyTpFlags::HAS_DICT) {
             class.set_str_attr(
                 "__dict__",
-                ctx.new_getset(
-                    "__dict__",
-                    objobject::object_get_dict,
-                    objobject::object_set_dict,
-                ),
+                ctx.new_getset("__dict__", object::object_get_dict, object::object_set_dict),
             );
         }
         Self::impl_extend_class(ctx, class);

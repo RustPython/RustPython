@@ -1,8 +1,8 @@
+use crate::builtins::dict::PyDictRef;
+use crate::builtins::function::{PyFunction, PyFunctionRef};
+use crate::builtins::{float, int};
 use crate::exceptions::PyBaseExceptionRef;
 use crate::function::FuncArgs;
-use crate::obj::objdict::PyDictRef;
-use crate::obj::objfunction::{PyFunction, PyFunctionRef};
-use crate::obj::{objfloat, objint};
 use crate::pyobject::{
     BorrowValue, IdProtocol, IntoPyObject, ItemProtocol, PyObjectRef, PyResult, TryFromObject,
     TypeProtocol,
@@ -107,12 +107,12 @@ fn get_jit_value(vm: &VirtualMachine, obj: &PyObjectRef) -> Result<AbiValue, Arg
     // This does exact type checks as subclasses of int/float can't be passed to jitted functions
     let cls = obj.class();
     if cls.is(&vm.ctx.types.int_type) {
-        objint::get_value(&obj)
+        int::get_value(&obj)
             .to_i64()
             .map(AbiValue::Int)
             .ok_or(ArgsError::IntOverflow)
     } else if cls.is(&vm.ctx.types.float_type) {
-        Ok(AbiValue::Float(objfloat::get_value(&obj)))
+        Ok(AbiValue::Float(float::get_value(&obj)))
     } else {
         Err(ArgsError::NonJitType)
     }

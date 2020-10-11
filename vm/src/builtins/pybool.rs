@@ -8,9 +8,9 @@ use crate::pyobject::{
 };
 use crate::vm::VirtualMachine;
 
-use super::objint::PyInt;
-use super::objstr::PyStrRef;
-use super::objtype;
+use super::int::PyInt;
+use super::pystr::PyStrRef;
+use super::pytype;
 
 impl IntoPyObject for bool {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
@@ -20,7 +20,7 @@ impl IntoPyObject for bool {
 
 impl TryFromObject for bool {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
-        if objtype::isinstance(&obj, &vm.ctx.types.int_type) {
+        if pytype::isinstance(&obj, &vm.ctx.types.int_type) {
             Ok(get_value(&obj))
         } else {
             Err(vm.new_type_error(format!("Expected type bool, not {}", obj.class().name)))
@@ -41,7 +41,7 @@ pub fn boolval(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
             // If descriptor returns Error, propagate it further
             let method = method_or_err?;
             let bool_obj = vm.invoke(&method, ())?;
-            if !objtype::isinstance(&bool_obj, &vm.ctx.types.bool_type) {
+            if !pytype::isinstance(&bool_obj, &vm.ctx.types.bool_type) {
                 return Err(vm.new_type_error(format!(
                     "__bool__ should return bool, returned type {}",
                     bool_obj.class().name
@@ -100,8 +100,8 @@ impl PyBool {
     #[pymethod(name = "__ror__")]
     #[pymethod(magic)]
     fn or(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        if objtype::isinstance(&lhs, &vm.ctx.types.bool_type)
-            && objtype::isinstance(&rhs, &vm.ctx.types.bool_type)
+        if pytype::isinstance(&lhs, &vm.ctx.types.bool_type)
+            && pytype::isinstance(&rhs, &vm.ctx.types.bool_type)
         {
             let lhs = get_value(&lhs);
             let rhs = get_value(&rhs);
@@ -114,8 +114,8 @@ impl PyBool {
     #[pymethod(name = "__rand__")]
     #[pymethod(magic)]
     fn and(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        if objtype::isinstance(&lhs, &vm.ctx.types.bool_type)
-            && objtype::isinstance(&rhs, &vm.ctx.types.bool_type)
+        if pytype::isinstance(&lhs, &vm.ctx.types.bool_type)
+            && pytype::isinstance(&rhs, &vm.ctx.types.bool_type)
         {
             let lhs = get_value(&lhs);
             let rhs = get_value(&rhs);
@@ -128,8 +128,8 @@ impl PyBool {
     #[pymethod(name = "__rxor__")]
     #[pymethod(magic)]
     fn xor(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        if objtype::isinstance(&lhs, &vm.ctx.types.bool_type)
-            && objtype::isinstance(&rhs, &vm.ctx.types.bool_type)
+        if pytype::isinstance(&lhs, &vm.ctx.types.bool_type)
+            && pytype::isinstance(&rhs, &vm.ctx.types.bool_type)
         {
             let lhs = get_value(&lhs);
             let rhs = get_value(&rhs);
@@ -141,7 +141,7 @@ impl PyBool {
 
     #[pyslot]
     fn tp_new(zelf: PyObjectRef, x: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
-        if !objtype::isinstance(&zelf, &vm.ctx.types.type_type) {
+        if !pytype::isinstance(&zelf, &vm.ctx.types.type_type) {
             let actual_type = &zelf.class().name;
             return Err(vm.new_type_error(format!(
                 "requires a 'type' object but received a '{}'",
@@ -161,7 +161,7 @@ pub(crate) fn init(context: &PyContext) {
 }
 
 pub fn not(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<bool> {
-    if objtype::isinstance(obj, &vm.ctx.types.bool_type) {
+    if pytype::isinstance(obj, &vm.ctx.types.bool_type) {
         let value = get_value(obj);
         Ok(!value)
     } else {

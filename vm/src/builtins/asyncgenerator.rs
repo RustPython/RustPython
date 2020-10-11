@@ -1,5 +1,5 @@
-use super::objcode::PyCodeRef;
-use super::objtype::{self, PyTypeRef};
+use super::code::PyCodeRef;
+use super::pytype::{self, PyTypeRef};
 use crate::coroutine::{Coro, Variant};
 use crate::exceptions::PyBaseExceptionRef;
 use crate::frame::FrameRef;
@@ -127,8 +127,8 @@ impl PyAsyncGenWrappedValue {}
 impl PyAsyncGenWrappedValue {
     fn unbox(ag: &PyAsyncGen, val: PyResult, vm: &VirtualMachine) -> PyResult {
         if let Err(ref e) = val {
-            if objtype::isinstance(&e, &vm.ctx.exceptions.stop_async_iteration)
-                || objtype::isinstance(&e, &vm.ctx.exceptions.generator_exit)
+            if pytype::isinstance(&e, &vm.ctx.exceptions.stop_async_iteration)
+                || pytype::isinstance(&e, &vm.ctx.exceptions.generator_exit)
             {
                 ag.inner.closed.store(true);
             }
@@ -385,8 +385,8 @@ impl PyAsyncGenAThrow {
         self.ag.running_async.store(false);
         self.state.store(AwaitableState::Closed);
         if self.aclose
-            && (objtype::isinstance(&exc, &vm.ctx.exceptions.stop_async_iteration)
-                || objtype::isinstance(&exc, &vm.ctx.exceptions.generator_exit))
+            && (pytype::isinstance(&exc, &vm.ctx.exceptions.stop_async_iteration)
+                || pytype::isinstance(&exc, &vm.ctx.exceptions.generator_exit))
         {
             vm.new_exception_empty(vm.ctx.exceptions.stop_iteration.clone())
         } else {

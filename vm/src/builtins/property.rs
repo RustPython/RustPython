@@ -3,7 +3,7 @@
 */
 use crate::common::lock::PyRwLock;
 
-use super::objtype::PyTypeRef;
+use super::pytype::PyTypeRef;
 use crate::function::FuncArgs;
 use crate::pyobject::{
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,

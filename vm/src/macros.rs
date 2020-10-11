@@ -97,8 +97,8 @@ macro_rules! py_namespace {
 /// use num_traits::Zero;
 ///
 /// use rustpython_vm::match_class;
-/// use rustpython_vm::obj::objfloat::PyFloat;
-/// use rustpython_vm::obj::objint::PyInt;
+/// use rustpython_vm::builtins::float::PyFloat;
+/// use rustpython_vm::builtins::int::PyInt;
 /// use rustpython_vm::pyobject::PyValue;
 ///
 /// # rustpython_vm::Interpreter::default().enter(|vm| {
@@ -122,8 +122,8 @@ macro_rules! py_namespace {
 /// use num_traits::Zero;
 ///
 /// use rustpython_vm::match_class;
-/// use rustpython_vm::obj::objfloat::PyFloat;
-/// use rustpython_vm::obj::objint::PyInt;
+/// use rustpython_vm::builtins::float::PyFloat;
+/// use rustpython_vm::builtins::int::PyInt;
 /// use rustpython_vm::pyobject::{PyValue, BorrowValue};
 ///
 /// # rustpython_vm::Interpreter::default().enter(|vm| {

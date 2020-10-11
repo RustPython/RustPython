@@ -1,4 +1,4 @@
-use super::objtype::PyTypeRef;
+use super::pytype::PyTypeRef;
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::slots::SlotDescriptor;
 use crate::vm::VirtualMachine;

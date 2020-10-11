@@ -7,12 +7,12 @@ use num_bigint::{BigInt, BigUint, Sign};
 use num_integer::Integer;
 use num_traits::{One, Pow, PrimInt, Signed, ToPrimitive, Zero};
 
-use super::objbool::IntoPyBool;
-use super::objbytearray::PyByteArray;
-use super::objbytes::PyBytes;
-use super::objfloat;
-use super::objstr::{PyStr, PyStrRef};
-use super::objtype::PyTypeRef;
+use super::bytearray::PyByteArray;
+use super::bytes::PyBytes;
+use super::float;
+use super::pybool::IntoPyBool;
+use super::pystr::{PyStr, PyStrRef};
+use super::pytype::PyTypeRef;
 use crate::format::FormatSpec;
 use crate::function::OptionalArg;
 use crate::pyobject::{
@@ -132,7 +132,7 @@ fn inner_pow(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
     if int2.is_negative() {
         let v1 = try_float(int1, vm)?;
         let v2 = try_float(int2, vm)?;
-        objfloat::float_pow(v1, v2, vm).into_pyresult(vm)
+        float::float_pow(v1, v2, vm).into_pyresult(vm)
     } else {
         Ok(if let Some(v2) = int2.to_u64() {
             vm.ctx.new_int(Pow::pow(int1, v2))
