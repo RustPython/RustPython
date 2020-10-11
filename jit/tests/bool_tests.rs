@@ -34,3 +34,20 @@ fn test_not() {
     assert_eq!(not_(true), Ok(false));
     assert_eq!(not_(false), Ok(true));
 }
+
+#[test]
+fn test_if_not() {
+    let if_not = jit_function! { if_not(a: bool) -> i64 => r##"
+        def if_not(a: bool):
+            if not a:
+                return 0
+            else:
+                return 1
+
+            return -1
+    "## };
+
+    assert_eq!(if_not(true), Ok(1));
+    assert_eq!(if_not(false), Ok(0));
+}
+

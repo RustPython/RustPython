@@ -180,6 +180,21 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
 
                 Ok(())
             }
+            Instruction::JumpIfTrue { target } => {
+                let cond = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
+
+                let then_block = self.builder.create_block();
+                self.label_to_block.insert(*target, then_block);
+
+                let val = self.boolean_val(cond)?;
+                self.builder.ins().brnz(val, then_block, &[]);
+
+                let block = self.builder.create_block();
+                self.builder.ins().fallthrough(block, &[]);
+                self.builder.switch_to_block(block);
+
+                Ok(())
+            }
             Instruction::Jump { target } => {
                 let target_block = self.builder.create_block();
                 self.label_to_block.insert(*target, target_block);
