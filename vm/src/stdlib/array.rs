@@ -453,21 +453,14 @@ fn f64_swap_bytes(x: f64) -> f64 {
 }
 
 fn f32_try_into_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<f32> {
-    try_float(&obj, vm)?.map(|x| x as f32).ok_or_else(|| {
-        vm.new_type_error(format!(
-            "must be real number, not {}",
-            obj.lease_class().name
-        ))
-    })
+    try_float(&obj, vm)?
+        .map(|x| x as f32)
+        .ok_or_else(|| vm.new_type_error(format!("must be real number, not {}", obj.class().name)))
 }
 
 fn f64_try_into_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<f64> {
-    try_float(&obj, vm)?.ok_or_else(|| {
-        vm.new_type_error(format!(
-            "must be real number, not {}",
-            obj.lease_class().name
-        ))
-    })
+    try_float(&obj, vm)?
+        .ok_or_else(|| vm.new_type_error(format!("must be real number, not {}", obj.class().name)))
 }
 
 #[pyclass(module = "array", name = "array")]
@@ -700,7 +693,7 @@ impl PyArray {
                         None => {
                             return Err(vm.new_type_error(format!(
                                 "can only assign array (not \"{}\") to array slice",
-                                obj.lease_class().name
+                                obj.class().name
                             )));
                         }
                     }
@@ -737,7 +730,7 @@ impl PyArray {
         } else {
             Err(vm.new_type_error(format!(
                 "can only append array (not \"{}\") to array",
-                other.lease_class().name
+                other.class().name
             )))
         }
     }
@@ -754,7 +747,7 @@ impl PyArray {
         } else {
             Err(vm.new_type_error(format!(
                 "can only extend array with array (not \"{}\")",
-                other.lease_class().name
+                other.class().name
             )))
         }
     }

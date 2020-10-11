@@ -356,7 +356,7 @@ impl SequenceIndex {
             obj => Err(vm.new_type_error(format!(
                 "{} indices must be integers or slices, not {}",
                 owner_type,
-                obj.lease_class().name,
+                obj.class().name,
             ))),
         })
     }

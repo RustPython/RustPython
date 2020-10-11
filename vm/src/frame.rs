@@ -593,7 +593,7 @@ impl ExecutingFrame<'_> {
                         vm.get_method_or_type_error(awaited_obj.clone(), "__await__", || {
                             format!(
                                 "object {} can't be used in 'await' expression",
-                                awaited_obj.lease_class().name,
+                                awaited_obj.class().name,
                             )
                         })?;
                     vm.invoke(&await_method, vec![])?
@@ -686,10 +686,10 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::UnpackSequence { size } => {
                 let value = self.pop_value();
                 let elements = vm.extract_elements(&value).map_err(|e| {
-                    if e.lease_class().is(&vm.ctx.exceptions.type_error) {
+                    if e.class().is(&vm.ctx.exceptions.type_error) {
                         vm.new_type_error(format!(
                             "cannot unpack non-iterable {} object",
-                            value.lease_class().name
+                            value.class().name
                         ))
                     } else {
                         e
@@ -996,10 +996,7 @@ impl ExecutingFrame<'_> {
             for obj in self.pop_multiple(size) {
                 // Take all key-value pairs from the dict:
                 let dict: PyDictRef = obj.downcast().map_err(|obj| {
-                    vm.new_type_error(format!(
-                        "'{}' object is not a mapping",
-                        obj.lease_class().name
-                    ))
+                    vm.new_type_error(format!("'{}' object is not a mapping", obj.class().name))
                 })?;
                 for (key, value) in dict {
                     if for_call {

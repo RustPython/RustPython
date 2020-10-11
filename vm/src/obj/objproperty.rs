@@ -169,7 +169,7 @@ impl PyProperty {
             deleter: PyRwLock::new(zelf.fdel()),
             doc: PyRwLock::new(None),
         }
-        .into_ref_with_type(vm, TypeProtocol::class(&zelf))
+        .into_ref_with_type(vm, TypeProtocol::clone_class(&zelf))
     }
 
     #[pymethod]
@@ -184,7 +184,7 @@ impl PyProperty {
             deleter: PyRwLock::new(zelf.fdel()),
             doc: PyRwLock::new(None),
         }
-        .into_ref_with_type(vm, TypeProtocol::class(&zelf))
+        .into_ref_with_type(vm, TypeProtocol::clone_class(&zelf))
     }
 
     #[pymethod]
@@ -199,7 +199,7 @@ impl PyProperty {
             deleter: PyRwLock::new(deleter.or_else(|| zelf.fdel())),
             doc: PyRwLock::new(None),
         }
-        .into_ref_with_type(vm, TypeProtocol::class(&zelf))
+        .into_ref_with_type(vm, TypeProtocol::clone_class(&zelf))
     }
 }
 

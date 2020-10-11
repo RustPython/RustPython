@@ -79,7 +79,7 @@ impl PyList {
             let py_int = PyIntRef::try_from_object(vm, elem.clone()).map_err(|_| {
                 vm.new_type_error(format!(
                     "'{}' object cannot be interpreted as an integer",
-                    elem.lease_class().name
+                    elem.class().name
                 ))
             })?;
             let result = py_int
@@ -134,7 +134,7 @@ impl PyList {
             Err(vm.new_type_error(format!(
                 "Cannot add {} and {}",
                 Self::class(vm).name,
-                other.lease_class().name
+                other.class().name
             )))
         }
     }

@@ -47,7 +47,7 @@ mod decl {
     #[pyfunction]
     fn abs(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let method = vm.get_method_or_type_error(x.clone(), "__abs__", || {
-            format!("bad operand type for abs(): '{}'", x.lease_class().name)
+            format!("bad operand type for abs(): '{}'", x.class().name)
         })?;
         vm.invoke(&method, PyFuncArgs::new(vec![], vec![]))
     }
@@ -284,7 +284,7 @@ mod decl {
             .map_err(|obj| {
                 vm.new_type_error(format!(
                     "__format__ must return a str, not {}",
-                    obj.lease_class().name
+                    obj.class().name
                 ))
             })
     }
@@ -404,7 +404,7 @@ mod decl {
             &|o| {
                 format!(
                     "isinstance() arg 2 must be a type or tuple of types, not {}",
-                    o.lease_class()
+                    o.class()
                 )
             },
             vm,
@@ -419,7 +419,7 @@ mod decl {
             &|o| {
                 format!(
                     "issubclass() arg 2 must be a class or tuple of classes, not {}",
-                    o.lease_class()
+                    o.class()
                 )
             },
             vm,
@@ -447,7 +447,7 @@ mod decl {
         vm._len(&obj).unwrap_or_else(|| {
             Err(vm.new_type_error(format!(
                 "object of type '{}' has no len()",
-                obj.lease_class().name
+                obj.class().name
             )))
         })
     }
@@ -826,9 +826,9 @@ mod decl {
         };
 
         for base in bases.clone() {
-            let base_class = base.lease_class();
+            let base_class = base.class();
             if objtype::issubclass(&base_class, &metaclass) {
-                metaclass = base.class();
+                metaclass = base.clone_class();
             } else if !objtype::issubclass(&metaclass, &base_class) {
                 return Err(vm.new_type_error(
                     "metaclass conflict: the metaclass of a derived class must be a (non-strict) \

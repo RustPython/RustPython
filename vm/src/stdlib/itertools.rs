@@ -965,7 +965,7 @@ mod decl {
     impl PyItertoolsTee {
         fn from_iter(iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             let it = get_iter(vm, &iterable)?;
-            if it.lease_class().is(&PyItertoolsTee::class(vm)) {
+            if it.class().is(&PyItertoolsTee::class(vm)) {
                 return vm.call_method(&it, "__copy__", PyFuncArgs::from(vec![]));
             }
             Ok(PyItertoolsTee {
@@ -988,7 +988,7 @@ mod decl {
         ) -> PyResult<PyTupleRef> {
             let n = n.unwrap_or(2);
 
-            let copyable = if iterable.lease_class().has_attr("__copy__") {
+            let copyable = if iterable.class().has_attr("__copy__") {
                 vm.call_method(&iterable, "__copy__", PyFuncArgs::from(vec![]))?
             } else {
                 PyItertoolsTee::from_iter(iterable, vm)?

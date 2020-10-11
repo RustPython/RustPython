@@ -221,7 +221,7 @@ impl PyStr {
                                 "'{}' decoder returned '{}' instead of 'str'; use codecs.encode() to \
                                  encode arbitrary types",
                                 enc,
-                                obj.lease_class().name,
+                                obj.class().name,
                             ))
                         })?
                 } else {
@@ -232,7 +232,7 @@ impl PyStr {
                 PyStr::from(String::new()).into_ref_with_type(vm, cls.clone())?
             }
         };
-        if string.lease_class().is(&cls) {
+        if string.class().is(&cls) {
             Ok(string)
         } else {
             PyStr::from(string.borrow_value()).into_ref_with_type(vm, cls)
@@ -941,7 +941,7 @@ impl PyStr {
     #[pymethod]
     fn translate(&self, table: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
         vm.get_method_or_type_error(table.clone(), "__getitem__", || {
-            format!("'{}' object is not subscriptable", table.lease_class().name)
+            format!("'{}' object is not subscriptable", table.class().name)
         })?;
 
         let mut translated = String::new();
@@ -1108,7 +1108,7 @@ pub(crate) fn encode_string(
                 "'{}' encoder returned '{}' instead of 'bytes'; use codecs.encode() to \
                  encode arbitrary types",
                 encoding.as_ref().map_or("utf-8", |s| s.borrow_value()),
-                obj.lease_class().name,
+                obj.class().name,
             ))
         })
 }
@@ -1330,10 +1330,7 @@ mod tests {
             let translated = text.translate(translated, &vm).unwrap();
             assert_eq!(translated, "🎅xda".to_owned());
             let translated = text.translate(vm.ctx.new_int(3), &vm);
-            assert_eq!(
-                translated.unwrap_err().lease_class().name,
-                "TypeError".to_owned()
-            );
+            assert_eq!(translated.unwrap_err().class().name, "TypeError".to_owned());
         })
     }
 }

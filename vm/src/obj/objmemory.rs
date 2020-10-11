@@ -752,8 +752,8 @@ impl Comparable for PyMemoryView {
             _ => Err(vm.new_type_error(format!(
                 "'{}' not supported between instances of '{}' and '{}'",
                 op.operator_token(),
-                zelf.lease_class().name,
-                other.lease_class().name
+                zelf.class().name,
+                other.class().name
             ))),
         }
     }
@@ -776,7 +776,7 @@ pub(crate) fn init(ctx: &PyContext) {
 }
 
 pub fn try_buffer_from_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<BufferRef> {
-    let obj_cls = obj.lease_class();
+    let obj_cls = obj.class();
     for cls in obj_cls.iter_mro() {
         if let Some(f) = cls.slots.buffer.as_ref() {
             return f(obj, vm).map(|x| BufferRef(x));

@@ -57,7 +57,7 @@ impl PyModule {
         doc: OptionalOption<PyStrRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        debug_assert!(crate::pyobject::TypeProtocol::lease_class(zelf.as_object())
+        debug_assert!(crate::pyobject::TypeProtocol::class(zelf.as_object())
             .slots
             .flags
             .has_feature(crate::slots::PyTpFlags::HAS_DICT));

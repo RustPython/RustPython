@@ -65,7 +65,7 @@ impl PyWeak {
             format!(
                 "<weakref at {}; to '{}' at {}>",
                 id,
-                o.lease_class().name,
+                o.class().name,
                 o.get_id(),
             )
         } else {

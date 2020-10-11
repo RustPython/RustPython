@@ -78,7 +78,7 @@ pub type PyAttributes = HashMap<String, PyObjectRef>;
 impl fmt::Display for PyObject<dyn PyObjectPayload> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if let Some(PyType { ref name, .. }) = self.payload::<PyType>() {
-            let type_name = self.lease_class().name.clone();
+            let type_name = self.class().name.clone();
             // We don't have access to a vm, so just assume that if its parent's name
             // is type, it's a type
             if type_name == "type" {
@@ -88,7 +88,7 @@ impl fmt::Display for PyObject<dyn PyObjectPayload> {
             }
         }
 
-        write!(f, "'{}' object", self.lease_class().name)
+        write!(f, "'{}' object", self.class().name)
     }
 }
 
@@ -460,7 +460,7 @@ impl PyObjectRef {
         self,
         vm: &VirtualMachine,
     ) -> Result<PyRef<T>, Self> {
-        if self.lease_class().is(&T::class(vm)) {
+        if self.class().is(&T::class(vm)) {
             // TODO: is this always true?
             assert!(
                 self.payload_is::<T>(),
@@ -537,7 +537,7 @@ impl<T: PyValue> PyRef<T> {
             Err(vm.new_runtime_error(format!(
                 "Unexpected payload '{}' for type '{}'",
                 T::class(vm).name,
-                obj.lease_class().name,
+                obj.class().name,
             )))
         }
     }
@@ -590,7 +590,7 @@ where
         } else {
             let class = T::class(vm);
             let expected_type = &class.name;
-            let actual_type = &obj.lease_class().name;
+            let actual_type = &obj.class().name;
             Err(vm.new_type_error(format!(
                 "Expected type '{}', not '{}'",
                 expected_type, actual_type,
@@ -643,10 +643,7 @@ impl TryFromObject for PyCallable {
         if vm.is_callable(&obj) {
             Ok(PyCallable { obj })
         } else {
-            Err(vm.new_type_error(format!(
-                "'{}' object is not callable",
-                obj.lease_class().name
-            )))
+            Err(vm.new_type_error(format!("'{}' object is not callable", obj.class().name)))
         }
     }
 }
@@ -731,24 +728,24 @@ where
 }
 
 pub trait TypeProtocol {
-    fn lease_class(&self) -> PyLease<'_, PyType>;
+    fn class(&self) -> PyLease<'_, PyType>;
 
-    fn class(&self) -> PyTypeRef {
-        PyLease::into_pyref(self.lease_class())
+    fn clone_class(&self) -> PyTypeRef {
+        PyLease::into_pyref(self.class())
     }
 
     fn get_class_attr(&self, attr_name: &str) -> Option<PyObjectRef> {
-        self.lease_class().get_attr(attr_name)
+        self.class().get_attr(attr_name)
     }
 
     fn has_class_attr(&self, attr_name: &str) -> bool {
-        self.lease_class().has_attr(attr_name)
+        self.class().has_attr(attr_name)
     }
 }
 
 impl TypeProtocol for PyObjectRef {
-    fn lease_class(&self) -> PyLease<'_, PyType> {
-        (**self).lease_class()
+    fn class(&self) -> PyLease<'_, PyType> {
+        (**self).class()
     }
 }
 
@@ -756,7 +753,7 @@ impl<T> TypeProtocol for PyObject<T>
 where
     T: ?Sized + PyObjectPayload,
 {
-    fn lease_class(&self) -> PyLease<'_, PyType> {
+    fn class(&self) -> PyLease<'_, PyType> {
         PyLease {
             inner: self.typ.read(),
         }
@@ -764,14 +761,14 @@ where
 }
 
 impl<T> TypeProtocol for PyRef<T> {
-    fn lease_class(&self) -> PyLease<'_, PyType> {
-        self.obj.lease_class()
+    fn class(&self) -> PyLease<'_, PyType> {
+        self.obj.class()
     }
 }
 
 impl<T: TypeProtocol> TypeProtocol for &'_ T {
-    fn lease_class(&self) -> PyLease<'_, PyType> {
-        (&**self).lease_class()
+    fn class(&self) -> PyLease<'_, PyType> {
+        (&**self).class()
     }
 }
 
@@ -898,7 +895,7 @@ where
             })
         } else {
             vm.get_method_or_type_error(obj.clone(), "__getitem__", || {
-                format!("'{}' object is not iterable", obj.lease_class().name)
+                format!("'{}' object is not iterable", obj.class().name)
             })?;
             Self::try_from_object(
                 vm,
@@ -1087,7 +1084,7 @@ impl PyObject<dyn PyObjectPayload> {
         &self,
         vm: &VirtualMachine,
     ) -> Option<&T> {
-        if objtype::issubclass(self.lease_class(), &T::class(vm)) {
+        if objtype::issubclass(self.class(), &T::class(vm)) {
             self.payload()
         } else {
             None
@@ -1226,7 +1223,7 @@ where
         A::try_from_object(vm, obj.clone())
             .map(Either::A)
             .or_else(|_| B::try_from_object(vm, obj.clone()).map(Either::B))
-            .map_err(|_| vm.new_type_error(format!("unexpected type {}", obj.lease_class())))
+            .map_err(|_| vm.new_type_error(format!("unexpected type {}", obj.class())))
     }
 }
 
@@ -1366,7 +1363,7 @@ impl TryFromObject for std::time::Duration {
             .map_err(|_| {
                 vm.new_type_error(format!(
                     "expected an int or float for duration, got {}",
-                    obj.lease_class()
+                    obj.class()
                 ))
             })
     }

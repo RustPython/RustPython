@@ -52,7 +52,7 @@ impl SlotDescriptor for PyClassMethod {
         vm: &VirtualMachine,
     ) -> PyResult {
         let (zelf, obj) = Self::_unwrap(zelf, obj, vm)?;
-        let cls = cls.unwrap_or_else(|| obj.class().into_object());
+        let cls = cls.unwrap_or_else(|| obj.clone_class().into_object());
         Ok(vm.ctx.new_bound_method(zelf.callable.clone(), cls))
     }
 }

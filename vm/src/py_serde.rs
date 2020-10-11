@@ -101,7 +101,7 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
         } else {
             Err(serde::ser::Error::custom(format!(
                 "Object of type '{}' is not serializable",
-                self.pyobject.lease_class()
+                self.pyobject.class()
             )))
         }
     }

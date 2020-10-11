@@ -588,8 +588,8 @@ impl VirtualMachine {
         self.new_type_error(format!(
             "Unsupported operand types for '{}': '{}' and '{}'",
             op,
-            a.lease_class().name,
-            b.lease_class().name
+            a.class().name,
+            b.class().name
         ))
     }
 
@@ -753,7 +753,7 @@ impl VirtualMachine {
 
     // Container of the virtual machine state:
     pub fn to_str(&self, obj: &PyObjectRef) -> PyResult<PyStrRef> {
-        if obj.lease_class().is(&self.ctx.types.str_type) {
+        if obj.class().is(&self.ctx.types.str_type) {
             Ok(obj.clone().downcast().unwrap())
         } else {
             let s = self.call_method(&obj, "__str__", vec![])?;
@@ -782,14 +782,14 @@ impl VirtualMachine {
         Some(
             if let Ok(val) = TryFromObject::try_from_object(self, obj.clone()) {
                 Ok(val)
-            } else if obj.lease_class().has_attr("__index__") {
+            } else if obj.class().has_attr("__index__") {
                 self.call_method(obj, "__index__", vec![]).and_then(|r| {
                     if let Ok(val) = TryFromObject::try_from_object(self, r) {
                         Ok(val)
                     } else {
                         Err(self.new_type_error(format!(
                             "__index__ returned non-int (type {})",
-                            obj.lease_class().name
+                            obj.class().name
                         )))
                     }
                 })
@@ -860,7 +860,7 @@ impl VirtualMachine {
     pub fn isinstance(&self, obj: &PyObjectRef, cls: &PyTypeRef) -> PyResult<bool> {
         // cpython first does an exact check on the type, although documentation doesn't state that
         // https://github.com/python/cpython/blob/a24107b04c1277e3c1105f98aff5bfa3a98b33a0/Objects/abstract.c#L2408
-        if obj.lease_class().is(cls) {
+        if obj.class().is(cls) {
             Ok(true)
         } else {
             let ret = self.call_method(cls.as_object(), "__instancecheck__", vec![obj.clone()])?;
@@ -885,14 +885,12 @@ impl VirtualMachine {
         obj: Option<PyObjectRef>,
         cls: Option<PyObjectRef>,
     ) -> Option<PyResult> {
-        let descr_get = descr
-            .lease_class()
-            .mro_find_map(|cls| cls.slots.descr_get.load());
+        let descr_get = descr.class().mro_find_map(|cls| cls.slots.descr_get.load());
         descr_get.map(|descr_get| descr_get(descr, obj, cls, self))
     }
 
     pub fn call_get_descriptor(&self, descr: PyObjectRef, obj: PyObjectRef) -> Option<PyResult> {
-        let cls = obj.class().into_object();
+        let cls = obj.clone_class().into_object();
         self.call_get_descriptor_specific(descr, Some(obj), Some(cls))
     }
 
@@ -920,9 +918,7 @@ impl VirtualMachine {
 
     fn _invoke(&self, callable: &PyObjectRef, args: PyFuncArgs) -> PyResult {
         vm_trace!("Invoke: {:?} {:?}", callable, args);
-        let slot_call = callable
-            .lease_class()
-            .mro_find_map(|cls| cls.slots.call.load());
+        let slot_call = callable.class().mro_find_map(|cls| cls.slots.call.load());
         match slot_call {
             Some(slot_call) => {
                 self.trace_event(TraceEvent::Call)?;
@@ -932,7 +928,7 @@ impl VirtualMachine {
             }
             None => Err(self.new_type_error(format!(
                 "'{}' object is not callable",
-                callable.lease_class().name
+                callable.class().name
             ))),
         }
     }
@@ -984,7 +980,7 @@ impl VirtualMachine {
 
     pub fn extract_elements<T: TryFromObject>(&self, value: &PyObjectRef) -> PyResult<Vec<T>> {
         // Extract elements from item, if possible:
-        let cls = value.lease_class();
+        let cls = value.class();
         if cls.is(&self.ctx.types.tuple_type) {
             value
                 .payload::<PyTuple>()
@@ -1016,7 +1012,7 @@ impl VirtualMachine {
         let attr_name = attr_name.try_into_ref(self)?;
         vm_trace!("vm.__getattribute__: {:?} {:?}", obj, attr_name);
         let getattro = obj
-            .lease_class()
+            .class()
             .mro_find_map(|cls| cls.slots.getattro.load())
             .unwrap();
         getattro(obj, attr_name, self)
@@ -1129,10 +1125,10 @@ impl VirtualMachine {
         dict: Option<PyDictRef>,
     ) -> PyResult<Option<PyObjectRef>> {
         let name = name_str.borrow_value();
-        let cls_attr = obj.lease_class().get_attr(name);
+        let cls_attr = obj.class().get_attr(name);
 
         if let Some(ref attr) = cls_attr {
-            if attr.lease_class().has_attr("__set__") {
+            if attr.class().has_attr("__set__") {
                 if let Some(r) = self.call_get_descriptor(attr.clone(), obj.clone()) {
                     return r.map(Some);
                 }
@@ -1151,7 +1147,7 @@ impl VirtualMachine {
             Ok(Some(obj_attr))
         } else if let Some(attr) = cls_attr {
             self.call_if_get_descriptor(attr, obj).map(Some)
-        } else if let Some(getter) = obj.class().get_attr("__getattr__") {
+        } else if let Some(getter) = obj.clone_class().get_attr("__getattr__") {
             self.invoke(&getter, vec![obj, name_str.into_object()])
                 .map(Some)
         } else {
@@ -1160,7 +1156,7 @@ impl VirtualMachine {
     }
 
     pub fn is_callable(&self, obj: &PyObjectRef) -> bool {
-        obj.lease_class()
+        obj.class()
             .mro_find_map(|cls| cls.slots.call.load())
             .is_some()
     }
@@ -1444,7 +1440,7 @@ impl VirtualMachine {
 
         let call_cmp = |obj: &PyObjectRef, other, op| {
             let cmp = obj
-                .lease_class()
+                .class()
                 .mro_find_map(|cls| cls.slots.cmp.load())
                 .unwrap();
             Ok(match cmp(obj, other, op, self)? {
@@ -1455,8 +1451,8 @@ impl VirtualMachine {
 
         let mut checked_reverse_op = false;
         let is_strict_subclass = {
-            let v_class = v.lease_class();
-            let w_class = w.lease_class();
+            let v_class = v.class();
+            let w_class = w.class();
             !v_class.is(&w_class) && objtype::issubclass(&w_class, &v_class)
         };
         if is_strict_subclass {
@@ -1496,7 +1492,7 @@ impl VirtualMachine {
 
     pub fn _hash(&self, obj: &PyObjectRef) -> PyResult<rustpython_common::hash::PyHash> {
         let hash = obj
-            .lease_class()
+            .class()
             .mro_find_map(|cls| cls.slots.hash.load())
             .unwrap(); // hash always exist
         hash(&obj, self)
@@ -1510,7 +1506,7 @@ impl VirtualMachine {
                 .ok_or_else(|| {
                     self.new_type_error(format!(
                         "'{}' object cannot be interpreted as an integer",
-                        len.lease_class().name
+                        len.class().name
                     ))
                 })?
                 .borrow_value();

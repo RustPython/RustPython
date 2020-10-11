@@ -183,7 +183,7 @@ impl SlotDescriptor for PyBuiltinMethod {
             Ok(obj) => obj,
             Err(result) => return result,
         };
-        if vm.is_none(&obj) && !Self::_cls_is(&cls, &obj.lease_class()) {
+        if vm.is_none(&obj) && !Self::_cls_is(&cls, &obj.class()) {
             Ok(zelf.into_object())
         } else {
             Ok(vm.ctx.new_bound_method(zelf.into_object(), obj))
