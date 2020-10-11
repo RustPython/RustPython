@@ -151,6 +151,14 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 });
                 Ok(())
             }
+            Constant::Boolean { value } => {
+                let val = self.builder.ins().iconst(types::I8, *value as i64);
+                self.stack.push(JitValue {
+                    val,
+                    ty: JitType::Bool,
+                });
+                Ok(())
+            }
             _ => Err(JitCompileError::NotSupported)
         }
     }
