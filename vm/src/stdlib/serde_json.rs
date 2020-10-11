@@ -33,15 +33,7 @@ mod _serde_json {
         let mut err_msg = err.to_string();
         let pos = err_msg.rfind(" at line ").unwrap();
         err_msg.truncate(pos);
-        let decode_error = vm.invoke(
-            &from_serde,
-            vec![
-                vm.ctx.new_str(err_msg),
-                s.into_object(),
-                vm.ctx.new_int(err.line()),
-                vm.ctx.new_int(err.column()),
-            ],
-        )?;
+        let decode_error = vm.invoke(&from_serde, (err_msg, s, err.line(), err.column()))?;
         PyBaseExceptionRef::try_from_object(vm, decode_error)
     }
 }

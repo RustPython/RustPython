@@ -9,7 +9,7 @@ use super::objslice::{PySlice, PySliceRef};
 use super::objtype::PyTypeRef;
 
 use crate::common::hash::PyHash;
-use crate::function::{OptionalArg, PyFuncArgs};
+use crate::function::{FuncArgs, OptionalArg};
 use crate::pyobject::{
     self, BorrowValue, IdProtocol, IntoPyRef, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
     PyValue, TryFromObject, TypeProtocol,
@@ -306,7 +306,7 @@ impl PyRange {
     }
 
     #[pyslot]
-    fn tp_new(args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn tp_new(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let range = if args.args.len() <= 2 {
             let (cls, stop) = args.bind(vm)?;
             PyRange::new(cls, stop, vm)

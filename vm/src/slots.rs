@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 
 use crate::common::hash::PyHash;
 use crate::common::lock::PyRwLock;
-use crate::function::{OptionalArg, PyFuncArgs, PyNativeFunc};
+use crate::function::{FuncArgs, OptionalArg, PyNativeFunc};
 use crate::obj::objmemory::Buffer;
 use crate::obj::objstr::PyStrRef;
 use crate::pyobject::{
@@ -42,7 +42,7 @@ impl Default for PyTpFlags {
     }
 }
 
-pub(crate) type GenericMethod = fn(&PyObjectRef, PyFuncArgs, &VirtualMachine) -> PyResult;
+pub(crate) type GenericMethod = fn(&PyObjectRef, FuncArgs, &VirtualMachine) -> PyResult;
 pub(crate) type DelFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<()>;
 pub(crate) type DescrGetFunc =
     fn(PyObjectRef, Option<PyObjectRef>, Option<PyObjectRef>, &VirtualMachine) -> PyResult;
@@ -107,7 +107,7 @@ pub trait SlotDesctuctor: PyValue {
 #[pyimpl]
 pub trait Callable: PyValue {
     #[pyslot]
-    fn tp_call(zelf: &PyObjectRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn tp_call(zelf: &PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         if let Some(zelf) = zelf.downcast_ref() {
             Self::call(zelf, args, vm)
         } else {
@@ -115,10 +115,10 @@ pub trait Callable: PyValue {
         }
     }
     #[pymethod]
-    fn __call__(zelf: PyRef<Self>, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn __call__(zelf: PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         Self::call(&zelf, args, vm)
     }
-    fn call(zelf: &PyRef<Self>, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult;
+    fn call(zelf: &PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult;
 }
 
 #[pyimpl]

@@ -204,7 +204,7 @@ pub fn impl_from_args(input: DeriveInput) -> Result<TokenStream2, Diagnostic> {
         impl #impl_generics ::rustpython_vm::function::FromArgs for #name #ty_generics #where_clause {
             fn from_args(
                 vm: &::rustpython_vm::VirtualMachine,
-                args: &mut ::rustpython_vm::function::PyFuncArgs
+                args: &mut ::rustpython_vm::function::FuncArgs
             ) -> ::std::result::Result<Self, ::rustpython_vm::function::ArgumentError> {
                 Ok(#name { #fields })
             }

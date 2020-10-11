@@ -8,7 +8,7 @@ use super::objstr;
 use super::objtype::{self, PyTypeRef};
 use crate::dictdatatype::{self, DictKey};
 use crate::exceptions::PyBaseExceptionRef;
-use crate::function::{KwArgs, OptionalArg, PyFuncArgs};
+use crate::function::{FuncArgs, KwArgs, OptionalArg};
 use crate::pyobject::{
     BorrowValue, IdProtocol, IntoPyObject, ItemProtocol, PyArithmaticValue::*, PyAttributes,
     PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
@@ -53,7 +53,7 @@ impl PyValue for PyDict {
 #[pyimpl(with(Hashable, Comparable), flags(BASETYPE))]
 impl PyDict {
     #[pyslot]
-    fn tp_new(class: PyTypeRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    fn tp_new(class: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         PyDict {
             entries: DictContentType::default(),
         }
@@ -83,7 +83,7 @@ impl PyDict {
                     dict.insert(vm, key, value)?;
                 }
             } else if let Some(keys) = vm.get_method(dict_obj.clone(), "keys") {
-                let keys = objiter::get_iter(vm, &vm.invoke(&keys?, vec![])?)?;
+                let keys = objiter::get_iter(vm, &vm.invoke(&keys?, ())?)?;
                 while let Some(key) = objiter::get_next_object(vm, &keys)? {
                     let val = dict_obj.get_item(key.clone(), vm)?;
                     dict.insert(vm, key, val)?;
@@ -433,7 +433,7 @@ impl PyDictRef {
 
         if let Some(method_or_err) = vm.get_method(self.clone().into_object(), "__missing__") {
             let method = method_or_err?;
-            Ok(Some(vm.invoke(&method, vec![key.into_pyobject(vm)])?))
+            Ok(Some(vm.invoke(&method, (key,))?))
         } else {
             Ok(None)
         }

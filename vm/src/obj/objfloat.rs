@@ -514,7 +514,7 @@ fn to_float(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<f64> {
                 obj.class().name
             )
         })?;
-        let result = vm.invoke(&method, vec![])?;
+        let result = vm.invoke(&method, ())?;
         PyFloatRef::try_from_object(vm, result)?.to_f64()
     };
     Ok(value)

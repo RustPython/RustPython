@@ -7,7 +7,7 @@ mod decl {
     use crate::common::borrow::BorrowValue;
     use crate::obj::objbytes::PyBytes;
     use crate::obj::objcode::{PyCode, PyCodeRef};
-    use crate::pyobject::{IntoPyObject, PyObjectRef, PyResult, TryFromObject};
+    use crate::pyobject::{PyObjectRef, PyResult, TryFromObject};
     use crate::vm::VirtualMachine;
 
     #[pyfunction]
@@ -17,7 +17,7 @@ mod decl {
 
     #[pyfunction]
     fn dump(co: PyCodeRef, f: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        vm.call_method(&f, "write", vec![dumps(co).into_pyobject(vm)])?;
+        vm.call_method(&f, "write", (dumps(co),))?;
         Ok(())
     }
 
@@ -30,7 +30,7 @@ mod decl {
 
     #[pyfunction]
     fn load(f: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyCode> {
-        let read_res = vm.call_method(&f, "read", vec![])?;
+        let read_res = vm.call_method(&f, "read", ())?;
         let bytes = PyBytesLike::try_from_object(vm, read_res)?;
         loads(bytes, vm)
     }

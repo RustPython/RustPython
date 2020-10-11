@@ -2,7 +2,7 @@ use std::fmt;
 
 use super::objclassmethod::PyClassMethod;
 use crate::common::borrow::BorrowValue;
-use crate::function::{PyFuncArgs, PyNativeFunc};
+use crate::function::{FuncArgs, PyNativeFunc};
 use crate::obj::objstr::PyStrRef;
 use crate::obj::objtype::PyTypeRef;
 use crate::pyobject::{
@@ -112,7 +112,7 @@ impl PyBuiltinFunction {
 }
 
 impl Callable for PyBuiltinFunction {
-    fn call(zelf: &PyRef<Self>, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn call(zelf: &PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         (zelf.value.func)(vm, args)
     }
 }
@@ -192,7 +192,7 @@ impl SlotDescriptor for PyBuiltinMethod {
 }
 
 impl Callable for PyBuiltinMethod {
-    fn call(zelf: &PyRef<Self>, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn call(zelf: &PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         (zelf.value.func)(vm, args)
     }
 }

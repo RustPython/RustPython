@@ -64,7 +64,7 @@ impl<'vm> ShellHelper<'vm> {
         let (first, rest) = words.split_first().unwrap();
 
         let str_iter_method = |obj, name| {
-            let iter = self.vm.call_method(obj, name, vec![])?;
+            let iter = self.vm.call_method(obj, name, ())?;
             PyIterable::<PyStrRef>::try_from_object(self.vm, iter)?.iter(self.vm)
         };
 

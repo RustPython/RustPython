@@ -3,7 +3,7 @@ pub(crate) use hashlib::make_module;
 #[pymodule]
 mod hashlib {
     use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
-    use crate::function::{OptionalArg, PyFuncArgs};
+    use crate::function::{FuncArgs, OptionalArg};
     use crate::obj::objbytes::{PyBytes, PyBytesRef};
     use crate::obj::objstr::PyStrRef;
     use crate::obj::objtype::PyTypeRef;
@@ -55,7 +55,7 @@ mod hashlib {
         }
 
         #[pyslot]
-        fn tp_new(_cls: PyTypeRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+        fn tp_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             Ok(PyHasher::new("md5", HashWrapper::md5())
                 .into_ref(vm)
                 .into_object())

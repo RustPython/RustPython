@@ -1,5 +1,5 @@
 use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
-use crate::function::PyFuncArgs;
+use crate::function::FuncArgs;
 use crate::obj::{objstr, objtype};
 use crate::pyobject::{ItemProtocol, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
@@ -839,7 +839,7 @@ impl FormatString {
         Ok(final_string)
     }
 
-    pub(crate) fn format(&self, arguments: &PyFuncArgs, vm: &VirtualMachine) -> PyResult<String> {
+    pub(crate) fn format(&self, arguments: &FuncArgs, vm: &VirtualMachine) -> PyResult<String> {
         let mut auto_argument_index: usize = 0;
         let mut seen_index = false;
         self.format_internal(vm, &mut |field_type| match field_type {
@@ -894,15 +894,13 @@ fn call_object_format(
     format_spec: &str,
 ) -> PyResult {
     let argument = match preconversion_spec.and_then(FormatPreconversor::from_char) {
-        Some(FormatPreconversor::Str) => vm.call_method(&argument, "__str__", vec![])?,
-        Some(FormatPreconversor::Repr) => vm.call_method(&argument, "__repr__", vec![])?,
-        Some(FormatPreconversor::Ascii) => vm.call_method(&argument, "__repr__", vec![])?,
-        Some(FormatPreconversor::Bytes) => vm.call_method(&argument, "decode", vec![])?,
+        Some(FormatPreconversor::Str) => vm.call_method(&argument, "__str__", ())?,
+        Some(FormatPreconversor::Repr) => vm.call_method(&argument, "__repr__", ())?,
+        Some(FormatPreconversor::Ascii) => vm.call_method(&argument, "__repr__", ())?,
+        Some(FormatPreconversor::Bytes) => vm.call_method(&argument, "decode", ())?,
         None => argument,
     };
-    let returned_type = vm.ctx.new_str(format_spec);
-
-    let result = vm.call_method(&argument, "__format__", vec![returned_type])?;
+    let result = vm.call_method(&argument, "__format__", (format_spec,))?;
     if !objtype::isinstance(&result, &vm.ctx.types.str_type) {
         return Err(vm.new_type_error(format!(
             "__format__ must return a str, not {}",

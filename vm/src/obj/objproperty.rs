@@ -4,7 +4,7 @@
 use crate::common::lock::PyRwLock;
 
 use super::objtype::PyTypeRef;
-use crate::function::PyFuncArgs;
+use crate::function::FuncArgs;
 use crate::pyobject::{
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
@@ -83,7 +83,7 @@ impl SlotDescriptor for PyProperty {
         if vm.is_none(&obj) {
             Ok(zelf.into_object())
         } else if let Some(getter) = zelf.getter.read().as_ref() {
-            vm.invoke(&getter, obj)
+            vm.invoke(&getter, (obj,))
         } else {
             Err(vm.new_attribute_error("unreadable attribute".to_string()))
         }
@@ -93,7 +93,7 @@ impl SlotDescriptor for PyProperty {
 #[pyimpl(with(SlotDescriptor), flags(BASETYPE))]
 impl PyProperty {
     #[pyslot]
-    fn tp_new(cls: PyTypeRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyPropertyRef> {
+    fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyPropertyRef> {
         PyProperty {
             getter: PyRwLock::new(None),
             setter: PyRwLock::new(None),
@@ -125,7 +125,7 @@ impl PyProperty {
     #[pymethod(name = "__delete__")]
     fn delete(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(ref deleter) = self.deleter.read().as_ref() {
-            vm.invoke(deleter, obj)
+            vm.invoke(deleter, (obj,))
         } else {
             Err(vm.new_attribute_error("can't delete attribute".to_owned()))
         }

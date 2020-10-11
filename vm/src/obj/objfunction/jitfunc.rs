@@ -1,5 +1,5 @@
 use crate::exceptions::PyBaseExceptionRef;
-use crate::function::PyFuncArgs;
+use crate::function::FuncArgs;
 use crate::obj::objdict::PyDictRef;
 use crate::obj::objfunction::{PyFunction, PyFunctionRef};
 use crate::obj::{objfloat, objint};
@@ -125,7 +125,7 @@ fn get_jit_value(vm: &VirtualMachine, obj: &PyObjectRef) -> Result<AbiValue, Arg
 #[cfg(feature = "jit")]
 pub(crate) fn get_jit_args<'a>(
     func: &PyFunction,
-    func_args: &PyFuncArgs,
+    func_args: &FuncArgs,
     jitted_code: &'a CompiledCode,
     vm: &VirtualMachine,
 ) -> Result<Args<'a>, ArgsError> {

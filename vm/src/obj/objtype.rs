@@ -12,7 +12,7 @@ use super::objstaticmethod::PyStaticMethod;
 use super::objstr::PyStrRef;
 use super::objtuple::PyTuple;
 use super::objweakref::PyWeak;
-use crate::function::{KwArgs, PyFuncArgs};
+use crate::function::{FuncArgs, KwArgs};
 use crate::pyobject::{
     BorrowValue, Either, IdProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable, PyLease,
     PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
@@ -152,10 +152,7 @@ impl PyType {
             "__get__" => {
                 let func: slots::DescrGetFunc = |zelf, obj, cls, vm| {
                     let magic = get_class_magic(&zelf, "__get__");
-                    vm.invoke(
-                        &magic,
-                        vec![zelf, vm.unwrap_or_none(obj), vm.unwrap_or_none(cls)],
-                    )
+                    vm.invoke(&magic, (zelf, obj, cls))
                 } as _;
                 self.slots.descr_get.store(Some(func))
             }
@@ -176,7 +173,8 @@ impl PyType {
             "__del__" => {
                 let func: slots::DelFunc = |zelf, vm| {
                     let magic = get_class_magic(&zelf, "__del__");
-                    vm.invoke(&magic, vec![zelf.clone()]).map(|_| ())
+                    let _ = vm.invoke(&magic, vec![zelf.clone()])?;
+                    Ok(())
                 } as _;
                 self.slots.del.store(Some(func));
             }
@@ -191,7 +189,7 @@ impl PyType {
             "__getattribute__" => {
                 let func: slots::GetattroFunc = |zelf, name, vm| {
                     let magic = get_class_magic(&zelf, "__getattribute__");
-                    vm.invoke(&magic, vec![zelf, name.into_object()])
+                    vm.invoke(&magic, (zelf, name))
                 };
                 self.slots.getattro.store(Some(func))
             }
@@ -315,7 +313,7 @@ impl PyType {
     ) -> PyResult<()> {
         if let Some(attr) = zelf.get_class_attr(attr_name.borrow_value()) {
             if let Some(ref descriptor) = attr.get_class_attr("__set__") {
-                vm.invoke(descriptor, vec![attr, zelf.into_object(), value])?;
+                vm.invoke(descriptor, (attr, zelf, value))?;
                 return Ok(());
             }
         }
@@ -331,9 +329,7 @@ impl PyType {
     fn delattr(zelf: PyRef<Self>, attr_name: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
         if let Some(attr) = zelf.get_class_attr(attr_name.borrow_value()) {
             if let Some(ref descriptor) = attr.get_class_attr("__delete__") {
-                return vm
-                    .invoke(descriptor, vec![attr, zelf.into_object()])
-                    .map(|_| ());
+                return vm.invoke(descriptor, (attr, zelf)).map(|_| ());
             }
         }
 
@@ -364,7 +360,7 @@ impl PyType {
         )
     }
     #[pyslot]
-    fn tp_new(metatype: PyTypeRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn tp_new(metatype: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         vm_trace!("type.__new__ {:?}", args);
 
         let is_type_type = metatype.is(&vm.ctx.types.type_type);
@@ -459,20 +455,17 @@ impl PyType {
         for (name, obj) in typ.attributes.read().clone().iter() {
             if let Some(meth) = vm.get_method(obj.clone(), "__set_name__") {
                 let set_name = meth?;
-                vm.invoke(
-                    &set_name,
-                    vec![typ.clone().into_object(), vm.ctx.new_str(name.clone())],
-                )
-                .map_err(|e| {
-                    let err = vm.new_runtime_error(format!(
-                        "Error calling __set_name__ on '{}' instance {} in '{}'",
-                        obj.class().name,
-                        name,
-                        typ.name
-                    ));
-                    err.set_cause(Some(e));
-                    err
-                })?;
+                vm.invoke(&set_name, (typ.clone(), name.clone()))
+                    .map_err(|e| {
+                        let err = vm.new_runtime_error(format!(
+                            "Error calling __set_name__ on '{}' instance {} in '{}'",
+                            obj.class().name,
+                            name,
+                            typ.name
+                        ));
+                        err.set_cause(Some(e));
+                        err
+                    })?;
             }
         }
 
@@ -538,13 +531,7 @@ impl SlotGetattro for PyType {
             drop(mcl);
             vm.call_if_get_descriptor(attr, zelf.into_object())
         } else if let Some(ref getter) = zelf.get_attr("__getattr__") {
-            vm.invoke(
-                getter,
-                vec![
-                    PyLease::into_pyref(mcl).into_object(),
-                    name_str.into_object(),
-                ],
-            )
+            vm.invoke(getter, (PyLease::into_pyref(mcl), name_str))
         } else {
             Err(vm.new_attribute_error(format!(
                 "type object '{}' has no attribute '{}'",
@@ -555,7 +542,7 @@ impl SlotGetattro for PyType {
 }
 
 impl Callable for PyType {
-    fn call(zelf: &PyRef<Self>, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn call(zelf: &PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         vm_trace!("type_call: {:?}", zelf);
         let obj = call_tp_new(zelf.clone(), zelf.clone(), args.clone(), vm)?;
 
@@ -668,7 +655,7 @@ pub fn issubclass<T: DerefToPyType + IdProtocol, R: IdProtocol>(subclass: T, cls
 fn call_tp_new(
     typ: PyTypeRef,
     subtype: PyTypeRef,
-    args: PyFuncArgs,
+    args: FuncArgs,
     vm: &VirtualMachine,
 ) -> PyResult {
     for cls in typ.deref().iter_mro() {
@@ -688,7 +675,7 @@ fn call_tp_new(
 pub fn tp_new_wrapper(
     zelf: PyTypeRef,
     cls: PyTypeRef,
-    args: PyFuncArgs,
+    args: FuncArgs,
     vm: &VirtualMachine,
 ) -> PyResult {
     if !issubclass(&cls, &zelf) {

@@ -2,12 +2,12 @@ pub(crate) use atexit::make_module;
 
 #[pymodule]
 mod atexit {
-    use crate::function::PyFuncArgs;
+    use crate::function::FuncArgs;
     use crate::pyobject::{PyObjectRef, PyResult};
     use crate::VirtualMachine;
 
     #[pyfunction]
-    fn register(func: PyObjectRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyObjectRef {
+    fn register(func: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyObjectRef {
         vm.state.atexit_funcs.lock().push((func.clone(), args));
         func
     }

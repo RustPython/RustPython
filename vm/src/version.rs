@@ -47,7 +47,7 @@ impl VersionInfo {
     #[pyslot]
     fn tp_new(
         _cls: crate::obj::objtype::PyTypeRef,
-        _args: crate::function::PyFuncArgs,
+        _args: crate::function::FuncArgs,
         vm: &crate::VirtualMachine,
     ) -> crate::pyobject::PyResult {
         Err(vm.new_type_error("cannot create 'sys.version_info' instances".to_owned()))

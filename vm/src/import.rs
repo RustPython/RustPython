@@ -34,7 +34,7 @@ pub(crate) fn init_importlib(
         enter_vm(vm, || {
             flame_guard!("install_external");
             let install_external = vm.get_attribute(importlib, "_install_external_importers")?;
-            vm.invoke(&install_external, vec![])?;
+            vm.invoke(&install_external, ())?;
             // Set pyc magic number to commit hash. Should be changed when bytecode will be more stable.
             let importlib_external = vm.import("_frozen_importlib_external", &[], 0)?;
             let mut magic = get_git_revision().into_bytes();

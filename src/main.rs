@@ -496,7 +496,7 @@ fn run_module(vm: &VirtualMachine, module: &str) -> PyResult<()> {
     debug!("Running module {}", module);
     let runpy = vm.import("runpy", &[], 0)?;
     let run_module_as_main = vm.get_attribute(runpy, "_run_module_as_main")?;
-    vm.invoke(&run_module_as_main, vec![vm.ctx.new_str(module)])?;
+    vm.invoke(&run_module_as_main, (module,))?;
     Ok(())
 }
 
@@ -527,11 +527,7 @@ fn run_script(vm: &VirtualMachine, scope: Scope, script_file: &str) -> PyResult<
 
     let dir = file_path.parent().unwrap().to_str().unwrap().to_owned();
     let sys_path = vm.get_attribute(vm.sys_module.clone(), "path").unwrap();
-    vm.call_method(
-        &sys_path,
-        "insert",
-        vec![vm.ctx.new_int(0), vm.ctx.new_str(dir)],
-    )?;
+    vm.call_method(&sys_path, "insert", (0, dir))?;
 
     match util::read_file(&file_path) {
         Ok(source) => {
