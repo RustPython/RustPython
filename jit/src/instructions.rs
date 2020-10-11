@@ -97,25 +97,29 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         }
     }
 
+    fn get_or_create_block(&mut self, label: &Label) -> Block {
+        let builder = &mut self.builder;
+        *self
+            .label_to_block
+            .entry(*label)
+            .or_insert_with(|| builder.create_block())
+    }
+
     pub fn compile(&mut self, bytecode: &CodeObject) -> Result<(), JitCompileError> {
         let offset_to_label: HashMap<&usize, &Label> =
             bytecode.label_map.iter().map(|(k, v)| (v, k)).collect();
 
         for (offset, instruction) in bytecode.instructions.iter().enumerate() {
             if let Some(&label) = offset_to_label.get(&offset) {
-                let builder = &mut self.builder;
-                let block = self
-                    .label_to_block
-                    .entry(*label)
-                    .or_insert_with(|| builder.create_block());
+                let block = self.get_or_create_block(label);
 
                 // If the current block is not terminated/filled just jump
                 // into the new block.
                 if !self.builder.is_filled() {
-                    self.builder.ins().jump(*block, &[]);
+                    self.builder.ins().jump(block, &[]);
                 }
 
-                self.builder.switch_to_block(*block);
+                self.builder.switch_to_block(block);
             }
 
             // Sometimes the bytecode contains instructions after a return
@@ -168,10 +172,8 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             Instruction::JumpIfFalse { target } => {
                 let cond = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
 
-                let then_block = self.builder.create_block();
-                self.label_to_block.insert(*target, then_block);
-
                 let val = self.boolean_val(cond)?;
+                let then_block = self.get_or_create_block(target);
                 self.builder.ins().brz(val, then_block, &[]);
 
                 let block = self.builder.create_block();
@@ -183,10 +185,8 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             Instruction::JumpIfTrue { target } => {
                 let cond = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
 
-                let then_block = self.builder.create_block();
-                self.label_to_block.insert(*target, then_block);
-
                 let val = self.boolean_val(cond)?;
+                let then_block = self.get_or_create_block(target);
                 self.builder.ins().brnz(val, then_block, &[]);
 
                 let block = self.builder.create_block();
@@ -196,8 +196,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 Ok(())
             }
             Instruction::Jump { target } => {
-                let target_block = self.builder.create_block();
-                self.label_to_block.insert(*target, target_block);
+                let target_block = self.get_or_create_block(target);
                 self.builder.ins().jump(target_block, &[]);
 
                 Ok(())
@@ -378,6 +377,10 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     },
                     _ => Err(JitCompileError::NotSupported),
                 }
+            }
+            Instruction::SetupLoop { .. } | Instruction::PopBlock => {
+                // TODO: block support
+                Ok(())
             }
             _ => Err(JitCompileError::NotSupported),
         }
