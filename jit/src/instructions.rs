@@ -130,6 +130,31 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         Ok(())
     }
 
+    fn load_const(&mut self, constant: &Constant) -> Result<(), JitCompileError> {
+        match constant {
+            Constant::Integer { value } => {
+                let val = self.builder.ins().iconst(
+                    types::I64,
+                    value.to_i64().ok_or(JitCompileError::NotSupported)?,
+                );
+                self.stack.push(JitValue {
+                    val,
+                    ty: JitType::Int,
+                });
+                Ok(())
+            }
+            Constant::Float { value } => {
+                let val = self.builder.ins().f64const(*value);
+                self.stack.push(JitValue {
+                    val,
+                    ty: JitType::Float,
+                });
+                Ok(())
+            }
+            _ => Err(JitCompileError::NotSupported)
+        }
+    }
+
     fn add_instruction(&mut self, instruction: &Instruction) -> Result<(), JitCompileError> {
         match instruction {
             Instruction::JumpIfFalse { target } => {
@@ -175,29 +200,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                 self.store_variable(name.clone(), val)
             }
-            Instruction::LoadConst {
-                value: Constant::Integer { value },
-            } => {
-                let val = self.builder.ins().iconst(
-                    types::I64,
-                    value.to_i64().ok_or(JitCompileError::NotSupported)?,
-                );
-                self.stack.push(JitValue {
-                    val,
-                    ty: JitType::Int,
-                });
-                Ok(())
-            }
-            Instruction::LoadConst {
-                value: Constant::Float { value },
-            } => {
-                let val = self.builder.ins().f64const(*value);
-                self.stack.push(JitValue {
-                    val,
-                    ty: JitType::Float,
-                });
-                Ok(())
-            }
+            Instruction::LoadConst { value } => { self.load_const(value) }
             Instruction::ReturnValue => {
                 let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                 if let Some(ref ty) = self.sig.ret {
