@@ -557,35 +557,46 @@ impl PyBytesInner {
     }
 
     pub fn fromhex(string: &str, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        // first check for invalid character
-        for (i, c) in string.char_indices() {
-            if !c.is_digit(16) && !c.is_whitespace() {
-                return Err(vm.new_value_error(format!(
-                    "non-hexadecimal number found in fromhex() arg at position {}",
-                    i
-                )));
+        let mut iter = string.bytes().enumerate();
+        let mut bytes: Vec<u8> = Vec::with_capacity(string.len() / 2);
+        let i = loop {
+            let (i, b) = match iter.next() {
+                Some(val) => val,
+                None => {
+                    return Ok(bytes);
+                }
+            };
+
+            if is_py_ascii_whitespace(b) {
+                continue;
             }
-        }
 
-        // strip white spaces
-        let stripped = string.split_whitespace().collect::<String>();
+            let top = match b {
+                b'0'..=b'9' => b - b'0',
+                b'a'..=b'f' => 10 + b - b'a',
+                b'A'..=b'F' => 10 + b - b'A',
+                _ => break i,
+            };
 
-        // Hex is evaluated on 2 digits
-        if stripped.len() % 2 != 0 {
-            return Err(vm.new_value_error(format!(
-                "non-hexadecimal number found in fromhex() arg at position {}",
-                stripped.len() - 1
-            )));
-        }
+            let (i, b) = match iter.next() {
+                Some(val) => val,
+                None => break i + 1,
+            };
 
-        // parse even string
-        Ok(stripped
-            .chars()
-            .collect::<Vec<char>>()
-            .chunks(2)
-            .map(|x| x.to_vec().iter().collect::<String>())
-            .map(|x| u8::from_str_radix(&x, 16).unwrap())
-            .collect::<Vec<u8>>())
+            let bot = match b {
+                b'0'..=b'9' => b - b'0',
+                b'a'..=b'f' => 10 + b - b'a',
+                b'A'..=b'F' => 10 + b - b'A',
+                _ => break i,
+            };
+
+            bytes.push((top << 4) + bot);
+        };
+
+        Err(vm.new_value_error(format!(
+            "non-hexadecimal number found in fromhex() arg at position {}",
+            i
+        )))
     }
 
     #[inline]
@@ -1329,4 +1340,8 @@ pub fn bytes_to_hex(
     } else {
         Ok(hex_impl_no_sep(bytes))
     }
+}
+
+const fn is_py_ascii_whitespace(b: u8) -> bool {
+    matches!(b, b'\t' | b'\n' | b'\x0C' | b'\r' | b' ' | b'\x0B')
 }
