@@ -1,11 +1,9 @@
 /*
  * Builtin set type with a sequence of unique items.
  */
-use rustpython_common::rc::PyRc;
-use std::fmt;
-
-use super::iter;
 use super::pytype::PyTypeRef;
+use crate::common::hash::PyHash;
+use crate::common::rc::PyRc;
 use crate::dictdatatype;
 use crate::function::{Args, OptionalArg};
 use crate::pyobject::{
@@ -14,7 +12,7 @@ use crate::pyobject::{
 };
 use crate::slots::{Comparable, Hashable, PyComparisonOp, Unhashable};
 use crate::vm::{ReprGuard, VirtualMachine};
-use rustpython_common::hash::PyHash;
+use std::fmt;
 
 pub type SetContentType = dictdatatype::Dict<()>;
 
@@ -553,16 +551,18 @@ macro_rules! multi_args_frozenset {
 
 #[pyimpl(flags(BASETYPE), with(Hashable, Comparable))]
 impl PyFrozenSet {
-    // pub fn from_iter(
-    //     vm: &VirtualMachine,
-    //     it: impl IntoIterator<Item = PyObjectRef>,
-    // ) -> PyResult<Self> {
-    //     let inner = PySetInner::default();
-    //     for elem in it {
-    //         inner.add(elem, vm)?;
-    //     }
-    //     Ok(Self { inner })
-    // }
+    // used by ssl.rs windows
+    #[allow(dead_code)]
+    pub(crate) fn from_iter(
+        vm: &VirtualMachine,
+        it: impl IntoIterator<Item = PyObjectRef>,
+    ) -> PyResult<Self> {
+        let inner = PySetInner::default();
+        for elem in it {
+            inner.add(elem, vm)?;
+        }
+        Ok(Self { inner })
+    }
 
     #[pyslot]
     fn tp_new(
@@ -765,9 +765,7 @@ impl PySetIterator {
             if set_size == self.dict.len() {
                 let index = size_info.position;
                 let keys = self.dict.keys();
-                let item = keys
-                    .get(index)
-                    .ok_or_else(|| iter::new_stop_iteration(vm))?;
+                let item = keys.get(index).ok_or_else(|| vm.new_stop_iteration())?;
                 size_info.position += 1;
                 self.size_info.store(size_info);
                 return Ok(item.clone());

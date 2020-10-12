@@ -1,6 +1,5 @@
 use crate::builtins::bytes::PyBytesRef;
 use crate::builtins::float::try_float;
-use crate::builtins::iter;
 use crate::builtins::list::PyList;
 use crate::builtins::memory::{Buffer, BufferOptions};
 use crate::builtins::pystr::PyStrRef;
@@ -928,7 +927,7 @@ impl PyArrayIter {
         if let Some(item) = self.array.borrow_value().getitem_by_idx(pos, vm) {
             Ok(item)
         } else {
-            Err(iter::new_stop_iteration(vm))
+            Err(vm.new_stop_iteration())
         }
     }
 

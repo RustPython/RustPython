@@ -15,7 +15,6 @@ use unicode_casing::CharExt;
 use super::bytes::{PyBytes, PyBytesRef};
 use super::dict::PyDict;
 use super::int::{PyInt, PyIntRef};
-use super::iter;
 use super::pytype::PyTypeRef;
 use crate::anystr::{self, adjust_indices, AnyStr, AnyStrContainer, AnyStrWrapper};
 use crate::exceptions::IntoPyException;
@@ -122,7 +121,7 @@ impl PyStrIterator {
         let value = &*self.string.value;
         let start = self.position.load();
         if start == value.len() {
-            return Err(iter::new_stop_iteration(vm));
+            return Err(vm.new_stop_iteration());
         }
         let end = {
             let mut end = None;
@@ -169,7 +168,7 @@ impl PyStrReverseIterator {
         let value = &*self.string.value;
         let end = self.position.load();
         if end == 0 {
-            return Err(iter::new_stop_iteration(vm));
+            return Err(vm.new_stop_iteration());
         }
         let start = {
             let mut start = None;

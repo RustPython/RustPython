@@ -6,18 +6,15 @@ mod decl {
     use num_bigint::BigInt;
     use num_traits::{One, Signed, ToPrimitive, Zero};
     use std::fmt;
-    use std::iter;
 
     use crate::builtins::int::{self, PyInt, PyIntRef};
-    use crate::builtins::iter::{
-        call_next, get_all, get_iter, get_next_object, new_stop_iteration,
-    };
     use crate::builtins::pybool;
     use crate::builtins::pytype::PyTypeRef;
     use crate::builtins::tuple::PyTupleRef;
     use crate::common::lock::{PyMutex, PyRwLock, PyRwLockWriteGuard};
     use crate::common::rc::PyRc;
     use crate::function::{Args, FuncArgs, OptionalArg, OptionalOption};
+    use crate::iterator::{call_next, get_all, get_iter, get_next_object};
     use crate::pyobject::{
         BorrowValue, IdProtocol, IntoPyRef, PyCallable, PyObjectRc, PyObjectRef, PyObjectWeak,
         PyRef, PyResult, PyValue, TypeProtocol,
@@ -84,7 +81,7 @@ mod decl {
                 }
             }
 
-            Err(new_stop_iteration(vm))
+            Err(vm.new_stop_iteration())
         }
 
         #[pymethod(name = "__iter__")]
@@ -256,7 +253,7 @@ mod decl {
             } else {
                 let saved = self.saved.read();
                 if saved.len() == 0 {
-                    return Err(new_stop_iteration(vm));
+                    return Err(vm.new_stop_iteration());
                 }
 
                 let last_index = self.index.fetch_add(1);
@@ -313,7 +310,7 @@ mod decl {
             if let Some(ref times) = self.times {
                 let mut times = times.write();
                 if !times.is_positive() {
-                    return Err(new_stop_iteration(vm));
+                    return Err(vm.new_stop_iteration());
                 }
                 *times -= 1;
             }
@@ -414,7 +411,7 @@ mod decl {
         #[pymethod(name = "__next__")]
         fn next(&self, vm: &VirtualMachine) -> PyResult {
             if self.stop_flag.load() {
-                return Err(new_stop_iteration(vm));
+                return Err(vm.new_stop_iteration());
             }
 
             // might be StopIteration or anything else, which is propagated upwards
@@ -427,7 +424,7 @@ mod decl {
                 Ok(obj)
             } else {
                 self.stop_flag.store(true);
-                Err(new_stop_iteration(vm))
+                Err(vm.new_stop_iteration())
             }
         }
 
@@ -651,7 +648,7 @@ mod decl {
                 let mut state = zelf.groupby.state.lock();
 
                 if !state.is_current(&zelf) {
-                    return Err(new_stop_iteration(vm));
+                    return Err(vm.new_stop_iteration());
                 }
 
                 // check to see if the value has already been retrieved from the iterator
@@ -670,7 +667,7 @@ mod decl {
                 state.current_key = Some(key);
                 state.next_group = true;
                 state.grouper = None;
-                Err(new_stop_iteration(vm))
+                Err(vm.new_stop_iteration())
             }
         }
 
@@ -787,7 +784,7 @@ mod decl {
 
             if let Some(stop) = self.stop {
                 if self.cur.load() >= stop {
-                    return Err(new_stop_iteration(vm));
+                    return Err(vm.new_stop_iteration());
                 }
             }
 
@@ -1070,7 +1067,7 @@ mod decl {
 
                 pools.push(pool);
             }
-            let pools = iter::repeat(pools)
+            let pools = std::iter::repeat(pools)
                 .take(repeat)
                 .flatten()
                 .collect::<Vec<Vec<PyObjectRef>>>();
@@ -1090,14 +1087,14 @@ mod decl {
         fn next(&self, vm: &VirtualMachine) -> PyResult {
             // stop signal
             if self.stop.load() {
-                return Err(new_stop_iteration(vm));
+                return Err(vm.new_stop_iteration());
             }
 
             let pools = &self.pools;
 
             for p in pools {
                 if p.is_empty() {
-                    return Err(new_stop_iteration(vm));
+                    return Err(vm.new_stop_iteration());
                 }
             }
 
@@ -1198,7 +1195,7 @@ mod decl {
         fn next(&self, vm: &VirtualMachine) -> PyResult {
             // stop signal
             if self.exhausted.load() {
-                return Err(new_stop_iteration(vm));
+                return Err(vm.new_stop_iteration());
             }
 
             let n = self.pool.len();
@@ -1298,7 +1295,7 @@ mod decl {
         fn next(&self, vm: &VirtualMachine) -> PyResult {
             // stop signal
             if self.exhausted.load() {
-                return Err(new_stop_iteration(vm));
+                return Err(vm.new_stop_iteration());
             }
 
             let n = self.pool.len();
@@ -1407,7 +1404,7 @@ mod decl {
         fn next(&self, vm: &VirtualMachine) -> PyResult {
             // stop signal
             if self.exhausted.load() {
-                return Err(new_stop_iteration(vm));
+                return Err(vm.new_stop_iteration());
             }
 
             let n = self.pool.len();
@@ -1452,7 +1449,7 @@ mod decl {
                 }
                 if !sentinel {
                     self.exhausted.store(true);
-                    return Err(new_stop_iteration(vm));
+                    return Err(vm.new_stop_iteration());
                 }
             } else {
                 // On the first pass, initialize result tuple using the indices
@@ -1515,7 +1512,7 @@ mod decl {
         #[pymethod(name = "__next__")]
         fn next(&self, vm: &VirtualMachine) -> PyResult {
             if self.iterators.is_empty() {
-                Err(new_stop_iteration(vm))
+                Err(vm.new_stop_iteration())
             } else {
                 let mut result: Vec<PyObjectRef> = Vec::new();
                 let mut numactive = self.iterators.len();
@@ -1529,7 +1526,7 @@ mod decl {
                             }
                             numactive -= 1;
                             if numactive == 0 {
-                                return Err(new_stop_iteration(vm));
+                                return Err(vm.new_stop_iteration());
                             }
                             self.fillvalue.clone()
                         }

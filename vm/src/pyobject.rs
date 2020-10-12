@@ -19,7 +19,7 @@ use crate::builtins::float::PyFloat;
 use crate::builtins::function::{PyBoundMethod, PyFunction};
 use crate::builtins::getset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetSet};
 use crate::builtins::int::{PyInt, PyIntRef};
-use crate::builtins::iter;
+use crate::builtins::iter::PySequenceIterator;
 use crate::builtins::list::PyList;
 use crate::builtins::namespace::PyNamespace;
 use crate::builtins::object;
@@ -33,6 +33,7 @@ use crate::builtins::tuple::{PyTuple, PyTupleRef};
 use crate::bytecode;
 use crate::exceptions::{self, PyBaseExceptionRef};
 use crate::function::{IntoFuncArgs, IntoPyNativeFunc};
+use crate::iterator;
 pub use crate::pyobjectrc::{PyObjectRc, PyObjectWeak};
 use crate::scope::Scope;
 use crate::slots::{PyTpFlags, PyTypeSlots};
@@ -836,7 +837,7 @@ impl<T> PyIterable<T> {
         let method = &self.method;
         let iter_obj = vm.invoke(method, ())?;
 
-        let length_hint = iter::length_hint(vm, iter_obj.clone())?;
+        let length_hint = iterator::length_hint(vm, iter_obj.clone())?;
 
         Ok(PyIterator {
             vm,
@@ -844,6 +845,31 @@ impl<T> PyIterable<T> {
             length_hint,
             _item: std::marker::PhantomData,
         })
+    }
+}
+
+impl<T> TryFromObject for PyIterable<T>
+where
+    T: TryFromObject,
+{
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        if let Some(method_or_err) = vm.get_method(obj.clone(), "__iter__") {
+            let method = method_or_err?;
+            Ok(PyIterable {
+                method,
+                _item: std::marker::PhantomData,
+            })
+        } else {
+            vm.get_method_or_type_error(obj.clone(), "__getitem__", || {
+                format!("'{}' object is not iterable", obj.class().name)
+            })?;
+            Self::try_from_object(
+                vm,
+                PySequenceIterator::new_forward(obj)
+                    .into_ref(vm)
+                    .into_object(),
+            )
+        }
     }
 }
 
@@ -875,31 +901,6 @@ where
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         (self.length_hint.unwrap_or(0), self.length_hint)
-    }
-}
-
-impl<T> TryFromObject for PyIterable<T>
-where
-    T: TryFromObject,
-{
-    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        if let Some(method_or_err) = vm.get_method(obj.clone(), "__iter__") {
-            let method = method_or_err?;
-            Ok(PyIterable {
-                method,
-                _item: std::marker::PhantomData,
-            })
-        } else {
-            vm.get_method_or_type_error(obj.clone(), "__getitem__", || {
-                format!("'{}' object is not iterable", obj.class().name)
-            })?;
-            Self::try_from_object(
-                vm,
-                iter::PySequenceIterator::new_forward(obj)
-                    .into_ref(vm)
-                    .into_object(),
-            )
-        }
     }
 }
 

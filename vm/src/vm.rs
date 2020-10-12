@@ -17,7 +17,6 @@ use crate::builtins;
 use crate::builtins::code::{PyCode, PyCodeRef};
 use crate::builtins::dict::PyDictRef;
 use crate::builtins::int::{PyInt, PyIntRef};
-use crate::builtins::iter;
 use crate::builtins::list::PyList;
 use crate::builtins::module::{self, PyModule};
 use crate::builtins::object;
@@ -32,6 +31,7 @@ use crate::frame::{ExecutionResult, Frame, FrameRef};
 use crate::frozen;
 use crate::function::{FuncArgs, IntoFuncArgs};
 use crate::import;
+use crate::iterator;
 use crate::pyobject::{
     BorrowValue, Either, IdProtocol, IntoPyObject, ItemProtocol, PyArithmaticValue, PyContext,
     PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
@@ -691,6 +691,11 @@ impl VirtualMachine {
         self.new_exception_msg(runtime_error, msg)
     }
 
+    pub fn new_stop_iteration(&self) -> PyBaseExceptionRef {
+        let stop_iteration_type = self.ctx.exceptions.stop_iteration.clone();
+        self.new_exception_empty(stop_iteration_type)
+    }
+
     // TODO: #[track_caller] when stabilized
     fn _py_panic_failed(&self, exc: PyBaseExceptionRef, msg: &str) -> ! {
         #[cfg(not(all(target_arch = "wasm32", not(target_os = "wasi"))))]
@@ -977,8 +982,8 @@ impl VirtualMachine {
                 .map(|obj| T::try_from_object(self, obj.clone()))
                 .collect()
         } else {
-            let iter = iter::get_iter(self, value)?;
-            iter::get_all(self, &iter)
+            let iter = iterator::get_iter(self, value)?;
+            iterator::get_all(self, &iter)
         }
     }
 
@@ -1496,9 +1501,9 @@ impl VirtualMachine {
 
     // https://docs.python.org/3/reference/expressions.html#membership-test-operations
     fn _membership_iter_search(&self, haystack: PyObjectRef, needle: PyObjectRef) -> PyResult {
-        let iter = iter::get_iter(self, &haystack)?;
+        let iter = iterator::get_iter(self, &haystack)?;
         loop {
-            if let Some(element) = iter::get_next_object(self, &iter)? {
+            if let Some(element) = iterator::get_next_object(self, &iter)? {
                 if self.bool_eq(&needle, &element)? {
                     return Ok(self.ctx.new_bool(true));
                 } else {

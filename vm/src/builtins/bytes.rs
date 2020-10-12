@@ -8,7 +8,6 @@ use std::mem::size_of;
 use std::ops::Deref;
 
 use super::int::PyIntRef;
-use super::iter;
 use super::pystr::PyStrRef;
 use super::pytype::PyTypeRef;
 use crate::builtins::tuple::PyTupleRef;
@@ -555,7 +554,7 @@ impl PyBytesIterator {
         if let Some(&ret) = self.bytes.borrow_value().get(pos) {
             Ok(ret)
         } else {
-            Err(iter::new_stop_iteration(vm))
+            Err(vm.new_stop_iteration())
         }
     }
 

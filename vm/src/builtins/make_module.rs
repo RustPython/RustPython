@@ -14,7 +14,7 @@ mod decl {
     use crate::builtins::dict::PyDictRef;
     use crate::builtins::function::PyFunctionRef;
     use crate::builtins::int::{self, PyIntRef};
-    use crate::builtins::iter;
+    use crate::builtins::iter::{PyCallableIterator, PySequenceIterator};
     use crate::builtins::list::{PyList, SortOptions};
     use crate::builtins::pybool::{self, IntoPyBool};
     use crate::builtins::pystr::{PyStr, PyStrRef};
@@ -23,6 +23,7 @@ mod decl {
     use crate::common::{hash::PyHash, str::to_ascii};
     use crate::exceptions::PyBaseExceptionRef;
     use crate::function::{single_or_tuple_any, Args, FuncArgs, KwArgs, OptionalArg};
+    use crate::iterator;
     use crate::pyobject::{
         BorrowValue, Either, IdProtocol, ItemProtocol, PyCallable, PyIterable, PyObjectRef,
         PyResult, PyValue, TryFromObject, TypeProtocol,
@@ -429,11 +430,11 @@ mod decl {
     ) -> PyResult {
         if let OptionalArg::Present(sentinel) = sentinel {
             let callable = PyCallable::try_from_object(vm, iter_target)?;
-            Ok(iter::PyCallableIterator::new(callable, sentinel)
+            Ok(PyCallableIterator::new(callable, sentinel)
                 .into_ref(vm)
                 .into_object())
         } else {
-            iter::get_iter(vm, &iter_target)
+            iterator::get_iter(vm, &iter_target)
         }
     }
 
@@ -725,7 +726,7 @@ mod decl {
             })?;
             let len = vm.call_method(&obj, "__len__", ())?;
             let len = int::get_value(&len).to_isize().unwrap();
-            let obj_iterator = iter::PySequenceIterator::new_reversed(obj, len);
+            let obj_iterator = PySequenceIterator::new_reversed(obj, len);
             Ok(obj_iterator.into_object(vm))
         }
     }

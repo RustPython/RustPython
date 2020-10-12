@@ -1,8 +1,8 @@
 use super::dict::PyDict;
-use super::iter;
 use super::pystr::PyStrRef;
 use super::pytype::PyTypeRef;
 use crate::function::OptionalArg;
+use crate::iterator;
 use crate::pyobject::{
     BorrowValue, IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
     PyValue, TryFromObject,
@@ -94,7 +94,7 @@ impl PyMappingProxy {
                 PyDict::from_attributes(c.attributes.read().clone(), vm)?.into_pyobject(vm)
             }
         };
-        iter::get_iter(vm, &obj)
+        iterator::get_iter(vm, &obj)
     }
     #[pymethod]
     pub fn items(&self, vm: &VirtualMachine) -> PyResult {

@@ -7,7 +7,6 @@ use crossbeam_utils::atomic::AtomicCell;
 use num_traits::ToPrimitive;
 
 use super::int::PyIntRef;
-use super::iter;
 use super::pytype::PyTypeRef;
 use super::slice::PySliceRef;
 use crate::bytesinner;
@@ -474,7 +473,7 @@ impl PyListIterator {
         if let Some(obj) = list.get(pos) {
             Ok(obj.clone())
         } else {
-            Err(iter::new_stop_iteration(vm))
+            Err(vm.new_stop_iteration())
         }
     }
 
@@ -515,7 +514,7 @@ impl PyListReverseIterator {
                 return Ok(ret.clone());
             }
         }
-        Err(iter::new_stop_iteration(vm))
+        Err(vm.new_stop_iteration())
     }
 
     #[pymethod(name = "__iter__")]

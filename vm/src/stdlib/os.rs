@@ -13,7 +13,6 @@ use super::errno::errors;
 use crate::builtins::bytes::{PyBytes, PyBytesRef};
 use crate::builtins::dict::PyDictRef;
 use crate::builtins::int::{PyInt, PyIntRef};
-use crate::builtins::iter;
 use crate::builtins::pystr::{PyStr, PyStrRef};
 use crate::builtins::pytype::PyTypeRef;
 use crate::builtins::set::PySet;
@@ -560,7 +559,7 @@ mod _os {
         #[pymethod(name = "__next__")]
         fn next(&self, vm: &VirtualMachine) -> PyResult {
             if self.exhausted.load() {
-                return Err(iter::new_stop_iteration(vm));
+                return Err(vm.new_stop_iteration());
             }
 
             match self.entries.write().next() {
@@ -575,7 +574,7 @@ mod _os {
                 },
                 None => {
                     self.exhausted.store(true);
-                    Err(iter::new_stop_iteration(vm))
+                    Err(vm.new_stop_iteration())
                 }
             }
         }

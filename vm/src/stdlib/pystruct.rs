@@ -23,8 +23,8 @@ pub(crate) mod _struct {
     use std::iter::Peekable;
 
     use crate::builtins::{
-        bytes::PyBytesRef, iter, pybool::IntoPyBool, pystr::PyStr, pystr::PyStrRef,
-        pytype::PyTypeRef, tuple::PyTupleRef,
+        bytes::PyBytesRef, pybool::IntoPyBool, pystr::PyStr, pystr::PyStrRef, pytype::PyTypeRef,
+        tuple::PyTupleRef,
     };
     use crate::byteslike::{PyBytesLike, PyRwBytesLike};
     use crate::exceptions::PyBaseExceptionRef;
@@ -853,7 +853,7 @@ pub(crate) mod _struct {
             let size = self.format_spec.size();
             let offset = self.offset.fetch_add(size);
             if offset + size > self.buffer.len() {
-                Err(iter::new_stop_iteration(vm))
+                Err(vm.new_stop_iteration())
             } else {
                 self.buffer
                     .with_ref(|buf| self.format_spec.unpack(&buf[offset..offset + size], vm))

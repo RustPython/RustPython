@@ -20,7 +20,6 @@ mod _io {
     use crate::builtins::bytearray::PyByteArray;
     use crate::builtins::bytes::PyBytesRef;
     use crate::builtins::int;
-    use crate::builtins::iter;
     use crate::builtins::memory::{Buffer, BufferOptions, BufferRef, PyMemoryView};
     use crate::builtins::pybool;
     use crate::builtins::pystr::{self, PyStr, PyStrRef};
@@ -374,7 +373,7 @@ mod _io {
         fn next(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             let line = vm.call_method(&instance, "readline", ())?;
             if !pybool::boolval(vm, line.clone())? {
-                Err(iter::new_stop_iteration(vm))
+                Err(vm.new_stop_iteration())
             } else {
                 Ok(line)
             }

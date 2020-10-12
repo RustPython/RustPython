@@ -15,12 +15,13 @@ use crate::builtins::pytype::PyTypeRef;
 use crate::builtins::slice::PySlice;
 use crate::builtins::traceback::PyTraceback;
 use crate::builtins::tuple::PyTuple;
-use crate::builtins::{iter, list, pybool, set};
+use crate::builtins::{list, pybool, set};
 use crate::bytecode;
 use crate::common::lock::PyMutex;
 use crate::coroutine::Coro;
 use crate::exceptions::{self, ExceptionCtor, PyBaseExceptionRef};
 use crate::function::FuncArgs;
+use crate::iterator;
 use crate::pyobject::{
     BorrowValue, IdProtocol, ItemProtocol, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
@@ -117,7 +118,7 @@ impl ExecutionResult {
             Ok(val) => Ok(ExecutionResult::Yield(val)),
             Err(err) => {
                 if err.isinstance(&vm.ctx.exceptions.stop_iteration) {
-                    iter::stop_iter_value(vm, &err).map(ExecutionResult::Return)
+                    iterator::stop_iter_value(vm, &err).map(ExecutionResult::Return)
                 } else {
                     Err(err)
                 }
@@ -313,7 +314,7 @@ impl ExecutingFrame<'_> {
             res.or_else(|err| {
                 self.pop_value();
                 self.lasti.fetch_add(1, Ordering::Relaxed);
-                let val = iter::stop_iter_value(vm, &err)?;
+                let val = iterator::stop_iter_value(vm, &err)?;
                 self._send(coro, val, vm)
             })
             .map(ExecutionResult::Yield)
@@ -580,7 +581,7 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::GetIter => {
                 let iterated_obj = self.pop_value();
-                let iter_obj = iter::get_iter(vm, &iterated_obj)?;
+                let iter_obj = iterator::get_iter(vm, &iterated_obj)?;
                 self.push_value(iter_obj);
                 Ok(None)
             }
@@ -1146,7 +1147,7 @@ impl ExecutingFrame<'_> {
     fn _send(&self, coro: PyObjectRef, val: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         match self.builtin_coro(&coro) {
             Some(coro) => coro.send(val, vm),
-            None if vm.is_none(&val) => iter::call_next(vm, &coro),
+            None if vm.is_none(&val) => iterator::call_next(vm, &coro),
             None => vm.call_method(&coro, "send", (val,)),
         }
     }
@@ -1220,7 +1221,7 @@ impl ExecutingFrame<'_> {
     /// The top of stack contains the iterator, lets push it forward
     fn execute_for_iter(&mut self, vm: &VirtualMachine, target: bytecode::Label) -> FrameResult {
         let top_of_stack = self.last_value();
-        let next_obj = iter::get_next_object(vm, &top_of_stack);
+        let next_obj = iterator::get_next_object(vm, &top_of_stack);
 
         // Check the next object:
         match next_obj {

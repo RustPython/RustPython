@@ -4,10 +4,8 @@ use num_integer::Integer;
 use num_traits::{One, Signed, Zero};
 
 use super::int::{PyInt, PyIntRef};
-use super::iter;
 use super::pytype::PyTypeRef;
 use super::slice::{PySlice, PySliceRef};
-
 use crate::common::hash::PyHash;
 use crate::function::{FuncArgs, OptionalArg};
 use crate::pyobject::{
@@ -393,7 +391,7 @@ impl PyRangeIterator {
         if let Some(int) = self.range.get(&position) {
             Ok(int)
         } else {
-            Err(iter::new_stop_iteration(vm))
+            Err(vm.new_stop_iteration())
         }
     }
 

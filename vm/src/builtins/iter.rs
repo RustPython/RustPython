@@ -1,143 +1,14 @@
 /*
- * Various types to support iteration.
+ * iterator types
  */
 
 use crossbeam_utils::atomic::AtomicCell;
-use num_traits::Signed;
 
-use super::int::{self, PyInt};
 use super::pytype::PyTypeRef;
-use crate::exceptions::PyBaseExceptionRef;
 use crate::pyobject::{
-    BorrowValue, PyCallable, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
+    PyCallable, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
-
-/*
- * This helper function is called at multiple places. First, it is called
- * in the vm when a for loop is entered. Next, it is used when the builtin
- * function 'iter' is called.
- */
-pub fn get_iter(vm: &VirtualMachine, iter_target: &PyObjectRef) -> PyResult {
-    if let Some(method_or_err) = vm.get_method(iter_target.clone(), "__iter__") {
-        let method = method_or_err?;
-        let iter = vm.invoke(&method, ())?;
-        if iter.has_class_attr("__next__") {
-            Ok(iter)
-        } else {
-            Err(vm.new_type_error(format!(
-                "iter() returned non-iterator of type '{}'",
-                iter.class().name
-            )))
-        }
-    } else {
-        vm.get_method_or_type_error(iter_target.clone(), "__getitem__", || {
-            format!("'{}' object is not iterable", iter_target.class().name)
-        })?;
-        Ok(PySequenceIterator::new_forward(iter_target.clone())
-            .into_ref(vm)
-            .into_object())
-    }
-}
-
-pub fn call_next(vm: &VirtualMachine, iter_obj: &PyObjectRef) -> PyResult {
-    vm.call_method(iter_obj, "__next__", ())
-}
-
-/*
- * Helper function to retrieve the next object (or none) from an iterator.
- */
-pub fn get_next_object(
-    vm: &VirtualMachine,
-    iter_obj: &PyObjectRef,
-) -> PyResult<Option<PyObjectRef>> {
-    let next_obj: PyResult = call_next(vm, iter_obj);
-
-    match next_obj {
-        Ok(value) => Ok(Some(value)),
-        Err(next_error) => {
-            // Check if we have stopiteration, or something else:
-            if next_error.isinstance(&vm.ctx.exceptions.stop_iteration) {
-                Ok(None)
-            } else {
-                Err(next_error)
-            }
-        }
-    }
-}
-
-/* Retrieve all elements from an iterator */
-pub fn get_all<T: TryFromObject>(vm: &VirtualMachine, iter_obj: &PyObjectRef) -> PyResult<Vec<T>> {
-    let cap = length_hint(vm, iter_obj.clone())?.unwrap_or(0);
-    // TODO: fix extend to do this check (?), see test_extend in Lib/test/list_tests.py,
-    // https://github.com/python/cpython/blob/master/Objects/listobject.c#L934-L940
-    if cap >= isize::max_value() as usize {
-        return Ok(Vec::new());
-    }
-    let mut elements = Vec::with_capacity(cap);
-    while let Some(element) = get_next_object(vm, iter_obj)? {
-        elements.push(T::try_from_object(vm, element)?);
-    }
-    elements.shrink_to_fit();
-    Ok(elements)
-}
-
-pub fn new_stop_iteration(vm: &VirtualMachine) -> PyBaseExceptionRef {
-    let stop_iteration_type = vm.ctx.exceptions.stop_iteration.clone();
-    vm.new_exception_empty(stop_iteration_type)
-}
-pub fn stop_iter_with_value(val: PyObjectRef, vm: &VirtualMachine) -> PyBaseExceptionRef {
-    let stop_iteration_type = vm.ctx.exceptions.stop_iteration.clone();
-    vm.new_exception(stop_iteration_type, vec![val])
-}
-
-pub fn stop_iter_value(vm: &VirtualMachine, exc: &PyBaseExceptionRef) -> PyResult {
-    let args = exc.args();
-    let val = vm.unwrap_or_none(args.borrow_value().first().cloned());
-    Ok(val)
-}
-
-pub fn length_hint(vm: &VirtualMachine, iter: PyObjectRef) -> PyResult<Option<usize>> {
-    if let Some(len) = vm._len(&iter) {
-        match len {
-            Ok(len) => return Ok(Some(len)),
-            Err(e) => {
-                if !e.isinstance(&vm.ctx.exceptions.type_error) {
-                    return Err(e);
-                }
-            }
-        }
-    }
-    let hint = match vm.get_method(iter, "__length_hint__") {
-        Some(hint) => hint?,
-        None => return Ok(None),
-    };
-    let result = match vm.invoke(&hint, ()) {
-        Ok(res) => res,
-        Err(e) => {
-            return if e.isinstance(&vm.ctx.exceptions.type_error) {
-                Ok(None)
-            } else {
-                Err(e)
-            }
-        }
-    };
-    let result = result
-        .payload_if_subclass::<PyInt>(vm)
-        .ok_or_else(|| {
-            vm.new_type_error(format!(
-                "'{}' object cannot be interpreted as an integer",
-                result.class().name
-            ))
-        })?
-        .borrow_value();
-    if result.is_negative() {
-        return Err(vm.new_value_error("__length_hint__() should return >= 0".to_owned()));
-    }
-    let hint = int::try_to_primitive(result, vm)?;
-    Ok(Some(hint))
-}
 
 #[pyclass(module = false, name = "iter")]
 #[derive(Debug)]
@@ -178,13 +49,13 @@ impl PySequenceIterator {
         if pos >= 0 {
             match vm.call_method(&self.obj, "__getitem__", (pos,)) {
                 Err(ref e) if e.isinstance(&vm.ctx.exceptions.index_error) => {
-                    Err(new_stop_iteration(vm))
+                    Err(vm.new_stop_iteration())
                 }
                 // also catches stop_iteration => stop_iteration
                 ret => ret,
             }
         } else {
-            Err(new_stop_iteration(vm))
+            Err(vm.new_stop_iteration())
         }
     }
 
@@ -206,10 +77,6 @@ impl PySequenceIterator {
         };
         Ok(hint)
     }
-}
-
-pub fn seq_iter_method(obj: PyObjectRef) -> PySequenceIterator {
-    PySequenceIterator::new_forward(obj)
 }
 
 #[pyclass(module = false, name = "callable_iterator")]
@@ -239,14 +106,14 @@ impl PyCallableIterator {
     #[pymethod(magic)]
     fn next(&self, vm: &VirtualMachine) -> PyResult {
         if self.done.load() {
-            return Err(new_stop_iteration(vm));
+            return Err(vm.new_stop_iteration());
         }
 
         let ret = self.callable.invoke((), vm)?;
 
         if vm.bool_eq(&ret, &self.sentinel)? {
             self.done.store(true);
-            Err(new_stop_iteration(vm))
+            Err(vm.new_stop_iteration())
         } else {
             Ok(ret)
         }
