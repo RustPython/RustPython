@@ -5,7 +5,7 @@ use rustpython_common::rc::PyRc;
 use std::fmt;
 
 use super::iter;
-use super::pytype::{self, PyTypeRef};
+use super::pytype::PyTypeRef;
 use crate::dictdatatype;
 use crate::function::{Args, OptionalArg};
 use crate::pyobject::{
@@ -38,7 +38,6 @@ pub type PySetRef = PyRef<PySet>;
 pub struct PyFrozenSet {
     inner: PySetInner,
 }
-pub type PyFrozenSetRef = PyRef<PyFrozenSet>;
 
 impl fmt::Debug for PySet {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -321,7 +320,7 @@ impl PySet {
         cls: PyTypeRef,
         iterable: OptionalArg<PyIterable>,
         vm: &VirtualMachine,
-    ) -> PyResult<PySetRef> {
+    ) -> PyResult<PyRef<Self>> {
         Self {
             inner: PySetInner::from_arg(iterable, vm)?,
         }
@@ -554,23 +553,23 @@ macro_rules! multi_args_frozenset {
 
 #[pyimpl(flags(BASETYPE), with(Hashable, Comparable))]
 impl PyFrozenSet {
-    pub fn from_iter(
-        vm: &VirtualMachine,
-        it: impl IntoIterator<Item = PyObjectRef>,
-    ) -> PyResult<Self> {
-        let inner = PySetInner::default();
-        for elem in it {
-            inner.add(elem, vm)?;
-        }
-        Ok(Self { inner })
-    }
+    // pub fn from_iter(
+    //     vm: &VirtualMachine,
+    //     it: impl IntoIterator<Item = PyObjectRef>,
+    // ) -> PyResult<Self> {
+    //     let inner = PySetInner::default();
+    //     for elem in it {
+    //         inner.add(elem, vm)?;
+    //     }
+    //     Ok(Self { inner })
+    // }
 
     #[pyslot]
     fn tp_new(
         cls: PyTypeRef,
         iterable: OptionalArg<PyIterable>,
         vm: &VirtualMachine,
-    ) -> PyResult<PyFrozenSetRef> {
+    ) -> PyResult<PyRef<Self>> {
         Self {
             inner: PySetInner::from_arg(iterable, vm)?,
         }
@@ -723,8 +722,8 @@ struct SetIterable {
 impl TryFromObject for SetIterable {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let class = obj.class();
-        if pytype::issubclass(&class, &vm.ctx.types.set_type)
-            || pytype::issubclass(&class, &vm.ctx.types.frozenset_type)
+        if class.issubclass(&vm.ctx.types.set_type)
+            || class.issubclass(&vm.ctx.types.frozenset_type)
         {
             // the class lease needs to be drop to be able to return the object
             drop(class);

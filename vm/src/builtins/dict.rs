@@ -4,7 +4,7 @@ use std::mem::size_of;
 
 use super::iter;
 use super::pystr;
-use super::pytype::{self, PyTypeRef};
+use super::pytype::PyTypeRef;
 use super::set::PySet;
 use crate::dictdatatype::{self, DictKey};
 use crate::exceptions::PyBaseExceptionRef;
@@ -468,7 +468,7 @@ impl PyDictRef {
             // We can take the short path here!
             match self.inner_getitem_option(key, vm) {
                 Err(exc) => {
-                    if pytype::isinstance(&exc, &vm.ctx.exceptions.key_error) {
+                    if exc.isinstance(&vm.ctx.exceptions.key_error) {
                         Ok(None)
                     } else {
                         Err(exc)
@@ -482,7 +482,7 @@ impl PyDictRef {
             match self.get_item(key, vm) {
                 Ok(value) => Ok(Some(value)),
                 Err(exc) => {
-                    if pytype::isinstance(&exc, &vm.ctx.exceptions.key_error) {
+                    if exc.isinstance(&vm.ctx.exceptions.key_error) {
                         Ok(None)
                     } else {
                         Err(exc)

@@ -6,7 +6,7 @@ use crossbeam_utils::atomic::AtomicCell;
 use num_traits::Signed;
 
 use super::int::{self, PyInt};
-use super::pytype::{self, PyTypeRef};
+use super::pytype::PyTypeRef;
 use crate::exceptions::PyBaseExceptionRef;
 use crate::pyobject::{
     BorrowValue, PyCallable, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
@@ -58,7 +58,7 @@ pub fn get_next_object(
         Ok(value) => Ok(Some(value)),
         Err(next_error) => {
             // Check if we have stopiteration, or something else:
-            if pytype::isinstance(&next_error, &vm.ctx.exceptions.stop_iteration) {
+            if next_error.isinstance(&vm.ctx.exceptions.stop_iteration) {
                 Ok(None)
             } else {
                 Err(next_error)
@@ -103,7 +103,7 @@ pub fn length_hint(vm: &VirtualMachine, iter: PyObjectRef) -> PyResult<Option<us
         match len {
             Ok(len) => return Ok(Some(len)),
             Err(e) => {
-                if !pytype::isinstance(&e, &vm.ctx.exceptions.type_error) {
+                if !e.isinstance(&vm.ctx.exceptions.type_error) {
                     return Err(e);
                 }
             }
@@ -116,7 +116,7 @@ pub fn length_hint(vm: &VirtualMachine, iter: PyObjectRef) -> PyResult<Option<us
     let result = match vm.invoke(&hint, ()) {
         Ok(res) => res,
         Err(e) => {
-            return if pytype::isinstance(&e, &vm.ctx.exceptions.type_error) {
+            return if e.isinstance(&vm.ctx.exceptions.type_error) {
                 Ok(None)
             } else {
                 Err(e)
@@ -177,7 +177,7 @@ impl PySequenceIterator {
         let pos = self.position.fetch_add(step);
         if pos >= 0 {
             match vm.call_method(&self.obj, "__getitem__", (pos,)) {
-                Err(ref e) if pytype::isinstance(&e, &vm.ctx.exceptions.index_error) => {
+                Err(ref e) if e.isinstance(&vm.ctx.exceptions.index_error) => {
                     Err(new_stop_iteration(vm))
                 }
                 // also catches stop_iteration => stop_iteration

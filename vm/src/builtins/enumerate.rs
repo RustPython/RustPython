@@ -17,7 +17,6 @@ pub struct PyEnumerate {
     counter: PyRwLock<BigInt>,
     iterator: PyObjectRef,
 }
-type PyEnumerateRef = PyRef<PyEnumerate>;
 
 impl PyValue for PyEnumerate {
     fn class(vm: &VirtualMachine) -> PyTypeRef {
@@ -33,7 +32,7 @@ impl PyEnumerate {
         iterable: PyObjectRef,
         start: OptionalArg<PyIntRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<PyEnumerateRef> {
+    ) -> PyResult<PyRef<Self>> {
         let counter = match start {
             OptionalArg::Present(start) => start.borrow_value().clone(),
             OptionalArg::Missing => BigInt::zero(),

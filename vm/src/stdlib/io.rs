@@ -21,12 +21,10 @@ mod _io {
     use crate::builtins::bytes::PyBytesRef;
     use crate::builtins::int;
     use crate::builtins::iter;
-    use crate::builtins::memory::{
-        Buffer, BufferOptions, BufferRef, PyMemoryView, PyMemoryViewRef,
-    };
+    use crate::builtins::memory::{Buffer, BufferOptions, BufferRef, PyMemoryView};
     use crate::builtins::pybool;
     use crate::builtins::pystr::{self, PyStr, PyStrRef};
-    use crate::builtins::pytype::{self, PyTypeRef};
+    use crate::builtins::pytype::PyTypeRef;
     use crate::byteslike::{PyBytesLike, PyRwBytesLike};
     use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
     use crate::common::lock::{
@@ -36,7 +34,7 @@ mod _io {
     use crate::function::{FuncArgs, OptionalArg, OptionalOption};
     use crate::pyobject::{
         BorrowValue, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-        TryFromObject,
+        TryFromObject, TypeProtocol,
     };
     use crate::vm::VirtualMachine;
 
@@ -728,7 +726,7 @@ mod _io {
             let buffered_reader_class = vm.try_class("_io", "BufferedReader")?;
             let raw = vm.get_attribute(instance, "buffer").unwrap();
 
-            if !pytype::isinstance(&raw, &buffered_reader_class) {
+            if !raw.isinstance(&buffered_reader_class) {
                 // TODO: this should be io.UnsupportedOperation error which derives both from ValueError *and* OSError
                 return Err(vm.new_value_error("not readable".to_owned()));
             }
@@ -752,7 +750,7 @@ mod _io {
             let buffered_writer_class = vm.try_class("_io", "BufferedWriter")?;
             let raw = vm.get_attribute(instance, "buffer").unwrap();
 
-            if !pytype::isinstance(&raw, &buffered_writer_class) {
+            if !raw.isinstance(&buffered_writer_class) {
                 // TODO: this should be io.UnsupportedOperation error which derives from ValueError and OSError
                 return Err(vm.new_value_error("not writable".to_owned()));
             }
@@ -779,7 +777,7 @@ mod _io {
             let buffered_reader_class = vm.try_class("_io", "BufferedReader")?;
             let raw = vm.get_attribute(instance, "buffer").unwrap();
 
-            if !pytype::isinstance(&raw, &buffered_reader_class) {
+            if !raw.isinstance(&buffered_reader_class) {
                 // TODO: this should be io.UnsupportedOperation error which derives both from ValueError *and* OSError
                 return Err(vm.new_value_error("not readable".to_owned()));
             }
@@ -1076,12 +1074,12 @@ mod _io {
         }
 
         #[pymethod]
-        fn getbuffer(self, vm: &VirtualMachine) -> PyResult<PyMemoryViewRef> {
+        fn getbuffer(self, vm: &VirtualMachine) -> PyResult<PyMemoryView> {
             let buffer: Box<dyn Buffer> = Box::new(self.clone());
             let buffer = BufferRef::from(buffer);
             let view = PyMemoryView::from_buffer(self.clone().into_object(), buffer, vm)?;
             self.exports.fetch_add(1);
-            Ok(view.into_ref(vm))
+            Ok(view)
         }
     }
 

@@ -13,6 +13,7 @@ use arr_macro::arr;
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::{Signed, ToPrimitive};
 
+use crate::builtins;
 use crate::builtins::code::{PyCode, PyCodeRef};
 use crate::builtins::dict::PyDictRef;
 use crate::builtins::int::{PyInt, PyIntRef};
@@ -22,9 +23,8 @@ use crate::builtins::module::{self, PyModule};
 use crate::builtins::object;
 use crate::builtins::pybool;
 use crate::builtins::pystr::{PyStr, PyStrRef};
-use crate::builtins::pytype::{self, PyTypeRef};
+use crate::builtins::pytype::PyTypeRef;
 use crate::builtins::tuple::PyTuple;
-use crate::builtins::{self, to_ascii};
 use crate::bytecode;
 use crate::common::{hash::HashSecret, lock::PyMutex, rc::PyRc};
 use crate::exceptions::{self, PyBaseException, PyBaseExceptionRef};
@@ -71,7 +71,7 @@ pub struct VirtualMachine {
 }
 
 pub(crate) mod thread {
-    use super::{PyObjectRef, VirtualMachine};
+    use super::{PyObjectRef, TypeProtocol, VirtualMachine};
     use itertools::Itertools;
     use std::cell::RefCell;
     use std::ptr::NonNull;
@@ -97,7 +97,7 @@ pub(crate) mod thread {
         let vm_owns_obj = |intp: NonNull<VirtualMachine>| {
             // SAFETY: all references in VM_STACK should be valid
             let vm = unsafe { intp.as_ref() };
-            crate::builtins::pytype::isinstance(obj, &vm.ctx.types.object_type)
+            obj.isinstance(&vm.ctx.types.object_type)
         };
         VM_STACK.with(|vms| {
             let intp = match vms.borrow().iter().copied().exactly_one() {
@@ -418,7 +418,7 @@ impl VirtualMachine {
         for (func, args) in self.state.atexit_funcs.lock().drain(..).rev() {
             if let Err(e) = self.invoke(&func, args) {
                 last_exc = Some(e.clone());
-                if !pytype::isinstance(&e, &self.ctx.exceptions.system_exit) {
+                if !e.isinstance(&self.ctx.exceptions.system_exit) {
                     writeln!(sysmodule::PyStderr(self), "Error in atexit._run_exitfuncs:");
                     exceptions::print_exception(self, e);
                 }
@@ -768,13 +768,6 @@ impl VirtualMachine {
     pub fn to_repr(&self, obj: &PyObjectRef) -> PyResult<PyStrRef> {
         let repr = self.call_method(obj, "__repr__", ())?;
         TryFromObject::try_from_object(self, repr)
-    }
-
-    pub fn to_ascii(&self, obj: &PyObjectRef) -> PyResult {
-        let repr = self.call_method(obj, "__repr__", ())?;
-        let repr: PyStrRef = TryFromObject::try_from_object(self, repr)?;
-        let ascii = to_ascii(repr.borrow_value());
-        Ok(self.ctx.new_str(ascii))
     }
 
     pub fn to_index(&self, obj: &PyObjectRef) -> Option<PyResult<PyIntRef>> {
@@ -1434,7 +1427,7 @@ impl VirtualMachine {
         let is_strict_subclass = {
             let v_class = v.class();
             let w_class = w.class();
-            !v_class.is(&w_class) && pytype::issubclass(&w_class, &v_class)
+            !v_class.is(&w_class) && w_class.issubclass(&v_class)
         };
         if is_strict_subclass {
             let res = call_cmp(w, v, swapped)?;

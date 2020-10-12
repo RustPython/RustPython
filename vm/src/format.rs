@@ -1,4 +1,4 @@
-use crate::builtins::{pystr, pytype};
+use crate::builtins::pystr;
 use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
 use crate::function::FuncArgs;
 use crate::pyobject::{ItemProtocol, PyObjectRef, PyResult, TypeProtocol};
@@ -901,7 +901,7 @@ fn call_object_format(
         None => argument,
     };
     let result = vm.call_method(&argument, "__format__", (format_spec,))?;
-    if !pytype::isinstance(&result, &vm.ctx.types.str_type) {
+    if !result.isinstance(&vm.ctx.types.str_type) {
         return Err(vm.new_type_error(format!(
             "__format__ must return a str, not {}",
             &result.class().name

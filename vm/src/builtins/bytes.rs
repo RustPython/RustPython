@@ -111,7 +111,7 @@ impl PyBytes {
         cls: PyTypeRef,
         options: ByteInnerNewOptions,
         vm: &VirtualMachine,
-    ) -> PyResult<PyBytesRef> {
+    ) -> PyResult<PyRef<Self>> {
         PyBytes {
             inner: options.get_value(vm)?,
             buffer_options: OnceCell::new(),

@@ -22,7 +22,7 @@ impl PyValue for PyTraceback {
 
 #[pyimpl]
 impl PyTraceback {
-    pub fn new(next: Option<PyTracebackRef>, frame: FrameRef, lasti: usize, lineno: usize) -> Self {
+    pub fn new(next: Option<PyRef<Self>>, frame: FrameRef, lasti: usize, lineno: usize) -> Self {
         PyTraceback {
             next,
             frame,
@@ -47,7 +47,7 @@ impl PyTraceback {
     }
 
     #[pyproperty(name = "tb_next")]
-    fn next_get(&self) -> Option<PyTracebackRef> {
+    fn next_get(&self) -> Option<PyRef<Self>> {
         self.next.as_ref().cloned()
     }
 }

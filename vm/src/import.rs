@@ -4,10 +4,10 @@
 use rand::Rng;
 
 use crate::builtins::traceback::{PyTraceback, PyTracebackRef};
-use crate::builtins::{code, list, pytype};
+use crate::builtins::{code, list};
 use crate::bytecode::CodeObject;
 use crate::exceptions::PyBaseExceptionRef;
-use crate::pyobject::{ItemProtocol, PyResult, PyValue, TryFromObject};
+use crate::pyobject::{ItemProtocol, PyResult, PyValue, TryFromObject, TypeProtocol};
 use crate::scope::Scope;
 use crate::version::get_git_revision;
 use crate::vm::{InitParameter, VirtualMachine};
@@ -174,7 +174,7 @@ pub fn remove_importlib_frames(
     vm: &VirtualMachine,
     exc: &PyBaseExceptionRef,
 ) -> PyBaseExceptionRef {
-    let always_trim = pytype::isinstance(exc, &vm.ctx.exceptions.import_error);
+    let always_trim = exc.isinstance(&vm.ctx.exceptions.import_error);
 
     if let Some(tb) = exc.traceback() {
         let trimmed_tb = remove_importlib_frames_inner(vm, Some(tb), always_trim).0;

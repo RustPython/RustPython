@@ -10,8 +10,6 @@ use crate::function::OptionalArg;
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
-pub type PyGeneratorRef = PyRef<PyGenerator>;
-
 #[pyclass(module = false, name = "generator")]
 #[derive(Debug)]
 pub struct PyGenerator {
@@ -30,7 +28,7 @@ impl PyGenerator {
         &self.inner
     }
 
-    pub fn new(frame: FrameRef, vm: &VirtualMachine) -> PyGeneratorRef {
+    pub fn new(frame: FrameRef, vm: &VirtualMachine) -> PyRef<Self> {
         PyGenerator {
             inner: Coro::new(frame, Variant::Gen),
         }
@@ -44,7 +42,7 @@ impl PyGenerator {
     }
 
     #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyGeneratorRef) -> PyGeneratorRef {
+    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 

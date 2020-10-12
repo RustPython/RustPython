@@ -21,25 +21,25 @@ enum MappingProxyInner {
     Dict(PyObjectRef),
 }
 
-pub type PyMappingProxyRef = PyRef<PyMappingProxy>;
-
 impl PyValue for PyMappingProxy {
     fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.mappingproxy_type.clone()
     }
 }
 
-#[pyimpl]
 impl PyMappingProxy {
-    pub fn new(class: PyTypeRef) -> PyMappingProxy {
-        PyMappingProxy {
+    pub fn new(class: PyTypeRef) -> Self {
+        Self {
             mapping: MappingProxyInner::Class(class),
         }
     }
+}
 
+#[pyimpl]
+impl PyMappingProxy {
     #[pyslot]
     fn tp_new(cls: PyTypeRef, mapping: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        PyMappingProxy {
+        Self {
             mapping: MappingProxyInner::Dict(mapping),
         }
         .into_ref_with_type(vm, cls)

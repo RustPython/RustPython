@@ -16,7 +16,7 @@ use super::bytes::{PyBytes, PyBytesRef};
 use super::dict::PyDict;
 use super::int::{PyInt, PyIntRef};
 use super::iter;
-use super::pytype::{self, PyTypeRef};
+use super::pytype::PyTypeRef;
 use crate::anystr::{self, adjust_indices, AnyStr, AnyStrContainer, AnyStrWrapper};
 use crate::exceptions::IntoPyException;
 use crate::format::{FormatSpec, FormatString, FromTemplate};
@@ -241,7 +241,7 @@ impl PyStr {
 
     #[pymethod(name = "__add__")]
     fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
-        if pytype::isinstance(&other, &vm.ctx.types.str_type) {
+        if other.isinstance(&vm.ctx.types.str_type) {
             Ok(self.value.py_add(borrow_value(&other)))
         } else {
             Err(vm.new_type_error(format!("Cannot add {} and {}", self, other)))

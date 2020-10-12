@@ -1,7 +1,7 @@
-use crate::builtins::pytype::{self, PyTypeRef};
+use crate::builtins::pytype::PyTypeRef;
 use crate::exceptions::{self, PyBaseExceptionRef};
 use crate::frame::{ExecutionResult, FrameRef};
-use crate::pyobject::{PyObjectRef, PyResult};
+use crate::pyobject::{PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 use crate::common::lock::PyRwLock;
@@ -98,13 +98,13 @@ impl Coro {
         match result {
             Ok(exec_res) => self.variant.exec_result(exec_res, vm),
             Err(e) => {
-                if pytype::isinstance(&e, &vm.ctx.exceptions.stop_iteration) {
+                if e.isinstance(&vm.ctx.exceptions.stop_iteration) {
                     let err = vm
                         .new_runtime_error(format!("{} raised StopIteration", self.variant.name()));
                     err.set_cause(Some(e));
                     Err(err)
                 } else if self.variant == Variant::AsyncGen
-                    && pytype::isinstance(&e, &vm.ctx.exceptions.stop_async_iteration)
+                    && e.isinstance(&vm.ctx.exceptions.stop_async_iteration)
                 {
                     let err = vm
                         .new_runtime_error("async generator raised StopAsyncIteration".to_owned());
@@ -171,5 +171,5 @@ impl Coro {
 }
 
 pub fn is_gen_exit(exc: &PyBaseExceptionRef, vm: &VirtualMachine) -> bool {
-    pytype::isinstance(exc, &vm.ctx.exceptions.generator_exit)
+    exc.isinstance(&vm.ctx.exceptions.generator_exit)
 }

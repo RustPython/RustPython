@@ -30,7 +30,6 @@ use crate::vm::VirtualMachine;
 pub struct PyClassMethod {
     callable: PyObjectRef,
 }
-pub type PyClassMethodRef = PyRef<PyClassMethod>;
 
 impl From<PyObjectRef> for PyClassMethod {
     fn from(value: PyObjectRef) -> Self {
@@ -60,11 +59,7 @@ impl SlotDescriptor for PyClassMethod {
 #[pyimpl(with(SlotDescriptor), flags(BASETYPE, HAS_DICT))]
 impl PyClassMethod {
     #[pyslot]
-    fn tp_new(
-        cls: PyTypeRef,
-        callable: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyClassMethodRef> {
+    fn tp_new(cls: PyTypeRef, callable: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         PyClassMethod { callable }.into_ref_with_type(vm, cls)
     }
 

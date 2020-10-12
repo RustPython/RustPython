@@ -13,7 +13,7 @@ mod decl {
         call_next, get_all, get_iter, get_next_object, new_stop_iteration,
     };
     use crate::builtins::pybool;
-    use crate::builtins::pytype::{self, PyTypeRef};
+    use crate::builtins::pytype::PyTypeRef;
     use crate::builtins::tuple::PyTupleRef;
     use crate::common::lock::{PyMutex, PyRwLock, PyRwLockWriteGuard};
     use crate::common::rc::PyRc;
@@ -74,7 +74,7 @@ mod decl {
                 match call_next(vm, &cur_iter) {
                     Ok(ok) => return Ok(ok),
                     Err(err) => {
-                        if pytype::isinstance(&err, &vm.ctx.exceptions.stop_iteration) {
+                        if err.isinstance(&vm.ctx.exceptions.stop_iteration) {
                             self.cur_idx.fetch_add(1);
                             *self.cached_iter.write() = None;
                         } else {
@@ -698,7 +698,7 @@ mod decl {
     }
 
     fn pyobject_to_opt_usize(obj: PyObjectRef, vm: &VirtualMachine) -> Option<usize> {
-        let is_int = pytype::isinstance(&obj, &vm.ctx.types.int_type);
+        let is_int = obj.isinstance(&vm.ctx.types.int_type);
         if is_int {
             int::get_value(&obj).to_usize()
         } else {
@@ -1524,7 +1524,7 @@ mod decl {
                     let next_obj = match call_next(vm, &self.iterators[idx]) {
                         Ok(obj) => obj,
                         Err(err) => {
-                            if !pytype::isinstance(&err, &vm.ctx.exceptions.stop_iteration) {
+                            if !err.isinstance(&vm.ctx.exceptions.stop_iteration) {
                                 return Err(err);
                             }
                             numactive -= 1;

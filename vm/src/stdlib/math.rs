@@ -3,15 +3,13 @@
  *
  */
 
+use num_bigint::BigInt;
+use num_traits::{One, Signed, Zero};
 use statrs::function::erf::{erf, erfc};
 use statrs::function::gamma::{gamma, ln_gamma};
 
-use num_bigint::BigInt;
-use num_traits::{One, Signed, Zero};
-
 use crate::builtins::float::{self, IntoPyFloat, PyFloatRef};
 use crate::builtins::int::{self, PyInt, PyIntRef};
-use crate::builtins::pytype;
 use crate::function::{Args, OptionalArg};
 use crate::pyobject::{BorrowValue, Either, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
@@ -265,7 +263,7 @@ fn math_trunc(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 /// * `value` - Either a float or a python object which implements __ceil__
 /// * `vm` - Represents the python state.
 fn math_ceil(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    if pytype::isinstance(&value, &vm.ctx.types.float_type) {
+    if value.isinstance(&vm.ctx.types.float_type) {
         let v = float::get_value(&value);
         let v = float::try_bigint(v.ceil(), vm)?;
         Ok(vm.ctx.new_int(v))
@@ -281,7 +279,7 @@ fn math_ceil(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 /// * `value` - Either a float or a python object which implements __ceil__
 /// * `vm` - Represents the python state.
 fn math_floor(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    if pytype::isinstance(&value, &vm.ctx.types.float_type) {
+    if value.isinstance(&vm.ctx.types.float_type) {
         let v = float::get_value(&value);
         let v = float::try_bigint(v.floor(), vm)?;
         Ok(vm.ctx.new_int(v))

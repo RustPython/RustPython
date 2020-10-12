@@ -3,9 +3,8 @@ pub(crate) use _functools::make_module;
 #[pymodule]
 mod _functools {
     use crate::builtins::iter;
-    use crate::builtins::pytype;
     use crate::function::OptionalArg;
-    use crate::pyobject::{PyObjectRef, PyResult};
+    use crate::pyobject::{PyObjectRef, PyResult, TypeProtocol};
     use crate::vm::VirtualMachine;
 
     #[pyfunction]
@@ -21,7 +20,7 @@ mod _functools {
             val
         } else {
             iter::call_next(vm, &iterator).map_err(|err| {
-                if pytype::isinstance(&err, &vm.ctx.exceptions.stop_iteration) {
+                if err.isinstance(&vm.ctx.exceptions.stop_iteration) {
                     let exc_type = vm.ctx.exceptions.type_error.clone();
                     vm.new_exception_msg(
                         exc_type,

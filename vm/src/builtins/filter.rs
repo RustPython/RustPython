@@ -4,8 +4,6 @@ use super::pytype::PyTypeRef;
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
-pub type PyFilterRef = PyRef<PyFilter>;
-
 /// filter(function or None, iterable) --> filter object
 ///
 /// Return an iterator yielding those items of iterable for which function(item)
@@ -31,10 +29,10 @@ impl PyFilter {
         function: PyObjectRef,
         iterable: PyObjectRef,
         vm: &VirtualMachine,
-    ) -> PyResult<PyFilterRef> {
+    ) -> PyResult<PyRef<Self>> {
         let iterator = iter::get_iter(vm, &iterable)?;
 
-        PyFilter {
+        Self {
             predicate: function,
             iterator,
         }

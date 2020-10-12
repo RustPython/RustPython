@@ -107,7 +107,7 @@ impl PyByteArray {
         cls: PyTypeRef,
         options: ByteInnerNewOptions,
         vm: &VirtualMachine,
-    ) -> PyResult<PyByteArrayRef> {
+    ) -> PyResult<PyRef<Self>> {
         PyByteArray::from_inner(options.get_value(vm)?).into_ref_with_type(vm, cls)
     }
 

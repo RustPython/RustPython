@@ -250,7 +250,7 @@ fn sys_displayhook(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
     vm.set_attr(&vm.builtins, "_", vm.ctx.none())?;
     // TODO: catch encoding errors
     let repr = vm.to_repr(&obj)?.into_object();
-    builtins::builtin_print(Args::new(vec![repr]), Default::default(), vm)?;
+    builtins::print(Args::new(vec![repr]), Default::default(), vm)?;
     vm.set_attr(&vm.builtins, "_", obj)?;
     Ok(())
 }

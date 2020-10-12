@@ -14,7 +14,6 @@ pub struct PyMap {
     mapper: PyObjectRef,
     iterators: Vec<PyObjectRef>,
 }
-type PyMapRef = PyRef<PyMap>;
 
 impl PyValue for PyMap {
     fn class(vm: &VirtualMachine) -> PyTypeRef {
@@ -30,7 +29,7 @@ impl PyMap {
         function: PyObjectRef,
         iterables: Args,
         vm: &VirtualMachine,
-    ) -> PyResult<PyMapRef> {
+    ) -> PyResult<PyRef<Self>> {
         let iterators = iterables
             .into_iter()
             .map(|iterable| iter::get_iter(vm, &iterable))

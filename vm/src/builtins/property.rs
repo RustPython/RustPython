@@ -58,8 +58,6 @@ impl PyValue for PyProperty {
     }
 }
 
-pub type PyPropertyRef = PyRef<PyProperty>;
-
 #[derive(FromArgs)]
 struct PropertyArgs {
     #[pyarg(any, default)]
@@ -93,7 +91,7 @@ impl SlotDescriptor for PyProperty {
 #[pyimpl(with(SlotDescriptor), flags(BASETYPE))]
 impl PyProperty {
     #[pyslot]
-    fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyPropertyRef> {
+    fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         PyProperty {
             getter: PyRwLock::new(None),
             setter: PyRwLock::new(None),
@@ -162,7 +160,7 @@ impl PyProperty {
         zelf: PyRef<Self>,
         getter: Option<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<PyPropertyRef> {
+    ) -> PyResult<PyRef<Self>> {
         PyProperty {
             getter: PyRwLock::new(getter.or_else(|| zelf.fget())),
             setter: PyRwLock::new(zelf.fset()),
@@ -177,7 +175,7 @@ impl PyProperty {
         zelf: PyRef<Self>,
         setter: Option<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<PyPropertyRef> {
+    ) -> PyResult<PyRef<Self>> {
         PyProperty {
             getter: PyRwLock::new(zelf.fget()),
             setter: PyRwLock::new(setter.or_else(|| zelf.fset())),
@@ -192,7 +190,7 @@ impl PyProperty {
         zelf: PyRef<Self>,
         deleter: Option<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<PyPropertyRef> {
+    ) -> PyResult<PyRef<Self>> {
         PyProperty {
             getter: PyRwLock::new(zelf.fget()),
             setter: PyRwLock::new(zelf.fset()),

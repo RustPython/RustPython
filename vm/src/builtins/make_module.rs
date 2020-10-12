@@ -9,14 +9,6 @@ use crate::vm::VirtualMachine;
 /// Noteworthy: None is the `nil' object; Ellipsis represents `...' in slices.
 #[pymodule(name = "builtins")]
 mod decl {
-    use num_bigint::Sign;
-    use num_traits::{Signed, ToPrimitive, Zero};
-    #[cfg(feature = "rustpython-compiler")]
-    use rustpython_compiler::compile;
-    #[cfg(feature = "rustpython-parser")]
-    use rustpython_parser::parser;
-
-    use super::to_ascii;
     use crate::builtins::bytes::PyBytesRef;
     use crate::builtins::code::PyCodeRef;
     use crate::builtins::dict::PyDictRef;
@@ -26,8 +18,9 @@ mod decl {
     use crate::builtins::list::{PyList, SortOptions};
     use crate::builtins::pybool::{self, IntoPyBool};
     use crate::builtins::pystr::{PyStr, PyStrRef};
-    use crate::builtins::pytype::{self, PyTypeRef};
+    use crate::builtins::pytype::PyTypeRef;
     use crate::byteslike::PyBytesLike;
+    use crate::common::{hash::PyHash, str::to_ascii};
     use crate::exceptions::PyBaseExceptionRef;
     use crate::function::{single_or_tuple_any, Args, FuncArgs, KwArgs, OptionalArg};
     use crate::pyobject::{
@@ -38,11 +31,12 @@ mod decl {
     use crate::scope::Scope;
     use crate::sliceable;
     use crate::slots::PyComparisonOp;
-    #[cfg(feature = "rustpython-parser")]
-    use crate::stdlib::ast;
     use crate::vm::VirtualMachine;
     use crate::{py_io, sysmodule};
-    use rustpython_common::hash::PyHash;
+    use num_bigint::Sign;
+    use num_traits::{Signed, ToPrimitive, Zero};
+    #[cfg(feature = "rustpython-compiler")]
+    use rustpython_compiler::compile;
 
     #[pyfunction]
     fn abs(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -73,7 +67,7 @@ mod decl {
     }
 
     #[pyfunction]
-    fn ascii(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
+    pub fn ascii(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
         let repr = vm.to_repr(&obj)?;
         let ascii = to_ascii(repr.borrow_value());
         Ok(ascii)
@@ -138,6 +132,9 @@ mod decl {
 
         #[cfg(feature = "rustpython-parser")]
         {
+            use crate::stdlib::ast;
+            use rustpython_parser::parser;
+
             if (flags & ast::PY_COMPILE_FLAG_AST_ONLY).is_zero() {
                 let mode = mode_str
                     .parse::<compile::Mode>()
@@ -292,7 +289,7 @@ mod decl {
         default: T,
         vm: &VirtualMachine,
     ) -> PyResult<T> {
-        if pytype::isinstance(&ex, &vm.ctx.exceptions.attribute_error) {
+        if ex.isinstance(&vm.ctx.exceptions.attribute_error) {
             Ok(default)
         } else {
             Err(ex)
@@ -568,7 +565,7 @@ mod decl {
         match vm.call_method(&iterator, "__next__", ()) {
             Ok(value) => Ok(value),
             Err(value) => {
-                if pytype::isinstance(&value, &vm.ctx.exceptions.stop_iteration) {
+                if value.isinstance(&vm.ctx.exceptions.stop_iteration) {
                     match default_value {
                         OptionalArg::Missing => Err(value),
                         OptionalArg::Present(value) => Ok(value),
@@ -639,9 +636,7 @@ mod decl {
             }
             OptionalArg::Present(m) => {
                 // Check if the 3rd argument is defined and perform modulus on the result
-                if !(pytype::isinstance(&x, &vm.ctx.types.int_type)
-                    && pytype::isinstance(&y, &vm.ctx.types.int_type))
-                {
+                if !(x.isinstance(&vm.ctx.types.int_type) && y.isinstance(&vm.ctx.types.int_type)) {
                     return Err(vm.new_type_error(
                         "pow() 3rd argument not allowed unless all arguments are integers"
                             .to_owned(),
@@ -825,9 +820,9 @@ mod decl {
 
         for base in bases.clone() {
             let base_class = base.class();
-            if pytype::issubclass(&base_class, &metaclass) {
+            if base_class.issubclass(&metaclass) {
                 metaclass = base.clone_class();
-            } else if !pytype::issubclass(&metaclass, &base_class) {
+            } else if !metaclass.issubclass(&base_class) {
                 return Err(vm.new_type_error(
                     "metaclass conflict: the metaclass of a derived class must be a (non-strict) \
                      subclass of the metaclasses of all its bases"
@@ -862,30 +857,7 @@ mod decl {
     }
 }
 
-pub use decl::isinstance as builtin_isinstance;
-pub use decl::print as builtin_print;
-
-/// Convert a string to ascii compatible, escaping unicodes into escape
-/// sequences.
-pub fn to_ascii(value: &str) -> String {
-    let mut ascii = String::new();
-    for c in value.chars() {
-        if c.is_ascii() {
-            ascii.push(c)
-        } else {
-            let c = c as i64;
-            let hex = if c < 0x100 {
-                format!("\\x{:02x}", c)
-            } else if c < 0x10000 {
-                format!("\\u{:04x}", c)
-            } else {
-                format!("\\U{:08x}", c)
-            };
-            ascii.push_str(&hex)
-        }
-    }
-    ascii
-}
+pub use decl::{ascii, isinstance, print};
 
 pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
     let ctx = &vm.ctx;

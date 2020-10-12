@@ -395,7 +395,7 @@ impl PyList {
         cls: PyTypeRef,
         iterable: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<PyListRef> {
+    ) -> PyResult<PyRef<Self>> {
         let elements = if let OptionalArg::Present(iterable) = iterable {
             vm.extract_elements(&iterable)?
         } else {

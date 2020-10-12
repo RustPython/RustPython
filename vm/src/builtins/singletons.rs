@@ -35,7 +35,7 @@ impl<T: IntoPyObject> IntoPyObject for Option<T> {
 #[pyimpl]
 impl PyNone {
     #[pyslot]
-    fn tp_new(_: PyTypeRef, vm: &VirtualMachine) -> PyNoneRef {
+    fn tp_new(_: PyTypeRef, vm: &VirtualMachine) -> PyRef<Self> {
         vm.ctx.none.clone()
     }
 

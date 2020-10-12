@@ -4,14 +4,14 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use indexmap::IndexMap;
 use itertools::Itertools;
 
+use crate::builtins;
 use crate::builtins::asyncgenerator::PyAsyncGenWrappedValue;
-use crate::builtins::builtin_isinstance;
 use crate::builtins::code::PyCodeRef;
 use crate::builtins::coroutine::PyCoroutine;
 use crate::builtins::dict::{PyDict, PyDictRef};
 use crate::builtins::generator::PyGenerator;
 use crate::builtins::pystr::{self, PyStr, PyStrRef};
-use crate::builtins::pytype::{self, PyTypeRef};
+use crate::builtins::pytype::PyTypeRef;
 use crate::builtins::slice::PySlice;
 use crate::builtins::traceback::PyTraceback;
 use crate::builtins::tuple::PyTuple;
@@ -116,7 +116,7 @@ impl ExecutionResult {
         match res {
             Ok(val) => Ok(ExecutionResult::Yield(val)),
             Err(err) => {
-                if pytype::isinstance(&err, &vm.ctx.exceptions.stop_iteration) {
+                if err.isinstance(&vm.ctx.exceptions.stop_iteration) {
                     iter::stop_iter_value(vm, &err).map(ExecutionResult::Return)
                 } else {
                     Err(err)
@@ -725,7 +725,7 @@ impl ExecutingFrame<'_> {
                 let value = match conversion {
                     Some(Str) => vm.to_str(&self.pop_value())?.into_object(),
                     Some(Repr) => vm.to_repr(&self.pop_value())?.into_object(),
-                    Some(Ascii) => vm.to_ascii(&self.pop_value())?,
+                    Some(Ascii) => vm.ctx.new_str(builtins::ascii(self.pop_value(), vm)?),
                     None => self.pop_value(),
                 };
 
@@ -1421,7 +1421,7 @@ impl ExecutingFrame<'_> {
             bytecode::ComparisonOperator::In => vm.ctx.new_bool(self._in(vm, a, b)?),
             bytecode::ComparisonOperator::NotIn => vm.ctx.new_bool(self._not_in(vm, a, b)?),
             bytecode::ComparisonOperator::ExceptionMatch => {
-                vm.ctx.new_bool(builtin_isinstance(a, b, vm)?)
+                vm.ctx.new_bool(builtins::isinstance(a, b, vm)?)
             }
         };
 

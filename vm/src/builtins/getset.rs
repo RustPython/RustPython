@@ -178,8 +178,6 @@ impl PyValue for PyGetSet {
     }
 }
 
-pub type PyGetSetRef = PyRef<PyGetSet>;
-
 impl SlotDescriptor for PyGetSet {
     fn descr_get(
         zelf: PyObjectRef,
