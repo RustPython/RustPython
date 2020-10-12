@@ -1,8 +1,9 @@
 use lock_api::{
-    RawMutex, RawRwLock, RawRwLockDowngrade, RawRwLockRecursive, RawRwLockUpgrade,
+    GetThreadId, RawMutex, RawRwLock, RawRwLockDowngrade, RawRwLockRecursive, RawRwLockUpgrade,
     RawRwLockUpgradeDowngrade,
 };
 use std::cell::Cell;
+use std::num::NonZeroUsize;
 
 pub struct RawCellMutex {
     locked: Cell<bool>,
@@ -196,4 +197,12 @@ unsafe impl RawRwLockRecursive for RawCellRwLock {
 #[inline(never)]
 fn deadlock(lockkind: &str, ty: &str) -> ! {
     panic!("deadlock: tried to {}lock a Cell{} twice", lockkind, ty)
+}
+
+pub struct SingleThreadId(());
+impl GetThreadId for SingleThreadId {
+    pub const INIT: Self = SingleThreadId(());
+    fn nonzero_thread_id(&self) -> NonZeroUsize {
+        NonZeroUsize::new(1).unwrap()
+    }
 }
