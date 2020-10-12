@@ -580,7 +580,7 @@ impl PyBytesInner {
 
             let (i, b) = match iter.next() {
                 Some(val) => val,
-                None => break i,
+                None => break i + 1,
             };
 
             let bot = match b {
