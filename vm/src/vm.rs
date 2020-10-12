@@ -783,25 +783,26 @@ impl VirtualMachine {
         TryFromObject::try_from_object(self, repr)
     }
 
-    pub fn to_index(&self, obj: &PyObjectRef) -> Option<PyResult<PyIntRef>> {
-        Some(
-            if let Ok(val) = TryFromObject::try_from_object(self, obj.clone()) {
-                Ok(val)
-            } else if obj.class().has_attr("__index__") {
-                self.call_method(obj, "__index__", ()).and_then(|r| {
-                    if let Ok(val) = TryFromObject::try_from_object(self, r) {
-                        Ok(val)
-                    } else {
-                        Err(self.new_type_error(format!(
-                            "__index__ returned non-int (type {})",
-                            obj.class().name
-                        )))
-                    }
+    pub fn to_index_opt(&self, obj: PyObjectRef) -> Option<PyResult<PyIntRef>> {
+        match obj.downcast() {
+            Ok(val) => Some(Ok(val)),
+            Err(obj) => self.get_method(obj, "__index__").map(|index| {
+                self.invoke(&index?, ())?.downcast().map_err(|bad| {
+                    self.new_type_error(format!(
+                        "__index__ returned non-int (type {})",
+                        bad.class().name
+                    ))
                 })
-            } else {
-                return None;
-            },
-        )
+            }),
+        }
+    }
+    pub fn to_index(&self, obj: &PyObjectRef) -> PyResult<PyIntRef> {
+        self.to_index_opt(obj.clone()).unwrap_or_else(|| {
+            Err(self.new_type_error(format!(
+                "'{}' object cannot be interpreted as an integer",
+                obj.class().name
+            )))
+        })
     }
 
     pub fn import(&self, module: &str, from_list: &[String], level: usize) -> PyResult {

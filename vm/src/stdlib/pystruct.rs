@@ -444,7 +444,7 @@ pub(crate) mod _struct {
     where
         T: num_traits::PrimInt + for<'a> std::convert::TryFrom<&'a BigInt>,
     {
-        match vm.to_index(&arg) {
+        match vm.to_index_opt(arg.clone()) {
             Some(index) => try_to_primitive(index?.borrow_value(), vm),
             None => Err(new_struct_error(
                 vm,
