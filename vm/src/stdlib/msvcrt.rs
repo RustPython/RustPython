@@ -1,6 +1,6 @@
 use super::os::errno_err;
-use crate::obj::objbytes::PyBytesRef;
-use crate::obj::objstr::PyStrRef;
+use crate::builtins::bytes::PyBytesRef;
+use crate::builtins::pystr::PyStrRef;
 use crate::pyobject::{BorrowValue, PyObjectRef, PyResult};
 use crate::VirtualMachine;
 

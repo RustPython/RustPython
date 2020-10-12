@@ -2,10 +2,10 @@ pub(crate) use decl::make_module;
 
 #[pymodule(name = "dis")]
 mod decl {
+    use crate::builtins::code::PyCodeRef;
+    use crate::builtins::dict::PyDictRef;
+    use crate::builtins::pystr::PyStrRef;
     use crate::bytecode::CodeFlags;
-    use crate::obj::objcode::PyCodeRef;
-    use crate::obj::objdict::PyDictRef;
-    use crate::obj::objstr::PyStrRef;
     use crate::pyobject::{BorrowValue, ItemProtocol, PyObjectRef, PyResult, TryFromObject};
     use crate::vm::VirtualMachine;
     use rustpython_compiler::compile;

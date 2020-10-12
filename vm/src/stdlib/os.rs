@@ -10,18 +10,18 @@ use crossbeam_utils::atomic::AtomicCell;
 use num_traits::ToPrimitive;
 
 use super::errno::errors;
+use crate::builtins::bytes::{PyBytes, PyBytesRef};
+use crate::builtins::dict::PyDictRef;
+use crate::builtins::int::{PyInt, PyIntRef};
+use crate::builtins::iter;
+use crate::builtins::pystr::{PyStr, PyStrRef};
+use crate::builtins::pytype::PyTypeRef;
+use crate::builtins::set::PySet;
+use crate::builtins::tuple::PyTupleRef;
 use crate::byteslike::PyBytesLike;
 use crate::common::lock::PyRwLock;
 use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
 use crate::function::{FuncArgs, IntoPyNativeFunc, OptionalArg};
-use crate::obj::objbytes::{PyBytes, PyBytesRef};
-use crate::obj::objdict::PyDictRef;
-use crate::obj::objint::{PyInt, PyIntRef};
-use crate::obj::objiter;
-use crate::obj::objset::PySet;
-use crate::obj::objstr::{PyStr, PyStrRef};
-use crate::obj::objtuple::PyTupleRef;
-use crate::obj::objtype::PyTypeRef;
 use crate::pyobject::{
     BorrowValue, Either, IntoPyObject, ItemProtocol, PyObjectRef, PyRef, PyResult,
     PyStructSequence, PyValue, TryFromObject, TypeProtocol,
@@ -560,7 +560,7 @@ mod _os {
         #[pymethod(name = "__next__")]
         fn next(&self, vm: &VirtualMachine) -> PyResult {
             if self.exhausted.load() {
-                return Err(objiter::new_stop_iteration(vm));
+                return Err(iter::new_stop_iteration(vm));
             }
 
             match self.entries.write().next() {
@@ -575,7 +575,7 @@ mod _os {
                 },
                 None => {
                     self.exhausted.store(true);
-                    Err(objiter::new_stop_iteration(vm))
+                    Err(iter::new_stop_iteration(vm))
                 }
             }
         }
@@ -981,8 +981,8 @@ fn to_seconds_from_unix_epoch(sys_time: SystemTime) -> f64 {
 mod posix {
     use super::*;
 
-    use crate::obj::objdict::PyMapping;
-    use crate::obj::objlist::PyListRef;
+    use crate::builtins::dict::PyMapping;
+    use crate::builtins::list::PyListRef;
     use crate::pyobject::PyIterable;
     use bitflags::bitflags;
     use nix::errno::Errno;
@@ -2202,7 +2202,7 @@ pub(crate) use posix::raw_set_inheritable;
 #[pymodule]
 mod nt {
     use super::*;
-    use crate::obj::objlist::PyListRef;
+    use crate::builtins::list::PyListRef;
     pub(super) use std::os::windows::fs::OpenOptionsExt;
     use std::os::windows::io::RawHandle;
     #[cfg(target_env = "msvc")]

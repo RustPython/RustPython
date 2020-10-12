@@ -9,10 +9,10 @@ use statrs::function::gamma::{gamma, ln_gamma};
 use num_bigint::BigInt;
 use num_traits::{One, Signed, Zero};
 
+use crate::builtins::float::{self, IntoPyFloat, PyFloatRef};
+use crate::builtins::int::{self, PyInt, PyIntRef};
+use crate::builtins::pytype;
 use crate::function::{Args, OptionalArg};
-use crate::obj::objfloat::{self, IntoPyFloat, PyFloatRef};
-use crate::obj::objint::{self, PyInt, PyIntRef};
-use crate::obj::objtype;
 use crate::pyobject::{BorrowValue, Either, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 use rustpython_common::float_ops;
@@ -265,9 +265,9 @@ fn math_trunc(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 /// * `value` - Either a float or a python object which implements __ceil__
 /// * `vm` - Represents the python state.
 fn math_ceil(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    if objtype::isinstance(&value, &vm.ctx.types.float_type) {
-        let v = objfloat::get_value(&value);
-        let v = objfloat::try_bigint(v.ceil(), vm)?;
+    if pytype::isinstance(&value, &vm.ctx.types.float_type) {
+        let v = float::get_value(&value);
+        let v = float::try_bigint(v.ceil(), vm)?;
         Ok(vm.ctx.new_int(v))
     } else {
         try_magic_method("__ceil__", vm, &value)
@@ -281,9 +281,9 @@ fn math_ceil(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 /// * `value` - Either a float or a python object which implements __ceil__
 /// * `vm` - Represents the python state.
 fn math_floor(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    if objtype::isinstance(&value, &vm.ctx.types.float_type) {
-        let v = objfloat::get_value(&value);
-        let v = objfloat::try_bigint(v.floor(), vm)?;
+    if pytype::isinstance(&value, &vm.ctx.types.float_type) {
+        let v = float::get_value(&value);
+        let v = float::try_bigint(v.floor(), vm)?;
         Ok(vm.ctx.new_int(v))
     } else {
         try_magic_method("__floor__", vm, &value)
@@ -307,9 +307,9 @@ fn math_ldexp(
 ) -> PyResult<f64> {
     let value = match value {
         Either::A(f) => f.to_f64(),
-        Either::B(z) => objint::try_float(z.borrow_value(), vm)?,
+        Either::B(z) => int::try_float(z.borrow_value(), vm)?,
     };
-    Ok(value * (2_f64).powf(objint::try_float(i.borrow_value(), vm)?))
+    Ok(value * (2_f64).powf(int::try_float(i.borrow_value(), vm)?))
 }
 
 fn math_perf_arb_len_int_op<F>(args: Args<PyIntRef>, op: F, default: BigInt) -> BigInt

@@ -1,8 +1,8 @@
 use js_sys::{Array, Object, Reflect};
+use rustpython_vm::builtins::{PyFloatRef, PyStrRef, PyTypeRef};
 use rustpython_vm::common::rc::PyRc;
 use rustpython_vm::exceptions::PyBaseExceptionRef;
 use rustpython_vm::function::Args;
-use rustpython_vm::obj::{objfloat::PyFloatRef, objstr::PyStrRef, objtype::PyTypeRef};
 use rustpython_vm::pyobject::{
     BorrowValue, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
 };

@@ -1,11 +1,11 @@
 use super::socket::PySocketRef;
+use crate::builtins::bytearray::PyByteArrayRef;
+use crate::builtins::pystr::PyStrRef;
+use crate::builtins::{pytype::PyTypeRef, weakref::PyWeak};
 use crate::byteslike::PyBytesLike;
 use crate::common::lock::{PyRwLock, PyRwLockWriteGuard};
 use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
 use crate::function::OptionalArg;
-use crate::obj::objbytearray::PyByteArrayRef;
-use crate::obj::objstr::PyStrRef;
-use crate::obj::{objtype::PyTypeRef, objweakref::PyWeak};
 use crate::pyobject::{
     BorrowValue, Either, IntoPyObject, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult,
     PyValue,
@@ -113,7 +113,7 @@ fn obj2py(obj: &Asn1ObjectRef) -> PyNid {
 
 #[cfg(windows)]
 fn ssl_enum_certificates(store_name: PyStrRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-    use crate::obj::objset::PyFrozenSet;
+    use crate::builtins::set::PyFrozenSet;
     use schannel::{cert_context::ValidUses, cert_store::CertStore, RawPointer};
     use winapi::um::wincrypt;
     // TODO: check every store for it, not just 2 of them:

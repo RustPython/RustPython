@@ -10,14 +10,14 @@ use gethostname::gethostname;
 use nix::unistd::sethostname;
 use socket2::{Domain, Protocol, Socket, Type as SocketType};
 
+use crate::builtins::bytearray::PyByteArrayRef;
+use crate::builtins::bytes::PyBytesRef;
+use crate::builtins::pystr::{PyStr, PyStrRef};
+use crate::builtins::pytype::PyTypeRef;
+use crate::builtins::tuple::PyTupleRef;
 use crate::byteslike::PyBytesLike;
 use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
 use crate::function::{FuncArgs, OptionalArg};
-use crate::obj::objbytearray::PyByteArrayRef;
-use crate::obj::objbytes::PyBytesRef;
-use crate::obj::objstr::{PyStr, PyStrRef};
-use crate::obj::objtuple::PyTupleRef;
-use crate::obj::objtype::PyTypeRef;
 use crate::pyobject::{
     BorrowValue, Either, IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject,

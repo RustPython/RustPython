@@ -1,5 +1,5 @@
+use crate::builtins::memory::{try_buffer_from_object, BufferRef};
 use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
-use crate::obj::objmemory::{try_buffer_from_object, BufferRef};
 use crate::pyobject::{BorrowValue, PyObjectRef, PyResult, TryFromObject};
 use crate::vm::VirtualMachine;
 

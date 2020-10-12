@@ -1,9 +1,9 @@
 #![allow(non_snake_case)]
+use crate::builtins::pystr::PyStrRef;
+use crate::builtins::pytype::PyTypeRef;
 use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::exceptions::IntoPyException;
 use crate::function::OptionalArg;
-use crate::obj::objstr::PyStrRef;
-use crate::obj::objtype::PyTypeRef;
 use crate::pyobject::{
     BorrowValue, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
 };

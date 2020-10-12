@@ -4,17 +4,17 @@ use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 
 use crate::anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper};
+use crate::builtins::bytearray::PyByteArray;
+use crate::builtins::bytes::{PyBytes, PyBytesRef};
+use crate::builtins::int::{self, PyInt, PyIntRef};
+use crate::builtins::list::PyList;
+use crate::builtins::memory::PyMemoryView;
+use crate::builtins::pystr::{self, PyStr, PyStrRef};
+use crate::builtins::singletons::PyNoneRef;
+use crate::builtins::slice::PySliceRef;
+use crate::builtins::tuple::PyTuple;
 use crate::byteslike::try_bytes_like;
 use crate::function::{OptionalArg, OptionalOption};
-use crate::obj::objbytearray::PyByteArray;
-use crate::obj::objbytes::{PyBytes, PyBytesRef};
-use crate::obj::objint::{self, PyInt, PyIntRef};
-use crate::obj::objlist::PyList;
-use crate::obj::objmemory::PyMemoryView;
-use crate::obj::objsingletons::PyNoneRef;
-use crate::obj::objslice::PySliceRef;
-use crate::obj::objstr::{self, PyStr, PyStrRef};
-use crate::obj::objtuple::PyTuple;
 use crate::pyobject::{
     BorrowValue, Either, PyComparisonValue, PyIterable, PyIterator, PyObjectRef, PyResult,
     TryFromObject, TypeProtocol,
@@ -91,7 +91,7 @@ impl ByteInnerNewOptions {
                         // Handle bytes(string, encoding[, errors])
                         if let OptionalArg::Present(enc) = self.encoding {
                             let bytes =
-                                objstr::encode_string(s, Some(enc), self.errors.into_option(), vm)?;
+                                pystr::encode_string(s, Some(enc), self.errors.into_option(), vm)?;
                             Ok(PyBytesInner {
                                 elements: bytes.borrow_value().to_vec(),
                             })
@@ -107,7 +107,7 @@ impl ByteInnerNewOptions {
                         } else {
                             let value = match_class!(match obj {
                                 i @ PyInt => {
-                                    let size = objint::get_value(&i.into_object())
+                                    let size = int::get_value(&i.into_object())
                                         .to_isize()
                                         .ok_or_else(|| {
                                             vm.new_overflow_error(

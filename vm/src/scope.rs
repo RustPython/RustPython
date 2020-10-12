@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::obj::objdict::PyDictRef;
+use crate::builtins::dict::PyDictRef;
 use crate::pyobject::{ItemProtocol, PyContext, PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
 

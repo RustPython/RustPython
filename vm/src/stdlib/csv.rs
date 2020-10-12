@@ -2,11 +2,11 @@ use csv as rust_csv;
 use itertools::{self, Itertools};
 use std::fmt::{self, Debug, Formatter};
 
+use crate::builtins::iter;
+use crate::builtins::pystr::{self, PyStr};
+use crate::builtins::pytype::PyTypeRef;
 use crate::common::lock::PyRwLock;
 use crate::function::FuncArgs;
-use crate::obj::objiter;
-use crate::obj::objstr::{self, PyStr};
-use crate::obj::objtype::PyTypeRef;
 use crate::pyobject::{
     BorrowValue, IntoPyObject, PyClassImpl, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol,
@@ -30,7 +30,7 @@ struct ReaderOption {
 impl ReaderOption {
     fn new(args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         let delimiter = if let Some(delimiter) = args.get_optional_kwarg("delimiter") {
-            *objstr::borrow_value(&delimiter)
+            *pystr::borrow_value(&delimiter)
                 .as_bytes()
                 .iter()
                 .exactly_one()
@@ -43,7 +43,7 @@ impl ReaderOption {
         };
 
         let quotechar = if let Some(quotechar) = args.get_optional_kwarg("quotechar") {
-            *objstr::borrow_value(&quotechar)
+            *pystr::borrow_value(&quotechar)
                 .as_bytes()
                 .iter()
                 .exactly_one()
@@ -178,7 +178,7 @@ impl Reader {
                     }
                 }
             } else {
-                Err(objiter::new_stop_iteration(vm))
+                Err(iter::new_stop_iteration(vm))
             }
         } else {
             unreachable!()

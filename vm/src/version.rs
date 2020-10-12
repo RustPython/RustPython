@@ -46,7 +46,7 @@ impl VersionInfo {
     };
     #[pyslot]
     fn tp_new(
-        _cls: crate::obj::objtype::PyTypeRef,
+        _cls: crate::builtins::pytype::PyTypeRef,
         _args: crate::function::FuncArgs,
         vm: &crate::VirtualMachine,
     ) -> crate::pyobject::PyResult {

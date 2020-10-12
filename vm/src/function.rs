@@ -1,7 +1,7 @@
 use self::OptionalArg::*;
+use crate::builtins::pytype::{isinstance, PyTypeRef};
+use crate::builtins::tuple::PyTupleRef;
 use crate::exceptions::PyBaseExceptionRef;
-use crate::obj::objtuple::PyTupleRef;
-use crate::obj::objtype::{isinstance, PyTypeRef};
 use crate::pyobject::{
     BorrowValue, IntoPyObject, IntoPyResult, PyObjectRef, PyRef, PyResult, PyThreadingConstraint,
     PyValue, TryFromObject, TypeProtocol,

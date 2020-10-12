@@ -2,9 +2,9 @@ pub(crate) use _serde_json::make_module;
 
 #[pymodule]
 mod _serde_json {
+    use crate::builtins::pystr::PyStrRef;
     use crate::common::borrow::BorrowValue;
     use crate::exceptions::PyBaseExceptionRef;
-    use crate::obj::objstr::PyStrRef;
     use crate::py_serde;
     use crate::pyobject::{PyResult, TryFromObject};
     use crate::VirtualMachine;

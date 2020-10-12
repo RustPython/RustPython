@@ -8,14 +8,16 @@ mod decl {
     use std::fmt;
     use std::iter;
 
+    use crate::builtins::int::{self, PyInt, PyIntRef};
+    use crate::builtins::iter::{
+        call_next, get_all, get_iter, get_next_object, new_stop_iteration,
+    };
+    use crate::builtins::pybool;
+    use crate::builtins::pytype::{self, PyTypeRef};
+    use crate::builtins::tuple::PyTupleRef;
     use crate::common::lock::{PyMutex, PyRwLock, PyRwLockWriteGuard};
     use crate::common::rc::PyRc;
     use crate::function::{Args, FuncArgs, OptionalArg, OptionalOption};
-    use crate::obj::objbool;
-    use crate::obj::objint::{self, PyInt, PyIntRef};
-    use crate::obj::objiter::{call_next, get_all, get_iter, get_next_object, new_stop_iteration};
-    use crate::obj::objtuple::PyTupleRef;
-    use crate::obj::objtype::{self, PyTypeRef};
     use crate::pyobject::{
         BorrowValue, IdProtocol, IntoPyRef, PyCallable, PyObjectRc, PyObjectRef, PyObjectWeak,
         PyRef, PyResult, PyValue, TypeProtocol,
@@ -72,7 +74,7 @@ mod decl {
                 match call_next(vm, &cur_iter) {
                     Ok(ok) => return Ok(ok),
                     Err(err) => {
-                        if objtype::isinstance(&err, &vm.ctx.exceptions.stop_iteration) {
+                        if pytype::isinstance(&err, &vm.ctx.exceptions.stop_iteration) {
                             self.cur_idx.fetch_add(1);
                             *self.cached_iter.write() = None;
                         } else {
@@ -145,7 +147,7 @@ mod decl {
         fn next(&self, vm: &VirtualMachine) -> PyResult {
             loop {
                 let sel_obj = call_next(vm, &self.selector)?;
-                let verdict = objbool::boolval(vm, sel_obj.clone())?;
+                let verdict = pybool::boolval(vm, sel_obj.clone())?;
                 let data_obj = call_next(vm, &self.data)?;
 
                 if verdict {
@@ -420,7 +422,7 @@ mod decl {
             let predicate = &self.predicate;
 
             let verdict = vm.invoke(predicate, (obj.clone(),))?;
-            let verdict = objbool::boolval(vm, verdict)?;
+            let verdict = pybool::boolval(vm, verdict)?;
             if verdict {
                 Ok(obj)
             } else {
@@ -479,7 +481,7 @@ mod decl {
                     let obj = call_next(vm, iterable)?;
                     let pred = predicate.clone();
                     let pred_value = vm.invoke(&pred.into_object(), (obj.clone(),))?;
-                    if !objbool::boolval(vm, pred_value)? {
+                    if !pybool::boolval(vm, pred_value)? {
                         self.start_flag.store(true);
                         return Ok(obj);
                     }
@@ -696,9 +698,9 @@ mod decl {
     }
 
     fn pyobject_to_opt_usize(obj: PyObjectRef, vm: &VirtualMachine) -> Option<usize> {
-        let is_int = objtype::isinstance(&obj, &vm.ctx.types.int_type);
+        let is_int = pytype::isinstance(&obj, &vm.ctx.types.int_type);
         if is_int {
-            objint::get_value(&obj).to_usize()
+            int::get_value(&obj).to_usize()
         } else {
             None
         }
@@ -850,7 +852,7 @@ mod decl {
                     vm.invoke(predicate, vec![obj.clone()])?
                 };
 
-                if !objbool::boolval(vm, pred_value)? {
+                if !pybool::boolval(vm, pred_value)? {
                     return Ok(obj);
                 }
             }
@@ -1522,7 +1524,7 @@ mod decl {
                     let next_obj = match call_next(vm, &self.iterators[idx]) {
                         Ok(obj) => obj,
                         Err(err) => {
-                            if !objtype::isinstance(&err, &vm.ctx.exceptions.stop_iteration) {
+                            if !pytype::isinstance(&err, &vm.ctx.exceptions.stop_iteration) {
                                 return Err(err);
                             }
                             numactive -= 1;

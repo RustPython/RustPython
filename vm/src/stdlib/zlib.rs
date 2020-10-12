@@ -2,12 +2,12 @@ pub(crate) use decl::make_module;
 
 #[pymodule(name = "zlib")]
 mod decl {
+    use crate::builtins::bytes::{PyBytes, PyBytesRef};
+    use crate::builtins::pytype::PyTypeRef;
     use crate::byteslike::PyBytesLike;
     use crate::common::lock::PyMutex;
     use crate::exceptions::PyBaseExceptionRef;
     use crate::function::OptionalArg;
-    use crate::obj::objbytes::{PyBytes, PyBytesRef};
-    use crate::obj::objtype::PyTypeRef;
     use crate::pyobject::{BorrowValue, IntoPyRef, PyResult, PyValue};
     use crate::types::create_type;
     use crate::vm::VirtualMachine;

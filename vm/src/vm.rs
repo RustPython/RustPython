@@ -13,6 +13,17 @@ use arr_macro::arr;
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::{Signed, ToPrimitive};
 
+use crate::builtins::code::{PyCode, PyCodeRef};
+use crate::builtins::dict::PyDictRef;
+use crate::builtins::int::{PyInt, PyIntRef};
+use crate::builtins::iter;
+use crate::builtins::list::PyList;
+use crate::builtins::module::{self, PyModule};
+use crate::builtins::object;
+use crate::builtins::pybool;
+use crate::builtins::pystr::{PyStr, PyStrRef};
+use crate::builtins::pytype::{self, PyTypeRef};
+use crate::builtins::tuple::PyTuple;
 use crate::builtins::{self, to_ascii};
 use crate::bytecode;
 use crate::common::{hash::HashSecret, lock::PyMutex, rc::PyRc};
@@ -21,17 +32,6 @@ use crate::frame::{ExecutionResult, Frame, FrameRef};
 use crate::frozen;
 use crate::function::{FuncArgs, IntoFuncArgs};
 use crate::import;
-use crate::obj::objbool;
-use crate::obj::objcode::{PyCode, PyCodeRef};
-use crate::obj::objdict::PyDictRef;
-use crate::obj::objint::{PyInt, PyIntRef};
-use crate::obj::objiter;
-use crate::obj::objlist::PyList;
-use crate::obj::objmodule::{self, PyModule};
-use crate::obj::objobject;
-use crate::obj::objstr::{PyStr, PyStrRef};
-use crate::obj::objtuple::PyTuple;
-use crate::obj::objtype::{self, PyTypeRef};
 use crate::pyobject::{
     BorrowValue, Either, IdProtocol, IntoPyObject, ItemProtocol, PyArithmaticValue, PyContext,
     PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
@@ -46,7 +46,7 @@ use rustpython_compiler::{
     error::CompileError,
 };
 
-// use objects::objects;
+// use objects::ects;
 
 // Objects are live when they are on stack, or referenced by a name (for now)
 
@@ -97,7 +97,7 @@ pub(crate) mod thread {
         let vm_owns_obj = |intp: NonNull<VirtualMachine>| {
             // SAFETY: all references in VM_STACK should be valid
             let vm = unsafe { intp.as_ref() };
-            crate::obj::objtype::isinstance(obj, &vm.ctx.types.object_type)
+            crate::builtins::pytype::isinstance(obj, &vm.ctx.types.object_type)
         };
         VM_STACK.with(|vms| {
             let intp = match vms.borrow().iter().copied().exactly_one() {
@@ -290,13 +290,13 @@ impl VirtualMachine {
             initialized: false,
         };
 
-        objmodule::init_module_dict(
+        module::init_module_dict(
             &vm,
             &builtins_dict,
             vm.ctx.new_str("builtins"),
             vm.ctx.none(),
         );
-        objmodule::init_module_dict(&vm, &sysmod_dict, vm.ctx.new_str("sys"), vm.ctx.none());
+        module::init_module_dict(&vm, &sysmod_dict, vm.ctx.new_str("sys"), vm.ctx.none());
         vm
     }
 
@@ -418,7 +418,7 @@ impl VirtualMachine {
         for (func, args) in self.state.atexit_funcs.lock().drain(..).rev() {
             if let Err(e) = self.invoke(&func, args) {
                 last_exc = Some(e.clone());
-                if !objtype::isinstance(&e, &self.ctx.exceptions.system_exit) {
+                if !pytype::isinstance(&e, &self.ctx.exceptions.system_exit) {
                     writeln!(sysmodule::PyStderr(self), "Error in atexit._run_exitfuncs:");
                     exceptions::print_exception(self, e);
                 }
@@ -509,7 +509,7 @@ impl VirtualMachine {
     }
 
     pub fn new_module(&self, name: &str, dict: PyDictRef) -> PyObjectRef {
-        objmodule::init_module_dict(
+        module::init_module_dict(
             self,
             &dict,
             self.new_pyobj(name.to_owned()),
@@ -854,7 +854,7 @@ impl VirtualMachine {
             Ok(true)
         } else {
             let ret = self.call_method(cls.as_object(), "__instancecheck__", (obj.clone(),))?;
-            objbool::boolval(self, ret)
+            pybool::boolval(self, ret)
         }
     }
 
@@ -862,7 +862,7 @@ impl VirtualMachine {
     /// via the __subclasscheck__ magic method.
     pub fn issubclass(&self, subclass: &PyTypeRef, cls: &PyTypeRef) -> PyResult<bool> {
         let ret = self.call_method(cls.as_object(), "__subclasscheck__", (subclass.clone(),))?;
-        objbool::boolval(self, ret)
+        pybool::boolval(self, ret)
     }
 
     pub fn call_get_descriptor_specific(
@@ -984,8 +984,8 @@ impl VirtualMachine {
                 .map(|obj| T::try_from_object(self, obj.clone()))
                 .collect()
         } else {
-            let iter = objiter::get_iter(self, value)?;
-            objiter::get_all(self, &iter)
+            let iter = iter::get_iter(self, value)?;
+            iter::get_all(self, &iter)
         }
     }
 
@@ -1434,7 +1434,7 @@ impl VirtualMachine {
         let is_strict_subclass = {
             let v_class = v.class();
             let w_class = w.class();
-            !v_class.is(&w_class) && objtype::issubclass(&w_class, &v_class)
+            !v_class.is(&w_class) && pytype::issubclass(&w_class, &v_class)
         };
         if is_strict_subclass {
             let res = call_cmp(w, v, swapped)?;
@@ -1462,7 +1462,7 @@ impl VirtualMachine {
 
     pub fn bool_cmp(&self, a: &PyObjectRef, b: &PyObjectRef, op: PyComparisonOp) -> PyResult<bool> {
         match self._cmp(a, b, op)? {
-            Either::A(obj) => objbool::boolval(self, obj),
+            Either::A(obj) => pybool::boolval(self, obj),
             Either::B(b) => Ok(b),
         }
     }
@@ -1503,9 +1503,9 @@ impl VirtualMachine {
 
     // https://docs.python.org/3/reference/expressions.html#membership-test-operations
     fn _membership_iter_search(&self, haystack: PyObjectRef, needle: PyObjectRef) -> PyResult {
-        let iter = objiter::get_iter(self, &haystack)?;
+        let iter = iter::get_iter(self, &haystack)?;
         loop {
-            if let Some(element) = objiter::get_next_object(self, &iter)? {
+            if let Some(element) = iter::get_next_object(self, &iter)? {
                 if self.bool_eq(&needle, &element)? {
                     return Ok(self.ctx.new_bool(true));
                 } else {
@@ -1580,7 +1580,7 @@ impl VirtualMachine {
         attr_value: impl Into<PyObjectRef>,
     ) -> PyResult<()> {
         let val = attr_value.into();
-        objobject::setattr(module.clone(), attr_name.try_into_ref(self)?, val, self)
+        object::setattr(module.clone(), attr_name.try_into_ref(self)?, val, self)
     }
 }
 
@@ -1700,7 +1700,7 @@ impl PyThread {
 #[cfg(test)]
 mod tests {
     use super::Interpreter;
-    use crate::obj::{objint, objstr};
+    use crate::builtins::{int, pystr};
     use num_bigint::ToBigInt;
 
     #[test]
@@ -1709,7 +1709,7 @@ mod tests {
             let a = vm.ctx.new_int(33_i32);
             let b = vm.ctx.new_int(12_i32);
             let res = vm._add(&a, &b).unwrap();
-            let value = objint::get_value(&res);
+            let value = int::get_value(&res);
             assert_eq!(*value, 45_i32.to_bigint().unwrap());
         })
     }
@@ -1720,7 +1720,7 @@ mod tests {
             let a = vm.ctx.new_str(String::from("Hello "));
             let b = vm.ctx.new_int(4_i32);
             let res = vm._mul(&a, &b).unwrap();
-            let value = objstr::borrow_value(&res);
+            let value = pystr::borrow_value(&res);
             assert_eq!(value, String::from("Hello Hello Hello Hello "))
         })
     }

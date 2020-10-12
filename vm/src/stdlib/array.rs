@@ -1,17 +1,17 @@
+use crate::builtins::bytes::PyBytesRef;
+use crate::builtins::float::try_float;
+use crate::builtins::iter;
+use crate::builtins::list::PyList;
+use crate::builtins::memory::{Buffer, BufferOptions};
+use crate::builtins::pystr::PyStrRef;
+use crate::builtins::pytype::PyTypeRef;
+use crate::builtins::slice::PySliceRef;
 use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
 use crate::common::lock::{
     PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyRwLock, PyRwLockReadGuard,
     PyRwLockUpgradableReadGuard, PyRwLockWriteGuard,
 };
 use crate::function::OptionalArg;
-use crate::obj::objbytes::PyBytesRef;
-use crate::obj::objfloat::try_float;
-use crate::obj::objiter;
-use crate::obj::objlist::PyList;
-use crate::obj::objmemory::{Buffer, BufferOptions};
-use crate::obj::objslice::PySliceRef;
-use crate::obj::objstr::PyStrRef;
-use crate::obj::objtype::PyTypeRef;
 use crate::pyobject::{
     BorrowValue, Either, IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyIterable,
     PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
@@ -928,7 +928,7 @@ impl PyArrayIter {
         if let Some(item) = self.array.borrow_value().getitem_by_idx(pos, vm) {
             Ok(item)
         } else {
-            Err(objiter::new_stop_iteration(vm))
+            Err(iter::new_stop_iteration(vm))
         }
     }
 

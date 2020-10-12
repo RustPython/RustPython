@@ -17,6 +17,16 @@ mod _io {
     use num_traits::ToPrimitive;
     use std::io::{self, prelude::*, Cursor, SeekFrom};
 
+    use crate::builtins::bytearray::PyByteArray;
+    use crate::builtins::bytes::PyBytesRef;
+    use crate::builtins::int;
+    use crate::builtins::iter;
+    use crate::builtins::memory::{
+        Buffer, BufferOptions, BufferRef, PyMemoryView, PyMemoryViewRef,
+    };
+    use crate::builtins::pybool;
+    use crate::builtins::pystr::{self, PyStr, PyStrRef};
+    use crate::builtins::pytype::{self, PyTypeRef};
     use crate::byteslike::{PyBytesLike, PyRwBytesLike};
     use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
     use crate::common::lock::{
@@ -24,14 +34,6 @@ mod _io {
     };
     use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
     use crate::function::{FuncArgs, OptionalArg, OptionalOption};
-    use crate::obj::objbool;
-    use crate::obj::objbytearray::PyByteArray;
-    use crate::obj::objbytes::PyBytesRef;
-    use crate::obj::objint;
-    use crate::obj::objiter;
-    use crate::obj::objmemory::{Buffer, BufferOptions, BufferRef, PyMemoryView, PyMemoryViewRef};
-    use crate::obj::objstr::{self, PyStr, PyStrRef};
-    use crate::obj::objtype::{self, PyTypeRef};
     use crate::pyobject::{
         BorrowValue, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
         TryFromObject,
@@ -266,7 +268,7 @@ mod _io {
 
         #[pymethod]
         fn close(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            let closed = objbool::boolval(vm, Self::closed(instance.clone(), vm)?)?;
+            let closed = pybool::boolval(vm, Self::closed(instance.clone(), vm)?)?;
             if !closed {
                 let res = vm.call_method(&instance, "flush", ());
                 vm.set_attr(&instance, "__closed", vm.ctx.new_bool(true))?;
@@ -308,7 +310,7 @@ mod _io {
             msg: OptionalOption<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            if objbool::boolval(vm, vm.get_attribute(instance, "closed")?)? {
+            if pybool::boolval(vm, vm.get_attribute(instance, "closed")?)? {
                 let msg = msg
                     .flatten()
                     .unwrap_or_else(|| vm.ctx.new_str("I/O operation on closed file"));
@@ -324,7 +326,7 @@ mod _io {
             msg: OptionalOption<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            if !objbool::boolval(vm, vm.call_method(&instance, "readable", ())?)? {
+            if !pybool::boolval(vm, vm.call_method(&instance, "readable", ())?)? {
                 let msg = msg
                     .flatten()
                     .unwrap_or_else(|| vm.ctx.new_str("File or stream is not readable."));
@@ -340,7 +342,7 @@ mod _io {
             msg: OptionalOption<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            if !objbool::boolval(vm, vm.call_method(&instance, "writable", ())?)? {
+            if !pybool::boolval(vm, vm.call_method(&instance, "writable", ())?)? {
                 let msg = msg
                     .flatten()
                     .unwrap_or_else(|| vm.ctx.new_str("File or stream is not writable."));
@@ -356,7 +358,7 @@ mod _io {
             msg: OptionalOption<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            if !objbool::boolval(vm, vm.call_method(&instance, "seekable", ())?)? {
+            if !pybool::boolval(vm, vm.call_method(&instance, "seekable", ())?)? {
                 let msg = msg
                     .flatten()
                     .unwrap_or_else(|| vm.ctx.new_str("File or stream is not seekable."));
@@ -373,8 +375,8 @@ mod _io {
         #[pymethod(magic)]
         fn next(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             let line = vm.call_method(&instance, "readline", ())?;
-            if !objbool::boolval(vm, line.clone())? {
-                Err(objiter::new_stop_iteration(vm))
+            if !pybool::boolval(vm, line.clone())? {
+                Err(iter::new_stop_iteration(vm))
             } else {
                 Ok(line)
             }
@@ -726,7 +728,7 @@ mod _io {
             let buffered_reader_class = vm.try_class("_io", "BufferedReader")?;
             let raw = vm.get_attribute(instance, "buffer").unwrap();
 
-            if !objtype::isinstance(&raw, &buffered_reader_class) {
+            if !pytype::isinstance(&raw, &buffered_reader_class) {
                 // TODO: this should be io.UnsupportedOperation error which derives both from ValueError *and* OSError
                 return Err(vm.new_value_error("not readable".to_owned()));
             }
@@ -750,7 +752,7 @@ mod _io {
             let buffered_writer_class = vm.try_class("_io", "BufferedWriter")?;
             let raw = vm.get_attribute(instance, "buffer").unwrap();
 
-            if !objtype::isinstance(&raw, &buffered_writer_class) {
+            if !pytype::isinstance(&raw, &buffered_writer_class) {
                 // TODO: this should be io.UnsupportedOperation error which derives from ValueError and OSError
                 return Err(vm.new_value_error("not writable".to_owned()));
             }
@@ -758,7 +760,7 @@ mod _io {
             let bytes = obj.borrow_value().to_owned().into_bytes();
 
             let len = vm.call_method(&raw, "write", (vm.ctx.new_bytes(bytes.clone()),))?;
-            let len = objint::try_to_primitive(objint::get_value(&len), vm)?;
+            let len = int::try_to_primitive(int::get_value(&len), vm)?;
 
             // returns the count of unicode code points written
             let len = from_utf8(&bytes[..len])
@@ -777,7 +779,7 @@ mod _io {
             let buffered_reader_class = vm.try_class("_io", "BufferedReader")?;
             let raw = vm.get_attribute(instance, "buffer").unwrap();
 
-            if !objtype::isinstance(&raw, &buffered_reader_class) {
+            if !pytype::isinstance(&raw, &buffered_reader_class) {
                 // TODO: this should be io.UnsupportedOperation error which derives both from ValueError *and* OSError
                 return Err(vm.new_value_error("not readable".to_owned()));
             }
@@ -837,7 +839,7 @@ mod _io {
         ) -> PyResult<StringIORef> {
             let raw_bytes = object
                 .flatten()
-                .map_or_else(Vec::new, |v| objstr::borrow_value(&v).as_bytes().to_vec());
+                .map_or_else(Vec::new, |v| pystr::borrow_value(&v).as_bytes().to_vec());
 
             StringIO {
                 buffer: PyRwLock::new(BufferedIO::new(Cursor::new(raw_bytes))),
@@ -1470,11 +1472,11 @@ mod _io {
 #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
 mod fileio {
     use super::_io::*;
+    use crate::builtins::pystr::PyStrRef;
+    use crate::builtins::pytype::PyTypeRef;
     use crate::byteslike::{PyBytesLike, PyRwBytesLike};
     use crate::exceptions::IntoPyException;
     use crate::function::{FuncArgs, OptionalArg};
-    use crate::obj::objstr::PyStrRef;
-    use crate::obj::objtype::PyTypeRef;
     use crate::pyobject::{
         BorrowValue, Either, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     };

@@ -9,10 +9,10 @@ use regex::bytes::{Captures, Regex, RegexBuilder};
 use std::fmt;
 use std::ops::Range;
 
+use crate::builtins::int::{PyInt, PyIntRef};
+use crate::builtins::pystr::{PyStr, PyStrRef};
+use crate::builtins::pytype::PyTypeRef;
 use crate::function::{Args, OptionalArg};
-use crate::obj::objint::{PyInt, PyIntRef};
-use crate::obj::objstr::{PyStr, PyStrRef};
-use crate::obj::objtype::PyTypeRef;
 use crate::pyobject::{
     BorrowValue, IntoPyObject, PyClassImpl, PyObjectRef, PyResult, PyValue, TryFromObject,
 };

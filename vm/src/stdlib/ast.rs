@@ -9,8 +9,8 @@ use num_complex::Complex64;
 
 use rustpython_parser::{ast, mode::Mode, parser};
 
-use crate::obj::objlist::PyListRef;
-use crate::obj::objtype::PyTypeRef;
+use crate::builtins::list::PyListRef;
+use crate::builtins::pytype::PyTypeRef;
 use crate::pyobject::{IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::slots::PyTpFlags;
 use crate::vm::VirtualMachine;

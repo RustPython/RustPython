@@ -8,7 +8,7 @@ pub(crate) use decl::make_module;
 mod decl {
     use std::iter::FromIterator;
 
-    use crate::obj::objstr::PyStrRef;
+    use crate::builtins::pystr::PyStrRef;
     use crate::pyobject::{BorrowValue, PyResult};
     use crate::vm::VirtualMachine;
     use rustpython_parser::lexer;

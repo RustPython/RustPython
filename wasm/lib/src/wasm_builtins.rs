@@ -6,7 +6,7 @@
 
 use web_sys::{self, console};
 
-use rustpython_vm::obj::objstr::PyStrRef;
+use rustpython_vm::builtins::PyStrRef;
 use rustpython_vm::pyobject::{BorrowValue, PyObjectRef, PyResult};
 use rustpython_vm::VirtualMachine;
 
