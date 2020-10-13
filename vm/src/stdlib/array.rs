@@ -37,7 +37,7 @@ impl fmt::Display for ArrayTypeSpecifierError {
 }
 
 macro_rules! def_array_enum {
-    ($(($n:ident, $t:ty, $c:literal)),*$(,)?) => {
+    ($(($n:ident, $t:ty, $c:literal, $scode:literal)),*$(,)?) => {
         #[derive(Debug, Clone)]
         pub(crate) enum ArrayContentType {
             $($n(Vec<$t>),)*
@@ -55,6 +55,12 @@ macro_rules! def_array_enum {
             fn typecode(&self) -> char {
                 match self {
                     $(ArrayContentType::$n(_) => $c,)*
+                }
+            }
+
+            fn typecode_str(&self) -> &'static str {
+                match self {
+                    $(ArrayContentType::$n(_) => $scode,)*
                 }
             }
 
@@ -394,19 +400,19 @@ macro_rules! def_array_enum {
 }
 
 def_array_enum!(
-    (SignedByte, i8, 'b'),
-    (UnsignedByte, u8, 'B'),
+    (SignedByte, i8, 'b', "b"),
+    (UnsignedByte, u8, 'B', "B"),
     // TODO: support unicode char
-    (SignedShort, raw::c_short, 'h'),
-    (UnsignedShort, raw::c_ushort, 'H'),
-    (SignedInt, raw::c_int, 'i'),
-    (UnsignedInt, raw::c_uint, 'I'),
-    (SignedLong, raw::c_long, 'l'),
-    (UnsignedLong, raw::c_ulong, 'L'),
-    (SignedLongLong, raw::c_longlong, 'q'),
-    (UnsignedLongLong, raw::c_ulonglong, 'Q'),
-    (Float, f32, 'f'),
-    (Double, f64, 'd'),
+    (SignedShort, raw::c_short, 'h', "h"),
+    (UnsignedShort, raw::c_ushort, 'H', "H"),
+    (SignedInt, raw::c_int, 'i', "i"),
+    (UnsignedInt, raw::c_uint, 'I', "I"),
+    (SignedLong, raw::c_long, 'l', "l"),
+    (UnsignedLong, raw::c_ulong, 'L', "L"),
+    (SignedLongLong, raw::c_longlong, 'q', "q"),
+    (UnsignedLongLong, raw::c_ulonglong, 'Q', "Q"),
+    (Float, f32, 'f', "f"),
+    (Double, f64, 'd', "d"),
 );
 
 trait ArrayElement: Sized {
@@ -875,7 +881,7 @@ impl Buffer for PyArrayRef {
                 readonly: false,
                 len: array.len(),
                 itemsize: array.itemsize(),
-                format: array.typecode().to_string(),
+                format: array.typecode_str().into(),
                 ..Default::default()
             }));
             PyRwLockWriteGuard::downgrade(w)

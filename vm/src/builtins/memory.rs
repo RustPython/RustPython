@@ -1,4 +1,4 @@
-use std::{fmt::Debug, ops::Deref};
+use std::{borrow::Cow, fmt::Debug, ops::Deref};
 
 use crate::builtins::bytes::{PyBytes, PyBytesRef};
 use crate::builtins::list::{PyList, PyListRef};
@@ -35,6 +35,11 @@ impl Deref for BufferRef {
 
     fn deref(&self) -> &Self::Target {
         self.0.deref()
+    }
+}
+impl BufferRef {
+    pub fn new(buffer: impl Buffer + 'static) -> Self {
+        Self(Box::new(buffer))
     }
 }
 impl From<Box<dyn Buffer>> for BufferRef {
@@ -76,31 +81,35 @@ pub struct BufferOptions {
     pub len: usize,
     pub itemsize: usize,
     pub contiguous: bool,
-    pub format: String,
+    pub format: Cow<'static, str>,
     // TODO: support multiple dimension array
     pub ndim: usize,
     pub shape: Vec<usize>,
     pub strides: Vec<isize>,
 }
 
-pub(crate) trait ResizeGuard<'a> {
-    type Resizable: 'a;
-    fn try_resizable(&'a self, vm: &VirtualMachine) -> PyResult<Self::Resizable>;
+impl BufferOptions {
+    pub const DEFAULT: Self = BufferOptions {
+        readonly: true,
+        len: 0,
+        itemsize: 1,
+        contiguous: true,
+        format: Cow::Borrowed("B"),
+        ndim: 1,
+        shape: Vec::new(),
+        strides: Vec::new(),
+    };
 }
 
 impl Default for BufferOptions {
     fn default() -> Self {
-        BufferOptions {
-            readonly: true,
-            len: 0,
-            itemsize: 1,
-            contiguous: true,
-            format: "B".to_owned(),
-            ndim: 1,
-            shape: Vec::new(),
-            strides: Vec::new(),
-        }
+        Self::DEFAULT
     }
+}
+
+pub(crate) trait ResizeGuard<'a> {
+    type Resizable: 'a;
+    fn try_resizable(&'a self, vm: &VirtualMachine) -> PyResult<Self::Resizable>;
 }
 
 #[derive(FromArgs)]
