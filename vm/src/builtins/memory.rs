@@ -124,7 +124,7 @@ pub struct PyMemoryView {
     obj: PyObjectRef,
     buffer: BufferRef,
     options: BufferOptions,
-    released: AtomicCell<bool>,
+    pub(crate) released: AtomicCell<bool>,
     // start should always less or equal to the stop
     // start and stop pointing to the memory index not slice index
     // if length is not zero than [start, stop)
