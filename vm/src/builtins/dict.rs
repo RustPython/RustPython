@@ -2,13 +2,13 @@ use crossbeam_utils::atomic::AtomicCell;
 use std::fmt;
 use std::mem::size_of;
 
-use super::iter;
 use super::pystr;
-use super::pytype::{self, PyTypeRef};
+use super::pytype::PyTypeRef;
 use super::set::PySet;
 use crate::dictdatatype::{self, DictKey};
 use crate::exceptions::PyBaseExceptionRef;
 use crate::function::{FuncArgs, KwArgs, OptionalArg};
+use crate::iterator;
 use crate::pyobject::{
     BorrowValue, IdProtocol, IntoPyObject, ItemProtocol, PyArithmaticValue::*, PyAttributes,
     PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
@@ -83,25 +83,26 @@ impl PyDict {
                     dict.insert(vm, key, value)?;
                 }
             } else if let Some(keys) = vm.get_method(dict_obj.clone(), "keys") {
-                let keys = iter::get_iter(vm, &vm.invoke(&keys?, ())?)?;
-                while let Some(key) = iter::get_next_object(vm, &keys)? {
+                let keys = iterator::get_iter(vm, &vm.invoke(&keys?, ())?)?;
+                while let Some(key) = iterator::get_next_object(vm, &keys)? {
                     let val = dict_obj.get_item(key.clone(), vm)?;
                     dict.insert(vm, key, val)?;
                 }
             } else {
-                let iter = iter::get_iter(vm, &dict_obj)?;
+                let iter = iterator::get_iter(vm, &dict_obj)?;
                 loop {
                     fn err(vm: &VirtualMachine) -> PyBaseExceptionRef {
                         vm.new_value_error("Iterator must have exactly two elements".to_owned())
                     }
-                    let element = match iter::get_next_object(vm, &iter)? {
+                    let element = match iterator::get_next_object(vm, &iter)? {
                         Some(obj) => obj,
                         None => break,
                     };
-                    let elem_iter = iter::get_iter(vm, &element)?;
-                    let key = iter::get_next_object(vm, &elem_iter)?.ok_or_else(|| err(vm))?;
-                    let value = iter::get_next_object(vm, &elem_iter)?.ok_or_else(|| err(vm))?;
-                    if iter::get_next_object(vm, &elem_iter)?.is_some() {
+                    let elem_iter = iterator::get_iter(vm, &element)?;
+                    let key = iterator::get_next_object(vm, &elem_iter)?.ok_or_else(|| err(vm))?;
+                    let value =
+                        iterator::get_next_object(vm, &elem_iter)?.ok_or_else(|| err(vm))?;
+                    if iterator::get_next_object(vm, &elem_iter)?.is_some() {
                         return Err(err(vm));
                     }
                     dict.insert(vm, key, value)?;
@@ -468,7 +469,7 @@ impl PyDictRef {
             // We can take the short path here!
             match self.inner_getitem_option(key, vm) {
                 Err(exc) => {
-                    if pytype::isinstance(&exc, &vm.ctx.exceptions.key_error) {
+                    if exc.isinstance(&vm.ctx.exceptions.key_error) {
                         Ok(None)
                     } else {
                         Err(exc)
@@ -482,7 +483,7 @@ impl PyDictRef {
             match self.get_item(key, vm) {
                 Ok(value) => Ok(Some(value)),
                 Err(exc) => {
-                    if pytype::isinstance(&exc, &vm.ctx.exceptions.key_error) {
+                    if exc.isinstance(&vm.ctx.exceptions.key_error) {
                         Ok(None)
                     } else {
                         Err(exc)
@@ -681,7 +682,7 @@ macro_rules! dict_iterator {
                         self.position.store(position);
                         Ok($result_fn(vm, key, value))
                     }
-                    None => Err(iter::new_stop_iteration(vm)),
+                    None => Err(vm.new_stop_iteration()),
                 }
             }
 
@@ -736,7 +737,7 @@ macro_rules! dict_iterator {
                     }
                     None => {
                         self.position.store(std::isize::MAX as usize);
-                        Err(iter::new_stop_iteration(vm))
+                        Err(vm.new_stop_iteration())
                     }
                 }
             }

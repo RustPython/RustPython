@@ -3,7 +3,7 @@ pub(crate) use _warnings::make_module;
 #[pymodule]
 mod _warnings {
     use crate::builtins::pystr::PyStrRef;
-    use crate::builtins::pytype::{self, PyTypeRef};
+    use crate::builtins::pytype::PyTypeRef;
     use crate::function::OptionalArg;
     use crate::pyobject::{PyResult, TypeProtocol};
     use crate::vm::VirtualMachine;
@@ -23,7 +23,7 @@ mod _warnings {
         // TODO: Implement correctly
         let level = args.stacklevel.unwrap_or(1);
         let category = if let OptionalArg::Present(category) = args.category {
-            if !pytype::issubclass(&category, &vm.ctx.exceptions.warning) {
+            if !category.issubclass(&vm.ctx.exceptions.warning) {
                 return Err(vm.new_type_error(format!(
                     "category must be a Warning subclass, not '{}'",
                     category.class().name

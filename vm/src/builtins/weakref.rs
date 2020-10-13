@@ -36,8 +36,6 @@ impl PyValue for PyWeak {
     }
 }
 
-pub type PyWeakRef = PyRef<PyWeak>;
-
 impl Callable for PyWeak {
     fn call(zelf: &PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         args.bind::<()>(vm)?;

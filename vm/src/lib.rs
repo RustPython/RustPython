@@ -58,6 +58,7 @@ pub mod frame;
 mod frozen;
 pub mod function;
 pub mod import;
+mod iterator;
 mod py_io;
 pub mod py_serde;
 pub mod pyobject;

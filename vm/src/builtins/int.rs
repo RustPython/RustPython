@@ -231,7 +231,7 @@ fn inner_truediv(i1: &BigInt, i2: &BigInt, vm: &VirtualMachine) -> PyResult {
 
 #[pyimpl(flags(BASETYPE), with(Comparable, Hashable))]
 impl PyInt {
-    fn with_value<T>(cls: PyTypeRef, value: T, vm: &VirtualMachine) -> PyResult<PyIntRef>
+    fn with_value<T>(cls: PyTypeRef, value: T, vm: &VirtualMachine) -> PyResult<PyRef<Self>>
     where
         T: Into<BigInt> + ToPrimitive,
     {
@@ -249,7 +249,7 @@ impl PyInt {
     }
 
     #[pyslot]
-    fn tp_new(cls: PyTypeRef, options: IntOptions, vm: &VirtualMachine) -> PyResult<PyIntRef> {
+    fn tp_new(cls: PyTypeRef, options: IntOptions, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         let value = if let OptionalArg::Present(val) = options.val_options {
             if let OptionalArg::Present(base) = options.base {
                 let base = vm
@@ -447,7 +447,7 @@ impl PyInt {
         zelf: PyRef<Self>,
         precision: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<PyIntRef> {
+    ) -> PyResult<PyRef<Self>> {
         match precision {
             OptionalArg::Missing => (),
             OptionalArg::Present(ref value) => {
@@ -471,7 +471,7 @@ impl PyInt {
     }
 
     #[pymethod(name = "__int__")]
-    fn int(zelf: PyRef<Self>) -> PyIntRef {
+    fn int(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 
@@ -486,22 +486,22 @@ impl PyInt {
     }
 
     #[pymethod(name = "__trunc__")]
-    fn trunc(zelf: PyRef<Self>) -> PyIntRef {
+    fn trunc(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 
     #[pymethod(name = "__floor__")]
-    fn floor(zelf: PyRef<Self>) -> PyIntRef {
+    fn floor(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 
     #[pymethod(name = "__ceil__")]
-    fn ceil(zelf: PyRef<Self>) -> PyIntRef {
+    fn ceil(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 
     #[pymethod(name = "__index__")]
-    fn index(zelf: PyRef<Self>) -> PyIntRef {
+    fn index(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 
@@ -549,7 +549,7 @@ impl PyInt {
     }
 
     #[pymethod]
-    fn conjugate(zelf: PyRef<Self>) -> PyIntRef {
+    fn conjugate(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 
@@ -645,7 +645,7 @@ impl PyInt {
     }
 
     #[pyproperty]
-    fn numerator(zelf: PyRef<Self>) -> PyIntRef {
+    fn numerator(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 

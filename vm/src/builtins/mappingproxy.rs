@@ -1,8 +1,8 @@
 use super::dict::PyDict;
-use super::iter;
 use super::pystr::PyStrRef;
 use super::pytype::PyTypeRef;
 use crate::function::OptionalArg;
+use crate::iterator;
 use crate::pyobject::{
     BorrowValue, IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
     PyValue, TryFromObject,
@@ -21,25 +21,25 @@ enum MappingProxyInner {
     Dict(PyObjectRef),
 }
 
-pub type PyMappingProxyRef = PyRef<PyMappingProxy>;
-
 impl PyValue for PyMappingProxy {
     fn class(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.mappingproxy_type.clone()
     }
 }
 
-#[pyimpl]
 impl PyMappingProxy {
-    pub fn new(class: PyTypeRef) -> PyMappingProxy {
-        PyMappingProxy {
+    pub fn new(class: PyTypeRef) -> Self {
+        Self {
             mapping: MappingProxyInner::Class(class),
         }
     }
+}
 
+#[pyimpl]
+impl PyMappingProxy {
     #[pyslot]
     fn tp_new(cls: PyTypeRef, mapping: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        PyMappingProxy {
+        Self {
             mapping: MappingProxyInner::Dict(mapping),
         }
         .into_ref_with_type(vm, cls)
@@ -94,7 +94,7 @@ impl PyMappingProxy {
                 PyDict::from_attributes(c.attributes.read().clone(), vm)?.into_pyobject(vm)
             }
         };
-        iter::get_iter(vm, &obj)
+        iterator::get_iter(vm, &obj)
     }
     #[pymethod]
     pub fn items(&self, vm: &VirtualMachine) -> PyResult {

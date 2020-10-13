@@ -16,8 +16,6 @@ impl PyValue for PyWeakProxy {
     }
 }
 
-pub type PyWeakProxyRef = PyRef<PyWeakProxy>;
-
 #[pyimpl]
 impl PyWeakProxy {
     // TODO: callbacks
@@ -27,7 +25,7 @@ impl PyWeakProxy {
         referent: PyObjectRef,
         callback: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<PyWeakProxyRef> {
+    ) -> PyResult<PyRef<Self>> {
         if callback.is_present() {
             panic!("Passed a callback to weakproxy, but weakproxy does not yet support proxies.");
         }

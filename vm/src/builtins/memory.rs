@@ -127,7 +127,7 @@ pub struct PyMemoryView {
     format_spec: FormatSpec,
 }
 
-pub type PyMemoryViewRef = PyRef<PyMemoryView>;
+type PyMemoryViewRef = PyRef<PyMemoryView>;
 
 #[pyimpl(with(Hashable, Comparable, BufferProtocol))]
 impl PyMemoryView {
@@ -168,7 +168,7 @@ impl PyMemoryView {
     }
 
     #[pyslot]
-    fn tp_new(_cls: PyTypeRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyMemoryViewRef> {
+    fn tp_new(_cls: PyTypeRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         let buffer = try_buffer_from_object(vm, &obj)?;
         Ok(PyMemoryView::from_buffer(obj, buffer, vm)?.into_ref(vm))
     }
@@ -567,7 +567,7 @@ impl PyMemoryView {
     }
 
     #[pymethod]
-    fn toreadonly(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyMemoryViewRef> {
+    fn toreadonly(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         zelf.try_not_released(vm)?;
         let buffer = BufferRef(Box::new(zelf.clone()));
         Ok(PyMemoryView {

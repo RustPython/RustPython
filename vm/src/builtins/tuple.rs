@@ -3,7 +3,6 @@ use num_traits::ToPrimitive;
 use std::fmt;
 
 use super::int::PyIntRef;
-use super::iter;
 use super::pytype::PyTypeRef;
 use crate::common::hash::PyHash;
 use crate::pyobject::{
@@ -302,7 +301,7 @@ impl PyTupleIterator {
         if let Some(obj) = self.tuple.borrow_value().get(pos) {
             Ok(obj.clone())
         } else {
-            Err(iter::new_stop_iteration(vm))
+            Err(vm.new_stop_iteration())
         }
     }
 

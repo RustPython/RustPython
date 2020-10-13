@@ -1,6 +1,6 @@
-use super::iter;
 use super::pytype::PyTypeRef;
 use crate::function::Args;
+use crate::iterator;
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
@@ -14,7 +14,6 @@ pub struct PyMap {
     mapper: PyObjectRef,
     iterators: Vec<PyObjectRef>,
 }
-type PyMapRef = PyRef<PyMap>;
 
 impl PyValue for PyMap {
     fn class(vm: &VirtualMachine) -> PyTypeRef {
@@ -30,10 +29,10 @@ impl PyMap {
         function: PyObjectRef,
         iterables: Args,
         vm: &VirtualMachine,
-    ) -> PyResult<PyMapRef> {
+    ) -> PyResult<PyRef<Self>> {
         let iterators = iterables
             .into_iter()
-            .map(|iterable| iter::get_iter(vm, &iterable))
+            .map(|iterable| iterator::get_iter(vm, &iterable))
             .collect::<Result<Vec<_>, _>>()?;
         PyMap {
             mapper: function,
@@ -47,7 +46,7 @@ impl PyMap {
         let next_objs = self
             .iterators
             .iter()
-            .map(|iterator| iter::call_next(vm, iterator))
+            .map(|iterator| iterator::call_next(vm, iterator))
             .collect::<Result<Vec<_>, _>>()?;
 
         // the mapper itself can raise StopIteration which does stop the map iteration
@@ -62,7 +61,7 @@ impl PyMap {
     #[pymethod(name = "__length_hint__")]
     fn length_hint(&self, vm: &VirtualMachine) -> PyResult<usize> {
         self.iterators.iter().try_fold(0, |prev, cur| {
-            let cur = iter::length_hint(vm, cur.clone())?.unwrap_or(0);
+            let cur = iterator::length_hint(vm, cur.clone())?.unwrap_or(0);
             let max = std::cmp::max(prev, cur);
             Ok(max)
         })

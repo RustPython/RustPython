@@ -55,7 +55,7 @@ impl FrameRef {
     }
 
     #[pyproperty]
-    fn f_back(self, vm: &VirtualMachine) -> Option<FrameRef> {
+    fn f_back(self, vm: &VirtualMachine) -> Option<Self> {
         // TODO: actually store f_back inside Frame struct
 
         // get the frame in the frame stack that appears before this one.

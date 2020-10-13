@@ -1,10 +1,12 @@
 use super::code::PyCodeRef;
-use super::pytype::{self, PyTypeRef};
+use super::pytype::PyTypeRef;
 use crate::coroutine::{Coro, Variant};
 use crate::exceptions::PyBaseExceptionRef;
 use crate::frame::FrameRef;
 use crate::function::OptionalArg;
-use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{
+    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+};
 use crate::vm::VirtualMachine;
 
 use crossbeam_utils::atomic::AtomicCell;
@@ -15,7 +17,7 @@ pub struct PyAsyncGen {
     inner: Coro,
     running_async: AtomicCell<bool>,
 }
-pub type PyAsyncGenRef = PyRef<PyAsyncGen>;
+type PyAsyncGenRef = PyRef<PyAsyncGen>;
 
 impl PyValue for PyAsyncGen {
     fn class(vm: &VirtualMachine) -> PyTypeRef {
@@ -29,7 +31,7 @@ impl PyAsyncGen {
         &self.inner
     }
 
-    pub fn new(frame: FrameRef, vm: &VirtualMachine) -> PyAsyncGenRef {
+    pub fn new(frame: FrameRef, vm: &VirtualMachine) -> PyRef<Self> {
         PyAsyncGen {
             inner: Coro::new(frame, Variant::AsyncGen),
             running_async: AtomicCell::new(false),
@@ -127,8 +129,8 @@ impl PyAsyncGenWrappedValue {}
 impl PyAsyncGenWrappedValue {
     fn unbox(ag: &PyAsyncGen, val: PyResult, vm: &VirtualMachine) -> PyResult {
         if let Err(ref e) = val {
-            if pytype::isinstance(&e, &vm.ctx.exceptions.stop_async_iteration)
-                || pytype::isinstance(&e, &vm.ctx.exceptions.generator_exit)
+            if e.isinstance(&vm.ctx.exceptions.stop_async_iteration)
+                || e.isinstance(&vm.ctx.exceptions.generator_exit)
             {
                 ag.inner.closed.store(true);
             }
@@ -385,8 +387,8 @@ impl PyAsyncGenAThrow {
         self.ag.running_async.store(false);
         self.state.store(AwaitableState::Closed);
         if self.aclose
-            && (pytype::isinstance(&exc, &vm.ctx.exceptions.stop_async_iteration)
-                || pytype::isinstance(&exc, &vm.ctx.exceptions.generator_exit))
+            && (exc.isinstance(&vm.ctx.exceptions.stop_async_iteration)
+                || exc.isinstance(&vm.ctx.exceptions.generator_exit))
         {
             vm.new_exception_empty(vm.ctx.exceptions.stop_iteration.clone())
         } else {

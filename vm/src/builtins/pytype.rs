@@ -199,6 +199,10 @@ impl PyType {
 }
 
 impl PyTypeRef {
+    pub fn issubclass<R: IdProtocol>(&self, cls: R) -> bool {
+        self._issubclass(cls)
+    }
+
     pub fn iter_mro(&self) -> impl Iterator<Item = &PyTypeRef> + DoubleEndedIterator {
         std::iter::once(self).chain(self.mro.iter())
     }
@@ -254,12 +258,12 @@ impl PyType {
 
     #[pymethod(magic)]
     fn instancecheck(zelf: PyRef<Self>, obj: PyObjectRef) -> bool {
-        isinstance(&obj, &zelf)
+        obj.isinstance(&zelf)
     }
 
     #[pymethod(magic)]
     fn subclasscheck(zelf: PyRef<Self>, subclass: PyTypeRef) -> bool {
-        issubclass(&subclass, &zelf)
+        subclass.issubclass(&zelf)
     }
 
     #[pyproperty(magic)]
@@ -546,8 +550,7 @@ impl Callable for PyType {
         vm_trace!("type_call: {:?}", zelf);
         let obj = call_tp_new(zelf.clone(), zelf.clone(), args.clone(), vm)?;
 
-        if (zelf.is(&vm.ctx.types.type_type) && args.kwargs.is_empty()) || !isinstance(&obj, &zelf)
-        {
+        if (zelf.is(&vm.ctx.types.type_type) && args.kwargs.is_empty()) || !obj.isinstance(&zelf) {
             return Ok(obj);
         }
 
@@ -616,8 +619,24 @@ pub(crate) fn init(ctx: &PyContext) {
     PyType::extend_class(ctx, &ctx.types.type_type);
 }
 
+impl PyLease<'_, PyType> {
+    pub fn issubclass<R: IdProtocol>(&self, cls: R) -> bool {
+        self._issubclass(cls)
+    }
+}
+
 pub trait DerefToPyType {
     fn deref_to_type(&self) -> &PyType;
+
+    /// Determines if `subclass` is actually a subclass of `cls`, this doesn't call __subclasscheck__,
+    /// so only use this if `cls` is known to have not overridden the base __subclasscheck__ magic
+    /// method.
+    fn _issubclass<R: IdProtocol>(&self, cls: R) -> bool
+    where
+        Self: IdProtocol,
+    {
+        self.is(&cls) || self.deref_to_type().mro.iter().any(|c| c.is(&cls))
+    }
 }
 
 impl DerefToPyType for PyTypeRef {
@@ -636,20 +655,6 @@ impl<T: DerefToPyType> DerefToPyType for &'_ T {
     fn deref_to_type(&self) -> &PyType {
         (&**self).deref_to_type()
     }
-}
-
-/// Determines if `obj` actually an instance of `cls`, this doesn't call __instancecheck__, so only
-/// use this if `cls` is known to have not overridden the base __instancecheck__ magic method.
-#[inline]
-pub fn isinstance<T: TypeProtocol>(obj: &T, cls: &PyTypeRef) -> bool {
-    issubclass(obj.class(), &cls)
-}
-
-/// Determines if `subclass` is actually a subclass of `cls`, this doesn't call __subclasscheck__,
-/// so only use this if `cls` is known to have not overridden the base __subclasscheck__ magic
-/// method.
-pub fn issubclass<T: DerefToPyType + IdProtocol, R: IdProtocol>(subclass: T, cls: R) -> bool {
-    subclass.is(&cls) || subclass.deref_to_type().mro.iter().any(|c| c.is(&cls))
 }
 
 fn call_tp_new(
@@ -678,7 +683,7 @@ pub fn tp_new_wrapper(
     args: FuncArgs,
     vm: &VirtualMachine,
 ) -> PyResult {
-    if !issubclass(&cls, &zelf) {
+    if !cls.issubclass(&zelf) {
         return Err(vm.new_type_error(format!(
             "{zelf}.__new__({cls}): {cls} is not a subtype of {zelf}",
             zelf = zelf.name,
@@ -811,9 +816,9 @@ fn calculate_meta_class(
     let mut winner = metatype;
     for base in bases {
         let base_type = base.class();
-        if issubclass(&winner, &base_type) {
+        if winner.issubclass(&base_type) {
             continue;
-        } else if issubclass(&base_type, &winner) {
+        } else if base_type.issubclass(&winner) {
             winner = PyLease::into_pyref(base_type);
             continue;
         }

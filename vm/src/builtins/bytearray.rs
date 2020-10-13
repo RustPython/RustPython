@@ -1,7 +1,6 @@
 //! Implementation of the python bytearray object.
 use super::bytes::{PyBytes, PyBytesRef};
 use super::int::PyIntRef;
-use super::iter;
 use super::memory::{Buffer, BufferOptions};
 use super::pystr::PyStrRef;
 use super::pytype::PyTypeRef;
@@ -107,7 +106,7 @@ impl PyByteArray {
         cls: PyTypeRef,
         options: ByteInnerNewOptions,
         vm: &VirtualMachine,
-    ) -> PyResult<PyByteArrayRef> {
+    ) -> PyResult<PyRef<Self>> {
         PyByteArray::from_inner(options.get_value(vm)?).into_ref_with_type(vm, cls)
     }
 
@@ -656,7 +655,7 @@ impl PyByteArrayIterator {
         if let Some(&ret) = self.bytearray.borrow_value().elements.get(pos) {
             Ok(ret)
         } else {
-            Err(iter::new_stop_iteration(vm))
+            Err(vm.new_stop_iteration())
         }
     }
 

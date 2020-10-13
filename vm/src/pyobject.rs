@@ -8,7 +8,7 @@ use num_bigint::BigInt;
 use num_complex::Complex64;
 use num_traits::ToPrimitive;
 
-use crate::builtins::builtinfunc::PyFuncDef;
+use crate::builtins::builtinfunc::PyNativeFuncDef;
 use crate::builtins::bytearray;
 use crate::builtins::bytes;
 use crate::builtins::code;
@@ -19,7 +19,7 @@ use crate::builtins::float::PyFloat;
 use crate::builtins::function::{PyBoundMethod, PyFunction};
 use crate::builtins::getset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetSet};
 use crate::builtins::int::{PyInt, PyIntRef};
-use crate::builtins::iter;
+use crate::builtins::iter::PySequenceIterator;
 use crate::builtins::list::PyList;
 use crate::builtins::namespace::PyNamespace;
 use crate::builtins::object;
@@ -33,6 +33,7 @@ use crate::builtins::tuple::{PyTuple, PyTupleRef};
 use crate::bytecode;
 use crate::exceptions::{self, PyBaseExceptionRef};
 use crate::function::{IntoFuncArgs, IntoPyNativeFunc};
+use crate::iterator;
 pub use crate::pyobjectrc::{PyObjectRc, PyObjectWeak};
 use crate::scope::Scope;
 use crate::slots::{PyTpFlags, PyTypeSlots};
@@ -144,7 +145,7 @@ impl PyContext {
         );
 
         let tp_new_wrapper = create_object(
-            PyFuncDef::from(pytype::tp_new_wrapper.into_func()).into_function(),
+            PyNativeFuncDef::from(pytype::tp_new_wrapper.into_func()).into_function(),
             &types.builtin_function_or_method_type,
         )
         .into_object();
@@ -281,18 +282,18 @@ impl PyContext {
     where
         F: IntoPyNativeFunc<FKind>,
     {
-        PyFuncDef::from(f.into_func()).build_function(self)
+        PyNativeFuncDef::from(f.into_func()).build_function(self)
     }
 
     pub(crate) fn new_stringref(&self, s: String) -> pystr::PyStrRef {
         PyRef::new_ref(pystr::PyStr::from(s), self.types.str_type.clone(), None)
     }
 
-    pub fn new_function_named<F, FKind>(&self, f: F, name: String) -> PyFuncDef
+    pub fn new_function_named<F, FKind>(&self, f: F, name: String) -> PyNativeFuncDef
     where
         F: IntoPyNativeFunc<FKind>,
     {
-        let mut f = PyFuncDef::from(f.into_func());
+        let mut f = PyNativeFuncDef::from(f.into_func());
         f.name = Some(self.new_stringref(name));
         f
     }
@@ -301,14 +302,14 @@ impl PyContext {
     where
         F: IntoPyNativeFunc<FKind>,
     {
-        PyFuncDef::from(f.into_func()).build_method(self)
+        PyNativeFuncDef::from(f.into_func()).build_method(self)
     }
 
     pub fn new_classmethod<F, FKind>(&self, f: F) -> PyObjectRef
     where
         F: IntoPyNativeFunc<FKind>,
     {
-        PyFuncDef::from(f.into_func()).build_classmethod(self)
+        PyNativeFuncDef::from(f.into_func()).build_classmethod(self)
     }
     pub fn new_staticmethod<F, FKind>(&self, f: F) -> PyObjectRef
     where
@@ -580,7 +581,7 @@ where
     T: PyValue,
 {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        if pytype::isinstance(&obj, &T::class(vm)) {
+        if obj.isinstance(&T::class(vm)) {
             PyRef::from_obj(obj, vm)
         } else {
             let class = T::class(vm);
@@ -736,6 +737,13 @@ pub trait TypeProtocol {
     fn has_class_attr(&self, attr_name: &str) -> bool {
         self.class().has_attr(attr_name)
     }
+
+    /// Determines if `obj` actually an instance of `cls`, this doesn't call __instancecheck__, so only
+    /// use this if `cls` is known to have not overridden the base __instancecheck__ magic method.
+    #[inline]
+    fn isinstance(&self, cls: &PyTypeRef) -> bool {
+        self.class().issubclass(cls)
+    }
 }
 
 impl TypeProtocol for PyObjectRef {
@@ -829,7 +837,7 @@ impl<T> PyIterable<T> {
         let method = &self.method;
         let iter_obj = vm.invoke(method, ())?;
 
-        let length_hint = iter::length_hint(vm, iter_obj.clone())?;
+        let length_hint = iterator::length_hint(vm, iter_obj.clone())?;
 
         Ok(PyIterator {
             vm,
@@ -837,37 +845,6 @@ impl<T> PyIterable<T> {
             length_hint,
             _item: std::marker::PhantomData,
         })
-    }
-}
-
-pub struct PyIterator<'a, T> {
-    vm: &'a VirtualMachine,
-    obj: PyObjectRef,
-    length_hint: Option<usize>,
-    _item: std::marker::PhantomData<T>,
-}
-
-impl<'a, T> Iterator for PyIterator<'a, T>
-where
-    T: TryFromObject,
-{
-    type Item = PyResult<T>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self.vm.call_method(&self.obj, "__next__", ()) {
-            Ok(value) => Some(T::try_from_object(self.vm, value)),
-            Err(err) => {
-                if pytype::isinstance(&err, &self.vm.ctx.exceptions.stop_iteration) {
-                    None
-                } else {
-                    Some(Err(err))
-                }
-            }
-        }
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.length_hint.unwrap_or(0), self.length_hint)
     }
 }
 
@@ -888,11 +865,42 @@ where
             })?;
             Self::try_from_object(
                 vm,
-                iter::PySequenceIterator::new_forward(obj)
+                PySequenceIterator::new_forward(obj)
                     .into_ref(vm)
                     .into_object(),
             )
         }
+    }
+}
+
+pub struct PyIterator<'a, T> {
+    vm: &'a VirtualMachine,
+    obj: PyObjectRef,
+    length_hint: Option<usize>,
+    _item: std::marker::PhantomData<T>,
+}
+
+impl<'a, T> Iterator for PyIterator<'a, T>
+where
+    T: TryFromObject,
+{
+    type Item = PyResult<T>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.vm.call_method(&self.obj, "__next__", ()) {
+            Ok(value) => Some(T::try_from_object(self.vm, value)),
+            Err(err) => {
+                if err.isinstance(&self.vm.ctx.exceptions.stop_iteration) {
+                    None
+                } else {
+                    Some(Err(err))
+                }
+            }
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.length_hint.unwrap_or(0), self.length_hint)
     }
 }
 
@@ -1073,7 +1081,7 @@ impl PyObject<dyn PyObjectPayload> {
         &self,
         vm: &VirtualMachine,
     ) -> Option<&T> {
-        if pytype::issubclass(self.class(), &T::class(vm)) {
+        if self.class().issubclass(&T::class(vm)) {
             self.payload()
         } else {
             None
@@ -1122,7 +1130,7 @@ pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
 
     fn into_ref_with_type(self, vm: &VirtualMachine, cls: PyTypeRef) -> PyResult<PyRef<Self>> {
         let class = Self::class(vm);
-        if pytype::issubclass(&cls, &class) {
+        if cls.issubclass(&class) {
             Ok(self.into_ref_with_type_unchecked(cls, vm))
         } else {
             let subtype = vm.to_str(&cls.obj)?;

@@ -1,4 +1,4 @@
-use crate::builtins::{float, int, pystr, pytype, tuple};
+use crate::builtins::{float, int, pystr, tuple};
 /// Implementation of Printf-Style string formatting
 /// [https://docs.python.org/3/library/stdtypes.html#printf-style-string-formatting]
 use crate::format::get_num_digits;
@@ -342,7 +342,7 @@ impl CFormatSpec {
             }
             CFormatType::Character => {
                 let ch = {
-                    if pytype::isinstance(&obj, &vm.ctx.types.int_type) {
+                    if obj.isinstance(&vm.ctx.types.int_type) {
                         // BigInt truncation is fine in this case because only the unicode range is relevant
                         int::get_value(&obj)
                             .to_u32()
@@ -350,7 +350,7 @@ impl CFormatSpec {
                             .ok_or_else(|| {
                                 vm.new_overflow_error("%c arg not in range(0x110000)".to_owned())
                             })
-                    } else if pytype::isinstance(&obj, &vm.ctx.types.str_type) {
+                    } else if obj.isinstance(&vm.ctx.types.str_type) {
                         let s = pystr::borrow_value(&obj);
                         let num_chars = s.chars().count();
                         if num_chars != 1 {
@@ -435,7 +435,7 @@ impl CFormatString {
                 Some(CFormatQuantity::FromValuesTuple) => match elements.next() {
                     Some(width_obj) => {
                         tuple_index += 1;
-                        if !pytype::isinstance(&width_obj, &vm.ctx.types.int_type) {
+                        if !width_obj.isinstance(&vm.ctx.types.int_type) {
                             Err(vm.new_type_error("* wants int".to_owned()))
                         } else {
                             let i = int::get_value(&width_obj);
@@ -469,16 +469,16 @@ impl CFormatString {
                 .all(|(_, part)| CFormatPart::has_key(part));
 
         let values = if mapping_required {
-            if !pytype::isinstance(&values_obj, &vm.ctx.types.dict_type) {
+            if !values_obj.isinstance(&vm.ctx.types.dict_type) {
                 return Err(vm.new_type_error("format requires a mapping".to_owned()));
             }
             values_obj.clone()
         } else {
             // check for only literal parts, in which case only dict or empty tuple is allowed
             if num_specifiers == 0
-                && !(pytype::isinstance(&values_obj, &vm.ctx.types.tuple_type)
+                && !(values_obj.isinstance(&vm.ctx.types.tuple_type)
                     && tuple::get_value(&values_obj).is_empty())
-                && !pytype::isinstance(&values_obj, &vm.ctx.types.dict_type)
+                && !values_obj.isinstance(&vm.ctx.types.dict_type)
             {
                 return Err(vm.new_type_error(
                     "not all arguments converted during string formatting".to_owned(),
@@ -486,7 +486,7 @@ impl CFormatString {
             }
 
             // convert `values_obj` to a new tuple if it's not a tuple
-            if !pytype::isinstance(&values_obj, &vm.ctx.types.tuple_type) {
+            if !values_obj.isinstance(&vm.ctx.types.tuple_type) {
                 vm.ctx.new_tuple(vec![values_obj.clone()])
             } else {
                 values_obj.clone()
@@ -542,7 +542,7 @@ impl CFormatString {
 
         // check that all arguments were converted
         if (!mapping_required && tuple::get_value(&values).get(tuple_index).is_some())
-            && !pytype::isinstance(&values_obj, &vm.ctx.types.dict_type)
+            && !values_obj.isinstance(&vm.ctx.types.dict_type)
         {
             return Err(vm.new_type_error(
                 "not all arguments converted during string formatting".to_owned(),

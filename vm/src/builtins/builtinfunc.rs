@@ -11,13 +11,13 @@ use crate::pyobject::{
 use crate::slots::{Callable, SlotDescriptor};
 use crate::vm::VirtualMachine;
 
-pub struct PyFuncDef {
+pub struct PyNativeFuncDef {
     pub func: PyNativeFunc,
     pub name: Option<PyStrRef>,
     pub doc: Option<PyStrRef>,
 }
 
-impl From<PyNativeFunc> for PyFuncDef {
+impl From<PyNativeFunc> for PyNativeFuncDef {
     fn from(func: PyNativeFunc) -> Self {
         Self {
             func,
@@ -27,7 +27,7 @@ impl From<PyNativeFunc> for PyFuncDef {
     }
 }
 
-impl PyFuncDef {
+impl PyNativeFuncDef {
     pub fn with_doc(mut self, doc: String, ctx: &PyContext) -> Self {
         self.doc = Some(ctx.new_stringref(doc));
         self
@@ -58,7 +58,7 @@ impl PyFuncDef {
 
 #[pyclass(name = "builtin_function_or_method", module = false)]
 pub struct PyBuiltinFunction {
-    value: PyFuncDef,
+    value: PyNativeFuncDef,
     module: Option<PyObjectRef>,
 }
 
@@ -80,11 +80,11 @@ impl fmt::Debug for PyBuiltinFunction {
 
 impl From<PyNativeFunc> for PyBuiltinFunction {
     fn from(value: PyNativeFunc) -> Self {
-        PyFuncDef::from(value).into()
+        PyNativeFuncDef::from(value).into()
     }
 }
-impl From<PyFuncDef> for PyBuiltinFunction {
-    fn from(value: PyFuncDef) -> Self {
+impl From<PyNativeFuncDef> for PyBuiltinFunction {
+    fn from(value: PyNativeFuncDef) -> Self {
         Self {
             value,
             module: None,
@@ -135,7 +135,7 @@ impl PyBuiltinFunction {
 
 #[pyclass(module = false, name = "method_descriptor")]
 pub struct PyBuiltinMethod {
-    value: PyFuncDef,
+    value: PyNativeFuncDef,
 }
 
 impl PyValue for PyBuiltinMethod {
@@ -150,25 +150,9 @@ impl fmt::Debug for PyBuiltinMethod {
     }
 }
 
-impl From<PyFuncDef> for PyBuiltinMethod {
-    fn from(value: PyFuncDef) -> Self {
+impl From<PyNativeFuncDef> for PyBuiltinMethod {
+    fn from(value: PyNativeFuncDef) -> Self {
         Self { value }
-    }
-}
-
-impl PyBuiltinMethod {
-    pub fn new_with_name(func: PyNativeFunc, name: PyStrRef) -> Self {
-        Self {
-            value: PyFuncDef {
-                func,
-                name: Some(name),
-                doc: None,
-            },
-        }
-    }
-
-    pub fn as_func(&self) -> &PyNativeFunc {
-        &self.value.func
     }
 }
 

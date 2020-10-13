@@ -4,10 +4,8 @@ use num_integer::Integer;
 use num_traits::{One, Signed, Zero};
 
 use super::int::{PyInt, PyIntRef};
-use super::iter;
 use super::pytype::PyTypeRef;
 use super::slice::{PySlice, PySliceRef};
-
 use crate::common::hash::PyHash;
 use crate::function::{FuncArgs, OptionalArg};
 use crate::pyobject::{
@@ -132,7 +130,7 @@ type PyRangeRef = PyRef<PyRange>;
 
 #[pyimpl(with(Hashable, Comparable))]
 impl PyRange {
-    fn new(cls: PyTypeRef, stop: PyIntRef, vm: &VirtualMachine) -> PyResult<PyRangeRef> {
+    fn new(cls: PyTypeRef, stop: PyIntRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         PyRange {
             start: (0).into_pyref(vm),
             stop,
@@ -147,7 +145,7 @@ impl PyRange {
         stop: PyIntRef,
         step: OptionalArg<PyIntRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<PyRangeRef> {
+    ) -> PyResult<PyRef<Self>> {
         let step = step.unwrap_or_else(|| (1).into_pyref(vm));
         if step.borrow_value().is_zero() {
             return Err(vm.new_value_error("range() arg 3 must not be zero".to_owned()));
@@ -393,7 +391,7 @@ impl PyRangeIterator {
         if let Some(int) = self.range.get(&position) {
             Ok(int)
         } else {
-            Err(iter::new_stop_iteration(vm))
+            Err(vm.new_stop_iteration())
         }
     }
 

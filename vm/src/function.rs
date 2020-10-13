@@ -1,5 +1,5 @@
 use self::OptionalArg::*;
-use crate::builtins::pytype::{isinstance, PyTypeRef};
+use crate::builtins::pytype::PyTypeRef;
 use crate::builtins::tuple::PyTupleRef;
 use crate::exceptions::PyBaseExceptionRef;
 use crate::pyobject::{
@@ -140,7 +140,7 @@ impl FuncArgs {
     ) -> PyResult<Option<PyObjectRef>> {
         match self.get_optional_kwarg(key) {
             Some(kwarg) => {
-                if isinstance(&kwarg, &ty) {
+                if kwarg.isinstance(&ty) {
                     Ok(Some(kwarg))
                 } else {
                     let expected_ty_name = &ty.name;

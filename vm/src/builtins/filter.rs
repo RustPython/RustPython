@@ -1,10 +1,8 @@
-use super::iter;
 use super::pybool;
 use super::pytype::PyTypeRef;
+use crate::iterator;
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
-
-pub type PyFilterRef = PyRef<PyFilter>;
 
 /// filter(function or None, iterable) --> filter object
 ///
@@ -31,10 +29,10 @@ impl PyFilter {
         function: PyObjectRef,
         iterable: PyObjectRef,
         vm: &VirtualMachine,
-    ) -> PyResult<PyFilterRef> {
-        let iterator = iter::get_iter(vm, &iterable)?;
+    ) -> PyResult<PyRef<Self>> {
+        let iterator = iterator::get_iter(vm, &iterable)?;
 
-        PyFilter {
+        Self {
             predicate: function,
             iterator,
         }
@@ -46,7 +44,7 @@ impl PyFilter {
         let predicate = &self.predicate;
         let iterator = &self.iterator;
         loop {
-            let next_obj = iter::call_next(vm, iterator)?;
+            let next_obj = iterator::call_next(vm, iterator)?;
             let predicate_value = if vm.is_none(predicate) {
                 next_obj.clone()
             } else {

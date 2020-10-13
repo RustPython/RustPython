@@ -4,11 +4,11 @@ mod machinery;
 #[pymodule]
 mod _json {
     use super::*;
-    use crate::builtins::iter;
     use crate::builtins::pystr::PyStrRef;
     use crate::builtins::{pybool, pytype::PyTypeRef};
     use crate::exceptions::PyBaseExceptionRef;
     use crate::function::{FuncArgs, OptionalArg};
+    use crate::iterator;
     use crate::pyobject::{
         BorrowValue, IdProtocol, IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     };
@@ -83,7 +83,7 @@ mod _json {
             let c = s
                 .chars()
                 .next()
-                .ok_or_else(|| iter::stop_iter_with_value(vm.ctx.new_int(idx), vm))?;
+                .ok_or_else(|| iterator::stop_iter_with_value(vm.ctx.new_int(idx), vm))?;
             let next_idx = idx + c.len_utf8();
             match c {
                 '"' => {
@@ -151,7 +151,7 @@ mod _json {
             parse_constant!("Infinity");
             parse_constant!("-Infinity");
 
-            Err(iter::stop_iter_with_value(vm.ctx.new_int(idx), vm))
+            Err(iterator::stop_iter_with_value(vm.ctx.new_int(idx), vm))
         }
 
         fn parse_number(&self, s: &str, vm: &VirtualMachine) -> Option<(PyResult, usize)> {
@@ -199,7 +199,7 @@ mod _json {
             if idx > 0 {
                 chars
                     .nth(idx - 1)
-                    .ok_or_else(|| iter::stop_iter_with_value(vm.ctx.new_int(idx), vm))?;
+                    .ok_or_else(|| iterator::stop_iter_with_value(vm.ctx.new_int(idx), vm))?;
             }
             zelf.parse(
                 chars.as_str(),

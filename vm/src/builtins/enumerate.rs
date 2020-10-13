@@ -5,9 +5,9 @@ use num_bigint::BigInt;
 use num_traits::Zero;
 
 use super::int::PyIntRef;
-use super::iter;
 use super::pytype::PyTypeRef;
 use crate::function::OptionalArg;
+use crate::iterator;
 use crate::pyobject::{BorrowValue, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
@@ -17,7 +17,6 @@ pub struct PyEnumerate {
     counter: PyRwLock<BigInt>,
     iterator: PyObjectRef,
 }
-type PyEnumerateRef = PyRef<PyEnumerate>;
 
 impl PyValue for PyEnumerate {
     fn class(vm: &VirtualMachine) -> PyTypeRef {
@@ -33,13 +32,13 @@ impl PyEnumerate {
         iterable: PyObjectRef,
         start: OptionalArg<PyIntRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<PyEnumerateRef> {
+    ) -> PyResult<PyRef<Self>> {
         let counter = match start {
             OptionalArg::Present(start) => start.borrow_value().clone(),
             OptionalArg::Missing => BigInt::zero(),
         };
 
-        let iterator = iter::get_iter(vm, &iterable)?;
+        let iterator = iterator::get_iter(vm, &iterable)?;
         PyEnumerate {
             counter: PyRwLock::new(counter),
             iterator,
@@ -49,7 +48,7 @@ impl PyEnumerate {
 
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult<(BigInt, PyObjectRef)> {
-        let next_obj = iter::call_next(vm, &self.iterator)?;
+        let next_obj = iterator::call_next(vm, &self.iterator)?;
         let mut counter = self.counter.write();
         let position = counter.clone();
         AddAssign::add_assign(&mut counter as &mut BigInt, 1);

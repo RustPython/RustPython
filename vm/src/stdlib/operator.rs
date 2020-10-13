@@ -1,20 +1,20 @@
 use crate::builtins::pystr::PyStrRef;
-use crate::builtins::{iter, pytype};
 use crate::byteslike::PyBytesLike;
 use crate::function::OptionalArg;
+use crate::iterator;
 use crate::pyobject::{BorrowValue, Either, PyObjectRef, PyResult, TypeProtocol};
 use crate::VirtualMachine;
 use volatile::Volatile;
 
 fn _operator_length_hint(obj: PyObjectRef, default: OptionalArg, vm: &VirtualMachine) -> PyResult {
     let default = default.unwrap_or_else(|| vm.ctx.new_int(0));
-    if !pytype::isinstance(&default, &vm.ctx.types.int_type) {
+    if !default.isinstance(&vm.ctx.types.int_type) {
         return Err(vm.new_type_error(format!(
             "'{}' type cannot be interpreted as an integer",
             default.class().name
         )));
     }
-    let hint = iter::length_hint(vm, obj)?
+    let hint = iterator::length_hint(vm, obj)?
         .map(|i| vm.ctx.new_int(i))
         .unwrap_or(default);
     Ok(hint)

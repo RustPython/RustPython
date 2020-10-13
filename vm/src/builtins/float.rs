@@ -140,7 +140,7 @@ impl PyFloat {
         cls: PyTypeRef,
         arg: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<PyFloatRef> {
+    ) -> PyResult<PyRef<Self>> {
         let float_val = match arg {
             OptionalArg::Present(val) => to_float(vm, &val),
             OptionalArg::Missing => Ok(0f64),
@@ -388,12 +388,12 @@ impl PyFloat {
     }
 
     #[pymethod(name = "__float__")]
-    fn float(zelf: PyRef<Self>) -> PyFloatRef {
+    fn float(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 
     #[pyproperty]
-    fn real(zelf: PyRef<Self>) -> PyFloatRef {
+    fn real(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 
@@ -403,7 +403,7 @@ impl PyFloat {
     }
 
     #[pymethod(name = "conjugate")]
-    fn conjugate(zelf: PyRef<Self>) -> PyFloatRef {
+    fn conjugate(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 

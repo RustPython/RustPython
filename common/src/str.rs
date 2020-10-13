@@ -29,6 +29,28 @@ pub fn zfill(bytes: &[u8], width: usize) -> Vec<u8> {
     }
 }
 
+/// Convert a string to ascii compatible, escaping unicodes into escape
+/// sequences.
+pub fn to_ascii(value: &str) -> String {
+    let mut ascii = String::new();
+    for c in value.chars() {
+        if c.is_ascii() {
+            ascii.push(c)
+        } else {
+            let c = c as i64;
+            let hex = if c < 0x100 {
+                format!("\\x{:02x}", c)
+            } else if c < 0x10000 {
+                format!("\\u{:04x}", c)
+            } else {
+                format!("\\U{:08x}", c)
+            };
+            ascii.push_str(&hex)
+        }
+    }
+    ascii
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

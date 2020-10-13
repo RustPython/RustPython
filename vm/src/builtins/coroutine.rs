@@ -7,7 +7,7 @@ use crate::function::OptionalArg;
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
-pub type PyCoroutineRef = PyRef<PyCoroutine>;
+type PyCoroutineRef = PyRef<PyCoroutine>;
 
 #[pyclass(module = false, name = "coroutine")]
 #[derive(Debug)]
@@ -27,7 +27,7 @@ impl PyCoroutine {
         &self.inner
     }
 
-    pub fn new(frame: FrameRef, vm: &VirtualMachine) -> PyCoroutineRef {
+    pub fn new(frame: FrameRef, vm: &VirtualMachine) -> PyRef<Self> {
         PyCoroutine {
             inner: Coro::new(frame, Variant::Coroutine),
         }

@@ -3,7 +3,7 @@ use num_traits::Zero;
 
 use super::float;
 use super::pystr::PyStr;
-use super::pytype::{self, PyTypeRef};
+use super::pytype::PyTypeRef;
 use crate::pyobject::{
     BorrowValue, IntoPyObject, Never, PyArithmaticValue, PyClassImpl, PyComparisonValue, PyContext,
     PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
@@ -20,8 +20,6 @@ use rustpython_common::{float_ops, hash};
 pub struct PyComplex {
     value: Complex64,
 }
-
-type PyComplexRef = PyRef<PyComplex>;
 
 impl PyValue for PyComplex {
     fn class(vm: &VirtualMachine) -> PyTypeRef {
@@ -223,7 +221,7 @@ impl PyComplex {
     }
 
     #[pyslot]
-    fn tp_new(cls: PyTypeRef, args: ComplexArgs, vm: &VirtualMachine) -> PyResult<PyComplexRef> {
+    fn tp_new(cls: PyTypeRef, args: ComplexArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         let real = match args.real {
             None => Complex64::new(0.0, 0.0),
             Some(obj) => {
@@ -253,7 +251,7 @@ impl PyComplex {
             Some(obj) => {
                 if let Some(c) = try_complex(&obj, vm)? {
                     c
-                } else if pytype::issubclass(obj.class(), &vm.ctx.types.str_type) {
+                } else if obj.class().issubclass(&vm.ctx.types.str_type) {
                     return Err(
                         vm.new_type_error("complex() second arg can't be a string".to_owned())
                     );

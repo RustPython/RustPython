@@ -7,7 +7,7 @@ https://github.com/python/cpython/blob/50b48572d9a90c5bb36e2bef6179548ea927a35a/
 */
 
 use super::pystr::PyStrRef;
-use super::pytype::{self, PyType, PyTypeRef};
+use super::pytype::{PyType, PyTypeRef};
 use crate::function::OptionalArg;
 use crate::pyobject::{
     BorrowValue, IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
@@ -16,8 +16,6 @@ use crate::pyobject::{
 use crate::scope::NameProtocol;
 use crate::slots::{SlotDescriptor, SlotGetattro};
 use crate::vm::VirtualMachine;
-
-pub type PySuperRef = PyRef<PySuper>;
 
 #[pyclass(module = false, name = "super")]
 #[derive(Debug)]
@@ -59,7 +57,7 @@ impl PySuper {
         py_type: OptionalArg<PyTypeRef>,
         py_obj: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<PySuperRef> {
+    ) -> PyResult<PyRef<Self>> {
         // Get the type:
         let typ = if let OptionalArg::Present(ty) = py_type {
             ty
@@ -77,7 +75,7 @@ impl PySuper {
         };
 
         // Check type argument:
-        if !pytype::isinstance(typ.as_object(), &vm.ctx.types.type_type) {
+        if !typ.as_object().isinstance(&vm.ctx.types.type_type) {
             return Err(vm.new_type_error(format!(
                 "super() argument 1 must be type, not {}",
                 typ.class().name
@@ -159,16 +157,16 @@ impl SlotDescriptor for PySuper {
 
 fn supercheck(ty: PyTypeRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTypeRef> {
     if let Ok(cls) = obj.clone().downcast::<PyType>() {
-        if pytype::issubclass(&cls, &ty) {
+        if cls.issubclass(&ty) {
             return Ok(cls);
         }
     }
-    if pytype::isinstance(&obj, &ty) {
+    if obj.isinstance(&ty) {
         return Ok(obj.clone_class());
     }
     let class_attr = vm.get_attribute(obj, "__class__")?;
     if let Ok(cls) = class_attr.downcast::<PyType>() {
-        if !cls.is(&ty) && pytype::issubclass(&cls, &ty) {
+        if !cls.is(&ty) && cls.issubclass(&ty) {
             return Ok(cls);
         }
     }

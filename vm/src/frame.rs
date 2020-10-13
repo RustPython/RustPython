@@ -4,23 +4,24 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use indexmap::IndexMap;
 use itertools::Itertools;
 
+use crate::builtins;
 use crate::builtins::asyncgenerator::PyAsyncGenWrappedValue;
-use crate::builtins::builtin_isinstance;
 use crate::builtins::code::PyCodeRef;
 use crate::builtins::coroutine::PyCoroutine;
 use crate::builtins::dict::{PyDict, PyDictRef};
 use crate::builtins::generator::PyGenerator;
 use crate::builtins::pystr::{self, PyStr, PyStrRef};
-use crate::builtins::pytype::{self, PyTypeRef};
+use crate::builtins::pytype::PyTypeRef;
 use crate::builtins::slice::PySlice;
 use crate::builtins::traceback::PyTraceback;
 use crate::builtins::tuple::PyTuple;
-use crate::builtins::{iter, list, pybool, set};
+use crate::builtins::{list, pybool, set};
 use crate::bytecode;
 use crate::common::lock::PyMutex;
 use crate::coroutine::Coro;
 use crate::exceptions::{self, ExceptionCtor, PyBaseExceptionRef};
 use crate::function::FuncArgs;
+use crate::iterator;
 use crate::pyobject::{
     BorrowValue, IdProtocol, ItemProtocol, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
@@ -116,8 +117,8 @@ impl ExecutionResult {
         match res {
             Ok(val) => Ok(ExecutionResult::Yield(val)),
             Err(err) => {
-                if pytype::isinstance(&err, &vm.ctx.exceptions.stop_iteration) {
-                    iter::stop_iter_value(vm, &err).map(ExecutionResult::Return)
+                if err.isinstance(&vm.ctx.exceptions.stop_iteration) {
+                    iterator::stop_iter_value(vm, &err).map(ExecutionResult::Return)
                 } else {
                     Err(err)
                 }
@@ -313,7 +314,7 @@ impl ExecutingFrame<'_> {
             res.or_else(|err| {
                 self.pop_value();
                 self.lasti.fetch_add(1, Ordering::Relaxed);
-                let val = iter::stop_iter_value(vm, &err)?;
+                let val = iterator::stop_iter_value(vm, &err)?;
                 self._send(coro, val, vm)
             })
             .map(ExecutionResult::Yield)
@@ -580,7 +581,7 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::GetIter => {
                 let iterated_obj = self.pop_value();
-                let iter_obj = iter::get_iter(vm, &iterated_obj)?;
+                let iter_obj = iterator::get_iter(vm, &iterated_obj)?;
                 self.push_value(iter_obj);
                 Ok(None)
             }
@@ -725,7 +726,7 @@ impl ExecutingFrame<'_> {
                 let value = match conversion {
                     Some(Str) => vm.to_str(&self.pop_value())?.into_object(),
                     Some(Repr) => vm.to_repr(&self.pop_value())?.into_object(),
-                    Some(Ascii) => vm.to_ascii(&self.pop_value())?,
+                    Some(Ascii) => vm.ctx.new_str(builtins::ascii(self.pop_value(), vm)?),
                     None => self.pop_value(),
                 };
 
@@ -1146,7 +1147,7 @@ impl ExecutingFrame<'_> {
     fn _send(&self, coro: PyObjectRef, val: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         match self.builtin_coro(&coro) {
             Some(coro) => coro.send(val, vm),
-            None if vm.is_none(&val) => iter::call_next(vm, &coro),
+            None if vm.is_none(&val) => iterator::call_next(vm, &coro),
             None => vm.call_method(&coro, "send", (val,)),
         }
     }
@@ -1220,7 +1221,7 @@ impl ExecutingFrame<'_> {
     /// The top of stack contains the iterator, lets push it forward
     fn execute_for_iter(&mut self, vm: &VirtualMachine, target: bytecode::Label) -> FrameResult {
         let top_of_stack = self.last_value();
-        let next_obj = iter::get_next_object(vm, &top_of_stack);
+        let next_obj = iterator::get_next_object(vm, &top_of_stack);
 
         // Check the next object:
         match next_obj {
@@ -1421,7 +1422,7 @@ impl ExecutingFrame<'_> {
             bytecode::ComparisonOperator::In => vm.ctx.new_bool(self._in(vm, a, b)?),
             bytecode::ComparisonOperator::NotIn => vm.ctx.new_bool(self._not_in(vm, a, b)?),
             bytecode::ComparisonOperator::ExceptionMatch => {
-                vm.ctx.new_bool(builtin_isinstance(a, b, vm)?)
+                vm.ctx.new_bool(builtins::isinstance(a, b, vm)?)
             }
         };
 

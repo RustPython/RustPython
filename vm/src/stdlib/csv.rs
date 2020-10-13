@@ -2,7 +2,6 @@ use csv as rust_csv;
 use itertools::{self, Itertools};
 use std::fmt::{self, Debug, Formatter};
 
-use crate::builtins::iter;
 use crate::builtins::pystr::{self, PyStr};
 use crate::builtins::pytype::PyTypeRef;
 use crate::common::lock::PyRwLock;
@@ -178,7 +177,7 @@ impl Reader {
                     }
                 }
             } else {
-                Err(iter::new_stop_iteration(vm))
+                Err(vm.new_stop_iteration())
             }
         } else {
             unreachable!()

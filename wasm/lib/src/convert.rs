@@ -3,11 +3,12 @@ use wasm_bindgen::{closure::Closure, prelude::*, JsCast};
 
 use rustpython_compiler::error::{CompileError, CompileErrorType};
 use rustpython_parser::error::ParseErrorType;
-use rustpython_vm::builtins::isinstance;
 use rustpython_vm::byteslike::PyBytesLike;
 use rustpython_vm::exceptions::PyBaseExceptionRef;
 use rustpython_vm::function::FuncArgs;
-use rustpython_vm::pyobject::{ItemProtocol, PyObjectRef, PyResult, PyValue, TryFromObject};
+use rustpython_vm::pyobject::{
+    ItemProtocol, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+};
 use rustpython_vm::VirtualMachine;
 use rustpython_vm::{exceptions, py_serde};
 
@@ -67,7 +68,7 @@ pub fn js_err_to_py_err(vm: &VirtualMachine, js_err: &JsValue) -> PyBaseExceptio
 
 pub fn py_to_js(vm: &VirtualMachine, py_obj: PyObjectRef) -> JsValue {
     if let Some(ref wasm_id) = vm.wasm_id {
-        if isinstance(&py_obj, &vm.ctx.types.function_type) {
+        if py_obj.isinstance(&vm.ctx.types.function_type) {
             let wasm_vm = WASMVirtualMachine {
                 id: wasm_id.clone(),
             };
