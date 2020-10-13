@@ -1,4 +1,7 @@
-use crate::common::lock::PyRwLock;
+use crate::common::lock::{
+    PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard, PyRwLockUpgradableReadGuard,
+    PyRwLockWriteGuard,
+};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
@@ -57,21 +60,23 @@ impl PyValue for PyType {
 }
 
 impl PyType {
-    fn tp_name(&self, vm: &VirtualMachine) -> String {
-        let opt_name = self.slots.name.read().clone();
-        opt_name.unwrap_or_else(|| {
+    pub fn tp_name<'s>(&'s self) -> PyMappedRwLockReadGuard<'s, str> {
+        let opt_name = self.slots.name.upgradable_read();
+        let read_guard = if opt_name.is_some() {
+            PyRwLockUpgradableReadGuard::downgrade(opt_name)
+        } else {
+            let mut opt_name = PyRwLockUpgradableReadGuard::upgrade(opt_name);
             let module = self.attributes.read().get("__module__").cloned();
+            let module: Option<PyStrRef> = module.and_then(|m| m.downcast().ok());
             let new_name = if let Some(module) = module {
-                // FIXME: "unknown" case is a bug.
-                let module_str = PyStrRef::try_from_object(vm, module)
-                    .map_or("<unknown>".to_owned(), |m| m.borrow_value().to_owned());
-                format!("{}.{}", module_str, &self.name)
+                format!("{}.{}", module, &self.name)
             } else {
                 self.name.clone()
             };
-            *self.slots.name.write() = Some(new_name.clone());
-            new_name
-        })
+            *opt_name = Some(new_name);
+            PyRwLockWriteGuard::downgrade(opt_name)
+        };
+        PyRwLockReadGuard::map(read_guard, |opt| opt.as_deref().unwrap())
     }
 
     pub fn iter_mro(&self) -> impl Iterator<Item = &PyType> + DoubleEndedIterator {
@@ -272,8 +277,8 @@ impl PyType {
     }
 
     #[pymethod(magic)]
-    fn repr(&self, vm: &VirtualMachine) -> String {
-        format!("<class '{}'>", self.tp_name(vm))
+    fn repr(&self) -> String {
+        format!("<class '{}'>", self.tp_name())
     }
 
     #[pyproperty(magic)]
