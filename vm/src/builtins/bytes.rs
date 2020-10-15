@@ -493,10 +493,6 @@ impl Buffer for PyBytesRef {
         unreachable!("bytes is not mutable")
     }
 
-    fn is_resizable(&self) -> bool {
-        false
-    }
-
     fn release(&self) {}
 
     fn get_options(&self) -> BorrowedValue<BufferOptions> {

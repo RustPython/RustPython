@@ -1,7 +1,7 @@
 //! Implementation of the python bytearray object.
 use super::bytes::{PyBytes, PyBytesRef};
 use super::int::PyIntRef;
-use super::memory::{Buffer, BufferOptions};
+use super::memory::{Buffer, BufferOptions, ResizeGuard};
 use super::pystr::PyStrRef;
 use super::pytype::PyTypeRef;
 use super::tuple::PyTupleRef;
@@ -141,8 +141,7 @@ impl PyByteArray {
 
     #[pymethod(name = "__iadd__")]
     fn iadd(zelf: PyRef<Self>, other: PyBytesLike, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        zelf.try_resizable(vm)?;
-        zelf.borrow_value_mut().iadd(&*other.borrow_value());
+        zelf.try_resizable(vm)?.iadd(&*other.borrow_value());
         Ok(zelf)
     }
 
@@ -169,21 +168,26 @@ impl PyByteArray {
     ) -> PyResult<()> {
         match needle {
             SequenceIndex::Int(int) => zelf.borrow_value_mut().setindex(int, value, vm),
-            SequenceIndex::Slice(slice) => match (zelf.is(&value), zelf.is_resizable()) {
-                (true, true) => zelf.borrow_value_mut().setslice_from_self(slice, vm),
-                (true, false) => zelf
-                    .borrow_value_mut()
-                    .setslice_from_self_no_resize(slice, vm),
-                (false, true) => zelf.borrow_value_mut().setslice(slice, value, vm),
-                (false, false) => zelf.borrow_value_mut().setslice_no_resize(slice, value, vm),
-            },
+            SequenceIndex::Slice(slice) => {
+                if let Ok(mut w) = zelf.try_resizable(vm) {
+                    if zelf.is(&value) {
+                        w.setslice_from_self(slice, vm)
+                    } else {
+                        w.setslice(slice, value, vm)
+                    }
+                } else if zelf.is(&value) {
+                    zelf.borrow_value_mut()
+                        .setslice_from_self_no_resize(slice, vm)
+                } else {
+                    zelf.borrow_value_mut().setslice_no_resize(slice, value, vm)
+                }
+            }
         }
     }
 
     #[pymethod(name = "__delitem__")]
     fn delitem(zelf: PyRef<Self>, needle: SequenceIndex, vm: &VirtualMachine) -> PyResult<()> {
-        zelf.try_resizable(vm)?;
-        zelf.borrow_value_mut().delitem(needle, vm)
+        zelf.try_resizable(vm)?.delitem(needle, vm)
     }
 
     #[pymethod(name = "isalnum")]
@@ -350,7 +354,7 @@ impl PyByteArray {
 
     #[pymethod(name = "remove")]
     fn remove(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.borrow_value_mut().remove(value, vm)
+        self.try_resizable(vm)?.remove(value, vm)
     }
 
     #[pymethod(name = "translate")]
@@ -470,8 +474,7 @@ impl PyByteArray {
 
     #[pymethod(name = "clear")]
     fn clear(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<()> {
-        zelf.try_resizable(vm)?;
-        zelf.borrow_value_mut().elements.clear();
+        zelf.try_resizable(vm)?.elements.clear();
         Ok(())
     }
 
@@ -482,18 +485,16 @@ impl PyByteArray {
 
     #[pymethod(name = "append")]
     fn append(zelf: PyRef<Self>, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        zelf.try_resizable(vm)?;
-        zelf.borrow_value_mut().append(value, vm)
+        zelf.try_resizable(vm)?.append(value, vm)
     }
 
     #[pymethod(name = "extend")]
     fn extend(zelf: PyRef<Self>, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        zelf.try_resizable(vm)?;
         if zelf.is(&value) {
-            zelf.borrow_value_mut().irepeat(2);
+            zelf.try_resizable(vm)?.irepeat(2);
             Ok(())
         } else {
-            zelf.borrow_value_mut().extend(value, vm)
+            zelf.try_resizable(vm)?.extend(value, vm)
         }
     }
 
@@ -504,15 +505,13 @@ impl PyByteArray {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        zelf.try_resizable(vm)?;
-        zelf.borrow_value_mut().insert(index, value, vm)
+        zelf.try_resizable(vm)?.insert(index, value, vm)
     }
 
     #[pymethod(name = "pop")]
     fn pop(zelf: PyRef<Self>, index: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult<u8> {
-        zelf.try_resizable(vm)?;
         let index = index.unwrap_or(-1);
-        zelf.borrow_value_mut().pop(index, vm)
+        zelf.try_resizable(vm)?.pop(index, vm)
     }
 
     #[pymethod(name = "title")]
@@ -528,8 +527,7 @@ impl PyByteArray {
 
     #[pymethod(name = "__imul__")]
     fn imul(zelf: PyRef<Self>, n: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        zelf.try_resizable(vm)?;
-        zelf.borrow_value_mut().irepeat(n);
+        zelf.try_resizable(vm)?.irepeat(n);
         Ok(zelf)
     }
 
@@ -607,10 +605,6 @@ impl Buffer for PyByteArrayRef {
         }
     }
 
-    fn is_resizable(&self) -> bool {
-        self.exports.load() == 0
-    }
-
     fn get_options(&self) -> BorrowedValue<BufferOptions> {
         let guard = self.buffer_options.upgradable_read();
         let guard = if guard.is_none() {
@@ -625,6 +619,20 @@ impl Buffer for PyByteArrayRef {
             PyRwLockUpgradableReadGuard::downgrade(guard)
         };
         PyRwLockReadGuard::map(guard, |x| x.as_ref().unwrap().as_ref()).into()
+    }
+}
+
+impl<'a> ResizeGuard<'a> for PyByteArray {
+    type Resizable = PyRwLockWriteGuard<'a, PyBytesInner>;
+
+    fn try_resizable(&'a self, vm: &VirtualMachine) -> PyResult<Self::Resizable> {
+        let w = self.borrow_value_mut();
+        if self.exports.load() == 0 {
+            Ok(w)
+        } else {
+            Err(vm
+                .new_buffer_error("Existing exports of data: object cannot be re-sized".to_owned()))
+        }
     }
 }
 

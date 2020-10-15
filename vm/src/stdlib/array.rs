@@ -1,7 +1,7 @@
 use crate::builtins::bytes::PyBytesRef;
 use crate::builtins::float::try_float;
 use crate::builtins::list::PyList;
-use crate::builtins::memory::{Buffer, BufferOptions};
+use crate::builtins::memory::{Buffer, BufferOptions, ResizeGuard};
 use crate::builtins::pystr::PyStrRef;
 use crate::builtins::pytype::PyTypeRef;
 use crate::builtins::slice::PySliceRef;
@@ -39,7 +39,7 @@ impl fmt::Display for ArrayTypeSpecifierError {
 macro_rules! def_array_enum {
     ($(($n:ident, $t:ident, $c:literal)),*$(,)?) => {
         #[derive(Debug, Clone)]
-        enum ArrayContentType {
+        pub(crate) enum ArrayContentType {
             $($n(Vec<$t>),)*
         }
 
@@ -508,13 +508,15 @@ impl PyArray {
         let spec = spec.borrow_value().chars().exactly_one().map_err(|_| {
             vm.new_type_error("array() argument 1 must be a unicode character, not str".to_owned())
         })?;
-        let array =
+        let mut array =
             ArrayContentType::from_char(spec).map_err(|err| vm.new_value_error(err.to_string()))?;
-        let zelf: PyArray = array.into();
+        // TODO: support buffer protocol
         if let OptionalArg::Present(init) = init {
-            zelf.extend_from_iterable(init, vm)?;
+            for obj in init.iter(vm)? {
+                array.push(obj?, vm)?;
+            }
         }
-        zelf.into_ref_with_type(vm, cls)
+        Self::from(array).into_ref_with_type(vm, cls)
     }
 
     #[pyproperty]
@@ -529,8 +531,7 @@ impl PyArray {
 
     #[pymethod]
     fn append(zelf: PyRef<Self>, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        zelf.try_resizable(vm)?;
-        zelf.borrow_value_mut().push(x, vm)
+        zelf.try_resizable(vm)?.push(x, vm)
     }
 
     #[pymethod]
@@ -546,42 +547,44 @@ impl PyArray {
 
     #[pymethod]
     fn remove(zelf: PyRef<Self>, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        zelf.try_resizable(vm)?;
-        zelf.borrow_value_mut().remove(x, vm)
+        zelf.try_resizable(vm)?.remove(x, vm)
     }
 
-    fn extend_from_iterable(&self, iter: PyIterable, vm: &VirtualMachine) -> PyResult<()> {
-        let mut array = self.borrow_value_mut();
-        for obj in iter.iter(vm)? {
-            array.push(obj?, vm)?;
-        }
-        Ok(())
-    }
+    // fn extend_from_iterable(&self, iter: PyIterable, vm: &VirtualMachine) -> PyResult<()> {
+    //     let mut array = self.borrow_value_mut();
+    //     for obj in iter.iter(vm)? {
+    //         array.push(obj?, vm)?;
+    //     }
+    //     Ok(())
+    // }
 
     #[pymethod]
     fn extend(zelf: PyRef<Self>, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        zelf.try_resizable(vm)?;
+        let mut w = zelf.try_resizable(vm)?;
         if zelf.is(&obj) {
-            zelf.borrow_value_mut().imul(2);
+            w.imul(2);
             Ok(())
         } else if let Some(array) = obj.payload::<PyArray>() {
-            zelf.borrow_value_mut().iadd(&*array.borrow_value(), vm)
+            w.iadd(&*array.borrow_value(), vm)
         } else {
             let iter = PyIterable::try_from_object(vm, obj)?;
-            zelf.extend_from_iterable(iter, vm)
+            // zelf.extend_from_iterable(iter, vm)
+            for obj in iter.iter(vm)? {
+                w.push(obj?, vm)?;
+            }
+            Ok(())
         }
     }
 
     #[pymethod]
     fn frombytes(zelf: PyRef<Self>, b: PyBytesRef, vm: &VirtualMachine) -> PyResult<()> {
-        zelf.try_resizable(vm)?;
         let b = b.borrow_value();
         let itemsize = zelf.borrow_value().itemsize();
         if b.len() % itemsize != 0 {
             return Err(vm.new_value_error("bytes length not a multiple of item size".to_owned()));
         }
         if b.len() / itemsize > 0 {
-            zelf.borrow_value_mut().frombytes(&b);
+            zelf.try_resizable(vm)?.frombytes(&b);
         }
         Ok(())
     }
@@ -598,19 +601,19 @@ impl PyArray {
 
     #[pymethod]
     fn insert(zelf: PyRef<Self>, i: isize, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        zelf.try_resizable(vm)?;
-        let i = saturate_index(i, zelf.len());
-        zelf.borrow_value_mut().insert(i, x, vm)
+        let mut w = zelf.try_resizable(vm)?;
+        let i = saturate_index(i, w.len());
+        w.insert(i, x, vm)
     }
 
     #[pymethod]
     fn pop(zelf: PyRef<Self>, i: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult {
-        zelf.try_resizable(vm)?;
-        if zelf.len() == 0 {
+        let mut w = zelf.try_resizable(vm)?;
+        if w.len() == 0 {
             Err(vm.new_index_error("pop from empty array".to_owned()))
         } else {
-            let i = zelf.borrow_value().idx(i.unwrap_or(-1), "pop", vm)?;
-            Ok(zelf.borrow_value_mut().pop(i, vm))
+            let i = w.idx(i.unwrap_or(-1), "pop", vm)?;
+            Ok(w.pop(i, vm))
         }
     }
 
@@ -639,9 +642,8 @@ impl PyArray {
 
     #[pymethod]
     fn fromlist(zelf: PyRef<Self>, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        zelf.try_resizable(vm)?;
         if let Some(list) = obj.payload::<PyList>() {
-            zelf.borrow_value_mut().fromlist(list, vm)
+            zelf.try_resizable(vm)?.fromlist(list, vm)
         } else {
             Err(vm.new_type_error("arg must be list".to_owned()))
         }
@@ -674,7 +676,6 @@ impl PyArray {
         obj: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        // FIXME check resizable
         match needle {
             Either::A(i) => zelf.borrow_value_mut().setitem_by_idx(i, obj, vm),
             Either::B(slice) => {
@@ -697,8 +698,8 @@ impl PyArray {
                         }
                     }
                 };
-                if zelf.is_resizable() {
-                    zelf.borrow_value_mut().setitem_by_slice(slice, items, vm)
+                if let Ok(mut w) = zelf.try_resizable(vm) {
+                    w.setitem_by_slice(slice, items, vm)
                 } else {
                     zelf.borrow_value_mut()
                         .setitem_by_slice_no_resize(slice, items, vm)
@@ -713,10 +714,9 @@ impl PyArray {
         needle: Either<isize, PySliceRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        zelf.try_resizable(vm)?;
         match needle {
-            Either::A(i) => zelf.borrow_value_mut().delitem_by_idx(i, vm),
-            Either::B(slice) => zelf.borrow_value_mut().delitem_by_slice(slice, vm),
+            Either::A(i) => zelf.try_resizable(vm)?.delitem_by_idx(i, vm),
+            Either::B(slice) => zelf.try_resizable(vm)?.delitem_by_slice(slice, vm),
         }
     }
 
@@ -736,12 +736,11 @@ impl PyArray {
 
     #[pymethod(name = "__iadd__")]
     fn iadd(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        zelf.try_resizable(vm)?;
         if zelf.is(&other) {
-            zelf.borrow_value_mut().imul(2);
+            zelf.try_resizable(vm)?.imul(2);
             Ok(zelf)
         } else if let Some(other) = other.payload::<PyArray>() {
-            let result = zelf.borrow_value_mut().iadd(&*other.borrow_value(), vm);
+            let result = zelf.try_resizable(vm)?.iadd(&*other.borrow_value(), vm);
             result.map(|_| zelf)
         } else {
             Err(vm.new_type_error(format!(
@@ -763,8 +762,7 @@ impl PyArray {
 
     #[pymethod(name = "__imul__")]
     fn imul(zelf: PyRef<Self>, counter: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        zelf.try_resizable(vm)?;
-        zelf.borrow_value_mut().imul(counter);
+        zelf.try_resizable(vm)?.imul(counter);
         Ok(zelf)
     }
 
@@ -882,10 +880,6 @@ impl Buffer for PyArrayRef {
         }
     }
 
-    fn is_resizable(&self) -> bool {
-        self.exports.load() == 0
-    }
-
     fn get_options(&self) -> BorrowedValue<BufferOptions> {
         let guard = self.buffer_options.upgradable_read();
         let guard = if guard.is_none() {
@@ -903,6 +897,20 @@ impl Buffer for PyArrayRef {
             PyRwLockUpgradableReadGuard::downgrade(guard)
         };
         PyRwLockReadGuard::map(guard, |x| x.as_ref().unwrap().as_ref()).into()
+    }
+}
+
+impl<'a> ResizeGuard<'a> for PyArray {
+    type Resizable = PyRwLockWriteGuard<'a, ArrayContentType>;
+
+    fn try_resizable(&'a self, vm: &VirtualMachine) -> PyResult<Self::Resizable> {
+        let w = self.borrow_value_mut();
+        if self.exports.load() == 0 {
+            Ok(w)
+        } else {
+            Err(vm
+                .new_buffer_error("Existing exports of data: object cannot be re-sized".to_owned()))
+        }
     }
 }
 
