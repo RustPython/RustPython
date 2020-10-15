@@ -997,22 +997,46 @@ impl VirtualMachine {
         T: TryFromObject,
         F: FnMut(T) -> PyResult<R>,
     {
-        self.map_iterable_object(obj, |elem| f(T::try_from_object(self, elem.clone())?))
+        self.map_iterable_object(obj, |elem| f(T::try_from_object(self, elem)?))
     }
 
-    pub fn map_iterable_object<F, R>(&self, obj: &PyObjectRef, f: F) -> PyResult<PyResult<Vec<R>>>
+    pub fn map_iterable_object<F, R>(
+        &self,
+        obj: &PyObjectRef,
+        mut f: F,
+    ) -> PyResult<PyResult<Vec<R>>>
     where
-        F: FnMut(&PyObjectRef) -> PyResult<R>,
+        F: FnMut(PyObjectRef) -> PyResult<R>,
     {
-        Ok(match_class!(match obj {
-            ref l @ PyList => l.borrow_value().iter().map(f).collect(),
-            ref t @ PyTuple => t.borrow_value().iter().map(f).collect(),
+        match_class!(match obj {
+            ref l @ PyList => {
+                let mut i: usize = 0;
+                let mut results = Vec::with_capacity(l.borrow_value().len());
+                loop {
+                    let elem = {
+                        let elements = &*l.borrow_value();
+                        if i >= elements.len() {
+                            results.shrink_to_fit();
+                            return Ok(Ok(results));
+                        } else {
+                            elements[i].clone()
+                        }
+                        // free the lock
+                    };
+                    match f(elem) {
+                        Ok(result) => results.push(result),
+                        Err(err) => return Ok(Err(err)),
+                    }
+                    i += 1;
+                }
+            }
+            ref t @ PyTuple => Ok(t.borrow_value().iter().cloned().map(f).collect()),
             // TODO: put internal iterable type
             obj => {
                 let iter = iterator::get_iter(self, obj)?;
-                iterator::try_map(self, &iter, f)
+                Ok(iterator::try_map(self, &iter, f))
             }
-        }))
+        })
     }
 
     // get_attribute should be used for full attribute access (usually from user code).

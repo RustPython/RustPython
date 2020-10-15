@@ -3,6 +3,7 @@ use itertools::Itertools;
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 
+use crate::anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper};
 use crate::builtins::bytearray::PyByteArray;
 use crate::builtins::bytes::{PyBytes, PyBytesRef};
 use crate::builtins::int::{self, PyInt, PyIntRef};
@@ -14,12 +15,9 @@ use crate::pyobject::{
     BorrowValue, Either, PyComparisonValue, PyIterable, PyObjectRef, PyResult, TryFromObject,
     TypeProtocol,
 };
+use crate::sliceable::PySliceableSequence;
 use crate::slots::PyComparisonOp;
 use crate::vm::VirtualMachine;
-use crate::{
-    anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper},
-    sliceable::PySliceableSequence,
-};
 use rustpython_common::hash;
 
 #[derive(Debug, Default, Clone)]

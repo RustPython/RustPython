@@ -80,7 +80,7 @@ pub fn get_all<T: TryFromObject>(vm: &VirtualMachine, iter_obj: &PyObjectRef) ->
 
 pub fn try_map<F, R>(vm: &VirtualMachine, iter_obj: &PyObjectRef, mut f: F) -> PyResult<Vec<R>>
 where
-    F: FnMut(&PyObjectRef) -> PyResult<R>,
+    F: FnMut(PyObjectRef) -> PyResult<R>,
 {
     let cap = length_hint(vm, iter_obj.clone())?.unwrap_or(0);
     // TODO: fix extend to do this check (?), see test_extend in Lib/test/list_tests.py,
@@ -90,7 +90,7 @@ where
     }
     let mut results = Vec::with_capacity(cap);
     while let Some(element) = get_next_object(vm, iter_obj)? {
-        results.push(f(&element)?);
+        results.push(f(element)?);
     }
     results.shrink_to_fit();
     Ok(results)

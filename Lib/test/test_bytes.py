@@ -113,7 +113,6 @@ class BaseBytesTest:
         b = self.type2test([1, 2, 3])
         self.assertEqual(b, b"\x01\x02\x03")
 
-    # @unittest.skip("TODO")
     def test_from_mutating_list(self):
         # Issue #34973: Crash in bytes constructor with mutating list.
         class X:
