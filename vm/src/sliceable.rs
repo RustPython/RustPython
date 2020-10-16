@@ -32,8 +32,7 @@ pub trait PySliceableSequenceMut {
                 self.do_set_range(range, items);
                 Ok(())
             } else {
-                Err(vm.new_exception_msg(
-                    vm.ctx.exceptions.buffer_error.clone(),
+                Err(vm.new_buffer_error(
                     "Existing exports of data: object cannot be re-sized".to_owned(),
                 ))
             };
@@ -54,11 +53,9 @@ pub trait PySliceableSequenceMut {
                 self.do_replace_indexes(indexes, items);
                 Ok(())
             } else {
-                Err(vm.new_value_error(format!(
-                    "attempt to assign sequence of size {} to extended slice of size {}",
-                    items.len(),
-                    slicelen
-                )))
+                Err(vm.new_buffer_error(
+                    "Existing exports of data: object cannot be re-sized".to_owned(),
+                ))
             }
         } else {
             // edge case, step is too big for usize
@@ -74,11 +71,9 @@ pub trait PySliceableSequenceMut {
             } {
                 Ok(())
             } else {
-                Err(vm.new_value_error(format!(
-                    "attempt to assign sequence of size {} to extended slice of size {}",
-                    items.len(),
-                    slicelen
-                )))
+                Err(vm.new_buffer_error(
+                    "Existing exports of data: object cannot be re-sized".to_owned(),
+                ))
             }
         }
     }

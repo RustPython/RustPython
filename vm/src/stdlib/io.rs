@@ -20,7 +20,7 @@ mod _io {
     use crate::builtins::bytearray::PyByteArray;
     use crate::builtins::bytes::PyBytesRef;
     use crate::builtins::int;
-    use crate::builtins::memory::{Buffer, BufferOptions, BufferRef, PyMemoryView};
+    use crate::builtins::memory::{Buffer, BufferOptions, BufferRef, PyMemoryView, ResizeGuard};
     use crate::builtins::pybool;
     use crate::builtins::pystr::{self, PyStr, PyStrRef};
     use crate::builtins::pytype::PyTypeRef;
@@ -986,8 +986,7 @@ mod _io {
     impl BytesIORef {
         #[pymethod]
         fn write(self, data: PyBytesLike, vm: &VirtualMachine) -> PyResult<u64> {
-            self.try_resizable(vm)?;
-            let mut buffer = self.buffer(vm)?;
+            let mut buffer = self.try_resizable(vm)?;
             match data.with_ref(|b| buffer.write(b)) {
                 Some(value) => Ok(value),
                 None => Err(vm.new_type_error("Error Writing Bytes".to_owned())),
@@ -1054,8 +1053,7 @@ mod _io {
 
         #[pymethod]
         fn truncate(self, pos: OptionalSize, vm: &VirtualMachine) -> PyResult<()> {
-            self.try_resizable(vm)?;
-            let mut buffer = self.buffer(vm)?;
+            let mut buffer = self.try_resizable(vm)?;
             buffer.truncate(pos.try_usize(vm)?)?;
             Ok(())
         }
@@ -1067,7 +1065,7 @@ mod _io {
 
         #[pymethod]
         fn close(self, vm: &VirtualMachine) -> PyResult<()> {
-            self.try_resizable(vm)?;
+            let _ = self.try_resizable(vm)?;
             self.closed.store(true);
             Ok(())
         }
@@ -1114,9 +1112,20 @@ mod _io {
                 *w = None;
             }
         }
+    }
 
-        fn is_resizable(&self) -> bool {
-            self.exports.load() == 0
+    impl<'a> ResizeGuard<'a> for BytesIO {
+        type Resizable = PyRwLockWriteGuard<'a, BufferedIO>;
+
+        fn try_resizable(&'a self, vm: &VirtualMachine) -> PyResult<Self::Resizable> {
+            let buffer = self.buffer(vm)?;
+            if self.exports.load() == 0 {
+                Ok(buffer)
+            } else {
+                Err(vm.new_buffer_error(
+                    "Existing exports of data: object cannot be re-sized".to_owned(),
+                ))
+            }
         }
     }
 
