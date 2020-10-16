@@ -1,31 +1,33 @@
 import './style.css';
-// Code Mirror (https://codemirror.net/)
+
+// Code Mirror 
 // https://github.com/codemirror/codemirror
 import CodeMirror from 'codemirror';
 import 'codemirror/mode/python/python';
+import 'codemirror/mode/javascript/javascript';
 import 'codemirror/mode/markdown/markdown';
 import 'codemirror/mode/stex/stex';
 import 'codemirror/addon/comment/comment';
 import 'codemirror/lib/codemirror.css';
+import 'codemirror/theme/base16-dark.css';
 
-// MarkedJs (https://marked.js.org/)
-// Renders Markdown
+// MarkedJs: renders Markdown
 // https://github.com/markedjs/marked
 import marked from 'marked';
 
-// KaTex (https://katex.org/)
-// Renders Math
+// KaTex: renders Math
 // https://github.com/KaTeX/KaTeX
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
 
-// Parses the code and splits it to chunks
-// uses %% keyword for separators
-// copied from iodide project
+// copied from the iodide project
 // https://github.com/iodide-project/iodide/blob/master/src/editor/iomd-tools/iomd-parser.js
 import { iomdParser } from './parser';
+import { genericFetch } from './utils';
+import { inject } from './utils';
 
 let rp;
+let js_vars = {};
 
 const notebook = document.getElementById('rp-notebook');
 const error = document.getElementById('error');
@@ -44,7 +46,7 @@ import('rustpython')
     });
 
 // Code Editor
-const editor = CodeMirror.fromTextArea(document.getElementById('code'), {
+const pyEditor = CodeMirror(document.getElementById('python-code-editor'), {
     extraKeys: {
         'Ctrl-Enter': parseCodeFromEditor,
         'Cmd-Enter': parseCodeFromEditor,
@@ -53,14 +55,23 @@ const editor = CodeMirror.fromTextArea(document.getElementById('code'), {
         'Cmd-/': 'toggleComment',
         Tab: (editor) => {
             var spaces = Array(editor.getOption('indentUnit') + 1).join(' ');
-            editor.replaceSelection(spaces);
-        },
+            pyEditor.replaceSelection(spaces);
+        }
     },
     lineNumbers: true,
     mode: 'text/x-notebook',
     indentUnit: 4,
     autofocus: true,
     lineWrapping: true,
+});
+
+// JS Code Editor with dark theme
+const jsEditor = CodeMirror(document.getElementById('javascript-code-editor'), {
+    lineNumbers: false,
+    indentUnit: 4,
+    mode: 'text/javascript',
+    theme: 'base16-dark',
+    lineWrapping: true
 });
 
 // Parses what is the code editor
@@ -70,23 +81,27 @@ function parseCodeFromEditor() {
     notebook.innerHTML = '';
     error.textContent = '';
 
-    // gets the code from code editor
-    let code = editor.getValue();
+    // Read javascript code from the jsEditor
+    // Injsect JS into DOM, so that functions can be called from python
+    let js_code = jsEditor.getValue();
+    inject(js_code);
 
+    // gets the code from code editor
+    let python_code = pyEditor.getValue();
     /* 
     Split code into chunks.
     Uses %%keyword or %% keyword as separator
-    Implemented %%py %%md %%math for python, markdown and math.
     Returned object has: 
         - chunkContent, chunkType, chunkId, 
         - evalFlags, startLine, endLine 
     */
-    let parsed_code = iomdParser(code);
+    let parsed_code = iomdParser(python_code);
 
-    parsed_code.forEach((chunk) => {
+    parsed_code.forEach(async (chunk) => {
         // For each type of chunk, do somthing
         // so far have py for python, md for markdown and math for math ;p
         let content = chunk.chunkContent;
+
         switch (chunk.chunkType) {
             // by default assume this is python code
             // so users don't have to type py manually
@@ -97,11 +112,11 @@ function parseCodeFromEditor() {
             case 'md':
                 notebook.innerHTML += renderMarkdown(content);
                 break;
+            case 'js':
+                runJS(content);
+                break;
             case 'math':
                 notebook.innerHTML += renderMath(content, true);
-                break;
-            case 'math-inline':
-                notebook.innerHTML += renderMath(content, false);
                 break;
             default:
             // do nothing when we see an unknown chunk for now
@@ -116,6 +131,7 @@ function runPython(code) {
             stdout: (output) => {
                 notebook.innerHTML += output;
             },
+            vars: js_vars
         });
     } catch (err) {
         if (err instanceof WebAssembly.RuntimeError) {
@@ -145,6 +161,11 @@ function renderMath(math, display_mode) {
     });
 }
 
+// Evaluate javascript
+function runJS(content) {
+    eval(content);
+}
+
 function onReady() {
     /* By default the notebook has the keyword "loading"
     once python and doc is ready:
@@ -165,31 +186,42 @@ document
 // import button
 // show a url input + fetch button
 // takes a url where there is raw code
-document.getElementById('fetch-code').addEventListener('click', function () {
-    let url = document.getElementById('snippet-url').value;
-    // minimal js fetch code
-    // TODO: better error handling
-    fetch(url)
-        .then((response) => {
-            if (!response.ok) {
-                throw response;
-            }
-            return response.text();
-        })
-        .then((text) => {
-            // set the value of the code editor
-            editor.setValue(text);
-            // hide the ui
-            document.getElementById('url-container').classList.add('d-none');
-        })
-        .catch((err) => {
-            // show the error as is for troubleshooting.
-            document.getElementById('error').innerHTML = err;
-        });
+document.getElementById('popup-import').addEventListener('click', async function () {
+    
+    const url = document.getElementById('popup-url').value;
+    const type = document.getElementById('popup').dataset.type;  
+    const code = await genericFetch(url , type);
+    switch (type) {
+        case '':
+        case 'python':
+            pyEditor.setValue(code);
+            break;
+        case 'javascript':
+            jsEditor.setValue(code);
+            break;
+        default:
+            //do nothing
+    }
+       
 });
 
-// UI for the fetch button
-// after clicking fetch, hide the UI
-document.getElementById('snippet-btn').addEventListener('click', function () {
-    document.getElementById('url-container').classList.remove('d-none');
+document.getElementById('import-js-library').addEventListener('click' , function() {
+    updatePopup('javascript', 'URL/CDN of the Javascript library');
+}); 
+
+document.getElementById('import-code').addEventListener('click' , function() {
+    updatePopup('python', 'URL (raw text format)');
 });
+
+// Tabbed Navigation
+document.addEventListener('click', ({ target: { dataset: { id = '' } } }) => {
+    if (id.length > 0) {
+        document.querySelectorAll('.tab').forEach(t =>  t.classList.add('d-none'));
+        document.querySelector(`#${id}`).classList.remove('d-none');
+    }
+});
+
+function updatePopup(type, message) {
+    document.getElementById('popup').dataset.type =  type ;
+    document.getElementById('popup-header').textContent = message;
+}
