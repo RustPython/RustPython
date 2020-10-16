@@ -4,43 +4,74 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link defer async href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans&family=Sen:wght@800&display=swap" rel="stylesheet"> 
+    <title>RustPython Notebook</title>
+    <link defer async href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans&family=Sen:wght@800&display=swap"
+        rel="stylesheet">
 </head>
 
 <body>
+
     <!-- navigation bar -->
     <div class="nav-bar">
-        <div>
-            <button id="run-btn">run notebook &#9658; </button>
-            <button id="snippet-btn" class="btn-secondary mr-1">import code</button>
+        <div class="nav-bar-links d-flex">
+            <a href="#" class="btn" data-id="main-code">main</a>
+            <a href="#" class="btn" data-id="python-code">python</a>
+            <a href="#" class="btn" data-id="javascript-code">javascript</a>
+            <a href="#" class="btn mr-px-5" data-id="css-code">css</a>
+            <a href="#" id="run-btn" class="bg-orange text-white">run &#9658; </a>
         </div>
         <div class="header item-center">RustPython 🐍 😱 🤘</div>
-        <div class="text-right"><a href="https://github.com/RustPython/">github</a></div>
-    </div>
-
-    <!-- user interface elements for importing code -->
-    <div id="url-container" class="d-none p-1 bg-light">
-        <div><label for="url">public url:</label></div>
-        <div>
-            <input type="url" name="url" id="snippet-url">
-            <button id="fetch-code" class="btn-secondary">fetch</button>
-        </div>
+        <div class="text-right">
+            <a href="https://github.com/RustPython/"> github</a>
+        </div>  
     </div>
 
     <!-- code editor and output display -->
     <!-- split view -->
     <div class="split-view full-height">
-        <textarea id="code"></textarea>
+
+        <div id="main-code" class="tab code-wrapper h-100">
+            <a id="import-code" href="#popup" class="code-import text-black">import</a>
+            <div id="main-code-editor" class="h-100"></div>
+        </div>
+
+        <div id="python-code" class="tab code-wrapper d-none h-100">
+            <a id="import-code" href="#popup" class="code-import text-black">import python</a>
+            <div id="python-code-editor" class="h-100"></div>
+        </div>
+
+        <div id="javascript-code" class="tab code-wrapper d-none h-100">
+            <a id="import-js-library" class="code-import text-white" href="#popup"> import javascript</a>
+            <div id="javascript-code-editor" class="h-100"></div>
+        </div>
+
+        <div id="css-code" class="tab code-wrapper d-none h-100">
+            <a id="import-css-framework" class="code-import text-white" href="#popup"> import css</a>
+            <div id="css-code-editor" class="h-100"></div>
+        </div>
+
         <div id="rp-notebook">loading python in your browser...</div>
+    </div>
+
+    <!-- popup forms -->
+    <div id="popup" data-type="python" class="overlay">
+        <div class="popup">
+            <div id="popup-header">Header Placeholder</div>
+            <a class="popup-close" href="#">&times;</a>
+            <div class="popup-content mt-1">
+                <input type="url" name="popup-url" id="popup-url">
+                <button id="popup-import" class="btn bg-black">import</button>
+            </div>
+        </div>
     </div>
 
     <!-- errors and keyboard shortcuts -->
     <div class="split-view">
-        <div class="mt-1">
+        <div>
             <div class="header">Error(s):</div>
             <div id="error"></div>
         </div>
-        <div class="mt-1 gray">
+        <div class="gray">
             <div class="header">Keyboard Shortcuts:</div>
             <div>
                 <div>Run code: 'Ctrl-Enter' or 'Cmd-Enter'</div>
