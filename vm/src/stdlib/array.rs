@@ -550,14 +550,6 @@ impl PyArray {
         zelf.try_resizable(vm)?.remove(x, vm)
     }
 
-    // fn extend_from_iterable(&self, iter: PyIterable, vm: &VirtualMachine) -> PyResult<()> {
-    //     let mut array = self.borrow_value_mut();
-    //     for obj in iter.iter(vm)? {
-    //         array.push(obj?, vm)?;
-    //     }
-    //     Ok(())
-    // }
-
     #[pymethod]
     fn extend(zelf: PyRef<Self>, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let mut w = zelf.try_resizable(vm)?;

@@ -47,7 +47,6 @@ pub trait Buffer: Debug + PyThreadingConstraint {
     fn obj_bytes(&self) -> BorrowedValue<[u8]>;
     fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]>;
     fn release(&self);
-    // fn is_resizable(&self) -> bool;
 
     fn as_contiguous(&self) -> Option<BorrowedValue<[u8]>> {
         let options = self.get_options();
@@ -68,17 +67,6 @@ pub trait Buffer: Debug + PyThreadingConstraint {
     fn to_contiguous(&self) -> Vec<u8> {
         self.obj_bytes().to_vec()
     }
-
-    // fn try_resizable(&self, vm: &VirtualMachine) -> PyResult<()> {
-    //     if self.is_resizable() {
-    //         Ok(())
-    //     } else {
-    //         Err(vm.new_exception_msg(
-    //             vm.ctx.exceptions.buffer_error.clone(),
-    //             "Existing exports of data: object cannot be re-sized".to_owned(),
-    //         ))
-    //     }
-    // }
 }
 
 #[derive(Debug, Clone)]
