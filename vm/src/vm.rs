@@ -14,7 +14,7 @@ use crossbeam_utils::atomic::AtomicCell;
 use num_traits::{Signed, ToPrimitive};
 
 use crate::builtins;
-use crate::builtins::code::{PyCode, PyCodeRef};
+use crate::builtins::code::{self, PyCode, PyCodeRef};
 use crate::builtins::dict::PyDictRef;
 use crate::builtins::int::{PyInt, PyIntRef};
 use crate::builtins::list::PyList;
@@ -24,7 +24,6 @@ use crate::builtins::pybool;
 use crate::builtins::pystr::{PyStr, PyStrRef};
 use crate::builtins::pytype::PyTypeRef;
 use crate::builtins::tuple::PyTuple;
-use crate::bytecode;
 use crate::common::{hash::HashSecret, lock::PyMutex, rc::PyRc};
 use crate::exceptions::{self, PyBaseException, PyBaseExceptionRef};
 use crate::frame::{ExecutionResult, Frame, FrameRef};
@@ -120,7 +119,7 @@ pub(crate) mod thread {
 pub struct PyGlobalState {
     pub settings: PySettings,
     pub stdlib_inits: HashMap<String, stdlib::StdlibInitFunc>,
-    pub frozen: HashMap<String, bytecode::FrozenModule>,
+    pub frozen: HashMap<String, code::FrozenModule>,
     pub stacksize: AtomicCell<usize>,
     pub thread_count: AtomicCell<usize>,
     pub hash_secret: HashSecret,
@@ -257,7 +256,7 @@ impl VirtualMachine {
         let signal_handlers = RefCell::new(arr![ctx.none(); 64]);
 
         let stdlib_inits = stdlib::get_module_inits();
-        let frozen = frozen::get_module_inits();
+        let frozen = frozen::get_module_inits(&ctx);
 
         let hash_secret = match settings.hash_seed {
             Some(seed) => HashSecret::new(seed),
@@ -1187,7 +1186,7 @@ impl VirtualMachine {
         opts: CompileOpts,
     ) -> Result<PyCodeRef, CompileError> {
         compile::compile(source, mode, source_path, opts)
-            .map(|codeobj| PyCode::new(codeobj).into_ref(self))
+            .map(|code| PyCode::new(self.ctx.map_codeobj(code)).into_ref(self))
             .map_err(|mut compile_error| {
                 compile_error.update_statement_info(source.trim_end().to_owned());
                 compile_error

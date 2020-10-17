@@ -346,7 +346,7 @@ impl PyContext {
         )
     }
 
-    pub fn new_code_object(&self, code: bytecode::CodeObject) -> PyCodeRef {
+    pub fn new_code_object(&self, code: code::CodeObject) -> PyCodeRef {
         PyRef::new_ref(code::PyCode::new(code), self.types.code_type.clone(), None)
     }
 
@@ -381,27 +381,31 @@ impl PyContext {
         .into_ref()
     }
 
-    pub fn unwrap_constant(&self, value: &bytecode::Constant) -> PyObjectRef {
-        match *value {
-            bytecode::Constant::Integer { ref value } => self.new_bigint(value),
-            bytecode::Constant::Float { ref value } => self.new_float(*value),
-            bytecode::Constant::Complex { ref value } => self.new_complex(*value),
-            bytecode::Constant::String { ref value } => self.new_str(value.clone()),
-            bytecode::Constant::Bytes { ref value } => self.new_bytes(value.clone()),
-            bytecode::Constant::Boolean { value } => self.new_bool(value),
-            bytecode::Constant::Code { ref code } => {
-                self.new_code_object(*code.clone()).into_object()
+    pub fn unwrap_constant(&self, constant: bytecode::ConstantData) -> PyObjectRef {
+        match constant {
+            bytecode::ConstantData::Integer { value } => self.new_int(value),
+            bytecode::ConstantData::Float { value } => self.new_float(value),
+            bytecode::ConstantData::Complex { value } => self.new_complex(value),
+            bytecode::ConstantData::Str { value } => self.new_str(value),
+            bytecode::ConstantData::Bytes { value } => self.new_bytes(value),
+            bytecode::ConstantData::Boolean { value } => self.new_bool(value),
+            bytecode::ConstantData::Code { code } => {
+                self.new_code_object(self.map_codeobj(*code)).into_object()
             }
-            bytecode::Constant::Tuple { ref elements } => {
+            bytecode::ConstantData::Tuple { elements } => {
                 let elements = elements
-                    .iter()
-                    .map(|value| self.unwrap_constant(value))
+                    .into_iter()
+                    .map(|constant| self.unwrap_constant(constant))
                     .collect();
                 self.new_tuple(elements)
             }
-            bytecode::Constant::None => self.none(),
-            bytecode::Constant::Ellipsis => self.ellipsis(),
+            bytecode::ConstantData::None => self.none(),
+            bytecode::ConstantData::Ellipsis => self.ellipsis(),
         }
+    }
+
+    pub fn map_codeobj(&self, code: bytecode::CodeObject) -> code::CodeObject {
+        code.map_basic(&code::PyObjBag(self))
     }
 
     pub fn add_tp_new_wrapper(&self, ty: &PyTypeRef) {
@@ -1050,6 +1054,10 @@ impl<T> PyObject<T>
 where
     T: ?Sized + PyObjectPayload,
 {
+    pub fn raw_payload(&self) -> &T {
+        &self.payload
+    }
+
     pub fn dict(&self) -> Option<PyDictRef> {
         self.dict.as_ref().map(|mu| mu.read().clone().into_pyref())
     }

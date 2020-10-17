@@ -12,7 +12,7 @@ mod decl {
 
     #[pyfunction]
     fn dumps(co: PyCodeRef) -> PyBytes {
-        PyBytes::from(co.code.to_bytes())
+        PyBytes::from(co.code.map_clone_bag(&bytecode::BasicBag).to_bytes())
     }
 
     #[pyfunction]
@@ -25,7 +25,9 @@ mod decl {
     fn loads(code_bytes: PyBytesLike, vm: &VirtualMachine) -> PyResult<PyCode> {
         let code = bytecode::CodeObject::from_bytes(&*code_bytes.borrow_value())
             .map_err(|_| vm.new_value_error("Couldn't deserialize python bytecode".to_owned()))?;
-        Ok(PyCode { code })
+        Ok(PyCode {
+            code: vm.ctx.map_codeobj(code),
+        })
     }
 
     #[pyfunction]

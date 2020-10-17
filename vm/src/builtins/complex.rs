@@ -56,6 +56,10 @@ fn try_complex(value: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<Comp
 
 #[pyimpl(flags(BASETYPE), with(Comparable, Hashable))]
 impl PyComplex {
+    pub fn to_complex(&self) -> Complex64 {
+        self.value
+    }
+
     #[pyproperty(name = "real")]
     fn real(&self) -> f64 {
         self.value.re

@@ -350,9 +350,8 @@ impl ExecutingFrame<'_> {
         }
 
         match instruction {
-            bytecode::Instruction::LoadConst { ref value } => {
-                let obj = vm.ctx.unwrap_constant(value);
-                self.push_value(obj);
+            bytecode::Instruction::LoadConst { idx } => {
+                self.push_value(self.code.constants[*idx].0.clone());
                 Ok(None)
             }
             bytecode::Instruction::Import {
