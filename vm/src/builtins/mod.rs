@@ -29,6 +29,7 @@ pub use function::PyFunction;
 pub(crate) mod generator;
 pub use generator::PyGenerator;
 pub(crate) mod getset;
+pub use getset::PyGetSet;
 pub(crate) mod int;
 pub use int::{PyInt, PyIntRef};
 pub(crate) mod iter;
