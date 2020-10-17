@@ -2,11 +2,12 @@
 //! implements bytecode structure.
 
 use bitflags::bitflags;
+use bstr::ByteSlice;
 use itertools::Itertools;
 use num_bigint::BigInt;
 use num_complex::Complex64;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 
 /// Sourcecode location.
@@ -30,13 +31,62 @@ impl Location {
     }
 }
 
+pub trait Constant: Sized {
+    fn borrow_constant(&self) -> BorrowedConstant<Self>;
+    fn into_data(self) -> ConstantData {
+        self.borrow_constant().into_data()
+    }
+}
+impl Constant for ConstantData {
+    fn borrow_constant(&self) -> BorrowedConstant<Self> {
+        use BorrowedConstant::*;
+        match self {
+            ConstantData::Integer { value } => Integer { value },
+            ConstantData::Float { value } => Float { value: *value },
+            ConstantData::Complex { value } => Complex { value: *value },
+            ConstantData::Boolean { value } => Boolean { value: *value },
+            ConstantData::Str { value } => Str { value },
+            ConstantData::Bytes { value } => Bytes { value },
+            ConstantData::Code { code } => Code { code },
+            ConstantData::Tuple { elements } => Tuple {
+                elements: Box::new(elements.iter().map(|e| e.borrow_constant())),
+            },
+            ConstantData::None => None,
+            ConstantData::Ellipsis => Ellipsis,
+        }
+    }
+    fn into_data(self) -> ConstantData {
+        self
+    }
+}
+
+pub trait ConstantBag: Sized {
+    type Constant: Constant;
+    fn make_constant(&self, constant: ConstantData) -> Self::Constant;
+    fn make_constant_borrowed<C: Constant>(&self, constant: BorrowedConstant<C>) -> Self::Constant {
+        self.make_constant(constant.into_data())
+    }
+}
+
+#[derive(Clone)]
+pub struct BasicBag;
+impl ConstantBag for BasicBag {
+    type Constant = ConstantData;
+    fn make_constant(&self, constant: ConstantData) -> Self::Constant {
+        constant
+    }
+    fn make_constant_borrowed<C: Constant>(&self, constant: BorrowedConstant<C>) -> Self::Constant {
+        constant.into_data()
+    }
+}
+
 /// Primary container of a single code object. Each python function has
 /// a codeobject. Also a module has a codeobject.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
-pub struct CodeObject {
+pub struct CodeObject<C: Constant = ConstantData> {
     pub instructions: Vec<Instruction>,
     /// Jump targets.
-    pub label_map: HashMap<Label, usize>,
+    pub label_map: BTreeMap<Label, usize>,
     pub locations: Vec<Location>,
     pub flags: CodeFlags,
     pub posonlyarg_count: usize, // Number of positional-only arguments
@@ -47,6 +97,7 @@ pub struct CodeObject {
     pub source_path: String,
     pub first_line_number: usize,
     pub obj_name: String, // Name of the object that created this code object
+    pub constants: Vec<C>,
 }
 
 bitflags! {
@@ -82,7 +133,7 @@ impl CodeFlags {
     ];
 }
 
-#[derive(Serialize, Debug, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Serialize, Debug, Deserialize, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub struct Label(usize);
 
 impl Label {
@@ -151,7 +202,8 @@ pub enum Instruction {
         name: String,
     },
     LoadConst {
-        value: Constant,
+        /// index into constants vec
+        idx: usize,
     },
     UnaryOperation {
         op: UnaryOperator,
@@ -317,17 +369,85 @@ pub enum CallType {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum Constant {
+pub enum ConstantData {
     Integer { value: BigInt },
     Float { value: f64 },
     Complex { value: Complex64 },
     Boolean { value: bool },
-    String { value: String },
+    Str { value: String },
     Bytes { value: Vec<u8> },
     Code { code: Box<CodeObject> },
-    Tuple { elements: Vec<Constant> },
+    Tuple { elements: Vec<ConstantData> },
     None,
     Ellipsis,
+}
+
+pub enum BorrowedConstant<'a, C: Constant> {
+    Integer { value: &'a BigInt },
+    Float { value: f64 },
+    Complex { value: Complex64 },
+    Boolean { value: bool },
+    Str { value: &'a str },
+    Bytes { value: &'a [u8] },
+    Code { code: &'a CodeObject<C> },
+    Tuple { elements: BorrowedTupleIter<'a, C> },
+    None,
+    Ellipsis,
+}
+type BorrowedTupleIter<'a, C> = Box<dyn Iterator<Item = BorrowedConstant<'a, C>> + 'a>;
+impl<C: Constant> BorrowedConstant<'_, C> {
+    // takes `self` because we need to consume the iterator
+    pub fn fmt_display(self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            BorrowedConstant::Integer { value } => write!(f, "{}", value),
+            BorrowedConstant::Float { value } => write!(f, "{}", value),
+            BorrowedConstant::Complex { value } => write!(f, "{}", value),
+            BorrowedConstant::Boolean { value } => write!(f, "{}", value),
+            BorrowedConstant::Str { value } => write!(f, "{:?}", value),
+            BorrowedConstant::Bytes { value } => write!(f, "b{:?}", value.as_bstr()),
+            BorrowedConstant::Code { code } => write!(f, "{:?}", code),
+            BorrowedConstant::Tuple { elements } => {
+                write!(f, "(")?;
+                let mut first = true;
+                for c in elements {
+                    if first {
+                        first = false
+                    } else {
+                        write!(f, ", ")?;
+                    }
+                    c.fmt_display(f)?;
+                }
+                write!(f, ")")
+            }
+            BorrowedConstant::None => write!(f, "None"),
+            BorrowedConstant::Ellipsis => write!(f, "..."),
+        }
+    }
+    pub fn into_data(self) -> ConstantData {
+        use ConstantData::*;
+        match self {
+            BorrowedConstant::Integer { value } => Integer {
+                value: value.clone(),
+            },
+            BorrowedConstant::Float { value } => Float { value },
+            BorrowedConstant::Complex { value } => Complex { value },
+            BorrowedConstant::Boolean { value } => Boolean { value },
+            BorrowedConstant::Str { value } => Str {
+                value: value.to_owned(),
+            },
+            BorrowedConstant::Bytes { value } => Bytes {
+                value: value.to_owned(),
+            },
+            BorrowedConstant::Code { code } => Code {
+                code: Box::new(code.map_clone_bag(&BasicBag)),
+            },
+            BorrowedConstant::Tuple { elements } => Tuple {
+                elements: elements.map(BorrowedConstant::into_data).collect(),
+            },
+            BorrowedConstant::None => None,
+            BorrowedConstant::Ellipsis => Ellipsis,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -378,7 +498,7 @@ pub enum BlockType {
 }
 */
 
-impl CodeObject {
+impl<C: Constant> CodeObject<C> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         flags: CodeFlags,
@@ -390,10 +510,10 @@ impl CodeObject {
         source_path: String,
         first_line_number: usize,
         obj_name: String,
-    ) -> CodeObject {
+    ) -> Self {
         CodeObject {
             instructions: Vec::new(),
-            label_map: HashMap::new(),
+            label_map: BTreeMap::new(),
             locations: Vec::new(),
             flags,
             posonlyarg_count,
@@ -404,30 +524,8 @@ impl CodeObject {
             source_path,
             first_line_number,
             obj_name,
+            constants: Vec::new(),
         }
-    }
-
-    /// Load a code object from bytes
-    pub fn from_bytes(data: &[u8]) -> Result<Self, Box<dyn std::error::Error>> {
-        let data = lz4_compression::decompress::decompress(data)
-            .map_err(|e| format!("lz4 error: {:?}", e))?;
-        bincode::deserialize::<Self>(&data).map_err(|e| e.into())
-    }
-
-    /// Serialize this bytecode to bytes.
-    pub fn to_bytes(&self) -> Vec<u8> {
-        let data = bincode::serialize(&self).expect("Code object must be serializable");
-        lz4_compression::compress::compress(&data)
-    }
-
-    pub fn get_constants(&self) -> impl Iterator<Item = &Constant> {
-        self.instructions.iter().filter_map(|x| {
-            if let Instruction::LoadConst { value } = x {
-                Some(value)
-            } else {
-                None
-            }
-        })
     }
 
     pub fn varnames(&self) -> impl Iterator<Item = &str> + '_ {
@@ -472,32 +570,100 @@ impl CodeObject {
                 write!(f, "          ")?;
             }
             write!(f, "{} {:5} ", arrow, offset)?;
-            instruction.fmt_dis(f, &self.label_map, expand_codeobjects, level)?;
+            instruction.fmt_dis(
+                f,
+                &self.label_map,
+                &self.constants,
+                expand_codeobjects,
+                level,
+            )?;
         }
         Ok(())
     }
 
     pub fn display_expand_codeobjects<'a>(&'a self) -> impl fmt::Display + 'a {
-        struct Display<'a>(&'a CodeObject);
-        impl fmt::Display for Display<'_> {
+        struct Display<'a, C: Constant>(&'a CodeObject<C>);
+        impl<C: Constant> fmt::Display for Display<'_, C> {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 self.0.display_inner(f, true, 1)
             }
         }
         Display(self)
     }
+
+    fn _map_inner<U: Constant>(self, map: impl Fn(C) -> U) -> CodeObject<U> {
+        CodeObject {
+            constants: self.constants.into_iter().map(map).collect(),
+
+            instructions: self.instructions,
+            label_map: self.label_map,
+            locations: self.locations,
+            flags: self.flags,
+            posonlyarg_count: self.posonlyarg_count,
+            arg_names: self.arg_names,
+            varargs_name: self.varargs_name,
+            kwonlyarg_names: self.kwonlyarg_names,
+            varkeywords_name: self.varkeywords_name,
+            source_path: self.source_path,
+            first_line_number: self.first_line_number,
+            obj_name: self.obj_name,
+        }
+    }
+
+    pub fn map_bag<Bag: ConstantBag>(self, bag: &Bag) -> CodeObject<Bag::Constant> {
+        self._map_inner(|x| bag.make_constant_borrowed(x.borrow_constant()))
+    }
+
+    pub fn map_clone_bag<Bag: ConstantBag>(&self, bag: &Bag) -> CodeObject<Bag::Constant> {
+        CodeObject {
+            constants: self
+                .constants
+                .iter()
+                .map(|x| bag.make_constant_borrowed(x.borrow_constant()))
+                .collect(),
+
+            instructions: self.instructions.clone(),
+            label_map: self.label_map.clone(),
+            locations: self.locations.clone(),
+            flags: self.flags.clone(),
+            posonlyarg_count: self.posonlyarg_count.clone(),
+            arg_names: self.arg_names.clone(),
+            varargs_name: self.varargs_name.clone(),
+            kwonlyarg_names: self.kwonlyarg_names.clone(),
+            varkeywords_name: self.varkeywords_name.clone(),
+            source_path: self.source_path.clone(),
+            first_line_number: self.first_line_number.clone(),
+            obj_name: self.obj_name.clone(),
+        }
+    }
 }
 
-impl fmt::Display for CodeObject {
+impl CodeObject<ConstantData> {
+    /// Load a code object from bytes
+    pub fn from_bytes(data: &[u8]) -> Result<Self, Box<dyn std::error::Error>> {
+        let data = lz4_compression::decompress::decompress(data)
+            .map_err(|e| format!("lz4 error: {:?}", e))?;
+        bincode::deserialize(&data).map_err(|e| e.into())
+    }
+
+    /// Serialize this bytecode to bytes.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let data = bincode::serialize(&self).expect("Code object must be serializable");
+        lz4_compression::compress::compress(&data)
+    }
+
+    pub fn map_basic<Bag: ConstantBag>(self, bag: &Bag) -> CodeObject<Bag::Constant> {
+        self._map_inner(|x| bag.make_constant(x))
+    }
+}
+
+impl<C: Constant> fmt::Display for CodeObject<C> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.display_inner(f, false, 1)?;
-        for constant in self.get_constants() {
-            match constant {
-                Constant::Code { code } => {
-                    write!(f, "\nDisassembly of {}\n", constant)?;
-                    code.fmt(f)?;
-                }
-                _ => continue,
+        for constant in &self.constants {
+            if let BorrowedConstant::Code { code } = constant.borrow_constant() {
+                write!(f, "\nDisassembly of {:?}\n", code)?;
+                code.fmt(f)?;
             }
         }
         Ok(())
@@ -505,27 +671,28 @@ impl fmt::Display for CodeObject {
 }
 
 impl Instruction {
-    fn fmt_dis(
+    fn fmt_dis<C: Constant>(
         &self,
         f: &mut fmt::Formatter,
-        label_map: &HashMap<Label, usize>,
+        label_map: &BTreeMap<Label, usize>,
+        constants: &[C],
         expand_codeobjects: bool,
         level: usize,
     ) -> fmt::Result {
         macro_rules! w {
             ($variant:ident) => {
-                write!(f, "{:20}\n", stringify!($variant))
+                writeln!(f, "{:20}", stringify!($variant))
             };
             ($variant:ident, $var:expr) => {
-                write!(f, "{:20} ({})\n", stringify!($variant), $var)
+                writeln!(f, "{:20} ({})", stringify!($variant), $var)
             };
             ($variant:ident, $var1:expr, $var2:expr) => {
-                write!(f, "{:20} ({}, {})\n", stringify!($variant), $var1, $var2)
+                writeln!(f, "{:20} ({}, {})", stringify!($variant), $var1, $var2)
             };
             ($variant:ident, $var1:expr, $var2:expr, $var3:expr) => {
-                write!(
+                writeln!(
                     f,
-                    "{:20} ({}, {}, {})\n",
+                    "{:20} ({}, {}, {})",
                     stringify!($variant),
                     $var1,
                     $var2,
@@ -555,14 +722,21 @@ impl Instruction {
             DeleteSubscript => w!(DeleteSubscript),
             StoreAttr { name } => w!(StoreAttr, name),
             DeleteAttr { name } => w!(DeleteAttr, name),
-            LoadConst { value } => match value {
-                Constant::Code { code } if expand_codeobjects => {
-                    writeln!(f, "LoadConst ({:?}):", code)?;
-                    code.display_inner(f, true, level + 1)?;
-                    Ok(())
+            LoadConst { idx } => {
+                let value = &constants[*idx];
+                match value.borrow_constant() {
+                    BorrowedConstant::Code { code } if expand_codeobjects => {
+                        writeln!(f, "{:20} ({:?}):", "LoadConst", code)?;
+                        code.display_inner(f, true, level + 1)?;
+                        Ok(())
+                    }
+                    c => {
+                        write!(f, "{:20} (", "LoadConst")?;
+                        c.fmt_display(f)?;
+                        writeln!(f, ")")
+                    }
                 }
-                _ => w!(LoadConst, value),
-            },
+            }
             UnaryOperation { op } => w!(UnaryOperation, format!("{:?}", op)),
             BinaryOperation { op, inplace } => w!(BinaryOperation, format!("{:?}", op), inplace),
             LoadAttr { name } => w!(LoadAttr, name),
@@ -625,17 +799,17 @@ impl Instruction {
     }
 }
 
-impl fmt::Display for Constant {
+impl fmt::Display for ConstantData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Constant::Integer { value } => write!(f, "{}", value),
-            Constant::Float { value } => write!(f, "{}", value),
-            Constant::Complex { value } => write!(f, "{}", value),
-            Constant::Boolean { value } => write!(f, "{}", value),
-            Constant::String { value } => write!(f, "{:?}", value),
-            Constant::Bytes { value } => write!(f, "{:?}", value),
-            Constant::Code { code } => write!(f, "{:?}", code),
-            Constant::Tuple { elements } => write!(
+            ConstantData::Integer { value } => write!(f, "{}", value),
+            ConstantData::Float { value } => write!(f, "{}", value),
+            ConstantData::Complex { value } => write!(f, "{}", value),
+            ConstantData::Boolean { value } => write!(f, "{}", value),
+            ConstantData::Str { value } => write!(f, "{:?}", value),
+            ConstantData::Bytes { value } => write!(f, "{:?}", value),
+            ConstantData::Code { code } => write!(f, "{:?}", code),
+            ConstantData::Tuple { elements } => write!(
                 f,
                 "({})",
                 elements
@@ -644,13 +818,13 @@ impl fmt::Display for Constant {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-            Constant::None => write!(f, "None"),
-            Constant::Ellipsis => write!(f, "Ellipsis"),
+            ConstantData::None => write!(f, "None"),
+            ConstantData::Ellipsis => write!(f, "Ellipsis"),
         }
     }
 }
 
-impl fmt::Debug for CodeObject {
+impl<C: Constant> fmt::Debug for CodeObject<C> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -661,7 +835,7 @@ impl fmt::Debug for CodeObject {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct FrozenModule {
-    pub code: CodeObject,
+pub struct FrozenModule<C: Constant = ConstantData> {
+    pub code: CodeObject<C>,
     pub package: bool,
 }
