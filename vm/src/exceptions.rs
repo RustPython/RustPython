@@ -72,6 +72,10 @@ impl PyBaseException {
         Ok(())
     }
 
+    pub fn get_arg(&self, idx: usize) -> Option<PyObjectRef> {
+        self.args.read().borrow_value().get(idx).cloned()
+    }
+
     #[pyproperty]
     pub fn args(&self) -> PyTupleRef {
         self.args.read().clone()
@@ -641,7 +645,7 @@ fn none_getter(_obj: PyObjectRef, vm: &VirtualMachine) -> PyNoneRef {
 }
 
 fn make_arg_getter(idx: usize) -> impl Fn(PyBaseExceptionRef) -> Option<PyObjectRef> {
-    move |exc| exc.args.read().borrow_value().get(idx).cloned()
+    move |exc| exc.get_arg(idx)
 }
 
 fn key_error_str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyStrRef {
