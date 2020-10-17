@@ -2079,27 +2079,27 @@ mod posix {
 
     #[pyfunction(name = "WIFSIGNALED")]
     fn wifsignaled(status: i32) -> bool {
-        unsafe { libc::WIFSIGNALED(status) }
+        libc::WIFSIGNALED(status)
     }
     #[pyfunction(name = "WIFSTOPPED")]
     fn wifstopped(status: i32) -> bool {
-        unsafe { libc::WIFSTOPPED(status) }
+        libc::WIFSTOPPED(status)
     }
     #[pyfunction(name = "WIFEXITED")]
     fn wifexited(status: i32) -> bool {
-        unsafe { libc::WIFEXITED(status) }
+        libc::WIFEXITED(status)
     }
     #[pyfunction(name = "WTERMSIG")]
     fn wtermsig(status: i32) -> i32 {
-        unsafe { libc::WTERMSIG(status) }
+        libc::WTERMSIG(status)
     }
     #[pyfunction(name = "WSTOPSIG")]
     fn wstopsig(status: i32) -> i32 {
-        unsafe { libc::WSTOPSIG(status) }
+        libc::WSTOPSIG(status)
     }
     #[pyfunction(name = "WEXITSTATUS")]
     fn wexitstatus(status: i32) -> i32 {
-        unsafe { libc::WEXITSTATUS(status) }
+        libc::WEXITSTATUS(status)
     }
 
     #[pyfunction]
