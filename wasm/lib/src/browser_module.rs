@@ -1,20 +1,18 @@
 use js_sys::Promise;
-use std::future::Future;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
-use wasm_bindgen_futures::{future_to_promise, JsFuture};
+use wasm_bindgen_futures::JsFuture;
 
 use rustpython_vm::builtins::{PyDictRef, PyStrRef, PyTypeRef};
 use rustpython_vm::common::rc::PyRc;
 use rustpython_vm::function::OptionalArg;
 use rustpython_vm::import::import_file;
 use rustpython_vm::pyobject::{
-    BorrowValue, IntoPyObject, PyCallable, PyClassImpl, PyObject, PyObjectRef, PyRef, PyResult,
-    PyValue,
+    BorrowValue, IntoPyObject, PyCallable, PyClassImpl, PyObject, PyObjectRef, PyResult, PyValue,
 };
 use rustpython_vm::VirtualMachine;
 
-use crate::{convert, vm_class::weak_vm, wasm_builtins::window};
+use crate::{convert, js_module::PyPromise, vm_class::weak_vm, wasm_builtins::window};
 
 enum FetchResponseFormat {
     Json,
@@ -155,100 +153,6 @@ fn browser_cancel_animation_frame(id: i32, vm: &VirtualMachine) -> PyResult<()> 
     Ok(())
 }
 
-#[pyclass(module = "browser", name = "Promise")]
-#[derive(Debug)]
-pub struct PyPromise {
-    value: Promise,
-}
-pub type PyPromiseRef = PyRef<PyPromise>;
-
-impl PyValue for PyPromise {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.class("browser", "Promise")
-    }
-}
-
-#[pyimpl]
-impl PyPromise {
-    pub fn new(value: Promise) -> PyPromise {
-        PyPromise { value }
-    }
-    pub fn from_future<F>(future: F) -> PyPromise
-    where
-        F: Future<Output = Result<JsValue, JsValue>> + 'static,
-    {
-        PyPromise::new(future_to_promise(future))
-    }
-    pub fn value(&self) -> Promise {
-        self.value.clone()
-    }
-
-    #[pymethod]
-    fn then(
-        &self,
-        on_fulfill: PyCallable,
-        on_reject: OptionalArg<PyCallable>,
-        vm: &VirtualMachine,
-    ) -> PyPromiseRef {
-        let weak_vm = weak_vm(vm);
-        let prom = JsFuture::from(self.value.clone());
-
-        let ret_future = async move {
-            let stored_vm = &weak_vm
-                .upgrade()
-                .expect("that the vm is valid when the promise resolves");
-            let res = prom.await;
-            match res {
-                Ok(val) => stored_vm.interp.enter(move |vm| {
-                    let args = if val.is_null() {
-                        vec![]
-                    } else {
-                        vec![convert::js_to_py(vm, val)]
-                    };
-                    let res = vm.invoke(&on_fulfill.into_object(), args);
-                    convert::pyresult_to_jsresult(vm, res)
-                }),
-                Err(err) => {
-                    if let OptionalArg::Present(on_reject) = on_reject {
-                        stored_vm.interp.enter(move |vm| {
-                            let err = convert::js_to_py(vm, err);
-                            let res = vm.invoke(&on_reject.into_object(), (err,));
-                            convert::pyresult_to_jsresult(vm, res)
-                        })
-                    } else {
-                        Err(err)
-                    }
-                }
-            }
-        };
-
-        PyPromise::from_future(ret_future).into_ref(vm)
-    }
-
-    #[pymethod]
-    fn catch(&self, on_reject: PyCallable, vm: &VirtualMachine) -> PyPromiseRef {
-        let weak_vm = weak_vm(vm);
-        let prom = JsFuture::from(self.value.clone());
-
-        let ret_future = async move {
-            let err = match prom.await {
-                Ok(x) => return Ok(x),
-                Err(e) => e,
-            };
-            let stored_vm = weak_vm
-                .upgrade()
-                .expect("that the vm is valid when the promise resolves");
-            stored_vm.interp.enter(move |vm| {
-                let err = convert::js_to_py(vm, err);
-                let res = vm.invoke(&on_reject.into_object(), (err,));
-                convert::pyresult_to_jsresult(vm, res)
-            })
-        };
-
-        PyPromise::from_future(ret_future).into_ref(vm)
-    }
-}
-
 #[pyclass(module = "browser", name)]
 #[derive(Debug)]
 struct Document {
@@ -347,8 +251,6 @@ fn browser_load_module(module: PyStrRef, path: PyStrRef, vm: &VirtualMachine) ->
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
-    let promise = PyPromise::make_class(ctx);
-
     let document_class = Document::make_class(ctx);
 
     let document = PyObject::new(
@@ -361,11 +263,10 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     let element = Element::make_class(ctx);
 
-    py_module!(vm, "browser", {
+    py_module!(vm, "_browser", {
         "fetch" => ctx.new_function(browser_fetch),
         "request_animation_frame" => ctx.new_function(browser_request_animation_frame),
         "cancel_animation_frame" => ctx.new_function(browser_cancel_animation_frame),
-        "Promise" => promise,
         "Document" => document_class,
         "document" => document,
         "Element" => element,
