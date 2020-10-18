@@ -4,16 +4,17 @@ use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 
 use crate::anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper};
-use crate::builtins::bytearray::PyByteArray;
+use crate::builtins::bytearray::{PyByteArray, PyByteArrayRef};
 use crate::builtins::bytes::{PyBytes, PyBytesRef};
-use crate::builtins::int::{self, PyInt, PyIntRef};
+use crate::builtins::int::{PyInt, PyIntRef};
 use crate::builtins::pystr::{self, PyStr, PyStrRef};
 use crate::builtins::singletons::PyNoneRef;
+use crate::builtins::PyTypeRef;
 use crate::byteslike::try_bytes_like;
 use crate::function::{OptionalArg, OptionalOption};
 use crate::pyobject::{
-    BorrowValue, Either, PyComparisonValue, PyIterable, PyObjectRef, PyResult, TryFromObject,
-    TypeProtocol,
+    BorrowValue, Either, IdProtocol, PyComparisonValue, PyIterable, PyObjectRef, PyRef, PyResult,
+    PyValue, TryFromObject, TypeProtocol,
 };
 use crate::sliceable::PySliceableSequence;
 use crate::slots::PyComparisonOp;
@@ -48,84 +49,98 @@ pub struct ByteInnerNewOptions {
 }
 
 impl ByteInnerNewOptions {
-    pub fn get_value(self, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
-        match self.source {
-            OptionalArg::Missing => {
-                if let OptionalArg::Present(_) = self.encoding {
-                    Err(vm.new_type_error("encoding without a string argument".to_owned()))
-                } else if let OptionalArg::Present(_) = self.errors {
-                    Err(vm.new_type_error("errors without a string argument".to_owned()))
-                } else {
-                    Ok(PyBytesInner {
-                        elements: Vec::new(),
-                    })
-                }
-            }
-            OptionalArg::Present(obj) => {
-                match obj.downcast::<PyStr>() {
-                    Ok(s) => {
-                        // Handle bytes(string, encoding[, errors])
-                        if let OptionalArg::Present(enc) = self.encoding {
-                            let bytes =
-                                pystr::encode_string(s, Some(enc), self.errors.into_option(), vm)?;
-                            Ok(PyBytesInner {
-                                elements: bytes.borrow_value().to_vec(),
-                            })
-                        } else {
-                            Err(vm.new_type_error("string argument without an encoding".to_owned()))
-                        }
-                    }
-                    Err(obj) => {
-                        if let OptionalArg::Present(_) = self.encoding {
-                            Err(vm.new_type_error("encoding without a string argument".to_owned()))
-                        } else if let OptionalArg::Present(_) = self.errors {
-                            Err(vm.new_type_error("errors without a string argument".to_owned()))
-                        } else {
-                            let value = match_class!(match obj {
-                                i @ PyInt => {
-                                    let size = int::get_value(&i.into_object())
-                                        .to_isize()
-                                        .ok_or_else(|| {
-                                            vm.new_overflow_error(
-                                                "cannot fit 'int' into an index-sized integer"
-                                                    .to_owned(),
-                                            )
-                                        })?;
-                                    let size = if size < 0 {
-                                        return Err(vm.new_value_error("negative count".to_owned()));
-                                    } else {
-                                        size as usize
-                                    };
-                                    Ok(vec![0; size])
-                                }
-                                i @ PyBytes => Ok(i.borrow_value().to_vec()),
-                                j @ PyByteArray => Ok(j.borrow_value().elements.to_vec()),
-                                obj => {
-                                    // TODO: only support this method in the bytes() constructor
-                                    if let Some(bytes_method) =
-                                        vm.get_method(obj.clone(), "__bytes__")
-                                    {
-                                        let bytes = vm.invoke(&bytes_method?, ())?;
-                                        return PyBytesInner::try_from_object(vm, bytes);
-                                    }
-                                    bytes_from_object(vm, &obj)
-                                    // PyBytesInner::from_elements(vm, obj.clone())
-                                    // TODO: better error message
-                                    // .map_err(|_| {
-                                    //     vm.new_type_error(format!(
-                                    //         "cannot convert '{}' object to bytes",
-                                    //         obj.class().name
-                                    //     ))
-                                    // })?;
-                                }
-                            });
+    fn get_value_from_string(
+        s: PyStrRef,
+        encoding: OptionalArg<PyStrRef>,
+        errors: OptionalArg<PyStrRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyBytesInner> {
+        // Handle bytes(string, encoding[, errors])
+        let encoding = encoding
+            .ok_or_else(|| vm.new_type_error("string argument without an encoding".to_owned()))?;
+        let bytes = pystr::encode_string(s, Some(encoding), errors.into_option(), vm)?;
+        Ok(bytes.borrow_value().to_vec().into())
+    }
 
-                            value.map(|v| PyBytesInner { elements: v })
-                        }
+    fn get_value_from_source(source: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
+        bytes_from_object(vm, &source).map(|x| x.into())
+    }
+
+    fn get_value_from_size(size: PyIntRef, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
+        let size = size.borrow_value().to_isize().ok_or_else(|| {
+            vm.new_overflow_error("cannot fit 'int' into an index-sized integer".to_owned())
+        })?;
+        let size = if size < 0 {
+            return Err(vm.new_value_error("negative count".to_owned()));
+        } else {
+            size as usize
+        };
+        Ok(vec![0; size].into())
+    }
+
+    fn check_args(self, vm: &VirtualMachine) -> PyResult<()> {
+        if let OptionalArg::Present(_) = self.encoding {
+            Err(vm.new_type_error("encoding without a string argument".to_owned()))
+        } else if let OptionalArg::Present(_) = self.errors {
+            Err(vm.new_type_error("errors without a string argument".to_owned()))
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn get_bytes(mut self, cls: PyTypeRef, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
+        let inner = if let OptionalArg::Present(source) = self.source.take() {
+            if source.class().is(&PyBytes::class(vm)) && cls.is(&PyBytes::class(vm)) {
+                return self
+                    .check_args(vm)
+                    .map(|_| unsafe { PyRef::from_obj_unchecked(source) });
+            }
+
+            match_class!(match source {
+                s @ PyStr => Self::get_value_from_string(s, self.encoding, self.errors, vm),
+                i @ PyInt => {
+                    self.check_args(vm)?;
+                    Self::get_value_from_size(i, vm)
+                }
+                obj => {
+                    self.check_args(vm)?;
+                    if let Some(bytes_method) = vm.get_method(obj.clone(), "__bytes__") {
+                        let bytes = vm.invoke(&bytes_method?, ())?;
+                        PyBytesInner::try_from_object(vm, bytes)
+                    } else {
+                        Self::get_value_from_source(obj, vm)
                     }
                 }
-            }
-        }
+            })
+        } else {
+            self.check_args(vm).map(|_| vec![].into())
+        }?;
+
+        PyBytes::from(inner).into_ref_with_type(vm, cls)
+    }
+
+    pub fn get_bytearray(
+        mut self,
+        cls: PyTypeRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyByteArrayRef> {
+        let inner = if let OptionalArg::Present(source) = self.source.take() {
+            match_class!(match source {
+                s @ PyStr => Self::get_value_from_string(s, self.encoding, self.errors, vm),
+                i @ PyInt => {
+                    self.check_args(vm)?;
+                    Self::get_value_from_size(i, vm)
+                }
+                obj => {
+                    self.check_args(vm)?;
+                    Self::get_value_from_source(obj, vm)
+                }
+            })
+        } else {
+            self.check_args(vm).map(|_| vec![].into())
+        }?;
+
+        PyByteArray::from(inner).into_ref_with_type(vm, cls)
     }
 }
 

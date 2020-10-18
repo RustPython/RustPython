@@ -620,3 +620,7 @@ class A:
         return b"bytess"
 
 assert bytes(A()) == b"bytess"
+
+# Issue #2125
+b = b'abc'
+assert bytes(b) is b

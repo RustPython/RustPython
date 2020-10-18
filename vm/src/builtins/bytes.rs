@@ -111,11 +111,7 @@ impl PyBytes {
         options: ByteInnerNewOptions,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        PyBytes {
-            inner: options.get_value(vm)?,
-            buffer_options: OnceCell::new(),
-        }
-        .into_ref_with_type(vm, cls)
+        options.get_bytes(cls, vm)
     }
 
     #[pymethod(name = "__repr__")]

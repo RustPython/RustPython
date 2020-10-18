@@ -992,14 +992,6 @@ impl VirtualMachine {
         }
     }
 
-    pub fn map_elements<F, T, R>(&self, obj: &PyObjectRef, mut f: F) -> PyResult<PyResult<Vec<R>>>
-    where
-        T: TryFromObject,
-        F: FnMut(T) -> PyResult<R>,
-    {
-        self.map_iterable_object(obj, |elem| f(T::try_from_object(self, elem)?))
-    }
-
     pub fn map_iterable_object<F, R>(
         &self,
         obj: &PyObjectRef,

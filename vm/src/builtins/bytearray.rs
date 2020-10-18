@@ -108,7 +108,7 @@ impl PyByteArray {
         options: ByteInnerNewOptions,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        PyByteArray::from_inner(options.get_value(vm)?).into_ref_with_type(vm, cls)
+        options.get_bytearray(cls, vm)
     }
 
     #[pymethod(name = "__repr__")]
