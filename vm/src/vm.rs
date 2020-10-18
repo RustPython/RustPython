@@ -13,7 +13,6 @@ use arr_macro::arr;
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::{Signed, ToPrimitive};
 
-use crate::builtins;
 use crate::builtins::code::{self, PyCode, PyCodeRef};
 use crate::builtins::dict::PyDictRef;
 use crate::builtins::int::{PyInt, PyIntRef};
@@ -27,18 +26,14 @@ use crate::builtins::tuple::PyTuple;
 use crate::common::{hash::HashSecret, lock::PyMutex, rc::PyRc};
 use crate::exceptions::{self, PyBaseException, PyBaseExceptionRef};
 use crate::frame::{ExecutionResult, Frame, FrameRef};
-use crate::frozen;
 use crate::function::{FuncArgs, IntoFuncArgs};
-use crate::import;
-use crate::iterator;
 use crate::pyobject::{
     BorrowValue, Either, IdProtocol, IntoPyObject, ItemProtocol, PyArithmaticValue, PyContext,
     PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
 };
 use crate::scope::Scope;
 use crate::slots::PyComparisonOp;
-use crate::stdlib;
-use crate::sysmodule;
+use crate::{builtins, bytecode, frozen, import, iterator, stdlib, sysmodule};
 #[cfg(feature = "rustpython-compiler")]
 use rustpython_compiler::{
     compile::{self, CompileOpts},
@@ -124,6 +119,15 @@ pub struct PyGlobalState {
     pub thread_count: AtomicCell<usize>,
     pub hash_secret: HashSecret,
     pub atexit_funcs: PyMutex<Vec<(PyObjectRef, FuncArgs)>>,
+}
+
+impl PyGlobalState {
+    pub fn add_frozen<I>(&mut self, ctx: &PyContext, frozen: I)
+    where
+        I: IntoIterator<Item = (String, bytecode::FrozenModule)>,
+    {
+        self.frozen.extend(frozen::map_frozen(ctx, frozen))
+    }
 }
 
 pub const NSIG: usize = 64;

@@ -3,25 +3,28 @@ use crate::builtins::code;
 use crate::bytecode;
 use std::collections::HashMap;
 
+pub fn map_frozen<'a>(
+    ctx: &'a PyContext,
+    i: impl IntoIterator<Item = (String, bytecode::FrozenModule)> + 'a,
+) -> impl Iterator<Item = (String, code::FrozenModule)> + 'a {
+    i.into_iter()
+        .map(move |(k, bytecode::FrozenModule { code, package })| {
+            (
+                k,
+                code::FrozenModule {
+                    code: ctx.map_codeobj(code),
+                    package,
+                },
+            )
+        })
+}
+
 pub fn get_module_inits(ctx: &PyContext) -> HashMap<String, code::FrozenModule> {
     let mut modules = HashMap::new();
 
-    let map_freeze = |m: HashMap<String, bytecode::FrozenModule>| {
-        m.into_iter()
-            .map(|(k, bytecode::FrozenModule { code, package })| {
-                (
-                    k,
-                    code::FrozenModule {
-                        code: ctx.map_codeobj(code),
-                        package,
-                    },
-                )
-            })
-    };
-
     macro_rules! ext_modules {
         ($($t:tt)*) => {
-            modules.extend(map_freeze(py_freeze!($($t)*)));
+            modules.extend(map_frozen(ctx, py_freeze!($($t)*)));
         };
     }
 
@@ -45,7 +48,7 @@ pub fn get_module_inits(ctx: &PyContext) -> HashMap<String, code::FrozenModule> 
     // if we're on freeze-stdlib, the core stdlib modules will be included anyway
     #[cfg(feature = "freeze-stdlib")]
     {
-        modules.extend(map_freeze(rustpython_pylib::frozen_stdlib()));
+        modules.extend(map_frozen(ctx, rustpython_pylib::frozen_stdlib()));
     }
 
     modules
