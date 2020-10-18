@@ -76,6 +76,45 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         }
     }
 
+    fn add_binary_operator_float(
+        &mut self,
+        op: &BinaryOperator,
+        a: Value,
+        b: Value,
+    ) -> Result<(), JitCompileError> {
+        match op {
+            BinaryOperator::Add => {
+                self.stack.push(JitValue {
+                    val: self.builder.ins().fadd(a, b),
+                    ty: JitType::Float,
+                });
+                Ok(())
+            }
+            BinaryOperator::Subtract => {
+                self.stack.push(JitValue {
+                    val: self.builder.ins().fsub(a, b),
+                    ty: JitType::Float,
+                });
+                Ok(())
+            }
+            BinaryOperator::Multiply => {
+                self.stack.push(JitValue {
+                    val: self.builder.ins().fmul(a, b),
+                    ty: JitType::Float,
+                });
+                Ok(())
+            }
+            BinaryOperator::Divide => {
+                self.stack.push(JitValue {
+                    val: self.builder.ins().fdiv(a, b),
+                    ty: JitType::Float,
+                });
+                Ok(())
+            }
+            _ => Err(JitCompileError::NotSupported),
+        }
+    }
+
     pub fn add_instruction(&mut self, instruction: &Instruction) -> Result<(), JitCompileError> {
         match instruction {
             Instruction::LoadName {
@@ -171,40 +210,33 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                             });
                             Ok(())
                         }
-                        _ => Err(JitCompileError::NotSupported),
-                    },
-                    (JitType::Float, JitType::Float) => match op {
-                        BinaryOperator::Add => {
-                            self.stack.push(JitValue {
-                                val: self.builder.ins().fadd(a.val, b.val),
-                                ty: JitType::Float,
-                            });
-                            Ok(())
-                        }
-                        BinaryOperator::Subtract => {
-                            self.stack.push(JitValue {
-                                val: self.builder.ins().fsub(a.val, b.val),
-                                ty: JitType::Float,
-                            });
-                            Ok(())
-                        }
                         BinaryOperator::Multiply => {
                             self.stack.push(JitValue {
-                                val: self.builder.ins().fmul(a.val, b.val),
-                                ty: JitType::Float,
+                                val: self.builder.ins().imul(a.val, b.val),
+                                ty: JitType::Int,
                             });
                             Ok(())
                         }
                         BinaryOperator::Divide => {
-                            self.stack.push(JitValue {
-                                val: self.builder.ins().fdiv(a.val, b.val),
-                                ty: JitType::Float,
-                            });
-                            Ok(())
+                            // Convert the operands to floats and perform the
+                            // division.
+                            let fa = self.builder.ins().fcvt_from_sint(types::F64, a.val);
+                            let fb = self.builder.ins().fcvt_from_sint(types::F64, b.val);
+                            self.add_binary_operator_float(op, fa, fb)
                         }
                         _ => Err(JitCompileError::NotSupported),
                     },
-                    _ => Err(JitCompileError::NotSupported),
+                    (JitType::Int, JitType::Float) => {
+                        let fa = self.builder.ins().fcvt_from_sint(types::F64, a.val);
+                        self.add_binary_operator_float(op, fa, b.val)
+                    }
+                    (JitType::Float, JitType::Int) => {
+                        let fb = self.builder.ins().fcvt_from_sint(types::F64, b.val);
+                        self.add_binary_operator_float(op, a.val, fb)
+                    }
+                    (JitType::Float, JitType::Float) => {
+                        self.add_binary_operator_float(op, a.val, b.val)
+                    }
                 }
             }
             _ => Err(JitCompileError::NotSupported),
