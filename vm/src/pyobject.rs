@@ -346,8 +346,12 @@ impl PyContext {
         )
     }
 
-    pub fn new_code_object(&self, code: code::CodeObject) -> PyCodeRef {
-        PyRef::new_ref(code::PyCode::new(code), self.types.code_type.clone(), None)
+    pub fn new_code_object(&self, code: impl code::IntoCodeObject) -> PyCodeRef {
+        PyRef::new_ref(
+            code::PyCode::new(code.into_codeobj(self)),
+            self.types.code_type.clone(),
+            None,
+        )
     }
 
     pub fn new_pyfunction(
@@ -389,9 +393,7 @@ impl PyContext {
             bytecode::ConstantData::Str { value } => self.new_str(value),
             bytecode::ConstantData::Bytes { value } => self.new_bytes(value),
             bytecode::ConstantData::Boolean { value } => self.new_bool(value),
-            bytecode::ConstantData::Code { code } => {
-                self.new_code_object(self.map_codeobj(*code)).into_object()
-            }
+            bytecode::ConstantData::Code { code } => self.new_code_object(*code).into_object(),
             bytecode::ConstantData::Tuple { elements } => {
                 let elements = elements
                     .into_iter()

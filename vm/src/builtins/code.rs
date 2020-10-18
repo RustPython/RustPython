@@ -90,6 +90,20 @@ pub type PyCodeRef = PyRef<PyCode>;
 pub type CodeObject = bytecode::CodeObject<PyConstant>;
 pub type FrozenModule = bytecode::FrozenModule<PyConstant>;
 
+pub trait IntoCodeObject {
+    fn into_codeobj(self, ctx: &PyContext) -> CodeObject;
+}
+impl IntoCodeObject for CodeObject {
+    fn into_codeobj(self, _ctx: &PyContext) -> CodeObject {
+        self
+    }
+}
+impl IntoCodeObject for bytecode::CodeObject {
+    fn into_codeobj(self, ctx: &PyContext) -> CodeObject {
+        ctx.map_codeobj(self)
+    }
+}
+
 #[pyclass(module = false, name = "code")]
 pub struct PyCode {
     pub code: CodeObject,
