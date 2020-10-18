@@ -170,7 +170,7 @@ impl Compiler {
     }
 
     fn push_output(&mut self, code: CodeObject) {
-        self.output_stack.push(code.into());
+        self.output_stack.push(code);
     }
 
     fn push_new_code_object(&mut self, obj_name: String) {
@@ -189,7 +189,7 @@ impl Compiler {
     }
 
     fn pop_code_object(&mut self) -> CodeObject {
-        self.output_stack.pop().unwrap().into()
+        self.output_stack.pop().unwrap()
     }
 
     fn compile_program(

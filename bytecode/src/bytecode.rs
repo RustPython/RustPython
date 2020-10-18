@@ -625,14 +625,14 @@ impl<C: Constant> CodeObject<C> {
             instructions: self.instructions.clone(),
             label_map: self.label_map.clone(),
             locations: self.locations.clone(),
-            flags: self.flags.clone(),
-            posonlyarg_count: self.posonlyarg_count.clone(),
+            flags: self.flags,
+            posonlyarg_count: self.posonlyarg_count,
             arg_names: self.arg_names.clone(),
             varargs_name: self.varargs_name.clone(),
             kwonlyarg_names: self.kwonlyarg_names.clone(),
             varkeywords_name: self.varkeywords_name.clone(),
             source_path: self.source_path.clone(),
-            first_line_number: self.first_line_number.clone(),
+            first_line_number: self.first_line_number,
             obj_name: self.obj_name.clone(),
         }
     }
