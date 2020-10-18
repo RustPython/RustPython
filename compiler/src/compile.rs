@@ -2367,9 +2367,4 @@ mod tests {
             "if (True and False) or (False and True):\n pass\n"
         ));
     }
-
-    #[test]
-    fn test_constant_optimization() {
-        insta::assert_ron_snapshot!(compile_exec("1 + 2 + 3 + 4\n1.5 * 2.5"));
-    }
 }
