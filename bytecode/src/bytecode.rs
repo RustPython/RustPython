@@ -681,7 +681,7 @@ impl Instruction {
     ) -> fmt::Result {
         macro_rules! w {
             ($variant:ident) => {
-                writeln!(f, "{:20}", stringify!($variant))
+                writeln!(f, stringify!($variant))
             };
             ($variant:ident, $var:expr) => {
                 writeln!(f, "{:20} ({})", stringify!($variant), $var)

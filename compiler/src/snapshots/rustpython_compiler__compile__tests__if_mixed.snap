@@ -1,109 +1,15 @@
 ---
 source: compiler/src/compile.rs
-expression: "compile_exec(\"if (True and False) or (False and True):\\n pass\\n\")"
+expression: "compile_exec(\"\\\nif (True and False) or (False and True):\n    pass\n\")"
 ---
-CodeObject(
-  instructions: [
-    LoadConst(
-      idx: 0,
-    ),
-    JumpIfFalse(
-      target: Label(2),
-    ),
-    LoadConst(
-      idx: 1,
-    ),
-    JumpIfTrue(
-      target: Label(1),
-    ),
-    LoadConst(
-      idx: 2,
-    ),
-    JumpIfFalse(
-      target: Label(0),
-    ),
-    LoadConst(
-      idx: 3,
-    ),
-    JumpIfFalse(
-      target: Label(0),
-    ),
-    LoadConst(
-      idx: 4,
-    ),
-    ReturnValue,
-  ],
-  label_map: {
-    Label(0): 8,
-    Label(1): 8,
-    Label(2): 4,
-  },
-  locations: [
-    Location(
-      row: 1,
-      column: 5,
-    ),
-    Location(
-      row: 1,
-      column: 5,
-    ),
-    Location(
-      row: 1,
-      column: 14,
-    ),
-    Location(
-      row: 1,
-      column: 14,
-    ),
-    Location(
-      row: 1,
-      column: 25,
-    ),
-    Location(
-      row: 1,
-      column: 25,
-    ),
-    Location(
-      row: 1,
-      column: 35,
-    ),
-    Location(
-      row: 1,
-      column: 35,
-    ),
-    Location(
-      row: 2,
-      column: 2,
-    ),
-    Location(
-      row: 2,
-      column: 2,
-    ),
-  ],
-  flags: CodeFlags(
-    bits: 8,
-  ),
-  posonlyarg_count: 0,
-  arg_names: [],
-  varargs_name: None,
-  kwonlyarg_names: [],
-  varkeywords_name: None,
-  source_path: "source_path",
-  first_line_number: 0,
-  obj_name: "<module>",
-  constants: [
-    Boolean(
-      value: true,
-    ),
-    Boolean(
-      value: false,
-    ),
-    Boolean(
-      value: false,
-    ),
-    Boolean(
-      value: true,
-    ),
-    None,
-  ],
-)
+                 0 LoadConst            (true)
+                 1 JumpIfFalse          (4)
+                 2 LoadConst            (false)
+                 3 JumpIfTrue           (8)
+          >>     4 LoadConst            (false)
+                 5 JumpIfFalse          (8)
+                 6 LoadConst            (true)
+                 7 JumpIfFalse          (8)
+          >>     8 LoadConst            (None)
+                 9 ReturnValue
+

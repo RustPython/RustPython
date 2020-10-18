@@ -894,7 +894,6 @@ dependencies = [
  "console",
  "difference",
  "lazy_static 1.4.0",
- "ron",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -1615,17 +1614,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0d3e152e91c7b35822c7aeafc7019479ebb6180a5380139c9b5809645d668f2d"
 dependencies = [
  "is-macro",
-]
-
-[[package]]
-name = "ron"
-version = "0.6.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8a58080b7bb83b2ea28c3b7a9a994fd5e310330b7c8ca5258d99b98128ecfe4"
-dependencies = [
- "base64",
- "bitflags",
- "serde",
 ]
 
 [[package]]

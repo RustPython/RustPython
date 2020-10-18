@@ -2351,20 +2351,43 @@ mod tests {
         compiler.pop_code_object()
     }
 
+    macro_rules! assert_dis_snapshot {
+        ($value:expr) => {
+            insta::assert_snapshot!(
+                insta::internals::AutoName,
+                $value.display_expand_codeobjects().to_string(),
+                stringify!($value)
+            )
+        };
+    }
+
     #[test]
     fn test_if_ors() {
-        insta::assert_ron_snapshot!(compile_exec("if True or False or False:\n pass\n"));
+        assert_dis_snapshot!(compile_exec(
+            "\
+if True or False or False:
+    pass
+"
+        ));
     }
 
     #[test]
     fn test_if_ands() {
-        insta::assert_ron_snapshot!(compile_exec("if True and False and False:\n pass\n"));
+        assert_dis_snapshot!(compile_exec(
+            "\
+if True and False and False:
+    pass
+"
+        ));
     }
 
     #[test]
     fn test_if_mixed() {
-        insta::assert_ron_snapshot!(compile_exec(
-            "if (True and False) or (False and True):\n pass\n"
+        assert_dis_snapshot!(compile_exec(
+            "\
+if (True and False) or (False and True):
+    pass
+"
         ));
     }
 }
