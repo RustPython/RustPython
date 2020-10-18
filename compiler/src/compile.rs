@@ -1388,14 +1388,18 @@ impl<O: OutputStream> Compiler<O> {
         self.emit(Instruction::CompareOperation {
             op: to_operator(ops.last().unwrap()),
         });
-        self.emit(Instruction::Jump { target: last_label });
 
-        // early exit left us with stack: `rhs, comparison_result`. We need to clean up rhs.
-        self.set_label(break_label);
-        self.emit(Instruction::Rotate { amount: 2 });
-        self.emit(Instruction::Pop);
+        if vals.len() > 2 {
+            self.emit(Instruction::Jump { target: last_label });
 
-        self.set_label(last_label);
+            // early exit left us with stack: `rhs, comparison_result`. We need to clean up rhs.
+            self.set_label(break_label);
+            self.emit(Instruction::Rotate { amount: 2 });
+            self.emit(Instruction::Pop);
+
+            self.set_label(last_label);
+        }
+
         Ok(())
     }
 

@@ -63,20 +63,18 @@ impl Jit {
         let entry_block = builder.create_block();
         builder.append_block_params_for_function_params(entry_block);
         builder.switch_to_block(entry_block);
-        builder.seal_block(entry_block);
 
         let sig = {
             let mut arg_names = bytecode.arg_names.clone();
             arg_names.extend(bytecode.kwonlyarg_names.iter().cloned());
             let mut compiler = FunctionCompiler::new(&mut builder, &arg_names, args, entry_block);
 
-            for instruction in &bytecode.instructions {
-                compiler.add_instruction(instruction)?;
-            }
+            compiler.compile(bytecode)?;
 
             compiler.sig
         };
 
+        builder.seal_all_blocks();
         builder.finalize();
 
         let id = self.module.declare_function(
@@ -168,6 +166,7 @@ impl JitSig {
 pub enum JitType {
     Int,
     Float,
+    Bool,
 }
 
 impl JitType {
@@ -175,6 +174,7 @@ impl JitType {
         match self {
             Self::Int => types::I64,
             Self::Float => types::F64,
+            Self::Bool => types::I8,
         }
     }
 
@@ -182,6 +182,7 @@ impl JitType {
         match self {
             Self::Int => libffi::middle::Type::i64(),
             Self::Float => libffi::middle::Type::f64(),
+            Self::Bool => libffi::middle::Type::u8(),
         }
     }
 }
@@ -190,6 +191,7 @@ impl JitType {
 pub enum AbiValue {
     Float(f64),
     Int(i64),
+    Bool(bool),
 }
 
 impl AbiValue {
@@ -197,6 +199,7 @@ impl AbiValue {
         match self {
             AbiValue::Int(ref i) => libffi::middle::Arg::new(i),
             AbiValue::Float(ref f) => libffi::middle::Arg::new(f),
+            AbiValue::Bool(ref b) => libffi::middle::Arg::new(b),
         }
     }
 }
@@ -213,13 +216,19 @@ impl From<f64> for AbiValue {
     }
 }
 
+impl From<bool> for AbiValue {
+    fn from(b: bool) -> Self {
+        AbiValue::Bool(b)
+    }
+}
+
 impl TryFrom<AbiValue> for i64 {
     type Error = ();
 
     fn try_from(value: AbiValue) -> Result<Self, Self::Error> {
         match value {
             AbiValue::Int(i) => Ok(i),
-            AbiValue::Float(_) => Err(()),
+            _ => Err(()),
         }
     }
 }
@@ -229,15 +238,28 @@ impl TryFrom<AbiValue> for f64 {
 
     fn try_from(value: AbiValue) -> Result<Self, Self::Error> {
         match value {
-            AbiValue::Int(_) => Err(()),
             AbiValue::Float(f) => Ok(f),
+            _ => Err(()),
+        }
+    }
+}
+
+impl TryFrom<AbiValue> for bool {
+    type Error = ();
+
+    fn try_from(value: AbiValue) -> Result<Self, Self::Error> {
+        match value {
+            AbiValue::Bool(b) => Ok(b),
+            _ => Err(()),
         }
     }
 }
 
 fn type_check(ty: &JitType, val: &AbiValue) -> Result<(), JitArgumentError> {
     match (ty, val) {
-        (JitType::Int, AbiValue::Int(_)) | (JitType::Float, AbiValue::Float(_)) => Ok(()),
+        (JitType::Int, AbiValue::Int(_))
+        | (JitType::Float, AbiValue::Float(_))
+        | (JitType::Bool, AbiValue::Bool(_)) => Ok(()),
         _ => Err(JitArgumentError::ArgumentTypeMismatch),
     }
 }
@@ -246,6 +268,7 @@ fn type_check(ty: &JitType, val: &AbiValue) -> Result<(), JitArgumentError> {
 union UnTypedAbiValue {
     float: f64,
     int: i64,
+    boolean: u8,
     _void: (),
 }
 
@@ -254,6 +277,7 @@ impl UnTypedAbiValue {
         match ty {
             JitType::Int => AbiValue::Int(self.int),
             JitType::Float => AbiValue::Float(self.float),
+            JitType::Bool => AbiValue::Bool(self.boolean != 0),
         }
     }
 }

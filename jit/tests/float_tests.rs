@@ -90,3 +90,20 @@ fn test_div() {
     assert_bits_eq!(div(2.0, f64::NEG_INFINITY), Ok(-0.0f64));
     assert_bits_eq!(div(-1.0, f64::INFINITY), Ok(-0.0f64));
 }
+
+#[test]
+fn test_if_bool() {
+    let if_bool = jit_function! { if_bool(a:f64) -> i64 => r##"
+        def if_bool(a: float):
+            if a:
+                return 1
+            return 0
+    "## };
+
+    assert_eq!(if_bool(5.2), Ok(1));
+    assert_eq!(if_bool(-3.4), Ok(1));
+    assert_eq!(if_bool(f64::NAN), Ok(1));
+    assert_eq!(if_bool(f64::INFINITY), Ok(1));
+
+    assert_eq!(if_bool(0.0), Ok(0));
+}
