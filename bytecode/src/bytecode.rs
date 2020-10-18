@@ -36,6 +36,9 @@ pub trait Constant: Sized {
     fn into_data(self) -> ConstantData {
         self.borrow_constant().into_data()
     }
+    fn map_constant<Bag: ConstantBag>(self, bag: &Bag) -> Bag::Constant {
+        bag.make_constant(self.into_data())
+    }
 }
 impl Constant for ConstantData {
     fn borrow_constant(&self) -> BorrowedConstant<Self> {
@@ -591,9 +594,13 @@ impl<C: Constant> CodeObject<C> {
         Display(self)
     }
 
-    fn _map_inner<U: Constant>(self, map: impl Fn(C) -> U) -> CodeObject<U> {
+    pub fn map_bag<Bag: ConstantBag>(self, bag: &Bag) -> CodeObject<Bag::Constant> {
         CodeObject {
-            constants: self.constants.into_iter().map(map).collect(),
+            constants: self
+                .constants
+                .into_iter()
+                .map(|x| x.map_constant(bag))
+                .collect(),
 
             instructions: self.instructions,
             label_map: self.label_map,
@@ -608,10 +615,6 @@ impl<C: Constant> CodeObject<C> {
             first_line_number: self.first_line_number,
             obj_name: self.obj_name,
         }
-    }
-
-    pub fn map_bag<Bag: ConstantBag>(self, bag: &Bag) -> CodeObject<Bag::Constant> {
-        self._map_inner(|x| bag.make_constant_borrowed(x.borrow_constant()))
     }
 
     pub fn map_clone_bag<Bag: ConstantBag>(&self, bag: &Bag) -> CodeObject<Bag::Constant> {
@@ -650,10 +653,6 @@ impl CodeObject<ConstantData> {
     pub fn to_bytes(&self) -> Vec<u8> {
         let data = bincode::serialize(&self).expect("Code object must be serializable");
         lz4_compression::compress::compress(&data)
-    }
-
-    pub fn map_basic<Bag: ConstantBag>(self, bag: &Bag) -> CodeObject<Bag::Constant> {
-        self._map_inner(|x| bag.make_constant(x))
     }
 }
 

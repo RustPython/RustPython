@@ -407,7 +407,7 @@ impl PyContext {
     }
 
     pub fn map_codeobj(&self, code: bytecode::CodeObject) -> code::CodeObject {
-        code.map_basic(&code::PyObjBag(self))
+        code.map_bag(&code::PyObjBag(self))
     }
 
     pub fn add_tp_new_wrapper(&self, ty: &PyTypeRef) {
