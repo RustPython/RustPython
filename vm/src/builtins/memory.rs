@@ -665,6 +665,16 @@ impl PyMemoryView {
             Ok(vm.bool_eq(a_list.as_object(), b_list.as_object())?)
         }
     }
+
+    #[pymethod(magic)]
+    fn reduce_ex(zelf: PyRef<Self>, _proto: usize, vm: &VirtualMachine) -> PyResult {
+        Self::reduce(zelf, vm)
+    }
+
+    #[pymethod(magic)]
+    fn reduce(_zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        Err(vm.new_type_error("cannot pickle 'memoryview' object".to_owned()))
+    }
 }
 
 impl Drop for PyMemoryView {

@@ -556,8 +556,6 @@ class OtherTest(unittest.TestCase):
         with self.assertRaises(TypeError):
             copy.copy(m)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pickle(self):
         m = memoryview(b'abc')
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
