@@ -1,10 +1,11 @@
 from _browser import *
 
-from _js import JsValue
+from _js import JSValue, Promise
 from _window import window
 
 
 jsstr = window.new_from_str
+jsclosure = window.new_closure
 
 
 _alert = window.get_prop("alert")

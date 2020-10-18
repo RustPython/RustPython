@@ -352,6 +352,10 @@ impl<T> Args<T> {
     pub fn into_vec(self) -> Vec<T> {
         self.0
     }
+
+    pub fn iter(&self) -> std::slice::Iter<T> {
+        self.0.iter()
+    }
 }
 
 impl<T> From<Vec<T>> for Args<T> {

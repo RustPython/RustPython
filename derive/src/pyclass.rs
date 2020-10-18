@@ -502,7 +502,7 @@ impl ToTokens for GetSetNursery {
                 class.set_str_attr(
                     #name,
                     ::rustpython_vm::pyobject::PyObject::new(
-                        ::rustpython_vm::builtins::getset::PyGetSet::#constructor(#name.into(), &Self::#getter #setter),
+                        ::rustpython_vm::builtins::PyGetSet::#constructor(#name.into(), &Self::#getter #setter),
                         ctx.types.getset_type.clone(), None)
                 );
             }
