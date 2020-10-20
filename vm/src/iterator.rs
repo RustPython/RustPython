@@ -84,7 +84,7 @@ where
 {
     let cap = length_hint(vm, iter_obj.clone())?.unwrap_or(0);
     // TODO: fix extend to do this check (?), see test_extend in Lib/test/list_tests.py,
-    // https://github.com/python/cpython/blob/master/Objects/listobject.c#L934-L940
+    // https://github.com/python/cpython/blob/v3.9.0/Objects/listobject.c#L922-L928
     if cap >= isize::max_value() as usize {
         return Ok(Vec::new());
     }
