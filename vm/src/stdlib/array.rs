@@ -37,7 +37,7 @@ impl fmt::Display for ArrayTypeSpecifierError {
 }
 
 macro_rules! def_array_enum {
-    ($(($n:ident, $t:ident, $c:literal)),*$(,)?) => {
+    ($(($n:ident, $t:ty, $c:literal)),*$(,)?) => {
         #[derive(Debug, Clone)]
         pub(crate) enum ArrayContentType {
             $($n(Vec<$t>),)*
@@ -79,7 +79,7 @@ macro_rules! def_array_enum {
             fn push(&mut self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
                 match self {
                     $(ArrayContentType::$n(v) => {
-                        let val = $t::try_into_from_object(vm, obj)?;
+                        let val = <$t>::try_into_from_object(vm, obj)?;
                         v.push(val);
                     })*
                 }
@@ -97,7 +97,7 @@ macro_rules! def_array_enum {
             fn insert(&mut self, i: usize, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
                 match self {
                     $(ArrayContentType::$n(v) => {
-                        let val = $t::try_into_from_object(vm, obj)?;
+                        let val = <$t>::try_into_from_object(vm, obj)?;
                         v.insert(i, val);
                     })*
                 }
@@ -107,7 +107,7 @@ macro_rules! def_array_enum {
             fn count(&self, obj: PyObjectRef, vm: &VirtualMachine) -> usize {
                 match self {
                     $(ArrayContentType::$n(v) => {
-                        if let Ok(val) = $t::try_into_from_object(vm, obj) {
+                        if let Ok(val) = <$t>::try_into_from_object(vm, obj) {
                             v.iter().filter(|&&a| a == val).count()
                         } else {
                             0
@@ -119,7 +119,7 @@ macro_rules! def_array_enum {
             fn remove(&mut self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()>{
                 match self {
                     $(ArrayContentType::$n(v) => {
-                        if let Ok(val) = $t::try_into_from_object(vm, obj) {
+                        if let Ok(val) = <$t>::try_into_from_object(vm, obj) {
                             if let Some(pos) = v.iter().position(|&a| a == val) {
                                 v.remove(pos);
                                 return Ok(());
@@ -151,7 +151,7 @@ macro_rules! def_array_enum {
                             .borrow_value()
                             .iter()
                             .cloned()
-                            .map(|value| $t::try_into_from_object(vm, value))
+                            .map(|value| <$t>::try_into_from_object(vm, value))
                             .try_collect()?;
                         v.append(&mut list);
                         Ok(())
@@ -184,7 +184,7 @@ macro_rules! def_array_enum {
             fn index(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
                 match self {
                     $(ArrayContentType::$n(v) => {
-                        if let Ok(val) = $t::try_into_from_object(vm, obj) {
+                        if let Ok(val) = <$t>::try_into_from_object(vm, obj) {
                             if let Some(pos) = v.iter().position(|&a| a == val) {
                                 return Ok(pos);
                             }
@@ -267,7 +267,7 @@ macro_rules! def_array_enum {
             fn setitem_by_idx(&mut self, i: isize, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
                 let i = self.idx(i, "array assignment", vm)?;
                 match self {
-                    $(ArrayContentType::$n(v) => { v[i] = $t::try_into_from_object(vm, value)? },)*
+                    $(ArrayContentType::$n(v) => { v[i] = <$t>::try_into_from_object(vm, value)? },)*
                 }
                 Ok(())
             }
@@ -397,17 +397,14 @@ def_array_enum!(
     (SignedByte, i8, 'b'),
     (UnsignedByte, u8, 'B'),
     // TODO: support unicode char
-    (SignedShort, i16, 'h'),
-    (UnsignedShort, u16, 'H'),
-    (SignedInt, i32, 'i'),
-    (UnsignedInt, u32, 'I'),
-    (SignedLong, i32, 'l'),
-    (UnsignedLong, u32, 'L'),
-    // FIXME: architecture depended size
-    // (SignedLong, i64, 'l'),
-    // (UnsignedLong, u64, 'L'),
-    (SignedLongLong, i64, 'q'),
-    (UnsignedLongLong, u64, 'Q'),
+    (SignedShort, libc::c_short, 'h'),
+    (UnsignedShort, libc::c_ushort, 'H'),
+    (SignedInt, libc::c_int, 'i'),
+    (UnsignedInt, libc::c_uint, 'I'),
+    (SignedLong, libc::c_long, 'l'),
+    (UnsignedLong, libc::c_ulong, 'L'),
+    (SignedLongLong, libc::c_longlong, 'q'),
+    (UnsignedLongLong, libc::c_ulonglong, 'Q'),
     (Float, f32, 'f'),
     (Double, f64, 'd'),
 );

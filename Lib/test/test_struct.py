@@ -520,8 +520,6 @@ class StructTest(unittest.TestCase):
         for c in [b'\x01', b'\x7f', b'\xff', b'\x0f', b'\xf0']:
             self.assertTrue(struct.unpack('>?', c)[0])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_count_overflow(self):
         hugecount = '{}b'.format(sys.maxsize+1)
         self.assertRaises(struct.error, struct.calcsize, hugecount)
@@ -621,8 +619,6 @@ class StructTest(unittest.TestCase):
                 "offset -11 out of range for 10-byte buffer"):
             struct.unpack_from('<B', byte_list, -11)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_boundary_error_message_with_large_offset(self):
         # Test overflows cause by large offset and value size (issue 30245)
         regex1 = (
