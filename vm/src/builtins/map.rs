@@ -16,8 +16,8 @@ pub struct PyMap {
 }
 
 impl PyValue for PyMap {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.map_type.clone()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.map_type
     }
 }
 

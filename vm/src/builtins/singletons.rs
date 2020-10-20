@@ -10,8 +10,8 @@ pub struct PyNone;
 pub type PyNoneRef = PyRef<PyNone>;
 
 impl PyValue for PyNone {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.none.clone_class()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.none_type
     }
 }
 
@@ -56,8 +56,8 @@ pub struct PyNotImplemented;
 pub type PyNotImplementedRef = PyRef<PyNotImplemented>;
 
 impl PyValue for PyNotImplemented {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.not_implemented.clone_class()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.not_implemented_type
     }
 }
 

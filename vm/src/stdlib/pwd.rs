@@ -48,9 +48,7 @@ impl From<User> for Passwd {
 
 fn pwd_getpwnam(name: PyStrRef, vm: &VirtualMachine) -> PyResult {
     match User::from_name(name.borrow_value()).map_err(|err| err.into_pyexception(vm))? {
-        Some(user) => Ok(Passwd::from(user)
-            .into_struct_sequence(vm, vm.try_class("pwd", "struct_passwd")?)?
-            .into_object()),
+        Some(user) => Ok(Passwd::from(user).into_struct_sequence(vm)?.into_object()),
         None => {
             let name_repr = vm.to_repr(name.as_object())?;
             let message = vm
@@ -68,9 +66,7 @@ fn pwd_getpwuid(uid: PyIntRef, vm: &VirtualMachine) -> PyResult {
         Err(_) => None,
     };
     match user {
-        Some(user) => Ok(Passwd::from(user)
-            .into_struct_sequence(vm, vm.try_class("pwd", "struct_passwd")?)?
-            .into_object()),
+        Some(user) => Ok(Passwd::from(user).into_struct_sequence(vm)?.into_object()),
         None => {
             let message = vm
                 .ctx
@@ -86,14 +82,11 @@ fn pwd_getpwall(vm: &VirtualMachine) -> PyResult {
     static GETPWALL: parking_lot::Mutex<()> = parking_lot::const_mutex(());
     let _guard = GETPWALL.lock();
     let mut list = Vec::new();
-    let cls = vm.try_class("pwd", "struct_passwd")?;
 
     unsafe { libc::setpwent() };
     while let Some(ptr) = NonNull::new(unsafe { libc::getpwent() }) {
         let user = User::from(unsafe { ptr.as_ref() });
-        let passwd = Passwd::from(user)
-            .into_struct_sequence(vm, cls.clone())?
-            .into_object();
+        let passwd = Passwd::from(user).into_struct_sequence(vm)?.into_object();
         list.push(passwd);
     }
     unsafe { libc::endpwent() };

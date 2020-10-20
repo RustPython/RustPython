@@ -21,8 +21,8 @@ pub struct PySlice {
 }
 
 impl PyValue for PySlice {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.slice_type.clone()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.slice_type
     }
 }
 
@@ -287,8 +287,8 @@ fn to_index_value(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Option<Big
 pub struct PyEllipsis;
 
 impl PyValue for PyEllipsis {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.ellipsis.clone_class()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.ellipsis_type
     }
 }
 

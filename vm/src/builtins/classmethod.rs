@@ -38,8 +38,8 @@ impl From<PyObjectRef> for PyClassMethod {
 }
 
 impl PyValue for PyClassMethod {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.classmethod_type.clone()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.classmethod_type
     }
 }
 

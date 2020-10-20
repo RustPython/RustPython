@@ -20,8 +20,8 @@ pub struct PyAsyncGen {
 type PyAsyncGenRef = PyRef<PyAsyncGen>;
 
 impl PyValue for PyAsyncGen {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.async_generator.clone()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.async_generator
     }
 }
 
@@ -118,8 +118,8 @@ impl PyAsyncGen {
 #[derive(Debug)]
 pub(crate) struct PyAsyncGenWrappedValue(pub PyObjectRef);
 impl PyValue for PyAsyncGenWrappedValue {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.async_generator_wrapped_value.clone()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.async_generator_wrapped_value
     }
 }
 
@@ -167,8 +167,8 @@ pub(crate) struct PyAsyncGenASend {
 }
 
 impl PyValue for PyAsyncGenASend {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.async_generator_asend.clone()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.async_generator_asend
     }
 }
 
@@ -263,8 +263,8 @@ pub(crate) struct PyAsyncGenAThrow {
 }
 
 impl PyValue for PyAsyncGenAThrow {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.async_generator_athrow.clone()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.async_generator_athrow
     }
 }
 

@@ -173,8 +173,8 @@ impl std::fmt::Debug for PyGetSet {
 }
 
 impl PyValue for PyGetSet {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.getset_type.clone()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.getset_type
     }
 }
 

@@ -100,8 +100,8 @@ pub struct Frame {
 }
 
 impl PyValue for Frame {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.frame_type.clone()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.frame_type
     }
 }
 

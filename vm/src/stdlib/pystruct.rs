@@ -30,7 +30,7 @@ pub(crate) mod _struct {
     use crate::exceptions::PyBaseExceptionRef;
     use crate::function::Args;
     use crate::pyobject::{
-        BorrowValue, Either, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+        BorrowValue, Either, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject,
     };
     use crate::VirtualMachine;
 
@@ -841,8 +841,8 @@ pub(crate) mod _struct {
     }
 
     impl PyValue for UnpackIterator {
-        fn class(vm: &VirtualMachine) -> PyTypeRef {
-            vm.class("_struct", "unpack_iterator")
+        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+            Self::static_type()
         }
     }
 
@@ -896,8 +896,8 @@ pub(crate) mod _struct {
     }
 
     impl PyValue for PyStruct {
-        fn class(vm: &VirtualMachine) -> PyTypeRef {
-            vm.class("_struct", "Struct")
+        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+            Self::static_type()
         }
     }
 
@@ -988,7 +988,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     let struct_error = ctx.new_class(
         "struct.error",
-        ctx.exceptions.exception_type.clone(),
+        &ctx.exceptions.exception_type,
         Default::default(),
     );
 

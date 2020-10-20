@@ -320,9 +320,13 @@ impl VirtualMachine {
                 // builtins.open to io.OpenWrapper, but this is easier, since it doesn't
                 // require the Python stdlib to be present
                 let io = import::import_builtin(self, "_io")?;
-                let io_open = self.get_attribute(io, "open")?;
                 let set_stdio = |name, fd, mode: &str| {
-                    let stdio = self.invoke(&io_open, (fd, mode))?;
+                    let stdio = crate::stdlib::io::open(
+                        self.ctx.new_int(fd),
+                        Some(mode),
+                        Default::default(),
+                        self,
+                    )?;
                     self.set_attr(
                         &self.sys_module,
                         format!("__{}__", name), // e.g. __stdin__
@@ -335,6 +339,7 @@ impl VirtualMachine {
                 set_stdio("stdout", 1, "w")?;
                 set_stdio("stderr", 2, "w")?;
 
+                let io_open = self.get_attribute(io, "open")?;
                 self.set_attr(&self.builtins, "open", io_open)?;
             }
 

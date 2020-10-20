@@ -39,7 +39,7 @@ use crate::builtins::weakproxy;
 use crate::builtins::weakref;
 use crate::builtins::zip;
 use crate::pyobject::{
-    PyAttributes, PyClassDef, PyClassImpl, PyContext, PyObject, PyObjectRc, PyObjectRef,
+    PyAttributes, PyClassDef, PyClassImpl, PyContext, PyObject, PyObjectRc, PyObjectRef, StaticType,
 };
 use crate::slots::PyTypeSlots;
 use rustpython_common::{lock::PyRwLock, rc::PyRc};
@@ -47,7 +47,7 @@ use std::mem::MaybeUninit;
 use std::ptr;
 
 /// Holder of references to builtin types.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TypeZoo {
     pub async_generator: PyTypeRef,
     pub async_generator_asend: PyTypeRef,
@@ -114,106 +114,148 @@ pub struct TypeZoo {
     pub mappingproxy_type: PyTypeRef,
     pub traceback_type: PyTypeRef,
     pub object_type: PyTypeRef,
-}
-
-impl Default for TypeZoo {
-    fn default() -> Self {
-        Self::new()
-    }
+    pub ellipsis_type: PyTypeRef,
+    pub none_type: PyTypeRef,
+    pub not_implemented_type: PyTypeRef,
 }
 
 impl TypeZoo {
-    pub fn new() -> Self {
+    pub(crate) fn init() -> Self {
         let (type_type, object_type) = init_type_hierarchy();
-
-        macro_rules! create_type {
-            ($class:ty) => {
-                <$class>::create_bare_type(&type_type, object_type.clone())
-            };
-            ($class:ty, $base:expr) => {
-                <$class>::create_bare_type(&type_type, $base.clone())
-            };
-        }
-
-        let int_type = create_type!(int::PyInt);
         Self {
-            async_generator: create_type!(asyncgenerator::PyAsyncGen),
-            async_generator_asend: create_type!(asyncgenerator::PyAsyncGenASend),
-            async_generator_athrow: create_type!(asyncgenerator::PyAsyncGenAThrow),
-            async_generator_wrapped_value: create_type!(asyncgenerator::PyAsyncGenWrappedValue),
-            bool_type: create_type!(pybool::PyBool, int_type),
-            bound_method_type: create_type!(function::PyBoundMethod),
-            builtin_function_or_method_type: create_type!(builtinfunc::PyBuiltinFunction),
-            bytearray_type: create_type!(bytearray::PyByteArray),
-            bytearray_iterator_type: create_type!(bytearray::PyByteArrayIterator),
-            bytes_type: create_type!(bytes::PyBytes),
-            bytes_iterator_type: create_type!(bytes::PyBytesIterator),
-            callable_iterator: create_type!(iter::PyCallableIterator),
-            classmethod_type: create_type!(classmethod::PyClassMethod),
-            code_type: create_type!(code::PyCodeRef),
-            complex_type: create_type!(complex::PyComplex),
-            coroutine_type: create_type!(coroutine::PyCoroutine),
-            coroutine_wrapper_type: create_type!(coroutine::PyCoroutineWrapper),
-            dict_type: create_type!(dict::PyDict),
-            dict_keys_type: create_type!(dict::PyDictKeys),
-            dict_values_type: create_type!(dict::PyDictValues),
-            dict_items_type: create_type!(dict::PyDictItems),
-            dict_keyiterator_type: create_type!(dict::PyDictKeyIterator),
-            dict_reversekeyiterator_type: create_type!(dict::PyDictReverseKeyIterator),
-            dict_valueiterator_type: create_type!(dict::PyDictValueIterator),
-            dict_reversevalueiterator_type: create_type!(dict::PyDictReverseValueIterator),
-            dict_itemiterator_type: create_type!(dict::PyDictItemIterator),
-            dict_reverseitemiterator_type: create_type!(dict::PyDictReverseItemIterator),
-            enumerate_type: create_type!(enumerate::PyEnumerate),
-            filter_type: create_type!(filter::PyFilter),
-            float_type: create_type!(float::PyFloat),
-            frame_type: create_type!(crate::frame::FrameRef),
-            frozenset_type: create_type!(set::PyFrozenSet),
-            function_type: create_type!(function::PyFunction),
-            generator_type: create_type!(generator::PyGenerator),
-            getset_type: create_type!(getset::PyGetSet),
-            int_type,
-            iter_type: create_type!(iter::PySequenceIterator),
-            list_type: create_type!(list::PyList),
-            list_iterator_type: create_type!(list::PyListIterator),
-            list_reverseiterator_type: create_type!(list::PyListReverseIterator),
-            map_type: create_type!(map::PyMap),
-            mappingproxy_type: create_type!(mappingproxy::PyMappingProxy),
-            memoryview_type: create_type!(memory::PyMemoryView),
-            module_type: create_type!(module::PyModule),
-            namespace_type: create_type!(namespace::PyNamespace),
-            property_type: create_type!(property::PyProperty),
-            range_type: create_type!(range::PyRange),
-            range_iterator_type: create_type!(range::PyRangeIterator),
-            set_type: create_type!(set::PySet),
-            set_iterator_type: create_type!(set::PySetIterator),
-            slice_type: create_type!(slice::PySlice),
-            staticmethod_type: create_type!(staticmethod::PyStaticMethod),
-            str_type: create_type!(pystr::PyStr),
-            str_iterator_type: create_type!(pystr::PyStrIterator),
-            str_reverseiterator_type: create_type!(pystr::PyStrReverseIterator),
-            super_type: create_type!(pysuper::PySuper),
-            traceback_type: create_type!(traceback::PyTraceback),
-            tuple_type: create_type!(tuple::PyTuple),
-            tuple_iterator_type: create_type!(tuple::PyTupleIterator),
-            weakproxy_type: create_type!(weakproxy::PyWeakProxy),
-            weakref_type: create_type!(weakref::PyWeak),
-            method_descriptor_type: create_type!(builtinfunc::PyBuiltinMethod),
-            zip_type: create_type!(zip::PyZip),
-            type_type,
-            object_type,
+            // the order matters for type, object and int
+            type_type: pytype::PyType::init_manually(type_type).clone(),
+            object_type: object::PyBaseObject::init_manually(object_type).clone(),
+            int_type: int::PyInt::init_bare_type().clone(),
+
+            // types exposed as builtins
+            bool_type: pybool::PyBool::init_bare_type().clone(),
+            bytearray_type: bytearray::PyByteArray::init_bare_type().clone(),
+            bytes_type: bytes::PyBytes::init_bare_type().clone(),
+            classmethod_type: classmethod::PyClassMethod::init_bare_type().clone(),
+            complex_type: complex::PyComplex::init_bare_type().clone(),
+            dict_type: dict::PyDict::init_bare_type().clone(),
+            enumerate_type: enumerate::PyEnumerate::init_bare_type().clone(),
+            float_type: float::PyFloat::init_bare_type().clone(),
+            frozenset_type: set::PyFrozenSet::init_bare_type().clone(),
+            filter_type: filter::PyFilter::init_bare_type().clone(),
+            list_type: list::PyList::init_bare_type().clone(),
+            map_type: map::PyMap::init_bare_type().clone(),
+            memoryview_type: memory::PyMemoryView::init_bare_type().clone(),
+            property_type: property::PyProperty::init_bare_type().clone(),
+            range_type: range::PyRange::init_bare_type().clone(),
+            set_type: set::PySet::init_bare_type().clone(),
+            slice_type: slice::PySlice::init_bare_type().clone(),
+            staticmethod_type: staticmethod::PyStaticMethod::init_bare_type().clone(),
+            str_type: pystr::PyStr::init_bare_type().clone(),
+            super_type: pysuper::PySuper::init_bare_type().clone(),
+            tuple_type: tuple::PyTuple::init_bare_type().clone(),
+            zip_type: zip::PyZip::init_bare_type().clone(),
+
+            // hidden internal types. is this really need to be cached here?
+            async_generator: asyncgenerator::PyAsyncGen::init_bare_type().clone(),
+            async_generator_asend: asyncgenerator::PyAsyncGenASend::init_bare_type().clone(),
+            async_generator_athrow: asyncgenerator::PyAsyncGenAThrow::init_bare_type().clone(),
+            async_generator_wrapped_value: asyncgenerator::PyAsyncGenWrappedValue::init_bare_type()
+                .clone(),
+            bound_method_type: function::PyBoundMethod::init_bare_type().clone(),
+            builtin_function_or_method_type: builtinfunc::PyBuiltinFunction::init_bare_type()
+                .clone(),
+            bytearray_iterator_type: bytearray::PyByteArrayIterator::init_bare_type().clone(),
+            bytes_iterator_type: bytes::PyBytesIterator::init_bare_type().clone(),
+            callable_iterator: iter::PyCallableIterator::init_bare_type().clone(),
+            code_type: code::PyCode::init_bare_type().clone(),
+            coroutine_type: coroutine::PyCoroutine::init_bare_type().clone(),
+            coroutine_wrapper_type: coroutine::PyCoroutineWrapper::init_bare_type().clone(),
+            dict_keys_type: dict::PyDictKeys::init_bare_type().clone(),
+            dict_values_type: dict::PyDictValues::init_bare_type().clone(),
+            dict_items_type: dict::PyDictItems::init_bare_type().clone(),
+            dict_keyiterator_type: dict::PyDictKeyIterator::init_bare_type().clone(),
+            dict_reversekeyiterator_type: dict::PyDictReverseKeyIterator::init_bare_type().clone(),
+            dict_valueiterator_type: dict::PyDictValueIterator::init_bare_type().clone(),
+            dict_reversevalueiterator_type: dict::PyDictReverseValueIterator::init_bare_type()
+                .clone(),
+            dict_itemiterator_type: dict::PyDictItemIterator::init_bare_type().clone(),
+            dict_reverseitemiterator_type: dict::PyDictReverseItemIterator::init_bare_type()
+                .clone(),
+            ellipsis_type: slice::PyEllipsis::init_bare_type().clone(),
+            frame_type: crate::frame::Frame::init_bare_type().clone(),
+            function_type: function::PyFunction::init_bare_type().clone(),
+            generator_type: generator::PyGenerator::init_bare_type().clone(),
+            getset_type: getset::PyGetSet::init_bare_type().clone(),
+            iter_type: iter::PySequenceIterator::init_bare_type().clone(),
+            list_iterator_type: list::PyListIterator::init_bare_type().clone(),
+            list_reverseiterator_type: list::PyListReverseIterator::init_bare_type().clone(),
+            mappingproxy_type: mappingproxy::PyMappingProxy::init_bare_type().clone(),
+            module_type: module::PyModule::init_bare_type().clone(),
+            namespace_type: namespace::PyNamespace::init_bare_type().clone(),
+            range_iterator_type: range::PyRangeIterator::init_bare_type().clone(),
+            set_iterator_type: set::PySetIterator::init_bare_type().clone(),
+            str_iterator_type: pystr::PyStrIterator::init_bare_type().clone(),
+            str_reverseiterator_type: pystr::PyStrReverseIterator::init_bare_type().clone(),
+            traceback_type: traceback::PyTraceback::init_bare_type().clone(),
+            tuple_iterator_type: tuple::PyTupleIterator::init_bare_type().clone(),
+            weakproxy_type: weakproxy::PyWeakProxy::init_bare_type().clone(),
+            weakref_type: weakref::PyWeak::init_bare_type().clone(),
+            method_descriptor_type: builtinfunc::PyBuiltinMethod::init_bare_type().clone(),
+            none_type: singletons::PyNone::init_bare_type().clone(),
+            not_implemented_type: singletons::PyNotImplemented::init_bare_type().clone(),
         }
+    }
+
+    /// Fill attributes of builtin types.
+    pub(crate) fn extend(context: &PyContext) {
+        pytype::init(&context);
+        object::init(&context);
+        list::init(&context);
+        set::init(&context);
+        tuple::init(&context);
+        dict::init(&context);
+        builtinfunc::init(&context);
+        function::init(&context);
+        staticmethod::init(&context);
+        classmethod::init(&context);
+        generator::init(&context);
+        coroutine::init(&context);
+        asyncgenerator::init(&context);
+        int::init(&context);
+        float::init(&context);
+        complex::init(&context);
+        bytes::init(&context);
+        bytearray::init(&context);
+        property::init(&context);
+        getset::init(&context);
+        memory::init(&context);
+        pystr::init(&context);
+        range::init(&context);
+        slice::init(&context);
+        pysuper::init(&context);
+        iter::init(&context);
+        enumerate::init(&context);
+        filter::init(&context);
+        map::init(&context);
+        zip::init(&context);
+        pybool::init(&context);
+        code::init(&context);
+        frame::init(&context);
+        weakref::init(&context);
+        weakproxy::init(&context);
+        singletons::init(&context);
+        module::init(&context);
+        namespace::init(&context);
+        mappingproxy::init(&context);
+        traceback::init(&context);
     }
 }
 
-pub fn create_type(name: &str, type_type: &PyTypeRef, base: PyTypeRef) -> PyTypeRef {
-    create_type_with_slots(name, type_type, base, Default::default())
+pub fn create_simple_type(name: &str, base: &PyTypeRef) -> PyTypeRef {
+    create_type_with_slots(name, PyType::static_type(), base, Default::default())
 }
 
 pub fn create_type_with_slots(
     name: &str,
     type_type: &PyTypeRef,
-    base: PyTypeRef,
+    base: &PyTypeRef,
     slots: PyTypeSlots,
 ) -> PyTypeRef {
     let dict = PyAttributes::new();
@@ -221,7 +263,7 @@ pub fn create_type_with_slots(
         type_type.clone(),
         name,
         base.clone(),
-        vec![base],
+        vec![base.clone()],
         dict,
         slots,
     )
@@ -327,48 +369,4 @@ fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef) {
         .push(weakref::PyWeak::downgrade(&type_type.as_object()));
 
     (type_type, object_type)
-}
-
-/// Fill attributes of builtin types.
-pub fn initialize_types(context: &PyContext) {
-    pytype::init(&context);
-    object::init(&context);
-    list::init(&context);
-    set::init(&context);
-    tuple::init(&context);
-    dict::init(&context);
-    builtinfunc::init(&context);
-    function::init(&context);
-    staticmethod::init(&context);
-    classmethod::init(&context);
-    generator::init(&context);
-    coroutine::init(&context);
-    asyncgenerator::init(&context);
-    int::init(&context);
-    float::init(&context);
-    complex::init(&context);
-    bytes::init(&context);
-    bytearray::init(&context);
-    property::init(&context);
-    getset::init(&context);
-    memory::init(&context);
-    pystr::init(&context);
-    range::init(&context);
-    slice::init(&context);
-    pysuper::init(&context);
-    iter::init(&context);
-    enumerate::init(&context);
-    filter::init(&context);
-    map::init(&context);
-    zip::init(&context);
-    pybool::init(&context);
-    code::init(&context);
-    frame::init(&context);
-    weakref::init(&context);
-    weakproxy::init(&context);
-    singletons::init(&context);
-    module::init(&context);
-    namespace::init(&context);
-    mappingproxy::init(&context);
-    traceback::init(&context);
 }

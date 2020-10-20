@@ -1,3 +1,4 @@
+use indexmap::map::IndexMap;
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, ToTokens};
 use std::collections::HashMap;
@@ -18,7 +19,7 @@ pub(crate) const ALL_ALLOWED_NAMES: &[&str] = &[
 ];
 
 #[derive(Default)]
-pub(crate) struct ItemNursery(HashMap<(String, Vec<Attribute>), TokenStream>);
+pub(crate) struct ItemNursery(IndexMap<(String, Vec<Attribute>), TokenStream>);
 
 impl ItemNursery {
     pub fn add_item(
@@ -27,10 +28,10 @@ impl ItemNursery {
         cfgs: Vec<Attribute>,
         tokens: TokenStream,
     ) -> Result<()> {
-        if let Some(existing) = self.0.insert((name, cfgs), tokens) {
+        if let Some(existing) = self.0.insert((name.clone(), cfgs), tokens) {
             Err(syn::Error::new_spanned(
                 existing,
-                "Duplicated #[py*] attribute found",
+                format!("Duplicated #[py*] attribute found for '{}'", name),
             ))
         } else {
             Ok(())
@@ -232,7 +233,7 @@ impl ItemMeta for SimpleItemMeta {
 pub(crate) struct ClassItemMeta(ItemMetaInner);
 
 impl ItemMeta for ClassItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] = &["module", "name"];
+    const ALLOWED_NAMES: &'static [&'static str] = &["module", "name", "base"];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)
@@ -265,6 +266,10 @@ impl ClassItemMeta {
             ),
         ))?;
         Ok(value)
+    }
+
+    pub fn base(&self) -> Result<Option<String>> {
+        self.inner()._optional_str("base")
     }
 
     pub fn module(&self) -> Result<Option<String>> {

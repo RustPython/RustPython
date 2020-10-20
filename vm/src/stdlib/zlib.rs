@@ -8,8 +8,8 @@ mod decl {
     use crate::common::lock::PyMutex;
     use crate::exceptions::PyBaseExceptionRef;
     use crate::function::OptionalArg;
-    use crate::pyobject::{BorrowValue, IntoPyRef, PyResult, PyValue};
-    use crate::types::create_type;
+    use crate::pyobject::{BorrowValue, IntoPyRef, PyResult, PyValue, StaticType};
+    use crate::types::create_simple_type;
     use crate::vm::VirtualMachine;
 
     use adler32::RollingAdler32 as Adler32;
@@ -36,11 +36,7 @@ mod decl {
 
     #[pyattr]
     fn error(vm: &VirtualMachine) -> PyTypeRef {
-        create_type(
-            "error",
-            &vm.ctx.types.type_type,
-            vm.ctx.exceptions.exception_type.clone(),
-        )
+        create_simple_type("error", &vm.ctx.exceptions.exception_type)
     }
 
     /// Compute an Adler-32 checksum of data.
@@ -218,8 +214,8 @@ mod decl {
         unconsumed_tail: PyMutex<PyBytesRef>,
     }
     impl PyValue for PyDecompress {
-        fn class(vm: &VirtualMachine) -> PyTypeRef {
-            vm.class("zlib", "Decompress")
+        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+            Self::static_type()
         }
     }
     #[pyimpl]
@@ -377,8 +373,8 @@ mod decl {
     }
 
     impl PyValue for PyCompress {
-        fn class(vm: &VirtualMachine) -> PyTypeRef {
-            vm.class("zlib", "Compress")
+        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+            Self::static_type()
         }
     }
 

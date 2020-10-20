@@ -22,8 +22,8 @@ enum MappingProxyInner {
 }
 
 impl PyValue for PyMappingProxy {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.mappingproxy_type.clone()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.mappingproxy_type
     }
 }
 

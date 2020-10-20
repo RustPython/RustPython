@@ -53,8 +53,8 @@ impl FromIterator<PyObjectRef> for PyList {
 }
 
 impl PyValue for PyList {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.list_type.clone()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.list_type
     }
 }
 
@@ -459,8 +459,8 @@ pub struct PyListIterator {
 }
 
 impl PyValue for PyListIterator {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.list_iterator_type.clone()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.list_iterator_type
     }
 }
 
@@ -498,8 +498,8 @@ pub struct PyListReverseIterator {
 }
 
 impl PyValue for PyListReverseIterator {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.list_reverseiterator_type.clone()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.list_reverseiterator_type
     }
 }
 

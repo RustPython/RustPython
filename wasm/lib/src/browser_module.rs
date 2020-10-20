@@ -9,6 +9,7 @@ use rustpython_vm::function::OptionalArg;
 use rustpython_vm::import::import_file;
 use rustpython_vm::pyobject::{
     BorrowValue, IntoPyObject, PyCallable, PyClassImpl, PyObject, PyObjectRef, PyResult, PyValue,
+    StaticType,
 };
 use rustpython_vm::VirtualMachine;
 
@@ -160,8 +161,8 @@ struct Document {
 }
 
 impl PyValue for Document {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.class("browser", "Document")
+    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+        Self::static_type()
     }
 }
 
@@ -186,8 +187,8 @@ struct Element {
 }
 
 impl PyValue for Element {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.class("browser", "Element")
+    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+        Self::static_type()
     }
 }
 

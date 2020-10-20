@@ -8,9 +8,9 @@ use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
 use crate::function::OptionalArg;
 use crate::pyobject::{
     BorrowValue, Either, IntoPyObject, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult,
-    PyValue,
+    PyValue, StaticType,
 };
-use crate::types::create_type;
+use crate::types::create_simple_type;
 use crate::VirtualMachine;
 
 use foreign_types_shared::{ForeignType, ForeignTypeRef};
@@ -241,8 +241,8 @@ impl fmt::Debug for PySslContext {
 }
 
 impl PyValue for PySslContext {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.class("_ssl", "_SSLContext")
+    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+        Self::static_type()
     }
 }
 
@@ -520,8 +520,8 @@ impl fmt::Debug for PySslSocket {
 }
 
 impl PyValue for PySslSocket {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.class("_ssl", "_SSLSocket")
+    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+        Self::static_type()
     }
 }
 
@@ -751,11 +751,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     }
     openssl::init();
     let ctx = &vm.ctx;
-    let ssl_error = create_type(
-        "SSLError",
-        &vm.ctx.types.type_type,
-        vm.ctx.exceptions.os_error.clone(),
-    );
+    let ssl_error = create_simple_type("SSLError", &vm.ctx.exceptions.os_error);
     let module = py_module!(vm, "_ssl", {
         "_SSLContext" => PySslContext::make_class(ctx),
         "_SSLSocket" => PySslSocket::make_class(ctx),

@@ -19,8 +19,8 @@ pub struct PySequenceIterator {
 }
 
 impl PyValue for PySequenceIterator {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.iter_type.clone()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.iter_type
     }
 }
 
@@ -88,8 +88,8 @@ pub struct PyCallableIterator {
 }
 
 impl PyValue for PyCallableIterator {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.callable_iterator.clone()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.callable_iterator
     }
 }
 

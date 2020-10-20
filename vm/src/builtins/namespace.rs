@@ -11,8 +11,8 @@ use crate::vm::VirtualMachine;
 pub struct PyNamespace;
 
 impl PyValue for PyNamespace {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.namespace_type.clone()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.namespace_type
     }
 }
 

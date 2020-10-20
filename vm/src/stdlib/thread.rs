@@ -7,7 +7,7 @@ use crate::exceptions::{self, IntoPyException};
 use crate::function::{FuncArgs, OptionalArg};
 use crate::pyobject::{
     BorrowValue, Either, IdProtocol, ItemProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef,
-    PyResult, PyValue, TypeProtocol,
+    PyResult, PyValue, StaticType, TypeProtocol,
 };
 use crate::slots::SlotGetattro;
 use crate::vm::VirtualMachine;
@@ -100,8 +100,8 @@ struct PyLock {
 type PyLockRef = PyRef<PyLock>;
 
 impl PyValue for PyLock {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.class("_thread", "LockType")
+    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+        Self::static_type()
     }
 }
 
@@ -153,8 +153,8 @@ struct PyRLock {
 }
 
 impl PyValue for PyRLock {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.class("_thread", "RLock")
+    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+        Self::static_type()
     }
 }
 
@@ -291,8 +291,8 @@ struct PyLocal {
 }
 
 impl PyValue for PyLocal {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.class("_thread", "_local")
+    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+        Self::static_type()
     }
 }
 

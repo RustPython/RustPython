@@ -20,8 +20,8 @@ use crate::vm::VirtualMachine;
 pub struct PyBaseObject;
 
 impl PyValue for PyBaseObject {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.object_type.clone()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.object_type
     }
 }
 

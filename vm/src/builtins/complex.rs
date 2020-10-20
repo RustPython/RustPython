@@ -22,8 +22,8 @@ pub struct PyComplex {
 }
 
 impl PyValue for PyComplex {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.complex_type.clone()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.complex_type
     }
 }
 

@@ -32,8 +32,8 @@ pub struct PyRange {
 }
 
 impl PyValue for PyRange {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.range_type.clone()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.range_type
     }
 }
 
@@ -376,8 +376,8 @@ pub struct PyRangeIterator {
 }
 
 impl PyValue for PyRangeIterator {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.range_iterator_type.clone()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.range_iterator_type
     }
 }
 

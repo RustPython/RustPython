@@ -10,8 +10,8 @@ pub struct PyStaticMethod {
 }
 
 impl PyValue for PyStaticMethod {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.staticmethod_type.clone()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.staticmethod_type
     }
 }
 

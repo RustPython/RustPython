@@ -19,8 +19,8 @@ pub struct PyEnumerate {
 }
 
 impl PyValue for PyEnumerate {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.enumerate_type.clone()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.enumerate_type
     }
 }
 

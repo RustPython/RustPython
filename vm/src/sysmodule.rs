@@ -287,44 +287,44 @@ fn sys_getwindowsversion(vm: &VirtualMachine) -> PyResult<crate::builtins::tuple
     version.dwOSVersionInfoSize = std::mem::size_of::<OSVERSIONINFOEXW>() as u32;
     let result = unsafe {
         let osvi = &mut version as LPOSVERSIONINFOEXW as LPOSVERSIONINFOW;
-        // SAFE: GetVersionExW accepts a pointer of OSVERSIONINFOW, but winapi crate's type currently doesn't allow to do so.
+        // SAFETY: GetVersionExW accepts a pointer of OSVERSIONINFOW, but winapi crate's type currently doesn't allow to do so.
         // https://docs.microsoft.com/en-us/windows/win32/api/sysinfoapi/nf-sysinfoapi-getversionexw#parameters
         GetVersionExW(osvi)
     };
 
     if result == 0 {
-        Err(vm.new_os_error("failed to get windows version".to_owned()))
-    } else {
-        let service_pack = {
-            let (last, _) = version
-                .szCSDVersion
-                .iter()
-                .take_while(|&x| x != &0)
-                .enumerate()
-                .last()
-                .unwrap_or((0, &0));
-            let sp = OsString::from_wide(&version.szCSDVersion[..last]);
-            sp.into_string()
-                .map_err(|_| vm.new_os_error("service pack is not ASCII".to_owned()))?
-        };
-        WindowsVersion {
-            major: version.dwMajorVersion,
-            minor: version.dwMinorVersion,
-            build: version.dwBuildNumber,
-            platform: version.dwPlatformId,
-            service_pack,
-            service_pack_major: version.wServicePackMajor,
-            service_pack_minor: version.wServicePackMinor,
-            suite_mask: version.wSuiteMask,
-            product_type: version.wProductType,
-            platform_version: (
-                version.dwMajorVersion,
-                version.dwMinorVersion,
-                version.dwBuildNumber,
-            ), // TODO Provide accurate version, like CPython impl
-        }
-        .into_struct_sequence(vm, vm.try_class("sys", "_getwindowsversion_type")?)
+        return Err(vm.new_os_error("failed to get windows version".to_owned()));
     }
+
+    let service_pack = {
+        let (last, _) = version
+            .szCSDVersion
+            .iter()
+            .take_while(|&x| x != &0)
+            .enumerate()
+            .last()
+            .unwrap_or((0, &0));
+        let sp = OsString::from_wide(&version.szCSDVersion[..last]);
+        sp.into_string()
+            .map_err(|_| vm.new_os_error("service pack is not ASCII".to_owned()))?
+    };
+    WindowsVersion {
+        major: version.dwMajorVersion,
+        minor: version.dwMinorVersion,
+        build: version.dwBuildNumber,
+        platform: version.dwPlatformId,
+        service_pack,
+        service_pack_major: version.wServicePackMajor,
+        service_pack_minor: version.wServicePackMinor,
+        suite_mask: version.wSuiteMask,
+        product_type: version.wProductType,
+        platform_version: (
+            version.dwMajorVersion,
+            version.dwMinorVersion,
+            version.dwBuildNumber,
+        ), // TODO Provide accurate version, like CPython impl
+    }
+    .into_struct_sequence(vm)
 }
 
 pub fn get_stdin(vm: &VirtualMachine) -> PyResult {
@@ -485,30 +485,24 @@ impl PyIntInfo {
 pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectRef) {
     let ctx = &vm.ctx;
 
-    let flags_type = SysFlags::make_class(ctx);
+    let _flags_type = SysFlags::make_class(ctx);
     let flags = SysFlags::from_settings(&vm.state.settings)
-        .into_struct_sequence(vm, flags_type)
+        .into_struct_sequence(vm)
         .unwrap();
 
-    let version_info_type = version::VersionInfo::make_class(ctx);
+    let _version_info_type = version::VersionInfo::make_class(ctx);
     let version_info = version::VersionInfo::VERSION
-        .into_struct_sequence(vm, version_info_type)
+        .into_struct_sequence(vm)
         .unwrap();
 
-    let hash_info_type = PyHashInfo::make_class(ctx);
-    let hash_info = PyHashInfo::INFO
-        .into_struct_sequence(vm, hash_info_type)
-        .unwrap();
+    let _hash_info_type = PyHashInfo::make_class(ctx);
+    let hash_info = PyHashInfo::INFO.into_struct_sequence(vm).unwrap();
 
-    let float_info_type = PyFloatInfo::make_class(ctx);
-    let float_info = PyFloatInfo::INFO
-        .into_struct_sequence(vm, float_info_type)
-        .unwrap();
+    let _float_info_type = PyFloatInfo::make_class(ctx);
+    let float_info = PyFloatInfo::INFO.into_struct_sequence(vm).unwrap();
 
-    let int_info_type = PyIntInfo::make_class(ctx);
-    let int_info = PyIntInfo::INFO
-        .into_struct_sequence(vm, int_info_type)
-        .unwrap();
+    let _int_info_type = PyIntInfo::make_class(ctx);
+    let int_info = PyIntInfo::INFO.into_struct_sequence(vm).unwrap();
 
     // TODO Add crate version to this namespace
     let implementation = py_namespace!(vm, {
@@ -710,7 +704,6 @@ settrace() -- set the global debug tracing function
         let getwindowsversion = WindowsVersion::make_class(ctx);
         extend_module!(vm, module, {
             "getwindowsversion" => named_function!(ctx, sys, getwindowsversion),
-            "_getwindowsversion_type" => getwindowsversion, // XXX: This is not a python spec but required by current RustPython implementation
         })
     }
 

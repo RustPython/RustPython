@@ -5,7 +5,7 @@ use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::exceptions::IntoPyException;
 use crate::function::OptionalArg;
 use crate::pyobject::{
-    BorrowValue, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    BorrowValue, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject,
 };
 use crate::VirtualMachine;
 
@@ -25,8 +25,8 @@ type PyHKEYRef = PyRef<PyHKEY>;
 unsafe impl Sync for PyHKEY {}
 
 impl PyValue for PyHKEY {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.class("winreg", "HKEYType")
+    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+        Self::static_type()
     }
 }
 

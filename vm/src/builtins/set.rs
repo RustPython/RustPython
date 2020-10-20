@@ -52,14 +52,14 @@ impl fmt::Debug for PyFrozenSet {
 }
 
 impl PyValue for PySet {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.set_type.clone()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.set_type
     }
 }
 
 impl PyValue for PyFrozenSet {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.frozenset_type.clone()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.frozenset_type
     }
 }
 
@@ -792,8 +792,8 @@ impl PySetIterator {
 }
 
 impl PyValue for PySetIterator {
-    fn class(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.set_iterator_type.clone()
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.set_iterator_type
     }
 }
 

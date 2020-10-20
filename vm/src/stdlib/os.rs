@@ -23,7 +23,7 @@ use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
 use crate::function::{FuncArgs, IntoPyNativeFunc, OptionalArg};
 use crate::pyobject::{
     BorrowValue, Either, IntoPyObject, ItemProtocol, PyObjectRef, PyRef, PyResult,
-    PyStructSequence, PyValue, TryFromObject, TypeProtocol,
+    PyStructSequence, PyValue, StaticType, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -464,8 +464,8 @@ mod _os {
     }
 
     impl PyValue for DirEntry {
-        fn class(vm: &VirtualMachine) -> PyTypeRef {
-            vm.class(super::MODULE_NAME, "DirEntry")
+        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+            Self::static_type()
         }
     }
 
@@ -549,8 +549,8 @@ mod _os {
     }
 
     impl PyValue for ScandirIterator {
-        fn class(vm: &VirtualMachine) -> PyTypeRef {
-            vm.class(super::MODULE_NAME, "ScandirIter")
+        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+            Self::static_type()
         }
     }
 
@@ -636,9 +636,7 @@ mod _os {
     #[pyimpl(with(PyStructSequence))]
     impl StatResult {
         pub(super) fn into_obj(self, vm: &VirtualMachine) -> PyObjectRef {
-            self.into_struct_sequence(vm, vm.class(super::MODULE_NAME, "stat_result"))
-                .unwrap()
-                .into_object()
+            self.into_struct_sequence(vm).unwrap().into_object()
         }
     }
 
@@ -1745,9 +1743,7 @@ mod posix {
     #[pyimpl(with(PyStructSequence))]
     impl UnameResult {
         fn into_obj(self, vm: &VirtualMachine) -> PyObjectRef {
-            self.into_struct_sequence(vm, vm.class(super::MODULE_NAME, "uname_result"))
-                .unwrap()
-                .into_object()
+            self.into_struct_sequence(vm).unwrap().into_object()
         }
     }
 
@@ -2143,8 +2139,7 @@ mod posix {
                 (w.ws_col.into(), w.ws_row.into())
             }
         };
-        super::_os::PyTerminalSize { columns, lines }
-            .into_struct_sequence(vm, vm.try_class(super::MODULE_NAME, "terminal_size")?)
+        super::_os::PyTerminalSize { columns, lines }.into_struct_sequence(vm)
     }
 
     // from libstd:
@@ -2466,8 +2461,7 @@ mod nt {
                 )
             }
         };
-        super::_os::PyTerminalSize { columns, lines }
-            .into_struct_sequence(vm, vm.try_class(super::MODULE_NAME, "terminal_size")?)
+        super::_os::PyTerminalSize { columns, lines }.into_struct_sequence(vm)
     }
 
     #[cfg(target_env = "msvc")]
