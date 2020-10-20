@@ -960,21 +960,28 @@ pub(crate) mod _struct {
     #[pyfunction]
     fn _clearcache() {}
 
+    rustpython_common::static_cell! {
+        pub(crate) static STRUCT_ERROR: PyTypeRef;
+    }
+
     fn new_struct_error(vm: &VirtualMachine, msg: String) -> PyBaseExceptionRef {
-        // _struct.error must exist
-        let class = vm.try_class("_struct", "error").unwrap();
-        vm.new_exception_msg(class, msg)
+        let class = STRUCT_ERROR.get().unwrap();
+        vm.new_exception_msg(class.clone(), msg)
     }
 }
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
-    let struct_error = ctx.new_class(
-        "struct.error",
-        &ctx.exceptions.exception_type,
-        Default::default(),
-    );
+    let struct_error = _struct::STRUCT_ERROR
+        .get_or_init(|| {
+            ctx.new_class(
+                "struct.error",
+                &ctx.exceptions.exception_type,
+                Default::default(),
+            )
+        })
+        .clone();
 
     let module = _struct::make_module(vm);
     extend_module!(vm, module, {
