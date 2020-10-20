@@ -11,44 +11,31 @@
 
 <body>
 
+    <div class="header item-center">RustPython 🐍 😱 🤘</div>
+
     <!-- navigation bar -->
     <div class="nav-bar">
         <div class="nav-bar-links d-flex">
-            <a href="#" class="btn" data-id="main-code">main</a>
-            <a href="#" class="btn" data-id="python-code">python</a>
-            <a href="#" class="btn" data-id="javascript-code">javascript</a>
-            <a href="#" class="btn mr-px-5" data-id="css-code">css</a>
+            <ul class="list-inline" id="buffers-list"></ul>
+            <a href="#" id="new-tab" class="bg-light mr-px-5 text-black">+ new tab</a>
             <a href="#" id="run-btn" class="bg-orange text-white">run &#9658; </a>
         </div>
-        <div class="header item-center">RustPython 🐍 😱 🤘</div>
+
+        <div class="item-center">
+            <a href="#">coding mode</a>
+            <select id="buffers-selection"></select>
+        </div>
+
         <div class="text-right">
             <a href="https://github.com/RustPython/"> github</a>
-        </div>  
+        </div>
     </div>
 
     <!-- code editor and output display -->
     <!-- split view -->
     <div class="split-view full-height">
-
-        <div id="main-code" class="tab code-wrapper h-100">
-            <a id="import-code" href="#popup" class="code-import text-black">import</a>
-            <div id="main-code-editor" class="h-100"></div>
-        </div>
-
-        <div id="python-code" class="tab code-wrapper d-none h-100">
-            <a id="import-code" href="#popup" class="code-import text-black">import python</a>
-            <div id="python-code-editor" class="h-100"></div>
-        </div>
-
-        <div id="javascript-code" class="tab code-wrapper d-none h-100">
-            <a id="import-js-library" class="code-import text-white" href="#popup"> import javascript</a>
-            <div id="javascript-code-editor" class="h-100"></div>
-        </div>
-
-        <div id="css-code" class="tab code-wrapper d-none h-100">
-            <a id="import-css-framework" class="code-import text-white" href="#popup"> import css</a>
-            <div id="css-code-editor" class="h-100"></div>
-        </div>
+        <div id="primary-editor" class="border-right"></div>
+        <div id="secondary-editor" class="d-none"></div>
 
         <div id="rp-notebook">loading python in your browser...</div>
     </div>

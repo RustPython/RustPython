@@ -1,4 +1,4 @@
-export const getResponseTypeFromFetchType = fetchEntry => {
+const getResponseTypeFromFetchType = fetchEntry => {
     if (fetchEntry === "python") return "text";
     if (fetchEntry === "javascript") return "text";
     if (fetchEntry === "css") return "text";
@@ -8,7 +8,7 @@ export const getResponseTypeFromFetchType = fetchEntry => {
     return fetchEntry;
   };
   
-  export function genericFetch(path, fetchType) {
+  function genericFetch(path, fetchType) {
     const responseType = getResponseTypeFromFetchType(fetchType);
     return fetch(path)
       .then(r => {
@@ -23,7 +23,7 @@ export const getResponseTypeFromFetchType = fetchEntry => {
       });
   }
   
-  export function inject(code) {
+  function injectJS(code) {
     const script = document.createElement('script');
     const doc = document.body || document.documentElement;
     const blob = new Blob([code], { type: 'text/javascript' });
@@ -37,3 +37,5 @@ export const getResponseTypeFromFetchType = fetchEntry => {
       // ignore if body is changed and script is detached
     }
   }
+
+  export {  getResponseTypeFromFetchType, genericFetch , injectJS }
