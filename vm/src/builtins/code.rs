@@ -9,7 +9,7 @@ use super::pytype::PyTypeRef;
 use crate::bytecode::{self, BorrowedConstant, Constant, ConstantBag};
 use crate::pyobject::{
     BorrowValue, IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TypeProtocol,
+    StaticType, TypeProtocol,
 };
 use crate::VirtualMachine;
 use num_traits::Zero;
@@ -33,8 +33,7 @@ fn borrow_obj_constant(obj: &PyObjectRef) -> BorrowedConstant<PyConstant> {
     match_class!(match obj {
         ref i @ super::int::PyInt => {
             let value = i.borrow_value();
-            // TODO: figure out a better way to tell this
-            if obj.class().name == "bool" {
+            if obj.class().is(super::pybool::PyBool::static_type()) {
                 BorrowedConstant::Boolean {
                     value: !value.is_zero(),
                 }
