@@ -22,7 +22,7 @@ pub(crate) mod _struct {
     use std::convert::TryFrom;
     use std::io::{Cursor, Read, Write};
     use std::iter::Peekable;
-    use std::{fmt, mem};
+    use std::{fmt, mem, os::raw};
 
     use crate::builtins::{
         bytes::PyBytesRef, float::IntoPyFloat, int::try_to_primitive, pybool::IntoPyBool,
@@ -83,11 +83,14 @@ pub(crate) mod _struct {
         }
     }
 
+    type PackFunc = fn(&VirtualMachine, &PyObjectRef, &mut dyn Write) -> PyResult<()>;
+    type UnpackFunc = fn(&VirtualMachine, &mut dyn Read) -> PyResult;
+
     struct FormatInfo {
         size: usize,
         align: usize,
-        pack: Option<fn(&VirtualMachine, &PyObjectRef, &mut dyn Write) -> PyResult<()>>,
-        unpack: Option<fn(&VirtualMachine, &mut dyn Read) -> PyResult>,
+        pack: Option<PackFunc>,
+        unpack: Option<UnpackFunc>,
     }
     impl fmt::Debug for FormatInfo {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -155,33 +158,33 @@ pub(crate) mod _struct {
             match e {
                 Endianness::Native => match self {
                     Pad | Str | Pascal => &FormatInfo {
-                        size: size_of::<libc::c_char>(),
+                        size: size_of::<raw::c_char>(),
                         align: 0,
                         pack: None,
                         unpack: None,
                     },
-                    SByte => native_info!(libc::c_schar),
-                    UByte => native_info!(libc::c_uchar),
+                    SByte => native_info!(raw::c_schar),
+                    UByte => native_info!(raw::c_uchar),
                     Char => &FormatInfo {
-                        size: size_of::<libc::c_char>(),
+                        size: size_of::<raw::c_char>(),
                         align: 0,
                         pack: Some(pack_char),
                         unpack: Some(unpack_char),
                     },
-                    Short => native_info!(libc::c_short),
-                    UShort => native_info!(libc::c_ushort),
-                    Int => native_info!(libc::c_int),
-                    UInt => native_info!(libc::c_uint),
-                    Long => native_info!(libc::c_long),
-                    ULong => native_info!(libc::c_ulong),
-                    SSizeT => native_info!(libc::ssize_t),
-                    SizeT => native_info!(libc::size_t),
-                    LongLong => native_info!(libc::c_longlong),
-                    ULongLong => native_info!(libc::c_ulonglong),
+                    Short => native_info!(raw::c_short),
+                    UShort => native_info!(raw::c_ushort),
+                    Int => native_info!(raw::c_int),
+                    UInt => native_info!(raw::c_uint),
+                    Long => native_info!(raw::c_long),
+                    ULong => native_info!(raw::c_ulong),
+                    SSizeT => native_info!(isize), // ssize_t == isize
+                    SizeT => native_info!(usize),  //  size_t == usize
+                    LongLong => native_info!(raw::c_longlong),
+                    ULongLong => native_info!(raw::c_ulonglong),
                     Bool => native_info!(bool),
-                    Float => native_info!(libc::c_float),
-                    Double => native_info!(libc::c_double),
-                    VoidP => native_info!(*mut libc::c_void),
+                    Float => native_info!(raw::c_float),
+                    Double => native_info!(raw::c_double),
+                    VoidP => native_info!(*mut raw::c_void),
                 },
                 Endianness::Big => match_nonnative!(self, byteorder::BigEndian),
                 Endianness::Little => match_nonnative!(self, byteorder::LittleEndian),
@@ -564,7 +567,7 @@ pub(crate) mod _struct {
     make_pack_with_endianess!(f32, get_float);
     make_pack_with_endianess!(f64, get_float);
 
-    impl Packable for *mut libc::c_void {
+    impl Packable for *mut raw::c_void {
         fn pack<Endianness: ByteOrder>(
             vm: &VirtualMachine,
             arg: &PyObjectRef,

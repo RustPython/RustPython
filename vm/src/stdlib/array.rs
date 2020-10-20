@@ -21,7 +21,7 @@ use crate::VirtualMachine;
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
 use std::cmp::Ordering;
-use std::fmt;
+use std::{fmt, os::raw};
 
 struct ArrayTypeSpecifierError {
     _priv: (),
@@ -397,14 +397,14 @@ def_array_enum!(
     (SignedByte, i8, 'b'),
     (UnsignedByte, u8, 'B'),
     // TODO: support unicode char
-    (SignedShort, libc::c_short, 'h'),
-    (UnsignedShort, libc::c_ushort, 'H'),
-    (SignedInt, libc::c_int, 'i'),
-    (UnsignedInt, libc::c_uint, 'I'),
-    (SignedLong, libc::c_long, 'l'),
-    (UnsignedLong, libc::c_ulong, 'L'),
-    (SignedLongLong, libc::c_longlong, 'q'),
-    (UnsignedLongLong, libc::c_ulonglong, 'Q'),
+    (SignedShort, raw::c_short, 'h'),
+    (UnsignedShort, raw::c_ushort, 'H'),
+    (SignedInt, raw::c_int, 'i'),
+    (UnsignedInt, raw::c_uint, 'I'),
+    (SignedLong, raw::c_long, 'l'),
+    (UnsignedLong, raw::c_ulong, 'L'),
+    (SignedLongLong, raw::c_longlong, 'q'),
+    (UnsignedLongLong, raw::c_ulonglong, 'Q'),
     (Float, f32, 'f'),
     (Double, f64, 'd'),
 );
