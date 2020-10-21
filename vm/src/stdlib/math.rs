@@ -363,18 +363,46 @@ fn math_modf(x: IntoPyFloat) -> (f64, f64) {
     (x.fract(), x.trunc())
 }
 
+#[inline]
 #[cfg(not(target_arch = "wasm32"))]
-fn math_nextafter(x: IntoPyFloat, y: IntoPyFloat) -> PyResult<f64> {
+fn libc_nextafter(x: f64, y: f64) -> f64 {
     extern "C" {
         fn nextafter(x: c_double, y: c_double) -> c_double;
     }
+    unsafe { nextafter(x, y) }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn math_nextafter(x: IntoPyFloat, y: IntoPyFloat) -> PyResult<f64> {
     let x = x.to_f64();
     let y = y.to_f64();
-    Ok(unsafe { nextafter(x, y) })
+    Ok(libc_nextafter(x, y))
 }
 
 #[cfg(target_arch = "wasm32")]
 fn math_nextafter(_x: IntoPyFloat, _y: IntoPyFloat, vm: &VirtualMachine) -> PyResult<f64> {
+    Err(vm.new_not_implemented_error("not implemented for this platform".to_owned()))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn math_ulp(x: IntoPyFloat) -> PyResult<f64> {
+    let mut x = x.to_f64();
+    if x.is_nan() {
+        return Ok(x);
+    }
+    x = x.abs();
+    let mut x2 = libc_nextafter(x, f64::INFINITY);
+    Ok(if x2.is_infinite() {
+        // special case: x is the largest positive representable float
+        x2 = libc_nextafter(x, f64::NEG_INFINITY);
+        x - x2
+    } else {
+        x2 - x
+    })
+}
+
+#[cfg(target_arch = "wasm32")]
+fn math_ulp(_x: IntoPyFloat, vm: &VirtualMachine) -> PyResult<f64> {
     Err(vm.new_not_implemented_error("not implemented for this platform".to_owned()))
 }
 
@@ -504,7 +532,9 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         // Factorial function
         "factorial" => named_function!(ctx, math, factorial),
 
+        // Floating point
         "nextafter" => named_function!(ctx, math, nextafter),
+        "ulp" => named_function!(ctx, math, ulp),
 
         // Constants:
         "pi" => ctx.new_float(std::f64::consts::PI), // 3.14159...
