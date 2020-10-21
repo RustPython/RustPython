@@ -78,6 +78,24 @@ pub fn get_all<T: TryFromObject>(vm: &VirtualMachine, iter_obj: &PyObjectRef) ->
     Ok(elements)
 }
 
+pub fn try_map<F, R>(vm: &VirtualMachine, iter_obj: &PyObjectRef, mut f: F) -> PyResult<Vec<R>>
+where
+    F: FnMut(PyObjectRef) -> PyResult<R>,
+{
+    let cap = length_hint(vm, iter_obj.clone())?.unwrap_or(0);
+    // TODO: fix extend to do this check (?), see test_extend in Lib/test/list_tests.py,
+    // https://github.com/python/cpython/blob/v3.9.0/Objects/listobject.c#L922-L928
+    if cap >= isize::max_value() as usize {
+        return Ok(Vec::new());
+    }
+    let mut results = Vec::with_capacity(cap);
+    while let Some(element) = get_next_object(vm, iter_obj)? {
+        results.push(f(element)?);
+    }
+    results.shrink_to_fit();
+    Ok(results)
+}
+
 pub fn stop_iter_with_value(val: PyObjectRef, vm: &VirtualMachine) -> PyBaseExceptionRef {
     let stop_iteration_type = vm.ctx.exceptions.stop_iteration.clone();
     vm.new_exception(stop_iteration_type, vec![val])

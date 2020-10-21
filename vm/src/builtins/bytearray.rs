@@ -7,8 +7,9 @@ use super::pytype::PyTypeRef;
 use super::tuple::PyTupleRef;
 use crate::anystr::{self, AnyStr};
 use crate::bytesinner::{
-    bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
-    ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
+    bytes_decode, bytes_from_object, value_from_object, ByteInnerFindOptions, ByteInnerNewOptions,
+    ByteInnerPaddingOptions, ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs,
+    PyBytesInner,
 };
 use crate::byteslike::PyBytesLike;
 use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
@@ -20,7 +21,7 @@ use crate::pyobject::{
     BorrowValue, Either, IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext,
     PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
 };
-use crate::sliceable::SequenceIndex;
+use crate::sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex};
 use crate::slots::{BufferProtocol, Comparable, Hashable, PyComparisonOp, Unhashable};
 use crate::vm::VirtualMachine;
 use bstr::ByteSlice;
@@ -107,7 +108,7 @@ impl PyByteArray {
         options: ByteInnerNewOptions,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        PyByteArray::from_inner(options.get_value(vm)?).into_ref_with_type(vm, cls)
+        options.get_bytearray(cls, vm)
     }
 
     #[pymethod(name = "__repr__")]
@@ -139,12 +140,6 @@ impl PyByteArray {
             .new_bytearray(self.borrow_value().add(&*other.borrow_value()))
     }
 
-    #[pymethod(name = "__iadd__")]
-    fn iadd(zelf: PyRef<Self>, other: PyBytesLike, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        zelf.try_resizable(vm)?.iadd(&*other.borrow_value());
-        Ok(zelf)
-    }
-
     #[pymethod(name = "__contains__")]
     fn contains(
         &self,
@@ -154,12 +149,7 @@ impl PyByteArray {
         self.borrow_value().contains(needle, vm)
     }
 
-    #[pymethod(name = "__getitem__")]
-    fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.borrow_value().getitem("bytearray", needle, vm)
-    }
-
-    #[pymethod(name = "__setitem__")]
+    #[pymethod(magic)]
     fn setitem(
         zelf: PyRef<Self>,
         needle: SequenceIndex,
@@ -167,27 +157,147 @@ impl PyByteArray {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         match needle {
-            SequenceIndex::Int(int) => zelf.borrow_value_mut().setindex(int, value, vm),
-            SequenceIndex::Slice(slice) => {
-                if let Ok(mut w) = zelf.try_resizable(vm) {
-                    if zelf.is(&value) {
-                        w.setslice_from_self(slice, vm)
-                    } else {
-                        w.setslice(slice, value, vm)
-                    }
-                } else if zelf.is(&value) {
-                    zelf.borrow_value_mut()
-                        .setslice_from_self_no_resize(slice, vm)
+            SequenceIndex::Int(i) => {
+                let value = value_from_object(vm, &value)?;
+                let elements = &mut zelf.borrow_value_mut().elements;
+                if let Some(i) = elements.wrap_index(i) {
+                    elements[i] = value;
+                    Ok(())
                 } else {
-                    zelf.borrow_value_mut().setslice_no_resize(slice, value, vm)
+                    Err(vm.new_index_error("index out of range".to_owned()))
+                }
+            }
+            SequenceIndex::Slice(slice) => {
+                let items = if zelf.is(&value) {
+                    zelf.borrow_value().elements.clone()
+                } else {
+                    bytes_from_object(vm, &value)?
+                };
+                if let Ok(mut w) = zelf.try_resizable(vm) {
+                    w.elements.set_slice_items(vm, &slice, items.as_slice())
+                } else {
+                    zelf.borrow_value_mut().elements.set_slice_items_no_resize(
+                        vm,
+                        &slice,
+                        items.as_slice(),
+                    )
                 }
             }
         }
     }
 
-    #[pymethod(name = "__delitem__")]
-    fn delitem(zelf: PyRef<Self>, needle: SequenceIndex, vm: &VirtualMachine) -> PyResult<()> {
-        zelf.try_resizable(vm)?.delitem(needle, vm)
+    #[pymethod(magic)]
+    fn iadd(zelf: PyRef<Self>, other: PyBytesLike, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        zelf.try_resizable(vm)?
+            .elements
+            .extend(&*other.borrow_value());
+        Ok(zelf)
+    }
+
+    #[pymethod(magic)]
+    fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self.borrow_value().getitem("bytearray", needle, vm)
+    }
+
+    #[pymethod(magic)]
+    pub fn delitem(&self, needle: SequenceIndex, vm: &VirtualMachine) -> PyResult<()> {
+        let elements = &mut self.try_resizable(vm)?.elements;
+        match needle {
+            SequenceIndex::Int(int) => {
+                if let Some(idx) = elements.wrap_index(int) {
+                    elements.remove(idx);
+                    Ok(())
+                } else {
+                    Err(vm.new_index_error("index out of range".to_owned()))
+                }
+            }
+            SequenceIndex::Slice(slice) => elements.delete_slice(vm, &slice),
+        }
+    }
+
+    #[pymethod]
+    fn pop(zelf: PyRef<Self>, index: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult<u8> {
+        let elements = &mut zelf.try_resizable(vm)?.elements;
+        let index = elements
+            .wrap_index(index.unwrap_or(-1))
+            .ok_or_else(|| vm.new_index_error("index out of range".to_owned()))?;
+        Ok(elements.remove(index))
+    }
+
+    #[pymethod]
+    fn insert(
+        zelf: PyRef<Self>,
+        index: isize,
+        object: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let value = value_from_object(vm, &object)?;
+        let elements = &mut zelf.try_resizable(vm)?.elements;
+        let index = elements.saturate_index(index);
+        elements.insert(index, value);
+        Ok(())
+    }
+
+    #[pymethod]
+    fn append(zelf: PyRef<Self>, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let value = value_from_object(vm, &object)?;
+        zelf.try_resizable(vm)?.elements.push(value);
+        Ok(())
+    }
+
+    #[pymethod]
+    fn remove(zelf: PyRef<Self>, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let value = value_from_object(vm, &object)?;
+        let elements = &mut zelf.try_resizable(vm)?.elements;
+        if let Some(index) = elements.find_byte(value) {
+            elements.remove(index);
+            Ok(())
+        } else {
+            Err(vm.new_value_error("value not found in bytearray".to_owned()))
+        }
+    }
+
+    #[pymethod]
+    fn extend(zelf: PyRef<Self>, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        if zelf.is(&object) {
+            Self::irepeat(&zelf, 2, vm)
+        } else {
+            let items = bytes_from_object(vm, &object)?;
+            zelf.try_resizable(vm)?.elements.extend(items);
+            Ok(())
+        }
+    }
+
+    fn irepeat(zelf: &PyRef<Self>, n: isize, vm: &VirtualMachine) -> PyResult<()> {
+        if n == 1 {
+            return Ok(());
+        }
+        let mut w = match zelf.try_resizable(vm) {
+            Ok(w) => w,
+            Err(err) => {
+                return if zelf.borrow_value().elements.is_empty() {
+                    // We can multiple an empty vector by any integer
+                    Ok(())
+                } else {
+                    Err(err)
+                };
+            }
+        };
+        let elements = &mut w.elements;
+
+        if n <= 0 {
+            elements.clear();
+        } else if n != 1 {
+            let n = n as usize;
+
+            let old = elements.clone();
+
+            elements.reserve((n - 1) * old.len());
+            for _ in 1..n {
+                elements.extend(&old);
+            }
+        }
+        Ok(())
     }
 
     #[pymethod(name = "isalnum")]
@@ -352,11 +462,6 @@ impl PyByteArray {
         index.ok_or_else(|| vm.new_value_error("substring not found".to_owned()))
     }
 
-    #[pymethod(name = "remove")]
-    fn remove(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.try_resizable(vm)?.remove(value, vm)
-    }
-
     #[pymethod(name = "translate")]
     fn translate(
         &self,
@@ -483,37 +588,6 @@ impl PyByteArray {
         self.borrow_value().elements.clone().into()
     }
 
-    #[pymethod(name = "append")]
-    fn append(zelf: PyRef<Self>, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        zelf.try_resizable(vm)?.append(value, vm)
-    }
-
-    #[pymethod(name = "extend")]
-    fn extend(zelf: PyRef<Self>, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        if zelf.is(&value) {
-            zelf.try_resizable(vm)?.irepeat(2);
-            Ok(())
-        } else {
-            zelf.try_resizable(vm)?.extend(value, vm)
-        }
-    }
-
-    #[pymethod(name = "insert")]
-    fn insert(
-        zelf: PyRef<Self>,
-        index: isize,
-        value: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        zelf.try_resizable(vm)?.insert(index, value, vm)
-    }
-
-    #[pymethod(name = "pop")]
-    fn pop(zelf: PyRef<Self>, index: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult<u8> {
-        let index = index.unwrap_or(-1);
-        zelf.try_resizable(vm)?.pop(index, vm)
-    }
-
     #[pymethod(name = "title")]
     fn title(&self) -> Self {
         self.borrow_value().title().into()
@@ -525,10 +599,9 @@ impl PyByteArray {
         self.borrow_value().repeat(n).into()
     }
 
-    #[pymethod(name = "__imul__")]
+    #[pymethod(magic)]
     fn imul(zelf: PyRef<Self>, n: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        zelf.try_resizable(vm)?.irepeat(n);
-        Ok(zelf)
+        Self::irepeat(&zelf, n, vm).map(|_| zelf)
     }
 
     #[pymethod(name = "__mod__")]
