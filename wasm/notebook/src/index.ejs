@@ -11,33 +11,36 @@
 
 <body>
 
+<div class="d-flex">
     <div class="header item-center">RustPython 🐍 😱 🤘</div>
+    <div>
+        <a class="mr-px-5" href="https://rustpython.github.io/2020/10/21/rustpython-notebook-details"> how to </a>
+        <a href="https://github.com/RustPython/"> github</a>
+    </div>
+</div>
+   
+    
 
     <!-- navigation bar -->
     <div class="nav-bar">
         <div class="nav-bar-links d-flex">
+            <a href="#" id="run-btn" class="bg-orange text-white mr-px-5">run &#9658; </a>
             <ul class="list-inline" id="buffers-list"></ul>
-            <a href="#" id="new-tab" class="bg-light mr-px-5 text-black">+ new tab</a>
-            <a href="#" id="run-btn" class="bg-orange text-white">run &#9658; </a>
-        </div>
-
-        <div class="item-center">
-            <a href="#">coding mode</a>
-            <select id="buffers-selection"></select>
-        </div>
-
-        <div class="text-right">
-            <a href="https://github.com/RustPython/"> github</a>
+            <a href="#" id="new-tab" class="bg-light mr-px-5 text-black">new tab</a>
+            <a href="#" id="split-view" class="bg-light mr-px-5 text-black">split view</a>
+            <a href="#" id="reader-mode" class="bg-light mr-px-5 text-black">reader mode</a>
         </div>
     </div>
 
     <!-- code editor and output display -->
     <!-- split view -->
     <div class="split-view full-height">
-        <div id="primary-editor" class="border-right"></div>
-        <div id="secondary-editor" class="d-none"></div>
+        <div id="primary-editor"></div>
+        <div id="secondary-editor" class="d-none">
+            <select class="item-right" id="buffers-selection"></select>
+        </div>
 
-        <div id="rp-notebook">loading python in your browser...</div>
+        <div class="border-left" id="rp-notebook">loading python in your browser...</div>
     </div>
 
     <!-- popup forms -->
@@ -53,19 +56,9 @@
     </div>
 
     <!-- errors and keyboard shortcuts -->
-    <div class="split-view">
-        <div>
-            <div class="header">Error(s):</div>
-            <div id="error"></div>
-        </div>
-        <div class="gray">
-            <div class="header">Keyboard Shortcuts:</div>
-            <div>
-                <div>Run code: 'Ctrl-Enter' or 'Cmd-Enter'</div>
-                <div>Decrease Indent: 'Shift-Tab' </div>
-                <div>Toggle comment: 'Ctrl-/' or 'Cmd-/'</div>
-            </div>
-        </div>
+    <div>
+        <div class="header">Error(s):</div>
+        <div id="error"></div>
     </div>
 </body>
 

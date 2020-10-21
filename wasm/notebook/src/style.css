@@ -58,16 +58,22 @@ p {
     text-align: center;
 }
 
+.item-right {
+    float: right;
+    margin-top: 5px;
+    margin-right: 5px;
+}
+
 .text-right {
     text-align: right;
 }
 
 .text-black {
-    color: #000;
+    color: #1f2430;
 }
 
 .bg-black {
-    background-color: #000;
+    background-color: #1f2430;
 }
 
 .bg-light {
@@ -101,7 +107,7 @@ ul.list-inline li {
 }
 
 ul.list-inline li:first-child {
-    background-color: #000;
+    background-color: #1f2430;
     color: #fff;
 }
 
@@ -174,8 +180,8 @@ input[type='url'] {
     white-space: pre;
 }
 
-.border-right {
-    border-right: 1px solid rgb(221, 221, 221);
+.border-left {
+    border-left: 1px solid rgb(221, 221, 221);
 }
 
 
@@ -200,7 +206,7 @@ input[type='url'] {
     margin: 40px auto;
     padding: 20px;
     background: #fff;
-    border: 1px solid #000;
+    border: 1px solid #1f2430;
     width: 50%;
     position: relative;
     box-shadow: 0 1rem 3rem rgba(0, 0, 0, 0.175);
@@ -217,7 +223,7 @@ input[type='url'] {
     font-size: 30px;
     font-weight: bold;
     text-decoration: none;
-    color: #000;
+    color: #1f2430;
 }
 
 .popup .popup-content {

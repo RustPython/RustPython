@@ -9,7 +9,6 @@ CodeMirror.defineMode('notebook', function (config, _parserConfig) {
         py: python,
         md: markdown,
         math: latex,
-        'math-inline': latex,
     };
     return {
         startState() {
@@ -76,4 +75,17 @@ function selectBuffer(editor, buffers, name) {
     buffersList.appendChild(li);
   }
   
-  export { selectBuffer , openBuffer }
+function newBuf(buffers, buffersDropDown, buffersList, primaryEditor) {
+    let name = prompt("Name your tab", "*scratch*");
+    if (name == null) return;
+    if (buffers.hasOwnProperty(name)) {
+        alert("There's already a buffer by that name.");
+        return;
+    }
+    openBuffer(buffers, name, "", "python", buffersDropDown, buffersList);
+    selectBuffer(primaryEditor, buffers, name);
+    let sel = buffersDropDown;
+    sel.value = name;
+}
+
+export { selectBuffer , openBuffer , newBuf }
