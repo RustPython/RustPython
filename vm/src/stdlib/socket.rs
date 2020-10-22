@@ -550,7 +550,7 @@ fn socket_getaddrinfo(opts: GAIOptions, vm: &VirtualMachine) -> PyResult {
     let port = port.as_ref().map(|p| p.as_ref());
 
     let addrs = dns_lookup::getaddrinfo(host, port, Some(hints)).map_err(|err| {
-        let error_type = vm.class("_socket", "gaierror");
+        let error_type = GAI_ERROR.get().unwrap().clone();
         let code = err.error_num();
         let strerr = {
             #[cfg(unix)]
@@ -621,7 +621,7 @@ fn socket_gethostbyname(name: PyStrRef, vm: &VirtualMachine) -> PyResult<String>
             Ok(lst.get(0).unwrap().to_string())
         }
         Err(_) => {
-            let error_type = vm.class("_socket", "gaierror");
+            let error_type = GAI_ERROR.get().unwrap().clone();
             Err(vm.new_exception_msg(
                 error_type,
                 "nodename nor servname provided, or not known".to_owned(),
@@ -690,7 +690,7 @@ fn socket_getnameinfo(
         .as_std()
         .and_then(|addr| dns_lookup::getnameinfo(&addr, flags).ok());
     nameinfo.ok_or_else(|| {
-        let error_type = vm.class("_socket", "gaierror");
+        let error_type = GAI_ERROR.get().unwrap().clone();
         vm.new_exception_msg(
             error_type,
             "nodename nor servname provided, or not known".to_owned(),
@@ -714,7 +714,7 @@ fn get_addr(vm: &VirtualMachine, addr: impl ToSocketAddrs) -> PyResult<socket2::
 
                 Ok(addr.into())
             } else {
-                let error_type = vm.class("_socket", "gaierror");
+                let error_type = GAI_ERROR.get().unwrap().clone();
                 Err(vm.new_exception_msg(
                     error_type,
                     "nodename nor servname provided, or not known".to_owned(),
@@ -722,7 +722,7 @@ fn get_addr(vm: &VirtualMachine, addr: impl ToSocketAddrs) -> PyResult<socket2::
             }
         }
         Err(e) => {
-            let error_type = vm.class("_socket", "gaierror");
+            let error_type = GAI_ERROR.get().unwrap().clone();
             Err(vm.new_exception_msg(error_type, e.to_string()))
         }
     }
@@ -768,7 +768,7 @@ fn invalid_sock() -> Socket {
 
 fn convert_sock_error(vm: &VirtualMachine, err: io::Error) -> PyBaseExceptionRef {
     if err.kind() == io::ErrorKind::TimedOut {
-        let socket_timeout = vm.class("_socket", "timeout");
+        let socket_timeout = TIMEOUT_ERROR.get().unwrap().clone();
         vm.new_exception_msg(socket_timeout, "Timed out".to_owned())
     } else {
         err.into_pyexception(vm)
@@ -782,18 +782,31 @@ fn get_ipv6_addr_str(ipv6: Ipv6Addr) -> String {
     }
 }
 
+rustpython_common::static_cell! {
+    static TIMEOUT_ERROR: PyTypeRef;
+    static GAI_ERROR: PyTypeRef;
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
-    let socket_timeout = ctx.new_class(
-        "socket.timeout",
-        &vm.ctx.exceptions.os_error,
-        Default::default(),
-    );
-    let socket_gaierror = ctx.new_class(
-        "socket.gaierror",
-        &vm.ctx.exceptions.os_error,
-        Default::default(),
-    );
+    let socket_timeout = TIMEOUT_ERROR
+        .get_or_init(|| {
+            ctx.new_class(
+                "socket.timeout",
+                &vm.ctx.exceptions.os_error,
+                Default::default(),
+            )
+        })
+        .clone();
+    let socket_gaierror = GAI_ERROR
+        .get_or_init(|| {
+            ctx.new_class(
+                "socket.gaierror",
+                &vm.ctx.exceptions.os_error,
+                Default::default(),
+            )
+        })
+        .clone();
 
     let module = py_module!(vm, "_socket", {
         "socket" => PySocket::make_class(ctx),
