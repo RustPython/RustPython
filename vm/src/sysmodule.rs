@@ -457,7 +457,7 @@ impl PyFloatInfo {
         max: f64::MAX,
         max_exp: f64::MAX_EXP,
         max_10_exp: f64::MAX_10_EXP,
-        min: f64::MIN,
+        min: f64::MIN_POSITIVE,
         min_exp: f64::MIN_EXP,
         min_10_exp: f64::MIN_10_EXP,
         dig: f64::DIGITS,

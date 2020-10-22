@@ -1970,16 +1970,15 @@ class MathTests(unittest.TestCase):
         self.assertEqualSign(math.nextafter(+0.0, -0.0), -0.0)
 
         # around 0.0
-        # TODO: RUSTPYTHON
-        # smallest_subnormal = sys.float_info.min * sys.float_info.epsilon
-        # self.assertEqual(math.nextafter(+0.0, INF), smallest_subnormal)
-        # self.assertEqual(math.nextafter(-0.0, INF), smallest_subnormal)
-        # self.assertEqual(math.nextafter(+0.0, -INF), -smallest_subnormal)
-        # self.assertEqual(math.nextafter(-0.0, -INF), -smallest_subnormal)
-        # self.assertEqualSign(math.nextafter(smallest_subnormal, +0.0), +0.0)
-        # self.assertEqualSign(math.nextafter(-smallest_subnormal, +0.0), -0.0)
-        # self.assertEqualSign(math.nextafter(smallest_subnormal, -0.0), +0.0)
-        # self.assertEqualSign(math.nextafter(-smallest_subnormal, -0.0), -0.0)
+        smallest_subnormal = sys.float_info.min * sys.float_info.epsilon
+        self.assertEqual(math.nextafter(+0.0, INF), smallest_subnormal)
+        self.assertEqual(math.nextafter(-0.0, INF), smallest_subnormal)
+        self.assertEqual(math.nextafter(+0.0, -INF), -smallest_subnormal)
+        self.assertEqual(math.nextafter(-0.0, -INF), -smallest_subnormal)
+        self.assertEqualSign(math.nextafter(smallest_subnormal, +0.0), +0.0)
+        self.assertEqualSign(math.nextafter(-smallest_subnormal, +0.0), -0.0)
+        self.assertEqualSign(math.nextafter(smallest_subnormal, -0.0), +0.0)
+        self.assertEqualSign(math.nextafter(-smallest_subnormal, -0.0), -0.0)
 
         # around infinity
         largest_normal = sys.float_info.max
@@ -2002,9 +2001,8 @@ class MathTests(unittest.TestCase):
         self.assertEqual(math.ulp(2 ** 64), 4096.0)
 
         # min and max
-        # TODO: RUSTPYTHON
-        # self.assertEqual(math.ulp(0.0),
-        #                  sys.float_info.min * sys.float_info.epsilon)
+        self.assertEqual(math.ulp(0.0),
+                        sys.float_info.min * sys.float_info.epsilon)
         self.assertEqual(math.ulp(FLOAT_MAX),
                          FLOAT_MAX - math.nextafter(FLOAT_MAX, -INF))
 
