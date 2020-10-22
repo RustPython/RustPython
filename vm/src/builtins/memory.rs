@@ -102,6 +102,12 @@ impl Default for BufferOptions {
     }
 }
 
+#[derive(FromArgs)]
+struct PyMemoryViewNewArgs {
+    #[pyarg(any)]
+    object: PyObjectRef,
+}
+
 #[pyclass(module = false, name = "memoryview")]
 #[derive(Debug)]
 pub struct PyMemoryView {
@@ -161,9 +167,14 @@ impl PyMemoryView {
     }
 
     #[pyslot]
-    fn tp_new(_cls: PyTypeRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        let buffer = try_buffer_from_object(vm, &obj)?;
-        Ok(PyMemoryView::from_buffer(obj, buffer, vm)?.into_ref(vm))
+    fn tp_new(
+        cls: PyTypeRef,
+        args: PyMemoryViewNewArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<Self>> {
+        let buffer = try_buffer_from_object(vm, &args.object)?;
+        let zelf = PyMemoryView::from_buffer(args.object, buffer, vm)?;
+        zelf.into_ref_with_type(vm, cls)
     }
 
     #[pymethod]

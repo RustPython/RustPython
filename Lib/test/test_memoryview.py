@@ -483,8 +483,6 @@ class BaseMemorySliceSliceTests:
 class BytesMemoryviewTest(unittest.TestCase,
     BaseMemoryviewTests, BaseBytesMemoryTests):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_constructor(self):
         for tp in self._types:
             ob = tp(self._source)
