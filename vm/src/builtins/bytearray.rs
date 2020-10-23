@@ -1,5 +1,6 @@
 //! Implementation of the python bytearray object.
 use super::bytes::{PyBytes, PyBytesRef};
+use super::dict::PyDictRef;
 use super::int::PyIntRef;
 use super::memory::{Buffer, BufferOptions, ResizeGuard};
 use super::pystr::PyStrRef;
@@ -19,7 +20,7 @@ use crate::common::lock::{
 use crate::function::{OptionalArg, OptionalOption};
 use crate::pyobject::{
     BorrowValue, Either, IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext,
-    PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
+    PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex};
 use crate::slots::{BufferProtocol, Comparable, Hashable, PyComparisonOp, Unhashable};
@@ -627,16 +628,24 @@ impl PyByteArray {
     }
 
     #[pymethod(magic)]
-    fn reduce_ex(zelf: PyRef<Self>, _proto: usize, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef) {
+    fn reduce_ex(
+        zelf: PyRef<Self>,
+        _proto: usize,
+        vm: &VirtualMachine,
+    ) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
         Self::reduce(zelf, vm)
     }
 
     #[pymethod(magic)]
-    fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef) {
+    fn reduce(
+        zelf: PyRef<Self>,
+        vm: &VirtualMachine,
+    ) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
         let bytes = PyBytes::from(zelf.borrow_value().elements.clone()).into_pyobject(vm);
         (
-            Self::class(vm).clone(),
+            zelf.as_object().clone_class(),
             PyTupleRef::with_elements(vec![bytes], &vm.ctx),
+            zelf.as_object().dict(),
         )
     }
 }

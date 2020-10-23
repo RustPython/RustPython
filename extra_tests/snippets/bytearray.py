@@ -729,3 +729,28 @@ assert pickle.dumps(a, 1) == b'c__builtin__\nbytearray\nq\x00(c_codecs\nencode\n
 assert pickle.dumps(a, 2) == b'\x80\x02c__builtin__\nbytearray\nq\x00c_codecs\nencode\nq\x01X\x0c\x00\x00\x00\xc3\xbfab\xc2\x80\x00\x00\xc3\xb8\x00\x00q\x02X\x06\x00\x00\x00latin1q\x03\x86q\x04Rq\x05\x85q\x06Rq\x07.'
 assert pickle.dumps(a, 3) == b'\x80\x03cbuiltins\nbytearray\nq\x00C\t\xffab\x80\x00\x00\xf8\x00\x00q\x01\x85q\x02Rq\x03.'
 assert pickle.dumps(a, 4) == b'\x80\x04\x95*\x00\x00\x00\x00\x00\x00\x00\x8c\x08builtins\x94\x8c\tbytearray\x94\x93\x94C\t\xffab\x80\x00\x00\xf8\x00\x00\x94\x85\x94R\x94.'
+
+# pickle with subclass
+class A(bytes):
+    pass
+
+a = A()
+a.x = 10
+a.y = A(b'123')
+b = pickle.loads(pickle.dumps(a, 4))
+assert type(a) == type(b)
+assert a.x == b.x
+assert a.y == b.y
+assert a == b
+
+class B(bytearray):
+    pass
+
+a = B()
+a.x = 10
+a.y = B(b'123')
+b = pickle.loads(pickle.dumps(a, 4))
+assert type(a) == type(b)
+assert a.x == b.x
+assert a.y == b.y
+assert a == b

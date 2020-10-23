@@ -7,6 +7,7 @@ use rustpython_common::{
 use std::mem::size_of;
 use std::ops::Deref;
 
+use super::dict::PyDictRef;
 use super::int::PyIntRef;
 use super::pystr::PyStrRef;
 use super::pytype::PyTypeRef;
@@ -19,7 +20,7 @@ use crate::common::hash::PyHash;
 use crate::function::{OptionalArg, OptionalOption};
 use crate::pyobject::{
     BorrowValue, Either, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyIterable,
-    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::slots::{BufferProtocol, Comparable, Hashable, PyComparisonOp};
 use crate::vm::VirtualMachine;
@@ -471,6 +472,28 @@ impl PyBytes {
             .map(|x| x.into_pyobject(vm))
             .collect();
         PyTupleRef::with_elements(param, &vm.ctx)
+    }
+
+    #[pymethod(magic)]
+    fn reduce_ex(
+        zelf: PyRef<Self>,
+        _proto: usize,
+        vm: &VirtualMachine,
+    ) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
+        Self::reduce(zelf, vm)
+    }
+
+    #[pymethod(magic)]
+    fn reduce(
+        zelf: PyRef<Self>,
+        vm: &VirtualMachine,
+    ) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
+        let bytes = PyBytes::from(zelf.inner.elements.clone()).into_pyobject(vm);
+        (
+            zelf.as_object().clone_class(),
+            PyTupleRef::with_elements(vec![bytes], &vm.ctx),
+            zelf.as_object().dict(),
+        )
     }
 }
 

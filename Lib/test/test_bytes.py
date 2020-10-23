@@ -1860,8 +1860,6 @@ class SubclassTest:
         s3 = s1.join([b"abcd"])
         self.assertIs(type(s3), self.basetype)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pickle(self):
         a = self.type2test(b"abcd")
         a.x = 10
@@ -1875,8 +1873,6 @@ class SubclassTest:
             self.assertEqual(type(a), type(b))
             self.assertEqual(type(a.y), type(b.y))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_copy(self):
         a = self.type2test(b"abcd")
         a.x = 10
