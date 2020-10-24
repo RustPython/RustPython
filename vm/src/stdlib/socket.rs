@@ -5,7 +5,7 @@ use gethostname::gethostname;
 use nix::unistd::sethostname;
 use socket2::{Domain, Protocol, Socket, Type as SocketType};
 use std::io::{self, prelude::*};
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, ToSocketAddrs};
+use std::net::{Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, ToSocketAddrs};
 use std::time::Duration;
 
 use crate::builtins::bytearray::PyByteArrayRef;
@@ -130,7 +130,7 @@ impl PySocket {
 
     #[pymethod]
     fn connect(&self, address: Address, vm: &VirtualMachine) -> PyResult<()> {
-        let sock_addr = get_addr(vm, address)?;
+        let sock_addr = get_addr(vm, address, self.family.load())?;
         let res = if let Some(duration) = self.sock().read_timeout().unwrap() {
             self.sock().connect_timeout(&sock_addr, duration)
         } else {
@@ -141,7 +141,7 @@ impl PySocket {
 
     #[pymethod]
     fn bind(&self, address: Address, vm: &VirtualMachine) -> PyResult<()> {
-        let sock_addr = get_addr(vm, address)?;
+        let sock_addr = get_addr(vm, address, self.family.load())?;
         self.sock()
             .bind(&sock_addr)
             .map_err(|err| convert_sock_error(vm, err))
@@ -213,7 +213,7 @@ impl PySocket {
 
     #[pymethod]
     fn sendto(&self, bytes: PyBytesLike, address: Address, vm: &VirtualMachine) -> PyResult<()> {
-        let addr = get_addr(vm, address)?;
+        let addr = get_addr(vm, address, self.family.load())?;
         bytes
             .with_ref(|b| self.sock().send_to(b, &addr))
             .map_err(|err| convert_sock_error(vm, err))?;
@@ -678,7 +678,7 @@ fn socket_getnameinfo(
     flags: i32,
     vm: &VirtualMachine,
 ) -> PyResult<(String, String)> {
-    let addr = get_addr(vm, address)?;
+    let addr = get_addr(vm, address, IpAddrFmt::Any())?;
     let nameinfo = addr
         .as_std()
         .and_then(|addr| dns_lookup::getnameinfo(&addr, flags).ok());
@@ -691,32 +691,51 @@ fn socket_getnameinfo(
     })
 }
 
-fn get_addr(vm: &VirtualMachine, addr: impl ToSocketAddrs) -> PyResult<socket2::SockAddr> {
-    match addr.to_socket_addrs() {
-        Ok(mut sock_addrs) => {
-            if let Some(mut addr) = sock_addrs.next() {
-                if option_env!("RUSTPYTHON_NO_IPV6").is_some() {
-                    while addr.ip() == IpAddr::V6(Ipv6Addr::LOCALHOST) {
-                        if let Some(other) = sock_addrs.next() {
-                            addr = other
-                        } else {
-                            break;
-                        }
-                    }
-                }
+enum IpAddrFmt {
+    Ipv4(),
+    Ipv6(),
+    Any(),
+}
 
-                Ok(addr.into())
-            } else {
-                let error_type = vm.class("_socket", "gaierror");
-                Err(vm.new_exception_msg(
-                    error_type,
-                    "nodename nor servname provided, or not known".to_owned(),
-                ))
-            }
+impl<T> From<T> for IpAddrFmt
+where
+    T: PartialEq<i32> + Sized + std::fmt::Debug,
+{
+    fn from(i: T) -> Self {
+        if i == Domain::ipv4().into() {
+            Self::Ipv4()
+        } else if i == Domain::ipv6().into() {
+            Self::Ipv6()
+        } else {
+            error!("Unknown IP family/domain: {:?}", i);
+            Self::Any()
         }
+    }
+}
+
+fn get_addr<F>(vm: &VirtualMachine, addr: impl ToSocketAddrs, fmt: F) -> PyResult<socket2::SockAddr>
+where
+    F: Into<IpAddrFmt>,
+{
+    let sock_addr = match addr.to_socket_addrs() {
+        Ok(mut sock_addrs) => match fmt.into() {
+            IpAddrFmt::Ipv6() => sock_addrs.find(|a| a.is_ipv6()),
+            IpAddrFmt::Ipv4() => sock_addrs.find(|a| a.is_ipv4()),
+            IpAddrFmt::Any() => sock_addrs.next(),
+        },
         Err(e) => {
             let error_type = vm.class("_socket", "gaierror");
-            Err(vm.new_exception_msg(error_type, e.to_string()))
+            return Err(vm.new_exception_msg(error_type, e.to_string()));
+        }
+    };
+    match sock_addr {
+        Some(sock_addr) => Ok(sock_addr.into()),
+        None => {
+            let error_type = vm.class("_socket", "gaierror");
+            Err(vm.new_exception_msg(
+                error_type,
+                "nodename nor servname provided, or not known".to_owned(),
+            ))
         }
     }
 }
