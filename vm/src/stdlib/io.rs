@@ -526,6 +526,11 @@ mod _io {
         }
 
         #[pymethod]
+        fn readinto(instance: PyObjectRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            vm.call_method(&vm.get_attribute(instance, "raw")?, "readinto", (obj,))
+        }
+
+        #[pymethod]
         fn seekable(_self: PyObjectRef) -> bool {
             true
         }

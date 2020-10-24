@@ -931,8 +931,6 @@ class BytesTest(BaseBytesTest, unittest.TestCase):
         with self.assertRaisesRegex(TypeError, msg):
             b['a']
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_buffer_is_readonly(self):
         fd = os.open(__file__, os.O_RDONLY)
         with open(fd, "rb", buffering=0) as f:
@@ -1139,8 +1137,6 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
     def test_nohash(self):
         self.assertRaises(TypeError, hash, bytearray())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bytearray_api(self):
         short_sample = b"Hello world\n"
         sample = short_sample + b"\0"*(20 - len(short_sample))
