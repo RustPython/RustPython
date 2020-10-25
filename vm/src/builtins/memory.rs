@@ -8,6 +8,7 @@ use crate::builtins::slice::PySliceRef;
 use crate::bytesinner::bytes_to_hex;
 use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
 use crate::common::hash::PyHash;
+use crate::common::lock::OnceCell;
 use crate::function::OptionalArg;
 use crate::pyobject::{
     Either, IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef,
@@ -124,6 +125,7 @@ pub struct PyMemoryView {
     step: isize,
     exports: AtomicCell<usize>,
     format_spec: FormatSpec,
+    hash: OnceCell<PyHash>,
 }
 
 type PyMemoryViewRef = PyRef<PyMemoryView>;
@@ -153,6 +155,7 @@ impl PyMemoryView {
             step: 1,
             exports: AtomicCell::new(0),
             format_spec,
+            hash: OnceCell::new(),
         })
     }
 
@@ -318,6 +321,7 @@ impl PyMemoryView {
                 step: 1,
                 exports: AtomicCell::new(0),
                 format_spec,
+                hash: OnceCell::new(),
             }
             .into_object(vm));
         }
@@ -365,6 +369,7 @@ impl PyMemoryView {
                 step: 1,
                 exports: AtomicCell::new(0),
                 format_spec,
+                hash: OnceCell::new(),
             }
             .into_object(vm));
         };
@@ -396,6 +401,7 @@ impl PyMemoryView {
             step: newstep,
             exports: AtomicCell::new(0),
             format_spec,
+            hash: OnceCell::new(),
         }
         .into_object(vm))
     }
@@ -584,6 +590,7 @@ impl PyMemoryView {
             released: AtomicCell::new(false),
             exports: AtomicCell::new(0),
             format_spec: zelf.format_spec.clone(),
+            hash: OnceCell::new(),
             ..*zelf
         }
         .into_ref(vm))
@@ -772,7 +779,29 @@ impl Comparable for PyMemoryView {
 
 impl Hashable for PyMemoryView {
     fn hash(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
-        vm._hash(&zelf.obj)
+        zelf.hash
+            .get_or_try_init(|| {
+                zelf.try_not_released(vm)?;
+                if !zelf.options.readonly {
+                    return Err(
+                        vm.new_value_error("cannot hash writable memoryview object".to_owned())
+                    );
+                }
+                let guard;
+                let vec;
+                let bytes = match zelf.as_contiguous() {
+                    Some(bytes) => {
+                        guard = bytes;
+                        &*guard
+                    }
+                    None => {
+                        vec = zelf.to_contiguous();
+                        vec.as_slice()
+                    }
+                };
+                Ok(vm.state.hash_secret.hash_bytes(bytes))
+            })
+            .map(|&x| x)
     }
 }
 
