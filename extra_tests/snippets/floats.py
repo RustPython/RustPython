@@ -487,6 +487,17 @@ assert float(1e-4).__repr__() == "0.0001"
 assert float(1.2345678901234567890).__repr__() == "1.2345678901234567"
 assert float(1.2345678901234567890e308).__repr__() == "1.2345678901234567e+308"
 
+assert format(1e15) == "1000000000000000.0"
+assert format(1e16) == "1e+16"
+assert format(1e308) == "1e+308"
+assert format(1e309) == "inf"
+assert format(1e-323) == "1e-323"
+assert format(1e-324) == "0.0"
+assert format(1e-5) == "1e-05"
+assert format(1e-4) == "0.0001"
+assert format(1.2345678901234567890) == "1.2345678901234567"
+assert format(1.2345678901234567890e308) == "1.2345678901234567e+308"
+
 assert float('0_0') == 0.0
 assert float('.0') == 0.0
 assert float('0.') == 0.0
