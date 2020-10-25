@@ -15,9 +15,6 @@ use crate::pyobject::{BorrowValue, Either, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 use rustpython_common::float_ops;
 
-#[cfg(not(target_arch = "wasm32"))]
-use libc::c_double;
-
 use std::cmp::Ordering;
 
 // Helper macro:
@@ -177,8 +174,43 @@ fn math_atan2(y: IntoPyFloat, x: IntoPyFloat) -> f64 {
 
 make_math_func!(math_cos, cos);
 
-fn math_hypot(x: IntoPyFloat, y: IntoPyFloat) -> f64 {
-    x.to_f64().hypot(y.to_f64())
+fn math_hypot(coordinates: Args<IntoPyFloat>) -> f64 {
+    let mut coordinates = IntoPyFloat::vec_into_f64(coordinates.into_vec());
+    let mut max = 0.0;
+    let mut has_nan = false;
+    for f in &mut coordinates {
+        *f = f.abs();
+        if f.is_nan() {
+            has_nan = true;
+        } else if *f > max {
+            max = *f
+        }
+    }
+    // inf takes precedence over nan
+    if max.is_infinite() {
+        return max;
+    }
+    if has_nan {
+        return f64::NAN;
+    }
+    vector_norm(&coordinates, max)
+}
+
+fn vector_norm(v: &[f64], max: f64) -> f64 {
+    if max == 0.0 || v.len() <= 1 {
+        return max;
+    }
+    let mut csum = 1.0;
+    let mut frac = 0.0;
+    for &f in v {
+        let f = f / max;
+        let f = f * f;
+        let old = csum;
+        csum += f;
+        // this seemingly redundant operation is to reduce float rounding errors/inaccuracy
+        frac += (old - csum) + f;
+    }
+    max * f64::sqrt(csum - 1.0 + frac)
 }
 
 make_math_func!(math_sin, sin);
@@ -363,47 +395,12 @@ fn math_modf(x: IntoPyFloat) -> (f64, f64) {
     (x.fract(), x.trunc())
 }
 
-#[inline]
-#[cfg(not(target_arch = "wasm32"))]
-fn libc_nextafter(x: f64, y: f64) -> f64 {
-    extern "C" {
-        fn nextafter(x: c_double, y: c_double) -> c_double;
-    }
-    unsafe { nextafter(x, y) }
+fn math_nextafter(x: IntoPyFloat, y: IntoPyFloat) -> f64 {
+    float_ops::nextafter(x.to_f64(), y.to_f64())
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-fn math_nextafter(x: IntoPyFloat, y: IntoPyFloat) -> PyResult<f64> {
-    let x = x.to_f64();
-    let y = y.to_f64();
-    Ok(libc_nextafter(x, y))
-}
-
-#[cfg(target_arch = "wasm32")]
-fn math_nextafter(_x: IntoPyFloat, _y: IntoPyFloat, vm: &VirtualMachine) -> PyResult<f64> {
-    Err(vm.new_not_implemented_error("not implemented for this platform".to_owned()))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn math_ulp(x: IntoPyFloat) -> PyResult<f64> {
-    let mut x = x.to_f64();
-    if x.is_nan() {
-        return Ok(x);
-    }
-    x = x.abs();
-    let mut x2 = libc_nextafter(x, f64::INFINITY);
-    Ok(if x2.is_infinite() {
-        // special case: x is the largest positive representable float
-        x2 = libc_nextafter(x, f64::NEG_INFINITY);
-        x - x2
-    } else {
-        x2 - x
-    })
-}
-
-#[cfg(target_arch = "wasm32")]
-fn math_ulp(_x: IntoPyFloat, vm: &VirtualMachine) -> PyResult<f64> {
-    Err(vm.new_not_implemented_error("not implemented for this platform".to_owned()))
+fn math_ulp(x: IntoPyFloat) -> f64 {
+    float_ops::ulp(x.to_f64())
 }
 
 fn fmod(x: f64, y: f64) -> f64 {
