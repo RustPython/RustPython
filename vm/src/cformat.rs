@@ -247,11 +247,11 @@ impl CFormatSpec {
         let mut exponent = 0;
         loop {
             if fraction >= 10.0 {
-                fraction = fraction / 10.0;
-                exponent = exponent + 1;
+                fraction /= 10.0;
+                exponent += 1;
             } else if fraction < 1.0 && fraction > 0.0 {
-                fraction = fraction * 10.0;
-                exponent = exponent - 1;
+                fraction *= 10.0;
+                exponent -= 1;
             } else {
                 break;
             }
