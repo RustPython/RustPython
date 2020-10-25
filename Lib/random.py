@@ -41,12 +41,19 @@ from warnings import warn as _warn
 from types import MethodType as _MethodType, BuiltinMethodType as _BuiltinMethodType
 from math import log as _log, exp as _exp, pi as _pi, e as _e, ceil as _ceil
 from math import sqrt as _sqrt, acos as _acos, cos as _cos, sin as _sin
-from os import urandom as _urandom
+try:
+    from os import urandom as _urandom
+    import os as _os
+except ImportError:
+    # On wasm, _random.Random.random() does give a proper random value, but
+    # we don't have the os module
+    def _urandom(*args, **kwargs):
+        raise NotImplementedError("urandom")
+    _os = None
 from _collections_abc import Set as _Set, Sequence as _Sequence
 from hashlib import sha512 as _sha512
 import itertools as _itertools
 import bisect as _bisect
-import os as _os
 
 __all__ = ["Random","seed","random","uniform","randint","choice","sample",
            "randrange","shuffle","normalvariate","lognormvariate",
