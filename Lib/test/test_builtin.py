@@ -1533,6 +1533,13 @@ class BuiltinTest(unittest.TestCase):
         class DerivedFromStr(str): pass
         self.assertEqual(format(0, DerivedFromStr('10')), '         0')
 
+    def test_cformat_float(self):
+        self.assertEqual("%e" % 1, '1.000000e+00')
+        self.assertEqual("%e" % 0, '0.000000e+00')
+        self.assertEqual("%e" % 0.1, '1.000000e-01')
+        self.assertEqual("%e" % 10, '1.000000e+01')
+        self.assertEqual("%.10e" % 1.2345678901234567890, '1.2345678901e+00')
+
     def test_bin(self):
         self.assertEqual(bin(0), '0b0')
         self.assertEqual(bin(1), '0b1')
