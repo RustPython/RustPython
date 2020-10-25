@@ -1651,6 +1651,7 @@ dependencies = [
  "parking_lot",
  "rand",
  "siphasher",
+ "volatile",
 ]
 
 [[package]]
@@ -1807,7 +1808,6 @@ dependencies = [
  "unicode-casing",
  "unicode_names2",
  "utime",
- "volatile",
  "wasm-bindgen",
  "winapi",
  "winreg",
