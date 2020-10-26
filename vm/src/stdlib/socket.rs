@@ -130,7 +130,7 @@ impl PySocket {
 
     #[pymethod]
     fn connect(&self, address: Address, vm: &VirtualMachine) -> PyResult<()> {
-        let sock_addr = get_addr(vm, address, self.family.load())?;
+        let sock_addr = get_addr(vm, address, Some(self.family.load()))?;
         let res = if let Some(duration) = self.sock().read_timeout().unwrap() {
             self.sock().connect_timeout(&sock_addr, duration)
         } else {
@@ -141,7 +141,7 @@ impl PySocket {
 
     #[pymethod]
     fn bind(&self, address: Address, vm: &VirtualMachine) -> PyResult<()> {
-        let sock_addr = get_addr(vm, address, self.family.load())?;
+        let sock_addr = get_addr(vm, address, Some(self.family.load()))?;
         self.sock()
             .bind(&sock_addr)
             .map_err(|err| convert_sock_error(vm, err))
@@ -213,7 +213,7 @@ impl PySocket {
 
     #[pymethod]
     fn sendto(&self, bytes: PyBytesLike, address: Address, vm: &VirtualMachine) -> PyResult<()> {
-        let addr = get_addr(vm, address, self.family.load())?;
+        let addr = get_addr(vm, address, Some(self.family.load()))?;
         bytes
             .with_ref(|b| self.sock().send_to(b, &addr))
             .map_err(|err| convert_sock_error(vm, err))?;
@@ -678,7 +678,7 @@ fn socket_getnameinfo(
     flags: i32,
     vm: &VirtualMachine,
 ) -> PyResult<(String, String)> {
-    let addr = get_addr(vm, address, IpAddrFmt::Any())?;
+    let addr = get_addr(vm, address, None)?;
     let nameinfo = addr
         .as_std()
         .and_then(|addr| dns_lookup::getnameinfo(&addr, flags).ok());
@@ -691,37 +691,23 @@ fn socket_getnameinfo(
     })
 }
 
-enum IpAddrFmt {
-    Ipv4(),
-    Ipv6(),
-    Any(),
-}
-
-impl<T> From<T> for IpAddrFmt
-where
-    T: PartialEq<i32> + Sized + std::fmt::Debug,
-{
-    fn from(i: T) -> Self {
-        if i == Domain::ipv4().into() {
-            Self::Ipv4()
-        } else if i == Domain::ipv6().into() {
-            Self::Ipv6()
-        } else {
-            error!("Unknown IP family/domain: {:?}", i);
-            Self::Any()
-        }
-    }
-}
-
-fn get_addr<F>(vm: &VirtualMachine, addr: impl ToSocketAddrs, fmt: F) -> PyResult<socket2::SockAddr>
-where
-    F: Into<IpAddrFmt>,
-{
+fn get_addr(
+    vm: &VirtualMachine,
+    addr: impl ToSocketAddrs,
+    domain: Option<i32>,
+) -> PyResult<socket2::SockAddr> {
     let sock_addr = match addr.to_socket_addrs() {
-        Ok(mut sock_addrs) => match fmt.into() {
-            IpAddrFmt::Ipv6() => sock_addrs.find(|a| a.is_ipv6()),
-            IpAddrFmt::Ipv4() => sock_addrs.find(|a| a.is_ipv4()),
-            IpAddrFmt::Any() => sock_addrs.next(),
+        Ok(mut sock_addrs) => match domain {
+            None => sock_addrs.next(),
+            Some(dom) => {
+                if dom == i32::from(Domain::ipv4()) {
+                    sock_addrs.find(|a| a.is_ipv4())
+                } else if dom == i32::from(Domain::ipv6()) {
+                    sock_addrs.find(|a| a.is_ipv6())
+                } else {
+                    unreachable!("Unknown IP domain / socket family");
+                }
+            }
         },
         Err(e) => {
             let error_type = vm.class("_socket", "gaierror");
