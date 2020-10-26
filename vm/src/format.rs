@@ -1,4 +1,5 @@
 use crate::builtins::pystr;
+use crate::common::float_ops;
 use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
 use crate::function::FuncArgs;
 use crate::pyobject::{ItemProtocol, PyObjectRef, PyResult, TypeProtocol};
@@ -399,15 +400,11 @@ impl FormatSpec {
                 magnitude if magnitude.is_infinite() => Ok("inf%".to_owned()),
                 _ => Ok(format!("{:.*}%", precision, magnitude * 100.0)),
             },
-            None => {
-                match magnitude {
-                    magnitude if magnitude.is_nan() => Ok("nan".to_owned()),
-                    magnitude if magnitude.is_infinite() => Ok("inf".to_owned()),
-                    // Using the Debug format here to prevent the automatic conversion of floats
-                    // ending in .0 to their integer representation (e.g., 1.0 -> 1)
-                    _ => Ok(format!("{:?}", magnitude)),
-                }
-            }
+            None => match magnitude {
+                magnitude if magnitude.is_nan() => Ok("nan".to_owned()),
+                magnitude if magnitude.is_infinite() => Ok("inf".to_owned()),
+                _ => Ok(float_ops::to_string(magnitude)),
+            },
         };
 
         if raw_magnitude_string_result.is_err() {
