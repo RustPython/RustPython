@@ -260,7 +260,8 @@ class MathTests(unittest.TestCase):
         self.assertRaises(ValueError, math.acos, -1 - eps)
         self.assertTrue(math.isnan(math.acos(NAN)))
 
-    @unittest.skip('TODO: RUSTPYTHON')
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testAcosh(self):
         self.assertRaises(TypeError, math.acosh)
         self.ftest('acosh(1)', math.acosh(1), 0)
@@ -300,7 +301,7 @@ class MathTests(unittest.TestCase):
         self.ftest('atan(-inf)', math.atan(NINF), -math.pi/2)
         self.assertTrue(math.isnan(math.atan(NAN)))
 
-    @unittest.skip('TODO: RUSTPYTHON')
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def testAtanh(self):
         self.assertRaises(TypeError, math.atan)
         self.ftest('atanh(0)', math.atanh(0), 0)
@@ -373,7 +374,8 @@ class MathTests(unittest.TestCase):
         self.assertTrue(math.isnan(math.atan2(NAN, INF)))
         self.assertTrue(math.isnan(math.atan2(NAN, NAN)))
 
-    @unittest.skip('TODO: RUSTPYTHON')
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testCeil(self):
         self.assertRaises(TypeError, math.ceil)
         self.assertEqual(int, type(math.ceil(0.5)))
@@ -473,7 +475,8 @@ class MathTests(unittest.TestCase):
         self.ftest('degrees(-pi/4)', math.degrees(-math.pi/4), -45.0)
         self.ftest('degrees(0)', math.degrees(0), 0)
 
-    @unittest.skip('TODO: RUSTPYTHON')
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testExp(self):
         self.assertRaises(TypeError, math.exp)
         self.ftest('exp(-1)', math.exp(-1), 1/math.e)
@@ -500,7 +503,8 @@ class MathTests(unittest.TestCase):
         self.assertRaises(ValueError, math.factorial, -1)
         self.assertRaises(ValueError, math.factorial, -10**100)
 
-    @unittest.skip('TODO: RUSTPYTHON')
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testFactorialNonIntegers(self):
         with self.assertWarns(DeprecationWarning):
             self.assertEqual(math.factorial(5.0), 120)
@@ -523,7 +527,8 @@ class MathTests(unittest.TestCase):
         with self.assertWarns(DeprecationWarning):
             self.assertRaises(OverflowError, math.factorial, 1e100)
 
-    @unittest.skip('TODO: RUSTPYTHON')
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testFloor(self):
         self.assertRaises(TypeError, math.floor)
         self.assertEqual(int, type(math.floor(0.5)))
@@ -737,7 +742,6 @@ class MathTests(unittest.TestCase):
         self.assertRaises(TypeError, gcd, 120, 1, 84.0)
         #self.assertEqual(gcd(MyIndexable(120), MyIndexable(84)), 12) # TODO: RUSTPYTHON
 
-    @unittest.skip('TODO: RUSTPYTHON float support')
     def testHypot(self):
         from decimal import Decimal
         from fractions import Fraction
@@ -812,7 +816,8 @@ class MathTests(unittest.TestCase):
             scale = FLOAT_MIN / 2.0 ** exp
             self.assertEqual(math.hypot(4*scale, 3*scale), 5*scale)
 
-    @unittest.skip('TODO: RUSTPYTHON')
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testDist(self):
         from decimal import Decimal as D
         from fractions import Fraction as F
@@ -1024,7 +1029,8 @@ class MathTests(unittest.TestCase):
         self.assertRaises(TypeError, lcm, 120, 0, 84.0)
         # self.assertEqual(lcm(MyIndexable(120), MyIndexable(84)), 840) # TODO: RUSTPYTHON
 
-    @unittest.skip('TODO: RUSTPYTHON')
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testLdexp(self):
         self.assertRaises(TypeError, math.ldexp)
         self.ftest('ldexp(0,1)', math.ldexp(0,1), 0)
@@ -1057,7 +1063,8 @@ class MathTests(unittest.TestCase):
             self.assertEqual(math.ldexp(NINF, n), NINF)
             self.assertTrue(math.isnan(math.ldexp(NAN, n)))
 
-    @unittest.skip('TODO: RUSTPYTHON')
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testLog(self):
         self.assertRaises(TypeError, math.log)
         self.ftest('log(1/e)', math.log(1/math.e), -1)
@@ -1074,7 +1081,8 @@ class MathTests(unittest.TestCase):
         self.assertEqual(math.log(INF), INF)
         self.assertTrue(math.isnan(math.log(NAN)))
 
-    @unittest.skip('TODO: RUSTPYTHON')
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testLog1p(self):
         self.assertRaises(TypeError, math.log1p)
         for n in [2, 2**90, 2**300]:
@@ -1142,7 +1150,8 @@ class MathTests(unittest.TestCase):
         self.assertTrue(math.isnan(modf_nan[0]))
         self.assertTrue(math.isnan(modf_nan[1]))
 
-    @unittest.skip('TODO: RUSTPYTHON')
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testPow(self):
         self.assertRaises(TypeError, math.pow)
         self.ftest('pow(0,1)', math.pow(0,1), 0)
@@ -1564,7 +1573,8 @@ class MathTests(unittest.TestCase):
     # still fails this part of the test on some platforms.  For now, we only
     # *run* test_exceptions() in verbose mode, so that this isn't normally
     # tested.
-    @unittest.skip('TODO: RUSTPYTHON')
+        # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(verbose, 'requires verbose mode')
     def test_exceptions(self):
         try:
@@ -1723,7 +1733,8 @@ class MathTests(unittest.TestCase):
     #         self.fail('Failures in test_mtestfile:\n  ' +
     #                   '\n  '.join(failures))
 
-    @unittest.skip('TODO: RUSTPYTHON')
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_prod(self):
         prod = math.prod
         self.assertEqual(prod([]), 1)
@@ -1810,7 +1821,8 @@ class MathTests(unittest.TestCase):
         self.assertEqual(type(prod([1, decimal.Decimal(2.0), 3, 4, 5, 6])),
                          decimal.Decimal)
 
-    @unittest.skip('TODO: RUSTPYTHON')
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testPerm(self):
         perm = math.perm
         factorial = math.factorial
@@ -1875,7 +1887,8 @@ class MathTests(unittest.TestCase):
             self.assertIs(type(perm(IntSubclass(5), IntSubclass(k))), int)
             self.assertIs(type(perm(MyIndexable(5), MyIndexable(k))), int)
 
-    @unittest.skip('TODO: RUSTPYTHON')
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testComb(self):
         comb = math.comb
         factorial = math.factorial
@@ -2015,7 +2028,6 @@ class MathTests(unittest.TestCase):
             with self.subTest(x=x):
                 self.assertEqual(math.ulp(-x), math.ulp(x))
 
-    @unittest.skip('TODO: RUSTPYTHON')
     def test_issue39871(self):
         # A SystemError should not be raised if the first arg to atan2(),
         # copysign(), or remainder() cannot be converted to a float.
@@ -2146,7 +2158,6 @@ class IsCloseTests(unittest.TestCase):
         self.assertAllClose(integer_examples, rel_tol=1e-8)
         self.assertAllNotClose(integer_examples, rel_tol=1e-9)
 
-    @unittest.skip('TODO: RUSTPYTHON')
     def test_decimals(self):
         # test with Decimal values
         from decimal import Decimal
@@ -2158,7 +2169,6 @@ class IsCloseTests(unittest.TestCase):
         self.assertAllClose(decimal_examples, rel_tol=1e-8)
         self.assertAllNotClose(decimal_examples, rel_tol=1e-9)
 
-    @unittest.skip('TODO: RUSTPYTHON')
     def test_fractions(self):
         # test with Fraction values
         from fractions import Fraction

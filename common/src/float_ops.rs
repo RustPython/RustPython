@@ -108,15 +108,9 @@ pub fn from_hex(s: &str) -> Option<f64> {
         return Some(f);
     }
     match s.to_ascii_lowercase().as_str() {
-        "nan" => Some(f64::NAN),
-        "+nan" => Some(f64::NAN),
-        "-nan" => Some(f64::NAN),
-        "inf" => Some(f64::INFINITY),
-        "infinity" => Some(f64::INFINITY),
-        "+inf" => Some(f64::INFINITY),
-        "+infinity" => Some(f64::INFINITY),
-        "-inf" => Some(f64::NEG_INFINITY),
-        "-infinity" => Some(f64::NEG_INFINITY),
+        "nan" | "+nan" | "-nan" => Some(f64::NAN),
+        "inf" | "infinity" | "+inf" | "+infinity" => Some(f64::INFINITY),
+        "-inf" | "-infinity" => Some(f64::NEG_INFINITY),
         value => {
             let mut hex = String::with_capacity(value.len());
             let has_0x = value.contains("0x");
@@ -213,6 +207,48 @@ pub fn divmod(v1: f64, v2: f64) -> Option<(f64, f64)> {
         Some((d, m))
     } else {
         None
+    }
+}
+
+// nextafter algorithm based off of https://gitlab.com/bronsonbdevost/next_afterf
+#[allow(clippy::float_cmp)]
+pub fn nextafter(x: f64, y: f64) -> f64 {
+    if x == y {
+        y
+    } else if x.is_nan() || y.is_nan() {
+        f64::NAN
+    } else if x >= f64::INFINITY {
+        f64::MAX
+    } else if x <= f64::NEG_INFINITY {
+        f64::MIN
+    } else if x == 0.0 {
+        f64::from_bits(1).copysign(y)
+    } else {
+        // next x after 0 if y is farther from 0 than x, otherwise next towards 0
+        // the sign is a separate bit in floats, so bits+1 moves away from 0 no matter the float
+        let b = x.to_bits();
+        let bits = if (y > x) == (x > 0.0) { b + 1 } else { b - 1 };
+        let ret = f64::from_bits(bits);
+        if ret == 0.0 {
+            ret.copysign(x)
+        } else {
+            ret
+        }
+    }
+}
+
+pub fn ulp(x: f64) -> f64 {
+    if x.is_nan() {
+        return x;
+    }
+    let x = x.abs();
+    let x2 = nextafter(x, f64::INFINITY);
+    if x2.is_infinite() {
+        // special case: x is the largest positive representable float
+        let x2 = nextafter(x, f64::NEG_INFINITY);
+        x - x2
+    } else {
+        x2 - x
     }
 }
 

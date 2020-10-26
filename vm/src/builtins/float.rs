@@ -142,10 +142,30 @@ impl PyFloat {
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
         let float_val = match arg {
-            OptionalArg::Present(val) => to_float(vm, &val),
-            OptionalArg::Missing => Ok(0f64),
+            OptionalArg::Present(val) => {
+                if let Some(f) = to_float(vm, &val)? {
+                    f
+                } else if let Some(s) = val.payload_if_subclass::<PyStr>(vm) {
+                    float_ops::parse_str(s.borrow_value().trim()).ok_or_else(|| {
+                        vm.new_value_error(format!("could not convert string to float: '{}'", s))
+                    })?
+                } else if let Some(bytes) = val.payload_if_subclass::<PyBytes>(vm) {
+                    lexical_core::parse(bytes.borrow_value()).map_err(|_| {
+                        vm.new_value_error(format!(
+                            "could not convert string to float: '{}'",
+                            bytes.repr()
+                        ))
+                    })?
+                } else {
+                    return Err(vm.new_type_error(format!(
+                        "float() argument must be a string or a number, not '{}'",
+                        val.class().name
+                    )));
+                }
+            }
+            OptionalArg::Missing => 0.0,
         };
-        PyFloat::from(float_val?).into_ref_with_type(vm, cls)
+        PyFloat::from(float_val).into_ref_with_type(vm, cls)
     }
 
     #[pymethod(name = "__format__")]
@@ -491,33 +511,20 @@ impl Hashable for PyFloat {
     }
 }
 
-fn to_float(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<f64> {
+fn to_float(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Option<f64>> {
     let value = if let Some(float) = obj.payload_if_subclass::<PyFloat>(vm) {
         float.value
     } else if let Some(int) = obj.payload_if_subclass::<PyInt>(vm) {
         int::try_float(int.borrow_value(), vm)?
-    } else if let Some(s) = obj.payload_if_subclass::<PyStr>(vm) {
-        float_ops::parse_str(s.borrow_value().trim()).ok_or_else(|| {
-            vm.new_value_error(format!("could not convert string to float: '{}'", s))
-        })?
-    } else if let Some(bytes) = obj.payload_if_subclass::<PyBytes>(vm) {
-        lexical_core::parse(bytes.borrow_value()).map_err(|_| {
-            vm.new_value_error(format!(
-                "could not convert string to float: '{}'",
-                bytes.repr()
-            ))
-        })?
     } else {
-        let method = vm.get_method_or_type_error(obj.clone(), "__float__", || {
-            format!(
-                "float() argument must be a string or a number, not '{}'",
-                obj.class().name
-            )
-        })?;
+        let method = match vm.get_method(obj.clone(), "__float__") {
+            Some(x) => x?,
+            None => return Ok(None),
+        };
         let result = vm.invoke(&method, ())?;
         PyFloatRef::try_from_object(vm, result)?.to_f64()
     };
-    Ok(value)
+    Ok(Some(value))
 }
 
 pub type PyFloatRef = PyRef<PyFloat>;
@@ -528,6 +535,7 @@ pub fn get_value(obj: &PyObjectRef) -> f64 {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
+#[repr(transparent)]
 pub struct IntoPyFloat {
     value: f64,
 }
@@ -536,13 +544,22 @@ impl IntoPyFloat {
     pub fn to_f64(self) -> f64 {
         self.value
     }
+
+    pub fn vec_into_f64(v: Vec<Self>) -> Vec<f64> {
+        // TODO: Vec::into_raw_parts once stabilized
+        let mut v = std::mem::ManuallyDrop::new(v);
+        let (p, l, c) = (v.as_mut_ptr(), v.len(), v.capacity());
+        // SAFETY: IntoPyFloat is repr(transparent) over f64
+        unsafe { Vec::from_raw_parts(p.cast(), l, c) }
+    }
 }
 
 impl TryFromObject for IntoPyFloat {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        Ok(IntoPyFloat {
-            value: to_float(vm, &obj)?,
-        })
+        let value = to_float(vm, &obj)?.ok_or_else(|| {
+            vm.new_type_error(format!("must be real number, not {}", obj.class().name))
+        })?;
+        Ok(IntoPyFloat { value })
     }
 }
 
