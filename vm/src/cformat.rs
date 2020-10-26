@@ -242,6 +242,24 @@ impl CFormatSpec {
         }
     }
 
+    fn normalize_float(&self, num: f64) -> (f64, i32) {
+        let mut fraction = num;
+        let mut exponent = 0;
+        loop {
+            if fraction >= 10.0 {
+                fraction /= 10.0;
+                exponent += 1;
+            } else if fraction < 1.0 && fraction > 0.0 {
+                fraction *= 10.0;
+                exponent -= 1;
+            } else {
+                break;
+            }
+        }
+
+        (fraction, exponent)
+    }
+
     pub(crate) fn format_float(&self, num: f64) -> Result<String, String> {
         let sign_string = if num.is_sign_positive() {
             self.flags.sign_string()
@@ -259,7 +277,12 @@ impl CFormatSpec {
                 Ok(format!("{:.*}", precision, magnitude))
             }
             CFormatType::Float(CFloatType::Exponent(_)) => {
-                Err("Not yet implemented for %e and %E".to_owned())
+                let precision = match self.precision {
+                    Some(CFormatQuantity::Amount(p)) => p,
+                    _ => 6,
+                };
+                let (fraction, exponent) = self.normalize_float(num.abs());
+                Ok(format!("{:.*}e{:+03}", precision, fraction, exponent))
             }
             CFormatType::Float(CFloatType::General(_)) => {
                 Err("Not yet implemented for %g and %G".to_owned())

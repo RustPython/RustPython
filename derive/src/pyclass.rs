@@ -197,8 +197,7 @@ fn generate_class_def(
 
         impl ::rustpython_vm::pyobject::StaticType for #ident {
             fn static_cell() -> &'static ::rustpython_common::static_cell::StaticCell<::rustpython_vm::builtins::PyTypeRef> {
-                use ::rustpython_common::static_cells;
-                static_cells! {
+                ::rustpython_common::static_cell! {
                     static CELL: ::rustpython_vm::builtins::PyTypeRef;
                 }
                 &CELL
