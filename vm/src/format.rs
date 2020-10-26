@@ -404,8 +404,6 @@ impl FormatSpec {
                 match magnitude {
                     magnitude if magnitude.is_nan() => Ok("nan".to_owned()),
                     magnitude if magnitude.is_infinite() => Ok("inf".to_owned()),
-                    // Using the Debug format here to prevent the automatic conversion of floats
-                    // ending in .0 to their integer representation (e.g., 1.0 -> 1)
                     _ => Ok(float_ops::to_string(magnitude)),
                 }
             }
