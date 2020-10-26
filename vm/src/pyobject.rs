@@ -111,63 +111,59 @@ impl PyContext {
     pub const INT_CACHE_POOL_MIN: i32 = -5;
     pub const INT_CACHE_POOL_MAX: i32 = 256;
 
+    fn init() -> Self {
+        flame_guard!("init PyContext");
+        let types = TypeZoo::init();
+        let exceptions = exceptions::ExceptionZoo::init();
+
+        fn create_object<T: PyObjectPayload + PyValue>(payload: T, cls: &PyTypeRef) -> PyRef<T> {
+            PyRef::new_ref(payload, cls.clone(), None)
+        }
+
+        let none = create_object(PyNone, PyNone::static_type());
+        let ellipsis = create_object(PyEllipsis, PyEllipsis::static_type());
+        let not_implemented = create_object(PyNotImplemented, PyNotImplemented::static_type());
+
+        let int_cache_pool = (Self::INT_CACHE_POOL_MIN..=Self::INT_CACHE_POOL_MAX)
+            .map(|v| PyRef::new_ref(PyInt::from(BigInt::from(v)), types.int_type.clone(), None))
+            .collect();
+
+        let true_value = create_object(PyInt::from(1), &types.bool_type);
+        let false_value = create_object(PyInt::from(0), &types.bool_type);
+
+        let empty_tuple = create_object(
+            PyTuple::_new(Vec::new().into_boxed_slice()),
+            &types.tuple_type,
+        );
+
+        let tp_new_wrapper = create_object(
+            PyNativeFuncDef::from(pytype::tp_new_wrapper.into_func()).into_function(),
+            &types.builtin_function_or_method_type,
+        )
+        .into_object();
+
+        let context = PyContext {
+            true_value,
+            false_value,
+            not_implemented,
+            none,
+            empty_tuple,
+            ellipsis,
+
+            types,
+            exceptions,
+            int_cache_pool,
+            tp_new_wrapper,
+        };
+        TypeZoo::extend(&context);
+        exceptions::ExceptionZoo::extend(&context);
+        context
+    }
     pub fn new() -> Self {
-        use rustpython_common::static_cells;
-        static_cells! {
+        rustpython_common::static_cell! {
             static CONTEXT: PyContext;
         }
-        static_cell::get_or_init(&CONTEXT, || {
-            flame_guard!("init PyContext");
-            let types = TypeZoo::init();
-            let exceptions = exceptions::ExceptionZoo::init();
-
-            fn create_object<T: PyObjectPayload + PyValue>(
-                payload: T,
-                cls: &PyTypeRef,
-            ) -> PyRef<T> {
-                PyRef::new_ref(payload, cls.clone(), None)
-            }
-
-            let none = create_object(PyNone, PyNone::static_type());
-            let ellipsis = create_object(PyEllipsis, PyEllipsis::static_type());
-            let not_implemented = create_object(PyNotImplemented, PyNotImplemented::static_type());
-
-            let int_cache_pool = (Self::INT_CACHE_POOL_MIN..=Self::INT_CACHE_POOL_MAX)
-                .map(|v| PyRef::new_ref(PyInt::from(BigInt::from(v)), types.int_type.clone(), None))
-                .collect();
-
-            let true_value = create_object(PyInt::from(1), &types.bool_type);
-            let false_value = create_object(PyInt::from(0), &types.bool_type);
-
-            let empty_tuple = create_object(
-                PyTuple::_new(Vec::new().into_boxed_slice()),
-                &types.tuple_type,
-            );
-
-            let tp_new_wrapper = create_object(
-                PyNativeFuncDef::from(pytype::tp_new_wrapper.into_func()).into_function(),
-                &types.builtin_function_or_method_type,
-            )
-            .into_object();
-
-            let context = PyContext {
-                true_value,
-                false_value,
-                not_implemented,
-                none,
-                empty_tuple,
-                ellipsis,
-
-                types,
-                exceptions,
-                int_cache_pool,
-                tp_new_wrapper,
-            };
-            TypeZoo::extend(&context);
-            exceptions::ExceptionZoo::extend(&context);
-            context
-        })
-        .clone()
+        CONTEXT.get_or_init(Self::init).clone()
     }
 
     pub fn none(&self) -> PyObjectRef {
@@ -1242,23 +1238,25 @@ pub trait StaticType {
         crate::builtins::object::PyBaseObject::static_type()
     }
     fn static_type() -> &'static PyTypeRef {
-        static_cell::get(Self::static_cell()).unwrap_or_else(|| unsafe {
-            // SAFETY: object must be initialized by init_* method.
-            // So this is actually not safe as itself.
-            // But easy to find out when it happened in debug build
-            std::hint::unreachable_unchecked()
-        })
+        Self::static_cell()
+            .get()
+            .expect("static type has not been initialized")
     }
-
     fn init_manually(typ: PyTypeRef) -> &'static PyTypeRef {
-        static_cell::init_expect(Self::static_cell(), typ, "init_manually")
+        let cell = Self::static_cell();
+        cell.set(typ)
+            .unwrap_or_else(|_| panic!("double initialization from init_manually"));
+        cell.get().unwrap()
     }
     fn init_bare_type() -> &'static PyTypeRef
     where
         Self: PyClassImpl,
     {
         let typ = Self::create_bare_type();
-        static_cell::init_expect(Self::static_cell(), typ, Self::NAME)
+        let cell = Self::static_cell();
+        cell.set(typ)
+            .unwrap_or_else(|_| panic!("double initialization of {}", Self::NAME));
+        cell.get().unwrap()
     }
     fn create_bare_type() -> PyTypeRef
     where
@@ -1313,12 +1311,13 @@ pub trait PyClassImpl: PyClassDef {
     where
         Self: StaticType,
     {
-        static_cell::get_or_init(Self::static_cell(), || {
-            let typ = Self::create_bare_type();
-            Self::extend_class(ctx, &typ);
-            typ
-        })
-        .clone()
+        Self::static_cell()
+            .get_or_init(|| {
+                let typ = Self::create_bare_type();
+                Self::extend_class(ctx, &typ);
+                typ
+            })
+            .clone()
     }
 
     fn extend_slots(slots: &mut PyTypeSlots);
