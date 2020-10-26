@@ -400,13 +400,11 @@ impl FormatSpec {
                 magnitude if magnitude.is_infinite() => Ok("inf%".to_owned()),
                 _ => Ok(format!("{:.*}%", precision, magnitude * 100.0)),
             },
-            None => {
-                match magnitude {
-                    magnitude if magnitude.is_nan() => Ok("nan".to_owned()),
-                    magnitude if magnitude.is_infinite() => Ok("inf".to_owned()),
-                    _ => Ok(float_ops::to_string(magnitude)),
-                }
-            }
+            None => match magnitude {
+                magnitude if magnitude.is_nan() => Ok("nan".to_owned()),
+                magnitude if magnitude.is_infinite() => Ok("inf".to_owned()),
+                _ => Ok(float_ops::to_string(magnitude)),
+            },
         };
 
         if raw_magnitude_string_result.is_err() {
