@@ -211,6 +211,7 @@ pub fn divmod(v1: f64, v2: f64) -> Option<(f64, f64)> {
 }
 
 // nextafter algorithm based off of https://gitlab.com/bronsonbdevost/next_afterf
+#[allow(clippy::float_cmp)]
 pub fn nextafter(x: f64, y: f64) -> f64 {
     if x == y {
         y
