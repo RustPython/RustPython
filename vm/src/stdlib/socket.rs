@@ -5,7 +5,7 @@ use nix::unistd::sethostname;
 use socket2::{Domain, Protocol, Socket, Type as SocketType};
 use std::convert::TryFrom;
 use std::io::{self, prelude::*};
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, ToSocketAddrs};
+use std::net::{Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, ToSocketAddrs};
 use std::time::Duration;
 
 use crate::builtins::bytearray::PyByteArrayRef;
@@ -130,7 +130,7 @@ impl PySocket {
 
     #[pymethod]
     fn connect(&self, address: Address, vm: &VirtualMachine) -> PyResult<()> {
-        let sock_addr = get_addr(vm, address)?;
+        let sock_addr = get_addr(vm, address, Some(self.family.load()))?;
         let res = if let Some(duration) = self.sock().read_timeout().unwrap() {
             self.sock().connect_timeout(&sock_addr, duration)
         } else {
@@ -141,7 +141,7 @@ impl PySocket {
 
     #[pymethod]
     fn bind(&self, address: Address, vm: &VirtualMachine) -> PyResult<()> {
-        let sock_addr = get_addr(vm, address)?;
+        let sock_addr = get_addr(vm, address, Some(self.family.load()))?;
         self.sock()
             .bind(&sock_addr)
             .map_err(|err| convert_sock_error(vm, err))
@@ -213,7 +213,7 @@ impl PySocket {
 
     #[pymethod]
     fn sendto(&self, bytes: PyBytesLike, address: Address, vm: &VirtualMachine) -> PyResult<()> {
-        let addr = get_addr(vm, address)?;
+        let addr = get_addr(vm, address, Some(self.family.load()))?;
         bytes
             .with_ref(|b| self.sock().send_to(b, &addr))
             .map_err(|err| convert_sock_error(vm, err))?;
@@ -685,7 +685,7 @@ fn socket_getnameinfo(
     flags: i32,
     vm: &VirtualMachine,
 ) -> PyResult<(String, String)> {
-    let addr = get_addr(vm, address)?;
+    let addr = get_addr(vm, address, None)?;
     let nameinfo = addr
         .as_std()
         .and_then(|addr| dns_lookup::getnameinfo(&addr, flags).ok());
@@ -698,32 +698,37 @@ fn socket_getnameinfo(
     })
 }
 
-fn get_addr(vm: &VirtualMachine, addr: impl ToSocketAddrs) -> PyResult<socket2::SockAddr> {
-    match addr.to_socket_addrs() {
-        Ok(mut sock_addrs) => {
-            if let Some(mut addr) = sock_addrs.next() {
-                if option_env!("RUSTPYTHON_NO_IPV6").is_some() {
-                    while addr.ip() == IpAddr::V6(Ipv6Addr::LOCALHOST) {
-                        if let Some(other) = sock_addrs.next() {
-                            addr = other
-                        } else {
-                            break;
-                        }
-                    }
+fn get_addr(
+    vm: &VirtualMachine,
+    addr: impl ToSocketAddrs,
+    domain: Option<i32>,
+) -> PyResult<socket2::SockAddr> {
+    let sock_addr = match addr.to_socket_addrs() {
+        Ok(mut sock_addrs) => match domain {
+            None => sock_addrs.next(),
+            Some(dom) => {
+                if dom == i32::from(Domain::ipv4()) {
+                    sock_addrs.find(|a| a.is_ipv4())
+                } else if dom == i32::from(Domain::ipv6()) {
+                    sock_addrs.find(|a| a.is_ipv6())
+                } else {
+                    unreachable!("Unknown IP domain / socket family");
                 }
-
-                Ok(addr.into())
-            } else {
-                let error_type = GAI_ERROR.get().unwrap().clone();
-                Err(vm.new_exception_msg(
-                    error_type,
-                    "nodename nor servname provided, or not known".to_owned(),
-                ))
             }
-        }
+        },
         Err(e) => {
             let error_type = GAI_ERROR.get().unwrap().clone();
-            Err(vm.new_exception_msg(error_type, e.to_string()))
+            return Err(vm.new_exception_msg(error_type, e.to_string()));
+        }
+    };
+    match sock_addr {
+        Some(sock_addr) => Ok(sock_addr.into()),
+        None => {
+            let error_type = GAI_ERROR.get().unwrap().clone();
+            Err(vm.new_exception_msg(
+                error_type,
+                "nodename nor servname provided, or not known".to_owned(),
+            ))
         }
     }
 }
