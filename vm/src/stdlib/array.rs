@@ -1,5 +1,5 @@
 use crate::builtins::bytes::PyBytesRef;
-use crate::builtins::float::try_float;
+use crate::builtins::float::IntoPyFloat;
 use crate::builtins::list::PyList;
 use crate::builtins::memory::{Buffer, BufferOptions, ResizeGuard};
 use crate::builtins::pystr::PyStrRef;
@@ -449,14 +449,11 @@ fn f64_swap_bytes(x: f64) -> f64 {
 }
 
 fn f32_try_into_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<f32> {
-    try_float(&obj, vm)?
-        .map(|x| x as f32)
-        .ok_or_else(|| vm.new_type_error(format!("must be real number, not {}", obj.class().name)))
+    IntoPyFloat::try_from_object(vm, obj).map(|x| x.to_f64() as f32)
 }
 
 fn f64_try_into_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<f64> {
-    try_float(&obj, vm)?
-        .ok_or_else(|| vm.new_type_error(format!("must be real number, not {}", obj.class().name)))
+    IntoPyFloat::try_from_object(vm, obj).map(|x| x.to_f64())
 }
 
 #[pyclass(module = "array", name = "array")]
