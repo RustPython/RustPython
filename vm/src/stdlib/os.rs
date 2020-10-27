@@ -360,22 +360,41 @@ mod _os {
         out_fd: i32,
         in_fd: i32,
         offset: i64,
-        count: u64,
+        count: i64,
         headers: OptionalArg<PyObjectRef>,
         trailers: OptionalArg<PyObjectRef>,
-        flags: OptionalArg<i64>,
+        flags: OptionalArg<i32>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let mut _count = count;
-        let (res, written) = nix::sys::sendfile::sendfile(
-            in_fd,
-            out_fd,
-            offset,
-            Some(&mut _count),
-            headers.into_option(),
-            trailers.into_option(),
-        )
-        .map_err(|err| err.into_pyexception(vm))?;
+        let headers = match headers.into_option() {
+            Some(x) => Some(vm.extract_elements::<PyBytesLike>(&x)?),
+            None => None,
+        };
+
+        let headers = headers
+            .as_ref()
+            .map(|v| v.iter().map(|b| b.borrow_value()).collect::<Vec<_>>());
+        let headers = headers
+            .as_ref()
+            .map(|v| v.iter().map(|borrowed| &**borrowed).collect::<Vec<_>>());
+        let headers = headers.as_deref();
+
+        let trailers = match trailers.into_option() {
+            Some(x) => Some(vm.extract_elements::<PyBytesLike>(&x)?),
+            None => None,
+        };
+
+        let trailers = trailers
+            .as_ref()
+            .map(|v| v.iter().map(|b| b.borrow_value()).collect::<Vec<_>>());
+        let trailers = trailers
+            .as_ref()
+            .map(|v| v.iter().map(|borrowed| &**borrowed).collect::<Vec<_>>());
+        let trailers = trailers.as_deref();
+
+        let (res, written) =
+            nix::sys::sendfile::sendfile(in_fd, out_fd, offset, Some(count), headers, trailers);
+        res.map_err(|err| err.into_pyexception(vm))?;
         Ok(vm.ctx.new_int(written as u64))
     }
 
