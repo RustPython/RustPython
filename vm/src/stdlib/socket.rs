@@ -21,7 +21,6 @@ use crate::pyobject::{
     BorrowValue, Either, IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
     StaticType, TryFromObject,
 };
-use crate::stdlib::os::rust_file;
 use crate::vm::VirtualMachine;
 
 #[cfg(unix)]
@@ -219,31 +218,6 @@ impl PySocket {
             .with_ref(|b| self.sock().send_to(b, &addr))
             .map_err(|err| convert_sock_error(vm, err))?;
         Ok(())
-    }
-
-    #[pymethod]
-    fn sendfile(&self, fd: i64, offset: OptionalArg<u64>, count: OptionalArg<u64>, vm: &VirtualMachine) -> PyResult<usize> {
-        let mut file = rust_file(fd);
-        let mut bufsize: u64 = 0;
-
-        if let Ok(metadata) = file.metadata() {
-            bufsize = metadata.len();
-        }
-
-        if let OptionalArg::Present(c) = count {
-            bufsize = c;
-        }
-
-        let mut buffer = vec![0u8; bufsize as usize];
-
-        let n = file
-            .read(&mut buffer)
-            .map_err(|err| err.into_pyexception(vm))?;
-
-        buffer.truncate(n);
-
-        let bytes = PyBytesLike::try_from_object(vm, vm.ctx.new_bytes(buffer))?;
-        self.send(bytes, vm)
     }
 
     #[pymethod]

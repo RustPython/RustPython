@@ -357,25 +357,26 @@ mod _os {
     #[cfg(any(target_os = "macos"))]
     #[pyfunction]
     pub(crate) fn sendfile(
-        out_fd: i64,
-        in_fd: i64,
-        offset: u64,
+        out_fd: i32,
+        in_fd: i32,
+        offset: i64,
         count: u64,
         headers: OptionalArg<PyObjectRef>,
         trailers: OptionalArg<PyObjectRef>,
         flags: OptionalArg<i64>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let res = nix::sys::sendfile::sendfile(
+        let mut _count = count;
+        let (res, written) = nix::sys::sendfile::sendfile(
             in_fd,
             out_fd,
             offset,
-            Some(count as usize),
-            headers,
-            trailers,
+            Some(&mut _count),
+            headers.into_option(),
+            trailers.into_option(),
         )
         .map_err(|err| err.into_pyexception(vm))?;
-        Ok(vm.ctx.new_int(res as u64))
+        Ok(vm.ctx.new_int(written as u64))
     }
 
     #[pyfunction]

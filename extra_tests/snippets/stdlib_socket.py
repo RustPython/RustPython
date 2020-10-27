@@ -23,6 +23,14 @@ recv_b = connector.recv(len(MESSAGE_B))
 assert recv_a == MESSAGE_A
 assert recv_b == MESSAGE_B
 
+fd = open('README.md', 'rb')
+connector.sendfile(fd)
+recv_readme = connection.recv(os.stat('README.md').st_size)
+# need this because sendfile leaves the cursor at the end of the file
+fd.seek(0)
+assert recv_readme == fd.read()
+fd.close()
+
 # fileno
 if os.name == "posix":
 	connector_fd = connector.fileno()
