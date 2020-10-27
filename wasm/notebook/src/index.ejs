@@ -14,21 +14,27 @@
 <div class="d-flex">
     <div class="header item-center">RustPython 🐍 😱 🤘</div>
     <div>
-        <a class="mr-px-5" href="https://rustpython.github.io/2020/10/21/rustpython-notebook-details"> how to </a>
-        <a href="https://github.com/RustPython/"> github</a>
+        <a target="_blank" class="mr-px-5 text-black" href="https://github.com/RustPython/RustPython/tree/master/wasm/notebook">how this works</a>
+        <a target="_blank" class="text-black" href="https://github.com/RustPython/"> github</a>
     </div>
 </div>
    
-    
-
     <!-- navigation bar -->
-    <div class="nav-bar">
-        <div class="nav-bar-links d-flex">
-            <a href="#" id="run-btn" class="bg-orange text-white mr-px-5">run &#9658; </a>
-            <ul class="list-inline" id="buffers-list"></ul>
-            <a href="#" id="new-tab" class="bg-light mr-px-5 text-black">new tab</a>
-            <a href="#" id="split-view" class="bg-light mr-px-5 text-black">split view</a>
-            <a href="#" id="reader-mode" class="bg-light mr-px-5 text-black">reader mode</a>
+    <div class="nav-bar mt-px-5">
+        <div class="nav-bar-links d-flex d-flex-space-between">
+            <div class="d-flex">
+                <a href="#" id="run-btn" class="bg-orange text-white mr-px-5">run &#9658; </a>
+                <ul class="list-inline" id="buffers-list"></ul>
+                <a href="#" id="new-tab" class="bg-light mr-px-5 text-black">new tab</a>
+                <a href="#" id="import-code" class="bg-light mr-px-5 text-black">import code</a>
+            </div>
+            
+            <div class="nav-bar-links d-flex">
+                <a href="#" id="split-view" class="bg-light mr-px-5 text-black">split view</a>
+                <a href="#" id="default-view" class="bg-light mr-px-5  text-black">default view</a>
+                <a href="#" id="reader-view" class="bg-light text-black">reader view</a>
+            </div>
+            
         </div>
     </div>
 

@@ -20,6 +20,10 @@ p {
     display: flex;
 }
 
+.d-flex-space-between {
+    justify-content: space-between;
+}
+
 .d-none {
     display: none;
 }
@@ -34,6 +38,10 @@ p {
 
 .mr-px-5 {
     margin-right: 5px;
+}
+
+.mt-px-5 {
+    margin-top: 5px;
 }
 
 .p-1 {
@@ -82,7 +90,6 @@ p {
 
 .nav-bar {
     border-bottom: 2px solid #f74c00;
-    display: flex;
     position: sticky;
     top: 0px;
     background-color: #fff;

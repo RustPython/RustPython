@@ -44,12 +44,34 @@ function addCSS(code) {
     let style = document.createElement('style');
     style.type = 'text/css';
     style.innerHTML = code;
+    // add a data attribute to check if css already loaded
+    style.dataset.status = "loaded";
     document.getElementsByTagName('head')[0].appendChild(style);
 }
 
-// Evaluate javascript
-function runJS(code) {
-    return eval(code);
+function checkCssStatus() {
+    let style = document.getElementsByTagName('style')[0];
+    if (!style) {
+       return "none";
+    } else {
+        return style.dataset.status;
+    }
 }
 
-export { runPython,  runJS , renderMarkdown, renderMath, addCSS }     
+// function runJS(code) {
+//     const script = document.createElement('script');
+//     const doc = document.body || document.documentElement;
+//     const blob = new Blob([code], { type: 'text/javascript' });
+//     const url = URL.createObjectURL(blob);
+//     script.src = url;
+//     doc.appendChild(script);
+//     try {
+//       URL.revokeObjectURL(url);
+//       doc.removeChild(script);
+//     } catch (e) {
+//       // ignore if body is changed and script is detached
+//       console.log(e);
+//     }
+//   }
+  
+export { runPython, renderMarkdown, renderMath, addCSS, checkCssStatus }     
