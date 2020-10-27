@@ -17,6 +17,18 @@ assert_raises(FileNotFoundError,
 assert_raises(FileNotFoundError,
               lambda: os.rename('DOES_NOT_EXIST', 'DOES_NOT_EXIST 2'))
 
+src_fd = os.open('README.md', os.O_RDONLY)
+dest_fd = os.open('destination.md', os.O_RDWR | os.O_CREAT)
+src_len = os.stat('README.md').st_size
+
+bytes_sent = os.sendfile(dest_fd, src_fd, 0, src_len)
+assert src_len == bytes_sent
+
+os.lseek(dest_fd, 0, 0)
+assert os.read(src_fd, src_len) == os.read(dest_fd, bytes_sent)
+os.close(src_fd)
+os.close(dest_fd)
+
 try:
     os.open('DOES_NOT_EXIST', 0)
 except OSError as err:

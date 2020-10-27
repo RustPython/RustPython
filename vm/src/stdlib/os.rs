@@ -337,6 +337,47 @@ mod _os {
         Err(vm.new_os_error("os.open not implemented on this platform".to_owned()))
     }
 
+    #[cfg(any(target_os = "linux"))]
+    #[pyfunction]
+    pub(crate) fn sendfile(
+        out_fd: i32,
+        in_fd: i32,
+        offset: i64,
+        count: u64,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let mut file_offset = offset;
+
+        let res =
+            nix::sys::sendfile::sendfile(out_fd, in_fd, Some(&mut file_offset), count as usize)
+                .map_err(|err| err.into_pyexception(vm))?;
+        Ok(vm.ctx.new_int(res as u64))
+    }
+
+    #[cfg(any(target_os = "macos"))]
+    #[pyfunction]
+    pub(crate) fn sendfile(
+        out_fd: i64,
+        in_fd: i64,
+        offset: u64,
+        count: u64,
+        headers: OptionalArg<PyObjectRef>,
+        trailers: OptionalArg<PyObjectRef>,
+        flags: OptionalArg<i64>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let res = nix::sys::sendfile::sendfile(
+            in_fd,
+            out_fd,
+            offset,
+            Some(count as usize),
+            headers,
+            trailers,
+        )
+        .map_err(|err| err.into_pyexception(vm))?;
+        Ok(vm.ctx.new_int(res as u64))
+    }
+
     #[pyfunction]
     fn error(message: OptionalArg<PyStrRef>, vm: &VirtualMachine) -> PyResult {
         let msg = message.map_or("".to_owned(), |msg| msg.borrow_value().to_owned());
