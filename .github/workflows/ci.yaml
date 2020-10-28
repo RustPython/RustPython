@@ -65,6 +65,9 @@ jobs:
     steps:
       - uses: actions/checkout@master
       - uses: actions-rs/toolchain@v1
+      - uses: actions/setup-python@v2
+        with:
+          python-version: 3.8
       - name: Set up the Windows environment
         run: |
           choco install llvm
