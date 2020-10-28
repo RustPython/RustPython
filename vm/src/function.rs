@@ -506,8 +506,8 @@ macro_rules! tuple_from_py_func_args {
     };
 }
 
-// Implement `FromArgs` for up to 5-tuples, allowing built-in functions to bind
-// up to 5 top-level parameters (note that `Args`, `KwArgs`, nested tuples, etc.
+// Implement `FromArgs` for up to 7-tuples, allowing built-in functions to bind
+// up to 7 top-level parameters (note that `Args`, `KwArgs`, nested tuples, etc.
 // count as 1, so this should actually be more than enough).
 tuple_from_py_func_args!(A);
 tuple_from_py_func_args!(A, B);
@@ -515,6 +515,8 @@ tuple_from_py_func_args!(A, B, C);
 tuple_from_py_func_args!(A, B, C, D);
 tuple_from_py_func_args!(A, B, C, D, E);
 tuple_from_py_func_args!(A, B, C, D, E, F);
+tuple_from_py_func_args!(A, B, C, D, E, F, G);
+tuple_from_py_func_args!(A, B, C, D, E, F, G, H);
 
 /// A built-in Python function.
 pub type PyNativeFunc = Box<py_dyn_fn!(dyn Fn(&VirtualMachine, FuncArgs) -> PyResult)>;
@@ -640,6 +642,16 @@ into_py_native_func_tuple!((v1, T1), (v2, T2));
 into_py_native_func_tuple!((v1, T1), (v2, T2), (v3, T3));
 into_py_native_func_tuple!((v1, T1), (v2, T2), (v3, T3), (v4, T4));
 into_py_native_func_tuple!((v1, T1), (v2, T2), (v3, T3), (v4, T4), (v5, T5));
+into_py_native_func_tuple!((v1, T1), (v2, T2), (v3, T3), (v4, T4), (v5, T5), (v6, T6));
+into_py_native_func_tuple!(
+    (v1, T1),
+    (v2, T2),
+    (v3, T3),
+    (v4, T4),
+    (v5, T5),
+    (v6, T6),
+    (v7, T7)
+);
 
 /// Tests that the predicate is True on a single value, or if the value is a tuple a tuple, then
 /// test that any of the values contained within the tuples satisfies the predicate. Type parameter

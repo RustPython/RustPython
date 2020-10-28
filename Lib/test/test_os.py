@@ -3067,6 +3067,7 @@ class SendfileTestServer(asyncore.dispatcher, threading.Thread):
         raise
 
 
+@unittest.skip("TODO: RUSTPYTHON (ValueError: invalid mode: 'xb')")
 @unittest.skipUnless(hasattr(os, 'sendfile'), "test needs os.sendfile()")
 class TestSendfile(unittest.TestCase):
 

@@ -337,6 +337,61 @@ mod _os {
         Err(vm.new_os_error("os.open not implemented on this platform".to_owned()))
     }
 
+    #[cfg(any(target_os = "linux"))]
+    #[pyfunction]
+    fn sendfile(out_fd: i32, in_fd: i32, offset: i64, count: u64, vm: &VirtualMachine) -> PyResult {
+        let mut file_offset = offset;
+
+        let res =
+            nix::sys::sendfile::sendfile(out_fd, in_fd, Some(&mut file_offset), count as usize)
+                .map_err(|err| err.into_pyexception(vm))?;
+        Ok(vm.ctx.new_int(res as u64))
+    }
+
+    #[cfg(any(target_os = "macos"))]
+    #[pyfunction]
+    fn sendfile(
+        out_fd: i32,
+        in_fd: i32,
+        offset: i64,
+        count: i64,
+        headers: OptionalArg<PyObjectRef>,
+        trailers: OptionalArg<PyObjectRef>,
+        flags: OptionalArg<i32>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let headers = match headers.into_option() {
+            Some(x) => Some(vm.extract_elements::<PyBytesLike>(&x)?),
+            None => None,
+        };
+
+        let headers = headers
+            .as_ref()
+            .map(|v| v.iter().map(|b| b.borrow_value()).collect::<Vec<_>>());
+        let headers = headers
+            .as_ref()
+            .map(|v| v.iter().map(|borrowed| &**borrowed).collect::<Vec<_>>());
+        let headers = headers.as_deref();
+
+        let trailers = match trailers.into_option() {
+            Some(x) => Some(vm.extract_elements::<PyBytesLike>(&x)?),
+            None => None,
+        };
+
+        let trailers = trailers
+            .as_ref()
+            .map(|v| v.iter().map(|b| b.borrow_value()).collect::<Vec<_>>());
+        let trailers = trailers
+            .as_ref()
+            .map(|v| v.iter().map(|borrowed| &**borrowed).collect::<Vec<_>>());
+        let trailers = trailers.as_deref();
+
+        let (res, written) =
+            nix::sys::sendfile::sendfile(in_fd, out_fd, offset, Some(count), headers, trailers);
+        res.map_err(|err| err.into_pyexception(vm))?;
+        Ok(vm.ctx.new_int(written as u64))
+    }
+
     #[pyfunction]
     fn error(message: OptionalArg<PyStrRef>, vm: &VirtualMachine) -> PyResult {
         let msg = message.map_or("".to_owned(), |msg| msg.borrow_value().to_owned());
