@@ -11,8 +11,7 @@ h2,
 h3,
 h4,
 h5,
-h6,
-p {
+h6 {
     margin: 0 0 10px;
 }
 
@@ -113,7 +112,7 @@ ul.list-inline li {
     line-height: 30px;
 }
 
-ul.list-inline li:first-child {
+.active  {
     background-color: #1f2430;
     color: #fff;
 }
@@ -175,9 +174,15 @@ input[type='url'] {
     border: 1px solid black;
     border-radius: 0px;
     width: 85%;
-    font-size: 0.9rem;
+    font-size: 1rem;
     padding: 4px;
     font-family: monospace;
+}
+
+.btn {
+    height: 25px;
+    border: 1px solid black;
+    font-size: 1rem;
 }
 
 #error {

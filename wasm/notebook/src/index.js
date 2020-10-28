@@ -17,6 +17,8 @@ import {
 	newBuf
 } from './editor';
 
+import { genericFetch } from './tools'
+
 // parsing: copied from the iodide project
 // https://github.com/iodide-project/iodide/blob/master/src/editor/iomd-tools/iomd-parser.js
 import {
@@ -26,6 +28,7 @@ import {
 // processing: execute/render editor's content
 import {
 	runPython,
+	runJS,
     addCSS,
     checkCssStatus,
 	renderMarkdown,
@@ -56,17 +59,17 @@ const notebook = document.getElementById('rp-notebook');
 // By default only the primary is visible.
 // On click of split view, secondary editor is visible
 // Each editor can display multiple documents and doc types.
-// the created ones are main/tab1/css
-// user has the option to add their own document.
+// the created ones are main/python/js/css
+// user has the option to add their own documents.
 // all new documents are python docs
 // adapted/inspired from https://codemirror.net/demo/buffers.html
-const primaryEditor = CodeMirror(document.getElementById("primary-editor"), {
-	theme: "ayu-mirage",
+const primaryEditor = CodeMirror(document.getElementById('primary-editor'), {
+	theme: 'ayu-mirage',
 	lineNumbers: true,
     lineWrapping: true,
 });
 
-const secondaryEditor = CodeMirror(document.getElementById("secondary-editor"), {
+const secondaryEditor = CodeMirror(document.getElementById('secondary-editor'), {
 	lineNumbers: true,
 	lineWrapping: true
 });
@@ -74,28 +77,31 @@ const secondaryEditor = CodeMirror(document.getElementById("secondary-editor"), 
 const buffers = {};
 
 // list of buffers (displayed on UI as inline list item next to run)
-const buffersList = document.getElementById("buffers-list");
+const buffersList = document.getElementById('buffers-list');
 
 // dropdown of buffers (visible on click of split view)
-const buffersDropDown = document.getElementById("buffers-selection");
+const buffersDropDown = document.getElementById('buffers-selection');
 
 // By default open 3 buffers, main, tab1 and css
 // TODO: add a JS option
 // Params for OpenBuffer (buffers object, name of buffer to create, default content, type, link in UI 1, link in UI 2)
-openBuffer(buffers, "main",
-	"# python code or code blocks that start with %%py, %%md %%math.", "notebook",
+openBuffer(buffers, 'main',
+	'# python code or code blocks that start with %%py, %%md %%math.', 'notebook',
     buffersDropDown, buffersList);
     
-openBuffer(buffers, "tab1", "# Python code", "python",
+openBuffer(buffers, 'python', '# Python code', 'python',
     buffersDropDown, buffersList);
     
-// openBuffer(buffers, "js", "// Javascript code go here", "javascript", buffersDropDown, buffersList);
-openBuffer(buffers, "css", "/* CSS */", "css", buffersDropDown,
+openBuffer(buffers, 'js', '// Javascript code go here', 'javascript', 
+	buffersDropDown, buffersList);
+
+openBuffer(buffers, 'css', '/* CSS goes here */', 'css', buffersDropDown,
     buffersList);
     
-// select main buffer by default
-selectBuffer(primaryEditor, buffers, "main");
-selectBuffer(secondaryEditor, buffers, "main");
+// select main buffer by default and set the main tab to active
+selectBuffer(primaryEditor, buffers, 'main');
+selectBuffer(secondaryEditor, buffers, 'main');
+document.querySelector('ul#buffers-list li:first-child').classList.add('active');
 
 function onReady() {
 	/* By default the notebook has the keyword "loading"
@@ -124,7 +130,7 @@ function readEditors() {
     // get the content of the css editor
     // and add the css to the head
     // use dataset.status for a flag to know when to update
-    let cssCode = buffers["css"].getValue();
+    let cssCode = buffers['css'].getValue();
     let cssStatus = checkCssStatus();
     switch (cssStatus) { 
         case 'none':
@@ -139,13 +145,18 @@ function readEditors() {
         // do nothing
      } 
   
-    // get all the buffers, except css and main
+	// 
+	let jsCode = buffers['js'].getValue();
+	runJS(jsCode);
+
+    // get all the buffers, except css, js and main
 	// css is auto executed at the start
 	// main is parsed then executed at the end
 	// main can have md, math and python function calls 
 	let {
 		css,
 		main,
+		js,
 		...pythonBuffers
     } = buffers;
     
@@ -169,7 +180,7 @@ function parseCodeFromMainEditor() {
 	// runJS(js_code);
 
     // gets code from main editor
-	let mainCode = buffers["main"].getValue();
+	let mainCode = buffers['main'].getValue();
 	/* 
 	Split code into chunks.
 	Uses %%keyword or %% keyword as separator
@@ -190,9 +201,9 @@ function parseCodeFromMainEditor() {
 				runPython(content, notebook, error);
 				break;
 				// TODO: fix how js is injected and ran    
-				// case 'js':
-				//     runJS(content);
-				//     break;
+			case 'js':
+				runJS(content);
+				break;
 			case 'md':
 				notebook.innerHTML += renderMarkdown(content);
 				break;
@@ -205,47 +216,51 @@ function parseCodeFromMainEditor() {
 	});
 }
 
+function updatePopup(type, message) {
+    document.getElementById('popup').dataset.type =  type ;
+    document.getElementById('popup-header').textContent = message;
+}
+
 // import button
 // show a url input + fetch button
 // takes a url where there is raw code
-// document.getElementById('popup-import').addEventListener('click', async function () {
-//     const url = document.getElementById('popup-url').value;
-//     const type = document.getElementById('popup').dataset.type;
-//     const code = await genericFetch(url, type);
-//     switch (type) {
-//         case '':
-//         case 'py':
-//             pyEditor.setValue(code);
-//             break;
-//         case 'js':
-//             jsEditor.setValue(code);
-//             break;
-//         default:
-//         //do nothing
-//     }
-// });
-// document.getElementById('import-code').addEventListener('click' , function() {
-//     updatePopup('python', 'URL (raw text format)');
-// });
+document.getElementById('popup-import').addEventListener('click', async function () {
+    let url = document.getElementById('popup-url').value;
+    let type = document.getElementById('popup').dataset.type;
+	let code = await genericFetch(url, type);
+	primaryEditor.setValue(code);
+});
+
+document.getElementById('import-code').addEventListener('click' , function() {
+    updatePopup('python', 'URL (raw text format)');
+});
 
 // click on an item in the list
-CodeMirror.on(buffersList, "click", function(e) {
+CodeMirror.on(buffersList, 'click', function(e) {
 	selectBuffer(primaryEditor, buffers, e.target.dataset.language);
 });
 
 // select an item in the dropdown
-CodeMirror.on(buffersDropDown, "change", function() {
+CodeMirror.on(buffersDropDown, 'change', function() {
 	selectBuffer(secondaryEditor, buffers, buffersDropDown.options[
 		buffersDropDown.selectedIndex].value);
 });
 
 // when css code editor changes
 // update data attribute flag to modified
-CodeMirror.on(buffers["css"], "change", function() {
+CodeMirror.on(buffers['css'], 'change', function() {
     let style = document.getElementsByTagName('style')[0];
     if (style) {
-        style.dataset.status = "modified"; 
+        style.dataset.status = 'modified'; 
     }
+});
+
+document.getElementById('buffers-list').addEventListener('click' , function(event) { 
+	let elem = document.querySelector('.active');
+	if (elem) {
+		elem.classList.remove('active');
+	}
+	event.target.classList.add('active');
 });
 
 // new tab, new buffer 

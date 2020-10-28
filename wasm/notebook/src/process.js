@@ -58,20 +58,20 @@ function checkCssStatus() {
     }
 }
 
-// function runJS(code) {
-//     const script = document.createElement('script');
-//     const doc = document.body || document.documentElement;
-//     const blob = new Blob([code], { type: 'text/javascript' });
-//     const url = URL.createObjectURL(blob);
-//     script.src = url;
-//     doc.appendChild(script);
-//     try {
-//       URL.revokeObjectURL(url);
-//       doc.removeChild(script);
-//     } catch (e) {
-//       // ignore if body is changed and script is detached
-//       console.log(e);
-//     }
-//   }
+function runJS(code) {
+    const script = document.createElement('script');
+    const doc = document.body || document.documentElement;
+    const blob = new Blob([code], { type: 'text/javascript' });
+    const url = URL.createObjectURL(blob);
+    script.src = url;
+    doc.appendChild(script);
+    try {
+      URL.revokeObjectURL(url);
+      doc.removeChild(script);
+    } catch (e) {
+      // ignore if body is changed and script is detached
+      console.log(e);
+    }
+  }
   
-export { runPython, renderMarkdown, renderMath, addCSS, checkCssStatus }     
+export { runPython, runJS, renderMarkdown, renderMath, addCSS, checkCssStatus }     
