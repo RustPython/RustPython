@@ -504,7 +504,8 @@ mod _io {
     }
 
     // TextIO Base has no public constructor
-    #[pyclass(name = "_TextIOBase", noattr)]
+    #[pyattr]
+    #[pyclass(name = "_TextIOBase", base = "_IOBase")]
     struct _TextIOBase;
 
     #[pyimpl(flags(BASETYPE))]
@@ -759,7 +760,8 @@ mod _io {
             let mut remaining = n;
             let mut written = 0;
             if current_size > 0 {
-                out.copy_from_slice(self.active_read_slice());
+                let slice = self.active_read_slice();
+                out[..slice.len()].copy_from_slice(slice);
                 remaining -= current_size;
                 written += current_size;
                 self.pos += current_size as Offset;
@@ -799,12 +801,13 @@ mod _io {
             while remaining > 0 && (self.read_end as usize) < self.buffer.len() {
                 let r = handle_opt_read!(self.fill_buffer(vm)?);
                 if remaining > r {
-                    out[written..].copy_from_slice(&self.buffer[self.pos as usize..][..r]);
+                    out[written..][..r].copy_from_slice(&self.buffer[self.pos as usize..][..r]);
                     written += r;
                     self.pos += r as Offset;
                     remaining -= r;
                 } else if remaining > 0 {
-                    out[written..].copy_from_slice(&self.buffer[self.pos as usize..][..remaining]);
+                    out[written..][..remaining]
+                        .copy_from_slice(&self.buffer[self.pos as usize..][..remaining]);
                     written += remaining;
                     self.pos += remaining as Offset;
                     remaining = 0;
@@ -1146,7 +1149,8 @@ mod _io {
         }
     }
 
-    #[pyclass(name = "BufferedReader", noattr)]
+    #[pyattr]
+    #[pyclass(name = "BufferedReader", base = "_BufferedIOBase")]
     #[derive(Debug)]
     struct BufferedReader {
         data: PyThreadMutex<BufferedData>,
@@ -1192,7 +1196,8 @@ mod _io {
         }
     }
 
-    #[pyclass(name = "BufferedWriter", noattr)]
+    #[pyattr]
+    #[pyclass(name = "BufferedWriter", base = "_BufferedIOBase")]
     #[derive(Debug)]
     struct BufferedWriter {
         data: PyThreadMutex<BufferedData>,
