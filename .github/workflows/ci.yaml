@@ -97,7 +97,7 @@ jobs:
           python -V
           python -m pip install --upgrade pip
           python -m pip install pipenv
-      - run: pipenv install
+      - run: pipenv install --python 3.8
         working-directory: ./extra_tests
       - name: run snippets
         run: pipenv run pytest -v
