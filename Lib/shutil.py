@@ -152,14 +152,16 @@ def _fastcopy_sendfile(fsrc, fdst):
             err.filename = fsrc.name
             err.filename2 = fdst.name
 
-            if err.errno == errno.ENOTSOCK:
+            # XXX RUSTPYTHON TODO: consistent OSError.errno
+            if hasattr(err, "errno") and err.errno == errno.ENOTSOCK:
                 # sendfile() on this platform (probably Linux < 2.6.33)
                 # does not support copies between regular files (only
                 # sockets).
                 _USE_CP_SENDFILE = False
                 raise _GiveupOnFastCopy(err)
 
-            if err.errno == errno.ENOSPC:  # filesystem is full
+            # XXX RUSTPYTHON TODO: consistent OSError.errno
+            if hasattr(err, "errno") and err.errno == errno.ENOSPC:  # filesystem is full
                 raise err from None
 
             # Give up on first call and if no data was copied.
