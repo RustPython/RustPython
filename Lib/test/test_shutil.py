@@ -2366,6 +2366,8 @@ class TestZeroCopySendfile(_ZeroCopyFileTest, unittest.TestCase):
                 dst.seek(0)
                 self.assertEqual(dst.read(), self.FILEDATA)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_exception_on_second_call(self):
         def sendfile(*args, **kwargs):
             if not flag:
@@ -2438,6 +2440,7 @@ class TestZeroCopySendfile(_ZeroCopyFileTest, unittest.TestCase):
             blocksize = m.call_args[0][3]
             self.assertEqual(blocksize, 2 ** 23)
 
+    @unittest.skip("TODO: RUSTPYTHON, unittest.mock")
     def test_file2file_not_supported(self):
         # Emulate a case where sendfile() only support file->socket
         # fds. In such a case copyfile() is supposed to skip the

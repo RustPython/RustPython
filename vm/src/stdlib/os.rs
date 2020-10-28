@@ -339,13 +339,7 @@ mod _os {
 
     #[cfg(any(target_os = "linux"))]
     #[pyfunction]
-    pub(crate) fn sendfile(
-        out_fd: i32,
-        in_fd: i32,
-        offset: i64,
-        count: u64,
-        vm: &VirtualMachine,
-    ) -> PyResult {
+    fn sendfile(out_fd: i32, in_fd: i32, offset: i64, count: u64, vm: &VirtualMachine) -> PyResult {
         let mut file_offset = offset;
 
         let res =
@@ -356,7 +350,7 @@ mod _os {
 
     #[cfg(any(target_os = "macos"))]
     #[pyfunction]
-    pub(crate) fn sendfile(
+    fn sendfile(
         out_fd: i32,
         in_fd: i32,
         offset: i64,
