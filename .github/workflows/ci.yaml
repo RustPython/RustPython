@@ -78,6 +78,8 @@ jobs:
         if: runner.os == 'macOS'
       - name: Cache cargo dependencies
         uses: actions/cache@v2
+        # cache gets corrupted for some reason on mac
+        if: runner.os != 'macOS'
         with:
           path: |
               ~/.cargo/registry
