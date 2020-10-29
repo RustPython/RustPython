@@ -12,6 +12,7 @@ mod bisect;
 mod codecs;
 mod collections;
 mod csv;
+mod ctypes;
 mod dis;
 mod errno;
 mod functools;
@@ -151,6 +152,10 @@ pub fn get_module_inits() -> StdlibMap {
         #[cfg(any(unix, windows, target_os = "wasi"))]
         {
             os::MODULE_NAME => os::make_module,
+        }
+        #[cfg(any(unix, windows, target_os = "wasi"))]
+        {
+            "_ctypes" => ctypes::make_module,
         }
         #[cfg(any(unix, target_os = "wasi"))]
         {
