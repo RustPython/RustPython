@@ -260,8 +260,6 @@ class MathTests(unittest.TestCase):
         self.assertRaises(ValueError, math.acos, -1 - eps)
         self.assertTrue(math.isnan(math.acos(NAN)))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testAcosh(self):
         self.assertRaises(TypeError, math.acosh)
         self.ftest('acosh(1)', math.acosh(1), 0)
