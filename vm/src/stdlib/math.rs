@@ -225,7 +225,15 @@ fn math_radians(x: IntoPyFloat) -> f64 {
 }
 
 // Hyperbolic functions:
-make_math_func!(math_acosh, acosh);
+fn math_acosh(x: IntoPyFloat, vm: &VirtualMachine) -> PyResult<f64> {
+    let x = x.to_f64();
+    if x.is_sign_negative() || x.is_zero() {
+        Err(vm.new_value_error("math domain error".to_owned()))
+    } else {
+        Ok(x.acosh())
+    }
+}
+
 make_math_func!(math_asinh, asinh);
 make_math_func!(math_atanh, atanh);
 make_math_func!(math_cosh, cosh);
