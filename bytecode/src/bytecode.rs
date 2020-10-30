@@ -405,7 +405,9 @@ impl<C: Constant> BorrowedConstant<'_, C> {
             BorrowedConstant::Integer { value } => write!(f, "{}", value),
             BorrowedConstant::Float { value } => write!(f, "{}", value),
             BorrowedConstant::Complex { value } => write!(f, "{}", value),
-            BorrowedConstant::Boolean { value } => write!(f, "{}", value),
+            BorrowedConstant::Boolean { value } => {
+                write!(f, "{}", if value { "True" } else { "False" })
+            }
             BorrowedConstant::Str { value } => write!(f, "{:?}", value),
             BorrowedConstant::Bytes { value } => write!(f, "b{:?}", value.as_bstr()),
             BorrowedConstant::Code { code } => write!(f, "{:?}", code),
@@ -800,26 +802,7 @@ impl Instruction {
 
 impl fmt::Display for ConstantData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            ConstantData::Integer { value } => write!(f, "{}", value),
-            ConstantData::Float { value } => write!(f, "{}", value),
-            ConstantData::Complex { value } => write!(f, "{}", value),
-            ConstantData::Boolean { value } => write!(f, "{}", value),
-            ConstantData::Str { value } => write!(f, "{:?}", value),
-            ConstantData::Bytes { value } => write!(f, "{:?}", value),
-            ConstantData::Code { code } => write!(f, "{:?}", code),
-            ConstantData::Tuple { elements } => write!(
-                f,
-                "({})",
-                elements
-                    .iter()
-                    .map(|e| format!("{}", e))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-            ConstantData::None => write!(f, "None"),
-            ConstantData::Ellipsis => write!(f, "Ellipsis"),
-        }
+        self.borrow_constant().fmt_display(f)
     }
 }
 
