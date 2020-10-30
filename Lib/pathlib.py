@@ -16,7 +16,8 @@ from urllib.parse import quote_from_bytes as urlquote_from_bytes
 supports_symlinks = True
 if os.name == 'nt':
     import nt
-    if sys.getwindowsversion()[:2] >= (6, 0):
+    # XXX RUSTPYTHON TODO: nt._getfinalpathname
+    if False and sys.getwindowsversion()[:2] >= (6, 0):
         from nt import _getfinalpathname
     else:
         supports_symlinks = False
