@@ -4,7 +4,8 @@ use crate::builtins::pytype::PyTypeRef;
 use crate::pyobject::{PyObjectRef, PyResult, PyValue};
 use crate::VirtualMachine;
 
-// #[pyclass()]
+use crate::stdlib::ctypes::function::PyCFuncPtr;
+
 #[derive(Debug)]
 struct SharedLibrary {
     lib: libloading::Library,
@@ -23,14 +24,14 @@ pub fn dlopen(lib_path: PyStrRef, vm: &VirtualMachine) -> PyResult {
     Ok(vm.new_pyobj(shared_lib))
 }
 
-pub fn dlsym(handle: PyObjectRef, func_name: PyStrRef) {
+pub fn dlsym(handle: PyObjectRef, func_name: PyStrRef, vm: &VirtualMachine) -> PyResult {
     if let Some(slib) = handle.payload::<SharedLibrary>() {
         unsafe {
-            let func: libloading::Symbol<extern "C" fn()> = slib
-                .lib
-                .get(func_name.as_ref().as_bytes())
-                .expect("Failed to get func");
-            func();
+            match slib.lib.get(func_name.as_ref().as_bytes()) {
+                Ok(func) => return Ok(vm.new_pyobj(PyCFuncPtr::new(*func))),
+                Err(_) => return Ok(vm.ctx.none()),
+            }
         }
     }
+    Ok(vm.ctx.none())
 }
