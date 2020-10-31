@@ -83,6 +83,23 @@ pub fn is_integer(v: f64) -> bool {
     (v - v.round()).abs() < std::f64::EPSILON
 }
 
+// Formats floats into Python style exponent notation, by first formatting in Rust style
+// exponent notation (`1.0000e0`), then convert to Python style (`1.0000e+00`).
+pub fn format_float_as_exponent(precision: usize, magnitude: f64) -> String {
+    if magnitude.is_nan() {
+        return "nan".to_string();
+    }
+    if magnitude.is_infinite() {
+        return "inf".to_string();
+    }
+
+    let r_exp = format!("{:.*e}", precision, magnitude);
+    let mut parts = r_exp.splitn(2, 'e');
+    let base = parts.next().unwrap();
+    let exponent = parts.next().unwrap().parse::<i64>().unwrap();
+    format!("{}e{:+#03}", base, exponent)
+}
+
 pub fn to_string(value: f64) -> String {
     let lit = format!("{:e}", value);
     if let Some(position) = lit.find('e') {

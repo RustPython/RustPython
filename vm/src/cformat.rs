@@ -1,4 +1,5 @@
 use crate::builtins::{float, int, pystr, tuple};
+use crate::common::float_ops;
 /// Implementation of Printf-Style string formatting
 /// [https://docs.python.org/3/library/stdtypes.html#printf-style-string-formatting]
 use crate::format::get_num_digits;
@@ -242,24 +243,6 @@ impl CFormatSpec {
         }
     }
 
-    fn normalize_float(&self, num: f64) -> (f64, i32) {
-        let mut fraction = num;
-        let mut exponent = 0;
-        loop {
-            if fraction >= 10.0 {
-                fraction /= 10.0;
-                exponent += 1;
-            } else if fraction < 1.0 && fraction > 0.0 {
-                fraction *= 10.0;
-                exponent -= 1;
-            } else {
-                break;
-            }
-        }
-
-        (fraction, exponent)
-    }
-
     pub(crate) fn format_float(&self, num: f64) -> Result<String, String> {
         let sign_string = if num.is_sign_positive() {
             self.flags.sign_string()
@@ -281,8 +264,8 @@ impl CFormatSpec {
                     Some(CFormatQuantity::Amount(p)) => p,
                     _ => 6,
                 };
-                let (fraction, exponent) = self.normalize_float(num.abs());
-                Ok(format!("{:.*}e{:+03}", precision, fraction, exponent))
+                let magnitude = num.abs();
+                Ok(float_ops::format_float_as_exponent(precision, magnitude))
             }
             CFormatType::Float(CFloatType::General(_)) => {
                 Err("Not yet implemented for %g and %G".to_owned())
