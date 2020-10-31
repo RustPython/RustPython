@@ -6,6 +6,7 @@ use crate::pyobject::{
 };
 use crate::vm::VirtualMachine;
 use num_traits::{cast::ToPrimitive, sign::Signed};
+use regex::Regex;
 use std::str::FromStr;
 
 #[derive(FromArgs)]
@@ -437,6 +438,16 @@ where
     fn py_cformat(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
         let format_string = self.as_utf8_str().unwrap();
         CFormatString::from_str(format_string)
+            .map_err(|err| vm.new_value_error(err.to_string()))?
+            .format(vm, values)
+    }
+
+    fn py_bytes_cformat(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
+        let regex = Regex::new(r"%(?P<spec>[<>=^]?[+\- ]?\d*,?\.?\d*)s").unwrap();
+        let format_string = self.as_utf8_str().unwrap();
+        let format_byte_string = regex.replace_all(format_string, "%${spec}b").to_string();
+        print!("{}", format_byte_string);
+        CFormatString::from_str(&format_byte_string)
             .map_err(|err| vm.new_value_error(err.to_string()))?
             .format(vm, values)
     }

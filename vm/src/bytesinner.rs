@@ -895,7 +895,7 @@ impl PyBytesInner {
     }
 
     pub fn cformat(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
-        self.elements.py_cformat(values, vm)
+        self.elements.py_bytes_cformat(values, vm)
     }
 
     pub fn repeat(&self, n: isize) -> Vec<u8> {
