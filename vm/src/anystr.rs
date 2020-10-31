@@ -446,7 +446,6 @@ where
         let regex = Regex::new(r"%(?P<spec>[<>=^]?[+\- ]?\d*,?\.?\d*)s").unwrap();
         let format_string = self.as_utf8_str().unwrap();
         let format_byte_string = regex.replace_all(format_string, "%${spec}b").to_string();
-        print!("{}", format_byte_string);
         CFormatString::from_str(&format_byte_string)
             .map_err(|err| vm.new_value_error(err.to_string()))?
             .format(vm, values)
