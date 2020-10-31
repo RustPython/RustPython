@@ -75,7 +75,7 @@ enum CNumberType {
 #[derive(Debug, PartialEq)]
 enum CFloatType {
     Exponent(CFormatCase),
-    PointDecimal,
+    PointDecimal(CFormatCase),
     General(CFormatCase),
 }
 
@@ -251,7 +251,7 @@ impl CFormatSpec {
         };
 
         let magnitude_string = match self.format_type {
-            CFormatType::Float(CFloatType::PointDecimal) => {
+            CFormatType::Float(CFloatType::PointDecimal(_)) => {
                 let precision = match self.precision {
                     Some(CFormatQuantity::Amount(p)) => p,
                     _ => 6,
@@ -747,12 +747,12 @@ fn parse_format_type(text: &str) -> Result<(CFormatType, &str, char), CFormatErr
             next_char.unwrap(),
         )),
         Some('f') => Ok((
-            CFormatType::Float(PointDecimal),
+            CFormatType::Float(PointDecimal(Lowercase)),
             chars.as_str(),
             next_char.unwrap(),
         )),
         Some('F') => Ok((
-            CFormatType::Float(PointDecimal),
+            CFormatType::Float(PointDecimal(Uppercase)),
             chars.as_str(),
             next_char.unwrap(),
         )),
