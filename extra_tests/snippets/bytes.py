@@ -614,6 +614,14 @@ assert b'\xe4\xb8\xad\xe6\x96\x87\xe5\xad\x97'.decode('utf-8') == '中文字'
 # mod
 assert b'rust%bpython%b' % (b' ', b'!') == b'rust python!'
 assert b'x=%i y=%f' % (1, 2.5) == b'x=1 y=2.500000'
+assert b'%bbar' % b'foo' == b'foobar'
+assert b'%sbar' % b'foo' == b'foobar'
+assert b'%10bbar' % b'foo' == b'       foobar'
+assert b'%10sbar' % b'foo' == b'       foobar'
+with assert_raises(TypeError):
+    b'%s' % 'foo'
+with assert_raises(TypeError):
+    b'%b' % 'foo'
 
 class A:
     def __bytes__(self):
