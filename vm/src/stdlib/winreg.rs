@@ -3,13 +3,13 @@ use crate::builtins::pystr::PyStrRef;
 use crate::builtins::pytype::PyTypeRef;
 use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::exceptions::IntoPyException;
-use crate::function::OptionalArg;
 use crate::pyobject::{
     BorrowValue, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject,
 };
 use crate::VirtualMachine;
 
 use std::convert::TryInto;
+use std::ffi::OsStr;
 use std::io;
 use winapi::shared::winerror;
 use winreg::{enums::RegType, RegKey, RegValue};
@@ -98,25 +98,43 @@ impl Hkey {
             }
         }
     }
+    fn into_key(self) -> RegKey {
+        let k = match self {
+            Self::PyHKEY(py) => py.key().raw_handle(),
+            Self::Constant(k) => k,
+        };
+        RegKey::predef(k)
+    }
 }
 
-fn winreg_OpenKey(
+#[derive(FromArgs)]
+struct OpenKeyArgs {
+    #[pyarg(any)]
     key: Hkey,
-    subkey: Option<PyStrRef>,
-    reserved: OptionalArg<i32>,
-    access: OptionalArg<u32>,
-    vm: &VirtualMachine,
-) -> PyResult<PyHKEY> {
-    let reserved = reserved.unwrap_or(0);
-    let access = access.unwrap_or(winreg::enums::KEY_READ);
+    #[pyarg(any)]
+    sub_key: Option<PyStrRef>,
+    #[pyarg(any, default = "0")]
+    reserved: i32,
+    #[pyarg(any, default = "winreg::enums::KEY_READ")]
+    access: u32,
+}
+
+fn winreg_OpenKey(args: OpenKeyArgs, vm: &VirtualMachine) -> PyResult<PyHKEY> {
+    let OpenKeyArgs {
+        key,
+        sub_key,
+        reserved,
+        access,
+    } = args;
+
     if reserved != 0 {
         // RegKey::open_subkey* doesn't have a reserved param, so this'll do
         return Err(vm.new_value_error("reserved param must be 0".to_owned()));
     }
 
-    let subkey = subkey.as_ref().map_or("", |s| s.borrow_value());
+    let sub_key = sub_key.as_ref().map_or("", |s| s.borrow_value());
     let key = key
-        .with_key(|k| k.open_subkey_with_flags(subkey, access))
+        .with_key(|k| k.open_subkey_with_flags(sub_key, access))
         .map_err(|e| e.into_pyexception(vm))?;
 
     Ok(PyHKEY::new(key))
@@ -175,6 +193,39 @@ fn winreg_CloseKey(key: Hkey) {
         Hkey::PyHKEY(py) => py.Close(),
         Hkey::Constant(hkey) => drop(RegKey::predef(hkey)),
     }
+}
+
+fn winreg_CreateKey(key: Hkey, subkey: Option<PyStrRef>, vm: &VirtualMachine) -> PyResult<PyHKEY> {
+    let k = match subkey {
+        Some(subkey) => {
+            let (k, _disp) = key
+                .with_key(|k| k.create_subkey(&*subkey.borrow_value()))
+                .map_err(|e| e.into_pyexception(vm))?;
+            k
+        }
+        None => key.into_key(),
+    };
+    Ok(PyHKEY::new(k))
+}
+
+fn winreg_SetValue(
+    key: Hkey,
+    subkey: Option<PyStrRef>,
+    typ: u32,
+    value: PyStrRef,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    if typ != winreg::enums::REG_SZ as u32 {
+        return Err(vm.new_type_error("type must be winreg.REG_SZ".to_owned()));
+    }
+    let subkey = subkey.as_ref().map_or("", |s| s.borrow_value());
+    key.with_key(|k| k.set_value(subkey, &OsStr::new(value.borrow_value())))
+        .map_err(|e| e.into_pyexception(vm))
+}
+
+fn winreg_DeleteKey(key: Hkey, subkey: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
+    key.with_key(|k| k.delete_subkey(subkey.borrow_value()))
+        .map_err(|e| e.into_pyexception(vm))
 }
 
 fn reg_to_py(value: RegValue, vm: &VirtualMachine) -> PyResult {
@@ -255,6 +306,9 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "EnumKey" => named_function!(ctx, winreg, EnumKey),
         "EnumValue" => named_function!(ctx, winreg, EnumValue),
         "CloseKey" => named_function!(ctx, winreg, CloseKey),
+        "CreateKey" => named_function!(ctx, winreg, CreateKey),
+        "SetValue" => named_function!(ctx, winreg, SetValue),
+        "DeleteKey" => named_function!(ctx, winreg, DeleteKey),
     });
 
     macro_rules! add_constants {
