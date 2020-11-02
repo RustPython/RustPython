@@ -16,9 +16,33 @@ impl fmt::Display for Location {
 }
 
 impl Location {
-    pub fn visualize(&self, line: &str, desc: &str) -> String {
-        // desc.to_owned()
-        format!("{}\n{}\n{}↑", desc, line, " ".repeat(self.column - 1))
+    pub fn visualize<'a>(
+        &self,
+        line: &'a str,
+        desc: impl fmt::Display + 'a,
+    ) -> impl fmt::Display + 'a {
+        struct Visualize<'a, D: fmt::Display> {
+            loc: Location,
+            line: &'a str,
+            desc: D,
+        }
+        impl<D: fmt::Display> fmt::Display for Visualize<'_, D> {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                write!(
+                    f,
+                    "{}\n{}\n{arrow:>pad$}",
+                    self.desc,
+                    self.line,
+                    pad = self.loc.column,
+                    arrow = "↑",
+                )
+            }
+        }
+        Visualize {
+            loc: *self,
+            line,
+            desc,
+        }
     }
 }
 

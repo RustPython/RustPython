@@ -6,13 +6,13 @@ use rand::Rng;
 use crate::builtins::code::CodeObject;
 use crate::builtins::traceback::{PyTraceback, PyTracebackRef};
 use crate::builtins::{code, list};
+#[cfg(feature = "rustpython-compiler")]
+use crate::compile;
 use crate::exceptions::PyBaseExceptionRef;
 use crate::pyobject::{ItemProtocol, PyResult, PyValue, TryFromObject, TypeProtocol};
 use crate::scope::Scope;
 use crate::version::get_git_revision;
 use crate::vm::{InitParameter, VirtualMachine};
-#[cfg(feature = "rustpython-compiler")]
-use rustpython_compiler::compile;
 
 pub(crate) fn init_importlib(
     vm: &mut VirtualMachine,

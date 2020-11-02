@@ -1,5 +1,3 @@
-use rustpython_parser::parser;
-
 #[derive(Clone, Copy)]
 pub enum Mode {
     Exec,
@@ -15,15 +13,6 @@ impl std::str::FromStr for Mode {
             "eval" => Ok(Mode::Eval),
             "single" => Ok(Mode::Single),
             _ => Err(ModeParseError { _priv: () }),
-        }
-    }
-}
-
-impl Mode {
-    pub fn to_parser_mode(self) -> parser::Mode {
-        match self {
-            Mode::Exec | Mode::Single => parser::Mode::Program,
-            Mode::Eval => parser::Mode::Statement,
         }
     }
 }

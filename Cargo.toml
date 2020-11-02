@@ -9,7 +9,10 @@ license = "MIT"
 include = ["LICENSE", "Cargo.toml", "src/**/*.rs"]
 
 [workspace]
-members = [".", "derive", "vm", "wasm/lib", "parser", "compiler", "bytecode", "vm/pylib-crate", "common", "jit"]
+members = [
+    ".", "ast", "bytecode", "common", "compiler", "derive",
+    "jit", "parser", "vm", "vm/pylib-crate", "wasm/lib",
+]
 
 [[bench]]
 name = "bench"

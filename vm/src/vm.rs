@@ -24,6 +24,8 @@ use crate::builtins::pystr::{PyStr, PyStrRef};
 use crate::builtins::pytype::PyTypeRef;
 use crate::builtins::tuple::PyTuple;
 use crate::common::{hash::HashSecret, lock::PyMutex, rc::PyRc};
+#[cfg(feature = "rustpython-compiler")]
+use crate::compile::{self, CompileError, CompileErrorType, CompileOpts};
 use crate::exceptions::{self, PyBaseException, PyBaseExceptionRef};
 use crate::frame::{ExecutionResult, Frame, FrameRef};
 use crate::function::{FuncArgs, IntoFuncArgs};
@@ -34,11 +36,6 @@ use crate::pyobject::{
 use crate::scope::Scope;
 use crate::slots::PyComparisonOp;
 use crate::{builtins, bytecode, frozen, import, iterator, stdlib, sysmodule};
-#[cfg(feature = "rustpython-compiler")]
-use rustpython_compiler::{
-    compile::{self, CompileOpts},
-    error::CompileError,
-};
 
 // use objects::ects;
 
@@ -659,12 +656,12 @@ impl VirtualMachine {
 
     #[cfg(feature = "rustpython-compiler")]
     pub fn new_syntax_error(&self, error: &CompileError) -> PyBaseExceptionRef {
-        let syntax_error_type = if error.is_indentation_error() {
-            self.ctx.exceptions.indentation_error.clone()
-        } else if error.is_tab_error() {
-            self.ctx.exceptions.tab_error.clone()
-        } else {
-            self.ctx.exceptions.syntax_error.clone()
+        let syntax_error_type = match &error.error {
+            CompileErrorType::Parse(p) if p.is_indentation_error() => {
+                self.ctx.exceptions.indentation_error.clone()
+            }
+            CompileErrorType::Parse(p) if p.is_tab_error() => self.ctx.exceptions.tab_error.clone(),
+            _ => self.ctx.exceptions.syntax_error.clone(),
         };
         let syntax_error = self.new_exception_msg(syntax_error_type, error.to_string());
         let lineno = self.ctx.new_int(error.location.row());
@@ -673,10 +670,12 @@ impl VirtualMachine {
             .unwrap();
         self.set_attr(syntax_error.as_object(), "offset", offset)
             .unwrap();
-        if let Some(v) = error.statement.as_ref() {
-            self.set_attr(syntax_error.as_object(), "text", self.new_pyobj(v))
-                .unwrap();
-        }
+        self.set_attr(
+            syntax_error.as_object(),
+            "text",
+            error.statement.clone().into_pyobject(self),
+        )
+        .unwrap();
         self.set_attr(
             syntax_error.as_object(),
             "filename",
@@ -1231,10 +1230,6 @@ impl VirtualMachine {
     ) -> Result<PyCodeRef, CompileError> {
         compile::compile(source, mode, source_path, opts)
             .map(|code| PyCode::new(self.ctx.map_codeobj(code)).into_ref(self))
-            .map_err(|mut compile_error| {
-                compile_error.update_statement_info(source.trim_end().to_owned());
-                compile_error
-            })
     }
 
     fn call_codec_func(

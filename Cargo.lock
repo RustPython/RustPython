@@ -1675,6 +1675,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustpython-ast"
+version = "0.1.0"
+dependencies = [
+ "num-bigint",
+]
+
+[[package]]
 name = "rustpython-bytecode"
 version = "0.1.2"
 dependencies = [
@@ -1717,6 +1724,7 @@ dependencies = [
  "itertools",
  "log",
  "num-complex",
+ "rustpython-ast",
  "rustpython-bytecode",
  "rustpython-parser",
 ]
@@ -1732,6 +1740,7 @@ dependencies = [
  "quote",
  "rustpython-bytecode",
  "rustpython-compiler",
+ "rustpython-parser",
  "syn",
  "syn-ext",
  "textwrap 0.12.1",
@@ -1761,6 +1770,7 @@ dependencies = [
  "log",
  "num-bigint",
  "num-traits",
+ "rustpython-ast",
  "unic-emoji-char",
  "unic-ucd-ident",
  "unicode_names2",

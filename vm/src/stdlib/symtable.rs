@@ -6,10 +6,10 @@ mod decl {
 
     use crate::builtins::pystr::PyStrRef;
     use crate::builtins::pytype::PyTypeRef;
+    use crate::compile;
     use crate::pyobject::{BorrowValue, PyRef, PyResult, PyValue, StaticType};
     use crate::vm::VirtualMachine;
-    use rustpython_compiler::{compile, error::CompileError, symboltable};
-    use rustpython_parser::parser;
+    use rustpython_compiler::symboltable;
 
     /// symtable. Return top level SymbolTable.
     /// See docs: https://docs.python.org/3/library/symtable.html?highlight=symtable#symtable.symtable
@@ -25,32 +25,12 @@ mod decl {
             .parse::<compile::Mode>()
             .map_err(|err| vm.new_value_error(err.to_string()))?;
 
-        let symtable = source_to_symtable(source.borrow_value(), mode, filename.borrow_value())
-            .map_err(|err| vm.new_syntax_error(&err))?;
+        let symtable =
+            compile::compile_symtable(source.borrow_value(), mode, filename.borrow_value())
+                .map_err(|err| vm.new_syntax_error(&err))?;
 
         let py_symbol_table = to_py_symbol_table(symtable);
         Ok(py_symbol_table.into_ref(vm))
-    }
-
-    fn source_to_symtable(
-        source: &str,
-        mode: compile::Mode,
-        filename: &str,
-    ) -> Result<symboltable::SymbolTable, CompileError> {
-        let from_parse_error = |e| CompileError::from_parse_error(e, filename.to_owned());
-        let symtable = match mode {
-            compile::Mode::Exec | compile::Mode::Single => {
-                let ast = parser::parse_program(source).map_err(from_parse_error)?;
-                symboltable::make_symbol_table(&ast)
-            }
-            compile::Mode::Eval => {
-                let statement = parser::parse_statement(source).map_err(from_parse_error)?;
-                symboltable::statements_to_symbol_table(&statement)
-            }
-        }
-        .map_err(|e| CompileError::from_symbol_table_error(e, filename.to_owned()))?;
-
-        Ok(symtable)
     }
 
     fn to_py_symbol_table(symtable: symboltable::SymbolTable) -> PySymbolTable {

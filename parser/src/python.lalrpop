@@ -10,7 +10,6 @@ use crate::fstring::parse_located_fstring;
 use crate::function::{parse_args, parse_params};
 use crate::error::LexicalError;
 use crate::lexer;
-use crate::location;
 
 use num_bigint::BigInt;
 
@@ -1155,7 +1154,7 @@ Identifier: String = <s:name> => s;
 
 // Hook external lexer:
 extern {
-    type Location = location::Location;
+    type Location = ast::Location;
     type Error = LexicalError;
 
     enum lexer::Tok {
