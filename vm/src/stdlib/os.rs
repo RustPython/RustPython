@@ -963,7 +963,12 @@ impl<'a> SupportFunc {
     where
         F: IntoPyNativeFunc<FKind>,
     {
-        let func_obj = vm.ctx.new_function(func);
+        let ctx = &vm.ctx;
+        let func_obj = ctx
+            .new_function_named(func, name.to_owned())
+            .into_function()
+            .with_module(ctx.new_str(MODULE_NAME))
+            .build(ctx);
         Self {
             name,
             func_obj,
