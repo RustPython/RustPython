@@ -16,6 +16,8 @@ use crate::{builtins, exceptions, py_io, version};
 /*
  * The magic sys module.
  */
+const MAXSIZE: usize = std::isize::MAX as usize;
+const MAXUNICODE: u32 = std::char::MAX as u32;
 
 fn argv(vm: &VirtualMachine) -> PyObjectRef {
     vm.ctx.new_list(
@@ -656,8 +658,8 @@ settrace() -- set the global debug tracing function
       "gettrace" => named_function!(ctx, sys, gettrace),
       "hash_info" => hash_info,
       "intern" => named_function!(ctx, sys, intern),
-      "maxunicode" => ctx.new_int(std::char::MAX as u32),
-      "maxsize" => ctx.new_int(std::isize::MAX),
+      "maxunicode" => ctx.new_int(MAXUNICODE),
+      "maxsize" => ctx.new_int(MAXSIZE),
       "path" => path,
       "ps1" => ctx.new_str(">>>>> "),
       "ps2" => ctx.new_str("..... "),
