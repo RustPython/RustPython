@@ -357,7 +357,7 @@ mod _os {
         count: i64,
         headers: OptionalArg<PyObjectRef>,
         trailers: OptionalArg<PyObjectRef>,
-        flags: OptionalArg<i32>,
+        _flags: OptionalArg<i32>,
         vm: &VirtualMachine,
     ) -> PyResult {
         let headers = match headers.into_option() {
