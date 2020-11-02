@@ -918,6 +918,7 @@ fn parse_quantity<I: Iterator<Item = char>>(
 ) -> Result<Option<CFormatQuantity>, ParsingError> {
     if let Some(&(_, c)) = iter.peek() {
         if c == '*' {
+            iter.next().unwrap();
             return Ok(Some(CFormatQuantity::FromValuesTuple));
         }
         if let Some(i) = c.to_digit(10) {
