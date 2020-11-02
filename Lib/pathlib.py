@@ -43,7 +43,10 @@ _IGNORED_WINERRORS = (
 )
 
 def _ignore_error(exception):
-    return (getattr(exception, 'errno', None) in _IGNORED_ERROS or
+    # XXX RUSTPYTHON: added check for FileNotFoundError, file.exists() on windows throws it
+    # but with a errno==ESRCH for some reason
+    return (isinstance(exception, FileNotFoundError) or
+            getattr(exception, 'errno', None) in _IGNORED_ERROS or
             getattr(exception, 'winerror', None) in _IGNORED_WINERRORS)
 
 
