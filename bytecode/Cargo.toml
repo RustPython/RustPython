@@ -16,3 +16,4 @@ num-bigint = { version = "0.3", features = ["serde"] }
 num-complex = { version = "0.3", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
 itertools = "0.9"
+bstr = "0.2"

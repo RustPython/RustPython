@@ -15,36 +15,17 @@ use vm::pyobject::ItemProtocol;
 // the program you're embedding this into doesn't take longer to start up.
 macro_rules! add_python_function {
     ( $scope:ident, $vm:ident, $src:literal $(,)? ) => {{
-        // this has to be in scope to turn a PyValue into a PyRef
-        // (a PyRef is a special reference that points to something in the VirtualMachine)
-        use vm::pyobject::PyValue;
-
+        // compile the code to bytecode
         let code = vm::py_compile!(source = $src);
+        // convert the rustpython_bytecode::CodeObject to a PyCodeRef
+        let code = $vm.ctx.new_code_object(code);
 
-        // takes the first constant in the file that's a function
-        let def = code
-            .get_constants()
-            .find_map(|c| match c {
-                vm::bytecode::Constant::Code { code } => Some(code),
-                _ => None,
-            })
-            .expect("No functions found in the provided module!");
-
-        // inserts the first function found in the module into the provided scope.
-        $scope.globals.set_item(
-            def.obj_name.as_str(),
-            $vm.ctx.new_pyfunction(
-                vm::builtins::PyCode::new(*def.clone()).into_ref(&$vm),
-                $scope.clone(),
-                None,
-                None,
-            ),
-            &$vm,
-        )
+        // run the python code in the scope to store the function
+        $vm.run_code_obj(code, $scope.clone())
     }};
 }
 
-static ON: AtomicBool = AtomicBool::new(false);
+static ON: AtomicBool = AtomicBool::new(true);
 
 fn on(b: bool) {
     ON.store(b, Ordering::Relaxed);
@@ -69,7 +50,10 @@ fn run(vm: &vm::VirtualMachine) -> vm::pyobject::PyResult<()> {
         vm,
         // a fun line to test this with is
         // ''.join( l * fib(i) for i, l in enumerate('supercalifragilistic') )
-        r#"def fib(n): return n if n <= 1 else fib(n - 1) + fib(n - 2)"#
+        r#"\
+def fib(n):
+    return n if n <= 1 else fib(n - 1) + fib(n - 2)
+"#
     )?;
 
     while ON.load(Ordering::Relaxed) {

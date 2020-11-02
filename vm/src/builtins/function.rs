@@ -1,7 +1,7 @@
 #[cfg(feature = "jit")]
 mod jitfunc;
 
-use super::code::PyCodeRef;
+use super::code::{CodeObject, PyCodeRef};
 use super::dict::PyDictRef;
 use super::pystr::PyStrRef;
 use super::pytype::PyTypeRef;
@@ -63,7 +63,7 @@ impl PyFunction {
 
     fn fill_locals_from_args(
         &self,
-        code_object: &bytecode::CodeObject,
+        code_object: &CodeObject,
         locals: &PyDictRef,
         func_args: FuncArgs,
         vm: &VirtualMachine,

@@ -6,26 +6,120 @@ use std::fmt;
 use std::ops::Deref;
 
 use super::pytype::PyTypeRef;
-use crate::bytecode;
-use crate::pyobject::{IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
-use crate::vm::VirtualMachine;
+use crate::bytecode::{self, BorrowedConstant, Constant, ConstantBag};
+use crate::pyobject::{
+    BorrowValue, IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    StaticType, TypeProtocol,
+};
+use crate::VirtualMachine;
+use num_traits::Zero;
+
+#[derive(Clone)]
+pub struct PyConstant(pub PyObjectRef);
+// pub(crate) enum PyConstant {
+//     Integer { value: super::int::PyIntRef },
+//     Float { value: super::int::PyFloatRef },
+//     Complex { value: super::complex::PyComplexRef },
+//     Boolean { value: super::int::PyIntRef },
+//     Str { value: super::pystr::PyStrRef },
+//     Bytes { value: super::bytes::PyBytesRef },
+//     Code { code: PyCodeRef },
+//     Tuple { elements: super::tuple::PyTupleRef },
+//     None(PyObjectRef),
+//     Ellipsis(PyObjectRef),
+// }
+
+fn borrow_obj_constant(obj: &PyObjectRef) -> BorrowedConstant<PyConstant> {
+    match_class!(match obj {
+        ref i @ super::int::PyInt => {
+            let value = i.borrow_value();
+            if obj.class().is(super::pybool::PyBool::static_type()) {
+                BorrowedConstant::Boolean {
+                    value: !value.is_zero(),
+                }
+            } else {
+                BorrowedConstant::Integer { value }
+            }
+        }
+        ref f @ super::float::PyFloat => BorrowedConstant::Float { value: f.to_f64() },
+        ref c @ super::complex::PyComplex => BorrowedConstant::Complex {
+            value: c.to_complex()
+        },
+        ref s @ super::pystr::PyStr => BorrowedConstant::Str {
+            value: s.borrow_value()
+        },
+        ref b @ super::bytes::PyBytes => BorrowedConstant::Bytes {
+            value: b.borrow_value()
+        },
+        ref c @ PyCode => {
+            BorrowedConstant::Code { code: &c.code }
+        }
+        ref t @ super::tuple::PyTuple => {
+            BorrowedConstant::Tuple {
+                elements: Box::new(t.borrow_value().iter().map(borrow_obj_constant)),
+            }
+        }
+        super::singletons::PyNone => BorrowedConstant::None,
+        super::slice::PyEllipsis => BorrowedConstant::Ellipsis,
+        _ => panic!("unexpected payload for constant python value"),
+    })
+}
+
+impl Constant for PyConstant {
+    fn borrow_constant(&self) -> BorrowedConstant<Self> {
+        borrow_obj_constant(&self.0)
+    }
+    fn map_constant<Bag: ConstantBag>(self, bag: &Bag) -> Bag::Constant {
+        bag.make_constant_borrowed(self.borrow_constant())
+    }
+}
+
+pub(crate) struct PyObjBag<'a>(pub &'a PyContext);
+
+impl ConstantBag for PyObjBag<'_> {
+    type Constant = PyConstant;
+    fn make_constant(&self, constant: bytecode::ConstantData) -> Self::Constant {
+        PyConstant(self.0.unwrap_constant(constant))
+    }
+    fn make_constant_borrowed<C: Constant>(&self, constant: BorrowedConstant<C>) -> Self::Constant {
+        // TODO: check if the constant is a string and try interning it without cloning
+        self.make_constant(constant.into_data())
+    }
+}
 
 pub type PyCodeRef = PyRef<PyCode>;
 
+pub type CodeObject = bytecode::CodeObject<PyConstant>;
+pub type FrozenModule = bytecode::FrozenModule<PyConstant>;
+
+pub trait IntoCodeObject {
+    fn into_codeobj(self, ctx: &PyContext) -> CodeObject;
+}
+impl IntoCodeObject for CodeObject {
+    fn into_codeobj(self, _ctx: &PyContext) -> CodeObject {
+        self
+    }
+}
+impl IntoCodeObject for bytecode::CodeObject {
+    fn into_codeobj(self, ctx: &PyContext) -> CodeObject {
+        ctx.map_codeobj(self)
+    }
+}
+
 #[pyclass(module = false, name = "code")]
 pub struct PyCode {
-    pub code: bytecode::CodeObject,
+    pub code: CodeObject,
 }
 
 impl Deref for PyCode {
-    type Target = bytecode::CodeObject;
+    type Target = CodeObject;
     fn deref(&self) -> &Self::Target {
         &self.code
     }
 }
 
 impl PyCode {
-    pub fn new(code: bytecode::CodeObject) -> PyCode {
+    pub fn new(code: CodeObject) -> PyCode {
         PyCode { code }
     }
 }
@@ -48,7 +142,7 @@ impl PyCode {}
 #[pyimpl]
 impl PyCodeRef {
     #[pyslot]
-    fn new(_cls: PyTypeRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    fn tp_new(_cls: PyTypeRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         Err(vm.new_type_error("Cannot directly create code object".to_owned()))
     }
 
@@ -91,11 +185,7 @@ impl PyCodeRef {
 
     #[pyproperty]
     fn co_consts(self, vm: &VirtualMachine) -> PyObjectRef {
-        let consts = self
-            .code
-            .get_constants()
-            .map(|x| vm.ctx.unwrap_constant(x))
-            .collect();
+        let consts = self.code.constants.iter().map(|x| x.0.clone()).collect();
         vm.ctx.new_tuple(consts)
     }
 
