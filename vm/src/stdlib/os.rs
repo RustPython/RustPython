@@ -437,7 +437,17 @@ mod _os {
     #[pyfunction]
     fn remove(path: PyPathLike, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult<()> {
         let path = make_path(vm, &path, &dir_fd)?;
-        fs::remove_file(path).map_err(|err| err.into_pyexception(vm))
+        let is_junction = cfg!(windows)
+            && fs::symlink_metadata(path).map_or(false, |meta| {
+                let ty = meta.file_type();
+                ty.is_dir() && ty.is_symlink()
+            });
+        let res = if is_junction {
+            fs::remove_dir(path)
+        } else {
+            fs::remove_file(path)
+        };
+        res.map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
