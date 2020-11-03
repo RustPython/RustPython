@@ -566,6 +566,49 @@ pub(crate) struct CFormatBytes {
     parts: Vec<(usize, CFormatPart)>,
 }
 
+fn try_update_quantity_from_tuple<'a, I: Iterator<Item = &'a PyObjectRef>>(
+    vm: &VirtualMachine,
+    elements: &mut I,
+    q: &mut Option<CFormatQuantity>,
+) -> PyResult<()> {
+    match q {
+        Some(CFormatQuantity::FromValuesTuple) => match elements.next() {
+            Some(width_obj) => {
+                if !width_obj.isinstance(&vm.ctx.types.int_type) {
+                    Err(vm.new_type_error("* wants int".to_owned()))
+                } else {
+                    let i = int::get_value(&width_obj);
+                    let i = int::try_to_primitive::<isize>(i, vm)? as usize;
+                    *q = Some(CFormatQuantity::Amount(i));
+                    Ok(())
+                }
+            }
+            None => Err(vm.new_type_error("not enough arguments for format string".to_owned())),
+        },
+        _ => Ok(()),
+    }
+}
+
+fn check_specifiers(
+    parts: &[(usize, CFormatPart)],
+    vm: &VirtualMachine,
+) -> PyResult<(usize, bool)> {
+    let mut count = 0;
+    let mut mapping_required = false;
+    for (_, part) in parts {
+        if part.is_specifier() {
+            let has_key = part.has_key();
+            if count == 0 {
+                mapping_required = has_key;
+            } else if mapping_required != has_key {
+                return Err(vm.new_type_error("format requires a mapping".to_owned()));
+            }
+            count += 1;
+        }
+    }
+    Ok((count, mapping_required))
+}
+
 impl CFormatBytes {
     pub(crate) fn parse<I: Iterator<Item = char>>(
         iter: &mut ParseIter<I>,
@@ -587,130 +630,92 @@ impl CFormatBytes {
         vm: &VirtualMachine,
         values_obj: PyObjectRef,
     ) -> PyResult<Vec<u8>> {
-        fn try_update_quantity_from_tuple(
-            vm: &VirtualMachine,
-            elements: &mut dyn Iterator<Item = PyObjectRef>,
-            q: &mut Option<CFormatQuantity>,
-            mut tuple_index: usize,
-        ) -> PyResult<usize> {
-            match q {
-                Some(CFormatQuantity::FromValuesTuple) => match elements.next() {
-                    Some(width_obj) => {
-                        tuple_index += 1;
-                        if !width_obj.isinstance(&vm.ctx.types.int_type) {
-                            Err(vm.new_type_error("* wants int".to_owned()))
-                        } else {
-                            let i = int::get_value(&width_obj);
-                            let i = int::try_to_primitive::<isize>(i, vm)? as usize;
-                            *q = Some(CFormatQuantity::Amount(i));
-                            Ok(tuple_index)
+        let (num_specifiers, mapping_required) = check_specifiers(self.parts.as_slice(), vm)?;
+        let mut result = vec![];
+
+        if num_specifiers == 0 {
+            // literal only
+            return if values_obj.isinstance(&vm.ctx.types.dict_type)
+                || (values_obj.isinstance(&vm.ctx.types.tuple_type)
+                    && tuple::get_value(&values_obj).is_empty())
+            {
+                for (_, part) in &self.parts {
+                    match part {
+                        CFormatPart::Literal(literal) => {
+                            result.extend_from_slice(literal.as_bytes())
                         }
+                        CFormatPart::Spec(_) => unreachable!(),
                     }
-                    None => {
-                        Err(vm.new_type_error("not enough arguments for format string".to_owned()))
-                    }
-                },
-                _ => Ok(tuple_index),
-            }
+                }
+                Ok(result)
+            } else {
+                Err(vm.new_type_error(
+                    "not all arguments converted during string formatting".to_owned(),
+                ))
+            };
         }
 
-        let mut final_bytes = vec![];
-        let num_specifiers = self
-            .parts
-            .iter()
-            .filter(|(_, part)| CFormatPart::is_specifier(part))
-            .count();
-        let mapping_required = self
-            .parts
-            .iter()
-            .any(|(_, part)| CFormatPart::has_key(part))
-            && self
-                .parts
-                .iter()
-                .filter(|(_, part)| CFormatPart::is_specifier(part))
-                .all(|(_, part)| CFormatPart::has_key(part));
-
-        let values = if mapping_required {
-            if !values_obj.isinstance(&vm.ctx.types.dict_type) {
-                return Err(vm.new_type_error("format requires a mapping".to_owned()));
-            }
-            values_obj.clone()
-        } else {
-            // check for only literal parts, in which case only dict or empty tuple is allowed
-            if num_specifiers == 0
-                && !(values_obj.isinstance(&vm.ctx.types.tuple_type)
-                    && tuple::get_value(&values_obj).is_empty())
-                && !values_obj.isinstance(&vm.ctx.types.dict_type)
-            {
-                return Err(vm.new_type_error(
-                    "not all arguments converted during string formatting".to_owned(),
-                ));
-            }
-
-            // convert `values_obj` to a new tuple if it's not a tuple
-            if !values_obj.isinstance(&vm.ctx.types.tuple_type) {
-                vm.ctx.new_tuple(vec![values_obj.clone()])
+        if mapping_required {
+            // dict
+            return if values_obj.isinstance(&vm.ctx.types.dict_type) {
+                for (_, part) in &self.parts {
+                    match part {
+                        CFormatPart::Literal(literal) => {
+                            result.extend_from_slice(literal.as_bytes())
+                        }
+                        CFormatPart::Spec(spec) => {
+                            let value = match &spec.mapping_key {
+                                Some(key) => values_obj.get_item(key, vm)?,
+                                None => unreachable!(),
+                            };
+                            let mut part_result = spec.bytes_format(vm, value)?;
+                            result.append(&mut part_result);
+                        }
+                    }
+                }
+                Ok(result)
             } else {
-                values_obj.clone()
-            }
+                Err(vm.new_type_error("format requires a mapping".to_owned()))
+            };
+        }
+
+        // tuple
+        let values;
+        let vec;
+        let mut value_iter = if values_obj.isinstance(&vm.ctx.types.tuple_type) {
+            values = tuple::get_value(&values_obj);
+            values.iter()
+        } else {
+            vec = vec![values_obj];
+            vec.iter()
         };
 
-        let mut tuple_index: usize = 0;
         for (_, part) in &mut self.parts {
-            let mut result_bytes: Vec<u8> = match part {
-                CFormatPart::Spec(format_spec) => {
-                    // try to get the object
-                    let obj: PyObjectRef = match &format_spec.mapping_key {
-                        Some(key) => {
-                            // TODO: change the KeyError message to match the one in cpython
-                            values.get_item(key, vm)?
-                        }
-                        None => {
-                            let mut elements = tuple::get_value(&values)
-                                .to_vec()
-                                .into_iter()
-                                .skip(tuple_index);
+            match part {
+                CFormatPart::Literal(literal) => result.extend_from_slice(literal.as_bytes()),
+                CFormatPart::Spec(spec) => {
+                    try_update_quantity_from_tuple(vm, &mut value_iter, &mut spec.min_field_width)?;
+                    try_update_quantity_from_tuple(vm, &mut value_iter, &mut spec.precision)?;
 
-                            tuple_index = try_update_quantity_from_tuple(
-                                vm,
-                                &mut elements,
-                                &mut format_spec.min_field_width,
-                                tuple_index,
-                            )?;
-                            tuple_index = try_update_quantity_from_tuple(
-                                vm,
-                                &mut elements,
-                                &mut format_spec.precision,
-                                tuple_index,
-                            )?;
-
-                            let obj = match elements.next() {
-                                Some(obj) => Ok(obj),
-                                None => Err(vm.new_type_error(
-                                    "not enough arguments for format string".to_owned(),
-                                )),
-                            }?;
-                            tuple_index += 1;
-
-                            obj
-                        }
-                    };
-                    format_spec.bytes_format(vm, obj)?
+                    let value = match value_iter.next() {
+                        Some(obj) => Ok(obj.clone()),
+                        None => Err(
+                            vm.new_type_error("not enough arguments for format string".to_owned())
+                        ),
+                    }?;
+                    let mut part_result = spec.bytes_format(vm, value)?;
+                    result.append(&mut part_result);
                 }
-                CFormatPart::Literal(literal) => literal.clone().into_bytes(),
-            };
-            final_bytes.append(&mut result_bytes);
+            }
         }
 
         // check that all arguments were converted
-        if (!mapping_required && tuple::get_value(&values).get(tuple_index).is_some())
-            && !values_obj.isinstance(&vm.ctx.types.dict_type)
-        {
-            return Err(vm.new_type_error(
-                "not all arguments converted during string formatting".to_owned(),
-            ));
+        if value_iter.next().is_some() {
+            Err(vm
+                .new_type_error("not all arguments converted during string formatting".to_owned()))
+        } else {
+            Ok(result)
         }
-        Ok(final_bytes)
     }
 }
 
@@ -745,130 +750,88 @@ impl CFormatString {
         vm: &VirtualMachine,
         values_obj: PyObjectRef,
     ) -> PyResult<String> {
-        fn try_update_quantity_from_tuple(
-            vm: &VirtualMachine,
-            elements: &mut dyn Iterator<Item = PyObjectRef>,
-            q: &mut Option<CFormatQuantity>,
-            mut tuple_index: usize,
-        ) -> PyResult<usize> {
-            match q {
-                Some(CFormatQuantity::FromValuesTuple) => match elements.next() {
-                    Some(width_obj) => {
-                        tuple_index += 1;
-                        if !width_obj.isinstance(&vm.ctx.types.int_type) {
-                            Err(vm.new_type_error("* wants int".to_owned()))
-                        } else {
-                            let i = int::get_value(&width_obj);
-                            let i = int::try_to_primitive::<isize>(i, vm)? as usize;
-                            *q = Some(CFormatQuantity::Amount(i));
-                            Ok(tuple_index)
-                        }
+        let (num_specifiers, mapping_required) = check_specifiers(self.parts.as_slice(), vm)?;
+        let mut result = String::new();
+
+        if num_specifiers == 0 {
+            // literal only
+            return if values_obj.isinstance(&vm.ctx.types.dict_type)
+                || (values_obj.isinstance(&vm.ctx.types.tuple_type)
+                    && tuple::get_value(&values_obj).is_empty())
+            {
+                for (_, part) in &self.parts {
+                    match part {
+                        CFormatPart::Literal(literal) => result.push_str(&literal),
+                        CFormatPart::Spec(_) => unreachable!(),
                     }
-                    None => {
-                        Err(vm.new_type_error("not enough arguments for format string".to_owned()))
-                    }
-                },
-                _ => Ok(tuple_index),
-            }
+                }
+                Ok(result)
+            } else {
+                Err(vm.new_type_error(
+                    "not all arguments converted during string formatting".to_owned(),
+                ))
+            };
         }
 
-        let mut final_string = String::new();
-        let num_specifiers = self
-            .parts
-            .iter()
-            .filter(|(_, part)| CFormatPart::is_specifier(part))
-            .count();
-        let mapping_required = self
-            .parts
-            .iter()
-            .any(|(_, part)| CFormatPart::has_key(part))
-            && self
-                .parts
-                .iter()
-                .filter(|(_, part)| CFormatPart::is_specifier(part))
-                .all(|(_, part)| CFormatPart::has_key(part));
-
-        let values = if mapping_required {
-            if !values_obj.isinstance(&vm.ctx.types.dict_type) {
-                return Err(vm.new_type_error("format requires a mapping".to_owned()));
-            }
-            values_obj.clone()
-        } else {
-            // check for only literal parts, in which case only dict or empty tuple is allowed
-            if num_specifiers == 0
-                && !(values_obj.isinstance(&vm.ctx.types.tuple_type)
-                    && tuple::get_value(&values_obj).is_empty())
-                && !values_obj.isinstance(&vm.ctx.types.dict_type)
-            {
-                return Err(vm.new_type_error(
-                    "not all arguments converted during string formatting".to_owned(),
-                ));
-            }
-
-            // convert `values_obj` to a new tuple if it's not a tuple
-            if !values_obj.isinstance(&vm.ctx.types.tuple_type) {
-                vm.ctx.new_tuple(vec![values_obj.clone()])
+        if mapping_required {
+            // dict
+            return if values_obj.isinstance(&vm.ctx.types.dict_type) {
+                for (_, part) in &self.parts {
+                    match part {
+                        CFormatPart::Literal(literal) => result.push_str(&literal),
+                        CFormatPart::Spec(spec) => {
+                            let value = match &spec.mapping_key {
+                                Some(key) => values_obj.get_item(key, vm)?,
+                                None => unreachable!(),
+                            };
+                            let part_result = spec.format(vm, value)?;
+                            result.push_str(&part_result);
+                        }
+                    }
+                }
+                Ok(result)
             } else {
-                values_obj.clone()
-            }
+                Err(vm.new_type_error("format requires a mapping".to_owned()))
+            };
+        }
+
+        // tuple
+        let values;
+        let vec;
+        let mut value_iter = if values_obj.isinstance(&vm.ctx.types.tuple_type) {
+            values = tuple::get_value(&values_obj);
+            values.iter()
+        } else {
+            vec = vec![values_obj];
+            vec.iter()
         };
 
-        let mut tuple_index: usize = 0;
         for (_, part) in &mut self.parts {
-            let result_string: String = match part {
-                CFormatPart::Spec(format_spec) => {
-                    // try to get the object
-                    let obj: PyObjectRef = match &format_spec.mapping_key {
-                        Some(key) => {
-                            // TODO: change the KeyError message to match the one in cpython
-                            values.get_item(key, vm)?
-                        }
-                        None => {
-                            let mut elements = tuple::get_value(&values)
-                                .to_vec()
-                                .into_iter()
-                                .skip(tuple_index);
+            match part {
+                CFormatPart::Literal(literal) => result.push_str(&literal),
+                CFormatPart::Spec(spec) => {
+                    try_update_quantity_from_tuple(vm, &mut value_iter, &mut spec.min_field_width)?;
+                    try_update_quantity_from_tuple(vm, &mut value_iter, &mut spec.precision)?;
 
-                            tuple_index = try_update_quantity_from_tuple(
-                                vm,
-                                &mut elements,
-                                &mut format_spec.min_field_width,
-                                tuple_index,
-                            )?;
-                            tuple_index = try_update_quantity_from_tuple(
-                                vm,
-                                &mut elements,
-                                &mut format_spec.precision,
-                                tuple_index,
-                            )?;
-
-                            let obj = match elements.next() {
-                                Some(obj) => Ok(obj),
-                                None => Err(vm.new_type_error(
-                                    "not enough arguments for format string".to_owned(),
-                                )),
-                            }?;
-                            tuple_index += 1;
-
-                            obj
-                        }
-                    };
-                    format_spec.format(vm, obj)
+                    let value = match value_iter.next() {
+                        Some(obj) => Ok(obj.clone()),
+                        None => Err(
+                            vm.new_type_error("not enough arguments for format string".to_owned())
+                        ),
+                    }?;
+                    let part_result = spec.format(vm, value)?;
+                    result.push_str(&part_result);
                 }
-                CFormatPart::Literal(literal) => Ok(literal.clone()),
-            }?;
-            final_string.push_str(&result_string);
+            }
         }
 
         // check that all arguments were converted
-        if (!mapping_required && tuple::get_value(&values).get(tuple_index).is_some())
-            && !values_obj.isinstance(&vm.ctx.types.dict_type)
-        {
-            return Err(vm.new_type_error(
-                "not all arguments converted during string formatting".to_owned(),
-            ));
+        if value_iter.next().is_some() {
+            Err(vm
+                .new_type_error("not all arguments converted during string formatting".to_owned()))
+        } else {
+            Ok(result)
         }
-        Ok(final_string)
     }
 }
 
