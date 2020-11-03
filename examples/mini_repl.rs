@@ -3,7 +3,6 @@
 ///! This much smaller REPL is still a useful example because it showcases inserting
 ///! values and functions into the Python runtime's scope, and showcases use
 ///! of the compilation mode "Single".
-use rustpython_compiler as compiler;
 use rustpython_vm as vm;
 // these are needed for special memory shenanigans to let us share a variable with Python and Rust
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -65,11 +64,7 @@ def fib(n):
         // this line also automatically prints the output
         // (note that this is only the case when compile::Mode::Single is passed to vm.compile)
         match vm
-            .compile(
-                &input,
-                compiler::compile::Mode::Single,
-                "<embedded>".to_owned(),
-            )
+            .compile(&input, vm::compile::Mode::Single, "<embedded>".to_owned())
             .map_err(|err| vm.new_syntax_error(&err))
             .and_then(|code_obj| vm.run_code_obj(code_obj, scope.clone()))
         {

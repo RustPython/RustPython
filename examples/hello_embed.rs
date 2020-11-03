@@ -1,4 +1,3 @@
-use rustpython_compiler as compiler;
 use rustpython_vm as vm;
 
 fn main() -> vm::pyobject::PyResult<()> {
@@ -8,7 +7,7 @@ fn main() -> vm::pyobject::PyResult<()> {
         let code_obj = vm
             .compile(
                 r#"print("Hello World!")"#,
-                compiler::compile::Mode::Exec,
+                vm::compile::Mode::Exec,
                 "<embedded>".to_owned(),
             )
             .map_err(|err| vm.new_syntax_error(&err))?;

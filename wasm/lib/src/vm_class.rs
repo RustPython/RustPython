@@ -5,8 +5,8 @@ use std::rc::{Rc, Weak};
 use js_sys::{Object, TypeError};
 use wasm_bindgen::prelude::*;
 
-use rustpython_compiler::compile;
 use rustpython_vm::common::rc::PyRc;
+use rustpython_vm::compile::{self, Mode};
 use rustpython_vm::pyobject::{ItemProtocol, PyObjectRef, PyObjectWeak, PyValue};
 use rustpython_vm::scope::{NameProtocol, Scope};
 use rustpython_vm::{InitParameter, Interpreter, PySettings, VirtualMachine};
@@ -15,7 +15,6 @@ use crate::browser_module::setup_browser_module;
 use crate::convert::{self, PyResultExt};
 use crate::js_module;
 use crate::wasm_builtins;
-use rustpython_compiler::mode::Mode;
 
 pub(crate) struct StoredVirtualMachine {
     pub interp: Interpreter,
