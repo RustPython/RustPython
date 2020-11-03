@@ -1,14 +1,15 @@
 use rustpython_bytecode::bytecode::CodeObject;
-use rustpython_compiler::{compile, symboltable};
+use rustpython_compiler_core::{compile, symboltable};
 use rustpython_parser::{ast::Location, parser};
 use std::fmt;
 
 pub use compile::{CompileOpts, Mode};
+pub use symboltable::{Symbol, SymbolScope, SymbolTable, SymbolTableType};
 
 #[derive(Debug, thiserror::Error)]
 pub enum CompileErrorType {
     #[error(transparent)]
-    Compile(#[from] rustpython_compiler::error::CompileErrorType),
+    Compile(#[from] rustpython_compiler_core::error::CompileErrorType),
     #[error(transparent)]
     Parse(#[from] rustpython_parser::error::ParseErrorType),
 }
@@ -38,7 +39,7 @@ impl fmt::Display for CompileError {
 }
 
 impl CompileError {
-    fn from_compile(error: rustpython_compiler::error::CompileError, source: &str) -> Self {
+    fn from_compile(error: rustpython_compiler_core::error::CompileError, source: &str) -> Self {
         CompileError {
             error: error.error.into(),
             location: error.location,
@@ -99,7 +100,7 @@ pub fn compile(
     res.map_err(|e| CompileError::from_compile(e, source))
 }
 
-pub(crate) fn compile_symtable(
+pub fn compile_symtable(
     source: &str,
     mode: compile::Mode,
     source_path: &str,

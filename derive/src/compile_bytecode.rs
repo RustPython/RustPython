@@ -18,8 +18,7 @@ use once_cell::sync::Lazy;
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::quote;
 use rustpython_bytecode::bytecode::{CodeObject, FrozenModule};
-use rustpython_compiler::compile;
-use rustpython_parser::parser;
+use rustpython_compiler as compile;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
@@ -44,40 +43,21 @@ struct CompilationSource {
 }
 
 impl CompilationSource {
-    fn compile_string<D: std::fmt::Display, F: Fn() -> D>(
+    fn compile_string<D: std::fmt::Display, F: FnOnce() -> D>(
         &self,
         source: &str,
         mode: compile::Mode,
         module_name: String,
         origin: F,
     ) -> Result<CodeObject, Diagnostic> {
-        let parse_err = |err| {
-            Diagnostic::spans_error(
-                self.span,
-                format!("Python parse error from {}: {}", origin(), err),
-            )
-        };
-        let opts = compile::CompileOpts::default();
-        let res = match mode {
-            compile::Mode::Exec => {
-                let ast = parser::parse_program(source).map_err(parse_err)?;
-                compile::compile_program(ast, module_name, opts)
-            }
-            compile::Mode::Eval => {
-                let statement = parser::parse_statement(source).map_err(parse_err)?;
-                compile::compile_statement_eval(statement, module_name, opts)
-            }
-            compile::Mode::Single => {
-                let ast = parser::parse_program(source).map_err(parse_err)?;
-                compile::compile_program_single(ast, module_name, opts)
-            }
-        };
-        res.map_err(|err| {
-            Diagnostic::spans_error(
-                self.span,
-                format!("Python compile error from {}: {}", origin(), err),
-            )
-        })
+        compile::compile(source, mode, module_name, compile::CompileOpts::default()).map_err(
+            |err| {
+                Diagnostic::spans_error(
+                    self.span,
+                    format!("Python compile error from {}: {}", origin(), err),
+                )
+            },
+        )
     }
 
     fn compile(

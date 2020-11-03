@@ -1667,7 +1667,6 @@ dependencies = [
  "libc",
  "log",
  "num-traits",
- "rustpython-compiler",
  "rustpython-parser",
  "rustpython-pylib",
  "rustpython-vm",
@@ -1718,6 +1717,16 @@ dependencies = [
 name = "rustpython-compiler"
 version = "0.1.2"
 dependencies = [
+ "rustpython-bytecode",
+ "rustpython-compiler-core",
+ "rustpython-parser",
+ "thiserror",
+]
+
+[[package]]
+name = "rustpython-compiler-core"
+version = "0.1.2"
+dependencies = [
  "arrayvec",
  "indexmap",
  "insta",
@@ -1740,7 +1749,6 @@ dependencies = [
  "quote",
  "rustpython-bytecode",
  "rustpython-compiler",
- "rustpython-parser",
  "syn",
  "syn-ext",
  "textwrap 0.12.1",

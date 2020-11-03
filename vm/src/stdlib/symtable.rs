@@ -6,10 +6,9 @@ mod decl {
 
     use crate::builtins::pystr::PyStrRef;
     use crate::builtins::pytype::PyTypeRef;
-    use crate::compile;
+    use crate::compile::{self, Symbol, SymbolScope, SymbolTable, SymbolTableType};
     use crate::pyobject::{BorrowValue, PyRef, PyResult, PyValue, StaticType};
     use crate::vm::VirtualMachine;
-    use rustpython_compiler::symboltable;
 
     /// symtable. Return top level SymbolTable.
     /// See docs: https://docs.python.org/3/library/symtable.html?highlight=symtable#symtable.symtable
@@ -33,7 +32,7 @@ mod decl {
         Ok(py_symbol_table.into_ref(vm))
     }
 
-    fn to_py_symbol_table(symtable: symboltable::SymbolTable) -> PySymbolTable {
+    fn to_py_symbol_table(symtable: SymbolTable) -> PySymbolTable {
         PySymbolTable { symtable }
     }
 
@@ -43,7 +42,7 @@ mod decl {
     #[pyattr]
     #[pyclass(name = "SymbolTable")]
     struct PySymbolTable {
-        symtable: symboltable::SymbolTable,
+        symtable: SymbolTable,
     }
 
     impl fmt::Debug for PySymbolTable {
@@ -82,7 +81,7 @@ mod decl {
 
         #[pymethod(name = "is_optimized")]
         fn is_optimized(&self) -> bool {
-            self.symtable.typ == symboltable::SymbolTableType::Function
+            self.symtable.typ == SymbolTableType::Function
         }
 
         #[pymethod(name = "lookup")]
@@ -160,8 +159,8 @@ mod decl {
     #[pyattr]
     #[pyclass(name = "Symbol")]
     struct PySymbol {
-        symbol: symboltable::Symbol,
-        namespaces: Vec<symboltable::SymbolTable>,
+        symbol: Symbol,
+        namespaces: Vec<SymbolTable>,
     }
 
     impl fmt::Debug for PySymbol {
@@ -206,7 +205,7 @@ mod decl {
 
         #[pymethod(name = "is_nonlocal")]
         fn is_nonlocal(&self) -> bool {
-            matches!(self.symbol.scope, symboltable::SymbolScope::Nonlocal)
+            matches!(self.symbol.scope, SymbolScope::Nonlocal)
         }
 
         #[pymethod(name = "is_referenced")]
