@@ -124,21 +124,21 @@ struct CFormatSpec {
 }
 
 impl CFormatSpec {
-    fn parse<I: Iterator<Item = char>>(iter: &mut ParseIter<I>) -> Result<Self, ParsingError> {
+    fn parse<T, I>(iter: &mut ParseIter<I>) -> Result<Self, ParsingError>
+    where
+        T: Into<char> + Copy,
+        I: Iterator<Item = T>,
+    {
         let mapping_key = parse_spec_mapping_key(iter)?;
         let flags = parse_flags(iter);
         let min_field_width = parse_quantity(iter)?;
         let precision = parse_precision(iter)?;
         consume_length(iter);
         let (format_type, format_char) = parse_format_type(iter)?;
-        let precision = if precision.is_some() {
-            precision
-        } else {
-            match format_type {
-                CFormatType::Float(_) => Some(CFormatQuantity::Amount(6)),
-                _ => None,
-            }
-        };
+        let precision = precision.or_else(|| match format_type {
+            CFormatType::Float(_) => Some(CFormatQuantity::Amount(6)),
+            _ => None,
+        });
 
         Ok(CFormatSpec {
             mapping_key,
@@ -382,7 +382,13 @@ impl CFormatSpec {
                         };
                         self.format_bytes(bytes)
                     } else {
-                        let bytes = vm.call_method(&obj, "__bytes__", ())?;
+                        let bytes = vm.call_method(&obj, "__bytes__", ())
+                            .map_err(|_| {
+                                vm.new_type_error(format!(
+                                    "%b requires a bytes-like object, or an object that implements __bytes__, not '{}'",
+                                    obj.class().name
+                                ))
+                            })?;
                         let bytes = PyBytes::try_from_object(vm, bytes)?;
                         self.format_bytes(bytes.borrow_value())
                     }
@@ -543,12 +549,12 @@ impl CFormatSpec {
 }
 
 #[derive(Debug, PartialEq)]
-enum CFormatPart {
-    Literal(String),
+enum CFormatPart<T> {
+    Literal(T),
     Spec(CFormatSpec),
 }
 
-impl CFormatPart {
+impl<T> CFormatPart<T> {
     fn is_specifier(&self) -> bool {
         matches!(self, CFormatPart::Spec(_))
     }
@@ -563,7 +569,7 @@ impl CFormatPart {
 
 #[derive(Debug, PartialEq)]
 pub(crate) struct CFormatBytes {
-    parts: Vec<(usize, CFormatPart)>,
+    parts: Vec<(usize, CFormatPart<Vec<u8>>)>,
 }
 
 fn try_update_quantity_from_tuple<'a, I: Iterator<Item = &'a PyObjectRef>>(
@@ -589,8 +595,8 @@ fn try_update_quantity_from_tuple<'a, I: Iterator<Item = &'a PyObjectRef>>(
     }
 }
 
-fn check_specifiers(
-    parts: &[(usize, CFormatPart)],
+fn check_specifiers<T>(
+    parts: &[(usize, CFormatPart<T>)],
     vm: &VirtualMachine,
 ) -> PyResult<(usize, bool)> {
     let mut count = 0;
@@ -610,19 +616,53 @@ fn check_specifiers(
 }
 
 impl CFormatBytes {
-    pub(crate) fn parse<I: Iterator<Item = char>>(
+    pub(crate) fn parse<I: Iterator<Item = u8>>(
         iter: &mut ParseIter<I>,
     ) -> Result<Self, CFormatError> {
-        match parse(iter) {
-            Ok(parts) => Ok(Self { parts }),
-            Err(err) => Err(CFormatError {
-                typ: err.0,
-                index: err.1,
-            }),
+        let mut parts = vec![];
+        let mut literal = vec![];
+        let mut part_index = 0;
+        while let Some((index, c)) = iter.next() {
+            if c == b'%' {
+                if let Some(&(_, second)) = iter.peek() {
+                    if second == b'%' {
+                        iter.next().unwrap();
+                        literal.push(b'%');
+                        continue;
+                    } else {
+                        if !literal.is_empty() {
+                            parts.push((
+                                part_index,
+                                CFormatPart::Literal(std::mem::take(&mut literal)),
+                            ));
+                        }
+                        let spec = CFormatSpec::parse(iter).map_err(|err| CFormatError {
+                            typ: err.0,
+                            index: err.1,
+                        })?;
+                        parts.push((index, CFormatPart::Spec(spec)));
+                        if let Some(&(index, _)) = iter.peek() {
+                            part_index = index;
+                        }
+                    }
+                } else {
+                    return Err(CFormatError {
+                        typ: CFormatErrorType::IncompleteFormat,
+                        index: index + 1,
+                    });
+                }
+            } else {
+                literal.push(c);
+            }
         }
+        if !literal.is_empty() {
+            parts.push((part_index, CFormatPart::Literal(literal)));
+        }
+        Ok(Self { parts })
     }
+
     pub(crate) fn parse_from_bytes(bytes: &[u8]) -> Result<Self, CFormatError> {
-        let mut iter = bytes.iter().map(|&x| x as char).enumerate().peekable();
+        let mut iter = bytes.iter().cloned().enumerate().peekable();
         Self::parse(&mut iter)
     }
     pub(crate) fn format(
@@ -639,11 +679,9 @@ impl CFormatBytes {
                 || (values_obj.isinstance(&vm.ctx.types.tuple_type)
                     && tuple::get_value(&values_obj).is_empty())
             {
-                for (_, part) in &self.parts {
+                for (_, part) in &mut self.parts {
                     match part {
-                        CFormatPart::Literal(literal) => {
-                            result.extend_from_slice(literal.as_bytes())
-                        }
+                        CFormatPart::Literal(literal) => result.append(literal),
                         CFormatPart::Spec(_) => unreachable!(),
                     }
                 }
@@ -658,11 +696,9 @@ impl CFormatBytes {
         if mapping_required {
             // dict
             return if values_obj.isinstance(&vm.ctx.types.dict_type) {
-                for (_, part) in &self.parts {
+                for (_, part) in &mut self.parts {
                     match part {
-                        CFormatPart::Literal(literal) => {
-                            result.extend_from_slice(literal.as_bytes())
-                        }
+                        CFormatPart::Literal(literal) => result.append(literal),
                         CFormatPart::Spec(spec) => {
                             let value = match &spec.mapping_key {
                                 Some(key) => values_obj.get_item(key, vm)?,
@@ -692,7 +728,7 @@ impl CFormatBytes {
 
         for (_, part) in &mut self.parts {
             match part {
-                CFormatPart::Literal(literal) => result.extend_from_slice(literal.as_bytes()),
+                CFormatPart::Literal(literal) => result.append(literal),
                 CFormatPart::Spec(spec) => {
                     try_update_quantity_from_tuple(vm, &mut value_iter, &mut spec.min_field_width)?;
                     try_update_quantity_from_tuple(vm, &mut value_iter, &mut spec.precision)?;
@@ -721,7 +757,7 @@ impl CFormatBytes {
 
 #[derive(Debug, PartialEq)]
 pub(crate) struct CFormatString {
-    parts: Vec<(usize, CFormatPart)>,
+    parts: Vec<(usize, CFormatPart<String>)>,
 }
 
 impl FromStr for CFormatString {
@@ -737,14 +773,48 @@ impl CFormatString {
     pub(crate) fn parse<I: Iterator<Item = char>>(
         iter: &mut ParseIter<I>,
     ) -> Result<Self, CFormatError> {
-        match parse(iter) {
-            Ok(parts) => Ok(Self { parts }),
-            Err(err) => Err(CFormatError {
-                typ: err.0,
-                index: err.1,
-            }),
+        let mut parts = vec![];
+        let mut literal = String::new();
+        let mut part_index = 0;
+        while let Some((index, c)) = iter.next() {
+            if c == '%' {
+                if let Some(&(_, second)) = iter.peek() {
+                    if second == '%' {
+                        iter.next().unwrap();
+                        literal.push('%');
+                        continue;
+                    } else {
+                        if !literal.is_empty() {
+                            parts.push((
+                                part_index,
+                                CFormatPart::Literal(std::mem::take(&mut literal)),
+                            ));
+                        }
+                        let spec = CFormatSpec::parse(iter).map_err(|err| CFormatError {
+                            typ: err.0,
+                            index: err.1,
+                        })?;
+                        parts.push((index, CFormatPart::Spec(spec)));
+                        if let Some(&(index, _)) = iter.peek() {
+                            part_index = index;
+                        }
+                    }
+                } else {
+                    return Err(CFormatError {
+                        typ: CFormatErrorType::IncompleteFormat,
+                        index: index + 1,
+                    });
+                }
+            } else {
+                literal.push(c);
+            }
         }
+        if !literal.is_empty() {
+            parts.push((part_index, CFormatPart::Literal(literal)));
+        }
+        Ok(Self { parts })
     }
+
     pub(crate) fn format(
         &mut self,
         vm: &VirtualMachine,
@@ -837,49 +907,13 @@ impl CFormatString {
 
 type ParseIter<I> = Peekable<Enumerate<I>>;
 
-fn parse<I: Iterator<Item = char>>(
-    iter: &mut ParseIter<I>,
-) -> Result<Vec<(usize, CFormatPart)>, ParsingError> {
-    let mut parts = vec![];
-    let mut literal = String::new();
-    let mut part_index = 0;
-    while let Some((index, c)) = iter.next() {
-        if c == '%' {
-            if let Some(&(_, second)) = iter.peek() {
-                if second == '%' {
-                    iter.next().unwrap();
-                    literal.push('%');
-                    continue;
-                } else {
-                    if !literal.is_empty() {
-                        parts.push((
-                            part_index,
-                            CFormatPart::Literal(std::mem::take(&mut literal)),
-                        ));
-                    }
-                    let spec = CFormatSpec::parse(iter)?;
-                    parts.push((index, CFormatPart::Spec(spec)));
-                    if let Some(&(index, _)) = iter.peek() {
-                        part_index = index;
-                    }
-                }
-            } else {
-                return Err((CFormatErrorType::IncompleteFormat, index + 1));
-            }
-        } else {
-            literal.push(c);
-        }
-    }
-    if !literal.is_empty() {
-        parts.push((part_index, CFormatPart::Literal(literal)));
-    }
-    Ok(parts)
-}
-
-fn parse_quantity<I: Iterator<Item = char>>(
-    iter: &mut ParseIter<I>,
-) -> Result<Option<CFormatQuantity>, ParsingError> {
+fn parse_quantity<T, I>(iter: &mut ParseIter<I>) -> Result<Option<CFormatQuantity>, ParsingError>
+where
+    T: Into<char> + Copy,
+    I: Iterator<Item = T>,
+{
     if let Some(&(_, c)) = iter.peek() {
+        let c: char = c.into();
         if c == '*' {
             iter.next().unwrap();
             return Ok(Some(CFormatQuantity::FromValuesTuple));
@@ -888,7 +922,7 @@ fn parse_quantity<I: Iterator<Item = char>>(
             let mut num = i as isize;
             iter.next().unwrap();
             while let Some(&(index, c)) = iter.peek() {
-                if let Some(i) = c.to_digit(10) {
+                if let Some(i) = c.into().to_digit(10) {
                     num = num
                         .checked_mul(10)
                         .and_then(|num| num.checked_add(i as isize))
@@ -904,11 +938,13 @@ fn parse_quantity<I: Iterator<Item = char>>(
     Ok(None)
 }
 
-fn parse_precision<I: Iterator<Item = char>>(
-    iter: &mut ParseIter<I>,
-) -> Result<Option<CFormatQuantity>, ParsingError> {
+fn parse_precision<T, I>(iter: &mut ParseIter<I>) -> Result<Option<CFormatQuantity>, ParsingError>
+where
+    T: Into<char> + Copy,
+    I: Iterator<Item = T>,
+{
     if let Some(&(_, c)) = iter.peek() {
-        if c == '.' {
+        if c.into() == '.' {
             iter.next().unwrap();
             return parse_quantity(iter);
         }
@@ -916,18 +952,21 @@ fn parse_precision<I: Iterator<Item = char>>(
     Ok(None)
 }
 
-fn parse_text_inside_parentheses<I: Iterator<Item = char>>(
-    iter: &mut ParseIter<I>,
-) -> Option<String> {
+fn parse_text_inside_parentheses<T, I>(iter: &mut ParseIter<I>) -> Option<String>
+where
+    T: Into<char>,
+    I: Iterator<Item = T>,
+{
     let mut counter: i32 = 1;
     let mut contained_text = String::new();
     loop {
         let (_, c) = iter.next()?;
+        let c = c.into();
         match c {
-            '(' => {
+            _ if c == '(' => {
                 counter += 1;
             }
-            ')' => {
+            _ if c == ')' => {
                 counter -= 1;
             }
             _ => (),
@@ -943,11 +982,13 @@ fn parse_text_inside_parentheses<I: Iterator<Item = char>>(
     Some(contained_text)
 }
 
-fn parse_spec_mapping_key<I: Iterator<Item = char>>(
-    iter: &mut ParseIter<I>,
-) -> Result<Option<String>, ParsingError> {
+fn parse_spec_mapping_key<T, I>(iter: &mut ParseIter<I>) -> Result<Option<String>, ParsingError>
+where
+    T: Into<char> + Copy,
+    I: Iterator<Item = T>,
+{
     if let Some(&(index, c)) = iter.peek() {
-        if c == '(' {
+        if c.into() == '(' {
             iter.next().unwrap();
             return match parse_text_inside_parentheses(iter) {
                 Some(key) => Ok(Some(key)),
@@ -958,10 +999,14 @@ fn parse_spec_mapping_key<I: Iterator<Item = char>>(
     Ok(None)
 }
 
-fn parse_flags<I: Iterator<Item = char>>(iter: &mut ParseIter<I>) -> CConversionFlags {
+fn parse_flags<T, I>(iter: &mut ParseIter<I>) -> CConversionFlags
+where
+    T: Into<char> + Copy,
+    I: Iterator<Item = T>,
+{
     let mut flags = CConversionFlags::empty();
     while let Some(&(_, c)) = iter.peek() {
-        let flag = match c {
+        let flag = match c.into() {
             '#' => CConversionFlags::ALTERNATE_FORM,
             '0' => CConversionFlags::ZERO_PAD,
             '-' => CConversionFlags::LEFT_ADJUST,
@@ -975,23 +1020,29 @@ fn parse_flags<I: Iterator<Item = char>>(iter: &mut ParseIter<I>) -> CConversion
     flags
 }
 
-fn consume_length<I: Iterator<Item = char>>(iter: &mut ParseIter<I>) {
-    match iter.peek().map(|x| x.1) {
-        Some('h') | Some('l') | Some('L') => {
+fn consume_length<T, I>(iter: &mut ParseIter<I>)
+where
+    T: Into<char> + Copy,
+    I: Iterator<Item = T>,
+{
+    if let Some(&(_, c)) = iter.peek() {
+        let c = c.into();
+        if c == 'h' || c == 'l' || c == 'L' {
             iter.next().unwrap();
         }
-        _ => {}
     }
 }
 
-fn parse_format_type<I: Iterator<Item = char>>(
-    iter: &mut ParseIter<I>,
-) -> Result<(CFormatType, char), ParsingError> {
+fn parse_format_type<T, I>(iter: &mut ParseIter<I>) -> Result<(CFormatType, char), ParsingError>
+where
+    T: Into<char>,
+    I: Iterator<Item = T>,
+{
     use CFloatType::*;
     use CFormatCase::{Lowercase, Uppercase};
     use CNumberType::*;
     let (index, c) = match iter.next() {
-        Some(c) => c,
+        Some((index, c)) => (index, c.into()),
         None => {
             return Err((
                 CFormatErrorType::IncompleteFormat,
