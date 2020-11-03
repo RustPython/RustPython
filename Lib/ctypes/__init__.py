@@ -4,6 +4,7 @@ from _ctypes import CFuncPtr as _CFuncPtr
 from _ctypes import dlopen as _dlopen
 
 class CDLL(object):
+
     """An instance of this class represents a loaded dll/shared
     library, exporting functions using the standard C calling
     convention (named 'cdecl' on Windows).
@@ -23,7 +24,7 @@ class CDLL(object):
         self._name = name
 
         class _FuncPtr(_CFuncPtr):
-            _restype_ = self._func_restype_
+            pass
 
         self._FuncPtr = _FuncPtr
 
@@ -44,15 +45,15 @@ class CDLL(object):
 
         func = self.__getitem__(name)
         setattr(self, name, func)
-        
+
         return func
 
     def __getitem__(self, name_or_ordinal):
-        func = self._FuncPtr((name_or_ordinal, self))
+        func = self._FuncPtr(name_or_ordinal, self)
 
         if not isinstance(name_or_ordinal, int):
             func.__name__ = name_or_ordinal
-        
+
         return func
 
 class LibraryLoader(object):
@@ -73,6 +74,3 @@ class LibraryLoader(object):
 
     def LoadLibrary(self, name):
         return self._dlltype(name)
-
-
-cdll = LibraryLoader(CDLL)
