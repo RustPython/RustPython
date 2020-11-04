@@ -1,10 +1,14 @@
 /// Implementation of Printf-Style string formatting
 /// [https://docs.python.org/3/library/stdtypes.html#printf-style-string-formatting]
-use crate::builtins::{float, int, memory::try_buffer_from_object, pystr, tuple, PyBytes};
+use crate::builtins::float::{try_bigint, IntoPyFloat, PyFloat};
+use crate::builtins::int::{self, PyInt};
+use crate::builtins::pystr::PyStr;
+use crate::builtins::{memory::try_buffer_from_object, tuple, PyBytes};
 use crate::pyobject::{
     BorrowValue, ItemProtocol, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
+use itertools::Itertools;
 use num_bigint::{BigInt, Sign};
 use num_traits::cast::ToPrimitive;
 use num_traits::Signed;
@@ -306,35 +310,46 @@ impl CFormatSpec {
         (fraction, exponent)
     }
 
-    pub(crate) fn format_float(&self, num: f64) -> Result<String, String> {
+    pub(crate) fn format_float(&self, num: f64) -> String {
         let sign_string = if num.is_sign_positive() {
             self.flags.sign_string()
         } else {
             "-"
         };
+        let precision = match self.precision {
+            Some(CFormatQuantity::Amount(p)) => p,
+            _ => 6,
+        };
 
-        let magnitude_string = match self.format_type {
+        let magnitude_string = match &self.format_type {
             CFormatType::Float(CFloatType::PointDecimal) => {
-                let precision = match self.precision {
-                    Some(CFormatQuantity::Amount(p)) => p,
-                    _ => 6,
-                };
                 let magnitude = num.abs();
-                Ok(format!("{:.*}", precision, magnitude))
+                format!("{:.*}", precision, magnitude)
             }
-            CFormatType::Float(CFloatType::Exponent(_)) => {
-                let precision = match self.precision {
-                    Some(CFormatQuantity::Amount(p)) => p,
-                    _ => 6,
-                };
+            CFormatType::Float(CFloatType::Exponent(case)) => {
                 let (fraction, exponent) = self.normalize_float(num.abs());
-                Ok(format!("{:.*}e{:+03}", precision, fraction, exponent))
+                let case = match case {
+                    CFormatCase::Lowercase => 'e',
+                    CFormatCase::Uppercase => 'E',
+                };
+                format!("{:.*}{}{:+03}", precision, fraction, case, exponent)
             }
-            CFormatType::Float(CFloatType::General(_)) => {
-                Err("Not yet implemented for %g and %G".to_owned())
+            CFormatType::Float(CFloatType::General(case)) => {
+                let precision = if precision == 0 { 1 } else { precision };
+                let (fraction, exponent) = self.normalize_float(num.abs());
+                if exponent < -4 || exponent >= (precision as i32) {
+                    let case = match case {
+                        CFormatCase::Lowercase => 'e',
+                        CFormatCase::Uppercase => 'E',
+                    };
+                    format!("{}{}{:+03}", fraction, case, exponent)
+                } else {
+                    let magnitude = num.abs();
+                    format!("{}", magnitude)
+                }
             }
             _ => unreachable!(),
-        }?;
+        };
 
         let formatted = if self.flags.contains(CConversionFlags::ZERO_PAD) {
             let fill_char = if !self.flags.contains(CConversionFlags::LEFT_ADJUST) {
@@ -354,17 +369,17 @@ impl CFormatSpec {
         } else {
             self.fill_string(format!("{}{}", sign_string, magnitude_string), ' ', None)
         };
-        Ok(formatted)
+
+        formatted
     }
 
     fn bytes_format(&self, vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Vec<u8>> {
-        // do the formatting by type
-        let formatted = match &self.format_type {
+        match &self.format_type {
             CFormatType::String(preconversor) => match preconversor {
                 CFormatPreconversor::Repr | CFormatPreconversor::Ascii => {
                     let s = vm.to_repr(&obj)?;
                     let s = self.format_string(s.borrow_value().to_owned());
-                    s.into_bytes()
+                    Ok(s.into_bytes())
                 }
                 CFormatPreconversor::Str | CFormatPreconversor::Bytes => {
                     if let Ok(buffer) = try_buffer_from_object(vm, &obj) {
@@ -380,7 +395,7 @@ impl CFormatSpec {
                                 vec.as_slice()
                             }
                         };
-                        self.format_bytes(bytes)
+                        Ok(self.format_bytes(bytes))
                     } else {
                         let bytes = vm.call_method(&obj, "__bytes__", ())
                             .map_err(|_| {
@@ -390,83 +405,73 @@ impl CFormatSpec {
                                 ))
                             })?;
                         let bytes = PyBytes::try_from_object(vm, bytes)?;
-                        self.format_bytes(bytes.borrow_value())
+                        Ok(self.format_bytes(bytes.borrow_value()))
                     }
                 }
             },
-            CFormatType::Number(number_type) => {
-                let err = || {
-                    let required_type_string = match number_type {
-                        CNumberType::Decimal => "a number",
-                        _ => "an integer",
-                    };
-                    vm.new_type_error(format!(
-                        "%{} format: {} is required, not {}",
-                        self.format_char,
-                        required_type_string,
-                        obj.class()
-                    ))
-                };
-                match_class!(match &obj {
-                    ref i @ int::PyInt => {
-                        self.format_number(i.borrow_value()).into_bytes()
+            CFormatType::Number(number_type) => match number_type {
+                CNumberType::Decimal => match_class!(match &obj {
+                    ref i @ PyInt => {
+                        Ok(self.format_number(i.borrow_value()).into_bytes())
                     }
-                    // TODO: if guards for match_class
-                    ref f @ float::PyFloat => {
-                        if let CNumberType::Decimal = number_type {
-                            self.format_number(&float::try_bigint(f.to_f64(), vm)?)
-                                .into_bytes()
-                        } else {
-                            return Err(err());
+                    ref f @ PyFloat => {
+                        Ok(self
+                            .format_number(&try_bigint(f.to_f64(), vm)?)
+                            .into_bytes())
+                    }
+                    obj => {
+                        if let Some(method) = vm.get_method(obj.clone(), "__int__") {
+                            let result = vm.invoke(&method?, ())?;
+                            if let Some(i) = result.payload::<PyInt>() {
+                                return Ok(self.format_number(i.borrow_value()).into_bytes());
+                            }
                         }
+                        Err(vm.new_type_error(format!(
+                            "%{} format: a number is required, not {}",
+                            self.format_char,
+                            obj.class().name
+                        )))
                     }
-                    _ => return Err(err()),
-                })
-            }
+                }),
+                _ => {
+                    if let Some(i) = obj.payload::<PyInt>() {
+                        Ok(self.format_number(i.borrow_value()).into_bytes())
+                    } else {
+                        Err(vm.new_type_error(format!(
+                            "%{} format: an integer is required, not {}",
+                            self.format_char,
+                            obj.class().name
+                        )))
+                    }
+                }
+            },
             CFormatType::Float(_) => {
-                let value = float::try_float(&obj, vm)?.ok_or_else(|| {
-                    vm.new_type_error(format!(
-                        "%{} format: an floating point or integer is required, not {}",
-                        self.format_char,
-                        obj.class().name
-                    ))
-                })?;
-                self.format_float(value)
-                    .map_err(|e| vm.new_not_implemented_error(e))?
-                    .into_bytes()
+                let value = IntoPyFloat::try_from_object(vm, obj)?.to_f64();
+                Ok(self.format_float(value).into_bytes())
             }
             CFormatType::Character => {
-                let ch = {
-                    if obj.isinstance(&vm.ctx.types.int_type) {
-                        // BigInt truncation is fine in this case because only the unicode range is relevant
-                        int::get_value(&obj)
-                            .to_u32()
-                            .and_then(std::char::from_u32)
-                            .ok_or_else(|| {
-                                vm.new_overflow_error("%c arg not in range(0x110000)".to_owned())
-                            })
-                    } else if obj.isinstance(&vm.ctx.types.str_type) {
-                        let s = pystr::borrow_value(&obj);
-                        let num_chars = s.chars().count();
-                        if num_chars != 1 {
-                            Err(vm.new_type_error("%c requires int or char".to_owned()))
-                        } else {
-                            Ok(s.chars().next().unwrap())
-                        }
-                    } else {
-                        // TODO re-arrange this block so this error is only created once
-                        Err(vm.new_type_error("%c requires int or char".to_owned()))
+                if let Some(i) = obj.payload::<PyInt>() {
+                    let ch = i
+                        .borrow_value()
+                        .to_u32()
+                        .and_then(std::char::from_u32)
+                        .ok_or_else(|| {
+                            vm.new_overflow_error("%c arg not in range(0x110000)".to_owned())
+                        })?;
+                    return Ok(self.format_char(ch).into_bytes());
+                }
+                if let Some(s) = obj.payload::<PyStr>() {
+                    if let Ok(ch) = s.borrow_value().chars().exactly_one() {
+                        return Ok(self.format_char(ch).into_bytes());
                     }
-                }?;
-                self.format_char(ch).into_bytes()
+                }
+                Err(vm.new_type_error("%c requires int or char".to_owned()))
             }
-        };
-        Ok(formatted)
+        }
     }
 
-    fn format(&self, vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<String> {
-        // do the formatting by type
-        let formatted = match &self.format_type {
+    fn string_format(&self, vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<String> {
+        match &self.format_type {
             CFormatType::String(preconversor) => {
                 let result = match preconversor {
                     CFormatPreconversor::Str => vm.to_str(&obj)?,
@@ -477,74 +482,65 @@ impl CFormatSpec {
                         ));
                     }
                 };
-                self.format_string(result.borrow_value().to_owned())
+                Ok(self.format_string(result.borrow_value().to_owned()))
             }
-            CFormatType::Number(number_type) => {
-                let err = || {
-                    let required_type_string = match number_type {
-                        CNumberType::Decimal => "a number",
-                        _ => "an integer",
-                    };
-                    vm.new_type_error(format!(
-                        "%{} format: {} is required, not {}",
-                        self.format_char,
-                        required_type_string,
-                        obj.class()
-                    ))
-                };
-                match_class!(match &obj {
-                    ref i @ int::PyInt => {
-                        self.format_number(i.borrow_value())
+            CFormatType::Number(number_type) => match number_type {
+                CNumberType::Decimal => match_class!(match &obj {
+                    ref i @ PyInt => {
+                        Ok(self.format_number(i.borrow_value()))
                     }
-                    // TODO: if guards for match_class
-                    ref f @ float::PyFloat => {
-                        if let CNumberType::Decimal = number_type {
-                            self.format_number(&float::try_bigint(f.to_f64(), vm)?)
-                        } else {
-                            return Err(err());
+                    ref f @ PyFloat => {
+                        Ok(self.format_number(&try_bigint(f.to_f64(), vm)?))
+                    }
+                    obj => {
+                        if let Some(method) = vm.get_method(obj.clone(), "__int__") {
+                            let result = vm.invoke(&method?, ())?;
+                            if let Some(i) = result.payload::<PyInt>() {
+                                return Ok(self.format_number(i.borrow_value()));
+                            }
                         }
+                        Err(vm.new_type_error(format!(
+                            "%{} format: a number is required, not {}",
+                            self.format_char,
+                            obj.class().name
+                        )))
                     }
-                    _ => return Err(err()),
-                })
-            }
+                }),
+                _ => {
+                    if let Some(i) = obj.payload::<PyInt>() {
+                        Ok(self.format_number(i.borrow_value()))
+                    } else {
+                        Err(vm.new_type_error(format!(
+                            "%{} format: an integer is required, not {}",
+                            self.format_char,
+                            obj.class().name
+                        )))
+                    }
+                }
+            },
             CFormatType::Float(_) => {
-                let value = float::try_float(&obj, vm)?.ok_or_else(|| {
-                    vm.new_type_error(format!(
-                        "%{} format: an floating point or integer is required, not {}",
-                        self.format_char,
-                        obj.class().name
-                    ))
-                })?;
-                self.format_float(value)
-                    .map_err(|e| vm.new_not_implemented_error(e))?
+                let value = IntoPyFloat::try_from_object(vm, obj)?.to_f64();
+                Ok(self.format_float(value))
             }
             CFormatType::Character => {
-                let ch = {
-                    if obj.isinstance(&vm.ctx.types.int_type) {
-                        // BigInt truncation is fine in this case because only the unicode range is relevant
-                        int::get_value(&obj)
-                            .to_u32()
-                            .and_then(std::char::from_u32)
-                            .ok_or_else(|| {
-                                vm.new_overflow_error("%c arg not in range(0x110000)".to_owned())
-                            })
-                    } else if obj.isinstance(&vm.ctx.types.str_type) {
-                        let s = pystr::borrow_value(&obj);
-                        let num_chars = s.chars().count();
-                        if num_chars != 1 {
-                            Err(vm.new_type_error("%c requires int or char".to_owned()))
-                        } else {
-                            Ok(s.chars().next().unwrap())
-                        }
-                    } else {
-                        // TODO re-arrange this block so this error is only created once
-                        Err(vm.new_type_error("%c requires int or char".to_owned()))
+                if let Some(i) = obj.payload::<PyInt>() {
+                    let ch = i
+                        .borrow_value()
+                        .to_u32()
+                        .and_then(std::char::from_u32)
+                        .ok_or_else(|| {
+                            vm.new_overflow_error("%c arg not in range(0x110000)".to_owned())
+                        })?;
+                    return Ok(self.format_char(ch));
+                }
+                if let Some(s) = obj.payload::<PyStr>() {
+                    if let Ok(ch) = s.borrow_value().chars().exactly_one() {
+                        return Ok(self.format_char(ch));
                     }
-                }?;
-                self.format_char(ch)
+                }
+                Err(vm.new_type_error("%c requires int or char".to_owned()))
             }
-        };
-        Ok(formatted)
+        }
     }
 }
 
@@ -854,7 +850,7 @@ impl CFormatString {
                                 Some(key) => values_obj.get_item(key, vm)?,
                                 None => unreachable!(),
                             };
-                            let part_result = spec.format(vm, value)?;
+                            let part_result = spec.string_format(vm, value)?;
                             result.push_str(&part_result);
                         }
                     }
@@ -889,7 +885,7 @@ impl CFormatString {
                             vm.new_type_error("not enough arguments for format string".to_owned())
                         ),
                     }?;
-                    let part_result = spec.format(vm, value)?;
+                    let part_result = spec.string_format(vm, value)?;
                     result.push_str(&part_result);
                 }
             }
@@ -1059,9 +1055,7 @@ where
         'E' => CFormatType::Float(Exponent(Uppercase)),
         'f' => CFormatType::Float(PointDecimal),
         'F' => CFormatType::Float(PointDecimal),
-        //TODO: Same as "e" if exponent is greater than -4 or less than precision, "f" otherwise.
         'g' => CFormatType::Float(General(Lowercase)),
-        //TODO: Same as "E" if exponent is greater than -4 or less than precision, "F" otherwise.
         'G' => CFormatType::Float(General(Uppercase)),
         'c' => CFormatType::Character,
         'r' => CFormatType::String(CFormatPreconversor::Repr),
@@ -1291,41 +1285,26 @@ mod tests {
     #[test]
     fn test_parse_and_format_float() {
         assert_eq!(
-            "%f".parse::<CFormatSpec>()
-                .unwrap()
-                .format_float(1.2345)
-                .ok(),
-            Some("1.234500".to_owned())
+            "%f".parse::<CFormatSpec>().unwrap().format_float(1.2345),
+            "1.234500"
         );
         assert_eq!(
-            "%+f"
-                .parse::<CFormatSpec>()
-                .unwrap()
-                .format_float(1.2345)
-                .ok(),
-            Some("+1.234500".to_owned())
+            "%+f".parse::<CFormatSpec>().unwrap().format_float(1.2345),
+            "+1.234500"
         );
         assert_eq!(
-            "% f"
-                .parse::<CFormatSpec>()
-                .unwrap()
-                .format_float(1.2345)
-                .ok(),
-            Some(" 1.234500".to_owned())
+            "% f".parse::<CFormatSpec>().unwrap().format_float(1.2345),
+            " 1.234500"
+        );
+        assert_eq!(
+            "%f".parse::<CFormatSpec>().unwrap().format_float(-1.2345),
+            "-1.234500"
         );
         assert_eq!(
             "%f".parse::<CFormatSpec>()
                 .unwrap()
-                .format_float(-1.2345)
-                .ok(),
-            Some("-1.234500".to_owned())
-        );
-        assert_eq!(
-            "%f".parse::<CFormatSpec>()
-                .unwrap()
-                .format_float(1.2345678901)
-                .ok(),
-            Some("1.234568".to_owned())
+                .format_float(1.2345678901),
+            "1.234568"
         );
     }
 
