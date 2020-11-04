@@ -3,9 +3,7 @@ use crate::builtins::PyTypeRef;
 use crate::pyobject::{PyResult, PyValue, StaticType};
 use crate::VirtualMachine;
 
-use crate::stdlib::ctypes::common::CDataObject;
-
-const SIMPLE_TYPE_CHARS: &'static str = "cbBhHiIlLdfuzZqQP?g";
+use crate::stdlib::ctypes::common::{CDataObject, SIMPLE_TYPE_CHARS};
 
 #[pyclass(module = "_ctypes", name = "_SimpleCData", base = "CDataObject")]
 #[derive(Debug)]

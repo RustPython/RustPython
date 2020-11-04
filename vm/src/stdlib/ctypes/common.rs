@@ -1,35 +1,40 @@
 extern crate lazy_static;
+extern crate libffi;
 extern crate libloading;
 
 use ::std::{collections::HashMap, sync::Arc};
+use libffi::{low, middle};
 use libloading::Library;
 
+use crate::builtins::pystr::PyStrRef;
 use crate::builtins::PyTypeRef;
 use crate::pyobject::{PyObjectRef, PyRef, PyResult, PyValue, StaticType};
 use crate::VirtualMachine;
-#[derive(Copy, Clone)]
-pub enum Value {
-    Bool,
-    Char,
-    Wchar,
-    Byte,
-    Ubyte,
-    Short,
-    UShort,
-    Int,
-    UInt,
-    Long,
-    LongLong,
-    ULong,
-    ULL,
-    SizeT,
-    SsizeT,
-    Float,
-    Double,
-    // LongDoudle(...) ???,
-    CharP,
-    WcharP,
-    Void,
+
+pub const SIMPLE_TYPE_CHARS: &'static str = "cbBhHiIlLdfuzZqQP?g";
+
+pub fn convert_type(ty: &str) -> middle::Type {
+    match ty {
+        "?" => middle::Type::c_uchar(),
+        "c" => middle::Type::c_schar(),
+        "u" => middle::Type::c_int(),
+        "b" => middle::Type::i8(),
+        "B" => middle::Type::c_uchar(),
+        "h" => middle::Type::c_ushort(),
+        "H" => middle::Type::u16(),
+        "i" => middle::Type::c_int(),
+        "I" => middle::Type::c_uint(),
+        "l" => middle::Type::c_long(),
+        "q" => middle::Type::c_longlong(),
+        "L" => middle::Type::c_ulong(),
+        "Q" => middle::Type::c_ulonglong(),
+        "f" => middle::Type::f32(),
+        "d" => middle::Type::f64(),
+        "g" => middle::Type::longdouble(),
+        "z" => middle::Type::pointer(),
+        "Z" => middle::Type::pointer(),
+        "P" => middle::Type::void(),
+    }
 }
 
 pub struct ExternalFunctions {
@@ -38,47 +43,35 @@ pub struct ExternalFunctions {
 }
 
 impl ExternalFunctions {
-    pub fn call_function(
-        &self,
-        function: &str,
-        arguments: Vec<CDataObject>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyObjectRef> {
-        match self.functions.get(function) {
-            Some(func_proxy) => func_proxy.call(arguments),
-            _ => Err(vm.new_runtime_error(format!("Function {} not found", function))),
-        }
-    }
-
     pub unsafe fn get_or_insert_lib(
         &mut self,
         library_path: String,
-    ) -> Result<&Library, libloading::Error> {
+    ) -> Result<&mut Arc<Library>, libloading::Error> {
         let library = self
             .libraries
             .entry(library_path)
-            .or_insert({ Arc::new(Library::new(library_path)?) });
+            .or_insert(Arc::new(Library::new(library_path)?));
 
-        Ok(library.as_ref())
+        Ok(library)
     }
 
     pub fn get_or_insert_fn(
         &mut self,
         func_name: String,
         library_path: String,
+        library: Arc<Library>,
         vm: &VirtualMachine,
-    ) -> PyResult<&mut Arc<FunctionProxy>> {
+    ) -> PyResult<Arc<FunctionProxy>> {
         let f_name = format!("{}_{}", library_path, func_name);
 
-        match self.libraries.get(&library_path) {
-            Some(library) => Ok(self.functions.entry(f_name).or_insert({
-                Arc::new(FunctionProxy {
-                    _name: f_name,
-                    _lib: *library,
-                })
-            })),
-            _ => Err(vm.new_runtime_error(format!("Library of path {} not found", library_path))),
-        }
+        Ok(self
+            .functions
+            .entry(f_name)
+            .or_insert(Arc::new(FunctionProxy {
+                _name: f_name,
+                _lib: library,
+            }))
+            .clone())
     }
 }
 
@@ -96,9 +89,40 @@ pub struct FunctionProxy {
 }
 
 impl FunctionProxy {
-    // fn call(&self, args: Vec<CDataObject>) -> PyResult<PyObjectRef> {
+    #[inline]
+    pub fn get_name(&self) -> String {
+        return self._name;
+    }
 
-    // }
+    #[inline]
+    pub fn get_lib(&self) -> &Library {
+        self._lib.as_ref()
+    }
+
+    pub fn call(
+        &self,
+        c_args: Vec<middle::Type>,
+        restype: Option<PyStrRef>,
+        arg_vec: Vec<middle::Arg>,
+        ptr_fn: Option<*const i32>,
+        vm: &VirtualMachine,
+    ) {
+        let cas_ret = restype
+            .and_then(|r| Some(r.to_string().as_str()))
+            .unwrap_or("P");
+
+        let cif = middle::Cif::new(c_args.into_iter(), convert_type(cas_ret));
+
+        if ptr_fn.is_some() {
+            // Here it needs a type to return
+            unsafe {
+                cif.call(
+                    middle::CodePtr::from_ptr(ptr_fn.unwrap() as *const _ as *const libc::c_void),
+                    arg_vec.as_slice(),
+                )
+            }
+        }
+    }
 }
 
 impl PyValue for FunctionProxy {
@@ -109,13 +133,11 @@ impl PyValue for FunctionProxy {
 
 #[pyclass(module = false, name = "_CDataObject")]
 #[derive(Debug)]
-pub struct CDataObject;
-
-pub type CDataObjectRef = PyRef<CDataObject>;
+pub struct CDataObject {}
 
 impl PyValue for CDataObject {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
+        Self::init_bare_type()
     }
 }
 

@@ -1,34 +1,30 @@
-use ::std::sync::Arc;
-use libloading::Library;
+extern crate libffi;
 
-use crate::builtins::list::PyListRef;
+use ::std::sync::Arc;
+
 use crate::builtins::pystr::{PyStr, PyStrRef};
-use crate::builtins::tuple::PyTupleRef;
 use crate::builtins::PyTypeRef;
 
 use crate::function::FuncArgs;
-use crate::pyobject::{PyObjectRef, PyRef, PyResult, PyValue, StaticType, TypeProtocol};
+use crate::pyobject::{
+    PyObjectRc, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TypeProtocol,
+};
 use crate::VirtualMachine;
 
-use crate::stdlib::ctypes::common::{CDataObject, FunctionProxy};
+use crate::stdlib::ctypes::common::{
+    convert_type, CDataObject, FunctionProxy, FUNCTIONS, SIMPLE_TYPE_CHARS,
+};
 
 use crate::slots::Callable;
 use crate::stdlib::ctypes::dll::{dlsym, SharedLibrary};
 
-extern crate libffi;
-
-use libffi::middle::*;
-
-use std::borrow::Borrow;
-
 #[pyclass(module = "_ctypes", name = "CFuncPtr", base = "CDataObject")]
 #[derive(Debug)]
 pub struct PyCFuncPtr {
-    _name_: Option<String>,
-    _argtypes_: Vec<PyRef<CDataObject>>,
-    _restype_: Option<PyRef<CDataObject>>,
-    _callable_: Option<extern "C" fn()>,
-    ext_func: Option<FunctionProxy>,
+    _name_: String,
+    _argtypes_: Vec<PyStrRef>,
+    _restype_: Option<PyStrRef>,
+    _callable_: Arc<FunctionProxy>,
 }
 
 impl PyValue for PyCFuncPtr {
@@ -39,130 +35,163 @@ impl PyValue for PyCFuncPtr {
 
 #[pyimpl(with(Callable), flags(BASETYPE))]
 impl PyCFuncPtr {
-    #[inline]
-    pub fn new() -> PyCFuncPtr {
-        PyCFuncPtr {
-            _name_: None,
-            _argtypes_: Vec::new(),
-            _restype_: None,
-            _callable_: None,
-            ext_func: None,
+    #[pyproperty(name = "_argtypes_")]
+    fn get_argtypes(&self) -> PyObjectRef {
+        self._argtypes_
+    }
+
+    #[pyproperty(name = "_restype_")]
+    fn get_restype(&self) -> PyObjectRef {
+        self._restype_
+    }
+
+    #[pyproperty(name = "_argtypes_", setter)]
+    fn set_argtypes(&self, argtypes: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if vm.isinstance(&argtypes, &vm.ctx.types.list_type).is_ok()
+            || vm.isinstance(&argtypes, &vm.ctx.types.tuple_type).is_ok()
+        {
+            let args: Vec<PyObjectRef> = vm.extract_elements(&argtypes).unwrap();
+
+            let c_args: Result<Vec<PyObjectRc>, _> = args
+                .iter()
+                .enumerate()
+                .map(|(idx, inner_obj)| {
+                    match vm.isinstance(inner_obj, CDataObject::static_type()) {
+                        Ok(bollean) => match vm.get_attribute(*inner_obj, "_type_") {
+                            Ok(_type_)
+                                if SIMPLE_TYPE_CHARS.contains(_type_.to_string().as_str()) =>
+                            {
+                                Ok(_type_)
+                            }
+                            Ok(_type_) => {
+                                Err(vm.new_attribute_error("invalid _type_ value".to_string()))
+                            }
+                            Err(e) => {
+                                Err(vm.new_attribute_error("atribute _type_ not found".to_string()))
+                            }
+                        },
+                        Err(exception) => Err(vm.new_type_error(format!(
+                            "object at {} is not an instance of _CDataObject, type {} found",
+                            idx,
+                            inner_obj.class()
+                        ))),
+                    }
+                })
+                .collect();
+
+            self._argtypes_.clear();
+            self._argtypes_
+                .extend(c_args?.iter().map(|obj| obj.to_string().as_ref()));
+
+            Ok(vm.ctx.none())
+        } else {
+            Err(vm.new_type_error(format!(
+                "argtypes must be Tuple or List, {} found.",
+                argtypes.class()
+            )))
         }
     }
 
-    // #[pyproperty]
-    // pub fn __name__(&self) -> PyResult<PyStrRef> {
-    //     self.__name__.into()
-    // }
-
-    // #[pyproperty(setter)]
-    // pub fn set___name__(&self, _name: PyStrRef) {
-    //     self.__name__ = _name.to_string();
-    // }
-
-    // #[pyproperty]
-    // pub fn argtypes(&self) -> Option<PyObjectRef> {
-    //     // I think this needs to return a tuple reference to the objects that have CDataObject implementations
-    //     // This kind off also wrong in the CPython's way, they allow classes with _as_parameter_ object attribute...
-    //     convert_to_tuple(self._argtypes_)
-    // }
-
-    // #[pyproperty(setter)]
-    // pub fn set_argtypes(&self, argtypes: PyObjectRef, vm: &VirtualMachine) {
-    //     if vm.isinstance(argtypes, PyListRef) || vm.isinstance(argtypes, PyTupleRef) {
-    //         let args: Vec<PyRef<CDataObject>> = vm.extract_elements(argtypes).into_iter().filter(|obj|vm.isinstance(obj, CDataObjectRef)).collect();
-
-    //         if args.len() > 0 {
-    //             self._argtypes_ = args;
-    //         } else {
-    //             // Exception here
-    //             // Err(vm.new_value_error(""))
-    //         }
-    //     }
-
-    //     // Exception here
-    //     // Err(vm.new_type_error(""))
-    // }
-
-    // #[pyproperty]
-    // pub fn restype(&self) -> Option<PyTupleRef> {
-    //     convert_to_tuple(self._restype_)
-    // }
-
-    // #[pyproperty(setter)]
-    // pub fn set_restype(&self, restype: PyTupleRef) {
-    //     self._restype_ = convert_from_tuple(restype)
-    // }
-
-    // #[pymethod(name = "__call__")]
-    // pub fn call(&self) {
-
-    // }
+    #[pyproperty(name = "_restype_", setter)]
+    fn set_restype(restype: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        match vm.isinstance(&restype, CDataObject::static_type()) {
+            Ok(bollean) => match vm.get_attribute(restype, "_type_") {
+                Ok(_type_) if SIMPLE_TYPE_CHARS.contains(_type_.to_string().as_str()) => Ok(_type_),
+                Ok(_type_) => Err(vm.new_attribute_error("invalid _type_ value".to_string())),
+                Err(e) => Err(vm.new_attribute_error("atribute _type_ not found".to_string())),
+            },
+            Err(exception) => Err(vm.new_type_error(format!(
+                "value is not an instance of _CDataObject, type {} found",
+                restype.class()
+            ))),
+        }
+    }
 
     // @TODO: Needs to check and implement other forms of new
     #[pyslot]
     fn tp_new(
         cls: PyTypeRef,
         func_name: PyStrRef,
-        dll: PyObjectRef,
+        arg: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        Self::from_dll(cls, func_name, dll, vm)
+        match vm.get_attribute(cls.as_object().to_owned(), "_argtypes_") {
+            Ok(inner) => Self::from_dll(cls, func_name, arg, vm),
+            Err(e) => Err(vm.new_type_error(
+                "cannot construct instance of this class: no argtypes".to_string(),
+            )),
+        }
     }
 
     /// Returns a PyCFuncPtr from a Python DLL object
     /// # Arguments
     ///
     /// * `func_name` - A string that names the function symbol
-    /// * `dll` - A Python object with _handle attribute of tpye SharedLibrary
+    /// * `dll` - A Python object with _handle attribute of type SharedLibrary
     ///
     fn from_dll(
         cls: PyTypeRef,
         func_name: PyStrRef,
-        dll: PyObjectRef,
+        arg: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        if let Ok(h) = vm.get_attribute(dll.clone(), "_handle") {
+        if let Ok(h) = vm.get_attribute(arg.clone(), "_handle") {
             if let Some(handle) = h.payload::<SharedLibrary>() {
-                if let Ok(ext_func) = dlsym(handle, func_name) {
-                    return PyCFuncPtr {
-                        _name_: None,
-                        _argtypes_: Vec::new(),
-                        _restype_: None,
-                        _callable_: Some(ext_func),
-                        ext_func: None,
-                    }
-                    .into_ref_with_type(vm, cls);
+                PyCFuncPtr {
+                    _name_: func_name.to_string(),
+                    _argtypes_: Vec::new(),
+                    _restype_: None,
+                    _callable_: FUNCTIONS.get_or_insert_fn(
+                        func_name.to_string(),
+                        handle.get_name(),
+                        handle.get_lib(),
+                        vm,
+                    )?,
                 }
+                .into_ref_with_type(vm, cls)
+            } else {
+                Err(vm.new_type_error(format!(
+                    "_handle must be SharedLibrary not {}",
+                    arg.class().name
+                )))
             }
+        } else {
+            Err(vm.new_attribute_error(
+                "positional argument 2 must have _handle attribute".to_string(),
+            ))
         }
-
-        PyCFuncPtr {
-            _name_: None,
-            _argtypes_: Vec::new(),
-            _restype_: None,
-            _callable_: None,
-            ext_func: None,
-        }
-        .into_ref_with_type(vm, cls)
     }
 }
 
 impl Callable for PyCFuncPtr {
     // @TODO: Build args e result before calling.
     fn call(zelf: &PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let c_args = vec![Type::pointer(), Type::c_int()];
-        let cif = Cif::new(c_args.into_iter(), Type::c_int());
-
-        unsafe {
-            if let Some(ext_func) = zelf._callable_ {
-                let n: *mut std::ffi::c_void = cif.call(
-                    CodePtr(ext_func as *mut _),
-                    &[arg(&String::from("Hello")), arg(&2)],
-                );
-            }
+        if args.args.len() != zelf._argtypes_.len() {
+            return Err(vm.new_runtime_error(format!(
+                "invalid number of arguments, required {}, but {} found",
+                zelf._argtypes_.len(),
+                args.args.len()
+            )));
         }
 
-        Ok(vm.ctx.none())
+        // Needs to check their types and convert to middle::Arg based on zelf._argtypes_
+        // Something similar to the set of _argtypes_
+        // arg_vec = ...
+
+        // This is not optimal, but I can't simply store a vector of middle::Type inside PyCFuncPtr
+        let c_args = zelf
+            ._argtypes_
+            .iter()
+            .map(|str_type| convert_type(str_type.to_string().as_str()))
+            .collect();
+
+        let ptr_fn = dlsym(zelf._callable_.get_lib(), zelf._callable_.get_name()).ok();
+        let ret = zelf
+            ._callable_
+            .call(c_args, zelf._restype_, arg_vec, ptr_fn, vm);
+
+        // Needs to convert ret back to an object
+
+        Ok(vm.new_pyobj(ret))
     }
 }
