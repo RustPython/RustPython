@@ -12,7 +12,7 @@ pub struct PySimpleType {
 }
 
 impl PyValue for PySimpleType {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
         Self::static_type()
     }
 }
@@ -32,12 +32,10 @@ impl PySimpleType {
                 "class must define a '_type_' attribute which must be a string of length 1"
                     .to_string(),
             ))
+        } else if SIMPLE_TYPE_CHARS.contains(s_type.as_str()) {
+            Ok(PySimpleType { _type_: _type })
         } else {
-            if SIMPLE_TYPE_CHARS.contains(s_type.as_str()) {
-                Ok(PySimpleType { _type_: _type })
-            } else {
-                Err(vm.new_attribute_error(format!("class must define a '_type_' attribute which must be\na single character string containing one of '{}'.",SIMPLE_TYPE_CHARS)))
-            }
+            Err(vm.new_attribute_error(format!("class must define a '_type_' attribute which must be\na single character string containing one of '{}'.",SIMPLE_TYPE_CHARS)))
         }
     }
 }

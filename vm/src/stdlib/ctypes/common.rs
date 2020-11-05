@@ -2,16 +2,18 @@ extern crate lazy_static;
 extern crate libffi;
 extern crate libloading;
 
-use ::std::{collections::HashMap, sync::Arc};
-use libffi::{low, middle};
+use ::std::{collections::HashMap};
+
+use libffi::middle;
 use libloading::Library;
 
-use crate::builtins::pystr::PyStrRef;
 use crate::builtins::PyTypeRef;
-use crate::pyobject::{PyObjectRef, PyRef, PyResult, PyValue, StaticType};
+use crate::pyobject::{PyValue, StaticType};
+use crate::common::lock::PyRwLock;
+use crate::common::rc::PyRc;
 use crate::VirtualMachine;
 
-pub const SIMPLE_TYPE_CHARS: &'static str = "cbBhHiIlLdfuzZqQP?g";
+pub const SIMPLE_TYPE_CHARS: &str = "cbBhHiIlLdfuzZqQP?g";
 
 pub fn convert_type(ty: &str) -> middle::Type {
     match ty {
@@ -33,110 +35,90 @@ pub fn convert_type(ty: &str) -> middle::Type {
         "g" => middle::Type::longdouble(),
         "z" => middle::Type::pointer(),
         "Z" => middle::Type::pointer(),
-        "P" => middle::Type::void(),
+        "P" | _ => middle::Type::void(),
     }
 }
 
-pub struct ExternalFunctions {
-    functions: HashMap<String, Arc<FunctionProxy>>,
-    libraries: HashMap<String, Arc<Library>>,
-}
+pub fn lib_call(
+    c_args: Vec<middle::Type>,
+    restype: middle::Type,
+    arg_vec: Vec<middle::Arg>,
+    ptr_fn: Option<*const i32>,
+    _vm: &VirtualMachine,
+) {
+    
+    let cif = middle::Cif::new(c_args.into_iter(), restype);
 
-impl ExternalFunctions {
-    pub unsafe fn get_or_insert_lib(
-        &mut self,
-        library_path: String,
-    ) -> Result<&mut Arc<Library>, libloading::Error> {
-        let library = self
-            .libraries
-            .entry(library_path)
-            .or_insert(Arc::new(Library::new(library_path)?));
-
-        Ok(library)
-    }
-
-    pub fn get_or_insert_fn(
-        &mut self,
-        func_name: String,
-        library_path: String,
-        library: Arc<Library>,
-        vm: &VirtualMachine,
-    ) -> PyResult<Arc<FunctionProxy>> {
-        let f_name = format!("{}_{}", library_path, func_name);
-
-        Ok(self
-            .functions
-            .entry(f_name)
-            .or_insert(Arc::new(FunctionProxy {
-                _name: f_name,
-                _lib: library,
-            }))
-            .clone())
-    }
-}
-
-lazy_static::lazy_static! {
-    pub static ref FUNCTIONS: ExternalFunctions = ExternalFunctions {
-        functions:HashMap::new(),
-        libraries:HashMap::new()
-    };
-}
-
-#[derive(Debug, Clone)]
-pub struct FunctionProxy {
-    _name: String,
-    _lib: Arc<Library>,
-}
-
-impl FunctionProxy {
-    #[inline]
-    pub fn get_name(&self) -> String {
-        return self._name;
-    }
-
-    #[inline]
-    pub fn get_lib(&self) -> &Library {
-        self._lib.as_ref()
-    }
-
-    pub fn call(
-        &self,
-        c_args: Vec<middle::Type>,
-        restype: Option<PyStrRef>,
-        arg_vec: Vec<middle::Arg>,
-        ptr_fn: Option<*const i32>,
-        vm: &VirtualMachine,
-    ) {
-        let cas_ret = restype
-            .and_then(|r| Some(r.to_string().as_str()))
-            .unwrap_or("P");
-
-        let cif = middle::Cif::new(c_args.into_iter(), convert_type(cas_ret));
-
-        if ptr_fn.is_some() {
-            // Here it needs a type to return
-            unsafe {
-                cif.call(
-                    middle::CodePtr::from_ptr(ptr_fn.unwrap() as *const _ as *const libc::c_void),
-                    arg_vec.as_slice(),
-                )
-            }
+    if ptr_fn.is_some() {
+        // Here it needs a type to return
+        unsafe {
+            cif.call(
+                middle::CodePtr::from_ptr(ptr_fn.unwrap() as *const _ as *const libc::c_void),
+                arg_vec.as_slice(),
+            )
         }
     }
 }
 
-impl PyValue for FunctionProxy {
+#[pyclass(module = false, name = "SharedLibrary")]
+#[derive(Debug)]
+pub struct SharedLibrary {
+    _name: String,
+    lib: Library,
+}
+
+impl SharedLibrary {
+    pub fn get_name(&self) -> &String {
+        &self._name
+    }
+
+    pub fn get_lib(&self) -> &Library {
+        &self.lib
+    }
+}
+
+impl PyValue for SharedLibrary {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.object_type
     }
 }
+
+pub struct ExternalFunctions {
+    libraries: HashMap<String, PyRc<SharedLibrary>>,
+}
+
+impl ExternalFunctions {
+    pub fn new() -> Self {
+        Self {
+            libraries: HashMap::new()
+        }
+    }
+
+    pub unsafe fn get_or_insert_lib(
+        &mut self,
+        library_path: &str,
+    ) -> Result<PyRc<SharedLibrary>, libloading::Error> {
+        let library = self
+            .libraries
+            .entry(library_path.to_string())
+            .or_insert(PyRc::new(SharedLibrary{_name:library_path.to_string(),
+                                            lib:(Library::new(library_path)?)}));
+        
+        Ok(library.clone())
+    }
+}
+
+lazy_static::lazy_static! {
+    pub static ref FUNCTIONS: PyRwLock<ExternalFunctions> = PyRwLock::new(ExternalFunctions::new());
+}
+
 
 #[pyclass(module = false, name = "_CDataObject")]
 #[derive(Debug)]
 pub struct CDataObject {}
 
 impl PyValue for CDataObject {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
         Self::init_bare_type()
     }
 }

@@ -11,7 +11,7 @@ pub struct PyCData {
 }
 
 impl PyValue for PyCData {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
         Self::static_type()
     }
 }
@@ -19,7 +19,7 @@ impl PyValue for PyCData {
 #[pyimpl]
 impl PyCData {
     #[pymethod(name = "__init__")]
-    fn init(&self, vm: &VirtualMachine) -> PyResult<()> {
+    fn init(&self, _vm: &VirtualMachine) -> PyResult<()> {
         Ok(())
     }
 }

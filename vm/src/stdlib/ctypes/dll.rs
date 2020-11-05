@@ -1,51 +1,41 @@
-use ::std::sync::Arc;
+extern crate libloading;
 
+use crate::common::rc::PyRc;
 use crate::builtins::pystr::PyStrRef;
-use crate::builtins::pytype::PyTypeRef;
-use crate::pyobject::{PyObjectRef, PyResult, PyValue};
+use crate::pyobject::{PyRef, PyObjectRef, PyResult};
 use crate::VirtualMachine;
 
-use crate::stdlib::ctypes::common::FUNCTIONS;
+use crate::stdlib::ctypes::common::{SharedLibrary,FUNCTIONS};
 
-#[derive(Debug)]
-pub struct SharedLibrary {
-    _name: String,
-    lib: &'static mut Arc<libloading::Library>,
-}
-
-impl SharedLibrary {
-    pub fn get_name(&self) -> String {
-        self._name
-    }
-
-    pub fn get_lib(&self) -> Arc<libloading::Library> {
-        self.lib.clone()
-    }
-}
-
-impl PyValue for SharedLibrary {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.object_type
-    }
-}
 
 pub fn dlopen(lib_path: PyStrRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
     let library = unsafe {
         FUNCTIONS
-            .get_or_insert_lib(lib_path.to_string())
+            .write()
+            .get_or_insert_lib(lib_path.as_ref())
             .expect("Failed to load library")
     };
 
-    Ok(vm.new_pyobj(SharedLibrary {
-        _name: lib_path.to_string(),
-        lib: library,
-    }))
+    let box_arc = Box::new(PyRc::as_ptr(&library));
+    let f_lib = unsafe { box_arc.read() };
+    Ok(vm.new_pyobj(f_lib))
 }
 
 pub fn dlsym(
-    slib: &libloading::Library,
-    func_name: String,
-) -> Result<*const i32, libloading::Error> {
-    // This need some tweaks
-    unsafe { slib.get(func_name.as_bytes())?.into_raw() as *const _ }
+    slib: PyRef<SharedLibrary>,
+    func_name: PyStrRef,
+    vm: &VirtualMachine
+) -> PyResult<*const i32> {
+
+    let ptr_res = unsafe { 
+        slib.get_lib()
+        .get(func_name.as_ref().as_bytes())
+        .map(|f| *f)
+    };
+    
+    if ptr_res.is_err() {
+        Err(vm.new_runtime_error(format!("Error while opening symbol {}",func_name.as_ref())))
+    } else {
+        Ok(ptr_res.unwrap())
+    }
 }
