@@ -732,8 +732,6 @@ class IOTest(unittest.TestCase):
         self.assertRaises(ValueError, self.open, support.TESTFN, 'w',
                           closefd=False)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_read_closed(self):
         with self.open(support.TESTFN, "w") as f:
             f.write("egg\n")
@@ -893,8 +891,6 @@ class IOTest(unittest.TestCase):
             open('non-existent', 'r', opener=badopener)
         self.assertEqual(str(cm.exception), 'opener returned -2')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_fileio_closefd(self):
         # Issue #4841
         with self.open(__file__, 'rb') as f1, \

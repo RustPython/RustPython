@@ -114,6 +114,12 @@ fn fs_metadata<P: AsRef<Path>>(path: P, follow_symlink: bool) -> io::Result<fs::
     }
 }
 
+impl AsRef<Path> for PyPathLike {
+    fn as_ref(&self) -> &Path {
+        &self.path
+    }
+}
+
 impl TryFromObject for PyPathLike {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let match1 = |obj: &PyObjectRef| {
@@ -921,6 +927,23 @@ mod _os {
         f.set_len(length as u64)
             .map_err(|e| e.into_pyexception(vm))?;
         raw_file_number(f);
+        Ok(())
+    }
+
+    #[pyfunction]
+    fn truncate(path: PyObjectRef, length: Offset, vm: &VirtualMachine) -> PyResult<()> {
+        if let Ok(fd) = i64::try_from_object(vm, path.clone()) {
+            return ftruncate(fd, length, vm);
+        }
+        let path = PyPathLike::try_from_object(vm, path)?;
+        // TODO: just call libc::truncate() on POSIX
+        let f = OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .map_err(|e| e.into_pyexception(vm))?;
+        f.set_len(length as u64)
+            .map_err(|e| e.into_pyexception(vm))?;
+        drop(f);
         Ok(())
     }
 

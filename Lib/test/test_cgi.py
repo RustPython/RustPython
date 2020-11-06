@@ -203,8 +203,6 @@ Content-Length: 3
             self.addCleanup(cgi.closelog)
             cgi.log("Testing log 4")
 
-    # TODO RUSTPYTHON
-    @unittest.expectedFailure
     def test_fieldstorage_readline(self):
         # FieldStorage uses readline, which has the capacity to read all
         # contents of the input file into memory; we use readline's size argument
@@ -294,8 +292,6 @@ Content-Length: 3
                     got = getattr(fs.list[x], k)
                     self.assertEqual(got, exp)
 
-    # TODO RUSTPYTHON
-    @unittest.expectedFailure
     def test_fieldstorage_multipart_maxline(self):
         # Issue #18167
         maxline = 1 << 16

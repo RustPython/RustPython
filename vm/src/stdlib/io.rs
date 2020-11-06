@@ -887,7 +887,11 @@ mod _io {
                 match res {
                     Some(n) => {
                         written += n;
-                        remaining -= n;
+                        if let Some(r) = remaining.checked_sub(n) {
+                            remaining = r
+                        } else {
+                            break;
+                        }
                         vm.check_signals()?;
                     }
                     None => {
@@ -1922,6 +1926,14 @@ mod _io {
         fn name(&self, vm: &VirtualMachine) -> PyResult {
             let buffer = self.lock(vm)?.buffer.clone();
             vm.get_attribute(buffer, "name")
+        }
+        #[pyproperty]
+        fn encoding(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+            Ok(self.lock(vm)?.encoding.clone())
+        }
+        #[pyproperty]
+        fn errors(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+            Ok(self.lock(vm)?.errors.clone())
         }
 
         #[pymethod]
