@@ -200,8 +200,8 @@ fn deadlock(lockkind: &str, ty: &str) -> ! {
 }
 
 pub struct SingleThreadId(());
-impl GetThreadId for SingleThreadId {
-    pub const INIT: Self = SingleThreadId(());
+unsafe impl GetThreadId for SingleThreadId {
+    const INIT: Self = SingleThreadId(());
     fn nonzero_thread_id(&self) -> NonZeroUsize {
         NonZeroUsize::new(1).unwrap()
     }

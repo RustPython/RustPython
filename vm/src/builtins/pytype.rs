@@ -60,7 +60,7 @@ impl PyValue for PyType {
 }
 
 impl PyType {
-    pub fn tp_name<'s>(&'s self) -> PyMappedRwLockReadGuard<'s, str> {
+    pub fn tp_name(&self) -> PyMappedRwLockReadGuard<str> {
         let opt_name = self.slots.name.upgradable_read();
         let read_guard = if opt_name.is_some() {
             PyRwLockUpgradableReadGuard::downgrade(opt_name)

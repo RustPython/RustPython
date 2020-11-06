@@ -1,7 +1,13 @@
 /*
  * I/O core tools.
  */
-use super::os::Offset;
+cfg_if::cfg_if! {
+    if #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))] {
+        use super::os::Offset;
+    } else {
+        type Offset = i64;
+    }
+}
 use crate::pyobject::PyObjectRef;
 use crate::VirtualMachine;
 pub(crate) use _io::io_open as open;
@@ -2788,7 +2794,7 @@ mod fileio {
             flags |= libc::O_CLOEXEC
         }
 
-        Ok((mode, flags))
+        Ok((mode, flags as _))
     }
 
     #[pyattr]

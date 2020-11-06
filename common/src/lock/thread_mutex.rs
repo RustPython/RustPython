@@ -17,6 +17,7 @@ pub struct RawThreadMutex<R: RawMutex, G: GetThreadId> {
 }
 
 impl<R: RawMutex, G: GetThreadId> RawThreadMutex<R, G> {
+    #[allow(clippy::declare_interior_mutable_const)]
     pub const INIT: Self = RawThreadMutex {
         owner: AtomicUsize::new(0),
         mutex: R::INIT,
@@ -53,6 +54,12 @@ impl<R: RawMutex, G: GetThreadId> RawThreadMutex<R, G> {
         self.lock_internal(|| self.mutex.try_lock())
     }
 
+    /// Unlocks this mutex. The inner mutex may not be unlocked if
+    /// this mutex was acquired previously in the current thread.
+    ///
+    /// # Safety
+    ///
+    /// This method may only be called if the mutex is held by the current thread.
     pub unsafe fn unlock(&self) {
         self.owner.store(0, Ordering::Relaxed);
         self.mutex.unlock();
