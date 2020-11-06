@@ -74,6 +74,24 @@ impl OutputMode {
     }
 }
 
+fn osstr_contains_nul(s: &ffi::OsStr) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        s.as_bytes().contains(&b'\0')
+    }
+    #[cfg(target_os = "wasi")]
+    {
+        use std::os::wasi::ffi::OsStrExt;
+        s.as_bytes().contains(&b'\0')
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        s.encode_wide().any(|c| c == 0)
+    }
+}
+
 pub struct PyPathLike {
     pub path: PathBuf,
     mode: OutputMode,
@@ -256,7 +274,7 @@ fn os_unimpl<T>(func: &str, vm: &VirtualMachine) -> PyResult<T> {
 
 #[pymodule]
 mod _os {
-    use super::platform::OpenFlags;
+    use super::OpenFlags;
     use super::*;
 
     #[pyattr]
@@ -264,6 +282,9 @@ mod _os {
         O_APPEND, O_CREAT, O_EXCL, O_RDONLY, O_RDWR, O_TRUNC, O_WRONLY, SEEK_CUR, SEEK_END,
         SEEK_SET,
     };
+    #[cfg(any(target_os = "dragonfly", target_os = "freebsd", target_os = "linux"))]
+    #[pyattr]
+    use libc::{SEEK_DATA, SEEK_HOLE};
     #[pyattr]
     pub(super) const F_OK: u8 = 0;
     #[pyattr]
@@ -294,6 +315,9 @@ mod _os {
             dir_fd: dir_fd.into_option(),
         };
         let fname = make_path(vm, &name, &dir_fd)?;
+        if osstr_contains_nul(fname) {
+            return Err(vm.new_value_error("embedded null character".to_owned()));
+        }
 
         let mut options = OpenOptions::new();
 
@@ -790,12 +814,12 @@ mod _os {
     }
 
     #[pyfunction]
-    fn isatty(fd: i32) -> bool {
+    pub fn isatty(fd: i32) -> bool {
         unsafe { suppress_iph!(libc::isatty(fd)) != 0 }
     }
 
     #[pyfunction]
-    fn lseek(fd: i32, position: Offset, how: i32, vm: &VirtualMachine) -> PyResult<Offset> {
+    pub fn lseek(fd: i32, position: Offset, how: i32, vm: &VirtualMachine) -> PyResult<Offset> {
         #[cfg(not(windows))]
         let res = unsafe { suppress_iph!(libc::lseek(fd, position, how)) };
         #[cfg(windows)]
@@ -891,6 +915,15 @@ mod _os {
             .into_owned()
     }
 
+    #[pyfunction]
+    pub fn ftruncate(fd: i64, length: Offset, vm: &VirtualMachine) -> PyResult<()> {
+        let f = rust_file(fd);
+        f.set_len(length as u64)
+            .map_err(|e| e.into_pyexception(vm))?;
+        raw_file_number(f);
+        Ok(())
+    }
+
     #[pyattr]
     #[pyclass(module = "os", name = "terminal_size")]
     #[derive(PyStructSequence)]
@@ -952,6 +985,7 @@ mod _os {
         supports
     }
 }
+pub(crate) use _os::{ftruncate, isatty, lseek};
 
 struct SupportFunc {
     name: &'static str,
@@ -1097,28 +1131,6 @@ mod posix {
     #[pyattr]
     const EX_CONFIG: i8 = exitcode::CONFIG as i8;
 
-    // cfg taken from nix
-    #[cfg(any(
-        target_os = "dragonfly",
-        target_os = "freebsd",
-        all(
-            target_os = "linux",
-            not(any(target_env = "musl", target_arch = "mips", target_arch = "mips64"))
-        )
-    ))]
-    #[pyattr]
-    const SEEK_DATA: i8 = unistd::Whence::SeekData as i8;
-    #[cfg(any(
-        target_os = "dragonfly",
-        target_os = "freebsd",
-        all(
-            target_os = "linux",
-            not(any(target_env = "musl", target_arch = "mips", target_arch = "mips64"))
-        )
-    ))]
-    #[pyattr]
-    const SEEK_HOLE: i8 = unistd::Whence::SeekHole as i8;
-
     #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
     #[pyattr]
     const POSIX_SPAWN_OPEN: i32 = PosixSpawnFileActionIdentifier::Open as i32;
@@ -1133,7 +1145,7 @@ mod posix {
     #[pyattr]
     const _COPYFILE_DATA: u32 = 1 << 3;
 
-    pub(super) type OpenFlags = i32;
+    pub(crate) type OpenFlags = i32;
 
     // Flags for os_access
     bitflags! {
@@ -1831,12 +1843,11 @@ mod posix {
     }
 
     #[pyfunction]
-    fn sync(_vm: &VirtualMachine) -> PyResult<()> {
+    fn sync() {
         #[cfg(not(any(target_os = "redox", target_os = "android")))]
         unsafe {
             libc::sync();
         }
-        Ok(())
     }
 
     // cfg from nix
@@ -2275,7 +2286,7 @@ mod nt {
     #[pyattr]
     use libc::O_BINARY;
 
-    pub(super) type OpenFlags = u32;
+    pub(crate) type OpenFlags = u32;
 
     pub fn raw_file_number(handle: File) -> i64 {
         use std::os::windows::io::IntoRawHandle;
@@ -2628,7 +2639,7 @@ mod minor {
     use super::*;
 
     #[cfg(target_os = "wasi")]
-    pub(super) type OpenFlags = u16;
+    pub(crate) type OpenFlags = u16;
 
     #[cfg(target_os = "wasi")]
     pub(crate) fn raw_file_number(handle: File) -> i64 {
@@ -2689,4 +2700,4 @@ mod minor {
 #[cfg(not(any(unix, windows)))]
 use minor as platform;
 
-pub(crate) use platform::{raw_file_number, rust_file, MODULE_NAME};
+pub(crate) use platform::{raw_file_number, rust_file, OpenFlags, MODULE_NAME};
