@@ -17,7 +17,8 @@ assert_raises(FileNotFoundError,
 assert_raises(FileNotFoundError,
               lambda: os.rename('DOES_NOT_EXIST', 'DOES_NOT_EXIST 2'))
 
-if hasattr(os, "sendfile"):
+# sendfile only supports in_fd as non-socket on linux and solaris
+if hasattr(os, "sendfile") and sys.platform.startswith("linux"):
     src_fd = os.open('README.md', os.O_RDONLY)
     dest_fd = os.open('destination.md', os.O_RDWR | os.O_CREAT)
     src_len = os.stat('README.md').st_size

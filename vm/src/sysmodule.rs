@@ -703,7 +703,7 @@ settrace() -- set the global debug tracing function
 
     #[cfg(windows)]
     {
-        let _getwindowsversion = WindowsVersion::make_class(ctx);
+        WindowsVersion::make_class(ctx);
         extend_module!(vm, module, {
             "getwindowsversion" => named_function!(ctx, sys, getwindowsversion),
         })
