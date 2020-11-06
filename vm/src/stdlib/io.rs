@@ -1384,13 +1384,6 @@ mod _io {
             Ok(res)
         }
         #[pymethod]
-        fn flush(&self, vm: &VirtualMachine) -> PyResult<()> {
-            let mut data = self.lock(vm)?;
-            let raw = data.check_init(vm)?;
-            ensure_unclosed(raw, "flush of closed file", vm)?;
-            data.flush_rewind(vm)
-        }
-        #[pymethod]
         fn detach(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             call_method(vm, zelf.as_object(), "flush", ())?;
             let mut data = zelf.lock(vm)?;
@@ -1625,6 +1618,13 @@ mod _io {
             ensure_unclosed(raw, "write to closed file", vm)?;
 
             data.write(obj, vm)
+        }
+        #[pymethod]
+        fn flush(&self, vm: &VirtualMachine) -> PyResult<()> {
+            let mut data = self.writer().lock(vm)?;
+            let raw = data.check_init(vm)?;
+            ensure_unclosed(raw, "flush of closed file", vm)?;
+            data.flush_rewind(vm)
         }
     }
 
@@ -2947,6 +2947,14 @@ mod fileio {
             } else {
                 "wb"
             }
+        }
+
+        #[pymethod]
+        fn flush(&self, vm: &VirtualMachine) -> PyResult<()> {
+            let mut handle = self.get_file(vm)?;
+            handle.flush().map_err(|e| e.into_pyexception(vm))?;
+            self.set_file(handle)?;
+            Ok(())
         }
 
         #[pymethod]
