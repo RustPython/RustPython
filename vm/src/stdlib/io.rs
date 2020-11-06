@@ -1883,8 +1883,9 @@ mod _io {
         }
 
         #[pymethod]
-        fn seekable(_self: PyObjectRef) -> bool {
-            true
+        fn seekable(&self, vm: &VirtualMachine) -> PyResult {
+            let buffer = self.lock(vm)?.buffer.clone();
+            vm.get_attribute(buffer, "seekable")
         }
 
         #[pymethod]
@@ -1894,7 +1895,7 @@ mod _io {
             how: OptionalArg<i32>,
             vm: &VirtualMachine,
         ) -> PyResult {
-            let data = self.lock(vm)?;
+            let buffer = self.lock(vm)?.buffer.clone();
             let offset = get_offset(offset, vm)?;
             let how = how.unwrap_or(0);
             if how == 1 && offset != 0 {
@@ -1908,33 +1909,33 @@ mod _io {
                     "can't do nonzero end-relative seeks".to_owned(),
                 ));
             }
-            call_method(vm, &data.buffer, "seek", (offset, how))
+            call_method(vm, &buffer, "seek", (offset, how))
         }
 
         #[pymethod]
         fn tell(&self, vm: &VirtualMachine) -> PyResult {
-            let data = self.lock(vm)?;
-            call_method(vm, &data.buffer, "tell", ())
+            let buffer = self.lock(vm)?.buffer.clone();
+            call_method(vm, &buffer, "tell", ())
         }
 
         #[pyproperty]
         fn name(&self, vm: &VirtualMachine) -> PyResult {
-            let data = self.lock(vm)?;
-            vm.get_attribute(data.buffer.clone(), "name")
+            let buffer = self.lock(vm)?.buffer.clone();
+            vm.get_attribute(buffer, "name")
         }
 
         #[pymethod]
         fn fileno(&self, vm: &VirtualMachine) -> PyResult {
-            let data = self.lock(vm)?;
-            call_method(vm, &data.buffer, "fileno", ())
+            let buffer = self.lock(vm)?.buffer.clone();
+            call_method(vm, &buffer, "fileno", ())
         }
 
         #[pymethod]
         fn read(&self, size: OptionalOption<PyObjectRef>, vm: &VirtualMachine) -> PyResult<String> {
-            let data = self.lock(vm)?;
-            check_readable(&data.buffer, vm)?;
+            let buffer = self.lock(vm)?.buffer.clone();
+            check_readable(&buffer, vm)?;
 
-            let bytes = call_method(vm, &data.buffer, "read", (size.flatten(),))?;
+            let bytes = call_method(vm, &buffer, "read", (size.flatten(),))?;
             let bytes = PyBytesLike::try_from_object(vm, bytes)?;
             //format bytes into string
             let rust_string = String::from_utf8(bytes.to_cow().into_owned()).map_err(|e| {
@@ -1950,14 +1951,14 @@ mod _io {
         fn write(&self, obj: PyStrRef, vm: &VirtualMachine) -> PyResult<usize> {
             use std::str::from_utf8;
 
-            let data = self.lock(vm)?;
-            check_writable(&data.buffer, vm)?;
+            let buffer = self.lock(vm)?.buffer.clone();
+            check_writable(&buffer, vm)?;
 
             let bytes = obj.borrow_value().as_bytes();
 
-            let len = call_method(vm, &data.buffer, "write", (bytes.to_owned(),));
+            let len = call_method(vm, &buffer, "write", (bytes.to_owned(),));
             if obj.borrow_value().contains('\n') {
-                let _ = call_method(vm, &data.buffer, "flush", ());
+                let _ = call_method(vm, &buffer, "flush", ());
             }
             let len = usize::try_from_object(vm, len?)?;
 
@@ -1971,16 +1972,16 @@ mod _io {
 
         #[pymethod]
         fn flush(&self, vm: &VirtualMachine) -> PyResult {
-            let data = self.lock(vm)?;
-            check_closed(&data.buffer, vm)?;
-            call_method(vm, &data.buffer, "flush", ())
+            let buffer = self.lock(vm)?.buffer.clone();
+            check_closed(&buffer, vm)?;
+            call_method(vm, &buffer, "flush", ())
         }
 
         #[pymethod]
         fn isatty(&self, vm: &VirtualMachine) -> PyResult {
-            let data = self.lock(vm)?;
-            check_closed(&data.buffer, vm)?;
-            call_method(vm, &data.buffer, "isatty", ())
+            let buffer = self.lock(vm)?.buffer.clone();
+            check_closed(&buffer, vm)?;
+            call_method(vm, &buffer, "isatty", ())
         }
 
         #[pymethod]
@@ -1989,10 +1990,10 @@ mod _io {
             size: OptionalOption<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<String> {
-            let data = self.lock(vm)?;
-            check_readable(&data.buffer, vm)?;
+            let buffer = self.lock(vm)?.buffer.clone();
+            check_readable(&buffer, vm)?;
 
-            let bytes = call_method(vm, &data.buffer, "readline", (size.flatten(),))?;
+            let bytes = call_method(vm, &buffer, "readline", (size.flatten(),))?;
             let bytes = PyBytesLike::try_from_object(vm, bytes)?;
             //format bytes into string
             let rust_string = String::from_utf8(bytes.borrow_value().to_vec()).map_err(|e| {
@@ -2006,18 +2007,17 @@ mod _io {
 
         #[pymethod]
         fn close(&self, vm: &VirtualMachine) -> PyResult {
-            let data = self.lock(vm)?;
-            call_method(vm, &data.buffer, "close", ())
+            let buffer = self.lock(vm)?.buffer.clone();
+            call_method(vm, &buffer, "close", ())
         }
         #[pyproperty]
         fn closed(&self, vm: &VirtualMachine) -> PyResult {
-            let data = self.lock(vm)?;
-            vm.get_attribute(data.buffer.clone(), "closed")
+            let buffer = self.lock(vm)?.buffer.clone();
+            vm.get_attribute(buffer, "closed")
         }
         #[pyproperty]
         fn buffer(&self, vm: &VirtualMachine) -> PyResult {
-            let data = self.lock(vm)?;
-            Ok(data.buffer.clone())
+            Ok(self.lock(vm)?.buffer.clone())
         }
 
         #[pymethod(magic)]
