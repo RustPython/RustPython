@@ -11,6 +11,7 @@ use crate::builtins::pystr::{self, PyStr, PyStrRef};
 use crate::builtins::singletons::PyNoneRef;
 use crate::builtins::PyTypeRef;
 use crate::byteslike::try_bytes_like;
+use crate::cformat::CFormatBytes;
 use crate::function::{OptionalArg, OptionalOption};
 use crate::pyobject::{
     BorrowValue, Either, IdProtocol, PyComparisonValue, PyIterable, PyObjectRef, PyRef, PyResult,
@@ -894,8 +895,10 @@ impl PyBytesInner {
         res
     }
 
-    pub fn cformat(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
-        self.elements.py_cformat(values, vm)
+    pub fn cformat(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        CFormatBytes::parse_from_bytes(self.elements.as_slice())
+            .map_err(|err| vm.new_value_error(err.to_string()))?
+            .format(vm, values)
     }
 
     pub fn repeat(&self, n: isize) -> Vec<u8> {
