@@ -865,7 +865,15 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                 }
-                BlockType::FinallyHandler { .. } => {
+                BlockType::FinallyHandler {
+                    reason: finally_reason,
+                } => {
+                    if let Some(UnwindReason::Raising { exception }) = finally_reason {
+                        let finally_exc = exception;
+                        if let UnwindReason::Raising { exception } = &reason {
+                            exception.set_context(Some(finally_exc))
+                        }
+                    }
                     self.pop_block();
                 }
                 BlockType::ExceptHandler => {
