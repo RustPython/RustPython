@@ -70,9 +70,7 @@ impl PySequenceIterator {
         let hint = if self.reversed {
             pos + 1
         } else {
-            let len = vm._len(&self.obj).unwrap_or_else(|| {
-                Err(vm.new_type_error("sequence has no __len__ method".to_owned()))
-            })?;
+            let len = vm.obj_len(&self.obj)?;
             len as isize - pos
         };
         Ok(hint)

@@ -1525,7 +1525,7 @@ impl VirtualMachine {
         hash(&obj, self)
     }
 
-    pub fn _len(&self, obj: &PyObjectRef) -> Option<PyResult<usize>> {
+    pub fn obj_len_opt(&self, obj: &PyObjectRef) -> Option<PyResult<usize>> {
         self.get_method(obj.clone(), "__len__").map(|len| {
             let len = self.invoke(&len?, ())?;
             let len = len
@@ -1544,6 +1544,15 @@ impl VirtualMachine {
                 self.new_overflow_error("cannot fit 'int' into an index-sized integer".to_owned())
             })?;
             Ok(len as usize)
+        })
+    }
+
+    pub fn obj_len(&self, obj: &PyObjectRef) -> PyResult<usize> {
+        self.obj_len_opt(obj).unwrap_or_else(|| {
+            Err(self.new_type_error(format!(
+                "object of type '{}' has no len()",
+                obj.class().name
+            )))
         })
     }
 

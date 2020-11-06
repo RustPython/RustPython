@@ -440,12 +440,7 @@ mod decl {
 
     #[pyfunction]
     fn len(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-        vm._len(&obj).unwrap_or_else(|| {
-            Err(vm.new_type_error(format!(
-                "object of type '{}' has no len()",
-                obj.class().name
-            )))
-        })
+        vm.obj_len(&obj)
     }
 
     #[pyfunction]
