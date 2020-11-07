@@ -1,30 +1,28 @@
 extern crate libffi;
 
-use ::std::{mem};
+use ::std::mem;
 
-use crate::builtins::pystr::{PyStr,PyStrRef};
-use crate::builtins::{PyTypeRef};
+use crate::builtins::pystr::{PyStr, PyStrRef};
+use crate::builtins::PyTypeRef;
 use crate::common::rc::PyRc;
 use crate::function::FuncArgs;
-use crate::pyobject::{
-    PyObjectRef, PyRef, PyResult, PyValue, StaticType, TypeProtocol,
-};
+use crate::pyobject::{PyObjectRef, PyRef, PyResult, PyValue, StaticType, TypeProtocol};
 use crate::VirtualMachine;
 
 use crate::stdlib::ctypes::common::{
-    lib_call, convert_type, CDataObject, SharedLibrary, SIMPLE_TYPE_CHARS
+    convert_type, lib_call, CDataObject, SharedLibrary, SIMPLE_TYPE_CHARS,
 };
 
 use crate::slots::Callable;
-use crate::stdlib::ctypes::dll::{dlsym};
+use crate::stdlib::ctypes::dll::dlsym;
 
 #[pyclass(module = "_ctypes", name = "CFuncPtr", base = "CDataObject")]
 #[derive(Debug)]
 pub struct PyCFuncPtr {
-    _name_: String,
-    _argtypes_: Vec<PyObjectRef>,
-    _restype_: Box<String>,
-    _handle: PyRef<SharedLibrary>
+    pub _name_: String,
+    pub _argtypes_: Vec<PyObjectRef>,
+    pub _restype_: Box<String>,
+    _handle: PyRef<SharedLibrary>,
 }
 
 impl PyValue for PyCFuncPtr {
@@ -83,7 +81,6 @@ impl PyCFuncPtr {
             self._argtypes_.extend(c_args?.into_iter());
 
             Ok(())
-
         } else {
             Err(vm.new_type_error(format!(
                 "argtypes must be Tuple or List, {} found.",
@@ -96,10 +93,11 @@ impl PyCFuncPtr {
     fn set_restype(&self, restype: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         match vm.isinstance(&restype, CDataObject::static_type()) {
             Ok(_) => match vm.get_attribute(restype, "_type_") {
-                Ok(_type_) if vm.isinstance(&_type_, &vm.ctx.types.str_type)? && 
-                                        _type_.to_string().len() == 1 && 
-                                        SIMPLE_TYPE_CHARS.contains(_type_.to_string().as_str()) => {
-                    
+                Ok(_type_)
+                    if vm.isinstance(&_type_, &vm.ctx.types.str_type)?
+                        && _type_.to_string().len() == 1
+                        && SIMPLE_TYPE_CHARS.contains(_type_.to_string().as_str()) =>
+                {
                     let old = self._restype_.as_mut();
                     let new = _type_.to_string();
                     mem::replace(old, new);
@@ -145,12 +143,11 @@ impl PyCFuncPtr {
     ) -> PyResult<PyRef<Self>> {
         if let Ok(h) = vm.get_attribute(arg.clone(), "_handle") {
             if let Some(handle) = h.payload::<SharedLibrary>() {
-
                 PyCFuncPtr {
                     _name_: func_name.to_string(),
                     _argtypes_: Vec::new(),
                     _restype_: Box::new("".to_string()),
-                    _handle: handle.into_ref(vm)
+                    _handle: handle.into_ref(vm),
                 }
                 .into_ref_with_type(vm, cls)
             } else {
@@ -192,9 +189,9 @@ impl Callable for PyCFuncPtr {
         let arg_vec = Vec::new();
 
         let ret_type = convert_type(zelf._restype_.to_string().as_ref());
-        
+
         let name_py_ref = PyStr::from(&zelf._name_).into_ref(vm);
-        let ptr_fn = dlsym(zelf._handle.into_ref(vm), name_py_ref,vm).ok();
+        let ptr_fn = dlsym(zelf._handle.into_ref(vm), name_py_ref, vm).ok();
         let ret = lib_call(c_args, ret_type, arg_vec, ptr_fn, vm);
 
         Ok(vm.new_pyobj(ret))

@@ -2,15 +2,15 @@ extern crate lazy_static;
 extern crate libffi;
 extern crate libloading;
 
-use ::std::{collections::HashMap};
+use ::std::collections::HashMap;
 
 use libffi::middle;
 use libloading::Library;
 
 use crate::builtins::PyTypeRef;
-use crate::pyobject::{PyValue, StaticType};
 use crate::common::lock::PyRwLock;
 use crate::common::rc::PyRc;
+use crate::pyobject::{PyObjectRef, PyValue, StaticType};
 use crate::VirtualMachine;
 
 pub const SIMPLE_TYPE_CHARS: &str = "cbBhHiIlLdfuzZqQP?g";
@@ -46,7 +46,6 @@ pub fn lib_call(
     ptr_fn: Option<*const i32>,
     _vm: &VirtualMachine,
 ) {
-    
     let cif = middle::Cif::new(c_args.into_iter(), restype);
 
     if ptr_fn.is_some() {
@@ -60,16 +59,22 @@ pub fn lib_call(
     }
 }
 
-#[pyclass(module = false, name = "SharedLibrary")]
 #[derive(Debug)]
 pub struct SharedLibrary {
-    _name: String,
+    path_name: String,
     lib: Library,
 }
 
 impl SharedLibrary {
+    pub fn new(name: &str) -> Result<SharedLibrary, libloading::Error> {
+        Ok(SharedLibrary {
+            path_name: name.to_string(),
+            lib: Library::new(name.to_string())?,
+        })
+    }
+
     pub fn get_name(&self) -> &String {
-        &self._name
+        &self.path_name
     }
 
     pub fn get_lib(&self) -> &Library {
@@ -90,28 +95,27 @@ pub struct ExternalFunctions {
 impl ExternalFunctions {
     pub fn new() -> Self {
         Self {
-            libraries: HashMap::new()
+            libraries: HashMap::new(),
         }
     }
 
     pub unsafe fn get_or_insert_lib(
         &mut self,
         library_path: &str,
-    ) -> Result<PyRc<SharedLibrary>, libloading::Error> {
+        vm: &VirtualMachine,
+    ) -> Result<PyObjectRef, libloading::Error> {
         let library = self
             .libraries
             .entry(library_path.to_string())
-            .or_insert(PyRc::new(SharedLibrary{_name:library_path.to_string(),
-                                            lib:(Library::new(library_path)?)}));
-        
-        Ok(library.clone())
+            .or_insert(PyRc::new(SharedLibrary::new(library_path)?));
+
+        Ok(library.clone().into_object(vm))
     }
 }
 
 lazy_static::lazy_static! {
-    pub static ref FUNCTIONS: PyRwLock<ExternalFunctions> = PyRwLock::new(ExternalFunctions::new());
+    pub static ref CDATACACHE: PyRwLock<ExternalFunctions> = PyRwLock::new(ExternalFunctions::new());
 }
-
 
 #[pyclass(module = false, name = "_CDataObject")]
 #[derive(Debug)]
