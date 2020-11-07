@@ -253,13 +253,7 @@ impl PyInt {
         let value = if let OptionalArg::Present(val) = options.val_options {
             if let OptionalArg::Present(base) = options.base {
                 let base = vm
-                    .to_index(&base)
-                    .unwrap_or_else(|| {
-                        Err(vm.new_type_error(format!(
-                            "'{}' object cannot be interpreted as an integer",
-                            base.class().name
-                        )))
-                    })?
+                    .to_index(&base)?
                     .borrow_value()
                     .to_u32()
                     .filter(|&v| v == 0 || (2..=36).contains(&v))

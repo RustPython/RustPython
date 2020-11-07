@@ -108,7 +108,7 @@ pub fn stop_iter_value(vm: &VirtualMachine, exc: &PyBaseExceptionRef) -> PyResul
 }
 
 pub fn length_hint(vm: &VirtualMachine, iter: PyObjectRef) -> PyResult<Option<usize>> {
-    if let Some(len) = vm._len(&iter) {
+    if let Some(len) = vm.obj_len_opt(&iter) {
         match len {
             Ok(len) => return Ok(Some(len)),
             Err(e) => {

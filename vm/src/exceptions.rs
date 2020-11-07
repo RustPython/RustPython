@@ -152,6 +152,17 @@ impl PyBaseException {
     }
 }
 
+pub fn chain<T>(e1: PyResult<()>, e2: PyResult<T>) -> PyResult<T> {
+    match (e1, e2) {
+        (Err(e1), Err(e)) => {
+            e.set_context(Some(e1));
+            Err(e)
+        }
+        (Err(e), Ok(_)) | (Ok(()), Err(e)) => Err(e),
+        (Ok(()), Ok(close_res)) => Ok(close_res),
+    }
+}
+
 /// Print exception chain by calling sys.excepthook
 pub fn print_exception(vm: &VirtualMachine, exc: PyBaseExceptionRef) {
     let write_fallback = |exc, errstr| {

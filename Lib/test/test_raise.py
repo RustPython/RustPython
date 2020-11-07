@@ -376,8 +376,6 @@ class TestContext(unittest.TestCase):
         else:
             self.fail("No exception raised")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_raise_finally(self):
         try:
             try:
@@ -389,8 +387,6 @@ class TestContext(unittest.TestCase):
         else:
             self.fail("No exception raised")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_context_manager(self):
         class ContextManager:
             def __enter__(self):

@@ -768,9 +768,6 @@ class TestCase(unittest.TestCase):
             self.assertEqual(indexOf(iclass, i), i)
         self.assertRaises(ValueError, indexOf, iclass, -1)
 
-    # Test iterators with file.writelines().
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_writelines(self):
         f = open(TESTFN, "w")
 

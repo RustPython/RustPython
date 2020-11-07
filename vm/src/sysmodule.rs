@@ -403,7 +403,7 @@ const ABIFLAGS: &str = "";
 // https://github.com/python/cpython/blob/3.8/configure.ac#L725
 const MULTIARCH: &str = env!("RUSTPYTHON_TARGET_TRIPLE");
 
-pub fn sysconfigdata_name() -> String {
+pub(crate) fn sysconfigdata_name() -> String {
     format!("_sysconfigdata_{}_{}_{}", ABIFLAGS, PLATFORM, MULTIARCH)
 }
 
@@ -484,7 +484,7 @@ impl PyIntInfo {
     };
 }
 
-pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectRef) {
+pub(crate) fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectRef) {
     let ctx = &vm.ctx;
 
     let _flags_type = SysFlags::make_class(ctx);

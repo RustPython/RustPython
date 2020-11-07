@@ -131,15 +131,8 @@ fn math_sqrt(value: IntoPyFloat, vm: &VirtualMachine) -> PyResult<f64> {
 }
 
 fn math_isqrt(x: PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt> {
-    let index = vm.to_index(&x).ok_or_else(|| {
-        vm.new_type_error(format!(
-            "'{}' object cannot be interpreted as an integer",
-            x.class().name
-        ))
-    })?;
-    // __index__ may have returned non-int type
-    let python_value = index?;
-    let value = python_value.borrow_value();
+    let index = vm.to_index(&x)?;
+    let value = index.borrow_value();
 
     if value.is_negative() {
         return Err(vm.new_value_error("isqrt() argument must be nonnegative".to_owned()));

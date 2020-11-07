@@ -69,7 +69,7 @@ mod sequence;
 mod sliceable;
 pub mod slots;
 pub mod stdlib;
-mod sysmodule;
+pub mod sysmodule;
 pub mod types;
 pub mod util;
 mod version;
