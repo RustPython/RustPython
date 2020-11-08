@@ -99,16 +99,14 @@ pub trait Buffer: Debug + PyThreadingConstraint {
     fn release(&self);
 
     fn as_contiguous(&self) -> Option<BorrowedValue<[u8]>> {
-        let options = self.get_options();
-        if !options.contiguous {
+        if !self.get_options().contiguous {
             return None;
         }
         Some(self.obj_bytes())
     }
 
     fn as_contiguous_mut(&self) -> Option<BorrowedValueMut<[u8]>> {
-        let options = self.get_options();
-        if !options.contiguous {
+        if !self.get_options().contiguous {
             return None;
         }
         Some(self.obj_bytes_mut())
@@ -513,16 +511,6 @@ impl PyMemoryView {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let items = try_buffer_from_object(vm, &items)?;
-        let options = items.get_options();
-        let len = options.len;
-        let itemsize = options.itemsize;
-
-        if itemsize != zelf.options.itemsize {
-            return Err(vm.new_type_error(format!(
-                "memoryview: invalid type for format '{}'",
-                zelf.options.format
-            )));
-        }
 
         let diff_err = || {
             Err(vm.new_value_error(
@@ -530,8 +518,22 @@ impl PyMemoryView {
             ))
         };
 
-        if options.format != zelf.options.format {
-            return diff_err();
+        let (len, itemsize);
+        {
+            let options = items.get_options();
+            len = options.len;
+            itemsize = options.itemsize;
+
+            if itemsize != zelf.options.itemsize {
+                return Err(vm.new_type_error(format!(
+                    "memoryview: invalid type for format '{}'",
+                    zelf.options.format
+                )));
+            }
+
+            if options.format != zelf.options.format {
+                return diff_err();
+            }
         }
 
         let (range, step, is_negative_step) = convert_slice(&slice, zelf.options.len, vm)?;
@@ -807,8 +809,7 @@ impl Buffer for PyMemoryViewRef {
     }
 
     fn as_contiguous(&self) -> Option<BorrowedValue<[u8]>> {
-        let options = self.get_options();
-        if !options.contiguous {
+        if !self.options.contiguous {
             return None;
         }
         Some(BorrowedValue::map(self.obj_bytes(), |x| {
@@ -817,8 +818,7 @@ impl Buffer for PyMemoryViewRef {
     }
 
     fn as_contiguous_mut(&self) -> Option<BorrowedValueMut<[u8]>> {
-        let options = self.get_options();
-        if !options.contiguous {
+        if !self.options.contiguous {
             return None;
         }
         Some(BorrowedValueMut::map(self.obj_bytes_mut(), |x| {
