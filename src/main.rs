@@ -5,9 +5,9 @@ extern crate env_logger;
 extern crate log;
 
 use clap::{App, AppSettings, Arg, ArgMatches};
-use rustpython_compiler::compile;
 use rustpython_vm::{
     builtins::PyInt,
+    compile,
     exceptions::print_exception,
     match_class,
     pyobject::{BorrowValue, ItemProtocol, PyResult, TypeProtocol},

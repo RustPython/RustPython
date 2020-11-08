@@ -9,7 +9,10 @@ license = "MIT"
 include = ["LICENSE", "Cargo.toml", "src/**/*.rs"]
 
 [workspace]
-members = [".", "derive", "vm", "wasm/lib", "parser", "compiler", "bytecode", "vm/pylib-crate", "common", "jit"]
+members = [
+    ".", "ast", "bytecode", "common", "compiler", "compiler/porcelain",
+    "derive", "jit", "parser", "vm", "vm/pylib-crate", "wasm/lib",
+]
 
 [[bench]]
 name = "bench"
@@ -28,7 +31,7 @@ ssl = ["rustpython-vm/ssl"]
 log = "0.4"
 env_logger = "0.7"
 clap = "2.33"
-rustpython-compiler = { path = "compiler", version = "0.1.1" }
+rustpython-compiler = { path = "compiler/porcelain", version = "0.1.1" }
 rustpython-parser = { path = "parser", version = "0.1.1" }
 rustpython-vm = { path = "vm", version = "0.1.1", default-features = false, features = ["compile-parse"] }
 pylib = { package = "rustpython-pylib", path = "vm/pylib-crate", version = "0.1.0", default-features = false, optional = true }

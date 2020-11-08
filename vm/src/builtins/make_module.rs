@@ -21,6 +21,8 @@ mod decl {
     use crate::builtins::pytype::PyTypeRef;
     use crate::byteslike::PyBytesLike;
     use crate::common::{hash::PyHash, str::to_ascii};
+    #[cfg(feature = "rustpython-compiler")]
+    use crate::compile;
     use crate::exceptions::PyBaseExceptionRef;
     use crate::function::{single_or_tuple_any, Args, FuncArgs, KwArgs, OptionalArg};
     use crate::iterator;
@@ -36,8 +38,6 @@ mod decl {
     use crate::{py_io, sysmodule};
     use num_bigint::Sign;
     use num_traits::{Signed, ToPrimitive, Zero};
-    #[cfg(feature = "rustpython-compiler")]
-    use rustpython_compiler::compile;
 
     #[pyfunction]
     fn abs(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {

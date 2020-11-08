@@ -3,8 +3,8 @@
 //! This means source code is translated into separate tokens.
 
 pub use super::token::Tok;
+use crate::ast::Location;
 use crate::error::{LexicalError, LexicalErrorType};
-use crate::location::Location;
 use num_bigint::BigInt;
 use num_traits::identities::Zero;
 use num_traits::Num;

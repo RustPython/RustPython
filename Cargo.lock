@@ -1675,6 +1675,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustpython-ast"
+version = "0.1.0"
+dependencies = [
+ "num-bigint",
+]
+
+[[package]]
 name = "rustpython-bytecode"
 version = "0.1.2"
 dependencies = [
@@ -1711,12 +1718,23 @@ dependencies = [
 name = "rustpython-compiler"
 version = "0.1.2"
 dependencies = [
+ "rustpython-bytecode",
+ "rustpython-compiler-core",
+ "rustpython-parser",
+ "thiserror",
+]
+
+[[package]]
+name = "rustpython-compiler-core"
+version = "0.1.2"
+dependencies = [
  "arrayvec",
  "indexmap",
  "insta",
  "itertools",
  "log",
  "num-complex",
+ "rustpython-ast",
  "rustpython-bytecode",
  "rustpython-parser",
 ]
@@ -1761,6 +1779,7 @@ dependencies = [
  "log",
  "num-bigint",
  "num-traits",
+ "rustpython-ast",
  "unic-emoji-char",
  "unic-ucd-ident",
  "unicode_names2",
@@ -1874,7 +1893,6 @@ dependencies = [
  "js-sys",
  "parking_lot",
  "rustpython-common",
- "rustpython-compiler",
  "rustpython-parser",
  "rustpython-vm",
  "serde",

@@ -12,8 +12,8 @@ use crate::symboltable::{
 };
 use itertools::Itertools;
 use num_complex::Complex64;
+use rustpython_ast as ast;
 use rustpython_bytecode::bytecode::{self, CallType, CodeObject, Instruction, Label};
-use rustpython_parser::{ast, parser};
 
 type CompileResult<T> = Result<T, CompileError>;
 
@@ -61,31 +61,6 @@ impl CompileContext {
     }
 }
 
-/// Compile a given sourcecode into a bytecode object.
-pub fn compile(
-    source: &str,
-    mode: Mode,
-    source_path: String,
-    opts: CompileOpts,
-) -> CompileResult<CodeObject> {
-    let to_compile_error =
-        |parse_error| CompileError::from_parse_error(parse_error, source_path.clone());
-    match mode {
-        Mode::Exec => {
-            let ast = parser::parse_program(source).map_err(to_compile_error)?;
-            compile_program(ast, source_path, opts)
-        }
-        Mode::Eval => {
-            let statement = parser::parse_statement(source).map_err(to_compile_error)?;
-            compile_statement_eval(statement, source_path, opts)
-        }
-        Mode::Single => {
-            let ast = parser::parse_program(source).map_err(to_compile_error)?;
-            compile_program_single(ast, source_path, opts)
-        }
-    }
-}
-
 /// A helper function for the shared code of the different compile functions
 fn with_compiler(
     source_path: String,
@@ -106,8 +81,10 @@ pub fn compile_program(
     source_path: String,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
-    let symbol_table = make_symbol_table(&ast)
-        .map_err(|e| CompileError::from_symbol_table_error(e, source_path.clone()))?;
+    let symbol_table = match make_symbol_table(&ast) {
+        Ok(x) => x,
+        Err(e) => return Err(e.into_compile_error(source_path)),
+    };
     with_compiler(source_path, opts, |compiler| {
         compiler.compile_program(&ast, symbol_table)
     })
@@ -119,8 +96,10 @@ pub fn compile_statement_eval(
     source_path: String,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
-    let symbol_table = statements_to_symbol_table(&statement)
-        .map_err(|e| CompileError::from_symbol_table_error(e, source_path.clone()))?;
+    let symbol_table = match statements_to_symbol_table(&statement) {
+        Ok(x) => x,
+        Err(e) => return Err(e.into_compile_error(source_path)),
+    };
     with_compiler(source_path, opts, |compiler| {
         compiler.compile_statement_eval(&statement, symbol_table)
     })
@@ -132,8 +111,10 @@ pub fn compile_program_single(
     source_path: String,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
-    let symbol_table = make_symbol_table(&ast)
-        .map_err(|e| CompileError::from_symbol_table_error(e, source_path.clone()))?;
+    let symbol_table = match make_symbol_table(&ast) {
+        Ok(x) => x,
+        Err(e) => return Err(e.into_compile_error(source_path)),
+    };
     with_compiler(source_path, opts, |compiler| {
         compiler.compile_program_single(&ast, symbol_table)
     })
@@ -165,7 +146,6 @@ impl Compiler {
             error,
             location,
             source_path: self.source_path.clone(),
-            statement: None,
         }
     }
 
