@@ -1451,3 +1451,34 @@ impl<'s> AnyStr<'s, char> for str {
         splited
     }
 }
+
+#[repr(transparent)]
+pub struct PyStrExact(PyStrRef);
+impl PyStrExact {
+    pub fn from_str(s: PyStrRef, ctx: &PyContext) -> Result<Self, PyStrRef> {
+        if s.class().is(&ctx.types.str_type) {
+            Ok(Self(s))
+        } else {
+            Err(s)
+        }
+    }
+    pub fn into_pystr(self) -> PyStrRef {
+        self.0
+    }
+}
+impl IntoPyObject for PyStrExact {
+    fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
+        self.0.into_object()
+    }
+}
+impl crate::dictdatatype::DictKey for PyStrExact {
+    fn key_hash(&self, vm: &VirtualMachine) -> PyResult<hash::PyHash> {
+        self.0.key_hash(vm)
+    }
+    fn key_is(&self, other: &PyObjectRef) -> bool {
+        self.0.key_is(other)
+    }
+    fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
+        self.0.key_eq(vm, other_key)
+    }
+}

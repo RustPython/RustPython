@@ -26,7 +26,7 @@ mod decl {
         let code = bytecode::CodeObject::from_bytes(&*code_bytes.borrow_value())
             .map_err(|_| vm.new_value_error("Couldn't deserialize python bytecode".to_owned()))?;
         Ok(PyCode {
-            code: vm.ctx.map_codeobj(code),
+            code: vm.map_codeobj(code),
         })
     }
 

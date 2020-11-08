@@ -488,8 +488,5 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 }
 
 pub fn setup_js_module(vm: &mut VirtualMachine) {
-    let state = PyRc::get_mut(&mut vm.state).unwrap();
-    state
-        .stdlib_inits
-        .insert("_js".to_owned(), Box::new(make_module));
+    vm.add_native_module("_js".to_owned(), Box::new(make_module));
 }

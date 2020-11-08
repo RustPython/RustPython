@@ -32,14 +32,12 @@ impl StoredVirtualMachine {
 
             js_module::setup_js_module(vm);
             if inject_browser_module {
-                PyRc::get_mut(&mut vm.state).unwrap().stdlib_inits.insert(
-                    "_window".to_owned(),
-                    Box::new(|vm| {
-                        py_module!(vm, "_window", {
-                            "window" => js_module::PyJsValue::new(wasm_builtins::window()).into_ref(vm),
-                        })
-                    }),
-                );
+                fn init_window_module(vm: &VirtualMachine) -> PyObjectRef {
+                    py_module!(vm, "_window", {
+                        "window" => js_module::PyJsValue::new(wasm_builtins::window()).into_ref(vm),
+                    })
+                }
+                vm.add_native_module("_window".to_owned(), Box::new(init_window_module));
                 setup_browser_module(vm);
             }
 

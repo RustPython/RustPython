@@ -255,8 +255,11 @@ impl ExecutingFrame<'_> {
         flame_guard!(format!("Frame::run({})", self.code.obj_name));
         // Execute until return or exception:
         loop {
-            let loc = self.current_location();
-            let result = self.execute_instruction(vm);
+            let idx = self.lasti.fetch_add(1, Ordering::Relaxed);
+            let loc = self.code.locations[idx];
+            let instr = &self.code.instructions[idx];
+            vm.check_signals()?;
+            let result = self.execute_instruction(instr, vm);
             match result {
                 Ok(None) => {}
                 Ok(Some(value)) => {
@@ -329,11 +332,12 @@ impl ExecutingFrame<'_> {
     }
 
     /// Execute a single instruction.
-    fn execute_instruction(&mut self, vm: &VirtualMachine) -> FrameResult {
-        vm.check_signals()?;
-
-        let instruction = &self.code.instructions[self.lasti.fetch_add(1, Ordering::Relaxed)];
-
+    #[inline(always)]
+    fn execute_instruction(
+        &mut self,
+        instruction: &bytecode::Instruction,
+        vm: &VirtualMachine,
+    ) -> FrameResult {
         flame_guard!(format!("Frame::execute_instruction({:?})", instruction));
 
         #[cfg(feature = "vm-tracing-logging")]
@@ -1463,10 +1467,6 @@ impl ExecutingFrame<'_> {
         // mutate lasti if the mutex is held, and any other thread that
         // wants to guarantee the value of this will use a Lock anyway
         self.lasti.load(Ordering::Relaxed)
-    }
-
-    fn current_location(&self) -> bytecode::Location {
-        self.code.locations[self.lasti()]
     }
 
     fn push_block(&mut self, typ: BlockType) {

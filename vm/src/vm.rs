@@ -20,7 +20,7 @@ use crate::builtins::list::PyList;
 use crate::builtins::module::{self, PyModule};
 use crate::builtins::object;
 use crate::builtins::pybool;
-use crate::builtins::pystr::{PyStr, PyStrRef};
+use crate::builtins::pystr::{PyStr, PyStrExact, PyStrRef};
 use crate::builtins::pytype::PyTypeRef;
 use crate::builtins::tuple::PyTuple;
 use crate::common::{hash::HashSecret, lock::PyMutex, rc::PyRc};
@@ -116,15 +116,6 @@ pub struct PyGlobalState {
     pub thread_count: AtomicCell<usize>,
     pub hash_secret: HashSecret,
     pub atexit_funcs: PyMutex<Vec<(PyObjectRef, FuncArgs)>>,
-}
-
-impl PyGlobalState {
-    pub fn add_frozen<I>(&mut self, ctx: &PyContext, frozen: I)
-    where
-        I: IntoIterator<Item = (String, bytecode::FrozenModule)>,
-    {
-        self.frozen.extend(frozen::map_frozen(ctx, frozen))
-    }
 }
 
 pub const NSIG: usize = 64;
@@ -257,14 +248,13 @@ impl VirtualMachine {
         let signal_handlers = RefCell::new(arr![ctx.none(); 64]);
 
         let stdlib_inits = stdlib::get_module_inits();
-        let frozen = frozen::get_module_inits(&ctx);
 
         let hash_secret = match settings.hash_seed {
             Some(seed) => HashSecret::new(seed),
             None => rand::random(),
         };
 
-        let vm = VirtualMachine {
+        let mut vm = VirtualMachine {
             builtins,
             sys_module: sysmod,
             ctx: PyRc::new(ctx),
@@ -281,7 +271,7 @@ impl VirtualMachine {
             state: PyRc::new(PyGlobalState {
                 settings,
                 stdlib_inits,
-                frozen,
+                frozen: HashMap::new(),
                 stacksize: AtomicCell::new(0),
                 thread_count: AtomicCell::new(0),
                 hash_secret,
@@ -289,6 +279,9 @@ impl VirtualMachine {
             }),
             initialized: false,
         };
+
+        let frozen = frozen::get_module_inits(&vm);
+        PyRc::get_mut(&mut vm.state).unwrap().frozen = frozen;
 
         module::init_module_dict(
             &vm,
@@ -353,6 +346,24 @@ impl VirtualMachine {
         self.expect_pyresult(res, "initializiation failed");
 
         self.initialized = true;
+    }
+
+    /// Can only be used in the initialization closure passed to [`Interpreter::new_with_init`]
+    pub fn add_native_module(&mut self, name: String, module: stdlib::StdlibInitFunc) {
+        let state = PyRc::get_mut(&mut self.state)
+            .expect("can't add_native_module when there are multiple threads");
+        state.stdlib_inits.insert(name, module);
+    }
+
+    /// Can only be used in the initialization closure passed to [`Interpreter::new_with_init`]
+    pub fn add_frozen<I>(&mut self, frozen: I)
+    where
+        I: IntoIterator<Item = (String, bytecode::FrozenModule)>,
+    {
+        let frozen = frozen::map_frozen(self, frozen).collect::<Vec<_>>();
+        let state = PyRc::get_mut(&mut self.state)
+            .expect("can't add_frozen when there are multiple threads");
+        state.frozen.extend(frozen);
     }
 
     /// Start a new thread with access to the same interpreter.
@@ -511,6 +522,10 @@ impl VirtualMachine {
     /// Create a new python object
     pub fn new_pyobj<T: IntoPyObject>(&self, value: T) -> PyObjectRef {
         value.into_pyobject(self)
+    }
+
+    pub fn new_code_object(&self, code: impl code::IntoCodeObject) -> PyCodeRef {
+        self.ctx.new_code_object(code.into_codeobj(self))
     }
 
     pub fn new_module(&self, name: &str, dict: PyDictRef) -> PyObjectRef {
@@ -1229,7 +1244,7 @@ impl VirtualMachine {
         opts: CompileOpts,
     ) -> Result<PyCodeRef, CompileError> {
         compile::compile(source, mode, source_path, opts)
-            .map(|code| PyCode::new(self.ctx.map_codeobj(code)).into_ref(self))
+            .map(|code| PyCode::new(self.map_codeobj(code)).into_ref(self))
     }
 
     fn call_codec_func(
@@ -1622,6 +1637,20 @@ impl VirtualMachine {
         Ok(value)
     }
 
+    pub fn map_codeobj(&self, code: bytecode::CodeObject) -> code::CodeObject {
+        code.map_bag(&code::PyObjBag(self))
+    }
+
+    pub fn intern_string<S: Internable>(&self, s: S) -> PyStrRef {
+        let (s, _) = self
+            .ctx
+            .string_cache
+            .setdefault_entry(self, s, || ())
+            .expect("string_cache lookup should never error");
+        s.downcast()
+            .expect("only strings should be in string_cache")
+    }
+
     #[doc(hidden)]
     pub fn __module_set_attr(
         &self,
@@ -1633,6 +1662,17 @@ impl VirtualMachine {
         object::setattr(module.clone(), attr_name.try_into_ref(self)?, val, self)
     }
 }
+
+mod sealed {
+    pub trait SealedInternable {}
+    impl SealedInternable for String {}
+    impl SealedInternable for &str {}
+    impl SealedInternable for super::PyStrExact {}
+}
+pub trait Internable: sealed::SealedInternable + crate::dictdatatype::DictKey {}
+impl Internable for String {}
+impl Internable for &str {}
+impl Internable for PyStrExact {}
 
 pub struct ReprGuard<'vm> {
     vm: &'vm VirtualMachine,
