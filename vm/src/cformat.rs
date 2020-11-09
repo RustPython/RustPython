@@ -305,9 +305,13 @@ impl CFormatSpec {
         };
 
         let magnitude_string = match &self.format_type {
-            CFormatType::Float(CFloatType::PointDecimal(_)) => {
+            CFormatType::Float(CFloatType::PointDecimal(case)) => {
+                let case = match case {
+                    CFormatCase::Lowercase => float_ops::Case::Lower,
+                    CFormatCase::Uppercase => float_ops::Case::Upper,
+                };
                 let magnitude = num.abs();
-                format!("{:.*}", precision, magnitude)
+                float_ops::format_fixed(precision, magnitude, case)
             }
             CFormatType::Float(CFloatType::Exponent(case)) => {
                 let case = match case {

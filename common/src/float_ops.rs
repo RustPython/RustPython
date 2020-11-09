@@ -107,6 +107,15 @@ fn format_inf(case: Case) -> String {
     inf.to_string()
 }
 
+pub fn format_fixed(precision: usize, magnitude: f64, case: Case) -> String {
+    match magnitude {
+        magnitude if magnitude.is_finite() => format!("{:.*}", precision, magnitude),
+        magnitude if magnitude.is_nan() => format_nan(case),
+        magnitude if magnitude.is_infinite() => format_inf(case),
+        _ => "".to_string(),
+    }
+}
+
 // Formats floats into Python style exponent notation, by first formatting in Rust style
 // exponent notation (`1.0000e0`), then convert to Python style (`1.0000e+00`).
 pub fn format_exponent(precision: usize, magnitude: f64, case: Case) -> String {
