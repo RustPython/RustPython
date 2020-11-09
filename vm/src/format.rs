@@ -375,12 +375,16 @@ impl FormatSpec {
             Some(FormatType::GeneralFormatLower) => {
                 Err("Format code 'g' for object of type 'float' not implemented yet")
             }
-            Some(FormatType::ExponentUpper) => {
-                Ok(float_ops::format_float_as_exponent(precision, magnitude).to_uppercase())
-            }
-            Some(FormatType::ExponentLower) => {
-                Ok(float_ops::format_float_as_exponent(precision, magnitude).to_lowercase())
-            }
+            Some(FormatType::ExponentUpper) => Ok(float_ops::format_float_as_exponent(
+                precision,
+                magnitude,
+                float_ops::FloatFormatCase::Upper,
+            )),
+            Some(FormatType::ExponentLower) => Ok(float_ops::format_float_as_exponent(
+                precision,
+                magnitude,
+                float_ops::FloatFormatCase::Lower,
+            )),
             Some(FormatType::Percentage) => match magnitude {
                 magnitude if magnitude.is_nan() => Ok("nan%".to_owned()),
                 magnitude if magnitude.is_infinite() => Ok("inf%".to_owned()),

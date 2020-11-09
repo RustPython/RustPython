@@ -83,21 +83,45 @@ pub fn is_integer(v: f64) -> bool {
     (v - v.round()).abs() < std::f64::EPSILON
 }
 
+#[derive(Debug)]
+pub enum FloatFormatCase {
+    Lower,
+    Upper,
+}
+
+fn format_nan(case: FloatFormatCase) -> String {
+    let nan = match case {
+        FloatFormatCase::Lower => "nan",
+        FloatFormatCase::Upper => "NAN",
+    };
+
+    nan.to_string()
+}
+
+fn format_inf(case: FloatFormatCase) -> String {
+    let inf = match case {
+        FloatFormatCase::Lower => "inf",
+        FloatFormatCase::Upper => "INF",
+    };
+
+    inf.to_string()
+}
+
 // Formats floats into Python style exponent notation, by first formatting in Rust style
 // exponent notation (`1.0000e0`), then convert to Python style (`1.0000e+00`).
-pub fn format_float_as_exponent(precision: usize, magnitude: f64) -> String {
-    if magnitude.is_nan() {
-        return "nan".to_string();
+pub fn format_float_as_exponent(precision: usize, magnitude: f64, case: FloatFormatCase) -> String {
+    match magnitude {
+        magnitude if magnitude.is_finite() => {
+            let r_exp = format!("{:.*e}", precision, magnitude);
+            let mut parts = r_exp.splitn(2, 'e');
+            let base = parts.next().unwrap();
+            let exponent = parts.next().unwrap().parse::<i64>().unwrap();
+            format!("{}e{:+#03}", base, exponent)
+        }
+        magnitude if magnitude.is_nan() => format_nan(case),
+        magnitude if magnitude.is_infinite() => format_inf(case),
+        _ => "".to_string(),
     }
-    if magnitude.is_infinite() {
-        return "inf".to_string();
-    }
-
-    let r_exp = format!("{:.*e}", precision, magnitude);
-    let mut parts = r_exp.splitn(2, 'e');
-    let base = parts.next().unwrap();
-    let exponent = parts.next().unwrap().parse::<i64>().unwrap();
-    format!("{}e{:+#03}", base, exponent)
 }
 
 pub fn to_string(value: f64) -> String {

@@ -250,7 +250,7 @@ impl CFormatSpec {
             "-"
         };
 
-        let magnitude_string = match self.format_type {
+        let magnitude_string = match &self.format_type {
             CFormatType::Float(CFloatType::PointDecimal(_)) => {
                 let precision = match self.precision {
                     Some(CFormatQuantity::Amount(p)) => p,
@@ -259,13 +259,19 @@ impl CFormatSpec {
                 let magnitude = num.abs();
                 Ok(format!("{:.*}", precision, magnitude))
             }
-            CFormatType::Float(CFloatType::Exponent(_)) => {
+            CFormatType::Float(CFloatType::Exponent(case)) => {
                 let precision = match self.precision {
                     Some(CFormatQuantity::Amount(p)) => p,
                     _ => 6,
                 };
                 let magnitude = num.abs();
-                Ok(float_ops::format_float_as_exponent(precision, magnitude))
+                let float_case = match case {
+                    CFormatCase::Lowercase => float_ops::FloatFormatCase::Lower,
+                    CFormatCase::Uppercase => float_ops::FloatFormatCase::Upper,
+                };
+                Ok(float_ops::format_float_as_exponent(
+                    precision, magnitude, float_case,
+                ))
             }
             CFormatType::Float(CFloatType::General(_)) => {
                 Err("Not yet implemented for %g and %G".to_owned())
