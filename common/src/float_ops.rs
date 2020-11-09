@@ -84,24 +84,24 @@ pub fn is_integer(v: f64) -> bool {
 }
 
 #[derive(Debug)]
-pub enum FloatFormatCase {
+pub enum Case {
     Lower,
     Upper,
 }
 
-fn format_nan(case: FloatFormatCase) -> String {
+fn format_nan(case: Case) -> String {
     let nan = match case {
-        FloatFormatCase::Lower => "nan",
-        FloatFormatCase::Upper => "NAN",
+        Case::Lower => "nan",
+        Case::Upper => "NAN",
     };
 
     nan.to_string()
 }
 
-fn format_inf(case: FloatFormatCase) -> String {
+fn format_inf(case: Case) -> String {
     let inf = match case {
-        FloatFormatCase::Lower => "inf",
-        FloatFormatCase::Upper => "INF",
+        Case::Lower => "inf",
+        Case::Upper => "INF",
     };
 
     inf.to_string()
@@ -109,7 +109,7 @@ fn format_inf(case: FloatFormatCase) -> String {
 
 // Formats floats into Python style exponent notation, by first formatting in Rust style
 // exponent notation (`1.0000e0`), then convert to Python style (`1.0000e+00`).
-pub fn format_float_as_exponent(precision: usize, magnitude: f64, case: FloatFormatCase) -> String {
+pub fn format_exponent(precision: usize, magnitude: f64, case: Case) -> String {
     match magnitude {
         magnitude if magnitude.is_finite() => {
             let r_exp = format!("{:.*e}", precision, magnitude);

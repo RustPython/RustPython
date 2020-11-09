@@ -329,11 +329,11 @@ impl CFormatSpec {
             }
             CFormatType::Float(CFloatType::Exponent(case)) => {
                 let case = match case {
-                    CFormatCase::Lowercase => float_ops::FloatFormatCase::Lower,
-                    CFormatCase::Uppercase => float_ops::FloatFormatCase::Upper,
+                    CFormatCase::Lowercase => float_ops::Case::Lower,
+                    CFormatCase::Uppercase => float_ops::Case::Upper,
                 };
                 let magnitude = num.abs();
-                float_ops::format_float_as_exponent(precision, magnitude, case)
+                float_ops::format_exponent(precision, magnitude, case)
             }
             CFormatType::Float(CFloatType::General(case)) => {
                 let precision = if precision == 0 { 1 } else { precision };
