@@ -116,7 +116,11 @@ pub fn format_exponent(precision: usize, magnitude: f64, case: Case) -> String {
             let mut parts = r_exp.splitn(2, 'e');
             let base = parts.next().unwrap();
             let exponent = parts.next().unwrap().parse::<i64>().unwrap();
-            format!("{}e{:+#03}", base, exponent)
+            let e = match case {
+                Case::Lower => 'e',
+                Case::Upper => 'E',
+            };
+            format!("{}{}{:+#03}", base, e, exponent)
         }
         magnitude if magnitude.is_nan() => format_nan(case),
         magnitude if magnitude.is_infinite() => format_inf(case),
