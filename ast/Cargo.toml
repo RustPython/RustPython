@@ -1,0 +1,8 @@
+[package]
+name = "rustpython-ast"
+version = "0.1.0"
+authors = ["RustPython Team"]
+edition = "2018"
+
+[dependencies]
+num-bigint = "0.3"

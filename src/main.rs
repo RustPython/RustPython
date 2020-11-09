@@ -5,14 +5,14 @@ extern crate env_logger;
 extern crate log;
 
 use clap::{App, AppSettings, Arg, ArgMatches};
-use rustpython_compiler::compile;
 use rustpython_vm::{
     builtins::PyInt,
+    compile,
     exceptions::print_exception,
     match_class,
     pyobject::{BorrowValue, ItemProtocol, PyResult, TypeProtocol},
     scope::Scope,
-    util, InitParameter, Interpreter, PySettings, VirtualMachine,
+    sysmodule, util, InitParameter, Interpreter, PySettings, VirtualMachine,
 };
 
 use std::convert::TryInto;
@@ -55,6 +55,8 @@ fn main() {
 
     let exitcode = interp.enter(move |vm| {
         let res = run_rustpython(vm, &matches);
+
+        flush_std(vm);
 
         #[cfg(feature = "flame-it")]
         {
@@ -103,10 +105,21 @@ fn main() {
 
         let _ = vm.run_atexit_funcs();
 
+        flush_std(vm);
+
         exitcode
     });
 
     process::exit(exitcode);
+}
+
+fn flush_std(vm: &VirtualMachine) {
+    if let Ok(stdout) = sysmodule::get_stdout(vm) {
+        let _ = vm.call_method(&stdout, "flush", ());
+    }
+    if let Ok(stderr) = sysmodule::get_stderr(vm) {
+        let _ = vm.call_method(&stderr, "flush", ());
+    }
 }
 
 fn parse_arguments<'a>(app: App<'a, '_>) -> ArgMatches<'a> {

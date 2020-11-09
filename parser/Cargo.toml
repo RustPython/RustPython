@@ -12,6 +12,7 @@ edition = "2018"
 lalrpop = "0.19"
 
 [dependencies]
+rustpython-ast = { path = "../ast" }
 lalrpop-util = "0.19.1"
 log = "0.4.1"
 num-bigint = "0.3"

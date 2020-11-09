@@ -1,8 +1,8 @@
 use cranelift::prelude::*;
 use num_traits::cast::ToPrimitive;
 use rustpython_bytecode::bytecode::{
-    BinaryOperator, CodeObject, ComparisonOperator, Constant, Instruction, Label, NameScope,
-    UnaryOperator,
+    self, BinaryOperator, BorrowedConstant, CodeObject, ComparisonOperator, Instruction, Label,
+    NameScope, UnaryOperator,
 };
 use std::collections::HashMap;
 
@@ -105,7 +105,10 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             .or_insert_with(|| builder.create_block())
     }
 
-    pub fn compile(&mut self, bytecode: &CodeObject) -> Result<(), JitCompileError> {
+    pub fn compile<C: bytecode::Constant>(
+        &mut self,
+        bytecode: &CodeObject<C>,
+    ) -> Result<(), JitCompileError> {
         let offset_to_label: HashMap<&usize, &Label> =
             bytecode.label_map.iter().map(|(k, v)| (v, k)).collect();
 
@@ -128,15 +131,18 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 continue;
             }
 
-            self.add_instruction(&instruction)?;
+            self.add_instruction(&instruction, &bytecode.constants)?;
         }
 
         Ok(())
     }
 
-    fn load_const(&mut self, constant: &Constant) -> Result<(), JitCompileError> {
+    fn load_const<C: bytecode::Constant>(
+        &mut self,
+        constant: BorrowedConstant<C>,
+    ) -> Result<(), JitCompileError> {
         match constant {
-            Constant::Integer { value } => {
+            BorrowedConstant::Integer { value } => {
                 let val = self.builder.ins().iconst(
                     types::I64,
                     value.to_i64().ok_or(JitCompileError::NotSupported)?,
@@ -147,16 +153,16 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 });
                 Ok(())
             }
-            Constant::Float { value } => {
-                let val = self.builder.ins().f64const(*value);
+            BorrowedConstant::Float { value } => {
+                let val = self.builder.ins().f64const(value);
                 self.stack.push(JitValue {
                     val,
                     ty: JitType::Float,
                 });
                 Ok(())
             }
-            Constant::Boolean { value } => {
-                let val = self.builder.ins().iconst(types::I8, *value as i64);
+            BorrowedConstant::Boolean { value } => {
+                let val = self.builder.ins().iconst(types::I8, value as i64);
                 self.stack.push(JitValue {
                     val,
                     ty: JitType::Bool,
@@ -167,7 +173,11 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         }
     }
 
-    fn add_instruction(&mut self, instruction: &Instruction) -> Result<(), JitCompileError> {
+    pub fn add_instruction<C: bytecode::Constant>(
+        &mut self,
+        instruction: &Instruction,
+        constants: &[C],
+    ) -> Result<(), JitCompileError> {
         match instruction {
             Instruction::JumpIfFalse { target } => {
                 let cond = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
@@ -222,7 +232,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                 self.store_variable(name.clone(), val)
             }
-            Instruction::LoadConst { value } => self.load_const(value),
+            Instruction::LoadConst { idx } => self.load_const(constants[*idx].borrow_constant()),
             Instruction::ReturnValue => {
                 let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                 if let Some(ref ty) = self.sig.ret {

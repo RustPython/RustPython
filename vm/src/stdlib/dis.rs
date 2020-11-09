@@ -6,9 +6,9 @@ mod decl {
     use crate::builtins::dict::PyDictRef;
     use crate::builtins::pystr::PyStrRef;
     use crate::bytecode::CodeFlags;
+    use crate::compile;
     use crate::pyobject::{BorrowValue, ItemProtocol, PyObjectRef, PyResult, TryFromObject};
     use crate::vm::VirtualMachine;
-    use rustpython_compiler::compile;
 
     #[pyfunction]
     fn dis(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {

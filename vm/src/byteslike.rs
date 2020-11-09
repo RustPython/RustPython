@@ -47,6 +47,12 @@ impl PyRwBytesLike {
     }
 }
 
+impl PyBytesLike {
+    pub fn into_buffer(self) -> BufferRef {
+        self.0
+    }
+}
+
 impl TryFromObject for PyBytesLike {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let buffer = try_buffer_from_object(vm, &obj)?;
@@ -88,8 +94,8 @@ pub fn try_rw_bytes_like<R>(
         .ok_or_else(|| vm.new_type_error("buffer is not a read-write bytes-like object".to_owned()))
 }
 
-impl TryFromObject for PyRwBytesLike {
-    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+impl PyRwBytesLike {
+    pub fn new(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Self> {
         let buffer = try_buffer_from_object(vm, &obj)?;
         if !buffer.get_options().contiguous {
             Err(vm.new_type_error("non-contiguous buffer is not a bytes-like object".to_owned()))
@@ -98,6 +104,16 @@ impl TryFromObject for PyRwBytesLike {
         } else {
             Ok(Self(buffer))
         }
+    }
+
+    pub fn into_buffer(self) -> BufferRef {
+        self.0
+    }
+}
+
+impl TryFromObject for PyRwBytesLike {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        Self::new(vm, &obj)
     }
 }
 

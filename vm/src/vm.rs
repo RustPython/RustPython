@@ -13,8 +13,7 @@ use arr_macro::arr;
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::{Signed, ToPrimitive};
 
-use crate::builtins;
-use crate::builtins::code::{PyCode, PyCodeRef};
+use crate::builtins::code::{self, PyCode, PyCodeRef};
 use crate::builtins::dict::PyDictRef;
 use crate::builtins::int::{PyInt, PyIntRef};
 use crate::builtins::list::PyList;
@@ -24,27 +23,19 @@ use crate::builtins::pybool;
 use crate::builtins::pystr::{PyStr, PyStrRef};
 use crate::builtins::pytype::PyTypeRef;
 use crate::builtins::tuple::PyTuple;
-use crate::bytecode;
 use crate::common::{hash::HashSecret, lock::PyMutex, rc::PyRc};
+#[cfg(feature = "rustpython-compiler")]
+use crate::compile::{self, CompileError, CompileErrorType, CompileOpts};
 use crate::exceptions::{self, PyBaseException, PyBaseExceptionRef};
 use crate::frame::{ExecutionResult, Frame, FrameRef};
-use crate::frozen;
 use crate::function::{FuncArgs, IntoFuncArgs};
-use crate::import;
-use crate::iterator;
 use crate::pyobject::{
     BorrowValue, Either, IdProtocol, IntoPyObject, ItemProtocol, PyArithmaticValue, PyContext,
     PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
 };
 use crate::scope::Scope;
 use crate::slots::PyComparisonOp;
-use crate::stdlib;
-use crate::sysmodule;
-#[cfg(feature = "rustpython-compiler")]
-use rustpython_compiler::{
-    compile::{self, CompileOpts},
-    error::CompileError,
-};
+use crate::{builtins, bytecode, frozen, import, iterator, stdlib, sysmodule};
 
 // use objects::ects;
 
@@ -120,11 +111,20 @@ pub(crate) mod thread {
 pub struct PyGlobalState {
     pub settings: PySettings,
     pub stdlib_inits: HashMap<String, stdlib::StdlibInitFunc>,
-    pub frozen: HashMap<String, bytecode::FrozenModule>,
+    pub frozen: HashMap<String, code::FrozenModule>,
     pub stacksize: AtomicCell<usize>,
     pub thread_count: AtomicCell<usize>,
     pub hash_secret: HashSecret,
     pub atexit_funcs: PyMutex<Vec<(PyObjectRef, FuncArgs)>>,
+}
+
+impl PyGlobalState {
+    pub fn add_frozen<I>(&mut self, ctx: &PyContext, frozen: I)
+    where
+        I: IntoIterator<Item = (String, bytecode::FrozenModule)>,
+    {
+        self.frozen.extend(frozen::map_frozen(ctx, frozen))
+    }
 }
 
 pub const NSIG: usize = 64;
@@ -257,7 +257,7 @@ impl VirtualMachine {
         let signal_handlers = RefCell::new(arr![ctx.none(); 64]);
 
         let stdlib_inits = stdlib::get_module_inits();
-        let frozen = frozen::get_module_inits();
+        let frozen = frozen::get_module_inits(&ctx);
 
         let hash_secret = match settings.hash_seed {
             Some(seed) => HashSecret::new(seed),
@@ -656,12 +656,12 @@ impl VirtualMachine {
 
     #[cfg(feature = "rustpython-compiler")]
     pub fn new_syntax_error(&self, error: &CompileError) -> PyBaseExceptionRef {
-        let syntax_error_type = if error.is_indentation_error() {
-            self.ctx.exceptions.indentation_error.clone()
-        } else if error.is_tab_error() {
-            self.ctx.exceptions.tab_error.clone()
-        } else {
-            self.ctx.exceptions.syntax_error.clone()
+        let syntax_error_type = match &error.error {
+            CompileErrorType::Parse(p) if p.is_indentation_error() => {
+                self.ctx.exceptions.indentation_error.clone()
+            }
+            CompileErrorType::Parse(p) if p.is_tab_error() => self.ctx.exceptions.tab_error.clone(),
+            _ => self.ctx.exceptions.syntax_error.clone(),
         };
         let syntax_error = self.new_exception_msg(syntax_error_type, error.to_string());
         let lineno = self.ctx.new_int(error.location.row());
@@ -670,10 +670,12 @@ impl VirtualMachine {
             .unwrap();
         self.set_attr(syntax_error.as_object(), "offset", offset)
             .unwrap();
-        if let Some(v) = error.statement.as_ref() {
-            self.set_attr(syntax_error.as_object(), "text", self.new_pyobj(v))
-                .unwrap();
-        }
+        self.set_attr(
+            syntax_error.as_object(),
+            "text",
+            error.statement.clone().into_pyobject(self),
+        )
+        .unwrap();
         self.set_attr(
             syntax_error.as_object(),
             "filename",
@@ -780,25 +782,26 @@ impl VirtualMachine {
         TryFromObject::try_from_object(self, repr)
     }
 
-    pub fn to_index(&self, obj: &PyObjectRef) -> Option<PyResult<PyIntRef>> {
-        Some(
-            if let Ok(val) = TryFromObject::try_from_object(self, obj.clone()) {
-                Ok(val)
-            } else if obj.class().has_attr("__index__") {
-                self.call_method(obj, "__index__", ()).and_then(|r| {
-                    if let Ok(val) = TryFromObject::try_from_object(self, r) {
-                        Ok(val)
-                    } else {
-                        Err(self.new_type_error(format!(
-                            "__index__ returned non-int (type {})",
-                            obj.class().name
-                        )))
-                    }
+    pub fn to_index_opt(&self, obj: PyObjectRef) -> Option<PyResult<PyIntRef>> {
+        match obj.downcast() {
+            Ok(val) => Some(Ok(val)),
+            Err(obj) => self.get_method(obj, "__index__").map(|index| {
+                self.invoke(&index?, ())?.downcast().map_err(|bad| {
+                    self.new_type_error(format!(
+                        "__index__ returned non-int (type {})",
+                        bad.class().name
+                    ))
                 })
-            } else {
-                return None;
-            },
-        )
+            }),
+        }
+    }
+    pub fn to_index(&self, obj: &PyObjectRef) -> PyResult<PyIntRef> {
+        self.to_index_opt(obj.clone()).unwrap_or_else(|| {
+            Err(self.new_type_error(format!(
+                "'{}' object cannot be interpreted as an integer",
+                obj.class().name
+            )))
+        })
     }
 
     pub fn import(&self, module: &str, from_list: &[String], level: usize) -> PyResult {
@@ -1226,11 +1229,7 @@ impl VirtualMachine {
         opts: CompileOpts,
     ) -> Result<PyCodeRef, CompileError> {
         compile::compile(source, mode, source_path, opts)
-            .map(|codeobj| PyCode::new(codeobj).into_ref(self))
-            .map_err(|mut compile_error| {
-                compile_error.update_statement_info(source.trim_end().to_owned());
-                compile_error
-            })
+            .map(|code| PyCode::new(self.ctx.map_codeobj(code)).into_ref(self))
     }
 
     fn call_codec_func(
@@ -1521,7 +1520,7 @@ impl VirtualMachine {
         hash(&obj, self)
     }
 
-    pub fn _len(&self, obj: &PyObjectRef) -> Option<PyResult<usize>> {
+    pub fn obj_len_opt(&self, obj: &PyObjectRef) -> Option<PyResult<usize>> {
         self.get_method(obj.clone(), "__len__").map(|len| {
             let len = self.invoke(&len?, ())?;
             let len = len
@@ -1540,6 +1539,15 @@ impl VirtualMachine {
                 self.new_overflow_error("cannot fit 'int' into an index-sized integer".to_owned())
             })?;
             Ok(len as usize)
+        })
+    }
+
+    pub fn obj_len(&self, obj: &PyObjectRef) -> PyResult<usize> {
+        self.obj_len_opt(obj).unwrap_or_else(|| {
+            Err(self.new_type_error(format!(
+                "object of type '{}' has no len()",
+                obj.class().name
+            )))
         })
     }
 

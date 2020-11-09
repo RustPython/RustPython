@@ -1,0 +1,42 @@
+%%md 
+
+#  RustPython Notebook: python, javascript, css, markdown and math 
+
+
+Python in the browser is fun. Python and Javascript working together is double the fun 😜. Markdown and math are good for communicating ideas 🤔 (especially scientific ones). Adding css to the mix, makes everything look pretty ✨. 
+
+--- 
+
+In this demo example, the RustPython Notebook:
+- runs JS to create a user interface. 
+- the reader can input data, you can do js validation on that input.
+- the dynamically created HTML element (with JS) can be made to execute a python function (on click for example)
+- the data is passed from Javascript back to Python
+- you can run analysis or simulation in python
+- the results are displayed with python
+- or data can be visualized quickly in the browser with a js vis library.
+- everything is styled with css, neatly.
+- everything runs in the browser, even on your phone, no servers.
+- there are tabs to create multiple documents
+- the split view lets you multi-task
+
+--- 
+
+##  Calculator  
+### Enter your lucky number
+
+%%js
+
+create_ui();
+
+
+%%py 
+# Python code
+
+def runModel():
+  input = js_vars['data']
+  print ("<br>")
+  print("A little javascript birdie told the python snake your lucky number 🙊")
+  print ("Now the everyone knows that it is: " + str(input)) 
+  
+  

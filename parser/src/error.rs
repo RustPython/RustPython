@@ -2,7 +2,7 @@
 //! The goal is to provide a matching and a safe error API, maksing errors from LALR
 use lalrpop_util::ParseError as LalrpopError;
 
-use crate::location::Location;
+use crate::ast::Location;
 use crate::token::Tok;
 
 use std::error::Error;
@@ -197,6 +197,30 @@ impl fmt::Display for ParseErrorType {
             }
             ParseErrorType::Lexical(ref error) => write!(f, "{}", error),
         }
+    }
+}
+
+impl Error for ParseErrorType {}
+
+impl ParseErrorType {
+    pub fn is_indentation_error(&self) -> bool {
+        match self {
+            ParseErrorType::Lexical(LexicalErrorType::IndentationError) => true,
+            ParseErrorType::UnrecognizedToken(token, expected) => {
+                *token == Tok::Indent || expected.clone() == Some("Indent".to_owned())
+            }
+            _ => false,
+        }
+    }
+    pub fn is_tab_error(&self) -> bool {
+        matches!(self, ParseErrorType::Lexical(LexicalErrorType::TabError))
+    }
+}
+
+impl std::ops::Deref for ParseError {
+    type Target = ParseErrorType;
+    fn deref(&self) -> &Self::Target {
+        &self.error
     }
 }
 

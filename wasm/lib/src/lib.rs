@@ -8,7 +8,7 @@ pub mod wasm_builtins;
 extern crate rustpython_vm;
 
 use js_sys::{Object, Reflect, TypeError};
-use rustpython_compiler::compile::Mode;
+use rustpython_vm::compile::Mode;
 use std::panic;
 use wasm_bindgen::prelude::*;
 

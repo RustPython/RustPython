@@ -15,7 +15,6 @@ default = ["freeze-stdlib"]
 freeze-stdlib = ["rustpython-vm/freeze-stdlib"]
 
 [dependencies]
-rustpython-compiler = { path = "../../compiler" }
 rustpython-parser = { path = "../../parser" }
 rustpython-common = { path = "../../common" }
 # no threading feature for rustpython-vm -- doesn't much matter anyway, but it might be more optimized

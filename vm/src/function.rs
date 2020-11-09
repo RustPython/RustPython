@@ -187,25 +187,8 @@ impl FuncArgs {
     /// during the conversion will halt the binding and return the error.
     pub fn bind<T: FromArgs>(mut self, vm: &VirtualMachine) -> PyResult<T> {
         let given_args = self.args.len();
-        let bound = T::from_args(vm, &mut self).map_err(|e| match e {
-            ArgumentError::TooFewArgs => vm.new_type_error(format!(
-                "Expected at least {} arguments ({} given)",
-                T::arity().start(),
-                given_args,
-            )),
-            ArgumentError::TooManyArgs => vm.new_type_error(format!(
-                "Expected at most {} arguments ({} given)",
-                T::arity().end(),
-                given_args,
-            )),
-            ArgumentError::InvalidKeywordArgument(name) => {
-                vm.new_type_error(format!("{} is an invalid keyword argument", name))
-            }
-            ArgumentError::RequiredKeywordArgument(name) => {
-                vm.new_type_error(format!("Required keyqord only argument {}", name))
-            }
-            ArgumentError::Exception(ex) => ex,
-        })?;
+        let bound = T::from_args(vm, &mut self)
+            .map_err(|e| e.into_exception(T::arity(), given_args, vm))?;
 
         if !self.args.is_empty() {
             Err(vm.new_type_error(format!(
@@ -240,6 +223,35 @@ pub enum ArgumentError {
 impl From<PyBaseExceptionRef> for ArgumentError {
     fn from(ex: PyBaseExceptionRef) -> Self {
         ArgumentError::Exception(ex)
+    }
+}
+
+impl ArgumentError {
+    fn into_exception(
+        self,
+        arity: RangeInclusive<usize>,
+        num_given: usize,
+        vm: &VirtualMachine,
+    ) -> PyBaseExceptionRef {
+        match self {
+            ArgumentError::TooFewArgs => vm.new_type_error(format!(
+                "Expected at least {} arguments ({} given)",
+                arity.start(),
+                num_given
+            )),
+            ArgumentError::TooManyArgs => vm.new_type_error(format!(
+                "Expected at most {} arguments ({} given)",
+                arity.end(),
+                num_given
+            )),
+            ArgumentError::InvalidKeywordArgument(name) => {
+                vm.new_type_error(format!("{} is an invalid keyword argument", name))
+            }
+            ArgumentError::RequiredKeywordArgument(name) => {
+                vm.new_type_error(format!("Required keyqord only argument {}", name))
+            }
+            ArgumentError::Exception(ex) => ex,
+        }
     }
 }
 
@@ -439,7 +451,7 @@ impl OptionalArg<PyObjectRef> {
     }
 }
 
-pub type OptionalOption<T> = OptionalArg<Option<T>>;
+pub type OptionalOption<T = PyObjectRef> = OptionalArg<Option<T>>;
 
 impl<T> OptionalOption<T> {
     #[inline]

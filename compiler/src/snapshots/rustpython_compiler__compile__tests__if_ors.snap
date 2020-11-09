@@ -1,0 +1,13 @@
+---
+source: compiler/src/compile.rs
+expression: "compile_exec(\"\\\nif True or False or False:\n    pass\n\")"
+---
+                 0 LoadConst            (True)
+                 1 JumpIfTrue           (6)
+                 2 LoadConst            (False)
+                 3 JumpIfTrue           (6)
+                 4 LoadConst            (False)
+                 5 JumpIfFalse          (6)
+          >>     6 LoadConst            (None)
+                 7 ReturnValue
+

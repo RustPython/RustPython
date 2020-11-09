@@ -16,6 +16,8 @@ use crate::{builtins, exceptions, py_io, version};
 /*
  * The magic sys module.
  */
+const MAXSIZE: usize = std::isize::MAX as usize;
+const MAXUNICODE: u32 = std::char::MAX as u32;
 
 fn argv(vm: &VirtualMachine) -> PyObjectRef {
     vm.ctx.new_list(
@@ -401,7 +403,7 @@ const ABIFLAGS: &str = "";
 // https://github.com/python/cpython/blob/3.8/configure.ac#L725
 const MULTIARCH: &str = env!("RUSTPYTHON_TARGET_TRIPLE");
 
-pub fn sysconfigdata_name() -> String {
+pub(crate) fn sysconfigdata_name() -> String {
     format!("_sysconfigdata_{}_{}_{}", ABIFLAGS, PLATFORM, MULTIARCH)
 }
 
@@ -482,7 +484,7 @@ impl PyIntInfo {
     };
 }
 
-pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectRef) {
+pub(crate) fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectRef) {
     let ctx = &vm.ctx;
 
     let _flags_type = SysFlags::make_class(ctx);
@@ -656,8 +658,8 @@ settrace() -- set the global debug tracing function
       "gettrace" => named_function!(ctx, sys, gettrace),
       "hash_info" => hash_info,
       "intern" => named_function!(ctx, sys, intern),
-      "maxunicode" => ctx.new_int(std::char::MAX as u32),
-      "maxsize" => ctx.new_int(std::isize::MAX),
+      "maxunicode" => ctx.new_int(MAXUNICODE),
+      "maxsize" => ctx.new_int(MAXSIZE),
       "path" => path,
       "ps1" => ctx.new_str(">>>>> "),
       "ps2" => ctx.new_str("..... "),
@@ -701,7 +703,7 @@ settrace() -- set the global debug tracing function
 
     #[cfg(windows)]
     {
-        let getwindowsversion = WindowsVersion::make_class(ctx);
+        WindowsVersion::make_class(ctx);
         extend_module!(vm, module, {
             "getwindowsversion" => named_function!(ctx, sys, getwindowsversion),
         })

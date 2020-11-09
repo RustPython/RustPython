@@ -4,50 +4,67 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link defer async href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans&family=Sen:wght@800&display=swap" rel="stylesheet"> 
+    <title>RustPython Notebook</title>
+    <link defer async href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans&family=Sen:wght@800&display=swap"
+        rel="stylesheet">
 </head>
 
 <body>
-    <!-- navigation bar -->
-    <div class="nav-bar">
-        <div>
-            <button id="run-btn">run notebook &#9658; </button>
-            <button id="snippet-btn" class="btn-secondary mr-1">import code</button>
-        </div>
-        <div class="header item-center">RustPython 🐍 😱 🤘</div>
-        <div class="text-right"><a href="https://github.com/RustPython/">github</a></div>
-    </div>
 
-    <!-- user interface elements for importing code -->
-    <div id="url-container" class="d-none p-1 bg-light">
-        <div><label for="url">public url:</label></div>
-        <div>
-            <input type="url" name="url" id="snippet-url">
-            <button id="fetch-code" class="btn-secondary">fetch</button>
+<div class="d-flex">
+    <div class="header item-center">RustPython 🐍 😱 🤘</div>
+    <div>
+        <a target="_blank" class="mr-px-5 text-black" href="https://github.com/RustPython/RustPython/tree/master/wasm/notebook">how this works</a>
+        <a target="_blank" class="text-black" href="https://github.com/RustPython/"> github</a>
+    </div>
+</div>
+   
+    <!-- navigation bar -->
+    <div class="nav-bar mt-px-5">
+        <div class="nav-bar-links d-flex d-flex-space-between">
+            <div class="d-flex">
+                <a href="#" id="run-btn" class="bg-orange text-white mr-px-5">run &#9658; </a>
+                <ul class="list-inline" id="buffers-list"></ul>
+                <a href="#" id="new-tab" class="bg-light mr-px-5 text-black">new tab</a>
+                <a href="#popup" id="import-code" class="bg-light mr-px-5 text-black">import code</a>
+            </div>
+            
+            <div class="nav-bar-links d-flex">
+                <a href="#" id="split-view" class="bg-light mr-px-5 text-black">split view</a>
+                <a href="#" id="default-view" class="bg-light mr-px-5  text-black">default view</a>
+                <a href="#" id="reader-view" class="bg-light text-black">reader view</a>
+            </div>
+            
         </div>
     </div>
 
     <!-- code editor and output display -->
     <!-- split view -->
     <div class="split-view full-height">
-        <textarea id="code"></textarea>
-        <div id="rp-notebook">loading python in your browser...</div>
+        <div id="primary-editor"></div>
+        <div id="secondary-editor" class="d-none">
+            <select class="item-right" id="buffers-selection"></select>
+        </div>
+
+        <div class="border-left" id="rp-notebook">loading python in your browser...</div>
+    </div>
+
+    <!-- popup forms -->
+    <div id="popup" data-type="python" class="overlay">
+        <div class="popup">
+            <div id="popup-header">Header Placeholder</div>
+            <a class="popup-close" href="#">&times;</a>
+            <div class="popup-content mt-px-5">
+                <input type="url" name="popup-url" id="popup-url">
+                <button id="popup-import" class="btn bg-black text-white">import</button>
+            </div>
+        </div>
     </div>
 
     <!-- errors and keyboard shortcuts -->
-    <div class="split-view">
-        <div class="mt-1">
-            <div class="header">Error(s):</div>
-            <div id="error"></div>
-        </div>
-        <div class="mt-1 gray">
-            <div class="header">Keyboard Shortcuts:</div>
-            <div>
-                <div>Run code: 'Ctrl-Enter' or 'Cmd-Enter'</div>
-                <div>Decrease Indent: 'Shift-Tab' </div>
-                <div>Toggle comment: 'Ctrl-/' or 'Cmd-/'</div>
-            </div>
-        </div>
+    <div>
+        <div class="header">Error(s):</div>
+        <div id="error"></div>
     </div>
 </body>
 

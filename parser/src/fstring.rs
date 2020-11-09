@@ -2,9 +2,8 @@ use std::iter;
 use std::mem;
 use std::str;
 
-use crate::ast::{ConversionFlag, StringGroup};
+use crate::ast::{ConversionFlag, Location, StringGroup};
 use crate::error::{FStringError, FStringErrorType};
-use crate::location::Location;
 use crate::parser::parse_expression;
 
 use self::FStringErrorType::*;

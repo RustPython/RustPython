@@ -3,7 +3,6 @@
 ///! This much smaller REPL is still a useful example because it showcases inserting
 ///! values and functions into the Python runtime's scope, and showcases use
 ///! of the compilation mode "Single".
-use rustpython_compiler as compiler;
 use rustpython_vm as vm;
 // these are needed for special memory shenanigans to let us share a variable with Python and Rust
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -15,36 +14,17 @@ use vm::pyobject::ItemProtocol;
 // the program you're embedding this into doesn't take longer to start up.
 macro_rules! add_python_function {
     ( $scope:ident, $vm:ident, $src:literal $(,)? ) => {{
-        // this has to be in scope to turn a PyValue into a PyRef
-        // (a PyRef is a special reference that points to something in the VirtualMachine)
-        use vm::pyobject::PyValue;
-
+        // compile the code to bytecode
         let code = vm::py_compile!(source = $src);
+        // convert the rustpython_bytecode::CodeObject to a PyCodeRef
+        let code = $vm.ctx.new_code_object(code);
 
-        // takes the first constant in the file that's a function
-        let def = code
-            .get_constants()
-            .find_map(|c| match c {
-                vm::bytecode::Constant::Code { code } => Some(code),
-                _ => None,
-            })
-            .expect("No functions found in the provided module!");
-
-        // inserts the first function found in the module into the provided scope.
-        $scope.globals.set_item(
-            def.obj_name.as_str(),
-            $vm.ctx.new_pyfunction(
-                vm::builtins::PyCode::new(*def.clone()).into_ref(&$vm),
-                $scope.clone(),
-                None,
-                None,
-            ),
-            &$vm,
-        )
+        // run the python code in the scope to store the function
+        $vm.run_code_obj(code, $scope.clone())
     }};
 }
 
-static ON: AtomicBool = AtomicBool::new(false);
+static ON: AtomicBool = AtomicBool::new(true);
 
 fn on(b: bool) {
     ON.store(b, Ordering::Relaxed);
@@ -69,7 +49,10 @@ fn run(vm: &vm::VirtualMachine) -> vm::pyobject::PyResult<()> {
         vm,
         // a fun line to test this with is
         // ''.join( l * fib(i) for i, l in enumerate('supercalifragilistic') )
-        r#"def fib(n): return n if n <= 1 else fib(n - 1) + fib(n - 2)"#
+        r#"\
+def fib(n):
+    return n if n <= 1 else fib(n - 1) + fib(n - 2)
+"#
     )?;
 
     while ON.load(Ordering::Relaxed) {
@@ -81,11 +64,7 @@ fn run(vm: &vm::VirtualMachine) -> vm::pyobject::PyResult<()> {
         // this line also automatically prints the output
         // (note that this is only the case when compile::Mode::Single is passed to vm.compile)
         match vm
-            .compile(
-                &input,
-                compiler::compile::Mode::Single,
-                "<embedded>".to_owned(),
-            )
+            .compile(&input, vm::compile::Mode::Single, "<embedded>".to_owned())
             .map_err(|err| vm.new_syntax_error(&err))
             .and_then(|code_obj| vm.run_code_obj(code_obj, scope.clone()))
         {

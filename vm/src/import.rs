@@ -3,16 +3,16 @@
  */
 use rand::Rng;
 
+use crate::builtins::code::CodeObject;
 use crate::builtins::traceback::{PyTraceback, PyTracebackRef};
 use crate::builtins::{code, list};
-use crate::bytecode::CodeObject;
+#[cfg(feature = "rustpython-compiler")]
+use crate::compile;
 use crate::exceptions::PyBaseExceptionRef;
 use crate::pyobject::{ItemProtocol, PyResult, PyValue, TryFromObject, TypeProtocol};
 use crate::scope::Scope;
 use crate::version::get_git_revision;
 use crate::vm::{InitParameter, VirtualMachine};
-#[cfg(feature = "rustpython-compiler")]
-use rustpython_compiler::compile;
 
 pub(crate) fn init_importlib(
     vm: &mut VirtualMachine,
@@ -100,7 +100,7 @@ pub fn import_file(
 ) -> PyResult {
     let code_obj = compile::compile(&content, compile::Mode::Exec, file_path, vm.compile_opts())
         .map_err(|err| vm.new_syntax_error(&err))?;
-    import_codeobj(vm, module_name, code_obj, true)
+    import_codeobj(vm, module_name, vm.ctx.map_codeobj(code_obj), true)
 }
 
 pub fn import_codeobj(

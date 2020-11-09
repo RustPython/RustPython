@@ -190,8 +190,6 @@ class FileTests(unittest.TestCase):
         new = sys.getrefcount(path)
         self.assertEqual(old, new)
 
-    # TODO: RUSTPYTHON (OSError: Bad file descriptor (os error 9))
-    @unittest.expectedFailure
     def test_read(self):
         with open(support.TESTFN, "w+b") as fobj:
             fobj.write(b"spam")

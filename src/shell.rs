@@ -1,9 +1,9 @@
 mod helper;
 
-use rustpython_compiler::{compile, error::CompileError, error::CompileErrorType};
 use rustpython_parser::error::{LexicalErrorType, ParseErrorType};
 use rustpython_vm::readline::{Readline, ReadlineResult};
 use rustpython_vm::{
+    compile::{self, CompileError, CompileErrorType},
     exceptions::{print_exception, PyBaseExceptionRef},
     pyobject::{BorrowValue, PyResult, TypeProtocol},
     scope::Scope,

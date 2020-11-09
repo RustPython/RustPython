@@ -14,7 +14,7 @@ extern crate log;
 
 use clap::{App, Arg};
 
-use rustpython_compiler::compile;
+use rustpython_compiler as compile;
 use std::error::Error;
 use std::fs;
 use std::path::Path;

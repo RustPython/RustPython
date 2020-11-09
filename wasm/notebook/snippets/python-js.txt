@@ -1,0 +1,113 @@
+%%md 
+
+# RustPython Notebook: python, javascript, css, markdown and math 
+
+Python in the browser is fun 🤘. Python and Javascript working together is double the fun 😜. Markdown and math are good for communicating ideas 💡(especially scientific ones 🧠). Adding css to the mix, makes everything look pretty ✨. 
+
+# Main
+
+In the notebook, you can write markdown, math, javascript and python. 
+
+
+%%math
+H(t) \xrightarrow{write} \Big[A(t+1),\ H(t+1)\Big]
+
+%%md 
+It even highlights properly. You can multi-task with split view mode and create python documents as you need to. In main, use `%%` then: 
+- `%%md` for markdown
+- `%%py` for python
+- `%%js` for javascript
+- `%%math` for math blocks
+
+Use the other tabs to write functions that you can call out from main. CSS is automatically applied.
+
+%%md 
+
+# DEMO
+Here is a run down of what is happening with this demo. The notebook:
+- runs JS to create a user interface. 
+- the reader can input data, you can do js validation on that input.
+- the dynamically created HTML element (with JS) can execute a python function (on click for example)
+- the data is passed from Javascript back to Python
+- you can run analysis or simulation in python
+- the results are displayed with python  or js
+- or data can be interactively visualized quickly in the browser with a js vis library.
+- everything is styled with css, neatly.
+- everything runs in the browser, even on your phone, no servers.
+
+
+%%py 
+# Python code
+
+def runModel():
+  input = js_vars['data']
+  print ("<br>")
+  print("A little javascript birdie told the python snake your lucky number 🙊")
+  print ("Now the everyone knows that it is: " + str(input)) 
+  
+%%md 
+##  Calculator  
+### Enter your lucky number
+
+%%js
+
+// Javascript code go here
+
+function create_ui() { 
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.id = "input-1";
+    document.getElementById("rp-notebook").appendChild(input);
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+  	btn.id = "btn-caclulate";
+    btn.innerHTML = "click me";
+  	btn.addEventListener('click', calculate, false);
+    document.getElementById("rp-notebook").appendChild(btn);
+
+    const div = document.createElement("div");
+    div.id = "result";
+  	div.classList.add("result");
+    document.getElementById("rp-notebook").appendChild(div);
+  
+} 
+
+function calculate() { 
+  
+  	let target = document.getElementById("result");
+  	target.innerHTML = "";
+  
+  	let code = 'runModel()';
+  
+  	let input = document.getElementById("input-1").value;
+    
+  	let params = { "data": input };
+  	
+  
+	 rp.pyExec(code, {
+            stdout: (output) => {
+                target.innerHTML += output;
+            },
+       		vars: params
+        });
+    
+}
+
+create_ui();
+
+
+%%py 
+# Python code
+
+def runModel():
+  input = js_vars['data']
+  print ("<br>")
+  print("A little javascript birdie told the python snake your lucky number 🙊")
+  print ("Now the everyone knows that it is: " + str(input)) 
+  
+
+
+  
+  

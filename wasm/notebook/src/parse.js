@@ -1,5 +1,3 @@
-import CodeMirror from 'codemirror';
-
 // The parser is from Mozilla's iodide project:
 // https://github.com/iodide-project/iodide/blob/master/src/editor/iomd-tools/iomd-parser.js
 
@@ -86,52 +84,3 @@ export function iomdParser(fullIomd) {
     pushChunk(iomdLines.length);
     return chunks;
 }
-
-CodeMirror.defineMode('notebook', function (config, _parserConfig) {
-    const nullMode = CodeMirror.getMode(config, 'text/plain');
-    const python = CodeMirror.getMode(config, 'python');
-    const markdown = CodeMirror.getMode(config, 'markdown');
-    const latex = CodeMirror.getMode(config, 'text/x-latex');
-    const modeMap = {
-        py: python,
-        md: markdown,
-        math: latex,
-        'math-inline': latex,
-    };
-    return {
-        startState() {
-            return {
-                mode: python,
-                modeState: python.startState(),
-                chunkStart: false,
-            };
-        },
-        token(stream, state) {
-            if (stream.sol() && stream.match('%%')) {
-                stream.eatSpace();
-                state.chunkStart = true;
-                return 'keyword';
-            }
-            if (state.chunkStart) {
-                const m = stream.match(/[\w\-]+/);
-                const name = m && m[0];
-                const mode = (state.mode = modeMap[name] || nullMode);
-                state.modeState = mode.startState ? mode.startState() : null;
-                state.chunkStart = false;
-                return 'keyword';
-            }
-            const { mode, modeState } = state;
-            return mode.token(stream, modeState);
-        },
-        indent(state, textAfter, line) {
-            const { mode, modeState } = state;
-            if (mode.indent) return mode.indent(modeState, textAfter, line);
-        },
-        innerMode(state) {
-            const { mode, modeState } = state;
-            return { mode, state: modeState };
-        },
-    };
-});
-
-CodeMirror.defineMIME('text/x-notebook', 'notebook');

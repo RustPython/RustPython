@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use rustpython_bytecode::bytecode::{CodeObject, Constant, Instruction, NameScope};
+use rustpython_bytecode::bytecode::{CodeObject, ConstantData, Instruction, NameScope};
 use rustpython_jit::{CompiledCode, JitType};
 
 #[derive(Debug, Clone)]
@@ -39,12 +39,12 @@ enum StackValue {
     Function(Function),
 }
 
-impl From<Constant> for StackValue {
-    fn from(value: Constant) -> Self {
+impl From<ConstantData> for StackValue {
+    fn from(value: ConstantData) -> Self {
         match value {
-            Constant::String { value } => StackValue::String(value),
-            Constant::None => StackValue::None,
-            Constant::Code { code } => StackValue::Code(code),
+            ConstantData::Str { value } => StackValue::String(value),
+            ConstantData::None => StackValue::None,
+            ConstantData::Code { code } => StackValue::Code(code),
             c => unimplemented!("constant {:?} isn't yet supported in py_function!", c),
         }
     }
@@ -65,15 +65,19 @@ impl StackMachine {
 
     pub fn run(&mut self, code: CodeObject) {
         for instruction in code.instructions {
-            if self.process_instruction(instruction) {
+            if self.process_instruction(instruction, &code.constants) {
                 break;
             }
         }
     }
 
-    fn process_instruction(&mut self, instruction: Instruction) -> bool {
+    fn process_instruction(
+        &mut self,
+        instruction: Instruction,
+        constants: &[ConstantData],
+    ) -> bool {
         match instruction {
-            Instruction::LoadConst { value } => self.stack.push(value.into()),
+            Instruction::LoadConst { idx } => self.stack.push(constants[idx].clone().into()),
             Instruction::LoadName {
                 name,
                 scope: NameScope::Free,

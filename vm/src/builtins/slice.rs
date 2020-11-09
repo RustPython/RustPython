@@ -274,7 +274,7 @@ fn to_index_value(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Option<Big
         return Ok(None);
     }
 
-    let result = vm.to_index(obj).unwrap_or_else(|| {
+    let result = vm.to_index_opt(obj.clone()).unwrap_or_else(|| {
         Err(vm.new_type_error(
             "slice indices must be integers or None or have an __index__ method".to_owned(),
         ))

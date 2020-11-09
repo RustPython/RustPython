@@ -441,9 +441,9 @@ impl PyBytes {
     }
 
     #[pymethod(name = "__mod__")]
-    fn modulo(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn modulo(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyBytes> {
         let formatted = self.inner.cformat(values, vm)?;
-        Ok(vm.ctx.new_bytes(formatted.into_bytes()))
+        Ok(formatted.into())
     }
 
     #[pymethod(name = "__rmod__")]

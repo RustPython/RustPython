@@ -5,6 +5,7 @@ init = test_util.import_importlib('importlib')
 import sys
 import threading
 import weakref
+import unittest
 
 from test import support
 from test import lock_tests
@@ -37,6 +38,7 @@ LOCK_TYPES = {kind: splitinit._bootstrap._ModuleLock
                          LockType=LOCK_TYPES)
 
 
+@unittest.skipIf(sys.platform == "darwin", "TODO: RUSTPYTHON")
 class DeadlockAvoidanceTests:
 
     def setUp(self):

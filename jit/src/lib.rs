@@ -46,9 +46,9 @@ impl Jit {
         }
     }
 
-    fn build_function(
+    fn build_function<C: bytecode::Constant>(
         &mut self,
-        bytecode: &bytecode::CodeObject,
+        bytecode: &bytecode::CodeObject<C>,
         args: &[JitType],
     ) -> Result<(FuncId, JitSig), JitCompileError> {
         for arg in args {
@@ -92,8 +92,8 @@ impl Jit {
     }
 }
 
-pub fn compile(
-    bytecode: &bytecode::CodeObject,
+pub fn compile<C: bytecode::Constant>(
+    bytecode: &bytecode::CodeObject<C>,
     args: &[JitType],
 ) -> Result<CompiledCode, JitCompileError> {
     let mut jit = Jit::new();
