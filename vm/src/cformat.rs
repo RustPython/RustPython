@@ -294,11 +294,12 @@ impl CFormatSpec {
     }
 
     pub(crate) fn format_float(&self, num: f64) -> String {
-        let sign_string = if num.is_sign_positive() {
-            self.flags.sign_string()
-        } else {
+        let sign_string = if num.is_sign_negative() && !num.is_nan() {
             "-"
+        } else {
+            self.flags.sign_string()
         };
+
         let precision = match self.precision {
             Some(CFormatQuantity::Amount(p)) => p,
             _ => 6,
