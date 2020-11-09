@@ -697,8 +697,8 @@ impl Buffer for ByteArrayBuffer {
         self.bytearray.exports.fetch_sub(1);
     }
 
-    fn get_options(&self) -> BorrowedValue<BufferOptions> {
-        (&self.options).into()
+    fn get_options(&self) -> &BufferOptions {
+        &self.options
     }
 }
 

@@ -1,9 +1,6 @@
 use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;
-use rustpython_common::{
-    borrow::{BorrowedValue, BorrowedValueMut},
-    lock::OnceCell,
-};
+use rustpython_common::borrow::{BorrowedValue, BorrowedValueMut};
 use std::mem::size_of;
 use std::ops::Deref;
 
@@ -44,7 +41,6 @@ use crate::builtins::memory::{Buffer, BufferOptions};
 #[derive(Clone, Debug)]
 pub struct PyBytes {
     inner: PyBytesInner,
-    buffer_options: OnceCell<Box<BufferOptions>>,
 }
 
 pub type PyBytesRef = PyRef<PyBytes>;
@@ -61,17 +57,13 @@ impl From<Vec<u8>> for PyBytes {
     fn from(elements: Vec<u8>) -> Self {
         Self {
             inner: PyBytesInner { elements },
-            buffer_options: OnceCell::new(),
         }
     }
 }
 
 impl From<PyBytesInner> for PyBytes {
     fn from(inner: PyBytesInner) -> Self {
-        Self {
-            inner,
-            buffer_options: OnceCell::new(),
-        }
+        Self { inner }
     }
 }
 
@@ -499,13 +491,26 @@ impl PyBytes {
 
 impl BufferProtocol for PyBytes {
     fn get_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<Box<dyn Buffer>> {
-        Ok(Box::new(zelf.clone()))
+        let buf = BytesBuffer {
+            bytes: zelf.clone(),
+            options: BufferOptions {
+                len: zelf.len(),
+                ..Default::default()
+            },
+        };
+        Ok(Box::new(buf))
     }
 }
 
-impl Buffer for PyBytesRef {
+#[derive(Debug)]
+struct BytesBuffer {
+    bytes: PyBytesRef,
+    options: BufferOptions,
+}
+
+impl Buffer for BytesBuffer {
     fn obj_bytes(&self) -> BorrowedValue<[u8]> {
-        self.inner.elements.as_slice().into()
+        self.bytes.borrow_value().into()
     }
 
     fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
@@ -514,16 +519,8 @@ impl Buffer for PyBytesRef {
 
     fn release(&self) {}
 
-    fn get_options(&self) -> BorrowedValue<BufferOptions> {
-        self.buffer_options
-            .get_or_init(|| {
-                Box::new(BufferOptions {
-                    len: self.len(),
-                    ..Default::default()
-                })
-            })
-            .as_ref()
-            .into()
+    fn get_options(&self) -> &BufferOptions {
+        &self.options
     }
 }
 

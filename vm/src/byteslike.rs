@@ -103,7 +103,6 @@ impl PyRwBytesLike {
         } else if options.readonly {
             Err(vm.new_type_error("buffer is not a read-write bytes-like object".to_owned()))
         } else {
-            drop(options);
             Ok(Self(buffer))
         }
     }

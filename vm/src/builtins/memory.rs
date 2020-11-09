@@ -71,7 +71,7 @@ impl Drop for RcBuffer {
     }
 }
 impl Buffer for RcBuffer {
-    fn get_options(&self) -> BorrowedValue<BufferOptions> {
+    fn get_options(&self) -> &BufferOptions {
         self.0.get_options()
     }
     fn obj_bytes(&self) -> BorrowedValue<[u8]> {
@@ -93,7 +93,7 @@ impl Buffer for RcBuffer {
 }
 
 pub trait Buffer: Debug + PyThreadingConstraint {
-    fn get_options(&self) -> BorrowedValue<BufferOptions>;
+    fn get_options(&self) -> &BufferOptions;
     fn obj_bytes(&self) -> BorrowedValue<[u8]>;
     fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]>;
     fn release(&self);
@@ -511,6 +511,16 @@ impl PyMemoryView {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let items = try_buffer_from_object(vm, &items)?;
+        let options = items.get_options();
+        let len = options.len;
+        let itemsize = options.itemsize;
+
+        if itemsize != zelf.options.itemsize {
+            return Err(vm.new_type_error(format!(
+                "memoryview: invalid type for format '{}'",
+                zelf.options.format
+            )));
+        }
 
         let diff_err = || {
             Err(vm.new_value_error(
@@ -518,22 +528,8 @@ impl PyMemoryView {
             ))
         };
 
-        let (len, itemsize);
-        {
-            let options = items.get_options();
-            len = options.len;
-            itemsize = options.itemsize;
-
-            if itemsize != zelf.options.itemsize {
-                return Err(vm.new_type_error(format!(
-                    "memoryview: invalid type for format '{}'",
-                    zelf.options.format
-                )));
-            }
-
-            if options.format != zelf.options.format {
-                return diff_err();
-            }
+        if options.format != zelf.options.format {
+            return diff_err();
         }
 
         let (range, step, is_negative_step) = convert_slice(&slice, zelf.options.len, vm)?;
@@ -718,7 +714,7 @@ impl PyMemoryView {
         let other = try_buffer_from_object(vm, other)?;
 
         let a_options = &zelf.options;
-        let b_options = &*other.get_options();
+        let b_options = other.get_options();
 
         if a_options.len != b_options.len
             || a_options.ndim != b_options.ndim
@@ -790,8 +786,8 @@ impl BufferProtocol for PyMemoryView {
 }
 
 impl Buffer for PyMemoryViewRef {
-    fn get_options(&self) -> BorrowedValue<BufferOptions> {
-        (&self.options).into()
+    fn get_options(&self) -> &BufferOptions {
+        &self.options
     }
 
     fn obj_bytes(&self) -> BorrowedValue<[u8]> {
