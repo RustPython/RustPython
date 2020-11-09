@@ -5,10 +5,9 @@ use std::rc::{Rc, Weak};
 use js_sys::{Object, TypeError};
 use wasm_bindgen::prelude::*;
 
-use rustpython_vm::common::rc::PyRc;
 use rustpython_vm::compile::{self, Mode};
 use rustpython_vm::pyobject::{ItemProtocol, PyObjectRef, PyObjectWeak, PyValue};
-use rustpython_vm::scope::{NameProtocol, Scope};
+use rustpython_vm::scope::Scope;
 use rustpython_vm::{InitParameter, Interpreter, PySettings, VirtualMachine};
 
 use crate::browser_module::setup_browser_module;
@@ -204,7 +203,7 @@ impl WASMVirtualMachine {
     pub fn add_to_scope(&self, name: String, value: JsValue) -> Result<(), JsValue> {
         self.with_vm(move |vm, StoredVirtualMachine { ref scope, .. }| {
             let value = convert::js_to_py(vm, value);
-            scope.borrow_mut().store_name(&vm, &name, value);
+            scope.borrow_mut().store_name(&vm, name.as_str(), value);
         })
     }
 

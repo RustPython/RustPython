@@ -32,6 +32,7 @@ impl Location {
 }
 
 pub trait Constant: Sized {
+    type Name: AsRef<str>;
     fn borrow_constant(&self) -> BorrowedConstant<Self>;
     fn into_data(self) -> ConstantData {
         self.borrow_constant().into_data()
@@ -41,6 +42,7 @@ pub trait Constant: Sized {
     }
 }
 impl Constant for ConstantData {
+    type Name = String;
     fn borrow_constant(&self) -> BorrowedConstant<Self> {
         use BorrowedConstant::*;
         match self {
@@ -69,6 +71,10 @@ pub trait ConstantBag: Sized {
     fn make_constant_borrowed<C: Constant>(&self, constant: BorrowedConstant<C>) -> Self::Constant {
         self.make_constant(constant.into_data())
     }
+    fn make_name(&self, name: String) -> <Self::Constant as Constant>::Name;
+    fn make_name_ref(&self, name: &str) -> <Self::Constant as Constant>::Name {
+        self.make_name(name.to_owned())
+    }
 }
 
 #[derive(Clone)]
@@ -78,8 +84,8 @@ impl ConstantBag for BasicBag {
     fn make_constant(&self, constant: ConstantData) -> Self::Constant {
         constant
     }
-    fn make_constant_borrowed<C: Constant>(&self, constant: BorrowedConstant<C>) -> Self::Constant {
-        constant.into_data()
+    fn make_name(&self, name: String) -> <Self::Constant as Constant>::Name {
+        name
     }
 }
 
@@ -93,14 +99,17 @@ pub struct CodeObject<C: Constant = ConstantData> {
     pub locations: Vec<Location>,
     pub flags: CodeFlags,
     pub posonlyarg_count: usize, // Number of positional-only arguments
-    pub arg_names: Vec<String>,  // Names of positional arguments
-    pub varargs_name: Option<String>, // *args or *
-    pub kwonlyarg_names: Vec<String>,
-    pub varkeywords_name: Option<String>, // **kwargs or **
+    pub arg_count: usize,
+    pub kwonlyarg_count: usize,
     pub source_path: String,
     pub first_line_number: usize,
     pub obj_name: String, // Name of the object that created this code object
     pub constants: Vec<C>,
+    #[serde(bound(
+        deserialize = "C::Name: serde::Deserialize<'de>",
+        serialize = "C::Name: serde::Serialize"
+    ))]
+    pub names: Vec<C::Name>,
 }
 
 bitflags! {
@@ -172,37 +181,39 @@ pub enum ConversionFlag {
     Repr,
 }
 
+pub type NameIdx = usize;
+
 /// A Single bytecode instruction.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Instruction {
     Import {
-        name: Option<String>,
-        symbols: Vec<String>,
+        name_idx: Option<NameIdx>,
+        symbols_idx: Vec<NameIdx>,
         level: usize,
     },
     ImportStar,
     ImportFrom {
-        name: String,
+        idx: NameIdx,
     },
     LoadName {
-        name: String,
+        idx: NameIdx,
         scope: NameScope,
     },
     StoreName {
-        name: String,
+        idx: NameIdx,
         scope: NameScope,
     },
     DeleteName {
-        name: String,
+        idx: NameIdx,
     },
     Subscript,
     StoreSubscript,
     DeleteSubscript,
     StoreAttr {
-        name: String,
+        idx: NameIdx,
     },
     DeleteAttr {
-        name: String,
+        idx: NameIdx,
     },
     LoadConst {
         /// index into constants vec
@@ -216,7 +227,7 @@ pub enum Instruction {
         inplace: bool,
     },
     LoadAttr {
-        name: String,
+        idx: NameIdx,
     },
     CompareOperation {
         op: ComparisonOperator,
@@ -503,15 +514,37 @@ pub enum BlockType {
 }
 */
 
+pub struct Arguments<'a, N: AsRef<str>> {
+    pub posonlyargs: &'a [N],
+    pub args: &'a [N],
+    pub vararg: Option<&'a N>,
+    pub kwonlyargs: &'a [N],
+    pub varkwarg: Option<&'a N>,
+}
+
+impl<N: AsRef<str>> fmt::Debug for Arguments<'_, N> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        macro_rules! fmt_slice {
+            ($x:expr) => {
+                format_args!("[{}]", $x.iter().map(AsRef::as_ref).format(", "))
+            };
+        }
+        f.debug_struct("Arguments")
+            .field("posonlyargs", &fmt_slice!(self.posonlyargs))
+            .field("args", &fmt_slice!(self.posonlyargs))
+            .field("vararg", &self.vararg.map(N::as_ref))
+            .field("kwonlyargs", &fmt_slice!(self.kwonlyargs))
+            .field("varkwarg", &self.varkwarg.map(N::as_ref))
+            .finish()
+    }
+}
+
 impl<C: Constant> CodeObject<C> {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         flags: CodeFlags,
         posonlyarg_count: usize,
-        arg_names: Vec<String>,
-        varargs_name: Option<String>,
-        kwonlyarg_names: Vec<String>,
-        varkeywords_name: Option<String>,
+        arg_count: usize,
+        kwonlyarg_count: usize,
         source_path: String,
         first_line_number: usize,
         obj_name: String,
@@ -522,40 +555,45 @@ impl<C: Constant> CodeObject<C> {
             locations: Vec::new(),
             flags,
             posonlyarg_count,
-            arg_names,
-            varargs_name,
-            kwonlyarg_names,
-            varkeywords_name,
+            arg_count,
+            kwonlyarg_count,
             source_path,
             first_line_number,
             obj_name,
             constants: Vec::new(),
+            names: Vec::new(),
         }
     }
 
-    pub fn varnames(&self) -> impl Iterator<Item = &str> + '_ {
-        self.arg_names
-            .iter()
-            .map(String::as_str)
-            .chain(self.kwonlyarg_names.iter().map(String::as_str))
-            .chain(self.varargs_name.as_deref())
-            .chain(self.varkeywords_name.as_deref())
-            .chain(
-                self.instructions
-                    .iter()
-                    .filter_map(|i| match i {
-                        Instruction::LoadName {
-                            name,
-                            scope: NameScope::Local,
-                        }
-                        | Instruction::StoreName {
-                            name,
-                            scope: NameScope::Local,
-                        } => Some(name.as_str()),
-                        _ => None,
-                    })
-                    .unique(),
-            )
+    // like inspect.getargs
+    pub fn arg_names(&self) -> Arguments<C::Name> {
+        let nargs = self.arg_count;
+        let nkwargs = self.kwonlyarg_count;
+        let mut varargspos = nargs + nkwargs;
+        let posonlyargs = &self.names[..self.posonlyarg_count];
+        let args = &self.names[..nargs];
+        let kwonlyargs = &self.names[nargs..varargspos];
+
+        let vararg = if self.flags.contains(CodeFlags::HAS_VARARGS) {
+            let vararg = &self.names[varargspos];
+            varargspos += 1;
+            Some(vararg)
+        } else {
+            None
+        };
+        let varkwarg = if self.flags.contains(CodeFlags::HAS_VARKEYWORDS) {
+            Some(&self.names[varargspos])
+        } else {
+            None
+        };
+
+        Arguments {
+            posonlyargs,
+            args,
+            vararg,
+            kwonlyargs,
+            varkwarg,
+        }
     }
 
     fn display_inner(
@@ -579,6 +617,7 @@ impl<C: Constant> CodeObject<C> {
                 f,
                 &self.label_map,
                 &self.constants,
+                &self.names,
                 expand_codeobjects,
                 level,
             )?;
@@ -603,16 +642,19 @@ impl<C: Constant> CodeObject<C> {
                 .into_iter()
                 .map(|x| x.map_constant(bag))
                 .collect(),
+            names: self
+                .names
+                .into_iter()
+                .map(|x| bag.make_name_ref(x.as_ref()))
+                .collect(),
 
             instructions: self.instructions,
             label_map: self.label_map,
             locations: self.locations,
             flags: self.flags,
             posonlyarg_count: self.posonlyarg_count,
-            arg_names: self.arg_names,
-            varargs_name: self.varargs_name,
-            kwonlyarg_names: self.kwonlyarg_names,
-            varkeywords_name: self.varkeywords_name,
+            arg_count: self.arg_count,
+            kwonlyarg_count: self.kwonlyarg_count,
             source_path: self.source_path,
             first_line_number: self.first_line_number,
             obj_name: self.obj_name,
@@ -626,16 +668,19 @@ impl<C: Constant> CodeObject<C> {
                 .iter()
                 .map(|x| bag.make_constant_borrowed(x.borrow_constant()))
                 .collect(),
+            names: self
+                .names
+                .iter()
+                .map(|x| bag.make_name_ref(x.as_ref()))
+                .collect(),
 
             instructions: self.instructions.clone(),
             label_map: self.label_map.clone(),
             locations: self.locations.clone(),
             flags: self.flags,
             posonlyarg_count: self.posonlyarg_count,
-            arg_names: self.arg_names.clone(),
-            varargs_name: self.varargs_name.clone(),
-            kwonlyarg_names: self.kwonlyarg_names.clone(),
-            varkeywords_name: self.varkeywords_name.clone(),
+            arg_count: self.arg_count,
+            kwonlyarg_count: self.kwonlyarg_count,
             source_path: self.source_path.clone(),
             first_line_number: self.first_line_number,
             obj_name: self.obj_name.clone(),
@@ -677,6 +722,7 @@ impl Instruction {
         f: &mut fmt::Formatter,
         label_map: &BTreeMap<Label, usize>,
         constants: &[C],
+        names: &[C::Name],
         expand_codeobjects: bool,
         level: usize,
     ) -> fmt::Result {
@@ -704,25 +750,31 @@ impl Instruction {
 
         match self {
             Import {
-                name,
-                symbols,
+                name_idx,
+                symbols_idx,
                 level,
             } => w!(
                 Import,
-                format!("{:?}", name),
-                format!("{:?}", symbols),
+                format!("{:?}", name_idx.map(|idx| names[idx].as_ref())),
+                format!(
+                    "({:?})",
+                    symbols_idx
+                        .iter()
+                        .map(|&idx| names[idx].as_ref())
+                        .format(", ")
+                ),
                 level
             ),
             ImportStar => w!(ImportStar),
-            ImportFrom { name } => w!(ImportFrom, name),
-            LoadName { name, scope } => w!(LoadName, name, format!("{:?}", scope)),
-            StoreName { name, scope } => w!(StoreName, name, format!("{:?}", scope)),
-            DeleteName { name } => w!(DeleteName, name),
+            ImportFrom { idx } => w!(ImportFrom, names[*idx].as_ref()),
+            LoadName { idx, scope } => w!(LoadName, names[*idx].as_ref(), format!("{:?}", scope)),
+            StoreName { idx, scope } => w!(StoreName, names[*idx].as_ref(), format!("{:?}", scope)),
+            DeleteName { idx } => w!(DeleteName, names[*idx].as_ref()),
             Subscript => w!(Subscript),
             StoreSubscript => w!(StoreSubscript),
             DeleteSubscript => w!(DeleteSubscript),
-            StoreAttr { name } => w!(StoreAttr, name),
-            DeleteAttr { name } => w!(DeleteAttr, name),
+            StoreAttr { idx } => w!(StoreAttr, names[*idx].as_ref()),
+            DeleteAttr { idx } => w!(DeleteAttr, names[*idx].as_ref()),
             LoadConst { idx } => {
                 let value = &constants[*idx];
                 match value.borrow_constant() {
@@ -740,7 +792,7 @@ impl Instruction {
             }
             UnaryOperation { op } => w!(UnaryOperation, format!("{:?}", op)),
             BinaryOperation { op, inplace } => w!(BinaryOperation, format!("{:?}", op), inplace),
-            LoadAttr { name } => w!(LoadAttr, name),
+            LoadAttr { idx } => w!(LoadAttr, names[*idx].as_ref()),
             CompareOperation { op } => w!(CompareOperation, format!("{:?}", op)),
             Pop => w!(Pop),
             Rotate { amount } => w!(Rotate, amount),
@@ -818,6 +870,10 @@ impl<C: Constant> fmt::Debug for CodeObject<C> {
 
 #[derive(Serialize, Deserialize)]
 pub struct FrozenModule<C: Constant = ConstantData> {
+    #[serde(bound(
+        deserialize = "C: serde::Deserialize<'de>, C::Name: serde::Deserialize<'de>",
+        serialize = "C: serde::Serialize, C::Name: serde::Serialize"
+    ))]
     pub code: CodeObject<C>,
     pub package: bool,
 }

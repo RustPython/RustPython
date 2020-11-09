@@ -7,7 +7,6 @@ use wasm_bindgen::{closure::Closure, prelude::*, JsCast};
 use wasm_bindgen_futures::{future_to_promise, JsFuture};
 
 use rustpython_vm::builtins::{PyFloatRef, PyStrRef, PyTypeRef};
-use rustpython_vm::common::rc::PyRc;
 use rustpython_vm::exceptions::PyBaseExceptionRef;
 use rustpython_vm::function::{Args, OptionalArg};
 use rustpython_vm::pyobject::{

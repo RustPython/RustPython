@@ -5,7 +5,7 @@
 use std::fmt;
 use std::ops::Deref;
 
-use super::pytype::PyTypeRef;
+use super::{PyStrRef, PyTypeRef};
 use crate::bytecode::{self, BorrowedConstant, Constant, ConstantBag};
 use crate::pyobject::{
     BorrowValue, IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
@@ -66,6 +66,7 @@ fn borrow_obj_constant(obj: &PyObjectRef) -> BorrowedConstant<PyConstant> {
 }
 
 impl Constant for PyConstant {
+    type Name = PyStrRef;
     fn borrow_constant(&self) -> BorrowedConstant<Self> {
         borrow_obj_constant(&self.0)
     }
@@ -85,7 +86,10 @@ impl ConstantBag for PyObjBag<'_> {
             bytecode::ConstantData::Integer { value } => ctx.new_int(value),
             bytecode::ConstantData::Float { value } => ctx.new_float(value),
             bytecode::ConstantData::Complex { value } => ctx.new_complex(value),
-            bytecode::ConstantData::Str { value } => vm.intern_string(value).into_object(),
+            bytecode::ConstantData::Str { value } if value.len() <= 20 => {
+                vm.intern_string(value).into_object()
+            }
+            bytecode::ConstantData::Str { value } => vm.ctx.new_str(value),
             bytecode::ConstantData::Bytes { value } => ctx.new_bytes(value.to_vec()),
             bytecode::ConstantData::Boolean { value } => ctx.new_bool(value),
             bytecode::ConstantData::Code { code } => {
@@ -110,7 +114,10 @@ impl ConstantBag for PyObjBag<'_> {
             bytecode::BorrowedConstant::Integer { value } => ctx.new_bigint(value),
             bytecode::BorrowedConstant::Float { value } => ctx.new_float(value),
             bytecode::BorrowedConstant::Complex { value } => ctx.new_complex(value),
-            bytecode::BorrowedConstant::Str { value } => vm.intern_string(value).into_object(),
+            bytecode::BorrowedConstant::Str { value } if value.len() <= 20 => {
+                vm.intern_string(value).into_object()
+            }
+            bytecode::BorrowedConstant::Str { value } => vm.ctx.new_str(value),
             bytecode::BorrowedConstant::Bytes { value } => ctx.new_bytes(value.to_vec()),
             bytecode::BorrowedConstant::Boolean { value } => ctx.new_bool(value),
             bytecode::BorrowedConstant::Code { code } => {
@@ -127,6 +134,12 @@ impl ConstantBag for PyObjBag<'_> {
             bytecode::BorrowedConstant::Ellipsis => ctx.ellipsis(),
         };
         PyConstant(obj)
+    }
+    fn make_name(&self, name: String) -> PyStrRef {
+        self.0.intern_string(name)
+    }
+    fn make_name_ref(&self, name: &str) -> PyStrRef {
+        self.0.intern_string(name)
     }
 }
 
@@ -208,7 +221,7 @@ impl PyCodeRef {
 
     #[pyproperty]
     fn co_argcount(self) -> usize {
-        self.code.arg_names.len()
+        self.code.arg_count
     }
 
     #[pyproperty]
@@ -223,7 +236,7 @@ impl PyCodeRef {
 
     #[pyproperty]
     fn co_kwonlyargcount(self) -> usize {
-        self.code.kwonlyarg_names.len()
+        self.code.kwonlyarg_count
     }
 
     #[pyproperty]
@@ -244,7 +257,12 @@ impl PyCodeRef {
 
     #[pyproperty]
     fn co_varnames(self, vm: &VirtualMachine) -> PyObjectRef {
-        let varnames = self.code.varnames().map(|s| vm.ctx.new_str(s)).collect();
+        let varnames = self
+            .code
+            .names
+            .iter()
+            .map(|s| s.clone().into_object())
+            .collect();
         vm.ctx.new_tuple(varnames)
     }
 }

@@ -700,10 +700,14 @@ impl VirtualMachine {
         syntax_error
     }
 
-    pub fn new_import_error(&self, msg: String, name: &str) -> PyBaseExceptionRef {
+    pub fn new_import_error(
+        &self,
+        msg: String,
+        name: impl TryIntoRef<PyStr>,
+    ) -> PyBaseExceptionRef {
         let import_error = self.ctx.exceptions.import_error.clone();
         let exc = self.new_exception_msg(import_error, msg);
-        self.set_attr(exc.as_object(), "name", self.new_pyobj(name))
+        self.set_attr(exc.as_object(), "name", name.try_into_ref(self).unwrap())
             .unwrap();
         exc
     }
@@ -819,7 +823,7 @@ impl VirtualMachine {
         })
     }
 
-    pub fn import(&self, module: &str, from_list: &[String], level: usize) -> PyResult {
+    pub fn import(&self, module: &str, from_list: &[PyStrRef], level: usize) -> PyResult {
         // if the import inputs seem weird, e.g a package import or something, rather than just
         // a straight `import ident`
         let weird = module.contains('.') || level != 0 || !from_list.is_empty();
@@ -859,7 +863,7 @@ impl VirtualMachine {
                 };
                 let from_list = self
                     .ctx
-                    .new_tuple(from_list.iter().map(|name| self.new_pyobj(name)).collect());
+                    .new_tuple(from_list.iter().map(|x| x.as_object().clone()).collect());
                 self.invoke(&import_func, (module, globals, locals, from_list, level))
                     .map_err(|exc| import::remove_importlib_frames(self, &exc))
             }
@@ -1642,7 +1646,7 @@ impl VirtualMachine {
     }
 
     pub fn intern_string<S: Internable>(&self, s: S) -> PyStrRef {
-        let (s, _) = self
+        let (s, ()) = self
             .ctx
             .string_cache
             .setdefault_entry(self, s, || ())

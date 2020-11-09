@@ -26,7 +26,7 @@ use crate::pyobject::{
     BorrowValue, IdProtocol, ItemProtocol, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
 };
-use crate::scope::{NameProtocol, Scope};
+use crate::scope::Scope;
 use crate::slots::PyComparisonOp;
 use crate::vm::VirtualMachine;
 
@@ -258,7 +258,6 @@ impl ExecutingFrame<'_> {
             let idx = self.lasti.fetch_add(1, Ordering::Relaxed);
             let loc = self.code.locations[idx];
             let instr = &self.code.instructions[idx];
-            vm.check_signals()?;
             let result = self.execute_instruction(instr, vm);
             match result {
                 Ok(None) => {}
@@ -338,6 +337,8 @@ impl ExecutingFrame<'_> {
         instruction: &bytecode::Instruction,
         vm: &VirtualMachine,
     ) -> FrameResult {
+        vm.check_signals()?;
+
         flame_guard!(format!("Frame::execute_instruction({:?})", instruction));
 
         #[cfg(feature = "vm-tracing-logging")]
@@ -359,17 +360,15 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::Import {
-                ref name,
-                ref symbols,
-                ref level,
-            } => self.import(vm, name, symbols, *level),
+                name_idx,
+                symbols_idx,
+                level,
+            } => self.import(vm, *name_idx, symbols_idx, *level),
             bytecode::Instruction::ImportStar => self.import_star(vm),
-            bytecode::Instruction::ImportFrom { ref name } => self.import_from(vm, name),
-            bytecode::Instruction::LoadName { ref name, scope } => self.load_name(vm, name, *scope),
-            bytecode::Instruction::StoreName { ref name, scope } => {
-                self.store_name(vm, name, *scope)
-            }
-            bytecode::Instruction::DeleteName { ref name } => self.delete_name(vm, name),
+            bytecode::Instruction::ImportFrom { idx } => self.import_from(vm, *idx),
+            bytecode::Instruction::LoadName { idx, scope } => self.load_name(vm, *idx, *scope),
+            bytecode::Instruction::StoreName { idx, scope } => self.store_name(vm, *idx, *scope),
+            bytecode::Instruction::DeleteName { idx } => self.delete_name(vm, *idx),
             bytecode::Instruction::Subscript => self.execute_subscript(vm),
             bytecode::Instruction::StoreSubscript => self.execute_store_subscript(vm),
             bytecode::Instruction::DeleteSubscript => self.execute_delete_subscript(vm),
@@ -453,9 +452,9 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::BinaryOperation { ref op, inplace } => {
                 self.execute_binop(vm, op, *inplace)
             }
-            bytecode::Instruction::LoadAttr { ref name } => self.load_attr(vm, name),
-            bytecode::Instruction::StoreAttr { ref name } => self.store_attr(vm, name),
-            bytecode::Instruction::DeleteAttr { ref name } => self.delete_attr(vm, name),
+            bytecode::Instruction::LoadAttr { idx } => self.load_attr(vm, *idx),
+            bytecode::Instruction::StoreAttr { idx } => self.store_attr(vm, *idx),
+            bytecode::Instruction::DeleteAttr { idx } => self.delete_attr(vm, *idx),
             bytecode::Instruction::UnaryOperation { ref op } => self.execute_unop(vm, op),
             bytecode::Instruction::CompareOperation { ref op } => self.execute_compare(vm, op),
             bytecode::Instruction::ReturnValue => {
@@ -778,24 +777,32 @@ impl ExecutingFrame<'_> {
     fn import(
         &mut self,
         vm: &VirtualMachine,
-        module: &Option<String>,
-        symbols: &[String],
+        module: Option<bytecode::NameIdx>,
+        symbols: &[bytecode::NameIdx],
         level: usize,
     ) -> FrameResult {
-        let module = module.clone().unwrap_or_default();
-        let module = vm.import(&module, symbols, level)?;
+        let module = match module {
+            Some(idx) => self.code.names[idx].borrow_value(),
+            None => "",
+        };
+        let from_list = symbols
+            .iter()
+            .map(|&idx| self.code.names[idx].clone())
+            .collect::<Vec<_>>();
+        let module = vm.import(&module, &from_list, level)?;
 
         self.push_value(module);
         Ok(None)
     }
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
-    fn import_from(&mut self, vm: &VirtualMachine, name: &str) -> FrameResult {
+    fn import_from(&mut self, vm: &VirtualMachine, idx: bytecode::NameIdx) -> FrameResult {
         let module = self.last_value();
+        let name = &self.code.names[idx];
         // Load attribute, and transform any error into import error.
-        let obj = vm
-            .get_attribute(module, name)
-            .map_err(|_| vm.new_import_error(format!("cannot import name '{}'", name), name))?;
+        let obj = vm.get_attribute(module, name.clone()).map_err(|_| {
+            vm.new_import_error(format!("cannot import name '{}'", name), name.clone())
+        })?;
         self.push_value(obj);
         Ok(None)
     }
@@ -900,9 +907,10 @@ impl ExecutingFrame<'_> {
     fn store_name(
         &mut self,
         vm: &VirtualMachine,
-        name: &str,
+        idx: bytecode::NameIdx,
         name_scope: bytecode::NameScope,
     ) -> FrameResult {
+        let name = self.code.names[idx].clone();
         let obj = self.pop_value();
         match name_scope {
             bytecode::NameScope::Global => {
@@ -921,8 +929,9 @@ impl ExecutingFrame<'_> {
         Ok(None)
     }
 
-    fn delete_name(&self, vm: &VirtualMachine, name: &str) -> FrameResult {
-        match self.scope.delete_name(vm, name) {
+    fn delete_name(&self, vm: &VirtualMachine, idx: bytecode::NameIdx) -> FrameResult {
+        let name = &self.code.names[idx];
+        match self.scope.delete_name(vm, name.clone()) {
             Ok(_) => Ok(None),
             Err(_) => Err(vm.new_name_error(format!("name '{}' is not defined", name))),
         }
@@ -933,14 +942,15 @@ impl ExecutingFrame<'_> {
     fn load_name(
         &mut self,
         vm: &VirtualMachine,
-        name: &str,
+        idx: bytecode::NameIdx,
         name_scope: bytecode::NameScope,
     ) -> FrameResult {
+        let name = &self.code.names[idx];
         let optional_value = match name_scope {
-            bytecode::NameScope::Global => self.scope.load_global(vm, name),
-            bytecode::NameScope::NonLocal => self.scope.load_cell(vm, name),
-            bytecode::NameScope::Local => self.scope.load_local(&vm, name),
-            bytecode::NameScope::Free => self.scope.load_name(&vm, name),
+            bytecode::NameScope::Global => self.scope.load_global(vm, name.clone()),
+            bytecode::NameScope::NonLocal => self.scope.load_cell(vm, name.clone()),
+            bytecode::NameScope::Local => self.scope.load_local(vm, name.clone()),
+            bytecode::NameScope::Free => self.scope.load_name(vm, name.clone()),
         };
 
         let value = optional_value
@@ -1441,24 +1451,26 @@ impl ExecutingFrame<'_> {
         Ok(None)
     }
 
-    fn load_attr(&mut self, vm: &VirtualMachine, attr_name: &str) -> FrameResult {
+    fn load_attr(&mut self, vm: &VirtualMachine, attr: bytecode::NameIdx) -> FrameResult {
+        let attr_name = self.code.names[attr].clone();
         let parent = self.pop_value();
         let obj = vm.get_attribute(parent, attr_name)?;
         self.push_value(obj);
         Ok(None)
     }
 
-    fn store_attr(&mut self, vm: &VirtualMachine, attr_name: &str) -> FrameResult {
+    fn store_attr(&mut self, vm: &VirtualMachine, attr: bytecode::NameIdx) -> FrameResult {
+        let attr_name = self.code.names[attr].clone();
         let parent = self.pop_value();
         let value = self.pop_value();
-        vm.set_attr(&parent, vm.ctx.new_str(attr_name), value)?;
+        vm.set_attr(&parent, attr_name, value)?;
         Ok(None)
     }
 
-    fn delete_attr(&mut self, vm: &VirtualMachine, attr_name: &str) -> FrameResult {
+    fn delete_attr(&mut self, vm: &VirtualMachine, attr: bytecode::NameIdx) -> FrameResult {
+        let attr_name = self.code.names[attr].clone().into_object();
         let parent = self.pop_value();
-        let name = vm.ctx.new_str(attr_name);
-        vm.del_attr(&parent, name)?;
+        vm.del_attr(&parent, attr_name)?;
         Ok(None)
     }
 

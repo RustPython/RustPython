@@ -77,10 +77,9 @@ fn _imp_exec_builtin(_mod: PyModuleRef) -> i32 {
 }
 
 fn _imp_get_frozen_object(name: PyStrRef, vm: &VirtualMachine) -> PyResult<PyCode> {
-    let name = name.borrow_value();
     vm.state
         .frozen
-        .get(name)
+        .get(name.borrow_value())
         .map(|frozen| {
             let mut frozen = frozen.code.clone();
             frozen.source_path = format!("frozen {}", name);
@@ -94,10 +93,9 @@ fn _imp_init_frozen(name: PyStrRef, vm: &VirtualMachine) -> PyResult {
 }
 
 fn _imp_is_frozen_package(name: PyStrRef, vm: &VirtualMachine) -> PyResult<bool> {
-    let name = name.borrow_value();
     vm.state
         .frozen
-        .get(name)
+        .get(name.borrow_value())
         .map(|frozen| frozen.package)
         .ok_or_else(|| vm.new_import_error(format!("No such frozen object named {}", name), name))
 }

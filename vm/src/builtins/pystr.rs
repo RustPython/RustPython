@@ -70,6 +70,11 @@ where
         s.as_ref().to_owned().into()
     }
 }
+impl AsRef<str> for PyStrRef {
+    fn as_ref(&self) -> &str {
+        &self.value
+    }
+}
 
 impl From<String> for PyStr {
     fn from(s: String) -> PyStr {
@@ -1452,6 +1457,7 @@ impl<'s> AnyStr<'s, char> for str {
     }
 }
 
+#[derive(Clone)]
 #[repr(transparent)]
 pub struct PyStrExact(PyStrRef);
 impl PyStrExact {
@@ -1480,5 +1486,10 @@ impl crate::dictdatatype::DictKey for PyStrExact {
     }
     fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
         self.0.key_eq(vm, other_key)
+    }
+}
+impl TryIntoRef<PyStr> for PyStrExact {
+    fn try_into_ref(self, _vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
+        Ok(self.0)
     }
 }
