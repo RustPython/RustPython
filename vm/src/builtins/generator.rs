@@ -8,6 +8,7 @@ use crate::coroutine::{Coro, Variant};
 use crate::frame::FrameRef;
 use crate::function::OptionalArg;
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::slots::PyIter;
 use crate::vm::VirtualMachine;
 
 #[pyclass(module = false, name = "generator")]
@@ -22,7 +23,7 @@ impl PyValue for PyGenerator {
     }
 }
 
-#[pyimpl]
+#[pyimpl(with(PyIter))]
 impl PyGenerator {
     pub fn as_coro(&self) -> &Coro {
         &self.inner
@@ -39,16 +40,6 @@ impl PyGenerator {
     #[pyproperty(magic)]
     fn name(&self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.none()
-    }
-
-    #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
-        zelf
-    }
-
-    #[pymethod(name = "__next__")]
-    fn next(&self, vm: &VirtualMachine) -> PyResult {
-        self.send(vm.ctx.none(), vm)
     }
 
     #[pymethod]
@@ -92,6 +83,12 @@ impl PyGenerator {
     #[pyproperty]
     fn gi_yieldfrom(&self, _vm: &VirtualMachine) -> Option<PyObjectRef> {
         self.inner.frame().yield_from_target()
+    }
+}
+
+impl PyIter for PyGenerator {
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        zelf.send(vm.ctx.none(), vm)
     }
 }
 

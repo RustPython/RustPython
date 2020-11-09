@@ -453,19 +453,24 @@ mod _io {
             check_seekable(&instance, vm)
         }
 
+        #[pyslot]
         #[pymethod(magic)]
-        fn iter(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn tp_iter(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             check_closed(&instance, vm)?;
             Ok(instance)
         }
-        #[pymethod(magic)]
-        fn next(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        #[pyslot]
+        fn tp_iternext(instance: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
             let line = call_method(vm, &instance, "readline", ())?;
             if !pybool::boolval(vm, line.clone())? {
                 Err(vm.new_stop_iteration())
             } else {
                 Ok(line)
             }
+        }
+        #[pymethod(magic)]
+        fn next(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            Self::tp_iternext(&instance, vm)
         }
     }
 

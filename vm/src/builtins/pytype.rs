@@ -198,6 +198,20 @@ impl PyType {
                 };
                 self.slots.getattro.store(Some(func))
             }
+            "__iter__" => {
+                let func: slots::IterFunc = |zelf, vm| {
+                    let magic = get_class_magic(&zelf, "__iter__");
+                    vm.invoke(&magic, (zelf,))
+                };
+                self.slots.iter.store(Some(func));
+            }
+            "__next__" => {
+                let func: slots::IterNextFunc = |zelf, vm| {
+                    let magic = get_class_magic(zelf, "__next__");
+                    vm.invoke(&magic, (zelf.clone(),))
+                };
+                self.slots.iternext.store(Some(func));
+            }
             _ => {}
         }
     }

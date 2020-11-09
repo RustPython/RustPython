@@ -2,6 +2,7 @@ use super::pytype::PyTypeRef;
 use crate::function::Args;
 use crate::iterator;
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::slots::PyIter;
 use crate::vm::VirtualMachine;
 
 /// map(func, *iterables) --> map object
@@ -21,7 +22,7 @@ impl PyValue for PyMap {
     }
 }
 
-#[pyimpl(flags(BASETYPE))]
+#[pyimpl(with(PyIter), flags(BASETYPE))]
 impl PyMap {
     #[pyslot]
     fn tp_new(
@@ -32,30 +33,13 @@ impl PyMap {
     ) -> PyResult<PyRef<Self>> {
         let iterators = iterables
             .into_iter()
-            .map(|iterable| iterator::get_iter(vm, &iterable))
+            .map(|iterable| iterator::get_iter(vm, iterable))
             .collect::<Result<Vec<_>, _>>()?;
         PyMap {
             mapper: function,
             iterators,
         }
         .into_ref_with_type(vm, cls)
-    }
-
-    #[pymethod(name = "__next__")]
-    fn next(&self, vm: &VirtualMachine) -> PyResult {
-        let next_objs = self
-            .iterators
-            .iter()
-            .map(|iterator| iterator::call_next(vm, iterator))
-            .collect::<Result<Vec<_>, _>>()?;
-
-        // the mapper itself can raise StopIteration which does stop the map iteration
-        vm.invoke(&self.mapper, next_objs)
-    }
-
-    #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
-        zelf
     }
 
     #[pymethod(name = "__length_hint__")]
@@ -65,6 +49,19 @@ impl PyMap {
             let max = std::cmp::max(prev, cur);
             Ok(max)
         })
+    }
+}
+
+impl PyIter for PyMap {
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        let next_objs = zelf
+            .iterators
+            .iter()
+            .map(|iterator| iterator::call_next(vm, iterator))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // the mapper itself can raise StopIteration which does stop the map iteration
+        vm.invoke(&zelf.mapper, next_objs)
     }
 }
 

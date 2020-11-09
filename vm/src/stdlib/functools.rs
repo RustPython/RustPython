@@ -14,7 +14,7 @@ mod _functools {
         start_value: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let iterator = iterator::get_iter(vm, &sequence)?;
+        let iterator = iterator::get_iter(vm, sequence)?;
 
         let start_value = if let OptionalArg::Present(val) = start_value {
             val

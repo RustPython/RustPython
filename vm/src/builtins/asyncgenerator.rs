@@ -7,6 +7,7 @@ use crate::function::OptionalArg;
 use crate::pyobject::{
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
+use crate::slots::PyIter;
 use crate::vm::VirtualMachine;
 
 use crossbeam_utils::atomic::AtomicCell;
@@ -172,20 +173,11 @@ impl PyValue for PyAsyncGenASend {
     }
 }
 
-#[pyimpl]
+#[pyimpl(with(PyIter))]
 impl PyAsyncGenASend {
-    #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
-        zelf
-    }
     #[pymethod(name = "__await__")]
     fn r#await(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
         zelf
-    }
-
-    #[pymethod(name = "__next__")]
-    fn next(&self, vm: &VirtualMachine) -> PyResult {
-        self.send(vm.ctx.none(), vm)
     }
 
     #[pymethod]
@@ -253,6 +245,12 @@ impl PyAsyncGenASend {
     }
 }
 
+impl PyIter for PyAsyncGenASend {
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        zelf.send(vm.ctx.none(), vm)
+    }
+}
+
 #[pyclass(module = false, name = "async_generator_athrow")]
 #[derive(Debug)]
 pub(crate) struct PyAsyncGenAThrow {
@@ -268,20 +266,11 @@ impl PyValue for PyAsyncGenAThrow {
     }
 }
 
-#[pyimpl]
+#[pyimpl(with(PyIter))]
 impl PyAsyncGenAThrow {
-    #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
-        zelf
-    }
     #[pymethod(name = "__await__")]
     fn r#await(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
         zelf
-    }
-
-    #[pymethod(name = "__next__")]
-    fn next(&self, vm: &VirtualMachine) -> PyResult {
-        self.send(vm.ctx.none(), vm)
     }
 
     #[pymethod]
@@ -394,6 +383,12 @@ impl PyAsyncGenAThrow {
         } else {
             exc
         }
+    }
+}
+
+impl PyIter for PyAsyncGenAThrow {
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        zelf.send(vm.ctx.none(), vm)
     }
 }
 

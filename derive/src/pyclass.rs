@@ -92,6 +92,12 @@ pub(crate) fn impl_pyimpl(
             let mut context = ImplContext::default();
             extract_items_into_context(&mut context, trai.items.iter_mut());
 
+            let ExtractedImplAttrs {
+                with_impl,
+                with_slots,
+                ..
+            } = extract_impl_attrs(attr)?;
+
             let getset_impl = &context.getset_items;
             let extend_impl = &context.impl_extend_items;
             let slots_impl = &context.extend_slots_items;
@@ -104,11 +110,13 @@ pub(crate) fn impl_pyimpl(
                     ) {
                         #getset_impl
                         #extend_impl
+                        #with_impl
                         #(#class_extensions)*
                     }
                 },
                 parse_quote! {
                     fn __extend_slots(slots: &mut ::rustpython_vm::slots::PyTypeSlots) {
+                        #with_slots
                         #slots_impl
                     }
                 },

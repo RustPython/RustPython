@@ -12,7 +12,7 @@ use crate::pyobject::{
     self, BorrowValue, IdProtocol, IntoPyRef, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
     PyValue, TryFromObject, TypeProtocol,
 };
-use crate::slots::{Comparable, Hashable, PyComparisonOp};
+use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter};
 use crate::vm::VirtualMachine;
 
 /// range(stop) -> range object
@@ -128,7 +128,7 @@ pub fn init(context: &PyContext) {
 
 type PyRangeRef = PyRef<PyRange>;
 
-#[pyimpl(with(Hashable, Comparable))]
+#[pyimpl(with(Hashable, Comparable, Iterable))]
 impl PyRange {
     fn new(cls: PyTypeRef, stop: PyIntRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         PyRange {
@@ -166,14 +166,6 @@ impl PyRange {
     #[pyproperty(name = "step")]
     fn step(&self) -> PyIntRef {
         self.step.clone()
-    }
-
-    #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>) -> PyRangeIterator {
-        PyRangeIterator {
-            position: AtomicCell::new(0),
-            range: zelf,
-        }
     }
 
     #[pymethod(name = "__reversed__")]
@@ -368,6 +360,16 @@ impl Comparable for PyRange {
     }
 }
 
+impl Iterable for PyRange {
+    fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        Ok(PyRangeIterator {
+            position: AtomicCell::new(0),
+            range: zelf,
+        }
+        .into_object(vm))
+    }
+}
+
 #[pyclass(module = false, name = "range_iterator")]
 #[derive(Debug)]
 pub struct PyRangeIterator {
@@ -381,23 +383,17 @@ impl PyValue for PyRangeIterator {
     }
 }
 
-type PyRangeIteratorRef = PyRef<PyRangeIterator>;
+#[pyimpl(with(PyIter))]
+impl PyRangeIterator {}
 
-#[pyimpl]
-impl PyRangeIterator {
-    #[pymethod(name = "__next__")]
-    fn next(&self, vm: &VirtualMachine) -> PyResult<BigInt> {
-        let position = BigInt::from(self.position.fetch_add(1));
-        if let Some(int) = self.range.get(&position) {
-            Ok(int)
+impl PyIter for PyRangeIterator {
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        let position = BigInt::from(zelf.position.fetch_add(1));
+        if let Some(int) = zelf.range.get(&position) {
+            Ok(vm.ctx.new_int(int))
         } else {
             Err(vm.new_stop_iteration())
         }
-    }
-
-    #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>) -> PyRangeIteratorRef {
-        zelf
     }
 }
 

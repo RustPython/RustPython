@@ -1011,7 +1011,7 @@ impl VirtualMachine {
                 .map(|obj| T::try_from_object(self, obj.clone()))
                 .collect()
         } else {
-            let iter = iterator::get_iter(self, value)?;
+            let iter = iterator::get_iter(self, value.clone())?;
             iterator::get_all(self, &iter)
         }
     }
@@ -1049,7 +1049,7 @@ impl VirtualMachine {
             ref t @ PyTuple => Ok(t.borrow_value().iter().cloned().map(f).collect()),
             // TODO: put internal iterable type
             obj => {
-                let iter = iterator::get_iter(self, obj)?;
+                let iter = iterator::get_iter(self, obj.clone())?;
                 Ok(iterator::try_map(self, &iter, f))
             }
         })
@@ -1574,7 +1574,7 @@ impl VirtualMachine {
 
     // https://docs.python.org/3/reference/expressions.html#membership-test-operations
     fn _membership_iter_search(&self, haystack: PyObjectRef, needle: PyObjectRef) -> PyResult {
-        let iter = iterator::get_iter(self, &haystack)?;
+        let iter = iterator::get_iter(self, haystack)?;
         loop {
             if let Some(element) = iterator::get_next_object(self, &iter)? {
                 if self.bool_eq(&needle, &element)? {

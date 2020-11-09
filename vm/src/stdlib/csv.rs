@@ -7,8 +7,8 @@ use crate::builtins::pytype::PyTypeRef;
 use crate::common::lock::PyRwLock;
 use crate::function::FuncArgs;
 use crate::pyobject::{
-    BorrowValue, IntoPyObject, PyClassImpl, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
-    StaticType, TryFromObject, TypeProtocol,
+    BorrowValue, IntoPyObject, PyClassImpl, PyIterable, PyObjectRef, PyResult, PyValue, StaticType,
+    TryFromObject, TypeProtocol,
 };
 use crate::types::create_simple_type;
 use crate::VirtualMachine;
@@ -149,15 +149,24 @@ impl Reader {
 
 #[pyimpl]
 impl Reader {
-    #[pymethod(name = "__iter__")]
-    fn iter(this: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+    #[pyslot]
+    #[pymethod(magic)]
+    fn iter(this: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let this = match this.downcast::<Self>() {
+            Ok(reader) => reader,
+            Err(_) => return Err(vm.new_type_error("unexpected payload for __iter__".to_owned())),
+        };
         this.state.write().cast_to_reader(vm)?;
         Ok(this.into_pyobject(vm))
     }
 
-    #[pymethod(name = "__next__")]
-    fn next(&self, vm: &VirtualMachine) -> PyResult {
-        let mut state = self.state.write();
+    #[pyslot]
+    fn tp_iternext(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let zelf = match zelf.downcast_ref::<Self>() {
+            Some(reader) => reader,
+            None => return Err(vm.new_type_error("unexpected payload for __next__".to_owned())),
+        };
+        let mut state = zelf.state.write();
         state.cast_to_reader(vm)?;
 
         if let ReadState::CsvIter(ref mut reader) = &mut *state {

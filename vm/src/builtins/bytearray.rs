@@ -21,7 +21,9 @@ use crate::pyobject::{
     PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex};
-use crate::slots::{BufferProtocol, Comparable, Hashable, PyComparisonOp, Unhashable};
+use crate::slots::{
+    BufferProtocol, Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable,
+};
 use crate::vm::VirtualMachine;
 use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;
@@ -97,7 +99,7 @@ pub(crate) fn init(context: &PyContext) {
     PyByteArrayIterator::extend_class(context, &context.types.bytearray_iterator_type);
 }
 
-#[pyimpl(flags(BASETYPE), with(Hashable, Comparable, BufferProtocol))]
+#[pyimpl(flags(BASETYPE), with(Hashable, Comparable, BufferProtocol, Iterable))]
 impl PyByteArray {
     #[pyslot]
     fn tp_new(
@@ -121,14 +123,6 @@ impl PyByteArray {
     #[pymethod(name = "__sizeof__")]
     fn sizeof(&self) -> usize {
         size_of::<Self>() + self.borrow_value().len() * size_of::<u8>()
-    }
-
-    #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>) -> PyByteArrayIterator {
-        PyByteArrayIterator {
-            position: AtomicCell::new(0),
-            bytearray: zelf,
-        }
     }
 
     #[pymethod(name = "__add__")]
@@ -718,6 +712,16 @@ impl<'a> ResizeGuard<'a> for PyByteArray {
 
 impl Unhashable for PyByteArray {}
 
+impl Iterable for PyByteArray {
+    fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        Ok(PyByteArrayIterator {
+            position: AtomicCell::new(0),
+            bytearray: zelf,
+        }
+        .into_object(vm))
+    }
+}
+
 // fn set_value(obj: &PyObjectRef, value: Vec<u8>) {
 //     obj.borrow_mut().kind = PyObjectPayload::Bytes { value };
 // }
@@ -735,20 +739,15 @@ impl PyValue for PyByteArrayIterator {
     }
 }
 
-#[pyimpl]
-impl PyByteArrayIterator {
-    #[pymethod(name = "__next__")]
-    fn next(&self, vm: &VirtualMachine) -> PyResult<u8> {
-        let pos = self.position.fetch_add(1);
-        if let Some(&ret) = self.bytearray.borrow_value().elements.get(pos) {
-            Ok(ret)
+#[pyimpl(with(PyIter))]
+impl PyByteArrayIterator {}
+impl PyIter for PyByteArrayIterator {
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        let pos = zelf.position.fetch_add(1);
+        if let Some(&ret) = zelf.bytearray.borrow_value().elements.get(pos) {
+            Ok(ret.into_pyobject(vm))
         } else {
             Err(vm.new_stop_iteration())
         }
-    }
-
-    #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
-        zelf
     }
 }

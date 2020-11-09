@@ -55,6 +55,8 @@ pub(crate) type CmpFunc = fn(
 ) -> PyResult<Either<PyObjectRef, PyComparisonValue>>;
 pub(crate) type GetattroFunc = fn(PyObjectRef, PyStrRef, &VirtualMachine) -> PyResult;
 pub(crate) type BufferFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<Box<dyn Buffer>>;
+pub(crate) type IterFunc = fn(PyObjectRef, &VirtualMachine) -> PyResult;
+pub(crate) type IterNextFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult;
 
 #[derive(Default)]
 pub struct PyTypeSlots {
@@ -68,6 +70,8 @@ pub struct PyTypeSlots {
     pub cmp: AtomicCell<Option<CmpFunc>>,
     pub getattro: AtomicCell<Option<GetattroFunc>>,
     pub buffer: Option<BufferFunc>,
+    pub iter: AtomicCell<Option<IterFunc>>,
+    pub iternext: AtomicCell<Option<IterNextFunc>>,
 }
 
 impl PyTypeSlots {
@@ -417,4 +421,50 @@ pub trait BufferProtocol: PyValue {
     }
 
     fn get_buffer(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<Box<dyn Buffer>>;
+}
+
+#[pyimpl]
+pub trait Iterable: PyValue {
+    #[pyslot]
+    fn tp_iter(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if let Ok(zelf) = zelf.downcast() {
+            Self::iter(zelf, vm)
+        } else {
+            Err(vm.new_type_error("unexpected payload for __iter__".to_owned()))
+        }
+    }
+
+    #[pymethod(magic)]
+    fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult;
+}
+
+#[pyimpl(with(Iterable))]
+pub trait PyIter: PyValue {
+    #[pyslot]
+    fn tp_iternext(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if let Some(zelf) = zelf.downcast_ref() {
+            Self::next(zelf, vm)
+        } else {
+            Err(vm.new_type_error("unexpected payload for __next__".to_owned()))
+        }
+    }
+
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult;
+
+    #[pymethod]
+    fn __next__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        Self::next(&zelf, vm)
+    }
+}
+
+impl<T> Iterable for T
+where
+    T: PyIter,
+{
+    fn tp_iter(zelf: PyObjectRef, _vm: &VirtualMachine) -> PyResult {
+        Ok(zelf)
+    }
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyResult {
+        Ok(zelf.into_object())
+    }
 }

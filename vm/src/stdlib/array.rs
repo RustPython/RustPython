@@ -16,7 +16,7 @@ use crate::pyobject::{
     PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
 };
 use crate::sliceable::{saturate_index, PySliceableSequence, PySliceableSequenceMut};
-use crate::slots::{BufferProtocol, Comparable, PyComparisonOp};
+use crate::slots::{BufferProtocol, Comparable, Iterable, PyComparisonOp, PyIter};
 use crate::VirtualMachine;
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
@@ -486,7 +486,7 @@ impl From<ArrayContentType> for PyArray {
     }
 }
 
-#[pyimpl(flags(BASETYPE), with(Comparable, BufferProtocol))]
+#[pyimpl(flags(BASETYPE), with(Comparable, BufferProtocol, Iterable))]
 impl PyArray {
     fn borrow_value(&self) -> PyRwLockReadGuard<'_, ArrayContentType> {
         self.array.read()
@@ -766,14 +766,6 @@ impl PyArray {
         self.borrow_value().len()
     }
 
-    #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>) -> PyArrayIter {
-        PyArrayIter {
-            position: AtomicCell::new(0),
-            array: zelf,
-        }
-    }
-
     fn array_eq(&self, other: &Self, vm: &VirtualMachine) -> PyResult<bool> {
         // we cannot use zelf.is(other) for shortcut because if we contenting a
         // float value NaN we always return False even they are the same object.
@@ -889,6 +881,16 @@ impl Buffer for ArrayBuffer {
     }
 }
 
+impl Iterable for PyArray {
+    fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        Ok(PyArrayIter {
+            position: AtomicCell::new(0),
+            array: zelf,
+        }
+        .into_object(vm))
+    }
+}
+
 impl<'a> ResizeGuard<'a> for PyArray {
     type Resizable = PyRwLockWriteGuard<'a, ArrayContentType>;
 
@@ -916,21 +918,17 @@ impl PyValue for PyArrayIter {
     }
 }
 
-#[pyimpl]
-impl PyArrayIter {
-    #[pymethod(name = "__next__")]
-    fn next(&self, vm: &VirtualMachine) -> PyResult {
-        let pos = self.position.fetch_add(1);
-        if let Some(item) = self.array.borrow_value().getitem_by_idx(pos, vm) {
+#[pyimpl(with(PyIter))]
+impl PyArrayIter {}
+
+impl PyIter for PyArrayIter {
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        let pos = zelf.position.fetch_add(1);
+        if let Some(item) = zelf.array.borrow_value().getitem_by_idx(pos, vm) {
             Ok(item)
         } else {
             Err(vm.new_stop_iteration())
         }
-    }
-
-    #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
-        zelf
     }
 }
 
