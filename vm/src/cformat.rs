@@ -293,24 +293,6 @@ impl CFormatSpec {
         }
     }
 
-    fn normalize_float(&self, num: f64) -> (f64, i32) {
-        let mut fraction = num;
-        let mut exponent = 0;
-        loop {
-            if fraction >= 10.0 {
-                fraction /= 10.0;
-                exponent += 1;
-            } else if fraction < 1.0 && fraction > 0.0 {
-                fraction *= 10.0;
-                exponent -= 1;
-            } else {
-                break;
-            }
-        }
-
-        (fraction, exponent)
-    }
-
     pub(crate) fn format_float(&self, num: f64) -> String {
         let sign_string = if num.is_sign_positive() {
             self.flags.sign_string()
@@ -337,17 +319,12 @@ impl CFormatSpec {
             }
             CFormatType::Float(CFloatType::General(case)) => {
                 let precision = if precision == 0 { 1 } else { precision };
-                let (fraction, exponent) = self.normalize_float(num.abs());
-                if exponent < -4 || exponent >= (precision as i32) {
-                    let case = match case {
-                        CFormatCase::Lowercase => 'e',
-                        CFormatCase::Uppercase => 'E',
-                    };
-                    format!("{}{}{:+03}", fraction, case, exponent)
-                } else {
-                    let magnitude = num.abs();
-                    format!("{}", magnitude)
-                }
+                let case = match case {
+                    CFormatCase::Lowercase => float_ops::Case::Lower,
+                    CFormatCase::Uppercase => float_ops::Case::Upper,
+                };
+                let magnitude = num.abs();
+                float_ops::format_general(precision, magnitude, case)
             }
             _ => unreachable!(),
         };
