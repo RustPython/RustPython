@@ -1,7 +1,7 @@
 extern crate libloading;
 
-use crate::builtins::pystr::PyStrRef;
-use crate::pyobject::{PyObjectRc, PyObjectRef, PyResult, PyValue};
+use crate::builtins::pystr::{PyStr};
+use crate::pyobject::{PyObjectRc, PyObjectRef, PyResult};
 use crate::VirtualMachine;
 
 use crate::stdlib::ctypes::common::{SharedLibrary, CDATACACHE};
@@ -26,17 +26,24 @@ pub fn dlopen(lib_path: PyObjectRc, vm: &VirtualMachine) -> PyResult<PyObjectRef
     }
 }
 
-pub fn dlsym(slib: PyObjectRc, func_name: PyStrRef, vm: &VirtualMachine) -> PyResult<*const i32> {
+pub fn dlsym(slib: PyObjectRc, func: PyObjectRc, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
     // match vm.isinstance(&slib, &SharedLibrary::static_type()) {
+    if !vm.isinstance(&func, &vm.ctx.types.str_type)? {
+        return Err(vm.new_value_error("argument func_name must be str".to_string()));
+    }   
+    
+    let func_name = func.downcast::<PyStr>().unwrap().as_ref();
+
     match slib.downcast::<SharedLibrary>() {
         Ok(lib) => {
-            if let Ok(ptr) = lib.get_sym(func_name.as_ref()) {
-                Ok(ptr)
+            if let Ok(ptr) = lib.get_sym(func_name) {
+                Ok(vm.new_pyobj(ptr as isize))
+
             } else {
                 // @TODO: Change this error message
                 Err(vm.new_runtime_error(format!(
                     "Error while opening symbol {}",
-                    func_name.as_ref()
+                    func_name
                 )))
             }
         }

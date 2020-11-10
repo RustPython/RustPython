@@ -9,8 +9,7 @@ use libloading::Library;
 
 use crate::builtins::PyTypeRef;
 use crate::common::lock::PyRwLock;
-use crate::common::rc::PyRc;
-use crate::pyobject::{PyObjectRc, PyValue, StaticType, PyRef};
+use crate::pyobject::{PyValue, StaticType, PyRef, PyObjectRef};
 use crate::VirtualMachine;
 
 pub const SIMPLE_TYPE_CHARS: &str = "cbBhHiIlLdfuzZqQP?g";
@@ -41,19 +40,23 @@ pub fn lib_call(
     c_args: Vec<middle::Type>,
     restype: middle::Type,
     arg_vec: Vec<middle::Arg>,
-    ptr_fn: Option<*const i32>,
+    wrapped_ptr: Option<PyObjectRef>,
     _vm: &VirtualMachine,
-) {
+) -> Option<middle::Type> {
     let cif = middle::Cif::new(c_args.into_iter(), restype);
 
-    if ptr_fn.is_some() {
+    if wrapped_ptr.is_some() {
         // Here it needs a type to return
         unsafe {
+            let ptr_fn = &wrapped_ptr.unwrap() as *const _ as *const isize;
+
             cif.call(
-                middle::CodePtr::from_ptr(ptr_fn.unwrap() as *const _ as *const libc::c_void),
+                middle::CodePtr::from_ptr(ptr_fn as *const libc::c_void),
                 arg_vec.as_slice(),
             )
         }
+    } else {
+        None
     }
 }
 
@@ -70,7 +73,6 @@ impl PyValue for SharedLibrary {
     }
 }
 
-#[pyimpl(flags(BASETYPE))]
 impl SharedLibrary {
     pub fn new(name: &str) -> Result<SharedLibrary, libloading::Error> {
         Ok(SharedLibrary {
@@ -79,7 +81,7 @@ impl SharedLibrary {
         })
     }
 
-    pub fn get_sym(&self, name: &str) -> Result<*const i32, libloading::Error> {
+    pub fn get_sym(&self, name: &str) -> Result<*const isize, libloading::Error> {
         unsafe { self.lib.get(name.as_bytes()).map(|f| *f) }
     }
 }

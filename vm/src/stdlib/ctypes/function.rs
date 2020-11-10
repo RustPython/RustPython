@@ -1,5 +1,7 @@
 extern crate libffi;
 
+use libffi::middle::Arg;
+
 use crate::builtins::pystr::{PyStr, PyStrRef};
 use crate::builtins::PyTypeRef;
 use crate::common::lock::PyRwLock;
@@ -14,6 +16,36 @@ use crate::stdlib::ctypes::common::{
 
 use crate::slots::Callable;
 use crate::stdlib::ctypes::dll::dlsym;
+
+fn map_types_to_res(args: &Vec<PyObjectRc>, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>>{
+    args
+    .iter()
+    .enumerate()
+    .map(|(idx, inner_obj)| {
+        match vm.isinstance(inner_obj, CDataObject::static_type()) {
+            Ok(_) => match vm.get_attribute(inner_obj.clone(), "_type_") {
+                Ok(_type_)
+                    if SIMPLE_TYPE_CHARS.contains(_type_.to_string().as_str()) =>
+                {
+                    Ok(_type_)
+                }
+                Ok(_type_) => {
+                    Err(vm.new_attribute_error("invalid _type_ value".to_string()))
+                }
+                Err(_) => {
+                    Err(vm.new_attribute_error("atribute _type_ not found".to_string()))
+                }
+            },
+            // @TODO: Needs to return the name of the type, not String(inner_obj)
+            Err(_) => Err(vm.new_type_error(format!(
+                "object at {} is not an instance of _CDataObject, type {} found",
+                idx,
+                inner_obj.to_string()
+            ))),
+        }
+    })
+    .collect()
+}
 
 #[pyclass(module = "_ctypes", name = "CFuncPtr", base = "CDataObject")]
 #[derive(Debug)]
@@ -49,37 +81,12 @@ impl PyCFuncPtr {
         {
             let args: Vec<PyObjectRef> = vm.extract_elements(&argtypes).unwrap();
 
-            let c_args: Result<Vec<PyObjectRef>, _> = args
-                .iter()
-                .enumerate()
-                .map(|(idx, inner_obj)| {
-                    match vm.isinstance(inner_obj, CDataObject::static_type()) {
-                        Ok(_) => match vm.get_attribute(inner_obj.clone(), "_type_") {
-                            Ok(_type_)
-                                if SIMPLE_TYPE_CHARS.contains(_type_.to_string().as_str()) =>
-                            {
-                                Ok(_type_)
-                            }
-                            Ok(_type_) => {
-                                Err(vm.new_attribute_error("invalid _type_ value".to_string()))
-                            }
-                            Err(_) => {
-                                Err(vm.new_attribute_error("atribute _type_ not found".to_string()))
-                            }
-                        },
-                        // @TODO: Needs to return the name of the type, not String(inner_obj)
-                        Err(_) => Err(vm.new_type_error(format!(
-                            "object at {} is not an instance of _CDataObject, type {} found",
-                            idx,
-                            inner_obj.to_string()
-                        ))),
-                    }
-                })
-                .collect();
+            let c_args = map_types_to_res(&args,vm);
 
             self._argtypes_.write().clear();
             self._argtypes_.write().extend(c_args?.into_iter());
             Ok(())
+
         } else {
             Err(vm.new_type_error(format!(
                 "argtypes must be Tuple or List, {} found.",
@@ -183,9 +190,13 @@ impl Callable for PyCFuncPtr {
         }
 
         // Needs to check their types and convert to middle::Arg based on zelf._argtypes_
-        // Something similar to the set of _argtypes_
-        // arg_vec = ...
-        let arg_vec = Vec::new();
+        let arg_vec = map_types_to_res(&args.args, vm)?
+            .iter()
+            .map(|arg|
+                Arg::new(&convert_type(vm.get_attribute(arg.clone(), "_type_").unwrap().to_string().as_ref()))
+            )
+            .collect();
+                
 
         // This is not optimal, but I can't simply store a vector of middle::Type inside PyCFuncPtr
         let c_args = zelf
@@ -196,11 +207,14 @@ impl Callable for PyCFuncPtr {
             .collect();
 
         let ret_type = convert_type(zelf._restype_.read().as_ref());
-
-        let name_py_ref = PyStr::from(&zelf._name_).into_ref(vm);
+        
+        let name_py_ref = PyStr::from(&zelf._name_).into_object(vm);
         let ptr_fn = dlsym(zelf._handle.clone(), name_py_ref, vm).ok();
         let ret = lib_call(c_args, ret_type, arg_vec, ptr_fn, vm);
-
-        Ok(vm.new_pyobj(ret))
+        
+        match ret {
+            Some(value) => Ok(vm.new_pyobj(value)),
+            _ => Ok(vm.ctx.none())
+        }
     }
 }
