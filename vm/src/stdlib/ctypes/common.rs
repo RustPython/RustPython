@@ -10,7 +10,7 @@ use libloading::Library;
 use crate::builtins::PyTypeRef;
 use crate::common::lock::PyRwLock;
 use crate::common::rc::PyRc;
-use crate::pyobject::{PyObjectRc, PyValue, StaticType};
+use crate::pyobject::{PyObjectRc, PyValue, StaticType, PyRef};
 use crate::VirtualMachine;
 
 pub const SIMPLE_TYPE_CHARS: &str = "cbBhHiIlLdfuzZqQP?g";
@@ -56,6 +56,7 @@ pub fn lib_call(
         }
     }
 }
+
 #[pyclass(module = false, name = "SharedLibrary")]
 #[derive(Debug)]
 pub struct SharedLibrary {
@@ -84,7 +85,7 @@ impl SharedLibrary {
 }
 
 pub struct ExternalFunctions {
-    libraries: HashMap<String, PyRc<SharedLibrary>>,
+    pub libraries: HashMap<String, PyRef<SharedLibrary>>,
 }
 
 impl ExternalFunctions {
@@ -94,17 +95,17 @@ impl ExternalFunctions {
         }
     }
 
-    pub unsafe fn get_or_insert_lib<'a, 'b>(
+    pub fn get_or_insert_lib<'a, 'b>(
         &'b mut self,
         library_path: &'a str,
         vm: &'a VirtualMachine,
-    ) -> Result<PyObjectRc, libloading::Error> {
+    ) -> Result<&PyRef<SharedLibrary>, libloading::Error> {
         let library = self
             .libraries
             .entry(library_path.to_string())
-            .or_insert(PyRc::new(SharedLibrary::new(library_path)?));
+            .or_insert(SharedLibrary::new(library_path)?.into_ref(vm));
 
-        Ok(library.clone().into_object(vm))
+        Ok(library)
     }
 }
 

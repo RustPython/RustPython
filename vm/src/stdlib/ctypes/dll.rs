@@ -1,7 +1,7 @@
 extern crate libloading;
 
 use crate::builtins::pystr::PyStrRef;
-use crate::pyobject::{PyObjectRc, PyObjectRef, PyResult, StaticType};
+use crate::pyobject::{PyObjectRc, PyObjectRef, PyResult, PyValue};
 use crate::VirtualMachine;
 
 use crate::stdlib::ctypes::common::{SharedLibrary, CDATACACHE};
@@ -13,14 +13,12 @@ pub fn dlopen(lib_path: PyObjectRc, vm: &VirtualMachine) -> PyResult<PyObjectRef
         Err(e) => Err(e),
     }?;
 
-    let result = unsafe {
-        CDATACACHE
-            .write()
-            .get_or_insert_lib(lib_str_path.as_ref(), vm)
-    };
+    let mut data_cache = CDATACACHE.write();
+
+    let result = data_cache.get_or_insert_lib(lib_str_path.as_ref(), vm);
 
     match result {
-        Ok(lib) => Ok(lib),
+        Ok(lib) => Ok(lib.clone().into_object()),
         Err(_) => Err(vm.new_os_error(format!(
             "{} : cannot open shared object file: No such file or directory",
             lib_path.to_string()
