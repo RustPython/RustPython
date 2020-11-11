@@ -21,7 +21,8 @@ class OpcodeTest(unittest.TestCase):
         if n != 90:
             self.fail('try inside for')
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_setup_annotations_line(self):
         # check that SETUP_ANNOTATIONS does not create spurious line numbers
         try:
@@ -37,13 +38,13 @@ class OpcodeTest(unittest.TestCase):
         with self.assertRaises(AttributeError):
             C.__annotations__
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_use_existing_annotations(self):
         ns = {'__annotations__': {1: 2}}
         exec('x: int', ns)
         self.assertEqual(ns['__annotations__'], {'x': int, 1: 2})
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_do_not_recreate_annotations(self):
         # Don't rely on the existence of the '__annotations__' global.
         with support.swap_item(globals(), '__annotations__', {}):
