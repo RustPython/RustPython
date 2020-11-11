@@ -26,6 +26,14 @@ pub struct PyFloat {
     value: f64,
 }
 
+impl<'a> BorrowValue<'a> for PyFloat {
+    type Borrowed = &'a f64;
+
+    fn borrow_value(&'a self) -> Self::Borrowed {
+        &self.value
+    }
+}
+
 impl PyFloat {
     pub fn to_f64(self) -> f64 {
         self.value
@@ -55,11 +63,32 @@ impl From<f64> for PyFloat {
     }
 }
 
-pub fn try_float(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<f64>> {
+pub(crate) fn try_float(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<f64>> {
+    if let Some(float) = obj.payload_if_exact::<PyFloat>(vm) {
+        return Ok(Some(float.borrow_value().clone()));
+    }
+    if let Some(method) = vm.get_method(obj.clone(), "__float__") {
+        let result = vm.invoke(&method?, ())?;
+        // TODO: returning strict subclasses of float in __float__ is deprecated
+        return match result.payload::<PyFloat>() {
+            Some(float_obj) => Ok(Some(float_obj.borrow_value().clone())),
+            None => Err(vm.new_type_error(format!(
+                "__float__ returned non-float (type '{}')",
+                result.class().name
+            ))),
+        };
+    }
+    if let Some(r) = vm.to_index_opt(obj.clone()).transpose()? {
+        return Ok(Some(int::to_float(r.borrow_value(), vm)?));
+    }
+    Ok(None)
+}
+
+pub(crate) fn to_op_float(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<f64>> {
     let v = if let Some(float) = obj.payload_if_subclass::<PyFloat>(vm) {
         Some(float.value)
     } else if let Some(int) = obj.payload_if_subclass::<PyInt>(vm) {
-        Some(int::try_float(int.borrow_value(), vm)?)
+        Some(int::to_float(int.borrow_value(), vm)?)
     } else {
         None
     };
@@ -143,7 +172,7 @@ impl PyFloat {
     ) -> PyResult<PyRef<Self>> {
         let float_val = match arg {
             OptionalArg::Present(val) => {
-                if let Some(f) = to_float(vm, &val)? {
+                if let Some(f) = try_float(&val, vm)? {
                     f
                 } else if let Some(s) = val.payload_if_subclass::<PyStr>(vm) {
                     float_ops::parse_str(s.borrow_value().trim()).ok_or_else(|| {
@@ -193,7 +222,7 @@ impl PyFloat {
     where
         F: Fn(f64, f64) -> PyResult<f64>,
     {
-        try_float(&other, vm)?.map_or_else(
+        to_op_float(&other, vm)?.map_or_else(
             || Ok(NotImplemented),
             |other| Ok(Implemented(op(self.value, other)?)),
         )
@@ -204,7 +233,7 @@ impl PyFloat {
     where
         F: Fn(f64, f64) -> PyResult,
     {
-        try_float(&other, vm)?.map_or_else(
+        to_op_float(&other, vm)?.map_or_else(
             || Ok(vm.ctx.not_implemented()),
             |other| op(self.value, other),
         )
@@ -511,22 +540,6 @@ impl Hashable for PyFloat {
     }
 }
 
-fn to_float(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Option<f64>> {
-    let value = if let Some(float) = obj.payload_if_subclass::<PyFloat>(vm) {
-        float.value
-    } else if let Some(int) = obj.payload_if_subclass::<PyInt>(vm) {
-        int::try_float(int.borrow_value(), vm)?
-    } else {
-        let method = match vm.get_method(obj.clone(), "__float__") {
-            Some(x) => x?,
-            None => return Ok(None),
-        };
-        let result = vm.invoke(&method, ())?;
-        PyFloatRef::try_from_object(vm, result)?.to_f64()
-    };
-    Ok(Some(value))
-}
-
 pub type PyFloatRef = PyRef<PyFloat>;
 
 // Retrieve inner float value:
@@ -556,7 +569,7 @@ impl IntoPyFloat {
 
 impl TryFromObject for IntoPyFloat {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        let value = to_float(vm, &obj)?.ok_or_else(|| {
+        let value = try_float(&obj, vm)?.ok_or_else(|| {
             vm.new_type_error(format!("must be real number, not {}", obj.class().name))
         })?;
         Ok(IntoPyFloat { value })

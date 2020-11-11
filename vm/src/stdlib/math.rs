@@ -338,9 +338,9 @@ fn math_ldexp(
 ) -> PyResult<f64> {
     let value = match value {
         Either::A(f) => f.to_f64(),
-        Either::B(z) => int::try_float(z.borrow_value(), vm)?,
+        Either::B(z) => int::to_float(z.borrow_value(), vm)?,
     };
-    Ok(value * (2_f64).powf(int::try_float(i.borrow_value(), vm)?))
+    Ok(value * (2_f64).powf(int::to_float(i.borrow_value(), vm)?))
 }
 
 fn math_perf_arb_len_int_op<F>(args: Args<PyIntRef>, op: F, default: BigInt) -> BigInt
