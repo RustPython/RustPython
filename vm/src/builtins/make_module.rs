@@ -508,23 +508,38 @@ mod decl {
     }
 
     #[pyfunction]
-    fn min(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let candidates = match args.args.len().cmp(&1) {
-            std::cmp::Ordering::Greater => args.args.clone(),
-            std::cmp::Ordering::Equal => vm.extract_elements(&args.args[0])?,
+    fn min(mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let (candidates, default_allowed) = match args.args.len().cmp(&1) {
+            std::cmp::Ordering::Greater => (args.args.clone(), false),
+            std::cmp::Ordering::Equal => (vm.extract_elements(&args.args[0])?, true),
             std::cmp::Ordering::Less => {
                 // zero arguments means type error:
                 return Err(vm.new_type_error("Expected 1 or more arguments".to_owned()));
             }
         };
 
+        let default = args.take_keyword("default");
+        let mut key_func = args.take_keyword("key");
+
+        match args.check_kwargs_empty(vm) {
+            Some(err) => return Err(err),
+            None => {},
+        }
+
+        if !default_allowed && default.is_some() {
+            return Err(vm.new_type_error("Specifying default not allowed with more than 1 argument".to_owned()));
+        }
+
         if candidates.is_empty() {
-            let default = args.get_optional_kwarg("default");
             return default
                 .ok_or_else(|| vm.new_value_error("min() arg is an empty sequence".to_owned()));
         }
 
-        let key_func = args.get_optional_kwarg("key");
+        if let Some(ref obj) = key_func {
+            if vm.is_none(obj) {
+                key_func = None
+            }
+        }
 
         let mut candidates_iter = candidates.into_iter();
         let mut x = candidates_iter.next().unwrap();

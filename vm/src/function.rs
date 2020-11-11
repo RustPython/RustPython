@@ -196,12 +196,23 @@ impl FuncArgs {
                 T::arity().end(),
                 given_args,
             )))
-        } else if let Some(k) = self.kwargs.keys().next() {
-            Err(vm.new_type_error(format!("Unexpected keyword argument {}", k)))
-        } else {
+        }  else {
+            match self.check_kwargs_empty(vm) {
+                Some(err) => return Err(err),
+                None => {},
+            }
             Ok(bound)
         }
     }
+
+    pub fn check_kwargs_empty(&self, vm: &VirtualMachine) -> Option<PyBaseExceptionRef> {
+        if let Some(k) = self.kwargs.keys().next() {
+            Some(vm.new_type_error(format!("Unexpected keyword argument {}", k)))
+        } else {
+            None
+        }
+    }
+
 }
 
 /// An error encountered while binding arguments to the parameters of a Python
