@@ -180,7 +180,7 @@ impl PyComplex {
         other: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyArithmaticValue<Complex64>> {
-        self.op(other, |a, b| a / b, vm)
+        self.op(other, |a, b| a.fdiv(b), vm)
     }
 
     #[pymethod(name = "__rtruediv__")]
