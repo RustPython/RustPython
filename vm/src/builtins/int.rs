@@ -752,12 +752,15 @@ pub(crate) fn try_int(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt
     }
     if let Some(method) = vm.get_method(obj.clone(), "__trunc__") {
         let result = vm.invoke(&method?, ())?;
-        return vm.to_index_opt(result.clone()).unwrap_or_else(|| {
-            Err(vm.new_type_error(format!(
-                "__trunc__ returned non-Integral (type '{}')",
-                result.class().name
-            )))
-        }).map(|int_obj| int_obj.borrow_value().clone())
+        return vm
+            .to_index_opt(result.clone())
+            .unwrap_or_else(|| {
+                Err(vm.new_type_error(format!(
+                    "__trunc__ returned non-Integral (type '{}')",
+                    result.class().name
+                )))
+            })
+            .map(|int_obj| int_obj.borrow_value().clone());
     }
 
     Err(vm.new_type_error(format!(
