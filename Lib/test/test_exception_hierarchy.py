@@ -49,7 +49,8 @@ class HierarchyTest(unittest.TestCase):
         self.assertIs(socket.herror.__base__, OSError)
         self.assertIs(socket.timeout.__base__, OSError)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_select_error(self):
         self.assertIs(select.error, OSError)
 
