@@ -37,7 +37,7 @@ use crate::dictdatatype::Dict;
 use crate::exceptions::{self, PyBaseExceptionRef};
 use crate::function::{IntoFuncArgs, IntoPyNativeFunc};
 use crate::iterator;
-pub use crate::pyobjectrc::{PyObjectRc, PyObjectWeak};
+pub use crate::pyobjectrc::{PyObjectRef, PyObjectWeak, PyRef, PyWeakRef};
 use crate::scope::Scope;
 use crate::slots::{PyTpFlags, PyTypeSlots};
 use crate::types::{create_type_with_slots, TypeZoo};
@@ -57,13 +57,6 @@ Basically reference counting, but then done by rust.
  * Good reference: https://github.com/ProgVal/pythonvm-rust/blob/master/src/objects/mod.rs
  */
 
-/// The `PyObjectRef` is one of the most used types. It is a reference to a
-/// python object. A single python object can have multiple references, and
-/// this reference counting is accounted for by this type. Use the `.clone()`
-/// method to create a new reference and increment the amount of references
-/// to the python object by 1.
-pub type PyObjectRef = PyObjectRc<dyn PyObjectPayload>;
-
 /// Use this type for functions which return a python object or an exception.
 /// Both the python object and the python exception are `PyObjectRef` types
 /// since exceptions are also python objects.
@@ -74,7 +67,8 @@ pub type PyResult<T = PyObjectRef> = Result<T, PyBaseExceptionRef>; // A valid v
 /// TODO: class attributes should maintain insertion order (use IndexMap here)
 pub type PyAttributes = HashMap<String, PyObjectRef>;
 
-impl fmt::Display for PyObject<dyn PyObjectPayload> {
+// TODO: remove this impl
+impl fmt::Display for PyObjectRef {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if let Some(PyType { ref name, .. }) = self.payload::<PyType>() {
             let type_name = self.class().name.clone();
@@ -378,8 +372,8 @@ impl PyContext {
 
     pub fn new_base_object(&self, class: PyTypeRef, dict: Option<PyDictRef>) -> PyObjectRef {
         PyObject {
-            typ: PyRwLock::new(class.into_typed_pyobj()),
-            dict: dict.map(|d| PyRwLock::new(d.into_typed_pyobj())),
+            typ: PyRwLock::new(class),
+            dict: dict.map(PyRwLock::new),
             payload: object::PyBaseObject,
         }
         .into_ref()
@@ -408,154 +402,14 @@ impl Default for PyContext {
 /// This is an actual python object. It consists of a `typ` which is the
 /// python class, and carries some rust payload optionally. This rust
 /// payload can be a rust float or rust int in case of float and int objects.
+#[repr(C)]
 pub struct PyObject<T>
 where
-    T: ?Sized + PyObjectPayload,
+    T: ?Sized,
 {
-    pub(crate) typ: PyRwLock<PyObjectRc<PyType>>, // __class__ member
-    pub(crate) dict: Option<PyRwLock<PyObjectRc<PyDict>>>, // __dict__ member
+    pub(crate) typ: PyRwLock<PyTypeRef>,          // __class__ member
+    pub(crate) dict: Option<PyRwLock<PyDictRef>>, // __dict__ member
     pub payload: T,
-}
-
-impl PyObjectRef {
-    /// Attempt to downcast this reference to a subclass.
-    ///
-    /// If the downcast fails, the original ref is returned in as `Err` so
-    /// another downcast can be attempted without unnecessary cloning.
-    pub fn downcast<T: PyObjectPayload + PyValue>(self) -> Result<PyRef<T>, Self> {
-        if self.payload_is::<T>() {
-            Ok(unsafe { PyRef::from_obj_unchecked(self) })
-        } else {
-            Err(self)
-        }
-    }
-
-    /// Attempt to downcast this reference to the specific class that is associated `T`.
-    ///
-    /// If the downcast fails, the original ref is returned in as `Err` so
-    /// another downcast can be attempted without unnecessary cloning.
-    pub fn downcast_exact<T: PyObjectPayload + PyValue>(
-        self,
-        vm: &VirtualMachine,
-    ) -> Result<PyRef<T>, Self> {
-        if self.class().is(T::class(vm)) {
-            // TODO: is this always true?
-            assert!(
-                self.payload_is::<T>(),
-                "obj.__class__ is T::class() but payload is not T"
-            );
-            Ok(unsafe { PyRef::from_obj_unchecked(self) })
-        } else {
-            Err(self)
-        }
-    }
-
-    /// Downcast this PyObjectRef to an `PyRc<PyObject<T>>`. The [`downcast`](#method.downcast) method
-    /// is generally preferred, as the `PyRef<T>` it returns implements `Deref<Target=T>`, and
-    /// therefore can be used similarly to an `&T`.
-    pub fn downcast_generic<T: PyObjectPayload>(self) -> Result<PyObjectRc<T>, Self> {
-        if self.payload_is::<T>() {
-            let ptr = PyObjectRc::into_raw(self) as *const PyObject<T>;
-            let ret = unsafe { PyObjectRc::from_raw(ptr) };
-            Ok(ret)
-        } else {
-            Err(self)
-        }
-    }
-
-    pub fn downcast_ref<T: PyObjectPayload + PyValue>(&self) -> Option<&PyRef<T>> {
-        if self.payload_is::<T>() {
-            // when payload exacts, PyObjectRef == PyRef { PyObject }
-            Some(unsafe { &*(self as *const PyObjectRef as *const PyRef<T>) })
-        } else {
-            None
-        }
-    }
-}
-
-/// A reference to a Python object.
-///
-/// Note that a `PyRef<T>` can only deref to a shared / immutable reference.
-/// It is the payload type's responsibility to handle (possibly concurrent)
-/// mutability with locks or concurrent data structures if required.
-///
-/// A `PyRef<T>` can be directly returned from a built-in function to handle
-/// situations (such as when implementing in-place methods such as `__iadd__`)
-/// where a reference to the same object must be returned.
-#[derive(Debug)]
-#[repr(transparent)]
-pub struct PyRef<T> {
-    // invariant: this obj must always have payload of type T
-    obj: PyObjectRef,
-    _payload: PhantomData<T>,
-}
-
-impl<T> Clone for PyRef<T> {
-    fn clone(&self) -> Self {
-        Self {
-            obj: self.obj.clone(),
-            _payload: PhantomData,
-        }
-    }
-}
-
-impl<T: PyValue> PyRef<T> {
-    #[allow(clippy::new_ret_no_self)]
-    pub fn new_ref(payload: T, typ: PyTypeRef, dict: Option<PyDictRef>) -> Self {
-        let obj = PyObject::new(payload, typ, dict);
-        // SAFETY: we just created the object from a payload of type T
-        unsafe { Self::from_obj_unchecked(obj) }
-    }
-
-    fn from_obj(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
-        if obj.payload_is::<T>() {
-            // SAFETY: we just checked the payload
-            Ok(unsafe { Self::from_obj_unchecked(obj) })
-        } else {
-            Err(vm.new_runtime_error(format!(
-                "Unexpected payload '{}' for type '{}'",
-                T::class(vm).name,
-                obj.class().name,
-            )))
-        }
-    }
-
-    /// Safety: payload type of `obj` must be `T`
-    pub(crate) unsafe fn from_obj_unchecked(obj: PyObjectRef) -> Self {
-        PyRef {
-            obj,
-            _payload: PhantomData,
-        }
-    }
-
-    pub fn as_object(&self) -> &PyObjectRef {
-        &self.obj
-    }
-
-    pub fn into_object(self) -> PyObjectRef {
-        self.obj
-    }
-
-    pub fn into_typed_pyobj(self) -> PyObjectRc<T> {
-        self.into_object().downcast_generic().unwrap()
-    }
-}
-
-impl<T> Deref for PyRef<T>
-where
-    T: PyValue,
-{
-    type Target = T;
-
-    fn deref(&self) -> &T {
-        self.obj.payload().unwrap_or_else(|| {
-            if cfg!(debug_assertions) {
-                panic!("PyRef.obj did not have a payload of T")
-            }
-            // SAFETY: self.obj has invariant that payload is `T`
-            unsafe { std::hint::unreachable_unchecked() }
-        })
-    }
 }
 
 impl<T> TryFromObject for PyRef<T>
@@ -565,7 +419,13 @@ where
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let class = T::class(vm);
         if obj.isinstance(class) {
-            PyRef::from_obj(obj, vm)
+            obj.downcast().map_err(|obj| {
+                vm.new_runtime_error(format!(
+                    "Unexpected payload '{}' for type '{}'",
+                    class.name,
+                    obj.class().name,
+                ))
+            })
         } else {
             let expected_type = &class.name;
             let actual_type = &obj.class().name;
@@ -591,14 +451,14 @@ impl<T: PyValue> From<PyRef<T>> for PyObjectRef {
 
 impl<T: fmt::Display> fmt::Display for PyRef<T>
 where
-    T: PyValue + fmt::Display,
+    T: PyObjectPayload + fmt::Display,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Display::fmt(&**self, f)
     }
 }
 
-pub struct PyRefExact<T> {
+pub struct PyRefExact<T: PyObjectPayload> {
     obj: PyRef<T>,
 }
 impl<T: PyValue> TryFromObject for PyRefExact<T> {
@@ -607,9 +467,14 @@ impl<T: PyValue> TryFromObject for PyRefExact<T> {
         let cls = obj.class();
         if cls.is(target_cls) {
             drop(cls);
-            Ok(Self {
-                obj: PyRef::from_obj(obj, vm)?,
-            })
+            let obj = obj.downcast().map_err(|obj| {
+                vm.new_runtime_error(format!(
+                    "Unexpected payload '{}' for type '{}'",
+                    target_cls.name,
+                    obj.class().name,
+                ))
+            })?;
+            Ok(Self { obj })
         } else if cls.issubclass(target_cls) {
             Err(vm.new_type_error(format!(
                 "Expected an exact instance of '{}', not a subclass '{}'",
@@ -685,21 +550,15 @@ pub trait IdProtocol {
     }
 }
 
-impl<T: ?Sized + PyObjectPayload> IdProtocol for PyObject<T> {
+impl<T: ?Sized> IdProtocol for PyRc<T> {
     fn get_id(&self) -> usize {
-        self as *const _ as *const PyObject<Never> as usize
-    }
-}
-
-impl<T: ?Sized + IdProtocol> IdProtocol for PyRc<T> {
-    fn get_id(&self) -> usize {
-        (**self).get_id()
+        &**self as *const T as *const Never as usize
     }
 }
 
 impl<T: PyObjectPayload> IdProtocol for PyRef<T> {
     fn get_id(&self) -> usize {
-        self.obj.get_id()
+        self.as_object().get_id()
     }
 }
 
@@ -718,14 +577,14 @@ impl<T: IdProtocol> IdProtocol for &'_ T {
 /// A borrow of a reference to a Python object. This avoids having clone the `PyRef<T>`/
 /// `PyObjectRef`, which isn't that cheap as that increments the atomic reference counter.
 pub struct PyLease<'a, T: PyObjectPayload> {
-    inner: PyRwLockReadGuard<'a, PyObjectRc<T>>,
+    inner: PyRwLockReadGuard<'a, PyRef<T>>,
 }
 
 impl<'a, T: PyObjectPayload + PyValue> PyLease<'a, T> {
     // Associated function on purpose, because of deref
     #[allow(clippy::wrong_self_convention)]
     pub fn into_pyref(zelf: Self) -> PyRef<T> {
-        zelf.inner.clone().into_pyref()
+        zelf.inner.clone()
     }
 }
 
@@ -733,7 +592,7 @@ impl<'a, T: PyObjectPayload + PyValue> Deref for PyLease<'a, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        &self.inner.payload
+        &self.inner
     }
 }
 
@@ -742,7 +601,7 @@ where
     T: PyValue + fmt::Display,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Display::fmt(&self.inner.payload, f)
+        fmt::Display::fmt(&**self, f)
     }
 }
 
@@ -769,16 +628,7 @@ pub trait TypeProtocol {
     }
 }
 
-impl TypeProtocol for PyObjectRef {
-    fn class(&self) -> PyLease<'_, PyType> {
-        (**self).class()
-    }
-}
-
-impl<T> TypeProtocol for PyObject<T>
-where
-    T: ?Sized + PyObjectPayload,
-{
+impl<T> TypeProtocol for PyObject<T> {
     fn class(&self) -> PyLease<'_, PyType> {
         PyLease {
             inner: self.typ.read(),
@@ -786,9 +636,9 @@ where
     }
 }
 
-impl<T> TypeProtocol for PyRef<T> {
+impl<T: PyObjectPayload> TypeProtocol for PyRef<T> {
     fn class(&self) -> PyLease<'_, PyType> {
-        self.obj.class()
+        self.as_object().class()
     }
 }
 
@@ -826,7 +676,7 @@ where
     }
 }
 
-impl fmt::Debug for PyObject<dyn PyObjectPayload> {
+impl<T: fmt::Debug> fmt::Debug for PyObject<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "[PyObj {:?}]", &self.payload)
     }
@@ -931,11 +781,11 @@ impl<T: TryFromObject> TryFromObject for Option<T> {
 
 /// Allows coercion of a types into PyRefs, so that we can write functions that can take
 /// refs, pyobject refs or basic types.
-pub trait TryIntoRef<T> {
+pub trait TryIntoRef<T: PyObjectPayload> {
     fn try_into_ref(self, vm: &VirtualMachine) -> PyResult<PyRef<T>>;
 }
 
-impl<T> TryIntoRef<T> for PyRef<T> {
+impl<T: PyObjectPayload> TryIntoRef<T> for PyRef<T> {
     fn try_into_ref(self, _vm: &VirtualMachine) -> PyResult<PyRef<T>> {
         Ok(self)
     }
@@ -959,7 +809,7 @@ pub trait TryFromObject: Sized {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self>;
 }
 
-pub trait IntoPyRef<T> {
+pub trait IntoPyRef<T: PyObjectPayload> {
     fn into_pyref(self, vm: &VirtualMachine) -> PyRef<T>;
 }
 
@@ -981,9 +831,9 @@ pub trait IntoPyObject {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef;
 }
 
-impl<T> IntoPyObject for PyRef<T> {
+impl<T: PyObjectPayload> IntoPyObject for PyRef<T> {
     fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
-        self.obj
+        self.into_object()
     }
 }
 
@@ -1039,8 +889,8 @@ where
     #[allow(clippy::new_ret_no_self)]
     pub fn new(payload: T, typ: PyTypeRef, dict: Option<PyDictRef>) -> PyObjectRef {
         PyObject {
-            typ: PyRwLock::new(typ.into_typed_pyobj()),
-            dict: dict.map(|d| PyRwLock::new(d.into_typed_pyobj())),
+            typ: PyRwLock::new(typ),
+            dict: dict.map(PyRwLock::new),
             payload,
         }
         .into_ref()
@@ -1048,85 +898,23 @@ where
 
     // Move this object into a reference object, transferring ownership.
     pub fn into_ref(self) -> PyObjectRef {
-        let raw = PyObjectRc::into_raw(PyObjectRc::new(self));
-        unsafe { PyObjectRef::from_raw(raw) }
+        PyObjectRef::new(self)
     }
 }
 
-impl<T> PyObject<T>
-where
-    T: ?Sized + PyObjectPayload,
-{
-    pub fn raw_payload(&self) -> &T {
-        &self.payload
-    }
-
+impl<T> PyObject<T> {
     pub fn dict(&self) -> Option<PyDictRef> {
-        self.dict.as_ref().map(|mu| mu.read().clone().into_pyref())
+        self.dict.as_ref().map(|mu| mu.read().clone())
     }
     /// Set the dict field. Returns `Err(dict)` if this object does not have a dict field
     /// in the first place.
     pub fn set_dict(&self, dict: PyDictRef) -> Result<(), PyDictRef> {
         match self.dict {
             Some(ref mu) => {
-                *mu.write() = dict.into_typed_pyobj();
+                *mu.write() = dict;
                 Ok(())
             }
             None => Err(dict),
-        }
-    }
-}
-
-impl PyObject<dyn PyObjectPayload> {
-    #[inline]
-    pub fn payload<T: PyObjectPayload>(&self) -> Option<&T> {
-        self.payload.as_any().downcast_ref()
-    }
-
-    #[inline]
-    pub fn payload_is<T: PyObjectPayload>(&self) -> bool {
-        self.payload.as_any().is::<T>()
-    }
-
-    #[inline]
-    pub fn payload_if_exact<T: PyObjectPayload + PyValue>(
-        &self,
-        vm: &VirtualMachine,
-    ) -> Option<&T> {
-        if self.class().is(T::class(vm)) {
-            self.payload()
-        } else {
-            None
-        }
-    }
-
-    #[inline]
-    pub fn payload_if_subclass<T: PyObjectPayload + PyValue>(
-        &self,
-        vm: &VirtualMachine,
-    ) -> Option<&T> {
-        if self.class().issubclass(T::class(vm)) {
-            self.payload()
-        } else {
-            None
-        }
-    }
-}
-
-impl<T> PyObjectRc<T>
-where
-    T: Sized + PyObjectPayload,
-{
-    pub fn into_pyref(self) -> PyRef<T>
-    where
-        T: PyValue,
-    {
-        // SAFETY: we know just casted from PyRc<PyObject<T>> to PyObjectRef, so we know the
-        // payload is `T`
-        let raw = PyObjectRc::into_raw(self);
-        unsafe {
-            let rc = PyObjectRc::<dyn PyObjectPayload>::from_raw(raw);
-            PyRef::from_obj_unchecked(rc)
         }
     }
 }
@@ -1157,8 +945,8 @@ pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
         if cls.issubclass(class) {
             Ok(self.into_ref_with_type_unchecked(cls, vm))
         } else {
-            let subtype = vm.to_str(&cls.obj)?;
-            let basetype = vm.to_str(&class.obj)?;
+            let subtype = vm.to_str(cls.as_object())?;
+            let basetype = vm.to_str(cls.as_object())?;
             Err(vm.new_type_error(format!("{} is not a subtype of {}", subtype, basetype)))
         }
     }
@@ -1173,16 +961,9 @@ pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
     }
 }
 
-pub trait PyObjectPayload: Any + fmt::Debug + PyThreadingConstraint + 'static {
-    fn as_any(&self) -> &dyn Any;
-}
+pub trait PyObjectPayload: Any + fmt::Debug + PyThreadingConstraint + 'static {}
 
-impl<T: PyValue + 'static> PyObjectPayload for T {
-    #[inline]
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-}
+impl<T: PyValue + 'static> PyObjectPayload for T {}
 
 pub enum Either<A, B> {
     A(A),
@@ -1300,7 +1081,7 @@ pub trait StaticType {
 
 impl<T> PyClassDef for PyRef<T>
 where
-    T: PyClassDef,
+    T: PyObjectPayload + PyClassDef,
 {
     const NAME: &'static str = T::NAME;
     const MODULE_NAME: Option<&'static str> = T::MODULE_NAME;

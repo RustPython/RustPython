@@ -16,8 +16,8 @@ mod decl {
     use crate::function::{Args, FuncArgs, OptionalArg, OptionalOption};
     use crate::iterator::{call_next, get_all, get_iter, get_next_object};
     use crate::pyobject::{
-        BorrowValue, IdProtocol, IntoPyObject, PyCallable, PyObjectRc, PyObjectRef, PyObjectWeak,
-        PyRef, PyResult, PyValue, StaticType, TypeProtocol,
+        BorrowValue, IdProtocol, IntoPyObject, PyCallable, PyObjectRef, PyRef, PyResult, PyValue,
+        PyWeakRef, StaticType, TypeProtocol,
     };
     use crate::slots::PyIter;
     use crate::vm::VirtualMachine;
@@ -458,7 +458,7 @@ mod decl {
         current_value: Option<PyObjectRef>,
         current_key: Option<PyObjectRef>,
         next_group: bool,
-        grouper: Option<PyObjectWeak<PyItertoolsGrouper>>,
+        grouper: Option<PyWeakRef<PyItertoolsGrouper>>,
     }
 
     impl fmt::Debug for GroupByState {
@@ -573,7 +573,7 @@ mod decl {
             }
             .into_ref(vm);
 
-            state.grouper = Some(PyObjectRc::downgrade(&grouper.clone().into_typed_pyobj()));
+            state.grouper = Some(PyRef::downgrade(&grouper));
             Ok((state.current_key.as_ref().unwrap().clone(), grouper).into_pyobject(vm))
         }
     }

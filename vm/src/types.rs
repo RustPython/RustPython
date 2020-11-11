@@ -38,13 +38,8 @@ use crate::builtins::tuple;
 use crate::builtins::weakproxy;
 use crate::builtins::weakref;
 use crate::builtins::zip;
-use crate::pyobject::{
-    PyAttributes, PyClassDef, PyClassImpl, PyContext, PyObject, PyObjectRc, PyObjectRef, StaticType,
-};
+use crate::pyobject::{PyAttributes, PyContext, StaticType};
 use crate::slots::PyTypeSlots;
-use rustpython_common::{lock::PyRwLock, rc::PyRc};
-use std::mem::MaybeUninit;
-use std::ptr;
 
 /// Holder of references to builtin types.
 #[derive(Debug, Clone)]
@@ -121,7 +116,7 @@ pub struct TypeZoo {
 
 impl TypeZoo {
     pub(crate) fn init() -> Self {
-        let (type_type, object_type) = init_type_hierarchy();
+        let (type_type, object_type) = crate::pyobjectrc::init_type_hierarchy();
         Self {
             // the order matters for type, object and int
             type_type: pytype::PyType::init_manually(type_type).clone(),
@@ -268,105 +263,4 @@ pub fn create_type_with_slots(
         slots,
     )
     .expect("Failed to create a new type in internal code.")
-}
-
-/// Paritally initialize a struct, ensuring that all fields are
-/// either given values or explicitly left uninitialized
-macro_rules! partially_init {
-    (
-        $ty:path {$($init_field:ident: $init_value:expr),*$(,)?},
-        Uninit { $($uninit_field:ident),*$(,)? }$(,)?
-    ) => {{
-        // check all the fields are there but *don't* actually run it
-        if false {
-            #[allow(invalid_value, dead_code, unreachable_code)]
-            let _ = {$ty {
-                $($init_field: $init_value,)*
-                $($uninit_field: unreachable!(),)*
-            }};
-        }
-        let mut m = ::std::mem::MaybeUninit::<$ty>::uninit();
-        unsafe {
-            $(::std::ptr::write(&mut (*m.as_mut_ptr()).$init_field, $init_value);)*
-        }
-        m
-    }};
-}
-
-fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef) {
-    // `type` inherits from `object`
-    // and both `type` and `object are instances of `type`.
-    // to produce this circular dependency, we need an unsafe block.
-    // (and yes, this will never get dropped. TODO?)
-    let (type_type, object_type) = {
-        type PyTypeObj = PyObject<PyType>;
-        type UninitRef<T> = PyRwLock<PyRc<MaybeUninit<PyObject<T>>>>;
-
-        let type_payload = PyType {
-            name: PyTypeRef::NAME.to_owned(),
-            base: None,
-            bases: vec![],
-            mro: vec![],
-            subclasses: PyRwLock::default(),
-            attributes: PyRwLock::new(PyAttributes::new()),
-            slots: PyType::make_slots(),
-        };
-        let object_payload = PyType {
-            name: object::PyBaseObject::NAME.to_owned(),
-            base: None,
-            bases: vec![],
-            mro: vec![],
-            subclasses: PyRwLock::default(),
-            attributes: PyRwLock::new(PyAttributes::new()),
-            slots: object::PyBaseObject::make_slots(),
-        };
-        let type_type: PyRc<MaybeUninit<PyTypeObj>> = PyRc::new(partially_init!(
-            PyObject::<PyType> {
-                dict: None,
-                payload: type_payload,
-            },
-            Uninit { typ }
-        ));
-        let object_type: PyRc<MaybeUninit<PyTypeObj>> = PyRc::new(partially_init!(
-            PyObject::<PyType> {
-                dict: None,
-                payload: object_payload,
-            },
-            Uninit { typ },
-        ));
-
-        let object_type_ptr =
-            PyRc::into_raw(object_type) as *mut MaybeUninit<PyTypeObj> as *mut PyTypeObj;
-        let type_type_ptr =
-            PyRc::into_raw(type_type.clone()) as *mut MaybeUninit<PyTypeObj> as *mut PyTypeObj;
-
-        unsafe {
-            ptr::write(
-                &mut (*object_type_ptr).typ as *mut PyRwLock<PyObjectRc<PyType>>
-                    as *mut UninitRef<PyType>,
-                PyRwLock::new(type_type.clone()),
-            );
-            ptr::write(
-                &mut (*type_type_ptr).typ as *mut PyRwLock<PyObjectRc<PyType>>
-                    as *mut UninitRef<PyType>,
-                PyRwLock::new(type_type),
-            );
-
-            let type_type = PyTypeRef::from_obj_unchecked(PyObjectRef::from_raw(type_type_ptr));
-            let object_type = PyTypeRef::from_obj_unchecked(PyObjectRef::from_raw(object_type_ptr));
-
-            (*type_type_ptr).payload.mro = vec![object_type.clone()];
-            (*type_type_ptr).payload.bases = vec![object_type.clone()];
-            (*type_type_ptr).payload.base = Some(object_type.clone());
-
-            (type_type, object_type)
-        }
-    };
-
-    object_type
-        .subclasses
-        .write()
-        .push(weakref::PyWeak::downgrade(&type_type.as_object()));
-
-    (type_type, object_type)
 }

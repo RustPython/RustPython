@@ -198,7 +198,7 @@ impl PyCode {}
 #[pyimpl]
 impl PyCodeRef {
     #[pyslot]
-    fn tp_new(_cls: PyTypeRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    fn tp_new(_cls: PyTypeRef, vm: &VirtualMachine) -> PyResult<Self> {
         Err(vm.new_type_error("Cannot directly create code object".to_owned()))
     }
 

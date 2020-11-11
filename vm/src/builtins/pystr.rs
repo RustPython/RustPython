@@ -240,7 +240,10 @@ impl PyStr {
         if other.isinstance(&vm.ctx.types.str_type) {
             Ok(self.value.py_add(borrow_value(&other)))
         } else {
-            Err(vm.new_type_error(format!("Cannot add {} and {}", self, other)))
+            Err(vm.new_type_error(format!(
+                "can only concatenate str (not \"{}\") to str",
+                other.class().name
+            )))
         }
     }
 
