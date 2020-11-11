@@ -711,7 +711,7 @@ struct IntToByteArgs {
 
 // Casting function:
 pub(crate) fn to_int(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<BigInt> {
-    fn try_convert(lit: &[u8], vm: &VirtualMachine) -> PyResult<BigInt> {
+    fn try_convert(lit: &[u8], vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<BigInt> {
         let base = 10;
         match bytes_to_int(lit, base) {
             Some(i) => Ok(i),
@@ -725,9 +725,9 @@ pub(crate) fn to_int(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<BigInt>
 
     // test for strings and bytes
     if let Some(s) = obj.downcast_ref::<PyStr>() {
-        return try_convert(s.borrow_value().as_bytes(), vm);
+        return try_convert(s.borrow_value().as_bytes(), vm, obj);
     }
-    if let Ok(r) = try_bytes_like(vm, &obj, |x| try_convert(x, vm)) {
+    if let Ok(r) = try_bytes_like(vm, &obj, |x| try_convert(x, vm, obj)) {
         return r;
     }
     // strict `int` check
