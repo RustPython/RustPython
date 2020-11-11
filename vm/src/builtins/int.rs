@@ -711,7 +711,7 @@ struct IntToByteArgs {
 
 // Casting function:
 pub(crate) fn to_int(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<BigInt> {
-    let try_convert = |lit: &[u8]| -> PyResult<BigInt> {
+    fn try_convert(lit: &[u8], vm: &VirtualMachine) -> PyResult<BigInt> {
         let base = 10;
         match bytes_to_int(lit, base) {
             Some(i) => Ok(i),
@@ -722,9 +722,20 @@ pub(crate) fn to_int(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<BigInt>
             ))),
         }
     };
+
+    // test for strings and bytes
     if let Some(s) = obj.downcast_ref::<PyStr>() {
-        return try_convert(s.borrow_value().as_bytes());
+        return try_convert(s.borrow_value().as_bytes(), vm);
     }
+    if let Ok(r) = try_bytes_like(vm, &obj, |x| try_convert(x, vm)) {
+        return r;
+    }
+    // strict `int` check
+    if let Some(int) = obj.payload_if_exact::<PyInt>(vm) {
+        return Ok(int.borrow_value().clone());
+    }
+    // call __int__, then __index__, then __trunc__ (converting the __trunc__ result via  __index__ if needed)
+    // TODO: using __int__ is deprecated and removed in Python 3.10
     if let Some(method) = vm.get_method(obj.clone(), "__int__") {
         let result = vm.invoke(&method?, ())?;
         return match result.payload::<PyInt>() {
@@ -735,9 +746,18 @@ pub(crate) fn to_int(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<BigInt>
             ))),
         };
     }
-
-    if let Ok(r) = try_bytes_like(vm, &obj, |x| try_convert(x)) {
-        return r;
+    // TODO: returning strict subclasses of int in __index__ is deprecated
+    if let Some(r) = vm.to_index_opt(obj.clone()) {
+        return r.map(|int_obj| int_obj.borrow_value().clone())
+    }
+    if let Some(method) = vm.get_method(obj.clone(), "__trunc__") {
+        let result = vm.invoke(&method?, ())?;
+        return vm.to_index_opt(result.clone()).unwrap_or_else(|| {
+            Err(vm.new_type_error(format!(
+                "__trunc__ returned non-Integral (type '{}')",
+                result.class().name
+            )))
+        }).map(|int_obj| int_obj.borrow_value().clone())
     }
 
     Err(vm.new_type_error(format!(

@@ -1084,6 +1084,18 @@ impl PyObject<dyn PyObjectPayload> {
     }
 
     #[inline]
+    pub fn payload_if_exact<T: PyObjectPayload + PyValue>(
+        &self,
+        vm: &VirtualMachine,
+    ) -> Option<&T> {
+        if self.class().is(T::class(vm)) {
+            self.payload()
+        } else {
+            None
+        }
+    }
+
+    #[inline]
     pub fn payload_if_subclass<T: PyObjectPayload + PyValue>(
         &self,
         vm: &VirtualMachine,

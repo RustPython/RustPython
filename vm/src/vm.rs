@@ -786,6 +786,7 @@ impl VirtualMachine {
         match obj.downcast() {
             Ok(val) => Some(Ok(val)),
             Err(obj) => self.get_method(obj, "__index__").map(|index| {
+                // TODO: returning strict subclasses of int in __index__ is deprecated
                 self.invoke(&index?, ())?.downcast().map_err(|bad| {
                     self.new_type_error(format!(
                         "__index__ returned non-int (type {})",
