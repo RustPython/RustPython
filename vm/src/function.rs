@@ -196,10 +196,10 @@ impl FuncArgs {
                 T::arity().end(),
                 given_args,
             )))
-        }  else {
+        } else {
             match self.check_kwargs_empty(vm) {
                 Some(err) => return Err(err),
-                None => {},
+                None => {}
             }
             Ok(bound)
         }
@@ -212,7 +212,6 @@ impl FuncArgs {
             None
         }
     }
-
 }
 
 /// An error encountered while binding arguments to the parameters of a Python

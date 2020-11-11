@@ -523,11 +523,13 @@ mod decl {
 
         match args.check_kwargs_empty(vm) {
             Some(err) => return Err(err),
-            None => {},
+            None => {}
         }
 
         if !default_allowed && default.is_some() {
-            return Err(vm.new_type_error("Specifying default not allowed with more than 1 argument".to_owned()));
+            return Err(vm.new_type_error(
+                "Specifying default not allowed with more than 1 argument".to_owned(),
+            ));
         }
 
         if candidates.is_empty() {
