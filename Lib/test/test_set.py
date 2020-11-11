@@ -701,7 +701,8 @@ class TestFrozenSet(TestJointOps, unittest.TestCase):
         s.__init__(self.otherword)
         self.assertEqual(s, set(self.word))
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_singleton_empty_frozenset(self):
         f = frozenset()
         efs = [frozenset(), frozenset([]), frozenset(()), frozenset(''),
@@ -921,7 +922,6 @@ class TestBasicOps:
         setiter = iter(self.set)
         self.assertEqual(setiter.__length_hint__(), len(self.set))
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_pickling(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             p = pickle.dumps(self.set, proto)
@@ -1788,7 +1788,6 @@ class bad_dict_clear:
         return 0
 
 class TestWeirdBugs(unittest.TestCase):
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_8420_set_merge(self):
         # This used to segfault
         global be_bad, set2, dict2
@@ -1815,7 +1814,8 @@ class TestWeirdBugs(unittest.TestCase):
         s.update(range(100))
         list(si)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_merge_and_mutate(self):
         class X:
             def __hash__(self):
