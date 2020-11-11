@@ -341,7 +341,8 @@ class ClassTests(unittest.TestCase):
                                                         slice(None, 24, None),
                                                         24, 100)))])
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testUnaryOps(self):
         testme = AllTests()
 
@@ -446,7 +447,6 @@ class ClassTests(unittest.TestCase):
         del testme.cardinal
         self.assertCallStack([('__delattr__', (testme, "cardinal"))])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def testDel(self):
         x = []
 
@@ -459,7 +459,6 @@ class ClassTests(unittest.TestCase):
         gc.collect()
         self.assertEqual(["crab people, crab people"], x)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def testBadTypeReturned(self):
         # return values of some method are type-checked
         class BadTypeClass:
@@ -511,7 +510,8 @@ class ClassTests(unittest.TestCase):
         else:
             self.fail("Failed to raise RecursionError")
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testForExceptionsRaisedInInstanceGetattr2(self):
         # Tests for exceptions raised in instance_getattr2().
 
