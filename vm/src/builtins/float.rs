@@ -26,14 +26,6 @@ pub struct PyFloat {
     value: f64,
 }
 
-impl<'a> BorrowValue<'a> for PyFloat {
-    type Borrowed = &'a f64;
-
-    fn borrow_value(&'a self) -> Self::Borrowed {
-        &self.value
-    }
-}
-
 impl PyFloat {
     pub fn to_f64(self) -> f64 {
         self.value
@@ -65,13 +57,13 @@ impl From<f64> for PyFloat {
 
 pub(crate) fn try_float(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<f64>> {
     if let Some(float) = obj.payload_if_exact::<PyFloat>(vm) {
-        return Ok(Some(float.borrow_value().clone()));
+        return Ok(Some(float.value));
     }
     if let Some(method) = vm.get_method(obj.clone(), "__float__") {
         let result = vm.invoke(&method?, ())?;
         // TODO: returning strict subclasses of float in __float__ is deprecated
         return match result.payload::<PyFloat>() {
-            Some(float_obj) => Ok(Some(float_obj.borrow_value().clone())),
+            Some(float_obj) => Ok(Some(float_obj.value)),
             None => Err(vm.new_type_error(format!(
                 "__float__ returned non-float (type '{}')",
                 result.class().name

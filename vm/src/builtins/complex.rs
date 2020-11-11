@@ -21,14 +21,6 @@ pub struct PyComplex {
     value: Complex64,
 }
 
-impl<'a> BorrowValue<'a> for PyComplex {
-    type Borrowed = &'a Complex64;
-
-    fn borrow_value(&'a self) -> Self::Borrowed {
-        &self.value
-    }
-}
-
 impl PyValue for PyComplex {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.complex_type
@@ -53,13 +45,13 @@ pub fn init(context: &PyContext) {
 
 fn try_complex(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<Complex64>> {
     if let Some(complex) = obj.payload_if_exact::<PyComplex>(vm) {
-        return Ok(Some(complex.borrow_value().clone()));
+        return Ok(Some(complex.value));
     }
     if let Some(method) = vm.get_method(obj.clone(), "__complex__") {
         let result = vm.invoke(&method?, ())?;
         // TODO: returning strict subclasses of complex in __complex__ is deprecated
         return match result.payload::<PyComplex>() {
-            Some(complex_obj) => Ok(Some(complex_obj.borrow_value().clone())),
+            Some(complex_obj) => Ok(Some(complex_obj.value)),
             None => Err(vm.new_type_error(format!(
                 "__complex__ returned non-complex (type '{}')",
                 result.class().name
