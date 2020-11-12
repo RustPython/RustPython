@@ -521,20 +521,18 @@ mod decl {
         let default = args.take_keyword("default");
         let mut key_func = args.take_keyword("key");
 
-        match args.check_kwargs_empty(vm) {
-            Some(err) => return Err(err),
-            None => {}
+        if let Some(err) = args.check_kwargs_empty(vm) {
+            return Err(err);
         }
 
-        if !default_allowed && default.is_some() {
+        if default.is_some() && !default_allowed {
             return Err(vm.new_type_error(
                 "Specifying default not allowed with more than 1 argument".to_owned(),
             ));
         }
 
         if candidates.is_empty() {
-            return default
-                .ok_or_else(|| vm.new_value_error("min() arg is an empty sequence".to_owned()));
+            return default.ok_or_else(|| vm.new_value_error("min() arg is an empty sequence".to_owned()));
         }
 
         if let Some(ref obj) = key_func {

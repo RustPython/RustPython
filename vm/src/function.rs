@@ -197,9 +197,8 @@ impl FuncArgs {
                 given_args,
             )))
         } else {
-            match self.check_kwargs_empty(vm) {
-                Some(err) => return Err(err),
-                None => {}
+            if let Some(err) = self.check_kwargs_empty(vm) {
+                return Err(err);
             }
             Ok(bound)
         }
