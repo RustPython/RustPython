@@ -2,63 +2,166 @@ extern crate lazy_static;
 extern crate libffi;
 extern crate libloading;
 
-use ::std::collections::HashMap;
+use ::std::{collections::HashMap, mem, os::raw::*};
 
+use libffi::low::{
+    call as ffi_call, ffi_abi_FFI_DEFAULT_ABI as ABI, ffi_cif, ffi_type, prep_cif, types, CodePtr,
+    Error as FFIError,
+};
 use libffi::middle;
+
 use libloading::Library;
 
 use crate::builtins::PyTypeRef;
 use crate::common::lock::PyRwLock;
-use crate::pyobject::{PyValue, StaticType, PyRef, PyObjectRef};
+use crate::pyobject::{PyObjectRc, PyObjectRef, PyRef, PyValue, StaticType};
 use crate::VirtualMachine;
 
 pub const SIMPLE_TYPE_CHARS: &str = "cbBhHiIlLdfuzZqQP?g";
 
-pub fn convert_type(ty: &str) -> middle::Type {
-    match ty {
-        "c" => middle::Type::c_schar(),
-        "u" => middle::Type::c_int(),
-        "b" => middle::Type::i8(),
-        "h" => middle::Type::c_ushort(),
-        "H" => middle::Type::u16(),
-        "i" => middle::Type::c_int(),
-        "I" => middle::Type::c_uint(),
-        "l" => middle::Type::c_long(),
-        "q" => middle::Type::c_longlong(),
-        "L" => middle::Type::c_ulong(),
-        "Q" => middle::Type::c_ulonglong(),
-        "f" => middle::Type::f32(),
-        "d" => middle::Type::f64(),
-        "g" => middle::Type::longdouble(),
-        "?" | "B" => middle::Type::c_uchar(),
-        "z" | "Z" => middle::Type::pointer(),
-        "P" | _ => middle::Type::void(),
-    }
+macro_rules! ffi_type {
+    ($name: ident) => {
+        middle::Type::$name().as_raw_ptr()
+    };
 }
 
-pub fn lib_call(
-    c_args: Vec<middle::Type>,
-    restype: middle::Type,
-    arg_vec: Vec<middle::Arg>,
-    wrapped_ptr: Option<PyObjectRef>,
-    _vm: &VirtualMachine,
-) -> Option<middle::Type> {
-    let cif = middle::Cif::new(c_args.into_iter(), restype);
+macro_rules! match_ffi_type {
+    (
+        $pointer: expr,
 
-    if wrapped_ptr.is_some() {
-        // Here it needs a type to return
-        unsafe {
-            let ptr_fn = &wrapped_ptr.unwrap() as *const _ as *const isize;
-
-            cif.call(
-                middle::CodePtr::from_ptr(ptr_fn as *const libc::c_void),
-                arg_vec.as_slice(),
-            )
+        $(
+            $($type: ident)|+ => $body: expr
+        )+
+    ) => {
+        match $pointer {
+            $(
+                $(
+                    t if t == ffi_type!($type) => { $body }
+                )+
+            )+
+            _ => unreachable!()
         }
-    } else {
-        None
+    };
+    (
+        $kind: expr,
+
+        $(
+            $($type: tt)|+ => $body: ident
+        )+
+    ) => {
+        match $kind {
+            $(
+                $(
+                    t if t == $type => { ffi_type!($body) }
+                )+
+            )+
+            _ => ffi_type!(void)
+        }
     }
 }
+
+fn ffi_to_rust(ty: *mut ffi_type) -> NativeType {
+    match_ffi_type!(
+        ty,
+        c_schar => NativeType::Byte(ty as i8)
+        c_int => NativeType::Int(ty as i32)
+        c_short => NativeType::Short(ty as i16)
+        c_ushort => NativeType::UShort(ty as u16)
+        c_uint => NativeType::UInt(ty as u32)
+        c_long => NativeType::Long(ty as i64)
+        c_longlong => NativeType::LongLong(ty as i128)
+        c_ulong => NativeType::ULong(ty as u64)
+        c_ulonglong => NativeType::ULL(ty as u128)
+        f32 => NativeType::Float(unsafe{*(ty as *mut f32)})
+        f64 => NativeType::Double(unsafe {*(ty as *mut f64)})
+        longdouble => NativeType::LongDouble(unsafe {*(ty as *mut f64)})
+        c_uchar => NativeType::UByte(ty as u8)
+        pointer => NativeType::Pointer(ty as *mut c_void)
+        void => NativeType::Void
+    )
+}
+
+fn str_to_type(ty: &str) -> *mut ffi_type {
+    match_ffi_type!(
+        ty,
+        "c" => c_schar
+        "u" => c_int
+        "b" => i8
+        "h" => c_short
+        "H" => c_ushort
+        "i" => c_int
+        "I" => c_uint
+        "l" => c_long
+        "q" => c_longlong
+        "L" => c_ulong
+        "Q" => c_ulonglong
+        "f" => f32
+        "d" => f64
+        "g" => longdouble
+        "?" | "B" => c_uchar
+        "z" | "Z" => pointer
+        "P" => void
+    )
+}
+
+enum NativeType {
+    Byte(i8),
+    Short(i16),
+    UShort(u16),
+    Int(i32),
+    UInt(u32),
+    Long(i64),
+    LongLong(i128),
+    ULong(u64),
+    ULL(u128),
+    Float(f32),
+    Double(f64),
+    LongDouble(f64),
+    UByte(u8),
+    Pointer(*mut c_void),
+    Void,
+}
+
+#[derive(Debug)]
+pub struct Function {
+    pointer: mem::MaybeUninit<c_void>,
+    cif: ffi_cif,
+    arguments: Vec<*mut ffi_type>,
+    return_type: *mut ffi_type,
+}
+
+impl Function {
+    pub fn new(
+        fn_ptr: mem::MaybeUninit<c_void>,
+        arguments: Vec<String>,
+        return_type: &str,
+    ) -> Function {
+        Function {
+            pointer: fn_ptr,
+            cif: Default::default(),
+            arguments: arguments.iter().map(|s| str_to_type(s.as_str())).collect(),
+
+            return_type: str_to_type(return_type),
+        }
+    }
+    pub fn set_args(&mut self, args: Vec<String>) {
+        self.arguments = args.iter().map(|s| str_to_type(s.as_str())).collect();
+    }
+
+    pub fn set_ret(&mut self, ret: &str) {
+        self.return_type = str_to_type(ret);
+    }
+
+    pub fn call(
+        &self,
+        arg_ptrs: Vec<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> Result<PyObjectRc, FFIError> {
+    }
+}
+
+unsafe impl Send for Function {}
+unsafe impl Sync for Function {}
 
 #[pyclass(module = false, name = "SharedLibrary")]
 #[derive(Debug)]
@@ -81,16 +184,20 @@ impl SharedLibrary {
         })
     }
 
-    pub fn get_sym(&self, name: &str) -> Result<*const isize, libloading::Error> {
-        unsafe { self.lib.get(name.as_bytes()).map(|f| *f) }
+    pub fn get_sym(&self, name: &str) -> Result<*mut c_void, libloading::Error> {
+        unsafe {
+            self.lib
+                .get(name.as_bytes())
+                .map(|f: libloading::Symbol<*mut c_void>| *f)
+        }
     }
 }
 
-pub struct ExternalFunctions {
+pub struct ExternalLibs {
     pub libraries: HashMap<String, PyRef<SharedLibrary>>,
 }
 
-impl ExternalFunctions {
+impl ExternalLibs {
     pub fn new() -> Self {
         Self {
             libraries: HashMap::new(),
@@ -129,5 +236,5 @@ impl CDataObject {
 }
 
 lazy_static::lazy_static! {
-    pub static ref CDATACACHE: PyRwLock<ExternalFunctions> = PyRwLock::new(ExternalFunctions::new());
+    pub static ref CDATACACHE: PyRwLock<ExternalLibs> = PyRwLock::new(ExternalLibs::new());
 }
