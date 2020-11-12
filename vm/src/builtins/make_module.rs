@@ -532,7 +532,8 @@ mod decl {
         }
 
         if candidates.is_empty() {
-            return default.ok_or_else(|| vm.new_value_error("min() arg is an empty sequence".to_owned()));
+            return default
+                .ok_or_else(|| vm.new_value_error("min() arg is an empty sequence".to_owned()));
         }
 
         if let Some(ref obj) = key_func {
