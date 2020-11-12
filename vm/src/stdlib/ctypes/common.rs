@@ -124,7 +124,7 @@ enum NativeType {
 
 #[derive(Debug)]
 pub struct Function {
-    pointer: mem::MaybeUninit<c_void>,
+    pointer: mem::MaybeUninit<*mut c_void>,
     cif: ffi_cif,
     arguments: Vec<*mut ffi_type>,
     return_type: *mut ffi_type,
@@ -132,7 +132,7 @@ pub struct Function {
 
 impl Function {
     pub fn new(
-        fn_ptr: mem::MaybeUninit<c_void>,
+        fn_ptr: mem::MaybeUninit<*mut c_void>,
         arguments: Vec<String>,
         return_type: &str,
     ) -> Function {
@@ -146,6 +146,10 @@ impl Function {
     }
     pub fn set_args(&mut self, args: Vec<String>) {
         self.arguments = args.iter().map(|s| str_to_type(s.as_str())).collect();
+    }
+
+    pub fn set_fn_ptr(&mut self, ptr: mem::MaybeUninit<*mut c_void>) {
+        self.pointer = ptr;
     }
 
     pub fn set_ret(&mut self, ret: &str) {

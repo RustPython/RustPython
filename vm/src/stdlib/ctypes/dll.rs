@@ -39,7 +39,7 @@ pub fn dlsym(slib: PyObjectRc, func: PyObjectRc, vm: &VirtualMachine) -> PyResul
     match slib.downcast::<SharedLibrary>() {
         Ok(lib) => {
             if let Ok(ptr) = lib.get_sym(func_name) {
-                Ok(vm.new_pyobj(unsafe { &mut *ptr } as *const c_void as usize))
+                Ok(vm.new_pyobj(unsafe { &mut *ptr } as *const c_void as isize))
             } else {
                 // @TODO: Change this error message
                 Err(vm.new_runtime_error(format!("Error while opening symbol {}", func_name)))

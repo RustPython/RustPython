@@ -161,15 +161,25 @@ impl PyCFuncPtr {
     ) -> PyResult<PyRef<Self>> {
         if let Ok(h) = vm.get_attribute(arg.clone(), "_handle") {
             if let Ok(handle) = h.downcast::<SharedLibrary>() {
+                let handle_obj = handle.into_object();
+                let ptr_fn = dlsym(handle_obj.clone(), func_name.into_object(), vm).ok();
+
+                let fn_ptr = match ptr_fn {
+                    Some(py_obj) => {
+                        // Cast py_obj to isize and then to *mut c_void
+                    }
+                    _ => mem::MaybeUninit::<*mut c_void>::uninit(),
+                };
+
                 PyCFuncPtr {
                     _name_: func_name.to_string(),
                     _argtypes_: PyRwLock::new(Vec::new()),
                     _restype_: PyRwLock::new(Box::new(vm.ctx.none())),
-                    _handle: handle.into_object().clone(),
+                    _handle: handle_obj.clone(),
                     _f: PyRwLock::new(Box::new(Function::new(
-                        mem::MaybeUninit::<c_void>::uninit(),
+                        fn_ptr,
                         Vec::new(),
-                        "P",
+                        "P", // put a default here
                     ))),
                 }
                 .into_ref_with_type(vm, cls)
@@ -216,9 +226,6 @@ impl Callable for PyCFuncPtr {
             .collect();
 
         let ret_type = zelf._restype_.read().as_ref();
-
-        let name_py_ref = PyStr::from(&zelf._name_).into_object(vm);
-        let ptr_fn = dlsym(zelf._handle.clone(), name_py_ref, vm).ok();
 
         let res = zelf._f.read().call(arg_vec, vm);
 
