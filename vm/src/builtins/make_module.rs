@@ -456,7 +456,7 @@ mod decl {
         op: PyComparisonOp,
     ) -> PyResult {
         let default = args.take_keyword("default");
-        let mut key_func = args.take_keyword("key");
+        let key_func = args.take_keyword("key");
 
         if let Some(err) = args.check_kwargs_empty(vm) {
             return Err(err);
