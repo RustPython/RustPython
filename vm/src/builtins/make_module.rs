@@ -449,7 +449,12 @@ mod decl {
         locals.copy().into_ref(vm)
     }
 
-    fn min_or_max(mut args: FuncArgs, vm: &VirtualMachine, func_name: &str, op: PyComparisonOp) -> PyResult {
+    fn min_or_max(
+        mut args: FuncArgs,
+        vm: &VirtualMachine,
+        func_name: &str,
+        op: PyComparisonOp,
+    ) -> PyResult {
         let default = args.take_keyword("default");
         let mut key_func = args.take_keyword("key");
 
@@ -460,9 +465,10 @@ mod decl {
         let candidates = match args.args.len().cmp(&1) {
             std::cmp::Ordering::Greater => {
                 if default.is_some() {
-                    return Err(vm.new_type_error(
-                        format!("Cannot specify a default for {} with multiple positional arguments", func_name),
-                    ));
+                    return Err(vm.new_type_error(format!(
+                        "Cannot specify a default for {} with multiple positional arguments",
+                        func_name
+                    )));
                 }
                 args.args
             }
@@ -477,8 +483,9 @@ mod decl {
         let mut x = match candidates_iter.next() {
             Some(x) => x,
             None => {
-                return default
-                    .ok_or_else(|| vm.new_value_error(format!("{} arg is an empty sequence", func_name)))
+                return default.ok_or_else(|| {
+                    vm.new_value_error(format!("{} arg is an empty sequence", func_name))
+                })
             }
         };
 
@@ -502,7 +509,6 @@ mod decl {
 
         Ok(x)
     }
-
 
     #[pyfunction]
     fn max(mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
