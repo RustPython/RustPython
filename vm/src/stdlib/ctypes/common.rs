@@ -5,16 +5,15 @@ extern crate libloading;
 use ::std::{collections::HashMap, mem, os::raw::*};
 
 use libffi::low::{
-    call as ffi_call, ffi_abi_FFI_DEFAULT_ABI as ABI, ffi_cif, ffi_type, prep_cif, types, CodePtr,
+    call as ffi_call, ffi_abi_FFI_DEFAULT_ABI as ABI, ffi_cif, ffi_type, prep_cif, CodePtr,
     Error as FFIError,
 };
 use libffi::middle;
-
 use libloading::Library;
 
 use crate::builtins::PyTypeRef;
 use crate::common::lock::PyRwLock;
-use crate::pyobject::{PyObjectRc, PyObjectRef, PyRef, PyValue, StaticType};
+use crate::pyobject::{PyObjectRc, PyObjectRef, PyRef, PyValue, StaticType, TryFromObject};
 use crate::VirtualMachine;
 
 pub const SIMPLE_TYPE_CHARS: &str = "cbBhHiIlLdfuzZqQP?g";
@@ -124,18 +123,15 @@ enum NativeType {
 
 #[derive(Debug)]
 pub struct Function {
-    pointer: mem::MaybeUninit<*mut c_void>,
+    pointer: *mut c_void,
     cif: ffi_cif,
     arguments: Vec<*mut ffi_type>,
     return_type: *mut ffi_type,
+    // @TODO: Do we need to free the memory of these ffi_type?
 }
 
 impl Function {
-    pub fn new(
-        fn_ptr: mem::MaybeUninit<*mut c_void>,
-        arguments: Vec<String>,
-        return_type: &str,
-    ) -> Function {
+    pub fn new(fn_ptr: *mut c_void, arguments: Vec<String>, return_type: &str) -> Function {
         Function {
             pointer: fn_ptr,
             cif: Default::default(),
@@ -146,10 +142,6 @@ impl Function {
     }
     pub fn set_args(&mut self, args: Vec<String>) {
         self.arguments = args.iter().map(|s| str_to_type(s.as_str())).collect();
-    }
-
-    pub fn set_fn_ptr(&mut self, ptr: mem::MaybeUninit<*mut c_void>) {
-        self.pointer = ptr;
     }
 
     pub fn set_ret(&mut self, ret: &str) {
@@ -172,6 +164,7 @@ unsafe impl Sync for Function {}
 pub struct SharedLibrary {
     path_name: String,
     lib: Library,
+    is_open_g: Box<bool>,
 }
 
 impl PyValue for SharedLibrary {
@@ -185,6 +178,7 @@ impl SharedLibrary {
         Ok(SharedLibrary {
             path_name: name.to_string(),
             lib: Library::new(name.to_string())?,
+            is_open_g: Box::new(true),
         })
     }
 
@@ -193,6 +187,19 @@ impl SharedLibrary {
             self.lib
                 .get(name.as_bytes())
                 .map(|f: libloading::Symbol<*mut c_void>| *f)
+        }
+    }
+
+    pub fn is_open(&self) -> bool {
+        self.is_open_g.as_ref().clone()
+    }
+
+    pub fn close(&self) -> Result<(), libloading::Error> {
+        if let Err(e) = self.lib.close() {
+            Err(e)
+        } else {
+            mem::replace(self.is_open_g.as_mut(), false);
+            Ok(())
         }
     }
 }
@@ -208,10 +215,10 @@ impl ExternalLibs {
         }
     }
 
-    pub fn get_or_insert_lib<'a, 'b>(
-        &'b mut self,
-        library_path: &'a str,
-        vm: &'a VirtualMachine,
+    pub fn get_or_insert_lib(
+        &mut self,
+        library_path: &str,
+        vm: &VirtualMachine,
     ) -> Result<&PyRef<SharedLibrary>, libloading::Error> {
         let library = self
             .libraries

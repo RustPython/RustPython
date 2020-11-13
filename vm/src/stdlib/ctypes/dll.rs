@@ -1,8 +1,7 @@
 extern crate libloading;
 
-use ::std::os::raw::c_void;
-
 use crate::builtins::pystr::PyStr;
+use crate::builtins::PyInt;
 use crate::pyobject::{PyObjectRc, PyObjectRef, PyResult};
 use crate::VirtualMachine;
 
@@ -28,23 +27,30 @@ pub fn dlopen(lib_path: PyObjectRc, vm: &VirtualMachine) -> PyResult<PyObjectRef
     }
 }
 
-pub fn dlsym(slib: PyObjectRc, func: PyObjectRc, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+pub fn dlsym(slib: PyObjectRc, func: PyObjectRc, vm: &VirtualMachine) -> PyResult<PyInt> {
     // match vm.isinstance(&slib, &SharedLibrary::static_type()) {
     if !vm.isinstance(&func, &vm.ctx.types.str_type)? {
-        return Err(vm.new_value_error("argument func_name must be str".to_string()));
+        return Err(vm.new_value_error("second argument (func) must be str".to_string()));
     }
 
     let func_name = func.downcast::<PyStr>().unwrap().as_ref();
 
     match slib.downcast::<SharedLibrary>() {
         Ok(lib) => {
-            if let Ok(ptr) = lib.get_sym(func_name) {
-                Ok(vm.new_pyobj(unsafe { &mut *ptr } as *const c_void as isize))
+            if !lib.is_open() {
+                Err(vm.new_runtime_error(format!("Library is closed.")))
+            } else if let Ok(ptr) = lib.get_sym(func_name) {
+                Ok(PyInt::from(ptr as *const _ as usize))
             } else {
                 // @TODO: Change this error message
                 Err(vm.new_runtime_error(format!("Error while opening symbol {}", func_name)))
             }
         }
-        Err(_) => Err(vm.new_value_error("argument slib is not a valid SharedLibrary".to_string())),
+        Err(_) => {
+            Err(vm
+                .new_value_error("first argument (slib) is not a valid SharedLibrary".to_string()))
+        }
     }
 }
+
+pub fn dlclose() {}

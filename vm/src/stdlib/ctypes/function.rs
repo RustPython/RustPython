@@ -7,7 +7,9 @@ use crate::builtins::PyTypeRef;
 use crate::common::lock::PyRwLock;
 
 use crate::function::FuncArgs;
-use crate::pyobject::{PyObjectRc, PyObjectRef, PyRef, PyResult, PyValue, StaticType};
+use crate::pyobject::{
+    PyObjectRc, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject,
+};
 use crate::VirtualMachine;
 
 use crate::stdlib::ctypes::common::{CDataObject, Function, SharedLibrary, SIMPLE_TYPE_CHARS};
@@ -162,14 +164,9 @@ impl PyCFuncPtr {
         if let Ok(h) = vm.get_attribute(arg.clone(), "_handle") {
             if let Ok(handle) = h.downcast::<SharedLibrary>() {
                 let handle_obj = handle.into_object();
-                let ptr_fn = dlsym(handle_obj.clone(), func_name.into_object(), vm).ok();
+                let ptr_fn = dlsym(handle_obj.clone(), func_name.into_object(), vm)?;
 
-                let fn_ptr = match ptr_fn {
-                    Some(py_obj) => {
-                        // Cast py_obj to isize and then to *mut c_void
-                    }
-                    _ => mem::MaybeUninit::<*mut c_void>::uninit(),
-                };
+                let fn_ptr = usize::try_from_object(vm, ptr_fn.into_object(vm))? as *mut c_void;
 
                 PyCFuncPtr {
                     _name_: func_name.to_string(),
