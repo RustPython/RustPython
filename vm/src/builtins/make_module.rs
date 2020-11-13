@@ -449,23 +449,19 @@ mod decl {
         locals.copy().into_ref(vm)
     }
 
-    #[pyfunction]
-    fn max(mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn min_or_max(mut args: FuncArgs, vm: &VirtualMachine, func_name: &str, op: PyComparisonOp) -> PyResult {
         let default = args.take_keyword("default");
-        let key_func = args.take_keyword("key");
-        if !args.kwargs.is_empty() {
-            let invalid_keyword = args.kwargs.get_index(0).unwrap();
-            return Err(vm.new_type_error(format!(
-                "'{}' is an invalid keyword argument for max()",
-                invalid_keyword.0
-            )));
+        let mut key_func = args.take_keyword("key");
+
+        if let Some(err) = args.check_kwargs_empty(vm) {
+            return Err(err);
         }
+
         let candidates = match args.args.len().cmp(&1) {
             std::cmp::Ordering::Greater => {
                 if default.is_some() {
                     return Err(vm.new_type_error(
-                        "Cannot specify a default for max() with multiple positional arguments"
-                            .to_owned(),
+                        format!("Cannot specify a default for {} with multiple positional arguments", func_name),
                     ));
                 }
                 args.args
@@ -482,7 +478,7 @@ mod decl {
             Some(x) => x,
             None => {
                 return default
-                    .ok_or_else(|| vm.new_value_error("max() arg is an empty sequence".to_owned()))
+                    .ok_or_else(|| vm.new_value_error(format!("{} arg is an empty sequence", func_name)))
             }
         };
 
@@ -491,14 +487,14 @@ mod decl {
             let mut x_key = vm.invoke(key_func, (x.clone(),))?;
             for y in candidates_iter {
                 let y_key = vm.invoke(key_func, (y.clone(),))?;
-                if vm.bool_cmp(&y_key, &x_key, PyComparisonOp::Gt)? {
+                if vm.bool_cmp(&y_key, &x_key, op)? {
                     x = y;
                     x_key = y_key;
                 }
             }
         } else {
             for y in candidates_iter {
-                if vm.bool_cmp(&y, &x, PyComparisonOp::Gt)? {
+                if vm.bool_cmp(&y, &x, op)? {
                     x = y;
                 }
             }
@@ -507,65 +503,15 @@ mod decl {
         Ok(x)
     }
 
+
+    #[pyfunction]
+    fn max(mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        min_or_max(args, vm, "max()", PyComparisonOp::Gt)
+    }
+
     #[pyfunction]
     fn min(mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let (candidates, default_allowed) = match args.args.len().cmp(&1) {
-            std::cmp::Ordering::Greater => (args.args.clone(), false),
-            std::cmp::Ordering::Equal => (vm.extract_elements(&args.args[0])?, true),
-            std::cmp::Ordering::Less => {
-                // zero arguments means type error:
-                return Err(vm.new_type_error("Expected 1 or more arguments".to_owned()));
-            }
-        };
-
-        let default = args.take_keyword("default");
-        let mut key_func = args.take_keyword("key");
-
-        if let Some(err) = args.check_kwargs_empty(vm) {
-            return Err(err);
-        }
-
-        if default.is_some() && !default_allowed {
-            return Err(vm.new_type_error(
-                "Specifying default not allowed with more than 1 argument".to_owned(),
-            ));
-        }
-
-        if candidates.is_empty() {
-            return default
-                .ok_or_else(|| vm.new_value_error("min() arg is an empty sequence".to_owned()));
-        }
-
-        if let Some(ref obj) = key_func {
-            if vm.is_none(obj) {
-                key_func = None
-            }
-        }
-
-        let mut candidates_iter = candidates.into_iter();
-        let mut x = candidates_iter.next().unwrap();
-        // TODO: this key function looks pretty duplicate. Maybe we can create
-        // a local function?
-        let mut x_key = if let Some(ref f) = &key_func {
-            vm.invoke(f, (x.clone(),))?
-        } else {
-            x.clone()
-        };
-
-        for y in candidates_iter {
-            let y_key = if let Some(ref f) = &key_func {
-                vm.invoke(f, (y.clone(),))?
-            } else {
-                y.clone()
-            };
-
-            if vm.bool_cmp(&x_key, &y_key, PyComparisonOp::Gt)? {
-                x = y.clone();
-                x_key = y_key;
-            }
-        }
-
-        Ok(x)
+        min_or_max(args, vm, "min()", PyComparisonOp::Lt)
     }
 
     #[pyfunction]
