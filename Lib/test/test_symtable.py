@@ -63,7 +63,8 @@ class SymtableTest(unittest.TestCase):
         self.assertEqual(self.spam.get_type(), "function")
         self.assertEqual(self.internal.get_type(), "function")
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_id(self):
         self.assertGreater(self.top.get_id(), 0)
         self.assertGreater(self.Mine.get_id(), 0)
@@ -91,7 +92,8 @@ class SymtableTest(unittest.TestCase):
         self.assertEqual(self.top.get_lineno(), 0)
         self.assertEqual(self.spam.get_lineno(), 12)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_function_info(self):
         func = self.spam
         self.assertEqual(sorted(func.get_parameters()), ["a", "b", "kw", "var"])
@@ -100,7 +102,8 @@ class SymtableTest(unittest.TestCase):
         self.assertEqual(sorted(func.get_globals()), ["bar", "glob"])
         self.assertEqual(self.internal.get_frees(), ("x",))
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_globals(self):
         self.assertTrue(self.spam.lookup("glob").is_global())
         self.assertFalse(self.spam.lookup("glob").is_declared_global())
@@ -110,7 +113,8 @@ class SymtableTest(unittest.TestCase):
         self.assertFalse(self.Mine.lookup("instance_var").is_global())
         self.assertTrue(self.spam.lookup("bar").is_global())
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_nonlocal(self):
         self.assertFalse(self.spam.lookup("some_var").is_nonlocal())
         self.assertTrue(self.other_internal.lookup("some_var").is_nonlocal())
@@ -195,11 +199,13 @@ class SymtableTest(unittest.TestCase):
         self.assertEqual(self.spam.lookup("x").get_name(), "x")
         self.assertEqual(self.Mine.get_name(), "Mine")
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_class_info(self):
         self.assertEqual(self.Mine.get_methods(), ('a_method',))
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_filename_correct(self):
         ### Bug tickler: SyntaxError file name correct whether error raised
         ### while parsing or building symbol table.
@@ -233,7 +239,8 @@ class SymtableTest(unittest.TestCase):
     def test_exec(self):
         symbols = symtable.symtable("def f(x): return x", "?", "exec")
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_bytes(self):
         top = symtable.symtable(TEST_CODE.encode('utf8'), "?", "exec")
         self.assertIsNotNone(find_block(top, "Mine"))

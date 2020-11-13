@@ -1894,7 +1894,6 @@ class BufferedWriterTest(unittest.TestCase, CommonBufferedTests):
         self.assertRaises(OSError, b.close) # exception not swallowed
         self.assertTrue(b.closed)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_slow_close_from_thread(self):
         # Issue #31976
         rawio = self.SlowFlushRawIO()

@@ -41,7 +41,8 @@ class ExceptionTests(unittest.TestCase):
         self.assertEqual(buf1, buf2)
         self.assertEqual(exc.__name__, excname)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testRaising(self):
         self.raise_catch(AttributeError, "AttributeError")
         self.assertRaises(AttributeError, getattr, sys, "undefined_attribute")
@@ -331,7 +332,8 @@ class ExceptionTests(unittest.TestCase):
         with self.assertRaisesRegex(OSError, 'Windows Error 0x%x' % code):
             ctypes.pythonapi.PyErr_SetFromWindowsErr(code)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testAttributes(self):
         # test that exception attributes are happy
 
@@ -489,7 +491,8 @@ class ExceptionTests(unittest.TestCase):
         else:
             self.fail("No exception raised")
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testInvalidAttrs(self):
         self.assertRaises(TypeError, setattr, Exception(), '__cause__', 1)
         self.assertRaises(TypeError, delattr, Exception(), '__cause__')
@@ -1232,7 +1235,8 @@ class ExceptionTests(unittest.TestCase):
                     self.assertIn("del is broken", report)
                 self.assertTrue(report.endswith("\n"))
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_unhandled(self):
         # Check for sensible reporting of unhandled exceptions
         for exc_type in (ValueError, BrokenStrException):
@@ -1389,7 +1393,8 @@ class ImportErrorTests(unittest.TestCase):
             exc = ImportError(arg)
             self.assertEqual(str(arg), str(exc))
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_copy_pickle(self):
         for kwargs in (dict(),
                        dict(name='somename'),

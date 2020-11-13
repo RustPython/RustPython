@@ -109,7 +109,8 @@ class FailureTestCase(unittest.TestCase):
             with foo: pass
         self.assertRaises(NameError, fooNotDeclared)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testEnterAttributeError1(self):
         class LacksEnter(object):
             def __exit__(self, type, value, traceback):
@@ -729,7 +730,6 @@ class NestedWith(unittest.TestCase):
         self.assertTrue(a.enter_called)
         self.assertTrue(a.exit_called)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def testExceptionInExit(self):
         body_executed = False
         with self.Dummy(gobble=True) as a, self.ExitRaises():

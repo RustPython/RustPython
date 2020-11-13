@@ -177,7 +177,8 @@ class GlobTests(unittest.TestCase):
         self.assertEqual(glob.escape(arg), expected)
         self.assertEqual(glob.escape(os.fsencode(arg)), os.fsencode(expected))
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_escape(self):
         check = self.check_escape
         check('abc', 'abc')
