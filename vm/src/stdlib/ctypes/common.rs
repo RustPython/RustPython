@@ -225,7 +225,20 @@ impl ExternalLibs {
             .entry(library_path.to_string())
             .or_insert(SharedLibrary::new(library_path)?.into_ref(vm));
 
-        Ok(library)
+        if !library.is_open() {
+            if let Some(l) = self.libraries.insert(
+                library_path.to_string(),
+                SharedLibrary::new(library_path)?.into_ref(vm),
+            ) {
+                // Ok(self.libraries.get_mut(library_path.to_string()))
+                Ok(&l)
+            } else {
+                // @TODO: What this error should be?
+                Err(libloading::Error::DlOpenUnknown)
+            }
+        } else {
+            Ok(library)
+        }
     }
 }
 
