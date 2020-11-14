@@ -19,6 +19,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     py_module!(vm, "_ctypes", {
         "dlopen" => ctx.new_function(dlopen),
         "dlsym" => ctx.new_function(dlsym),
+        "dlclose" => ctx.new_function(dlclose),
 
         "CFuncPtr" => PyCFuncPtr::make_class(ctx),
         "_CData" => PyCData::make_class(ctx),

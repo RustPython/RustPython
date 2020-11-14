@@ -2,7 +2,7 @@ extern crate lazy_static;
 extern crate libffi;
 extern crate libloading;
 
-use ::std::{collections::HashMap, mem, os::raw::*};
+use ::std::{collections::HashMap, mem, os::raw::*, ptr};
 
 use libffi::low::{
     call as ffi_call, ffi_abi_FFI_DEFAULT_ABI as ABI, ffi_cif, ffi_type, prep_cif, CodePtr,
@@ -10,10 +10,13 @@ use libffi::low::{
 };
 use libffi::middle;
 use libloading::Library;
+use num_bigint::BigInt;
 
 use crate::builtins::PyTypeRef;
 use crate::common::lock::PyRwLock;
-use crate::pyobject::{PyObjectRc, PyObjectRef, PyRef, PyResult, PyValue, StaticType};
+use crate::pyobject::{
+    PyObjectRc, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject,
+};
 use crate::VirtualMachine;
 
 pub const SIMPLE_TYPE_CHARS: &str = "cbBhHiIlLdfuzZqQP?g";
@@ -82,6 +85,60 @@ fn str_to_type(ty: &str) -> *mut ffi_type {
     )
 }
 
+fn py_to_ffi(ty: *mut *mut ffi_type, obj: PyObjectRef, vm: &VirtualMachine) -> *mut c_void {
+    match_ffi_type!(
+        unsafe { *ty },
+        c_schar => {
+            let mut r = i8::try_from_object(vm, obj).unwrap();
+            &mut r as *mut _ as *mut c_void
+
+        }
+        c_int => {
+            let mut r = i32::try_from_object(vm, obj).unwrap();
+            &mut r as *mut _ as *mut c_void
+        }
+        c_short => {
+            let mut r = i16::try_from_object(vm, obj).unwrap();
+            &mut r as *mut _ as *mut c_void
+        }
+        c_ushort => {
+            let mut r = u16::try_from_object(vm, obj).unwrap();
+            &mut r as *mut _ as *mut c_void
+        }
+        c_uint => {
+            let mut r = u32::try_from_object(vm, obj).unwrap();
+            &mut r as *mut _ as *mut c_void
+        }
+        //@ TODO: Convert c*longlong from BigInt?
+        c_long | c_longlong => {
+            let mut r = i64::try_from_object(vm, obj).unwrap();
+            &mut r as *mut _ as *mut c_void
+        }
+        c_ulong | c_ulonglong => {
+            let mut r = u64::try_from_object(vm, obj).unwrap();
+            &mut r as *mut _ as *mut c_void
+        }
+        f32 => {
+            let mut r = f32::try_from_object(vm, obj).unwrap();
+            &mut r as *mut _ as *mut c_void
+        }
+        f64 | longdouble=> {
+            let mut r = f64::try_from_object(vm, obj).unwrap();
+            &mut r as *mut _ as *mut c_void
+        }
+        c_uchar => {
+            let mut r = u8::try_from_object(vm, obj).unwrap();
+            &mut r as *mut _ as *mut c_void
+        }
+        pointer => {
+            usize::try_from_object(vm, obj).unwrap() as *mut c_void
+        }
+        void => {
+            ptr::null_mut()
+        }
+    )
+}
+
 #[derive(Debug)]
 pub struct Function {
     pointer: *const c_void,
@@ -116,7 +173,7 @@ impl Function {
         arg_ptrs: Vec<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRc> {
-        let mut return_type: *mut ffi_type = &mut unsafe { self.return_type.read() };
+        let return_type: *mut ffi_type = &mut unsafe { self.return_type.read() };
 
         let result = unsafe {
             prep_cif(
@@ -136,14 +193,18 @@ impl Function {
             return Err(vm.new_runtime_error("The ABI is invalid or unsupported".to_string()));
         }
 
+        let mut argument_pointers: Vec<*mut c_void> = arg_ptrs
+            .iter()
+            .zip(self.arguments.iter_mut())
+            .map(|(o, t)| {
+                let tt: *mut *mut ffi_type = t;
+                py_to_ffi(tt, o.clone(), vm)
+            })
+            .collect();
+
         let cif_ptr = &self.cif as *const _ as *mut _;
         let fun_ptr = CodePtr::from_ptr(self.pointer);
-        let mut args_ptr = self
-            .arguments
-            .iter_mut()
-            .map(|p: &mut *mut ffi_type| p as *mut _ as *mut c_void)
-            .collect()
-            .as_mut_ptr();
+        let args_ptr = argument_pointers.as_mut_ptr();
 
         let ret_ptr = unsafe {
             match_ffi_type!(
@@ -170,12 +231,11 @@ impl Function {
                 }
                 c_long => {
                     let r: c_long = ffi_call(cif_ptr, fun_ptr, args_ptr);
-                    vm.new_pyobj(r as u64)
+                    vm.new_pyobj(r as i64)
                 }
                 c_longlong => {
                     let r: c_longlong = ffi_call(cif_ptr, fun_ptr, args_ptr);
-                    vm.new_pyobj(r as i64)
-                    // vm.new_pyobj(r as i128)
+                    vm.new_pyobj(BigInt::from(r as i128))
                 }
                 c_ulong => {
                     let r: c_ulong = ffi_call(cif_ptr, fun_ptr, args_ptr);
@@ -183,18 +243,13 @@ impl Function {
                 }
                 c_ulonglong => {
                     let r: c_ulonglong = ffi_call(cif_ptr, fun_ptr, args_ptr);
-                    vm.new_pyobj(r as u64)
-                    // vm.new_pyobj(r as u128)
+                    vm.new_pyobj(BigInt::from(r as u128))
                 }
                 f32 => {
                     let r: c_float = ffi_call(cif_ptr, fun_ptr, args_ptr);
                     vm.new_pyobj(r as f32)
                 }
-                f64 => {
-                    let r: c_double = ffi_call(cif_ptr, fun_ptr, args_ptr);
-                    vm.new_pyobj(r as f64)
-                }
-                longdouble => {
+                f64 | longdouble => {
                     let r: c_double = ffi_call(cif_ptr, fun_ptr, args_ptr);
                     vm.new_pyobj(r as f64)
                 }
@@ -207,7 +262,6 @@ impl Function {
                     vm.new_pyobj(r as *const _ as usize)
                 }
                 void => {
-                    let r: c_void = ffi_call(cif_ptr, fun_ptr, args_ptr);
                     vm.ctx.none()
                 }
             )
@@ -224,8 +278,7 @@ unsafe impl Sync for Function {}
 #[derive(Debug)]
 pub struct SharedLibrary {
     path_name: String,
-    lib: Library,
-    is_open_g: Box<bool>,
+    lib: Option<Library>,
 }
 
 impl PyValue for SharedLibrary {
@@ -238,35 +291,36 @@ impl SharedLibrary {
     pub fn new(name: &str) -> Result<SharedLibrary, libloading::Error> {
         Ok(SharedLibrary {
             path_name: name.to_string(),
-            lib: Library::new(name.to_string())?,
-            is_open_g: Box::new(true),
+            lib: Some(Library::new(name.to_string())?),
         })
     }
 
-    pub fn get_sym(&self, name: &str) -> Result<*mut c_void, libloading::Error> {
+    pub fn get_sym(&self, name: &str) -> Result<*mut c_void, String> {
+        let inner = if let Some(ref inner) = self.lib {
+            inner
+        } else {
+            return Err("The library has been closed".to_string());
+        };
+
         unsafe {
-            self.lib
+            inner
                 .get(name.as_bytes())
                 .map(|f: libloading::Symbol<*mut c_void>| *f)
+                .map_err(|err| err.to_string())
         }
     }
 
-    pub fn is_open(&self) -> bool {
-        self.is_open_g.as_ref().clone()
+    pub fn is_closed(&self) -> bool {
+        self.lib.is_none()
     }
 
-    pub fn close(&self) -> Result<(), libloading::Error> {
-        if let Err(e) = self.lib.close() {
-            Err(e)
-        } else {
-            mem::replace(self.is_open_g.as_mut(), false);
-            Ok(())
-        }
+    pub fn close(&mut self) {
+        drop(self.lib.take());
     }
 }
 
 pub struct ExternalLibs {
-    pub libraries: HashMap<String, PyRef<SharedLibrary>>,
+    libraries: HashMap<String, PyRef<SharedLibrary>>,
 }
 
 impl ExternalLibs {
@@ -281,25 +335,24 @@ impl ExternalLibs {
         library_path: &str,
         vm: &VirtualMachine,
     ) -> Result<&PyRef<SharedLibrary>, libloading::Error> {
-        let library = self
-            .libraries
-            .entry(library_path.to_string())
-            .or_insert(SharedLibrary::new(library_path)?.into_ref(vm));
-
-        if !library.is_open() {
-            if let Some(l) = self.libraries.insert(
-                library_path.to_string(),
-                SharedLibrary::new(library_path)?.into_ref(vm),
-            ) {
-                // Ok(self.libraries.get_mut(library_path.to_string()))
-                Ok(&l)
-            } else {
-                // @TODO: What this error should be?
-                Err(libloading::Error::DlOpenUnknown)
+        match self.libraries.get(&library_path.to_string()) {
+            Some(l) => {
+                if l.is_closed() {
+                    self.libraries.insert(
+                        library_path.to_string(),
+                        SharedLibrary::new(library_path)?.into_ref(vm),
+                    );
+                }
             }
-        } else {
-            Ok(library)
-        }
+            _ => {
+                self.libraries.insert(
+                    library_path.to_string(),
+                    SharedLibrary::new(library_path)?.into_ref(vm),
+                );
+            }
+        };
+
+        Ok(self.libraries.get(&library_path.to_string()).unwrap())
     }
 }
 

@@ -17,7 +17,7 @@ use crate::stdlib::ctypes::common::{CDataObject, Function, SharedLibrary, SIMPLE
 use crate::slots::Callable;
 use crate::stdlib::ctypes::dll::dlsym;
 
-fn map_types_to_res(args: &Vec<PyObjectRc>, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+fn map_types_to_res(args: &[PyObjectRc], vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
     args.iter()
         .enumerate()
         .map(|(idx, inner_obj)| {
@@ -75,14 +75,15 @@ impl PyCFuncPtr {
         {
             let args: Vec<PyObjectRef> = vm.extract_elements(&argtypes).unwrap();
 
-            let c_args = map_types_to_res(&args, vm);
+            let c_args = map_types_to_res(&args, vm)?;
 
             self._argtypes_.write().clear();
-            self._argtypes_.write().extend(c_args?.into_iter());
+            self._argtypes_.write().extend(c_args.clone().into_iter());
 
-            let fn_ptr = self._f.write().as_mut();
+            let mut f_guard = self._f.write();
+            let fn_ptr = f_guard.as_mut();
 
-            let str_types: Result<Vec<String>, _> = c_args?
+            let str_types: Result<Vec<String>, _> = c_args
                 .iter()
                 .map(|obj| {
                     if let Ok(attr) = vm.get_attribute(obj.clone(), "_type_") {
@@ -107,17 +108,17 @@ impl PyCFuncPtr {
     #[pyproperty(name = "_restype_", setter)]
     fn set_restype(&self, restype: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         match vm.isinstance(&restype, CDataObject::static_type()) {
-            Ok(_) => match vm.get_attribute(restype, "_type_") {
+            Ok(_) => match vm.get_attribute(restype.clone(), "_type_") {
                 Ok(_type_)
                     if vm.isinstance(&_type_, &vm.ctx.types.str_type)?
                         && _type_.to_string().len() == 1
                         && SIMPLE_TYPE_CHARS.contains(_type_.to_string().as_str()) =>
                 {
-                    let dest = self._restype_.write().as_mut();
-                    let src = restype.clone();
-                    mem::replace(dest, src);
+                    let mut r_guard = self._restype_.write();
+                    mem::replace(r_guard.as_mut(), restype.clone());
 
-                    let fn_ptr = self._f.write().as_mut();
+                    let mut a_guard = self._f.write();
+                    let fn_ptr = a_guard.as_mut();
                     fn_ptr.set_ret(_type_.to_string().as_str());
 
                     Ok(())
@@ -164,8 +165,7 @@ impl PyCFuncPtr {
         if let Ok(h) = vm.get_attribute(arg.clone(), "_handle") {
             if let Ok(handle) = h.downcast::<SharedLibrary>() {
                 let handle_obj = handle.into_object();
-                let ptr_fn = dlsym(handle_obj.clone(), func_name.into_object(), vm)?;
-
+                let ptr_fn = dlsym(handle_obj.clone(), func_name.clone().into_object(), vm)?;
                 let fn_ptr = usize::try_from_object(vm, ptr_fn.into_object(vm))? as *mut c_void;
 
                 PyCFuncPtr {
@@ -208,26 +208,6 @@ impl Callable for PyCFuncPtr {
         // Needs to check their types and convert to middle::Arg based on zelf._argtypes_
         let arg_vec = map_types_to_res(&args.args, vm)?;
 
-        // This is not optimal, but I can't simply store a vector of middle::Type inside PyCFuncPtr
-        let c_args: Result<Vec<String>, ()> = zelf
-            ._argtypes_
-            .read()
-            .iter()
-            .map(|obj| {
-                if let Ok(attr) = vm.get_attribute(obj.clone(), "_type_") {
-                    Ok(attr.to_string())
-                } else {
-                    Err(())
-                }
-            })
-            .collect();
-
-        let ret_type = zelf._restype_.read().as_ref();
-
-        let res = zelf._f.read().call(arg_vec, vm);
-
-        if let Ok(value) = res {
-        } else {
-        }
+        zelf._f.write().as_mut().call(arg_vec, vm)
     }
 }

@@ -32,18 +32,15 @@ pub fn dlsym(slib: PyObjectRc, func: PyObjectRc, vm: &VirtualMachine) -> PyResul
     if !vm.isinstance(&func, &vm.ctx.types.str_type)? {
         return Err(vm.new_value_error("second argument (func) must be str".to_string()));
     }
-
-    let func_name = func.downcast::<PyStr>().unwrap().as_ref();
+    let str_ref = func.downcast::<PyStr>().unwrap();
+    let func_name = str_ref.as_ref();
 
     match slib.downcast::<SharedLibrary>() {
         Ok(lib) => {
-            if !lib.is_open() {
-                Err(vm.new_runtime_error(format!("Library is closed.")))
-            } else if let Ok(ptr) = lib.get_sym(func_name) {
-                Ok(PyInt::from(ptr as *const _ as usize))
-            } else {
-                // @TODO: Change this error message
-                Err(vm.new_runtime_error(format!("Error while opening symbol {}", func_name)))
+            match lib.get_sym(func_name) {
+                Ok(ptr) => Ok(PyInt::from(ptr as *const _ as usize)),
+                Err(e) => Err(vm
+                    .new_runtime_error(format!("Error while opening symbol {}: {}", func_name, e))),
             }
         }
         Err(_) => {
@@ -53,4 +50,15 @@ pub fn dlsym(slib: PyObjectRc, func: PyObjectRc, vm: &VirtualMachine) -> PyResul
     }
 }
 
-pub fn dlclose() {}
+pub fn dlclose(slib: PyObjectRc, vm: &VirtualMachine) -> PyResult {
+    match slib.downcast::<SharedLibrary>() {
+        Ok(lib) => {
+            lib.close();
+            Ok(vm.ctx.none())
+        }
+        Err(_) => {
+            Err(vm
+                .new_value_error("first argument (slib) is not a valid SharedLibrary".to_string()))
+        }
+    }
+}
