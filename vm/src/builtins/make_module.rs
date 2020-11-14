@@ -511,12 +511,12 @@ mod decl {
     }
 
     #[pyfunction]
-    fn max(mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn max(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         min_or_max(args, vm, "max()", PyComparisonOp::Gt)
     }
 
     #[pyfunction]
-    fn min(mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn min(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         min_or_max(args, vm, "min()", PyComparisonOp::Lt)
     }
 
