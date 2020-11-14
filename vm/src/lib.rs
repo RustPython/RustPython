@@ -7,8 +7,6 @@
 
 // for methods like vm.to_str(), not the typical use of 'to' as a method prefix
 #![allow(clippy::wrong_self_convention, clippy::implicit_hasher)]
-// clippy warns on this for macro generated code rust-clippy/issues/6249
-#![allow(clippy::suspicious_else_formatting)]
 // to allow `mod foo {}` in foo.rs; clippy thinks this is a mistake/misunderstanding of
 // how `mod` works, but we want this sometimes for pymodule declarations
 #![allow(clippy::module_inception)]

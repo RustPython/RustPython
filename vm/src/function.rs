@@ -196,10 +196,9 @@ impl FuncArgs {
                 T::arity().end(),
                 given_args,
             )))
+        } else if let Some(err) = self.check_kwargs_empty(vm) {
+            Err(err)
         } else {
-            if let Some(err) = self.check_kwargs_empty(vm) {
-                return Err(err);
-            }
             Ok(bound)
         }
     }
