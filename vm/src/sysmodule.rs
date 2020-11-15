@@ -1,14 +1,13 @@
 use num_traits::ToPrimitive;
 use std::{env, mem, path};
 
-use crate::builtins::pystr::{PyStrExact, PyStrRef};
-use crate::builtins::pytype::PyTypeRef;
+use crate::builtins::{PyStr, PyStrRef, PyTypeRef};
 use crate::common::hash::{PyHash, PyUHash};
 use crate::frame::FrameRef;
 use crate::function::{Args, FuncArgs, OptionalArg};
 use crate::pyobject::{
-    ItemProtocol, PyClassImpl, PyContext, PyObjectRc, PyObjectRef, PyResult, PyStructSequence,
-    TypeProtocol,
+    ItemProtocol, PyClassImpl, PyContext, PyObjectRc, PyObjectRef, PyRefExact, PyResult,
+    PyStructSequence,
 };
 use crate::vm::{PySettings, VirtualMachine};
 use crate::{builtins, exceptions, py_io, version};
@@ -214,10 +213,8 @@ fn sys_setrecursionlimit(recursion_limit: i32, vm: &VirtualMachine) -> PyResult<
     }
 }
 
-fn sys_intern(value: PyStrRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-    PyStrExact::from_str(value, &vm.ctx)
-        .map(|s| vm.intern_string(s))
-        .map_err(|subcls| vm.new_type_error(format!("can't intern {}", subcls.class().name)))
+fn sys_intern(s: PyRefExact<PyStr>, vm: &VirtualMachine) -> PyStrRef {
+    vm.intern_string(s)
 }
 
 fn sys_exc_info(vm: &VirtualMachine) -> (PyObjectRef, PyObjectRef, PyObjectRef) {

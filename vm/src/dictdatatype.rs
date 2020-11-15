@@ -1,10 +1,12 @@
-use crate::builtins::pystr::{PyStr, PyStrRef};
+use crate::builtins::{PyStr, PyStrRef};
 /// Ordered dictionary implementation.
 /// Inspired by: https://morepypy.blogspot.com/2015/01/faster-more-memory-efficient-and-more.html
 /// And: https://www.youtube.com/watch?v=p33CVV29OG8
 /// And: http://code.activestate.com/recipes/578375/
 use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
-use crate::pyobject::{BorrowValue, IdProtocol, IntoPyObject, PyObjectRef, PyResult, TypeProtocol};
+use crate::pyobject::{
+    BorrowValue, IdProtocol, IntoPyObject, PyObjectRef, PyRefExact, PyResult, TypeProtocol,
+};
 use crate::vm::VirtualMachine;
 use rustpython_common::hash;
 use std::fmt;
@@ -617,6 +619,17 @@ impl DictKey for PyStrRef {
         } else {
             vm.bool_eq(self.as_object(), other_key)
         }
+    }
+}
+impl DictKey for PyRefExact<PyStr> {
+    fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
+        (**self).key_hash(vm)
+    }
+    fn key_is(&self, other: &PyObjectRef) -> bool {
+        (**self).key_is(other)
+    }
+    fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
+        (**self).key_eq(vm, other_key)
     }
 }
 

@@ -20,7 +20,7 @@ use crate::builtins::list::PyList;
 use crate::builtins::module::{self, PyModule};
 use crate::builtins::object;
 use crate::builtins::pybool;
-use crate::builtins::pystr::{PyStr, PyStrExact, PyStrRef};
+use crate::builtins::pystr::{PyStr, PyStrRef};
 use crate::builtins::pytype::PyTypeRef;
 use crate::builtins::tuple::PyTuple;
 use crate::common::{hash::HashSecret, lock::PyMutex, rc::PyRc};
@@ -31,7 +31,8 @@ use crate::frame::{ExecutionResult, Frame, FrameRef};
 use crate::function::{FuncArgs, IntoFuncArgs};
 use crate::pyobject::{
     BorrowValue, Either, IdProtocol, IntoPyObject, ItemProtocol, PyArithmaticValue, PyContext,
-    PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
+    PyObject, PyObjectRef, PyRef, PyRefExact, PyResult, PyValue, TryFromObject, TryIntoRef,
+    TypeProtocol,
 };
 use crate::scope::Scope;
 use crate::slots::PyComparisonOp;
@@ -1668,15 +1669,17 @@ impl VirtualMachine {
 }
 
 mod sealed {
+    use super::*;
     pub trait SealedInternable {}
     impl SealedInternable for String {}
     impl SealedInternable for &str {}
-    impl SealedInternable for super::PyStrExact {}
+    impl SealedInternable for PyRefExact<PyStr> {}
 }
+/// A sealed marker trait for `DictKey` types that always become an exact instance of `str`
 pub trait Internable: sealed::SealedInternable + crate::dictdatatype::DictKey {}
 impl Internable for String {}
 impl Internable for &str {}
-impl Internable for PyStrExact {}
+impl Internable for PyRefExact<PyStr> {}
 
 pub struct ReprGuard<'vm> {
     vm: &'vm VirtualMachine,

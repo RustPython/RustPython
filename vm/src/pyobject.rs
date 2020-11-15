@@ -594,8 +594,49 @@ where
     T: PyValue + fmt::Display,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let value: &T = self.obj.payload().expect("unexpected payload for type");
-        fmt::Display::fmt(value, f)
+        fmt::Display::fmt(&**self, f)
+    }
+}
+
+pub struct PyRefExact<T> {
+    obj: PyRef<T>,
+}
+impl<T: PyValue> TryFromObject for PyRefExact<T> {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        let target_cls = T::class(vm);
+        let cls = obj.class();
+        if cls.is(target_cls) {
+            drop(cls);
+            Ok(Self {
+                obj: PyRef::from_obj(obj, vm)?,
+            })
+        } else if cls.issubclass(target_cls) {
+            Err(vm.new_type_error(format!(
+                "Expected an exact instance of '{}', not a subclass '{}'",
+                target_cls.name, cls.name,
+            )))
+        } else {
+            Err(vm.new_type_error(format!(
+                "Expected type '{}', not '{}'",
+                target_cls.name, cls.name,
+            )))
+        }
+    }
+}
+impl<T: PyValue> Deref for PyRefExact<T> {
+    type Target = PyRef<T>;
+    fn deref(&self) -> &PyRef<T> {
+        &self.obj
+    }
+}
+impl<T: PyValue> IntoPyObject for PyRefExact<T> {
+    fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
+        self.obj.into_object()
+    }
+}
+impl<T: PyValue> TryIntoRef<T> for PyRefExact<T> {
+    fn try_into_ref(self, _vm: &VirtualMachine) -> PyResult<PyRef<T>> {
+        Ok(self.obj)
     }
 }
 
