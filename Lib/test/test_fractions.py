@@ -456,7 +456,6 @@ class FractionTest(unittest.TestCase):
             divmod(F(-2**100, 3), F(5, 2**100))
         )
 
-    # TODO: RUSTPYTHON
     def testMixedArithmetic(self):
         self.assertTypedEquals(F(11, 10), F(1, 10) + 1)
         self.assertTypedEquals(1.1, F(1, 10) + 1.0)
