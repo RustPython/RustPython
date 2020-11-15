@@ -130,8 +130,8 @@ impl_try_from_object_int!(
 
 fn inner_pow(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
     if int2.is_negative() {
-        let v1 = try_float(int1, vm)?;
-        let v2 = try_float(int2, vm)?;
+        let v1 = to_float(int1, vm)?;
+        let v2 = to_float(int2, vm)?;
         float::float_pow(v1, v2, vm).into_pyresult(vm)
     } else {
         Ok(if let Some(v2) = int2.to_u64() {
@@ -260,9 +260,9 @@ impl PyInt {
                     .ok_or_else(|| {
                         vm.new_value_error("int() base must be >= 2 and <= 36, or 0".to_owned())
                     })?;
-                to_int_radix(vm, &val, base)
+                try_int_radix(&val, base, vm)
             } else {
-                to_int(vm, &val)
+                try_int(&val, vm)
             }
         } else if let OptionalArg::Present(_) = options.base {
             Err(vm.new_type_error("int() missing string argument".to_owned()))
@@ -476,7 +476,7 @@ impl PyInt {
 
     #[pymethod(name = "__float__")]
     fn float(&self, vm: &VirtualMachine) -> PyResult<f64> {
-        try_float(&self.value, vm)
+        to_float(&self.value, vm)
     }
 
     #[pymethod(name = "__trunc__")]
@@ -710,8 +710,8 @@ struct IntToByteArgs {
 }
 
 // Casting function:
-pub(crate) fn to_int(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<BigInt> {
-    let try_convert = |lit: &[u8]| -> PyResult<BigInt> {
+pub(crate) fn try_int(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt> {
+    fn try_convert(obj: &PyObjectRef, lit: &[u8], vm: &VirtualMachine) -> PyResult<BigInt> {
         let base = 10;
         match bytes_to_int(lit, base) {
             Some(i) => Ok(i),
@@ -722,9 +722,20 @@ pub(crate) fn to_int(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<BigInt>
             ))),
         }
     };
+
+    // test for strings and bytes
     if let Some(s) = obj.downcast_ref::<PyStr>() {
-        return try_convert(s.borrow_value().as_bytes());
+        return try_convert(obj, s.borrow_value().as_bytes(), vm);
     }
+    if let Ok(r) = try_bytes_like(vm, &obj, |x| try_convert(obj, x, vm)) {
+        return r;
+    }
+    // strict `int` check
+    if let Some(int) = obj.payload_if_exact::<PyInt>(vm) {
+        return Ok(int.borrow_value().clone());
+    }
+    // call __int__, then __index__, then __trunc__ (converting the __trunc__ result via  __index__ if needed)
+    // TODO: using __int__ is deprecated and removed in Python 3.10
     if let Some(method) = vm.get_method(obj.clone(), "__int__") {
         let result = vm.invoke(&method?, ())?;
         return match result.payload::<PyInt>() {
@@ -735,9 +746,21 @@ pub(crate) fn to_int(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<BigInt>
             ))),
         };
     }
-
-    if let Ok(r) = try_bytes_like(vm, &obj, |x| try_convert(x)) {
-        return r;
+    // TODO: returning strict subclasses of int in __index__ is deprecated
+    if let Some(r) = vm.to_index_opt(obj.clone()).transpose()? {
+        return Ok(r.borrow_value().clone());
+    }
+    if let Some(method) = vm.get_method(obj.clone(), "__trunc__") {
+        let result = vm.invoke(&method?, ())?;
+        return vm
+            .to_index_opt(result.clone())
+            .unwrap_or_else(|| {
+                Err(vm.new_type_error(format!(
+                    "__trunc__ returned non-Integral (type '{}')",
+                    result.class().name
+                )))
+            })
+            .map(|int_obj| int_obj.borrow_value().clone());
     }
 
     Err(vm.new_type_error(format!(
@@ -746,7 +769,7 @@ pub(crate) fn to_int(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<BigInt>
     )))
 }
 
-fn to_int_radix(vm: &VirtualMachine, obj: &PyObjectRef, base: u32) -> PyResult<BigInt> {
+fn try_int_radix(obj: &PyObjectRef, base: u32, vm: &VirtualMachine) -> PyResult<BigInt> {
     debug_assert!(base == 0 || (2..=36).contains(&base));
 
     let opt = match_class!(match obj.clone() {
@@ -889,7 +912,7 @@ pub fn get_value(obj: &PyObjectRef) -> &BigInt {
     &obj.payload::<PyInt>().unwrap().value
 }
 
-pub fn try_float(int: &BigInt, vm: &VirtualMachine) -> PyResult<f64> {
+pub fn to_float(int: &BigInt, vm: &VirtualMachine) -> PyResult<f64> {
     int.to_f64()
         .ok_or_else(|| vm.new_overflow_error("int too large to convert to float".to_owned()))
 }

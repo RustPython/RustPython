@@ -323,8 +323,6 @@ class FractionTest(unittest.TestCase):
                 ValueError, "max_denominator should be at least 1",
                 F(1).limit_denominator, i)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testConversions(self):
         self.assertTypedEquals(-1, math.trunc(F(-11, 10)))
         self.assertTypedEquals(1, math.trunc(F(11, 10)))
@@ -458,8 +456,6 @@ class FractionTest(unittest.TestCase):
             divmod(F(-2**100, 3), F(5, 2**100))
         )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testMixedArithmetic(self):
         self.assertTypedEquals(F(11, 10), F(1, 10) + 1)
         self.assertTypedEquals(1.1, F(1, 10) + 1.0)

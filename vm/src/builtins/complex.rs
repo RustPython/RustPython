@@ -43,10 +43,31 @@ pub fn init(context: &PyContext) {
     PyComplex::extend_class(context, &context.types.complex_type);
 }
 
-fn try_complex(value: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<Complex64>> {
+fn try_complex(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<Complex64>> {
+    if let Some(complex) = obj.payload_if_exact::<PyComplex>(vm) {
+        return Ok(Some(complex.value));
+    }
+    if let Some(method) = vm.get_method(obj.clone(), "__complex__") {
+        let result = vm.invoke(&method?, ())?;
+        // TODO: returning strict subclasses of complex in __complex__ is deprecated
+        return match result.payload::<PyComplex>() {
+            Some(complex_obj) => Ok(Some(complex_obj.value)),
+            None => Err(vm.new_type_error(format!(
+                "__complex__ returned non-complex (type '{}')",
+                result.class().name
+            ))),
+        };
+    }
+    if let Some(float) = float::try_float(obj, vm)? {
+        return Ok(Some(Complex64::new(float, 0.0)));
+    }
+    Ok(None)
+}
+
+fn to_op_complex(value: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<Complex64>> {
     let r = if let Some(complex) = value.payload_if_subclass::<PyComplex>(vm) {
         Some(complex.value)
-    } else if let Some(float) = float::try_float(value, vm)? {
+    } else if let Some(float) = float::to_op_float(value, vm)? {
         Some(Complex64::new(float, 0.0))
     } else {
         None
@@ -86,7 +107,7 @@ impl PyComplex {
     where
         F: Fn(Complex64, Complex64) -> Complex64,
     {
-        Ok(try_complex(&other, vm)?.map_or_else(
+        Ok(to_op_complex(&other, vm)?.map_or_else(
             || PyArithmaticValue::NotImplemented,
             |other| PyArithmaticValue::Implemented(op(self.value, other)),
         ))
@@ -151,7 +172,7 @@ impl PyComplex {
         other: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyArithmaticValue<Complex64>> {
-        self.op(other, |a, b| a / b, vm)
+        self.op(other, |a, b| a.fdiv(b), vm)
     }
 
     #[pymethod(name = "__rtruediv__")]
@@ -291,7 +312,7 @@ impl Comparable for PyComplex {
             let result = if let Some(other) = other.payload_if_subclass::<PyComplex>(vm) {
                 zelf.value == other.value
             } else {
-                match float::try_float(&other, vm) {
+                match float::to_op_float(&other, vm) {
                     Ok(Some(other)) => zelf.value == other.into(),
                     Err(_) => false,
                     Ok(None) => return Ok(PyComparisonValue::NotImplemented),

@@ -381,7 +381,6 @@ class LongTest(unittest.TestCase):
         self.assertRaises(ValueError, int, '-012395', 0)
 
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_conversion(self):
 
         class JustLong:
