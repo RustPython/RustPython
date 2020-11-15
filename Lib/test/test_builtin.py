@@ -1101,8 +1101,6 @@ class BuiltinTest(unittest.TestCase):
         self.assertEqual(ord("\U0010FFFE"), 0x0010FFFE)
         self.assertEqual(ord("\U0010FFFF"), 0x0010FFFF)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pow(self):
         self.assertEqual(pow(0,0), 1)
         self.assertEqual(pow(0,1), 0)
