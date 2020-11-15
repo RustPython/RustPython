@@ -933,8 +933,6 @@ class BuiltinTest(unittest.TestCase):
         self.assertEqual(max(data, key=f),
                          sorted(reversed(data), key=f)[-1])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_min(self):
         self.assertEqual(min('123123'), '1')
         self.assertEqual(min(1, 2, 3), 1)
