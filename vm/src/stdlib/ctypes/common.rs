@@ -274,16 +274,15 @@ impl Function {
 unsafe impl Send for Function {}
 unsafe impl Sync for Function {}
 
-#[pyclass(module = false, name = "SharedLibrary")]
 #[derive(Debug)]
 pub struct SharedLibrary {
     path_name: String,
-    lib: Option<Library>,
+    lib: PyRwLock<Option<Library>>,
 }
 
 impl PyValue for SharedLibrary {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
+        &vm.ctx.types.object_type
     }
 }
 
@@ -291,12 +290,13 @@ impl SharedLibrary {
     pub fn new(name: &str) -> Result<SharedLibrary, libloading::Error> {
         Ok(SharedLibrary {
             path_name: name.to_string(),
-            lib: Some(Library::new(name.to_string())?),
+            lib: PyRwLock::new(Some(Library::new(name.to_string())?)),
         })
     }
 
     pub fn get_sym(&self, name: &str) -> Result<*mut c_void, String> {
-        let inner = if let Some(ref inner) = self.lib {
+        let guard = self.lib.read();
+        let inner = if let Some(inner) = guard.as_ref() {
             inner
         } else {
             return Err("The library has been closed".to_string());
@@ -311,11 +311,11 @@ impl SharedLibrary {
     }
 
     pub fn is_closed(&self) -> bool {
-        self.lib.is_none()
+        self.lib.read().is_none()
     }
 
-    pub fn close(&mut self) {
-        drop(self.lib.take());
+    pub fn close(&self) {
+        drop(self.lib.write().take());
     }
 }
 
@@ -362,12 +362,16 @@ pub struct CDataObject {}
 
 impl PyValue for CDataObject {
     fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_metaclass()
+        Self::static_type()
     }
 }
 
 #[pyimpl(flags(BASETYPE))]
 impl CDataObject {
+    #[pyslot]
+    fn tp_new(cls: PyTypeRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        CDataObject {}.into_ref_with_type(vm, cls)
+    }
     // A lot of the logic goes in this trait
     // There's also other traits that should have different implementations for some functions
     // present here

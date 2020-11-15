@@ -28,7 +28,6 @@ pub fn dlopen(lib_path: PyObjectRc, vm: &VirtualMachine) -> PyResult<PyObjectRef
 }
 
 pub fn dlsym(slib: PyObjectRc, func: PyObjectRc, vm: &VirtualMachine) -> PyResult<PyInt> {
-    // match vm.isinstance(&slib, &SharedLibrary::static_type()) {
     if !vm.isinstance(&func, &vm.ctx.types.str_type)? {
         return Err(vm.new_value_error("second argument (func) must be str".to_string()));
     }

@@ -4,7 +4,7 @@ use crate::VirtualMachine;
 
 use crate::stdlib::ctypes::common::CDataObject;
 
-#[pyclass(module = "_ctypes", name = "_CData", base = "CDataObject")]
+#[pyclass(module = "_ctypes", name = "_CData")]
 #[derive(Debug)]
 pub struct PyCData {
     _type_: String,
