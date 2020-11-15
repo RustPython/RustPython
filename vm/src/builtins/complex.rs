@@ -5,8 +5,9 @@ use super::float;
 use super::pystr::PyStr;
 use super::pytype::PyTypeRef;
 use crate::pyobject::{
-    BorrowValue, IntoPyObject, Never,  PyArithmaticValue::{self, *}, PyClassImpl, PyComparisonValue, PyContext,
-    PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    BorrowValue, IntoPyObject, Never,
+    PyArithmaticValue::{self, *},
+    PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::slots::{Comparable, Hashable, PyComparisonOp};
 use crate::VirtualMachine;
@@ -77,7 +78,7 @@ fn to_op_complex(value: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<Co
 
 fn inner_div(v1: Complex64, v2: Complex64, vm: &VirtualMachine) -> PyResult<Complex64> {
     if v2.is_zero() {
-        return Err(vm.new_zero_division_error("complex division by zero".to_owned()))
+        return Err(vm.new_zero_division_error("complex division by zero".to_owned()));
     }
 
     return Ok(v1.fdiv(v2));
