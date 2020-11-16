@@ -143,8 +143,13 @@ impl PyType {
         attributes
     }
 
-    pub(crate) fn update_slot(&self, name: &str) {
+    pub(crate) fn update_slot(&self, name: &str, add: bool) {
         // self is the resolved class in get_class_magic
+        macro_rules! update_slot {
+            ($name:ident, $func:expr) => {{
+                self.slots.$name.store(if add { Some($func) } else { None });
+            }};
+        }
         match name {
             "__call__" => {
                 let func: slots::GenericMethod = |zelf, args, vm| {
@@ -152,14 +157,14 @@ impl PyType {
                     let magic = vm.call_if_get_descriptor(magic, zelf.clone())?;
                     vm.invoke(&magic, args)
                 } as _;
-                self.slots.call.store(Some(func))
+                update_slot!(call, func);
             }
             "__get__" => {
                 let func: slots::DescrGetFunc = |zelf, obj, cls, vm| {
                     let magic = get_class_magic(&zelf, "__get__");
                     vm.invoke(&magic, (zelf, obj, cls))
                 } as _;
-                self.slots.descr_get.store(Some(func))
+                update_slot!(descr_get, func);
             }
             "__hash__" => {
                 let func: slots::HashFunc = |zelf, vm| {
@@ -173,7 +178,7 @@ impl PyType {
                             .new_type_error("__hash__ method should return an integer".to_owned())),
                     }
                 } as _;
-                self.slots.hash.store(Some(func));
+                update_slot!(hash, func);
             }
             "__del__" => {
                 let func: slots::DelFunc = |zelf, vm| {
@@ -181,36 +186,37 @@ impl PyType {
                     let _ = vm.invoke(&magic, vec![zelf.clone()])?;
                     Ok(())
                 } as _;
-                self.slots.del.store(Some(func));
+                update_slot!(del, func);
             }
             "__eq__" | "__ne__" | "__le__" | "__lt__" | "__ge__" | "__gt__" => {
                 let func: slots::CmpFunc = |zelf, other, op, vm| {
+                    // TODO: differentiate between op types; get_class_magic would panic
                     let magic = get_class_magic(&zelf, op.method_name());
                     vm.invoke(&magic, vec![zelf.clone(), other.clone()])
                         .map(Either::A)
                 } as _;
-                self.slots.cmp.store(Some(func))
+                update_slot!(cmp, func);
             }
             "__getattribute__" => {
                 let func: slots::GetattroFunc = |zelf, name, vm| {
                     let magic = get_class_magic(&zelf, "__getattribute__");
                     vm.invoke(&magic, (zelf, name))
                 };
-                self.slots.getattro.store(Some(func))
+                update_slot!(getattro, func);
             }
             "__iter__" => {
                 let func: slots::IterFunc = |zelf, vm| {
                     let magic = get_class_magic(&zelf, "__iter__");
                     vm.invoke(&magic, (zelf,))
                 };
-                self.slots.iter.store(Some(func));
+                update_slot!(iter, func);
             }
             "__next__" => {
                 let func: slots::IterNextFunc = |zelf, vm| {
                     let magic = get_class_magic(zelf, "__next__");
                     vm.invoke(&magic, (zelf.clone(),))
                 };
-                self.slots.iternext.store(Some(func));
+                update_slot!(iternext, func);
             }
             _ => {}
         }
@@ -341,10 +347,11 @@ impl PyType {
             }
         }
         let attr_name = attr_name.borrow_value();
+        let mut attributes = zelf.attributes.write();
+        attributes.insert(attr_name.to_owned(), value);
         if attr_name.starts_with("__") && attr_name.ends_with("__") {
-            zelf.update_slot(attr_name);
+            zelf.update_slot(attr_name, true);
         }
-        zelf.attributes.write().insert(attr_name.to_owned(), value);
         Ok(())
     }
 
@@ -356,9 +363,17 @@ impl PyType {
             }
         }
 
-        zelf.get_attr(attr_name.borrow_value())
-            .ok_or_else(|| vm.new_attribute_error(attr_name.borrow_value().to_owned()))?;
-        zelf.attributes.write().remove(attr_name.borrow_value());
+        let mut attributes = zelf.attributes.write();
+        if attributes.remove(attr_name.borrow_value()).is_none() {
+            return Err(vm.new_exception(
+                vm.ctx.exceptions.attribute_error.clone(),
+                vec![attr_name.into_object()],
+            ));
+        };
+        let attr_name = attr_name.borrow_value();
+        if attr_name.starts_with("__") && attr_name.ends_with("__") {
+            zelf.update_slot(attr_name, false);
+        }
         Ok(())
     }
 
@@ -814,7 +829,7 @@ pub fn new(
 
     for attr_name in new_type.attributes.read().keys() {
         if attr_name.starts_with("__") && attr_name.ends_with("__") {
-            new_type.update_slot(attr_name);
+            new_type.update_slot(attr_name, true);
         }
     }
     for base in &new_type.bases {

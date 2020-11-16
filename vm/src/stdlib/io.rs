@@ -454,7 +454,7 @@ mod _io {
         }
 
         #[pyslot]
-        #[pymethod(magic)]
+        #[pymethod(name = "__iter__")]
         fn tp_iter(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             check_closed(&instance, vm)?;
             Ok(instance)
