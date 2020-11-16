@@ -539,7 +539,6 @@ class SysModuleTest(unittest.TestCase):
         # the test runs under regrtest.
         self.assertEqual(sys.__stdout__.encoding, sys.__stderr__.encoding)
 
-    @unittest.skip("TODO: RUSTPYTHON; sys.intern() string interning")
     def test_intern(self):
         global INTERN_NUMRUNS
         INTERN_NUMRUNS += 1

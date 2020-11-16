@@ -4,7 +4,6 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
 
 use rustpython_vm::builtins::{PyDictRef, PyStrRef, PyTypeRef};
-use rustpython_vm::common::rc::PyRc;
 use rustpython_vm::function::OptionalArg;
 use rustpython_vm::import::import_file;
 use rustpython_vm::pyobject::{
@@ -276,12 +275,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 }
 
 pub fn setup_browser_module(vm: &mut VirtualMachine) {
-    let state = PyRc::get_mut(&mut vm.state).unwrap();
-    state
-        .stdlib_inits
-        .insert("_browser".to_owned(), Box::new(make_module));
-    state.add_frozen(
-        &vm.ctx,
-        py_freeze!(file = "src/browser.py", module_name = "browser"),
-    );
+    vm.add_native_module("_browser".to_owned(), Box::new(make_module));
+    vm.add_frozen(py_freeze!(file = "src/browser.py", module_name = "browser"));
 }

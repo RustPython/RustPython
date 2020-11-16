@@ -1,8 +1,8 @@
 use std::fmt;
 
-use crate::builtins::dict::PyDictRef;
-use crate::pyobject::{ItemProtocol, PyContext, PyObjectRef, PyResult};
-use crate::vm::VirtualMachine;
+use crate::builtins::{PyDictRef, PyStr, PyStrRef};
+use crate::pyobject::{IntoPyObject, ItemProtocol, PyContext, PyObjectRef, PyResult, TryIntoRef};
+use crate::VirtualMachine;
 
 /*
  * So a scope is a linked list of scopes.
@@ -69,24 +69,11 @@ impl Scope {
     pub fn new_child_scope(&self, ctx: &PyContext) -> Scope {
         self.new_child_scope_with_locals(ctx.new_dict())
     }
-}
 
-pub trait NameProtocol {
-    fn load_name(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef>;
-    fn store_name(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef);
-    fn delete_name(&self, vm: &VirtualMachine, name: &str) -> PyResult;
-    fn load_local(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef>;
-    fn load_cell(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef>;
-    fn store_cell(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef);
-    fn load_global(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef>;
-    fn store_global(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef);
-}
-
-impl NameProtocol for Scope {
     #[cfg_attr(feature = "flame-it", flame("Scope"))]
-    fn load_name(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
+    pub fn load_name(&self, vm: &VirtualMachine, name: impl PyName) -> Option<PyObjectRef> {
         for dict in self.locals.iter() {
-            if let Some(value) = dict.get_item_option(name, vm).unwrap() {
+            if let Some(value) = dict.get_item_option(name.clone(), vm).unwrap() {
                 return Some(value);
             }
         }
@@ -97,23 +84,28 @@ impl NameProtocol for Scope {
 
     #[cfg_attr(feature = "flame-it", flame("Scope"))]
     /// Load a local name. Only check the local dictionary for the given name.
-    fn load_local(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
+    pub fn load_local(&self, vm: &VirtualMachine, name: impl PyName) -> Option<PyObjectRef> {
         self.get_locals().get_item_option(name, vm).unwrap()
     }
 
     #[cfg_attr(feature = "flame-it", flame("Scope"))]
-    fn load_cell(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
+    pub fn load_cell(&self, vm: &VirtualMachine, name: impl PyName) -> Option<PyObjectRef> {
         for dict in self.locals.iter().skip(1) {
-            if let Some(value) = dict.get_item_option(name, vm).unwrap() {
+            if let Some(value) = dict.get_item_option(name.clone(), vm).unwrap() {
                 return Some(value);
             }
         }
         None
     }
 
-    fn store_cell(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef) {
+    pub fn store_cell(&self, vm: &VirtualMachine, name: impl PyName, value: PyObjectRef) {
         // find the innermost outer scope that contains the symbol name
-        if let Some(locals) = self.locals.iter().rev().find(|l| l.contains_key(name, vm)) {
+        if let Some(locals) = self
+            .locals
+            .iter()
+            .rev()
+            .find(|l| l.contains_key(name.clone(), vm))
+        {
             // add to the symbol
             locals.set_item(name, value, vm).unwrap();
         } else {
@@ -131,25 +123,37 @@ impl NameProtocol for Scope {
         }
     }
 
-    fn store_name(&self, vm: &VirtualMachine, key: &str, value: PyObjectRef) {
+    pub fn store_name(&self, vm: &VirtualMachine, key: impl PyName, value: PyObjectRef) {
         self.get_locals().set_item(key, value, vm).unwrap();
     }
 
-    fn delete_name(&self, vm: &VirtualMachine, key: &str) -> PyResult {
+    pub fn delete_name(&self, vm: &VirtualMachine, key: impl PyName) -> PyResult {
         self.get_locals().del_item(key, vm)
     }
 
     #[cfg_attr(feature = "flame-it", flame("Scope"))]
     /// Load a global name.
-    fn load_global(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
-        if let Some(value) = self.globals.get_item_option(name, vm).unwrap() {
+    pub fn load_global(&self, vm: &VirtualMachine, name: impl PyName) -> Option<PyObjectRef> {
+        if let Some(value) = self.globals.get_item_option(name.clone(), vm).unwrap() {
             Some(value)
         } else {
             vm.get_attribute(vm.builtins.clone(), name).ok()
         }
     }
 
-    fn store_global(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef) {
+    pub fn store_global(&self, vm: &VirtualMachine, name: impl PyName, value: PyObjectRef) {
         self.globals.set_item(name, value, vm).unwrap();
     }
 }
+
+mod sealed {
+    pub trait Sealed {}
+    impl Sealed for &str {}
+    impl Sealed for super::PyStrRef {}
+}
+pub trait PyName:
+    sealed::Sealed + crate::dictdatatype::DictKey + Clone + IntoPyObject + TryIntoRef<PyStr>
+{
+}
+impl PyName for &str {}
+impl PyName for PyStrRef {}

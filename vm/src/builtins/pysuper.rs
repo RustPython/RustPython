@@ -13,7 +13,6 @@ use crate::pyobject::{
     BorrowValue, IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol,
 };
-use crate::scope::NameProtocol;
 use crate::slots::{SlotDescriptor, SlotGetattro};
 use crate::vm::VirtualMachine;
 
@@ -87,10 +86,10 @@ impl PySuper {
             obj
         } else {
             let frame = vm.current_frame().expect("no current frame for super()");
-            if let Some(first_arg) = frame.code.arg_names.get(0) {
+            if let Some(first_arg) = frame.code.arg_names().args.get(0) {
                 let locals = frame.scope.get_locals();
                 locals
-                    .get_item_option(first_arg.as_str(), vm)?
+                    .get_item_option(first_arg.clone(), vm)?
                     .ok_or_else(|| {
                         vm.new_type_error(format!("super argument {} was not supplied", first_arg))
                     })?

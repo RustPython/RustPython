@@ -1,13 +1,12 @@
 use num_traits::ToPrimitive;
 use std::{env, mem, path};
 
-use crate::builtins::pystr::PyStrRef;
-use crate::builtins::pytype::PyTypeRef;
+use crate::builtins::{PyStr, PyStrRef, PyTypeRef};
 use crate::common::hash::{PyHash, PyUHash};
 use crate::frame::FrameRef;
 use crate::function::{Args, FuncArgs, OptionalArg};
 use crate::pyobject::{
-    IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRc, PyObjectRef, PyResult,
+    ItemProtocol, PyClassImpl, PyContext, PyObjectRc, PyObjectRef, PyRefExact, PyResult,
     PyStructSequence,
 };
 use crate::vm::{PySettings, VirtualMachine};
@@ -214,9 +213,8 @@ fn sys_setrecursionlimit(recursion_limit: i32, vm: &VirtualMachine) -> PyResult<
     }
 }
 
-// TODO implement string interning, this will be key for performance
-fn sys_intern(value: PyStrRef) -> PyStrRef {
-    value
+fn sys_intern(s: PyRefExact<PyStr>, vm: &VirtualMachine) -> PyStrRef {
+    vm.intern_string(s)
 }
 
 fn sys_exc_info(vm: &VirtualMachine) -> (PyObjectRef, PyObjectRef, PyObjectRef) {
@@ -630,7 +628,7 @@ settrace() -- set the global debug tracing function
     module_names.push("builtins".to_owned());
     module_names.sort();
     let builtin_module_names =
-        ctx.new_tuple(module_names.iter().map(|v| v.into_pyobject(vm)).collect());
+        ctx.new_tuple(module_names.into_iter().map(|n| ctx.new_str(n)).collect());
     let modules = ctx.new_dict();
 
     let prefix = option_env!("RUSTPYTHON_PREFIX").unwrap_or("/usr/local");

@@ -1,12 +1,15 @@
-use crate::builtins::pystr::{PyStr, PyStrRef};
+use crate::builtins::{PyStr, PyStrRef};
 /// Ordered dictionary implementation.
 /// Inspired by: https://morepypy.blogspot.com/2015/01/faster-more-memory-efficient-and-more.html
 /// And: https://www.youtube.com/watch?v=p33CVV29OG8
 /// And: http://code.activestate.com/recipes/578375/
 use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
-use crate::pyobject::{BorrowValue, IdProtocol, IntoPyObject, PyObjectRef, PyResult};
+use crate::pyobject::{
+    BorrowValue, IdProtocol, IntoPyObject, PyObjectRef, PyRefExact, PyResult, TypeProtocol,
+};
 use crate::vm::VirtualMachine;
 use rustpython_common::hash;
+use std::fmt;
 use std::mem::size_of;
 
 // HashIndex is intended to be same size with hash::PyHash
@@ -23,6 +26,11 @@ type EntryIndex = usize;
 
 pub struct Dict<T = PyObjectRef> {
     inner: PyRwLock<DictInner<T>>,
+}
+impl<T> fmt::Debug for Dict<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Debug").finish()
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -336,8 +344,9 @@ impl<T: Clone> Dict<T> {
         Ok(())
     }
 
-    pub fn setdefault<F>(&self, vm: &VirtualMachine, key: PyObjectRef, default: F) -> PyResult<T>
+    pub fn setdefault<K, F>(&self, vm: &VirtualMachine, key: K, default: F) -> PyResult<T>
     where
+        K: DictKey,
         F: FnOnce() -> T,
     {
         let hash = key.key_hash(vm)?;
@@ -359,8 +368,52 @@ impl<T: Clone> Dict<T> {
             } else {
                 let value = default();
                 let mut inner = self.borrow_value_mut();
-                inner.unchecked_push(index_index, hash, key, value.clone(), entry);
+                inner.unchecked_push(
+                    index_index,
+                    hash,
+                    key.into_pyobject(vm),
+                    value.clone(),
+                    entry,
+                );
                 break value;
+            }
+        };
+        Ok(res)
+    }
+
+    pub fn setdefault_entry<K, F>(
+        &self,
+        vm: &VirtualMachine,
+        key: K,
+        default: F,
+    ) -> PyResult<(PyObjectRef, T)>
+    where
+        K: DictKey,
+        F: FnOnce() -> T,
+    {
+        let hash = key.key_hash(vm)?;
+        let res = loop {
+            let lookup = self.lookup(vm, &key, hash, None)?;
+            let (entry, index_index) = lookup;
+            if let IndexEntry::Index(index) = entry {
+                let inner = self.borrow_value();
+                if let Some(entry) = inner.entries.get(index) {
+                    if entry.index == index_index {
+                        break (entry.key.clone(), entry.value.clone());
+                    } else {
+                        // stuff shifted around, let's try again
+                    }
+                } else {
+                    // The dict was changed since we did lookup, let's try again.
+                    continue;
+                }
+            } else {
+                let value = default();
+                let key = key.into_pyobject(vm);
+                let mut inner = self.borrow_value_mut();
+                let ret = (key.clone(), value.clone());
+                inner.unchecked_push(index_index, hash, key, value, entry);
+                break ret;
             }
         };
         Ok(res)
@@ -561,11 +614,22 @@ impl DictKey for PyStrRef {
     fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
         if self.is(other_key) {
             Ok(true)
-        } else if let Some(py_str_value) = other_key.payload::<PyStr>() {
-            Ok(py_str_value.borrow_value() == self.borrow_value())
+        } else if let Some(pystr) = str_exact(other_key, vm) {
+            Ok(pystr.borrow_value() == self.borrow_value())
         } else {
             vm.bool_eq(self.as_object(), other_key)
         }
+    }
+}
+impl DictKey for PyRefExact<PyStr> {
+    fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
+        (**self).key_hash(vm)
+    }
+    fn key_is(&self, other: &PyObjectRef) -> bool {
+        (**self).key_is(other)
+    }
+    fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
+        (**self).key_eq(vm, other_key)
     }
 }
 
@@ -586,13 +650,35 @@ impl DictKey for &str {
     }
 
     fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
-        if let Some(py_str_value) = other_key.payload::<PyStr>() {
-            Ok(py_str_value.borrow_value() == *self)
+        if let Some(pystr) = str_exact(other_key, vm) {
+            Ok(pystr.borrow_value() == *self)
         } else {
             // Fall back to PyObjectRef implementation.
             let s = vm.ctx.new_str(*self);
             s.key_eq(vm, other_key)
         }
+    }
+}
+
+impl DictKey for String {
+    fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
+        self.as_str().key_hash(vm)
+    }
+
+    fn key_is(&self, other: &PyObjectRef) -> bool {
+        self.as_str().key_is(other)
+    }
+
+    fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
+        self.as_str().key_eq(vm, other_key)
+    }
+}
+
+fn str_exact<'a>(obj: &'a PyObjectRef, vm: &VirtualMachine) -> Option<&'a PyStr> {
+    if obj.class().is(&vm.ctx.types.str_type) {
+        obj.payload::<PyStr>()
+    } else {
+        None
     }
 }
 

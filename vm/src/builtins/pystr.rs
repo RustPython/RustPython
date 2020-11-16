@@ -70,6 +70,11 @@ where
         s.as_ref().to_owned().into()
     }
 }
+impl AsRef<str> for PyStrRef {
+    fn as_ref(&self) -> &str {
+        &self.value
+    }
+}
 
 impl From<String> for PyStr {
     fn from(s: String) -> PyStr {

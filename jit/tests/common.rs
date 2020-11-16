@@ -13,7 +13,7 @@ pub struct Function {
 impl Function {
     pub fn compile(self) -> CompiledCode {
         let mut arg_types = Vec::new();
-        for arg in self.code.arg_names.iter() {
+        for arg in self.code.arg_names().args {
             let arg_type = match self.annotations.get(arg) {
                 Some(StackValue::String(annotation)) => match annotation.as_str() {
                     "int" => JitType::Int,
@@ -65,7 +65,7 @@ impl StackMachine {
 
     pub fn run(&mut self, code: CodeObject) {
         for instruction in code.instructions {
-            if self.process_instruction(instruction, &code.constants) {
+            if self.process_instruction(instruction, &code.constants, &code.names) {
                 break;
             }
         }
@@ -75,15 +75,17 @@ impl StackMachine {
         &mut self,
         instruction: Instruction,
         constants: &[ConstantData],
+        names: &[String],
     ) -> bool {
         match instruction {
             Instruction::LoadConst { idx } => self.stack.push(constants[idx].clone().into()),
             Instruction::LoadName {
-                name,
+                idx,
                 scope: NameScope::Free,
-            } => self.stack.push(StackValue::String(name)),
-            Instruction::StoreName { name, .. } => {
-                self.locals.insert(name, self.stack.pop().unwrap());
+            } => self.stack.push(StackValue::String(names[idx].clone())),
+            Instruction::StoreName { idx, .. } => {
+                self.locals
+                    .insert(names[idx].clone(), self.stack.pop().unwrap());
             }
             Instruction::StoreAttr { .. } => {
                 // Do nothing except throw away the stack values
