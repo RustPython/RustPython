@@ -81,7 +81,7 @@ fn inner_div(v1: Complex64, v2: Complex64, vm: &VirtualMachine) -> PyResult<Comp
         return Err(vm.new_zero_division_error("complex division by zero".to_owned()));
     }
 
-    return Ok(v1.fdiv(v2));
+    Ok(v1.fdiv(v2))
 }
 
 #[pyimpl(flags(BASETYPE), with(Comparable, Hashable))]
