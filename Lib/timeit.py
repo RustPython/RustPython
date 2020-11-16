@@ -171,14 +171,16 @@ class Timer:
         the timer function to be used are passed to the constructor.
         """
         it = itertools.repeat(None, number)
-        gcold = gc.isenabled()
-        gc.disable()
-        try:
-            timing = self.inner(it, self.timer)
-        finally:
-            if gcold:
-                gc.enable()
-        return timing
+        # XXX RUSTPYTHON TODO: gc module implementation
+        # gcold = gc.isenabled()
+        # gc.disable()
+        # try:
+        #     timing = self.inner(it, self.timer)
+        # finally:
+        #     if gcold:
+        #         gc.enable()
+        # return timing
+        return self.inner(it, self.timer)
 
     def repeat(self, repeat=default_repeat, number=default_number):
         """Call timeit() a few times.
