@@ -141,7 +141,7 @@ fn inner_divmod(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult<(f64, f64)> {
 }
 
 pub fn float_pow(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult {
-    if v1.is_zero() {
+    if v1.is_zero() && v2.is_sign_negative() {
         let msg = format!("{} cannot be raised to a negative power", v1);
         Err(vm.new_zero_division_error(msg))
     } else if v1.is_sign_negative() && (v2.floor() - v2).abs() > f64::EPSILON {
@@ -241,7 +241,7 @@ impl PyFloat {
     where
         F: Fn(f64, f64) -> PyResult<(f64, f64)>,
     {
-        try_float(&other, vm)?.map_or_else(
+        to_op_float(&other, vm)?.map_or_else(
             || Ok(NotImplemented),
             |other| Ok(Implemented(op(self.value, other)?)),
         )

@@ -5,8 +5,9 @@ use super::float;
 use super::pystr::PyStr;
 use super::pytype::PyTypeRef;
 use crate::pyobject::{
-    BorrowValue, IntoPyObject, Never, PyArithmaticValue, PyClassImpl, PyComparisonValue, PyContext,
-    PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    BorrowValue, IntoPyObject, Never,
+    PyArithmaticValue::{self, *},
+    PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::slots::{Comparable, Hashable, PyComparisonOp};
 use crate::VirtualMachine;
@@ -75,6 +76,14 @@ fn to_op_complex(value: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<Co
     Ok(r)
 }
 
+fn inner_div(v1: Complex64, v2: Complex64, vm: &VirtualMachine) -> PyResult<Complex64> {
+    if v2.is_zero() {
+        return Err(vm.new_zero_division_error("complex division by zero".to_owned()));
+    }
+
+    Ok(v1.fdiv(v2))
+}
+
 #[pyimpl(flags(BASETYPE), with(Comparable, Hashable))]
 impl PyComplex {
     pub fn to_complex(&self) -> Complex64 {
@@ -105,12 +114,12 @@ impl PyComplex {
         vm: &VirtualMachine,
     ) -> PyResult<PyArithmaticValue<Complex64>>
     where
-        F: Fn(Complex64, Complex64) -> Complex64,
+        F: Fn(Complex64, Complex64) -> PyResult<Complex64>,
     {
-        Ok(to_op_complex(&other, vm)?.map_or_else(
-            || PyArithmaticValue::NotImplemented,
-            |other| PyArithmaticValue::Implemented(op(self.value, other)),
-        ))
+        to_op_complex(&other, vm)?.map_or_else(
+            || Ok(NotImplemented),
+            |other| Ok(Implemented(op(self.value, other)?)),
+        )
     }
 
     #[pymethod(name = "__add__")]
@@ -120,7 +129,7 @@ impl PyComplex {
         other: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyArithmaticValue<Complex64>> {
-        self.op(other, |a, b| a + b, vm)
+        self.op(other, |a, b| Ok(a + b), vm)
     }
 
     #[pymethod(name = "__sub__")]
@@ -129,7 +138,7 @@ impl PyComplex {
         other: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyArithmaticValue<Complex64>> {
-        self.op(other, |a, b| a - b, vm)
+        self.op(other, |a, b| Ok(a - b), vm)
     }
 
     #[pymethod(name = "__rsub__")]
@@ -138,7 +147,7 @@ impl PyComplex {
         other: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyArithmaticValue<Complex64>> {
-        self.op(other, |a, b| b - a, vm)
+        self.op(other, |a, b| Ok(b - a), vm)
     }
 
     #[pymethod(name = "conjugate")]
@@ -163,7 +172,7 @@ impl PyComplex {
         other: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyArithmaticValue<Complex64>> {
-        self.op(other, |a, b| a * b, vm)
+        self.op(other, |a, b| Ok(a * b), vm)
     }
 
     #[pymethod(name = "__truediv__")]
@@ -172,7 +181,7 @@ impl PyComplex {
         other: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyArithmaticValue<Complex64>> {
-        self.op(other, |a, b| a.fdiv(b), vm)
+        self.op(other, |a, b| inner_div(a, b, vm), vm)
     }
 
     #[pymethod(name = "__rtruediv__")]
@@ -181,7 +190,7 @@ impl PyComplex {
         other: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyArithmaticValue<Complex64>> {
-        self.op(other, |a, b| b / a, vm)
+        self.op(other, |a, b| inner_div(b, a, vm), vm)
     }
 
     #[pymethod(name = "__mod__")]
@@ -228,7 +237,7 @@ impl PyComplex {
         other: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyArithmaticValue<Complex64>> {
-        self.op(other, |a, b| a.powc(b), vm)
+        self.op(other, |a, b| Ok(a.powc(b)), vm)
     }
 
     #[pymethod(name = "__rpow__")]
@@ -237,7 +246,7 @@ impl PyComplex {
         other: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyArithmaticValue<Complex64>> {
-        self.op(other, |a, b| b.powc(a), vm)
+        self.op(other, |a, b| Ok(b.powc(a)), vm)
     }
 
     #[pymethod(name = "__bool__")]
