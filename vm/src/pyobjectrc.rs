@@ -517,7 +517,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef) {
 mod tests {
     use super::*;
     #[test]
-    fn test_type_initialization() {
+    fn miri_test_type_initialization() {
         let _ = init_type_hierarchy();
     }
 }
