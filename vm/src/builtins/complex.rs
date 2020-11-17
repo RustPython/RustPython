@@ -64,6 +64,26 @@ fn inner_div(v1: Complex64, v2: Complex64, vm: &VirtualMachine) -> PyResult<Comp
     Ok(v1.fdiv(v2))
 }
 
+fn inner_pow(v1: Complex64, v2: Complex64, vm: &VirtualMachine) -> PyResult<Complex64> {
+    if v1.is_zero() {
+        return if v2.im != 0.0 {
+            let msg = format!("{} cannot be raised to a negative or complex power", v1);
+            Err(vm.new_zero_division_error(msg))
+        } else if v2.is_zero() {
+            Ok(Complex64::new(1.0, 0.0))
+        } else {
+            Ok(Complex64::new(0.0, 0.0))
+        }
+    }
+
+    let ans = v1.powc(v2);
+    if ans.is_infinite() && !(v1.is_infinite() || v2.is_infinite()) {
+        Err(vm.new_overflow_error("complex exponentiation overflow".to_owned()))
+    } else  {
+        Ok(ans)
+    }
+}
+
 #[pyimpl(flags(BASETYPE), with(Comparable, Hashable))]
 impl PyComplex {
     pub fn to_complex(&self) -> Complex64 {
@@ -215,9 +235,14 @@ impl PyComplex {
     fn pow(
         &self,
         other: PyObjectRef,
+        mod_val: OptionalOption<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyArithmaticValue<Complex64>> {
-        self.op(other, |a, b| Ok(a.powc(b)), vm)
+        if mod_val.flatten().is_some() {
+            Err(vm.new_value_error("complex modulo not allowed".to_owned()))
+        } else {
+            self.op(other, |a, b| Ok(inner_pow(a, b, vm)?), vm)
+        }
     }
 
     #[pymethod(name = "__rpow__")]
@@ -226,7 +251,7 @@ impl PyComplex {
         other: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyArithmaticValue<Complex64>> {
-        self.op(other, |a, b| Ok(b.powc(a)), vm)
+        self.op(other, |a, b| Ok(inner_pow(b, a, vm)?), vm)
     }
 
     #[pymethod(name = "__bool__")]
@@ -293,6 +318,7 @@ impl PyComplex {
                 }
             }
         };
+
 
         let final_real = if imag_was_complex {
             real.re - imag.im
