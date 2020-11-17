@@ -410,6 +410,11 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef) {
         type PyTypeObj = PyObject<PyType>;
         type UninitRef<T> = PyRwLock<PyRc<MaybeUninit<PyInner<T>>>>;
 
+        // We cast between these 2 types, so make sure (at compile time) that there's no change in
+        // layout when we wrap PyInner<PyTypeObj> in MaybeUninit<>
+        static_assertions::assert_eq_size!(MaybeUninit<PyInner<PyTypeObj>>, PyInner<PyTypeObj>);
+        static_assertions::assert_eq_align!(MaybeUninit<PyInner<PyTypeObj>>, PyInner<PyTypeObj>);
+
         let type_payload = PyType {
             name: PyTypeRef::NAME.to_owned(),
             base: None,
