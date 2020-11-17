@@ -10,7 +10,7 @@ use super::pytype::PyTypeRef;
 use crate::format::FormatSpec;
 use crate::function::{OptionalArg, OptionalOption};
 use crate::pyobject::{
-    BorrowValue, IntoPyObject,
+    BorrowValue, IdProtocol, IntoPyObject,
     PyArithmaticValue::{self, *},
     PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol,
@@ -163,12 +163,29 @@ impl PyFloat {
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
         let float_val = match arg {
+            OptionalArg::Missing => 0.0,
             OptionalArg::Present(val) => {
+                let val = if cls.is(&vm.ctx.types.float_type) {
+                    match val.downcast_exact::<PyFloat>(vm) {
+                        Ok(f) => {
+                            return Ok(f);
+                        }
+                        Err(val) => {
+                            val
+                        }
+                    }
+                } else {
+                    val
+                };
+
                 if let Some(f) = try_float(&val, vm)? {
                     f
                 } else if let Some(s) = val.payload_if_subclass::<PyStr>(vm) {
                     float_ops::parse_str(s.borrow_value().trim()).ok_or_else(|| {
-                        vm.new_value_error(format!("could not convert string to float: '{}'", s))
+                        vm.new_value_error(format!(
+                            "could not convert string to float: '{}'",
+                            s
+                        ))
                     })?
                 } else if let Some(bytes) = val.payload_if_subclass::<PyBytes>(vm) {
                     lexical_core::parse(bytes.borrow_value()).map_err(|_| {
@@ -184,7 +201,6 @@ impl PyFloat {
                     )));
                 }
             }
-            OptionalArg::Missing => 0.0,
         };
         PyFloat::from(float_val).into_ref_with_type(vm, cls)
     }

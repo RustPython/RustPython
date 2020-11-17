@@ -416,8 +416,6 @@ class ComplexTest(unittest.TestCase):
             self.assertEqual(complex(complex1(1j)), 2j)
         self.assertRaises(TypeError, complex, complex2(1j))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @support.requires_IEEE_754
     def test_constructor_special_numbers(self):
         class complex2(complex):

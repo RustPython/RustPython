@@ -262,6 +262,19 @@ impl PyInt {
                     })?;
                 try_int_radix(&val, base, vm)
             } else {
+                let val = if cls.is(&vm.ctx.types.int_type) {
+                    match val.downcast_exact::<PyInt>(vm) {
+                        Ok(i) => {
+                            return Ok(i);
+                        }
+                        Err(val) => {
+                            val
+                        }
+                    }
+                } else {
+                    val
+                };
+
                 try_int(&val, vm)
             }
         } else if let OptionalArg::Present(_) = options.base {
@@ -709,66 +722,6 @@ struct IntToByteArgs {
     signed: OptionalArg<IntoPyBool>,
 }
 
-// Casting function:
-pub(crate) fn try_int(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt> {
-    fn try_convert(obj: &PyObjectRef, lit: &[u8], vm: &VirtualMachine) -> PyResult<BigInt> {
-        let base = 10;
-        match bytes_to_int(lit, base) {
-            Some(i) => Ok(i),
-            None => Err(vm.new_value_error(format!(
-                "invalid literal for int() with base {}: {}",
-                base,
-                vm.to_repr(obj)?,
-            ))),
-        }
-    };
-
-    // test for strings and bytes
-    if let Some(s) = obj.downcast_ref::<PyStr>() {
-        return try_convert(obj, s.borrow_value().as_bytes(), vm);
-    }
-    if let Ok(r) = try_bytes_like(vm, &obj, |x| try_convert(obj, x, vm)) {
-        return r;
-    }
-    // strict `int` check
-    if let Some(int) = obj.payload_if_exact::<PyInt>(vm) {
-        return Ok(int.borrow_value().clone());
-    }
-    // call __int__, then __index__, then __trunc__ (converting the __trunc__ result via  __index__ if needed)
-    // TODO: using __int__ is deprecated and removed in Python 3.10
-    if let Some(method) = vm.get_method(obj.clone(), "__int__") {
-        let result = vm.invoke(&method?, ())?;
-        return match result.payload::<PyInt>() {
-            Some(int_obj) => Ok(int_obj.borrow_value().clone()),
-            None => Err(vm.new_type_error(format!(
-                "__int__ returned non-int (type '{}')",
-                result.class().name
-            ))),
-        };
-    }
-    // TODO: returning strict subclasses of int in __index__ is deprecated
-    if let Some(r) = vm.to_index_opt(obj.clone()).transpose()? {
-        return Ok(r.borrow_value().clone());
-    }
-    if let Some(method) = vm.get_method(obj.clone(), "__trunc__") {
-        let result = vm.invoke(&method?, ())?;
-        return vm
-            .to_index_opt(result.clone())
-            .unwrap_or_else(|| {
-                Err(vm.new_type_error(format!(
-                    "__trunc__ returned non-Integral (type '{}')",
-                    result.class().name
-                )))
-            })
-            .map(|int_obj| int_obj.borrow_value().clone());
-    }
-
-    Err(vm.new_type_error(format!(
-        "int() argument must be a string, a bytes-like object or a number, not '{}'",
-        obj.class().name
-    )))
-}
-
 fn try_int_radix(obj: &PyObjectRef, base: u32, vm: &VirtualMachine) -> PyResult<BigInt> {
     debug_assert!(base == 0 || (2..=36).contains(&base));
 
@@ -915,6 +868,65 @@ pub fn get_value(obj: &PyObjectRef) -> &BigInt {
 pub fn to_float(int: &BigInt, vm: &VirtualMachine) -> PyResult<f64> {
     int.to_f64()
         .ok_or_else(|| vm.new_overflow_error("int too large to convert to float".to_owned()))
+}
+
+pub(crate) fn try_int(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt> {
+    fn try_convert(obj: &PyObjectRef, lit: &[u8], vm: &VirtualMachine) -> PyResult<BigInt> {
+        let base = 10;
+        match bytes_to_int(lit, base) {
+            Some(i) => Ok(i),
+            None => Err(vm.new_value_error(format!(
+                "invalid literal for int() with base {}: {}",
+                base,
+                vm.to_repr(obj)?,
+            ))),
+        }
+    };
+
+    // test for strings and bytes
+    if let Some(s) = obj.downcast_ref::<PyStr>() {
+        return try_convert(obj, s.borrow_value().as_bytes(), vm);
+    }
+    if let Ok(r) = try_bytes_like(vm, &obj, |x| try_convert(obj, x, vm)) {
+        return r;
+    }
+    // strict `int` check
+    if let Some(int) = obj.payload_if_exact::<PyInt>(vm) {
+        return Ok(int.borrow_value().clone());
+    }
+    // call __int__, then __index__, then __trunc__ (converting the __trunc__ result via  __index__ if needed)
+    // TODO: using __int__ is deprecated and removed in Python 3.10
+    if let Some(method) = vm.get_method(obj.clone(), "__int__") {
+        let result = vm.invoke(&method?, ())?;
+        return match result.payload::<PyInt>() {
+            Some(int_obj) => Ok(int_obj.borrow_value().clone()),
+            None => Err(vm.new_type_error(format!(
+                "__int__ returned non-int (type '{}')",
+                result.class().name
+            ))),
+        };
+    }
+    // TODO: returning strict subclasses of int in __index__ is deprecated
+    if let Some(r) = vm.to_index_opt(obj.clone()).transpose()? {
+        return Ok(r.borrow_value().clone());
+    }
+    if let Some(method) = vm.get_method(obj.clone(), "__trunc__") {
+        let result = vm.invoke(&method?, ())?;
+        return vm
+            .to_index_opt(result.clone())
+            .unwrap_or_else(|| {
+                Err(vm.new_type_error(format!(
+                    "__trunc__ returned non-Integral (type '{}')",
+                    result.class().name
+                )))
+            })
+            .map(|int_obj| int_obj.borrow_value().clone());
+    }
+
+    Err(vm.new_type_error(format!(
+        "int() argument must be a string, a bytes-like object or a number, not '{}'",
+        obj.class().name
+    )))
 }
 
 pub(crate) fn init(context: &PyContext) {
