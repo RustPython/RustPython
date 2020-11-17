@@ -7,6 +7,40 @@ use std::marker::PhantomData;
 use std::mem::ManuallyDrop;
 use std::ops::Deref;
 
+// so, PyObjectRef is basically equivalent to `PyRc<PyObject<dyn PyObjectPayload>>`, except it's
+// only one pointer in width rather than 2. We do that by manually creating a vtable, and putting
+// a &'static reference to it inside the `PyRc` rather than adjacent to it, like trait objects do.
+// This can lead to faster code since there's just less data to pass around, as well as because of
+// some weird stuff with trait objects, alignment, and padding.
+//
+// So, every type has an alignment, which means that if you create a value of it it's location in
+// memory has to be a multiple of it's alignment. e.g., a type with alignment 4 (like i32) could be
+// at 0xb7befbc0, 0xb7befbc4, or 0xb7befbc8, but not 0xb7befbc2. If you have a struct and there are
+// 2 fields whose sizes/alignments don't perfectly fit in with each other, e.g.:
+// +-------------+-------------+---------------------------+
+// |     u16     |      ?      |            i32            |
+// | 0x00 | 0x01 | 0x02 | 0x03 | 0x04 | 0x05 | 0x06 | 0x07 |
+// +-------------+-------------+---------------------------+
+// There has to be padding in the space between the 2 fields. But, if that field is a trait object
+// (like `dyn PyObjectPayload`) we don't *know* how much padding there is between the `payload`
+// field and the previous field. So, Rust has to consult the vtable to know the exact offset of
+// `payload` in `PyObject<dyn PyObjectPayload>`, which has a huge performance impact when *every
+// single payload access* requires a vtable lookup. Thankfully, we're able to avoid that because of
+// the way we use PyObjectRef, in that whenever we want to access the payload we (almost) always
+// access it from a generic function. So, rather than doing
+//
+// - check vtable for payload offset
+// - get offset in PyObject struct
+// - call as_any() method of PyObjectPayload
+// - call downcast_ref() method of Any
+// we can just do
+// - check vtable that typeid matches
+// - pointer cast directly to *const PyObject<T>
+//
+// and at that point the compiler can know the offset of `payload` for us because **we've given it a
+// concrete type to work with before we ever access the `payload` field**
+
+/// A type to just represent "we've erased the type of this object, cast it before you use it"
 struct Erased;
 
 struct PyObjVTable {
@@ -54,6 +88,8 @@ impl<T: PyObjectPayload> PyInner<T> {
 impl<T> Drop for PyInner<T> {
     fn drop(&mut self) {
         let erased = &mut *self.value as *mut _ as *mut PyObject<Erased>;
+        // SAFETY: the vtable contains functions that accept payload types that always match up
+        // with the payload of the object
         unsafe { (self.vtable.drop)(erased) }
     }
 }
@@ -64,15 +100,19 @@ impl<T> Drop for PyInner<T> {
 /// method to create a new reference and increment the amount of references
 /// to the python object by 1.
 #[derive(Clone)]
+#[repr(transparent)]
 pub struct PyObjectRef {
     inner: PyRc<PyInner<Erased>>,
 }
 
 #[derive(Clone)]
+#[repr(transparent)]
 pub struct PyObjectWeak {
     inner: PyWeak<PyInner<Erased>>,
 }
 
+/// A marker type that just references a raw python object. Don't use directly, pass as a pointer
+/// back to [`PyObjectRef::from_raw`]
 pub enum RawPyObject {}
 
 impl PyObjectRef {
@@ -83,7 +123,10 @@ impl PyObjectRef {
     }
 
     /// # Safety
-    /// See PyRc::from_raw
+    /// The raw pointer must have been previously returned from a call to
+    /// [`PyObjectRef::into_raw`]. The user is responsible for ensuring that the inner data is not
+    /// dropped more than once due to mishandling the reference count by calling this function
+    /// too many times.
     pub unsafe fn from_raw(ptr: *const RawPyObject) -> Self {
         Self {
             inner: PyRc::from_raw(ptr.cast()),
@@ -116,8 +159,8 @@ impl PyObjectRef {
 
     pub fn payload<T: PyObjectPayload>(&self) -> Option<&T> {
         if self.payload_is::<T>() {
-            // we cast to a PyObject first because we don't know T's exact offset because of varying alignment,
-            // but we *do* know that PyObject<T> is always
+            // we cast to a PyObject<T> first because we don't know T's exact offset because of
+            // varying alignment, but once we get a PyObject<T> the compiler can get it for us
             let pyobj =
                 unsafe { &*(&*self.inner.value as *const PyObject<Erased> as *const PyObject<T>) };
             Some(&pyobj.payload)
@@ -140,7 +183,8 @@ impl PyObjectRef {
 
     pub fn downcast_ref<T: PyObjectPayload>(&self) -> Option<&PyRef<T>> {
         if self.payload_is::<T>() {
-            // when payload exacts, PyObjectRef == PyRef { PyObject }
+            // SAFETY: just checked that the payload is T, and PyRef is repr(transparent) over
+            // PyObjectRef
             Some(unsafe { &*(self as *const PyObjectRef as *const PyRef<T>) })
         } else {
             None
@@ -167,6 +211,7 @@ impl PyObjectRef {
                 self.payload_is::<T>(),
                 "obj.__class__ is T::class() but payload is not T"
             );
+            // SAFETY: just asserted that payload_is::<T>()
             Ok(unsafe { PyRef::from_obj_unchecked(self) })
         } else {
             Err(self)
@@ -256,12 +301,15 @@ impl Drop for PyObjectRef {
             });
         }
 
-        // __del__ might have resurrected the object, but that's fine, strong_count would be >1 now
+        // __del__ might have resurrected the object at this point, but that's fine,
+        // inner.strong_count would be >1 now and it'll maybe get dropped the next time
     }
 }
 
 impl fmt::Debug for PyObjectRef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // SAFETY: the vtable contains functions that accept payload types that always match up
+        // with the payload of the object
         unsafe { (self.inner.vtable.debug)(&*self.inner.value, f) }
     }
 }
@@ -325,7 +373,6 @@ impl<T: PyObjectPayload> PyRef<T> {
     }
 
     // ideally we'd be able to define this in pyobject.rs, but method visibility rules are weird
-    #[allow(clippy::new_ret_no_self)]
     pub fn new_ref(
         payload: T,
         typ: crate::builtins::PyTypeRef,
@@ -344,12 +391,15 @@ where
     type Target = T;
 
     fn deref(&self) -> &T {
+        // SAFETY: per the invariant on `self.obj`, the payload of the pyobject is always T, so it
+        // can always be cast to a PyObject<T>
         let obj =
             unsafe { &*(&*self.obj.inner.value as *const PyObject<Erased> as *const PyObject<T>) };
         &obj.payload
     }
 }
 
+#[repr(transparent)]
 pub struct PyWeakRef<T: PyObjectPayload> {
     weak: PyObjectWeak,
     _payload: PhantomData<PyWeak<T>>,
