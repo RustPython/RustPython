@@ -691,15 +691,18 @@ impl<C: Constant> CodeObject<C> {
 impl CodeObject<ConstantData> {
     /// Load a code object from bytes
     pub fn from_bytes(data: &[u8]) -> Result<Self, Box<dyn std::error::Error>> {
-        let data = lz4_compression::decompress::decompress(data)
-            .map_err(|e| format!("lz4 error: {:?}", e))?;
-        bincode::deserialize(&data).map_err(|e| e.into())
+        let reader = lz_fear::framed::LZ4FrameReader::new(data)?;
+        Ok(bincode::deserialize_from(reader.into_read())?)
     }
 
     /// Serialize this bytecode to bytes.
     pub fn to_bytes(&self) -> Vec<u8> {
-        let data = bincode::serialize(&self).expect("Code object must be serializable");
-        lz4_compression::compress::compress(&data)
+        let data = bincode::serialize(&self).expect("CodeObject is not serializable");
+        let mut out = Vec::new();
+        lz_fear::framed::CompressionSettings::default()
+            .compress_with_size_unchecked(data.as_slice(), &mut out, data.len() as u64)
+            .unwrap();
+        out
     }
 }
 
