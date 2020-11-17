@@ -7,6 +7,7 @@ use crate::pyobject::{
     BorrowValue, IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
     PyValue, TryFromObject,
 };
+use crate::slots::Iterable;
 use crate::vm::VirtualMachine;
 
 #[pyclass(module = false, name = "mappingproxy")]
@@ -35,7 +36,7 @@ impl PyMappingProxy {
     }
 }
 
-#[pyimpl]
+#[pyimpl(with(Iterable))]
 impl PyMappingProxy {
     #[pyslot]
     fn tp_new(cls: PyTypeRef, mapping: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
@@ -85,17 +86,6 @@ impl PyMappingProxy {
         }
     }
 
-    #[pymethod(name = "__iter__")]
-    pub fn iter(&self, vm: &VirtualMachine) -> PyResult {
-        let obj = match &self.mapping {
-            MappingProxyInner::Dict(d) => d.clone(),
-            MappingProxyInner::Class(c) => {
-                // TODO: something that's much more efficient than this
-                PyDict::from_attributes(c.attributes.read().clone(), vm)?.into_pyobject(vm)
-            }
-        };
-        iterator::get_iter(vm, &obj)
-    }
     #[pymethod]
     pub fn items(&self, vm: &VirtualMachine) -> PyResult {
         let obj = match &self.mapping {
@@ -134,6 +124,18 @@ impl PyMappingProxy {
                 Ok(PyDict::from_attributes(c.attributes.read().clone(), vm)?.into_pyobject(vm))
             }
         }
+    }
+}
+impl Iterable for PyMappingProxy {
+    fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        let obj = match &zelf.mapping {
+            MappingProxyInner::Dict(d) => d.clone(),
+            MappingProxyInner::Class(c) => {
+                // TODO: something that's much more efficient than this
+                PyDict::from_attributes(c.attributes.read().clone(), vm)?.into_pyobject(vm)
+            }
+        };
+        iterator::get_iter(vm, obj)
     }
 }
 

@@ -25,6 +25,7 @@ use crate::pyobject::{
     BorrowValue, Either, IntoPyObject, ItemProtocol, PyObjectRef, PyRef, PyResult,
     PyStructSequence, PyValue, StaticType, TryFromObject, TypeProtocol,
 };
+use crate::slots::PyIter;
 use crate::vm::VirtualMachine;
 
 // this is basically what CPython has for Py_off_t; windows uses long long
@@ -656,39 +657,11 @@ mod _os {
         }
     }
 
-    #[pyimpl]
+    #[pyimpl(with(PyIter))]
     impl ScandirIterator {
-        #[pymethod(name = "__next__")]
-        fn next(&self, vm: &VirtualMachine) -> PyResult {
-            if self.exhausted.load() {
-                return Err(vm.new_stop_iteration());
-            }
-
-            match self.entries.write().next() {
-                Some(entry) => match entry {
-                    Ok(entry) => Ok(DirEntry {
-                        entry,
-                        mode: self.mode,
-                    }
-                    .into_ref(vm)
-                    .into_object()),
-                    Err(err) => Err(err.into_pyexception(vm)),
-                },
-                None => {
-                    self.exhausted.store(true);
-                    Err(vm.new_stop_iteration())
-                }
-            }
-        }
-
         #[pymethod]
         fn close(&self) {
             self.exhausted.store(true);
-        }
-
-        #[pymethod(name = "__iter__")]
-        fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
-            zelf
         }
 
         #[pymethod(name = "__enter__")]
@@ -699,6 +672,29 @@ mod _os {
         #[pymethod(name = "__exit__")]
         fn exit(zelf: PyRef<Self>, _args: FuncArgs) {
             zelf.close()
+        }
+    }
+    impl PyIter for ScandirIterator {
+        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+            if zelf.exhausted.load() {
+                return Err(vm.new_stop_iteration());
+            }
+
+            match zelf.entries.write().next() {
+                Some(entry) => match entry {
+                    Ok(entry) => Ok(DirEntry {
+                        entry,
+                        mode: zelf.mode,
+                    }
+                    .into_ref(vm)
+                    .into_object()),
+                    Err(err) => Err(err.into_pyexception(vm)),
+                },
+                None => {
+                    zelf.exhausted.store(true);
+                    Err(vm.new_stop_iteration())
+                }
+            }
         }
     }
 

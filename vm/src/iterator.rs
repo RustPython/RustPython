@@ -14,30 +14,41 @@ use num_traits::Signed;
  * in the vm when a for loop is entered. Next, it is used when the builtin
  * function 'iter' is called.
  */
-pub fn get_iter(vm: &VirtualMachine, iter_target: &PyObjectRef) -> PyResult {
-    if let Some(method_or_err) = vm.get_method(iter_target.clone(), "__iter__") {
-        let method = method_or_err?;
-        let iter = vm.invoke(&method, ())?;
-        if iter.has_class_attr("__next__") {
+pub fn get_iter(vm: &VirtualMachine, iter_target: PyObjectRef) -> PyResult {
+    let getiter = {
+        let cls = iter_target.class();
+        cls.mro_find_map(|x| x.slots.iter.load())
+    };
+    if let Some(getiter) = getiter {
+        let iter = getiter(iter_target, vm)?;
+        let cls = iter.class();
+        let is_iter = cls.iter_mro().any(|x| x.slots.iternext.load().is_some());
+        if is_iter {
+            drop(cls);
             Ok(iter)
         } else {
             Err(vm.new_type_error(format!(
                 "iter() returned non-iterator of type '{}'",
-                iter.class().name
+                cls.name
             )))
         }
     } else {
         vm.get_method_or_type_error(iter_target.clone(), "__getitem__", || {
             format!("'{}' object is not iterable", iter_target.class().name)
         })?;
-        Ok(PySequenceIterator::new_forward(iter_target.clone())
+        Ok(PySequenceIterator::new_forward(iter_target)
             .into_ref(vm)
             .into_object())
     }
 }
 
 pub fn call_next(vm: &VirtualMachine, iter_obj: &PyObjectRef) -> PyResult {
-    vm.call_method(iter_obj, "__next__", ())
+    let iternext = {
+        let cls = iter_obj.class();
+        cls.mro_find_map(|x| x.slots.iternext.load())
+            .ok_or_else(|| vm.new_type_error(format!("'{}' object is not an iterator", cls.name)))?
+    };
+    iternext(iter_obj, vm)
 }
 
 /*

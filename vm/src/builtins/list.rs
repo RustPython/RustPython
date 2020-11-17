@@ -15,7 +15,7 @@ use crate::pyobject::{
 };
 use crate::sequence::{self, SimpleSeq};
 use crate::sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex};
-use crate::slots::{Comparable, Hashable, PyComparisonOp, Unhashable};
+use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable};
 use crate::vm::{ReprGuard, VirtualMachine};
 
 /// Built-in mutable sequence.
@@ -79,7 +79,7 @@ pub(crate) struct SortOptions {
 
 pub type PyListRef = PyRef<PyList>;
 
-#[pyimpl(with(Hashable, Comparable), flags(BASETYPE))]
+#[pyimpl(with(Iterable, Hashable, Comparable), flags(BASETYPE))]
 impl PyList {
     #[pymethod]
     pub(crate) fn append(&self, x: PyObjectRef) {
@@ -173,14 +173,6 @@ impl PyList {
             Either::B(vec) => vm.ctx.new_list(vec),
         };
         Ok(result)
-    }
-
-    #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>) -> PyListIterator {
-        PyListIterator {
-            position: AtomicCell::new(0),
-            list: zelf,
-        }
     }
 
     #[pymethod(name = "__setitem__")]
@@ -383,6 +375,16 @@ impl PyList {
     }
 }
 
+impl Iterable for PyList {
+    fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        Ok(PyListIterator {
+            position: AtomicCell::new(0),
+            list: zelf,
+        }
+        .into_object(vm))
+    }
+}
+
 impl Comparable for PyList {
     fn cmp(
         zelf: &PyRef<Self>,
@@ -442,29 +444,25 @@ impl PyValue for PyListIterator {
     }
 }
 
-#[pyimpl]
+#[pyimpl(with(PyIter))]
 impl PyListIterator {
-    #[pymethod(name = "__next__")]
-    fn next(&self, vm: &VirtualMachine) -> PyResult {
-        let list = self.list.borrow_value();
-        let pos = self.position.fetch_add(1);
-        if let Some(obj) = list.get(pos) {
-            Ok(obj.clone())
-        } else {
-            Err(vm.new_stop_iteration())
-        }
-    }
-
-    #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
-        zelf
-    }
-
     #[pymethod(name = "__length_hint__")]
     fn length_hint(&self) -> usize {
         let list = self.list.borrow_value();
         let pos = self.position.load();
         list.len().saturating_sub(pos)
+    }
+}
+
+impl PyIter for PyListIterator {
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        let list = zelf.list.borrow_value();
+        let pos = zelf.position.fetch_add(1);
+        if let Some(obj) = list.get(pos) {
+            Ok(obj.clone())
+        } else {
+            Err(vm.new_stop_iteration())
+        }
     }
 }
 
@@ -481,28 +479,24 @@ impl PyValue for PyListReverseIterator {
     }
 }
 
-#[pyimpl]
+#[pyimpl(with(PyIter))]
 impl PyListReverseIterator {
-    #[pymethod(name = "__next__")]
-    fn next(&self, vm: &VirtualMachine) -> PyResult {
-        let list = self.list.borrow_value();
-        let pos = self.position.fetch_sub(1);
+    #[pymethod(name = "__length_hint__")]
+    fn length_hint(&self) -> usize {
+        std::cmp::max(self.position.load(), 0) as usize
+    }
+}
+
+impl PyIter for PyListReverseIterator {
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        let list = zelf.list.borrow_value();
+        let pos = zelf.position.fetch_sub(1);
         if pos > 0 {
             if let Some(ret) = list.get(pos as usize - 1) {
                 return Ok(ret.clone());
             }
         }
         Err(vm.new_stop_iteration())
-    }
-
-    #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
-        zelf
-    }
-
-    #[pymethod(name = "__length_hint__")]
-    fn length_hint(&self) -> usize {
-        std::cmp::max(self.position.load(), 0) as usize
     }
 }
 

@@ -26,7 +26,7 @@ use crate::pyobject::{
     TypeProtocol,
 };
 use crate::sliceable::PySliceableSequence;
-use crate::slots::{Comparable, Hashable, PyComparisonOp};
+use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter};
 use crate::VirtualMachine;
 use rustpython_common::hash;
 
@@ -119,12 +119,13 @@ impl PyValue for PyStrIterator {
     }
 }
 
-#[pyimpl]
-impl PyStrIterator {
-    #[pymethod(name = "__next__")]
-    fn next(&self, vm: &VirtualMachine) -> PyResult<String> {
-        let value = &*self.string.value;
-        let start = self.position.load();
+#[pyimpl(with(PyIter))]
+impl PyStrIterator {}
+
+impl PyIter for PyStrIterator {
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        let value = &*zelf.string.value;
+        let start = zelf.position.load();
         if start == value.len() {
             return Err(vm.new_stop_iteration());
         }
@@ -139,17 +140,12 @@ impl PyStrIterator {
             end.unwrap_or(start + 4)
         };
 
-        if let Ok(_stored) = self.position.compare_exchange(start, end) {
-            Ok(value[start..end].to_owned())
+        if zelf.position.compare_exchange(start, end).is_ok() {
+            Ok(value[start..end].into_pyobject(vm))
         } else {
             // already taken from elsewhere
-            self.next(vm)
+            Self::next(zelf, vm)
         }
-    }
-
-    #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
-        zelf
     }
 }
 
@@ -166,12 +162,13 @@ impl PyValue for PyStrReverseIterator {
     }
 }
 
-#[pyimpl]
-impl PyStrReverseIterator {
-    #[pymethod(name = "__next__")]
-    fn next(&self, vm: &VirtualMachine) -> PyResult<String> {
-        let value = &*self.string.value;
-        let end = self.position.load();
+#[pyimpl(with(PyIter))]
+impl PyStrReverseIterator {}
+
+impl PyIter for PyStrReverseIterator {
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        let value = &*zelf.string.value;
+        let end = zelf.position.load();
         if end == 0 {
             return Err(vm.new_stop_iteration());
         }
@@ -186,18 +183,13 @@ impl PyStrReverseIterator {
             start.unwrap_or(end - 4)
         };
 
-        let stored = self.position.swap(start);
+        let stored = zelf.position.swap(start);
         if end != stored {
             // already taken from elsewhere
-            return self.next(vm);
+            return Self::next(zelf, vm);
         }
 
-        Ok(value[start..end].to_owned())
-    }
-
-    #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
-        zelf
+        Ok(value[start..end].into_pyobject(vm))
     }
 }
 
@@ -211,7 +203,7 @@ struct StrArgs {
     errors: OptionalArg<PyStrRef>,
 }
 
-#[pyimpl(flags(BASETYPE), with(Hashable, Comparable))]
+#[pyimpl(flags(BASETYPE), with(Hashable, Comparable, Iterable))]
 impl PyStr {
     #[pyslot]
     fn tp_new(cls: PyTypeRef, args: StrArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
@@ -1050,14 +1042,6 @@ impl PyStr {
     }
 
     #[pymethod(magic)]
-    fn iter(zelf: PyRef<Self>) -> PyStrIterator {
-        PyStrIterator {
-            position: AtomicCell::new(0),
-            string: zelf,
-        }
-    }
-
-    #[pymethod(magic)]
     fn reversed(zelf: PyRef<Self>) -> PyStrReverseIterator {
         let end = zelf.value.len();
 
@@ -1088,6 +1072,16 @@ impl Comparable for PyStr {
         Ok(op
             .eval_ord(zelf.borrow_value().cmp(other.borrow_value()))
             .into())
+    }
+}
+
+impl Iterable for PyStr {
+    fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        Ok(PyStrIterator {
+            position: AtomicCell::new(0),
+            string: zelf,
+        }
+        .into_object(vm))
     }
 }
 

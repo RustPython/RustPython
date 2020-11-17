@@ -434,7 +434,7 @@ mod decl {
                 .into_ref(vm)
                 .into_object())
         } else {
-            iterator::get_iter(vm, &iter_target)
+            iterator::get_iter(vm, iter_target)
         }
     }
 
@@ -526,19 +526,16 @@ mod decl {
         default_value: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        match vm.call_method(&iterator, "__next__", ()) {
-            Ok(value) => Ok(value),
-            Err(value) => {
-                if value.isinstance(&vm.ctx.exceptions.stop_iteration) {
-                    match default_value {
-                        OptionalArg::Missing => Err(value),
-                        OptionalArg::Present(value) => Ok(value),
-                    }
-                } else {
-                    Err(value)
+        iterator::call_next(vm, &iterator).or_else(|err| {
+            if err.isinstance(&vm.ctx.exceptions.stop_iteration) {
+                match default_value {
+                    OptionalArg::Missing => Err(err),
+                    OptionalArg::Present(value) => Ok(value),
                 }
+            } else {
+                Err(err)
             }
-        }
+        })
     }
 
     #[pyfunction]

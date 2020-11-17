@@ -2,6 +2,7 @@ use super::pytype::PyTypeRef;
 use crate::function::Args;
 use crate::iterator;
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::slots::PyIter;
 use crate::vm::VirtualMachine;
 
 pub type PyZipRef = PyRef<PyZip>;
@@ -18,23 +19,24 @@ impl PyValue for PyZip {
     }
 }
 
-#[pyimpl(flags(BASETYPE))]
+#[pyimpl(with(PyIter), flags(BASETYPE))]
 impl PyZip {
     #[pyslot]
     fn tp_new(cls: PyTypeRef, iterables: Args, vm: &VirtualMachine) -> PyResult<PyZipRef> {
         let iterators = iterables
             .into_iter()
-            .map(|iterable| iterator::get_iter(vm, &iterable))
+            .map(|iterable| iterator::get_iter(vm, iterable))
             .collect::<Result<Vec<_>, _>>()?;
         PyZip { iterators }.into_ref_with_type(vm, cls)
     }
+}
 
-    #[pymethod(name = "__next__")]
-    fn next(&self, vm: &VirtualMachine) -> PyResult {
-        if self.iterators.is_empty() {
+impl PyIter for PyZip {
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        if zelf.iterators.is_empty() {
             Err(vm.new_stop_iteration())
         } else {
-            let next_objs = self
+            let next_objs = zelf
                 .iterators
                 .iter()
                 .map(|iterator| iterator::call_next(vm, iterator))
@@ -42,11 +44,6 @@ impl PyZip {
 
             Ok(vm.ctx.new_tuple(next_objs))
         }
-    }
-
-    #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
-        zelf
     }
 }
 

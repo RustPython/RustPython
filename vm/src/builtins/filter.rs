@@ -2,6 +2,7 @@ use super::pybool;
 use super::pytype::PyTypeRef;
 use crate::iterator;
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::slots::PyIter;
 use crate::vm::VirtualMachine;
 
 /// filter(function or None, iterable) --> filter object
@@ -21,7 +22,7 @@ impl PyValue for PyFilter {
     }
 }
 
-#[pyimpl(flags(BASETYPE))]
+#[pyimpl(with(PyIter), flags(BASETYPE))]
 impl PyFilter {
     #[pyslot]
     fn tp_new(
@@ -30,7 +31,7 @@ impl PyFilter {
         iterable: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        let iterator = iterator::get_iter(vm, &iterable)?;
+        let iterator = iterator::get_iter(vm, iterable)?;
 
         Self {
             predicate: function,
@@ -38,11 +39,12 @@ impl PyFilter {
         }
         .into_ref_with_type(vm, cls)
     }
+}
 
-    #[pymethod(name = "__next__")]
-    fn next(&self, vm: &VirtualMachine) -> PyResult {
-        let predicate = &self.predicate;
-        let iterator = &self.iterator;
+impl PyIter for PyFilter {
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        let predicate = &zelf.predicate;
+        let iterator = &zelf.iterator;
         loop {
             let next_obj = iterator::call_next(vm, iterator)?;
             let predicate_value = if vm.is_none(predicate) {
@@ -56,11 +58,6 @@ impl PyFilter {
                 return Ok(next_obj);
             }
         }
-    }
-
-    #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
-        zelf
     }
 }
 

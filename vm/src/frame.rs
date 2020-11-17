@@ -583,7 +583,7 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::GetIter => {
                 let iterated_obj = self.pop_value();
-                let iter_obj = iterator::get_iter(vm, &iterated_obj)?;
+                let iter_obj = iterator::get_iter(vm, iterated_obj)?;
                 self.push_value(iter_obj);
                 Ok(None)
             }

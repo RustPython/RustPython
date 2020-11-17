@@ -14,7 +14,7 @@ use crate::pyobject::{
     PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol,
 };
-use crate::slots::{Comparable, Hashable, PyComparisonOp, Unhashable};
+use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable};
 use crate::vm::{ReprGuard, VirtualMachine};
 
 pub type DictContentType = dictdatatype::Dict;
@@ -50,7 +50,7 @@ impl PyValue for PyDict {
 
 // Python dict methods:
 #[allow(clippy::len_without_is_empty)]
-#[pyimpl(with(Hashable, Comparable), flags(BASETYPE))]
+#[pyimpl(with(Hashable, Comparable, Iterable), flags(BASETYPE))]
 impl PyDict {
     #[pyslot]
     fn tp_new(class: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
@@ -83,13 +83,13 @@ impl PyDict {
                     dict.insert(vm, key, value)?;
                 }
             } else if let Some(keys) = vm.get_method(dict_obj.clone(), "keys") {
-                let keys = iterator::get_iter(vm, &vm.invoke(&keys?, ())?)?;
+                let keys = iterator::get_iter(vm, vm.invoke(&keys?, ())?)?;
                 while let Some(key) = iterator::get_next_object(vm, &keys)? {
                     let val = dict_obj.get_item(key.clone(), vm)?;
                     dict.insert(vm, key, val)?;
                 }
             } else {
-                let iter = iterator::get_iter(vm, &dict_obj)?;
+                let iter = iterator::get_iter(vm, dict_obj)?;
                 loop {
                     fn err(vm: &VirtualMachine) -> PyBaseExceptionRef {
                         vm.new_value_error("Iterator must have exactly two elements".to_owned())
@@ -98,7 +98,7 @@ impl PyDict {
                         Some(obj) => obj,
                         None => break,
                     };
-                    let elem_iter = iterator::get_iter(vm, &element)?;
+                    let elem_iter = iterator::get_iter(vm, element)?;
                     let key = iterator::get_next_object(vm, &elem_iter)?.ok_or_else(|| err(vm))?;
                     let value =
                         iterator::get_next_object(vm, &elem_iter)?.ok_or_else(|| err(vm))?;
@@ -232,11 +232,6 @@ impl PyDict {
     #[pymethod]
     fn clear(&self) {
         self.entries.clear()
-    }
-
-    #[pymethod(magic)]
-    fn iter(zelf: PyRef<Self>) -> PyDictKeyIterator {
-        PyDictKeyIterator::new(zelf)
     }
 
     #[pymethod]
@@ -420,6 +415,12 @@ impl Comparable for PyDict {
 
 impl Unhashable for PyDict {}
 
+impl Iterable for PyDict {
+    fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        Ok(PyDictKeyIterator::new(zelf).into_object(vm))
+    }
+}
+
 impl PyDictRef {
     /// Return an optional inner item, or an error (can be key error as well)
     #[inline]
@@ -579,15 +580,10 @@ macro_rules! dict_iterator {
             pub dict: PyDictRef,
         }
 
-        #[pyimpl(with(Comparable))]
+        #[pyimpl(with(Comparable, Iterable))]
         impl $name {
             fn new(dict: PyDictRef) -> Self {
                 $name { dict }
-            }
-
-            #[pymethod(name = "__iter__")]
-            fn iter(&self) -> $iter_name {
-                $iter_name::new(self.dict.clone())
             }
 
             #[pymethod(name = "__len__")]
@@ -613,6 +609,12 @@ macro_rules! dict_iterator {
             #[pymethod(name = "__reversed__")]
             fn reversed(&self) -> $reverse_iter_name {
                 $reverse_iter_name::new(self.dict.clone())
+            }
+        }
+
+        impl Iterable for $name {
+            fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+                Ok($iter_name::new(zelf.dict.clone()).into_object(vm))
             }
         }
 
@@ -658,7 +660,13 @@ macro_rules! dict_iterator {
             pub position: AtomicCell<usize>,
         }
 
-        #[pyimpl]
+        impl PyValue for $iter_name {
+            fn class(vm: &VirtualMachine) -> &PyTypeRef {
+                &vm.ctx.types.$iter_class
+            }
+        }
+
+        #[pyimpl(with(PyIter))]
         impl $iter_name {
             fn new(dict: PyDictRef) -> Self {
                 $iter_name {
@@ -668,38 +676,28 @@ macro_rules! dict_iterator {
                 }
             }
 
-            #[pymethod(name = "__next__")]
-            #[allow(clippy::redundant_closure_call)]
-            fn next(&self, vm: &VirtualMachine) -> PyResult {
-                if self.dict.entries.has_changed_size(&self.size) {
-                    return Err(
-                        vm.new_runtime_error("dictionary changed size during iteration".to_owned())
-                    );
-                }
-                let mut position = self.position.load();
-                match self.dict.entries.next_entry(&mut position) {
-                    Some((key, value)) => {
-                        self.position.store(position);
-                        Ok($result_fn(vm, key, value))
-                    }
-                    None => Err(vm.new_stop_iteration()),
-                }
-            }
-
-            #[pymethod(name = "__iter__")]
-            fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
-                zelf
-            }
-
             #[pymethod(name = "__length_hint__")]
             fn length_hint(&self) -> usize {
                 self.dict.entries.len_from_entry_index(self.position.load())
             }
         }
 
-        impl PyValue for $iter_name {
-            fn class(vm: &VirtualMachine) -> &PyTypeRef {
-                &vm.ctx.types.$iter_class
+        impl PyIter for $iter_name {
+            #[allow(clippy::redundant_closure_call)]
+            fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+                if zelf.dict.entries.has_changed_size(&zelf.size) {
+                    return Err(
+                        vm.new_runtime_error("dictionary changed size during iteration".to_owned())
+                    );
+                }
+                let mut position = zelf.position.load();
+                match zelf.dict.entries.next_entry(&mut position) {
+                    Some((key, value)) => {
+                        zelf.position.store(position);
+                        Ok($result_fn(vm, key, value))
+                    }
+                    None => Err(vm.new_stop_iteration()),
+                }
             }
         }
 
@@ -711,7 +709,13 @@ macro_rules! dict_iterator {
             pub position: AtomicCell<usize>,
         }
 
-        #[pyimpl]
+        impl PyValue for $reverse_iter_name {
+            fn class(vm: &VirtualMachine) -> &PyTypeRef {
+                &vm.ctx.types.$reverse_iter_class
+            }
+        }
+
+        #[pyimpl(with(PyIter))]
         impl $reverse_iter_name {
             fn new(dict: PyDictRef) -> Self {
                 $reverse_iter_name {
@@ -721,41 +725,31 @@ macro_rules! dict_iterator {
                 }
             }
 
-            #[pymethod(name = "__next__")]
-            #[allow(clippy::redundant_closure_call)]
-            fn next(&self, vm: &VirtualMachine) -> PyResult {
-                if self.dict.entries.has_changed_size(&self.size) {
-                    return Err(
-                        vm.new_runtime_error("dictionary changed size during iteration".to_owned())
-                    );
-                }
-                let count = self.position.fetch_add(1);
-                match self.dict.len().checked_sub(count) {
-                    Some(mut pos) => {
-                        let (key, value) = self.dict.entries.next_entry(&mut pos).unwrap();
-                        Ok($result_fn(vm, key, value))
-                    }
-                    None => {
-                        self.position.store(std::isize::MAX as usize);
-                        Err(vm.new_stop_iteration())
-                    }
-                }
-            }
-
-            #[pymethod(name = "__iter__")]
-            fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
-                zelf
-            }
-
             #[pymethod(name = "__length_hint__")]
             fn length_hint(&self) -> usize {
                 self.dict.entries.len_from_entry_index(self.position.load())
             }
         }
 
-        impl PyValue for $reverse_iter_name {
-            fn class(vm: &VirtualMachine) -> &PyTypeRef {
-                &vm.ctx.types.$reverse_iter_class
+        impl PyIter for $reverse_iter_name {
+            #[allow(clippy::redundant_closure_call)]
+            fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+                if zelf.dict.entries.has_changed_size(&zelf.size) {
+                    return Err(
+                        vm.new_runtime_error("dictionary changed size during iteration".to_owned())
+                    );
+                }
+                let count = zelf.position.fetch_add(1);
+                match zelf.dict.len().checked_sub(count) {
+                    Some(mut pos) => {
+                        let (key, value) = zelf.dict.entries.next_entry(&mut pos).unwrap();
+                        Ok($result_fn(vm, key, value))
+                    }
+                    None => {
+                        zelf.position.store(std::isize::MAX as usize);
+                        Err(vm.new_stop_iteration())
+                    }
+                }
             }
         }
     };

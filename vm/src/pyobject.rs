@@ -840,25 +840,21 @@ impl fmt::Debug for PyObject<dyn PyObjectPayload> {
 /// PyIterable can optionally perform type checking and conversions on iterated
 /// objects using a generic type parameter that implements `TryFromObject`.
 pub struct PyIterable<T = PyObjectRef> {
-    method: PyObjectRef,
-    _item: std::marker::PhantomData<T>,
+    iterable: PyObjectRef,
+    iterfn: Option<crate::slots::IterFunc>,
+    _item: PhantomData<T>,
 }
 
 impl<T> PyIterable<T> {
-    pub fn from_method(method: PyObjectRef) -> Self {
-        PyIterable {
-            method,
-            _item: std::marker::PhantomData,
-        }
-    }
-
     /// Returns an iterator over this sequence of objects.
     ///
     /// This operation may fail if an exception is raised while invoking the
     /// `__iter__` method of the iterable object.
     pub fn iter<'a>(&self, vm: &'a VirtualMachine) -> PyResult<PyIterator<'a, T>> {
-        let method = &self.method;
-        let iter_obj = vm.invoke(method, ())?;
+        let iter_obj = match self.iterfn {
+            Some(f) => f(self.iterable.clone(), vm)?,
+            None => PySequenceIterator::new_forward(self.iterable.clone()).into_object(vm),
+        };
 
         let length_hint = iterator::length_hint(vm, iter_obj.clone())?;
 
@@ -866,7 +862,7 @@ impl<T> PyIterable<T> {
             vm,
             obj: iter_obj,
             length_hint,
-            _item: std::marker::PhantomData,
+            _item: PhantomData,
         })
     }
 }
@@ -876,23 +872,19 @@ where
     T: TryFromObject,
 {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        if let Some(method_or_err) = vm.get_method(obj.clone(), "__iter__") {
-            let method = method_or_err?;
-            Ok(PyIterable {
-                method,
-                _item: std::marker::PhantomData,
-            })
-        } else {
-            vm.get_method_or_type_error(obj.clone(), "__getitem__", || {
-                format!("'{}' object is not iterable", obj.class().name)
-            })?;
-            Self::try_from_object(
-                vm,
-                PySequenceIterator::new_forward(obj)
-                    .into_ref(vm)
-                    .into_object(),
-            )
+        let iterfn;
+        {
+            let cls = obj.class();
+            iterfn = cls.mro_find_map(|x| x.slots.iter.load());
+            if iterfn.is_none() && !cls.has_attr("__getitem__") {
+                return Err(vm.new_type_error(format!("'{}' object is not iterable", cls.name)));
+            }
         }
+        Ok(PyIterable {
+            iterable: obj,
+            iterfn,
+            _item: PhantomData,
+        })
     }
 }
 
@@ -900,7 +892,7 @@ pub struct PyIterator<'a, T> {
     vm: &'a VirtualMachine,
     obj: PyObjectRef,
     length_hint: Option<usize>,
-    _item: std::marker::PhantomData<T>,
+    _item: PhantomData<T>,
 }
 
 impl<'a, T> Iterator for PyIterator<'a, T>
@@ -910,16 +902,9 @@ where
     type Item = PyResult<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match self.vm.call_method(&self.obj, "__next__", ()) {
-            Ok(value) => Some(T::try_from_object(self.vm, value)),
-            Err(err) => {
-                if err.isinstance(&self.vm.ctx.exceptions.stop_iteration) {
-                    None
-                } else {
-                    Some(Err(err))
-                }
-            }
-        }
+        iterator::get_next_object(self.vm, &self.obj)
+            .transpose()
+            .map(|x| x.and_then(|obj| T::try_from_object(self.vm, obj)))
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
