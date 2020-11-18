@@ -427,7 +427,7 @@ impl PyInt {
                 }
                 self.general_op(other, |a, b| {
                     if b.is_negative() {
-                        Err(vm.new_not_implemented_error("modular inverses".to_owned()))
+                        Err(vm.new_value_error("modular inverses not supported".to_owned()))
                     } else {
                         Ok(vm.ctx.new_int(a.modpow(b, modulus)))
                     }
