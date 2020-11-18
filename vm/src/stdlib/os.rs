@@ -2399,14 +2399,14 @@ mod nt {
         const S_IFREG: u32 = 0o100000;
         let mut m: u32 = 0;
         if attr & FILE_ATTRIBUTE_DIRECTORY == FILE_ATTRIBUTE_DIRECTORY {
-            m |= S_IFDIR | 0111; /* IFEXEC for user,group,other */
+            m |= S_IFDIR | 0o111; /* IFEXEC for user,group,other */
         } else {
             m |= S_IFREG;
         }
         if attr & FILE_ATTRIBUTE_READONLY == FILE_ATTRIBUTE_READONLY {
-            m |= 0444;
+            m |= 0o444;
         } else {
-            m |= 0666;
+            m |= 0o666;
         }
         m
     }
