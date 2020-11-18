@@ -170,9 +170,7 @@ impl PyFloat {
                         Ok(f) => {
                             return Ok(f);
                         }
-                        Err(val) => {
-                            val
-                        }
+                        Err(val) => val,
                     }
                 } else {
                     val
@@ -182,10 +180,7 @@ impl PyFloat {
                     f
                 } else if let Some(s) = val.payload_if_subclass::<PyStr>(vm) {
                     float_ops::parse_str(s.borrow_value().trim()).ok_or_else(|| {
-                        vm.new_value_error(format!(
-                            "could not convert string to float: '{}'",
-                            s
-                        ))
+                        vm.new_value_error(format!("could not convert string to float: '{}'", s))
                     })?
                 } else if let Some(bytes) = val.payload_if_subclass::<PyBytes>(vm) {
                     lexical_core::parse(bytes.borrow_value()).map_err(|_| {
@@ -331,8 +326,17 @@ impl PyFloat {
     }
 
     #[pymethod(name = "__pow__")]
-    fn pow(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.complex_op(other, |a, b| float_pow(a, b, vm), vm)
+    fn pow(
+        &self,
+        other: PyObjectRef,
+        mod_val: OptionalOption<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        if mod_val.flatten().is_some() {
+            Err(vm.new_type_error("floating point pow() does not accept a 3rd argument".to_owned()))
+        } else {
+            self.complex_op(other, |a, b| float_pow(a, b, vm), vm)
+        }
     }
 
     #[pymethod(name = "__rpow__")]

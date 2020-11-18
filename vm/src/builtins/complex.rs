@@ -4,6 +4,7 @@ use num_traits::Zero;
 use super::float;
 use super::pystr::PyStr;
 use super::pytype::PyTypeRef;
+use crate::function::{OptionalArg, OptionalOption};
 use crate::pyobject::{
     BorrowValue, IdProtocol, IntoPyObject, Never,
     PyArithmaticValue::{self, *},
@@ -12,7 +13,6 @@ use crate::pyobject::{
 use crate::slots::{Comparable, Hashable, PyComparisonOp};
 use crate::VirtualMachine;
 use rustpython_common::{float_ops, hash};
-use crate::function::{OptionalOption, OptionalArg};
 
 /// Create a complex number from a real part and an optional imaginary part.
 ///
@@ -73,13 +73,13 @@ fn inner_pow(v1: Complex64, v2: Complex64, vm: &VirtualMachine) -> PyResult<Comp
             Ok(Complex64::new(1.0, 0.0))
         } else {
             Ok(Complex64::new(0.0, 0.0))
-        }
+        };
     }
 
     let ans = v1.powc(v2);
     if ans.is_infinite() && !(v1.is_infinite() || v2.is_infinite()) {
         Err(vm.new_overflow_error("complex exponentiation overflow".to_owned()))
-    } else  {
+    } else {
         Ok(ans)
     }
 }
@@ -270,9 +270,7 @@ impl PyComplex {
                         Ok(c) => {
                             return Ok(c);
                         }
-                        Err(val) => {
-                            val
-                        }
+                        Err(val) => val,
                     }
                 } else {
                     val
@@ -296,7 +294,7 @@ impl PyComplex {
                         val.class().name
                     )));
                 }
-            },
+            }
         };
 
         let (imag, imag_was_complex) = match args.imag {
@@ -318,7 +316,6 @@ impl PyComplex {
                 }
             }
         };
-
 
         let final_real = if imag_was_complex {
             real.re - imag.im

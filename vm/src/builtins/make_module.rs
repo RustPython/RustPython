@@ -19,14 +19,20 @@ mod decl {
     use crate::builtins::pybool::{self, IntoPyBool};
     use crate::builtins::pystr::{PyStr, PyStrRef};
     use crate::builtins::pytype::PyTypeRef;
+    use crate::builtins::PyInt;
     use crate::byteslike::PyBytesLike;
     use crate::common::{hash::PyHash, str::to_ascii};
     #[cfg(feature = "rustpython-compiler")]
     use crate::compile;
     use crate::exceptions::PyBaseExceptionRef;
-    use crate::function::{single_or_tuple_any, Args, FuncArgs, KwArgs, OptionalArg, OptionalOption};
+    use crate::function::{
+        single_or_tuple_any, Args, FuncArgs, KwArgs, OptionalArg, OptionalOption,
+    };
     use crate::iterator;
-    use crate::pyobject::{BorrowValue, Either, IdProtocol, ItemProtocol, PyCallable, PyIterable, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol, PyArithmaticValue};
+    use crate::pyobject::{
+        BorrowValue, Either, IdProtocol, ItemProtocol, PyArithmaticValue, PyCallable, PyIterable,
+        PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    };
     use crate::readline::{Readline, ReadlineResult};
     use crate::scope::Scope;
     use crate::sliceable;
@@ -35,7 +41,6 @@ mod decl {
     use crate::{py_io, sysmodule};
     use num_bigint::Sign;
     use num_traits::{Signed, ToPrimitive, Zero};
-    use crate::builtins::PyInt;
 
     #[pyfunction]
     fn abs(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -588,38 +593,40 @@ mod decl {
         vm: &VirtualMachine,
     ) -> PyResult {
         match mod_value.flatten() {
-            None => {
-                vm.call_or_reflection(&x, &y, "__pow__", "__rpow__", |vm, x, y| {
-                    Err(vm.new_unsupported_binop_error(x, y, "pow"))
-                })
-            }
+            None => vm.call_or_reflection(&x, &y, "__pow__", "__rpow__", |vm, x, y| {
+                Err(vm.new_unsupported_binop_error(x, y, "pow"))
+            }),
             Some(z) => {
-                let try_pow_value = |obj: &PyObjectRef, args: (PyObjectRef, PyObjectRef, PyObjectRef)| -> Option<PyResult> {
+                let try_pow_value = |obj: &PyObjectRef,
+                                     args: (PyObjectRef, PyObjectRef, PyObjectRef)|
+                 -> Option<PyResult> {
                     if let Some(method) = obj.get_class_attr("__pow__") {
                         let result = match vm.invoke(&method, args) {
                             Ok(x) => x,
                             Err(e) => return Some(Err(e)),
                         };
-                        if let PyArithmaticValue::Implemented(x) = PyArithmaticValue::from_object(vm, result) {
-                            return Some(Ok(x))
+                        if let PyArithmaticValue::Implemented(x) =
+                            PyArithmaticValue::from_object(vm, result)
+                        {
+                            return Some(Ok(x));
                         }
                     }
                     None
                 };
 
                 if let Some(val) = try_pow_value(&x, (x.clone(), y.clone(), z.clone())) {
-                    return val
+                    return val;
                 }
 
                 if !x.class().is(&y.class()) {
                     if let Some(val) = try_pow_value(&y, (x.clone(), y.clone(), z.clone())) {
-                        return val
+                        return val;
                     }
                 }
 
                 if !x.class().is(&z.class()) && !y.class().is(&z.class()) {
                     if let Some(val) = try_pow_value(&z, (x.clone(), y.clone(), z.clone())) {
-                        return val
+                        return val;
                     }
                 }
 

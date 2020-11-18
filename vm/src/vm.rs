@@ -1134,8 +1134,8 @@ impl VirtualMachine {
         method: &str,
         unsupported: F,
     ) -> PyResult
-        where
-            F: Fn(&VirtualMachine, &PyObjectRef, &PyObjectRef) -> PyResult,
+    where
+        F: Fn(&VirtualMachine, &PyObjectRef, &PyObjectRef) -> PyResult,
     {
         if let Some(method_or_err) = self.get_method(obj.clone(), method) {
             let method = method_or_err?;

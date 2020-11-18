@@ -14,7 +14,7 @@ use super::pybool::IntoPyBool;
 use super::pystr::{PyStr, PyStrRef};
 use super::pytype::PyTypeRef;
 use crate::format::FormatSpec;
-use crate::function::OptionalArg;
+use crate::function::{OptionalArg, OptionalOption};
 use crate::pyobject::{
     BorrowValue, IdProtocol, IntoPyObject, IntoPyResult, PyArithmaticValue, PyClassImpl,
     PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
@@ -267,9 +267,7 @@ impl PyInt {
                         Ok(i) => {
                             return Ok(i);
                         }
-                        Err(val) => {
-                            val
-                        }
+                        Err(val) => val,
                     }
                 } else {
                     val
@@ -410,8 +408,27 @@ impl PyInt {
     }
 
     #[pymethod(name = "__pow__")]
-    fn pow(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.general_op(other, |a, b| inner_pow(a, b, vm), vm)
+    fn pow(
+        &self,
+        other: PyObjectRef,
+        mod_val: OptionalOption<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        match mod_val.flatten() {
+            Some(int_ref) => {
+                let int = match int_ref.payload_if_subclass::<PyInt>(vm) {
+                    Some(val) => val,
+                    None => return Ok(vm.ctx.not_implemented()),
+                };
+
+                let modulus = int.borrow_value();
+                if modulus.is_zero() {
+                    return Err(vm.new_value_error("pow() 3rd argument cannot be 0".to_owned()));
+                }
+                self.general_op(other, |a, b| Ok(vm.ctx.new_int(a.modpow(b, modulus))), vm)
+            }
+            None => self.general_op(other, |a, b| inner_pow(a, b, vm), vm),
+        }
     }
 
     #[pymethod(name = "__rpow__")]
