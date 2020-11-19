@@ -65,9 +65,8 @@ impl Jit {
         builder.switch_to_block(entry_block);
 
         let sig = {
-            let mut arg_names = bytecode.arg_names.clone();
-            arg_names.extend(bytecode.kwonlyarg_names.iter().cloned());
-            let mut compiler = FunctionCompiler::new(&mut builder, &arg_names, args, entry_block);
+            let arg_names = &bytecode.names[..bytecode.arg_count + bytecode.kwonlyarg_count];
+            let mut compiler = FunctionCompiler::new(&mut builder, arg_names, args, entry_block);
 
             compiler.compile(bytecode)?;
 

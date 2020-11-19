@@ -266,7 +266,11 @@ pub fn div(v1: f64, v2: f64) -> Option<f64> {
 
 pub fn mod_(v1: f64, v2: f64) -> Option<f64> {
     if v2 != 0.0 {
-        Some(v1 % v2)
+        let mut val = v1 % v2;
+        if (val < 0.0) != (v2 < 0.0) {
+            val += v2;
+        }
+        Some(val)
     } else {
         None
     }

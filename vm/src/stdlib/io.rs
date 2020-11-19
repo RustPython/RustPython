@@ -49,8 +49,8 @@ mod _io {
     use crate::byteslike::{PyBytesLike, PyRwBytesLike};
     use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
     use crate::common::lock::{
-        PyMappedThreadMutexGuard, PyMutex, PyRwLock, PyRwLockReadGuard,
-        PyRwLockUpgradableReadGuard, PyRwLockWriteGuard, PyThreadMutex, PyThreadMutexGuard,
+        PyMappedThreadMutexGuard, PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
+        PyThreadMutex, PyThreadMutexGuard,
     };
     use crate::common::rc::PyRc;
     use crate::exceptions::{self, IntoPyException, PyBaseExceptionRef};
@@ -453,19 +453,24 @@ mod _io {
             check_seekable(&instance, vm)
         }
 
-        #[pymethod(magic)]
-        fn iter(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        #[pyslot]
+        #[pymethod(name = "__iter__")]
+        fn tp_iter(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             check_closed(&instance, vm)?;
             Ok(instance)
         }
-        #[pymethod(magic)]
-        fn next(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        #[pyslot]
+        fn tp_iternext(instance: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
             let line = call_method(vm, &instance, "readline", ())?;
             if !pybool::boolval(vm, line.clone())? {
                 Err(vm.new_stop_iteration())
             } else {
                 Ok(line)
             }
+        }
+        #[pymethod(magic)]
+        fn next(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            Self::tp_iternext(&instance, vm)
         }
     }
 
@@ -806,7 +811,7 @@ mod _io {
                 // TODO: loop if write() raises an interrupt
                 call_method(vm, self.raw.as_ref().unwrap(), "write", (memobj.clone(),))?
             } else {
-                let opts = BufferOptions {
+                let options = BufferOptions {
                     len,
                     ..Default::default()
                 };
@@ -815,7 +820,7 @@ mod _io {
                 let writebuf = PyRc::new(BufferedRawBuffer {
                     data: std::mem::take(&mut self.buffer).into(),
                     range: buf_range,
-                    opts,
+                    options,
                 });
                 let memobj =
                     PyMemoryView::from_buffer(vm.ctx.none(), BufferRef::new(writebuf.clone()), vm)?
@@ -1039,7 +1044,7 @@ mod _io {
             let res = match v {
                 Either::A(v) => {
                     let v = v.unwrap_or(&mut self.buffer);
-                    let opts = BufferOptions {
+                    let options = BufferOptions {
                         len,
                         readonly: false,
                         ..Default::default()
@@ -1049,7 +1054,7 @@ mod _io {
                     let readbuf = PyRc::new(BufferedRawBuffer {
                         data: std::mem::take(v).into(),
                         range: buf_range,
-                        opts,
+                        options,
                     });
                     let memobj = PyMemoryView::from_buffer(
                         vm.ctx.none(),
@@ -1256,11 +1261,11 @@ mod _io {
     struct BufferedRawBuffer {
         data: PyMutex<Vec<u8>>,
         range: Range<usize>,
-        opts: BufferOptions,
+        options: BufferOptions,
     }
     impl Buffer for PyRc<BufferedRawBuffer> {
-        fn get_options(&self) -> BorrowedValue<BufferOptions> {
-            (&self.opts).into()
+        fn get_options(&self) -> &BufferOptions {
+            &self.options
         }
 
         fn obj_bytes(&self) -> BorrowedValue<[u8]> {
@@ -2195,7 +2200,6 @@ mod _io {
         buffer: PyRwLock<BufferedIO>,
         closed: AtomicCell<bool>,
         exports: AtomicCell<usize>,
-        buffer_options: PyRwLock<Option<Box<BufferOptions>>>,
     }
 
     type BytesIORef = PyRef<BytesIO>;
@@ -2230,7 +2234,6 @@ mod _io {
                 buffer: PyRwLock::new(BufferedIO::new(Cursor::new(raw_bytes))),
                 closed: AtomicCell::new(false),
                 exports: AtomicCell::new(0),
-                buffer_options: PyRwLock::new(None),
             }
             .into_ref_with_type(vm, cls)
         }
@@ -2342,44 +2345,47 @@ mod _io {
 
         #[pymethod]
         fn getbuffer(self, vm: &VirtualMachine) -> PyResult<PyMemoryView> {
-            let buffer = BufferRef::new(self.clone());
-            let view = PyMemoryView::from_buffer(self.clone().into_object(), buffer, vm)?;
             self.exports.fetch_add(1);
+            let buffer = BufferRef::new(BytesIOBuffer {
+                bytesio: self.clone(),
+                options: BufferOptions {
+                    readonly: false,
+                    len: self.buffer.read().cursor.get_ref().len(),
+                    ..Default::default()
+                },
+            });
+            let view = PyMemoryView::from_buffer(self.into_object(), buffer, vm)?;
             Ok(view)
         }
     }
 
-    impl Buffer for BytesIORef {
-        fn get_options(&self) -> BorrowedValue<BufferOptions> {
-            let guard = self.buffer_options.upgradable_read();
-            let guard = if guard.is_none() {
-                let mut w = PyRwLockUpgradableReadGuard::upgrade(guard);
-                *w = Some(Box::new(BufferOptions {
-                    readonly: false,
-                    len: self.buffer.read().cursor.get_ref().len(),
-                    ..Default::default()
-                }));
-                PyRwLockWriteGuard::downgrade(w)
-            } else {
-                PyRwLockUpgradableReadGuard::downgrade(guard)
-            };
-            PyRwLockReadGuard::map(guard, |x| x.as_ref().unwrap().as_ref()).into()
+    #[derive(Debug)]
+    struct BytesIOBuffer {
+        bytesio: BytesIORef,
+        options: BufferOptions,
+    }
+
+    impl Buffer for BytesIOBuffer {
+        fn get_options(&self) -> &BufferOptions {
+            &self.options
         }
 
         fn obj_bytes(&self) -> BorrowedValue<[u8]> {
-            PyRwLockReadGuard::map(self.buffer.read(), |x| x.cursor.get_ref().as_slice()).into()
+            PyRwLockReadGuard::map(self.bytesio.buffer.read(), |x| {
+                x.cursor.get_ref().as_slice()
+            })
+            .into()
         }
 
         fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
-            PyRwLockWriteGuard::map(self.buffer.write(), |x| x.cursor.get_mut().as_mut_slice())
-                .into()
+            PyRwLockWriteGuard::map(self.bytesio.buffer.write(), |x| {
+                x.cursor.get_mut().as_mut_slice()
+            })
+            .into()
         }
 
         fn release(&self) {
-            let mut w = self.buffer_options.write();
-            if self.exports.fetch_sub(1) == 1 {
-                *w = None;
-            }
+            self.bytesio.exports.fetch_sub(1);
         }
     }
 

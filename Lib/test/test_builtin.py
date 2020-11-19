@@ -286,7 +286,8 @@ class BuiltinTest(unittest.TestCase):
         c3 = C3()
         self.assertTrue(callable(c3))
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_chr(self):
         self.assertEqual(chr(32), ' ')
         self.assertEqual(chr(65), 'A')
@@ -312,7 +313,8 @@ class BuiltinTest(unittest.TestCase):
     def test_cmp(self):
         self.assertTrue(not hasattr(builtins, "cmp"))
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_compile(self):
         compile('print(1)\n', '', 'exec')
         bom = b'\xef\xbb\xbf'
@@ -464,7 +466,8 @@ class BuiltinTest(unittest.TestCase):
 
         self.assertRaises(TypeError, divmod)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_eval(self):
         self.assertEqual(eval('1+1'), 2)
         self.assertEqual(eval(' 1+1\n'), 2)
@@ -488,7 +491,8 @@ class BuiltinTest(unittest.TestCase):
                 raise ValueError
         self.assertRaises(ValueError, eval, "foo", {}, X())
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_general_eval(self):
         # Tests that general mappings can be used for the locals argument
 
@@ -658,7 +662,8 @@ class BuiltinTest(unittest.TestCase):
         self.assertEqual(list(filter(lambda x: x>=3, (1, 2, 3, 4))), [3, 4])
         self.assertRaises(TypeError, list, filter(42, (1, 2)))
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_filter_pickle(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             f1 = filter(filter_char, "abcdeabcde")
@@ -866,7 +871,8 @@ class BuiltinTest(unittest.TestCase):
             raise RuntimeError
         self.assertRaises(RuntimeError, list, map(badfunc, range(5)))
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_map_pickle(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             m1 = map(map_char, "Is this the real life?")
@@ -927,8 +933,6 @@ class BuiltinTest(unittest.TestCase):
         self.assertEqual(max(data, key=f),
                          sorted(reversed(data), key=f)[-1])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_min(self):
         self.assertEqual(min('123123'), '1')
         self.assertEqual(min(1, 2, 3), 1)
@@ -1027,7 +1031,6 @@ class BuiltinTest(unittest.TestCase):
             fp.write('XXX'*100)
             fp.write('YYY'*100)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_open(self):
         self.write_testfile()
         fp = open(TESTFN, 'r')
@@ -1043,7 +1046,8 @@ class BuiltinTest(unittest.TestCase):
         self.assertRaises(ValueError, open, 'a\x00b')
         self.assertRaises(ValueError, open, b'a\x00b')
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipIf(sys.flags.utf8_mode, "utf-8 mode is enabled")
     def test_open_default_encoding(self):
         old_environ = dict(os.environ)
@@ -1064,7 +1068,7 @@ class BuiltinTest(unittest.TestCase):
             os.environ.clear()
             os.environ.update(old_environ)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON Windows')
     def test_open_non_inheritable(self):
         fileobj = open(__file__)
         with fileobj:
@@ -1097,7 +1101,6 @@ class BuiltinTest(unittest.TestCase):
         self.assertEqual(ord("\U0010FFFE"), 0x0010FFFE)
         self.assertEqual(ord("\U0010FFFF"), 0x0010FFFF)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_pow(self):
         self.assertEqual(pow(0,0), 1)
         self.assertEqual(pow(0,1), 0)
@@ -1147,7 +1150,6 @@ class BuiltinTest(unittest.TestCase):
 
         self.assertRaises(TypeError, pow)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_input(self):
         self.write_testfile()
         fp = open(TESTFN, 'r')
@@ -1198,7 +1200,8 @@ class BuiltinTest(unittest.TestCase):
         a[0] = a
         self.assertEqual(repr(a), '{0: {...}}')
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_round(self):
         self.assertEqual(round(0.0), 0.0)
         self.assertEqual(type(round(0.0)), int)
@@ -1294,7 +1297,8 @@ class BuiltinTest(unittest.TestCase):
         self.assertEqual(round(5e15+2), 5e15+2)
         self.assertEqual(round(5e15+3), 5e15+3)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_bug_27936(self):
         # Verify that ndigits=None means the same as passing in no argument
         for x in [1234,
@@ -1312,7 +1316,8 @@ class BuiltinTest(unittest.TestCase):
 
     # test_str(): see test_unicode.py and test_bytes.py for str() tests.
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_sum(self):
         self.assertEqual(sum([]), 0)
         self.assertEqual(sum(list(range(2,8))), 27)
@@ -1421,7 +1426,8 @@ class BuiltinTest(unittest.TestCase):
                     return i
         self.assertRaises(ValueError, list, zip(BadSeq(), BadSeq()))
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_zip_pickle(self):
         a = (1, 2, 3)
         b = (4, 5, 6)
@@ -1542,7 +1548,8 @@ class BuiltinTest(unittest.TestCase):
         self.assertEqual(bin(-(2**65)), '-0b1' + '0' * 65)
         self.assertEqual(bin(-(2**65-1)), '-0b' + '1' * 65)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_bytearray_translate(self):
         x = bytearray(b"abc")
         self.assertRaises(ValueError, x.translate, b"1", 1)
@@ -1826,7 +1833,8 @@ class TestSorted(unittest.TestCase):
 
 class ShutdownTest(unittest.TestCase):
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_cleanup(self):
         # Issue #19255: builtins are still available at shutdown
         code = """if 1:
@@ -2015,7 +2023,7 @@ class TestType(unittest.TestCase):
         with self.assertRaises(TypeError):
             type('A', (B,), {'__slots__': '__weakref__'})
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON; random failure")
     def test_namespace_order(self):
         # bpo-34320: namespace should preserve order
         od = collections.OrderedDict([('a', 1), ('b', 2)])

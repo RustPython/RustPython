@@ -1,7 +1,7 @@
 #[cfg(feature = "jit")]
 mod jitfunc;
 
-use super::code::{CodeObject, PyCodeRef};
+use super::code::PyCodeRef;
 use super::dict::PyDictRef;
 use super::pystr::PyStrRef;
 use super::pytype::PyTypeRef;
@@ -63,14 +63,13 @@ impl PyFunction {
 
     fn fill_locals_from_args(
         &self,
-        code_object: &CodeObject,
         locals: &PyDictRef,
         func_args: FuncArgs,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let nargs = func_args.args.len();
-        let nexpected_args = code_object.arg_names.len();
-        let posonly_args = &code_object.arg_names[..code_object.posonlyarg_count];
+        let nexpected_args = self.code.arg_count;
+        let arg_names = self.code.arg_names();
 
         // This parses the arguments from args and kwargs into
         // the proper variables keeping into account default values
@@ -84,23 +83,17 @@ impl PyFunction {
             nargs
         };
 
+        let mut args_iter = func_args.args.into_iter();
+
         // Copy positional arguments into local variables
-        for i in 0..n {
-            let arg_name = &code_object.arg_names[i];
-            let arg = &func_args.args[i];
-            locals.set_item(arg_name.as_str(), arg.clone(), vm)?;
+        for (arg, arg_name) in args_iter.by_ref().take(n).zip(arg_names.args) {
+            locals.set_item(arg_name.clone(), arg, vm)?;
         }
 
         // Pack other positional arguments in to *args:
-        if let Some(ref vararg_name) = code_object.varargs_name {
-            let mut last_args = vec![];
-            for i in n..nargs {
-                let arg = &func_args.args[i];
-                last_args.push(arg.clone());
-            }
-            let vararg_value = vm.ctx.new_tuple(last_args);
-
-            locals.set_item(vararg_name.as_str(), vararg_value, vm)?;
+        if let Some(vararg_name) = arg_names.vararg {
+            let vararg_value = vm.ctx.new_tuple(args_iter.collect());
+            locals.set_item(vararg_name.clone(), vararg_value, vm)?;
         } else {
             // Check the number of positional arguments
             if nargs > nexpected_args {
@@ -112,27 +105,25 @@ impl PyFunction {
         }
 
         // Do we support `**kwargs` ?
-        let kwargs = if code_object
-            .flags
-            .contains(bytecode::CodeFlags::HAS_VARKEYWORDS)
-        {
+        let kwargs = if let Some(varkwarg) = arg_names.varkwarg {
             let d = vm.ctx.new_dict();
-            if let Some(ref kwargs_name) = code_object.varkeywords_name {
-                locals.set_item(kwargs_name.as_str(), d.as_object().clone(), vm)?;
-            }
+            locals.set_item(varkwarg.clone(), d.as_object().clone(), vm)?;
             Some(d)
         } else {
             None
         };
 
+        let contains_arg =
+            |names: &[PyStrRef], name: &str| names.iter().any(|s| s.borrow_value() == name);
+
         let mut posonly_passed_as_kwarg = Vec::new();
         // Handle keyword arguments
         for (name, value) in func_args.kwargs {
             // Check if we have a parameter with this name:
-            let dict = if code_object.arg_names.contains(&name)
-                || code_object.kwonlyarg_names.contains(&name)
+            let dict = if contains_arg(arg_names.args, &name)
+                || contains_arg(arg_names.kwonlyargs, &name)
             {
-                if posonly_args.contains(&name) {
+                if contains_arg(arg_names.posonlyargs, &name) {
                     posonly_passed_as_kwarg.push(name);
                     continue;
                 } else if locals.contains_key(&name, vm) {
@@ -146,12 +137,12 @@ impl PyFunction {
                     vm.new_type_error(format!("Got an unexpected keyword argument '{}'", name))
                 })?
             };
-            dict.set_item(name.as_str(), value, vm)?;
+            dict.set_item(vm.intern_string(name).into_object(), value, vm)?;
         }
         if !posonly_passed_as_kwarg.is_empty() {
             return Err(vm.new_type_error(format!(
                 "{}() got some positional-only arguments passed as keyword arguments: '{}'",
-                &code_object.obj_name,
+                &self.code.obj_name,
                 posonly_passed_as_kwarg.into_iter().format(", "),
             )));
         }
@@ -167,8 +158,8 @@ impl PyFunction {
             let required_args = nexpected_args - num_defaults_available;
             let mut missing = vec![];
             for i in 0..required_args {
-                let variable_name = &code_object.arg_names[i];
-                if !locals.contains_key(variable_name, vm) {
+                let variable_name = &arg_names.args[i];
+                if !locals.contains_key(variable_name.clone(), vm) {
                     missing.push(variable_name)
                 }
             }
@@ -184,22 +175,20 @@ impl PyFunction {
                 // We have sufficient defaults, so iterate over the corresponding names and use
                 // the default if we don't already have a value
                 for (default_index, i) in (required_args..nexpected_args).enumerate() {
-                    let arg_name = &code_object.arg_names[i];
-                    if !locals.contains_key(arg_name, vm) {
-                        locals.set_item(arg_name.as_str(), defaults[default_index].clone(), vm)?;
+                    let arg_name = &arg_names.args[i];
+                    if !locals.contains_key(arg_name.clone(), vm) {
+                        locals.set_item(arg_name.clone(), defaults[default_index].clone(), vm)?;
                     }
                 }
             }
         };
 
         // Check if kw only arguments are all present:
-        for arg_name in &code_object.kwonlyarg_names {
-            if !locals.contains_key(arg_name, vm) {
+        for arg_name in arg_names.kwonlyargs {
+            if !locals.contains_key(arg_name.clone(), vm) {
                 if let Some(kw_only_defaults) = &self.kw_only_defaults {
-                    if let Some(default) =
-                        kw_only_defaults.get_item_option(arg_name.as_str(), vm)?
-                    {
-                        locals.set_item(arg_name.as_str(), default, vm)?;
+                    if let Some(default) = kw_only_defaults.get_item_option(arg_name.clone(), vm)? {
+                        locals.set_item(arg_name.clone(), default, vm)?;
                         continue;
                     }
                 }
@@ -242,7 +231,7 @@ impl PyFunction {
             scope.clone()
         };
 
-        self.fill_locals_from_args(&code, &scope.get_locals(), func_args, vm)?;
+        self.fill_locals_from_args(&scope.get_locals(), func_args, vm)?;
 
         // Construct frame:
         let frame = Frame::new(code.clone(), scope, vm).into_ref(vm);

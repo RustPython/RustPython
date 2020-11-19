@@ -7,7 +7,6 @@ use wasm_bindgen::{closure::Closure, prelude::*, JsCast};
 use wasm_bindgen_futures::{future_to_promise, JsFuture};
 
 use rustpython_vm::builtins::{PyFloatRef, PyStrRef, PyTypeRef};
-use rustpython_vm::common::rc::PyRc;
 use rustpython_vm::exceptions::PyBaseExceptionRef;
 use rustpython_vm::function::{Args, OptionalArg};
 use rustpython_vm::pyobject::{
@@ -488,8 +487,5 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 }
 
 pub fn setup_js_module(vm: &mut VirtualMachine) {
-    let state = PyRc::get_mut(&mut vm.state).unwrap();
-    state
-        .stdlib_inits
-        .insert("_js".to_owned(), Box::new(make_module));
+    vm.add_native_module("_js".to_owned(), Box::new(make_module));
 }

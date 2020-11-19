@@ -14,16 +14,16 @@ use crate::bytesinner::{
 };
 use crate::byteslike::PyBytesLike;
 use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
-use crate::common::lock::{
-    PyRwLock, PyRwLockReadGuard, PyRwLockUpgradableReadGuard, PyRwLockWriteGuard,
-};
+use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::function::{OptionalArg, OptionalOption};
 use crate::pyobject::{
     BorrowValue, Either, IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext,
     PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex};
-use crate::slots::{BufferProtocol, Comparable, Hashable, PyComparisonOp, Unhashable};
+use crate::slots::{
+    BufferProtocol, Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable,
+};
 use crate::vm::VirtualMachine;
 use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;
@@ -45,7 +45,6 @@ use std::mem::size_of;
 pub struct PyByteArray {
     inner: PyRwLock<PyBytesInner>,
     exports: AtomicCell<usize>,
-    buffer_options: PyRwLock<Option<Box<BufferOptions>>>,
 }
 
 pub type PyByteArrayRef = PyRef<PyByteArray>;
@@ -63,7 +62,6 @@ impl PyByteArray {
         PyByteArray {
             inner: PyRwLock::new(inner),
             exports: AtomicCell::new(0),
-            buffer_options: PyRwLock::new(None),
         }
     }
 
@@ -101,7 +99,7 @@ pub(crate) fn init(context: &PyContext) {
     PyByteArrayIterator::extend_class(context, &context.types.bytearray_iterator_type);
 }
 
-#[pyimpl(flags(BASETYPE), with(Hashable, Comparable, BufferProtocol))]
+#[pyimpl(flags(BASETYPE), with(Hashable, Comparable, BufferProtocol, Iterable))]
 impl PyByteArray {
     #[pyslot]
     fn tp_new(
@@ -125,14 +123,6 @@ impl PyByteArray {
     #[pymethod(name = "__sizeof__")]
     fn sizeof(&self) -> usize {
         size_of::<Self>() + self.borrow_value().len() * size_of::<u8>()
-    }
-
-    #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>) -> PyByteArrayIterator {
-        PyByteArrayIterator {
-            position: AtomicCell::new(0),
-            bytearray: zelf,
-        }
     }
 
     #[pymethod(name = "__add__")]
@@ -667,40 +657,42 @@ impl Comparable for PyByteArray {
 impl BufferProtocol for PyByteArray {
     fn get_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<Box<dyn Buffer>> {
         zelf.exports.fetch_add(1);
-        Ok(Box::new(zelf.clone()))
+        let buf = ByteArrayBuffer {
+            bytearray: zelf.clone(),
+            options: BufferOptions {
+                readonly: false,
+                len: zelf.len(),
+                ..Default::default()
+            },
+        };
+        Ok(Box::new(buf))
     }
 }
 
-impl Buffer for PyByteArrayRef {
+#[derive(Debug)]
+struct ByteArrayBuffer {
+    bytearray: PyByteArrayRef,
+    options: BufferOptions,
+}
+
+impl Buffer for ByteArrayBuffer {
     fn obj_bytes(&self) -> BorrowedValue<[u8]> {
-        PyRwLockReadGuard::map(self.borrow_value(), |x| x.elements.as_slice()).into()
+        PyRwLockReadGuard::map(self.bytearray.borrow_value(), |x| x.elements.as_slice()).into()
     }
 
     fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
-        PyRwLockWriteGuard::map(self.borrow_value_mut(), |x| x.elements.as_mut_slice()).into()
+        PyRwLockWriteGuard::map(self.bytearray.borrow_value_mut(), |x| {
+            x.elements.as_mut_slice()
+        })
+        .into()
     }
 
     fn release(&self) {
-        let mut w = self.buffer_options.write();
-        if self.exports.fetch_sub(1) == 1 {
-            *w = None;
-        }
+        self.bytearray.exports.fetch_sub(1);
     }
 
-    fn get_options(&self) -> BorrowedValue<BufferOptions> {
-        let guard = self.buffer_options.upgradable_read();
-        let guard = if guard.is_none() {
-            let mut w = PyRwLockUpgradableReadGuard::upgrade(guard);
-            *w = Some(Box::new(BufferOptions {
-                readonly: false,
-                len: self.len(),
-                ..Default::default()
-            }));
-            PyRwLockWriteGuard::downgrade(w)
-        } else {
-            PyRwLockUpgradableReadGuard::downgrade(guard)
-        };
-        PyRwLockReadGuard::map(guard, |x| x.as_ref().unwrap().as_ref()).into()
+    fn get_options(&self) -> &BufferOptions {
+        &self.options
     }
 }
 
@@ -720,6 +712,16 @@ impl<'a> ResizeGuard<'a> for PyByteArray {
 
 impl Unhashable for PyByteArray {}
 
+impl Iterable for PyByteArray {
+    fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        Ok(PyByteArrayIterator {
+            position: AtomicCell::new(0),
+            bytearray: zelf,
+        }
+        .into_object(vm))
+    }
+}
+
 // fn set_value(obj: &PyObjectRef, value: Vec<u8>) {
 //     obj.borrow_mut().kind = PyObjectPayload::Bytes { value };
 // }
@@ -737,20 +739,15 @@ impl PyValue for PyByteArrayIterator {
     }
 }
 
-#[pyimpl]
-impl PyByteArrayIterator {
-    #[pymethod(name = "__next__")]
-    fn next(&self, vm: &VirtualMachine) -> PyResult<u8> {
-        let pos = self.position.fetch_add(1);
-        if let Some(&ret) = self.bytearray.borrow_value().elements.get(pos) {
-            Ok(ret)
+#[pyimpl(with(PyIter))]
+impl PyByteArrayIterator {}
+impl PyIter for PyByteArrayIterator {
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        let pos = zelf.position.fetch_add(1);
+        if let Some(&ret) = zelf.bytearray.borrow_value().elements.get(pos) {
+            Ok(ret.into_pyobject(vm))
         } else {
             Err(vm.new_stop_iteration())
         }
-    }
-
-    #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
-        zelf
     }
 }

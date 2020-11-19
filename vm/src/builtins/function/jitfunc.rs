@@ -1,6 +1,7 @@
 use crate::builtins::dict::PyDictRef;
 use crate::builtins::function::{PyFunction, PyFunctionRef};
-use crate::builtins::{float, int, pybool};
+use crate::builtins::{float, int, pybool, PyStrRef};
+use crate::bytecode::CodeFlags;
 use crate::exceptions::PyBaseExceptionRef;
 use crate::function::FuncArgs;
 use crate::pyobject::{
@@ -9,7 +10,6 @@ use crate::pyobject::{
 };
 use crate::VirtualMachine;
 use num_traits::ToPrimitive;
-use rustpython_bytecode::bytecode::CodeFlags;
 use rustpython_jit::{AbiValue, Args, CompiledCode, JitArgumentError, JitType};
 
 #[derive(Debug, thiserror::Error)]
@@ -68,6 +68,8 @@ fn get_jit_arg_type(dict: &PyDictRef, name: &str, vm: &VirtualMachine) -> PyResu
 }
 
 pub fn get_jit_arg_types(func: &PyFunctionRef, vm: &VirtualMachine) -> PyResult<Vec<JitType>> {
+    let arg_names = func.code.arg_names();
+
     if func
         .code
         .flags
@@ -79,7 +81,7 @@ pub fn get_jit_arg_types(func: &PyFunctionRef, vm: &VirtualMachine) -> PyResult<
         ));
     }
 
-    if func.code.arg_names.is_empty() && func.code.kwonlyarg_names.is_empty() {
+    if arg_names.args.is_empty() && arg_names.kwonlyargs.is_empty() {
         return Ok(Vec::new());
     }
 
@@ -92,12 +94,12 @@ pub fn get_jit_arg_types(func: &PyFunctionRef, vm: &VirtualMachine) -> PyResult<
     } else if let Ok(dict) = PyDictRef::try_from_object(vm, annotations) {
         let mut arg_types = Vec::new();
 
-        for arg in &func.code.arg_names {
-            arg_types.push(get_jit_arg_type(&dict, arg, vm)?);
+        for arg in arg_names.args {
+            arg_types.push(get_jit_arg_type(&dict, arg.borrow_value(), vm)?);
         }
 
-        for arg in &func.code.kwonlyarg_names {
-            arg_types.push(get_jit_arg_type(&dict, arg, vm)?);
+        for arg in arg_names.kwonlyargs {
+            arg_types.push(get_jit_arg_type(&dict, arg.borrow_value(), vm)?);
         }
 
         Ok(arg_types)
@@ -136,8 +138,9 @@ pub(crate) fn get_jit_args<'a>(
 ) -> Result<Args<'a>, ArgsError> {
     let mut jit_args = jitted_code.args_builder();
     let nargs = func_args.args.len();
+    let arg_names = func.code.arg_names();
 
-    if nargs > func.code.arg_names.len() || nargs < func.code.posonlyarg_count {
+    if nargs > func.code.arg_count || nargs < func.code.posonlyarg_count {
         return Err(ArgsError::WrongNumberOfArgs);
     }
 
@@ -148,14 +151,15 @@ pub(crate) fn get_jit_args<'a>(
 
     // Handle keyword arguments
     for (name, value) in &func_args.kwargs {
-        if let Some(arg_idx) = func.code.arg_names.iter().position(|arg| arg == name) {
+        let arg_pos =
+            |args: &[PyStrRef], name: &str| args.iter().position(|arg| arg.borrow_value() == name);
+        if let Some(arg_idx) = arg_pos(arg_names.args, name) {
             if jit_args.is_set(arg_idx) {
                 return Err(ArgsError::ArgPassedMultipleTimes);
             }
             jit_args.set(arg_idx, get_jit_value(vm, &value)?)?;
-        } else if let Some(kwarg_idx) = func.code.kwonlyarg_names.iter().position(|arg| arg == name)
-        {
-            let arg_idx = kwarg_idx + func.code.arg_names.len();
+        } else if let Some(kwarg_idx) = arg_pos(arg_names.kwonlyargs, name) {
+            let arg_idx = kwarg_idx + func.code.arg_count;
             if jit_args.is_set(arg_idx) {
                 return Err(ArgsError::ArgPassedMultipleTimes);
             }
@@ -169,7 +173,7 @@ pub(crate) fn get_jit_args<'a>(
     if let Some(defaults) = &func.defaults {
         let defaults = defaults.borrow_value();
         for (i, default) in defaults.iter().enumerate() {
-            let arg_idx = i + func.code.arg_names.len() - defaults.len();
+            let arg_idx = i + func.code.arg_count - defaults.len();
             if !jit_args.is_set(arg_idx) {
                 jit_args.set(arg_idx, get_jit_value(vm, default)?)?;
             }
@@ -178,11 +182,11 @@ pub(crate) fn get_jit_args<'a>(
 
     // fill in keyword only defaults
     if let Some(kw_only_defaults) = &func.kw_only_defaults {
-        for (i, name) in func.code.kwonlyarg_names.iter().enumerate() {
-            let arg_idx = i + func.code.arg_names.len();
+        for (i, name) in arg_names.kwonlyargs.iter().enumerate() {
+            let arg_idx = i + func.code.arg_count;
             if !jit_args.is_set(arg_idx) {
                 let default = kw_only_defaults
-                    .get_item(name.as_str(), vm)
+                    .get_item(name.clone(), vm)
                     .map_err(|_| ArgsError::NotAllArgsPassed)
                     .and_then(|obj| get_jit_value(vm, &obj))?;
                 jit_args.set(arg_idx, default)?;

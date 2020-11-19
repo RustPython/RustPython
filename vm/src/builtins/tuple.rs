@@ -10,7 +10,7 @@ use crate::pyobject::{
 };
 use crate::sequence::{self, SimpleSeq};
 use crate::sliceable::PySliceableSequence;
-use crate::slots::{Comparable, Hashable, PyComparisonOp};
+use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter};
 use crate::vm::{ReprGuard, VirtualMachine};
 
 /// tuple() -> empty tuple
@@ -84,7 +84,7 @@ pub(crate) fn get_value(obj: &PyObjectRef) -> &[PyObjectRef] {
     obj.payload::<PyTuple>().unwrap().borrow_value()
 }
 
-#[pyimpl(flags(BASETYPE), with(Hashable, Comparable))]
+#[pyimpl(flags(BASETYPE), with(Hashable, Comparable, Iterable))]
 impl PyTuple {
     /// Creating a new tuple with given boxed slice.
     /// NOTE: for usual case, you probably want to use PyTupleRef::with_elements.
@@ -132,14 +132,6 @@ impl PyTuple {
             }
         }
         Ok(count)
-    }
-
-    #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>) -> PyTupleIterator {
-        PyTupleIterator {
-            position: AtomicCell::new(0),
-            tuple: zelf,
-        }
     }
 
     #[pymethod(name = "__len__")]
@@ -258,6 +250,16 @@ impl Comparable for PyTuple {
     }
 }
 
+impl Iterable for PyTuple {
+    fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        Ok(PyTupleIterator {
+            position: AtomicCell::new(0),
+            tuple: zelf,
+        }
+        .into_object(vm))
+    }
+}
+
 #[pyclass(module = false, name = "tuple_iterator")]
 #[derive(Debug)]
 pub struct PyTupleIterator {
@@ -271,21 +273,17 @@ impl PyValue for PyTupleIterator {
     }
 }
 
-#[pyimpl]
-impl PyTupleIterator {
-    #[pymethod(name = "__next__")]
-    fn next(&self, vm: &VirtualMachine) -> PyResult {
-        let pos = self.position.fetch_add(1);
-        if let Some(obj) = self.tuple.borrow_value().get(pos) {
+#[pyimpl(with(PyIter))]
+impl PyTupleIterator {}
+
+impl PyIter for PyTupleIterator {
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        let pos = zelf.position.fetch_add(1);
+        if let Some(obj) = zelf.tuple.borrow_value().get(pos) {
             Ok(obj.clone())
         } else {
             Err(vm.new_stop_iteration())
         }
-    }
-
-    #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
-        zelf
     }
 }
 

@@ -5,6 +5,7 @@ use crate::coroutine::{Coro, Variant};
 use crate::frame::FrameRef;
 use crate::function::OptionalArg;
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::slots::PyIter;
 use crate::vm::VirtualMachine;
 
 type PyCoroutineRef = PyRef<PyCoroutine>;
@@ -21,7 +22,7 @@ impl PyValue for PyCoroutine {
     }
 }
 
-#[pyimpl]
+#[pyimpl(with(PyIter))]
 impl PyCoroutine {
     pub fn as_coro(&self) -> &Coro {
         &self.inner
@@ -95,6 +96,12 @@ impl PyCoroutine {
     }
 }
 
+impl PyIter for PyCoroutine {
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        zelf.send(vm.ctx.none(), vm)
+    }
+}
+
 #[pyclass(module = false, name = "coroutine_wrapper")]
 #[derive(Debug)]
 pub struct PyCoroutineWrapper {
@@ -109,16 +116,6 @@ impl PyValue for PyCoroutineWrapper {
 
 #[pyimpl]
 impl PyCoroutineWrapper {
-    #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
-        zelf
-    }
-
-    #[pymethod(name = "__next__")]
-    fn next(&self, vm: &VirtualMachine) -> PyResult {
-        self.coro.send(vm.ctx.none(), vm)
-    }
-
     #[pymethod]
     fn send(&self, val: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self.coro.send(val, vm)

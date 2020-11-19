@@ -1,5 +1,4 @@
 use crate::common::lock::PyRwLock;
-use std::ops::AddAssign;
 
 use num_bigint::BigInt;
 use num_traits::Zero;
@@ -8,7 +7,10 @@ use super::int::PyIntRef;
 use super::pytype::PyTypeRef;
 use crate::function::OptionalArg;
 use crate::iterator;
-use crate::pyobject::{BorrowValue, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{
+    BorrowValue, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+};
+use crate::slots::PyIter;
 use crate::vm::VirtualMachine;
 
 #[pyclass(module = false, name = "enumerate")]
@@ -24,7 +26,7 @@ impl PyValue for PyEnumerate {
     }
 }
 
-#[pyimpl]
+#[pyimpl(with(PyIter))]
 impl PyEnumerate {
     #[pyslot]
     fn tp_new(
@@ -38,26 +40,22 @@ impl PyEnumerate {
             OptionalArg::Missing => BigInt::zero(),
         };
 
-        let iterator = iterator::get_iter(vm, &iterable)?;
+        let iterator = iterator::get_iter(vm, iterable)?;
         PyEnumerate {
             counter: PyRwLock::new(counter),
             iterator,
         }
         .into_ref_with_type(vm, cls)
     }
+}
 
-    #[pymethod(name = "__next__")]
-    fn next(&self, vm: &VirtualMachine) -> PyResult<(BigInt, PyObjectRef)> {
-        let next_obj = iterator::call_next(vm, &self.iterator)?;
-        let mut counter = self.counter.write();
+impl PyIter for PyEnumerate {
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        let next_obj = iterator::call_next(vm, &zelf.iterator)?;
+        let mut counter = zelf.counter.write();
         let position = counter.clone();
-        AddAssign::add_assign(&mut counter as &mut BigInt, 1);
-        Ok((position, next_obj))
-    }
-
-    #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
-        zelf
+        *counter += 1;
+        Ok((position, next_obj).into_pyobject(vm))
     }
 }
 

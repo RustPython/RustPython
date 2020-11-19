@@ -29,11 +29,11 @@ use crate::builtins::singletons::{PyNone, PyNoneRef, PyNotImplemented, PyNotImpl
 use crate::builtins::slice::PyEllipsis;
 use crate::builtins::staticmethod::PyStaticMethod;
 use crate::builtins::tuple::{PyTuple, PyTupleRef};
-use crate::bytecode;
 pub use crate::common::borrow::BorrowValue;
 use crate::common::lock::{PyRwLock, PyRwLockReadGuard};
 use crate::common::rc::PyRc;
 use crate::common::static_cell;
+use crate::dictdatatype::Dict;
 use crate::exceptions::{self, PyBaseExceptionRef};
 use crate::function::{IntoFuncArgs, IntoPyNativeFunc};
 use crate::iterator;
@@ -103,6 +103,8 @@ pub struct PyContext {
     pub types: TypeZoo,
     pub exceptions: exceptions::ExceptionZoo,
     pub int_cache_pool: Vec<PyIntRef>,
+    // there should only be exact objects of str in here, no non-strs and no subclasses
+    pub(crate) string_cache: Dict<()>,
     tp_new_wrapper: PyObjectRef,
 }
 
@@ -136,6 +138,8 @@ impl PyContext {
             &types.tuple_type,
         );
 
+        let string_cache = Dict::default();
+
         let tp_new_wrapper = create_object(
             PyNativeFuncDef::from(pytype::tp_new_wrapper.into_func()).into_function(),
             &types.builtin_function_or_method_type,
@@ -153,6 +157,7 @@ impl PyContext {
             types,
             exceptions,
             int_cache_pool,
+            string_cache,
             tp_new_wrapper,
         };
         TypeZoo::extend(&context);
@@ -342,12 +347,11 @@ impl PyContext {
         )
     }
 
-    pub fn new_code_object(&self, code: impl code::IntoCodeObject) -> PyCodeRef {
-        PyRef::new_ref(
-            code::PyCode::new(code.into_codeobj(self)),
-            self.types.code_type.clone(),
-            None,
-        )
+    /// Create a new `PyCodeRef` from a `code::CodeObject`. If you have a non-mapped codeobject or
+    /// this is giving you a type error even though you've passed a `CodeObject`, try
+    /// [`vm.new_code_object()`](VirtualMachine::new_code_object) instead.
+    pub fn new_code_object(&self, code: code::CodeObject) -> PyCodeRef {
+        PyRef::new_ref(code::PyCode::new(code), self.types.code_type.clone(), None)
     }
 
     pub fn new_pyfunction(
@@ -379,31 +383,6 @@ impl PyContext {
             payload: object::PyBaseObject,
         }
         .into_ref()
-    }
-
-    pub fn unwrap_constant(&self, constant: bytecode::ConstantData) -> PyObjectRef {
-        match constant {
-            bytecode::ConstantData::Integer { value } => self.new_int(value),
-            bytecode::ConstantData::Float { value } => self.new_float(value),
-            bytecode::ConstantData::Complex { value } => self.new_complex(value),
-            bytecode::ConstantData::Str { value } => self.new_str(value),
-            bytecode::ConstantData::Bytes { value } => self.new_bytes(value),
-            bytecode::ConstantData::Boolean { value } => self.new_bool(value),
-            bytecode::ConstantData::Code { code } => self.new_code_object(*code).into_object(),
-            bytecode::ConstantData::Tuple { elements } => {
-                let elements = elements
-                    .into_iter()
-                    .map(|constant| self.unwrap_constant(constant))
-                    .collect();
-                self.new_tuple(elements)
-            }
-            bytecode::ConstantData::None => self.none(),
-            bytecode::ConstantData::Ellipsis => self.ellipsis(),
-        }
-    }
-
-    pub fn map_codeobj(&self, code: bytecode::CodeObject) -> code::CodeObject {
-        code.map_bag(&code::PyObjBag(self))
     }
 
     pub fn add_tp_new_wrapper(&self, ty: &PyTypeRef) {
@@ -615,8 +594,49 @@ where
     T: PyValue + fmt::Display,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let value: &T = self.obj.payload().expect("unexpected payload for type");
-        fmt::Display::fmt(value, f)
+        fmt::Display::fmt(&**self, f)
+    }
+}
+
+pub struct PyRefExact<T> {
+    obj: PyRef<T>,
+}
+impl<T: PyValue> TryFromObject for PyRefExact<T> {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        let target_cls = T::class(vm);
+        let cls = obj.class();
+        if cls.is(target_cls) {
+            drop(cls);
+            Ok(Self {
+                obj: PyRef::from_obj(obj, vm)?,
+            })
+        } else if cls.issubclass(target_cls) {
+            Err(vm.new_type_error(format!(
+                "Expected an exact instance of '{}', not a subclass '{}'",
+                target_cls.name, cls.name,
+            )))
+        } else {
+            Err(vm.new_type_error(format!(
+                "Expected type '{}', not '{}'",
+                target_cls.name, cls.name,
+            )))
+        }
+    }
+}
+impl<T: PyValue> Deref for PyRefExact<T> {
+    type Target = PyRef<T>;
+    fn deref(&self) -> &PyRef<T> {
+        &self.obj
+    }
+}
+impl<T: PyValue> IntoPyObject for PyRefExact<T> {
+    fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
+        self.obj.into_object()
+    }
+}
+impl<T: PyValue> TryIntoRef<T> for PyRefExact<T> {
+    fn try_into_ref(self, _vm: &VirtualMachine) -> PyResult<PyRef<T>> {
+        Ok(self.obj)
     }
 }
 
@@ -820,25 +840,21 @@ impl fmt::Debug for PyObject<dyn PyObjectPayload> {
 /// PyIterable can optionally perform type checking and conversions on iterated
 /// objects using a generic type parameter that implements `TryFromObject`.
 pub struct PyIterable<T = PyObjectRef> {
-    method: PyObjectRef,
-    _item: std::marker::PhantomData<T>,
+    iterable: PyObjectRef,
+    iterfn: Option<crate::slots::IterFunc>,
+    _item: PhantomData<T>,
 }
 
 impl<T> PyIterable<T> {
-    pub fn from_method(method: PyObjectRef) -> Self {
-        PyIterable {
-            method,
-            _item: std::marker::PhantomData,
-        }
-    }
-
     /// Returns an iterator over this sequence of objects.
     ///
     /// This operation may fail if an exception is raised while invoking the
     /// `__iter__` method of the iterable object.
     pub fn iter<'a>(&self, vm: &'a VirtualMachine) -> PyResult<PyIterator<'a, T>> {
-        let method = &self.method;
-        let iter_obj = vm.invoke(method, ())?;
+        let iter_obj = match self.iterfn {
+            Some(f) => f(self.iterable.clone(), vm)?,
+            None => PySequenceIterator::new_forward(self.iterable.clone()).into_object(vm),
+        };
 
         let length_hint = iterator::length_hint(vm, iter_obj.clone())?;
 
@@ -846,7 +862,7 @@ impl<T> PyIterable<T> {
             vm,
             obj: iter_obj,
             length_hint,
-            _item: std::marker::PhantomData,
+            _item: PhantomData,
         })
     }
 }
@@ -856,23 +872,19 @@ where
     T: TryFromObject,
 {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        if let Some(method_or_err) = vm.get_method(obj.clone(), "__iter__") {
-            let method = method_or_err?;
-            Ok(PyIterable {
-                method,
-                _item: std::marker::PhantomData,
-            })
-        } else {
-            vm.get_method_or_type_error(obj.clone(), "__getitem__", || {
-                format!("'{}' object is not iterable", obj.class().name)
-            })?;
-            Self::try_from_object(
-                vm,
-                PySequenceIterator::new_forward(obj)
-                    .into_ref(vm)
-                    .into_object(),
-            )
+        let iterfn;
+        {
+            let cls = obj.class();
+            iterfn = cls.mro_find_map(|x| x.slots.iter.load());
+            if iterfn.is_none() && !cls.has_attr("__getitem__") {
+                return Err(vm.new_type_error(format!("'{}' object is not iterable", cls.name)));
+            }
         }
+        Ok(PyIterable {
+            iterable: obj,
+            iterfn,
+            _item: PhantomData,
+        })
     }
 }
 
@@ -880,7 +892,7 @@ pub struct PyIterator<'a, T> {
     vm: &'a VirtualMachine,
     obj: PyObjectRef,
     length_hint: Option<usize>,
-    _item: std::marker::PhantomData<T>,
+    _item: PhantomData<T>,
 }
 
 impl<'a, T> Iterator for PyIterator<'a, T>
@@ -890,16 +902,9 @@ where
     type Item = PyResult<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match self.vm.call_method(&self.obj, "__next__", ()) {
-            Ok(value) => Some(T::try_from_object(self.vm, value)),
-            Err(err) => {
-                if err.isinstance(&self.vm.ctx.exceptions.stop_iteration) {
-                    None
-                } else {
-                    Some(Err(err))
-                }
-            }
-        }
+        iterator::get_next_object(self.vm, &self.obj)
+            .transpose()
+            .map(|x| x.and_then(|obj| T::try_from_object(self.vm, obj)))
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -1081,6 +1086,18 @@ impl PyObject<dyn PyObjectPayload> {
     #[inline]
     pub fn payload_is<T: PyObjectPayload>(&self) -> bool {
         self.payload.as_any().is::<T>()
+    }
+
+    #[inline]
+    pub fn payload_if_exact<T: PyObjectPayload + PyValue>(
+        &self,
+        vm: &VirtualMachine,
+    ) -> Option<&T> {
+        if self.class().is(T::class(vm)) {
+            self.payload()
+        } else {
+            None
+        }
     }
 
     #[inline]

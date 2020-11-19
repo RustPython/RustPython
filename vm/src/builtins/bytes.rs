@@ -1,9 +1,6 @@
 use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;
-use rustpython_common::{
-    borrow::{BorrowedValue, BorrowedValueMut},
-    lock::OnceCell,
-};
+use rustpython_common::borrow::{BorrowedValue, BorrowedValueMut};
 use std::mem::size_of;
 use std::ops::Deref;
 
@@ -22,7 +19,7 @@ use crate::pyobject::{
     BorrowValue, Either, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyIterable,
     PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
-use crate::slots::{BufferProtocol, Comparable, Hashable, PyComparisonOp};
+use crate::slots::{BufferProtocol, Comparable, Hashable, Iterable, PyComparisonOp, PyIter};
 use crate::vm::VirtualMachine;
 use crate::{
     anystr::{self, AnyStr},
@@ -44,7 +41,6 @@ use crate::builtins::memory::{Buffer, BufferOptions};
 #[derive(Clone, Debug)]
 pub struct PyBytes {
     inner: PyBytesInner,
-    buffer_options: OnceCell<Box<BufferOptions>>,
 }
 
 pub type PyBytesRef = PyRef<PyBytes>;
@@ -61,17 +57,13 @@ impl From<Vec<u8>> for PyBytes {
     fn from(elements: Vec<u8>) -> Self {
         Self {
             inner: PyBytesInner { elements },
-            buffer_options: OnceCell::new(),
         }
     }
 }
 
 impl From<PyBytesInner> for PyBytes {
     fn from(inner: PyBytesInner) -> Self {
-        Self {
-            inner,
-            buffer_options: OnceCell::new(),
-        }
+        Self { inner }
     }
 }
 
@@ -104,7 +96,7 @@ pub(crate) fn init(context: &PyContext) {
     PyBytesIterator::extend_class(context, &context.types.bytes_iterator_type);
 }
 
-#[pyimpl(flags(BASETYPE), with(Hashable, Comparable, BufferProtocol))]
+#[pyimpl(flags(BASETYPE), with(Hashable, Comparable, BufferProtocol, Iterable))]
 impl PyBytes {
     #[pyslot]
     fn tp_new(
@@ -123,14 +115,6 @@ impl PyBytes {
     #[pymethod(name = "__len__")]
     pub(crate) fn len(&self) -> usize {
         self.inner.len()
-    }
-
-    #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>) -> PyBytesIterator {
-        PyBytesIterator {
-            position: AtomicCell::new(0),
-            bytes: zelf,
-        }
     }
 
     #[pymethod(name = "__sizeof__")]
@@ -499,13 +483,26 @@ impl PyBytes {
 
 impl BufferProtocol for PyBytes {
     fn get_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<Box<dyn Buffer>> {
-        Ok(Box::new(zelf.clone()))
+        let buf = BytesBuffer {
+            bytes: zelf.clone(),
+            options: BufferOptions {
+                len: zelf.len(),
+                ..Default::default()
+            },
+        };
+        Ok(Box::new(buf))
     }
 }
 
-impl Buffer for PyBytesRef {
+#[derive(Debug)]
+struct BytesBuffer {
+    bytes: PyBytesRef,
+    options: BufferOptions,
+}
+
+impl Buffer for BytesBuffer {
     fn obj_bytes(&self) -> BorrowedValue<[u8]> {
-        self.inner.elements.as_slice().into()
+        self.bytes.borrow_value().into()
     }
 
     fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
@@ -514,16 +511,8 @@ impl Buffer for PyBytesRef {
 
     fn release(&self) {}
 
-    fn get_options(&self) -> BorrowedValue<BufferOptions> {
-        self.buffer_options
-            .get_or_init(|| {
-                Box::new(BufferOptions {
-                    len: self.len(),
-                    ..Default::default()
-                })
-            })
-            .as_ref()
-            .into()
+    fn get_options(&self) -> &BufferOptions {
+        &self.options
     }
 }
 
@@ -548,6 +537,16 @@ impl Comparable for PyBytes {
     }
 }
 
+impl Iterable for PyBytes {
+    fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        Ok(PyBytesIterator {
+            position: AtomicCell::new(0),
+            bytes: zelf,
+        }
+        .into_object(vm))
+    }
+}
+
 #[pyclass(module = false, name = "bytes_iterator")]
 #[derive(Debug)]
 pub struct PyBytesIterator {
@@ -561,21 +560,16 @@ impl PyValue for PyBytesIterator {
     }
 }
 
-#[pyimpl]
-impl PyBytesIterator {
-    #[pymethod(name = "__next__")]
-    fn next(&self, vm: &VirtualMachine) -> PyResult<u8> {
-        let pos = self.position.fetch_add(1);
-        if let Some(&ret) = self.bytes.borrow_value().get(pos) {
-            Ok(ret)
+#[pyimpl(with(PyIter))]
+impl PyBytesIterator {}
+impl PyIter for PyBytesIterator {
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        let pos = zelf.position.fetch_add(1);
+        if let Some(&ret) = zelf.bytes.borrow_value().get(pos) {
+            Ok(vm.ctx.new_int(ret))
         } else {
             Err(vm.new_stop_iteration())
         }
-    }
-
-    #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
-        zelf
     }
 }
 

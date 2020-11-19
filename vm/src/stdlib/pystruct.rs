@@ -35,6 +35,7 @@ pub(crate) mod _struct {
         BorrowValue, Either, IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
         TryFromObject,
     };
+    use crate::slots::PyIter;
     use crate::VirtualMachine;
 
     #[derive(Debug, Copy, Clone, PartialEq)]
@@ -832,28 +833,24 @@ pub(crate) mod _struct {
         }
     }
 
-    #[pyimpl]
+    #[pyimpl(with(PyIter))]
     impl UnpackIterator {
-        #[pymethod(magic)]
-        fn next(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
-            let size = self.format_spec.size();
-            let offset = self.offset.fetch_add(size);
-            if offset + size > self.buffer.len() {
-                Err(vm.new_stop_iteration())
-            } else {
-                self.buffer
-                    .with_ref(|buf| self.format_spec.unpack(&buf[offset..offset + size], vm))
-            }
-        }
-
-        #[pymethod(magic)]
-        fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
-            zelf
-        }
-
         #[pymethod(magic)]
         fn length_hint(&self) -> usize {
             self.buffer.len().saturating_sub(self.offset.load()) / self.format_spec.size()
+        }
+    }
+    impl PyIter for UnpackIterator {
+        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+            let size = zelf.format_spec.size();
+            let offset = zelf.offset.fetch_add(size);
+            zelf.buffer.with_ref(|buf| {
+                if let Some(buf) = buf.get(offset..offset + size) {
+                    zelf.format_spec.unpack(buf, vm).map(|x| x.into_object())
+                } else {
+                    Err(vm.new_stop_iteration())
+                }
+            })
         }
     }
 

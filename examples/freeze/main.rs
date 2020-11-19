@@ -15,8 +15,7 @@ fn run(vm: &vm::VirtualMachine) -> vm::pyobject::PyResult<()> {
         vm::py_freeze!(file = "examples/freeze/freeze.py");
 
     let res = vm.run_code_obj(
-        vm.ctx
-            .new_code_object(modules.get("frozen").unwrap().code.clone()),
+        vm.new_code_object(modules.get("frozen").unwrap().code.clone()),
         scope,
     );
 

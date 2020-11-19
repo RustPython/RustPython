@@ -8,7 +8,7 @@ mod _collections {
     use crate::pyobject::{
         PyComparisonValue, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
     };
-    use crate::slots::{Comparable, PyComparisonOp};
+    use crate::slots::{Comparable, Iterable, PyComparisonOp, PyIter};
     use crate::vm::ReprGuard;
     use crate::VirtualMachine;
     use crate::{sequence, sliceable};
@@ -66,7 +66,7 @@ mod _collections {
         }
     }
 
-    #[pyimpl(flags(BASETYPE), with(Comparable))]
+    #[pyimpl(flags(BASETYPE), with(Comparable, Iterable))]
     impl PyDeque {
         #[pyslot]
         fn tp_new(
@@ -323,14 +323,6 @@ mod _collections {
         fn len(&self) -> usize {
             self.borrow_deque().len()
         }
-
-        #[pymethod(magic)]
-        fn iter(zelf: PyRef<Self>) -> PyDequeIterator {
-            PyDequeIterator {
-                position: AtomicCell::new(0),
-                deque: zelf,
-            }
-        }
     }
 
     impl Comparable for PyDeque {
@@ -350,6 +342,16 @@ mod _collections {
         }
     }
 
+    impl Iterable for PyDeque {
+        fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+            Ok(PyDequeIterator {
+                position: AtomicCell::new(0),
+                deque: zelf,
+            }
+            .into_object(vm))
+        }
+    }
+
     #[pyattr]
     #[pyclass(name = "_deque_iterator")]
     #[derive(Debug)]
@@ -364,23 +366,19 @@ mod _collections {
         }
     }
 
-    #[pyimpl]
-    impl PyDequeIterator {
-        #[pymethod(magic)]
-        fn next(&self, vm: &VirtualMachine) -> PyResult {
-            let pos = self.position.fetch_add(1);
-            let deque = self.deque.borrow_deque();
+    #[pyimpl(with(PyIter))]
+    impl PyDequeIterator {}
+
+    impl PyIter for PyDequeIterator {
+        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+            let pos = zelf.position.fetch_add(1);
+            let deque = zelf.deque.borrow_deque();
             if pos < deque.len() {
                 let ret = deque[pos].clone();
                 Ok(ret)
             } else {
                 Err(vm.new_stop_iteration())
             }
-        }
-
-        #[pymethod(magic)]
-        fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
-            zelf
         }
     }
 }

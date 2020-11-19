@@ -8,7 +8,7 @@ use crate::builtins::slice::PySliceRef;
 use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
 use crate::common::lock::{
     PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyRwLock, PyRwLockReadGuard,
-    PyRwLockUpgradableReadGuard, PyRwLockWriteGuard,
+    PyRwLockWriteGuard,
 };
 use crate::function::OptionalArg;
 use crate::pyobject::{
@@ -16,7 +16,7 @@ use crate::pyobject::{
     PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
 };
 use crate::sliceable::{saturate_index, PySliceableSequence, PySliceableSequenceMut};
-use crate::slots::{BufferProtocol, Comparable, PyComparisonOp};
+use crate::slots::{BufferProtocol, Comparable, Iterable, PyComparisonOp, PyIter};
 use crate::VirtualMachine;
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
@@ -467,7 +467,6 @@ fn f64_try_into_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<f
 pub struct PyArray {
     array: PyRwLock<ArrayContentType>,
     exports: AtomicCell<usize>,
-    buffer_options: PyRwLock<Option<Box<BufferOptions>>>,
 }
 
 pub type PyArrayRef = PyRef<PyArray>;
@@ -483,12 +482,11 @@ impl From<ArrayContentType> for PyArray {
         PyArray {
             array: PyRwLock::new(array),
             exports: AtomicCell::new(0),
-            buffer_options: PyRwLock::new(None),
         }
     }
 }
 
-#[pyimpl(flags(BASETYPE), with(Comparable, BufferProtocol))]
+#[pyimpl(flags(BASETYPE), with(Comparable, BufferProtocol, Iterable))]
 impl PyArray {
     fn borrow_value(&self) -> PyRwLockReadGuard<'_, ArrayContentType> {
         self.array.read()
@@ -768,14 +766,6 @@ impl PyArray {
         self.borrow_value().len()
     }
 
-    #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>) -> PyArrayIter {
-        PyArrayIter {
-            position: AtomicCell::new(0),
-            array: zelf,
-        }
-    }
-
     fn array_eq(&self, other: &Self, vm: &VirtualMachine) -> PyResult<bool> {
         // we cannot use zelf.is(other) for shortcut because if we contenting a
         // float value NaN we always return False even they are the same object.
@@ -852,43 +842,52 @@ impl Comparable for PyArray {
 impl BufferProtocol for PyArray {
     fn get_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<Box<dyn Buffer>> {
         zelf.exports.fetch_add(1);
-        Ok(Box::new(zelf.clone()))
-    }
-}
-
-impl Buffer for PyArrayRef {
-    fn obj_bytes(&self) -> BorrowedValue<[u8]> {
-        self.get_bytes().into()
-    }
-
-    fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
-        self.get_bytes_mut().into()
-    }
-
-    fn release(&self) {
-        let mut w = self.buffer_options.write();
-        if self.exports.fetch_sub(1) == 1 {
-            *w = None;
-        }
-    }
-
-    fn get_options(&self) -> BorrowedValue<BufferOptions> {
-        let guard = self.buffer_options.upgradable_read();
-        let guard = if guard.is_none() {
-            let mut w = PyRwLockUpgradableReadGuard::upgrade(guard);
-            let array = &*self.borrow_value();
-            *w = Some(Box::new(BufferOptions {
+        let array = zelf.borrow_value();
+        let buf = ArrayBuffer {
+            array: zelf.clone(),
+            options: BufferOptions {
                 readonly: false,
                 len: array.len(),
                 itemsize: array.itemsize(),
                 format: array.typecode_str().into(),
                 ..Default::default()
-            }));
-            PyRwLockWriteGuard::downgrade(w)
-        } else {
-            PyRwLockUpgradableReadGuard::downgrade(guard)
+            },
         };
-        PyRwLockReadGuard::map(guard, |x| x.as_ref().unwrap().as_ref()).into()
+        Ok(Box::new(buf))
+    }
+}
+
+#[derive(Debug)]
+struct ArrayBuffer {
+    array: PyArrayRef,
+    options: BufferOptions,
+}
+
+impl Buffer for ArrayBuffer {
+    fn obj_bytes(&self) -> BorrowedValue<[u8]> {
+        self.array.get_bytes().into()
+    }
+
+    fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
+        self.array.get_bytes_mut().into()
+    }
+
+    fn release(&self) {
+        self.array.exports.fetch_sub(1);
+    }
+
+    fn get_options(&self) -> &BufferOptions {
+        &self.options
+    }
+}
+
+impl Iterable for PyArray {
+    fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        Ok(PyArrayIter {
+            position: AtomicCell::new(0),
+            array: zelf,
+        }
+        .into_object(vm))
     }
 }
 
@@ -919,21 +918,17 @@ impl PyValue for PyArrayIter {
     }
 }
 
-#[pyimpl]
-impl PyArrayIter {
-    #[pymethod(name = "__next__")]
-    fn next(&self, vm: &VirtualMachine) -> PyResult {
-        let pos = self.position.fetch_add(1);
-        if let Some(item) = self.array.borrow_value().getitem_by_idx(pos, vm) {
+#[pyimpl(with(PyIter))]
+impl PyArrayIter {}
+
+impl PyIter for PyArrayIter {
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        let pos = zelf.position.fetch_add(1);
+        if let Some(item) = zelf.array.borrow_value().getitem_by_idx(pos, vm) {
             Ok(item)
         } else {
             Err(vm.new_stop_iteration())
         }
-    }
-
-    #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
-        zelf
     }
 }
 

@@ -2044,8 +2044,6 @@ class _BasePathTest(object):
             pp = pickle.loads(dumped)
             self.assertEqual(pp.stat(), p.stat())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_parts_interning(self):
         P = self.cls
         p = P('/usr/bin/foo')

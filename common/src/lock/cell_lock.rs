@@ -93,7 +93,7 @@ unsafe impl RawRwLock for RawCellRwLock {
     #[inline]
     fn lock_exclusive(&self) {
         if !self.try_lock_exclusive() {
-            deadlock("exclusively", "RwLock")
+            deadlock("exclusively ", "RwLock")
         }
         self.state.set(WRITER_BIT)
     }
@@ -126,7 +126,7 @@ unsafe impl RawRwLockDowngrade for RawCellRwLock {
 unsafe impl RawRwLockUpgrade for RawCellRwLock {
     #[inline]
     fn lock_upgradable(&self) {
-        if self.try_lock_upgradable() {
+        if !self.try_lock_upgradable() {
             deadlock("upgradably+sharedly ", "RwLock")
         }
     }
@@ -176,7 +176,7 @@ unsafe impl RawRwLockRecursive for RawCellRwLock {
     #[inline]
     fn lock_shared_recursive(&self) {
         if !self.try_lock_shared_recursive() {
-            deadlock("recursively+sharedly", "RwLock")
+            deadlock("recursively+sharedly ", "RwLock")
         }
     }
 

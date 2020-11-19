@@ -1,6 +1,6 @@
 use rustpython_vm::builtins::PyStrRef;
 use rustpython_vm::pyobject::{BorrowValue, PyIterable, PyResult, TryFromObject};
-use rustpython_vm::scope::{NameProtocol, Scope};
+use rustpython_vm::scope::Scope;
 use rustpython_vm::VirtualMachine;
 
 pub struct ShellHelper<'vm> {
@@ -74,7 +74,7 @@ impl<'vm> ShellHelper<'vm> {
             // last: the last word, could be empty if it ends with a dot
             // parents: the words before the dot
 
-            let mut current = self.scope.load_global(self.vm, first)?;
+            let mut current = self.scope.load_global(self.vm, first.as_str())?;
 
             for attr in parents {
                 current = self.vm.get_attribute(current.clone(), attr.as_str()).ok()?;
