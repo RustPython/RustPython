@@ -140,7 +140,11 @@ pub fn format_exponent(precision: usize, magnitude: f64, case: Case) -> String {
 pub fn format_general(precision: usize, magnitude: f64, case: Case) -> String {
     match magnitude {
         magnitude if magnitude.is_finite() => {
-            let r_exp = format!("{:.*e}", precision - 1, magnitude);
+            let prec = match precision {
+                0 => 0,
+                _ => precision - 1,
+            };
+            let r_exp = format!("{:.*e}", prec, magnitude);
             let mut parts = r_exp.splitn(2, 'e');
             let base = parts.next().unwrap();
             let exponent = parts.next().unwrap().parse::<i64>().unwrap();
