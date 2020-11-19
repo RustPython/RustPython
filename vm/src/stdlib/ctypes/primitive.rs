@@ -72,9 +72,9 @@ impl PySimpleType {
     }
 
     #[pymethod(name = "__init__")]
-    fn init(&self, value: Option<PyObjectRc>, vm: &VirtualMachine) -> PyResult<()> {
+    pub fn init(&self, value: Option<PyObjectRc>, vm: &VirtualMachine) -> PyResult<()> {
         let content = if let Some(ref v) = value {
-            // @TODO: Needs to check if value has a simple payload
+            // @TODO: Needs to check if value has a simple (rust native) payload
             Some(v.clone())
         } else {
             Some(vm.ctx.none())
@@ -83,4 +83,32 @@ impl PySimpleType {
         self.value.store(content);
         Ok(())
     }
+
+    #[pymethod]
+    pub fn __ctypes_from_outparam__() {}
+
+    #[pymethod]
+    pub fn from_param() {}
+
+    #[pymethod]
+    pub fn from_address() {}
+
+    #[pymethod]
+    pub fn from_buffer() {}
+
+    #[pymethod]
+    pub fn from_buffer_copy() {}
+
+    #[pymethod]
+    pub fn in_dll() {}
+
+    // #[pymethod(name = "__repr__")]
+    // fn repr(&self) -> String {
+    //     // "%s(%s)" % (self.__class__.__name__, self.value)
+    // }
+
+    // #[pymethod(name = "__bool__")]
+    // fn bool(&self) -> bool {
+    //
+    // }
 }
