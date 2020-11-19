@@ -2,7 +2,7 @@ extern crate lazy_static;
 extern crate libffi;
 extern crate libloading;
 
-use ::std::{collections::HashMap, mem, os::raw::*, ptr};
+use ::std::{collections::HashMap, os::raw::*, ptr};
 
 use libffi::low::{
     call as ffi_call, ffi_abi_FFI_DEFAULT_ABI as ABI, ffi_cif, ffi_type, prep_cif, CodePtr,
@@ -14,12 +14,8 @@ use num_bigint::BigInt;
 
 use crate::builtins::PyTypeRef;
 use crate::common::lock::PyRwLock;
-use crate::pyobject::{
-    PyObjectRc, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject,
-};
+use crate::pyobject::{PyObjectRc, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject};
 use crate::VirtualMachine;
-
-pub const SIMPLE_TYPE_CHARS: &str = "cbBhHiIlLdfuzZqQP?g";
 
 macro_rules! ffi_type {
     ($name: ident) => {
@@ -57,12 +53,12 @@ macro_rules! match_ffi_type {
                     t if t == $type => { ffi_type!($body) }
                 )+
             )+
-            _ => ffi_type!(void)
+            _ => unreachable!()
         }
     }
 }
 
-fn str_to_type(ty: &str) -> *mut ffi_type {
+pub fn str_to_type(ty: &str) -> *mut ffi_type {
     match_ffi_type!(
         ty,
         "c" => c_schar
@@ -91,7 +87,6 @@ fn py_to_ffi(ty: *mut *mut ffi_type, obj: PyObjectRef, vm: &VirtualMachine) -> *
         c_schar => {
             let mut r = i8::try_from_object(vm, obj).unwrap();
             &mut r as *mut _ as *mut c_void
-
         }
         c_int => {
             let mut r = i32::try_from_object(vm, obj).unwrap();
@@ -145,7 +140,6 @@ pub struct Function {
     cif: ffi_cif,
     arguments: Vec<*mut ffi_type>,
     return_type: Box<*mut ffi_type>,
-    // @TODO: Do we need to free the memory of these ffi_type?
 }
 
 impl Function {
@@ -165,7 +159,8 @@ impl Function {
     }
 
     pub fn set_ret(&mut self, ret: &str) {
-        mem::replace(self.return_type.as_mut(), str_to_type(ret));
+        (*self.return_type.as_mut()) = str_to_type(ret);
+        // mem::replace(self.return_type.as_mut(), str_to_type(ret));
     }
 
     pub fn call(
@@ -354,27 +349,6 @@ impl ExternalLibs {
 
         Ok(self.libraries.get(&library_path.to_string()).unwrap())
     }
-}
-
-#[pyclass(module = false, name = "_CDataObject")]
-#[derive(Debug)]
-pub struct CDataObject {}
-
-impl PyValue for CDataObject {
-    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
-    }
-}
-
-#[pyimpl(flags(BASETYPE))]
-impl CDataObject {
-    #[pyslot]
-    fn tp_new(cls: PyTypeRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        CDataObject {}.into_ref_with_type(vm, cls)
-    }
-    // A lot of the logic goes in this trait
-    // There's also other traits that should have different implementations for some functions
-    // present here
 }
 
 lazy_static::lazy_static! {

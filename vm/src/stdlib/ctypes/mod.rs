@@ -8,7 +8,6 @@ mod dll;
 mod function;
 mod primitive;
 
-use crate::stdlib::ctypes::basics::*;
 use crate::stdlib::ctypes::dll::*;
 use crate::stdlib::ctypes::function::*;
 use crate::stdlib::ctypes::primitive::*;
@@ -22,7 +21,6 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "dlclose" => ctx.new_function(dlclose),
 
         "CFuncPtr" => PyCFuncPtr::make_class(ctx),
-        "_CData" => PyCData::make_class(ctx),
         "_SimpleCData" => PySimpleType::make_class(ctx)
     })
 }
