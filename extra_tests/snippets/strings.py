@@ -288,6 +288,16 @@ assert '%G' % float('nan') == 'NAN'
 assert '%g' % float('inf') == 'inf'
 assert '%g' % float('-inf') == '-inf'
 assert '%G' % float('inf') == 'INF'
+assert "%.0g" % 1.020e-13 == '1e-13'
+assert "%.0g" % 1.020e-13 == '1e-13'
+assert "%.1g" % 1.020e-13 == '1e-13'
+assert "%.2g" % 1.020e-13 == '1e-13'
+assert "%.3g" % 1.020e-13 == '1.02e-13'
+assert "%.4g" % 1.020e-13 == '1.02e-13'
+assert "%.5g" % 1.020e-13 == '1.02e-13'
+assert "%.6g" % 1.020e-13 == '1.02e-13'
+assert "%.7g" % 1.020e-13 == '1.02e-13'
+assert "%g" % 1.020e-13 == '1.02e-13'
 
 assert_raises(TypeError, lambda: "My name is %s and I'm %(age)d years old" % ("Foo", 25), _msg='format requires a mapping')
 assert_raises(TypeError, lambda: "My name is %(name)s" % "Foo", _msg='format requires a mapping')
