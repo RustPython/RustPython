@@ -137,6 +137,15 @@ pub fn format_exponent(precision: usize, magnitude: f64, case: Case) -> String {
     }
 }
 
+fn remove_trailing_zeros(s: String) -> String {
+    let mut s = s;
+    while s.ends_with('0') || s.ends_with('.') {
+        s.truncate(s.len() - 1);
+    }
+
+    s
+}
+
 pub fn format_general(precision: usize, magnitude: f64, case: Case) -> String {
     match magnitude {
         magnitude if magnitude.is_finite() => {
@@ -154,15 +163,12 @@ pub fn format_general(precision: usize, magnitude: f64, case: Case) -> String {
                     Case::Upper => 'E',
                 };
 
-                let mut base = format!("{:.*}", precision + 1, base);
-                while base.ends_with('0') || base.ends_with('.') {
-                    base.truncate(base.len() - 1);
-                }
+                let base = remove_trailing_zeros(format!("{:.*}", precision + 1, base));
                 format!("{}{}{:+#03}", base, e, exponent)
             } else {
                 let precision = (precision as i64) - 1 - exponent;
                 let precision = precision as usize;
-                format!("{:.*}", precision, magnitude)
+                remove_trailing_zeros(format!("{:.*}", precision, magnitude))
             }
         }
         magnitude if magnitude.is_nan() => format_nan(case),
