@@ -37,7 +37,7 @@ use crate::dictdatatype::Dict;
 use crate::exceptions::{self, PyBaseExceptionRef};
 use crate::function::{IntoFuncArgs, IntoPyNativeFunc};
 use crate::iterator;
-pub use crate::pyobjectrc::{PyObjectRef, PyObjectWeak, PyRef, PyWeakRef};
+pub use crate::pyobjectrc::{PyObject, PyObjectRef, PyObjectWeak, PyRef, PyWeakRef};
 use crate::scope::Scope;
 use crate::slots::{PyTpFlags, PyTypeSlots};
 use crate::types::{create_type_with_slots, TypeZoo};
@@ -371,12 +371,7 @@ impl PyContext {
     }
 
     pub fn new_base_object(&self, class: PyTypeRef, dict: Option<PyDictRef>) -> PyObjectRef {
-        PyObject {
-            typ: PyRwLock::new(class),
-            dict: dict.map(PyRwLock::new),
-            payload: object::PyBaseObject,
-        }
-        .into_ref()
+        PyObject::new(object::PyBaseObject, class, dict)
     }
 
     pub fn add_tp_new_wrapper(&self, ty: &PyTypeRef) {
@@ -397,19 +392,6 @@ impl Default for PyContext {
     fn default() -> Self {
         PyContext::new()
     }
-}
-
-/// This is an actual python object. It consists of a `typ` which is the
-/// python class, and carries some rust payload optionally. This rust
-/// payload can be a rust float or rust int in case of float and int objects.
-#[repr(C)]
-pub struct PyObject<T>
-where
-    T: ?Sized,
-{
-    pub(crate) typ: PyRwLock<PyTypeRef>,          // __class__ member
-    pub(crate) dict: Option<PyRwLock<PyDictRef>>, // __dict__ member
-    pub payload: T,
 }
 
 impl<T> TryFromObject for PyRef<T>
@@ -628,10 +610,10 @@ pub trait TypeProtocol {
     }
 }
 
-impl<T> TypeProtocol for PyObject<T> {
+impl TypeProtocol for PyObjectRef {
     fn class(&self) -> PyLease<'_, PyType> {
         PyLease {
-            inner: self.typ.read(),
+            inner: self.class_lock().read(),
         }
     }
 }
@@ -673,12 +655,6 @@ where
 
     fn del_item(&self, key: T, vm: &VirtualMachine) -> PyResult {
         vm.call_method(self, "__delitem__", (key,))
-    }
-}
-
-impl<T: fmt::Debug> fmt::Debug for PyObject<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "[PyObj {:?}]", &self.payload)
     }
 }
 
@@ -879,43 +855,6 @@ where
 {
     fn into_pyresult(self, vm: &VirtualMachine) -> PyResult {
         self.map(|res| T::into_pyobject(res, vm))
-    }
-}
-
-impl<T> PyObject<T>
-where
-    T: Sized + PyObjectPayload,
-{
-    #[allow(clippy::new_ret_no_self)]
-    pub fn new(payload: T, typ: PyTypeRef, dict: Option<PyDictRef>) -> PyObjectRef {
-        PyObject {
-            typ: PyRwLock::new(typ),
-            dict: dict.map(PyRwLock::new),
-            payload,
-        }
-        .into_ref()
-    }
-
-    // Move this object into a reference object, transferring ownership.
-    pub fn into_ref(self) -> PyObjectRef {
-        PyObjectRef::new(self)
-    }
-}
-
-impl<T> PyObject<T> {
-    pub fn dict(&self) -> Option<PyDictRef> {
-        self.dict.as_ref().map(|mu| mu.read().clone())
-    }
-    /// Set the dict field. Returns `Err(dict)` if this object does not have a dict field
-    /// in the first place.
-    pub fn set_dict(&self, dict: PyDictRef) -> Result<(), PyDictRef> {
-        match self.dict {
-            Some(ref mu) => {
-                *mu.write() = dict;
-                Ok(())
-            }
-            None => Err(dict),
-        }
     }
 }
 
