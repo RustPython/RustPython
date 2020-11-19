@@ -298,6 +298,7 @@ assert "%.5g" % 1.020e-13 == '1.02e-13'
 assert "%.6g" % 1.020e-13 == '1.02e-13'
 assert "%.7g" % 1.020e-13 == '1.02e-13'
 assert "%g" % 1.020e-13 == '1.02e-13'
+assert "%g" % 1.020e-4 == '0.000102'
 
 assert_raises(TypeError, lambda: "My name is %s and I'm %(age)d years old" % ("Foo", 25), _msg='format requires a mapping')
 assert_raises(TypeError, lambda: "My name is %(name)s" % "Foo", _msg='format requires a mapping')
@@ -594,6 +595,17 @@ assert '{:G}'.format(float('nan')) == 'NAN'
 assert '{:g}'.format(float('inf')) == 'inf'
 assert '{:g}'.format(float('-inf')) == '-inf'
 assert '{:G}'.format(float('inf')) == 'INF'
+assert '{:.0g}'.format(1.020e-13) == '1e-13'
+assert '{:.0g}'.format(1.020e-13) == '1e-13'
+assert '{:.1g}'.format(1.020e-13) == '1e-13'
+assert '{:.2g}'.format(1.020e-13) == '1e-13'
+assert '{:.3g}'.format(1.020e-13) == '1.02e-13'
+assert '{:.4g}'.format(1.020e-13) == '1.02e-13'
+assert '{:.5g}'.format(1.020e-13) == '1.02e-13'
+assert '{:.6g}'.format(1.020e-13) == '1.02e-13'
+assert '{:.7g}'.format(1.020e-13) == '1.02e-13'
+assert '{:g}'.format(1.020e-13) == '1.02e-13'
+assert "{:g}".format(1.020e-4) == '0.000102'
 
 # remove*fix test
 def test_removeprefix():
