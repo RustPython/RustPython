@@ -369,16 +369,22 @@ impl FormatSpec {
             Some(FormatType::Number) => {
                 Err("Format code 'n' for object of type 'float' not implemented yet")
             }
-            Some(FormatType::GeneralFormatUpper) => Ok(float_ops::format_general(
-                precision,
-                magnitude,
-                float_ops::Case::Upper,
-            )),
-            Some(FormatType::GeneralFormatLower) => Ok(float_ops::format_general(
-                precision,
-                magnitude,
-                float_ops::Case::Lower,
-            )),
+            Some(FormatType::GeneralFormatUpper) => {
+                let precision = if precision == 0 { 1 } else { precision };
+                Ok(float_ops::format_general(
+                    precision,
+                    magnitude,
+                    float_ops::Case::Upper,
+                ))
+            }
+            Some(FormatType::GeneralFormatLower) => {
+                let precision = if precision == 0 { 1 } else { precision };
+                Ok(float_ops::format_general(
+                    precision,
+                    magnitude,
+                    float_ops::Case::Lower,
+                ))
+            }
             Some(FormatType::ExponentUpper) => Ok(float_ops::format_exponent(
                 precision,
                 magnitude,
