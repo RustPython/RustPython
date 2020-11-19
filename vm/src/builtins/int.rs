@@ -425,13 +425,17 @@ impl PyInt {
                 if modulus.is_zero() {
                     return Err(vm.new_value_error("pow() 3rd argument cannot be 0".to_owned()));
                 }
-                self.general_op(other, |a, b| {
-                    if b.is_negative() {
-                        Err(vm.new_value_error("modular inverses not supported".to_owned()))
-                    } else {
-                        Ok(vm.ctx.new_int(a.modpow(b, modulus)))
-                    }
-                }, vm)
+                self.general_op(
+                    other,
+                    |a, b| {
+                        if b.is_negative() {
+                            Err(vm.new_value_error("modular inverses not supported".to_owned()))
+                        } else {
+                            Ok(vm.ctx.new_int(a.modpow(b, modulus)))
+                        }
+                    },
+                    vm,
+                )
             }
             None => self.general_op(other, |a, b| inner_pow(a, b, vm), vm),
         }
