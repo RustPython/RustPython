@@ -140,7 +140,7 @@ pub fn format_exponent(precision: usize, magnitude: f64, case: Case) -> String {
 pub fn format_general(precision: usize, magnitude: f64, case: Case) -> String {
     match magnitude {
         magnitude if magnitude.is_finite() => {
-            let r_exp = format!("{:.*e}", precision, magnitude);
+            let r_exp = format!("{:.*e}", precision - 1, magnitude);
             let mut parts = r_exp.splitn(2, 'e');
             let base = parts.next().unwrap();
             let exponent = parts.next().unwrap().parse::<i64>().unwrap();
@@ -149,9 +149,16 @@ pub fn format_general(precision: usize, magnitude: f64, case: Case) -> String {
                     Case::Lower => 'e',
                     Case::Upper => 'E',
                 };
+
+                let mut base = format!("{:.*}", precision + 1, base);
+                while base.ends_with('0') || base.ends_with('.') {
+                    base.truncate(base.len() - 1);
+                }
                 format!("{}{}{:+#03}", base, e, exponent)
             } else {
-                format!("{}", magnitude)
+                let precision = (precision as i64) - 1 - exponent;
+                let precision = precision as usize;
+                format!("{:.*}", precision, magnitude)
             }
         }
         magnitude if magnitude.is_nan() => format_nan(case),
