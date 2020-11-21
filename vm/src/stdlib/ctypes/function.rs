@@ -22,7 +22,7 @@ use crate::pyobject::{
 use crate::VirtualMachine;
 
 use crate::stdlib::ctypes::basics::PyCData;
-use crate::stdlib::ctypes::common::SharedLibrary;
+use crate::stdlib::ctypes::shared_lib::SharedLibrary;
 
 use crate::slots::Callable;
 use crate::stdlib::ctypes::dll::dlsym;

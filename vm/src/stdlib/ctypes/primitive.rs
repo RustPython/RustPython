@@ -84,27 +84,17 @@ impl PySimpleType {
         Ok(())
     }
 
-    #[pymethod]
-    pub fn __ctypes_from_outparam__() {}
+    // From Simple_Type Simple_methods
+    #[pymethod(name = "__ctypes_from_outparam__")]
+    pub fn ctypes_from_outparam(&self) {}
 
-    #[pymethod]
-    pub fn from_param() {}
-
-    #[pymethod]
-    pub fn from_address() {}
-
-    #[pymethod]
-    pub fn from_buffer() {}
-
-    #[pymethod]
-    pub fn from_buffer_copy() {}
-
-    #[pymethod]
-    pub fn in_dll() {}
+    // From PyCSimpleType_Type PyCSimpleType_methods
+    #[pyclassmethod]
+    pub fn from_param(cls: PyTypeRef, vm: &VirtualMachine) {}
 
     // #[pymethod(name = "__repr__")]
     // fn repr(&self) -> String {
-    //     // "%s(%s)" % (self.__class__.__name__, self.value)
+    //     format!("{}({})",self.class().name, self.value.to_string())
     // }
 
     // #[pymethod(name = "__bool__")]

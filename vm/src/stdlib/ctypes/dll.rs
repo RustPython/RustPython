@@ -5,7 +5,7 @@ use crate::builtins::PyInt;
 use crate::pyobject::{PyObjectRc, PyObjectRef, PyResult};
 use crate::VirtualMachine;
 
-use crate::stdlib::ctypes::common::{SharedLibrary, CDATACACHE};
+use crate::stdlib::ctypes::shared_lib::{SharedLibrary, LIBCACHE};
 
 pub fn dlopen(lib_path: PyObjectRc, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
     // Match this error first
@@ -14,7 +14,7 @@ pub fn dlopen(lib_path: PyObjectRc, vm: &VirtualMachine) -> PyResult<PyObjectRef
         Err(e) => Err(e),
     }?;
 
-    let mut data_cache = CDATACACHE.write();
+    let mut data_cache = LIBCACHE.write();
 
     let result = data_cache.get_or_insert_lib(lib_str_path.as_ref(), vm);
 

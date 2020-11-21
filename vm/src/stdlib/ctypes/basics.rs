@@ -1,14 +1,72 @@
+use crate::builtins::int::PyInt;
+use crate::builtins::memory::Buffer;
+use crate::builtins::pystr::PyStrRef;
 use crate::builtins::PyTypeRef;
-use crate::pyobject::{PyObjectRc, PyRef, PyResult, PyValue, StaticType};
+use crate::function::OptionalArg;
+use crate::pyobject::{
+    PyObjectRc, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject,
+};
+use crate::slots::BufferProtocol;
 use crate::VirtualMachine;
 
-use crate::stdlib::ctypes::common::PyCData_as_buffer;
+#[pyimpl]
+pub trait PyCDataMethods: PyValue {
+    // A lot of the logic goes in this trait
+    // There's also other traits that should have different implementations for some functions
+    // present here
 
-// This class is the equivalent of PyCData_Type on tp_base for
+    // The default methods (representing CDataType_methods) here are for:
+    // StructType_Type
+    // UnionType_Type
+    // PyCArrayType_Type
+    // PyCFuncPtrType_Type
+
+    #[pyclassmethod]
+    fn from_param(cls: PyTypeRef, value: PyObjectRef, vm: &VirtualMachine)
+        -> PyResult<PyRef<Self>>;
+
+    #[pyclassmethod]
+    fn from_address(
+        cls: PyTypeRef,
+        address: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<Self>>;
+
+    #[pyclassmethod]
+    fn from_buffer(
+        cls: PyTypeRef,
+        obj: PyObjectRef,
+        offset: OptionalArg,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<Self>>;
+
+    #[pyclassmethod]
+    fn from_buffer_copy(
+        cls: PyTypeRef,
+        obj: PyObjectRef,
+        offset: OptionalArg,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<Self>>;
+
+    #[pyclassmethod]
+    fn in_dll(
+        cls: PyTypeRef,
+        dll: PyObjectRef,
+        name: PyStrRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<Self>>;
+}
+
+// This trait will be used by all types
+pub trait PyCDataBuffer: BufferProtocol {
+    // @TODO: Translate PyCData_NewGetBuffer
+    fn get_buffer(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<Box<dyn Buffer>>;
+}
+
+// This Trait is the equivalent of PyCData_Type on tp_base for
 // Struct_Type, Union_Type, PyCPointer_Type
 // PyCArray_Type, PyCSimple_Type, PyCFuncPtr_Type
-
-#[pyclass(module = false, name = "_CData")]
+#[pyclass(module = "ctypes", name = "_CData")]
 #[derive(Debug)]
 pub struct PyCData {
     _objects: Vec<PyObjectRc>,
@@ -24,60 +82,50 @@ impl PyValue for PyCData {
 impl PyCData {
     // Methods here represent PyCData_methods
 
-    #[pymethod]
-    pub fn __ctypes_from_outparam__() {}
+    #[pymethod(name = "__ctypes_from_outparam__")]
+    pub fn ctypes_from_outparam(&self) {}
 
-    #[pymethod]
-    pub fn __reduce__() {}
+    #[pymethod(name = "__reduce__")]
+    pub fn reduce(&self) {}
 
-    #[pymethod]
-    pub fn __setstate__() {}
+    #[pymethod(name = "__setstate__")]
+    pub fn setstate(&self) {}
+
+    // CDataType_as_sequence methods are default for all types implementing PyCDataMethods
+    // Basically the sq_repeat slot is CDataType_repeat
+    // which transforms into a Array
+
+    // #[pymethod(name = "__mul__")]
+    // fn mul(&self, counter: isize, vm: &VirtualMachine) -> PyObjectRef {
+    // }
+
+    // #[pymethod(name = "__rmul__")]
+    // fn rmul(&self, counter: isize, vm: &VirtualMachine) -> PyObjectRef {
+    //     self.mul(counter, &vm)
+    // }
 }
 
 // #[pyimpl]
-// impl PyCData_as_buffer for PyCData {
+// impl PyCDataBuffer for PyCData {
 
 // }
 
-// This class has no attributes and we care about it's methods
-#[pyclass(module = false, name = "_CDataMeta")]
-#[derive(Debug)]
-pub struct PyCDataMeta;
+// #[pyimpl]
+// impl PyCDataMethods for PyCData {
+//     #[pyclassmethod]
+//     fn from_address(
+//         cls: PyTypeRef,
+//         address: PyObjectRef,
+//         vm: &VirtualMachine
+//     ) -> PyResult<PyRef<Self>> {
+//         if let Ok(obj) = address.downcast_exact::<PyInt>(vm) {
+//             if let Ok(v) = usize::try_from_object(vm, obj.into_object()) {
 
-impl PyValue for PyCDataMeta {
-    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_baseclass()
-    }
-}
-
-#[pyimpl]
-impl PyCDataMeta {
-    // A lot of the logic goes in this trait
-    // There's also other traits that should have different implementations for some functions
-    // present here
-
-    // The default methods (representing CDataType_methods) here are for:
-    // StructType_Type
-    // UnionType_Type
-    // PyCArrayType_Type
-    // PyCFuncPtrType_Type
-
-    #[pymethod]
-    pub fn from_param() {}
-
-    #[pymethod]
-    pub fn from_address() {}
-
-    #[pymethod]
-    pub fn from_buffer() {}
-
-    #[pymethod]
-    pub fn from_buffer_copy() {}
-
-    #[pymethod]
-    pub fn in_dll() {}
-}
-
-// CDataType_as_sequence methods are default for all types inherinting from PyCDataMeta
-// Basically the sq_repeat slot is CDataType_repeat
-// which transforms into a Array
+//             } else {
+//                 Err(vm.new_runtime_error("casting pointer failed".to_string()))
+//             }
+//         } else {
+//             Err(vm.new_type_error("integer expected".to_string()))
+//         }
+//     }
+// }

@@ -3,10 +3,10 @@ use crate::pyobject::PyObjectRef;
 use crate::VirtualMachine;
 
 mod basics;
-mod common;
 mod dll;
 mod function;
 mod primitive;
+mod shared_lib;
 
 use crate::stdlib::ctypes::dll::*;
 use crate::stdlib::ctypes::function::*;

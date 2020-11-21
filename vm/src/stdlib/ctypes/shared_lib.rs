@@ -2,26 +2,33 @@ extern crate lazy_static;
 extern crate libffi;
 extern crate libloading;
 
-use ::std::{collections::HashMap, os::raw::c_void};
+use ::std::{collections::HashMap, fmt, os::raw::c_void};
 
+use crossbeam_utils::atomic::AtomicCell;
 use libloading::Library;
 
 use crate::builtins::PyTypeRef;
 use crate::common::lock::PyRwLock;
 use crate::pyobject::{PyRef, PyValue};
-use crate::slots::BufferProtocol;
 use crate::VirtualMachine;
 
-// This trait will be used by all types
-pub trait PyCData_as_buffer: BufferProtocol {
-    // @TODO: Translate PyCData_NewGetBuffer
-    // fn get_buffer(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<Box<dyn Buffer>>;
-}
-
-#[derive(Debug)]
 pub struct SharedLibrary {
     path_name: String,
-    lib: PyRwLock<Option<Library>>,
+    lib: AtomicCell<Option<Library>>,
+}
+
+impl fmt::Debug for SharedLibrary {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "SharedLibrary {{
+            path_name: {},
+            lib: {},
+        }}",
+            self.path_name.as_str(),
+            self.is_closed()
+        )
+    }
 }
 
 impl PyValue for SharedLibrary {
@@ -34,13 +41,12 @@ impl SharedLibrary {
     pub fn new(name: &str) -> Result<SharedLibrary, libloading::Error> {
         Ok(SharedLibrary {
             path_name: name.to_string(),
-            lib: PyRwLock::new(Some(Library::new(name.to_string())?)),
+            lib: AtomicCell::new(Some(Library::new(name.to_string())?)),
         })
     }
 
     pub fn get_sym(&self, name: &str) -> Result<*mut c_void, String> {
-        let guard = self.lib.read();
-        let inner = if let Some(inner) = guard.as_ref() {
+        let inner = if let Some(ref inner) = unsafe { &*self.lib.as_ptr() } {
             inner
         } else {
             return Err("The library has been closed".to_string());
@@ -55,11 +61,13 @@ impl SharedLibrary {
     }
 
     pub fn is_closed(&self) -> bool {
-        self.lib.read().is_none()
+        unsafe { &*self.lib.as_ptr() }.is_none()
     }
 
     pub fn close(&self) {
-        drop(self.lib.write().take());
+        let old = self.lib.take();
+        self.lib.store(None);
+        drop(old);
     }
 }
 
@@ -101,5 +109,5 @@ impl ExternalLibs {
 }
 
 lazy_static::lazy_static! {
-    pub static ref CDATACACHE: PyRwLock<ExternalLibs> = PyRwLock::new(ExternalLibs::new());
+    pub static ref LIBCACHE: PyRwLock<ExternalLibs> = PyRwLock::new(ExternalLibs::new());
 }
