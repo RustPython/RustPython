@@ -315,6 +315,7 @@ class TestJointOps:
             self.assertRaises(RuntimeError, s.discard, BadCmp())
             self.assertRaises(RuntimeError, s.remove, BadCmp())
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_cyclical_repr(self):
         w = ReprWrapper()
         s = self.thetype([w])
@@ -676,7 +677,6 @@ class TestSet(TestJointOps, unittest.TestCase):
 class SetSubclass(set):
     pass
 
-@unittest.skip("TODO: RUSTPYTHON")
 class TestSetSubclass(TestSet):
     thetype = SetSubclass
     basetype = set
@@ -685,9 +685,9 @@ class SetSubclassWithKeywordArgs(set):
     def __init__(self, iterable=[], newarg=None):
         set.__init__(self, iterable)
 
-@unittest.skip("TODO: RUSTPYTHON")
 class TestSetSubclassWithKeywordArgs(TestSet):
-
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_keywords_in_subclass(self):
         'SF bug #1486663 -- this used to erroneously raise a TypeError'
         SetSubclassWithKeywordArgs(newarg=1)
@@ -712,8 +712,6 @@ class TestFrozenSet(TestJointOps, unittest.TestCase):
         # All of the empty frozensets should have just one id()
         self.assertEqual(len(set(map(id, efs))), 1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_constructor_identity(self):
         s = self.thetype(range(3))
         t = self.thetype(s)
