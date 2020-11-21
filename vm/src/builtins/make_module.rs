@@ -585,6 +585,7 @@ mod decl {
         }
     }
 
+    #[allow(clippy::suspicious_else_formatting)]
     #[pyfunction]
     fn pow(
         x: PyObjectRef,
