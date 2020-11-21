@@ -4,6 +4,7 @@ use crate::builtins::float::{try_bigint, IntoPyFloat, PyFloat};
 use crate::builtins::int::{self, PyInt};
 use crate::builtins::pystr::PyStr;
 use crate::builtins::{memory::try_buffer_from_object, tuple, PyBytes};
+use crate::common::float_ops;
 use crate::pyobject::{
     BorrowValue, ItemProtocol, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
 };
@@ -76,7 +77,7 @@ enum CNumberType {
 #[derive(Debug, PartialEq)]
 enum CFloatType {
     Exponent(CFormatCase),
-    PointDecimal,
+    PointDecimal(CFormatCase),
     General(CFormatCase),
 }
 
@@ -292,61 +293,43 @@ impl CFormatSpec {
         }
     }
 
-    fn normalize_float(&self, num: f64) -> (f64, i32) {
-        let mut fraction = num;
-        let mut exponent = 0;
-        loop {
-            if fraction >= 10.0 {
-                fraction /= 10.0;
-                exponent += 1;
-            } else if fraction < 1.0 && fraction > 0.0 {
-                fraction *= 10.0;
-                exponent -= 1;
-            } else {
-                break;
-            }
-        }
-
-        (fraction, exponent)
-    }
-
     pub(crate) fn format_float(&self, num: f64) -> String {
-        let sign_string = if num.is_sign_positive() {
-            self.flags.sign_string()
-        } else {
+        let sign_string = if num.is_sign_negative() && !num.is_nan() {
             "-"
+        } else {
+            self.flags.sign_string()
         };
+
         let precision = match self.precision {
             Some(CFormatQuantity::Amount(p)) => p,
             _ => 6,
         };
 
         let magnitude_string = match &self.format_type {
-            CFormatType::Float(CFloatType::PointDecimal) => {
+            CFormatType::Float(CFloatType::PointDecimal(case)) => {
+                let case = match case {
+                    CFormatCase::Lowercase => float_ops::Case::Lower,
+                    CFormatCase::Uppercase => float_ops::Case::Upper,
+                };
                 let magnitude = num.abs();
-                format!("{:.*}", precision, magnitude)
+                float_ops::format_fixed(precision, magnitude, case)
             }
             CFormatType::Float(CFloatType::Exponent(case)) => {
-                let (fraction, exponent) = self.normalize_float(num.abs());
                 let case = match case {
-                    CFormatCase::Lowercase => 'e',
-                    CFormatCase::Uppercase => 'E',
+                    CFormatCase::Lowercase => float_ops::Case::Lower,
+                    CFormatCase::Uppercase => float_ops::Case::Upper,
                 };
-                format!("{:.*}{}{:+03}", precision, fraction, case, exponent)
+                let magnitude = num.abs();
+                float_ops::format_exponent(precision, magnitude, case)
             }
             CFormatType::Float(CFloatType::General(case)) => {
                 let precision = if precision == 0 { 1 } else { precision };
-                let (fraction, exponent) = self.normalize_float(num.abs());
-                if exponent < -4 || exponent >= (precision as i32) {
-                    let case = match case {
-                        CFormatCase::Lowercase => 'e',
-                        CFormatCase::Uppercase => 'E',
-                    };
-                    format!("{}{}{:+03}", fraction, case, exponent)
-                } else {
-                    let magnitude = num.abs();
-                    format!("{}", magnitude)
-                }
+                let case = match case {
+                    CFormatCase::Lowercase => float_ops::Case::Lower,
+                    CFormatCase::Uppercase => float_ops::Case::Upper,
+                };
+                let magnitude = num.abs();
+                float_ops::format_general(precision, magnitude, case)
             }
             _ => unreachable!(),
         };
@@ -1053,8 +1036,8 @@ where
         'X' => CFormatType::Number(Hex(Uppercase)),
         'e' => CFormatType::Float(Exponent(Lowercase)),
         'E' => CFormatType::Float(Exponent(Uppercase)),
-        'f' => CFormatType::Float(PointDecimal),
-        'F' => CFormatType::Float(PointDecimal),
+        'f' => CFormatType::Float(PointDecimal(Lowercase)),
+        'F' => CFormatType::Float(PointDecimal(Uppercase)),
         'g' => CFormatType::Float(General(Lowercase)),
         'G' => CFormatType::Float(General(Uppercase)),
         'c' => CFormatType::Character,

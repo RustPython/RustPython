@@ -83,6 +83,96 @@ pub fn is_integer(v: f64) -> bool {
     (v - v.round()).abs() < std::f64::EPSILON
 }
 
+#[derive(Debug)]
+pub enum Case {
+    Lower,
+    Upper,
+}
+
+fn format_nan(case: Case) -> String {
+    let nan = match case {
+        Case::Lower => "nan",
+        Case::Upper => "NAN",
+    };
+
+    nan.to_string()
+}
+
+fn format_inf(case: Case) -> String {
+    let inf = match case {
+        Case::Lower => "inf",
+        Case::Upper => "INF",
+    };
+
+    inf.to_string()
+}
+
+pub fn format_fixed(precision: usize, magnitude: f64, case: Case) -> String {
+    match magnitude {
+        magnitude if magnitude.is_finite() => format!("{:.*}", precision, magnitude),
+        magnitude if magnitude.is_nan() => format_nan(case),
+        magnitude if magnitude.is_infinite() => format_inf(case),
+        _ => "".to_string(),
+    }
+}
+
+// Formats floats into Python style exponent notation, by first formatting in Rust style
+// exponent notation (`1.0000e0`), then convert to Python style (`1.0000e+00`).
+pub fn format_exponent(precision: usize, magnitude: f64, case: Case) -> String {
+    match magnitude {
+        magnitude if magnitude.is_finite() => {
+            let r_exp = format!("{:.*e}", precision, magnitude);
+            let mut parts = r_exp.splitn(2, 'e');
+            let base = parts.next().unwrap();
+            let exponent = parts.next().unwrap().parse::<i64>().unwrap();
+            let e = match case {
+                Case::Lower => 'e',
+                Case::Upper => 'E',
+            };
+            format!("{}{}{:+#03}", base, e, exponent)
+        }
+        magnitude if magnitude.is_nan() => format_nan(case),
+        magnitude if magnitude.is_infinite() => format_inf(case),
+        _ => "".to_string(),
+    }
+}
+
+fn remove_trailing_zeros(s: String) -> String {
+    let mut s = s;
+    while s.ends_with('0') || s.ends_with('.') {
+        s.truncate(s.len() - 1);
+    }
+
+    s
+}
+
+pub fn format_general(precision: usize, magnitude: f64, case: Case) -> String {
+    match magnitude {
+        magnitude if magnitude.is_finite() => {
+            let r_exp = format!("{:.*e}", precision.saturating_sub(1), magnitude);
+            let mut parts = r_exp.splitn(2, 'e');
+            let base = parts.next().unwrap();
+            let exponent = parts.next().unwrap().parse::<i64>().unwrap();
+            if exponent < -4 || exponent >= (precision as i64) {
+                let e = match case {
+                    Case::Lower => 'e',
+                    Case::Upper => 'E',
+                };
+
+                let base = remove_trailing_zeros(format!("{:.*}", precision + 1, base));
+                format!("{}{}{:+#03}", base, e, exponent)
+            } else {
+                let precision = (precision as i64) - 1 - exponent;
+                let precision = precision as usize;
+                remove_trailing_zeros(format!("{:.*}", precision, magnitude))
+            }
+        }
+        magnitude if magnitude.is_nan() => format_nan(case),
+        magnitude if magnitude.is_infinite() => format_inf(case),
+        _ => "".to_string(),
+    }
+}
+
 pub fn to_string(value: f64) -> String {
     let lit = format!("{:e}", value);
     if let Some(position) = lit.find('e') {

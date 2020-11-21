@@ -277,16 +277,6 @@ fn parse_format_spec(text: &str) -> Result<FormatSpec, &'static str> {
     })
 }
 
-// Formats floats into Python style exponent notation, by first formatting in Rust style
-// exponent notation (`1.0000e0`), then convert to Python style (`1.0000e+00`).
-fn format_float_as_exponent(precision: usize, magnitude: f64, separator: &str) -> String {
-    let r_exp = format!("{:.*e}", precision, magnitude);
-    let mut parts = r_exp.splitn(2, 'e');
-    let base = parts.next().unwrap();
-    let exponent = parts.next().unwrap().parse::<i64>().unwrap();
-    format!("{}{}+{:02}", base, separator, exponent)
-}
-
 impl FormatSpec {
     pub(crate) fn parse(text: &str) -> Result<FormatSpec, &'static str> {
         parse_format_spec(text)
@@ -357,16 +347,16 @@ impl FormatSpec {
         let precision = self.precision.unwrap_or(6);
         let magnitude = num.abs();
         let raw_magnitude_string_result: Result<String, &'static str> = match self.format_type {
-            Some(FormatType::FixedPointUpper) => match magnitude {
-                magnitude if magnitude.is_nan() => Ok("NAN".to_owned()),
-                magnitude if magnitude.is_infinite() => Ok("INF".to_owned()),
-                _ => Ok(format!("{:.*}", precision, magnitude)),
-            },
-            Some(FormatType::FixedPointLower) => match magnitude {
-                magnitude if magnitude.is_nan() => Ok("nan".to_owned()),
-                magnitude if magnitude.is_infinite() => Ok("inf".to_owned()),
-                _ => Ok(format!("{:.*}", precision, magnitude)),
-            },
+            Some(FormatType::FixedPointUpper) => Ok(float_ops::format_fixed(
+                precision,
+                magnitude,
+                float_ops::Case::Upper,
+            )),
+            Some(FormatType::FixedPointLower) => Ok(float_ops::format_fixed(
+                precision,
+                magnitude,
+                float_ops::Case::Lower,
+            )),
             Some(FormatType::Decimal) => Err("Unknown format code 'd' for object of type 'float'"),
             Some(FormatType::Binary) => Err("Unknown format code 'b' for object of type 'float'"),
             Some(FormatType::Octal) => Err("Unknown format code 'o' for object of type 'float'"),
@@ -380,21 +370,31 @@ impl FormatSpec {
                 Err("Format code 'n' for object of type 'float' not implemented yet")
             }
             Some(FormatType::GeneralFormatUpper) => {
-                Err("Format code 'G' for object of type 'float' not implemented yet")
+                let precision = if precision == 0 { 1 } else { precision };
+                Ok(float_ops::format_general(
+                    precision,
+                    magnitude,
+                    float_ops::Case::Upper,
+                ))
             }
             Some(FormatType::GeneralFormatLower) => {
-                Err("Format code 'g' for object of type 'float' not implemented yet")
+                let precision = if precision == 0 { 1 } else { precision };
+                Ok(float_ops::format_general(
+                    precision,
+                    magnitude,
+                    float_ops::Case::Lower,
+                ))
             }
-            Some(FormatType::ExponentUpper) => match magnitude {
-                magnitude if magnitude.is_nan() => Ok("NAN".to_owned()),
-                magnitude if magnitude.is_infinite() => Ok("INF".to_owned()),
-                _ => Ok(format_float_as_exponent(precision, magnitude, "E")),
-            },
-            Some(FormatType::ExponentLower) => match magnitude {
-                magnitude if magnitude.is_nan() => Ok("nan".to_owned()),
-                magnitude if magnitude.is_infinite() => Ok("inf".to_owned()),
-                _ => Ok(format_float_as_exponent(precision, magnitude, "e")),
-            },
+            Some(FormatType::ExponentUpper) => Ok(float_ops::format_exponent(
+                precision,
+                magnitude,
+                float_ops::Case::Upper,
+            )),
+            Some(FormatType::ExponentLower) => Ok(float_ops::format_exponent(
+                precision,
+                magnitude,
+                float_ops::Case::Lower,
+            )),
             Some(FormatType::Percentage) => match magnitude {
                 magnitude if magnitude.is_nan() => Ok("nan%".to_owned()),
                 magnitude if magnitude.is_infinite() => Ok("inf%".to_owned()),

@@ -180,7 +180,7 @@ impl PyIter for PyStrReverseIterator {
                     break;
                 }
             }
-            start.unwrap_or(end - 4)
+            start.unwrap_or_else(|| end.saturating_sub(4))
         };
 
         let stored = zelf.position.swap(start);
