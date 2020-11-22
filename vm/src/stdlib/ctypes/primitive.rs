@@ -1,5 +1,5 @@
-use crossbeam_utils::atomic::AtomicCell;
 use std::fmt;
+use crossbeam_utils::atomic::AtomicCell;
 
 use crate::builtins::pystr::PyStr;
 use crate::builtins::PyTypeRef;
@@ -13,15 +13,12 @@ pub const SIMPLE_TYPE_CHARS: &str = "cbBhHiIlLdfuzZqQP?g";
 #[pyclass(module = "_ctypes", name = "_SimpleCData", base = "PyCData")]
 pub struct PySimpleType {
     _type_: String,
-    value: AtomicCell<Option<PyObjectRc>>,
+    value: AtomicCell<PyObjectRc>,
 }
 
 impl fmt::Debug for PySimpleType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let value = match unsafe { (*self.value.as_ptr()).as_ref() } {
-            Some(v) => v.to_string(),
-            _ => "None".to_string(),
-        };
+        let value = unsafe { (*self.value.as_ptr()).to_string() };
 
         write!(
             f,
@@ -55,7 +52,7 @@ impl PySimpleType {
                     } else {
                         PySimpleType {
                             _type_: _type_.downcast_exact::<PyStr>(vm).unwrap().to_string(),
-                            value: AtomicCell::default(),
+                            value: AtomicCell::new(vm.ctx.none()),
                         }
                         .into_ref_with_type(vm, cls)
                     }
@@ -75,9 +72,16 @@ impl PySimpleType {
     pub fn init(&self, value: Option<PyObjectRc>, vm: &VirtualMachine) -> PyResult<()> {
         let content = if let Some(ref v) = value {
             // @TODO: Needs to check if value has a simple (rust native) payload
-            Some(v.clone())
+            // and convert into the type on _type_
+            v.clone()
         } else {
-            Some(vm.ctx.none())
+            match self._type_.as_str() {
+                "c" | "u" => vm.ctx.new_bytes(vec![0]),
+                "b" | "B" | "h" | "H" | "i" | "I" | "l" | "q" | "L" | "Q" => vm.ctx.new_int(0),
+                "f" | "d" | "g" => vm.ctx.new_float(0.0),
+                "?" => vm.ctx.new_bool(false),
+                "z" | "Z" | "P" | _ => vm.ctx.none(),
+            }
         };
 
         self.value.store(content);
