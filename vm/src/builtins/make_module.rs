@@ -694,12 +694,16 @@ mod decl {
         }
     }
 
-    #[pyfunction]
-    fn round(
+    #[derive(FromArgs)]
+    pub struct RoundArgs {
+        #[pyarg(any)]
         number: PyObjectRef,
-        ndigits: OptionalArg<Option<PyIntRef>>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
+        #[pyarg(any, optional)]
+        ndigits: OptionalOption<PyIntRef>,
+    }
+
+    #[pyfunction]
+    fn round(RoundArgs { number, ndigits }: RoundArgs, vm: &VirtualMachine) -> PyResult {
         let rounded = match ndigits {
             OptionalArg::Present(ndigits) => match ndigits {
                 Some(int) => {
@@ -737,10 +741,33 @@ mod decl {
         Ok(lst)
     }
 
+    #[derive(FromArgs)]
+    pub struct SumArgs {
+        #[pyarg(positional)]
+        iterable: PyIterable,
+        #[pyarg(any, optional)]
+        start: OptionalArg<PyObjectRef>,
+    }
+
     #[pyfunction]
-    fn sum(iterable: PyIterable, start: OptionalArg, vm: &VirtualMachine) -> PyResult {
+    fn sum(SumArgs { iterable, start }: SumArgs, vm: &VirtualMachine) -> PyResult {
         // Start with zero and add at will:
         let mut sum = start.into_option().unwrap_or_else(|| vm.ctx.new_int(0));
+        if sum.isinstance(&vm.ctx.types.str_type) {
+            return Err(
+                vm.new_type_error("sum() can't sum strings [use ''.join(seq) instead]".to_owned())
+            );
+        }
+        if sum.isinstance(&vm.ctx.types.bytes_type) {
+            return Err(
+                vm.new_type_error("sum() can't sum bytes [use b''.join(seq) instead]".to_owned())
+            );
+        }
+        if sum.isinstance(&vm.ctx.types.bytearray_type) {
+            return Err(vm.new_type_error(
+                "sum() can't sum bytearray [use b''.join(seq) instead]".to_owned(),
+            ));
+        }
         for item in iterable.iter(vm)? {
             sum = vm._add(&sum, &item?)?;
         }
