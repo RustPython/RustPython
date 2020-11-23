@@ -18,11 +18,52 @@ use rustpython_bytecode::bytecode::{self, CallType, CodeObject, Instruction, Lab
 
 type CompileResult<T> = Result<T, CompileError>;
 
+struct CodeInfo {
+    code: CodeObject,
+    name_cache: IndexSet<String>,
+    label_map: Vec<Option<Label>>,
+}
+impl CodeInfo {
+    fn finalize_code(self) -> CodeObject {
+        let CodeInfo {
+            mut code,
+            name_cache,
+            label_map,
+        } = self;
+        code.names.extend(name_cache);
+        for instruction in &mut code.instructions {
+            use Instruction::*;
+            // this is a little bit hacky, as until now the data stored inside Labels in
+            // Instructions is just bookkeeping, but I think it's the best way to do this
+            // XXX: any new instruction that uses a label has to be added here
+            let label = match instruction {
+                Jump { target } => target,
+                JumpIfTrue { target } => target,
+                JumpIfFalse { target } => target,
+                JumpIfTrueOrPop { target } => target,
+                JumpIfFalseOrPop { target } => target,
+                ForIter { target } => target,
+                SetupLoop { start, end } => {
+                    *start = label_map[start.0].expect("label never set");
+                    *end = label_map[end.0].expect("label never set");
+                    continue;
+                }
+                SetupFinally { handler } => handler,
+                SetupExcept { handler } => handler,
+                SetupWith { end } => end,
+                SetupAsyncWith { end } => end,
+                _ => continue,
+            };
+            *label = label_map[label.0].expect("label never set");
+        }
+        code
+    }
+}
+
 /// Main structure holding the state of compilation.
 struct Compiler {
-    output_stack: Vec<(CodeObject, IndexSet<String>)>,
+    code_stack: Vec<CodeInfo>,
     symbol_table_stack: Vec<SymbolTable>,
-    nxt_label: usize,
     source_path: String,
     current_source_location: ast::Location,
     current_qualified_path: Option<String>,
@@ -124,9 +165,8 @@ pub fn compile_program_single(
 impl Compiler {
     fn new(opts: CompileOpts, source_path: String) -> Self {
         Compiler {
-            output_stack: Vec::new(),
+            code_stack: Vec::new(),
             symbol_table_stack: Vec::new(),
-            nxt_label: 0,
             source_path,
             current_source_location: ast::Location::default(),
             current_qualified_path: None,
@@ -151,7 +191,11 @@ impl Compiler {
     }
 
     fn push_output(&mut self, code: CodeObject) {
-        self.output_stack.push((code, IndexSet::new()));
+        self.code_stack.push(CodeInfo {
+            code,
+            name_cache: IndexSet::new(),
+            label_map: Vec::new(),
+        });
     }
 
     fn push_new_code_object(&mut self, obj_name: String) {
@@ -168,15 +212,17 @@ impl Compiler {
     }
 
     fn pop_code_object(&mut self) -> CodeObject {
-        let (mut code, names) = self.output_stack.pop().unwrap();
-        code.names.extend(names);
-        code
+        self.code_stack.pop().unwrap().finalize_code()
     }
 
     // could take impl Into<Cow<str>>, but everything is borrowed from ast structs; we never
     // actually have a `String` to pass
     fn name(&mut self, name: &str) -> bytecode::NameIdx {
-        let cache = &mut self.output_stack.last_mut().expect("nothing on stack").1;
+        let cache = &mut self
+            .code_stack
+            .last_mut()
+            .expect("nothing on stack")
+            .name_cache;
         if let Some(x) = cache.get_index_of(name) {
             x
         } else {
@@ -189,7 +235,7 @@ impl Compiler {
         program: &ast::Program,
         symbol_table: SymbolTable,
     ) -> CompileResult<()> {
-        let size_before = self.output_stack.len();
+        let size_before = self.code_stack.len();
         self.symbol_table_stack.push(symbol_table);
 
         let (statements, doc) = get_doc(&program.statements);
@@ -203,7 +249,7 @@ impl Compiler {
         }
         self.compile_statements(statements)?;
 
-        assert_eq!(self.output_stack.len(), size_before);
+        assert_eq!(self.code_stack.len(), size_before);
 
         // Emit None at end:
         self.emit_constant(bytecode::ConstantData::None);
@@ -2241,24 +2287,31 @@ impl Compiler {
 
     fn current_code(&mut self) -> &mut CodeObject {
         &mut self
-            .output_stack
+            .code_stack
             .last_mut()
             .expect("No OutputStream on stack")
-            .0
+            .code
     }
 
     // Generate a new label
     fn new_label(&mut self) -> Label {
-        let l = Label::new(self.nxt_label);
-        self.nxt_label += 1;
-        l
+        let label_map = &mut self.code_stack.last_mut().unwrap().label_map;
+        let label = Label(label_map.len());
+        label_map.push(None);
+        label
     }
 
     // Assign current position the given label
     fn set_label(&mut self, label: Label) {
-        let code = self.current_code();
-        let pos = code.instructions.len();
-        code.label_map.insert(label, pos);
+        let CodeInfo {
+            code, label_map, ..
+        } = self.code_stack.last_mut().unwrap();
+        let actual_label = Label(code.instructions.len());
+        let prev_val = std::mem::replace(&mut label_map[label.0], Some(actual_label));
+        debug_assert!(
+            prev_val.map_or(true, |x| x == actual_label),
+            "double-set a label"
+        );
     }
 
     fn set_source_location(&mut self, location: ast::Location) {

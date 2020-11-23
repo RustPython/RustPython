@@ -1233,8 +1233,9 @@ impl ExecutingFrame<'_> {
         }
     }
 
+    #[inline]
     fn jump(&mut self, label: bytecode::Label) {
-        let target_pc = self.code.label_map[&label];
+        let target_pc = label.0;
         vm_trace!("jump from {:?} to {:?}", self.lasti(), target_pc);
         self.lasti.store(target_pc, Ordering::Relaxed);
     }
