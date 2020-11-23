@@ -98,15 +98,22 @@ fn _signal_alarm(time: u32) -> u32 {
 }
 
 #[cfg_attr(feature = "flame-it", flame)]
+#[inline(always)]
 pub fn check_signals(vm: &VirtualMachine) -> PyResult<()> {
-    let signal_handlers = match vm.signal_handlers {
-        Some(ref h) => h.borrow(),
+    let signal_handlers = match &vm.signal_handlers {
+        Some(h) => h,
         None => return Ok(()),
     };
 
     if !ANY_TRIGGERED.swap(false, Ordering::Relaxed) {
         return Ok(());
     }
+
+    trigger_signals(&signal_handlers.borrow(), vm)
+}
+#[inline(never)]
+#[cold]
+fn trigger_signals(signal_handlers: &[PyObjectRef; NSIG], vm: &VirtualMachine) -> PyResult<()> {
     for (signum, trigger) in TRIGGERS.iter().enumerate().skip(1) {
         let triggerd = trigger.swap(false, Ordering::Relaxed);
         if triggerd {

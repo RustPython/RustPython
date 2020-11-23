@@ -468,16 +468,13 @@ impl PyDictRef {
         // if we lookup local names (which happens all of the time).
         if self.class().is(&vm.ctx.types.dict_type) {
             // We can take the short path here!
-            match self.inner_getitem_option(key, vm) {
-                Err(exc) => {
-                    if exc.isinstance(&vm.ctx.exceptions.key_error) {
-                        Ok(None)
-                    } else {
-                        Err(exc)
-                    }
+            self.inner_getitem_option(key, vm).or_else(|exc| {
+                if exc.isinstance(&vm.ctx.exceptions.key_error) {
+                    Ok(None)
+                } else {
+                    Err(exc)
                 }
-                Ok(x) => Ok(x),
-            }
+            })
         } else {
             // Fall back to full get_item with KeyError checking
 

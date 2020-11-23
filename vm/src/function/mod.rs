@@ -108,13 +108,9 @@ impl FuncArgs {
         FuncArgs { args, kwargs }
     }
 
-    pub fn insert(&self, item: PyObjectRef) -> FuncArgs {
-        let mut args = FuncArgs {
-            args: self.args.clone(),
-            kwargs: self.kwargs.clone(),
-        };
-        args.args.insert(0, item);
-        args
+    pub fn prepend_arg(&mut self, item: PyObjectRef) {
+        self.args.reserve_exact(1);
+        self.args.insert(0, item)
     }
 
     pub fn shift(&mut self) -> PyObjectRef {

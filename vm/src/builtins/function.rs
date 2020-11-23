@@ -324,8 +324,8 @@ pub struct PyBoundMethod {
 }
 
 impl Callable for PyBoundMethod {
-    fn call(zelf: &PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let args = args.insert(zelf.object.clone());
+    fn call(zelf: &PyRef<Self>, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        args.prepend_arg(zelf.object.clone());
         vm.invoke(&zelf.function, args)
     }
 }
