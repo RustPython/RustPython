@@ -34,7 +34,7 @@ impl fmt::Debug for PySimpleType {
 
 impl PyValue for PySimpleType {
     fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::init_bare_type()
+        Self::static_metaclass()
     }
 }
 
@@ -80,7 +80,7 @@ impl PySimpleType {
                 "b" | "B" | "h" | "H" | "i" | "I" | "l" | "q" | "L" | "Q" => vm.ctx.new_int(0),
                 "f" | "d" | "g" => vm.ctx.new_float(0.0),
                 "?" => vm.ctx.new_bool(false),
-                "z" | "Z" | "P" | _ => vm.ctx.none(),
+                "z" | "Z" | "P" | _ => vm.ctx.none(), // @TODO: What should we do here? Throw an error?
             }
         };
 

@@ -1,13 +1,18 @@
 use crate::builtins::int::PyInt;
 use crate::builtins::memory::Buffer;
 use crate::builtins::pystr::PyStrRef;
-use crate::builtins::PyTypeRef;
 use crate::function::OptionalArg;
+use crate::builtins::pytype::{PyType, PyTypeRef};
 use crate::pyobject::{
     PyObjectRc, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject,
 };
 use crate::slots::BufferProtocol;
 use crate::VirtualMachine;
+
+// GenericPyCData_new -> PyResult<PyObjectRef>
+pub fn generic_pycdata_new(type_: PyTypeRef, vm: &VirtualMachine) {
+    // @TODO: To be used on several places
+}
 
 #[pyimpl]
 pub trait PyCDataMethods: PyValue {
