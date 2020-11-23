@@ -82,8 +82,6 @@ class ComplexTest(unittest.TestCase):
             q = z.__truediv__(y)
             self.assertClose(q, x)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_truediv(self):
         simple_real = [float(i) for i in range(-5, 6)]
         simple_complex = [complex(x, y) for x in simple_real for y in simple_real]
@@ -171,8 +169,6 @@ class ComplexTest(unittest.TestCase):
         self.assertRaises(TypeError, divmod, 1+1j, 1+0j)
         self.assertRaises(TypeError, divmod, 1+1j, 0+0j)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pow(self):
         self.assertAlmostEqual(pow(1+1j, 0+0j), 1.0)
         self.assertAlmostEqual(pow(0+0j, 2+0j), 0.0)
@@ -416,8 +412,6 @@ class ComplexTest(unittest.TestCase):
             self.assertEqual(complex(complex1(1j)), 2j)
         self.assertRaises(TypeError, complex, complex2(1j))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @support.requires_IEEE_754
     def test_constructor_special_numbers(self):
         class complex2(complex):

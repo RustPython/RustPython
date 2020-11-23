@@ -19,16 +19,19 @@ mod decl {
     use crate::builtins::pybool::{self, IntoPyBool};
     use crate::builtins::pystr::{PyStr, PyStrRef};
     use crate::builtins::pytype::PyTypeRef;
+    use crate::builtins::PyInt;
     use crate::byteslike::PyBytesLike;
     use crate::common::{hash::PyHash, str::to_ascii};
     #[cfg(feature = "rustpython-compiler")]
     use crate::compile;
     use crate::exceptions::PyBaseExceptionRef;
-    use crate::function::{single_or_tuple_any, Args, FuncArgs, KwArgs, OptionalArg};
+    use crate::function::{
+        single_or_tuple_any, Args, FuncArgs, KwArgs, OptionalArg, OptionalOption,
+    };
     use crate::iterator;
     use crate::pyobject::{
-        BorrowValue, Either, IdProtocol, ItemProtocol, PyCallable, PyIterable, PyObjectRef,
-        PyResult, PyValue, TryFromObject, TypeProtocol,
+        BorrowValue, Either, IdProtocol, ItemProtocol, PyArithmaticValue, PyCallable, PyIterable,
+        PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
     };
     use crate::readline::{Readline, ReadlineResult};
     use crate::scope::Scope;
@@ -177,7 +180,7 @@ mod decl {
     #[pyfunction]
     fn divmod(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm.call_or_reflection(&a, &b, "__divmod__", "__rdivmod__", |vm, a, b| {
-            Err(vm.new_unsupported_operand_error(a, b, "divmod"))
+            Err(vm.new_unsupported_binop_error(a, b, "divmod"))
         })
     }
 
@@ -582,40 +585,53 @@ mod decl {
         }
     }
 
+    #[allow(clippy::suspicious_else_formatting)]
     #[pyfunction]
     fn pow(
         x: PyObjectRef,
         y: PyObjectRef,
-        mod_value: OptionalArg<PyIntRef>,
+        mod_value: OptionalOption<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        match mod_value {
-            OptionalArg::Missing => {
-                vm.call_or_reflection(&x, &y, "__pow__", "__rpow__", |vm, x, y| {
-                    Err(vm.new_unsupported_operand_error(x, y, "pow"))
-                })
-            }
-            OptionalArg::Present(m) => {
-                // Check if the 3rd argument is defined and perform modulus on the result
-                if !(x.isinstance(&vm.ctx.types.int_type) && y.isinstance(&vm.ctx.types.int_type)) {
-                    return Err(vm.new_type_error(
-                        "pow() 3rd argument not allowed unless all arguments are integers"
-                            .to_owned(),
-                    ));
+        match mod_value.flatten() {
+            None => vm.call_or_reflection(&x, &y, "__pow__", "__rpow__", |vm, x, y| {
+                Err(vm.new_unsupported_binop_error(x, y, "pow"))
+            }),
+            Some(z) => {
+                let try_pow_value = |obj: &PyObjectRef,
+                                     args: (PyObjectRef, PyObjectRef, PyObjectRef)|
+                 -> Option<PyResult> {
+                    if let Some(method) = obj.get_class_attr("__pow__") {
+                        let result = match vm.invoke(&method, args) {
+                            Ok(x) => x,
+                            Err(e) => return Some(Err(e)),
+                        };
+                        if let PyArithmaticValue::Implemented(x) =
+                            PyArithmaticValue::from_object(vm, result)
+                        {
+                            return Some(Ok(x));
+                        }
+                    }
+                    None
+                };
+
+                if let Some(val) = try_pow_value(&x, (x.clone(), y.clone(), z.clone())) {
+                    return val;
                 }
-                let y = int::get_value(&y);
-                if y.sign() == Sign::Minus {
-                    return Err(vm.new_value_error(
-                        "pow() 2nd argument cannot be negative when 3rd argument specified"
-                            .to_owned(),
-                    ));
+
+                if !x.class().is(&y.class()) {
+                    if let Some(val) = try_pow_value(&y, (x.clone(), y.clone(), z.clone())) {
+                        return val;
+                    }
                 }
-                let m = m.borrow_value();
-                if m.is_zero() {
-                    return Err(vm.new_value_error("pow() 3rd argument cannot be 0".to_owned()));
+
+                if !x.class().is(&z.class()) && !y.class().is(&z.class()) {
+                    if let Some(val) = try_pow_value(&z, (x.clone(), y.clone(), z.clone())) {
+                        return val;
+                    }
                 }
-                let x = int::get_value(&x);
-                Ok(vm.ctx.new_int(x.modpow(&y, &m)))
+
+                Err(vm.new_unsupported_ternop_error(&x, &y, &z, "pow"))
             }
         }
     }
