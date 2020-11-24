@@ -758,16 +758,19 @@ mod decl {
                 vm.new_type_error("sum() can't sum strings [use ''.join(seq) instead]".to_owned())
             );
         }
+
         if sum.isinstance(&vm.ctx.types.bytes_type) {
             return Err(
                 vm.new_type_error("sum() can't sum bytes [use b''.join(seq) instead]".to_owned())
             );
         }
+
         if sum.isinstance(&vm.ctx.types.bytearray_type) {
             return Err(vm.new_type_error(
                 "sum() can't sum bytearray [use b''.join(seq) instead]".to_owned(),
             ));
         }
+
         for item in iterable.iter(vm)? {
             sum = vm._add(&sum, &item?)?;
         }
