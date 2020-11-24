@@ -146,7 +146,7 @@ impl CodeFlags {
 #[derive(Serialize, Debug, Deserialize, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 #[repr(transparent)]
 // XXX: if you add a new instruction that stores a Label, make sure to add it in
-// compile::CodeInfo::finalize_code
+// compile::CodeInfo::finalize_code and CodeObject::label_targets
 pub struct Label(pub usize);
 impl fmt::Display for Label {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -598,25 +598,38 @@ impl<C: Constant> CodeObject<C> {
     pub fn label_targets(&self) -> BTreeSet<Label> {
         let mut label_targets = BTreeSet::new();
         for instruction in &self.instructions {
-            let label = match instruction {
-                Jump { target } => target,
-                JumpIfTrue { target } => target,
-                JumpIfFalse { target } => target,
-                JumpIfTrueOrPop { target } => target,
-                JumpIfFalseOrPop { target } => target,
-                ForIter { target } => target,
+            match instruction {
+                Jump { target: l }
+                | JumpIfTrue { target: l }
+                | JumpIfFalse { target: l }
+                | JumpIfTrueOrPop { target: l }
+                | JumpIfFalseOrPop { target: l }
+                | ForIter { target: l }
+                | SetupFinally { handler: l }
+                | SetupExcept { handler: l }
+                | SetupWith { end: l }
+                | SetupAsyncWith { end: l } => {
+                    label_targets.insert(*l);
+                }
                 SetupLoop { start, end } => {
                     label_targets.insert(*start);
                     label_targets.insert(*end);
-                    continue;
                 }
-                SetupFinally { handler } => handler,
-                SetupExcept { handler } => handler,
-                SetupWith { end } => end,
-                SetupAsyncWith { end } => end,
-                _ => continue,
-            };
-            label_targets.insert(*label);
+
+                #[rustfmt::skip]
+                Import { .. } | ImportStar | ImportFrom { .. } | LoadName { .. } | StoreName { .. }
+                | DeleteName { .. } | Subscript | StoreSubscript | DeleteSubscript
+                | StoreAttr { .. } | DeleteAttr { .. } | LoadConst { .. } | UnaryOperation { .. }
+                | BinaryOperation { .. } | LoadAttr { .. } | CompareOperation { .. } | Pop
+                | Rotate { .. } | Duplicate | GetIter | Continue | Break | MakeFunction
+                | CallFunction { .. } | ReturnValue | YieldValue | YieldFrom | SetupAnnotation
+                | EnterFinally | EndFinally | WithCleanupStart | WithCleanupFinish | PopBlock
+                | Raise { .. } | BuildString { .. } | BuildTuple { .. } | BuildList { .. }
+                | BuildSet { .. } | BuildMap { .. } | BuildSlice { .. } | ListAppend { .. }
+                | SetAdd { .. } | MapAdd { .. } | PrintExpr | LoadBuildClass | UnpackSequence { .. }
+                | UnpackEx { .. } | FormatValue { .. } | PopException | Reverse { .. }
+                | GetAwaitable | BeforeAsyncWith | GetAIter | GetANext | MapAddRev { .. } => {}
+            }
         }
         label_targets
     }

@@ -36,25 +36,38 @@ impl CodeInfo {
             // this is a little bit hacky, as until now the data stored inside Labels in
             // Instructions is just bookkeeping, but I think it's the best way to do this
             // XXX: any new instruction that uses a label has to be added here
-            let label = match instruction {
-                Jump { target } => target,
-                JumpIfTrue { target } => target,
-                JumpIfFalse { target } => target,
-                JumpIfTrueOrPop { target } => target,
-                JumpIfFalseOrPop { target } => target,
-                ForIter { target } => target,
+            match instruction {
+                Jump { target: l }
+                | JumpIfTrue { target: l }
+                | JumpIfFalse { target: l }
+                | JumpIfTrueOrPop { target: l }
+                | JumpIfFalseOrPop { target: l }
+                | ForIter { target: l }
+                | SetupFinally { handler: l }
+                | SetupExcept { handler: l }
+                | SetupWith { end: l }
+                | SetupAsyncWith { end: l } => {
+                    *l = label_map[l.0].expect("label never set");
+                }
                 SetupLoop { start, end } => {
                     *start = label_map[start.0].expect("label never set");
                     *end = label_map[end.0].expect("label never set");
-                    continue;
                 }
-                SetupFinally { handler } => handler,
-                SetupExcept { handler } => handler,
-                SetupWith { end } => end,
-                SetupAsyncWith { end } => end,
-                _ => continue,
-            };
-            *label = label_map[label.0].expect("label never set");
+
+                #[rustfmt::skip]
+                Import { .. } | ImportStar | ImportFrom { .. } | LoadName { .. } | StoreName { .. }
+                | DeleteName { .. } | Subscript | StoreSubscript | DeleteSubscript
+                | StoreAttr { .. } | DeleteAttr { .. } | LoadConst { .. } | UnaryOperation { .. }
+                | BinaryOperation { .. } | LoadAttr { .. } | CompareOperation { .. } | Pop
+                | Rotate { .. } | Duplicate | GetIter | Continue | Break | MakeFunction
+                | CallFunction { .. } | ReturnValue | YieldValue | YieldFrom | SetupAnnotation
+                | EnterFinally | EndFinally | WithCleanupStart | WithCleanupFinish | PopBlock
+                | Raise { .. } | BuildString { .. } | BuildTuple { .. } | BuildList { .. }
+                | BuildSet { .. } | BuildMap { .. } | BuildSlice { .. } | ListAppend { .. }
+                | SetAdd { .. } | MapAdd { .. } | PrintExpr | LoadBuildClass | UnpackSequence { .. }
+                | UnpackEx { .. } | FormatValue { .. } | PopException | Reverse { .. }
+                | GetAwaitable | BeforeAsyncWith | GetAIter | GetANext | MapAddRev { .. } => {}
+            }
         }
         code
     }
