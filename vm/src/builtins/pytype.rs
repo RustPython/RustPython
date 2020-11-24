@@ -727,24 +727,22 @@ pub fn tp_new_wrapper(
     call_tp_new(zelf, cls, args, vm)
 }
 
-fn take_next_base(mut bases: Vec<Vec<PyTypeRef>>) -> (Option<PyTypeRef>, Vec<Vec<PyTypeRef>>) {
-    bases = bases.into_iter().filter(|x| !x.is_empty()).collect();
-
-    for base in &bases {
+fn take_next_base(bases: &mut Vec<Vec<PyTypeRef>>) -> Option<PyTypeRef> {
+    for base in bases.iter() {
         let head = base[0].clone();
-        if !(&bases).iter().any(|x| x[1..].iter().any(|x| x.is(&head))) {
+        if !bases.iter().any(|x| x[1..].iter().any(|x| x.is(&head))) {
             // Remove from other heads.
-            for item in &mut bases {
+            for item in bases.iter_mut() {
                 if item[0].is(&head) {
                     item.remove(0);
                 }
             }
 
-            return (Some(head), bases);
+            return Some(head);
         }
     }
 
-    (None, bases)
+    None
 }
 
 fn linearise_mro(mut bases: Vec<Vec<PyTypeRef>>) -> Result<Vec<PyTypeRef>, String> {
@@ -768,22 +766,19 @@ fn linearise_mro(mut bases: Vec<Vec<PyTypeRef>>) -> Result<Vec<PyTypeRef>, Strin
     }
 
     let mut result = vec![];
-    loop {
-        if (&bases).iter().all(Vec::is_empty) {
-            break;
-        }
-        let (head, new_bases) = take_next_base(bases);
-        let head = head.ok_or_else(|| {
+    while !bases.is_empty() {
+        let head = take_next_base(&mut bases).ok_or_else(|| {
             // Take the head class of each class here. Now that we have reached the problematic bases.
             // Because this failed, we assume the lists cannot be empty.
             format!(
                 "Cannot create a consistent method resolution order (MRO) for bases {}",
-                new_bases.iter().map(|x| x.first().unwrap()).join(", ")
+                bases.iter().map(|x| x.first().unwrap()).format(", ")
             )
-        });
+        })?;
 
-        result.push(head.unwrap());
-        bases = new_bases;
+        result.push(head);
+
+        bases.retain(|x| !x.is_empty());
     }
     Ok(result)
 }

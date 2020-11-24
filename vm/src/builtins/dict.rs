@@ -597,7 +597,7 @@ macro_rules! dict_iterator {
                 let s = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
                     let mut str_parts = vec![];
                     for (key, value) in zelf.dict.clone() {
-                        let s = vm.to_repr(&$result_fn(vm, key, value))?;
+                        let s = vm.to_repr(&($result_fn)(vm, key, value))?;
                         str_parts.push(s.borrow_value().to_owned());
                     }
                     format!("{}([{}])", $class_name, str_parts.join(", "))
@@ -694,7 +694,7 @@ macro_rules! dict_iterator {
                 match zelf.dict.entries.next_entry(&mut position) {
                     Some((key, value)) => {
                         zelf.position.store(position);
-                        Ok($result_fn(vm, key, value))
+                        Ok(($result_fn)(vm, key, value))
                     }
                     None => Err(vm.new_stop_iteration()),
                 }
@@ -743,7 +743,7 @@ macro_rules! dict_iterator {
                 match zelf.dict.len().checked_sub(count) {
                     Some(mut pos) => {
                         let (key, value) = zelf.dict.entries.next_entry(&mut pos).unwrap();
-                        Ok($result_fn(vm, key, value))
+                        Ok(($result_fn)(vm, key, value))
                     }
                     None => {
                         zelf.position.store(std::isize::MAX as usize);

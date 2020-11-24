@@ -2,9 +2,9 @@ use super::pytype::PyTypeRef;
 use crate::common::hash::PyHash;
 use crate::function::{FuncArgs, OptionalArg};
 use crate::pyobject::{
-    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyObjectWeak, PyRef, PyResult, PyValue,
+    TypeProtocol,
 };
-use crate::pyobjectrc::{PyObjectRc, PyObjectWeak};
 use crate::slots::{Callable, Comparable, Hashable, PyComparisonOp};
 use crate::vm::VirtualMachine;
 
@@ -20,7 +20,7 @@ pub struct PyWeak {
 impl PyWeak {
     pub fn downgrade(obj: &PyObjectRef) -> PyWeak {
         PyWeak {
-            referent: PyObjectRc::downgrade(obj),
+            referent: PyObjectRef::downgrade(obj),
             hash: AtomicCell::new(None),
         }
     }

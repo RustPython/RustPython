@@ -1894,6 +1894,7 @@ dependencies = [
  "sha2",
  "sha3",
  "socket2",
+ "static_assertions",
  "statrs",
  "thiserror",
  "thread_local",

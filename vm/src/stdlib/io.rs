@@ -809,7 +809,7 @@ mod _io {
                     .into_pyobject(vm);
 
                 // TODO: loop if write() raises an interrupt
-                call_method(vm, self.raw.as_ref().unwrap(), "write", (memobj.clone(),))?
+                call_method(vm, self.raw.as_ref().unwrap(), "write", (memobj,))?
             } else {
                 let options = BufferOptions {
                     len,

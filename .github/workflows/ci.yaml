@@ -161,6 +161,21 @@ jobs:
         run: python -m pip install flake8
       - name: run lint
         run: flake8 . --count --exclude=./.*,./Lib,./vm/Lib  --select=E9,F63,F7,F82 --show-source --statistics
+  miri:
+    name: Run tests under miri
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@master
+      - uses: actions-rs/toolchain@v1
+        with:
+            profile: minimal
+            toolchain: nightly
+            components: miri
+            override: true
+      - name: Run tests under miri
+        # miri-ignore-leaks because the type-object circular reference means that there will always be
+        # a memory leak, at least until we have proper cyclic gc
+        run: MIRIFLAGS='-Zmiri-ignore-leaks' cargo +nightly miri test -p rustpython-vm -- miri_test
 
   wasm:
     name: Check the WASM package and demo
