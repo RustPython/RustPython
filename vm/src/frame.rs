@@ -577,8 +577,9 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::BuildString { size } => {
                 let s = self
                     .pop_multiple(*size)
-                    .into_iter()
-                    .map(|pyobj| pystr::clone_value(&pyobj))
+                    .as_slice()
+                    .iter()
+                    .map(|pyobj| pystr::borrow_value(&pyobj))
                     .collect::<String>();
                 let str_obj = vm.ctx.new_str(s);
                 self.push_value(str_obj);
@@ -591,10 +592,18 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::BuildSet { size, unpack } => {
-                let elements = self.get_elements(vm, *size, *unpack)?;
                 let set = vm.ctx.new_set();
-                for item in elements {
-                    set.add(item, vm)?;
+                {
+                    let elements = self.pop_multiple(*size);
+                    if *unpack {
+                        for element in elements {
+                            vm.map_iterable_object(&element, |x| set.add(x, vm))??;
+                        }
+                    } else {
+                        for element in elements {
+                            set.add(element, vm)?;
+                        }
+                    }
                 }
                 self.push_value(set.into_object());
                 Ok(None)
@@ -973,7 +982,7 @@ impl ExecutingFrame<'_> {
             }
             Ok(result)
         } else {
-            Ok(elements)
+            Ok(elements.collect())
         }
     }
 
@@ -1173,7 +1182,7 @@ impl ExecutingFrame<'_> {
                 }
             }
         } else {
-            for (key, value) in self.pop_multiple(2 * size).into_iter().tuples() {
+            for (key, value) in self.pop_multiple(2 * size).tuples() {
                 map_obj.set_item(key, value, vm).unwrap();
             }
         }
@@ -1208,9 +1217,8 @@ impl ExecutingFrame<'_> {
         vm: &VirtualMachine,
         nargs: usize,
     ) -> FrameResult {
-        let args: Vec<PyObjectRef> = self.pop_multiple(nargs);
         let args = FuncArgs {
-            args,
+            args: self.pop_multiple(nargs).collect(),
             kwargs: IndexMap::new(),
         };
 
@@ -1221,14 +1229,16 @@ impl ExecutingFrame<'_> {
     }
 
     fn execute_call_function_keyword(&mut self, vm: &VirtualMachine, nargs: usize) -> FrameResult {
-        let kwarg_names = self.pop_value();
-        let args: Vec<PyObjectRef> = self.pop_multiple(nargs);
+        let kwarg_names = self
+            .pop_value()
+            .downcast::<PyTuple>()
+            .expect("kwarg names should be tuple of strings");
+        let args = self.pop_multiple(nargs);
 
-        let kwarg_names = vm
-            .extract_elements(&kwarg_names)?
+        let kwarg_names = kwarg_names
+            .borrow_value()
             .iter()
-            .map(|pyobj| pystr::clone_value(pyobj))
-            .collect();
+            .map(|pyobj| pystr::clone_value(pyobj));
         let args = FuncArgs::with_kwargs_names(args, kwarg_names);
 
         let func_ref = self.pop_value();
@@ -1665,12 +1675,9 @@ impl ExecutingFrame<'_> {
             .expect("Tried to pop value but there was nothing on the stack")
     }
 
-    fn pop_multiple(&mut self, count: usize) -> Vec<PyObjectRef> {
+    fn pop_multiple(&mut self, count: usize) -> std::vec::Drain<PyObjectRef> {
         let stack_len = self.state.stack.len();
-        self.state
-            .stack
-            .drain(stack_len - count..stack_len)
-            .collect()
+        self.state.stack.drain(stack_len - count..stack_len)
     }
 
     fn last_value(&self) -> PyObjectRef {
