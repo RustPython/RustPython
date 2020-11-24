@@ -24,7 +24,7 @@ mod decl {
     #[cfg(feature = "rustpython-compiler")]
     use crate::compile;
     use crate::exceptions::PyBaseExceptionRef;
-    use crate::function::{single_or_tuple_any, Args, FuncArgs, KwArgs, OptionalArg};
+    use crate::function::{single_or_tuple_any, Args, FuncArgs, KwArgs, OptionalArg, OptionalOption};
     use crate::iterator;
     use crate::pyobject::{
         BorrowValue, Either, IdProtocol, ItemProtocol, PyCallable, PyIterable, PyObjectRef,
@@ -38,6 +38,7 @@ mod decl {
     use crate::{py_io, sysmodule};
     use num_bigint::Sign;
     use num_traits::{Signed, ToPrimitive, Zero};
+    use crate::builtins::{PyBytes, PyByteArray};
 
     #[pyfunction]
     fn abs(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -699,20 +700,17 @@ mod decl {
         #[pyarg(any)]
         number: PyObjectRef,
         #[pyarg(any, optional)]
-        ndigits: OptionalOption<PyIntRef>,
+        ndigits: OptionalOption<PyObjectRef>,
     }
 
     #[pyfunction]
     fn round(RoundArgs { number, ndigits }: RoundArgs, vm: &VirtualMachine) -> PyResult {
-        let rounded = match ndigits {
-            OptionalArg::Present(ndigits) => match ndigits {
-                Some(int) => {
-                    let ndigits = vm.call_method(int.as_object(), "__int__", ())?;
-                    vm.call_method(&number, "__round__", (ndigits,))?
-                }
-                None => vm.call_method(&number, "__round__", ())?,
+        let rounded = match ndigits.flatten() {
+            Some(obj) => {
+                let ndigits = vm.to_index(&obj)?;
+                vm.call_method(&number, "__round__", (ndigits,))?
             },
-            OptionalArg::Missing => {
+            None => {
                 // without a parameter, the result type is coerced to int
                 vm.call_method(&number, "__round__", ())?
             }
@@ -753,24 +751,23 @@ mod decl {
     fn sum(SumArgs { iterable, start }: SumArgs, vm: &VirtualMachine) -> PyResult {
         // Start with zero and add at will:
         let mut sum = start.into_option().unwrap_or_else(|| vm.ctx.new_int(0));
-        if sum.isinstance(&vm.ctx.types.str_type) {
-            return Err(
-                vm.new_type_error("sum() can't sum strings [use ''.join(seq) instead]".to_owned())
-            );
-        }
 
-        if sum.isinstance(&vm.ctx.types.bytes_type) {
-            return Err(
-                vm.new_type_error("sum() can't sum bytes [use b''.join(seq) instead]".to_owned())
-            );
-        }
-
-        if sum.isinstance(&vm.ctx.types.bytearray_type) {
-            return Err(vm.new_type_error(
-                "sum() can't sum bytearray [use b''.join(seq) instead]".to_owned(),
-            ));
-        }
-
+        match_class!(match sum {
+            PyStr =>
+                return Err(
+                    vm.new_type_error("sum() can't sum strings [use ''.join(seq) instead]".to_owned())
+                ),
+            PyBytes =>
+                return Err(
+                    vm.new_type_error("sum() can't sum bytes [use b''.join(seq) instead]".to_owned())
+                ),
+            PyByteArray =>
+                return Err(
+                    vm.new_type_error("sum() can't sum bytearray [use b''.join(seq) instead]".to_owned())
+                ),
+            _ => (),
+        });
+		
         for item in iterable.iter(vm)? {
             sum = vm._add(&sum, &item?)?;
         }
