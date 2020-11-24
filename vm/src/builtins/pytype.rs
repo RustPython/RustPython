@@ -398,7 +398,7 @@ impl PyType {
         )
     }
     #[pyslot]
-    fn tp_new(metatype: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn tp_new(metatype: PyTypeRef, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         vm_trace!("type.__new__ {:?}", args);
 
         let is_type_type = metatype.is(&vm.ctx.types.type_type);
@@ -439,8 +439,8 @@ impl PyType {
                 #[allow(clippy::redundant_clone)] // false positive
                 if let Some(ref tp_new) = winner.clone().slots.new {
                     // Pass it to the winner
-
-                    return tp_new(vm, args.insert(winner.into_object()));
+                    args.prepend_arg(winner.into_object());
+                    return tp_new(vm, args);
                 }
                 winner
             } else {
@@ -694,18 +694,20 @@ impl<T: DerefToPyType> DerefToPyType for &'_ T {
 fn call_tp_new(
     typ: PyTypeRef,
     subtype: PyTypeRef,
-    args: FuncArgs,
+    mut args: FuncArgs,
     vm: &VirtualMachine,
 ) -> PyResult {
     for cls in typ.deref().iter_mro() {
         if let Some(new_meth) = cls.get_attr("__new__") {
             if !vm.ctx.is_tp_new_wrapper(&new_meth) {
                 let new_meth = vm.call_if_get_descriptor(new_meth, typ.clone().into_object())?;
-                return vm.invoke(&new_meth, args.insert(typ.clone().into_object()));
+                args.prepend_arg(typ.clone().into_object());
+                return vm.invoke(&new_meth, args);
             }
         }
         if let Some(tp_new) = cls.slots.new.as_ref() {
-            return tp_new(vm, args.insert(subtype.into_object()));
+            args.prepend_arg(subtype.into_object());
+            return tp_new(vm, args);
         }
     }
     unreachable!("Should be able to find a new slot somewhere in the mro")
