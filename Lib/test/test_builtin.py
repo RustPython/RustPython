@@ -4,7 +4,7 @@ import ast
 import builtins
 import collections
 import decimal
-# import fractions XXX RustPython
+import fractions
 import io
 import locale
 import os
@@ -1200,8 +1200,6 @@ class BuiltinTest(unittest.TestCase):
         a[0] = a
         self.assertEqual(repr(a), '{0: {...}}')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_round(self):
         self.assertEqual(round(0.0), 0.0)
         self.assertEqual(type(round(0.0)), int)
@@ -1297,8 +1295,6 @@ class BuiltinTest(unittest.TestCase):
         self.assertEqual(round(5e15+2), 5e15+2)
         self.assertEqual(round(5e15+3), 5e15+3)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bug_27936(self):
         # Verify that ndigits=None means the same as passing in no argument
         for x in [1234,
@@ -1316,8 +1312,6 @@ class BuiltinTest(unittest.TestCase):
 
     # test_str(): see test_unicode.py and test_bytes.py for str() tests.
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_sum(self):
         self.assertEqual(sum([]), 0)
         self.assertEqual(sum(list(range(2,8))), 27)

@@ -20,6 +20,7 @@ mod decl {
     use crate::builtins::pystr::{PyStr, PyStrRef};
     use crate::builtins::pytype::PyTypeRef;
     use crate::builtins::PyInt;
+    use crate::builtins::{PyByteArray, PyBytes};
     use crate::byteslike::PyBytesLike;
     use crate::common::{hash::PyHash, str::to_ascii};
     #[cfg(feature = "rustpython-compiler")]
@@ -707,21 +708,22 @@ mod decl {
         }
     }
 
-    #[pyfunction]
-    fn round(
+    #[derive(FromArgs)]
+    pub struct RoundArgs {
+        #[pyarg(any)]
         number: PyObjectRef,
-        ndigits: OptionalArg<Option<PyIntRef>>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
-        let rounded = match ndigits {
-            OptionalArg::Present(ndigits) => match ndigits {
-                Some(int) => {
-                    let ndigits = vm.call_method(int.as_object(), "__int__", ())?;
-                    vm.call_method(&number, "__round__", (ndigits,))?
-                }
-                None => vm.call_method(&number, "__round__", ())?,
-            },
-            OptionalArg::Missing => {
+        #[pyarg(any, optional)]
+        ndigits: OptionalOption<PyObjectRef>,
+    }
+
+    #[pyfunction]
+    fn round(RoundArgs { number, ndigits }: RoundArgs, vm: &VirtualMachine) -> PyResult {
+        let rounded = match ndigits.flatten() {
+            Some(obj) => {
+                let ndigits = vm.to_index(&obj)?;
+                vm.call_method(&number, "__round__", (ndigits,))?
+            }
+            None => {
                 // without a parameter, the result type is coerced to int
                 vm.call_method(&number, "__round__", ())?
             }
@@ -750,10 +752,35 @@ mod decl {
         Ok(lst)
     }
 
+    #[derive(FromArgs)]
+    pub struct SumArgs {
+        #[pyarg(positional)]
+        iterable: PyIterable,
+        #[pyarg(any, optional)]
+        start: OptionalArg<PyObjectRef>,
+    }
+
     #[pyfunction]
-    fn sum(iterable: PyIterable, start: OptionalArg, vm: &VirtualMachine) -> PyResult {
+    fn sum(SumArgs { iterable, start }: SumArgs, vm: &VirtualMachine) -> PyResult {
         // Start with zero and add at will:
         let mut sum = start.into_option().unwrap_or_else(|| vm.ctx.new_int(0));
+
+        match_class!(match sum {
+            PyStr =>
+                return Err(vm.new_type_error(
+                    "sum() can't sum strings [use ''.join(seq) instead]".to_owned()
+                )),
+            PyBytes =>
+                return Err(vm.new_type_error(
+                    "sum() can't sum bytes [use b''.join(seq) instead]".to_owned()
+                )),
+            PyByteArray =>
+                return Err(vm.new_type_error(
+                    "sum() can't sum bytearray [use b''.join(seq) instead]".to_owned()
+                )),
+            _ => (),
+        });
+
         for item in iterable.iter(vm)? {
             sum = vm._add(&sum, &item?)?;
         }
