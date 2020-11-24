@@ -5,10 +5,11 @@ use super::pytype::PyTypeRef;
 use crate::common::hash::PyHash;
 use crate::common::rc::PyRc;
 use crate::dictdatatype;
+use crate::function::OptionalArg::{Missing, Present};
 use crate::function::{Args, OptionalArg};
 use crate::pyobject::{
-    self, BorrowValue, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef,
-    PyResult, PyValue, TryFromObject, TypeProtocol,
+    self, BorrowValue, IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyIterable,
+    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable};
 use crate::vm::{ReprGuard, VirtualMachine};
@@ -569,9 +570,22 @@ impl PyFrozenSet {
     #[pyslot]
     fn tp_new(
         cls: PyTypeRef,
-        iterable: OptionalArg<PyIterable>,
+        iterable: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
+        let iterable = if let Present(iterable) = iterable {
+            if cls.is(&vm.ctx.types.frozenset_type) {
+                match iterable.downcast_exact::<PyFrozenSet>(vm) {
+                    Ok(iter) => return Ok(iter),
+                    Err(iterable) => Present(PyIterable::try_from_object(vm, iterable)?),
+                }
+            } else {
+                Present(PyIterable::try_from_object(vm, iterable)?)
+            }
+        } else {
+            Missing
+        };
+
         Self {
             inner: PySetInner::from_arg(iterable, vm)?,
         }
