@@ -7,7 +7,7 @@ use itertools::Itertools;
 use num_bigint::BigInt;
 use num_complex::Complex64;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeSet;
 use std::fmt;
 
 /// Sourcecode location.
@@ -94,8 +94,6 @@ impl ConstantBag for BasicBag {
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct CodeObject<C: Constant = ConstantData> {
     pub instructions: Vec<Instruction>,
-    /// Jump targets.
-    pub label_map: BTreeMap<Label, usize>,
     pub locations: Vec<Location>,
     pub flags: CodeFlags,
     pub posonlyarg_count: usize, // Number of positional-only arguments
@@ -146,11 +144,13 @@ impl CodeFlags {
 }
 
 #[derive(Serialize, Debug, Deserialize, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
-pub struct Label(usize);
-
-impl Label {
-    pub fn new(label: usize) -> Self {
-        Label(label)
+#[repr(transparent)]
+// XXX: if you add a new instruction that stores a Label, make sure to add it in
+// compile::CodeInfo::finalize_code and CodeObject::label_targets
+pub struct Label(pub usize);
+impl fmt::Display for Label {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.0.fmt(f)
     }
 }
 
@@ -551,7 +551,6 @@ impl<C: Constant> CodeObject<C> {
     ) -> Self {
         CodeObject {
             instructions: Vec::new(),
-            label_map: BTreeMap::new(),
             locations: Vec::new(),
             flags,
             posonlyarg_count,
@@ -596,15 +595,55 @@ impl<C: Constant> CodeObject<C> {
         }
     }
 
+    pub fn label_targets(&self) -> BTreeSet<Label> {
+        let mut label_targets = BTreeSet::new();
+        for instruction in &self.instructions {
+            match instruction {
+                Jump { target: l }
+                | JumpIfTrue { target: l }
+                | JumpIfFalse { target: l }
+                | JumpIfTrueOrPop { target: l }
+                | JumpIfFalseOrPop { target: l }
+                | ForIter { target: l }
+                | SetupFinally { handler: l }
+                | SetupExcept { handler: l }
+                | SetupWith { end: l }
+                | SetupAsyncWith { end: l } => {
+                    label_targets.insert(*l);
+                }
+                SetupLoop { start, end } => {
+                    label_targets.insert(*start);
+                    label_targets.insert(*end);
+                }
+
+                #[rustfmt::skip]
+                Import { .. } | ImportStar | ImportFrom { .. } | LoadName { .. } | StoreName { .. }
+                | DeleteName { .. } | Subscript | StoreSubscript | DeleteSubscript
+                | StoreAttr { .. } | DeleteAttr { .. } | LoadConst { .. } | UnaryOperation { .. }
+                | BinaryOperation { .. } | LoadAttr { .. } | CompareOperation { .. } | Pop
+                | Rotate { .. } | Duplicate | GetIter | Continue | Break | MakeFunction
+                | CallFunction { .. } | ReturnValue | YieldValue | YieldFrom | SetupAnnotation
+                | EnterFinally | EndFinally | WithCleanupStart | WithCleanupFinish | PopBlock
+                | Raise { .. } | BuildString { .. } | BuildTuple { .. } | BuildList { .. }
+                | BuildSet { .. } | BuildMap { .. } | BuildSlice { .. } | ListAppend { .. }
+                | SetAdd { .. } | MapAdd { .. } | PrintExpr | LoadBuildClass | UnpackSequence { .. }
+                | UnpackEx { .. } | FormatValue { .. } | PopException | Reverse { .. }
+                | GetAwaitable | BeforeAsyncWith | GetAIter | GetANext | MapAddRev { .. } => {}
+            }
+        }
+        label_targets
+    }
+
     fn display_inner(
         &self,
         f: &mut fmt::Formatter,
         expand_codeobjects: bool,
         level: usize,
     ) -> fmt::Result {
-        let label_targets: HashSet<&usize> = self.label_map.values().collect();
+        let label_targets = self.label_targets();
+
         for (offset, instruction) in self.instructions.iter().enumerate() {
-            let arrow = if label_targets.contains(&offset) {
+            let arrow = if label_targets.contains(&Label(offset)) {
                 ">>"
             } else {
                 "  "
@@ -613,14 +652,7 @@ impl<C: Constant> CodeObject<C> {
                 write!(f, "          ")?;
             }
             write!(f, "{} {:5} ", arrow, offset)?;
-            instruction.fmt_dis(
-                f,
-                &self.label_map,
-                &self.constants,
-                &self.names,
-                expand_codeobjects,
-                level,
-            )?;
+            instruction.fmt_dis(f, &self.constants, &self.names, expand_codeobjects, level)?;
         }
         Ok(())
     }
@@ -649,7 +681,6 @@ impl<C: Constant> CodeObject<C> {
                 .collect(),
 
             instructions: self.instructions,
-            label_map: self.label_map,
             locations: self.locations,
             flags: self.flags,
             posonlyarg_count: self.posonlyarg_count,
@@ -675,7 +706,6 @@ impl<C: Constant> CodeObject<C> {
                 .collect(),
 
             instructions: self.instructions.clone(),
-            label_map: self.label_map.clone(),
             locations: self.locations.clone(),
             flags: self.flags,
             posonlyarg_count: self.posonlyarg_count,
@@ -723,7 +753,6 @@ impl Instruction {
     fn fmt_dis<C: Constant>(
         &self,
         f: &mut fmt::Formatter,
-        label_map: &BTreeMap<Label, usize>,
         constants: &[C],
         names: &[C::Name],
         expand_codeobjects: bool,
@@ -803,28 +832,28 @@ impl Instruction {
             GetIter => w!(GetIter),
             Continue => w!(Continue),
             Break => w!(Break),
-            Jump { target } => w!(Jump, label_map[target]),
-            JumpIfTrue { target } => w!(JumpIfTrue, label_map[target]),
-            JumpIfFalse { target } => w!(JumpIfFalse, label_map[target]),
-            JumpIfTrueOrPop { target } => w!(JumpIfTrueOrPop, label_map[target]),
-            JumpIfFalseOrPop { target } => w!(JumpIfFalseOrPop, label_map[target]),
+            Jump { target } => w!(Jump, target),
+            JumpIfTrue { target } => w!(JumpIfTrue, target),
+            JumpIfFalse { target } => w!(JumpIfFalse, target),
+            JumpIfTrueOrPop { target } => w!(JumpIfTrueOrPop, target),
+            JumpIfFalseOrPop { target } => w!(JumpIfFalseOrPop, target),
             MakeFunction => w!(MakeFunction),
             CallFunction { typ } => w!(CallFunction, format!("{:?}", typ)),
-            ForIter { target } => w!(ForIter, label_map[target]),
+            ForIter { target } => w!(ForIter, target),
             ReturnValue => w!(ReturnValue),
             YieldValue => w!(YieldValue),
             YieldFrom => w!(YieldFrom),
             SetupAnnotation => w!(SetupAnnotation),
-            SetupLoop { start, end } => w!(SetupLoop, label_map[start], label_map[end]),
-            SetupExcept { handler } => w!(SetupExcept, label_map[handler]),
-            SetupFinally { handler } => w!(SetupFinally, label_map[handler]),
+            SetupLoop { start, end } => w!(SetupLoop, start, end),
+            SetupExcept { handler } => w!(SetupExcept, handler),
+            SetupFinally { handler } => w!(SetupFinally, handler),
             EnterFinally => w!(EnterFinally),
             EndFinally => w!(EndFinally),
-            SetupWith { end } => w!(SetupWith, label_map[end]),
+            SetupWith { end } => w!(SetupWith, end),
             WithCleanupStart => w!(WithCleanupStart),
             WithCleanupFinish => w!(WithCleanupFinish),
             BeforeAsyncWith => w!(BeforeAsyncWith),
-            SetupAsyncWith { end } => w!(SetupAsyncWith, label_map[end]),
+            SetupAsyncWith { end } => w!(SetupAsyncWith, end),
             PopBlock => w!(PopBlock),
             Raise { argc } => w!(Raise, argc),
             BuildString { size } => w!(BuildString, size),

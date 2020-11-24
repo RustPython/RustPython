@@ -103,11 +103,11 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         }
     }
 
-    fn get_or_create_block(&mut self, label: &Label) -> Block {
+    fn get_or_create_block(&mut self, label: Label) -> Block {
         let builder = &mut self.builder;
         *self
             .label_to_block
-            .entry(*label)
+            .entry(label)
             .or_insert_with(|| builder.create_block())
     }
 
@@ -115,11 +115,16 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         &mut self,
         bytecode: &CodeObject<C>,
     ) -> Result<(), JitCompileError> {
-        let offset_to_label: HashMap<&usize, &Label> =
-            bytecode.label_map.iter().map(|(k, v)| (v, k)).collect();
+        // TODO: figure out if this is sufficient -- previously individual labels were associated
+        // pretty much per-bytecode that uses them, or at least per "type" of block -- in theory an
+        // if block and a with block might jump to the same place. Now it's all "flattened", so
+        // there might be less distinction between different types of blocks going off
+        // label_targets alone
+        let label_targets = bytecode.label_targets();
 
         for (offset, instruction) in bytecode.instructions.iter().enumerate() {
-            if let Some(&label) = offset_to_label.get(&offset) {
+            let label = Label(offset);
+            if label_targets.contains(&label) {
                 let block = self.get_or_create_block(label);
 
                 // If the current block is not terminated/filled just jump
@@ -190,7 +195,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 let cond = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
 
                 let val = self.boolean_val(cond)?;
-                let then_block = self.get_or_create_block(target);
+                let then_block = self.get_or_create_block(*target);
                 self.builder.ins().brz(val, then_block, &[]);
 
                 let block = self.builder.create_block();
@@ -203,7 +208,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 let cond = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
 
                 let val = self.boolean_val(cond)?;
-                let then_block = self.get_or_create_block(target);
+                let then_block = self.get_or_create_block(*target);
                 self.builder.ins().brnz(val, then_block, &[]);
 
                 let block = self.builder.create_block();
@@ -213,7 +218,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 Ok(())
             }
             Instruction::Jump { target } => {
-                let target_block = self.get_or_create_block(target);
+                let target_block = self.get_or_create_block(*target);
                 self.builder.ins().jump(target_block, &[]);
 
                 Ok(())
