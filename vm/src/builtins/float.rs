@@ -555,7 +555,7 @@ impl Hashable for PyFloat {
 pub type PyFloatRef = PyRef<PyFloat>;
 
 // Retrieve inner float value:
-pub fn get_value(obj: &PyObjectRef) -> f64 {
+pub(crate) fn get_value(obj: &PyObjectRef) -> f64 {
     obj.payload::<PyFloat>().unwrap().value
 }
 

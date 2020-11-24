@@ -1183,11 +1183,11 @@ pub fn init(ctx: &PyContext) {
     PyStrReverseIterator::extend_class(ctx, &ctx.types.str_reverseiterator_type);
 }
 
-pub fn clone_value(obj: &PyObjectRef) -> String {
+pub(crate) fn clone_value(obj: &PyObjectRef) -> String {
     String::from(obj.payload::<PyStr>().unwrap().borrow_value())
 }
 
-pub fn borrow_value(obj: &PyObjectRef) -> &str {
+pub(crate) fn borrow_value(obj: &PyObjectRef) -> &str {
     &obj.payload::<PyStr>().unwrap().value
 }
 

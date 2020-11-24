@@ -888,7 +888,7 @@ fn detect_base(c: &u8) -> Option<u32> {
 }
 
 // Retrieve inner int value:
-pub fn get_value(obj: &PyObjectRef) -> &BigInt {
+pub(crate) fn get_value(obj: &PyObjectRef) -> &BigInt {
     &obj.payload::<PyInt>().unwrap().value
 }
 
