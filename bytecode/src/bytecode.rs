@@ -595,12 +595,7 @@ impl<C: Constant> CodeObject<C> {
         }
     }
 
-    fn display_inner(
-        &self,
-        f: &mut fmt::Formatter,
-        expand_codeobjects: bool,
-        level: usize,
-    ) -> fmt::Result {
+    pub fn label_targets(&self) -> BTreeSet<Label> {
         let mut label_targets = BTreeSet::new();
         for instruction in &self.instructions {
             let label = match instruction {
@@ -623,6 +618,16 @@ impl<C: Constant> CodeObject<C> {
             };
             label_targets.insert(*label);
         }
+        label_targets
+    }
+
+    fn display_inner(
+        &self,
+        f: &mut fmt::Formatter,
+        expand_codeobjects: bool,
+        level: usize,
+    ) -> fmt::Result {
+        let label_targets = self.label_targets();
 
         for (offset, instruction) in self.instructions.iter().enumerate() {
             let arrow = if label_targets.contains(&Label(offset)) {
