@@ -15,6 +15,7 @@ use super::pystr::PyStrRef;
 use super::staticmethod::PyStaticMethod;
 use super::tuple::PyTuple;
 use super::weakref::PyWeak;
+use crate::builtins::tuple::PyTupleRef;
 use crate::function::{FuncArgs, KwArgs};
 use crate::pyobject::{
     BorrowValue, Either, IdProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable, PyLease,
@@ -417,9 +418,12 @@ impl PyType {
             }));
         }
 
-        let (name, bases, dict, kwargs): (PyStrRef, PyIterable<PyTypeRef>, PyDictRef, KwArgs) =
+        let (name, bases, dict, kwargs): (PyStrRef, PyTupleRef, PyDictRef, KwArgs) =
             args.clone().bind(vm)?;
 
+        // TODO: This is kind of a hack because we lose type information only to redo it
+        let bases: PyIterable<PyTypeRef> =
+            PyIterable::try_from_object(vm, bases.into_object()).unwrap();
         let bases: Vec<PyTypeRef> = bases.iter(vm)?.collect::<Result<Vec<_>, _>>()?;
         let (metatype, base, bases) = if bases.is_empty() {
             let base = vm.ctx.types.object_type.clone();
