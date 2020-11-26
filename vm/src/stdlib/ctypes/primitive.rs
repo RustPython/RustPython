@@ -1,9 +1,14 @@
-use std::fmt;
 use crossbeam_utils::atomic::AtomicCell;
+use num_bigint::BigInt;
+use num_traits::FromPrimitive;
+use rustpython_common::borrow::BorrowValue;
+use std::fmt;
 
-use crate::builtins::pystr::PyStr;
 use crate::builtins::PyTypeRef;
-use crate::pyobject::{PyObjectRc, PyRef, PyResult, PyValue, StaticType};
+use crate::builtins::{PyByteArray, PyBytes, PyFloat, PyInt, PyNone, PyStr};
+use crate::pyobject::{
+    PyObjectRc, PyRef, PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
+};
 use crate::VirtualMachine;
 
 use crate::stdlib::ctypes::basics::PyCData;
@@ -14,6 +19,7 @@ pub const SIMPLE_TYPE_CHARS: &str = "cbBhHiIlLdfuzZqQP?g";
 pub struct PySimpleType {
     _type_: String,
     value: AtomicCell<PyObjectRc>,
+    __abstract__: bool,
 }
 
 impl fmt::Debug for PySimpleType {
@@ -53,6 +59,9 @@ impl PySimpleType {
                         PySimpleType {
                             _type_: _type_.downcast_exact::<PyStr>(vm).unwrap().to_string(),
                             value: AtomicCell::new(vm.ctx.none()),
+                            __abstract__: vm
+                                .isinstance(&cls.as_object(), PySimpleType::static_type())
+                                .is_ok(),
                         }
                         .into_ref_with_type(vm, cls)
                     }
@@ -70,22 +79,134 @@ impl PySimpleType {
 
     #[pymethod(name = "__init__")]
     pub fn init(&self, value: Option<PyObjectRc>, vm: &VirtualMachine) -> PyResult<()> {
-        let content = if let Some(ref v) = value {
-            // @TODO: Needs to check if value has a simple (rust native) payload
-            // and convert into the type on _type_
-            v.clone()
-        } else {
-            match self._type_.as_str() {
-                "c" | "u" => vm.ctx.new_bytes(vec![0]),
-                "b" | "B" | "h" | "H" | "i" | "I" | "l" | "q" | "L" | "Q" => vm.ctx.new_int(0),
-                "f" | "d" | "g" => vm.ctx.new_float(0.0),
-                "?" => vm.ctx.new_bool(false),
-                "z" | "Z" | "P" | _ => vm.ctx.none(), // @TODO: What should we do here? Throw an error?
-            }
-        };
+        match value.clone() {
+            Some(ref v) if !self.__abstract__ => {
+                let content = match self._type_.as_str() {
+                    "c" => {
+                        if v.clone()
+                            .downcast_exact::<PyBytes>(vm)
+                            .map(|v| v.len() == 1)
+                            .is_ok()
+                            || v.clone()
+                                .downcast_exact::<PyByteArray>(vm)
+                                .map(|v| v.borrow_value().len() == 1)
+                                .is_ok()
+                            || v.clone()
+                                .downcast_exact::<PyInt>(vm)
+                                .map(|v| {
+                                    v.borrow_value().ge(&BigInt::from_i64(0).unwrap())
+                                        || v.borrow_value().le(&BigInt::from_i64(255).unwrap())
+                                })
+                                .is_ok()
+                        {
+                            Ok(v.clone())
+                        } else {
+                            Err(vm.new_type_error(
+                                "one character bytes, bytearray or integer expected".to_string(),
+                            ))
+                        }
+                    }
+                    "u" => {
+                        if let Ok(b) = v
+                            .clone()
+                            .downcast_exact::<PyStr>(vm)
+                            .map(|v| v.as_ref().chars().count() == 1)
+                        {
+                            if b {
+                                Ok(v.clone())
+                            } else {
+                                Err(vm.new_type_error(
+                                    "one character unicode string expected".to_string(),
+                                ))
+                            }
+                        } else {
+                            Err(vm.new_type_error(format!(
+                                "unicode string expected instead of {} instance",
+                                v.class().name
+                            )))
+                        }
+                    }
+                    "b" | "h" | "H" | "i" | "I" | "l" | "q" | "L" | "Q" => {
+                        if v.clone().downcast_exact::<PyInt>(vm).is_ok() {
+                            Ok(v.clone())
+                        } else {
+                            Err(vm.new_type_error(format!(
+                                "an integer is required (got type {})",
+                                v.class().name
+                            )))
+                        }
+                    }
+                    "f" | "d" | "g" => {
+                        if v.clone().downcast_exact::<PyFloat>(vm).is_ok() {
+                            Ok(v.clone())
+                        } else {
+                            Err(vm.new_type_error(format!(
+                                "must be real number, not {}",
+                                v.class().name
+                            )))
+                        }
+                    }
+                    "?" => Ok(vm.ctx.none()),
+                    "B" => {
+                        if let Ok(v_c) = v.clone().downcast_exact::<PyInt>(vm) {
+                            Ok(vm.new_pyobj(u8::try_from_object(vm, v.clone()).unwrap()))
+                        } else {
+                            Err(vm.new_type_error(format!(
+                                "int expected instead of {}",
+                                v.class().name
+                            )))
+                        }
+                    }
+                    "z" => {
+                        if v.clone().downcast_exact::<PyInt>(vm).is_ok()
+                            || v.clone().downcast_exact::<PyBytes>(vm).is_ok()
+                        {
+                            Ok(v.clone())
+                        } else {
+                            Err(vm.new_type_error(format!(
+                                "bytes or integer address expected instead of {} instance",
+                                v.class().name
+                            )))
+                        }
+                    }
+                    "Z" => {
+                        if v.clone().downcast_exact::<PyStr>(vm).is_ok() {
+                            Ok(v.clone())
+                        } else {
+                            Err(vm.new_type_error(format!(
+                                "unicode string or integer address expected instead of {} instance",
+                                v.class().name
+                            )))
+                        }
+                    }
+                    _ => {
+                        // "P"
+                        if v.clone().downcast_exact::<PyInt>(vm).is_ok()
+                            || v.clone().downcast_exact::<PyNone>(vm).is_ok()
+                        {
+                            Ok(v.clone())
+                        } else {
+                            Err(vm.new_type_error("cannot be converted to pointer".to_string()))
+                        }
+                    }
+                }?;
 
-        self.value.store(content);
-        Ok(())
+                self.value.store(content);
+                Ok(())
+            }
+            Some(_) => Err(vm.new_type_error("abstract class".to_string())),
+            _ => {
+                self.value.store(match self._type_.as_str() {
+                    "c" | "u" => vm.ctx.new_bytes(vec![0]),
+                    "b" | "B" | "h" | "H" | "i" | "I" | "l" | "q" | "L" | "Q" => vm.ctx.new_int(0),
+                    "f" | "d" | "g" => vm.ctx.new_float(0.0),
+                    "?" => vm.ctx.new_bool(false),
+                    _ => vm.ctx.none(), // "z" | "Z" | "P"
+                });
+
+                Ok(())
+            }
+        }
     }
 
     // From Simple_Type Simple_methods

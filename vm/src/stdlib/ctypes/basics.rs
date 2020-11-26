@@ -1,8 +1,8 @@
 use crate::builtins::int::PyInt;
 use crate::builtins::memory::Buffer;
 use crate::builtins::pystr::PyStrRef;
-use crate::function::OptionalArg;
 use crate::builtins::pytype::{PyType, PyTypeRef};
+use crate::function::OptionalArg;
 use crate::pyobject::{
     PyObjectRc, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject,
 };
