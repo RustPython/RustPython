@@ -323,7 +323,7 @@ impl PyContext {
         F: IntoPyGetterFunc<T>,
     {
         PyObject::new(
-            PyGetSet::with_get(name.into(), f),
+            PyGetSet::new(name.into()).with_get(f),
             self.types.getset_type.clone(),
             None,
         )
@@ -335,7 +335,7 @@ impl PyContext {
         S: IntoPySetterFunc<U>,
     {
         PyObject::new(
-            PyGetSet::with_get_set(name.into(), g, s),
+            PyGetSet::new(name.into()).with_get(g).with_set(s),
             self.types.getset_type.clone(),
             None,
         )

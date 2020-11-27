@@ -354,11 +354,10 @@ where
         let item_attr = args.attrs.remove(self.index());
         let item_meta = PropertyItemMeta::from_attr(ident.clone(), &item_attr)?;
 
-        let py_name = item_meta.property_name()?;
-        let setter = item_meta.setter()?;
+        let (py_name, kind) = item_meta.property_name()?;
         args.context
             .getset_items
-            .add_item(py_name, args.cfgs.to_vec(), setter, ident.clone())?;
+            .add_item(py_name, args.cfgs.to_vec(), kind, ident.clone())?;
         Ok(())
     }
 }
@@ -478,8 +477,14 @@ where
 #[derive(Default)]
 #[allow(clippy::type_complexity)]
 struct GetSetNursery {
-    map: HashMap<(String, Vec<Attribute>), (Option<Ident>, Option<Ident>)>,
+    map: HashMap<(String, Vec<Attribute>), (Option<Ident>, Option<Ident>, Option<Ident>)>,
     validated: bool,
+}
+
+enum GetSetItemKind {
+    Get,
+    Set,
+    Delete,
 }
 
 impl GetSetNursery {
@@ -487,18 +492,22 @@ impl GetSetNursery {
         &mut self,
         name: String,
         cfgs: Vec<Attribute>,
-        setter: bool,
+        kind: GetSetItemKind,
         item_ident: Ident,
     ) -> Result<()> {
         assert!(!self.validated, "new item is not allowed after validation");
-        if setter && !cfgs.is_empty() {
+        if !matches!(kind, GetSetItemKind::Get) && !cfgs.is_empty() {
             return Err(syn::Error::new_spanned(
                 item_ident,
-                "Property setter does not allow #[cfg]",
+                "Only the getter can have #[cfg]",
             ));
         }
         let entry = self.map.entry((name.clone(), cfgs)).or_default();
-        let func = if setter { &mut entry.1 } else { &mut entry.0 };
+        let func = match kind {
+            GetSetItemKind::Get => &mut entry.0,
+            GetSetItemKind::Set => &mut entry.1,
+            GetSetItemKind::Delete => &mut entry.2,
+        };
         if func.is_some() {
             return Err(syn::Error::new_spanned(
                 item_ident,
@@ -511,10 +520,10 @@ impl GetSetNursery {
 
     fn validate(&mut self) -> Result<()> {
         let mut errors = Vec::new();
-        for ((name, _cfgs), (getter, setter)) in self.map.iter() {
+        for ((name, _cfgs), (getter, setter, deleter)) in self.map.iter() {
             if getter.is_none() {
                 errors.push(syn::Error::new_spanned(
-                    setter.as_ref().unwrap(),
+                    setter.as_ref().or_else(|| deleter.as_ref()).unwrap(),
                     format!("Property '{}' is missing a getter", name),
                 ));
             };
@@ -528,21 +537,33 @@ impl GetSetNursery {
 impl ToTokens for GetSetNursery {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         assert!(self.validated, "Call `validate()` before token generation");
-        tokens.extend(self.map.iter().map(|((name, cfgs), (getter, setter))| {
-            let (constructor, setter) = match setter {
-                Some(setter) => (quote! { with_get_set }, quote_spanned! { setter.span() => , &Self::#setter }),
-                None => (quote! { with_get }, quote! { }),
-            };
-            quote! {
-                #( #cfgs )*
-                class.set_str_attr(
-                    #name,
-                    ::rustpython_vm::pyobject::PyObject::new(
-                        ::rustpython_vm::builtins::PyGetSet::#constructor(#name.into(), &Self::#getter #setter),
-                        ctx.types.getset_type.clone(), None)
-                );
-            }
-        }));
+        let properties = self
+            .map
+            .iter()
+            .map(|((name, cfgs), (getter, setter, deleter))| {
+                let setter = match setter {
+                    Some(setter) => quote_spanned! { setter.span()=> .with_set(&Self::#setter)},
+                    None => quote! {},
+                };
+                let deleter = match deleter {
+                    Some(deleter) => {
+                        quote_spanned! { deleter.span()=> .with_delete(&Self::#deleter)}
+                    }
+                    None => quote! {},
+                };
+                quote! {
+                    #( #cfgs )*
+                    class.set_str_attr(
+                        #name,
+                        ::rustpython_vm::pyobject::PyObject::new(
+                            ::rustpython_vm::builtins::PyGetSet::new(#name.into())
+                                .with_get(&Self::#getter)
+                                #setter #deleter,
+                            ctx.types.getset_type.clone(), None)
+                    );
+                }
+            });
+        tokens.extend(properties);
     }
 }
 
@@ -580,7 +601,7 @@ impl MethodItemMeta {
 struct PropertyItemMeta(ItemMetaInner);
 
 impl ItemMeta for PropertyItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] = &["name", "magic", "setter"];
+    const ALLOWED_NAMES: &'static [&'static str] = &["name", "magic", "setter", "deleter"];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)
@@ -591,10 +612,25 @@ impl ItemMeta for PropertyItemMeta {
 }
 
 impl PropertyItemMeta {
-    fn property_name(&self) -> Result<String> {
+    fn property_name(&self) -> Result<(String, GetSetItemKind)> {
         let inner = self.inner();
         let magic = inner._bool("magic")?;
         let setter = inner._bool("setter")?;
+        let deleter = inner._bool("deleter")?;
+        let kind = match (setter, deleter) {
+            (false, false) => GetSetItemKind::Get,
+            (true, false) => GetSetItemKind::Set,
+            (false, true) => GetSetItemKind::Delete,
+            (true, true) => {
+                return Err(syn::Error::new_spanned(
+                    &inner.meta_ident,
+                    format!(
+                        "can't have both setter and deleter on a #[{}] fn",
+                        inner.meta_name()
+                    ),
+                ))
+            }
+        };
         let name = inner._optional_str("name")?;
         let py_name = if let Some(name) = name {
             name
@@ -623,6 +659,29 @@ impl PropertyItemMeta {
                         ),
                     ));
                 }
+            } else if deleter {
+                if let Some(name) = sig_name.strip_prefix("del_") {
+                    if name.is_empty() {
+                        return Err(syn::Error::new_spanned(
+                            &inner.meta_ident,
+                            format!(
+                                "A #[{}(deleter)] fn with a del_* name must \
+                                 have something after \"del_\"",
+                                inner.meta_name()
+                            ),
+                        ));
+                    }
+                    name.to_string()
+                } else {
+                    return Err(syn::Error::new_spanned(
+                        &inner.meta_ident,
+                        format!(
+                            "A #[{}(deleter)] fn must either have a `name` \
+                             parameter or a fn name along the lines of \"del_*\"",
+                            inner.meta_name()
+                        ),
+                    ));
+                }
             } else {
                 sig_name
             };
@@ -632,11 +691,7 @@ impl PropertyItemMeta {
                 name
             }
         };
-        Ok(py_name)
-    }
-
-    fn setter(&self) -> Result<bool> {
-        self.inner()._bool("setter")
+        Ok((py_name, kind))
     }
 }
 
