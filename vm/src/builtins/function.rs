@@ -10,8 +10,9 @@ use crate::builtins::asyncgenerator::PyAsyncGen;
 use crate::builtins::coroutine::PyCoroutine;
 use crate::builtins::generator::PyGenerator;
 use crate::bytecode;
+use crate::common::lock::PyMutex;
 use crate::frame::Frame;
-use crate::function::FuncArgs;
+use crate::function::{FuncArgs, OptionalArg};
 #[cfg(feature = "jit")]
 use crate::pyobject::IntoPyObject;
 use crate::pyobject::{
@@ -391,10 +392,52 @@ impl PyValue for PyBoundMethod {
     }
 }
 
-pub fn init(context: &PyContext) {
-    let function_type = &context.types.function_type;
-    PyFunction::extend_class(context, function_type);
+#[pyclass(module = false, name = "cell")]
+#[derive(Debug)]
+pub(crate) struct PyCell {
+    contents: PyMutex<Option<PyObjectRef>>,
+}
 
-    let method_type = &context.types.bound_method_type;
-    PyBoundMethod::extend_class(context, method_type);
+impl PyValue for PyCell {
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.cell_type
+    }
+}
+
+#[pyimpl]
+impl PyCell {
+    #[pyslot]
+    fn tp_new(cls: PyTypeRef, value: OptionalArg, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        Self {
+            contents: PyMutex::new(value.into_option()),
+        }
+        .into_ref_with_type(vm, cls)
+    }
+
+    pub fn get(&self) -> Option<PyObjectRef> {
+        self.contents.lock().clone()
+    }
+    pub fn set(&self, x: Option<PyObjectRef>) {
+        *self.contents.lock() = x;
+    }
+
+    #[pyproperty]
+    fn cell_contents(&self, vm: &VirtualMachine) -> PyResult {
+        self.get()
+            .ok_or_else(|| vm.new_value_error("Cell is empty".to_owned()))
+    }
+    #[pyproperty(setter)]
+    fn set_cell_contents(&self, x: PyObjectRef) {
+        self.set(Some(x))
+    }
+    #[pyproperty(deleter)]
+    fn del_cell_contents(&self) {
+        self.set(None)
+    }
+}
+
+pub fn init(context: &PyContext) {
+    PyFunction::extend_class(context, &context.types.function_type);
+    PyBoundMethod::extend_class(context, &context.types.bound_method_type);
+    PyCell::extend_class(context, &context.types.cell_type);
 }
