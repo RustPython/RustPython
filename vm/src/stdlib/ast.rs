@@ -691,6 +691,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "Return" => py_class!(ctx, "Return", &ast_base, {}),
         "Set" => py_class!(ctx, "Set", &ast_base, {}),
         "SetComp" => py_class!(ctx, "SetComp", &ast_base, {}),
+        "Slice" => py_class!(ctx, "Slice", &ast_base, {}),
         "Starred" => py_class!(ctx, "Starred", &ast_base, {}),
         "Starred" => py_class!(ctx, "Starred", &ast_base, {}),
         "Str" => py_class!(ctx, "Str", &ast_base, {}),
