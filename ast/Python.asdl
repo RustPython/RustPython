@@ -26,7 +26,7 @@ module Python
           | Assign(expr* targets, expr value, string? type_comment)
           | AugAssign(expr target, operator op, expr value)
           -- 'simple' indicates that we annotate simple name without parens
-          | AnnAssign(expr target, expr annotation, expr? value, int simple)
+          | AnnAssign(expr target, expr annotation, expr? value, bool simple)
 
           -- use 'orelse' because else is a keyword in target languages
           | For(expr target, expr iter, stmt* body, stmt* orelse, string? type_comment)
@@ -41,7 +41,7 @@ module Python
           | Assert(expr test, expr? msg)
 
           | Import(alias* names)
-          | ImportFrom(identifier? module, alias* names, int? level)
+          | ImportFrom(identifier? module, alias* names, int level)
 
           | Global(identifier* names)
           | Nonlocal(identifier* names)
@@ -58,7 +58,7 @@ module Python
          | UnaryOp(unaryop op, expr operand)
          | Lambda(arguments args, expr body)
          | IfExp(expr test, expr body, expr orelse)
-         | Dict(expr* keys, expr* values)
+         | Dict(expr?* keys, expr* values)
          | Set(expr* elts)
          | ListComp(expr elt, comprehension* generators)
          | SetComp(expr elt, comprehension* generators)
@@ -72,7 +72,7 @@ module Python
          -- x < 4 < 3 and (x < 4) < 3
          | Compare(expr left, cmpop* ops, expr* comparators)
          | Call(expr func, expr* args, keyword* keywords)
-         | FormattedValue(expr value, int? conversion, expr? format_spec)
+         | FormattedValue(expr value, conversion_flag? conversion, expr? format_spec)
          | JoinedStr(expr* values)
          | Constant(constant value, string? kind)
 
@@ -101,13 +101,13 @@ module Python
 
     cmpop = Eq | NotEq | Lt | LtE | Gt | GtE | Is | IsNot | In | NotIn
 
-    comprehension = (expr target, expr iter, expr* ifs, int is_async)
+    comprehension = (expr target, expr iter, expr* ifs, bool is_async)
 
     excepthandler = ExceptHandler(expr? type, identifier? name, stmt* body)
                     attributes (int lineno, int col_offset, int? end_lineno, int? end_col_offset)
 
     arguments = (arg* posonlyargs, arg* args, arg? vararg, arg* kwonlyargs,
-                 expr* kw_defaults, arg? kwarg, expr* defaults)
+                 expr?* kw_defaults, arg? kwarg, expr* defaults)
 
     arg = (identifier arg, expr? annotation, string? type_comment)
            attributes (int lineno, int col_offset, int? end_lineno, int? end_col_offset)

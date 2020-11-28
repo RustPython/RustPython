@@ -111,9 +111,17 @@ pub static KEYWORDS: phf::Map<&'static str, Tok> = phf::phf_map! {
 pub type Spanned = (Location, Tok, Location);
 pub type LexResult = Result<Spanned, LexicalError>;
 
+#[inline]
 pub fn make_tokenizer(source: &str) -> impl Iterator<Item = LexResult> + '_ {
+    make_tokenizer_located(source, Location::new(0, 0))
+}
+
+pub fn make_tokenizer_located(
+    source: &str,
+    start_location: Location,
+) -> impl Iterator<Item = LexResult> + '_ {
     let nlh = NewlineHandler::new(source.chars());
-    Lexer::new(nlh)
+    Lexer::new(nlh, start_location)
 }
 
 // The newline handler is an iterator which collapses different newline
@@ -177,7 +185,7 @@ impl<T> Lexer<T>
 where
     T: Iterator<Item = char>,
 {
-    pub fn new(input: T) -> Self {
+    pub fn new(input: T, start: Location) -> Self {
         let mut lxr = Lexer {
             chars: input,
             at_begin_of_line: true,
@@ -185,7 +193,7 @@ where
             indentation_stack: vec![Default::default()],
             pending: Vec::new(),
             chr0: None,
-            location: Location::new(0, 0),
+            location: start,
             chr1: None,
             chr2: None,
         };

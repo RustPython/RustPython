@@ -1,15 +1,28 @@
+use crate::token::Tok;
+
 #[derive(Clone, Copy)]
 pub enum Mode {
-    Program,
-    Statement,
+    Module,
+    Interactive,
+    Expression,
+}
+
+impl Mode {
+    pub(crate) fn to_marker(self) -> Tok {
+        match self {
+            Self::Module => Tok::StartModule,
+            Self::Interactive => Tok::StartInteractive,
+            Self::Expression => Tok::StartExpression,
+        }
+    }
 }
 
 impl std::str::FromStr for Mode {
     type Err = ModeParseError;
     fn from_str(s: &str) -> Result<Self, ModeParseError> {
         match s {
-            "exec" | "single" => Ok(Mode::Program),
-            "eval" => Ok(Mode::Statement),
+            "exec" | "single" => Ok(Mode::Module),
+            "eval" => Ok(Mode::Expression),
             _ => Err(ModeParseError { _priv: () }),
         }
     }

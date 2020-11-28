@@ -33,7 +33,7 @@ __all__ = [
 # See the EBNF at the top of the file to understand the logical connection
 # between the various node types.
 
-builtin_types = {'identifier', 'string', 'int', 'constant'}
+builtin_types = {'identifier', 'string', 'int', 'constant', 'bool', 'conversion_flag'}
 
 class AST:
     def __repr__(self):
@@ -340,11 +340,11 @@ class ASDLParser:
 
     def _parse_optional_field_quantifier(self):
         is_seq, is_opt = False, False
+        if self.cur_token.kind == TokenKind.Question:
+            is_opt = True
+            self._advance()
         if self.cur_token.kind == TokenKind.Asterisk:
             is_seq = True
-            self._advance()
-        elif self.cur_token.kind == TokenKind.Question:
-            is_opt = True
             self._advance()
         return is_seq, is_opt
 
