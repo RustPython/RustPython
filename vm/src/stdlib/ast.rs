@@ -683,6 +683,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "Module" => py_class!(ctx, "Module", &ast_base, {}),
         "Name" => py_class!(ctx, "Name", &ast_base, {}),
         "NameConstant" => py_class!(ctx, "NameConstant", &ast_base, {}),
+        "NamedExpression" => py_class!(ctx, "NamedExpression", &ast_base, {}),
         "Nonlocal" => py_class!(ctx, "Nonlocal", &ast_base, {}),
         "Num" => py_class!(ctx, "Num", &ast_base, {}),
         "Pass" => py_class!(ctx, "Pass", &ast_base, {}),
