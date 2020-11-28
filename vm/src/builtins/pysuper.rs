@@ -61,16 +61,30 @@ impl PySuper {
         let typ = if let OptionalArg::Present(ty) = py_type {
             ty
         } else {
-            let obj = vm
-                .current_scope()
-                .load_cell(vm, "__class__")
-                .ok_or_else(|| {
-                    vm.new_type_error(
-                        "super must be called with 1 argument or from inside class method"
-                            .to_owned(),
-                    )
-                })?;
-            PyTypeRef::try_from_object(vm, obj)?
+            let frame = vm
+                .current_frame()
+                .expect("super() called from outside of frame?");
+            let mut typ = None;
+            for (i, var) in frame.code.freevars.iter().enumerate() {
+                if var.borrow_value() == "__class__" {
+                    let i = frame.code.cellvars.len() + i;
+                    let class = frame.cells_frees[i].get().ok_or_else(|| {
+                        vm.new_runtime_error("super(): empty __class__ cell".to_owned())
+                    })?;
+                    typ = Some(class.downcast().map_err(|o| {
+                        vm.new_type_error(format!(
+                            "super(): __class__ is not a type ({})",
+                            o.class().name
+                        ))
+                    })?);
+                    break;
+                }
+            }
+            typ.ok_or_else(|| {
+                vm.new_type_error(
+                    "super must be called with 1 argument or from inside class method".to_owned(),
+                )
+            })?
         };
 
         // Check type argument:
@@ -87,8 +101,8 @@ impl PySuper {
         } else {
             let frame = vm.current_frame().expect("no current frame for super()");
             if let Some(first_arg) = frame.code.arg_names().args.get(0) {
-                let locals = frame.scope.get_locals();
-                locals
+                frame
+                    .locals
                     .get_item_option(first_arg.clone(), vm)?
                     .ok_or_else(|| {
                         vm.new_type_error(format!("super argument {} was not supplied", first_arg))

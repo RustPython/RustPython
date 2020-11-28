@@ -9,12 +9,13 @@ use crate::builtins::asyncgenerator::PyAsyncGenWrappedValue;
 use crate::builtins::code::PyCodeRef;
 use crate::builtins::coroutine::PyCoroutine;
 use crate::builtins::dict::{PyDict, PyDictRef};
+use crate::builtins::function::{PyCell, PyCellRef, PyFunction};
 use crate::builtins::generator::PyGenerator;
 use crate::builtins::pystr::{self, PyStr, PyStrRef};
 use crate::builtins::pytype::PyTypeRef;
 use crate::builtins::slice::PySlice;
 use crate::builtins::traceback::PyTraceback;
-use crate::builtins::tuple::PyTuple;
+use crate::builtins::tuple::{PyTuple, PyTupleTyped};
 use crate::builtins::{list, pybool, set};
 use crate::bytecode;
 use crate::common::lock::PyMutex;
@@ -91,7 +92,12 @@ struct FrameState {
 #[pyclass(module = false, name = "frame")]
 pub struct Frame {
     pub code: PyCodeRef,
-    pub scope: Scope,
+
+    pub fastlocals: PyMutex<Box<[Option<PyObjectRef>]>>,
+    pub cells_frees: Box<[PyCellRef]>,
+    pub locals: PyDictRef,
+    pub globals: PyDictRef,
+
     /// index of last instruction ran
     pub lasti: AtomicUsize,
     /// tracer function for this frame (usually is None)
@@ -151,7 +157,7 @@ impl ExecutionResult {
 pub type FrameResult = PyResult<Option<ExecutionResult>>;
 
 impl Frame {
-    pub fn new(code: PyCodeRef, scope: Scope, vm: &VirtualMachine) -> Frame {
+    pub fn new(code: PyCodeRef, scope: Scope, closure: &[PyCellRef], vm: &VirtualMachine) -> Frame {
         //populate the globals and locals
         //TODO: This is wrong, check https://github.com/nedbat/byterun/blob/31e6c4a8212c35b5157919abff43a7daa0f377c6/byterun/pyvm2.py#L95
         /*
@@ -162,10 +168,17 @@ impl Frame {
         */
         // let locals = globals;
         // locals.extend(callargs);
+        let cells_frees = std::iter::repeat_with(|| PyCell::default().into_ref(vm))
+            .take(code.cellvars.len())
+            .chain(closure.iter().cloned())
+            .collect();
 
         Frame {
+            fastlocals: PyMutex::new(vec![None; code.varnames.len()].into_boxed_slice()),
+            cells_frees,
+            locals: scope.locals,
+            globals: scope.globals,
             code,
-            scope,
             lasti: AtomicUsize::new(0),
             state: PyMutex::new(FrameState {
                 stack: Vec::new(),
@@ -182,12 +195,19 @@ impl FrameRef {
         let mut state = self.state.lock();
         let exec = ExecutingFrame {
             code: &self.code,
-            scope: &self.scope,
+            fastlocals: &self.fastlocals,
+            cells_frees: &self.cells_frees,
+            locals: &self.locals,
+            globals: &self.globals,
             lasti: &self.lasti,
             object: &self,
             state: &mut state,
         };
         f(exec)
+    }
+
+    pub fn locals(&self, vm: &VirtualMachine) -> &PyDictRef {
+        todo!()
     }
 
     // #[cfg_attr(feature = "flame-it", flame("Frame"))]
@@ -233,7 +253,10 @@ impl FrameRef {
 /// with the mutable data inside
 struct ExecutingFrame<'a> {
     code: &'a PyCodeRef,
-    scope: &'a Scope,
+    fastlocals: &'a PyMutex<Box<[Option<PyObjectRef>]>>,
+    cells_frees: &'a [PyCellRef],
+    locals: &'a PyDictRef,
+    globals: &'a PyDictRef,
     object: &'a FrameRef,
     lasti: &'a AtomicUsize,
     state: &'a mut FrameState,
@@ -243,7 +266,7 @@ impl fmt::Debug for ExecutingFrame<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("ExecutingFrame")
             .field("code", self.code)
-            .field("scope", self.scope)
+            // .field("scope", self.scope)
             .field("lasti", self.lasti)
             .field("state", self.state)
             .finish()
@@ -330,6 +353,24 @@ impl ExecutingFrame<'_> {
         }
     }
 
+    fn unbound_cell_exception(&self, i: usize, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        if let Some(name) = self.code.cellvars.get(i) {
+            vm.new_exception_msg(
+                vm.ctx.exceptions.unbound_local_error.clone(),
+                format!(
+                    "local variable '{}' referenced before assignment",
+                    self.code.cellvars[i]
+                ),
+            )
+        } else {
+            let name = &self.code.freevars[i - self.code.cellvars.len()];
+            vm.new_name_error(format!(
+                "free variable '{}' referenced before assignment in enclosing scope",
+                name
+            ))
+        }
+    }
+
     /// Execute a single instruction.
     #[inline(always)]
     fn execute_instruction(
@@ -366,9 +407,100 @@ impl ExecutingFrame<'_> {
             } => self.import(vm, *name_idx, symbols_idx, *level),
             bytecode::Instruction::ImportStar => self.import_star(vm),
             bytecode::Instruction::ImportFrom { idx } => self.import_from(vm, *idx),
-            bytecode::Instruction::LoadName { idx, scope } => self.load_name(vm, *idx, *scope),
-            bytecode::Instruction::StoreName { idx, scope } => self.store_name(vm, *idx, *scope),
-            bytecode::Instruction::DeleteName { idx } => self.delete_name(vm, *idx),
+            bytecode::Instruction::LoadFast(idx) => {
+                let x = self.fastlocals.lock()[*idx].clone().ok_or_else(|| {
+                    vm.new_exception_msg(
+                        vm.ctx.exceptions.unbound_local_error.clone(),
+                        format!(
+                            "local variable '{}' referenced before assignment",
+                            self.code.varnames[*idx]
+                        ),
+                    )
+                })?;
+                self.push_value(x);
+                Ok(None)
+            }
+            bytecode::Instruction::LoadLocal(idx) => {
+                let name = &self.code.names[*idx];
+                let x = self
+                    .locals
+                    .get_item_option(name.clone(), vm)?
+                    .ok_or_else(|| vm.new_name_error(format!("name '{}' is not defined", name)))?;
+                self.push_value(x);
+                Ok(None)
+            }
+            bytecode::Instruction::LoadGlobal(idx) => {
+                let name = &self.code.names[*idx];
+                let x = self
+                    .globals
+                    .get_item_option(name.clone(), vm)?
+                    .ok_or_else(|| vm.new_name_error(format!("name '{}' is not defined", name)))?;
+                self.push_value(x);
+                Ok(None)
+            }
+            bytecode::Instruction::LoadDeref(i) => {
+                let i = *i;
+                self.cells_frees[i]
+                    .get()
+                    .ok_or_else(|| self.unbound_cell_exception(i, vm))?;
+                Ok(None)
+            }
+            bytecode::Instruction::LoadClassDeref(i) => {
+                let i = *i;
+                let name = self.code.freevars[i - self.code.cellvars.len()].clone();
+                let value = if let Some(value) = self.locals.get_item_option(name, vm)? {
+                    value
+                } else {
+                    self.cells_frees[i]
+                        .get()
+                        .ok_or_else(|| self.unbound_cell_exception(i, vm))?
+                };
+                self.push_value(value);
+                Ok(None)
+            }
+            bytecode::Instruction::StoreFast(idx) => {
+                let value = self.pop_value();
+                self.fastlocals.lock()[*idx] = Some(value);
+                Ok(None)
+            }
+            bytecode::Instruction::StoreLocal(idx) => {
+                let value = self.pop_value();
+                self.locals
+                    .set_item(self.code.names[*idx].clone(), value, vm)?;
+                Ok(None)
+            }
+            bytecode::Instruction::StoreGlobal(idx) => {
+                let value = self.pop_value();
+                self.globals
+                    .set_item(self.code.names[*idx].clone(), value, vm)?;
+                Ok(None)
+            }
+            bytecode::Instruction::StoreDeref(i) => {
+                let value = self.pop_value();
+                self.cells_frees[*i].set(Some(value));
+                Ok(None)
+            }
+            bytecode::Instruction::DeleteFast(idx) => {
+                self.fastlocals.lock()[*idx] = None;
+                Ok(None)
+            }
+            bytecode::Instruction::DeleteLocal(idx) => {
+                self.locals.del_item(self.code.names[*idx].clone(), vm)?;
+                Ok(None)
+            }
+            bytecode::Instruction::DeleteGlobal(idx) => {
+                self.globals.del_item(self.code.names[*idx].clone(), vm)?;
+                Ok(None)
+            }
+            bytecode::Instruction::DeleteDeref(i) => {
+                self.cells_frees[*i].set(None);
+                Ok(None)
+            }
+            bytecode::Instruction::LoadClosure(i) => {
+                let value = self.cells_frees[*i].clone();
+                self.push_value(value.into_object());
+                Ok(None)
+            }
             bytecode::Instruction::Subscript => self.execute_subscript(vm),
             bytecode::Instruction::StoreSubscript => self.execute_store_subscript(vm),
             bytecode::Instruction::DeleteSubscript => self.execute_delete_subscript(vm),
@@ -472,9 +604,9 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::YieldFrom => self.execute_yield_from(vm),
             bytecode::Instruction::SetupAnnotation => {
-                let locals = self.scope.get_locals();
-                if !locals.contains_key("__annotations__", vm) {
-                    locals.set_item("__annotations__", vm.ctx.new_dict().into_object(), vm)?;
+                if !self.locals.contains_key("__annotations__", vm) {
+                    self.locals
+                        .set_item("__annotations__", vm.ctx.new_dict().into_object(), vm)?;
                 }
                 Ok(None)
             }
@@ -826,9 +958,8 @@ impl ExecutingFrame<'_> {
                 };
             for (k, v) in &dict {
                 let k = PyStrRef::try_from_object(vm, k)?;
-                let k = k.as_ref();
-                if filter_pred(k) {
-                    self.scope.store_name(&vm, k, v);
+                if filter_pred(k.borrow_value()) {
+                    self.locals.set_item(k, v, vm);
                 }
             }
         }
@@ -902,61 +1033,6 @@ impl ExecutingFrame<'_> {
                 panic!("Internal error: break or continue must occur within a loop block.")
             } // UnwindReason::NoWorries => Ok(None),
         }
-    }
-
-    fn store_name(
-        &mut self,
-        vm: &VirtualMachine,
-        idx: bytecode::NameIdx,
-        name_scope: bytecode::NameScope,
-    ) -> FrameResult {
-        let name = self.code.names[idx].clone();
-        let obj = self.pop_value();
-        match name_scope {
-            bytecode::NameScope::Global => {
-                self.scope.store_global(vm, name, obj);
-            }
-            bytecode::NameScope::NonLocal => {
-                self.scope.store_cell(vm, name, obj);
-            }
-            bytecode::NameScope::Local => {
-                self.scope.store_name(vm, name, obj);
-            }
-            bytecode::NameScope::Free => {
-                self.scope.store_name(vm, name, obj);
-            }
-        }
-        Ok(None)
-    }
-
-    fn delete_name(&self, vm: &VirtualMachine, idx: bytecode::NameIdx) -> FrameResult {
-        let name = &self.code.names[idx];
-        match self.scope.delete_name(vm, name.clone()) {
-            Ok(_) => Ok(None),
-            Err(_) => Err(vm.new_name_error(format!("name '{}' is not defined", name))),
-        }
-    }
-
-    #[cfg_attr(feature = "flame-it", flame("Frame"))]
-    #[inline]
-    fn load_name(
-        &mut self,
-        vm: &VirtualMachine,
-        idx: bytecode::NameIdx,
-        name_scope: bytecode::NameScope,
-    ) -> FrameResult {
-        let name = &self.code.names[idx];
-        let optional_value = match name_scope {
-            bytecode::NameScope::Global => self.scope.load_global(vm, name.clone()),
-            bytecode::NameScope::NonLocal => self.scope.load_cell(vm, name.clone()),
-            bytecode::NameScope::Local => self.scope.load_local(vm, name.clone()),
-            bytecode::NameScope::Free => self.scope.load_name(vm, name.clone()),
-        };
-
-        let value = optional_value
-            .ok_or_else(|| vm.new_name_error(format!("name '{}' is not defined", name)))?;
-        self.push_value(value);
-        Ok(None)
     }
 
     fn execute_rotate(&mut self, amount: usize) -> FrameResult {
@@ -1278,6 +1354,12 @@ impl ExecutingFrame<'_> {
 
         let flags = code_obj.flags;
 
+        let closure = if code_obj.freevars.is_empty() {
+            None
+        } else {
+            Some(PyTupleTyped::try_from_object(vm, self.pop_value()).unwrap())
+        };
+
         let annotations = if flags.contains(bytecode::CodeFlags::HAS_ANNOTATIONS) {
             self.pop_value()
         } else {
@@ -1306,10 +1388,15 @@ impl ExecutingFrame<'_> {
 
         // pop argc arguments
         // argument: name, args, globals
-        let scope = self.scope.clone();
-        let func_obj = vm
-            .ctx
-            .new_pyfunction(code_obj, scope, defaults, kw_only_defaults);
+        // let scope = self.scope.clone();
+        let func_obj = PyFunction::new(
+            code_obj,
+            self.globals.clone(),
+            closure,
+            defaults,
+            kw_only_defaults,
+        )
+        .into_object(vm);
 
         vm.set_attr(&func_obj, "__doc__", vm.ctx.none())?;
 
@@ -1320,7 +1407,7 @@ impl ExecutingFrame<'_> {
             .unwrap();
         vm.set_attr(&func_obj, "__name__", vm.ctx.new_str(name))?;
         vm.set_attr(&func_obj, "__qualname__", qualified_name)?;
-        let module = vm.unwrap_or_none(self.scope.globals.get_item_option("__name__", vm)?);
+        let module = vm.unwrap_or_none(self.globals.get_item_option("__name__", vm)?);
         vm.set_attr(&func_obj, "__module__", module)?;
         vm.set_attr(&func_obj, "__annotations__", annotations)?;
 
@@ -1546,7 +1633,8 @@ impl fmt::Debug for Frame {
             .iter()
             .map(|elem| format!("\n  > {:?}", elem))
             .collect::<String>();
-        let dict = self.scope.get_locals();
+        // TODO: fix this up
+        let dict = self.locals.clone();
         let local_str = dict
             .into_iter()
             .map(|elem| format!("\n  {:?} = {:?}", elem.0, elem.1))

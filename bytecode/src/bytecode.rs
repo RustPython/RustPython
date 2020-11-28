@@ -108,6 +108,9 @@ pub struct CodeObject<C: Constant = ConstantData> {
         serialize = "C::Name: serde::Serialize"
     ))]
     pub names: Vec<C::Name>,
+    pub varnames: Vec<C::Name>,
+    pub cellvars: Vec<C::Name>,
+    pub freevars: Vec<C::Name>,
 }
 
 bitflags! {
@@ -121,6 +124,7 @@ bitflags! {
         const IS_COROUTINE = 0x20;
         const HAS_VARARGS = 0x40;
         const HAS_VARKEYWORDS = 0x80;
+        const IS_OPTIMIZED = 0x0100;
     }
 }
 
@@ -154,22 +158,6 @@ impl fmt::Display for Label {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
-/// An indication where the name must be accessed.
-pub enum NameScope {
-    /// The name will be in the local scope.
-    Local,
-
-    /// The name will be located in scope surrounding the current scope.
-    NonLocal,
-
-    /// The name will be in global scope.
-    Global,
-
-    /// The name will be located in any scope between the current scope and the top scope.
-    Free,
-}
-
 /// Transforms a value prior to formatting it.
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ConversionFlag {
@@ -195,17 +183,20 @@ pub enum Instruction {
     ImportFrom {
         idx: NameIdx,
     },
-    LoadName {
-        idx: NameIdx,
-        scope: NameScope,
-    },
-    StoreName {
-        idx: NameIdx,
-        scope: NameScope,
-    },
-    DeleteName {
-        idx: NameIdx,
-    },
+    LoadFast(NameIdx),
+    LoadLocal(NameIdx),
+    LoadGlobal(NameIdx),
+    LoadDeref(NameIdx),
+    LoadClassDeref(NameIdx),
+    StoreFast(NameIdx),
+    StoreLocal(NameIdx),
+    StoreGlobal(NameIdx),
+    StoreDeref(NameIdx),
+    DeleteFast(NameIdx),
+    DeleteLocal(NameIdx),
+    DeleteGlobal(NameIdx),
+    DeleteDeref(NameIdx),
+    LoadClosure(NameIdx),
     Subscript,
     StoreSubscript,
     DeleteSubscript,
@@ -561,6 +552,9 @@ impl<C: Constant> CodeObject<C> {
             obj_name,
             constants: Vec::new(),
             names: Vec::new(),
+            varnames: Vec::new(),
+            cellvars: Vec::new(),
+            freevars: Vec::new(),
         }
     }
 
@@ -569,19 +563,19 @@ impl<C: Constant> CodeObject<C> {
         let nargs = self.arg_count;
         let nkwargs = self.kwonlyarg_count;
         let mut varargspos = nargs + nkwargs;
-        let posonlyargs = &self.names[..self.posonlyarg_count];
-        let args = &self.names[..nargs];
-        let kwonlyargs = &self.names[nargs..varargspos];
+        let posonlyargs = &self.varnames[..self.posonlyarg_count];
+        let args = &self.varnames[..nargs];
+        let kwonlyargs = &self.varnames[nargs..varargspos];
 
         let vararg = if self.flags.contains(CodeFlags::HAS_VARARGS) {
-            let vararg = &self.names[varargspos];
+            let vararg = &self.varnames[varargspos];
             varargspos += 1;
             Some(vararg)
         } else {
             None
         };
         let varkwarg = if self.flags.contains(CodeFlags::HAS_VARKEYWORDS) {
-            Some(&self.names[varargspos])
+            Some(&self.varnames[varargspos])
         } else {
             None
         };
@@ -617,8 +611,10 @@ impl<C: Constant> CodeObject<C> {
                 }
 
                 #[rustfmt::skip]
-                Import { .. } | ImportStar | ImportFrom { .. } | LoadName { .. } | StoreName { .. }
-                | DeleteName { .. } | Subscript | StoreSubscript | DeleteSubscript
+                Import { .. } | ImportStar | ImportFrom { .. } | LoadFast(_) | LoadLocal(_)
+                | LoadGlobal(_) | LoadDeref(_) | LoadClassDeref(_) | StoreFast(_) | StoreLocal(_)
+                | StoreGlobal(_) | StoreDeref(_) | DeleteFast(_) | DeleteLocal(_) | DeleteGlobal(_)
+                | DeleteDeref(_) | LoadClosure(_) | Subscript | StoreSubscript | DeleteSubscript
                 | StoreAttr { .. } | DeleteAttr { .. } | LoadConst { .. } | UnaryOperation { .. }
                 | BinaryOperation { .. } | LoadAttr { .. } | CompareOperation { .. } | Pop
                 | Rotate { .. } | Duplicate | GetIter | Continue | Break | MakeFunction
@@ -652,7 +648,16 @@ impl<C: Constant> CodeObject<C> {
                 write!(f, "          ")?;
             }
             write!(f, "{} {:5} ", arrow, offset)?;
-            instruction.fmt_dis(f, &self.constants, &self.names, expand_codeobjects, level)?;
+            instruction.fmt_dis(
+                f,
+                &self.constants,
+                &self.names,
+                &self.varnames,
+                &self.cellvars,
+                &self.freevars,
+                expand_codeobjects,
+                level,
+            )?;
         }
         Ok(())
     }
@@ -668,17 +673,22 @@ impl<C: Constant> CodeObject<C> {
     }
 
     pub fn map_bag<Bag: ConstantBag>(self, bag: &Bag) -> CodeObject<Bag::Constant> {
+        let map_names = |names: Vec<C::Name>| {
+            names
+                .into_iter()
+                .map(|x| bag.make_name_ref(x.as_ref()))
+                .collect::<Vec<_>>()
+        };
         CodeObject {
             constants: self
                 .constants
                 .into_iter()
                 .map(|x| x.map_constant(bag))
                 .collect(),
-            names: self
-                .names
-                .into_iter()
-                .map(|x| bag.make_name_ref(x.as_ref()))
-                .collect(),
+            names: map_names(self.names),
+            varnames: map_names(self.varnames),
+            cellvars: map_names(self.cellvars),
+            freevars: map_names(self.freevars),
 
             instructions: self.instructions,
             locations: self.locations,
@@ -693,17 +703,22 @@ impl<C: Constant> CodeObject<C> {
     }
 
     pub fn map_clone_bag<Bag: ConstantBag>(&self, bag: &Bag) -> CodeObject<Bag::Constant> {
+        let map_names = |names: &[C::Name]| {
+            names
+                .iter()
+                .map(|x| bag.make_name_ref(x.as_ref()))
+                .collect()
+        };
         CodeObject {
             constants: self
                 .constants
                 .iter()
                 .map(|x| bag.make_constant_borrowed(x.borrow_constant()))
                 .collect(),
-            names: self
-                .names
-                .iter()
-                .map(|x| bag.make_name_ref(x.as_ref()))
-                .collect(),
+            names: map_names(&self.names),
+            varnames: map_names(&self.varnames),
+            cellvars: map_names(&self.cellvars),
+            freevars: map_names(&self.freevars),
 
             instructions: self.instructions.clone(),
             locations: self.locations.clone(),
@@ -755,6 +770,9 @@ impl Instruction {
         f: &mut fmt::Formatter,
         constants: &[C],
         names: &[C::Name],
+        varnames: &[C::Name],
+        cellvars: &[C::Name],
+        freevars: &[C::Name],
         expand_codeobjects: bool,
         level: usize,
     ) -> fmt::Result {
@@ -780,6 +798,8 @@ impl Instruction {
             };
         }
 
+        let cellname = |i: usize| cellvars.get(i).unwrap_or_else(|| &freevars[i]).as_ref();
+
         match self {
             Import {
                 name_idx,
@@ -799,9 +819,20 @@ impl Instruction {
             ),
             ImportStar => w!(ImportStar),
             ImportFrom { idx } => w!(ImportFrom, names[*idx].as_ref()),
-            LoadName { idx, scope } => w!(LoadName, names[*idx].as_ref(), format!("{:?}", scope)),
-            StoreName { idx, scope } => w!(StoreName, names[*idx].as_ref(), format!("{:?}", scope)),
-            DeleteName { idx } => w!(DeleteName, names[*idx].as_ref()),
+            LoadFast(idx) => w!(LoadFast, varnames[*idx].as_ref()),
+            LoadLocal(idx) => w!(LoadLocal, names[*idx].as_ref()),
+            LoadGlobal(idx) => w!(LoadGlobal, names[*idx].as_ref()),
+            LoadDeref(idx) => w!(LoadDeref, cellname(*idx)),
+            LoadClassDeref(idx) => w!(LoadClassDeref, cellname(*idx)),
+            StoreFast(idx) => w!(StoreFast, varnames[*idx].as_ref()),
+            StoreLocal(idx) => w!(StoreLocal, names[*idx].as_ref()),
+            StoreGlobal(idx) => w!(StoreGlobal, names[*idx].as_ref()),
+            StoreDeref(idx) => w!(StoreDeref, cellname(*idx)),
+            DeleteFast(idx) => w!(DeleteFast, varnames[*idx].as_ref()),
+            DeleteLocal(idx) => w!(DeleteLocal, names[*idx].as_ref()),
+            DeleteGlobal(idx) => w!(DeleteGlobal, names[*idx].as_ref()),
+            DeleteDeref(idx) => w!(DeleteDeref, cellname(*idx)),
+            LoadClosure(i) => w!(LoadClosure, cellname(*i)),
             Subscript => w!(Subscript),
             StoreSubscript => w!(StoreSubscript),
             DeleteSubscript => w!(DeleteSubscript),

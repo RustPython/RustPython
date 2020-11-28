@@ -348,20 +348,6 @@ impl PyContext {
         PyRef::new_ref(code::PyCode::new(code), self.types.code_type.clone(), None)
     }
 
-    pub fn new_pyfunction(
-        &self,
-        code_obj: PyCodeRef,
-        scope: Scope,
-        defaults: Option<PyTupleRef>,
-        kw_only_defaults: Option<PyDictRef>,
-    ) -> PyObjectRef {
-        PyObject::new(
-            PyFunction::new(code_obj, scope, defaults, kw_only_defaults),
-            self.types.function_type.clone(),
-            Some(self.new_dict()),
-        )
-    }
-
     pub fn new_bound_method(&self, function: PyObjectRef, object: PyObjectRef) -> PyObjectRef {
         PyObject::new(
             PyBoundMethod::new(object, function),
@@ -637,8 +623,8 @@ where
     T: IntoPyObject + ?Sized,
 {
     fn get_item(&self, key: T, vm: &VirtualMachine) -> PyResult;
-    fn set_item(&self, key: T, value: PyObjectRef, vm: &VirtualMachine) -> PyResult;
-    fn del_item(&self, key: T, vm: &VirtualMachine) -> PyResult;
+    fn set_item(&self, key: T, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()>;
+    fn del_item(&self, key: T, vm: &VirtualMachine) -> PyResult<()>;
 }
 
 impl<T> ItemProtocol<T> for PyObjectRef
@@ -649,12 +635,12 @@ where
         vm.call_method(self, "__getitem__", (key,))
     }
 
-    fn set_item(&self, key: T, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        vm.call_method(self, "__setitem__", (key, value))
+    fn set_item(&self, key: T, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        vm.call_method(self, "__setitem__", (key, value)).map(drop)
     }
 
-    fn del_item(&self, key: T, vm: &VirtualMachine) -> PyResult {
-        vm.call_method(self, "__delitem__", (key,))
+    fn del_item(&self, key: T, vm: &VirtualMachine) -> PyResult<()> {
+        vm.call_method(self, "__delitem__", (key,)).map(drop)
     }
 }
 

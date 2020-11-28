@@ -448,7 +448,7 @@ impl VirtualMachine {
     }
 
     pub fn run_code_obj(&self, code: PyCodeRef, scope: Scope) -> PyResult {
-        let frame = Frame::new(code, scope, self).into_ref(self);
+        let frame = Frame::new(code, scope, &[], self).into_ref(self);
         self.run_frame_full(frame)
     }
 
@@ -495,11 +495,18 @@ impl VirtualMachine {
         }
     }
 
-    pub fn current_scope(&self) -> Ref<Scope> {
+    pub fn current_locals(&self) -> Ref<PyDictRef> {
         let frame = self
             .current_frame()
-            .expect("called current_scope but no frames on the stack");
-        Ref::map(frame, |f| &f.scope)
+            .expect("called current_locals but no frames on the stack");
+        Ref::map(frame, |f| f.locals(self))
+    }
+
+    pub fn current_globals(&self) -> Ref<PyDictRef> {
+        let frame = self
+            .current_frame()
+            .expect("called current_globals but no frames on the stack");
+        Ref::map(frame, |f| &f.globals)
     }
 
     pub fn try_class(&self, module: &str, class: &str) -> PyResult<PyTypeRef> {
@@ -794,10 +801,6 @@ impl VirtualMachine {
         obj.unwrap_or_else(|| self.ctx.none())
     }
 
-    pub fn get_locals(&self) -> PyDictRef {
-        self.current_scope().get_locals().clone()
-    }
-
     // Container of the virtual machine state:
     pub fn to_str(&self, obj: &PyObjectRef) -> PyResult<PyStrRef> {
         if obj.class().is(&self.ctx.types.str_type) {
@@ -872,12 +875,9 @@ impl VirtualMachine {
                     })?;
 
                 let (locals, globals) = if let Some(frame) = self.current_frame() {
-                    (
-                        frame.scope.get_locals().clone().into_object(),
-                        frame.scope.globals.clone().into_object(),
-                    )
+                    (Some(frame.locals.clone()), Some(frame.globals.clone()))
                 } else {
-                    (self.ctx.none(), self.ctx.none())
+                    (None, None)
                 };
                 let from_list = self
                     .ctx

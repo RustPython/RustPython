@@ -294,7 +294,7 @@ pub(crate) fn init(context: &PyContext) {
     PyTupleIterator::extend_class(context, &context.types.tuple_iterator_type);
 }
 
-pub struct PyTupleTyped<T> {
+pub struct PyTupleTyped<T: TransmuteFromObject> {
     // SAFETY INVARIANT: T must be repr(transparent) over PyObjectRef, and the
     //                   elements must be logically valid when transmuted to T
     tuple: PyTupleRef,
@@ -315,9 +315,15 @@ impl<T: TransmuteFromObject> TryFromObject for PyTupleTyped<T> {
     }
 }
 
-impl<'a, T: 'a> BorrowValue<'a> for PyTupleTyped<T> {
+impl<'a, T: TransmuteFromObject + 'a> BorrowValue<'a> for PyTupleTyped<T> {
     type Borrowed = &'a [T];
     fn borrow_value(&'a self) -> Self::Borrowed {
         unsafe { &*(self.tuple.borrow_value() as *const [PyObjectRef] as *const [T]) }
+    }
+}
+
+impl<T: TransmuteFromObject + fmt::Debug> fmt::Debug for PyTupleTyped<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.borrow_value().fmt(f)
     }
 }

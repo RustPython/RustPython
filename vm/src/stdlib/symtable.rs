@@ -205,7 +205,7 @@ mod decl {
 
         #[pymethod(name = "is_nonlocal")]
         fn is_nonlocal(&self) -> bool {
-            matches!(self.symbol.scope, SymbolScope::Nonlocal)
+            matches!(self.symbol.scope, SymbolScope::Free)
         }
 
         #[pymethod(name = "is_referenced")]
@@ -225,7 +225,7 @@ mod decl {
 
         #[pymethod(name = "is_free")]
         fn is_free(&self) -> bool {
-            self.symbol.is_free
+            matches!(self.symbol.scope, SymbolScope::Free)
         }
 
         #[pymethod(name = "is_namespace")]

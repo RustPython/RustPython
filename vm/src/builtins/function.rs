@@ -5,7 +5,7 @@ use super::code::PyCodeRef;
 use super::dict::PyDictRef;
 use super::pystr::PyStrRef;
 use super::pytype::PyTypeRef;
-use super::tuple::PyTupleRef;
+use super::tuple::{PyTupleRef, PyTupleTyped};
 use crate::builtins::asyncgenerator::PyAsyncGen;
 use crate::builtins::coroutine::PyCoroutine;
 use crate::builtins::generator::PyGenerator;
@@ -36,7 +36,8 @@ pub struct PyFunction {
     code: PyCodeRef,
     #[cfg(feature = "jit")]
     jitted_code: OnceCell<CompiledCode>,
-    scope: Scope,
+    globals: PyDictRef,
+    closure: Option<PyTupleTyped<PyCellRef>>,
     defaults: Option<PyTupleRef>,
     kw_only_defaults: Option<PyDictRef>,
 }
@@ -44,7 +45,8 @@ pub struct PyFunction {
 impl PyFunction {
     pub fn new(
         code: PyCodeRef,
-        scope: Scope,
+        globals: PyDictRef,
+        closure: Option<PyTupleTyped<PyCellRef>>,
         defaults: Option<PyTupleRef>,
         kw_only_defaults: Option<PyDictRef>,
     ) -> Self {
@@ -52,25 +54,23 @@ impl PyFunction {
             code,
             #[cfg(feature = "jit")]
             jitted_code: OnceCell::new(),
-            scope,
+            globals,
+            closure,
             defaults,
             kw_only_defaults,
         }
     }
 
-    pub fn scope(&self) -> &Scope {
-        &self.scope
-    }
-
     fn fill_locals_from_args(
         &self,
-        locals: &PyDictRef,
+        frame: &Frame,
         func_args: FuncArgs,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
+        let code = &*self.code;
         let nargs = func_args.args.len();
-        let nexpected_args = self.code.arg_count;
-        let arg_names = self.code.arg_names();
+        let nexpected_args = code.arg_count;
+        // let arg_names = self.code.arg_names();
 
         // This parses the arguments from args and kwargs into
         // the proper variables keeping into account default values
@@ -78,23 +78,24 @@ impl PyFunction {
         // See also: PyEval_EvalCodeWithName in cpython:
         // https://github.com/python/cpython/blob/master/Python/ceval.c#L3681
 
-        let n = if nargs > nexpected_args {
-            nexpected_args
-        } else {
-            nargs
-        };
+        let n = std::cmp::min(nargs, nexpected_args);
 
         let mut args_iter = func_args.args.into_iter();
 
+        let mut fastlocals = frame.fastlocals.lock();
+        // let mut fill_locals = fastlocals.iter_mut().enumerate();
+
         // Copy positional arguments into local variables
-        for (arg, arg_name) in args_iter.by_ref().take(n).zip(arg_names.args) {
-            locals.set_item(arg_name.clone(), arg, vm)?;
+        for (i, arg) in args_iter.by_ref().take(n).enumerate() {
+            fastlocals[i] = Some(arg);
         }
 
+        let mut vararg_offset = code.arg_count;
         // Pack other positional arguments in to *args:
-        if let Some(vararg_name) = arg_names.vararg {
+        if code.flags.contains(bytecode::CodeFlags::HAS_VARARGS) {
             let vararg_value = vm.ctx.new_tuple(args_iter.collect());
-            locals.set_item(vararg_name.clone(), vararg_value, vm)?;
+            fastlocals[vararg_offset] = Some(vararg_value);
+            vararg_offset += 1;
         } else {
             // Check the number of positional arguments
             if nargs > nexpected_args {
@@ -106,25 +107,25 @@ impl PyFunction {
         }
 
         // Do we support `**kwargs` ?
-        let kwargs = if let Some(varkwarg) = arg_names.varkwarg {
+        let kwargs = if code.flags.contains(bytecode::CodeFlags::HAS_VARKEYWORDS) {
             let d = vm.ctx.new_dict();
-            locals.set_item(varkwarg.clone(), d.as_object().clone(), vm)?;
+            fastlocals[vararg_offset] = Some(d.clone());
             Some(d)
         } else {
             None
         };
 
-        let contains_arg =
-            |names: &[PyStrRef], name: &str| names.iter().any(|s| s.borrow_value() == name);
+        // let argpos =
+        //     |names: &[PyStrRef], name: &str| names.iter().position(|s| s.borrow_value() == name);
 
         let mut posonly_passed_as_kwarg = Vec::new();
         // Handle keyword arguments
         for (name, value) in func_args.kwargs {
             // Check if we have a parameter with this name:
-            let dict = if contains_arg(arg_names.args, &name)
-                || contains_arg(arg_names.kwonlyargs, &name)
+            let dict = if let Some(pos) =
+                argpos(arg_names.args, &name).or_else(|| argpos(arg_names.kwonlyargs, &name))
             {
-                if contains_arg(arg_names.posonlyargs, &name) {
+                if argpos(arg_names.posonlyargs, &name) {
                     posonly_passed_as_kwarg.push(name);
                     continue;
                 } else if locals.contains_key(&name, vm) {
@@ -138,7 +139,7 @@ impl PyFunction {
                     vm.new_type_error(format!("Got an unexpected keyword argument '{}'", name))
                 })?
             };
-            dict.set_item(vm.intern_string(name).into_object(), value, vm)?;
+            // dict.set_item(vm.intern_string(name).into_object(), value, vm)?;
         }
         if !posonly_passed_as_kwarg.is_empty() {
             return Err(vm.new_type_error(format!(
@@ -204,10 +205,10 @@ impl PyFunction {
         Ok(())
     }
 
-    pub fn invoke_with_scope(
+    pub fn invoke_with_locals(
         &self,
         func_args: FuncArgs,
-        scope: &Scope,
+        locals: Option<PyDictRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
         #[cfg(feature = "jit")]
@@ -226,16 +227,22 @@ impl PyFunction {
 
         let code = &self.code;
 
-        let scope = if self.code.flags.contains(bytecode::CodeFlags::NEW_LOCALS) {
-            scope.new_child_scope(&vm.ctx)
+        let locals = if self.code.flags.contains(bytecode::CodeFlags::NEW_LOCALS) {
+            vm.ctx.new_dict()
         } else {
-            scope.clone()
+            locals.unwrap_or_else(|| self.globals.clone())
         };
 
-        self.fill_locals_from_args(&scope.get_locals(), func_args, vm)?;
-
         // Construct frame:
-        let frame = Frame::new(code.clone(), scope, vm).into_ref(vm);
+        let frame = Frame::new(
+            code.clone(),
+            Scope::new(Some(locals), self.globals.clone()),
+            self.closure.as_ref().map_or(&[], |c| c.borrow_value()),
+            vm,
+        )
+        .into_ref(vm);
+
+        self.fill_locals_from_args(&frame, func_args, vm)?;
 
         // If we have a generator, create a new generator
         let is_gen = code.flags.contains(bytecode::CodeFlags::IS_GENERATOR);
@@ -249,7 +256,7 @@ impl PyFunction {
     }
 
     pub fn invoke(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        self.invoke_with_scope(func_args, &self.scope, vm)
+        self.invoke_with_locals(func_args, None, vm)
     }
 }
 
@@ -278,7 +285,7 @@ impl PyFunction {
 
     #[pyproperty(magic)]
     fn globals(&self) -> PyDictRef {
-        self.scope.globals.clone()
+        self.globals.clone()
     }
 
     #[cfg(feature = "jit")]
@@ -393,10 +400,11 @@ impl PyValue for PyBoundMethod {
 }
 
 #[pyclass(module = false, name = "cell")]
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(crate) struct PyCell {
     contents: PyMutex<Option<PyObjectRef>>,
 }
+pub(crate) type PyCellRef = PyRef<PyCell>;
 
 impl PyValue for PyCell {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {

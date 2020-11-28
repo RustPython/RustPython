@@ -500,19 +500,18 @@ where
         self.as_object().get_item(key, vm)
     }
 
-    fn set_item(&self, key: K, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn set_item(&self, key: K, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if self.class().is(&vm.ctx.types.dict_type) {
             self.inner_setitem_fast(key, value, vm)
-                .map(|_| vm.ctx.none())
         } else {
             // Fall back to slow path if we are in a dict subclass:
             self.as_object().set_item(key, value, vm)
         }
     }
 
-    fn del_item(&self, key: K, vm: &VirtualMachine) -> PyResult {
+    fn del_item(&self, key: K, vm: &VirtualMachine) -> PyResult<()> {
         if self.class().is(&vm.ctx.types.dict_type) {
-            self.entries.delete(vm, key).map(|_| vm.ctx.none())
+            self.entries.delete(vm, key)
         } else {
             // Fall back to slow path if we are in a dict subclass:
             self.as_object().del_item(key, vm)

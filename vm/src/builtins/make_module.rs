@@ -172,7 +172,7 @@ mod decl {
     fn dir(obj: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<PyList> {
         let seq = match obj {
             OptionalArg::Present(obj) => vm.call_method(&obj, "__dir__", ())?,
-            OptionalArg::Missing => vm.call_method(&vm.get_locals().into_object(), "keys", ())?,
+            OptionalArg::Missing => vm.call_method(vm.current_locals().as_object(), "keys", ())?,
         };
         let sorted = sorted(seq, Default::default(), vm)?;
         Ok(sorted)
@@ -243,14 +243,13 @@ mod decl {
     #[cfg(feature = "rustpython-compiler")]
     fn make_scope(vm: &VirtualMachine, scope: ScopeArgs) -> PyResult<Scope> {
         let globals = scope.globals;
-        let current_scope = vm.current_scope();
         let locals = match scope.locals {
             Some(dict) => Some(dict),
             None => {
                 if globals.is_some() {
                     None
                 } else {
-                    current_scope.get_only_locals()
+                    Some(vm.current_locals().clone())
                 }
             }
         };
@@ -262,7 +261,7 @@ mod decl {
                 }
                 dict
             }
-            None => current_scope.globals.clone(),
+            None => vm.current_globals().clone(),
         };
 
         let scope = Scope::with_builtins(locals, globals, vm);
@@ -318,7 +317,7 @@ mod decl {
 
     #[pyfunction]
     fn globals(vm: &VirtualMachine) -> PyResult<PyDictRef> {
-        Ok(vm.current_scope().globals.clone())
+        Ok(vm.current_globals().clone())
     }
 
     #[pyfunction]
@@ -449,7 +448,7 @@ mod decl {
 
     #[pyfunction]
     fn locals(vm: &VirtualMachine) -> PyDictRef {
-        let locals = vm.get_locals();
+        let locals = vm.current_locals();
         locals.copy().into_ref(vm)
     }
 
@@ -797,7 +796,7 @@ mod decl {
         if let OptionalArg::Present(obj) = obj {
             vm.get_attribute(obj, "__dict__")
         } else {
-            Ok(vm.get_locals().into_object())
+            Ok(vm.current_locals().clone().into_object())
         }
     }
 
@@ -843,20 +842,13 @@ mod decl {
 
         let namespace: PyDictRef = TryFromObject::try_from_object(vm, namespace)?;
 
-        let cells = vm.ctx.new_dict();
-
-        let scope = function
-            .scope()
-            .new_child_scope_with_locals(cells.clone())
-            .new_child_scope_with_locals(namespace.clone());
-
-        function.invoke_with_scope(().into(), &scope, vm)?;
+        function.invoke_with_locals(().into(), Some(namespace), vm)?;
 
         let class = vm.invoke(
             metaclass.as_object(),
             FuncArgs::new(vec![name_obj, bases, namespace.into_object()], kwargs),
         )?;
-        cells.set_item("__class__", class.clone(), vm)?;
+        // cells.set_item("__class__", class.clone(), vm)?;
         Ok(class)
     }
 }
