@@ -785,6 +785,40 @@ pub trait TryFromObject: Sized {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self>;
 }
 
+/// Marks a type that has the exact same layout as PyObjectRef, e.g. a type that is
+/// `repr(transparent)` over PyObjectRef.
+///
+/// # Safety
+/// Can only be implemented for types that are `repr(transparent)` over a PyObjectRef `obj`,
+/// and logically valid so long as `check(vm, obj)` returns `Ok(())`
+pub unsafe trait TransmuteFromObject: Sized {
+    fn check(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<()>;
+}
+
+unsafe impl<T: PyValue> TransmuteFromObject for PyRef<T> {
+    fn check(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<()> {
+        let class = T::class(vm);
+        if obj.isinstance(class) {
+            if obj.payload_is::<T>() {
+                Ok(())
+            } else {
+                Err(vm.new_runtime_error(format!(
+                    "Unexpected payload '{}' for type '{}'",
+                    class.name,
+                    obj.class().name,
+                )))
+            }
+        } else {
+            let expected_type = &class.name;
+            let actual_type = &obj.class().name;
+            Err(vm.new_type_error(format!(
+                "Expected type '{}', not '{}'",
+                expected_type, actual_type,
+            )))
+        }
+    }
+}
+
 pub trait IntoPyRef<T: PyObjectPayload> {
     fn into_pyref(self, vm: &VirtualMachine) -> PyRef<T>;
 }

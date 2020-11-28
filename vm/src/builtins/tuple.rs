@@ -1,12 +1,14 @@
 use crossbeam_utils::atomic::AtomicCell;
 use std::fmt;
+use std::marker::PhantomData;
 
 use super::pytype::PyTypeRef;
 use crate::common::hash::PyHash;
 use crate::function::OptionalArg;
 use crate::pyobject::{
     self, BorrowValue, Either, IdProtocol, IntoPyObject, PyArithmaticValue, PyClassImpl,
-    PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TransmuteFromObject,
+    TryFromObject, TypeProtocol,
 };
 use crate::sequence::{self, SimpleSeq};
 use crate::sliceable::PySliceableSequence;
@@ -262,7 +264,7 @@ impl Iterable for PyTuple {
 
 #[pyclass(module = false, name = "tuple_iterator")]
 #[derive(Debug)]
-pub struct PyTupleIterator {
+pub(crate) struct PyTupleIterator {
     position: AtomicCell<usize>,
     tuple: PyTupleRef,
 }
@@ -287,9 +289,35 @@ impl PyIter for PyTupleIterator {
     }
 }
 
-pub fn init(context: &PyContext) {
-    let tuple_type = &context.types.tuple_type;
-    PyTuple::extend_class(context, tuple_type);
-
+pub(crate) fn init(context: &PyContext) {
+    PyTuple::extend_class(context, &context.types.tuple_type);
     PyTupleIterator::extend_class(context, &context.types.tuple_iterator_type);
+}
+
+pub struct PyTupleTyped<T> {
+    // SAFETY INVARIANT: T must be repr(transparent) over PyObjectRef, and the
+    //                   elements must be logically valid when transmuted to T
+    tuple: PyTupleRef,
+    _marker: PhantomData<Vec<T>>,
+}
+
+impl<T: TransmuteFromObject> TryFromObject for PyTupleTyped<T> {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        let tuple = PyTupleRef::try_from_object(vm, obj)?;
+        for elem in tuple.borrow_value() {
+            T::check(vm, elem)?
+        }
+        // SAFETY: the contract of TransmuteFromObject upholds the variant on `tuple`
+        Ok(Self {
+            tuple,
+            _marker: PhantomData,
+        })
+    }
+}
+
+impl<'a, T: 'a> BorrowValue<'a> for PyTupleTyped<T> {
+    type Borrowed = &'a [T];
+    fn borrow_value(&'a self) -> Self::Borrowed {
+        unsafe { &*(self.tuple.borrow_value() as *const [PyObjectRef] as *const [T]) }
+    }
 }
