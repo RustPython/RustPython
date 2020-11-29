@@ -462,7 +462,7 @@ where
             Err(error) => Err(LexicalError {
                 error: LexicalErrorType::OtherError(error.to_string()),
                 location: self.get_pos(),
-            })
+            }),
         }
     }
 
