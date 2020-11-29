@@ -2,8 +2,8 @@ use std::iter;
 use std::mem;
 use std::str;
 
-use crate::ast::{ConversionFlag, Location, StringGroup};
-use crate::error::{FStringError, FStringErrorType};
+use crate::ast::{ConversionFlag, Expression, Location, StringGroup};
+use crate::error::{FStringError, FStringErrorType, ParseError};
 use crate::parser::parse_expression;
 
 use self::FStringErrorType::*;
@@ -117,7 +117,7 @@ impl<'a> FStringParser<'a> {
                     if nested {
                         spec = Some(Box::new(FormattedValue {
                             value: Box::new(
-                                parse_expression(spec_expression.trim())
+                                parse_fstring_expr(&spec_expression)
                                     .map_err(|e| InvalidExpression(Box::new(e.error)))?,
                             ),
                             conversion: None,
@@ -158,7 +158,7 @@ impl<'a> FStringParser<'a> {
                     if pred_expression_text.is_empty() {
                         return Ok(FormattedValue {
                             value: Box::new(
-                                parse_expression(expression.trim())
+                                parse_fstring_expr(&expression)
                                     .map_err(|e| InvalidExpression(Box::new(e.error)))?,
                             ),
                             conversion,
@@ -175,7 +175,7 @@ impl<'a> FStringParser<'a> {
                                 },
                                 FormattedValue {
                                     value: Box::new(
-                                        parse_expression(expression.trim())
+                                        parse_fstring_expr(&expression)
                                             .map_err(|e| InvalidExpression(Box::new(e.error)))?,
                                     ),
                                     conversion,
@@ -253,6 +253,13 @@ impl<'a> FStringParser<'a> {
     }
 }
 
+fn parse_fstring_expr(source: &str) -> Result<Expression, ParseError> {
+    let fstring_body = format!("({})", source);
+    let mut expression = parse_expression(&fstring_body)?;
+    expression.location.go_left();
+    Ok(expression)
+}
+
 /// Parse an f-string into a string group.
 fn parse_fstring(source: &str) -> Result<StringGroup, FStringErrorType> {
     FStringParser::new(source).parse()
@@ -297,7 +304,7 @@ mod tests {
                         spec: None,
                     },
                     FormattedValue {
-                        value: Box::new(mk_ident("b", 1, 1)),
+                        value: Box::new(mk_ident("b", 1, 2)),
                         conversion: None,
                         spec: None,
                     },
@@ -428,6 +435,13 @@ mod tests {
     #[test]
     fn test_parse_fstring_selfdoc_trailing_space() {
         let source = String::from("{x=   }");
+        let parse_ast = parse_fstring(&source);
+        assert!(parse_ast.is_ok());
+    }
+
+    #[test]
+    fn test_parse_fstring_yield_expr() {
+        let source = String::from("{yield}");
         let parse_ast = parse_fstring(&source);
         assert!(parse_ast.is_ok());
     }
