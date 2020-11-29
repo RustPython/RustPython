@@ -447,7 +447,7 @@ where
         }
     }
 
-    fn parse_octet(&mut self, first: char) -> char {
+    fn parse_octet(&mut self, first: char) -> Result<char, LexicalError> {
         let mut octet_content = String::new();
         octet_content.push(first);
         while octet_content.len() < 3 {
@@ -457,7 +457,13 @@ where
                 break;
             }
         }
-        u8::from_str_radix(&octet_content, 8).unwrap() as char
+        match u32::from_str_radix(&octet_content, 8) {
+            Ok(result) => Ok(char::from_u32(result).unwrap()),
+            Err(error) => Err(LexicalError {
+                error: LexicalErrorType::OtherError(error.to_string()),
+                location: self.get_pos(),
+            })
+        }
     }
 
     fn parse_unicode_name(&mut self) -> Result<char, LexicalError> {
@@ -549,7 +555,7 @@ where
                                 string_content.push('\t');
                             }
                             Some('v') => string_content.push('\x0b'),
-                            Some(o @ '0'..='7') => string_content.push(self.parse_octet(o)),
+                            Some(o @ '0'..='7') => string_content.push(self.parse_octet(o)?),
                             Some('x') => string_content.push(self.unicode_literal(2)?),
                             Some('u') if !is_bytes => string_content.push(self.unicode_literal(4)?),
                             Some('U') if !is_bytes => string_content.push(self.unicode_literal(8)?),
@@ -1596,7 +1602,7 @@ mod tests {
 
     #[test]
     fn test_string() {
-        let source = r#""double" 'single' 'can\'t' "\\\"" '\t\r\n' '\g' r'raw\'' '\200\0a'"#;
+        let source = r#""double" 'single' 'can\'t' "\\\"" '\t\r\n' '\g' r'raw\'' '\420' '\200\0a'"#;
         let tokens = lex_source(source);
         assert_eq!(
             tokens,
@@ -1627,6 +1633,10 @@ mod tests {
                 },
                 Tok::String {
                     value: String::from("raw\\'"),
+                    is_fstring: false,
+                },
+                Tok::String {
+                    value: String::from("Đ"),
                     is_fstring: false,
                 },
                 Tok::String {
