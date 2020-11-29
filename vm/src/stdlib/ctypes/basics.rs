@@ -1,12 +1,12 @@
 use crate::builtins::int::PyInt;
-use crate::builtins::memory::Buffer;
 use crate::builtins::pystr::PyStrRef;
 use crate::builtins::pytype::{PyType, PyTypeRef};
+use crate::builtins::memory::{Buffer, BufferOptions};
 use crate::function::OptionalArg;
 use crate::pyobject::{
     PyObjectRc, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject,
 };
-use crate::slots::BufferProtocol;
+use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
 use crate::VirtualMachine;
 
 // GenericPyCData_new -> PyResult<PyObjectRef>
@@ -63,9 +63,14 @@ pub trait PyCDataMethods: PyValue {
 }
 
 // This trait will be used by all types
-pub trait PyCDataBuffer: BufferProtocol {
-    // @TODO: Translate PyCData_NewGetBuffer
-    fn get_buffer(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<Box<dyn Buffer>>;
+pub trait PyCDataBuffer: Buffer {
+    fn obj_bytes(&self) -> BorrowedValue<[u8]>;
+
+    fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]>;
+
+    fn release(&self);
+
+    fn get_options(&self) -> BorrowedValue<BufferOptions>; 
 }
 
 // This Trait is the equivalent of PyCData_Type on tp_base for
@@ -106,7 +111,7 @@ impl PyCData {
 
     // #[pymethod(name = "__rmul__")]
     // fn rmul(&self, counter: isize, vm: &VirtualMachine) -> PyObjectRef {
-    //     self.mul(counter, &vm)
+    //     self.mul(counter, vm)
     // }
 }
 

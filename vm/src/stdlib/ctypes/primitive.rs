@@ -7,13 +7,13 @@ use std::fmt;
 use crate::builtins::PyTypeRef;
 use crate::builtins::{PyByteArray, PyBytes, PyFloat, PyInt, PyNone, PyStr};
 use crate::pyobject::{
-    PyObjectRc, PyRef, PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
+    PyObjectRc, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
 };
 use crate::VirtualMachine;
 
 use crate::stdlib::ctypes::basics::PyCData;
 
-pub const SIMPLE_TYPE_CHARS: &str = "cbBhHiIlLdfuzZqQP?g";
+pub const SIMPLE_TYPE_CHARS: &str = "cbBhHiIlLdfguzZqQ?";
 
 #[pyclass(module = "_ctypes", name = "_SimpleCData", base = "PyCData")]
 pub struct PySimpleType {
@@ -35,6 +35,113 @@ impl fmt::Debug for PySimpleType {
             self._type_.as_str(),
             value
         )
+    }
+}
+
+fn set_primitive(_type_: &str, value: &PyObjectRc, vm: &VirtualMachine) -> PyResult<PyObjectRc> {
+    match _type_ {
+        "c" => {
+            if value
+                .clone()
+                .downcast_exact::<PyBytes>(vm)
+                .map(|v| v.len() == 1)
+                .is_ok()
+                || value
+                    .clone()
+                    .downcast_exact::<PyByteArray>(vm)
+                    .map(|v| v.borrow_value().len() == 1)
+                    .is_ok()
+                || value
+                    .clone()
+                    .downcast_exact::<PyInt>(vm)
+                    .map(|v| {
+                        v.borrow_value().ge(&BigInt::from_i64(0).unwrap())
+                            || v.borrow_value().le(&BigInt::from_i64(255).unwrap())
+                    })
+                    .is_ok()
+            {
+                Ok(value.clone())
+            } else {
+                Err(vm.new_type_error(
+                    "one character bytes, bytearray or integer expected".to_string(),
+                ))
+            }
+        }
+        "u" => {
+            if let Ok(b) = value
+                .clone()
+                .downcast_exact::<PyStr>(vm)
+                .map(|v| v.as_ref().chars().count() == 1)
+            {
+                if b {
+                    Ok(value.clone())
+                } else {
+                    Err(vm.new_type_error("one character unicode string expected".to_string()))
+                }
+            } else {
+                Err(vm.new_type_error(format!(
+                    "unicode string expected instead of {} instance",
+                    value.class().name
+                )))
+            }
+        }
+        "b" | "h" | "H" | "i" | "I" | "l" | "q" | "L" | "Q" => {
+            if value.clone().downcast_exact::<PyInt>(vm).is_ok() {
+                Ok(value.clone())
+            } else {
+                Err(vm.new_type_error(format!(
+                    "an integer is required (got type {})",
+                    value.class().name
+                )))
+            }
+        }
+        "f" | "d" | "g" => {
+            if value.clone().downcast_exact::<PyFloat>(vm).is_ok() {
+                Ok(value.clone())
+            } else {
+                Err(vm.new_type_error(format!("must be real number, not {}", value.class().name)))
+            }
+        }
+        "?" => Ok(vm.ctx.none()),
+        "B" => {
+            if value.clone().downcast_exact::<PyInt>(vm).is_ok() {
+                Ok(vm.new_pyobj(u8::try_from_object(vm, value.clone()).unwrap()))
+            } else {
+                Err(vm.new_type_error(format!("int expected instead of {}", value.class().name)))
+            }
+        }
+        "z" => {
+            if value.clone().downcast_exact::<PyInt>(vm).is_ok()
+                || value.clone().downcast_exact::<PyBytes>(vm).is_ok()
+            {
+                Ok(value.clone())
+            } else {
+                Err(vm.new_type_error(format!(
+                    "bytes or integer address expected instead of {} instance",
+                    value.class().name
+                )))
+            }
+        }
+        "Z" => {
+            if value.clone().downcast_exact::<PyStr>(vm).is_ok() {
+                Ok(value.clone())
+            } else {
+                Err(vm.new_type_error(format!(
+                    "unicode string or integer address expected instead of {} instance",
+                    value.class().name
+                )))
+            }
+        }
+        _ => {
+            // "P"
+            if value.clone().downcast_exact::<PyInt>(vm).is_ok()
+                || value.clone().downcast_exact::<PyNone>(vm).is_ok()
+            {
+                Ok(value.clone())
+            } else {
+                Err(vm.new_type_error("cannot be converted to pointer".to_string()))
+            }
+        }
     }
 }
 
@@ -81,116 +188,7 @@ impl PySimpleType {
     pub fn init(&self, value: Option<PyObjectRc>, vm: &VirtualMachine) -> PyResult<()> {
         match value.clone() {
             Some(ref v) if !self.__abstract__ => {
-                let content = match self._type_.as_str() {
-                    "c" => {
-                        if v.clone()
-                            .downcast_exact::<PyBytes>(vm)
-                            .map(|v| v.len() == 1)
-                            .is_ok()
-                            || v.clone()
-                                .downcast_exact::<PyByteArray>(vm)
-                                .map(|v| v.borrow_value().len() == 1)
-                                .is_ok()
-                            || v.clone()
-                                .downcast_exact::<PyInt>(vm)
-                                .map(|v| {
-                                    v.borrow_value().ge(&BigInt::from_i64(0).unwrap())
-                                        || v.borrow_value().le(&BigInt::from_i64(255).unwrap())
-                                })
-                                .is_ok()
-                        {
-                            Ok(v.clone())
-                        } else {
-                            Err(vm.new_type_error(
-                                "one character bytes, bytearray or integer expected".to_string(),
-                            ))
-                        }
-                    }
-                    "u" => {
-                        if let Ok(b) = v
-                            .clone()
-                            .downcast_exact::<PyStr>(vm)
-                            .map(|v| v.as_ref().chars().count() == 1)
-                        {
-                            if b {
-                                Ok(v.clone())
-                            } else {
-                                Err(vm.new_type_error(
-                                    "one character unicode string expected".to_string(),
-                                ))
-                            }
-                        } else {
-                            Err(vm.new_type_error(format!(
-                                "unicode string expected instead of {} instance",
-                                v.class().name
-                            )))
-                        }
-                    }
-                    "b" | "h" | "H" | "i" | "I" | "l" | "q" | "L" | "Q" => {
-                        if v.clone().downcast_exact::<PyInt>(vm).is_ok() {
-                            Ok(v.clone())
-                        } else {
-                            Err(vm.new_type_error(format!(
-                                "an integer is required (got type {})",
-                                v.class().name
-                            )))
-                        }
-                    }
-                    "f" | "d" | "g" => {
-                        if v.clone().downcast_exact::<PyFloat>(vm).is_ok() {
-                            Ok(v.clone())
-                        } else {
-                            Err(vm.new_type_error(format!(
-                                "must be real number, not {}",
-                                v.class().name
-                            )))
-                        }
-                    }
-                    "?" => Ok(vm.ctx.none()),
-                    "B" => {
-                        if let Ok(v_c) = v.clone().downcast_exact::<PyInt>(vm) {
-                            Ok(vm.new_pyobj(u8::try_from_object(vm, v.clone()).unwrap()))
-                        } else {
-                            Err(vm.new_type_error(format!(
-                                "int expected instead of {}",
-                                v.class().name
-                            )))
-                        }
-                    }
-                    "z" => {
-                        if v.clone().downcast_exact::<PyInt>(vm).is_ok()
-                            || v.clone().downcast_exact::<PyBytes>(vm).is_ok()
-                        {
-                            Ok(v.clone())
-                        } else {
-                            Err(vm.new_type_error(format!(
-                                "bytes or integer address expected instead of {} instance",
-                                v.class().name
-                            )))
-                        }
-                    }
-                    "Z" => {
-                        if v.clone().downcast_exact::<PyStr>(vm).is_ok() {
-                            Ok(v.clone())
-                        } else {
-                            Err(vm.new_type_error(format!(
-                                "unicode string or integer address expected instead of {} instance",
-                                v.class().name
-                            )))
-                        }
-                    }
-                    _ => {
-                        // "P"
-                        if v.clone().downcast_exact::<PyInt>(vm).is_ok()
-                            || v.clone().downcast_exact::<PyNone>(vm).is_ok()
-                        {
-                            Ok(v.clone())
-                        } else {
-                            Err(vm.new_type_error("cannot be converted to pointer".to_string()))
-                        }
-                    }
-                }?;
-
+                let content = set_primitive(self._type_.as_str(), v, vm)?;
                 self.value.store(content);
                 Ok(())
             }
@@ -209,6 +207,18 @@ impl PySimpleType {
         }
     }
 
+    #[pyproperty(name = "value")]
+    fn value(&self) -> PyObjectRef {
+        unsafe { (*self.value.as_ptr()).clone() }
+    }
+
+    #[pyproperty(name = "value", setter)]
+    fn set_value(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let content = set_primitive(self._type_.as_str(), &value, vm)?;
+        self.value.store(content);
+        Ok(())
+    }
+
     // From Simple_Type Simple_methods
     #[pymethod(name = "__ctypes_from_outparam__")]
     pub fn ctypes_from_outparam(&self) {}
@@ -217,10 +227,10 @@ impl PySimpleType {
     #[pyclassmethod]
     pub fn from_param(cls: PyTypeRef, vm: &VirtualMachine) {}
 
-    // #[pymethod(name = "__repr__")]
-    // fn repr(&self) -> String {
-    //     format!("{}({})",self.class().name, self.value.to_string())
-    // }
+    #[pymethod(name = "__repr__")]
+    fn repr(zelf: PyRef<Self>) -> String {
+        format!("{}({})", zelf.class().name, zelf.value().to_string())
+    }
 
     // #[pymethod(name = "__bool__")]
     // fn bool(&self) -> bool {
