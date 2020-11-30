@@ -1,13 +1,13 @@
 use std::fmt;
 
 use crate::builtins::{PyDictRef, PyStr, PyStrRef};
-use crate::common::lock::PyMutex;
-use crate::pyobject::{IntoPyObject, ItemProtocol, PyContext, PyObjectRef, PyResult, TryIntoRef};
+use crate::pyobject::{IntoPyObject, ItemProtocol, TryIntoRef};
 use crate::VirtualMachine;
 
+#[derive(Clone)]
 pub struct Scope {
-    pub(crate) locals: PyDictRef,
-    pub(crate) globals: PyDictRef,
+    pub locals: PyDictRef,
+    pub globals: PyDictRef,
 }
 
 impl fmt::Debug for Scope {

@@ -102,6 +102,7 @@ pub struct CodeObject<C: Constant = ConstantData> {
     pub source_path: String,
     pub first_line_number: usize,
     pub obj_name: String, // Name of the object that created this code object
+    pub cell2arg: Option<Box<[isize]>>,
     pub constants: Vec<C>,
     #[serde(bound(
         deserialize = "C::Name: serde::Deserialize<'de>",
@@ -184,7 +185,7 @@ pub enum Instruction {
         idx: NameIdx,
     },
     LoadFast(NameIdx),
-    LoadLocal(NameIdx),
+    LoadNameAny(NameIdx),
     LoadGlobal(NameIdx),
     LoadDeref(NameIdx),
     LoadClassDeref(NameIdx),
@@ -550,6 +551,7 @@ impl<C: Constant> CodeObject<C> {
             source_path,
             first_line_number,
             obj_name,
+            cell2arg: None,
             constants: Vec::new(),
             names: Vec::new(),
             varnames: Vec::new(),
@@ -611,7 +613,7 @@ impl<C: Constant> CodeObject<C> {
                 }
 
                 #[rustfmt::skip]
-                Import { .. } | ImportStar | ImportFrom { .. } | LoadFast(_) | LoadLocal(_)
+                Import { .. } | ImportStar | ImportFrom { .. } | LoadFast(_) | LoadNameAny(_)
                 | LoadGlobal(_) | LoadDeref(_) | LoadClassDeref(_) | StoreFast(_) | StoreLocal(_)
                 | StoreGlobal(_) | StoreDeref(_) | DeleteFast(_) | DeleteLocal(_) | DeleteGlobal(_)
                 | DeleteDeref(_) | LoadClosure(_) | Subscript | StoreSubscript | DeleteSubscript
@@ -699,6 +701,7 @@ impl<C: Constant> CodeObject<C> {
             source_path: self.source_path,
             first_line_number: self.first_line_number,
             obj_name: self.obj_name,
+            cell2arg: self.cell2arg,
         }
     }
 
@@ -729,6 +732,7 @@ impl<C: Constant> CodeObject<C> {
             source_path: self.source_path.clone(),
             first_line_number: self.first_line_number,
             obj_name: self.obj_name.clone(),
+            cell2arg: self.cell2arg.clone(),
         }
     }
 }
@@ -798,7 +802,12 @@ impl Instruction {
             };
         }
 
-        let cellname = |i: usize| cellvars.get(i).unwrap_or_else(|| &freevars[i]).as_ref();
+        let cellname = |i: usize| {
+            cellvars
+                .get(i)
+                .unwrap_or_else(|| &freevars[i - cellvars.len()])
+                .as_ref()
+        };
 
         match self {
             Import {
@@ -819,20 +828,20 @@ impl Instruction {
             ),
             ImportStar => w!(ImportStar),
             ImportFrom { idx } => w!(ImportFrom, names[*idx].as_ref()),
-            LoadFast(idx) => w!(LoadFast, varnames[*idx].as_ref()),
-            LoadLocal(idx) => w!(LoadLocal, names[*idx].as_ref()),
-            LoadGlobal(idx) => w!(LoadGlobal, names[*idx].as_ref()),
-            LoadDeref(idx) => w!(LoadDeref, cellname(*idx)),
-            LoadClassDeref(idx) => w!(LoadClassDeref, cellname(*idx)),
-            StoreFast(idx) => w!(StoreFast, varnames[*idx].as_ref()),
-            StoreLocal(idx) => w!(StoreLocal, names[*idx].as_ref()),
-            StoreGlobal(idx) => w!(StoreGlobal, names[*idx].as_ref()),
-            StoreDeref(idx) => w!(StoreDeref, cellname(*idx)),
-            DeleteFast(idx) => w!(DeleteFast, varnames[*idx].as_ref()),
-            DeleteLocal(idx) => w!(DeleteLocal, names[*idx].as_ref()),
-            DeleteGlobal(idx) => w!(DeleteGlobal, names[*idx].as_ref()),
-            DeleteDeref(idx) => w!(DeleteDeref, cellname(*idx)),
-            LoadClosure(i) => w!(LoadClosure, cellname(*i)),
+            LoadFast(idx) => w!(LoadFast, *idx, varnames[*idx].as_ref()),
+            LoadNameAny(idx) => w!(LoadNameAny, *idx, names[*idx].as_ref()),
+            LoadGlobal(idx) => w!(LoadGlobal, *idx, names[*idx].as_ref()),
+            LoadDeref(idx) => w!(LoadDeref, *idx, cellname(*idx)),
+            LoadClassDeref(idx) => w!(LoadClassDeref, *idx, cellname(*idx)),
+            StoreFast(idx) => w!(StoreFast, *idx, varnames[*idx].as_ref()),
+            StoreLocal(idx) => w!(StoreLocal, *idx, names[*idx].as_ref()),
+            StoreGlobal(idx) => w!(StoreGlobal, *idx, names[*idx].as_ref()),
+            StoreDeref(idx) => w!(StoreDeref, *idx, cellname(*idx)),
+            DeleteFast(idx) => w!(DeleteFast, *idx, varnames[*idx].as_ref()),
+            DeleteLocal(idx) => w!(DeleteLocal, *idx, names[*idx].as_ref()),
+            DeleteGlobal(idx) => w!(DeleteGlobal, *idx, names[*idx].as_ref()),
+            DeleteDeref(idx) => w!(DeleteDeref, *idx, cellname(*idx)),
+            LoadClosure(i) => w!(LoadClosure, *i, cellname(*i)),
             Subscript => w!(Subscript),
             StoreSubscript => w!(StoreSubscript),
             DeleteSubscript => w!(DeleteSubscript),

@@ -254,6 +254,15 @@ impl<T: Clone> Dict<T> {
     #[cfg_attr(feature = "flame-it", flame("Dict"))]
     pub fn get<K: DictKey>(&self, vm: &VirtualMachine, key: &K) -> PyResult<Option<T>> {
         let hash = key.key_hash(vm)?;
+        self._get_inner(vm, key, hash)
+    }
+
+    fn _get_inner<K: DictKey>(
+        &self,
+        vm: &VirtualMachine,
+        key: &K,
+        hash: HashValue,
+    ) -> PyResult<Option<T>> {
         let ret = loop {
             let (entry, index_index) = self.lookup(vm, key, hash, None)?;
             if let IndexEntry::Index(index) = entry {
@@ -273,6 +282,20 @@ impl<T: Clone> Dict<T> {
             }
         };
         Ok(ret)
+    }
+
+    pub fn get2<K: DictKey>(
+        &self,
+        other: &Self,
+        vm: &VirtualMachine,
+        key: &K,
+    ) -> PyResult<Option<T>> {
+        let hash = key.key_hash(vm)?;
+        if let Some(x) = self._get_inner(vm, key, hash)? {
+            Ok(Some(x))
+        } else {
+            other._get_inner(vm, key, hash)
+        }
     }
 
     pub fn clear(&self) {

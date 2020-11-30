@@ -448,7 +448,8 @@ impl VirtualMachine {
     }
 
     pub fn run_code_obj(&self, code: PyCodeRef, scope: Scope) -> PyResult {
-        let frame = Frame::new(code, scope, &[], self).into_ref(self);
+        let frame =
+            Frame::new(code, scope, self.builtins.dict().unwrap(), &[], self).into_ref(self);
         self.run_frame_full(frame)
     }
 

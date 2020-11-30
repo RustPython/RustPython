@@ -12,7 +12,7 @@ mod decl {
     use crate::builtins::bytes::PyBytesRef;
     use crate::builtins::code::PyCodeRef;
     use crate::builtins::dict::PyDictRef;
-    use crate::builtins::function::PyFunctionRef;
+    use crate::builtins::function::{PyCellRef, PyFunctionRef};
     use crate::builtins::int::{self, PyIntRef};
     use crate::builtins::iter::{PyCallableIterator, PySequenceIterator};
     use crate::builtins::list::{PyList, SortOptions};
@@ -840,15 +840,20 @@ mod decl {
         let prepare = vm.get_attribute(metaclass.clone().into_object(), "__prepare__")?;
         let namespace = vm.invoke(&prepare, vec![name_obj.clone(), bases.clone()])?;
 
-        let namespace: PyDictRef = TryFromObject::try_from_object(vm, namespace)?;
+        let namespace = PyDictRef::try_from_object(vm, namespace)?;
 
-        function.invoke_with_locals(().into(), Some(namespace), vm)?;
+        let classcell = function.invoke_with_locals(().into(), Some(namespace.clone()), vm)?;
+        let classcell = <Option<PyCellRef>>::try_from_object(vm, classcell)?;
 
         let class = vm.invoke(
             metaclass.as_object(),
             FuncArgs::new(vec![name_obj, bases, namespace.into_object()], kwargs),
         )?;
-        // cells.set_item("__class__", class.clone(), vm)?;
+
+        if let Some(ref classcell) = classcell {
+            classcell.set(Some(class.clone()));
+        }
+
         Ok(class)
     }
 }

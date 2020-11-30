@@ -40,6 +40,31 @@ impl CodeInfo {
         code.cellvars.extend(cellvar_cache);
         code.freevars.extend(freevar_cache);
 
+        if !code.cellvars.is_empty() {
+            let total_args = code.arg_count
+                + code.kwonlyarg_count
+                + code.flags.contains(bytecode::CodeFlags::HAS_VARARGS) as usize
+                + code.flags.contains(bytecode::CodeFlags::HAS_VARKEYWORDS) as usize;
+            let all_args = &code.varnames[..total_args];
+            let mut found_cellarg = false;
+            let cell2arg = code
+                .cellvars
+                .iter()
+                .map(|var| {
+                    for (i, arg) in all_args.iter().enumerate() {
+                        if var == arg {
+                            found_cellarg = true;
+                            return i as isize;
+                        }
+                    }
+                    -1
+                })
+                .collect::<Box<[_]>>();
+            if found_cellarg {
+                code.cell2arg = Some(cell2arg);
+            }
+        }
+
         for instruction in &mut code.instructions {
             use Instruction::*;
             // this is a little bit hacky, as until now the data stored inside Labels in
@@ -64,7 +89,7 @@ impl CodeInfo {
                 }
 
                 #[rustfmt::skip]
-                Import { .. } | ImportStar | ImportFrom { .. } | LoadFast(_) | LoadLocal(_)
+                Import { .. } | ImportStar | ImportFrom { .. } | LoadFast(_) | LoadNameAny(_)
                 | LoadGlobal(_) | LoadDeref(_) | LoadClassDeref(_) | StoreFast(_) | StoreLocal(_)
                 | StoreGlobal(_) | StoreDeref(_) | DeleteFast(_) | DeleteLocal(_) | DeleteGlobal(_)
                 | DeleteDeref(_) | LoadClosure(_) | Subscript | StoreSubscript | DeleteSubscript
@@ -114,14 +139,14 @@ impl Default for CompileOpts {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 struct CompileContext {
     in_loop: bool,
     in_class: bool,
     func: FunctionContext,
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum FunctionContext {
     NoFunction,
     Function,
@@ -130,7 +155,7 @@ enum FunctionContext {
 
 impl CompileContext {
     fn in_func(self) -> bool {
-        !matches!(self.func, FunctionContext::NoFunction)
+        self.func != FunctionContext::NoFunction
     }
 }
 
@@ -408,9 +433,8 @@ impl Compiler {
                 cache = &mut info.varname_cache;
                 NameOpType::Fast
             }
-            SymbolScope::Local => NameOpType::Local,
             SymbolScope::GlobalImplicit if self.ctx.in_func() => NameOpType::Global,
-            SymbolScope::GlobalImplicit => NameOpType::Local,
+            SymbolScope::Local | SymbolScope::GlobalImplicit => NameOpType::Local,
             SymbolScope::GlobalExplicit => NameOpType::Global,
             SymbolScope::Free => {
                 cache = &mut info.freevar_cache;
@@ -423,9 +447,12 @@ impl Compiler {
             // TODO: is this right?
             SymbolScope::Unknown => NameOpType::Global,
         };
-        let idx = cache
+        let mut idx = cache
             .get_index_of(name)
             .unwrap_or_else(|| cache.insert_full(name.to_owned()).0);
+        if let SymbolScope::Free = symbol.scope {
+            idx += info.cellvar_cache.len();
+        }
         let op = match op_typ {
             NameOpType::Fast => match usage {
                 NameUsage::Load => Instruction::LoadFast,
@@ -438,12 +465,15 @@ impl Compiler {
                 NameUsage::Delete => Instruction::DeleteGlobal,
             },
             NameOpType::Deref => match usage {
+                NameUsage::Load if !self.ctx.in_func() && self.ctx.in_class => {
+                    Instruction::LoadClassDeref
+                }
                 NameUsage::Load => Instruction::LoadDeref,
                 NameUsage::Store => Instruction::StoreDeref,
                 NameUsage::Delete => Instruction::DeleteDeref,
             },
             NameOpType::Local => match usage {
-                NameUsage::Load => Instruction::LoadLocal,
+                NameUsage::Load => Instruction::LoadNameAny,
                 NameUsage::Store => Instruction::StoreLocal,
                 NameUsage::Delete => Instruction::DeleteLocal,
             },
@@ -844,17 +874,17 @@ impl Compiler {
         ));
 
         for name in &args.args {
-            self.name(&name.arg);
+            self.varname(&name.arg);
         }
         for name in &args.kwonlyargs {
-            self.name(&name.arg);
+            self.varname(&name.arg);
         }
 
         let mut compile_varargs = |va: &ast::Varargs, flag| match va {
             ast::Varargs::None | ast::Varargs::Unnamed => {}
             ast::Varargs::Named(name) => {
                 self.current_code().flags |= flag;
-                self.name(&name.arg);
+                self.varname(&name.arg);
             }
         };
 
@@ -1002,6 +1032,10 @@ impl Compiler {
         is_async: bool,
     ) -> CompileResult<()> {
         // Create bytecode for this function:
+
+        self.prepare_decorators(decorator_list)?;
+        self.enter_function(name, args)?;
+
         // remember to restore self.ctx.in_loop to the original after the function is compiled
         let prev_ctx = self.ctx;
 
@@ -1018,10 +1052,6 @@ impl Compiler {
         let qualified_name = self.create_qualified_name(name, "");
         let old_qualified_path = self.current_qualified_path.take();
         self.current_qualified_path = Some(self.create_qualified_name(name, ".<locals>"));
-
-        self.prepare_decorators(decorator_list)?;
-
-        self.enter_function(name, args)?;
 
         let (body, doc_str) = get_doc(body);
 
@@ -1090,6 +1120,35 @@ impl Compiler {
             code.flags |= bytecode::CodeFlags::IS_COROUTINE;
         }
 
+        self.build_closure(&code);
+
+        self.emit_constant(bytecode::ConstantData::Code {
+            code: Box::new(code),
+        });
+        self.emit_constant(bytecode::ConstantData::Str {
+            value: qualified_name,
+        });
+
+        // Turn code object into function object:
+        self.emit(Instruction::MakeFunction);
+
+        self.emit(Instruction::Duplicate);
+        self.load_docstring(doc_str);
+        self.emit(Instruction::Rotate { amount: 2 });
+        let doc = self.name("__doc__");
+        self.emit(Instruction::StoreAttr { idx: doc });
+
+        self.current_qualified_path = old_qualified_path;
+        self.ctx = prev_ctx;
+
+        self.apply_decorators(decorator_list);
+
+        self.store_name(name);
+
+        Ok(())
+    }
+
+    fn build_closure(&mut self, code: &CodeObject) {
         if !code.freevars.is_empty() {
             for var in &code.freevars {
                 let symbol = self.symbol_table_stack.last().unwrap().lookup(var).unwrap();
@@ -1110,29 +1169,6 @@ impl Compiler {
                 unpack: false,
             })
         }
-
-        self.emit_constant(bytecode::ConstantData::Code {
-            code: Box::new(code),
-        });
-        self.emit_constant(bytecode::ConstantData::Str {
-            value: qualified_name,
-        });
-
-        // Turn code object into function object:
-        self.emit(Instruction::MakeFunction);
-
-        self.emit(Instruction::Duplicate);
-        self.load_docstring(doc_str);
-        self.emit(Instruction::Rotate { amount: 2 });
-        let doc = self.name("__doc__");
-        self.emit(Instruction::StoreAttr { idx: doc });
-        self.apply_decorators(decorator_list);
-
-        self.store_name(name);
-
-        self.current_qualified_path = old_qualified_path;
-        self.ctx = prev_ctx;
-        Ok(())
     }
 
     fn find_ann(&self, body: &[ast::Statement]) -> bool {
@@ -1243,10 +1279,29 @@ impl Compiler {
             self.emit(Instruction::SetupAnnotation);
         }
         self.compile_statements(new_body)?;
-        self.emit_constant(bytecode::ConstantData::None);
+
+        let classcell_idx = self
+            .code_stack
+            .last_mut()
+            .unwrap()
+            .cellvar_cache
+            .iter()
+            .position(|var| *var == "__class__");
+
+        if let Some(classcell_idx) = classcell_idx {
+            self.emit(Instruction::LoadClosure(classcell_idx));
+            self.emit(Instruction::Duplicate);
+            let classcell = self.name("__classcell__");
+            self.emit(Instruction::StoreLocal(classcell));
+        } else {
+            self.emit_constant(bytecode::ConstantData::None);
+        }
+
         self.emit(Instruction::ReturnValue);
 
         let code = self.pop_code_object();
+
+        self.build_closure(&code);
 
         self.emit_constant(bytecode::ConstantData::Code {
             code: Box::new(code),
@@ -1526,7 +1581,7 @@ impl Compiler {
             // Store as dict entry in __annotations__ dict:
             if !self.ctx.in_func() {
                 let annotations = self.name("__annotations__");
-                self.emit(Instruction::LoadLocal(annotations));
+                self.emit(Instruction::LoadNameAny(annotations));
                 self.emit_constant(bytecode::ConstantData::Str {
                     value: name.to_owned(),
                 });
@@ -1942,6 +1997,7 @@ impl Compiler {
                 self.compile_expression(body)?;
                 self.emit(Instruction::ReturnValue);
                 let code = self.pop_code_object();
+                self.build_closure(&code);
                 self.emit_constant(bytecode::ConstantData::Code {
                     code: Box::new(code),
                 });
@@ -2109,6 +2165,14 @@ impl Compiler {
         kind: &ast::ComprehensionKind,
         generators: &[ast::Comprehension],
     ) -> CompileResult<()> {
+        let prev_ctx = self.ctx;
+
+        self.ctx = CompileContext {
+            in_loop: false,
+            in_class: prev_ctx.in_class,
+            func: FunctionContext::Function,
+        };
+
         // We must have at least one generator:
         assert!(!generators.is_empty());
 
@@ -2251,6 +2315,10 @@ impl Compiler {
 
         // Fetch code for listcomp function:
         let code = self.pop_code_object();
+
+        self.ctx = prev_ctx;
+
+        self.build_closure(&code);
 
         // List comprehension code:
         self.emit_constant(bytecode::ConstantData::Code {

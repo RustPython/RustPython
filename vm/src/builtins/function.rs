@@ -43,7 +43,7 @@ pub struct PyFunction {
 }
 
 impl PyFunction {
-    pub fn new(
+    pub(crate) fn new(
         code: PyCodeRef,
         globals: PyDictRef,
         closure: Option<PyTupleTyped<PyCellRef>>,
@@ -70,6 +70,7 @@ impl PyFunction {
         let code = &*self.code;
         let nargs = func_args.args.len();
         let nexpected_args = code.arg_count;
+        let total_args = code.arg_count + code.kwonlyarg_count;
         // let arg_names = self.code.arg_names();
 
         // This parses the arguments from args and kwargs into
@@ -78,19 +79,21 @@ impl PyFunction {
         // See also: PyEval_EvalCodeWithName in cpython:
         // https://github.com/python/cpython/blob/master/Python/ceval.c#L3681
 
-        let n = std::cmp::min(nargs, nexpected_args);
+        let mut fastlocals = frame.fastlocals.lock();
 
         let mut args_iter = func_args.args.into_iter();
 
-        let mut fastlocals = frame.fastlocals.lock();
-        // let mut fill_locals = fastlocals.iter_mut().enumerate();
-
         // Copy positional arguments into local variables
-        for (i, arg) in args_iter.by_ref().take(n).enumerate() {
-            fastlocals[i] = Some(arg);
+        // zip short-circuits if either iterator returns None, which is the behavior we want --
+        // only fill as much as there is to fill with as much as we have
+        for (local, arg) in Iterator::zip(
+            fastlocals.iter_mut().take(nexpected_args),
+            args_iter.by_ref().take(nargs),
+        ) {
+            *local = Some(arg);
         }
 
-        let mut vararg_offset = code.arg_count;
+        let mut vararg_offset = total_args;
         // Pack other positional arguments in to *args:
         if code.flags.contains(bytecode::CodeFlags::HAS_VARARGS) {
             let vararg_value = vm.ctx.new_tuple(args_iter.collect());
@@ -109,37 +112,43 @@ impl PyFunction {
         // Do we support `**kwargs` ?
         let kwargs = if code.flags.contains(bytecode::CodeFlags::HAS_VARKEYWORDS) {
             let d = vm.ctx.new_dict();
-            fastlocals[vararg_offset] = Some(d.clone());
+            fastlocals[vararg_offset] = Some(d.clone().into_object());
             Some(d)
         } else {
             None
         };
 
-        // let argpos =
-        //     |names: &[PyStrRef], name: &str| names.iter().position(|s| s.borrow_value() == name);
+        let argpos = |range: std::ops::Range<_>, name: &str| {
+            code.varnames
+                .iter()
+                .enumerate()
+                .skip(range.start)
+                .take(range.end - range.start)
+                .find(|(_, s)| s.borrow_value() == name)
+                .map(|(p, _)| p)
+        };
 
         let mut posonly_passed_as_kwarg = Vec::new();
         // Handle keyword arguments
         for (name, value) in func_args.kwargs {
             // Check if we have a parameter with this name:
-            let dict = if let Some(pos) =
-                argpos(arg_names.args, &name).or_else(|| argpos(arg_names.kwonlyargs, &name))
-            {
-                if argpos(arg_names.posonlyargs, &name) {
-                    posonly_passed_as_kwarg.push(name);
-                    continue;
-                } else if locals.contains_key(&name, vm) {
+            if let Some(pos) = argpos(code.posonlyarg_count..total_args, &name) {
+                let slot = &mut fastlocals[pos];
+                if slot.is_some() {
                     return Err(
                         vm.new_type_error(format!("Got multiple values for argument '{}'", name))
                     );
                 }
-                locals
+                *slot = Some(value);
+            } else if argpos(0..code.posonlyarg_count, &name).is_some() {
+                posonly_passed_as_kwarg.push(name);
+            } else if let Some(kwargs) = kwargs.as_ref() {
+                kwargs.set_item(name, value, vm)?;
             } else {
-                kwargs.as_ref().ok_or_else(|| {
+                return Err(
                     vm.new_type_error(format!("Got an unexpected keyword argument '{}'", name))
-                })?
-            };
-            // dict.set_item(vm.intern_string(name).into_object(), value, vm)?;
+                );
+            }
         }
         if !posonly_passed_as_kwarg.is_empty() {
             return Err(vm.new_type_error(format!(
@@ -152,53 +161,76 @@ impl PyFunction {
         // Add missing positional arguments, if we have fewer positional arguments than the
         // function definition calls for
         if nargs < nexpected_args {
-            let num_defaults_available =
-                self.defaults.as_ref().map_or(0, |d| d.borrow_value().len());
+            let ndefs = self.defaults.as_ref().map_or(0, |d| d.borrow_value().len());
+
+            let nrequired = code.arg_count - ndefs;
 
             // Given the number of defaults available, check all the arguments for which we
             // _don't_ have defaults; if any are missing, raise an exception
-            let required_args = nexpected_args - num_defaults_available;
             let mut missing = vec![];
-            for i in 0..required_args {
-                let variable_name = &arg_names.args[i];
-                if !locals.contains_key(variable_name.clone(), vm) {
-                    missing.push(variable_name)
+            for i in nargs..nrequired {
+                if fastlocals[i].is_none() {
+                    missing.push(&code.varnames[i]);
                 }
             }
             if !missing.is_empty() {
                 return Err(vm.new_type_error(format!(
-                    "Missing {} required positional arguments: {:?}",
+                    "Missing {} required positional arguments: {}",
                     missing.len(),
-                    missing
+                    missing.iter().format(", ")
                 )));
             }
+
             if let Some(defaults) = &self.defaults {
                 let defaults = defaults.borrow_value();
+
+                let n = std::cmp::min(nargs, nexpected_args);
+                let i = n.saturating_sub(nrequired);
+
                 // We have sufficient defaults, so iterate over the corresponding names and use
                 // the default if we don't already have a value
-                for (default_index, i) in (required_args..nexpected_args).enumerate() {
-                    let arg_name = &arg_names.args[i];
-                    if !locals.contains_key(arg_name.clone(), vm) {
-                        locals.set_item(arg_name.clone(), defaults[default_index].clone(), vm)?;
+                for i in i..defaults.len() {
+                    let slot = &mut fastlocals[nrequired + i];
+                    if slot.is_none() {
+                        *slot = Some(defaults[i].clone());
                     }
                 }
             }
         };
 
-        // Check if kw only arguments are all present:
-        for arg_name in arg_names.kwonlyargs {
-            if !locals.contains_key(arg_name.clone(), vm) {
-                if let Some(kw_only_defaults) = &self.kw_only_defaults {
-                    if let Some(default) = kw_only_defaults.get_item_option(arg_name.clone(), vm)? {
-                        locals.set_item(arg_name.clone(), default, vm)?;
-                        continue;
+        if code.kwonlyarg_count > 0 {
+            // TODO: compile a list of missing arguments
+            // let mut missing = vec![];
+            // Check if kw only arguments are all present:
+            for (slot, kwarg) in fastlocals
+                .iter_mut()
+                .zip(&code.varnames)
+                .skip(code.arg_count)
+                .take(code.kwonlyarg_count)
+            {
+                if slot.is_none() {
+                    if let Some(kw_only_defaults) = &self.kw_only_defaults {
+                        if let Some(default) =
+                            kw_only_defaults.get_item_option(kwarg.clone(), vm)?
+                        {
+                            *slot = Some(default);
+                            continue;
+                        }
                     }
-                }
 
-                // No default value and not specified.
-                return Err(
-                    vm.new_type_error(format!("Missing required kw only argument: '{}'", arg_name))
-                );
+                    // No default value and not specified.
+                    return Err(vm.new_type_error(format!(
+                        "Missing required kw only argument: '{}'",
+                        kwarg
+                    )));
+                }
+            }
+        }
+
+        if let Some(cell2arg) = code.cell2arg.as_deref() {
+            for (cell_idx, arg_idx) in cell2arg.iter().enumerate().filter(|(_, i)| **i != -1) {
+                let x = fastlocals[*arg_idx as usize].take();
+                frame.cells_frees[cell_idx].set(x);
             }
         }
 
@@ -237,6 +269,7 @@ impl PyFunction {
         let frame = Frame::new(
             code.clone(),
             Scope::new(Some(locals), self.globals.clone()),
+            vm.builtins.dict().unwrap(),
             self.closure.as_ref().map_or(&[], |c| c.borrow_value()),
             vm,
         )
@@ -416,10 +449,13 @@ impl PyValue for PyCell {
 impl PyCell {
     #[pyslot]
     fn tp_new(cls: PyTypeRef, value: OptionalArg, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        Self::new(value.into_option()).into_ref_with_type(vm, cls)
+    }
+
+    pub fn new(contents: Option<PyObjectRef>) -> Self {
         Self {
-            contents: PyMutex::new(value.into_option()),
+            contents: PyMutex::new(contents),
         }
-        .into_ref_with_type(vm, cls)
     }
 
     pub fn get(&self) -> Option<PyObjectRef> {

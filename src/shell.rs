@@ -35,7 +35,7 @@ fn shell_exec(vm: &VirtualMachine, source: &str, scope: Scope) -> ShellExecResul
 }
 
 pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
-    let mut repl = Readline::new(helper::ShellHelper::new(vm, scope.clone()));
+    let mut repl = Readline::new(helper::ShellHelper::new(vm, scope.globals.clone()));
     let mut full_input = String::new();
 
     // Retrieve a `history_path_str` dependent on the OS

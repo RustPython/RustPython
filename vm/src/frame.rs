@@ -94,9 +94,10 @@ pub struct Frame {
     pub code: PyCodeRef,
 
     pub fastlocals: PyMutex<Box<[Option<PyObjectRef>]>>,
-    pub cells_frees: Box<[PyCellRef]>,
+    pub(crate) cells_frees: Box<[PyCellRef]>,
     pub locals: PyDictRef,
     pub globals: PyDictRef,
+    pub builtins: PyDictRef,
 
     /// index of last instruction ran
     pub lasti: AtomicUsize,
@@ -157,7 +158,13 @@ impl ExecutionResult {
 pub type FrameResult = PyResult<Option<ExecutionResult>>;
 
 impl Frame {
-    pub fn new(code: PyCodeRef, scope: Scope, closure: &[PyCellRef], vm: &VirtualMachine) -> Frame {
+    pub(crate) fn new(
+        code: PyCodeRef,
+        scope: Scope,
+        builtins: PyDictRef,
+        closure: &[PyCellRef],
+        vm: &VirtualMachine,
+    ) -> Frame {
         //populate the globals and locals
         //TODO: This is wrong, check https://github.com/nedbat/byterun/blob/31e6c4a8212c35b5157919abff43a7daa0f377c6/byterun/pyvm2.py#L95
         /*
@@ -178,6 +185,7 @@ impl Frame {
             cells_frees,
             locals: scope.locals,
             globals: scope.globals,
+            builtins,
             code,
             lasti: AtomicUsize::new(0),
             state: PyMutex::new(FrameState {
@@ -199,6 +207,7 @@ impl FrameRef {
             cells_frees: &self.cells_frees,
             locals: &self.locals,
             globals: &self.globals,
+            builtins: &self.builtins,
             lasti: &self.lasti,
             object: &self,
             state: &mut state,
@@ -257,6 +266,7 @@ struct ExecutingFrame<'a> {
     cells_frees: &'a [PyCellRef],
     locals: &'a PyDictRef,
     globals: &'a PyDictRef,
+    builtins: &'a PyDictRef,
     object: &'a FrameRef,
     lasti: &'a AtomicUsize,
     state: &'a mut FrameState,
@@ -357,10 +367,7 @@ impl ExecutingFrame<'_> {
         if let Some(name) = self.code.cellvars.get(i) {
             vm.new_exception_msg(
                 vm.ctx.exceptions.unbound_local_error.clone(),
-                format!(
-                    "local variable '{}' referenced before assignment",
-                    self.code.cellvars[i]
-                ),
+                format!("local variable '{}' referenced before assignment", name),
             )
         } else {
             let name = &self.code.freevars[i - self.code.cellvars.len()];
@@ -420,12 +427,18 @@ impl ExecutingFrame<'_> {
                 self.push_value(x);
                 Ok(None)
             }
-            bytecode::Instruction::LoadLocal(idx) => {
+            bytecode::Instruction::LoadNameAny(idx) => {
                 let name = &self.code.names[*idx];
-                let x = self
-                    .locals
-                    .get_item_option(name.clone(), vm)?
-                    .ok_or_else(|| vm.new_name_error(format!("name '{}' is not defined", name)))?;
+                let x = self.locals.get_item_option(name.clone(), vm)?;
+                let x = match x {
+                    Some(x) => x,
+                    None => self
+                        .globals
+                        .get2(self.builtins, name.clone(), vm)?
+                        .ok_or_else(|| {
+                            vm.new_name_error(format!("name '{}' is not defined", name))
+                        })?,
+                };
                 self.push_value(x);
                 Ok(None)
             }
@@ -433,16 +446,17 @@ impl ExecutingFrame<'_> {
                 let name = &self.code.names[*idx];
                 let x = self
                     .globals
-                    .get_item_option(name.clone(), vm)?
+                    .get2(self.builtins, name.clone(), vm)?
                     .ok_or_else(|| vm.new_name_error(format!("name '{}' is not defined", name)))?;
                 self.push_value(x);
                 Ok(None)
             }
             bytecode::Instruction::LoadDeref(i) => {
                 let i = *i;
-                self.cells_frees[i]
+                let x = self.cells_frees[i]
                     .get()
                     .ok_or_else(|| self.unbound_cell_exception(i, vm))?;
+                self.push_value(x);
                 Ok(None)
             }
             bytecode::Instruction::LoadClassDeref(i) => {
@@ -959,7 +973,7 @@ impl ExecutingFrame<'_> {
             for (k, v) in &dict {
                 let k = PyStrRef::try_from_object(vm, k)?;
                 if filter_pred(k.borrow_value()) {
-                    self.locals.set_item(k, v, vm);
+                    self.locals.set_item(k, v, vm)?;
                 }
             }
         }
@@ -1189,6 +1203,11 @@ impl ExecutingFrame<'_> {
         };
 
         // Call function:
+        // eprintln!(
+        //     "calling from {} {:?}",
+        //     self.code.obj_name,
+        //     self.code.locations[self.lasti.load(Ordering::Relaxed)]
+        // );
         let func_ref = self.pop_value();
         let value = vm.invoke(&func_ref, args)?;
         self.push_value(value);

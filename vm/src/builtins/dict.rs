@@ -268,7 +268,7 @@ impl PyDict {
     #[pymethod(magic)]
     #[cfg_attr(feature = "flame-it", flame("PyDictRef"))]
     fn getitem(zelf: PyRef<Self>, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(value) = zelf.inner_getitem_option(key.clone(), vm)? {
+        if let Some(value) = zelf.inner_getitem_option(key.clone(), zelf.exact_dict(vm), vm)? {
             Ok(value)
         } else {
             Err(vm.new_key_error(key))
@@ -422,23 +422,30 @@ impl Iterable for PyDict {
 }
 
 impl PyDictRef {
+    #[inline]
+    fn exact_dict(&self, vm: &VirtualMachine) -> bool {
+        self.class().is(&vm.ctx.types.dict_type)
+    }
+
     /// Return an optional inner item, or an error (can be key error as well)
     #[inline]
     fn inner_getitem_option<K: DictKey>(
         &self,
         key: K,
+        exact: bool,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
         if let Some(value) = self.entries.get(vm, &key)? {
             return Ok(Some(value));
         }
 
-        if let Some(method_or_err) = vm.get_method(self.clone().into_object(), "__missing__") {
-            let method = method_or_err?;
-            Ok(Some(vm.invoke(&method, (key,))?))
-        } else {
-            Ok(None)
+        if !exact {
+            if let Some(method_or_err) = vm.get_method(self.clone().into_object(), "__missing__") {
+                let method = method_or_err?;
+                return vm.invoke(&method, (key,)).map(Some);
+            }
         }
+        Ok(None)
     }
 
     /// Take a python dictionary and convert it to attributes.
@@ -466,28 +473,51 @@ impl PyDictRef {
         // and prevent the creation of the KeyError exception.
         // Also note, that we prevent the creation of a full PyStr object
         // if we lookup local names (which happens all of the time).
-        if self.class().is(&vm.ctx.types.dict_type) {
+        self._get_item_option_inner(key, self.exact_dict(vm), vm)
+    }
+
+    #[inline]
+    fn _get_item_option_inner<K: IntoPyObject + DictKey>(
+        &self,
+        key: K,
+        exact: bool,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyObjectRef>> {
+        if exact {
             // We can take the short path here!
-            self.inner_getitem_option(key, vm).or_else(|exc| {
-                if exc.isinstance(&vm.ctx.exceptions.key_error) {
-                    Ok(None)
-                } else {
-                    Err(exc)
-                }
-            })
+            self.entries.get(vm, &key)
         } else {
             // Fall back to full get_item with KeyError checking
+            self._subcls_getitem_option(key.into_pyobject(vm), vm)
+        }
+    }
 
-            match self.get_item(key, vm) {
-                Ok(value) => Ok(Some(value)),
-                Err(exc) => {
-                    if exc.isinstance(&vm.ctx.exceptions.key_error) {
-                        Ok(None)
-                    } else {
-                        Err(exc)
-                    }
-                }
-            }
+    fn _subcls_getitem_option(
+        &self,
+        key: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyObjectRef>> {
+        match self.get_item(key, vm) {
+            Ok(value) => Ok(Some(value)),
+            Err(exc) if exc.isinstance(&vm.ctx.exceptions.key_error) => Ok(None),
+            Err(exc) => Err(exc),
+        }
+    }
+
+    pub fn get2<K: IntoPyObject + DictKey + Clone>(
+        &self,
+        other: &Self,
+        key: K,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyObjectRef>> {
+        let self_exact = self.class().is(&vm.ctx.types.dict_type);
+        let other_exact = self.class().is(&vm.ctx.types.dict_type);
+        if self_exact && other_exact {
+            self.entries.get2(&other.entries, vm, &key)
+        } else if let Some(value) = self._get_item_option_inner(key.clone(), self_exact, vm)? {
+            Ok(Some(value))
+        } else {
+            other._get_item_option_inner(key, other_exact, vm)
         }
     }
 }
