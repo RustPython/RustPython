@@ -461,8 +461,7 @@ class GrammarTests(unittest.TestCase):
     #     exec('X: str', {}, CNS2())
     #     self.assertEqual(nonloc_ns['__annotations__']['x'], str)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+
     def test_var_annot_rhs(self):
         ns = {}
         exec('x: tuple = 1, 2', ns)
