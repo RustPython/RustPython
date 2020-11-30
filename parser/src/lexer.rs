@@ -447,7 +447,7 @@ where
         }
     }
 
-    fn parse_octet(&mut self, first: char) -> Result<char, LexicalError> {
+    fn parse_octet(&mut self, first: char) -> char {
         let mut octet_content = String::new();
         octet_content.push(first);
         while octet_content.len() < 3 {
@@ -457,13 +457,8 @@ where
                 break;
             }
         }
-        match u32::from_str_radix(&octet_content, 8) {
-            Ok(result) => Ok(char::from_u32(result).unwrap()),
-            Err(error) => Err(LexicalError {
-                error: LexicalErrorType::OtherError(error.to_string()),
-                location: self.get_pos(),
-            }),
-        }
+        let value = u32::from_str_radix(&octet_content, 8).unwrap();
+        char::from_u32(value).unwrap()
     }
 
     fn parse_unicode_name(&mut self) -> Result<char, LexicalError> {
@@ -555,7 +550,7 @@ where
                                 string_content.push('\t');
                             }
                             Some('v') => string_content.push('\x0b'),
-                            Some(o @ '0'..='7') => string_content.push(self.parse_octet(o)?),
+                            Some(o @ '0'..='7') => string_content.push(self.parse_octet(o)),
                             Some('x') => string_content.push(self.unicode_literal(2)?),
                             Some('u') if !is_bytes => string_content.push(self.unicode_literal(4)?),
                             Some('U') if !is_bytes => string_content.push(self.unicode_literal(8)?),
