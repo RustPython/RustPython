@@ -68,6 +68,10 @@ impl Location {
         self.column += 1;
     }
 
+    pub fn go_left(&mut self) {
+        self.column -= 1;
+    }
+
     pub fn newline(&mut self) {
         self.row += 1;
         self.column = 1;
