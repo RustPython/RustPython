@@ -107,7 +107,7 @@ ExpressionStatement: ast::Statement = {
             }
         }
     },
-    <location:@L> <target:TestOrStarExprList> <op:AugAssign> <rhs:TestList> => {
+    <location:@L> <target:TestOrStarExprList> <op:AugAssign> <rhs:TestListOrYieldExpr> => {
         ast::Statement {
             location,
             node: ast::StatementType::AugAssign {
@@ -117,22 +117,26 @@ ExpressionStatement: ast::Statement = {
             },
         }
     },
-    <location:@L> <target:Test> ":" <annotation:Test> <rhs:("=" Test)?> => {
+    <location:@L> <target:Test> ":" <annotation:Test> <rhs:AssignSuffix?> => {
         ast::Statement {
             location,
             node: ast::StatementType::AnnAssign {
                 target: Box::new(target),
                 annotation: Box::new(annotation),
-                value: rhs.map(|e| e.1)
+                value: rhs
             },
         }
     },
 };
 
 AssignSuffix: ast::Expression = {
-    "=" <e:TestList> => e,
-    "=" <e:YieldExpr> => e,
+    "=" <e:TestListOrYieldExpr> => e
 };
+
+TestListOrYieldExpr: ast::Expression = {
+    TestList,
+    YieldExpr
+}
 
 TestOrStarExprList: ast::Expression = {
     <location:@L> <elements:OneOrMore<TestOrStarExpr>> <comma:","?> => {
