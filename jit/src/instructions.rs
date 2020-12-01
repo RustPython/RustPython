@@ -2,7 +2,7 @@ use cranelift::prelude::*;
 use num_traits::cast::ToPrimitive;
 use rustpython_bytecode::bytecode::{
     self, BinaryOperator, BorrowedConstant, CodeObject, ComparisonOperator, Instruction, Label,
-    NameScope, UnaryOperator,
+    UnaryOperator,
 };
 use std::collections::HashMap;
 
@@ -14,6 +14,7 @@ struct Local {
     ty: JitType,
 }
 
+#[derive(Debug)]
 struct JitValue {
     val: Value,
     ty: JitType,
@@ -28,27 +29,22 @@ impl JitValue {
 pub struct FunctionCompiler<'a, 'b> {
     builder: &'a mut FunctionBuilder<'b>,
     stack: Vec<JitValue>,
-    variables: HashMap<String, Local>,
+    variables: Box<[Option<Local>]>,
     label_to_block: HashMap<Label, Block>,
     pub(crate) sig: JitSig,
 }
 
 impl<'a, 'b> FunctionCompiler<'a, 'b> {
-    pub fn new<I, S>(
+    pub fn new(
         builder: &'a mut FunctionBuilder<'b>,
-        arg_names: I,
+        num_variables: usize,
         arg_types: &[JitType],
         entry_block: Block,
-    ) -> FunctionCompiler<'a, 'b>
-    where
-        I: IntoIterator<Item = S>,
-        I::IntoIter: ExactSizeIterator,
-        S: AsRef<str>,
-    {
+    ) -> FunctionCompiler<'a, 'b> {
         let mut compiler = FunctionCompiler {
             builder,
             stack: Vec::new(),
-            variables: HashMap::new(),
+            variables: vec![None; num_variables].into_boxed_slice(),
             label_to_block: HashMap::new(),
             sig: JitSig {
                 args: arg_types.to_vec(),
@@ -56,22 +52,22 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             },
         };
         let params = compiler.builder.func.dfg.block_params(entry_block).to_vec();
-        let arg_names = arg_names.into_iter();
-        debug_assert_eq!(arg_names.len(), arg_types.len());
-        debug_assert_eq!(arg_names.len(), params.len());
-        for ((name, ty), val) in arg_names.zip(arg_types).zip(params) {
+        for (i, (ty, val)) in arg_types.iter().zip(params).enumerate() {
             compiler
-                .store_variable(name.as_ref().to_owned(), JitValue::new(val, ty.clone()))
+                .store_variable(i, JitValue::new(val, ty.clone()))
                 .unwrap();
         }
         compiler
     }
 
-    fn store_variable(&mut self, name: String, val: JitValue) -> Result<(), JitCompileError> {
-        let len = self.variables.len();
+    fn store_variable(
+        &mut self,
+        idx: bytecode::NameIdx,
+        val: JitValue,
+    ) -> Result<(), JitCompileError> {
         let builder = &mut self.builder;
-        let local = self.variables.entry(name).or_insert_with(|| {
-            let var = Variable::new(len);
+        let local = self.variables[idx].get_or_insert_with(|| {
+            let var = Variable::new(idx);
             let local = Local {
                 var,
                 ty: val.ty.clone(),
@@ -142,7 +138,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 continue;
             }
 
-            self.add_instruction(&instruction, &bytecode.constants, &bytecode.names)?;
+            self.add_instruction(&instruction, &bytecode.constants)?;
         }
 
         Ok(())
@@ -188,7 +184,6 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         &mut self,
         instruction: &Instruction,
         constants: &[C],
-        names: &[C::Name],
     ) -> Result<(), JitCompileError> {
         match instruction {
             Instruction::JumpIfFalse { target } => {
@@ -223,13 +218,9 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
 
                 Ok(())
             }
-            Instruction::LoadName {
-                idx,
-                scope: NameScope::Local,
-            } => {
-                let local = self
-                    .variables
-                    .get(names[*idx].as_ref())
+            Instruction::LoadFast(idx) => {
+                let local = self.variables[*idx]
+                    .as_ref()
                     .ok_or(JitCompileError::BadBytecode)?;
                 self.stack.push(JitValue {
                     val: self.builder.use_var(local.var),
@@ -237,12 +228,9 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 });
                 Ok(())
             }
-            Instruction::StoreName {
-                idx,
-                scope: NameScope::Local,
-            } => {
+            Instruction::StoreFast(idx) => {
                 let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
-                self.store_variable(names[*idx].as_ref().to_owned(), val)
+                self.store_variable(*idx, val)
             }
             Instruction::LoadConst { idx } => self.load_const(constants[*idx].borrow_constant()),
             Instruction::ReturnValue => {

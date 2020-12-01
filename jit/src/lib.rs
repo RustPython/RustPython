@@ -65,8 +65,8 @@ impl Jit {
         builder.switch_to_block(entry_block);
 
         let sig = {
-            let arg_names = &bytecode.names[..bytecode.arg_count + bytecode.kwonlyarg_count];
-            let mut compiler = FunctionCompiler::new(&mut builder, arg_names, args, entry_block);
+            let mut compiler =
+                FunctionCompiler::new(&mut builder, bytecode.varnames.len(), args, entry_block);
 
             compiler.compile(bytecode)?;
 
@@ -161,7 +161,7 @@ impl JitSig {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum JitType {
     Int,
     Float,

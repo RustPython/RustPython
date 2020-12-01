@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use rustpython_bytecode::bytecode::{CodeObject, ConstantData, Instruction, NameScope};
+use rustpython_bytecode::bytecode::{CodeObject, ConstantData, Instruction};
 use rustpython_jit::{CompiledCode, JitType};
 
 #[derive(Debug, Clone)]
@@ -64,7 +64,7 @@ impl StackMachine {
     }
 
     pub fn run(&mut self, code: CodeObject) {
-        for instruction in code.instructions {
+        for instruction in code.instructions.into_vec() {
             if self.process_instruction(instruction, &code.constants, &code.names) {
                 break;
             }
@@ -79,11 +79,10 @@ impl StackMachine {
     ) -> bool {
         match instruction {
             Instruction::LoadConst { idx } => self.stack.push(constants[idx].clone().into()),
-            Instruction::LoadName {
-                idx,
-                scope: NameScope::Free,
-            } => self.stack.push(StackValue::String(names[idx].clone())),
-            Instruction::StoreName { idx, .. } => {
+            Instruction::LoadNameAny(idx) => {
+                self.stack.push(StackValue::String(names[idx].clone()))
+            }
+            Instruction::StoreLocal(idx) => {
                 self.locals
                     .insert(names[idx].clone(), self.stack.pop().unwrap());
             }
