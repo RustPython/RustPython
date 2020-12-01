@@ -14,6 +14,10 @@
 use bitflags::bitflags;
 
 pub const SRE_MAGIC: usize = 20140917;
+pub const SRE_CODESIZE: usize = 4;
+pub const SRE_MAXREPEAT: usize = usize::max_value();
+pub const SRE_MAXGROUPS: usize = usize::max_value() / std::mem::size_of::<usize>() / 2;
+
 #[derive(num_enum::TryFromPrimitive, Debug)]
 #[repr(u32)]
 #[allow(non_camel_case_types)]
