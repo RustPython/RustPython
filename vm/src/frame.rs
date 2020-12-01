@@ -331,7 +331,7 @@ impl ExecutingFrame<'_> {
             let instr = &self.code.instructions[idx];
             let result = self.execute_instruction(instr, vm);
             match result {
-                Ok(None) => {}
+                Ok(None) => continue,
                 Ok(Some(value)) => {
                     break Ok(value);
                 }
@@ -349,7 +349,7 @@ impl ExecutingFrame<'_> {
                     exception.set_traceback(Some(new_traceback.into_ref(vm)));
 
                     match self.unwind_blocks(vm, UnwindReason::Raising { exception }) {
-                        Ok(None) => {}
+                        Ok(None) => continue,
                         Ok(Some(result)) => {
                             break Ok(result);
                         }

@@ -383,25 +383,40 @@ impl<T> TryFromObject for PyRef<T>
 where
     T: PyValue,
 {
+    #[inline]
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let class = T::class(vm);
         if obj.isinstance(class) {
-            obj.downcast().map_err(|obj| {
-                vm.new_runtime_error(format!(
-                    "Unexpected payload '{}' for type '{}'",
-                    class.name,
-                    obj.class().name,
-                ))
-            })
+            obj.downcast()
+                .map_err(|obj| pyref_payload_error(vm, class, obj))
         } else {
-            let expected_type = &class.name;
-            let actual_type = &obj.class().name;
-            Err(vm.new_type_error(format!(
-                "Expected type '{}', not '{}'",
-                expected_type, actual_type,
-            )))
+            Err(pyref_type_error(vm, class, obj))
         }
     }
+}
+// the impl Borrow allows to pass PyObjectRef or &PyObjectRef
+fn pyref_payload_error(
+    vm: &VirtualMachine,
+    class: &PyTypeRef,
+    obj: impl std::borrow::Borrow<PyObjectRef>,
+) -> PyBaseExceptionRef {
+    vm.new_runtime_error(format!(
+        "Unexpected payload '{}' for type '{}'",
+        &*class.name,
+        &*obj.borrow().class().name,
+    ))
+}
+fn pyref_type_error(
+    vm: &VirtualMachine,
+    class: &PyTypeRef,
+    obj: impl std::borrow::Borrow<PyObjectRef>,
+) -> PyBaseExceptionRef {
+    let expected_type = &*class.name;
+    let actual_type = &*obj.borrow().class().name;
+    vm.new_type_error(format!(
+        "Expected type '{}', not '{}'",
+        expected_type, actual_type,
+    ))
 }
 
 impl<'a, T: PyValue> From<&'a PyRef<T>> for &'a PyObjectRef {
@@ -787,19 +802,10 @@ unsafe impl<T: PyValue> TransmuteFromObject for PyRef<T> {
             if obj.payload_is::<T>() {
                 Ok(())
             } else {
-                Err(vm.new_runtime_error(format!(
-                    "Unexpected payload '{}' for type '{}'",
-                    class.name,
-                    obj.class().name,
-                )))
+                Err(pyref_payload_error(vm, class, obj))
             }
         } else {
-            let expected_type = &class.name;
-            let actual_type = &obj.class().name;
-            Err(vm.new_type_error(format!(
-                "Expected type '{}', not '{}'",
-                expected_type, actual_type,
-            )))
+            Err(pyref_type_error(vm, class, obj))
         }
     }
 }
