@@ -336,9 +336,6 @@ print(a)"""
         self.assertEqual(res, [(1, 1, 1.0), (2, 2, 1.0), (3, 3, 1.0)])
         self.assertEqual(y, 3)
 
-    # TODO RustPython, added test_named_expression_scope_06_rp_modified as 
-    # minimaly modified variant of this test.
-    @unittest.expectedFailure 
     def test_named_expression_scope_06(self):
         res = [[spam := i for i in range(3)] for j in range(2)]
 
@@ -385,8 +382,6 @@ print(a)"""
         self.assertEqual(res, [0, 2])
         self.assertEqual(a, 2)
 
-    # TODO RustPython, added test_named_expression_scope_10_rp_modified 
-    @unittest.expectedFailure 
     def test_named_expression_scope_10(self):
         res = [b := [a := 1 for i in range(2)] for j in range(2)]
 
@@ -522,7 +517,6 @@ spam()"""
                 self.assertEqual(ns["x"], 2)
                 self.assertEqual(ns["result"], [0, 1, 2])
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_named_expression_global_scope(self):
         sentinel = object()
         global GLOBAL_VAR

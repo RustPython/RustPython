@@ -259,7 +259,7 @@ impl PyCodeRef {
     fn co_varnames(self, vm: &VirtualMachine) -> PyObjectRef {
         let varnames = self
             .code
-            .names
+            .varnames
             .iter()
             .map(|s| s.clone().into_object())
             .collect();

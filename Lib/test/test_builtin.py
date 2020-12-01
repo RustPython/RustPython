@@ -562,8 +562,6 @@ class BuiltinTest(unittest.TestCase):
                 return 1 # used to be 'a' but that's no longer an error
         self.assertRaises(TypeError, eval, 'dir()', globals(), C())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exec(self):
         g = {}
         exec('z = 1', g)

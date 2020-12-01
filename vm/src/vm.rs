@@ -496,11 +496,10 @@ impl VirtualMachine {
         }
     }
 
-    pub fn current_locals(&self) -> Ref<PyDictRef> {
-        let frame = self
-            .current_frame()
-            .expect("called current_locals but no frames on the stack");
-        Ref::map(frame, |f| f.locals(self))
+    pub fn current_locals(&self) -> PyResult<PyDictRef> {
+        self.current_frame()
+            .expect("called current_locals but no frames on the stack")
+            .locals(self)
     }
 
     pub fn current_globals(&self) -> Ref<PyDictRef> {

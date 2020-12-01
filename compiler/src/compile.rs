@@ -273,14 +273,13 @@ impl Compiler {
         let cellvar_cache = table
             .symbols
             .iter()
-            .filter(|(_, s)| matches!(s.scope, SymbolScope::Cell))
+            .filter(|(_, s)| s.scope == SymbolScope::Cell)
             .map(|(var, _)| var.clone())
             .collect();
         let freevar_cache = table
             .symbols
             .iter()
-            // TODO: check if Free or FREE_CLASS symbol
-            .filter(|(_, s)| matches!(s.scope, SymbolScope::Free))
+            .filter(|(_, s)| s.scope == SymbolScope::Free || s.is_free_class)
             .map(|(var, _)| var.clone())
             .collect();
 
@@ -336,6 +335,11 @@ impl Compiler {
             let doc = self.name("__doc__");
             self.emit(Instruction::StoreGlobal(doc))
         }
+
+        if self.find_ann(statements) {
+            self.emit(Instruction::SetupAnnotation);
+        }
+
         self.compile_statements(statements)?;
 
         assert_eq!(self.code_stack.len(), size_before);
@@ -433,9 +437,12 @@ impl Compiler {
                 cache = &mut info.varname_cache;
                 NameOpType::Fast
             }
-            SymbolScope::GlobalImplicit if self.ctx.in_func() => NameOpType::Global,
-            SymbolScope::Local | SymbolScope::GlobalImplicit => NameOpType::Local,
             SymbolScope::GlobalExplicit => NameOpType::Global,
+            SymbolScope::GlobalImplicit | SymbolScope::Unknown if self.ctx.in_func() => {
+                NameOpType::Global
+            }
+            SymbolScope::GlobalImplicit | SymbolScope::Unknown => NameOpType::Local,
+            SymbolScope::Local => NameOpType::Local,
             SymbolScope::Free => {
                 cache = &mut info.freevar_cache;
                 NameOpType::Deref
@@ -444,8 +451,8 @@ impl Compiler {
                 cache = &mut info.cellvar_cache;
                 NameOpType::Deref
             }
-            // TODO: is this right?
-            SymbolScope::Unknown => NameOpType::Global,
+            // // TODO: is this right?
+            // SymbolScope::Unknown => NameOpType::Global,
         };
         let mut idx = cache
             .get_index_of(name)
@@ -527,6 +534,10 @@ impl Compiler {
                 let module_idx = module.as_ref().map(|s| self.name(s));
 
                 if import_star {
+                    if self.ctx.in_func() {
+                        return Err(self
+                            .error_loc(CompileErrorType::FunctionImportStar, statement.location));
+                    }
                     let star = self.name("*");
                     // from .... import *
                     self.emit(Instruction::Import {
@@ -1069,6 +1080,8 @@ impl Compiler {
         }
 
         let mut code = self.pop_code_object();
+        self.current_qualified_path = old_qualified_path;
+        self.ctx = prev_ctx;
 
         // Prepare type annotations:
         let mut num_annotations = 0;
@@ -1138,9 +1151,6 @@ impl Compiler {
         let doc = self.name("__doc__");
         self.emit(Instruction::StoreAttr { idx: doc });
 
-        self.current_qualified_path = old_qualified_path;
-        self.ctx = prev_ctx;
-
         self.apply_decorators(decorator_list);
 
         self.store_name(name);
@@ -1151,12 +1161,17 @@ impl Compiler {
     fn build_closure(&mut self, code: &CodeObject) {
         if !code.freevars.is_empty() {
             for var in &code.freevars {
-                let symbol = self.symbol_table_stack.last().unwrap().lookup(var).unwrap();
+                let table = self.symbol_table_stack.last().unwrap();
+                let symbol = table.lookup(var).unwrap();
                 let parent_code = self.code_stack.last().unwrap();
                 let vars = match symbol.scope {
                     SymbolScope::Free => &parent_code.freevar_cache,
                     SymbolScope::Cell => &parent_code.cellvar_cache,
-                    _ => unreachable!(),
+                    _ if symbol.is_free_class => &parent_code.freevar_cache,
+                    x => unreachable!(
+                        "var {} in a {:?} should be free or cell but it's {:?}",
+                        var, table.typ, x
+                    ),
                 };
                 let mut idx = vars.get_index_of(var).unwrap();
                 if let SymbolScope::Free = symbol.scope {
@@ -1236,6 +1251,8 @@ impl Compiler {
         keywords: &[ast::Keyword],
         decorator_list: &[ast::Expression],
     ) -> CompileResult<()> {
+        self.prepare_decorators(decorator_list)?;
+
         let prev_ctx = self.ctx;
         self.ctx = CompileContext {
             func: FunctionContext::NoFunction,
@@ -1247,7 +1264,6 @@ impl Compiler {
         let old_qualified_path = self.current_qualified_path.take();
         self.current_qualified_path = Some(qualified_name.clone());
 
-        self.prepare_decorators(decorator_list)?;
         self.emit(Instruction::LoadBuildClass);
         let line_number = self.get_source_line_number();
         self.push_output(CodeObject::new(
@@ -1301,6 +1317,9 @@ impl Compiler {
 
         let code = self.pop_code_object();
 
+        self.current_qualified_path = old_qualified_path;
+        self.ctx = prev_ctx;
+
         self.build_closure(&code);
 
         self.emit_constant(bytecode::ConstantData::Code {
@@ -1350,8 +1369,6 @@ impl Compiler {
         self.apply_decorators(decorator_list);
 
         self.store_name(name);
-        self.current_qualified_path = old_qualified_path;
-        self.ctx = prev_ctx;
         Ok(())
     }
 
@@ -1579,18 +1596,17 @@ impl Compiler {
 
         if let ast::ExpressionType::Identifier { name } = &target.node {
             // Store as dict entry in __annotations__ dict:
-            if !self.ctx.in_func() {
-                let annotations = self.name("__annotations__");
-                self.emit(Instruction::LoadNameAny(annotations));
-                self.emit_constant(bytecode::ConstantData::Str {
-                    value: name.to_owned(),
-                });
-                self.emit(Instruction::StoreSubscript);
-            }
+            let annotations = self.name("__annotations__");
+            self.emit(Instruction::LoadNameAny(annotations));
+            self.emit_constant(bytecode::ConstantData::Str {
+                value: name.to_owned(),
+            });
+            self.emit(Instruction::StoreSubscript);
         } else {
             // Drop annotation if not assigned to simple identifier.
             self.emit(Instruction::Pop);
         }
+
         Ok(())
     }
 
@@ -2187,7 +2203,7 @@ impl Compiler {
         let line_number = self.get_source_line_number();
         // Create magnificent function <listcomp>:
         self.push_output(CodeObject::new(
-            Default::default(),
+            bytecode::CodeFlags::NEW_LOCALS | bytecode::CodeFlags::IS_OPTIMIZED,
             1,
             1,
             0,

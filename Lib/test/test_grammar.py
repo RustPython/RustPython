@@ -1067,8 +1067,6 @@ class GrammarTests(unittest.TestCase):
         self.assertEqual(g2(False), 0)
         self.assertEqual(g2(True), ('end', 1))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_yield(self):
         # Allowed as standalone statement
         def g(): yield 1

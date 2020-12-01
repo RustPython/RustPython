@@ -48,8 +48,8 @@ impl FrameRef {
     }
 
     #[pyproperty]
-    fn f_locals(self, vm: &VirtualMachine) -> PyDictRef {
-        self.locals(vm).clone()
+    fn f_locals(self, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+        self.locals(vm)
     }
 
     #[pyproperty]

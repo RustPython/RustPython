@@ -85,7 +85,7 @@ impl fmt::Display for SymbolTableType {
 
 /// Indicator for a single symbol what the scope of this symbol is.
 /// The scope can be unknown, which is unfortunate, but not impossible.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SymbolScope {
     Unknown,
     Local,
@@ -116,6 +116,16 @@ pub struct Symbol {
     // inidicates that the symbol is used a bound iterator variable. We distinguish this case
     // from normal assignment to detect unallowed re-assignment to iterator variables.
     pub is_iter: bool,
+
+    /// indicates that the symbol is a free variable in a class method from the scope that the
+    /// class is defined in, e.g.:
+    /// ```python
+    /// def foo(x):
+    ///     class A:
+    ///         def method(self):
+    ///             return x // is_free_class
+    /// ```
+    pub is_free_class: bool,
 }
 
 impl Symbol {
@@ -131,6 +141,7 @@ impl Symbol {
             is_imported: false,
             is_assign_namedexpr_in_comprehension: false,
             is_iter: false,
+            is_free_class: false,
         }
     }
 
@@ -142,7 +153,7 @@ impl Symbol {
     }
 
     pub fn is_local(&self) -> bool {
-        matches!(self.scope, SymbolScope::Local)
+        self.scope == SymbolScope::Local
     }
 
     pub fn is_bound(&self) -> bool {
@@ -283,12 +294,10 @@ impl SymbolTableAnalyzer {
     fn analyze_symbol(
         &mut self,
         symbol: &mut Symbol,
-        curr_st_typ: SymbolTableType,
+        st_typ: SymbolTableType,
         sub_tables: &mut [SymbolTable],
     ) -> SymbolTableResult {
-        if symbol.is_assign_namedexpr_in_comprehension
-            && curr_st_typ == SymbolTableType::Comprehension
-        {
+        if symbol.is_assign_namedexpr_in_comprehension && st_typ == SymbolTableType::Comprehension {
             // propagate symbol to next higher level that can hold it,
             // i.e., function or module. Comprehension is skipped and
             // Class is not allowed and detected as error.
@@ -298,10 +307,12 @@ impl SymbolTableAnalyzer {
             match symbol.scope {
                 SymbolScope::Free => {
                     if !self.tables.as_ref().is_empty() {
-                        let scope_depth = self.tables.as_ref().iter().count();
+                        let scope_depth = self.tables.as_ref().len();
                         // check if the name is already defined in any outer scope
                         // therefore
-                        if scope_depth < 2 || !self.found_in_outer_scope(&symbol.name) {
+                        if scope_depth < 2
+                            || self.found_in_outer_scope(&symbol.name) != Some(SymbolScope::Free)
+                        {
                             return Err(SymbolTableError {
                                 error: format!("no binding for nonlocal '{}' found", symbol.name),
                                 // TODO: accurate location info, somehow
@@ -327,66 +338,99 @@ impl SymbolTableAnalyzer {
                 }
                 SymbolScope::Unknown => {
                     // Try hard to figure out what the scope of this symbol is.
-                    self.analyze_unknown_symbol(sub_tables, symbol);
+                    let scope = if symbol.is_bound() {
+                        self.found_in_inner_scope(sub_tables, &symbol.name, st_typ)
+                            .unwrap_or(SymbolScope::Local)
+                    } else if let Some(scope) = self.found_in_outer_scope(&symbol.name) {
+                        scope
+                    } else if self.tables.is_empty() {
+                        // Don't make assumptions when we don't know.
+                        SymbolScope::Unknown
+                    } else {
+                        // If there are scopes above we assume global.
+                        SymbolScope::GlobalImplicit
+                    };
+                    symbol.scope = scope;
                 }
             }
         }
         Ok(())
     }
 
-    fn found_in_outer_scope(&mut self, name: &str) -> bool {
+    fn found_in_outer_scope(&mut self, name: &str) -> Option<SymbolScope> {
         // Interesting stuff about the __class__ variable:
         // https://docs.python.org/3/reference/datamodel.html?highlight=__class__#creating-the-class-object
         if name == "__class__" {
-            return true;
+            return Some(SymbolScope::Free);
         }
-        let decl_depth = self.tables.iter().rev().position(|(symbols, typ)| {
-            !matches!(typ, SymbolTableType::Class | SymbolTableType::Module)
-                && symbols.get(name).map_or(false, |sym| sym.is_bound())
-        });
+
+        let mut decl_depth = None;
+        for (i, (symbols, typ)) in self.tables.iter().rev().enumerate() {
+            if let SymbolTableType::Class | SymbolTableType::Module = typ {
+                continue;
+            }
+            if let Some(sym) = symbols.get(name) {
+                match sym.scope {
+                    SymbolScope::GlobalExplicit => return Some(SymbolScope::GlobalExplicit),
+                    SymbolScope::GlobalImplicit => {}
+                    _ => {
+                        if sym.is_bound() {
+                            decl_depth = Some(i);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
 
         if let Some(decl_depth) = decl_depth {
             // decl_depth is the number of tables between the current one and
             // the one that declared the cell var
-            for (table, _) in self.tables.iter_mut().rev().take(decl_depth) {
-                if !table.contains_key(name) {
+            for (table, typ) in self.tables.iter_mut().rev().take(decl_depth) {
+                if let SymbolTableType::Class = typ {
+                    if let Some(free_class) = table.get_mut(name) {
+                        free_class.is_free_class = true;
+                    } else {
+                        let mut symbol = Symbol::new(name);
+                        symbol.is_free_class = true;
+                        symbol.scope = SymbolScope::Free;
+                        table.insert(name.to_owned(), symbol);
+                    }
+                } else if !table.contains_key(name) {
                     let mut symbol = Symbol::new(name);
                     symbol.scope = SymbolScope::Free;
-                    symbol.is_referenced = true;
+                    // symbol.is_referenced = true;
                     table.insert(name.to_owned(), symbol);
                 }
             }
         }
 
-        decl_depth.is_some()
+        decl_depth.map(|_| SymbolScope::Free)
     }
 
-    fn found_in_inner_scope(sub_tables: &mut [SymbolTable], name: &str) -> bool {
-        sub_tables.iter().any(|x| {
-            x.symbols
-                .get(name)
-                .map_or(false, |sym| matches!(sym.scope, SymbolScope::Free))
+    fn found_in_inner_scope(
+        &self,
+        sub_tables: &[SymbolTable],
+        name: &str,
+        st_typ: SymbolTableType,
+    ) -> Option<SymbolScope> {
+        sub_tables.iter().find_map(|st| {
+            st.symbols.get(name).and_then(|sym| {
+                if sym.scope == SymbolScope::Free || sym.is_free_class {
+                    if st_typ == SymbolTableType::Class && name != "__class__" {
+                        None
+                    } else {
+                        Some(SymbolScope::Cell)
+                    }
+                } else if sym.scope == SymbolScope::GlobalExplicit && self.tables.is_empty() {
+                    // the symbol is defined on the module level, and an inner scope declares
+                    // a global that points to it
+                    Some(SymbolScope::GlobalExplicit)
+                } else {
+                    None
+                }
+            })
         })
-    }
-
-    fn analyze_unknown_symbol(&mut self, sub_tables: &mut [SymbolTable], symbol: &mut Symbol) {
-        let scope = if symbol.is_bound() {
-            if Self::found_in_inner_scope(sub_tables, &symbol.name) {
-                SymbolScope::Cell
-            } else {
-                SymbolScope::Local
-            }
-        } else if self.found_in_outer_scope(&symbol.name) {
-            // Symbol is in some outer scope.
-            SymbolScope::Free
-        } else if self.tables.is_empty() {
-            // Don't make assumptions when we don't know.
-            SymbolScope::Unknown
-        } else {
-            // If there are scopes above we assume global.
-            SymbolScope::GlobalImplicit
-        };
-        symbol.scope = scope;
     }
 
     // Implements the symbol analysis and scope extension for names
@@ -431,12 +475,13 @@ impl SymbolTableAnalyzer {
                     if let SymbolScope::Unknown = parent_symbol.scope {
                         // this information is new, as the asignment is done in inner scope
                         parent_symbol.is_assigned = true;
-                        //self.analyze_unknown_symbol(symbol); // not needed, symbol is analyzed anyhow when its scope is analyzed
                     }
 
-                    if !symbol.is_global() {
-                        symbol.scope = SymbolScope::Free;
-                    }
+                    symbol.scope = if parent_symbol.is_global() {
+                        parent_symbol.scope
+                    } else {
+                        SymbolScope::Free
+                    };
                 } else {
                     let mut cloned_sym = symbol.clone();
                     cloned_sym.scope = SymbolScope::Local;
@@ -907,6 +952,7 @@ impl SymbolTableBuilder {
                 // Determine the contextual usage of this symbol:
                 match context {
                     ExpressionContext::Delete => {
+                        self.register_name(name, SymbolUsage::Assigned, location)?;
                         self.register_name(name, SymbolUsage::Used, location)?;
                     }
                     ExpressionContext::Load | ExpressionContext::IterDefinitionExp => {
@@ -1051,6 +1097,7 @@ impl SymbolTableBuilder {
                 SymbolUsage::Global => {
                     if symbol.is_global() {
                         // Ok
+                        symbol.scope = SymbolScope::GlobalExplicit;
                     } else {
                         return Err(SymbolTableError {
                             error: format!("name '{}' is used prior to global declaration", name),
@@ -1140,9 +1187,9 @@ impl SymbolTableBuilder {
             }
             SymbolUsage::Global => {
                 if let SymbolScope::Unknown = symbol.scope {
-                    symbol.scope = SymbolScope::GlobalImplicit;
+                    symbol.scope = SymbolScope::GlobalExplicit;
                 } else if symbol.is_global() {
-                    // Global scope can be set to global
+                    symbol.scope = SymbolScope::GlobalExplicit;
                 } else {
                     return Err(SymbolTableError {
                         error: format!("Symbol {} scope cannot be set to global, since its scope was already determined otherwise.", name),

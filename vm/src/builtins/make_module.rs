@@ -172,7 +172,7 @@ mod decl {
     fn dir(obj: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<PyList> {
         let seq = match obj {
             OptionalArg::Present(obj) => vm.call_method(&obj, "__dir__", ())?,
-            OptionalArg::Missing => vm.call_method(vm.current_locals().as_object(), "keys", ())?,
+            OptionalArg::Missing => vm.call_method(vm.current_locals()?.as_object(), "keys", ())?,
         };
         let sorted = sorted(seq, Default::default(), vm)?;
         Ok(sorted)
@@ -195,6 +195,33 @@ mod decl {
         locals: Option<PyDictRef>,
     }
 
+    #[cfg(feature = "rustpython-compiler")]
+    impl ScopeArgs {
+        fn make_scope(self, vm: &VirtualMachine) -> PyResult<Scope> {
+            let (globals, locals) = match self.globals {
+                Some(globals) => {
+                    if !globals.contains_key("__builtins__", vm) {
+                        let builtins_dict = vm.builtins.dict().unwrap().into_object();
+                        globals.set_item("__builtins__", builtins_dict, vm)?;
+                    }
+                    let locals = self.locals.unwrap_or_else(|| globals.clone());
+                    (globals, locals)
+                }
+                None => {
+                    let globals = vm.current_globals().clone();
+                    let locals = match self.locals {
+                        Some(l) => l,
+                        None => vm.current_locals()?,
+                    };
+                    (globals, locals)
+                }
+            };
+
+            let scope = Scope::with_builtins(Some(locals), globals, vm);
+            Ok(scope)
+        }
+    }
+
     /// Implements `eval`.
     /// See also: https://docs.python.org/3/library/functions.html#eval
     #[cfg(feature = "rustpython-compiler")]
@@ -204,7 +231,7 @@ mod decl {
         scope: ScopeArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
-        run_code(vm, source, scope, compile::Mode::Eval)
+        run_code(vm, source, scope, compile::Mode::Eval, "eval")
     }
 
     /// Implements `exec`
@@ -216,7 +243,7 @@ mod decl {
         scope: ScopeArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
-        run_code(vm, source, scope, compile::Mode::Exec)
+        run_code(vm, source, scope, compile::Mode::Exec, "exec")
     }
 
     #[cfg(feature = "rustpython-compiler")]
@@ -225,8 +252,9 @@ mod decl {
         source: Either<PyStrRef, PyCodeRef>,
         scope: ScopeArgs,
         mode: compile::Mode,
+        func: &str,
     ) -> PyResult {
-        let scope = make_scope(vm, scope)?;
+        let scope = scope.make_scope(vm)?;
 
         // Determine code object:
         let code_obj = match source {
@@ -236,36 +264,15 @@ mod decl {
             Either::B(code_obj) => code_obj,
         };
 
+        if !code_obj.freevars.is_empty() {
+            return Err(vm.new_type_error(format!(
+                "code object passed to {}() may not contain free variables",
+                func
+            )));
+        }
+
         // Run the code:
         vm.run_code_obj(code_obj, scope)
-    }
-
-    #[cfg(feature = "rustpython-compiler")]
-    fn make_scope(vm: &VirtualMachine, scope: ScopeArgs) -> PyResult<Scope> {
-        let globals = scope.globals;
-        let locals = match scope.locals {
-            Some(dict) => Some(dict),
-            None => {
-                if globals.is_some() {
-                    None
-                } else {
-                    Some(vm.current_locals().clone())
-                }
-            }
-        };
-        let globals = match globals {
-            Some(dict) => {
-                if !dict.contains_key("__builtins__", vm) {
-                    let builtins_dict = vm.builtins.dict().unwrap().as_object().clone();
-                    dict.set_item("__builtins__", builtins_dict, vm).unwrap();
-                }
-                dict
-            }
-            None => vm.current_globals().clone(),
-        };
-
-        let scope = Scope::with_builtins(locals, globals, vm);
-        Ok(scope)
     }
 
     #[pyfunction]
@@ -447,9 +454,8 @@ mod decl {
     }
 
     #[pyfunction]
-    fn locals(vm: &VirtualMachine) -> PyDictRef {
-        let locals = vm.current_locals();
-        locals.copy().into_ref(vm)
+    fn locals(vm: &VirtualMachine) -> PyResult<PyDictRef> {
+        vm.current_locals()
     }
 
     fn min_or_max(
@@ -796,7 +802,7 @@ mod decl {
         if let OptionalArg::Present(obj) = obj {
             vm.get_attribute(obj, "__dict__")
         } else {
-            Ok(vm.current_locals().clone().into_object())
+            Ok(vm.current_locals()?.into_object())
         }
     }
 

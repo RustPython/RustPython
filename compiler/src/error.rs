@@ -36,6 +36,7 @@ pub enum CompileErrorType {
     AsyncReturnValue,
     InvalidFuturePlacement,
     InvalidFutureFeature(String),
+    FunctionImportStar,
 }
 
 impl fmt::Display for CompileErrorType {
@@ -65,6 +66,9 @@ impl fmt::Display for CompileErrorType {
             ),
             CompileErrorType::InvalidFutureFeature(feat) => {
                 write!(f, "future feature {} is not defined", feat)
+            }
+            CompileErrorType::FunctionImportStar => {
+                write!(f, "import * only allowed at module level")
             }
         }
     }

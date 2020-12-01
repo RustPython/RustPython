@@ -277,8 +277,6 @@ class Test_TextTestRunner(unittest.TestCase):
         self.assertEqual(runner._makeResult(), expectedresult)
 
 
-    # TODO: RUSTPYTHON; -W arg for warning control
-    @unittest.expectedFailure
     def test_warnings(self):
         """
         Check that warnings argument of TextTestRunner correctly affects the

@@ -260,6 +260,7 @@ fn parse_arguments<'a>(app: App<'a, '_>) -> ArgMatches<'a> {
                 .short("X")
                 .takes_value(true)
                 .multiple(true)
+                .number_of_values(1)
                 .help("set implementation-specific option"),
         )
         .arg(
@@ -267,6 +268,7 @@ fn parse_arguments<'a>(app: App<'a, '_>) -> ArgMatches<'a> {
                 .short("W")
                 .takes_value(true)
                 .multiple(true)
+                .number_of_values(1)
                 .help("warning control; arg is action:message:category:module:lineno"),
         )
         .arg(

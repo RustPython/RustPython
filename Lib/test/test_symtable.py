@@ -121,6 +121,8 @@ class SymtableTest(unittest.TestCase):
         expected = ("some_var",)
         self.assertEqual(self.other_internal.get_nonlocals(), expected)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_local(self):
         self.assertTrue(self.spam.lookup("x").is_local())
         self.assertFalse(self.spam.lookup("bar").is_local())

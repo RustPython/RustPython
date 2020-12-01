@@ -215,8 +215,46 @@ impl FrameRef {
         f(exec)
     }
 
-    pub fn locals(&self, vm: &VirtualMachine) -> &PyDictRef {
-        todo!()
+    pub fn locals(&self, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+        let locals = &self.locals;
+        let code = &**self.code;
+        let map = &code.varnames;
+        let j = std::cmp::min(map.len(), code.varnames.len());
+        if !code.varnames.is_empty() {
+            let fastlocals = self.fastlocals.lock();
+            for (k, v) in itertools::zip(&map[..j], &**fastlocals) {
+                if let Some(v) = v {
+                    locals.set_item(k.clone(), v.clone(), vm)?;
+                } else {
+                    match locals.del_item(k.clone(), vm) {
+                        Ok(()) => {}
+                        Err(e) if e.isinstance(&vm.ctx.exceptions.key_error) => {}
+                        Err(e) => return Err(e),
+                    }
+                }
+            }
+        }
+        if !code.cellvars.is_empty() || !code.freevars.is_empty() {
+            let map_to_dict = |keys: &[PyStrRef], values: &[PyCellRef]| {
+                for (k, v) in itertools::zip(keys, values) {
+                    if let Some(v) = v.get() {
+                        locals.set_item(k.clone(), v, vm)?;
+                    } else {
+                        match locals.del_item(k.clone(), vm) {
+                            Ok(()) => {}
+                            Err(e) if e.isinstance(&vm.ctx.exceptions.key_error) => {}
+                            Err(e) => return Err(e),
+                        }
+                    }
+                }
+                Ok(())
+            };
+            map_to_dict(&code.cellvars, &self.cells_frees)?;
+            if code.flags.contains(bytecode::CodeFlags::IS_OPTIMIZED) {
+                map_to_dict(&code.freevars, &self.cells_frees[code.cellvars.len()..])?;
+            }
+        }
+        Ok(locals.clone())
     }
 
     // #[cfg_attr(feature = "flame-it", flame("Frame"))]

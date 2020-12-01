@@ -1888,6 +1888,12 @@ class TestInvalidFD(unittest.TestCase):
         def helper(self):
             if  hasattr(os, f):
                 self.check(getattr(os, f))
+
+        # TODO: RUSTPYTHON; io.FileIO(fd) should check if the fd passed is valid
+        if f == "fdopen":
+            # this is test_fdopen
+            helper = unittest.expectedFailure(helper)
+
         return helper
     for f in singles:
         locals()["test_"+f] = get_single(f)
