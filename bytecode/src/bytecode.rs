@@ -93,8 +93,8 @@ impl ConstantBag for BasicBag {
 /// a codeobject. Also a module has a codeobject.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct CodeObject<C: Constant = ConstantData> {
-    pub instructions: Vec<Instruction>,
-    pub locations: Vec<Location>,
+    pub instructions: Box<[Instruction]>,
+    pub locations: Box<[Location]>,
     pub flags: CodeFlags,
     pub posonlyarg_count: usize, // Number of positional-only arguments
     pub arg_count: usize,
@@ -103,15 +103,15 @@ pub struct CodeObject<C: Constant = ConstantData> {
     pub first_line_number: usize,
     pub obj_name: String, // Name of the object that created this code object
     pub cell2arg: Option<Box<[isize]>>,
-    pub constants: Vec<C>,
+    pub constants: Box<[C]>,
     #[serde(bound(
         deserialize = "C::Name: serde::Deserialize<'de>",
         serialize = "C::Name: serde::Serialize"
     ))]
-    pub names: Vec<C::Name>,
-    pub varnames: Vec<C::Name>,
-    pub cellvars: Vec<C::Name>,
-    pub freevars: Vec<C::Name>,
+    pub names: Box<[C::Name]>,
+    pub varnames: Box<[C::Name]>,
+    pub cellvars: Box<[C::Name]>,
+    pub freevars: Box<[C::Name]>,
 }
 
 bitflags! {
@@ -126,12 +126,6 @@ bitflags! {
         const HAS_VARARGS = 0x40;
         const HAS_VARKEYWORDS = 0x80;
         const IS_OPTIMIZED = 0x0100;
-    }
-}
-
-impl Default for CodeFlags {
-    fn default() -> Self {
-        Self::NEW_LOCALS
     }
 }
 
@@ -542,8 +536,8 @@ impl<C: Constant> CodeObject<C> {
         obj_name: String,
     ) -> Self {
         CodeObject {
-            instructions: Vec::new(),
-            locations: Vec::new(),
+            instructions: Box::new([]),
+            locations: Box::new([]),
             flags,
             posonlyarg_count,
             arg_count,
@@ -552,11 +546,11 @@ impl<C: Constant> CodeObject<C> {
             first_line_number,
             obj_name,
             cell2arg: None,
-            constants: Vec::new(),
-            names: Vec::new(),
-            varnames: Vec::new(),
-            cellvars: Vec::new(),
-            freevars: Vec::new(),
+            constants: Box::new([]),
+            names: Box::new([]),
+            varnames: Box::new([]),
+            cellvars: Box::new([]),
+            freevars: Box::new([]),
         }
     }
 
@@ -593,7 +587,7 @@ impl<C: Constant> CodeObject<C> {
 
     pub fn label_targets(&self) -> BTreeSet<Label> {
         let mut label_targets = BTreeSet::new();
-        for instruction in &self.instructions {
+        for instruction in &*self.instructions {
             match instruction {
                 Jump { target: l }
                 | JumpIfTrue { target: l }
@@ -675,15 +669,17 @@ impl<C: Constant> CodeObject<C> {
     }
 
     pub fn map_bag<Bag: ConstantBag>(self, bag: &Bag) -> CodeObject<Bag::Constant> {
-        let map_names = |names: Vec<C::Name>| {
+        let map_names = |names: Box<[C::Name]>| {
             names
+                .into_vec()
                 .into_iter()
                 .map(|x| bag.make_name_ref(x.as_ref()))
-                .collect::<Vec<_>>()
+                .collect::<Box<[_]>>()
         };
         CodeObject {
             constants: self
                 .constants
+                .into_vec()
                 .into_iter()
                 .map(|x| x.map_constant(bag))
                 .collect(),
@@ -758,7 +754,7 @@ impl CodeObject<ConstantData> {
 impl<C: Constant> fmt::Display for CodeObject<C> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.display_inner(f, false, 1)?;
-        for constant in &self.constants {
+        for constant in &*self.constants {
             if let BorrowedConstant::Code { code } = constant.borrow_constant() {
                 write!(f, "\nDisassembly of {:?}\n", code)?;
                 code.fmt(f)?;
@@ -769,6 +765,7 @@ impl<C: Constant> fmt::Display for CodeObject<C> {
 }
 
 impl Instruction {
+    #[allow(clippy::too_many_arguments)]
     fn fmt_dis<C: Constant>(
         &self,
         f: &mut fmt::Formatter,

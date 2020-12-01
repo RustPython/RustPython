@@ -18,6 +18,9 @@ type CompileResult<T> = Result<T, CompileError>;
 
 struct CodeInfo {
     code: CodeObject,
+    instructions: Vec<Instruction>,
+    locations: Vec<bytecode::Location>,
+    constants: Vec<bytecode::ConstantData>,
     name_cache: IndexSet<String>,
     varname_cache: IndexSet<String>,
     cellvar_cache: IndexSet<String>,
@@ -28,6 +31,9 @@ impl CodeInfo {
     fn finalize_code(self) -> CodeObject {
         let CodeInfo {
             mut code,
+            instructions,
+            locations,
+            constants,
             name_cache,
             varname_cache,
             cellvar_cache,
@@ -35,10 +41,13 @@ impl CodeInfo {
             label_map,
         } = self;
 
-        code.names.extend(name_cache);
-        code.varnames.extend(varname_cache);
-        code.cellvars.extend(cellvar_cache);
-        code.freevars.extend(freevar_cache);
+        code.instructions = instructions.into();
+        code.locations = locations.into();
+        code.constants = constants.into();
+        code.names = name_cache.into_iter().collect();
+        code.varnames = varname_cache.into_iter().collect();
+        code.cellvars = cellvar_cache.into_iter().collect();
+        code.freevars = freevar_cache.into_iter().collect();
 
         if !code.cellvars.is_empty() {
             let total_args = code.arg_count
@@ -65,7 +74,7 @@ impl CodeInfo {
             }
         }
 
-        for instruction in &mut code.instructions {
+        for instruction in &mut *code.instructions {
             use Instruction::*;
             // this is a little bit hacky, as until now the data stored inside Labels in
             // Instructions is just bookkeeping, but I think it's the best way to do this
@@ -221,7 +230,7 @@ impl Compiler {
     fn new(opts: CompileOpts, source_path: String, code_name: String) -> Self {
         let module_code = CodeInfo {
             code: CodeObject::new(
-                Default::default(),
+                bytecode::CodeFlags::NEW_LOCALS,
                 0,
                 0,
                 0,
@@ -229,6 +238,9 @@ impl Compiler {
                 0,
                 code_name,
             ),
+            instructions: Vec::new(),
+            locations: Vec::new(),
+            constants: Vec::new(),
             name_cache: IndexSet::new(),
             varname_cache: IndexSet::new(),
             cellvar_cache: IndexSet::new(),
@@ -287,6 +299,9 @@ impl Compiler {
 
         let info = CodeInfo {
             code,
+            instructions: Vec::new(),
+            locations: Vec::new(),
+            constants: Vec::new(),
             name_cache: IndexSet::new(),
             varname_cache: IndexSet::new(),
             cellvar_cache,
@@ -315,7 +330,7 @@ impl Compiler {
         name: &str,
         cache: impl FnOnce(&mut CodeInfo) -> &mut IndexSet<String>,
     ) -> bytecode::NameIdx {
-        let cache = cache(self.code_stack.last_mut().expect("nothing on stack"));
+        let cache = cache(self.current_codeinfo());
         cache
             .get_index_of(name)
             .unwrap_or_else(|| cache.insert_full(name.to_owned()).0)
@@ -1160,7 +1175,7 @@ impl Compiler {
 
     fn build_closure(&mut self, code: &CodeObject) {
         if !code.freevars.is_empty() {
-            for var in &code.freevars {
+            for var in &*code.freevars {
                 let table = self.symbol_table_stack.last().unwrap();
                 let symbol = table.lookup(var).unwrap();
                 let parent_code = self.code_stack.last().unwrap();
@@ -2423,29 +2438,29 @@ impl Compiler {
     fn emit(&mut self, instruction: Instruction) {
         let location = compile_location(&self.current_source_location);
         // TODO: insert source filename
-        let code = self.current_code();
-        code.instructions.push(instruction);
-        code.locations.push(location);
+        let info = self.current_codeinfo();
+        info.instructions.push(instruction);
+        info.locations.push(location);
     }
 
     fn emit_constant(&mut self, constant: bytecode::ConstantData) {
-        let code = self.current_code();
-        let idx = code.constants.len();
-        code.constants.push(constant);
+        let info = self.current_codeinfo();
+        let idx = info.constants.len();
+        info.constants.push(constant);
         self.emit(Instruction::LoadConst { idx })
     }
 
     fn current_code(&mut self) -> &mut CodeObject {
-        &mut self
-            .code_stack
-            .last_mut()
-            .expect("No OutputStream on stack")
-            .code
+        &mut self.current_codeinfo().code
+    }
+
+    fn current_codeinfo(&mut self) -> &mut CodeInfo {
+        self.code_stack.last_mut().expect("no code on stack")
     }
 
     // Generate a new label
     fn new_label(&mut self) -> Label {
-        let label_map = &mut self.code_stack.last_mut().unwrap().label_map;
+        let label_map = &mut self.current_codeinfo().label_map;
         let label = Label(label_map.len());
         label_map.push(None);
         label
@@ -2454,9 +2469,11 @@ impl Compiler {
     // Assign current position the given label
     fn set_label(&mut self, label: Label) {
         let CodeInfo {
-            code, label_map, ..
-        } = self.code_stack.last_mut().unwrap();
-        let actual_label = Label(code.instructions.len());
+            instructions,
+            label_map,
+            ..
+        } = self.current_codeinfo();
+        let actual_label = Label(instructions.len());
         let prev_val = std::mem::replace(&mut label_map[label.0], Some(actual_label));
         debug_assert!(
             prev_val.map_or(true, |x| x == actual_label),

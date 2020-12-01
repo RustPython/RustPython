@@ -204,7 +204,7 @@ impl PyFunction {
             // Check if kw only arguments are all present:
             for (slot, kwarg) in fastlocals
                 .iter_mut()
-                .zip(&code.varnames)
+                .zip(&*code.varnames)
                 .skip(code.arg_count)
                 .take(code.kwonlyarg_count)
             {
