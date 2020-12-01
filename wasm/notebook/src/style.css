@@ -59,7 +59,6 @@ h6 {
     color: #fff;
 }
 
-
 .item-center {
     flex-grow: 1;
     text-align: center;
@@ -112,7 +111,7 @@ ul.list-inline li {
     line-height: 30px;
 }
 
-.active  {
+.active {
     background-color: #1f2430;
     color: #fff;
 }
@@ -138,7 +137,7 @@ ul.list-inline li {
     height: calc(90vh - 60px);
 }
 
-.CodeMirror , .CodeMirror-wrap {
+.CodeMirror, .CodeMirror-wrap {
     height: 100% !important;
 }
 #rp-notebook {
@@ -195,7 +194,6 @@ input[type='url'] {
 .border-left {
     border-left: 1px solid rgb(221, 221, 221);
 }
-
 
 /* css popup */
 .overlay {

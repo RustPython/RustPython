@@ -48,44 +48,46 @@ CodeMirror.defineMode('notebook', function (config, _parserConfig) {
 
 CodeMirror.defineMIME('text/x-notebook', 'notebook');
 
-
 function selectBuffer(editor, buffers, name) {
     var buf = buffers[name];
-    if (buf.getEditor()) buf = buf.linkedDoc({sharedHist: true});
+    if (buf.getEditor()) buf = buf.linkedDoc({ sharedHist: true });
     var old = editor.swapDoc(buf);
-    var linked = old.iterLinkedDocs(function(doc) {linked = doc;});
+    var linked = old.iterLinkedDocs(function (doc) {
+        linked = doc;
+    });
     if (linked) {
-      // Make sure the document in buffers is the one the other view is looking at
-      for (var name in buffers) if (buffers[name] == old) buffers[name] = linked;
-      old.unlinkDoc(linked);
+        // Make sure the document in buffers is the one the other view is looking at
+        for (var name in buffers)
+            if (buffers[name] == old) buffers[name] = linked;
+        old.unlinkDoc(linked);
     }
     editor.focus();
     // console.log(editor.getValue());
-  }
+}
 
-  function openBuffer(buffers, name, text, mode , buffersDropDown , buffersList) {
+function openBuffer(buffers, name, text, mode, buffersDropDown, buffersList) {
     buffers[name] = CodeMirror.Doc(text, mode);
-    let opt = document.createElement("option");
+    let opt = document.createElement('option');
     opt.appendChild(document.createTextNode(name));
     buffersDropDown.appendChild(opt);
 
-    let li = document.createElement("li");
+    let li = document.createElement('li');
     li.appendChild(document.createTextNode(name));
     li.dataset.language = name;
     buffersList.appendChild(li);
-  }
-  
+}
+
 function newBuf(buffers, buffersDropDown, buffersList, primaryEditor) {
-    let name = prompt("Name your tab", "*scratch*");
+    let name = prompt('Name your tab', '*scratch*');
     if (name == null) return;
     if (buffers.hasOwnProperty(name)) {
         alert("There's already a buffer by that name.");
         return;
     }
-    openBuffer(buffers, name, "", "python", buffersDropDown, buffersList);
+    openBuffer(buffers, name, '', 'python', buffersDropDown, buffersList);
     selectBuffer(primaryEditor, buffers, name);
     let sel = buffersDropDown;
     sel.value = name;
 }
 
-export { selectBuffer , openBuffer , newBuf }
+export { selectBuffer, openBuffer, newBuf };

@@ -2,44 +2,39 @@
 
 // Javascript code go here
 
-function create_ui() { 
+function create_ui() {
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.id = 'input-1';
+    document.getElementById('rp-notebook').appendChild(input);
 
-    const input = document.createElement("input");
-    input.type = "text";
-    input.id = "input-1";
-    document.getElementById("rp-notebook").appendChild(input);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.id = 'btn-caclulate';
+    btn.innerHTML = 'click me';
+    btn.addEventListener('click', calculate, false);
+    document.getElementById('rp-notebook').appendChild(btn);
 
-    const btn = document.createElement("button");
-    btn.type = "button";
-  	btn.id = "btn-caclulate";
-    btn.innerHTML = "click me";
-  	btn.addEventListener('click', calculate, false);
-    document.getElementById("rp-notebook").appendChild(btn);
+    const div = document.createElement('div');
+    div.id = 'result';
+    div.classList.add('result');
+    document.getElementById('rp-notebook').appendChild(div);
+}
 
-    const div = document.createElement("div");
-    div.id = "result";
-  	div.classList.add("result");
-    document.getElementById("rp-notebook").appendChild(div);
-  
-} 
+function calculate() {
+    let target = document.getElementById('result');
+    target.innerHTML = '';
 
-function calculate() { 
-  
-  	let target = document.getElementById("result");
-  	target.innerHTML = "";
-  
-  	let code = 'runModel()';
-  
-  	let input = document.getElementById("input-1").value;
-    
-  	let params = { "data": input };
-  	
-  
-	 rp.pyExec(code, {
-            stdout: (output) => {
-                target.innerHTML += output;
-            },
-       		vars: params
-        });
-    
+    let code = 'runModel()';
+
+    let input = document.getElementById('input-1').value;
+
+    let params = { data: input };
+
+    rp.pyExec(code, {
+        stdout: (output) => {
+            target.innerHTML += output;
+        },
+        vars: params,
+    });
 }

@@ -1,5 +1,5 @@
 import './style.css';
-// Code Mirror 
+// Code Mirror
 // https://github.com/codemirror/codemirror
 import CodeMirror from 'codemirror';
 import 'codemirror/mode/python/python';
@@ -11,45 +11,38 @@ import 'codemirror/addon/comment/comment';
 import 'codemirror/lib/codemirror.css';
 import 'codemirror/theme/ayu-mirage.css';
 
-import {
-	selectBuffer,
-	openBuffer,
-	newBuf
-} from './editor';
+import { selectBuffer, openBuffer, newBuf } from './editor';
 
-import { genericFetch } from './tools'
+import { genericFetch } from './tools';
 
 // parsing: copied from the iodide project
 // https://github.com/iodide-project/iodide/blob/master/src/editor/iomd-tools/iomd-parser.js
-import {
-	iomdParser
-} from './parse';
+import { iomdParser } from './parse';
 
 // processing: execute/render editor's content
 import {
-	runPython,
-	runJS,
+    runPython,
+    runJS,
     addCSS,
     checkCssStatus,
-	renderMarkdown,
-	renderMath
+    renderMarkdown,
+    renderMath,
 } from './process';
 
 let rp;
 
 // A dependency graph that contains any wasm must be imported asynchronously.
-import ('rustpython')
-.then((rustpy) => {
-		rp = rustpy;
-		// so people can play around with it
-		window.rp = rustpy;
-		onReady();
-	})
-	.catch((e) => {
-		console.error('Error importing `rustpython`:', e);
-		document.getElementById('error')
-			.textContent = e;
-	});
+import('rustpython')
+    .then((rustpy) => {
+        rp = rustpy;
+        // so people can play around with it
+        window.rp = rustpy;
+        onReady();
+    })
+    .catch((e) => {
+        console.error('Error importing `rustpython`:', e);
+        document.getElementById('error').textContent = e;
+    });
 
 const error = document.getElementById('error');
 const notebook = document.getElementById('rp-notebook');
@@ -64,15 +57,18 @@ const notebook = document.getElementById('rp-notebook');
 // all new documents are python docs
 // adapted/inspired from https://codemirror.net/demo/buffers.html
 const primaryEditor = CodeMirror(document.getElementById('primary-editor'), {
-	theme: 'ayu-mirage',
-	lineNumbers: true,
+    theme: 'ayu-mirage',
+    lineNumbers: true,
     lineWrapping: true,
 });
 
-const secondaryEditor = CodeMirror(document.getElementById('secondary-editor'), {
-	lineNumbers: true,
-	lineWrapping: true
-});
+const secondaryEditor = CodeMirror(
+    document.getElementById('secondary-editor'),
+    {
+        lineNumbers: true,
+        lineWrapping: true,
+    }
+);
 
 const buffers = {};
 
@@ -85,36 +81,60 @@ const buffersDropDown = document.getElementById('buffers-selection');
 // By default open 3 buffers, main, tab1 and css
 // TODO: add a JS option
 // Params for OpenBuffer (buffers object, name of buffer to create, default content, type, link in UI 1, link in UI 2)
-openBuffer(buffers, 'main',
-	'# python code or code blocks that start with %%py, %%md %%math.', 'notebook',
-    buffersDropDown, buffersList);
-    
-openBuffer(buffers, 'python', '# Python code', 'python',
-    buffersDropDown, buffersList);
-    
-openBuffer(buffers, 'js', '// Javascript code go here', 'javascript', 
-	buffersDropDown, buffersList);
+openBuffer(
+    buffers,
+    'main',
+    '# python code or code blocks that start with %%py, %%md %%math.',
+    'notebook',
+    buffersDropDown,
+    buffersList
+);
 
-openBuffer(buffers, 'css', '/* CSS goes here */', 'css', buffersDropDown,
-    buffersList);
-    
+openBuffer(
+    buffers,
+    'python',
+    '# Python code',
+    'python',
+    buffersDropDown,
+    buffersList
+);
+
+openBuffer(
+    buffers,
+    'js',
+    '// Javascript code go here',
+    'javascript',
+    buffersDropDown,
+    buffersList
+);
+
+openBuffer(
+    buffers,
+    'css',
+    '/* CSS goes here */',
+    'css',
+    buffersDropDown,
+    buffersList
+);
+
 // select main buffer by default and set the main tab to active
 selectBuffer(primaryEditor, buffers, 'main');
 selectBuffer(secondaryEditor, buffers, 'main');
-document.querySelector('ul#buffers-list li:first-child').classList.add('active');
+document
+    .querySelector('ul#buffers-list li:first-child')
+    .classList.add('active');
 
 function onReady() {
-	/* By default the notebook has the keyword "loading"
+    /* By default the notebook has the keyword "loading"
 	once python and doc is ready:
 	create an empty div and set the id to 'rp_loaded'
 	so that the test knows that we're ready */
-	const readyElement = document.createElement('div');
-	readyElement.id = 'rp_loaded';
-	document.head.appendChild(readyElement);
-	// set the notebook to empty
-	notebook.innerHTML = '';
+    const readyElement = document.createElement('div');
+    readyElement.id = 'rp_loaded';
+    document.head.appendChild(readyElement);
+    // set the notebook to empty
+    notebook.innerHTML = '';
 }
-
 
 document.getElementById('run-btn').addEventListener('click', readEditors);
 
@@ -123,18 +143,18 @@ document.getElementById('run-btn').addEventListener('click', readEditors);
 // 2. get and run content of all tabs (including dynamically added ones)
 // 3. run main tab.
 function readEditors() {
-	// Clean the console and errors
-	notebook.innerHTML = '';
-	error.textContent = '';
-    
+    // Clean the console and errors
+    notebook.innerHTML = '';
+    error.textContent = '';
+
     // get the content of the css editor
     // and add the css to the head
     // use dataset.status for a flag to know when to update
     let cssCode = buffers['css'].getValue();
     let cssStatus = checkCssStatus();
-    switch (cssStatus) { 
+    switch (cssStatus) {
         case 'none':
-            addCSS(cssCode); 
+            addCSS(cssCode);
             break;
         case 'modified':
             // remove the old style then add the new one
@@ -143,151 +163,141 @@ function readEditors() {
             break;
         default:
         // do nothing
-     } 
-  
-	// 
-	let jsCode = buffers['js'].getValue();
-	runJS(jsCode);
+    }
+
+    //
+    let jsCode = buffers['js'].getValue();
+    runJS(jsCode);
 
     // get all the buffers, except css, js and main
-	// css is auto executed at the start
-	// main is parsed then executed at the end
-	// main can have md, math and python function calls 
-	let {
-		css,
-		main,
-		js,
-		...pythonBuffers
-    } = buffers;
-    
-	for (const [name] of Object.entries(pythonBuffers)) {
-		let pythonCode = buffers[name].getValue();
-		runPython(pythonCode, notebook, error);
+    // css is auto executed at the start
+    // main is parsed then executed at the end
+    // main can have md, math and python function calls
+    let { css, main, js, ...pythonBuffers } = buffers;
+
+    for (const [name] of Object.entries(pythonBuffers)) {
+        let pythonCode = buffers[name].getValue();
+        runPython(pythonCode, notebook, error);
     }
-    
+
     parseCodeFromMainEditor();
-    
 }
 
 // Parses what is the code editor
 // either runs python or renders math or markdown
 function parseCodeFromMainEditor() {
-    
     // TODO: fix how javascript is injected and executed
-	// Read javascript code from the jsEditor
-	// Inject JS into DOM, so that functions can be called from python
-	// let js_code = buffers["js"].getValue();
-	// runJS(js_code);
+    // Read javascript code from the jsEditor
+    // Inject JS into DOM, so that functions can be called from python
+    // let js_code = buffers["js"].getValue();
+    // runJS(js_code);
 
     // gets code from main editor
-	let mainCode = buffers['main'].getValue();
-	/* 
+    let mainCode = buffers['main'].getValue();
+    /* 
 	Split code into chunks.
 	Uses %%keyword or %% keyword as separator
 	Returned object has: 
 	    - chunkContent, chunkType, chunkId, 
 	    - evalFlags, startLine, endLine 
 	*/
-	let parsedCode = iomdParser(mainCode);
-	parsedCode.forEach(async (chunk) => {
-		// For each type of chunk, do somthing
-		// so far have py for python, md for markdown and math for math ;p
-		let content = chunk.chunkContent;
-		switch (chunk.chunkType) {
-			// by default assume this is python code
-			// so users don't have to type py manually
-			case '':
-			case 'py':
-				runPython(content, notebook, error);
-				break;
-				// TODO: fix how js is injected and ran    
-			case 'js':
-				runJS(content);
-				break;
-			case 'md':
-				notebook.innerHTML += renderMarkdown(content);
-				break;
-			case 'math':
-				notebook.innerHTML += renderMath(content);
-				break;
-			default:
-				// do nothing when we see an unknown chunk for now
-		}
-	});
+    let parsedCode = iomdParser(mainCode);
+    parsedCode.forEach(async (chunk) => {
+        // For each type of chunk, do somthing
+        // so far have py for python, md for markdown and math for math ;p
+        let content = chunk.chunkContent;
+        switch (chunk.chunkType) {
+            // by default assume this is python code
+            // so users don't have to type py manually
+            case '':
+            case 'py':
+                runPython(content, notebook, error);
+                break;
+            // TODO: fix how js is injected and ran
+            case 'js':
+                runJS(content);
+                break;
+            case 'md':
+                notebook.innerHTML += renderMarkdown(content);
+                break;
+            case 'math':
+                notebook.innerHTML += renderMath(content);
+                break;
+            default:
+            // do nothing when we see an unknown chunk for now
+        }
+    });
 }
 
 function updatePopup(type, message) {
-    document.getElementById('popup').dataset.type =  type ;
+    document.getElementById('popup').dataset.type = type;
     document.getElementById('popup-header').textContent = message;
 }
 
 // import button
 // show a url input + fetch button
 // takes a url where there is raw code
-document.getElementById('popup-import').addEventListener('click', async function () {
-    let url = document.getElementById('popup-url').value;
-    let type = document.getElementById('popup').dataset.type;
-	let code = await genericFetch(url, type);
-	primaryEditor.setValue(code);
-});
+document
+    .getElementById('popup-import')
+    .addEventListener('click', async function () {
+        let url = document.getElementById('popup-url').value;
+        let type = document.getElementById('popup').dataset.type;
+        let code = await genericFetch(url, type);
+        primaryEditor.setValue(code);
+    });
 
-document.getElementById('import-code').addEventListener('click' , function() {
+document.getElementById('import-code').addEventListener('click', function () {
     updatePopup('python', 'URL (raw text format)');
 });
 
 // click on an item in the list
-CodeMirror.on(buffersList, 'click', function(e) {
-	selectBuffer(primaryEditor, buffers, e.target.dataset.language);
+CodeMirror.on(buffersList, 'click', function (e) {
+    selectBuffer(primaryEditor, buffers, e.target.dataset.language);
 });
 
 // select an item in the dropdown
-CodeMirror.on(buffersDropDown, 'change', function() {
-	selectBuffer(secondaryEditor, buffers, buffersDropDown.options[
-		buffersDropDown.selectedIndex].value);
+CodeMirror.on(buffersDropDown, 'change', function () {
+    selectBuffer(
+        secondaryEditor,
+        buffers,
+        buffersDropDown.options[buffersDropDown.selectedIndex].value
+    );
 });
 
 // when css code editor changes
 // update data attribute flag to modified
-CodeMirror.on(buffers['css'], 'change', function() {
+CodeMirror.on(buffers['css'], 'change', function () {
     let style = document.getElementsByTagName('style')[0];
     if (style) {
-        style.dataset.status = 'modified'; 
+        style.dataset.status = 'modified';
     }
 });
 
-document.getElementById('buffers-list').addEventListener('click' , function(event) { 
-	let elem = document.querySelector('.active');
-	if (elem) {
-		elem.classList.remove('active');
-	}
-	event.target.classList.add('active');
+document
+    .getElementById('buffers-list')
+    .addEventListener('click', function (event) {
+        let elem = document.querySelector('.active');
+        if (elem) {
+            elem.classList.remove('active');
+        }
+        event.target.classList.add('active');
+    });
+
+// new tab, new buffer
+document.getElementById('new-tab').addEventListener('click', function () {
+    newBuf(buffers, buffersDropDown, buffersList, primaryEditor);
 });
 
-// new tab, new buffer 
-document.getElementById('new-tab')
-	.addEventListener('click', function() {
-		newBuf(buffers, buffersDropDown, buffersList, primaryEditor);
-    });
-    
 // TODO: those three addEventListener can be re-written into one thing probably
-document.getElementById('split-view')
-	.addEventListener('click', function() {
-		document.getElementById('primary-editor')
-			.classList.remove('d-none');
-		document.getElementById('secondary-editor')
-			.classList.remove('d-none');
-	});
-document.getElementById('reader-view')
-	.addEventListener('click', function() {
-		document.getElementById('primary-editor')
-			.classList.add('d-none');
-		document.getElementById('secondary-editor')
-			.classList.add('d-none');
-	});
-document.getElementById('default-view')
-	.addEventListener('click', function() {
-		document.getElementById('primary-editor')
-			.classList.remove('d-none');
-		document.getElementById('secondary-editor')
-			.classList.add('d-none');
-	});
+document.getElementById('split-view').addEventListener('click', function () {
+    document.getElementById('primary-editor').classList.remove('d-none');
+    document.getElementById('secondary-editor').classList.remove('d-none');
+});
+document.getElementById('reader-view').addEventListener('click', function () {
+    document.getElementById('primary-editor').classList.add('d-none');
+    document.getElementById('secondary-editor').classList.add('d-none');
+});
+document.getElementById('default-view').addEventListener('click', function () {
+    document.getElementById('primary-editor').classList.remove('d-none');
+    document.getElementById('secondary-editor').classList.add('d-none');
+});

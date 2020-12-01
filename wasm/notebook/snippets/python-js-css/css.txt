@@ -1,42 +1,43 @@
 /* CSS */
 
- @import url('https://fonts.googleapis.com/css2?family=Turret+Road:wght@700&display=swap');
-
-h1 { font-family: 'Sen', 'sans-serif'; } 
-
-h2 , h3, h4, button { 
- font-family: 'Turret Road', cursive;
-  padding-top: 1.25rem;
-} 
+@import url('https://fonts.googleapis.com/css2?family=Turret+Road:wght@700&display=swap');
 
 h1 {
- font-size: 1.5rem;  
+    font-family: 'Sen', 'sans-serif';
 }
 
+h2, h3, h4, button {
+    font-family: 'Turret Road', cursive;
+    padding-top: 1.25rem;
+}
+
+h1 {
+    font-size: 1.5rem;
+}
 
 input[type='text'] {
- border:  1px solid black; 
- width: 300px;
- height: 25px; 
- padding: 5px;
- font-size: 1.2rem;
- font-family: 'Turret Road', cursive;
+    border: 1px solid black;
+    width: 300px;
+    height: 25px;
+    padding: 5px;
+    font-size: 1.2rem;
+    font-family: 'Turret Road', cursive;
 }
 
 hr {
- border: 0px;
- border-bottom: 1px solid black;
- width: 50%;
- margin-top: 1.5rem;
- margin-bottom: 1.5rem;
-} 
+    border: 0px;
+    border-bottom: 1px solid black;
+    width: 50%;
+    margin-top: 1.5rem;
+    margin-bottom: 1.5rem;
+}
 
 button {
-  background-color: black;
-  color: white;
-  border: 0px;
-  font-size: 1.2rem;
-  height: 30px;
-  display: block;
-  margin-top: 10px;
+    background-color: black;
+    color: white;
+    border: 0px;
+    font-size: 1.2rem;
+    height: 30px;
+    display: block;
+    margin-top: 10px;
 }

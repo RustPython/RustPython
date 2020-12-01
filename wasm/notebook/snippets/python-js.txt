@@ -2,7 +2,9 @@
 
 # RustPython Notebook: python, javascript, css, markdown and math 
 
-Python in the browser is fun 🤘. Python and Javascript working together is double the fun 😜. Markdown and math are good for communicating ideas 💡(especially scientific ones 🧠). Adding css to the mix, makes everything look pretty ✨. 
+Python in the browser is fun 🤘. Python and Javascript working together is double
+the fun 😜. Markdown and math are good for communicating ideas 💡(especially
+scientific ones 🧠). Adding css to the mix, makes everything look pretty ✨. 
 
 # Main
 
@@ -13,7 +15,8 @@ In the notebook, you can write markdown, math, javascript and python.
 H(t) \xrightarrow{write} \Big[A(t+1),\ H(t+1)\Big]
 
 %%md 
-It even highlights properly. You can multi-task with split view mode and create python documents as you need to. In main, use `%%` then: 
+It even highlights properly. You can multi-task with split view mode and create
+python documents as you need to. In main, use `%%` then: 
 - `%%md` for markdown
 - `%%py` for python
 - `%%js` for javascript
@@ -40,10 +43,10 @@ Here is a run down of what is happening with this demo. The notebook:
 # Python code
 
 def runModel():
-  input = js_vars['data']
-  print ("<br>")
-  print("A little javascript birdie told the python snake your lucky number 🙊")
-  print ("Now the everyone knows that it is: " + str(input)) 
+    input = js_vars['data']
+    print ("<br>")
+    print("A little javascript birdie told the python snake your lucky number 🙊")
+    print ("Now the everyone knows that it is: " + str(input)) 
   
 %%md 
 ##  Calculator  
@@ -86,12 +89,12 @@ function calculate() {
   	let params = { "data": input };
   	
   
-	 rp.pyExec(code, {
-            stdout: (output) => {
-                target.innerHTML += output;
-            },
-       		vars: params
-        });
+    rp.pyExec(code, {
+        stdout: (output) => {
+            target.innerHTML += output;
+        },
+        vars: params
+    });
     
 }
 
@@ -102,12 +105,7 @@ create_ui();
 # Python code
 
 def runModel():
-  input = js_vars['data']
-  print ("<br>")
-  print("A little javascript birdie told the python snake your lucky number 🙊")
-  print ("Now the everyone knows that it is: " + str(input)) 
-  
-
-
-  
-  
+    input = js_vars['data']
+    print ("<br>")
+    print("A little javascript birdie told the python snake your lucky number 🙊")
+    print ("Now the everyone knows that it is: " + str(input)) 

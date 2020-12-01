@@ -3,7 +3,9 @@
 #  RustPython Notebook: python, javascript, css, markdown and math 
 
 
-Python in the browser is fun. Python and Javascript working together is double the fun 😜. Markdown and math are good for communicating ideas 🤔 (especially scientific ones). Adding css to the mix, makes everything look pretty ✨. 
+Python in the browser is fun. Python and Javascript working together is double
+the fun 😜. Markdown and math are good for communicating ideas 🤔 (especially
+scientific ones). Adding css to the mix, makes everything look pretty ✨. 
 
 --- 
 
@@ -34,9 +36,9 @@ create_ui();
 # Python code
 
 def runModel():
-  input = js_vars['data']
-  print ("<br>")
-  print("A little javascript birdie told the python snake your lucky number 🙊")
-  print ("Now the everyone knows that it is: " + str(input)) 
+    input = js_vars['data']
+    print ("<br>")
+    print("A little javascript birdie told the python snake your lucky number 🙊")
+    print ("Now the everyone knows that it is: " + str(input)) 
   
   

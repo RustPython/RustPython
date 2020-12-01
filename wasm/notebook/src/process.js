@@ -30,7 +30,7 @@ function runPython(code, target, error) {
         rp.pyExec(code, {
             stdout: (output) => {
                 target.innerHTML += output;
-            }
+            },
         });
     } catch (err) {
         if (err instanceof WebAssembly.RuntimeError) {
@@ -40,19 +40,19 @@ function runPython(code, target, error) {
     }
 }
 
-function addCSS(code) { 
+function addCSS(code) {
     let style = document.createElement('style');
     style.type = 'text/css';
     style.innerHTML = code;
     // add a data attribute to check if css already loaded
-    style.dataset.status = "loaded";
+    style.dataset.status = 'loaded';
     document.getElementsByTagName('head')[0].appendChild(style);
 }
 
 function checkCssStatus() {
     let style = document.getElementsByTagName('style')[0];
     if (!style) {
-       return "none";
+        return 'none';
     } else {
         return style.dataset.status;
     }
@@ -66,12 +66,12 @@ function runJS(code) {
     script.src = url;
     doc.appendChild(script);
     try {
-      URL.revokeObjectURL(url);
-      doc.removeChild(script);
+        URL.revokeObjectURL(url);
+        doc.removeChild(script);
     } catch (e) {
-      // ignore if body is changed and script is detached
-      console.log(e);
+        // ignore if body is changed and script is detached
+        console.log(e);
     }
-  }
-  
-export { runPython, runJS, renderMarkdown, renderMath, addCSS, checkCssStatus }     
+}
+
+export { runPython, runJS, renderMarkdown, renderMath, addCSS, checkCssStatus };
