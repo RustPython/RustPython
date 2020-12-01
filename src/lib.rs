@@ -23,7 +23,12 @@ use std::str::FromStr;
 
 mod shell;
 
-fn main() {
+pub use rustpython_vm;
+
+pub fn run<F>(init: F) -> !
+where
+    F: FnOnce(&mut VirtualMachine),
+{
     #[cfg(feature = "flame-it")]
     let main_guard = flame::start_guard("RustPython main");
     env_logger::init();
@@ -45,13 +50,16 @@ fn main() {
     }
 
     // We only include the standard library bytecode in WASI when initializing
-    let init = if cfg!(target_os = "wasi") {
+    let init_param = if cfg!(target_os = "wasi") {
         InitParameter::Internal
     } else {
         InitParameter::External
     };
 
-    let interp = Interpreter::new(settings, init);
+    let interp = Interpreter::new_with_init(settings, |vm| {
+        init(vm);
+        init_param
+    });
 
     let exitcode = interp.enter(move |vm| {
         let res = run_rustpython(vm, &matches);
@@ -110,7 +118,7 @@ fn main() {
         exitcode
     });
 
-    process::exit(exitcode);
+    process::exit(exitcode)
 }
 
 fn flush_std(vm: &VirtualMachine) {
