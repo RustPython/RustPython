@@ -1,3 +1,43 @@
+//! This is the `rustpython` binary. If you're looking to embed RustPython into your application,
+//! you're likely looking for the [`rustpython-vm`](https://docs.rs/rustpython-vm) crate.
+//!
+//! You can install `rustpython` with `cargo install rustpython`, or if you'd like to inject your
+//! own native modules you can make a binary crate that depends on the `rustpython` crate (and
+//! probably `rustpython-vm`, too), and make a `main.rs` that looks like:
+//!
+//! ```no_run
+//! use rustpython_vm::{pymodule, py_freeze};
+//! fn main() {
+//!     rustpython::run(|vm| {
+//!         vm.add_native_module("mymod".to_owned(), Box::new(mymod::make_module));
+//!         vm.add_frozen(py_freeze!(source = "def foo(): pass", module_name = "otherthing"));
+//!     });
+//! }
+//!
+//! #[pymodule]
+//! mod mymod {
+//!     use rustpython_vm::builtins::PyStrRef;
+//TODO: use rustpython_vm::prelude::*;
+//!     use rustpython_vm::common::borrow::BorrowValue;
+//!
+//!     #[pyfunction]
+//!     fn do_thing(x: i32) -> i32 {
+//!         x + 1
+//!     }
+//!
+//!     #[pyfunction]
+//!     fn other_thing(s: PyStrRef) -> (String, usize) {
+//!         let new_string = format!("hello from rust, {}!", s);
+//!         let prev_len = s.borrow_value().len();
+//!         (new_string, prev_len)
+//!     }
+//! }
+//! ```
+//!
+//! The binary will have all the standard arguments of a python interpreter (including a REPL!) but
+//! it will have your modules loaded into the vm.
+#![allow(clippy::needless_doctest_main)]
+
 #[macro_use]
 extern crate clap;
 extern crate env_logger;
@@ -25,6 +65,8 @@ mod shell;
 
 pub use rustpython_vm;
 
+/// The main cli of the `rustpython` interpreter. This function will exit with `process::exit()`
+/// based on the return code of the python code ran through the cli.
 pub fn run<F>(init: F) -> !
 where
     F: FnOnce(&mut VirtualMachine),
