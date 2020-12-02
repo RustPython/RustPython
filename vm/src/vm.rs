@@ -971,38 +971,44 @@ impl VirtualMachine {
     }
 
     /// Call registered trace function.
+    #[inline]
     fn trace_event(&self, event: TraceEvent) -> PyResult<()> {
         if self.use_tracing.get() {
-            let trace_func = self.trace_func.borrow().clone();
-            let profile_func = self.profile_func.borrow().clone();
-            if self.is_none(&trace_func) && self.is_none(&profile_func) {
-                return Ok(());
-            }
+            self._trace_event_inner(event)
+        } else {
+            Ok(())
+        }
+    }
+    fn _trace_event_inner(&self, event: TraceEvent) -> PyResult<()> {
+        let trace_func = self.trace_func.borrow().clone();
+        let profile_func = self.profile_func.borrow().clone();
+        if self.is_none(&trace_func) && self.is_none(&profile_func) {
+            return Ok(());
+        }
 
-            let frame_ref = self.current_frame();
-            if frame_ref.is_none() {
-                return Ok(());
-            }
+        let frame_ref = self.current_frame();
+        if frame_ref.is_none() {
+            return Ok(());
+        }
 
-            let frame = frame_ref.unwrap().as_object().clone();
-            let event = self.ctx.new_str(event.to_string());
-            let args = vec![frame, event, self.ctx.none()];
+        let frame = frame_ref.unwrap().as_object().clone();
+        let event = self.ctx.new_str(event.to_string());
+        let args = vec![frame, event, self.ctx.none()];
 
-            // temporarily disable tracing, during the call to the
-            // tracing function itself.
-            if !self.is_none(&trace_func) {
-                self.use_tracing.set(false);
-                let res = self.invoke(&trace_func, args.clone());
-                self.use_tracing.set(true);
-                res?;
-            }
+        // temporarily disable tracing, during the call to the
+        // tracing function itself.
+        if !self.is_none(&trace_func) {
+            self.use_tracing.set(false);
+            let res = self.invoke(&trace_func, args.clone());
+            self.use_tracing.set(true);
+            res?;
+        }
 
-            if !self.is_none(&profile_func) {
-                self.use_tracing.set(false);
-                let res = self.invoke(&profile_func, args);
-                self.use_tracing.set(true);
-                res?;
-            }
+        if !self.is_none(&profile_func) {
+            self.use_tracing.set(false);
+            let res = self.invoke(&profile_func, args);
+            self.use_tracing.set(true);
+            res?;
         }
         Ok(())
     }

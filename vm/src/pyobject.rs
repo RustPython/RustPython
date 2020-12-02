@@ -477,6 +477,7 @@ impl<T: PyValue> Deref for PyRefExact<T> {
     }
 }
 impl<T: PyValue> IntoPyObject for PyRefExact<T> {
+    #[inline]
     fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
         self.obj.into_object()
     }
@@ -833,18 +834,21 @@ pub trait IntoPyObject {
 }
 
 impl<T: PyObjectPayload> IntoPyObject for PyRef<T> {
+    #[inline]
     fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
         self.into_object()
     }
 }
 
 impl IntoPyObject for PyCallable {
+    #[inline]
     fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
         self.into_object()
     }
 }
 
 impl IntoPyObject for PyObjectRef {
+    #[inline]
     fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
         self
     }
@@ -856,6 +860,7 @@ impl<T> IntoPyObject for T
 where
     T: PyValue + Sized,
 {
+    #[inline]
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         PyValue::into_object(self, vm)
     }
@@ -896,32 +901,35 @@ cfg_if::cfg_if! {
 pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
     fn class(vm: &VirtualMachine) -> &PyTypeRef;
 
+    #[inline]
     fn into_object(self, vm: &VirtualMachine) -> PyObjectRef {
         self.into_ref(vm).into_object()
     }
 
     fn into_ref(self, vm: &VirtualMachine) -> PyRef<Self> {
-        self.into_ref_with_type_unchecked(Self::class(vm).clone(), vm)
-    }
-
-    fn into_ref_with_type(self, vm: &VirtualMachine, cls: PyTypeRef) -> PyResult<PyRef<Self>> {
-        let class = Self::class(vm);
-        if cls.issubclass(class) {
-            Ok(self.into_ref_with_type_unchecked(cls, vm))
-        } else {
-            let subtype = vm.to_str(cls.as_object())?;
-            let basetype = vm.to_str(cls.as_object())?;
-            Err(vm.new_type_error(format!("{} is not a subtype of {}", subtype, basetype)))
-        }
-    }
-
-    fn into_ref_with_type_unchecked(self, cls: PyTypeRef, vm: &VirtualMachine) -> PyRef<Self> {
+        let cls = Self::class(vm).clone();
         let dict = if cls.slots.flags.has_feature(PyTpFlags::HAS_DICT) {
             Some(vm.ctx.new_dict())
         } else {
             None
         };
         PyRef::new_ref(self, cls, dict)
+    }
+
+    fn into_ref_with_type(self, vm: &VirtualMachine, cls: PyTypeRef) -> PyResult<PyRef<Self>> {
+        let exact_class = Self::class(vm);
+        if cls.issubclass(exact_class) {
+            let dict = if cls.slots.flags.has_feature(PyTpFlags::HAS_DICT) {
+                Some(vm.ctx.new_dict())
+            } else {
+                None
+            };
+            Ok(PyRef::new_ref(self, cls, dict))
+        } else {
+            let subtype = vm.to_str(cls.as_object())?;
+            let basetype = vm.to_str(exact_class.as_object())?;
+            Err(vm.new_type_error(format!("{} is not a subtype of {}", subtype, basetype)))
+        }
     }
 }
 

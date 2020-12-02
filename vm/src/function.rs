@@ -34,6 +34,7 @@ macro_rules! into_func_args_from_tuple {
         where
             $($T: IntoPyObject,)*
         {
+            #[inline]
             fn into_args(self, vm: &VirtualMachine) -> FuncArgs {
                 let ($($n,)*) = self;
                 vec![$($n.into_pyobject(vm),)*].into()
