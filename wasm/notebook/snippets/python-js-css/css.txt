@@ -8,11 +8,13 @@ h1 {
 
 h2, h3, h4, button {
     font-family: 'Turret Road', cursive;
-    padding-top: 1.25rem;
 }
 
 h1 {
     font-size: 1.5rem;
+}
+h2, h3, h4 {
+    padding-top: 1.25rem;
 }
 
 input[type='text'] {

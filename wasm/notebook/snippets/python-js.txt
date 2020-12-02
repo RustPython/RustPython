@@ -38,74 +38,48 @@ Here is a run down of what is happening with this demo. The notebook:
 - everything is styled with css, neatly.
 - everything runs in the browser, even on your phone, no servers.
 
-
-%%py 
-# Python code
-
-def runModel():
-    input = js_vars['data']
-    print ("<br>")
-    print("A little javascript birdie told the python snake your lucky number 🙊")
-    print ("Now the everyone knows that it is: " + str(input)) 
-  
-%%md 
-##  Calculator  
-### Enter your lucky number
-
 %%js
 
-// Javascript code go here
+// Javascript code goes here
 
-function create_ui() { 
+injectPython({
+    // injectPython functions take the positional arguments as
+    // normal function args, and kwargs as the `this` variable
+    add_text_input(buttonText, callback) {
+        const input = document.createElement('input');
+        pushNotebook(input);
 
-    const input = document.createElement("input");
-    input.type = "text";
-    input.id = "input-1";
-    document.getElementById("rp-notebook").appendChild(input);
+        const btn = document.createElement('button');
+        btn.innerHTML = buttonText;
+        btn.addEventListener('click', () => {
+            resultDiv.innerHTML = '';
+            // python functions passed to js have a signature
+            // of ([args...], {kwargs...}) => any
+            const output = callback([input.value], {});
+            resultDiv.innerHTML += output;
+        });
+        pushNotebook(btn);
 
-    const btn = document.createElement("button");
-    btn.type = "button";
-  	btn.id = "btn-caclulate";
-    btn.innerHTML = "click me";
-  	btn.addEventListener('click', calculate, false);
-    document.getElementById("rp-notebook").appendChild(btn);
-
-    const div = document.createElement("div");
-    div.id = "result";
-  	div.classList.add("result");
-    document.getElementById("rp-notebook").appendChild(div);
-  
-} 
-
-function calculate() { 
-  
-  	let target = document.getElementById("result");
-  	target.innerHTML = "";
-  
-  	let code = 'runModel()';
-  
-  	let input = document.getElementById("input-1").value;
-    
-  	let params = { "data": input };
-  	
-  
-    rp.pyExec(code, {
-        stdout: (output) => {
-            target.innerHTML += output;
-        },
-        vars: params
-    });
-    
-}
-
-create_ui();
-
+        const resultDiv = document.createElement('div');
+        resultDiv.classList.add('result');
+        pushNotebook(resultDiv);
+    },
+});
 
 %%py 
-# Python code
 
-def runModel():
-    input = js_vars['data']
-    print ("<br>")
-    print("A little javascript birdie told the python snake your lucky number 🙊")
-    print ("Now the everyone knows that it is: " + str(input)) 
+# Python code goes here
+
+# you have access to helpers for emitting p & h1-h6
+h2("Calculator")
+h3("Enter your lucky number")
+
+def runModel(input):
+    output = f"""\
+<br>
+A little javascript birdie told the python snake your lucky number 🙊
+Now everyone knows that it is: {input}
+"""
+    return output
+
+add_text_input("click me", runModel)

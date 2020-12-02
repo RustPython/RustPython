@@ -102,7 +102,7 @@ openBuffer(
 openBuffer(
     buffers,
     'js',
-    '// Javascript code go here',
+    '// Javascript code goes here',
     'javascript',
     buffersDropDown,
     buffersList
@@ -136,13 +136,15 @@ function onReady() {
     notebook.innerHTML = '';
 }
 
-document.getElementById('run-btn').addEventListener('click', readEditors);
+document.getElementById('run-btn').addEventListener('click', executeNotebook);
+
+let pyvm = null;
 
 // on click of run
 // 1. add css stylesheet
 // 2. get and run content of all tabs (including dynamically added ones)
 // 3. run main tab.
-function readEditors() {
+async function executeNotebook() {
     // Clean the console and errors
     notebook.innerHTML = '';
     error.textContent = '';
@@ -165,9 +167,39 @@ function readEditors() {
         // do nothing
     }
 
-    //
+    if (pyvm) {
+        pyvm.destroy();
+        pyvm = null;
+    }
+    pyvm = rp.vmStore.init('notebook_vm');
+
+    // add some helpers for js/python code
+    window.injectPython = (ns) => {
+        for (const [k, v] of Object.entries(ns)) {
+            pyvm.addToScope(k, v);
+        }
+    };
+    window.pushNotebook = (elem) => {
+        notebook.appendChild(elem);
+    };
+    pyvm.setStdout((text) => {
+        const para = document.createElement('p');
+        para.appendChild(document.createTextNode(text));
+        notebook.appendChild(para);
+    });
+    for (const el of ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p']) {
+        pyvm.addToScope(el, (text) => {
+            const elem = document.createElement(el);
+            elem.appendChild(document.createTextNode(text));
+            notebook.appendChild(elem);
+        });
+    }
+    pyvm.addToScope('notebook_html', (html) => {
+        notebook.innerHTML += html;
+    });
+
     let jsCode = buffers['js'].getValue();
-    runJS(jsCode);
+    await runJS(jsCode);
 
     // get all the buffers, except css, js and main
     // css is auto executed at the start
@@ -177,20 +209,10 @@ function readEditors() {
 
     for (const [name] of Object.entries(pythonBuffers)) {
         let pythonCode = buffers[name].getValue();
-        runPython(pythonCode, notebook, error);
+        runPython(pyvm, pythonCode, error);
     }
 
-    parseCodeFromMainEditor();
-}
-
-// Parses what is the code editor
-// either runs python or renders math or markdown
-function parseCodeFromMainEditor() {
-    // TODO: fix how javascript is injected and executed
-    // Read javascript code from the jsEditor
-    // Inject JS into DOM, so that functions can be called from python
-    // let js_code = buffers["js"].getValue();
-    // runJS(js_code);
+    // now parse from the main editor
 
     // gets code from main editor
     let mainCode = buffers['main'].getValue();
@@ -202,7 +224,7 @@ function parseCodeFromMainEditor() {
 	    - evalFlags, startLine, endLine 
 	*/
     let parsedCode = iomdParser(mainCode);
-    parsedCode.forEach(async (chunk) => {
+    for (const chunk of parsedCode) {
         // For each type of chunk, do somthing
         // so far have py for python, md for markdown and math for math ;p
         let content = chunk.chunkContent;
@@ -211,11 +233,11 @@ function parseCodeFromMainEditor() {
             // so users don't have to type py manually
             case '':
             case 'py':
-                runPython(content, notebook, error);
+                runPython(pyvm, content, error);
                 break;
             // TODO: fix how js is injected and ran
             case 'js':
-                runJS(content);
+                await runJS(content);
                 break;
             case 'md':
                 notebook.innerHTML += renderMarkdown(content);
@@ -226,7 +248,7 @@ function parseCodeFromMainEditor() {
             default:
             // do nothing when we see an unknown chunk for now
         }
-    });
+    }
 }
 
 function updatePopup(type, message) {

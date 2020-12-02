@@ -24,21 +24,20 @@ In this demo example, the RustPython Notebook:
 
 --- 
 
-##  Calculator  
-### Enter your lucky number
-
-%%js
-
-create_ui();
-
-
 %%py 
+
 # Python code
 
-def runModel():
-    input = js_vars['data']
-    print ("<br>")
-    print("A little javascript birdie told the python snake your lucky number 🙊")
-    print ("Now the everyone knows that it is: " + str(input)) 
-  
-  
+# you have access to helpers for emitting p & h1-h6
+h2("Calculator")
+h3("Enter your lucky number")
+
+def runModel(input):
+    output = f"""\
+<br>
+A little javascript birdie told the python snake your lucky number 🙊
+Now everyone knows that it is: {input}
+"""
+    return output
+
+add_text_input("click me", runModel)
