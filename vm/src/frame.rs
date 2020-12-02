@@ -537,11 +537,25 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::DeleteLocal(idx) => {
-                self.locals.del_item(self.code.names[*idx].clone(), vm)?;
+                let name = &self.code.names[*idx];
+                match self.locals.del_item(name.clone(), vm) {
+                    Ok(()) => {}
+                    Err(e) if e.isinstance(&vm.ctx.exceptions.key_error) => {
+                        return Err(vm.new_name_error(format!("name '{}' is not defined", name)))
+                    }
+                    Err(e) => return Err(e),
+                }
                 Ok(None)
             }
             bytecode::Instruction::DeleteGlobal(idx) => {
-                self.globals.del_item(self.code.names[*idx].clone(), vm)?;
+                let name = &self.code.names[*idx];
+                match self.globals.del_item(name.clone(), vm) {
+                    Ok(()) => {}
+                    Err(e) if e.isinstance(&vm.ctx.exceptions.key_error) => {
+                        return Err(vm.new_name_error(format!("name '{}' is not defined", name)))
+                    }
+                    Err(e) => return Err(e),
+                }
                 Ok(None)
             }
             bytecode::Instruction::DeleteDeref(i) => {

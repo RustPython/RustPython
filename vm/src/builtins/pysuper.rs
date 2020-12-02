@@ -58,12 +58,31 @@ impl PySuper {
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
         // Get the type:
-        let typ = if let OptionalArg::Present(ty) = py_type {
-            ty
+        let (typ, obj) = if let OptionalArg::Present(ty) = py_type {
+            (ty, py_obj.unwrap_or_none(vm))
         } else {
             let frame = vm
                 .current_frame()
                 .ok_or_else(|| vm.new_runtime_error("super(): no current frame".to_owned()))?;
+
+            if frame.code.arg_count == 0 {
+                return Err(vm.new_runtime_error("super(): no arguments".to_owned()));
+            }
+            let obj = frame.fastlocals.lock()[0]
+                .clone()
+                .or_else(|| {
+                    if let Some(cell2arg) = frame.code.cell2arg.as_deref() {
+                        cell2arg[..frame.code.cellvars.len()]
+                            .iter()
+                            .enumerate()
+                            .find(|(_, arg_idx)| **arg_idx == 0)
+                            .and_then(|(cell_idx, _)| frame.cells_frees[cell_idx].get())
+                    } else {
+                        None
+                    }
+                })
+                .ok_or_else(|| vm.new_runtime_error("super(): arg[0] deleted".to_owned()))?;
+
             let mut typ = None;
             for (i, var) in frame.code.freevars.iter().enumerate() {
                 if var.borrow_value() == "__class__" {
@@ -80,46 +99,13 @@ impl PySuper {
                     break;
                 }
             }
-            typ.ok_or_else(|| {
+            let typ = typ.ok_or_else(|| {
                 vm.new_type_error(
                     "super must be called with 1 argument or from inside class method".to_owned(),
                 )
-            })?
-        };
+            })?;
 
-        // Check type argument:
-        if !typ.as_object().isinstance(&vm.ctx.types.type_type) {
-            return Err(vm.new_type_error(format!(
-                "super() argument 1 must be type, not {}",
-                typ.class().name
-            )));
-        }
-
-        // Get the bound object:
-        let obj = if let OptionalArg::Present(obj) = py_obj {
-            obj
-        } else {
-            let frame = vm
-                .current_frame()
-                .ok_or_else(|| vm.new_runtime_error("super(): no current frame".to_owned()))?;
-            if frame.code.arg_count == 0 {
-                return Err(vm.new_runtime_error("super(): no arguments".to_owned()));
-            }
-            let fastlocals = frame.fastlocals.lock();
-            fastlocals[0]
-                .clone()
-                .or_else(|| {
-                    if let Some(cell2arg) = frame.code.cell2arg.as_deref() {
-                        cell2arg[..frame.code.cellvars.len()]
-                            .iter()
-                            .enumerate()
-                            .find(|(_, arg_idx)| **arg_idx == 0)
-                            .and_then(|(cell_idx, _)| frame.cells_frees[cell_idx].get())
-                    } else {
-                        None
-                    }
-                })
-                .ok_or_else(|| vm.new_runtime_error("super(): arg[0] deleted".to_owned()))?
+            (typ, obj)
         };
 
         PySuper::new(typ, obj, vm)?.into_ref_with_type(vm, cls)
