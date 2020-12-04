@@ -20,15 +20,10 @@ use crate::stdlib::ctypes::dll::dlsym;
 
 use crossbeam_utils::atomic::AtomicCell;
 
-// GenericPyCData_new -> PyResult<PyObjectRef>
-pub fn generic_pycdata_new(type_: PyTypeRef, vm: &VirtualMachine) {
-    // @TODO: To be used on several places
-}
-
 fn at_address(cls: &PyTypeRef, buf: usize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
     match vm.get_attribute(cls.as_object().to_owned(), "__abstract__") {
         Ok(attr) => match bool::try_from_object(vm, attr) {
-            Ok(b) if b => {
+            Ok(b) if !b => {
                 let len = vm
                     .get_attribute(cls.as_object().to_owned(), "_length_")
                     .map_or(Ok(1), |o: PyObjectRc| {
@@ -50,8 +45,10 @@ fn at_address(cls: &PyTypeRef, buf: usize, vm: &VirtualMachine) -> PyResult<Vec<
                 Ok(slice_.to_vec())
             }
             Ok(_) => Err(vm.new_type_error("abstract class".to_string())),
+            // @TODO: A sanity check
             Err(_) => Err(vm.new_type_error("attribute '__abstract__' must be bool".to_string())),
         },
+        // @TODO: I think it's unreacheble
         Err(_) => Err(vm.new_attribute_error("abstract class".to_string())),
     }
 }
@@ -66,7 +63,7 @@ fn buffer_copy(
     match vm.get_attribute(cls.as_object().to_owned(), "__abstract__") {
         Ok(attr) => {
             match bool::try_from_object(vm, attr) {
-                Ok(b) if b => {
+                Ok(b) if !b => {
                     let buffer = try_buffer_from_object(vm, &obj)?;
                     let opts = buffer.get_options().clone();
 
@@ -111,10 +108,12 @@ fn buffer_copy(
                 }
                 Ok(_) => Err(vm.new_type_error("abstract class".to_string())),
                 Err(_) => {
+                    // @TODO: A sanity check
                     Err(vm.new_type_error("attribute '__abstract__' must be bool".to_string()))
                 }
             }
         }
+        // @TODO: I think this is unreacheble...
         Err(_) => Err(vm.new_type_error("abstract class".to_string())),
     }
 }
@@ -267,7 +266,7 @@ impl Buffer for PyCDataRef {
 // This Trait is the equivalent of PyCData_Type on tp_base for
 // Struct_Type, Union_Type, PyCPointer_Type
 // PyCArray_Type, PyCSimple_Type, PyCFuncPtr_Type
-#[pyclass(module = "ctypes", name = "_CData")]
+#[pyclass(module = "_ctypes", name = "_CData")]
 pub struct PyCData {
     _objects: AtomicCell<Vec<PyObjectRc>>,
     _buffer: PyRwLock<Vec<u8>>,
@@ -284,7 +283,7 @@ impl fmt::Debug for PyCData {
 
 impl PyValue for PyCData {
     fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::init_bare_type()
+        Self::static_type()
     }
 }
 
@@ -302,7 +301,7 @@ impl PyCData {
     }
 }
 
-#[pyimpl]
+#[pyimpl(flags(BASETYPE), with(BufferProtocol))]
 impl PyCData {
     // PyCData_methods
     #[pymethod(name = "__ctypes_from_outparam__")]

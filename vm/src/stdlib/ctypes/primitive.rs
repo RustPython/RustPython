@@ -145,14 +145,22 @@ fn set_primitive(_type_: &str, value: &PyObjectRc, vm: &VirtualMachine) -> PyRes
 
 impl PyValue for PySimpleType {
     fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_metaclass()
+        Self::static_type()
     }
 }
 
 #[pyimpl]
 impl PySimpleType {
     #[pyslot]
-    fn tp_new(cls: PyTypeRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    fn tp_new(cls: PyTypeRef, _: OptionalArg, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        let is_abstract = vm
+            .isinstance(&cls.as_object(), PySimpleType::static_type())
+            .is_ok();
+
+        if is_abstract {
+            return Err(vm.new_type_error("abstract class".to_string()));
+        }
+
         match vm.get_attribute(cls.as_object().to_owned(), "_type_") {
             Ok(_type_) => {
                 if vm.isinstance(&_type_, &vm.ctx.types.str_type)? {
@@ -164,9 +172,7 @@ impl PySimpleType {
                         PySimpleType {
                             _type_: _type_.downcast_exact::<PyStr>(vm).unwrap().to_string(),
                             value: AtomicCell::new(vm.ctx.none()),
-                            __abstract__: vm
-                                .isinstance(&cls.as_object(), PySimpleType::static_type())
-                                .is_ok(),
+                            __abstract__: is_abstract,
                         }
                         .into_ref_with_type(vm, cls)
                     }
@@ -185,12 +191,11 @@ impl PySimpleType {
     #[pymethod(name = "__init__")]
     pub fn init(&self, value: OptionalArg, vm: &VirtualMachine) -> PyResult<()> {
         match value.into_option() {
-            Some(ref v) if !self.__abstract__ => {
+            Some(ref v) => {
                 let content = set_primitive(self._type_.as_str(), v, vm)?;
                 self.value.store(content);
                 Ok(())
             }
-            Some(_) => Err(vm.new_type_error("abstract class".to_string())),
             _ => {
                 self.value.store(match self._type_.as_str() {
                     "c" | "u" => vm.ctx.new_bytes(vec![0]),
