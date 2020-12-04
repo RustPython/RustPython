@@ -818,7 +818,7 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::ForIter { target } => self.execute_for_iter(vm, *target),
-            bytecode::Instruction::MakeFunction => self.execute_make_function(vm),
+            bytecode::Instruction::MakeFunction(flags) => self.execute_make_function(vm, *flags),
             bytecode::Instruction::CallFunctionPositional { nargs } => {
                 self.execute_call_function_positional(vm, *nargs)
             }
@@ -1417,7 +1417,11 @@ impl ExecutingFrame<'_> {
             }
         }
     }
-    fn execute_make_function(&mut self, vm: &VirtualMachine) -> FrameResult {
+    fn execute_make_function(
+        &mut self,
+        vm: &VirtualMachine,
+        flags: bytecode::MakeFunctionFlags,
+    ) -> FrameResult {
         let qualified_name = self
             .pop_value()
             .downcast::<PyStr>()
@@ -1427,21 +1431,19 @@ impl ExecutingFrame<'_> {
             .downcast()
             .expect("Second to top value on the stack must be a code object");
 
-        let flags = code_obj.flags;
-
-        let closure = if code_obj.freevars.is_empty() {
-            None
-        } else {
+        let closure = if flags.contains(bytecode::MakeFunctionFlags::CLOSURE) {
             Some(PyTupleTyped::try_from_object(vm, self.pop_value()).unwrap())
+        } else {
+            None
         };
 
-        let annotations = if flags.contains(bytecode::CodeFlags::HAS_ANNOTATIONS) {
+        let annotations = if flags.contains(bytecode::MakeFunctionFlags::ANNOTATIONS) {
             self.pop_value()
         } else {
             vm.ctx.new_dict().into_object()
         };
 
-        let kw_only_defaults = if flags.contains(bytecode::CodeFlags::HAS_KW_ONLY_DEFAULTS) {
+        let kw_only_defaults = if flags.contains(bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS) {
             Some(
                 self.pop_value()
                     .downcast::<PyDict>()
@@ -1451,7 +1453,7 @@ impl ExecutingFrame<'_> {
             None
         };
 
-        let defaults = if flags.contains(bytecode::CodeFlags::HAS_DEFAULTS) {
+        let defaults = if flags.contains(bytecode::MakeFunctionFlags::DEFAULTS) {
             Some(
                 self.pop_value()
                     .downcast::<PyTuple>()

@@ -827,7 +827,11 @@ impl Compiler {
         Ok(())
     }
 
-    fn enter_function(&mut self, name: &str, args: &ast::Parameters) -> CompileResult<()> {
+    fn enter_function(
+        &mut self,
+        name: &str,
+        args: &ast::Parameters,
+    ) -> CompileResult<bytecode::MakeFunctionFlags> {
         let have_defaults = !args.defaults.is_empty();
         if have_defaults {
             // Construct a tuple:
@@ -859,17 +863,17 @@ impl Compiler {
             });
         }
 
-        let mut flags = bytecode::CodeFlags::NEW_LOCALS | bytecode::CodeFlags::IS_OPTIMIZED;
+        let mut funcflags = bytecode::MakeFunctionFlags::empty();
         if have_defaults {
-            flags |= bytecode::CodeFlags::HAS_DEFAULTS;
+            funcflags |= bytecode::MakeFunctionFlags::DEFAULTS;
         }
         if num_kw_only_defaults > 0 {
-            flags |= bytecode::CodeFlags::HAS_KW_ONLY_DEFAULTS;
+            funcflags |= bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS;
         }
 
         let line_number = self.get_source_line_number();
         self.push_output(CodeObject::new(
-            flags,
+            bytecode::CodeFlags::NEW_LOCALS | bytecode::CodeFlags::IS_OPTIMIZED,
             args.posonlyargs_count,
             args.args.len(),
             args.kwonlyargs.len(),
@@ -896,7 +900,7 @@ impl Compiler {
         compile_varargs(&args.vararg, bytecode::CodeFlags::HAS_VARARGS);
         compile_varargs(&args.kwarg, bytecode::CodeFlags::HAS_VARKEYWORDS);
 
-        Ok(())
+        Ok(funcflags)
     }
 
     fn prepare_decorators(&mut self, decorator_list: &[ast::Expression]) -> CompileResult<()> {
@@ -1037,7 +1041,7 @@ impl Compiler {
         // Create bytecode for this function:
 
         self.prepare_decorators(decorator_list)?;
-        self.enter_function(name, args)?;
+        let mut funcflags = self.enter_function(name, args)?;
 
         // remember to restore self.ctx.in_loop to the original after the function is compiled
         let prev_ctx = self.ctx;
@@ -1113,7 +1117,7 @@ impl Compiler {
         }
 
         if num_annotations > 0 {
-            code.flags |= bytecode::CodeFlags::HAS_ANNOTATIONS;
+            funcflags |= bytecode::MakeFunctionFlags::ANNOTATIONS;
             self.emit(Instruction::BuildMap {
                 size: num_annotations,
                 unpack: false,
@@ -1125,7 +1129,9 @@ impl Compiler {
             code.flags |= bytecode::CodeFlags::IS_COROUTINE;
         }
 
-        self.build_closure(&code);
+        if self.build_closure(&code) {
+            funcflags |= bytecode::MakeFunctionFlags::CLOSURE;
+        }
 
         self.emit_constant(ConstantData::Code {
             code: Box::new(code),
@@ -1135,7 +1141,7 @@ impl Compiler {
         });
 
         // Turn code object into function object:
-        self.emit(Instruction::MakeFunction);
+        self.emit(Instruction::MakeFunction(funcflags));
 
         self.emit(Instruction::Duplicate);
         self.load_docstring(doc_str);
@@ -1150,32 +1156,34 @@ impl Compiler {
         Ok(())
     }
 
-    fn build_closure(&mut self, code: &CodeObject) {
-        if !code.freevars.is_empty() {
-            for var in &*code.freevars {
-                let table = self.symbol_table_stack.last().unwrap();
-                let symbol = table.lookup(var).unwrap();
-                let parent_code = self.code_stack.last().unwrap();
-                let vars = match symbol.scope {
-                    SymbolScope::Free => &parent_code.freevar_cache,
-                    SymbolScope::Cell => &parent_code.cellvar_cache,
-                    _ if symbol.is_free_class => &parent_code.freevar_cache,
-                    x => unreachable!(
-                        "var {} in a {:?} should be free or cell but it's {:?}",
-                        var, table.typ, x
-                    ),
-                };
-                let mut idx = vars.get_index_of(var).unwrap();
-                if let SymbolScope::Free = symbol.scope {
-                    idx += parent_code.cellvar_cache.len();
-                }
-                self.emit(Instruction::LoadClosure(idx))
-            }
-            self.emit(Instruction::BuildTuple {
-                size: code.freevars.len(),
-                unpack: false,
-            })
+    fn build_closure(&mut self, code: &CodeObject) -> bool {
+        if code.freevars.is_empty() {
+            return false;
         }
+        for var in &*code.freevars {
+            let table = self.symbol_table_stack.last().unwrap();
+            let symbol = table.lookup(var).unwrap();
+            let parent_code = self.code_stack.last().unwrap();
+            let vars = match symbol.scope {
+                SymbolScope::Free => &parent_code.freevar_cache,
+                SymbolScope::Cell => &parent_code.cellvar_cache,
+                _ if symbol.is_free_class => &parent_code.freevar_cache,
+                x => unreachable!(
+                    "var {} in a {:?} should be free or cell but it's {:?}",
+                    var, table.typ, x
+                ),
+            };
+            let mut idx = vars.get_index_of(var).unwrap();
+            if let SymbolScope::Free = symbol.scope {
+                idx += parent_code.cellvar_cache.len();
+            }
+            self.emit(Instruction::LoadClosure(idx))
+        }
+        self.emit(Instruction::BuildTuple {
+            size: code.freevars.len(),
+            unpack: false,
+        });
+        true
     }
 
     fn find_ann(&self, body: &[ast::Statement]) -> bool {
@@ -1312,7 +1320,11 @@ impl Compiler {
         self.current_qualified_path = old_qualified_path;
         self.ctx = prev_ctx;
 
-        self.build_closure(&code);
+        let mut funcflags = bytecode::MakeFunctionFlags::empty();
+
+        if self.build_closure(&code) {
+            funcflags |= bytecode::MakeFunctionFlags::CLOSURE;
+        }
 
         self.emit_constant(ConstantData::Code {
             code: Box::new(code),
@@ -1322,7 +1334,7 @@ impl Compiler {
         });
 
         // Turn code object into function object:
-        self.emit(Instruction::MakeFunction);
+        self.emit(Instruction::MakeFunction(funcflags));
 
         self.emit_constant(ConstantData::Str {
             value: qualified_name,
@@ -2006,17 +2018,19 @@ impl Compiler {
                 };
 
                 let name = "<lambda>".to_owned();
-                self.enter_function(&name, args)?;
+                let mut funcflags = self.enter_function(&name, args)?;
                 self.compile_expression(body)?;
                 self.emit(Instruction::ReturnValue);
                 let code = self.pop_code_object();
-                self.build_closure(&code);
+                if self.build_closure(&code) {
+                    funcflags |= bytecode::MakeFunctionFlags::CLOSURE;
+                }
                 self.emit_constant(ConstantData::Code {
                     code: Box::new(code),
                 });
                 self.emit_constant(ConstantData::Str { value: name });
                 // Turn code object into function object:
-                self.emit(Instruction::MakeFunction);
+                self.emit(Instruction::MakeFunction(funcflags));
 
                 self.ctx = prev_ctx;
             }
@@ -2320,7 +2334,10 @@ impl Compiler {
 
         self.ctx = prev_ctx;
 
-        self.build_closure(&code);
+        let mut funcflags = bytecode::MakeFunctionFlags::empty();
+        if self.build_closure(&code) {
+            funcflags |= bytecode::MakeFunctionFlags::CLOSURE;
+        }
 
         // List comprehension code:
         self.emit_constant(ConstantData::Code {
@@ -2331,7 +2348,7 @@ impl Compiler {
         self.emit_constant(ConstantData::Str { value: name });
 
         // Turn code object into function object:
-        self.emit(Instruction::MakeFunction);
+        self.emit(Instruction::MakeFunction(funcflags));
 
         // Evaluate iterated item:
         self.compile_expression(&generators[0].iter)?;

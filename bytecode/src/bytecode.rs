@@ -117,15 +117,12 @@ pub struct CodeObject<C: Constant = ConstantData> {
 bitflags! {
     #[derive(Serialize, Deserialize)]
     pub struct CodeFlags: u16 {
-        const HAS_DEFAULTS = 0x01;
-        const HAS_KW_ONLY_DEFAULTS = 0x02;
-        const HAS_ANNOTATIONS = 0x04;
-        const NEW_LOCALS = 0x08;
-        const IS_GENERATOR = 0x10;
-        const IS_COROUTINE = 0x20;
-        const HAS_VARARGS = 0x40;
-        const HAS_VARKEYWORDS = 0x80;
-        const IS_OPTIMIZED = 0x0100;
+        const NEW_LOCALS = 0x01;
+        const IS_GENERATOR = 0x02;
+        const IS_COROUTINE = 0x04;
+        const HAS_VARARGS = 0x08;
+        const HAS_VARKEYWORDS = 0x10;
+        const IS_OPTIMIZED = 0x20;
     }
 }
 
@@ -250,7 +247,7 @@ pub enum Instruction {
     JumpIfFalseOrPop {
         target: Label,
     },
-    MakeFunction,
+    MakeFunction(MakeFunctionFlags),
     CallFunctionPositional {
         nargs: usize,
     },
@@ -368,6 +365,16 @@ pub enum Instruction {
 }
 
 use self::Instruction::*;
+
+bitflags! {
+    #[derive(Serialize, Deserialize)]
+    pub struct MakeFunctionFlags: u8 {
+        const CLOSURE = 0x01;
+        const ANNOTATIONS = 0x02;
+        const KW_ONLY_DEFAULTS = 0x04;
+        const DEFAULTS = 0x08;
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ConstantData {
@@ -876,7 +883,7 @@ impl Instruction {
             JumpIfFalse { target } => w!(JumpIfFalse, target),
             JumpIfTrueOrPop { target } => w!(JumpIfTrueOrPop, target),
             JumpIfFalseOrPop { target } => w!(JumpIfFalseOrPop, target),
-            MakeFunction => w!(MakeFunction),
+            MakeFunction(flags) => w!(MakeFunction, format_args!("{:?}", flags)),
             CallFunctionPositional { nargs } => w!(CallFunctionPositional, nargs),
             CallFunctionKeyword { nargs } => w!(CallFunctionKeyword, nargs),
             CallFunctionEx { has_kwargs } => w!(CallFunctionEx, has_kwargs),
