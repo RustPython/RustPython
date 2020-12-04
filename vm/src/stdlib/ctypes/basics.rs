@@ -5,10 +5,15 @@ use crate::builtins::memory::{try_buffer_from_object, Buffer, BufferOptions};
 use crate::builtins::pystr::PyStrRef;
 use crate::builtins::pytype::PyTypeRef;
 use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
+use crate::common::lock::{
+    PyRwLock, PyRwLockReadGuard, PyRwLockUpgradableReadGuard, PyRwLockWriteGuard,
+};
 use crate::function::OptionalArg;
 use crate::pyobject::{
-    PyObjectRc, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
+    BorrowValue, PyObjectRc, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject,
+    TypeProtocol,
 };
+use crate::slots::BufferProtocol;
 use crate::VirtualMachine;
 
 use crate::stdlib::ctypes::dll::dlsym;
@@ -41,8 +46,8 @@ fn at_address(cls: &PyTypeRef, buf: usize, vm: &VirtualMachine) -> PyResult<Vec<
                         }
                     })?;
 
-                let slice = unsafe { slice::from_raw_parts(buf as *const u8, len) };
-                Ok(slice.to_vec())
+                let slice_ = unsafe { slice::from_raw_parts(buf as *const u8, len) };
+                Ok(slice_.to_vec())
             }
             Ok(_) => Err(vm.new_type_error("abstract class".to_string())),
             Err(_) => Err(vm.new_type_error("attribute '__abstract__' must be bool".to_string())),
@@ -66,6 +71,8 @@ fn buffer_copy(
                     let opts = buffer.get_options().clone();
 
                     // @TODO: Fix the way the size of stored
+                    // Would this be the proper replacement?
+                    // vm.call_method(cls.as_object(), "size", ())?.
                     let cls_size = vm
                         .get_attribute(cls.as_object().to_owned(), "_size")
                         .map(|c_s| usize::try_from_object(vm, c_s.clone()))??;
@@ -87,14 +94,17 @@ fn buffer_copy(
                             opts.len + (offset_int as usize)
                         )))
                     } else if let Some(mut buffer) = buffer.as_contiguous_mut() {
-                        let buffered = if copy {
-                            buffer.to_vec()
-                        } else {
-                            let b_ptr: *mut u8 = buffer.as_mut_ptr();
-                            unsafe { Vec::from_raw_parts(b_ptr, buffer.len(), buffer.len()) }
-                        };
-
-                        Ok(PyCData::new(None, Some(buffered)))
+                        let buffered =
+                            unsafe { slice::from_raw_parts(buffer.as_mut_ptr(), buffer.len()) };
+                        // @TODO: Is this ok?
+                        Ok(PyCData::new(
+                            None,
+                            Some(if copy {
+                                buffered.to_owned().to_vec()
+                            } else {
+                                buffered.to_vec()
+                            }),
+                        ))
                     } else {
                         Err(vm.new_buffer_error("empty buffer".to_string()))
                     }
@@ -211,15 +221,47 @@ pub trait PyCDataSequenceMethods: PyValue {
     // }
 }
 
+impl<'a> BorrowValue<'a> for PyCData {
+    type Borrowed = PyRwLockReadGuard<'a, Vec<u8>>;
+
+    fn borrow_value(&'a self) -> Self::Borrowed {
+        self._buffer.read()
+    }
+}
+
+impl BufferProtocol for PyCData {
+    fn get_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<Box<dyn Buffer>> {
+        Ok(Box::new(zelf.clone()))
+    }
+}
+
 // This trait will be used by all types
-pub trait PyCDataBuffer: Buffer {
-    fn obj_bytes(&self) -> BorrowedValue<[u8]>;
+impl Buffer for PyCDataRef {
+    fn obj_bytes(&self) -> BorrowedValue<[u8]> {
+        PyRwLockReadGuard::map(self.borrow_value(), |x| x.as_slice()).into()
+    }
 
-    fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]>;
+    fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
+        PyRwLockWriteGuard::map(self.borrow_value_mut(), |x| x.as_mut_slice()).into()
+    }
 
-    fn release(&self);
+    fn release(&self) {}
 
-    fn get_options(&self) -> BorrowedValue<BufferOptions>;
+    fn get_options(&self) -> BorrowedValue<BufferOptions> {
+        let guard = self.buffer_options.upgradable_read();
+        let guard = if guard.is_none() {
+            let mut w = PyRwLockUpgradableReadGuard::upgrade(guard);
+            *w = Some(Box::new(BufferOptions {
+                readonly: false,
+                len: self._buffer.read().len(),
+                ..Default::default()
+            }));
+            PyRwLockWriteGuard::downgrade(w)
+        } else {
+            PyRwLockUpgradableReadGuard::downgrade(guard)
+        };
+        PyRwLockReadGuard::map(guard, |x| x.as_ref().unwrap().as_ref()).into()
+    }
 }
 
 // This Trait is the equivalent of PyCData_Type on tp_base for
@@ -228,8 +270,11 @@ pub trait PyCDataBuffer: Buffer {
 #[pyclass(module = "ctypes", name = "_CData")]
 pub struct PyCData {
     _objects: AtomicCell<Vec<PyObjectRc>>,
-    _buffer: AtomicCell<Vec<u8>>,
+    _buffer: PyRwLock<Vec<u8>>,
+    buffer_options: PyRwLock<Option<Box<BufferOptions>>>,
 }
+
+pub type PyCDataRef = PyRef<PyCData>;
 
 impl fmt::Debug for PyCData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -247,8 +292,13 @@ impl PyCData {
     fn new(objs: Option<Vec<PyObjectRc>>, buffer: Option<Vec<u8>>) -> Self {
         PyCData {
             _objects: AtomicCell::new(objs.unwrap_or_default()),
-            _buffer: AtomicCell::new(buffer.unwrap_or_default()),
+            _buffer: PyRwLock::new(buffer.unwrap_or_default()),
+            buffer_options: PyRwLock::new(None),
         }
+    }
+
+    pub fn borrow_value_mut(&self) -> PyRwLockWriteGuard<'_, Vec<u8>> {
+        self._buffer.write()
     }
 }
 
@@ -264,8 +314,3 @@ impl PyCData {
     #[pymethod(name = "__setstate__")]
     pub fn setstate(zelf: PyRef<Self>) {}
 }
-
-// #[pyimpl]
-// impl PyCDataBuffer for PyCData {
-
-// }

@@ -5,7 +5,7 @@ use rustpython_common::borrow::BorrowValue;
 use std::fmt;
 
 use crate::builtins::PyTypeRef;
-use crate::builtins::{PyByteArray, PyBytes, PyFloat, PyInt, PyNone, PyStr};
+use crate::builtins::{pybool::boolval, PyByteArray, PyBytes, PyFloat, PyInt, PyNone, PyStr};
 use crate::function::OptionalArg;
 use crate::pyobject::{
     PyObjectRc, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
@@ -45,21 +45,18 @@ fn set_primitive(_type_: &str, value: &PyObjectRc, vm: &VirtualMachine) -> PyRes
             if value
                 .clone()
                 .downcast_exact::<PyBytes>(vm)
-                .map(|v| v.len() == 1)
-                .is_ok()
+                .map_or(false, |v| v.len() == 1)
                 || value
                     .clone()
                     .downcast_exact::<PyByteArray>(vm)
-                    .map(|v| v.borrow_value().len() == 1)
-                    .is_ok()
+                    .map_or(false, |v| v.borrow_value().len() == 1)
                 || value
                     .clone()
                     .downcast_exact::<PyInt>(vm)
-                    .map(|v| {
+                    .map_or(false, |v| {
                         v.borrow_value().ge(&BigInt::from_i64(0).unwrap())
                             || v.borrow_value().le(&BigInt::from_i64(255).unwrap())
                     })
-                    .is_ok()
             {
                 Ok(value.clone())
             } else {
@@ -103,7 +100,7 @@ fn set_primitive(_type_: &str, value: &PyObjectRc, vm: &VirtualMachine) -> PyRes
                 Err(vm.new_type_error(format!("must be real number, not {}", value.class().name)))
             }
         }
-        "?" => Ok(vm.ctx.none()),
+        "?" => Ok(vm.ctx.new_bool(boolval(vm, value.clone())?)),
         "B" => {
             if value.clone().downcast_exact::<PyInt>(vm).is_ok() {
                 Ok(vm.new_pyobj(u8::try_from_object(vm, value.clone()).unwrap()))
