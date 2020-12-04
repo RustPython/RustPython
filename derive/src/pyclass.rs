@@ -615,9 +615,7 @@ impl PropertyItemMeta {
     fn property_name(&self) -> Result<(String, GetSetItemKind)> {
         let inner = self.inner();
         let magic = inner._bool("magic")?;
-        let setter = inner._bool("setter")?;
-        let deleter = inner._bool("deleter")?;
-        let kind = match (setter, deleter) {
+        let kind = match (inner._bool("setter")?, inner._bool("deleter")?) {
             (false, false) => GetSetItemKind::Get,
             (true, false) => GetSetItemKind::Set,
             (false, true) => GetSetItemKind::Delete,
@@ -636,54 +634,37 @@ impl PropertyItemMeta {
             name
         } else {
             let sig_name = inner.item_name();
-            let name = if setter {
-                if let Some(name) = sig_name.strip_prefix("set_") {
+            let extract_prefix_name = |prefix, item_typ| {
+                if let Some(name) = sig_name.strip_prefix(prefix) {
                     if name.is_empty() {
-                        return Err(syn::Error::new_spanned(
+                        Err(syn::Error::new_spanned(
                             &inner.meta_ident,
                             format!(
-                                "A #[{}(setter)] fn with a set_* name must \
-                                 have something after \"set_\"",
-                                inner.meta_name()
+                                "A #[{}({typ})] fn with a {prefix}* name must \
+                                 have something after \"{prefix}\"",
+                                inner.meta_name(),
+                                typ = item_typ,
+                                prefix = prefix
                             ),
-                        ));
+                        ))
+                    } else {
+                        Ok(name.to_owned())
                     }
-                    name.to_string()
                 } else {
-                    return Err(syn::Error::new_spanned(
+                    Err(syn::Error::new_spanned(
                         &inner.meta_ident,
                         format!(
                             "A #[{}(setter)] fn must either have a `name` \
                              parameter or a fn name along the lines of \"set_*\"",
                             inner.meta_name()
                         ),
-                    ));
+                    ))
                 }
-            } else if deleter {
-                if let Some(name) = sig_name.strip_prefix("del_") {
-                    if name.is_empty() {
-                        return Err(syn::Error::new_spanned(
-                            &inner.meta_ident,
-                            format!(
-                                "A #[{}(deleter)] fn with a del_* name must \
-                                 have something after \"del_\"",
-                                inner.meta_name()
-                            ),
-                        ));
-                    }
-                    name.to_string()
-                } else {
-                    return Err(syn::Error::new_spanned(
-                        &inner.meta_ident,
-                        format!(
-                            "A #[{}(deleter)] fn must either have a `name` \
-                             parameter or a fn name along the lines of \"del_*\"",
-                            inner.meta_name()
-                        ),
-                    ));
-                }
-            } else {
-                sig_name
+            };
+            let name = match kind {
+                GetSetItemKind::Get => sig_name,
+                GetSetItemKind::Set => extract_prefix_name("set_", "setter")?,
+                GetSetItemKind::Delete => extract_prefix_name("del_", "deleter")?,
             };
             if magic {
                 format!("__{}__", name)

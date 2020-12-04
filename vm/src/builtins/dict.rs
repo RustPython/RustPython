@@ -492,6 +492,7 @@ impl PyDictRef {
         }
     }
 
+    #[cold]
     fn _subcls_getitem_option(
         &self,
         key: PyObjectRef,
@@ -504,7 +505,7 @@ impl PyDictRef {
         }
     }
 
-    pub fn get2<K: IntoPyObject + DictKey + Clone>(
+    pub fn get_chain<K: IntoPyObject + DictKey + Clone>(
         &self,
         other: &Self,
         key: K,
@@ -513,7 +514,7 @@ impl PyDictRef {
         let self_exact = self.class().is(&vm.ctx.types.dict_type);
         let other_exact = self.class().is(&vm.ctx.types.dict_type);
         if self_exact && other_exact {
-            self.entries.get2(&other.entries, vm, &key)
+            self.entries.get_chain(&other.entries, vm, &key)
         } else if let Some(value) = self._get_item_option_inner(key.clone(), self_exact, vm)? {
             Ok(Some(value))
         } else {

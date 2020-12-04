@@ -284,7 +284,7 @@ impl<T: Clone> Dict<T> {
         Ok(ret)
     }
 
-    pub fn get2<K: DictKey>(
+    pub fn get_chain<K: DictKey>(
         &self,
         other: &Self,
         vm: &VirtualMachine,

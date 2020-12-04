@@ -108,6 +108,7 @@ pub struct Symbol {
     pub is_parameter: bool,
     pub is_annotated: bool,
     pub is_imported: bool,
+    pub is_nonlocal: bool,
 
     // indicates if the symbol gets a value assigned by a named expression in a comprehension
     // this is required to correct the scope in the analysis.
@@ -139,6 +140,7 @@ impl Symbol {
             is_parameter: false,
             is_annotated: false,
             is_imported: false,
+            is_nonlocal: false,
             is_assign_namedexpr_in_comprehension: false,
             is_iter: false,
             is_free_class: false,
@@ -218,7 +220,9 @@ mod stack {
         }
     }
     impl<T> StackStack<T> {
-        pub fn append<F, R>(&mut self, x: &mut T, f: F) -> R
+        /// Appends a reference to this stack for the duration of the function `f`. When `f`
+        /// returns, the reference will be popped off the stack.
+        pub fn with_append<F, R>(&mut self, x: &mut T, f: F) -> R
         where
             F: FnOnce(&mut Self) -> R,
         {
@@ -273,7 +277,7 @@ impl SymbolTableAnalyzer {
         let sub_tables = &mut *symbol_table.sub_tables;
 
         let mut info = (symbols, symbol_table.typ);
-        self.tables.append(&mut info, |list| {
+        self.tables.with_append(&mut info, |list| {
             let inner_scope = unsafe { &mut *(list as *mut _ as *mut SymbolTableAnalyzer) };
             // Analyze sub scopes:
             for sub_table in sub_tables.iter_mut() {
@@ -1162,6 +1166,7 @@ impl SymbolTableBuilder {
         match role {
             SymbolUsage::Nonlocal => {
                 symbol.scope = SymbolScope::Free;
+                symbol.is_nonlocal = true;
             }
             SymbolUsage::Imported => {
                 symbol.is_assigned = true;

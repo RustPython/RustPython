@@ -470,22 +470,14 @@ impl ExecutingFrame<'_> {
                 let x = self.locals.get_item_option(name.clone(), vm)?;
                 let x = match x {
                     Some(x) => x,
-                    None => self
-                        .globals
-                        .get2(self.builtins, name.clone(), vm)?
-                        .ok_or_else(|| {
-                            vm.new_name_error(format!("name '{}' is not defined", name))
-                        })?,
+                    None => self.load_global_or_builtin(name, vm)?,
                 };
                 self.push_value(x);
                 Ok(None)
             }
             bytecode::Instruction::LoadGlobal(idx) => {
                 let name = &self.code.names[*idx];
-                let x = self
-                    .globals
-                    .get2(self.builtins, name.clone(), vm)?
-                    .ok_or_else(|| vm.new_name_error(format!("name '{}' is not defined", name)))?;
+                let x = self.load_global_or_builtin(name, vm)?;
                 self.push_value(x);
                 Ok(None)
             }
@@ -950,6 +942,13 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
         }
+    }
+
+    #[inline]
+    fn load_global_or_builtin(&self, name: &PyStrRef, vm: &VirtualMachine) -> PyResult {
+        self.globals
+            .get_chain(self.builtins, name.clone(), vm)?
+            .ok_or_else(|| vm.new_name_error(format!("name '{}' is not defined", name)))
     }
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]

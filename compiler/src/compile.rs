@@ -60,13 +60,10 @@ impl CodeInfo {
                 .cellvars
                 .iter()
                 .map(|var| {
-                    for (i, arg) in all_args.iter().enumerate() {
-                        if var == arg {
-                            found_cellarg = true;
-                            return i as isize;
-                        }
-                    }
-                    -1
+                    all_args.iter().position(|arg| var == arg).map_or(-1, |i| {
+                        found_cellarg = true;
+                        i as isize
+                    })
                 })
                 .collect::<Box<[_]>>();
             if found_cellarg {
