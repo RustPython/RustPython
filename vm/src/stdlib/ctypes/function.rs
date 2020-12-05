@@ -9,7 +9,6 @@ use libffi::low::{
     Error as FFIError,
 };
 use libffi::middle;
-use num_bigint::BigInt;
 
 use crate::builtins::pystr::PyStrRef;
 use crate::builtins::{PyInt, PyTypeRef};
@@ -22,6 +21,7 @@ use crate::pyobject::{
 use crate::VirtualMachine;
 
 use crate::stdlib::ctypes::basics::PyCData;
+use crate::stdlib::ctypes::primitive::PySimpleType;
 
 use crate::slots::Callable;
 use crate::stdlib::ctypes::dll::dlsym;
@@ -90,49 +90,43 @@ pub fn str_to_type(ty: &str) -> *mut ffi_type {
     )
 }
 
-fn py_to_ffi(ty: *mut *mut ffi_type, obj: PyObjectRef, vm: &VirtualMachine) -> *mut c_void {
-    match_ffi_type!(
+fn py_to_ffi(
+    ty: *mut *mut ffi_type,
+    obj: PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult<*mut c_void> {
+    let res = match_ffi_type!(
         unsafe { *ty },
         c_schar => {
-            let mut r = i8::try_from_object(vm, obj).unwrap();
-            &mut r as *mut _ as *mut c_void
+            &mut i8::try_from_object(vm, obj)? as *mut _ as *mut c_void
         }
         c_int => {
-            let mut r = i32::try_from_object(vm, obj).unwrap();
-            &mut r as *mut _ as *mut c_void
+            &mut i32::try_from_object(vm, obj)? as *mut _ as *mut c_void
         }
         c_short => {
-            let mut r = i16::try_from_object(vm, obj).unwrap();
-            &mut r as *mut _ as *mut c_void
+            &mut i16::try_from_object(vm, obj)? as *mut _ as *mut c_void
         }
         c_ushort => {
-            let mut r = u16::try_from_object(vm, obj).unwrap();
-            &mut r as *mut _ as *mut c_void
+            &mut u16::try_from_object(vm, obj)? as *mut _ as *mut c_void
         }
         c_uint => {
-            let mut r = u32::try_from_object(vm, obj).unwrap();
-            &mut r as *mut _ as *mut c_void
+            &mut u32::try_from_object(vm, obj)? as *mut _ as *mut c_void
         }
         //@ TODO: Convert c*longlong from BigInt?
         c_long | c_longlong => {
-            let mut r = i64::try_from_object(vm, obj).unwrap();
-            &mut r as *mut _ as *mut c_void
+            &mut i64::try_from_object(vm, obj)? as *mut _ as *mut c_void
         }
         c_ulong | c_ulonglong => {
-            let mut r = u64::try_from_object(vm, obj).unwrap();
-            &mut r as *mut _ as *mut c_void
+            &mut u64::try_from_object(vm, obj)? as *mut _ as *mut c_void
         }
         f32 => {
-            let mut r = f32::try_from_object(vm, obj).unwrap();
-            &mut r as *mut _ as *mut c_void
+            &mut f32::try_from_object(vm, obj)? as *mut _ as *mut c_void
         }
         f64 | longdouble=> {
-            let mut r = f64::try_from_object(vm, obj).unwrap();
-            &mut r as *mut _ as *mut c_void
+            &mut f64::try_from_object(vm, obj)? as *mut _ as *mut c_void
         }
         c_uchar => {
-            let mut r = u8::try_from_object(vm, obj).unwrap();
-            &mut r as *mut _ as *mut c_void
+            &mut u8::try_from_object(vm, obj)? as *mut _ as *mut c_void
         }
         pointer => {
             usize::try_from_object(vm, obj).unwrap() as *mut c_void
@@ -140,7 +134,9 @@ fn py_to_ffi(ty: *mut *mut ffi_type, obj: PyObjectRef, vm: &VirtualMachine) -> *
         void => {
             ptr::null_mut()
         }
-    )
+    );
+
+    Ok(res)
 }
 
 #[derive(Debug)]
@@ -169,7 +165,6 @@ impl Function {
 
     pub fn set_ret(&mut self, ret: &str) {
         (*self.return_type.as_mut()) = str_to_type(ret);
-        // mem::replace(self.return_type.as_mut(), str_to_type(ret));
     }
 
     pub fn call(
@@ -197,7 +192,7 @@ impl Function {
             return Err(vm.new_runtime_error("The ABI is invalid or unsupported".to_string()));
         }
 
-        let mut argument_pointers: Vec<*mut c_void> = arg_ptrs
+        let argument_pointers: Result<Vec<*mut c_void>, _> = arg_ptrs
             .iter()
             .zip(self.arguments.iter_mut())
             .map(|(o, t)| {
@@ -206,9 +201,9 @@ impl Function {
             })
             .collect();
 
-        let cif_ptr = &self.cif as *const _ as *mut _;
+        let cif_ptr = &self.cif as *const _ as *mut ffi_cif;
         let fun_ptr = CodePtr::from_ptr(self.pointer);
-        let args_ptr = argument_pointers.as_mut_ptr();
+        let args_ptr = argument_pointers?.as_mut_ptr();
 
         let ret_ptr = unsafe {
             match_ffi_type!(
@@ -233,21 +228,13 @@ impl Function {
                     let r: c_uint = ffi_call(cif_ptr, fun_ptr, args_ptr);
                     vm.new_pyobj(r as u32)
                 }
-                c_long => {
+                c_long | c_longlong => {
                     let r: c_long = ffi_call(cif_ptr, fun_ptr, args_ptr);
                     vm.new_pyobj(r as i64)
                 }
-                c_longlong => {
-                    let r: c_longlong = ffi_call(cif_ptr, fun_ptr, args_ptr);
-                    vm.new_pyobj(BigInt::from(r as i128))
-                }
-                c_ulong => {
+                c_ulong | c_ulonglong => {
                     let r: c_ulong = ffi_call(cif_ptr, fun_ptr, args_ptr);
                     vm.new_pyobj(r as u64)
-                }
-                c_ulonglong => {
-                    let r: c_ulonglong = ffi_call(cif_ptr, fun_ptr, args_ptr);
-                    vm.new_pyobj(BigInt::from(r as u128))
                 }
                 f32 => {
                     let r: c_float = ffi_call(cif_ptr, fun_ptr, args_ptr);
@@ -277,23 +264,6 @@ impl Function {
 
 unsafe impl Send for Function {}
 unsafe impl Sync for Function {}
-
-fn map_types_to_res(args: &[PyObjectRc], vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
-    args.iter()
-        .enumerate()
-        .map(|(idx, inner_obj)| {
-            match vm.isinstance(inner_obj, PyCData::static_type()) {
-                // @TODO: checks related to _type_ are temporary
-                Ok(_) => Ok(vm.get_attribute(inner_obj.clone(), "_type_").unwrap()),
-                Err(_) => Err(vm.new_type_error(format!(
-                    "object at {} is not an instance of _CData, type {} found",
-                    idx,
-                    inner_obj.class().name
-                ))),
-            }
-        })
-        .collect()
-}
 
 #[pyclass(module = "_ctypes", name = "CFuncPtr", base = "PyCData")]
 pub struct PyCFuncPtr {
@@ -334,25 +304,34 @@ impl PyCFuncPtr {
         if vm.isinstance(&argtypes, &vm.ctx.types.list_type).is_ok()
             || vm.isinstance(&argtypes, &vm.ctx.types.tuple_type).is_ok()
         {
-            let args: Vec<PyObjectRef> = vm.extract_elements(&argtypes).unwrap();
-
-            let c_args = map_types_to_res(&args, vm)?;
-
-            self._argtypes_.store(c_args.clone());
-
-            let str_types: Result<Vec<String>, _> = c_args
+            let args: Vec<PyObjectRef> = vm.extract_elements(&argtypes)?;
+            let c_args_res: PyResult<Vec<PyObjectRef>> = args
                 .iter()
-                .map(|obj| {
-                    if let Ok(attr) = vm.get_attribute(obj.clone(), "_type_") {
-                        Ok(attr.to_string())
-                    } else {
-                        Err(())
+                .enumerate()
+                .map(|(idx, inner_obj)| {
+                    match vm.isinstance(inner_obj, PySimpleType::static_type()) {
+                        // @TODO: checks related to _type_ are temporary
+                        Ok(_) => Ok(vm.get_attribute(inner_obj.clone(), "_type_").unwrap()),
+                        _ => Err(vm.new_type_error(format!(
+                            "positional argument {} must be subclass of _SimpleType, but type {} found",
+                            idx,
+                            inner_obj.class().name
+                        ))),
                     }
                 })
                 .collect();
 
+            let c_args = c_args_res?;
+
+            self._argtypes_.store(c_args.clone());
+
+            let str_types: Vec<String> = c_args
+                .iter()
+                .map(|obj| vm.to_str(&obj).unwrap().to_string())
+                .collect();
+
             let mut fn_ptr = self._f.write();
-            fn_ptr.set_args(str_types.unwrap());
+            fn_ptr.set_args(str_types);
 
             Ok(())
         } else {
@@ -365,14 +344,14 @@ impl PyCFuncPtr {
 
     #[pyproperty(name = "_restype_", setter)]
     fn set_restype(&self, restype: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        match vm.isinstance(&restype, PyCData::static_type()) {
+        match vm.isinstance(&restype, PySimpleType::static_type()) {
             // @TODO: checks related to _type_ are temporary
             Ok(_) => match vm.get_attribute(restype.clone(), "_type_") {
                 Ok(_type_) => {
                     self._restype_.store(restype.clone());
 
                     let mut fn_ptr = self._f.write();
-                    fn_ptr.set_ret(_type_.to_string().as_str());
+                    fn_ptr.set_ret(vm.to_str(&_type_)?.as_ref());
 
                     Ok(())
                 }
@@ -455,8 +434,26 @@ impl Callable for PyCFuncPtr {
             )));
         }
 
-        let arg_vec = map_types_to_res(&args.args, vm)?;
+        let arg_res: Result<Vec<PyObjectRef>, _> = args
+            .args
+            .iter()
+            .enumerate()
+            .map(|(idx, obj)| {
+                if vm
+                    .issubclass(&obj.clone_class(), PySimpleType::static_type())
+                    .is_ok()
+                {
+                    Ok(vm.get_attribute(obj.clone(), "value")?)
+                } else {
+                    Err(vm.new_type_error(format!(
+                        "positional argument {} must be subclass of _SimpleType, but type {} found",
+                        idx,
+                        obj.class().name
+                    )))
+                }
+            })
+            .collect();
 
-        (*zelf._f.write()).call(arg_vec, vm)
+        (*zelf._f.write()).call(arg_res?, vm)
     }
 }

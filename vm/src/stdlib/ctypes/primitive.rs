@@ -209,7 +209,7 @@ impl PySimpleType {
     }
 
     #[pyproperty(name = "value")]
-    fn value(&self) -> PyObjectRef {
+    pub fn value(&self) -> PyObjectRef {
         unsafe { (*self.value.as_ptr()).clone() }
     }
 

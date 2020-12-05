@@ -1,8 +1,33 @@
-import os, sys
+import os as _os, sys as _sys
 
 from _ctypes import CFuncPtr as _CFuncPtr
 from _ctypes import dlopen as _dlopen
 from _ctypes import _SimpleCData
+
+_c_functype_cache = {}
+def CFUNCTYPE(restype, *argtypes, **kw):
+    """CFUNCTYPE(restype, *argtypes,
+                 use_errno=False, use_last_error=False) -> function prototype.
+    restype: the result type
+    argtypes: a sequence specifying the argument types
+    The function prototype can be called in different ways to create a
+    callable object:
+    prototype(integer address) -> foreign function
+    prototype(callable) -> create and return a C callable function from callable
+    prototype(integer index, method name[, paramflags]) -> foreign function calling a COM method
+    prototype((ordinal number, dll object)[, paramflags]) -> foreign function exported by ordinal
+    prototype((function name, dll object)[, paramflags]) -> foreign function exported by name
+    """
+    if kw:
+        raise ValueError("unexpected keyword argument(s) %s" % kw.keys())
+    try:
+        return _c_functype_cache[(restype, argtypes)]
+    except KeyError:
+        class CFunctionType(_CFuncPtr):
+            _argtypes_ = argtypes
+            _restype_ = restype
+        _c_functype_cache[(restype, argtypes)] = CFunctionType
+        return CFunctionType
 
 class c_short(_SimpleCData):
     _type_ = "h"
@@ -64,7 +89,6 @@ class c_wchar(_SimpleCData):
     _type_ = "u"
 
 class CDLL(object):
-
     """An instance of this class represents a loaded dll/shared
     library, exporting functions using the standard C calling
     convention (named 'cdecl' on Windows).
@@ -75,17 +99,16 @@ class CDLL(object):
     Calling the functions releases the Python GIL during the call and
     reacquires it afterwards.
     """
+    _func_restype_ = c_int
     # default values for repr
     _name = '<uninitialized>'
     _handle = 0
     _FuncPtr = None
 
-    def __init__(self, name, handle=None):
+    def __init__(self, name,handle=None):
         self._name = name
-
         class _FuncPtr(_CFuncPtr):
-            pass
-
+            _restype_ = self._func_restype_
         self._FuncPtr = _FuncPtr
 
         if handle is None:
@@ -96,24 +119,20 @@ class CDLL(object):
     def __repr__(self):
         return "<%s '%s', handle %x at %#x>" % \
                (self.__class__.__name__, self._name,
-                (self._handle & (sys.maxsize*2 + 1)),
-                id(self) & (sys.maxsize*2 + 1))
+                (self._handle & (_sys.maxsize*2 + 1)),
+                id(self) & (_sys.maxsize*2 + 1))
 
     def __getattr__(self, name):
         if name.startswith('__') and name.endswith('__'):
             raise AttributeError(name)
-
         func = self.__getitem__(name)
         setattr(self, name, func)
-
         return func
 
     def __getitem__(self, name_or_ordinal):
         func = self._FuncPtr(name_or_ordinal, self)
-
         if not isinstance(name_or_ordinal, int):
             func.__name__ = name_or_ordinal
-
         return func
 
 class LibraryLoader(object):
