@@ -2,7 +2,7 @@ extern crate lazy_static;
 extern crate libffi;
 extern crate libloading;
 
-use ::std::{collections::HashMap, fmt, os::raw::c_void};
+use ::std::{collections::HashMap, fmt, os::raw::c_void, ptr::null};
 
 use crossbeam_utils::atomic::AtomicCell;
 use libloading::Library;
@@ -11,7 +11,7 @@ use crate::builtins::PyTypeRef;
 use crate::common::lock::PyRwLock;
 use crate::pyobject::{PyRef, PyValue};
 use crate::VirtualMachine;
-
+#[pyclass(module = false, name = "SharedLibrary")]
 pub struct SharedLibrary {
     path_name: String,
     lib: AtomicCell<Option<Library>>,
@@ -26,7 +26,7 @@ impl fmt::Debug for SharedLibrary {
             lib: {},
         }}",
             self.path_name.as_str(),
-            self.is_closed()
+            self.get_pointer()
         )
     }
 }
@@ -60,6 +60,14 @@ impl SharedLibrary {
         }
     }
 
+    pub fn get_pointer(&self) -> usize {
+        if let Some(l) = unsafe { &*self.lib.as_ptr() } {
+            l as *const Library as *const u32 as usize
+        } else {
+            null() as *const u32 as usize
+        }
+    }
+
     pub fn is_closed(&self) -> bool {
         unsafe { &*self.lib.as_ptr() }.is_none()
     }
@@ -68,6 +76,22 @@ impl SharedLibrary {
         let old = self.lib.take();
         self.lib.store(None);
         drop(old);
+    }
+}
+
+#[pyimpl]
+impl SharedLibrary {
+    #[pymethod(magic)]
+    fn repr(&self) -> String {
+        let pointer = self.get_pointer();
+
+        let value = if pointer == 0usize {
+            "None".to_string()
+        } else {
+            pointer.to_string()
+        };
+
+        format!("SharedLibrary({})", value)
     }
 }
 

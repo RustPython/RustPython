@@ -2,7 +2,7 @@ extern crate libloading;
 
 use crate::builtins::pystr::PyStr;
 use crate::builtins::PyInt;
-use crate::pyobject::{PyObjectRc, PyObjectRef, PyResult};
+use crate::pyobject::{PyObjectRc, PyObjectRef, PyResult, TypeProtocol};
 use crate::VirtualMachine;
 
 use crate::stdlib::ctypes::shared_lib::{SharedLibrary, LIBCACHE};
@@ -34,7 +34,7 @@ pub fn dlsym(slib: PyObjectRc, func: PyObjectRc, vm: &VirtualMachine) -> PyResul
     let str_ref = func.downcast::<PyStr>().unwrap();
     let func_name = str_ref.as_ref();
 
-    match slib.downcast::<SharedLibrary>() {
+    match slib.clone().downcast::<SharedLibrary>() {
         Ok(lib) => {
             match lib.get_sym(func_name) {
                 Ok(ptr) => Ok(PyInt::from(ptr as *const _ as usize)),
@@ -42,22 +42,22 @@ pub fn dlsym(slib: PyObjectRc, func: PyObjectRc, vm: &VirtualMachine) -> PyResul
                     .new_runtime_error(format!("Error while opening symbol {}: {}", func_name, e))),
             }
         }
-        Err(_) => {
-            Err(vm
-                .new_value_error("first argument (slib) is not a valid SharedLibrary".to_string()))
-        }
+        Err(_) => Err(vm.new_type_error(format!(
+            "a SharedLibrary is required, found {}",
+            slib.class().name
+        ))),
     }
 }
 
 pub fn dlclose(slib: PyObjectRc, vm: &VirtualMachine) -> PyResult {
-    match slib.downcast::<SharedLibrary>() {
+    match slib.clone().downcast::<SharedLibrary>() {
         Ok(lib) => {
             lib.close();
             Ok(vm.ctx.none())
         }
-        Err(_) => {
-            Err(vm
-                .new_value_error("first argument (slib) is not a valid SharedLibrary".to_string()))
-        }
+        Err(_) => Err(vm.new_type_error(format!(
+            "a SharedLibrary is required, found {}",
+            slib.class().name
+        ))),
     }
 }

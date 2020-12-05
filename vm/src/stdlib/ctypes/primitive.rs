@@ -149,13 +149,11 @@ impl PyValue for PySimpleType {
     }
 }
 
-#[pyimpl]
+#[pyimpl(flags(BASETYPE))]
 impl PySimpleType {
     #[pyslot]
     fn tp_new(cls: PyTypeRef, _: OptionalArg, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        let is_abstract = vm
-            .isinstance(&cls.as_object(), PySimpleType::static_type())
-            .is_ok();
+        let is_abstract = cls.name == PySimpleType::static_type().name;
 
         if is_abstract {
             return Err(vm.new_type_error("abstract class".to_string()));
@@ -164,13 +162,15 @@ impl PySimpleType {
         match vm.get_attribute(cls.as_object().to_owned(), "_type_") {
             Ok(_type_) => {
                 if vm.isinstance(&_type_, &vm.ctx.types.str_type)? {
-                    if _type_.to_string().len() != 1 {
+                    let tp_str = _type_.downcast_exact::<PyStr>(vm).unwrap().to_string();
+
+                    if tp_str.len() != 1 {
                         Err(vm.new_value_error("class must define a '_type_' attribute which must be a string of length 1".to_string()))
-                    } else if !SIMPLE_TYPE_CHARS.contains(_type_.to_string().as_str()) {
+                    } else if !SIMPLE_TYPE_CHARS.contains(tp_str.as_str()) {
                         Err(vm.new_attribute_error(format!("class must define a '_type_' attribute which must be\na single character string containing one of {}.",SIMPLE_TYPE_CHARS)))
                     } else {
                         PySimpleType {
-                            _type_: _type_.downcast_exact::<PyStr>(vm).unwrap().to_string(),
+                            _type_: tp_str,
                             value: AtomicCell::new(vm.ctx.none()),
                             __abstract__: is_abstract,
                         }
@@ -194,7 +194,6 @@ impl PySimpleType {
             Some(ref v) => {
                 let content = set_primitive(self._type_.as_str(), v, vm)?;
                 self.value.store(content);
-                Ok(())
             }
             _ => {
                 self.value.store(match self._type_.as_str() {
@@ -204,10 +203,9 @@ impl PySimpleType {
                     "?" => vm.ctx.new_bool(false),
                     _ => vm.ctx.none(), // "z" | "Z" | "P"
                 });
-
-                Ok(())
             }
         }
+        Ok(())
     }
 
     #[pyproperty(name = "value")]
@@ -232,8 +230,12 @@ impl PySimpleType {
 
     // Simple_repr
     #[pymethod(name = "__repr__")]
-    fn repr(zelf: PyRef<Self>) -> String {
-        format!("{}({})", zelf.class().name, zelf.value().to_string())
+    fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        Ok(format!(
+            "{}({})",
+            zelf.class().name,
+            vm.to_repr(&zelf.value())?.to_string()
+        ))
     }
 
     // Simple_as_number

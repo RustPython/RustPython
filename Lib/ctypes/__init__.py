@@ -2,6 +2,66 @@ import os, sys
 
 from _ctypes import CFuncPtr as _CFuncPtr
 from _ctypes import dlopen as _dlopen
+from _ctypes import _SimpleCData
+
+class c_short(_SimpleCData):
+    _type_ = "h"
+
+class c_ushort(_SimpleCData):
+    _type_ = "H"
+
+class c_long(_SimpleCData):
+    _type_ = "l"
+
+class c_ulong(_SimpleCData):
+    _type_ = "L"
+
+class c_int(_SimpleCData):
+    _type_ = "i"
+
+class c_uint(_SimpleCData):
+    _type_ = "I"
+
+class c_float(_SimpleCData):
+    _type_ = "f"
+
+class c_double(_SimpleCData):
+    _type_ = "d"
+
+class c_longdouble(_SimpleCData):
+    _type_ = "g"
+
+class c_longlong(_SimpleCData):
+    _type_ = "q"
+
+class c_ulonglong(_SimpleCData):
+    _type_ = "Q"
+
+class c_ubyte(_SimpleCData):
+    _type_ = "B"
+
+class c_byte(_SimpleCData):
+    _type_ = "b"
+
+class c_char(_SimpleCData):
+    _type_ = "c"
+
+class c_char_p(_SimpleCData):
+    _type_ = "z"
+
+class c_void_p(_SimpleCData):
+    _type_ = "P"
+    
+c_voidp = c_void_p # backwards compatibility (to a bug)
+
+class c_bool(_SimpleCData):
+    _type_ = "?"
+
+class c_wchar_p(_SimpleCData):
+    _type_ = "Z"
+
+class c_wchar(_SimpleCData):
+    _type_ = "u"
 
 class CDLL(object):
 

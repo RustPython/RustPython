@@ -15,6 +15,7 @@ use crate::stdlib::ctypes::primitive::PySimpleType;
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
+    PyCData::make_class(ctx);
 
     py_module!(vm, "_ctypes", {
         "dlopen" => ctx.new_function(dlopen),

@@ -304,12 +304,12 @@ impl PyCData {
 #[pyimpl(flags(BASETYPE), with(BufferProtocol))]
 impl PyCData {
     // PyCData_methods
-    #[pymethod(name = "__ctypes_from_outparam__")]
+    #[pymethod(magic)]
     pub fn ctypes_from_outparam(zelf: PyRef<Self>) {}
 
-    #[pymethod(name = "__reduce__")]
+    #[pymethod(magic)]
     pub fn reduce(zelf: PyRef<Self>) {}
 
-    #[pymethod(name = "__setstate__")]
+    #[pymethod(magic)]
     pub fn setstate(zelf: PyRef<Self>) {}
 }
