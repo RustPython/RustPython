@@ -12,7 +12,7 @@ use libffi::middle;
 use num_bigint::BigInt;
 
 use crate::builtins::pystr::PyStrRef;
-use crate::builtins::PyTypeRef;
+use crate::builtins::{PyInt, PyTypeRef};
 use crate::common::lock::PyRwLock;
 
 use crate::function::FuncArgs;
@@ -22,7 +22,6 @@ use crate::pyobject::{
 use crate::VirtualMachine;
 
 use crate::stdlib::ctypes::basics::PyCData;
-use crate::stdlib::ctypes::shared_lib::SharedLibrary;
 
 use crate::slots::Callable;
 use crate::stdlib::ctypes::dll::dlsym;
@@ -416,16 +415,16 @@ impl PyCFuncPtr {
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
         if let Ok(h) = vm.get_attribute(arg.clone(), "_handle") {
-            if let Ok(handle) = h.downcast::<SharedLibrary>() {
-                let handle_obj = handle.into_object();
-                let ptr_fn = dlsym(handle_obj.clone(), func_name.clone().into_object(), vm)?;
+            if let Ok(handle) = h.downcast::<PyInt>() {
+                let handle_obj = handle.clone().into_object();
+                let ptr_fn = dlsym(handle, func_name.clone(), vm)?;
                 let fn_ptr = usize::try_from_object(vm, ptr_fn.into_object(vm))? as *mut c_void;
 
                 PyCFuncPtr {
                     _name_: func_name.to_string(),
                     _argtypes_: AtomicCell::default(),
                     _restype_: AtomicCell::new(vm.ctx.none()),
-                    _handle: handle_obj.clone(),
+                    _handle: handle_obj,
                     _f: PyRwLock::new(Function::new(
                         fn_ptr,
                         Vec::new(),
@@ -434,10 +433,7 @@ impl PyCFuncPtr {
                 }
                 .into_ref_with_type(vm, cls)
             } else {
-                Err(vm.new_type_error(format!(
-                    "_handle must be SharedLibrary not {}",
-                    arg.class().name
-                )))
+                Err(vm.new_type_error(format!("_handle must be an int not {}", arg.class().name)))
             }
         } else {
             Err(vm.new_attribute_error(

@@ -11,7 +11,6 @@ use crate::builtins::PyTypeRef;
 use crate::common::lock::PyRwLock;
 use crate::pyobject::{PyRef, PyValue};
 use crate::VirtualMachine;
-#[pyclass(module = false, name = "SharedLibrary")]
 pub struct SharedLibrary {
     path_name: String,
     lib: AtomicCell<Option<Library>>,
@@ -79,24 +78,8 @@ impl SharedLibrary {
     }
 }
 
-#[pyimpl]
-impl SharedLibrary {
-    #[pymethod(magic)]
-    fn repr(&self) -> String {
-        let pointer = self.get_pointer();
-
-        let value = if pointer == 0usize {
-            "None".to_string()
-        } else {
-            pointer.to_string()
-        };
-
-        format!("SharedLibrary({})", value)
-    }
-}
-
 pub struct ExternalLibs {
-    libraries: HashMap<String, PyRef<SharedLibrary>>,
+    libraries: HashMap<usize, PyRef<SharedLibrary>>,
 }
 
 impl ExternalLibs {
@@ -106,29 +89,30 @@ impl ExternalLibs {
         }
     }
 
+    pub fn get_lib(&self, key: usize) -> Option<&PyRef<SharedLibrary>> {
+        self.libraries.get(&key)
+    }
+
     pub fn get_or_insert_lib(
         &mut self,
         library_path: &str,
         vm: &VirtualMachine,
     ) -> Result<&PyRef<SharedLibrary>, libloading::Error> {
-        match self.libraries.get(&library_path.to_string()) {
+        let nlib = SharedLibrary::new(library_path)?.into_ref(vm);
+        let key = nlib.get_pointer();
+
+        match self.libraries.get(&key) {
             Some(l) => {
                 if l.is_closed() {
-                    self.libraries.insert(
-                        library_path.to_string(),
-                        SharedLibrary::new(library_path)?.into_ref(vm),
-                    );
+                    self.libraries.insert(key, nlib);
                 }
             }
             _ => {
-                self.libraries.insert(
-                    library_path.to_string(),
-                    SharedLibrary::new(library_path)?.into_ref(vm),
-                );
+                self.libraries.insert(key, nlib);
             }
         };
 
-        Ok(self.libraries.get(&library_path.to_string()).unwrap())
+        Ok(self.libraries.get(&key).unwrap())
     }
 }
 

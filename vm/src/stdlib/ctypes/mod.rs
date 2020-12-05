@@ -8,10 +8,10 @@ mod function;
 mod primitive;
 mod shared_lib;
 
-use crate::stdlib::ctypes::basics::PyCData;
-use crate::stdlib::ctypes::dll::*;
-use crate::stdlib::ctypes::function::PyCFuncPtr;
-use crate::stdlib::ctypes::primitive::PySimpleType;
+use basics::PyCData;
+use dll::*;
+use function::PyCFuncPtr;
+use primitive::PySimpleType;
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;

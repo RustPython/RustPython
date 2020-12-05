@@ -167,7 +167,7 @@ impl PySimpleType {
                     if tp_str.len() != 1 {
                         Err(vm.new_value_error("class must define a '_type_' attribute which must be a string of length 1".to_string()))
                     } else if !SIMPLE_TYPE_CHARS.contains(tp_str.as_str()) {
-                        Err(vm.new_attribute_error(format!("class must define a '_type_' attribute which must be\na single character string containing one of {}.",SIMPLE_TYPE_CHARS)))
+                        Err(vm.new_attribute_error(format!("class must define a '_type_' attribute which must be a single character string containing one of {}.",SIMPLE_TYPE_CHARS)))
                     } else {
                         PySimpleType {
                             _type_: tp_str,

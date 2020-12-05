@@ -1,25 +1,19 @@
 extern crate libloading;
 
-use crate::builtins::pystr::PyStr;
-use crate::builtins::PyInt;
-use crate::pyobject::{PyObjectRc, PyObjectRef, PyResult, TypeProtocol};
+use crate::builtins::pystr::PyStrRef;
+use crate::builtins::{PyInt, PyIntRef};
+use crate::pyobject::{PyResult, TryFromObject};
 use crate::VirtualMachine;
 
-use crate::stdlib::ctypes::shared_lib::{SharedLibrary, LIBCACHE};
+use crate::stdlib::ctypes::shared_lib::LIBCACHE;
 
-pub fn dlopen(lib_path: PyObjectRc, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-    // Match this error first
-    let lib_str_path = match vm.isinstance(&lib_path, &vm.ctx.types.str_type) {
-        Ok(_) => Ok(lib_path.to_string()),
-        Err(e) => Err(e),
-    }?;
-
+pub fn dlopen(lib_path: PyStrRef, vm: &VirtualMachine) -> PyResult<PyInt> {
     let mut data_cache = LIBCACHE.write();
 
-    let result = data_cache.get_or_insert_lib(lib_str_path.as_ref(), vm);
+    let result = data_cache.get_or_insert_lib(lib_path.as_ref(), vm);
 
     match result {
-        Ok(lib) => Ok(lib.clone().into_object()),
+        Ok(lib) => Ok(PyInt::from(lib.get_pointer())),
         Err(_) => Err(vm.new_os_error(format!(
             "{} : cannot open shared object file: No such file or directory",
             lib_path.to_string()
@@ -27,37 +21,27 @@ pub fn dlopen(lib_path: PyObjectRc, vm: &VirtualMachine) -> PyResult<PyObjectRef
     }
 }
 
-pub fn dlsym(slib: PyObjectRc, func: PyObjectRc, vm: &VirtualMachine) -> PyResult<PyInt> {
-    if !vm.isinstance(&func, &vm.ctx.types.str_type)? {
-        return Err(vm.new_value_error("second argument (func) must be str".to_string()));
-    }
-    let str_ref = func.downcast::<PyStr>().unwrap();
+pub fn dlsym(slib: PyIntRef, str_ref: PyStrRef, vm: &VirtualMachine) -> PyResult<PyInt> {
     let func_name = str_ref.as_ref();
+    let data_cache = LIBCACHE.read();
 
-    match slib.clone().downcast::<SharedLibrary>() {
-        Ok(lib) => {
-            match lib.get_sym(func_name) {
-                Ok(ptr) => Ok(PyInt::from(ptr as *const _ as usize)),
-                Err(e) => Err(vm
-                    .new_runtime_error(format!("Error while opening symbol {}: {}", func_name, e))),
-            }
-        }
-        Err(_) => Err(vm.new_type_error(format!(
-            "a SharedLibrary is required, found {}",
-            slib.class().name
-        ))),
+    match data_cache.get_lib(usize::try_from_object(vm, slib.as_object().clone())?) {
+        Some(l) => match l.get_sym(func_name) {
+            Ok(ptr) => Ok(PyInt::from(ptr as *const _ as usize)),
+            Err(e) => Err(vm.new_runtime_error(e)),
+        },
+        _ => Err(vm.new_runtime_error("not a valid pointer to a shared library".to_string())),
     }
 }
 
-pub fn dlclose(slib: PyObjectRc, vm: &VirtualMachine) -> PyResult {
-    match slib.clone().downcast::<SharedLibrary>() {
-        Ok(lib) => {
-            lib.close();
-            Ok(vm.ctx.none())
+pub fn dlclose(slib: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
+    let data_cache = LIBCACHE.read();
+
+    match data_cache.get_lib(usize::try_from_object(vm, slib.as_object().clone())?) {
+        Some(l) => {
+            l.close();
+            Ok(())
         }
-        Err(_) => Err(vm.new_type_error(format!(
-            "a SharedLibrary is required, found {}",
-            slib.class().name
-        ))),
+        _ => Err(vm.new_runtime_error("not a valid pointer to a shared library".to_string())),
     }
 }

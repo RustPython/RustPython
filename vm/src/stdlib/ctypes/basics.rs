@@ -180,19 +180,14 @@ pub trait PyCDataMethods: PyValue {
     ) -> PyResult<PyCData> {
         if let Ok(h) = vm.get_attribute(cls.as_object().to_owned(), "_handle") {
             // This is something to be "CPython" like
-            let raw_ptr = dlsym(h.clone(), name.into_object(), vm).map_err(|e| {
-                if vm
-                    .isinstance(&e.clone().into(), &vm.ctx.exceptions.value_error)
-                    .is_ok()
-                {
-                    vm.new_type_error(format!(
-                        "_handle must be SharedLibrary not {}",
-                        dll.clone().class().name
-                    ))
-                } else {
-                    e
-                }
-            })?;
+            let raw_ptr = if let Ok(h_int) = h.downcast_exact::<PyInt>(vm) {
+                dlsym(h_int, name, vm)
+            } else {
+                Err(vm.new_type_error(format!(
+                    "_handle must be an int not {}",
+                    dll.clone().class().name
+                )))
+            }?;
 
             let sym_ptr = usize::try_from_object(vm, raw_ptr.into_object(vm))?;
 
