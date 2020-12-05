@@ -38,8 +38,6 @@ class OpcodeTest(unittest.TestCase):
         with self.assertRaises(AttributeError):
             C.__annotations__
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_use_existing_annotations(self):
         ns = {'__annotations__': {1: 2}}
         exec('x: int', ns)

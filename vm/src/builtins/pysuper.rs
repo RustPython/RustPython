@@ -11,7 +11,7 @@ use super::pytype::{PyType, PyTypeRef};
 use crate::function::OptionalArg;
 use crate::pyobject::{
     BorrowValue, IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
+    TypeProtocol,
 };
 use crate::slots::{SlotDescriptor, SlotGetattro};
 use crate::vm::VirtualMachine;
@@ -58,44 +58,54 @@ impl PySuper {
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
         // Get the type:
-        let typ = if let OptionalArg::Present(ty) = py_type {
-            ty
+        let (typ, obj) = if let OptionalArg::Present(ty) = py_type {
+            (ty, py_obj.unwrap_or_none(vm))
         } else {
-            let obj = vm
-                .current_scope()
-                .load_cell(vm, "__class__")
-                .ok_or_else(|| {
-                    vm.new_type_error(
-                        "super must be called with 1 argument or from inside class method"
-                            .to_owned(),
-                    )
-                })?;
-            PyTypeRef::try_from_object(vm, obj)?
-        };
+            let frame = vm
+                .current_frame()
+                .ok_or_else(|| vm.new_runtime_error("super(): no current frame".to_owned()))?;
 
-        // Check type argument:
-        if !typ.as_object().isinstance(&vm.ctx.types.type_type) {
-            return Err(vm.new_type_error(format!(
-                "super() argument 1 must be type, not {}",
-                typ.class().name
-            )));
-        }
-
-        // Get the bound object:
-        let obj = if let OptionalArg::Present(obj) = py_obj {
-            obj
-        } else {
-            let frame = vm.current_frame().expect("no current frame for super()");
-            if let Some(first_arg) = frame.code.arg_names().args.get(0) {
-                let locals = frame.scope.get_locals();
-                locals
-                    .get_item_option(first_arg.clone(), vm)?
-                    .ok_or_else(|| {
-                        vm.new_type_error(format!("super argument {} was not supplied", first_arg))
-                    })?
-            } else {
-                vm.ctx.none()
+            if frame.code.arg_count == 0 {
+                return Err(vm.new_runtime_error("super(): no arguments".to_owned()));
             }
+            let obj = frame.fastlocals.lock()[0]
+                .clone()
+                .or_else(|| {
+                    if let Some(cell2arg) = frame.code.cell2arg.as_deref() {
+                        cell2arg[..frame.code.cellvars.len()]
+                            .iter()
+                            .enumerate()
+                            .find(|(_, arg_idx)| **arg_idx == 0)
+                            .and_then(|(cell_idx, _)| frame.cells_frees[cell_idx].get())
+                    } else {
+                        None
+                    }
+                })
+                .ok_or_else(|| vm.new_runtime_error("super(): arg[0] deleted".to_owned()))?;
+
+            let mut typ = None;
+            for (i, var) in frame.code.freevars.iter().enumerate() {
+                if var.borrow_value() == "__class__" {
+                    let i = frame.code.cellvars.len() + i;
+                    let class = frame.cells_frees[i].get().ok_or_else(|| {
+                        vm.new_runtime_error("super(): empty __class__ cell".to_owned())
+                    })?;
+                    typ = Some(class.downcast().map_err(|o| {
+                        vm.new_type_error(format!(
+                            "super(): __class__ is not a type ({})",
+                            o.class().name
+                        ))
+                    })?);
+                    break;
+                }
+            }
+            let typ = typ.ok_or_else(|| {
+                vm.new_type_error(
+                    "super must be called with 1 argument or from inside class method".to_owned(),
+                )
+            })?;
+
+            (typ, obj)
         };
 
         PySuper::new(typ, obj, vm)?.into_ref_with_type(vm, cls)

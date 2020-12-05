@@ -1,11 +1,10 @@
-use rustpython_vm::builtins::PyStrRef;
+use rustpython_vm::builtins::{PyDictRef, PyStrRef};
 use rustpython_vm::pyobject::{BorrowValue, PyIterable, PyResult, TryFromObject};
-use rustpython_vm::scope::Scope;
 use rustpython_vm::VirtualMachine;
 
 pub struct ShellHelper<'vm> {
     vm: &'vm VirtualMachine,
-    scope: Scope,
+    globals: PyDictRef,
 }
 
 fn reverse_string(s: &mut String) {
@@ -51,8 +50,8 @@ fn split_idents_on_dot(line: &str) -> Option<(usize, Vec<String>)> {
 }
 
 impl<'vm> ShellHelper<'vm> {
-    pub fn new(vm: &'vm VirtualMachine, scope: Scope) -> Self {
-        ShellHelper { vm, scope }
+    pub fn new(vm: &'vm VirtualMachine, globals: PyDictRef) -> Self {
+        ShellHelper { vm, globals }
     }
 
     #[allow(clippy::type_complexity)]
@@ -74,7 +73,10 @@ impl<'vm> ShellHelper<'vm> {
             // last: the last word, could be empty if it ends with a dot
             // parents: the words before the dot
 
-            let mut current = self.scope.load_global(self.vm, first.as_str())?;
+            let mut current = self
+                .globals
+                .get_item_option(first.as_str(), self.vm)
+                .ok()??;
 
             for attr in parents {
                 current = self.vm.get_attribute(current.clone(), attr.as_str()).ok()?;
@@ -86,7 +88,7 @@ impl<'vm> ShellHelper<'vm> {
         } else {
             // we need to get a variable based off of globals/builtins
 
-            let globals = str_iter_method(self.scope.globals.as_object(), "keys").ok()?;
+            let globals = str_iter_method(self.globals.as_object(), "keys").ok()?;
             let builtins = str_iter_method(&self.vm.builtins, "__dir__").ok()?;
             Some((&first, Box::new(Iterator::chain(globals, builtins)) as _))
         }

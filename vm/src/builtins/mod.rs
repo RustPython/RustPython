@@ -70,7 +70,7 @@ pub(crate) mod staticmethod;
 pub use staticmethod::PyStaticMethod;
 pub(crate) mod traceback;
 pub use traceback::PyTraceback;
-pub(crate) mod tuple;
+pub mod tuple;
 pub use tuple::PyTuple;
 pub(crate) mod weakproxy;
 pub use weakproxy::PyWeakProxy;

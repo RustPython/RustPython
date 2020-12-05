@@ -44,12 +44,12 @@ impl FrameRef {
 
     #[pyproperty]
     fn f_globals(self) -> PyDictRef {
-        self.scope.globals.clone()
+        self.globals.clone()
     }
 
     #[pyproperty]
-    fn f_locals(self) -> PyDictRef {
-        self.scope.get_locals().clone()
+    fn f_locals(self, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+        self.locals(vm)
     }
 
     #[pyproperty]

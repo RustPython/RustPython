@@ -10,11 +10,11 @@ edition = "2018"
 autotests = false
 
 [dependencies]
-cranelift = "0.66.0"
-cranelift-module = "0.66.0"
-cranelift-simplejit = "0.66.0"
+cranelift = "0.68.0"
+cranelift-module = "0.68.0"
+cranelift-simplejit = "0.68.0"
 num-traits = "0.2"
-libffi = "0.9.0"
+libffi = "1.0"
 rustpython-bytecode = { path = "../bytecode", version = "0.1.2" }
 thiserror = "1.0"
 

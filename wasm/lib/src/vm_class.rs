@@ -17,7 +17,7 @@ use crate::wasm_builtins;
 
 pub(crate) struct StoredVirtualMachine {
     pub interp: Interpreter,
-    pub scope: RefCell<Scope>,
+    pub scope: Scope,
     /// you can put a Rc in here, keep it as a Weak, and it'll be held only for
     /// as long as the StoredVM is alive
     held_objects: RefCell<Vec<PyObjectRef>>,
@@ -47,7 +47,7 @@ impl StoredVirtualMachine {
 
         StoredVirtualMachine {
             interp,
-            scope: RefCell::new(scope.unwrap()),
+            scope: scope.unwrap(),
             held_objects: RefCell::new(Vec::new()),
         }
     }
@@ -203,8 +203,8 @@ impl WASMVirtualMachine {
     pub fn add_to_scope(&self, name: String, value: JsValue) -> Result<(), JsValue> {
         self.with_vm(move |vm, StoredVirtualMachine { ref scope, .. }| {
             let value = convert::js_to_py(vm, value);
-            scope.borrow_mut().store_name(&vm, name.as_str(), value);
-        })
+            scope.globals.set_item(name, value, vm).to_js(vm)
+        })?
     }
 
     #[wasm_bindgen(js_name = setStdout)]
@@ -264,7 +264,7 @@ impl WASMVirtualMachine {
                 }
             }
 
-            vm.run_code_obj(code, Scope::new(None, attrs.clone(), vm))
+            vm.run_code_obj(code, Scope::new(None, attrs.clone()))
                 .to_js(vm)?;
 
             let module = vm.new_module(&name, attrs);
@@ -309,7 +309,7 @@ impl WASMVirtualMachine {
             let source_path = source_path.unwrap_or_else(|| "<wasm>".to_owned());
             let code = vm.compile(source, mode, source_path);
             let code = code.map_err(convert::syntax_err)?;
-            let result = vm.run_code_obj(code, scope.borrow().clone());
+            let result = vm.run_code_obj(code, scope.clone());
             convert::pyresult_to_jsresult(vm, result)
         })?
     }
