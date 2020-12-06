@@ -144,7 +144,7 @@ pub struct Function {
     pointer: *mut c_void,
     cif: ffi_cif,
     arguments: Vec<*mut ffi_type>,
-    return_type: Box<String>,
+    return_type: Box<*mut ffi_type>,
 }
 
 impl Function {
@@ -154,7 +154,7 @@ impl Function {
             cif: Default::default(),
             arguments: arguments.iter().map(|s| str_to_type(s.as_str())).collect(),
 
-            return_type: Box::new(return_type.to_string()),
+            return_type: Box::new(str_to_type(return_type)),
         }
     }
     pub fn set_args(&mut self, args: Vec<String>) {
@@ -164,7 +164,7 @@ impl Function {
     }
 
     pub fn set_ret(&mut self, ret: &str) {
-        (*self.return_type.as_mut()) = ret.to_string();
+        (*self.return_type.as_mut()) = str_to_type(ret);
     }
 
     pub fn call(
@@ -177,7 +177,7 @@ impl Function {
                 &mut self.cif,
                 ABI,
                 self.arguments.len(),
-                str_to_type(self.return_type.as_ref()),
+                *self.return_type.as_mut(),
                 self.arguments.as_mut_ptr(),
             )
         };
@@ -190,70 +190,71 @@ impl Function {
             return Err(vm.new_runtime_error("The ABI is invalid or unsupported".to_string()));
         }
 
-        let argument_pointers: Result<Vec<*mut c_void>, _> = arg_ptrs
+        let arg_results: Result<Vec<*mut c_void>, _> = arg_ptrs
             .iter()
             .zip(self.arguments.iter_mut())
             .map(|(o, t)| py_to_ffi(t as *mut *mut _, o.clone(), vm))
             .collect();
 
-        // @TODO: Something wrong with declaring argument_pointers?.as_mut_ptr() before
         let fun_ptr = CodePtr(self.pointer);
 
         let cif_ptr = &mut self.cif;
+        let mut arg_pointers = arg_results?;
 
-        let ret_ptr = unsafe {
-            match self.return_type.as_str() {
-                "b" | "c" => {
-                    let r: c_schar = ffi_call(cif_ptr, fun_ptr, argument_pointers?.as_mut_ptr());
+        let res = unsafe {
+            match_ffi_type!(
+                *self.return_type.as_mut(),
+                c_schar => {
+                    let r: c_schar = ffi_call(cif_ptr, fun_ptr, arg_pointers.as_mut_ptr());
                     vm.new_pyobj(r as i8)
                 }
-                "u" | "i" => {
-                    let r: c_int = ffi_call(cif_ptr, fun_ptr, argument_pointers?.as_mut_ptr());
+                c_int => {
+                    let r: c_int = ffi_call(cif_ptr, fun_ptr, arg_pointers.as_mut_ptr());
                     vm.new_pyobj(r as i32)
                 }
-                "h" => {
-                    let r: c_short = ffi_call(cif_ptr, fun_ptr, argument_pointers?.as_mut_ptr());
+                c_short => {
+                    let r: c_short = ffi_call(cif_ptr, fun_ptr, arg_pointers.as_mut_ptr());
                     vm.new_pyobj(r as i16)
                 }
-                "H" => {
-                    let r: c_ushort = ffi_call(cif_ptr, fun_ptr, argument_pointers?.as_mut_ptr());
+                c_ushort => {
+                    let r: c_ushort = ffi_call(cif_ptr, fun_ptr, arg_pointers.as_mut_ptr());
                     vm.new_pyobj(r as u16)
                 }
-                "I" => {
-                    let r: c_uint = ffi_call(cif_ptr, fun_ptr, argument_pointers?.as_mut_ptr());
+                c_uint => {
+                    let r: c_uint = ffi_call(cif_ptr, fun_ptr, arg_pointers.as_mut_ptr());
                     vm.new_pyobj(r as u32)
                 }
-                "l" | "q" => {
-                    let r: c_long = ffi_call(cif_ptr, fun_ptr, argument_pointers?.as_mut_ptr());
+                c_long | c_longlong => {
+                    let r: c_long = ffi_call(cif_ptr, fun_ptr, arg_pointers.as_mut_ptr());
                     vm.new_pyobj(r as i64)
                 }
-                "L" | "Q" => {
-                    let r: c_ulong = ffi_call(cif_ptr, fun_ptr, argument_pointers?.as_mut_ptr());
+                c_ulong | c_ulonglong => {
+                    let r: c_ulong = ffi_call(cif_ptr, fun_ptr, arg_pointers.as_mut_ptr());
                     vm.new_pyobj(r as u64)
                 }
-                "f" => {
-                    let r: c_float = ffi_call(cif_ptr, fun_ptr, argument_pointers?.as_mut_ptr());
+                f32 => {
+                    let r: c_float = ffi_call(cif_ptr, fun_ptr, arg_pointers.as_mut_ptr());
                     vm.new_pyobj(r as f32)
                 }
-                "d" | "g" => {
-                    let r: c_double = ffi_call(cif_ptr, fun_ptr, argument_pointers?.as_mut_ptr());
+                f64 | longdouble=> {
+                    let r: c_double = ffi_call(cif_ptr, fun_ptr, arg_pointers.as_mut_ptr());
                     vm.new_pyobj(r as f64)
                 }
-                "?" | "B" => {
-                    let r: c_uchar = ffi_call(cif_ptr, fun_ptr, argument_pointers?.as_mut_ptr());
+                c_uchar => {
+                    let r: c_uchar = ffi_call(cif_ptr, fun_ptr, arg_pointers.as_mut_ptr());
                     vm.new_pyobj(r as u8)
                 }
-                "z" | "Z" => {
-                    let r: *mut c_void =
-                        ffi_call(cif_ptr, fun_ptr, argument_pointers?.as_mut_ptr());
+                pointer => {
+                    let r: *mut c_void = ffi_call(cif_ptr, fun_ptr, arg_pointers.as_mut_ptr());
                     vm.new_pyobj(r as *const _ as usize)
                 }
-                "P" => vm.ctx.none(),
-                _ => unreachable!(),
-            }
+                void => {
+                    vm.ctx.none()
+                }
+            )
         };
 
-        Ok(ret_ptr)
+        Ok(res)
     }
 }
 
