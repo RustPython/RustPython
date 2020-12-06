@@ -388,6 +388,7 @@ mod _os {
 
     #[cfg(any(target_os = "macos"))]
     #[pyfunction]
+    #[allow(clippy::too_many_arguments)]
     fn sendfile(
         out_fd: i32,
         in_fd: i32,
