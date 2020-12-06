@@ -96,19 +96,16 @@ class CDLL(object):
     indexing with the function name.  Examples:
     <obj>.qsort -> callable object
     <obj>['qsort'] -> callable object
-    Calling the functions releases the Python GIL during the call and
-    reacquires it afterwards.
     """
-    _func_restype_ = c_int
-    # default values for repr
     _name = '<uninitialized>'
     _handle = 0
-    _FuncPtr = None
 
     def __init__(self, name,handle=None):
         self._name = name
+
         class _FuncPtr(_CFuncPtr):
-            _restype_ = self._func_restype_
+            pass
+        
         self._FuncPtr = _FuncPtr
 
         if handle is None:

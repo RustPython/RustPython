@@ -68,8 +68,8 @@ fn buffer_copy(
                     let opts = buffer.get_options().clone();
 
                     // @TODO: Fix the way the size of stored
-                    // Would this be the proper replacement?
-                    // vm.call_method(cls.as_object(), "size", ())?.
+                    // Would this be the a proper replacement?
+                    // vm.call_method(cls.as_object().to_owned(), "size", ())?.
                     let cls_size = vm
                         .get_attribute(cls.as_object().to_owned(), "_size")
                         .map(|c_s| usize::try_from_object(vm, c_s.clone()))??;
@@ -93,7 +93,7 @@ fn buffer_copy(
                     } else if let Some(mut buffer) = buffer.as_contiguous_mut() {
                         let buffered =
                             unsafe { slice::from_raw_parts(buffer.as_mut_ptr(), buffer.len()) };
-                        // @TODO: Is this ok?
+                        // @TODO: Is this avoiding unecessary data copy?
                         Ok(PyCData::new(
                             None,
                             Some(if copy {
@@ -189,7 +189,7 @@ pub trait PyCDataMethods: PyValue {
                 )))
             }?;
 
-            let sym_ptr = usize::try_from_object(vm, raw_ptr.into_object(vm))?;
+            let sym_ptr = usize::try_from_object(vm, raw_ptr)?;
 
             let buffer = at_address(&cls, sym_ptr, vm)?;
             Ok(PyCData::new(None, Some(buffer)))

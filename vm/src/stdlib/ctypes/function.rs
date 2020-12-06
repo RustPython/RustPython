@@ -141,20 +141,20 @@ fn py_to_ffi(
 
 #[derive(Debug)]
 pub struct Function {
-    pointer: *const c_void,
+    pointer: *mut c_void,
     cif: ffi_cif,
     arguments: Vec<*mut ffi_type>,
-    return_type: Box<*mut ffi_type>,
+    return_type: Box<String>,
 }
 
 impl Function {
-    pub fn new(fn_ptr: *const c_void, arguments: Vec<String>, return_type: &str) -> Function {
+    pub fn new(fn_ptr: usize, arguments: Vec<String>, return_type: &str) -> Function {
         Function {
-            pointer: fn_ptr,
+            pointer: fn_ptr as *mut _,
             cif: Default::default(),
             arguments: arguments.iter().map(|s| str_to_type(s.as_str())).collect(),
 
-            return_type: Box::new(str_to_type(return_type)),
+            return_type: Box::new(return_type.to_string()),
         }
     }
     pub fn set_args(&mut self, args: Vec<String>) {
@@ -164,7 +164,7 @@ impl Function {
     }
 
     pub fn set_ret(&mut self, ret: &str) {
-        (*self.return_type.as_mut()) = str_to_type(ret);
+        (*self.return_type.as_mut()) = ret.to_string();
     }
 
     pub fn call(
@@ -172,14 +172,12 @@ impl Function {
         arg_ptrs: Vec<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRc> {
-        let return_type: *mut ffi_type = &mut unsafe { self.return_type.read() };
-
         let result = unsafe {
             prep_cif(
                 &mut self.cif,
                 ABI,
                 self.arguments.len(),
-                return_type,
+                str_to_type(self.return_type.as_ref()),
                 self.arguments.as_mut_ptr(),
             )
         };
@@ -195,67 +193,64 @@ impl Function {
         let argument_pointers: Result<Vec<*mut c_void>, _> = arg_ptrs
             .iter()
             .zip(self.arguments.iter_mut())
-            .map(|(o, t)| {
-                let tt: *mut *mut ffi_type = t;
-                py_to_ffi(tt, o.clone(), vm)
-            })
+            .map(|(o, t)| py_to_ffi(t as *mut *mut _, o.clone(), vm))
             .collect();
 
-        let cif_ptr = &self.cif as *const _ as *mut ffi_cif;
-        let fun_ptr = CodePtr::from_ptr(self.pointer);
-        let args_ptr = argument_pointers?.as_mut_ptr();
+        // @TODO: Something wrong with declaring argument_pointers?.as_mut_ptr() before
+        let fun_ptr = CodePtr(self.pointer);
+
+        let cif_ptr = &mut self.cif;
 
         let ret_ptr = unsafe {
-            match_ffi_type!(
-                return_type,
-                c_schar => {
-                    let r: c_schar = ffi_call(cif_ptr, fun_ptr, args_ptr);
+            match self.return_type.as_str() {
+                "b" | "c" => {
+                    let r: c_schar = ffi_call(cif_ptr, fun_ptr, argument_pointers?.as_mut_ptr());
                     vm.new_pyobj(r as i8)
                 }
-                c_int => {
-                    let r: c_int = ffi_call(cif_ptr, fun_ptr, args_ptr);
+                "u" | "i" => {
+                    let r: c_int = ffi_call(cif_ptr, fun_ptr, argument_pointers?.as_mut_ptr());
                     vm.new_pyobj(r as i32)
                 }
-                c_short => {
-                    let r: c_short = ffi_call(cif_ptr, fun_ptr, args_ptr);
+                "h" => {
+                    let r: c_short = ffi_call(cif_ptr, fun_ptr, argument_pointers?.as_mut_ptr());
                     vm.new_pyobj(r as i16)
                 }
-                c_ushort => {
-                    let r: c_ushort = ffi_call(cif_ptr, fun_ptr, args_ptr);
+                "H" => {
+                    let r: c_ushort = ffi_call(cif_ptr, fun_ptr, argument_pointers?.as_mut_ptr());
                     vm.new_pyobj(r as u16)
                 }
-                c_uint => {
-                    let r: c_uint = ffi_call(cif_ptr, fun_ptr, args_ptr);
+                "I" => {
+                    let r: c_uint = ffi_call(cif_ptr, fun_ptr, argument_pointers?.as_mut_ptr());
                     vm.new_pyobj(r as u32)
                 }
-                c_long | c_longlong => {
-                    let r: c_long = ffi_call(cif_ptr, fun_ptr, args_ptr);
+                "l" | "q" => {
+                    let r: c_long = ffi_call(cif_ptr, fun_ptr, argument_pointers?.as_mut_ptr());
                     vm.new_pyobj(r as i64)
                 }
-                c_ulong | c_ulonglong => {
-                    let r: c_ulong = ffi_call(cif_ptr, fun_ptr, args_ptr);
+                "L" | "Q" => {
+                    let r: c_ulong = ffi_call(cif_ptr, fun_ptr, argument_pointers?.as_mut_ptr());
                     vm.new_pyobj(r as u64)
                 }
-                f32 => {
-                    let r: c_float = ffi_call(cif_ptr, fun_ptr, args_ptr);
+                "f" => {
+                    let r: c_float = ffi_call(cif_ptr, fun_ptr, argument_pointers?.as_mut_ptr());
                     vm.new_pyobj(r as f32)
                 }
-                f64 | longdouble => {
-                    let r: c_double = ffi_call(cif_ptr, fun_ptr, args_ptr);
+                "d" | "g" => {
+                    let r: c_double = ffi_call(cif_ptr, fun_ptr, argument_pointers?.as_mut_ptr());
                     vm.new_pyobj(r as f64)
                 }
-                c_uchar => {
-                    let r: c_uchar = ffi_call(cif_ptr, fun_ptr, args_ptr);
+                "?" | "B" => {
+                    let r: c_uchar = ffi_call(cif_ptr, fun_ptr, argument_pointers?.as_mut_ptr());
                     vm.new_pyobj(r as u8)
                 }
-                pointer => {
-                    let r: *mut c_void = ffi_call(cif_ptr, fun_ptr, args_ptr);
+                "z" | "Z" => {
+                    let r: *mut c_void =
+                        ffi_call(cif_ptr, fun_ptr, argument_pointers?.as_mut_ptr());
                     vm.new_pyobj(r as *const _ as usize)
                 }
-                void => {
-                    vm.ctx.none()
-                }
-            )
+                "P" => vm.ctx.none(),
+                _ => unreachable!(),
+            }
         };
 
         Ok(ret_ptr)
@@ -311,9 +306,10 @@ impl PyCFuncPtr {
                 .map(|(idx, inner_obj)| {
                     match vm.isinstance(inner_obj, PySimpleType::static_type()) {
                         // @TODO: checks related to _type_ are temporary
+                        // it needs to check for from_param method, instead
                         Ok(_) => Ok(vm.get_attribute(inner_obj.clone(), "_type_").unwrap()),
                         _ => Err(vm.new_type_error(format!(
-                            "positional argument {} must be subclass of _SimpleType, but type {} found",
+                            "item {} in _argtypes_ must be subclass of _SimpleType, but type {} found",
                             idx,
                             inner_obj.class().name
                         ))),
@@ -336,7 +332,7 @@ impl PyCFuncPtr {
             Ok(())
         } else {
             Err(vm.new_type_error(format!(
-                "argtypes must be Tuple or List, {} found.",
+                "_argtypes_ must be a sequence of types, {} found.",
                 argtypes.to_string()
             )))
         }
@@ -348,8 +344,8 @@ impl PyCFuncPtr {
             // @TODO: checks related to _type_ are temporary
             Ok(_) => match vm.get_attribute(restype.clone(), "_type_") {
                 Ok(_type_) => {
+                    // @TODO: restype must be a type, a callable, or None
                     self._restype_.store(restype.clone());
-
                     let mut fn_ptr = self._f.write();
                     fn_ptr.set_ret(vm.to_str(&_type_)?.as_ref());
 
@@ -385,7 +381,7 @@ impl PyCFuncPtr {
     /// # Arguments
     ///
     /// * `func_name` - A string that names the function symbol
-    /// * `arg` - A Python object with _handle attribute of type SharedLibrary
+    /// * `arg` - A Python object with _handle attribute of type int
     ///
     fn from_dll(
         cls: PyTypeRef,
@@ -397,7 +393,7 @@ impl PyCFuncPtr {
             if let Ok(handle) = h.downcast::<PyInt>() {
                 let handle_obj = handle.clone().into_object();
                 let ptr_fn = dlsym(handle, func_name.clone(), vm)?;
-                let fn_ptr = usize::try_from_object(vm, ptr_fn.into_object(vm))? as *mut c_void;
+                let fn_ptr = usize::try_from_object(vm, ptr_fn)?;
 
                 PyCFuncPtr {
                     _name_: func_name.to_string(),
@@ -407,7 +403,7 @@ impl PyCFuncPtr {
                     _f: PyRwLock::new(Function::new(
                         fn_ptr,
                         Vec::new(),
-                        "P", // put a default here
+                        "i", // put a default here
                     )),
                 }
                 .into_ref_with_type(vm, cls)
@@ -428,8 +424,9 @@ impl Callable for PyCFuncPtr {
 
         if args.args.len() != inner_args.len() {
             return Err(vm.new_runtime_error(format!(
-                "invalid number of arguments, required {}, but {} found",
+                "this function takes at least {} argument{} ({} given)",
                 inner_args.len(),
+                if !inner_args.is_empty() { "s" } else { "" },
                 args.args.len()
             )));
         }

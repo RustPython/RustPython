@@ -1,11 +1,11 @@
 use crossbeam_utils::atomic::AtomicCell;
-use num_bigint::BigInt;
-use num_traits::FromPrimitive;
 use rustpython_common::borrow::BorrowValue;
 use std::fmt;
 
 use crate::builtins::PyTypeRef;
-use crate::builtins::{pybool::boolval, PyByteArray, PyBytes, PyFloat, PyInt, PyNone, PyStr};
+use crate::builtins::{
+    int::try_to_primitive, pybool::boolval, PyByteArray, PyBytes, PyFloat, PyInt, PyNone, PyStr,
+};
 use crate::function::OptionalArg;
 use crate::pyobject::{
     PyObjectRc, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
@@ -53,10 +53,10 @@ fn set_primitive(_type_: &str, value: &PyObjectRc, vm: &VirtualMachine) -> PyRes
                 || value
                     .clone()
                     .downcast_exact::<PyInt>(vm)
-                    .map_or(false, |v| {
-                        v.borrow_value().ge(&BigInt::from_i64(0).unwrap())
-                            || v.borrow_value().le(&BigInt::from_i64(255).unwrap())
-                    })
+                    .map_or(Ok(false), |v| {
+                        let n: i64 = try_to_primitive(v.borrow_value(), vm)?;
+                        Ok(0 <= n && n <= 255)
+                    })?
             {
                 Ok(value.clone())
             } else {
@@ -188,7 +188,7 @@ impl PySimpleType {
         }
     }
 
-    #[pymethod(name = "__init__")]
+    #[pymethod(magic)]
     pub fn init(&self, value: OptionalArg, vm: &VirtualMachine) -> PyResult<()> {
         match value.into_option() {
             Some(ref v) => {
@@ -221,7 +221,7 @@ impl PySimpleType {
     }
 
     // From Simple_Type Simple_methods
-    #[pymethod(name = "__ctypes_from_outparam__")]
+    #[pymethod(magic)]
     pub fn ctypes_from_outparam(&self) {}
 
     // From PyCSimpleType_Type PyCSimpleType_methods
@@ -229,7 +229,7 @@ impl PySimpleType {
     pub fn from_param(cls: PyTypeRef, vm: &VirtualMachine) {}
 
     // Simple_repr
-    #[pymethod(name = "__repr__")]
+    #[pymethod(magic)]
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
         Ok(format!(
             "{}({})",
@@ -239,7 +239,7 @@ impl PySimpleType {
     }
 
     // Simple_as_number
-    // #[pymethod(name = "__bool__")]
+    // #[pymethod(magic)]
     // fn bool(&self) -> bool {
     //
     // }

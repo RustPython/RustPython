@@ -12,7 +12,6 @@ use crate::common::lock::PyRwLock;
 use crate::pyobject::{PyRef, PyValue};
 use crate::VirtualMachine;
 pub struct SharedLibrary {
-    path_name: String,
     lib: AtomicCell<Option<Library>>,
 }
 
@@ -21,10 +20,8 @@ impl fmt::Debug for SharedLibrary {
         write!(
             f,
             "SharedLibrary {{
-            path_name: {},
             lib: {},
         }}",
-            self.path_name.as_str(),
             self.get_pointer()
         )
     }
@@ -39,7 +36,6 @@ impl PyValue for SharedLibrary {
 impl SharedLibrary {
     pub fn new(name: &str) -> Result<SharedLibrary, libloading::Error> {
         Ok(SharedLibrary {
-            path_name: name.to_string(),
             lib: AtomicCell::new(Some(Library::new(name.to_string())?)),
         })
     }
@@ -61,9 +57,9 @@ impl SharedLibrary {
 
     pub fn get_pointer(&self) -> usize {
         if let Some(l) = unsafe { &*self.lib.as_ptr() } {
-            l as *const Library as *const u32 as usize
+            l as *const Library as usize
         } else {
-            null() as *const u32 as usize
+            null::<c_void>() as usize
         }
     }
 
