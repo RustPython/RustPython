@@ -117,13 +117,13 @@ impl PyList {
     }
 
     #[pymethod(name = "__iadd__")]
-    fn iadd(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn iadd(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if let Ok(new_elements) = vm.extract_elements(&other) {
             let mut e = new_elements;
             zelf.borrow_value_mut().append(&mut e);
-            Ok(zelf.into_object())
+            zelf.into_object()
         } else {
-            Ok(vm.ctx.not_implemented())
+            vm.ctx.not_implemented()
         }
     }
 

@@ -320,8 +320,8 @@ mod decl {
     }
 
     #[pyfunction]
-    fn globals(vm: &VirtualMachine) -> PyResult<PyDictRef> {
-        Ok(vm.current_globals().clone())
+    fn globals(vm: &VirtualMachine) -> PyDictRef {
+        vm.current_globals().clone()
     }
 
     #[pyfunction]

@@ -51,12 +51,7 @@ impl PyModule {
     }
 
     #[pymethod(magic)]
-    fn init(
-        zelf: PyRef<Self>,
-        name: PyStrRef,
-        doc: OptionalOption<PyStrRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
+    fn init(zelf: PyRef<Self>, name: PyStrRef, doc: OptionalOption<PyStrRef>, vm: &VirtualMachine) {
         debug_assert!(crate::pyobject::TypeProtocol::class(zelf.as_object())
             .slots
             .flags
@@ -67,7 +62,6 @@ impl PyModule {
             name.into_object(),
             doc.flatten().into_pyobject(vm),
         );
-        Ok(())
     }
 
     fn name(zelf: PyRef<Self>, vm: &VirtualMachine) -> Option<String> {

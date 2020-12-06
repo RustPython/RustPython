@@ -118,8 +118,8 @@ impl PyBytes {
     }
 
     #[pymethod(name = "__sizeof__")]
-    fn sizeof(&self) -> PyResult<usize> {
-        Ok(size_of::<Self>() + self.inner.elements.len() * size_of::<u8>())
+    fn sizeof(&self) -> usize {
+        size_of::<Self>() + self.inner.elements.len() * size_of::<u8>()
     }
 
     #[pymethod(name = "__add__")]
@@ -387,11 +387,11 @@ impl PyBytes {
     }
 
     #[pymethod(name = "splitlines")]
-    fn splitlines(&self, options: anystr::SplitLinesArgs, vm: &VirtualMachine) -> PyResult {
+    fn splitlines(&self, options: anystr::SplitLinesArgs, vm: &VirtualMachine) -> PyObjectRef {
         let lines = self
             .inner
             .splitlines(options, |x| vm.ctx.new_bytes(x.to_vec()));
-        Ok(vm.ctx.new_list(lines))
+        vm.ctx.new_list(lines)
     }
 
     #[pymethod(name = "zfill")]

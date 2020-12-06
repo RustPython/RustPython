@@ -41,32 +41,24 @@ mod decl {
 
     /// Compute an Adler-32 checksum of data.
     #[pyfunction]
-    fn adler32(data: PyBytesRef, begin_state: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult {
+    fn adler32(data: PyBytesRef, begin_state: OptionalArg<i32>) -> u32 {
         let data = data.borrow_value();
-
         let begin_state = begin_state.unwrap_or(1);
 
         let mut hasher = Adler32::from_value(begin_state as u32);
         hasher.update_buffer(data);
-
-        let checksum: u32 = hasher.hash();
-
-        Ok(vm.ctx.new_int(checksum))
+        hasher.hash()
     }
 
     /// Compute a CRC-32 checksum of data.
     #[pyfunction]
-    fn crc32(data: PyBytesRef, begin_state: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult {
+    fn crc32(data: PyBytesRef, begin_state: OptionalArg<i32>) -> u32 {
         let data = data.borrow_value();
-
         let begin_state = begin_state.unwrap_or(0);
 
         let mut hasher = Crc32::new_with_initial(begin_state as u32);
         hasher.update(data);
-
-        let checksum: u32 = hasher.finalize();
-
-        Ok(vm.ctx.new_int(checksum))
+        hasher.finalize()
     }
 
     /// Returns a bytes object containing compressed data.
