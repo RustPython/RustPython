@@ -203,17 +203,17 @@ fn inner_truediv(i1: &BigInt, i2: &BigInt, vm: &VirtualMachine) -> PyResult {
         return Err(vm.new_zero_division_error("integer division by zero".to_owned()));
     }
 
-    if let (Some(f1), Some(f2)) = (i1.to_f64(), i2.to_f64()) {
+    if let (Some(f1), Some(f2)) = (i2f(i1), i2f(i2)) {
         Ok(vm.ctx.new_float(f1 / f2))
     } else {
         let (quotient, mut rem) = i1.div_rem(i2);
         let mut divisor = i2.clone();
 
-        if let Some(quotient) = quotient.to_f64() {
+        if let Some(quotient) = i2f(&quotient) {
             let rem_part = loop {
                 if rem.is_zero() {
                     break 0.0;
-                } else if let (Some(rem), Some(divisor)) = (rem.to_f64(), divisor.to_f64()) {
+                } else if let (Some(rem), Some(divisor)) = (i2f(&rem), i2f(&divisor)) {
                     break rem / divisor;
                 } else {
                     // try with smaller numbers
@@ -893,8 +893,11 @@ pub fn get_value(obj: &PyObjectRef) -> &BigInt {
 }
 
 pub fn to_float(int: &BigInt, vm: &VirtualMachine) -> PyResult<f64> {
-    int.to_f64()
-        .ok_or_else(|| vm.new_overflow_error("int too large to convert to float".to_owned()))
+    i2f(int).ok_or_else(|| vm.new_overflow_error("int too large to convert to float".to_owned()))
+}
+// num-bigint now returns Some(inf) for to_f64() in some cases, so just keep that the same for now
+fn i2f(int: &BigInt) -> Option<f64> {
+    int.to_f64().filter(|f| f.is_finite())
 }
 
 pub(crate) fn try_int(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt> {
