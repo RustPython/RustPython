@@ -19,7 +19,8 @@ In the notebook, you can write markdown, math and python. use %% then:
 - math-inline for an inline math block
 
 
-I **can** bold things and _italicize_ them. You got the gist, this is standard markdown syntax that you can [google](google.com).
+I **can** bold things and _italicize_ them. You got the gist, this is standard
+markdown syntax that you can [google](google.com).
 
 <br>
 

@@ -25,53 +25,65 @@ function renderMath(math) {
     });
 }
 
-function runPython(code, target, error) {
+function runPython(pyvm, code, error) {
     try {
-        rp.pyExec(code, {
-            stdout: (output) => {
-                target.innerHTML += output;
-            }
-        });
+        pyvm.exec(code);
     } catch (err) {
-        if (err instanceof WebAssembly.RuntimeError) {
-            err = window.__RUSTPYTHON_ERROR || err;
-        }
-        error.textContent = err;
+        handlePythonError(error, err);
     }
 }
 
-function addCSS(code) { 
+function handlePythonError(errorElem, err) {
+    if (err instanceof WebAssembly.RuntimeError) {
+        err = window.__RUSTPYTHON_ERROR || err;
+    }
+    errorElem.textContent = err;
+}
+
+function addCSS(code) {
     let style = document.createElement('style');
     style.type = 'text/css';
     style.innerHTML = code;
     // add a data attribute to check if css already loaded
-    style.dataset.status = "loaded";
+    style.dataset.status = 'loaded';
     document.getElementsByTagName('head')[0].appendChild(style);
 }
 
 function checkCssStatus() {
     let style = document.getElementsByTagName('style')[0];
     if (!style) {
-       return "none";
+        return 'none';
     } else {
         return style.dataset.status;
     }
 }
 
-function runJS(code) {
+async function runJS(code) {
     const script = document.createElement('script');
     const doc = document.body || document.documentElement;
     const blob = new Blob([code], { type: 'text/javascript' });
     const url = URL.createObjectURL(blob);
     script.src = url;
+    const scriptLoaded = new Promise((resolve) => {
+        script.addEventListener('load', resolve);
+    });
     doc.appendChild(script);
     try {
-      URL.revokeObjectURL(url);
-      doc.removeChild(script);
+        URL.revokeObjectURL(url);
+        doc.removeChild(script);
+        await scriptLoaded;
     } catch (e) {
-      // ignore if body is changed and script is detached
-      console.log(e);
+        // ignore if body is changed and script is detached
+        console.log(e);
     }
-  }
-  
-export { runPython, runJS, renderMarkdown, renderMath, addCSS, checkCssStatus }     
+}
+
+export {
+    runPython,
+    handlePythonError,
+    runJS,
+    renderMarkdown,
+    renderMath,
+    addCSS,
+    checkCssStatus,
+};
