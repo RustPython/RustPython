@@ -20,6 +20,14 @@ use crate::stdlib::ctypes::dll::dlsym;
 
 use crossbeam_utils::atomic::AtomicCell;
 
+pub fn compare_classes(
+    cls_a: &PyTypeRef,
+    cls_b: &PyTypeRef,
+    vm: &VirtualMachine,
+) -> PyResult<bool> {
+    Ok(vm.bool_eq(cls_a.as_object(), cls_b.as_object())?)
+}
+
 fn at_address(cls: &PyTypeRef, buf: usize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
     match vm.get_attribute(cls.as_object().to_owned(), "__abstract__") {
         Ok(attr) => match bool::try_from_object(vm, attr) {

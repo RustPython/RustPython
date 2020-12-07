@@ -2,6 +2,7 @@ use crossbeam_utils::atomic::AtomicCell;
 use rustpython_common::borrow::BorrowValue;
 use std::fmt;
 
+use crate::builtins::memory::try_buffer_from_object;
 use crate::builtins::PyTypeRef;
 use crate::builtins::{
     int::try_to_primitive, pybool::boolval, PyByteArray, PyBytes, PyFloat, PyInt, PyNone, PyStr,
@@ -13,7 +14,7 @@ use crate::pyobject::{
 use crate::VirtualMachine;
 
 use crate::stdlib::ctypes::array::PyCArray;
-use crate::stdlib::ctypes::basics::PyCData;
+use crate::stdlib::ctypes::basics::{compare_classes, PyCData};
 use crate::stdlib::ctypes::function::PyCFuncPtr;
 use crate::stdlib::ctypes::pointer::PyCPointer;
 
@@ -136,7 +137,7 @@ fn generic_xxx_p_from_param(
         Ok(PySimpleType {
             _type_: type_str.to_string(),
             value: AtomicCell::new(value.clone()),
-            __abstract__: true,
+            __abstract__: compare_classes(cls, PySimpleType::static_type(), vm)?,
         }
         .into_object(vm))
     } else if vm.isinstance(value, PySimpleType::static_type())?
@@ -214,7 +215,7 @@ fn from_param_void_p(
         Ok(PySimpleType {
             _type_: type_str.to_string(),
             value: AtomicCell::new(value.clone()),
-            __abstract__: true,
+            __abstract__: compare_classes(cls, PySimpleType::static_type(), vm)?,
         }
         .into_object(vm))
     } else {
@@ -224,7 +225,7 @@ fn from_param_void_p(
 }
 
 fn new_simple_type(cls: &PyTypeRef, vm: &VirtualMachine) -> PyResult<PySimpleType> {
-    let is_abstract = cls.name == PySimpleType::static_type().name;
+    let is_abstract = compare_classes(cls, PySimpleType::static_type(), vm)?;
 
     if is_abstract {
         return Err(vm.new_type_error("abstract class".to_string()));
@@ -326,7 +327,14 @@ impl PySimpleType {
 
     // From Simple_Type Simple_methods
     #[pymethod(magic)]
-    pub fn ctypes_from_outparam(&self) {}
+    pub fn ctypes_from_outparam(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        if let Some(base) = zelf.class().base.clone() {
+            if vm.bool_eq(&base.as_object(), PySimpleType::static_type().as_object())? {
+                return Ok(zelf.as_object().clone());
+            }
+        }
+        return Ok(zelf.value());
+    }
 
     // From PyCSimpleType_Type PyCSimpleType_methods
     #[pyclassmethod]
@@ -335,7 +343,7 @@ impl PySimpleType {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
-        if cls.name == PySimpleType::static_type().name {
+        if compare_classes(&cls, PySimpleType::static_type(), vm)? {
             Err(vm.new_type_error("abstract class".to_string()))
         } else if vm.isinstance(&value, &cls)? {
             Ok(value)
@@ -404,8 +412,12 @@ impl PySimpleType {
     }
 
     // Simple_as_number
-    // #[pymethod(magic)]
-    // fn bool(&self) -> bool {
-    //
-    // }
+    #[pymethod(magic)]
+    fn bool(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        let buffer = try_buffer_from_object(vm, zelf.as_object())?
+            .obj_bytes()
+            .to_vec();
+
+        Ok(vm.new_pyobj(buffer != vec![0]))
+    }
 }
