@@ -531,6 +531,16 @@ impl Comparable for PyBytes {
     ) -> PyResult<PyComparisonValue> {
         Ok(if let Some(res) = op.identical_optimization(zelf, other) {
             res.into()
+        } else if other.isinstance(&vm.ctx.types.memoryview_type)
+            && op != PyComparisonOp::Eq
+            && op != PyComparisonOp::Ne
+        {
+            return Err(vm.new_type_error(format!(
+                "'{}' not supported between instances of '{}' and '{}'",
+                op.operator_token(),
+                zelf.class().name,
+                other.class().name
+            )));
         } else {
             zelf.inner.cmp(other, op, vm)
         })
