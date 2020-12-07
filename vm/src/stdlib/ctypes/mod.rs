@@ -2,15 +2,19 @@ use crate::pyobject::PyClassImpl;
 use crate::pyobject::PyObjectRef;
 use crate::VirtualMachine;
 
+mod array;
 mod basics;
 mod dll;
 mod function;
+mod pointer;
 mod primitive;
 mod shared_lib;
 
+use array::PyCArray;
 use basics::PyCData;
 use dll::*;
 use function::PyCFuncPtr;
+use pointer::PyCPointer;
 use primitive::PySimpleType;
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {

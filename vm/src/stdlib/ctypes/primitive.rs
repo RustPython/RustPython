@@ -12,32 +12,12 @@ use crate::pyobject::{
 };
 use crate::VirtualMachine;
 
+use crate::stdlib::ctypes::array::PyCArray;
 use crate::stdlib::ctypes::basics::PyCData;
+use crate::stdlib::ctypes::function::PyCFuncPtr;
+use crate::stdlib::ctypes::pointer::PyCPointer;
 
 pub const SIMPLE_TYPE_CHARS: &str = "cbBhHiIlLdfguzZqQ?";
-
-#[pyclass(module = "_ctypes", name = "_SimpleCData", base = "PyCData")]
-pub struct PySimpleType {
-    _type_: String,
-    value: AtomicCell<PyObjectRc>,
-    __abstract__: bool,
-}
-
-impl fmt::Debug for PySimpleType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let value = unsafe { (*self.value.as_ptr()).to_string() };
-
-        write!(
-            f,
-            "PySimpleType {{
-            _type_: {},
-            value: {},
-        }}",
-            self._type_.as_str(),
-            value
-        )
-    }
-}
 
 fn set_primitive(_type_: &str, value: &PyObjectRc, vm: &VirtualMachine) -> PyResult<PyObjectRc> {
     match _type_ {
@@ -143,6 +123,162 @@ fn set_primitive(_type_: &str, value: &PyObjectRc, vm: &VirtualMachine) -> PyRes
     }
 }
 
+fn generic_xxx_p_from_param(
+    cls: &PyTypeRef,
+    value: &PyObjectRef,
+    type_str: &str,
+    vm: &VirtualMachine,
+) -> PyResult<PyObjectRef> {
+    if vm.is_none(value)
+        || vm.isinstance(value, &vm.ctx.types.str_type)?
+        || vm.isinstance(value, &vm.ctx.types.bytes_type)?
+    {
+        Ok(PySimpleType {
+            _type_: type_str.to_string(),
+            value: AtomicCell::new(value.clone()),
+            __abstract__: true,
+        }
+        .into_object(vm))
+    } else if vm.isinstance(value, PySimpleType::static_type())?
+        && (type_str == "z" || type_str == "Z" || type_str == "P")
+    {
+        Ok(value.clone())
+    } else {
+        // @TODO: better message
+        Err(vm.new_type_error("wrong type".to_string()))
+    }
+}
+
+fn from_param_char_p(
+    cls: &PyTypeRef,
+    value: &PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult<PyObjectRef> {
+    let _type_ = vm
+        .get_attribute(value.clone(), "_type_")?
+        .downcast_exact::<PyStr>(vm)
+        .unwrap();
+    let type_str = _type_.as_ref();
+
+    let res = generic_xxx_p_from_param(cls, value, type_str, vm)?;
+
+    if !vm.is_none(&res) {
+        Ok(res)
+    } else if (vm.isinstance(value, PyCArray::static_type())?
+        || vm.isinstance(value, PyCPointer::static_type())?)
+        && (type_str == "z" || type_str == "Z" || type_str == "P")
+    {
+        Ok(value.clone())
+    } else {
+        // @TODO: Make sure of what goes here
+        Err(vm.new_type_error("some error".to_string()))
+    }
+}
+
+fn from_param_void_p(
+    cls: &PyTypeRef,
+    value: &PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult<PyObjectRef> {
+    let _type_ = vm
+        .get_attribute(value.clone(), "_type_")?
+        .downcast_exact::<PyStr>(vm)
+        .unwrap();
+    let type_str = _type_.as_ref();
+
+    let res = generic_xxx_p_from_param(cls, value, type_str, vm)?;
+
+    if !vm.is_none(&res) {
+        Ok(res)
+    } else if vm.isinstance(value, PyCArray::static_type())? {
+        Ok(value.clone())
+    } else if vm.isinstance(value, PyCFuncPtr::static_type())?
+        || vm.isinstance(value, PyCPointer::static_type())?
+    {
+        // @TODO: Is there a better way of doing this?
+        if let Some(from_address) = vm.get_method(cls.as_object().clone(), "from_address") {
+            if let Ok(cdata) = value.clone().downcast_exact::<PyCData>(vm) {
+                let mut buffer_guard = cdata.borrow_value_mut();
+                let addr = buffer_guard.as_mut_ptr() as usize;
+
+                Ok(vm.invoke(&from_address?, (cls.clone_class(), addr))?)
+            } else {
+                // @TODO: Make sure of what goes here
+                Err(vm.new_type_error("value should be an instance of _CData".to_string()))
+            }
+        } else {
+            // @TODO: Make sure of what goes here
+            Err(vm.new_attribute_error("class has no from_address method".to_string()))
+        }
+    } else if vm.isinstance(value, &vm.ctx.types.int_type)? {
+        Ok(PySimpleType {
+            _type_: type_str.to_string(),
+            value: AtomicCell::new(value.clone()),
+            __abstract__: true,
+        }
+        .into_object(vm))
+    } else {
+        // @TODO: Make sure of what goes here
+        Err(vm.new_type_error("some error".to_string()))
+    }
+}
+
+fn new_simple_type(cls: &PyTypeRef, vm: &VirtualMachine) -> PyResult<PySimpleType> {
+    let is_abstract = cls.name == PySimpleType::static_type().name;
+
+    if is_abstract {
+        return Err(vm.new_type_error("abstract class".to_string()));
+    }
+
+    match vm.get_attribute(cls.as_object().to_owned(), "_type_") {
+        Ok(_type_) if vm.isinstance(&_type_, &vm.ctx.types.str_type)? => {
+            let tp_str = _type_.downcast_exact::<PyStr>(vm).unwrap().to_string();
+
+            if tp_str.len() != 1 {
+                Err(vm.new_value_error(
+                    "class must define a '_type_' attribute which must be a string of length 1"
+                        .to_string(),
+                ))
+            } else if !SIMPLE_TYPE_CHARS.contains(tp_str.as_str()) {
+                Err(vm.new_attribute_error(format!("class must define a '_type_' attribute which must be a single character string containing one of {}.",SIMPLE_TYPE_CHARS)))
+            } else {
+                Ok(PySimpleType {
+                    _type_: tp_str,
+                    value: AtomicCell::new(vm.ctx.none()),
+                    __abstract__: is_abstract,
+                })
+            }
+        }
+        Ok(_) => {
+            Err(vm.new_type_error("class must define a '_type_' string attribute".to_string()))
+        }
+        Err(_) => Err(vm.new_attribute_error("class must define a '_type_' attribute".to_string())),
+    }
+}
+
+#[pyclass(module = "_ctypes", name = "_SimpleCData", base = "PyCData")]
+pub struct PySimpleType {
+    _type_: String,
+    value: AtomicCell<PyObjectRc>,
+    __abstract__: bool,
+}
+
+impl fmt::Debug for PySimpleType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let value = unsafe { (*self.value.as_ptr()).to_string() };
+
+        write!(
+            f,
+            "PySimpleType {{
+            _type_: {},
+            value: {},
+        }}",
+            self._type_.as_str(),
+            value
+        )
+    }
+}
+
 impl PyValue for PySimpleType {
     fn class(_vm: &VirtualMachine) -> &PyTypeRef {
         Self::static_type()
@@ -153,39 +289,7 @@ impl PyValue for PySimpleType {
 impl PySimpleType {
     #[pyslot]
     fn tp_new(cls: PyTypeRef, _: OptionalArg, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        let is_abstract = cls.name == PySimpleType::static_type().name;
-
-        if is_abstract {
-            return Err(vm.new_type_error("abstract class".to_string()));
-        }
-
-        match vm.get_attribute(cls.as_object().to_owned(), "_type_") {
-            Ok(_type_) => {
-                if vm.isinstance(&_type_, &vm.ctx.types.str_type)? {
-                    let tp_str = _type_.downcast_exact::<PyStr>(vm).unwrap().to_string();
-
-                    if tp_str.len() != 1 {
-                        Err(vm.new_value_error("class must define a '_type_' attribute which must be a string of length 1".to_string()))
-                    } else if !SIMPLE_TYPE_CHARS.contains(tp_str.as_str()) {
-                        Err(vm.new_attribute_error(format!("class must define a '_type_' attribute which must be a single character string containing one of {}.",SIMPLE_TYPE_CHARS)))
-                    } else {
-                        PySimpleType {
-                            _type_: tp_str,
-                            value: AtomicCell::new(vm.ctx.none()),
-                            __abstract__: is_abstract,
-                        }
-                        .into_ref_with_type(vm, cls)
-                    }
-                } else {
-                    Err(vm.new_type_error(
-                        "class must define a '_type_' string attribute".to_string(),
-                    ))
-                }
-            }
-            Err(_) => {
-                Err(vm.new_attribute_error("class must define a '_type_' attribute".to_string()))
-            }
-        }
+        new_simple_type(&cls, vm)?.into_ref_with_type(vm, cls)
     }
 
     #[pymethod(magic)]
@@ -226,7 +330,68 @@ impl PySimpleType {
 
     // From PyCSimpleType_Type PyCSimpleType_methods
     #[pyclassmethod]
-    pub fn from_param(cls: PyTypeRef, vm: &VirtualMachine) {}
+    pub fn from_param(
+        cls: PyTypeRef,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef> {
+        if cls.name == PySimpleType::static_type().name {
+            Err(vm.new_type_error("abstract class".to_string()))
+        } else if vm.isinstance(&value, &cls)? {
+            Ok(value)
+        } else {
+            match vm.get_attribute(cls.as_object().to_owned(), "_type_") {
+                Ok(tp_obj) if vm.isinstance(&tp_obj, &vm.ctx.types.str_type)? => {
+                    let _type_ = tp_obj.downcast_exact::<PyStr>(vm).unwrap();
+                    let tp_str = _type_.as_ref();
+
+                    match tp_str {
+                        "z" | "Z" => from_param_char_p(&cls, &value, vm),
+                        "P" => from_param_void_p(&cls, &value, vm),
+                        _ => {
+                            match new_simple_type(&cls, vm) {
+                                Ok(obj) => Ok(obj.into_object(vm)),
+                                Err(e)
+                                    if vm.isinstance(
+                                        &e.clone().into_object(),
+                                        &vm.ctx.exceptions.type_error,
+                                    )? || vm.isinstance(
+                                        &e.clone().into_object(),
+                                        &vm.ctx.exceptions.value_error,
+                                    )? =>
+                                {
+                                    if let Some(my_base) = cls.base.clone() {
+                                        if let Some(from_param) =
+                                            vm.get_method(my_base.as_object().clone(), "from_param")
+                                        {
+                                            Ok(vm.invoke(
+                                                &from_param?,
+                                                (my_base.clone_class(), value.clone()),
+                                            )?)
+                                        } else {
+                                            // @TODO: Make sure of what goes here
+                                            Err(vm.new_attribute_error(
+                                                "class has no from_param method".to_string(),
+                                            ))
+                                        }
+                                    } else {
+                                        // @TODO: This should be unreachable
+                                        Err(vm.new_type_error("class has no base".to_string()))
+                                    }
+                                }
+                                Err(e) => Err(e),
+                            }
+                        }
+                    }
+                }
+                // @TODO: Sanity check, this should be unreachable
+                _ => {
+                    Err(vm
+                        .new_attribute_error("class must define a '_type_' attribute".to_string()))
+                }
+            }
+        }
+    }
 
     // Simple_repr
     #[pymethod(magic)]

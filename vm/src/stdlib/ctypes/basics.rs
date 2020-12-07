@@ -48,7 +48,7 @@ fn at_address(cls: &PyTypeRef, buf: usize, vm: &VirtualMachine) -> PyResult<Vec<
             // @TODO: A sanity check
             Err(_) => Err(vm.new_type_error("attribute '__abstract__' must be bool".to_string())),
         },
-        // @TODO: I think it's unreacheble
+        // @TODO: I think it's unreachable
         Err(_) => Err(vm.new_attribute_error("abstract class".to_string())),
     }
 }
@@ -113,7 +113,7 @@ fn buffer_copy(
                 }
             }
         }
-        // @TODO: I think this is unreacheble...
+        // @TODO: I think this is unreachable...
         Err(_) => Err(vm.new_type_error("abstract class".to_string())),
     }
 }
