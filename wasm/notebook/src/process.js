@@ -29,11 +29,15 @@ function runPython(pyvm, code, error) {
     try {
         pyvm.exec(code);
     } catch (err) {
-        if (err instanceof WebAssembly.RuntimeError) {
-            err = window.__RUSTPYTHON_ERROR || err;
-        }
-        error.textContent = err;
+        handlePythonError(error, err);
     }
+}
+
+function handlePythonError(errorElem, err) {
+    if (err instanceof WebAssembly.RuntimeError) {
+        err = window.__RUSTPYTHON_ERROR || err;
+    }
+    errorElem.textContent = err;
 }
 
 function addCSS(code) {
@@ -74,4 +78,12 @@ async function runJS(code) {
     }
 }
 
-export { runPython, runJS, renderMarkdown, renderMath, addCSS, checkCssStatus };
+export {
+    runPython,
+    handlePythonError,
+    runJS,
+    renderMarkdown,
+    renderMath,
+    addCSS,
+    checkCssStatus,
+};

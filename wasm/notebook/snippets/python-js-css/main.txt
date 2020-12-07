@@ -32,12 +32,12 @@ In this demo example, the RustPython Notebook:
 h2("Calculator")
 h3("Enter your lucky number")
 
-def runModel(input):
-    output = f"""\
-<br>
-A little javascript birdie told the python snake your lucky number 🙊
-Now everyone knows that it is: {input}
-"""
-    return output
+inp1 = add_text_input()
+inp2 = add_text_input()
 
-add_text_input("click me", runModel)
+@add_button("click me to add")
+def run_model():
+	a, b = int(inp1()), int(inp2())
+	set_output(f"<pre>{a} + {b} = <b>{a + b}</b></pre>")
+
+set_output = add_output()

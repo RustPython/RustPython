@@ -45,41 +45,59 @@ Here is a run down of what is happening with this demo. The notebook:
 injectPython({
     // injectPython functions take the positional arguments as
     // normal function args, and kwargs as the `this` variable
-    add_text_input(buttonText, callback) {
+    add_text_input() {
         const input = document.createElement('input');
         pushNotebook(input);
+        return () => input.value;
+    },
+    add_button(buttonText, cb) {
+        const do_button = (callback) => {
+            const btn = document.createElement('button');
+            btn.innerHTML = buttonText;
+            btn.addEventListener('click', () => {
+                try {
+                    // python functions passed to js have a signature
+                    // of ([args...], {kwargs...}) => any
+                    callback([], {});
+                } catch (err) {
+                    // puts the traceback in the error box
+                    handlePyError(err);
+                }
+            });
+            pushNotebook(btn);
+        };
 
-        const btn = document.createElement('button');
-        btn.innerHTML = buttonText;
-        btn.addEventListener('click', () => {
-            resultDiv.innerHTML = '';
-            // python functions passed to js have a signature
-            // of ([args...], {kwargs...}) => any
-            const output = callback([input.value], {});
-            resultDiv.innerHTML += output;
-        });
-        pushNotebook(btn);
-
+        if (cb == null) {
+            // to allow using as a decorator
+            return do_button;
+        } else {
+            do_button(cb);
+        }
+    },
+    add_output() {
         const resultDiv = document.createElement('div');
         resultDiv.classList.add('result');
         pushNotebook(resultDiv);
+        return (value) => {
+            resultDiv.innerHTML = value;
+        };
     },
 });
 
 %%py 
 
-# Python code goes here
+# Python code
 
 # you have access to helpers for emitting p & h1-h6
 h2("Calculator")
 h3("Enter your lucky number")
 
-def runModel(input):
-    output = f"""\
-<br>
-A little javascript birdie told the python snake your lucky number 🙊
-Now everyone knows that it is: {input}
-"""
-    return output
+inp1 = add_text_input()
+inp2 = add_text_input()
 
-add_text_input("click me", runModel)
+@add_button("click me to add")
+def run_model():
+	a, b = int(inp1()), int(inp2())
+	set_output(f"<pre>{a} + {b} = <b>{a + b}</b></pre>")
+
+set_output = add_output()

@@ -27,6 +27,7 @@ import {
     checkCssStatus,
     renderMarkdown,
     renderMath,
+    handlePythonError,
 } from './process';
 
 let rp;
@@ -181,6 +182,9 @@ async function executeNotebook() {
     };
     window.pushNotebook = (elem) => {
         notebook.appendChild(elem);
+    };
+    window.handlePyError = (err) => {
+        handlePythonError(error, err);
     };
     pyvm.setStdout((text) => {
         const para = document.createElement('p');
