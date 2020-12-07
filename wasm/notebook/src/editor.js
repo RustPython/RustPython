@@ -5,10 +5,12 @@ CodeMirror.defineMode('notebook', function (config, _parserConfig) {
     const python = CodeMirror.getMode(config, 'python');
     const markdown = CodeMirror.getMode(config, 'markdown');
     const latex = CodeMirror.getMode(config, 'text/x-latex');
+    const javascript = CodeMirror.getMode(config, 'javascript');
     const modeMap = {
         py: python,
         md: markdown,
         math: latex,
+        js: javascript,
     };
     return {
         startState() {
