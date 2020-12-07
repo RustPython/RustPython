@@ -16,10 +16,9 @@ mod decl {
     use crate::builtins::int::{self, PyIntRef};
     use crate::builtins::iter::{PyCallableIterator, PySequenceIterator};
     use crate::builtins::list::{PyList, SortOptions};
-    use crate::builtins::pybool::{self, IntoPyBool};
+    use crate::builtins::pybool::IntoPyBool;
     use crate::builtins::pystr::{PyStr, PyStrRef};
     use crate::builtins::pytype::PyTypeRef;
-    use crate::builtins::PyInt;
     use crate::builtins::{PyByteArray, PyBytes};
     use crate::byteslike::PyBytesLike;
     use crate::common::{hash::PyHash, str::to_ascii};
@@ -36,11 +35,9 @@ mod decl {
     };
     use crate::readline::{Readline, ReadlineResult};
     use crate::scope::Scope;
-    use crate::sliceable;
     use crate::slots::PyComparisonOp;
     use crate::vm::VirtualMachine;
     use crate::{py_io, sysmodule};
-    use num_bigint::Sign;
     use num_traits::{Signed, ToPrimitive, Zero};
 
     #[pyfunction]
