@@ -11,22 +11,6 @@ To get started, install
 ([wasm-bindgen](https://rustwasm.github.io/wasm-bindgen/whirlwind-tour/basic-usage.html)
 should be installed by `wasm-pack`. if not, install it yourself)
 
-<!-- Using `rustup` add the compile target `wasm32-unknown-emscripten`. To do so you will need to have [rustup](https://rustup.rs/) installed.
-
-```bash
-rustup target add wasm32-unknown-emscripten
-```
-
-Next, install `emsdk`:
-
-```bash
-curl https://s3.amazonaws.com/mozilla-games/emscripten/releases/emsdk-portable.tar.gz | tar -zxv
-cd emsdk-portable/
-./emsdk update
-./emsdk install sdk-incoming-64bit
-./emsdk activate sdk-incoming-64bit
-``` -->
-
 ## Build
 
 Move into the `wasm` directory. This directory contains a library crate for

@@ -6,8 +6,6 @@ const { CleanWebpackPlugin } = require('clean-webpack-plugin');
 const path = require('path');
 const fs = require('fs');
 
-const interval = setInterval(() => console.log('keepalive'), 1000 * 60 * 5);
-
 module.exports = (env = {}) => {
     const config = {
         entry: './src/index.js',
@@ -52,13 +50,6 @@ module.exports = (env = {}) => {
             new MiniCssExtractPlugin({
                 filename: 'styles.css'
             }),
-            {
-                apply(compiler) {
-                    compiler.hooks.done.tap('clearInterval', () => {
-                        clearInterval(interval);
-                    });
-                }
-            }
         ]
     };
     if (!env.noWasmPack) {
