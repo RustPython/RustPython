@@ -140,7 +140,8 @@ ul.list-inline li {
     height: calc(90vh - 60px);
 }
 
-.CodeMirror, .CodeMirror-wrap {
+.CodeMirror,
+.CodeMirror-wrap {
     height: 100% !important;
 }
 #rp-notebook {
@@ -248,7 +249,6 @@ input[type='url'] {
     .md-flex-grow {
         flex-grow: 1;
     }
-    
 }
 
 @media screen and (max-width: 768px) {
