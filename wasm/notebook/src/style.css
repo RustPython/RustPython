@@ -172,7 +172,7 @@ ul.list-inline li {
 input[type='url'] {
     border: 1px solid black;
     border-radius: 0px;
-    width: 85%;
+    width: 75%;
     font-size: 1rem;
     padding: 4px;
     font-family: monospace;
@@ -241,7 +241,7 @@ input[type='url'] {
     overflow: auto;
 }
 
-@media screen and (max-width: 700px) {
+@media screen and (max-width: 768px) {
     .box {
         width: 70%;
     }
@@ -249,4 +249,9 @@ input[type='url'] {
     .popup {
         width: 70%;
     }
+
+    .d-md-none {
+        display: none;
+    }
+
 }
