@@ -5,6 +5,10 @@ description = "A usability wrapper around rustpython-parser and rustpython-compi
 authors = ["RustPython Team"]
 edition = "2018"
 
+[features]
+std = ["rustpython-compiler-core/std", "rustpython-bytecode/std", "rustpython-parser/std"]
+default = ["std"]
+
 [dependencies]
 thiserror = "1.0"
 rustpython-compiler-core = { path = ".." }
