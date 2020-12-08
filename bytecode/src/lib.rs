@@ -3,15 +3,19 @@
 
 #![doc(html_logo_url = "https://raw.githubusercontent.com/RustPython/RustPython/master/logo.png")]
 #![doc(html_root_url = "https://docs.rs/rustpython-bytecode/")]
+#![cfg_attr(not(feature = "std"), no_std)]
 
+extern crate alloc;
+
+use alloc::collections::BTreeSet;
+use alloc::{borrow::ToOwned, boxed::Box, string::String, vec::Vec};
 use bitflags::bitflags;
 use bstr::ByteSlice;
+use core::fmt;
 use itertools::Itertools;
 use num_bigint::BigInt;
 use num_complex::Complex64;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
-use std::fmt;
 
 /// Sourcecode location.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -722,6 +726,7 @@ impl fmt::Display for CodeDeserializeError {
         }
     }
 }
+#[cfg(feature = "std")]
 impl std::error::Error for CodeDeserializeError {}
 
 impl CodeObject<ConstantData> {

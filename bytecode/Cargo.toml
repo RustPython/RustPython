@@ -7,13 +7,16 @@ edition = "2018"
 repository = "https://github.com/RustPython/RustPython"
 license = "MIT"
 
+[features]
+std = ["bstr/std", "itertools/use_std", "lz4_flex/std"]
+default = ["std"]
 
 [dependencies]
 bincode =  "1.1"
 bitflags = "1.1"
-lz4_flex = "0.7"
-num-bigint = { version = "0.3", features = ["serde"] }
-num-complex = { version = "0.3", features = ["serde"] }
+lz4_flex = { version = "0.7", default-features = false, features = ["safe-decode", "safe-encode"] }
+num-bigint = { version = "0.3", default-features = false, features = ["serde"] }
+num-complex = { version = "0.3", default-features = false, features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
-itertools = "0.9"
-bstr = "0.2"
+itertools = { version = "0.9", default-features = false }
+bstr = { version = "0.2", default-features = false }
