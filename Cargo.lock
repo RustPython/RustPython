@@ -26,6 +26,12 @@ checksum = "aae1277d39aeec15cb388266ecc24b11c80469deae6067e17a1a7aa9e5c1f234"
 
 [[package]]
 name = "ahash"
+version = "0.4.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "739f4a8db6605981345c5654f3a85b056ce52f37a39d34da03f25bf2151ea16e"
+
+[[package]]
+name = "ahash"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a75b7e6a93ecd6dbd2c225154d0fa7f86205574ecaa6c87429fb5f66ee677c44"
@@ -876,6 +882,9 @@ name = "hashbrown"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7afe4a420e3fe79967a00898cc1f4db7c8a49a9333a29f8a4bd76a253d5cd04"
+dependencies = [
+ "ahash 0.4.7",
+]
 
 [[package]]
 name = "hermit-abi"
@@ -1875,7 +1884,7 @@ dependencies = [
 name = "rustpython-compiler-core"
 version = "0.1.2"
 dependencies = [
- "ahash",
+ "ahash 0.6.2",
  "indexmap",
  "insta",
  "itertools",
@@ -1923,7 +1932,8 @@ dependencies = [
 name = "rustpython-parser"
 version = "0.1.2"
 dependencies = [
- "ahash",
+ "ahash 0.6.2",
+ "hashbrown",
  "lalrpop",
  "lalrpop-util",
  "log",
@@ -1949,7 +1959,7 @@ name = "rustpython-vm"
 version = "0.1.2"
 dependencies = [
  "adler32",
- "ahash",
+ "ahash 0.6.2",
  "atty",
  "base64",
  "bitflags",
@@ -2234,13 +2244,12 @@ checksum = "ae524f056d7d770e174287294f562e95044c68e88dec909a00d2094805db9d75"
 
 [[package]]
 name = "socket2"
-version = "0.3.17"
+version = "0.3.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c29947abdee2a218277abeca306f25789c938e500ea5a9d4b12a5a504466902"
+checksum = "122e570113d28d773067fab24266b66753f6ea915758651696b6e35e49f88d6e"
 dependencies = [
  "cfg-if 1.0.0",
  "libc",
- "redox_syscall",
  "winapi",
 ]
 

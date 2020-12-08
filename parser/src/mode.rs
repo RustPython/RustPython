@@ -1,10 +1,12 @@
+use core::fmt;
+
 #[derive(Clone, Copy)]
 pub enum Mode {
     Program,
     Statement,
 }
 
-impl std::str::FromStr for Mode {
+impl core::str::FromStr for Mode {
     type Err = ModeParseError;
     fn from_str(s: &str) -> Result<Self, ModeParseError> {
         match s {
@@ -20,8 +22,8 @@ pub struct ModeParseError {
     _priv: (),
 }
 
-impl std::fmt::Display for ModeParseError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl fmt::Display for ModeParseError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, r#"mode should be "exec", "eval", or "single""#)
     }
 }

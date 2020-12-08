@@ -1,7 +1,8 @@
 //! Different token definitions.
 //! Loosely based on token.h from CPython source:
+use alloc::{string::String, vec::Vec};
+use core::fmt::{self, Write};
 use num_bigint::BigInt;
-use std::fmt::{self, Write};
 
 /// Python source code can be tokenized in a sequence of these tokens.
 #[derive(Clone, Debug, PartialEq)]

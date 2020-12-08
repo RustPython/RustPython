@@ -5,8 +5,10 @@ use lalrpop_util::ParseError as LalrpopError;
 use crate::ast::Location;
 use crate::token::Tok;
 
+use alloc::{boxed::Box, string::String};
+use core::fmt;
+#[cfg(feature = "std")]
 use std::error::Error;
-use std::fmt;
 
 /// Represents an error during lexical scanning.
 #[derive(Debug, PartialEq)]
@@ -70,6 +72,16 @@ impl fmt::Display for LexicalErrorType {
     }
 }
 
+#[cfg(feature = "std")]
+impl Error for LexicalErrorType {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            LexicalErrorType::FStringError(e) => Some(e),
+            _ => None,
+        }
+    }
+}
+
 // TODO: consolidate these with ParseError
 #[derive(Debug, PartialEq)]
 pub struct FStringError {
@@ -115,6 +127,16 @@ impl From<FStringError> for LalrpopError<Location, Tok, LexicalError> {
                 error: LexicalErrorType::FStringError(err.error),
                 location: err.location,
             },
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl Error for FStringErrorType {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            FStringErrorType::InvalidExpression(e) => Some(e.as_ref()),
+            _ => None,
         }
     }
 }
@@ -204,14 +226,22 @@ impl fmt::Display for ParseErrorType {
     }
 }
 
-impl Error for ParseErrorType {}
+#[cfg(feature = "std")]
+impl Error for ParseErrorType {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            ParseErrorType::Lexical(e) => Some(e),
+            _ => None,
+        }
+    }
+}
 
 impl ParseErrorType {
     pub fn is_indentation_error(&self) -> bool {
         match self {
             ParseErrorType::Lexical(LexicalErrorType::IndentationError) => true,
             ParseErrorType::UnrecognizedToken(token, expected) => {
-                *token == Tok::Indent || expected.clone() == Some("Indent".to_owned())
+                *token == Tok::Indent || expected.as_ref().map_or(false, |s| s == "Indent")
             }
             _ => false,
         }
@@ -225,15 +255,16 @@ impl ParseErrorType {
     }
 }
 
-impl std::ops::Deref for ParseError {
+impl core::ops::Deref for ParseError {
     type Target = ParseErrorType;
     fn deref(&self) -> &Self::Target {
         &self.error
     }
 }
 
+#[cfg(feature = "std")]
 impl Error for ParseError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
-        None
+        self.error.source()
     }
 }

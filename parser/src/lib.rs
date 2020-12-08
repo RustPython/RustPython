@@ -17,6 +17,13 @@
 
 #![doc(html_logo_url = "https://raw.githubusercontent.com/RustPython/RustPython/master/logo.png")]
 #![doc(html_root_url = "https://docs.rs/rustpython-parser/")]
+#![cfg_attr(not(feature = "std"), no_std)]
+
+extern crate alloc;
+
+// hack to get around lalrpop hardcoding ::std::* paths
+#[cfg(not(feature = "std"))]
+extern crate self as std;
 
 #[macro_use]
 extern crate log;

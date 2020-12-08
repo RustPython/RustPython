@@ -5,12 +5,19 @@
 pub use super::token::Tok;
 use crate::ast::Location;
 use crate::error::{LexicalError, LexicalErrorType};
+use alloc::{
+    borrow::ToOwned,
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
+use core::char;
+use core::cmp::Ordering;
+use core::str::FromStr;
 use num_bigint::BigInt;
 use num_traits::identities::Zero;
 use num_traits::Num;
-use std::char;
-use std::cmp::Ordering;
-use std::str::FromStr;
 use unic_emoji_char::is_emoji_presentation;
 use unic_ucd_ident::{is_xid_continue, is_xid_start};
 
@@ -436,8 +443,8 @@ where
             }
         }
         match p {
-            0xD800..=0xDFFF => Ok(std::char::REPLACEMENT_CHARACTER),
-            _ => std::char::from_u32(p).ok_or(unicode_error),
+            0xD800..=0xDFFF => Ok(char::REPLACEMENT_CHARACTER),
+            _ => char::from_u32(p).ok_or(unicode_error),
         }
     }
 

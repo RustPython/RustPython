@@ -8,17 +8,22 @@ repository = "https://github.com/RustPython/RustPython"
 license = "MIT"
 edition = "2018"
 
+[features]
+std = []
+default = ["std", "lalrpop-util/std", "num-bigint/std"]
+
 [build-dependencies]
-lalrpop = "0.19"
+lalrpop = "0.19.4"
 
 [dependencies]
 rustpython-ast = { path = "../ast" }
-lalrpop-util = "0.19.1"
+lalrpop-util = { version = "0.19.4", default-features = false }
 log = "0.4.1"
-num-bigint = "0.3"
-num-traits = "0.2"
+num-bigint = { version = "0.3", default-features = false }
+num-traits = { version = "0.2", default-features = false }
 unic-emoji-char = "0.9"
 unic-ucd-ident  = "0.9"
 unicode_names2 = "0.4"
 phf = { version = "0.8", features = ["macros"] }
 ahash = "0.6"
+hashbrown = "0.9"

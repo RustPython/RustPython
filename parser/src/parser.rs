@@ -5,7 +5,8 @@
 //! parse a whole program, a single statement, or a single
 //! expression.
 
-use std::iter;
+use alloc::vec::Vec;
+use core::iter;
 
 use crate::ast;
 use crate::error::ParseError;
@@ -106,6 +107,7 @@ mod tests {
     use super::parse_expression;
     use super::parse_program;
     use super::parse_statement;
+    use alloc::borrow::ToOwned;
     use num_bigint::BigInt;
 
     fn mk_ident(name: &str, row: usize, col: usize) -> ast::Expression {
@@ -136,7 +138,7 @@ mod tests {
             custom: (),
             node: ast::ExpressionType::String {
                 value: ast::StringGroup::Constant {
-                    value: String::from(value),
+                    value: value.to_owned(),
                 },
             },
         }
@@ -158,8 +160,8 @@ mod tests {
 
     #[test]
     fn test_parse_print_hello() {
-        let source = String::from("print('Hello world')");
-        let parse_ast = parse_program(&source).unwrap();
+        let source = "print('Hello world')";
+        let parse_ast = parse_program(source).unwrap();
         assert_eq!(
             parse_ast,
             ast::Program {
@@ -184,8 +186,8 @@ mod tests {
 
     #[test]
     fn test_parse_print_2() {
-        let source = String::from("print('Hello world', 2)");
-        let parse_ast = parse_program(&source).unwrap();
+        let source = "print('Hello world', 2)";
+        let parse_ast = parse_program(source).unwrap();
         assert_eq!(
             parse_ast,
             ast::Program {
@@ -210,8 +212,8 @@ mod tests {
 
     #[test]
     fn test_parse_kwargs() {
-        let source = String::from("my_func('positional', keyword=2)");
-        let parse_ast = parse_program(&source).unwrap();
+        let source = "my_func('positional', keyword=2)";
+        let parse_ast = parse_program(source).unwrap();
         assert_eq!(
             parse_ast,
             ast::Program {
@@ -239,8 +241,8 @@ mod tests {
 
     #[test]
     fn test_parse_if_elif_else() {
-        let source = String::from("if 1: 10\nelif 2: 20\nelse: 30");
-        let parse_ast = parse_statement(&source).unwrap();
+        let source = "if 1: 10\nelif 2: 20\nelse: 30";
+        let parse_ast = parse_statement(source).unwrap();
         assert_eq!(
             parse_ast,
             vec![ast::Statement {
@@ -265,8 +267,8 @@ mod tests {
 
     #[test]
     fn test_parse_lambda() {
-        let source = String::from("lambda x, y: x * y"); // lambda(x, y): x * y");
-        let parse_ast = parse_statement(&source);
+        let source = "lambda x, y: x * y"; // lambda(x, y): x * y");
+        let parse_ast = parse_statement(source);
         assert_eq!(
             parse_ast,
             Ok(vec![as_statement(ast::Expression {
@@ -278,12 +280,12 @@ mod tests {
                         args: vec![
                             ast::Parameter {
                                 location: ast::Location::new(1, 8),
-                                arg: String::from("x"),
+                                arg: "x".to_owned(),
                                 annotation: None,
                             },
                             ast::Parameter {
                                 location: ast::Location::new(1, 11),
-                                arg: String::from("y"),
+                                arg: "y".to_owned(),
                                 annotation: None,
                             }
                         ],
@@ -309,10 +311,10 @@ mod tests {
 
     #[test]
     fn test_parse_tuples() {
-        let source = String::from("a, b = 4, 5");
+        let source = "a, b = 4, 5";
 
         assert_eq!(
-            parse_statement(&source),
+            parse_statement(source),
             Ok(vec![ast::Statement {
                 location: ast::Location::new(1, 1),
                 custom: (),
@@ -338,16 +340,19 @@ mod tests {
 
     #[test]
     fn test_parse_class() {
-        let source = String::from(
-            "class Foo(A, B):\n def __init__(self):\n  pass\n def method_with_default(self, arg='default'):\n  pass",
-        );
+        let source = "\
+class Foo(A, B):
+ def __init__(self):
+  pass
+ def method_with_default(self, arg='default'):
+   pass";
         assert_eq!(
-            parse_statement(&source),
+            parse_statement(source),
             Ok(vec![ast::Statement {
                 location: ast::Location::new(1, 1),
                 custom: (),
                 node: ast::StatementType::ClassDef {
-                    name: String::from("Foo"),
+                    name: "Foo".to_owned(),
                     bases: vec![mk_ident("A", 1, 11), mk_ident("B", 1, 14)],
                     keywords: vec![],
                     body: vec![
@@ -356,12 +361,12 @@ mod tests {
                             custom: (),
                             node: ast::StatementType::FunctionDef {
                                 is_async: false,
-                                name: String::from("__init__"),
+                                name: "__init__".to_owned(),
                                 args: Box::new(ast::Parameters {
                                     posonlyargs_count: 0,
                                     args: vec![ast::Parameter {
                                         location: ast::Location::new(2, 15),
-                                        arg: String::from("self"),
+                                        arg: "self".to_owned(),
                                         annotation: None,
                                     }],
                                     kwonlyargs: vec![],
@@ -384,18 +389,18 @@ mod tests {
                             custom: (),
                             node: ast::StatementType::FunctionDef {
                                 is_async: false,
-                                name: String::from("method_with_default"),
+                                name: "method_with_default".to_owned(),
                                 args: Box::new(ast::Parameters {
                                     posonlyargs_count: 0,
                                     args: vec![
                                         ast::Parameter {
                                             location: ast::Location::new(4, 26),
-                                            arg: String::from("self"),
+                                            arg: "self".to_owned(),
                                             annotation: None,
                                         },
                                         ast::Parameter {
                                             location: ast::Location::new(4, 32),
-                                            arg: String::from("arg"),
+                                            arg: "arg".to_owned(),
                                             annotation: None,
                                         }
                                     ],
@@ -423,8 +428,8 @@ mod tests {
 
     #[test]
     fn test_parse_dict_comprehension() {
-        let source = String::from("{x1: x2 for y in z}");
-        let parse_ast = parse_expression(&source).unwrap();
+        let source = "{x1: x2 for y in z}";
+        let parse_ast = parse_expression(source).unwrap();
         assert_eq!(
             parse_ast,
             ast::Expression {
@@ -449,8 +454,8 @@ mod tests {
 
     #[test]
     fn test_parse_list_comprehension() {
-        let source = String::from("[x for y in z]");
-        let parse_ast = parse_expression(&source).unwrap();
+        let source = "[x for y in z]";
+        let parse_ast = parse_expression(source).unwrap();
         assert_eq!(
             parse_ast,
             ast::Expression {
@@ -474,8 +479,8 @@ mod tests {
 
     #[test]
     fn test_parse_double_list_comprehension() {
-        let source = String::from("[x for y, y2 in z for a in b if a < 5 if a > 10]");
-        let parse_ast = parse_expression(&source).unwrap();
+        let source = "[x for y, y2 in z for a in b if a < 5 if a > 10]";
+        let parse_ast = parse_expression(source).unwrap();
         assert_eq!(
             parse_ast,
             ast::Expression {

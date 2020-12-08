@@ -1,6 +1,5 @@
-use std::iter;
-use std::mem;
-use std::str;
+use alloc::{borrow::ToOwned, boxed::Box, format, string::String, vec, vec::Vec};
+use core::{iter, mem, str};
 
 use crate::ast::{ConversionFlag, Expression, Location, StringGroup};
 use crate::error::{FStringError, FStringErrorType, ParseError};
@@ -81,7 +80,7 @@ impl<'a> FStringParser<'a> {
                 // match a python 3.8 self documenting expression
                 // format '{' PYTHON_EXPRESSION '=' FORMAT_SPECIFIER? '}'
                 '=' if self.chars.peek() != Some(&'=') && delims.is_empty() => {
-                    pred_expression_text = expression.to_string(); // safe expression before = to print it
+                    pred_expression_text = expression.to_owned(); // safe expression before = to print it
                 }
 
                 ':' if delims.is_empty() => {

@@ -1,5 +1,5 @@
-use ahash::RandomState;
-use std::collections::HashSet;
+use alloc::{string::String, vec, vec::Vec};
+use hashbrown::HashSet;
 
 use crate::ast;
 use crate::error::{LexicalError, LexicalErrorType};
@@ -46,7 +46,8 @@ pub fn parse_args(func_args: Vec<FunctionArgument>) -> Result<ast::ArgumentList,
     let mut args = vec![];
     let mut keywords = vec![];
 
-    let mut keyword_names = HashSet::with_capacity_and_hasher(func_args.len(), RandomState::new());
+    let mut keyword_names =
+        HashSet::with_capacity_and_hasher(func_args.len(), ahash::RandomState::default());
     for (name, value) in func_args {
         match name {
             Some(n) => {
