@@ -5,4 +5,4 @@ authors = ["RustPython Team"]
 edition = "2018"
 
 [dependencies]
-num-bigint = "0.3"
+num-bigint = { version = "0.3", default-features = false }

@@ -1,6 +1,6 @@
 //! Datatypes to support source location information.
 
-use std::fmt;
+use core::fmt;
 
 /// A location somewhere in the sourcecode.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]

@@ -5,6 +5,7 @@
 //! location of the node.
 
 pub use crate::location::Location;
+use alloc::{boxed::Box, string::String, vec::Vec};
 use num_bigint::BigInt;
 
 #[allow(clippy::large_enum_variant)]
