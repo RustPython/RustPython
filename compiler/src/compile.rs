@@ -10,11 +10,14 @@ use crate::ir::{self, CodeInfo};
 pub use crate::mode::Mode;
 use crate::symboltable::{make_symbol_table, statements_to_symbol_table, SymbolScope, SymbolTable};
 use crate::IndexSet;
+use alloc::{borrow::ToOwned, boxed::Box, format, string::String, vec, vec::Vec};
 use itertools::Itertools;
 use num_complex::Complex64;
 use num_traits::ToPrimitive;
 use rustpython_ast as ast;
 use rustpython_bytecode::{self as bytecode, CodeObject, ConstantData, Instruction};
+
+pub use crate::mode::Mode;
 
 type CompileResult<T> = Result<T, CompileError>;
 

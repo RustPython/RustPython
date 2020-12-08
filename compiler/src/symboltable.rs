@@ -9,8 +9,9 @@ Inspirational file: https://github.com/python/cpython/blob/master/Python/symtabl
 
 use crate::error::{CompileError, CompileErrorType};
 use crate::IndexMap;
+use alloc::{borrow::ToOwned, format, string::String, vec, vec::Vec};
+use core::fmt;
 use rustpython_ast::{self as ast, Location};
-use std::fmt;
 
 pub fn make_symbol_table(program: &ast::Program) -> Result<SymbolTable, SymbolTableError> {
     let mut builder = SymbolTableBuilder::default();
@@ -187,8 +188,8 @@ impl SymbolTable {
     }
 }
 
-impl std::fmt::Debug for SymbolTable {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl fmt::Debug for SymbolTable {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
             "SymbolTable({:?} symbols, {:?} sub scopes)",
@@ -209,8 +210,9 @@ fn analyze_symbol_table(symbol_table: &mut SymbolTable) -> SymbolTableResult {
 type SymbolMap = IndexMap<String, Symbol>;
 
 mod stack {
-    use std::panic;
-    use std::ptr::NonNull;
+    use alloc::vec::Vec;
+    use core::ptr::NonNull;
+
     pub struct StackStack<T> {
         v: Vec<NonNull<T>>,
     }
@@ -227,9 +229,10 @@ mod stack {
             F: FnOnce(&mut Self) -> R,
         {
             self.v.push(x.into());
-            let res = panic::catch_unwind(panic::AssertUnwindSafe(|| f(self)));
-            self.v.pop();
-            res.unwrap_or_else(|x| panic::resume_unwind(x))
+            let mut this = scopeguard::guard(self, |this| {
+                this.v.pop();
+            });
+            f(&mut this)
         }
 
         pub fn iter(&self) -> impl Iterator<Item = &T> + DoubleEndedIterator + '_ {
@@ -273,7 +276,7 @@ struct SymbolTableAnalyzer {
 
 impl SymbolTableAnalyzer {
     fn analyze_symbol_table(&mut self, symbol_table: &mut SymbolTable) -> SymbolTableResult {
-        let symbols = std::mem::take(&mut symbol_table.symbols);
+        let symbols = core::mem::take(&mut symbol_table.symbols);
         let sub_tables = &mut *symbol_table.sub_tables;
 
         let mut info = (symbols, symbol_table.typ);
@@ -469,7 +472,7 @@ impl SymbolTableAnalyzer {
             SymbolTableType::Class => {
                 // named expressions are forbidden in comprehensions on class scope
                 return Err(SymbolTableError {
-                    error: "assignment expression within a comprehension cannot be used in a class body".to_string(),
+                    error: "assignment expression within a comprehension cannot be used in a class body".to_owned(),
                     // TODO: accurate location info, somehow
                     location: Location::default(),
                 });
@@ -999,7 +1002,7 @@ impl SymbolTableBuilder {
                 // comprehension iterator definitions
                 if let ExpressionContext::IterDefinitionExp = context {
                     return Err(SymbolTableError {
-                        error: "assignment expression cannot be used in a comprehension iterable expression".to_string(),
+                        error: "assignment expression cannot be used in a comprehension iterable expression".to_owned(),
                         // TODO: accurate location info, somehow
                         location: Location::default(),
                     });
@@ -1218,7 +1221,7 @@ impl SymbolTableBuilder {
             return Err(SymbolTableError {
                 error:
                     "assignment expression cannot be used in a comprehension iterable expression"
-                        .to_string(),
+                        .to_owned(),
                 location,
             });
         }
