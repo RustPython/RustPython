@@ -9,13 +9,14 @@ edition = "2018"
 include = ["src/**/*.rs", "Cargo.toml", "build.rs", "Lib/**/*.py"]
 
 [features]
-default = ["compile-parse", "threading"]
+default = ["compile-parse", "threading", "std"]
 vm-tracing-logging = []
 flame-it = ["flame", "flamer"]
 freeze-stdlib = ["rustpython-pylib"]
 jit = ["rustpython-jit"]
 threading = ["rustpython-common/threading"]
 compile-parse = ["rustpython-parser", "rustpython-compiler"]
+std = ["rustpython-compiler/std"] # enables compiler-core/std, parser/std, etc
 
 ssl = ["openssl", "openssl-sys", "openssl-probe"]
 
