@@ -161,6 +161,11 @@ jobs:
         run: python -m pip install flake8
       - name: run lint
         run: flake8 . --count --exclude=./.*,./Lib,./vm/Lib,./benches/  --select=E9,F63,F7,F82 --show-source --statistics
+      - name: install prettier
+        run: yarn global add prettier && echo "$(yarn global bin)" >>$GITHUB_PATH
+      - name: check wasm code with prettier
+        # prettier doesn't handle ignore files very well: https://github.com/prettier/prettier/issues/8506
+        run: cd wasm && git ls-files -z | xargs -0 prettier --check -u
   miri:
     name: Run tests under miri
     runs-on: ubuntu-latest
