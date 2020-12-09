@@ -10,7 +10,6 @@ use num_traits::identities::Zero;
 use num_traits::Num;
 use std::char;
 use std::cmp::Ordering;
-use std::collections::HashMap;
 use std::str::FromStr;
 use unic_emoji_char::is_emoji_presentation;
 use unic_ucd_ident::{is_xid_continue, is_xid_start};
@@ -66,52 +65,48 @@ pub struct Lexer<T: Iterator<Item = char>> {
     chr1: Option<char>,
     chr2: Option<char>,
     location: Location,
-    keywords: HashMap<String, Tok>,
 }
 
-pub fn get_keywords() -> HashMap<String, Tok> {
-    let mut keywords: HashMap<String, Tok> = HashMap::new();
-
+pub static KEYWORDS: phf::Map<&'static str, Tok> = phf::phf_map! {
     // Alphabetical keywords:
-    keywords.insert(String::from("..."), Tok::Ellipsis);
-    keywords.insert(String::from("False"), Tok::False);
-    keywords.insert(String::from("None"), Tok::None);
-    keywords.insert(String::from("True"), Tok::True);
+    "..." => Tok::Ellipsis,
+    "False" => Tok::False,
+    "None" => Tok::None,
+    "True" => Tok::True,
 
-    keywords.insert(String::from("and"), Tok::And);
-    keywords.insert(String::from("as"), Tok::As);
-    keywords.insert(String::from("assert"), Tok::Assert);
-    keywords.insert(String::from("async"), Tok::Async);
-    keywords.insert(String::from("await"), Tok::Await);
-    keywords.insert(String::from("break"), Tok::Break);
-    keywords.insert(String::from("class"), Tok::Class);
-    keywords.insert(String::from("continue"), Tok::Continue);
-    keywords.insert(String::from("def"), Tok::Def);
-    keywords.insert(String::from("del"), Tok::Del);
-    keywords.insert(String::from("elif"), Tok::Elif);
-    keywords.insert(String::from("else"), Tok::Else);
-    keywords.insert(String::from("except"), Tok::Except);
-    keywords.insert(String::from("finally"), Tok::Finally);
-    keywords.insert(String::from("for"), Tok::For);
-    keywords.insert(String::from("from"), Tok::From);
-    keywords.insert(String::from("global"), Tok::Global);
-    keywords.insert(String::from("if"), Tok::If);
-    keywords.insert(String::from("import"), Tok::Import);
-    keywords.insert(String::from("in"), Tok::In);
-    keywords.insert(String::from("is"), Tok::Is);
-    keywords.insert(String::from("lambda"), Tok::Lambda);
-    keywords.insert(String::from("nonlocal"), Tok::Nonlocal);
-    keywords.insert(String::from("not"), Tok::Not);
-    keywords.insert(String::from("or"), Tok::Or);
-    keywords.insert(String::from("pass"), Tok::Pass);
-    keywords.insert(String::from("raise"), Tok::Raise);
-    keywords.insert(String::from("return"), Tok::Return);
-    keywords.insert(String::from("try"), Tok::Try);
-    keywords.insert(String::from("while"), Tok::While);
-    keywords.insert(String::from("with"), Tok::With);
-    keywords.insert(String::from("yield"), Tok::Yield);
-    keywords
-}
+    "and" => Tok::And,
+    "as" => Tok::As,
+    "assert" => Tok::Assert,
+    "async" => Tok::Async,
+    "await" => Tok::Await,
+    "break" => Tok::Break,
+    "class" => Tok::Class,
+    "continue" => Tok::Continue,
+    "def" => Tok::Def,
+    "del" => Tok::Del,
+    "elif" => Tok::Elif,
+    "else" => Tok::Else,
+    "except" => Tok::Except,
+    "finally" => Tok::Finally,
+    "for" => Tok::For,
+    "from" => Tok::From,
+    "global" => Tok::Global,
+    "if" => Tok::If,
+    "import" => Tok::Import,
+    "in" => Tok::In,
+    "is" => Tok::Is,
+    "lambda" => Tok::Lambda,
+    "nonlocal" => Tok::Nonlocal,
+    "not" => Tok::Not,
+    "or" => Tok::Or,
+    "pass" => Tok::Pass,
+    "raise" => Tok::Raise,
+    "return" => Tok::Return,
+    "try" => Tok::Try,
+    "while" => Tok::While,
+    "with" => Tok::With,
+    "yield" => Tok::Yield,
+};
 
 pub type Spanned = (Location, Tok, Location);
 pub type LexResult = Result<Spanned, LexicalError>;
@@ -193,7 +188,6 @@ where
             location: Location::new(0, 0),
             chr1: None,
             chr2: None,
-            keywords: get_keywords(),
         };
         lxr.next_char();
         lxr.next_char();
@@ -245,8 +239,8 @@ where
         }
         let end_pos = self.get_pos();
 
-        if self.keywords.contains_key(&name) {
-            Ok((start_pos, self.keywords[&name].clone(), end_pos))
+        if let Some(tok) = KEYWORDS.get(name.as_str()) {
+            Ok((start_pos, tok.clone(), end_pos))
         } else {
             Ok((start_pos, Tok::Name { name }, end_pos))
         }

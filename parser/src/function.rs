@@ -1,3 +1,4 @@
+use ahash::RandomState;
 use std::collections::HashSet;
 
 use crate::ast;
@@ -45,7 +46,7 @@ pub fn parse_args(func_args: Vec<FunctionArgument>) -> Result<ast::ArgumentList,
     let mut args = vec![];
     let mut keywords = vec![];
 
-    let mut keyword_names = HashSet::with_capacity(func_args.len());
+    let mut keyword_names = HashSet::with_capacity_and_hasher(func_args.len(), RandomState::new());
     for (name, value) in func_args {
         match name {
             Some(n) => {
