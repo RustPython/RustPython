@@ -9,7 +9,7 @@ use crate::builtins::{
 };
 use crate::function::OptionalArg;
 use crate::pyobject::{
-    PyObjectRc, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
+    PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
 };
 use crate::VirtualMachine;
 
@@ -20,7 +20,7 @@ use crate::stdlib::ctypes::pointer::PyCPointer;
 
 pub const SIMPLE_TYPE_CHARS: &str = "cbBhHiIlLdfguzZqQ?";
 
-fn set_primitive(_type_: &str, value: &PyObjectRc, vm: &VirtualMachine) -> PyResult<PyObjectRc> {
+fn set_primitive(_type_: &str, value: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
     match _type_ {
         "c" => {
             if value
@@ -260,7 +260,7 @@ fn new_simple_type(cls: &PyTypeRef, vm: &VirtualMachine) -> PyResult<PySimpleTyp
 #[pyclass(module = "_ctypes", name = "_SimpleCData", base = "PyCData")]
 pub struct PySimpleType {
     _type_: String,
-    value: AtomicCell<PyObjectRc>,
+    value: AtomicCell<PyObjectRef>,
     __abstract__: bool,
 }
 

@@ -2,12 +2,12 @@ extern crate libloading;
 
 use crate::builtins::pystr::PyStrRef;
 use crate::builtins::PyIntRef;
-use crate::pyobject::{PyObjectRc, PyResult, TryFromObject};
+use crate::pyobject::{PyResult, TryFromObject};
 use crate::VirtualMachine;
 
 use crate::stdlib::ctypes::shared_lib::LIBCACHE;
 
-pub fn dlopen(lib_path: PyStrRef, vm: &VirtualMachine) -> PyResult<PyObjectRc> {
+pub fn dlopen(lib_path: PyStrRef, vm: &VirtualMachine) -> PyResult {
     let mut data_cache = LIBCACHE.write();
 
     let result = data_cache.get_or_insert_lib(lib_path.as_ref(), vm);
@@ -21,7 +21,7 @@ pub fn dlopen(lib_path: PyStrRef, vm: &VirtualMachine) -> PyResult<PyObjectRc> {
     }
 }
 
-pub fn dlsym(slib: PyIntRef, str_ref: PyStrRef, vm: &VirtualMachine) -> PyResult<PyObjectRc> {
+pub fn dlsym(slib: PyIntRef, str_ref: PyStrRef, vm: &VirtualMachine) -> PyResult {
     let func_name = str_ref.as_ref();
     let data_cache = LIBCACHE.read();
 

@@ -16,7 +16,7 @@ use crate::common::lock::PyRwLock;
 
 use crate::function::FuncArgs;
 use crate::pyobject::{
-    PyObjectRc, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
+    PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
 };
 use crate::VirtualMachine;
 
@@ -167,11 +167,7 @@ impl Function {
         (*self.return_type.as_mut()) = str_to_type(ret);
     }
 
-    pub fn call(
-        &mut self,
-        arg_ptrs: Vec<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyObjectRc> {
+    pub fn call(&mut self, arg_ptrs: Vec<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
         let result = unsafe {
             prep_cif(
                 &mut self.cif,
@@ -266,7 +262,7 @@ pub struct PyCFuncPtr {
     pub _name_: String,
     pub _argtypes_: AtomicCell<Vec<PyObjectRef>>,
     pub _restype_: AtomicCell<PyObjectRef>,
-    _handle: PyObjectRc,
+    _handle: PyObjectRef,
     _f: PyRwLock<Function>,
 }
 

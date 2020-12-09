@@ -10,8 +10,7 @@ use crate::common::lock::{
 };
 use crate::function::OptionalArg;
 use crate::pyobject::{
-    BorrowValue, PyObjectRc, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject,
-    TypeProtocol,
+    BorrowValue, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
 };
 use crate::slots::BufferProtocol;
 use crate::VirtualMachine;
@@ -34,7 +33,7 @@ fn at_address(cls: &PyTypeRef, buf: usize, vm: &VirtualMachine) -> PyResult<Vec<
             Ok(b) if !b => {
                 let len = vm
                     .get_attribute(cls.as_object().to_owned(), "_length_")
-                    .map_or(Ok(1), |o: PyObjectRc| {
+                    .map_or(Ok(1), |o: PyObjectRef| {
                         match i64::try_from_object(vm, o.clone()) {
                             Ok(v_int) => {
                                 if v_int < 0 {
@@ -233,36 +232,37 @@ impl<'a> BorrowValue<'a> for PyCData {
 
 impl BufferProtocol for PyCData {
     fn get_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<Box<dyn Buffer>> {
-        Ok(Box::new(zelf.clone()))
+        Ok(Box::new(PyCDataBuffer {
+            data: zelf.clone(),
+            options: BufferOptions {
+                readonly: false,
+                len: zelf._buffer.read().len(),
+                ..Default::default()
+            },
+        }))
     }
 }
 
+#[derive(Debug)]
+struct PyCDataBuffer {
+    data: PyCDataRef,
+    options: BufferOptions,
+}
+
 // This trait will be used by all types
-impl Buffer for PyCDataRef {
+impl Buffer for PyCDataBuffer {
     fn obj_bytes(&self) -> BorrowedValue<[u8]> {
-        PyRwLockReadGuard::map(self.borrow_value(), |x| x.as_slice()).into()
+        PyRwLockReadGuard::map(self.data.borrow_value(), |x| x.as_slice()).into()
     }
 
     fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
-        PyRwLockWriteGuard::map(self.borrow_value_mut(), |x| x.as_mut_slice()).into()
+        PyRwLockWriteGuard::map(self.data.borrow_value_mut(), |x| x.as_mut_slice()).into()
     }
 
     fn release(&self) {}
 
-    fn get_options(&self) -> BorrowedValue<BufferOptions> {
-        let guard = self.buffer_options.upgradable_read();
-        let guard = if guard.is_none() {
-            let mut w = PyRwLockUpgradableReadGuard::upgrade(guard);
-            *w = Some(Box::new(BufferOptions {
-                readonly: false,
-                len: self._buffer.read().len(),
-                ..Default::default()
-            }));
-            PyRwLockWriteGuard::downgrade(w)
-        } else {
-            PyRwLockUpgradableReadGuard::downgrade(guard)
-        };
-        PyRwLockReadGuard::map(guard, |x| x.as_ref().unwrap().as_ref()).into()
+    fn get_options(&self) -> &BufferOptions {
+        &self.options
     }
 }
 
@@ -271,9 +271,8 @@ impl Buffer for PyCDataRef {
 // PyCArray_Type, PyCSimple_Type, PyCFuncPtr_Type
 #[pyclass(module = "_ctypes", name = "_CData")]
 pub struct PyCData {
-    _objects: AtomicCell<Vec<PyObjectRc>>,
+    _objects: AtomicCell<Vec<PyObjectRef>>,
     _buffer: PyRwLock<Vec<u8>>,
-    buffer_options: PyRwLock<Option<Box<BufferOptions>>>,
 }
 
 pub type PyCDataRef = PyRef<PyCData>;
@@ -291,11 +290,10 @@ impl PyValue for PyCData {
 }
 
 impl PyCData {
-    fn new(objs: Option<Vec<PyObjectRc>>, buffer: Option<Vec<u8>>) -> Self {
+    fn new(objs: Option<Vec<PyObjectRef>>, buffer: Option<Vec<u8>>) -> Self {
         PyCData {
             _objects: AtomicCell::new(objs.unwrap_or_default()),
             _buffer: PyRwLock::new(buffer.unwrap_or_default()),
-            buffer_options: PyRwLock::new(None),
         }
     }
 
