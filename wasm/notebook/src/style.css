@@ -59,9 +59,8 @@ h6 {
     color: #fff;
 }
 
-.item-center {
+.flex-grow {
     flex-grow: 1;
-    text-align: center;
 }
 
 .item-right {
@@ -72,6 +71,10 @@ h6 {
 
 .text-right {
     text-align: right;
+}
+
+.text-center {
+    text-align: center;
 }
 
 .text-black {
@@ -241,6 +244,13 @@ input[type='url'] {
     overflow: auto;
 }
 
+@media screen and (min-width: 768px) {
+    .md-flex-grow {
+        flex-grow: 1;
+    }
+    
+}
+
 @media screen and (max-width: 768px) {
     .box {
         width: 70%;
@@ -254,4 +264,15 @@ input[type='url'] {
         display: none;
     }
 
+    .d-sm-flex-direction-column {
+        flex-direction: column;
+    }
+
+    .sm-mt-5px {
+        margin-top: 5px !important;
+    }
+
+    #run-btn {
+        width: 45px;
+    }
 }
