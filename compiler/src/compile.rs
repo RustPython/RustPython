@@ -11,8 +11,9 @@ use crate::symboltable::{make_symbol_table, statements_to_symbol_table, SymbolSc
 use indexmap::IndexSet;
 use itertools::Itertools;
 use num_complex::Complex64;
+use num_traits::ToPrimitive;
 use rustpython_ast as ast;
-use rustpython_bytecode::bytecode::{self, CallType, CodeObject, ConstantData, Instruction, Label};
+use rustpython_bytecode::bytecode::{self, CodeObject, ConstantData, Instruction, Label};
 
 type CompileResult<T> = Result<T, CompileError>;
 
@@ -86,29 +87,12 @@ impl CodeInfo {
                 | SetupFinally { handler: l }
                 | SetupExcept { handler: l }
                 | SetupWith { end: l }
-                | SetupAsyncWith { end: l } => {
+                | SetupAsyncWith { end: l }
+                | SetupLoop { end: l } => {
                     *l = label_map[l.0].expect("label never set");
                 }
-                SetupLoop { start, end } => {
-                    *start = label_map[start.0].expect("label never set");
-                    *end = label_map[end.0].expect("label never set");
-                }
 
-                #[rustfmt::skip]
-                Import { .. } | ImportStar | ImportFrom { .. } | LoadFast(_) | LoadNameAny(_)
-                | LoadGlobal(_) | LoadDeref(_) | LoadClassDeref(_) | StoreFast(_) | StoreLocal(_)
-                | StoreGlobal(_) | StoreDeref(_) | DeleteFast(_) | DeleteLocal(_) | DeleteGlobal(_)
-                | DeleteDeref(_) | LoadClosure(_) | Subscript | StoreSubscript | DeleteSubscript
-                | StoreAttr { .. } | DeleteAttr { .. } | LoadConst { .. } | UnaryOperation { .. }
-                | BinaryOperation { .. } | LoadAttr { .. } | CompareOperation { .. } | Pop
-                | Rotate { .. } | Duplicate | GetIter | Continue | Break | MakeFunction
-                | CallFunction { .. } | ReturnValue | YieldValue | YieldFrom | SetupAnnotation
-                | EnterFinally | EndFinally | WithCleanupStart | WithCleanupFinish | PopBlock
-                | Raise { .. } | BuildString { .. } | BuildTuple { .. } | BuildList { .. }
-                | BuildSet { .. } | BuildMap { .. } | BuildSlice { .. } | ListAppend { .. }
-                | SetAdd { .. } | MapAdd { .. } | PrintExpr | LoadBuildClass | UnpackSequence { .. }
-                | UnpackEx { .. } | FormatValue { .. } | PopException | Reverse { .. }
-                | GetAwaitable | BeforeAsyncWith | GetAIter | GetANext | MapAddRev { .. } => {}
+                _ => {}
             }
         }
         code
@@ -519,12 +503,12 @@ impl Compiler {
             Import { names } => {
                 // import a, b, c as d
                 for name in names {
-                    let name_idx = Some(self.name(&name.symbol));
-                    self.emit(Instruction::Import {
-                        name_idx,
-                        symbols_idx: vec![],
-                        level: 0,
+                    self.emit_constant(ConstantData::Integer {
+                        value: num_traits::Zero::zero(),
                     });
+                    self.emit_constant(ConstantData::None);
+                    let idx = self.name(&name.symbol);
+                    self.emit(Instruction::ImportName { idx });
                     if let Some(alias) = &name.alias {
                         for part in name.symbol.split('.').skip(1) {
                             let idx = self.name(part);
@@ -543,32 +527,43 @@ impl Compiler {
             } => {
                 let import_star = names.iter().any(|n| n.symbol == "*");
 
-                let module_idx = module.as_ref().map(|s| self.name(s));
-
-                if import_star {
+                let from_list = if import_star {
                     if self.ctx.in_func() {
                         return Err(self
                             .error_loc(CompileErrorType::FunctionImportStar, statement.location));
                     }
-                    let star = self.name("*");
+                    vec![ConstantData::Str {
+                        value: "*".to_owned(),
+                    }]
+                } else {
+                    names
+                        .iter()
+                        .map(|n| ConstantData::Str {
+                            value: n.symbol.to_owned(),
+                        })
+                        .collect()
+                };
+
+                let module_idx = module.as_ref().map(|s| self.name(s));
+
+                // from .... import (*fromlist)
+                self.emit_constant(ConstantData::Integer {
+                    value: (*level).into(),
+                });
+                self.emit_constant(ConstantData::Tuple {
+                    elements: from_list,
+                });
+                if let Some(idx) = module_idx {
+                    self.emit(Instruction::ImportName { idx });
+                } else {
+                    self.emit(Instruction::ImportNameless);
+                }
+
+                if import_star {
                     // from .... import *
-                    self.emit(Instruction::Import {
-                        name_idx: module_idx,
-                        symbols_idx: vec![star],
-                        level: *level,
-                    });
                     self.emit(Instruction::ImportStar);
                 } else {
                     // from mod import a, b as c
-                    // First, determine the fromlist (for import lib):
-                    let from_list = names.iter().map(|n| self.name(&n.symbol)).collect();
-
-                    // Load module once:
-                    self.emit(Instruction::Import {
-                        name_idx: module_idx,
-                        symbols_idx: from_list,
-                        level: *level,
-                    });
 
                     for name in names {
                         let idx = self.name(&name.symbol);
@@ -731,14 +726,10 @@ impl Compiler {
                     match msg {
                         Some(e) => {
                             self.compile_expression(e)?;
-                            self.emit(Instruction::CallFunction {
-                                typ: CallType::Positional(1),
-                            });
+                            self.emit(Instruction::CallFunctionPositional { nargs: 1 });
                         }
                         None => {
-                            self.emit(Instruction::CallFunction {
-                                typ: CallType::Positional(0),
-                            });
+                            self.emit(Instruction::CallFunctionPositional { nargs: 0 });
                         }
                     }
                     self.emit(Instruction::Raise { argc: 1 });
@@ -927,9 +918,7 @@ impl Compiler {
     fn apply_decorators(&mut self, decorator_list: &[ast::Expression]) {
         // Apply decorators:
         for _ in decorator_list {
-            self.emit(Instruction::CallFunction {
-                typ: CallType::Positional(1),
-            });
+            self.emit(Instruction::CallFunctionPositional { nargs: 1 });
         }
     }
 
@@ -1369,12 +1358,12 @@ impl Compiler {
             self.emit_constant(ConstantData::Tuple {
                 elements: kwarg_names,
             });
-            self.emit(Instruction::CallFunction {
-                typ: CallType::Keyword(2 + keywords.len() + bases.len()),
+            self.emit(Instruction::CallFunctionKeyword {
+                nargs: 2 + keywords.len() + bases.len(),
             });
         } else {
-            self.emit(Instruction::CallFunction {
-                typ: CallType::Positional(2 + bases.len()),
+            self.emit(Instruction::CallFunctionPositional {
+                nargs: 2 + bases.len(),
             });
         }
 
@@ -1404,11 +1393,8 @@ impl Compiler {
         let start_label = self.new_label();
         let else_label = self.new_label();
         let end_label = self.new_label();
-        self.emit(Instruction::SetupLoop {
-            start: start_label,
-            end: end_label,
-        });
 
+        self.emit(Instruction::SetupLoop { end: end_label });
         self.set_label(start_label);
 
         self.compile_jump_if(test, false, else_label)?;
@@ -1442,11 +1428,6 @@ impl Compiler {
         let else_label = self.new_label();
         let end_label = self.new_label();
 
-        self.emit(Instruction::SetupLoop {
-            start: start_label,
-            end: end_label,
-        });
-
         // The thing iterated:
         self.compile_expression(iter)?;
 
@@ -1456,6 +1437,7 @@ impl Compiler {
 
             self.emit(Instruction::GetAIter);
 
+            self.emit(Instruction::SetupLoop { end: end_label });
             self.set_label(start_label);
             self.emit(Instruction::SetupExcept {
                 handler: check_asynciter_label,
@@ -1486,6 +1468,7 @@ impl Compiler {
             // Retrieve Iterator
             self.emit(Instruction::GetIter);
 
+            self.emit(Instruction::SetupLoop { end: end_label });
             self.set_label(start_label);
             self.emit(Instruction::ForIter { target: else_label });
 
@@ -1647,10 +1630,16 @@ impl Compiler {
                             return Err(self.error(CompileErrorType::MultipleStarArgs));
                         } else {
                             seen_star = true;
-                            self.emit(Instruction::UnpackEx {
-                                before: i,
-                                after: elements.len() - i - 1,
-                            });
+                            let before = i;
+                            let after = elements.len() - i - 1;
+                            let (before, after) = (|| Some((before.to_u8()?, after.to_u8()?)))()
+                                .ok_or_else(|| {
+                                    self.error_loc(
+                                        CompileErrorType::TooManyStarUnpack,
+                                        target.location,
+                                    )
+                                })?;
+                            self.emit(Instruction::UnpackEx { before, after });
                         }
                     }
                 }
@@ -1683,7 +1672,7 @@ impl Compiler {
     }
 
     fn compile_op(&mut self, op: &ast::Operator, inplace: bool) {
-        let i = match op {
+        let op = match op {
             ast::Operator::Add => bytecode::BinaryOperator::Add,
             ast::Operator::Sub => bytecode::BinaryOperator::Subtract,
             ast::Operator::Mult => bytecode::BinaryOperator::Multiply,
@@ -1698,7 +1687,12 @@ impl Compiler {
             ast::Operator::BitXor => bytecode::BinaryOperator::Xor,
             ast::Operator::BitAnd => bytecode::BinaryOperator::And,
         };
-        self.emit(Instruction::BinaryOperation { op: i, inplace });
+        let ins = if inplace {
+            Instruction::BinaryOperationInplace { op }
+        } else {
+            Instruction::BinaryOperation { op }
+        };
+        self.emit(ins);
     }
 
     /// Implement boolean short circuit evaluation logic.
@@ -2124,13 +2118,9 @@ impl Compiler {
             // Create an optional map with kw-args:
             if !keywords.is_empty() {
                 self.compile_keywords(keywords)?;
-                self.emit(Instruction::CallFunction {
-                    typ: CallType::Ex(true),
-                });
+                self.emit(Instruction::CallFunctionEx { has_kwargs: true });
             } else {
-                self.emit(Instruction::CallFunction {
-                    typ: CallType::Ex(false),
-                });
+                self.emit(Instruction::CallFunctionEx { has_kwargs: false });
             }
         } else {
             // Keyword arguments:
@@ -2151,13 +2141,9 @@ impl Compiler {
                 self.emit_constant(ConstantData::Tuple {
                     elements: kwarg_names,
                 });
-                self.emit(Instruction::CallFunction {
-                    typ: CallType::Keyword(count),
-                });
+                self.emit(Instruction::CallFunctionKeyword { nargs: count });
             } else {
-                self.emit(Instruction::CallFunction {
-                    typ: CallType::Positional(count),
-                });
+                self.emit(Instruction::CallFunctionPositional { nargs: count });
             }
         }
         Ok(())
@@ -2270,10 +2256,7 @@ impl Compiler {
             let start_label = self.new_label();
             let end_label = self.new_label();
             loop_labels.push((start_label, end_label));
-            self.emit(Instruction::SetupLoop {
-                start: start_label,
-                end: end_label,
-            });
+            self.emit(Instruction::SetupLoop { end: end_label });
             self.set_label(start_label);
             self.emit(Instruction::ForIter { target: end_label });
 
@@ -2366,9 +2349,7 @@ impl Compiler {
         self.emit(Instruction::GetIter);
 
         // Call just created <listcomp> function:
-        self.emit(Instruction::CallFunction {
-            typ: CallType::Positional(1),
-        });
+        self.emit(Instruction::CallFunctionPositional { nargs: 1 });
         Ok(())
     }
 

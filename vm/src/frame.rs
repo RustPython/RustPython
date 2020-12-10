@@ -327,9 +327,8 @@ impl ExecutingFrame<'_> {
         // Execute until return or exception:
         loop {
             let idx = self.lasti.fetch_add(1, Ordering::Relaxed);
-            let loc = self.code.locations[idx];
             let instr = &self.code.instructions[idx];
-            let result = self.execute_instruction(instr, vm);
+            let result = self.execute_instruction(instr, idx, vm);
             match result {
                 Ok(None) => continue,
                 Ok(Some(value)) => {
@@ -340,6 +339,8 @@ impl ExecutingFrame<'_> {
                     // 1. Extract traceback from exception's '__traceback__' attr.
                     // 2. Add new entry with current execution position (filename, lineno, code_object) to traceback.
                     // 3. Unwind block stack till appropriate handler is found.
+
+                    let loc = self.code.locations[idx];
 
                     let next = exception.traceback();
 
@@ -421,6 +422,7 @@ impl ExecutingFrame<'_> {
     fn execute_instruction(
         &mut self,
         instruction: &bytecode::Instruction,
+        current_idx: usize,
         vm: &VirtualMachine,
     ) -> FrameResult {
         vm.check_signals()?;
@@ -445,11 +447,10 @@ impl ExecutingFrame<'_> {
                 self.push_value(self.code.constants[*idx].0.clone());
                 Ok(None)
             }
-            bytecode::Instruction::Import {
-                name_idx,
-                symbols_idx,
-                level,
-            } => self.import(vm, *name_idx, symbols_idx, *level),
+            bytecode::Instruction::ImportName { idx } => {
+                self.import(vm, Some(self.code.names[*idx].clone()))
+            }
+            bytecode::Instruction::ImportNameless => self.import(vm, None),
             bytecode::Instruction::ImportStar => self.import_star(vm),
             bytecode::Instruction::ImportFrom { idx } => self.import_from(vm, *idx),
             bytecode::Instruction::LoadFast(idx) => {
@@ -639,8 +640,9 @@ impl ExecutingFrame<'_> {
                 PyDictRef::try_from_object(vm, dict_obj)?.set_item(key, value, vm)?;
                 Ok(None)
             }
-            bytecode::Instruction::BinaryOperation { ref op, inplace } => {
-                self.execute_binop(vm, op, *inplace)
+            bytecode::Instruction::BinaryOperation { op } => self.execute_binop(vm, *op),
+            bytecode::Instruction::BinaryOperationInplace { op } => {
+                self.execute_binop_inplace(vm, *op)
             }
             bytecode::Instruction::LoadAttr { idx } => self.load_attr(vm, *idx),
             bytecode::Instruction::StoreAttr { idx } => self.store_attr(vm, *idx),
@@ -668,9 +670,9 @@ impl ExecutingFrame<'_> {
                 }
                 Ok(None)
             }
-            bytecode::Instruction::SetupLoop { start, end } => {
+            bytecode::Instruction::SetupLoop { end } => {
                 self.push_block(BlockType::Loop {
-                    start: *start,
+                    start: bytecode::Label(current_idx + 1),
                     end: *end,
                 });
                 Ok(None)
@@ -813,7 +815,15 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::ForIter { target } => self.execute_for_iter(vm, *target),
             bytecode::Instruction::MakeFunction => self.execute_make_function(vm),
-            bytecode::Instruction::CallFunction { typ } => self.execute_call_function(vm, typ),
+            bytecode::Instruction::CallFunctionPositional { nargs } => {
+                self.execute_call_function_positional(vm, *nargs)
+            }
+            bytecode::Instruction::CallFunctionKeyword { nargs } => {
+                self.execute_call_function_keyword(vm, *nargs)
+            }
+            bytecode::Instruction::CallFunctionEx { has_kwargs } => {
+                self.execute_call_function_ex(vm, *has_kwargs)
+            }
             bytecode::Instruction::Jump { target } => {
                 self.jump(*target);
                 Ok(None)
@@ -971,22 +981,12 @@ impl ExecutingFrame<'_> {
     }
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
-    fn import(
-        &mut self,
-        vm: &VirtualMachine,
-        module: Option<bytecode::NameIdx>,
-        symbols: &[bytecode::NameIdx],
-        level: usize,
-    ) -> FrameResult {
-        let module = match module {
-            Some(idx) => self.code.names[idx].borrow_value(),
-            None => "",
-        };
-        let from_list = symbols
-            .iter()
-            .map(|&idx| self.code.names[idx].clone())
-            .collect::<Vec<_>>();
-        let module = vm.import(&module, &from_list, level)?;
+    fn import(&mut self, vm: &VirtualMachine, module: Option<PyStrRef>) -> FrameResult {
+        let module = module.unwrap_or_else(|| PyStr::from("").into_ref(vm));
+        let from_list = <Option<PyTupleTyped<PyStrRef>>>::try_from_object(vm, self.pop_value())?;
+        let level = usize::try_from_object(vm, self.pop_value())?;
+
+        let module = vm.import(module, from_list, level)?;
 
         self.push_value(module);
         Ok(None)
@@ -1206,59 +1206,61 @@ impl ExecutingFrame<'_> {
         Ok(None)
     }
 
-    fn execute_call_function(
+    fn execute_call_function_positional(
         &mut self,
         vm: &VirtualMachine,
-        typ: &bytecode::CallType,
+        nargs: usize,
     ) -> FrameResult {
-        let args = match typ {
-            bytecode::CallType::Positional(count) => {
-                let args: Vec<PyObjectRef> = self.pop_multiple(*count);
-                FuncArgs {
-                    args,
-                    kwargs: IndexMap::new(),
-                }
-            }
-            bytecode::CallType::Keyword(count) => {
-                let kwarg_names = self.pop_value();
-                let args: Vec<PyObjectRef> = self.pop_multiple(*count);
-
-                let kwarg_names = vm
-                    .extract_elements(&kwarg_names)?
-                    .iter()
-                    .map(|pyobj| pystr::clone_value(pyobj))
-                    .collect();
-                FuncArgs::with_kwargs_names(args, kwarg_names)
-            }
-            bytecode::CallType::Ex(has_kwargs) => {
-                let kwargs = if *has_kwargs {
-                    let kw_dict: PyDictRef = self.pop_value().downcast().map_err(|_| {
-                        // TODO: check collections.abc.Mapping
-                        vm.new_type_error("Kwargs must be a dict.".to_owned())
-                    })?;
-                    let mut kwargs = IndexMap::new();
-                    for (key, value) in kw_dict.into_iter() {
-                        let key = key.payload_if_subclass::<pystr::PyStr>(vm).ok_or_else(|| {
-                            vm.new_type_error("keywords must be strings".to_owned())
-                        })?;
-                        kwargs.insert(key.borrow_value().to_owned(), value);
-                    }
-                    kwargs
-                } else {
-                    IndexMap::new()
-                };
-                let args = self.pop_value();
-                let args = vm.extract_elements(&args)?;
-                FuncArgs { args, kwargs }
-            }
+        let args: Vec<PyObjectRef> = self.pop_multiple(nargs);
+        let args = FuncArgs {
+            args,
+            kwargs: IndexMap::new(),
         };
 
-        // Call function:
-        // eprintln!(
-        //     "calling from {} {:?}",
-        //     self.code.obj_name,
-        //     self.code.locations[self.lasti.load(Ordering::Relaxed)]
-        // );
+        let func_ref = self.pop_value();
+        let value = vm.invoke(&func_ref, args)?;
+        self.push_value(value);
+        Ok(None)
+    }
+
+    fn execute_call_function_keyword(&mut self, vm: &VirtualMachine, nargs: usize) -> FrameResult {
+        let kwarg_names = self.pop_value();
+        let args: Vec<PyObjectRef> = self.pop_multiple(nargs);
+
+        let kwarg_names = vm
+            .extract_elements(&kwarg_names)?
+            .iter()
+            .map(|pyobj| pystr::clone_value(pyobj))
+            .collect();
+        let args = FuncArgs::with_kwargs_names(args, kwarg_names);
+
+        let func_ref = self.pop_value();
+        let value = vm.invoke(&func_ref, args)?;
+        self.push_value(value);
+        Ok(None)
+    }
+
+    fn execute_call_function_ex(&mut self, vm: &VirtualMachine, has_kwargs: bool) -> FrameResult {
+        let kwargs = if has_kwargs {
+            let kw_dict: PyDictRef = self.pop_value().downcast().map_err(|_| {
+                // TODO: check collections.abc.Mapping
+                vm.new_type_error("Kwargs must be a dict.".to_owned())
+            })?;
+            let mut kwargs = IndexMap::new();
+            for (key, value) in kw_dict.into_iter() {
+                let key = key
+                    .payload_if_subclass::<pystr::PyStr>(vm)
+                    .ok_or_else(|| vm.new_type_error("keywords must be strings".to_owned()))?;
+                kwargs.insert(key.borrow_value().to_owned(), value);
+            }
+            kwargs
+        } else {
+            IndexMap::new()
+        };
+        let args = self.pop_value();
+        let args = vm.extract_elements(&args)?;
+        let args = FuncArgs { args, kwargs };
+
         let func_ref = self.pop_value();
         let value = vm.invoke(&func_ref, args)?;
         self.push_value(value);
@@ -1343,12 +1345,8 @@ impl ExecutingFrame<'_> {
         }
     }
 
-    fn execute_unpack_ex(
-        &mut self,
-        vm: &VirtualMachine,
-        before: usize,
-        after: usize,
-    ) -> FrameResult {
+    fn execute_unpack_ex(&mut self, vm: &VirtualMachine, before: u8, after: u8) -> FrameResult {
+        let (before, after) = (before as usize, after as usize);
         let value = self.pop_value();
         let elements = vm.extract_elements::<PyObjectRef>(&value)?;
         let min_expected = before + after;
@@ -1486,47 +1484,50 @@ impl ExecutingFrame<'_> {
     }
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
-    fn execute_binop(
+    fn execute_binop(&mut self, vm: &VirtualMachine, op: bytecode::BinaryOperator) -> FrameResult {
+        let b_ref = &self.pop_value();
+        let a_ref = &self.pop_value();
+        let value = match op {
+            bytecode::BinaryOperator::Subtract => vm._sub(a_ref, b_ref),
+            bytecode::BinaryOperator::Add => vm._add(a_ref, b_ref),
+            bytecode::BinaryOperator::Multiply => vm._mul(a_ref, b_ref),
+            bytecode::BinaryOperator::MatrixMultiply => vm._matmul(a_ref, b_ref),
+            bytecode::BinaryOperator::Power => vm._pow(a_ref, b_ref),
+            bytecode::BinaryOperator::Divide => vm._truediv(a_ref, b_ref),
+            bytecode::BinaryOperator::FloorDivide => vm._floordiv(a_ref, b_ref),
+            bytecode::BinaryOperator::Modulo => vm._mod(a_ref, b_ref),
+            bytecode::BinaryOperator::Lshift => vm._lshift(a_ref, b_ref),
+            bytecode::BinaryOperator::Rshift => vm._rshift(a_ref, b_ref),
+            bytecode::BinaryOperator::Xor => vm._xor(a_ref, b_ref),
+            bytecode::BinaryOperator::Or => vm._or(a_ref, b_ref),
+            bytecode::BinaryOperator::And => vm._and(a_ref, b_ref),
+        }?;
+
+        self.push_value(value);
+        Ok(None)
+    }
+    fn execute_binop_inplace(
         &mut self,
         vm: &VirtualMachine,
-        op: &bytecode::BinaryOperator,
-        inplace: bool,
+        op: bytecode::BinaryOperator,
     ) -> FrameResult {
         let b_ref = &self.pop_value();
         let a_ref = &self.pop_value();
-        let value = if inplace {
-            match *op {
-                bytecode::BinaryOperator::Subtract => vm._isub(a_ref, b_ref),
-                bytecode::BinaryOperator::Add => vm._iadd(a_ref, b_ref),
-                bytecode::BinaryOperator::Multiply => vm._imul(a_ref, b_ref),
-                bytecode::BinaryOperator::MatrixMultiply => vm._imatmul(a_ref, b_ref),
-                bytecode::BinaryOperator::Power => vm._ipow(a_ref, b_ref),
-                bytecode::BinaryOperator::Divide => vm._itruediv(a_ref, b_ref),
-                bytecode::BinaryOperator::FloorDivide => vm._ifloordiv(a_ref, b_ref),
-                bytecode::BinaryOperator::Modulo => vm._imod(a_ref, b_ref),
-                bytecode::BinaryOperator::Lshift => vm._ilshift(a_ref, b_ref),
-                bytecode::BinaryOperator::Rshift => vm._irshift(a_ref, b_ref),
-                bytecode::BinaryOperator::Xor => vm._ixor(a_ref, b_ref),
-                bytecode::BinaryOperator::Or => vm._ior(a_ref, b_ref),
-                bytecode::BinaryOperator::And => vm._iand(a_ref, b_ref),
-            }?
-        } else {
-            match *op {
-                bytecode::BinaryOperator::Subtract => vm._sub(a_ref, b_ref),
-                bytecode::BinaryOperator::Add => vm._add(a_ref, b_ref),
-                bytecode::BinaryOperator::Multiply => vm._mul(a_ref, b_ref),
-                bytecode::BinaryOperator::MatrixMultiply => vm._matmul(a_ref, b_ref),
-                bytecode::BinaryOperator::Power => vm._pow(a_ref, b_ref),
-                bytecode::BinaryOperator::Divide => vm._truediv(a_ref, b_ref),
-                bytecode::BinaryOperator::FloorDivide => vm._floordiv(a_ref, b_ref),
-                bytecode::BinaryOperator::Modulo => vm._mod(a_ref, b_ref),
-                bytecode::BinaryOperator::Lshift => vm._lshift(a_ref, b_ref),
-                bytecode::BinaryOperator::Rshift => vm._rshift(a_ref, b_ref),
-                bytecode::BinaryOperator::Xor => vm._xor(a_ref, b_ref),
-                bytecode::BinaryOperator::Or => vm._or(a_ref, b_ref),
-                bytecode::BinaryOperator::And => vm._and(a_ref, b_ref),
-            }?
-        };
+        let value = match op {
+            bytecode::BinaryOperator::Subtract => vm._isub(a_ref, b_ref),
+            bytecode::BinaryOperator::Add => vm._iadd(a_ref, b_ref),
+            bytecode::BinaryOperator::Multiply => vm._imul(a_ref, b_ref),
+            bytecode::BinaryOperator::MatrixMultiply => vm._imatmul(a_ref, b_ref),
+            bytecode::BinaryOperator::Power => vm._ipow(a_ref, b_ref),
+            bytecode::BinaryOperator::Divide => vm._itruediv(a_ref, b_ref),
+            bytecode::BinaryOperator::FloorDivide => vm._ifloordiv(a_ref, b_ref),
+            bytecode::BinaryOperator::Modulo => vm._imod(a_ref, b_ref),
+            bytecode::BinaryOperator::Lshift => vm._ilshift(a_ref, b_ref),
+            bytecode::BinaryOperator::Rshift => vm._irshift(a_ref, b_ref),
+            bytecode::BinaryOperator::Xor => vm._ixor(a_ref, b_ref),
+            bytecode::BinaryOperator::Or => vm._ior(a_ref, b_ref),
+            bytecode::BinaryOperator::And => vm._iand(a_ref, b_ref),
+        }?;
 
         self.push_value(value);
         Ok(None)

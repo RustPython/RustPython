@@ -314,11 +314,11 @@ pub fn init(context: &PyContext) {
 
 fn common_reduce(obj: PyObjectRef, proto: usize, vm: &VirtualMachine) -> PyResult {
     if proto >= 2 {
-        let reducelib = vm.import("__reducelib", &[], 0)?;
+        let reducelib = vm.import("__reducelib", None, 0)?;
         let reduce_2 = vm.get_attribute(reducelib, "reduce_2")?;
         vm.invoke(&reduce_2, (obj,))
     } else {
-        let copyreg = vm.import("copyreg", &[], 0)?;
+        let copyreg = vm.import("copyreg", None, 0)?;
         let reduce_ex = vm.get_attribute(copyreg, "_reduce_ex")?;
         vm.invoke(&reduce_ex, (obj, proto))
     }

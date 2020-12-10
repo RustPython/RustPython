@@ -22,7 +22,7 @@ use crate::builtins::object;
 use crate::builtins::pybool;
 use crate::builtins::pystr::{PyStr, PyStrRef};
 use crate::builtins::pytype::PyTypeRef;
-use crate::builtins::tuple::PyTuple;
+use crate::builtins::tuple::{PyTuple, PyTupleTyped};
 use crate::common::{hash::HashSecret, lock::PyMutex, rc::PyRc};
 #[cfg(feature = "rustpython-compiler")]
 use crate::compile::{self, CompileError, CompileErrorType, CompileOpts};
@@ -511,7 +511,7 @@ impl VirtualMachine {
 
     pub fn try_class(&self, module: &str, class: &str) -> PyResult<PyTypeRef> {
         let class = self
-            .get_attribute(self.import(module, &[], 0)?, class)?
+            .get_attribute(self.import(module, None, 0)?, class)?
             .downcast()
             .expect("not a class");
         Ok(class)
@@ -519,7 +519,7 @@ impl VirtualMachine {
 
     pub fn class(&self, module: &str, class: &str) -> PyTypeRef {
         let module = self
-            .import(module, &[], 0)
+            .import(module, None, 0)
             .unwrap_or_else(|_| panic!("unable to import {}", module));
         let class = self
             .get_attribute(module.clone(), class)
@@ -844,16 +844,35 @@ impl VirtualMachine {
         })
     }
 
-    pub fn import(&self, module: &str, from_list: &[PyStrRef], level: usize) -> PyResult {
+    #[inline]
+    pub fn import(
+        &self,
+        module: impl TryIntoRef<PyStr>,
+        from_list: Option<PyTupleTyped<PyStrRef>>,
+        level: usize,
+    ) -> PyResult {
+        self._import_inner(module.try_into_ref(self)?, from_list, level)
+    }
+
+    fn _import_inner(
+        &self,
+        module: PyStrRef,
+        from_list: Option<PyTupleTyped<PyStrRef>>,
+        level: usize,
+    ) -> PyResult {
         // if the import inputs seem weird, e.g a package import or something, rather than just
         // a straight `import ident`
-        let weird = module.contains('.') || level != 0 || !from_list.is_empty();
+        let weird = module.borrow_value().contains('.')
+            || level != 0
+            || from_list
+                .as_ref()
+                .map_or(false, |x| !x.borrow_value().is_empty());
 
         let cached_module = if weird {
             None
         } else {
             let sys_modules = self.get_attribute(self.sys_module.clone(), "modules")?;
-            sys_modules.get_item(module, self).ok()
+            sys_modules.get_item(module.clone(), self).ok()
         };
 
         match cached_module {
@@ -871,7 +890,7 @@ impl VirtualMachine {
                 let import_func = self
                     .get_attribute(self.builtins.clone(), "__import__")
                     .map_err(|_| {
-                        self.new_import_error("__import__ not found".to_owned(), module)
+                        self.new_import_error("__import__ not found".to_owned(), module.clone())
                     })?;
 
                 let (locals, globals) = if let Some(frame) = self.current_frame() {
@@ -879,9 +898,10 @@ impl VirtualMachine {
                 } else {
                     (None, None)
                 };
-                let from_list = self
-                    .ctx
-                    .new_tuple(from_list.iter().map(|x| x.as_object().clone()).collect());
+                let from_list = match from_list {
+                    Some(tup) => tup.into_pyobject(self),
+                    None => self.ctx.new_tuple(vec![]),
+                };
                 self.invoke(&import_func, (module, globals, locals, from_list, level))
                     .map_err(|exc| import::remove_importlib_frames(self, &exc))
             }
@@ -1287,7 +1307,7 @@ impl VirtualMachine {
         encoding: Option<PyStrRef>,
         errors: Option<PyStrRef>,
     ) -> PyResult {
-        let codecsmodule = self.import("_codecs", &[], 0)?;
+        let codecsmodule = self.import("_codecs", None, 0)?;
         let func = self.get_attribute(codecsmodule, func)?;
         let mut args = vec![obj, encoding.into_pyobject(self)];
         if let Some(errors) = errors {

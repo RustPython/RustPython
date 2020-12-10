@@ -37,6 +37,7 @@ pub enum CompileErrorType {
     InvalidFuturePlacement,
     InvalidFutureFeature(String),
     FunctionImportStar,
+    TooManyStarUnpack,
 }
 
 impl fmt::Display for CompileErrorType {
@@ -69,6 +70,9 @@ impl fmt::Display for CompileErrorType {
             }
             CompileErrorType::FunctionImportStar => {
                 write!(f, "import * only allowed at module level")
+            }
+            CompileErrorType::TooManyStarUnpack => {
+                write!(f, "too many expressions in star-unpacking assignment")
             }
         }
     }

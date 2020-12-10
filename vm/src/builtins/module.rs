@@ -82,7 +82,7 @@ impl PyModule {
 
     #[pymethod(magic)]
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        let importlib = vm.import("_frozen_importlib", &[], 0)?;
+        let importlib = vm.import("_frozen_importlib", None, 0)?;
         let module_repr = vm.get_attribute(importlib, "_module_repr")?;
         vm.invoke(&module_repr, (zelf,))
     }

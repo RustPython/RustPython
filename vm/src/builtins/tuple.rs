@@ -317,6 +317,7 @@ impl<T: TransmuteFromObject> TryFromObject for PyTupleTyped<T> {
 
 impl<'a, T: TransmuteFromObject + 'a> BorrowValue<'a> for PyTupleTyped<T> {
     type Borrowed = &'a [T];
+    #[inline]
     fn borrow_value(&'a self) -> Self::Borrowed {
         unsafe { &*(self.tuple.borrow_value() as *const [PyObjectRef] as *const [T]) }
     }
@@ -325,5 +326,19 @@ impl<'a, T: TransmuteFromObject + 'a> BorrowValue<'a> for PyTupleTyped<T> {
 impl<T: TransmuteFromObject + fmt::Debug> fmt::Debug for PyTupleTyped<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.borrow_value().fmt(f)
+    }
+}
+
+impl<T: TransmuteFromObject> From<PyTupleTyped<T>> for PyTupleRef {
+    #[inline]
+    fn from(tup: PyTupleTyped<T>) -> Self {
+        tup.tuple
+    }
+}
+
+impl<T: TransmuteFromObject> IntoPyObject for PyTupleTyped<T> {
+    #[inline]
+    fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
+        self.tuple.into_object()
     }
 }

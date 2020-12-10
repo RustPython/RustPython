@@ -169,11 +169,10 @@ pub type NameIdx = usize;
 /// A Single bytecode instruction.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Instruction {
-    Import {
-        name_idx: Option<NameIdx>,
-        symbols_idx: Vec<NameIdx>,
-        level: usize,
+    ImportName {
+        idx: NameIdx,
     },
+    ImportNameless,
     ImportStar,
     ImportFrom {
         idx: NameIdx,
@@ -210,7 +209,9 @@ pub enum Instruction {
     },
     BinaryOperation {
         op: BinaryOperator,
-        inplace: bool,
+    },
+    BinaryOperationInplace {
+        op: BinaryOperator,
     },
     LoadAttr {
         idx: NameIdx,
@@ -248,8 +249,14 @@ pub enum Instruction {
         target: Label,
     },
     MakeFunction,
-    CallFunction {
-        typ: CallType,
+    CallFunctionPositional {
+        nargs: usize,
+    },
+    CallFunctionKeyword {
+        nargs: usize,
+    },
+    CallFunctionEx {
+        has_kwargs: bool,
     },
     ForIter {
         target: Label,
@@ -259,7 +266,6 @@ pub enum Instruction {
     YieldFrom,
     SetupAnnotation,
     SetupLoop {
-        start: Label,
         end: Label,
     },
 
@@ -333,8 +339,8 @@ pub enum Instruction {
         size: usize,
     },
     UnpackEx {
-        before: usize,
-        after: usize,
+        before: u8,
+        after: u8,
     },
     FormatValue {
         conversion: Option<ConversionFlag>,
@@ -360,13 +366,6 @@ pub enum Instruction {
 }
 
 use self::Instruction::*;
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum CallType {
-    Positional(usize),
-    Keyword(usize),
-    Ex(bool),
-}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ConstantData {
@@ -452,7 +451,7 @@ impl<C: Constant> BorrowedConstant<'_, C> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ComparisonOperator {
     Greater,
     GreaterOrEqual,
@@ -467,7 +466,7 @@ pub enum ComparisonOperator {
     ExceptionMatch,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 pub enum BinaryOperator {
     Power,
     Multiply,
@@ -484,7 +483,7 @@ pub enum BinaryOperator {
     Or,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 pub enum UnaryOperator {
     Not,
     Invert,
@@ -598,29 +597,12 @@ impl<C: Constant> CodeObject<C> {
                 | SetupFinally { handler: l }
                 | SetupExcept { handler: l }
                 | SetupWith { end: l }
-                | SetupAsyncWith { end: l } => {
+                | SetupAsyncWith { end: l }
+                | SetupLoop { end: l } => {
                     label_targets.insert(*l);
                 }
-                SetupLoop { start, end } => {
-                    label_targets.insert(*start);
-                    label_targets.insert(*end);
-                }
 
-                #[rustfmt::skip]
-                Import { .. } | ImportStar | ImportFrom { .. } | LoadFast(_) | LoadNameAny(_)
-                | LoadGlobal(_) | LoadDeref(_) | LoadClassDeref(_) | StoreFast(_) | StoreLocal(_)
-                | StoreGlobal(_) | StoreDeref(_) | DeleteFast(_) | DeleteLocal(_) | DeleteGlobal(_)
-                | DeleteDeref(_) | LoadClosure(_) | Subscript | StoreSubscript | DeleteSubscript
-                | StoreAttr { .. } | DeleteAttr { .. } | LoadConst { .. } | UnaryOperation { .. }
-                | BinaryOperation { .. } | LoadAttr { .. } | CompareOperation { .. } | Pop
-                | Rotate { .. } | Duplicate | GetIter | Continue | Break | MakeFunction
-                | CallFunction { .. } | ReturnValue | YieldValue | YieldFrom | SetupAnnotation
-                | EnterFinally | EndFinally | WithCleanupStart | WithCleanupFinish | PopBlock
-                | Raise { .. } | BuildString { .. } | BuildTuple { .. } | BuildList { .. }
-                | BuildSet { .. } | BuildMap { .. } | BuildSlice { .. } | ListAppend { .. }
-                | SetAdd { .. } | MapAdd { .. } | PrintExpr | LoadBuildClass | UnpackSequence { .. }
-                | UnpackEx { .. } | FormatValue { .. } | PopException | Reverse { .. }
-                | GetAwaitable | BeforeAsyncWith | GetAIter | GetANext | MapAddRev { .. } => {}
+                _ => {}
             }
         }
         label_targets
@@ -807,22 +789,8 @@ impl Instruction {
         };
 
         match self {
-            Import {
-                name_idx,
-                symbols_idx,
-                level,
-            } => w!(
-                Import,
-                format!("{:?}", name_idx.map(|idx| names[idx].as_ref())),
-                format!(
-                    "({:?})",
-                    symbols_idx
-                        .iter()
-                        .map(|&idx| names[idx].as_ref())
-                        .format(", ")
-                ),
-                level
-            ),
+            ImportName { idx } => w!(ImportName, names[*idx].as_ref()),
+            ImportNameless => w!(ImportNameless),
             ImportStar => w!(ImportStar),
             ImportFrom { idx } => w!(ImportFrom, names[*idx].as_ref()),
             LoadFast(idx) => w!(LoadFast, *idx, varnames[*idx].as_ref()),
@@ -860,7 +828,10 @@ impl Instruction {
                 }
             }
             UnaryOperation { op } => w!(UnaryOperation, format!("{:?}", op)),
-            BinaryOperation { op, inplace } => w!(BinaryOperation, format!("{:?}", op), inplace),
+            BinaryOperation { op } => w!(BinaryOperation, format!("{:?}", op)),
+            BinaryOperationInplace { op } => {
+                w!(BinaryOperationInplace, format!("{:?}", op))
+            }
             LoadAttr { idx } => w!(LoadAttr, names[*idx].as_ref()),
             CompareOperation { op } => w!(CompareOperation, format!("{:?}", op)),
             Pop => w!(Pop),
@@ -875,13 +846,15 @@ impl Instruction {
             JumpIfTrueOrPop { target } => w!(JumpIfTrueOrPop, target),
             JumpIfFalseOrPop { target } => w!(JumpIfFalseOrPop, target),
             MakeFunction => w!(MakeFunction),
-            CallFunction { typ } => w!(CallFunction, format!("{:?}", typ)),
+            CallFunctionPositional { nargs } => w!(CallFunctionPositional, nargs),
+            CallFunctionKeyword { nargs } => w!(CallFunctionKeyword, nargs),
+            CallFunctionEx { has_kwargs } => w!(CallFunctionEx, has_kwargs),
             ForIter { target } => w!(ForIter, target),
             ReturnValue => w!(ReturnValue),
             YieldValue => w!(YieldValue),
             YieldFrom => w!(YieldFrom),
             SetupAnnotation => w!(SetupAnnotation),
-            SetupLoop { start, end } => w!(SetupLoop, start, end),
+            SetupLoop { end } => w!(SetupLoop, end),
             SetupExcept { handler } => w!(SetupExcept, handler),
             SetupFinally { handler } => w!(SetupFinally, handler),
             EnterFinally => w!(EnterFinally),

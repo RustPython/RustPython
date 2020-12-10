@@ -317,7 +317,7 @@ impl Drop for PyObjectRef {
                         Ok(v) => println!("{}", v.to_string()),
                         Err(_) => println!("{}", del_method.class().name),
                     }
-                    let tb_module = vm.import("traceback", &[], 0).unwrap();
+                    let tb_module = vm.import("traceback", None, 0).unwrap();
                     // TODO: set exc traceback
                     let print_stack = vm.get_attribute(tb_module, "print_stack").unwrap();
                     vm.invoke(&print_stack, ()).unwrap();

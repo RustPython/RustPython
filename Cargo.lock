@@ -1814,6 +1814,7 @@ dependencies = [
  "itertools",
  "log",
  "num-complex",
+ "num-traits",
  "rustpython-ast",
  "rustpython-bytecode",
  "rustpython-parser",

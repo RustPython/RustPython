@@ -95,12 +95,14 @@ impl fmt::Display for PyStr {
 }
 
 impl TryIntoRef<PyStr> for String {
+    #[inline]
     fn try_into_ref(self, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
         Ok(PyStr::from(self).into_ref(vm))
     }
 }
 
 impl TryIntoRef<PyStr> for &str {
+    #[inline]
     fn try_into_ref(self, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
         Ok(PyStr::from(self).into_ref(vm))
     }
