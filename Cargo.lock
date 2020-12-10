@@ -1797,6 +1797,7 @@ dependencies = [
  "radium",
  "rand",
  "siphasher",
+ "subtle",
  "volatile",
 ]
 
