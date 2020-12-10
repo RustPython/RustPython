@@ -12,7 +12,7 @@ use indexmap::IndexSet;
 use itertools::Itertools;
 use num_complex::Complex64;
 use rustpython_ast as ast;
-use rustpython_bytecode::bytecode::{self, CallType, CodeObject, Instruction, Label};
+use rustpython_bytecode::bytecode::{self, CallType, CodeObject, ConstantData, Instruction, Label};
 
 type CompileResult<T> = Result<T, CompileError>;
 
@@ -20,7 +20,7 @@ struct CodeInfo {
     code: CodeObject,
     instructions: Vec<Instruction>,
     locations: Vec<bytecode::Location>,
-    constants: Vec<bytecode::ConstantData>,
+    constants: Vec<ConstantData>,
     name_cache: IndexSet<String>,
     varname_cache: IndexSet<String>,
     cellvar_cache: IndexSet<String>,
@@ -343,7 +343,7 @@ impl Compiler {
 
         let (statements, doc) = get_doc(&program.statements);
         if let Some(value) = doc {
-            self.emit_constant(bytecode::ConstantData::Str { value });
+            self.emit_constant(ConstantData::Str { value });
             let doc = self.name("__doc__");
             self.emit(Instruction::StoreGlobal(doc))
         }
@@ -357,7 +357,7 @@ impl Compiler {
         assert_eq!(self.code_stack.len(), size_before);
 
         // Emit None at end:
-        self.emit_constant(bytecode::ConstantData::None);
+        self.emit_constant(ConstantData::None);
         self.emit(Instruction::ReturnValue);
         Ok(())
     }
@@ -391,7 +391,7 @@ impl Compiler {
         }
 
         if !emitted_return {
-            self.emit_constant(bytecode::ConstantData::None);
+            self.emit_constant(ConstantData::None);
             self.emit(Instruction::ReturnValue);
         }
 
@@ -636,7 +636,7 @@ impl Compiler {
                         if is_async {
                             self.emit(Instruction::BeforeAsyncWith);
                             self.emit(Instruction::GetAwaitable);
-                            self.emit_constant(bytecode::ConstantData::None);
+                            self.emit_constant(ConstantData::None);
                             self.emit(Instruction::YieldFrom);
                             self.emit(Instruction::SetupAsyncWith { end: end_label });
                         } else {
@@ -667,7 +667,7 @@ impl Compiler {
 
                     if is_async {
                         self.emit(Instruction::GetAwaitable);
-                        self.emit_constant(bytecode::ConstantData::None);
+                        self.emit_constant(ConstantData::None);
                         self.emit(Instruction::YieldFrom);
                     }
 
@@ -779,7 +779,7 @@ impl Compiler {
                         self.compile_expression(v)?;
                     }
                     None => {
-                        self.emit_constant(bytecode::ConstantData::None);
+                        self.emit_constant(ConstantData::None);
                     }
                 }
 
@@ -862,7 +862,7 @@ impl Compiler {
         let mut num_kw_only_defaults = 0;
         for (kw, default) in args.kwonlyargs.iter().zip(&args.kw_defaults) {
             if let Some(default) = default {
-                self.emit_constant(bytecode::ConstantData::Str {
+                self.emit_constant(ConstantData::Str {
                     value: kw.arg.clone(),
                 });
                 self.compile_expression(default)?;
@@ -1086,7 +1086,7 @@ impl Compiler {
                 // the last instruction is a ReturnValue already, we don't need to emit it
             }
             _ => {
-                self.emit_constant(bytecode::ConstantData::None);
+                self.emit_constant(ConstantData::None);
                 self.emit(Instruction::ReturnValue);
             }
         }
@@ -1101,7 +1101,7 @@ impl Compiler {
         // Return annotation:
         if let Some(annotation) = returns {
             // key:
-            self.emit_constant(bytecode::ConstantData::Str {
+            self.emit_constant(ConstantData::Str {
                 value: "return".to_owned(),
             });
             // value:
@@ -1111,7 +1111,7 @@ impl Compiler {
 
         let mut visit_arg_annotation = |arg: &ast::Parameter| -> CompileResult<()> {
             if let Some(annotation) = &arg.annotation {
-                self.emit_constant(bytecode::ConstantData::Str {
+                self.emit_constant(ConstantData::Str {
                     value: arg.arg.to_owned(),
                 });
                 self.compile_expression(&annotation)?;
@@ -1147,10 +1147,10 @@ impl Compiler {
 
         self.build_closure(&code);
 
-        self.emit_constant(bytecode::ConstantData::Code {
+        self.emit_constant(ConstantData::Code {
             code: Box::new(code),
         });
-        self.emit_constant(bytecode::ConstantData::Str {
+        self.emit_constant(ConstantData::Str {
             value: qualified_name,
         });
 
@@ -1294,7 +1294,7 @@ impl Compiler {
         self.emit(Instruction::LoadGlobal(dunder_name));
         let dunder_module = self.name("__module__");
         self.emit(Instruction::StoreLocal(dunder_module));
-        self.emit_constant(bytecode::ConstantData::Str {
+        self.emit_constant(ConstantData::Str {
             value: qualified_name.clone(),
         });
         let qualname = self.name("__qualname__");
@@ -1322,7 +1322,7 @@ impl Compiler {
             let classcell = self.name("__classcell__");
             self.emit(Instruction::StoreLocal(classcell));
         } else {
-            self.emit_constant(bytecode::ConstantData::None);
+            self.emit_constant(ConstantData::None);
         }
 
         self.emit(Instruction::ReturnValue);
@@ -1334,17 +1334,17 @@ impl Compiler {
 
         self.build_closure(&code);
 
-        self.emit_constant(bytecode::ConstantData::Code {
+        self.emit_constant(ConstantData::Code {
             code: Box::new(code),
         });
-        self.emit_constant(bytecode::ConstantData::Str {
+        self.emit_constant(ConstantData::Str {
             value: name.to_owned(),
         });
 
         // Turn code object into function object:
         self.emit(Instruction::MakeFunction);
 
-        self.emit_constant(bytecode::ConstantData::Str {
+        self.emit_constant(ConstantData::Str {
             value: qualified_name,
         });
 
@@ -1356,7 +1356,7 @@ impl Compiler {
             let mut kwarg_names = vec![];
             for keyword in keywords {
                 if let Some(name) = &keyword.name {
-                    kwarg_names.push(bytecode::ConstantData::Str {
+                    kwarg_names.push(ConstantData::Str {
                         value: name.to_owned(),
                     });
                 } else {
@@ -1366,7 +1366,7 @@ impl Compiler {
                 self.compile_expression(&keyword.value)?;
             }
 
-            self.emit_constant(bytecode::ConstantData::Tuple {
+            self.emit_constant(ConstantData::Tuple {
                 elements: kwarg_names,
             });
             self.emit(Instruction::CallFunction {
@@ -1390,8 +1390,8 @@ impl Compiler {
 
         // Doc string value:
         self.emit_constant(match doc_str {
-            Some(doc) => bytecode::ConstantData::Str { value: doc },
-            None => bytecode::ConstantData::None, // set docstring None if not declared
+            Some(doc) => ConstantData::Str { value: doc },
+            None => ConstantData::None, // set docstring None if not declared
         });
     }
 
@@ -1461,7 +1461,7 @@ impl Compiler {
                 handler: check_asynciter_label,
             });
             self.emit(Instruction::GetANext);
-            self.emit_constant(bytecode::ConstantData::None);
+            self.emit_constant(ConstantData::None);
             self.emit(Instruction::YieldFrom);
             self.compile_store(target)?;
             self.emit(Instruction::PopBlock);
@@ -1610,7 +1610,7 @@ impl Compiler {
             // Store as dict entry in __annotations__ dict:
             let annotations = self.name("__annotations__");
             self.emit(Instruction::LoadNameAny(annotations));
-            self.emit_constant(bytecode::ConstantData::Str {
+            self.emit_constant(ConstantData::Str {
                 value: name.to_owned(),
             });
             self.emit(Instruction::StoreSubscript);
@@ -1909,11 +1909,11 @@ impl Compiler {
             }
             Number { value } => {
                 let const_value = match value {
-                    ast::Number::Integer { value } => bytecode::ConstantData::Integer {
+                    ast::Number::Integer { value } => ConstantData::Integer {
                         value: value.clone(),
                     },
-                    ast::Number::Float { value } => bytecode::ConstantData::Float { value: *value },
-                    ast::Number::Complex { real, imag } => bytecode::ConstantData::Complex {
+                    ast::Number::Float { value } => ConstantData::Float { value: *value },
+                    ast::Number::Complex { real, imag } => ConstantData::Complex {
                         value: Complex64::new(*real, *imag),
                     },
                 };
@@ -1960,7 +1960,7 @@ impl Compiler {
                 self.mark_generator();
                 match value {
                     Some(expression) => self.compile_expression(expression)?,
-                    Option::None => self.emit_constant(bytecode::ConstantData::None),
+                    Option::None => self.emit_constant(ConstantData::None),
                 };
                 self.emit(Instruction::YieldValue);
             }
@@ -1970,7 +1970,7 @@ impl Compiler {
                 }
                 self.compile_expression(value)?;
                 self.emit(Instruction::GetAwaitable);
-                self.emit_constant(bytecode::ConstantData::None);
+                self.emit_constant(ConstantData::None);
                 self.emit(Instruction::YieldFrom);
             }
             YieldFrom { value } => {
@@ -1986,26 +1986,26 @@ impl Compiler {
                 self.mark_generator();
                 self.compile_expression(value)?;
                 self.emit(Instruction::GetIter);
-                self.emit_constant(bytecode::ConstantData::None);
+                self.emit_constant(ConstantData::None);
                 self.emit(Instruction::YieldFrom);
             }
             True => {
-                self.emit_constant(bytecode::ConstantData::Boolean { value: true });
+                self.emit_constant(ConstantData::Boolean { value: true });
             }
             False => {
-                self.emit_constant(bytecode::ConstantData::Boolean { value: false });
+                self.emit_constant(ConstantData::Boolean { value: false });
             }
             ast::ExpressionType::None => {
-                self.emit_constant(bytecode::ConstantData::None);
+                self.emit_constant(ConstantData::None);
             }
             Ellipsis => {
-                self.emit_constant(bytecode::ConstantData::Ellipsis);
+                self.emit_constant(ConstantData::Ellipsis);
             }
             ast::ExpressionType::String { value } => {
                 self.compile_string(value)?;
             }
             Bytes { value } => {
-                self.emit_constant(bytecode::ConstantData::Bytes {
+                self.emit_constant(ConstantData::Bytes {
                     value: value.clone(),
                 });
             }
@@ -2026,10 +2026,10 @@ impl Compiler {
                 self.emit(Instruction::ReturnValue);
                 let code = self.pop_code_object();
                 self.build_closure(&code);
-                self.emit_constant(bytecode::ConstantData::Code {
+                self.emit_constant(ConstantData::Code {
                     code: Box::new(code),
                 });
-                self.emit_constant(bytecode::ConstantData::Str { value: name });
+                self.emit_constant(ConstantData::Str { value: name });
                 // Turn code object into function object:
                 self.emit(Instruction::MakeFunction);
 
@@ -2076,7 +2076,7 @@ impl Compiler {
                 let mut subsize = 0;
                 for keyword in subkeywords {
                     if let Some(name) = &keyword.name {
-                        self.emit_constant(bytecode::ConstantData::Str {
+                        self.emit_constant(ConstantData::Str {
                             value: name.to_owned(),
                         });
                         self.compile_expression(&keyword.value)?;
@@ -2138,7 +2138,7 @@ impl Compiler {
                 let mut kwarg_names = vec![];
                 for keyword in keywords {
                     if let Some(name) = &keyword.name {
-                        kwarg_names.push(bytecode::ConstantData::Str {
+                        kwarg_names.push(ConstantData::Str {
                             value: name.to_owned(),
                         });
                     } else {
@@ -2148,7 +2148,7 @@ impl Compiler {
                     self.compile_expression(&keyword.value)?;
                 }
 
-                self.emit_constant(bytecode::ConstantData::Tuple {
+                self.emit_constant(ConstantData::Tuple {
                     elements: kwarg_names,
                 });
                 self.emit(Instruction::CallFunction {
@@ -2349,12 +2349,12 @@ impl Compiler {
         self.build_closure(&code);
 
         // List comprehension code:
-        self.emit_constant(bytecode::ConstantData::Code {
+        self.emit_constant(ConstantData::Code {
             code: Box::new(code),
         });
 
         // List comprehension function name:
-        self.emit_constant(bytecode::ConstantData::Str { value: name });
+        self.emit_constant(ConstantData::Str { value: name });
 
         // Turn code object into function object:
         self.emit(Instruction::MakeFunction);
@@ -2374,7 +2374,7 @@ impl Compiler {
 
     fn compile_string(&mut self, string: &ast::StringGroup) -> CompileResult<()> {
         if let Some(value) = try_get_constant_string(string) {
-            self.emit_constant(bytecode::ConstantData::Str { value });
+            self.emit_constant(ConstantData::Str { value });
         } else {
             match string {
                 ast::StringGroup::Joined { values } => {
@@ -2384,7 +2384,7 @@ impl Compiler {
                     self.emit(Instruction::BuildString { size: values.len() })
                 }
                 ast::StringGroup::Constant { value } => {
-                    self.emit_constant(bytecode::ConstantData::Str {
+                    self.emit_constant(ConstantData::Str {
                         value: value.to_owned(),
                     });
                 }
@@ -2395,7 +2395,7 @@ impl Compiler {
                 } => {
                     match spec {
                         Some(spec) => self.compile_string(spec)?,
-                        None => self.emit_constant(bytecode::ConstantData::Str {
+                        None => self.emit_constant(ConstantData::Str {
                             value: String::new(),
                         }),
                     };
@@ -2440,7 +2440,7 @@ impl Compiler {
         info.locations.push(location);
     }
 
-    fn emit_constant(&mut self, constant: bytecode::ConstantData) {
+    fn emit_constant(&mut self, constant: ConstantData) {
         let info = self.current_codeinfo();
         let idx = info.constants.len();
         info.constants.push(constant);
