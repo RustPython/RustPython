@@ -41,10 +41,6 @@ Version History:
 
 """
 
-from __future__ import print_function
-
-LOOPS = 50000
-
 from time import time as clock
 
 __version__ = "1.1.1"
@@ -68,15 +64,6 @@ class Record:
 TRUE = 1
 FALSE = 0
 
-def main(loops=LOOPS):
-    benchtime, stones = pystones(loops)
-    print("Pystone(%s) time for %d passes = %f" % \
-          (__version__, loops, benchtime))
-    print("This machine benchmarks at %f pystones/second" % stones)
-
-
-def pystones(loops=LOOPS):
-    return Proc0(loops)
 
 IntGlob = 0
 BoolGlob = FALSE
@@ -264,18 +251,4 @@ def Func3(EnumParIn):
     return FALSE
 
 if __name__ == '__main__':
-    import sys
-    def error(msg):
-        print(msg, end=' ', file=sys.stderr)
-        print("usage: %s [number_of_loops]" % sys.argv[0], file=sys.stderr)
-        sys.exit(100)
-    nargs = len(sys.argv) - 1
-    if nargs > 1:
-        error("%d arguments are too many;" % nargs)
-    elif nargs == 1:
-        try: loops = int(sys.argv[1])
-        except ValueError:
-            error("Invalid argument %r;" % sys.argv[1])
-    else:
-        loops = LOOPS
-    main(loops)
+    Proc0(LOOPS)
