@@ -42,7 +42,6 @@ struct Block {
 #[derive(Clone, Debug)]
 enum BlockType {
     Loop {
-        start: bytecode::Label,
         end: bytecode::Label,
     },
     TryExcept {
@@ -77,7 +76,7 @@ enum UnwindReason {
     Break,
 
     /// We are unwinding blocks since we hit a continue statements.
-    Continue,
+    Continue { target: bytecode::Label },
 }
 
 #[derive(Debug)]
@@ -328,7 +327,7 @@ impl ExecutingFrame<'_> {
         loop {
             let idx = self.lasti.fetch_add(1, Ordering::Relaxed);
             let instr = &self.code.instructions[idx];
-            let result = self.execute_instruction(instr, idx, vm);
+            let result = self.execute_instruction(instr, vm);
             match result {
                 Ok(None) => continue,
                 Ok(Some(value)) => {
@@ -422,7 +421,6 @@ impl ExecutingFrame<'_> {
     fn execute_instruction(
         &mut self,
         instruction: &bytecode::Instruction,
-        current_idx: usize,
         vm: &VirtualMachine,
     ) -> FrameResult {
         vm.check_signals()?;
@@ -671,10 +669,7 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::SetupLoop { end } => {
-                self.push_block(BlockType::Loop {
-                    start: bytecode::Label(current_idx + 1),
-                    end: *end,
-                });
+                self.push_block(BlockType::Loop { end: *end });
                 Ok(None)
             }
             bytecode::Instruction::SetupExcept { handler } => {
@@ -871,7 +866,9 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::Raise { argc } => self.execute_raise(vm, *argc),
 
             bytecode::Instruction::Break => self.unwind_blocks(vm, UnwindReason::Break),
-            bytecode::Instruction::Continue => self.unwind_blocks(vm, UnwindReason::Continue),
+            bytecode::Instruction::Continue { target } => {
+                self.unwind_blocks(vm, UnwindReason::Continue { target: *target })
+            }
             bytecode::Instruction::PrintExpr => {
                 let expr = self.pop_value();
 
@@ -1040,14 +1037,14 @@ impl ExecutingFrame<'_> {
         // First unwind all existing blocks on the block stack:
         while let Some(block) = self.current_block() {
             match block.typ {
-                BlockType::Loop { start, end } => match &reason {
+                BlockType::Loop { end } => match &reason {
                     UnwindReason::Break => {
                         self.pop_block();
                         self.jump(end);
                         return Ok(None);
                     }
-                    UnwindReason::Continue => {
-                        self.jump(start);
+                    UnwindReason::Continue { target } => {
+                        self.jump(*target);
                         return Ok(None);
                     }
                     _ => {
@@ -1094,7 +1091,7 @@ impl ExecutingFrame<'_> {
         match reason {
             UnwindReason::Raising { exception } => Err(exception),
             UnwindReason::Returning { value } => Ok(Some(ExecutionResult::Return(value))),
-            UnwindReason::Break | UnwindReason::Continue => {
+            UnwindReason::Break | UnwindReason::Continue { .. } => {
                 panic!("Internal error: break or continue must occur within a loop block.")
             } // UnwindReason::NoWorries => Ok(None),
         }

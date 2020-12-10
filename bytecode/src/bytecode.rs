@@ -225,7 +225,9 @@ pub enum Instruction {
     },
     Duplicate,
     GetIter,
-    Continue,
+    Continue {
+        target: Label,
+    },
     Break,
     Jump {
         target: Label,
@@ -598,7 +600,8 @@ impl<C: Constant> CodeObject<C> {
                 | SetupExcept { handler: l }
                 | SetupWith { end: l }
                 | SetupAsyncWith { end: l }
-                | SetupLoop { end: l } => {
+                | SetupLoop { end: l }
+                | Continue { target: l } => {
                     label_targets.insert(*l);
                 }
 
@@ -838,7 +841,7 @@ impl Instruction {
             Rotate { amount } => w!(Rotate, amount),
             Duplicate => w!(Duplicate),
             GetIter => w!(GetIter),
-            Continue => w!(Continue),
+            Continue { target } => w!(Continue, target),
             Break => w!(Break),
             Jump { target } => w!(Jump, target),
             JumpIfTrue { target } => w!(JumpIfTrue, target),

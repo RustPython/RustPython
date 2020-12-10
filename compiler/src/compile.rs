@@ -88,7 +88,8 @@ impl CodeInfo {
                 | SetupExcept { handler: l }
                 | SetupWith { end: l }
                 | SetupAsyncWith { end: l }
-                | SetupLoop { end: l } => {
+                | SetupLoop { end: l }
+                | Continue { target: l } => {
                     *l = label_map[l.0].expect("label never set");
                 }
 
@@ -131,7 +132,7 @@ impl Default for CompileOpts {
 
 #[derive(Debug, Clone, Copy)]
 struct CompileContext {
-    in_loop: bool,
+    loop_data: Option<(Label, Label)>,
     in_class: bool,
     func: FunctionContext,
 }
@@ -144,6 +145,9 @@ enum FunctionContext {
 }
 
 impl CompileContext {
+    fn in_loop(self) -> bool {
+        self.loop_data.is_some()
+    }
     fn in_func(self) -> bool {
         self.func != FunctionContext::NoFunction
     }
@@ -236,7 +240,7 @@ impl Compiler {
             current_qualified_path: None,
             done_with_future_stmts: false,
             ctx: CompileContext {
-                in_loop: false,
+                loop_data: None,
                 in_class: false,
                 func: FunctionContext::NoFunction,
             },
@@ -737,19 +741,21 @@ impl Compiler {
                 }
             }
             Break => {
-                if !self.ctx.in_loop {
+                if !self.ctx.in_loop() {
                     return Err(self.error_loc(CompileErrorType::InvalidBreak, statement.location));
                 }
                 self.emit(Instruction::Break);
             }
-            Continue => {
-                if !self.ctx.in_loop {
+            Continue => match self.ctx.loop_data {
+                Some((start, _)) => {
+                    self.emit(Instruction::Continue { target: start });
+                }
+                None => {
                     return Err(
                         self.error_loc(CompileErrorType::InvalidContinue, statement.location)
                     );
                 }
-                self.emit(Instruction::Continue);
-            }
+            },
             Return { value } => {
                 if !self.ctx.in_func() {
                     return Err(self.error_loc(CompileErrorType::InvalidReturn, statement.location));
@@ -1052,7 +1058,7 @@ impl Compiler {
         let prev_ctx = self.ctx;
 
         self.ctx = CompileContext {
-            in_loop: false,
+            loop_data: None,
             in_class: prev_ctx.in_class,
             func: if is_async {
                 FunctionContext::AsyncFunction
@@ -1258,7 +1264,7 @@ impl Compiler {
         self.ctx = CompileContext {
             func: FunctionContext::NoFunction,
             in_class: true,
-            in_loop: false,
+            loop_data: None,
         };
 
         let qualified_name = self.create_qualified_name(name, "");
@@ -1399,10 +1405,10 @@ impl Compiler {
 
         self.compile_jump_if(test, false, else_label)?;
 
-        let was_in_loop = self.ctx.in_loop;
-        self.ctx.in_loop = true;
+        let was_in_loop = self.ctx.loop_data;
+        self.ctx.loop_data = Some((start_label, end_label));
         self.compile_statements(body)?;
-        self.ctx.in_loop = was_in_loop;
+        self.ctx.loop_data = was_in_loop;
         self.emit(Instruction::Jump {
             target: start_label,
         });
@@ -1428,6 +1434,8 @@ impl Compiler {
         let else_label = self.new_label();
         let end_label = self.new_label();
 
+        self.emit(Instruction::SetupLoop { end: end_label });
+
         // The thing iterated:
         self.compile_expression(iter)?;
 
@@ -1437,7 +1445,6 @@ impl Compiler {
 
             self.emit(Instruction::GetAIter);
 
-            self.emit(Instruction::SetupLoop { end: end_label });
             self.set_label(start_label);
             self.emit(Instruction::SetupExcept {
                 handler: check_asynciter_label,
@@ -1459,26 +1466,25 @@ impl Compiler {
             self.emit(Instruction::JumpIfTrue { target: else_label });
             self.emit(Instruction::Raise { argc: 0 });
 
-            let was_in_loop = self.ctx.in_loop;
-            self.ctx.in_loop = true;
+            let was_in_loop = self.ctx.loop_data;
+            self.ctx.loop_data = Some((start_label, end_label));
             self.set_label(body_label);
             self.compile_statements(body)?;
-            self.ctx.in_loop = was_in_loop;
+            self.ctx.loop_data = was_in_loop;
         } else {
             // Retrieve Iterator
             self.emit(Instruction::GetIter);
 
-            self.emit(Instruction::SetupLoop { end: end_label });
             self.set_label(start_label);
             self.emit(Instruction::ForIter { target: else_label });
 
             // Start of loop iteration, set targets:
             self.compile_store(target)?;
 
-            let was_in_loop = self.ctx.in_loop;
-            self.ctx.in_loop = true;
+            let was_in_loop = self.ctx.loop_data;
+            self.ctx.loop_data = Some((start_label, end_label));
             self.compile_statements(body)?;
-            self.ctx.in_loop = was_in_loop;
+            self.ctx.loop_data = was_in_loop;
         }
 
         self.emit(Instruction::Jump {
@@ -2009,7 +2015,7 @@ impl Compiler {
             Lambda { args, body } => {
                 let prev_ctx = self.ctx;
                 self.ctx = CompileContext {
-                    in_loop: false,
+                    loop_data: Option::None,
                     in_class: prev_ctx.in_class,
                     func: FunctionContext::Function,
                 };
@@ -2182,7 +2188,7 @@ impl Compiler {
         let prev_ctx = self.ctx;
 
         self.ctx = CompileContext {
-            in_loop: false,
+            loop_data: None,
             in_class: prev_ctx.in_class,
             func: FunctionContext::Function,
         };
