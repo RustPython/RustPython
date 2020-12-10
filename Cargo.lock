@@ -756,26 +756,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e88a8acf291dafb59c2d96e8f59828f3838bb1a70398823ade51a84de6a6deed"
 
 [[package]]
-name = "fehler"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d5729fe49ba028cd550747b6e62cd3d841beccab5390aa398538c31a2d983635"
-dependencies = [
- "fehler-macros",
-]
-
-[[package]]
-name = "fehler-macros"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ccb5acb1045ebbfa222e2c50679e392a71dd77030b78fb0189f2d9c5974400f9"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "fixedbitset"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1129,16 +1109,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "lz-fear"
-version = "0.1.1"
+name = "lz4_flex"
+version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "06aad1ce45e4ccf7a8d7d43e0c3ad38dc5d2255174a5f29a3c39d961fbc6181d"
+checksum = "2e7bea5a3a7bb3c040adc89eadadee33c3d39371b20dd980c952dd2642867b99"
 dependencies = [
- "bitflags",
  "byteorder",
- "fehler",
- "thiserror",
- "twox-hash",
+ "quick-error",
 ]
 
 [[package]]
@@ -1769,7 +1746,7 @@ dependencies = [
  "bitflags",
  "bstr",
  "itertools",
- "lz-fear",
+ "lz4_flex",
  "num-bigint",
  "num-complex",
  "serde",
@@ -2393,16 +2370,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "75cf45bb0bef80604d001caaec0d09da99611b3c0fd39d3080468875cdb65645"
 dependencies = [
  "serde",
-]
-
-[[package]]
-name = "twox-hash"
-version = "1.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04f8ab788026715fa63b31960869617cba39117e520eb415b0139543e325ab59"
-dependencies = [
- "cfg-if 0.1.10",
- "static_assertions",
 ]
 
 [[package]]

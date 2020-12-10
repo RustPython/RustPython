@@ -721,18 +721,21 @@ impl<C: Constant> CodeObject<C> {
 impl CodeObject<ConstantData> {
     /// Load a code object from bytes
     pub fn from_bytes(data: &[u8]) -> Result<Self, Box<dyn std::error::Error>> {
-        let reader = lz_fear::framed::LZ4FrameReader::new(data)?;
-        Ok(bincode::deserialize_from(reader.into_read())?)
+        // TODO: PR to lz4_flex to make it not panic
+        if data.len() < 4 {
+            return Err(
+                std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "bad bytecode").into(),
+            );
+        }
+        let raw_bincode = lz4_flex::decompress_size_prepended(data)?;
+        let data = bincode::deserialize(&raw_bincode)?;
+        Ok(data)
     }
 
     /// Serialize this bytecode to bytes.
     pub fn to_bytes(&self) -> Vec<u8> {
         let data = bincode::serialize(&self).expect("CodeObject is not serializable");
-        let mut out = Vec::new();
-        lz_fear::framed::CompressionSettings::default()
-            .compress_with_size_unchecked(data.as_slice(), &mut out, data.len() as u64)
-            .unwrap();
-        out
+        lz4_flex::compress_prepend_size(&data)
     }
 }
 
