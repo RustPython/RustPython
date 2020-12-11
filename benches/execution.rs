@@ -43,8 +43,8 @@ pub fn benchmark_file(c: &mut Criterion, name: &str, contents: &str) {
 
 pub fn benchmark_pystone(c: &mut Criterion) {
     let mut group = c.benchmark_group("pystone");
-    // Default is 50_000
-    for idx in (10_000..=50_000).step_by(10_000) {
+    // Default is 50_000. This takes a while, so reduce it to 30k.
+    for idx in (10_000..=30_000).step_by(10_000) {
         let code_with_loops = format!("LOOPS = {}\n{}", idx, PYSTONE);
         let code_str = code_with_loops.as_str();
 
