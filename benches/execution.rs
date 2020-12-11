@@ -1,14 +1,17 @@
-use criterion::{black_box, criterion_group, criterion_main, Bencher, Criterion, BenchmarkId, Throughput};
-use rustpython_compiler::{Mode};
+use criterion::measurement::WallTime;
+use criterion::{
+    criterion_group, criterion_main, Bencher, BenchmarkGroup, BenchmarkId, Criterion,
+    Throughput,
+};
+use rustpython_compiler::Mode;
+use rustpython_parser::parser::parse_program;
 use rustpython_vm::pyobject::PyResult;
 use rustpython_vm::Interpreter;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::{fs, io};
 
-const NBODY: &str = include_str!("./benchmarks/nbody.py");
-const MANDELBROT: &str = include_str!("./benchmarks/mandelbrot.py");
-const PYSTONE: &str = include_str!("./benchmarks/pystone.py");
-const STRINGS: &str = include_str!("./benchmarks/strings.py");
-
-fn bench_cpython(b: &mut Bencher, source: &str) {
+fn bench_cpython_code(b: &mut Bencher, source: &str) {
     let gil = cpython::Python::acquire_gil();
     let python = gil.python();
 
@@ -21,7 +24,7 @@ fn bench_cpython(b: &mut Bencher, source: &str) {
     });
 }
 
-fn bench_rustpy(b: &mut Bencher, name: &str, source: &str) {
+fn bench_rustpy_code(b: &mut Bencher, name: &str, source: &str) {
     // NOTE: Take long time.
     Interpreter::default().enter(|vm| {
         // Note: bench_cpython is both compiling and executing the code.
@@ -35,32 +38,99 @@ fn bench_rustpy(b: &mut Bencher, name: &str, source: &str) {
     })
 }
 
-pub fn benchmark_file(c: &mut Criterion, name: &str, contents: &str) {
-    let mut group = c.benchmark_group(name);
-    group.bench_function(BenchmarkId::new("cpython", name), |b| bench_cpython(b, black_box(contents)));
-    group.bench_function(BenchmarkId::new("rustpython", name), |b| bench_rustpy(b, name, black_box(contents)));
-    group.finish();
+pub fn benchmark_file_execution(
+    group: &mut BenchmarkGroup<WallTime>,
+    name: &str,
+    contents: &String,
+) {
+    group.bench_function(BenchmarkId::new("cpython", name), |b| {
+        bench_cpython_code(b, &contents)
+    });
+    group.bench_function(BenchmarkId::new("rustpython", name), |b| {
+        bench_rustpy_code(b, name, &contents)
+    });
 }
 
-pub fn benchmark_pystone(c: &mut Criterion) {
-    let mut group = c.benchmark_group("pystone");
+pub fn benchmark_file_parsing(group: &mut BenchmarkGroup<WallTime>, name: &str, contents: &String) {
+    group.throughput(Throughput::Bytes(contents.len() as u64));
+    group.bench_function(BenchmarkId::new("rustpython", name), |b| {
+        b.iter(|| parse_program(contents).unwrap())
+    });
+    group.bench_function(BenchmarkId::new("cpython", name), |b| {
+        let gil = cpython::Python::acquire_gil();
+        let python = gil.python();
+
+        let globals = None;
+        let locals = cpython::PyDict::new(python);
+
+        locals.set_item(python, "SOURCE_CODE", &contents).unwrap();
+
+        let code = "compile(SOURCE_CODE, mode=\"exec\", filename=\"minidom.py\")";
+        b.iter(|| {
+            let res: cpython::PyResult<cpython::PyObject> =
+                python.eval(code, globals, Some(&locals));
+            if let Err(e) = res {
+                e.print(python);
+                panic!("Error compiling source")
+            }
+        })
+    });
+}
+
+pub fn benchmark_pystone(group: &mut BenchmarkGroup<WallTime>, contents: String) {
     // Default is 50_000. This takes a while, so reduce it to 30k.
     for idx in (10_000..=30_000).step_by(10_000) {
-        let code_with_loops = format!("LOOPS = {}\n{}", idx, PYSTONE);
+        let code_with_loops = format!("LOOPS = {}\n{}", idx, contents);
         let code_str = code_with_loops.as_str();
 
         group.throughput(Throughput::Elements(idx as u64));
-        group.bench_function(BenchmarkId::new("cpython", idx), |b| bench_cpython(b, black_box(code_str)));
-        group.bench_function(BenchmarkId::new("rustpython", idx), |b| bench_rustpy(b, "pystone", black_box(code_str)));
+        group.bench_function(BenchmarkId::new("cpython", idx), |b| {
+            bench_cpython_code(b, code_str)
+        });
+        group.bench_function(BenchmarkId::new("rustpython", idx), |b| {
+            bench_rustpy_code(b, "pystone", code_str)
+        });
     }
-    group.finish();
 }
 
 pub fn criterion_benchmark(c: &mut Criterion) {
-    benchmark_pystone(c);
-    benchmark_file(c, "nbody.py", NBODY);
-    benchmark_file(c, "mandlebrot.py", MANDELBROT);
-    benchmark_file(c, "strings.py", STRINGS);
+    let benchmark_dir = Path::new("./benches/benchmarks/");
+    let dirs: Vec<fs::DirEntry> = benchmark_dir
+        .read_dir()
+        .unwrap()
+        .collect::<io::Result<_>>()
+        .unwrap();
+    let paths: Vec<PathBuf> = dirs.iter().map(|p| p.path()).collect();
+
+    let mut name_to_contents: HashMap<String, String> = paths
+        .into_iter()
+        .map(|p| {
+            let name = p.file_name().unwrap().to_os_string();
+            let contents = fs::read_to_string(&name).unwrap();
+            (name.into_string().unwrap(), contents)
+        })
+        .collect();
+
+    // Benchmark parsing
+    let mut parse_group = c.benchmark_group("parse_to_ast");
+    for (name, contents) in name_to_contents.iter() {
+        benchmark_file_parsing(&mut parse_group, name, contents);
+    }
+    parse_group.finish();
+
+    // Benchmark PyStone
+    if let Some(pystone_contents) = name_to_contents.remove("pystone.py") {
+        let mut pystone_group = c.benchmark_group("pystone");
+        benchmark_pystone(&mut pystone_group, pystone_contents);
+        pystone_group.finish();
+    }
+
+    // Benchmark execution
+    let mut execution_group = c.benchmark_group("execution");
+    for (name, contents) in name_to_contents.iter() {
+        benchmark_file_execution(&mut execution_group, name, contents);
+    }
+    execution_group.finish();
 }
 
 criterion_group!(benches, criterion_benchmark);
