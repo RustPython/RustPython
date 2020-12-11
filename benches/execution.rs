@@ -59,7 +59,6 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     benchmark_pystone(c);
     benchmark_file(c, "nbody.py", NBODY);
     benchmark_file(c, "mandlebrot.py", MANDELBROT);
-    benchmark_file(c, "pystone.py", PYSTONE);
     benchmark_file(c, "strings.py", PYSTONE);
 }
 
