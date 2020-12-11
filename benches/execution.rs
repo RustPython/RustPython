@@ -42,10 +42,10 @@ pub fn benchmark_file_execution(
     name: &str,
     contents: &String,
 ) {
-    group.bench_function(BenchmarkId::new("cpython", name), |b| {
+    group.bench_function(BenchmarkId::new(name, "cpython"), |b| {
         bench_cpython_code(b, &contents)
     });
-    group.bench_function(BenchmarkId::new("rustpython", name), |b| {
+    group.bench_function(BenchmarkId::new(name, "rustpython"), |b| {
         bench_rustpy_code(b, name, &contents)
     });
 }
