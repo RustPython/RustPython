@@ -105,7 +105,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         .into_iter()
         .map(|p| {
             let name = p.file_name().unwrap().to_os_string();
-            let contents = fs::read_to_string(&name).unwrap();
+            let contents = fs::read_to_string(p).unwrap();
             (name.into_string().unwrap(), contents)
         })
         .collect();
