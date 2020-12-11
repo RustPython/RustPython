@@ -145,7 +145,7 @@ impl CodeFlags {
 #[derive(Serialize, Debug, Deserialize, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 #[repr(transparent)]
 // XXX: if you add a new instruction that stores a Label, make sure to add it in
-// compile::CodeInfo::finalize_code and CodeObject::label_targets
+// Instruction::label_arg{,_mut}
 pub struct Label(pub usize);
 impl fmt::Display for Label {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -589,23 +589,8 @@ impl<C: Constant> CodeObject<C> {
     pub fn label_targets(&self) -> BTreeSet<Label> {
         let mut label_targets = BTreeSet::new();
         for instruction in &*self.instructions {
-            match instruction {
-                Jump { target: l }
-                | JumpIfTrue { target: l }
-                | JumpIfFalse { target: l }
-                | JumpIfTrueOrPop { target: l }
-                | JumpIfFalseOrPop { target: l }
-                | ForIter { target: l }
-                | SetupFinally { handler: l }
-                | SetupExcept { handler: l }
-                | SetupWith { end: l }
-                | SetupAsyncWith { end: l }
-                | SetupLoop { end: l }
-                | Continue { target: l } => {
-                    label_targets.insert(*l);
-                }
-
-                _ => {}
+            if let Some(l) = instruction.label_arg() {
+                label_targets.insert(*l);
             }
         }
         label_targets
@@ -753,6 +738,46 @@ impl<C: Constant> fmt::Display for CodeObject<C> {
 }
 
 impl Instruction {
+    /// Gets the label stored inside this instruction, if it exists
+    #[inline]
+    pub fn label_arg(&self) -> Option<&Label> {
+        match self {
+            Jump { target: l }
+            | JumpIfTrue { target: l }
+            | JumpIfFalse { target: l }
+            | JumpIfTrueOrPop { target: l }
+            | JumpIfFalseOrPop { target: l }
+            | ForIter { target: l }
+            | SetupFinally { handler: l }
+            | SetupExcept { handler: l }
+            | SetupWith { end: l }
+            | SetupAsyncWith { end: l }
+            | SetupLoop { end: l }
+            | Continue { target: l } => Some(l),
+            _ => None,
+        }
+    }
+
+    /// Gets a mutable reference to the label stored inside this instruction, if it exists
+    #[inline]
+    pub fn label_arg_mut(&mut self) -> Option<&mut Label> {
+        match self {
+            Jump { target: l }
+            | JumpIfTrue { target: l }
+            | JumpIfFalse { target: l }
+            | JumpIfTrueOrPop { target: l }
+            | JumpIfFalseOrPop { target: l }
+            | ForIter { target: l }
+            | SetupFinally { handler: l }
+            | SetupExcept { handler: l }
+            | SetupWith { end: l }
+            | SetupAsyncWith { end: l }
+            | SetupLoop { end: l }
+            | Continue { target: l } => Some(l),
+            _ => None,
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn fmt_dis<C: Constant>(
         &self,

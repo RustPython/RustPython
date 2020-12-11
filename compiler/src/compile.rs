@@ -26,7 +26,7 @@ struct CodeInfo {
     varname_cache: IndexSet<String>,
     cellvar_cache: IndexSet<String>,
     freevar_cache: IndexSet<String>,
-    label_map: Vec<Option<Label>>,
+    label_map: Vec<Label>,
 }
 impl CodeInfo {
     fn finalize_code(self) -> CodeObject {
@@ -73,27 +73,12 @@ impl CodeInfo {
         }
 
         for instruction in &mut *code.instructions {
-            use Instruction::*;
             // this is a little bit hacky, as until now the data stored inside Labels in
             // Instructions is just bookkeeping, but I think it's the best way to do this
-            // XXX: any new instruction that uses a label has to be added here
-            match instruction {
-                Jump { target: l }
-                | JumpIfTrue { target: l }
-                | JumpIfFalse { target: l }
-                | JumpIfTrueOrPop { target: l }
-                | JumpIfFalseOrPop { target: l }
-                | ForIter { target: l }
-                | SetupFinally { handler: l }
-                | SetupExcept { handler: l }
-                | SetupWith { end: l }
-                | SetupAsyncWith { end: l }
-                | SetupLoop { end: l }
-                | Continue { target: l } => {
-                    *l = label_map[l.0].expect("label never set");
-                }
-
-                _ => {}
+            if let Some(l) = instruction.label_arg_mut() {
+                let real_label = label_map[l.0];
+                debug_assert!(real_label.0 != usize::MAX, "label wasn't set");
+                *l = real_label;
             }
         }
         code
@@ -2446,7 +2431,7 @@ impl Compiler {
     fn new_label(&mut self) -> Label {
         let label_map = &mut self.current_codeinfo().label_map;
         let label = Label(label_map.len());
-        label_map.push(None);
+        label_map.push(Label(usize::MAX));
         label
     }
 
@@ -2458,9 +2443,9 @@ impl Compiler {
             ..
         } = self.current_codeinfo();
         let actual_label = Label(instructions.len());
-        let prev_val = std::mem::replace(&mut label_map[label.0], Some(actual_label));
+        let prev_val = std::mem::replace(&mut label_map[label.0], actual_label);
         debug_assert!(
-            prev_val.map_or(true, |x| x == actual_label),
+            prev_val.0 == usize::MAX || prev_val == actual_label,
             "double-set a label"
         );
     }
