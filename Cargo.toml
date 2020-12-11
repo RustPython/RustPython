@@ -61,6 +61,11 @@ path = "src/main.rs"
 [profile.dev.package."*"]
 opt-level = 3
 
+[profile.bench]
+lto = true
+codegen-units = 1
+opt-level = 3
+
 [patch.crates-io]
 # REDOX START, Uncommment when you want to compile/check with redoxer
 # # following patches are just waiting on a new version to be released to crates.io
@@ -69,4 +74,3 @@ opt-level = 3
 # socket2 = { git = "https://github.com/alexcrichton/socket2-rs" }
 # REDOX END
 
-[target.bench]

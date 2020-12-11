@@ -6,6 +6,7 @@ use rustpython_vm::Interpreter;
 const NBODY: &str = include_str!("./benchmarks/nbody.py");
 const MANDELBROT: &str = include_str!("./benchmarks/mandelbrot.py");
 const PYSTONE: &str = include_str!("./benchmarks/pystone.py");
+const STRINGS: &str = include_str!("./benchmarks/strings.py");
 
 fn bench_cpython(b: &mut Bencher, source: &str) {
     let gil = cpython::Python::acquire_gil();
@@ -59,7 +60,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     benchmark_pystone(c);
     benchmark_file(c, "nbody.py", NBODY);
     benchmark_file(c, "mandlebrot.py", MANDELBROT);
-    benchmark_file(c, "strings.py", PYSTONE);
+    benchmark_file(c, "strings.py", STRINGS);
 }
 
 criterion_group!(benches, criterion_benchmark);
