@@ -1,7 +1,6 @@
 use criterion::measurement::WallTime;
 use criterion::{
-    criterion_group, criterion_main, Bencher, BenchmarkGroup, BenchmarkId, Criterion,
-    Throughput,
+    criterion_group, criterion_main, Bencher, BenchmarkGroup, BenchmarkId, Criterion, Throughput,
 };
 use rustpython_compiler::Mode;
 use rustpython_parser::parser::parse_program;
