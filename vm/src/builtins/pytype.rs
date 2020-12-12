@@ -15,10 +15,11 @@ use super::pystr::PyStrRef;
 use super::staticmethod::PyStaticMethod;
 use super::tuple::PyTuple;
 use super::weakref::PyWeak;
+use crate::builtins::tuple::PyTupleTyped;
 use crate::function::{FuncArgs, KwArgs};
 use crate::pyobject::{
-    BorrowValue, Either, IdProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable, PyLease,
-    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    BorrowValue, Either, IdProtocol, PyAttributes, PyClassImpl, PyContext, PyLease, PyObjectRef,
+    PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::slots::{self, Callable, PyTpFlags, PyTypeSlots, SlotGetattro};
 use crate::vm::VirtualMachine;
@@ -417,10 +418,10 @@ impl PyType {
             }));
         }
 
-        let (name, bases, dict, kwargs): (PyStrRef, PyIterable<PyTypeRef>, PyDictRef, KwArgs) =
+        let (name, bases, dict, kwargs): (PyStrRef, PyTupleTyped<PyTypeRef>, PyDictRef, KwArgs) =
             args.clone().bind(vm)?;
 
-        let bases: Vec<PyTypeRef> = bases.iter(vm)?.collect::<Result<Vec<_>, _>>()?;
+        let bases = bases.borrow_value().to_vec();
         let (metatype, base, bases) = if bases.is_empty() {
             let base = vm.ctx.types.object_type.clone();
             (metatype, base.clone(), vec![base])
