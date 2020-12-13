@@ -6,7 +6,7 @@ use criterion::{
 use rustpython_compiler::Mode;
 use rustpython_vm::pyobject::ItemProtocol;
 use rustpython_vm::pyobject::PyResult;
-use rustpython_vm::Interpreter;
+use rustpython_vm::{InitParameter, Interpreter, PySettings};
 use std::path::{Path, PathBuf};
 use std::{fs, io};
 
@@ -16,19 +16,6 @@ pub struct MicroBenchmark {
     code: String,
     iterate: bool,
 }
-//
-// fn bench_cpython_code(b: &mut Bencher, source: &str) {
-//     let gil = cpython::Python::acquire_gil();
-//     let python = gil.python();
-//
-//     b.iter(|| {
-//         let res: cpython::PyResult<()> = python.run(source, None, None);
-//         if let Err(e) = res {
-//             e.print(python);
-//             panic!("Error running source")
-//         }
-//     });
-// }
 
 fn bench_cpython_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchmark) {
     let gil = cpython::Python::acquire_gil();
@@ -78,7 +65,12 @@ fn bench_cpython_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchma
 }
 
 fn bench_rustpy_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchmark) {
-    Interpreter::default().enter(|vm| {
+    let mut settings = PySettings::default();
+    settings.path_list.push("Lib/".to_string());
+    settings.dont_write_bytecode = true;
+    settings.no_user_site = true;
+
+    Interpreter::new(settings, InitParameter::External).enter(|vm| {
         let setup_code = vm
             .compile(&bench.setup, Mode::Exec, bench.name.to_owned())
             .expect("Error compiling setup code");
@@ -99,8 +91,8 @@ fn bench_rustpy_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchmar
                     .set_item(vm.ctx.new_str("ITERATIONS"), vm.ctx.new_int(idx), vm)
                     .expect("Error adding ITERATIONS local variable");
             }
-            vm.run_code_obj(setup_code.clone(), scope.clone())
-                .expect("Error running benchmark setup code");
+            let setup_result = vm.run_code_obj(setup_code.clone(), scope.clone());
+            vm.unwrap_pyresult(setup_result);
             (scope, bench_code.clone())
         };
 
