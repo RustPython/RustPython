@@ -22,6 +22,33 @@ in two ways:
 1. The time to parse the file to AST
 2. The time it takes to execute the file
 
+### Adding a micro benchmark
+
+Micro benchmarks are small snippets of code added under the `microbenchmarks/` directory. A microbenchmark file has 
+two sections:
+1. Optional setup code
+2. The code to be benchmarked
+
+These two sections are delimited by `# ---`. For example:
+
+```python
+a_list = [1,2,3]
+
+# ---
+
+len(a_list)
+```
+
+Only `len(a_list)` will be timed. Setup or benchmarked code can optionally reference a variable called `ITERATIONS`. If 
+present then the benchmark code will be invoked 5 times with `ITERATIONS` set to a value between 100 and 1,000. For 
+example:
+
+```python
+obj = [i for i in range(ITERATIONS)]
+```
+
+`ITERATIONS` can appear in both the setup code and the benchmark code.
+
 ## MacOS setup 
 
 On MacOS you will need to add the following to a `.cargo/config` file:
