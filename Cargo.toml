@@ -50,6 +50,10 @@ criterion = "0.3"
 name = "execution"
 harness = false
 
+[[bench]]
+name = "microbenchmarks"
+harness = false
+
 [[bin]]
 name = "rustpython"
 path = "src/main.rs"
