@@ -1,5 +1,3 @@
-extern crate libffi;
-
 use std::{fmt, os::raw::*, ptr};
 
 use crossbeam_utils::atomic::AtomicCell;

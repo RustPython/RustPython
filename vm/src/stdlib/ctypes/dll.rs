@@ -1,14 +1,12 @@
-extern crate libloading;
-
 use crate::builtins::pystr::PyStrRef;
 use crate::builtins::PyIntRef;
 use crate::pyobject::{PyResult, TryFromObject};
 use crate::VirtualMachine;
 
-use crate::stdlib::ctypes::shared_lib::LIBCACHE;
+use super::shared_lib::libcache;
 
 pub fn dlopen(lib_path: PyStrRef, vm: &VirtualMachine) -> PyResult {
-    let mut data_cache = LIBCACHE.write();
+    let mut data_cache = libcache().write();
 
     let result = data_cache.get_or_insert_lib(lib_path.as_ref(), vm);
 
@@ -23,7 +21,7 @@ pub fn dlopen(lib_path: PyStrRef, vm: &VirtualMachine) -> PyResult {
 
 pub fn dlsym(slib: PyIntRef, str_ref: PyStrRef, vm: &VirtualMachine) -> PyResult {
     let func_name = str_ref.as_ref();
-    let data_cache = LIBCACHE.read();
+    let data_cache = libcache().read();
 
     match data_cache.get_lib(usize::try_from_object(vm, slib.as_object().clone())?) {
         Some(l) => match l.get_sym(func_name) {
@@ -35,7 +33,7 @@ pub fn dlsym(slib: PyIntRef, str_ref: PyStrRef, vm: &VirtualMachine) -> PyResult
 }
 
 pub fn dlclose(slib: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
-    let data_cache = LIBCACHE.read();
+    let data_cache = libcache().read();
 
     match data_cache.get_lib(usize::try_from_object(vm, slib.as_object().clone())?) {
         Some(l) => {

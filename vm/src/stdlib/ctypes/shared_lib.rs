@@ -1,8 +1,4 @@
-extern crate lazy_static;
-extern crate libffi;
-extern crate libloading;
-
-use ::std::{collections::HashMap, fmt, os::raw::c_void, ptr::null};
+use std::{collections::HashMap, fmt, os::raw::c_void, ptr::null};
 
 use crossbeam_utils::atomic::AtomicCell;
 use libloading::Library;
@@ -112,6 +108,10 @@ impl ExternalLibs {
     }
 }
 
-lazy_static::lazy_static! {
-    pub static ref LIBCACHE: PyRwLock<ExternalLibs> = PyRwLock::new(ExternalLibs::new());
+rustpython_common::static_cell! {
+    static LIBCACHE: PyRwLock<ExternalLibs>;
+}
+
+pub fn libcache() -> &'static PyRwLock<ExternalLibs> {
+    LIBCACHE.get_or_init(|| PyRwLock::new(ExternalLibs::new()))
 }
