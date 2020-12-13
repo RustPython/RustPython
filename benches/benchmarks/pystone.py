@@ -74,7 +74,7 @@ Array2Glob = [x[:] for x in [Array1Glob]*51]
 PtrGlb = None
 PtrGlbNext = None
 
-def Proc0(loops=LOOPS):
+def Proc0(loops):
     global IntGlob
     global BoolGlob
     global Char1Glob
@@ -251,4 +251,10 @@ def Func3(EnumParIn):
     return FALSE
 
 if __name__ == '__main__':
+    if "LOOPS" not in globals():
+        import sys
+        if len(sys.argv) < 2:
+            LOOPS = 50000
+        else:
+            LOOPS = int(sys.argv[1])
     Proc0(LOOPS)
