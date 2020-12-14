@@ -76,8 +76,8 @@ impl CodeInfo {
             // this is a little bit hacky, as until now the data stored inside Labels in
             // Instructions is just bookkeeping, but I think it's the best way to do this
             if let Some(l) = instruction.label_arg_mut() {
-                let real_label = label_map[l.0];
-                debug_assert!(real_label.0 != usize::MAX, "label wasn't set");
+                let real_label = label_map[l.0 as usize];
+                debug_assert!(real_label.0 != u32::MAX, "label wasn't set");
                 *l = real_label;
             }
         }
@@ -303,7 +303,7 @@ impl Compiler {
         let cache = cache(self.current_codeinfo());
         cache
             .get_index_of(name)
-            .unwrap_or_else(|| cache.insert_full(name.to_owned()).0)
+            .unwrap_or_else(|| cache.insert_full(name.to_owned()).0) as u32
     }
 
     fn compile_program(
@@ -470,7 +470,7 @@ impl Compiler {
                 NameUsage::Delete => Instruction::DeleteLocal,
             },
         };
-        self.emit(op(idx));
+        self.emit(op(idx as u32));
     }
 
     fn compile_statement(&mut self, statement: &ast::Statement) -> CompileResult<()> {
@@ -665,23 +665,22 @@ impl Compiler {
                 body,
                 orelse,
             } => self.compile_for(target, iter, body, orelse, *is_async)?,
-            Raise { exception, cause } => match exception {
-                Some(value) => {
-                    self.compile_expression(value)?;
-                    match cause {
-                        Some(cause) => {
-                            self.compile_expression(cause)?;
-                            self.emit(Instruction::Raise { argc: 2 });
-                        }
-                        None => {
-                            self.emit(Instruction::Raise { argc: 1 });
+            Raise { exception, cause } => {
+                let kind = match exception {
+                    Some(value) => {
+                        self.compile_expression(value)?;
+                        match cause {
+                            Some(cause) => {
+                                self.compile_expression(cause)?;
+                                bytecode::RaiseKind::RaiseCause
+                            }
+                            None => bytecode::RaiseKind::Raise,
                         }
                     }
-                }
-                None => {
-                    self.emit(Instruction::Raise { argc: 0 });
-                }
-            },
+                    None => bytecode::RaiseKind::Reraise,
+                };
+                self.emit(Instruction::Raise { kind });
+            }
             Try {
                 body,
                 handlers,
@@ -721,7 +720,9 @@ impl Compiler {
                             self.emit(Instruction::CallFunctionPositional { nargs: 0 });
                         }
                     }
-                    self.emit(Instruction::Raise { argc: 1 });
+                    self.emit(Instruction::Raise {
+                        kind: bytecode::RaiseKind::Raise,
+                    });
                     self.set_label(end_label);
                 }
             }
@@ -835,7 +836,7 @@ impl Compiler {
         let have_defaults = !args.defaults.is_empty();
         if have_defaults {
             // Construct a tuple:
-            let size = args.defaults.len();
+            let size = args.defaults.len() as u32;
             for element in &args.defaults {
                 self.compile_expression(element)?;
             }
@@ -1003,7 +1004,9 @@ impl Compiler {
         self.set_label(handler_label);
         // If code flows here, we have an unhandled exception,
         // raise the exception again!
-        self.emit(Instruction::Raise { argc: 0 });
+        self.emit(Instruction::Raise {
+            kind: bytecode::RaiseKind::Reraise,
+        });
 
         // We successfully ran the try block:
         // else:
@@ -1177,10 +1180,10 @@ impl Compiler {
             if let SymbolScope::Free = symbol.scope {
                 idx += parent_code.cellvar_cache.len();
             }
-            self.emit(Instruction::LoadClosure(idx))
+            self.emit(Instruction::LoadClosure(idx as u32))
         }
         self.emit(Instruction::BuildTuple {
-            size: code.freevars.len(),
+            size: code.freevars.len() as u32,
             unpack: false,
         });
         true
@@ -1305,7 +1308,7 @@ impl Compiler {
             .position(|var| *var == "__class__");
 
         if let Some(classcell_idx) = classcell_idx {
-            self.emit(Instruction::LoadClosure(classcell_idx));
+            self.emit(Instruction::LoadClosure(classcell_idx as u32));
             self.emit(Instruction::Duplicate);
             let classcell = self.name("__classcell__");
             self.emit(Instruction::StoreLocal(classcell));
@@ -1362,11 +1365,11 @@ impl Compiler {
                 elements: kwarg_names,
             });
             self.emit(Instruction::CallFunctionKeyword {
-                nargs: 2 + keywords.len() + bases.len(),
+                nargs: (2 + keywords.len() + bases.len()) as u32,
             });
         } else {
             self.emit(Instruction::CallFunctionPositional {
-                nargs: 2 + bases.len(),
+                nargs: (2 + bases.len()) as u32,
             });
         }
 
@@ -1461,7 +1464,9 @@ impl Compiler {
                 op: bytecode::ComparisonOperator::ExceptionMatch,
             });
             self.emit(Instruction::JumpIfTrue { target: else_label });
-            self.emit(Instruction::Raise { argc: 0 });
+            self.emit(Instruction::Raise {
+                kind: bytecode::RaiseKind::Reraise,
+            });
 
             let was_in_loop = self.ctx.loop_data;
             self.ctx.loop_data = Some((start_label, end_label));
@@ -1649,7 +1654,7 @@ impl Compiler {
 
                 if !seen_star {
                     self.emit(Instruction::UnpackSequence {
-                        size: elements.len(),
+                        size: elements.len() as u32,
                     });
                 }
 
@@ -1917,7 +1922,7 @@ impl Compiler {
                 self.emit_constant(const_value);
             }
             List { elements } => {
-                let size = elements.len();
+                let size = elements.len() as u32;
                 let must_unpack = self.gather_elements(elements)?;
                 self.emit(Instruction::BuildList {
                     size,
@@ -1925,7 +1930,7 @@ impl Compiler {
                 });
             }
             Tuple { elements } => {
-                let size = elements.len();
+                let size = elements.len() as u32;
                 let must_unpack = self.gather_elements(elements)?;
                 self.emit(Instruction::BuildTuple {
                     size,
@@ -1933,7 +1938,7 @@ impl Compiler {
                 });
             }
             Set { elements } => {
-                let size = elements.len();
+                let size = elements.len() as u32;
                 let must_unpack = self.gather_elements(elements)?;
                 self.emit(Instruction::BuildSet {
                     size,
@@ -1944,11 +1949,11 @@ impl Compiler {
                 self.compile_dict(elements)?;
             }
             Slice { elements } => {
-                let size = elements.len();
+                let step = elements.len() >= 3;
                 for element in elements {
                     self.compile_expression(element)?;
                 }
-                self.emit(Instruction::BuildSlice { size });
+                self.emit(Instruction::BuildSlice { step });
             }
             Yield { value } => {
                 if !self.ctx.in_func() {
@@ -2107,7 +2112,7 @@ impl Compiler {
         keywords: &[ast::Keyword],
     ) -> CompileResult<()> {
         self.compile_expression(function)?;
-        let count = args.len() + keywords.len();
+        let count = (args.len() + keywords.len()) as u32;
 
         // Normal arguments:
         let must_unpack = self.gather_elements(args)?;
@@ -2116,7 +2121,7 @@ impl Compiler {
         if must_unpack || has_double_star {
             // Create a tuple with positional args:
             self.emit(Instruction::BuildTuple {
-                size: args.len(),
+                size: args.len() as u32,
                 unpack: must_unpack,
             });
 
@@ -2295,13 +2300,13 @@ impl Compiler {
             ast::ComprehensionKind::List { element } => {
                 compile_element(element)?;
                 self.emit(Instruction::ListAppend {
-                    i: 1 + generators.len(),
+                    i: (1 + generators.len()) as u32,
                 });
             }
             ast::ComprehensionKind::Set { element } => {
                 compile_element(element)?;
                 self.emit(Instruction::SetAdd {
-                    i: 1 + generators.len(),
+                    i: (1 + generators.len()) as u32,
                 });
             }
             ast::ComprehensionKind::Dict { key, value } => {
@@ -2310,7 +2315,7 @@ impl Compiler {
                 self.compile_expression(value)?;
 
                 self.emit(Instruction::MapAddRev {
-                    i: 1 + generators.len(),
+                    i: (1 + generators.len()) as u32,
                 });
             }
         }
@@ -2370,7 +2375,9 @@ impl Compiler {
                     for value in values {
                         self.compile_string(value)?;
                     }
-                    self.emit(Instruction::BuildString { size: values.len() })
+                    self.emit(Instruction::BuildString {
+                        size: values.len() as u32,
+                    })
                 }
                 ast::StringGroup::Constant { value } => {
                     self.emit_constant(ConstantData::Str {
@@ -2390,7 +2397,7 @@ impl Compiler {
                     };
                     self.compile_expression(value)?;
                     self.emit(Instruction::FormatValue {
-                        conversion: conversion.map(compile_conversion_flag),
+                        conversion: compile_conversion_flag(*conversion),
                     });
                 }
             }
@@ -2431,7 +2438,7 @@ impl Compiler {
 
     fn emit_constant(&mut self, constant: ConstantData) {
         let info = self.current_codeinfo();
-        let idx = info.constants.len();
+        let idx = info.constants.len() as u32;
         info.constants.push(constant);
         self.emit(Instruction::LoadConst { idx })
     }
@@ -2447,8 +2454,8 @@ impl Compiler {
     // Generate a new label
     fn new_label(&mut self) -> Label {
         let label_map = &mut self.current_codeinfo().label_map;
-        let label = Label(label_map.len());
-        label_map.push(Label(usize::MAX));
+        let label = Label(label_map.len() as u32);
+        label_map.push(Label(u32::MAX));
         label
     }
 
@@ -2459,10 +2466,10 @@ impl Compiler {
             label_map,
             ..
         } = self.current_codeinfo();
-        let actual_label = Label(instructions.len());
-        let prev_val = std::mem::replace(&mut label_map[label.0], actual_label);
+        let actual_label = Label(instructions.len() as u32);
+        let prev_val = std::mem::replace(&mut label_map[label.0 as usize], actual_label);
         debug_assert!(
-            prev_val.0 == usize::MAX || prev_val == actual_label,
+            prev_val.0 == u32::MAX || prev_val == actual_label,
             "double-set a label"
         );
     }
@@ -2526,11 +2533,14 @@ fn compile_location(location: &ast::Location) -> bytecode::Location {
     bytecode::Location::new(location.row(), location.column())
 }
 
-fn compile_conversion_flag(conversion_flag: ast::ConversionFlag) -> bytecode::ConversionFlag {
+fn compile_conversion_flag(
+    conversion_flag: Option<ast::ConversionFlag>,
+) -> bytecode::ConversionFlag {
     match conversion_flag {
-        ast::ConversionFlag::Ascii => bytecode::ConversionFlag::Ascii,
-        ast::ConversionFlag::Repr => bytecode::ConversionFlag::Repr,
-        ast::ConversionFlag::Str => bytecode::ConversionFlag::Str,
+        None => bytecode::ConversionFlag::None,
+        Some(ast::ConversionFlag::Ascii) => bytecode::ConversionFlag::Ascii,
+        Some(ast::ConversionFlag::Repr) => bytecode::ConversionFlag::Repr,
+        Some(ast::ConversionFlag::Str) => bytecode::ConversionFlag::Str,
     }
 }
 

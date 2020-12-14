@@ -8,7 +8,7 @@ use crate::vm::VirtualMachine;
 pub struct PyTraceback {
     pub next: Option<PyTracebackRef>, // TODO: Make mutable
     pub frame: FrameRef,
-    pub lasti: usize,
+    pub lasti: u32,
     pub lineno: usize,
 }
 
@@ -22,7 +22,7 @@ impl PyValue for PyTraceback {
 
 #[pyimpl]
 impl PyTraceback {
-    pub fn new(next: Option<PyRef<Self>>, frame: FrameRef, lasti: usize, lineno: usize) -> Self {
+    pub fn new(next: Option<PyRef<Self>>, frame: FrameRef, lasti: u32, lineno: usize) -> Self {
         PyTraceback {
             next,
             frame,
@@ -37,7 +37,7 @@ impl PyTraceback {
     }
 
     #[pyproperty(name = "tb_lasti")]
-    fn lasti(&self) -> usize {
+    fn lasti(&self) -> u32 {
         self.lasti
     }
 

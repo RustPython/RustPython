@@ -1,5 +1,5 @@
 use std::fmt;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -99,7 +99,7 @@ pub struct Frame {
     pub builtins: PyDictRef,
 
     /// index of last instruction ran
-    pub lasti: AtomicUsize,
+    pub lasti: AtomicU32,
     /// tracer function for this frame (usually is None)
     pub trace: PyMutex<PyObjectRef>,
     state: PyMutex<FrameState>,
@@ -186,7 +186,7 @@ impl Frame {
             globals: scope.globals,
             builtins,
             code,
-            lasti: AtomicUsize::new(0),
+            lasti: AtomicU32::new(0),
             state: PyMutex::new(FrameState {
                 stack: Vec::new(),
                 blocks: Vec::new(),
@@ -283,14 +283,14 @@ impl FrameRef {
     }
 
     pub fn current_location(&self) -> bytecode::Location {
-        self.code.locations[self.lasti.load(Ordering::Relaxed) - 1]
+        self.code.locations[self.lasti.load(Ordering::Relaxed) as usize - 1]
     }
 
     pub fn yield_from_target(&self) -> Option<PyObjectRef> {
         self.with_exec(|exec| exec.yield_from_target())
     }
 
-    pub fn lasti(&self) -> usize {
+    pub fn lasti(&self) -> u32 {
         self.lasti.load(Ordering::Relaxed)
     }
 }
@@ -305,7 +305,7 @@ struct ExecutingFrame<'a> {
     globals: &'a PyDictRef,
     builtins: &'a PyDictRef,
     object: &'a FrameRef,
-    lasti: &'a AtomicUsize,
+    lasti: &'a AtomicU32,
     state: &'a mut FrameState,
 }
 
@@ -325,7 +325,7 @@ impl ExecutingFrame<'_> {
         flame_guard!(format!("Frame::run({})", self.code.obj_name));
         // Execute until return or exception:
         loop {
-            let idx = self.lasti.fetch_add(1, Ordering::Relaxed);
+            let idx = self.lasti.fetch_add(1, Ordering::Relaxed) as usize;
             let instr = &self.code.instructions[idx];
             let result = self.execute_instruction(instr, vm);
             match result {
@@ -365,7 +365,9 @@ impl ExecutingFrame<'_> {
     }
 
     fn yield_from_target(&self) -> Option<PyObjectRef> {
-        if let Some(bytecode::Instruction::YieldFrom) = self.code.instructions.get(self.lasti()) {
+        if let Some(bytecode::Instruction::YieldFrom) =
+            self.code.instructions.get(self.lasti() as usize)
+        {
             Some(self.last_value())
         } else {
             None
@@ -442,22 +444,23 @@ impl ExecutingFrame<'_> {
 
         match instruction {
             bytecode::Instruction::LoadConst { idx } => {
-                self.push_value(self.code.constants[*idx].0.clone());
+                self.push_value(self.code.constants[*idx as usize].0.clone());
                 Ok(None)
             }
             bytecode::Instruction::ImportName { idx } => {
-                self.import(vm, Some(self.code.names[*idx].clone()))
+                self.import(vm, Some(self.code.names[*idx as usize].clone()))
             }
             bytecode::Instruction::ImportNameless => self.import(vm, None),
             bytecode::Instruction::ImportStar => self.import_star(vm),
             bytecode::Instruction::ImportFrom { idx } => self.import_from(vm, *idx),
             bytecode::Instruction::LoadFast(idx) => {
-                let x = self.fastlocals.lock()[*idx].clone().ok_or_else(|| {
+                let idx = *idx as usize;
+                let x = self.fastlocals.lock()[idx].clone().ok_or_else(|| {
                     vm.new_exception_msg(
                         vm.ctx.exceptions.unbound_local_error.clone(),
                         format!(
                             "local variable '{}' referenced before assignment",
-                            self.code.varnames[*idx]
+                            self.code.varnames[idx]
                         ),
                     )
                 })?;
@@ -465,7 +468,7 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::LoadNameAny(idx) => {
-                let name = &self.code.names[*idx];
+                let name = &self.code.names[*idx as usize];
                 let x = self.locals.get_item_option(name.clone(), vm)?;
                 let x = match x {
                     Some(x) => x,
@@ -475,13 +478,13 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::LoadGlobal(idx) => {
-                let name = &self.code.names[*idx];
+                let name = &self.code.names[*idx as usize];
                 let x = self.load_global_or_builtin(name, vm)?;
                 self.push_value(x);
                 Ok(None)
             }
             bytecode::Instruction::LoadDeref(i) => {
-                let i = *i;
+                let i = *i as usize;
                 let x = self.cells_frees[i]
                     .get()
                     .ok_or_else(|| self.unbound_cell_exception(i, vm))?;
@@ -489,7 +492,7 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::LoadClassDeref(i) => {
-                let i = *i;
+                let i = *i as usize;
                 let name = self.code.freevars[i - self.code.cellvars.len()].clone();
                 let value = if let Some(value) = self.locals.get_item_option(name, vm)? {
                     value
@@ -503,32 +506,32 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::StoreFast(idx) => {
                 let value = self.pop_value();
-                self.fastlocals.lock()[*idx] = Some(value);
+                self.fastlocals.lock()[*idx as usize] = Some(value);
                 Ok(None)
             }
             bytecode::Instruction::StoreLocal(idx) => {
                 let value = self.pop_value();
                 self.locals
-                    .set_item(self.code.names[*idx].clone(), value, vm)?;
+                    .set_item(self.code.names[*idx as usize].clone(), value, vm)?;
                 Ok(None)
             }
             bytecode::Instruction::StoreGlobal(idx) => {
                 let value = self.pop_value();
                 self.globals
-                    .set_item(self.code.names[*idx].clone(), value, vm)?;
+                    .set_item(self.code.names[*idx as usize].clone(), value, vm)?;
                 Ok(None)
             }
             bytecode::Instruction::StoreDeref(i) => {
                 let value = self.pop_value();
-                self.cells_frees[*i].set(Some(value));
+                self.cells_frees[*i as usize].set(Some(value));
                 Ok(None)
             }
             bytecode::Instruction::DeleteFast(idx) => {
-                self.fastlocals.lock()[*idx] = None;
+                self.fastlocals.lock()[*idx as usize] = None;
                 Ok(None)
             }
             bytecode::Instruction::DeleteLocal(idx) => {
-                let name = &self.code.names[*idx];
+                let name = &self.code.names[*idx as usize];
                 match self.locals.del_item(name.clone(), vm) {
                     Ok(()) => {}
                     Err(e) if e.isinstance(&vm.ctx.exceptions.key_error) => {
@@ -539,7 +542,7 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::DeleteGlobal(idx) => {
-                let name = &self.code.names[*idx];
+                let name = &self.code.names[*idx as usize];
                 match self.globals.del_item(name.clone(), vm) {
                     Ok(()) => {}
                     Err(e) if e.isinstance(&vm.ctx.exceptions.key_error) => {
@@ -550,11 +553,11 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::DeleteDeref(i) => {
-                self.cells_frees[*i].set(None);
+                self.cells_frees[*i as usize].set(None);
                 Ok(None)
             }
             bytecode::Instruction::LoadClosure(i) => {
-                let value = self.cells_frees[*i].clone();
+                let value = self.cells_frees[*i as usize].clone();
                 self.push_value(value.into_object());
                 Ok(None)
             }
@@ -576,7 +579,7 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::Rotate { amount } => self.execute_rotate(*amount),
             bytecode::Instruction::BuildString { size } => {
                 let s = self
-                    .pop_multiple(*size)
+                    .pop_multiple(*size as usize)
                     .as_slice()
                     .iter()
                     .map(|pyobj| pystr::borrow_value(&pyobj))
@@ -586,7 +589,7 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::BuildList { size, unpack } => {
-                let elements = self.get_elements(vm, *size, *unpack)?;
+                let elements = self.get_elements(vm, *size as usize, *unpack)?;
                 let list_obj = vm.ctx.new_list(elements);
                 self.push_value(list_obj);
                 Ok(None)
@@ -594,7 +597,7 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::BuildSet { size, unpack } => {
                 let set = vm.ctx.new_set();
                 {
-                    let elements = self.pop_multiple(*size);
+                    let elements = self.pop_multiple(*size as usize);
                     if *unpack {
                         for element in elements {
                             vm.map_iterable_object(&element, |x| set.add(x, vm))??;
@@ -609,7 +612,7 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::BuildTuple { size, unpack } => {
-                let elements = self.get_elements(vm, *size, *unpack)?;
+                let elements = self.get_elements(vm, *size as usize, *unpack)?;
                 let list_obj = vm.ctx.new_tuple(elements);
                 self.push_value(list_obj);
                 Ok(None)
@@ -619,7 +622,7 @@ impl ExecutingFrame<'_> {
                 unpack,
                 for_call,
             } => self.execute_build_map(vm, *size, *unpack, *for_call),
-            bytecode::Instruction::BuildSlice { size } => self.execute_build_slice(vm, *size),
+            bytecode::Instruction::BuildSlice { step } => self.execute_build_slice(vm, *step),
             bytecode::Instruction::ListAppend { i } => {
                 let list_obj = self.nth_value(*i);
                 let item = self.pop_value();
@@ -872,7 +875,7 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
 
-            bytecode::Instruction::Raise { argc } => self.execute_raise(vm, *argc),
+            bytecode::Instruction::Raise { kind } => self.execute_raise(vm, *kind),
 
             bytecode::Instruction::Break => self.unwind_blocks(vm, UnwindReason::Break),
             bytecode::Instruction::Continue { target } => {
@@ -904,7 +907,7 @@ impl ExecutingFrame<'_> {
                         e
                     }
                 })?;
-                let msg = match elements.len().cmp(size) {
+                let msg = match elements.len().cmp(&(*size as usize)) {
                     std::cmp::Ordering::Equal => {
                         for element in elements.into_iter().rev() {
                             self.push_value(element);
@@ -930,12 +933,13 @@ impl ExecutingFrame<'_> {
                 self.execute_unpack_ex(vm, *before, *after)
             }
             bytecode::Instruction::FormatValue { conversion } => {
-                use bytecode::ConversionFlag::*;
+                use bytecode::ConversionFlag;
+                let value = self.pop_value();
                 let value = match conversion {
-                    Some(Str) => vm.to_str(&self.pop_value())?.into_object(),
-                    Some(Repr) => vm.to_repr(&self.pop_value())?.into_object(),
-                    Some(Ascii) => vm.ctx.new_str(builtins::ascii(self.pop_value(), vm)?),
-                    None => self.pop_value(),
+                    ConversionFlag::Str => vm.to_str(&value)?.into_object(),
+                    ConversionFlag::Repr => vm.to_repr(&value)?.into_object(),
+                    ConversionFlag::Ascii => vm.ctx.new_str(builtins::ascii(value, vm)?),
+                    ConversionFlag::None => value,
                 };
 
                 let spec = self.pop_value();
@@ -954,7 +958,7 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::Reverse { amount } => {
                 let stack_len = self.state.stack.len();
-                self.state.stack[stack_len - amount..stack_len].reverse();
+                self.state.stack[stack_len - *amount as usize..stack_len].reverse();
                 Ok(None)
             }
         }
@@ -1001,7 +1005,7 @@ impl ExecutingFrame<'_> {
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
     fn import_from(&mut self, vm: &VirtualMachine, idx: bytecode::NameIdx) -> FrameResult {
         let module = self.last_value();
-        let name = &self.code.names[idx];
+        let name = &self.code.names[idx as usize];
         // Load attribute, and transform any error into import error.
         let obj = vm.get_attribute(module, name.clone()).map_err(|_| {
             vm.new_import_error(format!("cannot import name '{}'", name), name.clone())
@@ -1106,7 +1110,7 @@ impl ExecutingFrame<'_> {
         }
     }
 
-    fn execute_rotate(&mut self, amount: usize) -> FrameResult {
+    fn execute_rotate(&mut self, amount: u32) -> FrameResult {
         // Shuffles top of stack amount down
         if amount < 2 {
             panic!("Can only rotate two or more values");
@@ -1156,10 +1160,11 @@ impl ExecutingFrame<'_> {
     fn execute_build_map(
         &mut self,
         vm: &VirtualMachine,
-        size: usize,
+        size: u32,
         unpack: bool,
         for_call: bool,
     ) -> FrameResult {
+        let size = size as usize;
         let map_obj = vm.ctx.new_dict();
         if unpack {
             for obj in self.pop_multiple(size) {
@@ -1191,14 +1196,8 @@ impl ExecutingFrame<'_> {
         Ok(None)
     }
 
-    fn execute_build_slice(&mut self, vm: &VirtualMachine, size: usize) -> FrameResult {
-        assert!(size == 2 || size == 3);
-
-        let step = if size == 3 {
-            Some(self.pop_value())
-        } else {
-            None
-        };
+    fn execute_build_slice(&mut self, vm: &VirtualMachine, step: bool) -> FrameResult {
+        let step = if step { Some(self.pop_value()) } else { None };
         let stop = self.pop_value();
         let start = self.pop_value();
 
@@ -1212,13 +1211,9 @@ impl ExecutingFrame<'_> {
         Ok(None)
     }
 
-    fn execute_call_function_positional(
-        &mut self,
-        vm: &VirtualMachine,
-        nargs: usize,
-    ) -> FrameResult {
+    fn execute_call_function_positional(&mut self, vm: &VirtualMachine, nargs: u32) -> FrameResult {
         let args = FuncArgs {
-            args: self.pop_multiple(nargs).collect(),
+            args: self.pop_multiple(nargs as usize).collect(),
             kwargs: IndexMap::new(),
         };
 
@@ -1228,12 +1223,12 @@ impl ExecutingFrame<'_> {
         Ok(None)
     }
 
-    fn execute_call_function_keyword(&mut self, vm: &VirtualMachine, nargs: usize) -> FrameResult {
+    fn execute_call_function_keyword(&mut self, vm: &VirtualMachine, nargs: u32) -> FrameResult {
         let kwarg_names = self
             .pop_value()
             .downcast::<PyTuple>()
             .expect("kwarg names should be tuple of strings");
-        let args = self.pop_multiple(nargs);
+        let args = self.pop_multiple(nargs as usize);
 
         let kwarg_names = kwarg_names
             .borrow_value()
@@ -1274,9 +1269,9 @@ impl ExecutingFrame<'_> {
         Ok(None)
     }
 
-    fn execute_raise(&mut self, vm: &VirtualMachine, argc: usize) -> FrameResult {
-        let cause = match argc {
-            2 => {
+    fn execute_raise(&mut self, vm: &VirtualMachine, kind: bytecode::RaiseKind) -> FrameResult {
+        let cause = match kind {
+            bytecode::RaiseKind::RaiseCause => {
                 let val = self.pop_value();
                 Some(if vm.is_none(&val) {
                     // if the cause arg is none, we clear the cause
@@ -1287,19 +1282,19 @@ impl ExecutingFrame<'_> {
                 })
             }
             // if there's no cause arg, we keep the cause as is
-            _ => None,
+            bytecode::RaiseKind::Raise | bytecode::RaiseKind::Reraise => None,
         };
-        let exception = match argc {
-            0 => vm
+        let exception = match kind {
+            bytecode::RaiseKind::RaiseCause | bytecode::RaiseKind::Raise => {
+                ExceptionCtor::try_from_object(vm, self.pop_value())?.instantiate(vm)?
+            }
+            bytecode::RaiseKind::Reraise => vm
                 .current_exception()
                 .ok_or_else(|| vm.new_runtime_error("No active exception to reraise".to_owned()))?,
-            1 | 2 => ExceptionCtor::try_from_object(vm, self.pop_value())?.instantiate(vm)?,
-            3 => panic!("Not implemented!"),
-            _ => panic!("Invalid parameter for RAISE_VARARGS, must be between 0 to 3"),
         };
-        let context = match argc {
-            0 => None, // We have already got the exception,
-            _ => vm.current_exception(),
+        let context = match kind {
+            bytecode::RaiseKind::RaiseCause | bytecode::RaiseKind::Raise => vm.current_exception(),
+            bytecode::RaiseKind::Reraise => None, // We have already got the current exception
         };
         info!(
             "Exception raised: {:?} with cause: {:?} and context: {:?}",
@@ -1620,7 +1615,7 @@ impl ExecutingFrame<'_> {
     }
 
     fn load_attr(&mut self, vm: &VirtualMachine, attr: bytecode::NameIdx) -> FrameResult {
-        let attr_name = self.code.names[attr].clone();
+        let attr_name = self.code.names[attr as usize].clone();
         let parent = self.pop_value();
         let obj = vm.get_attribute(parent, attr_name)?;
         self.push_value(obj);
@@ -1628,7 +1623,7 @@ impl ExecutingFrame<'_> {
     }
 
     fn store_attr(&mut self, vm: &VirtualMachine, attr: bytecode::NameIdx) -> FrameResult {
-        let attr_name = self.code.names[attr].clone();
+        let attr_name = self.code.names[attr as usize].clone();
         let parent = self.pop_value();
         let value = self.pop_value();
         vm.set_attr(&parent, attr_name, value)?;
@@ -1636,13 +1631,13 @@ impl ExecutingFrame<'_> {
     }
 
     fn delete_attr(&mut self, vm: &VirtualMachine, attr: bytecode::NameIdx) -> FrameResult {
-        let attr_name = self.code.names[attr].clone().into_object();
+        let attr_name = self.code.names[attr as usize].clone().into_object();
         let parent = self.pop_value();
         vm.del_attr(&parent, attr_name)?;
         Ok(None)
     }
 
-    fn lasti(&self) -> usize {
+    fn lasti(&self) -> u32 {
         // it's okay to make this Relaxed, because we know that we only
         // mutate lasti if the mutex is held, and any other thread that
         // wants to guarantee the value of this will use a Lock anyway
@@ -1686,8 +1681,8 @@ impl ExecutingFrame<'_> {
         self.state.stack.last().unwrap().clone()
     }
 
-    fn nth_value(&self, depth: usize) -> PyObjectRef {
-        self.state.stack[self.state.stack.len() - depth - 1].clone()
+    fn nth_value(&self, depth: u32) -> PyObjectRef {
+        self.state.stack[self.state.stack.len() - depth as usize - 1].clone()
     }
 }
 
