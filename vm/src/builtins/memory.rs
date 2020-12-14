@@ -711,7 +711,10 @@ impl PyMemoryView {
             return Ok(false);
         }
 
-        let other = try_buffer_from_object(vm, other)?;
+        let other = match try_buffer_from_object(vm, other) {
+            Ok(buf) => buf,
+            Err(_) => return Ok(false),
+        };
 
         let a_options = &zelf.options;
         let b_options = other.get_options();

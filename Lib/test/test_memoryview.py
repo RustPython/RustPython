@@ -150,8 +150,6 @@ class AbstractMemoryTests:
             l = m.tolist()
             self.assertEqual(l, list(b"abcdef"))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_compare(self):
         # memoryviews can compare for equality with other objects
         # having the buffer interface.
