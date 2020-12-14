@@ -16,3 +16,4 @@ flame.txt
 flamescope.json
 /wapm.lock
 /wapm_packages
+/.cargo/config

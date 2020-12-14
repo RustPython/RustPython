@@ -14,10 +14,6 @@ members = [
     "derive", "jit", "parser", "vm", "vm/pylib-crate", "wasm/lib",
 ]
 
-[[bench]]
-name = "bench"
-path = "./benchmarks/bench.rs"
-
 [features]
 default = ["threading", "pylib"]
 flame-it = ["rustpython-vm/flame-it", "flame", "flamescope"]
@@ -48,12 +44,26 @@ rustyline = "6.0"
 
 [dev-dependencies]
 cpython = "0.5.0"
+criterion = "0.3"
+
+[[bench]]
+name = "execution"
+harness = false
+
+[[bench]]
+name = "microbenchmarks"
+harness = false
 
 [[bin]]
 name = "rustpython"
 path = "src/main.rs"
 
 [profile.dev.package."*"]
+opt-level = 3
+
+[profile.bench]
+lto = true
+codegen-units = 1
 opt-level = 3
 
 [patch.crates-io]
@@ -63,3 +73,4 @@ opt-level = 3
 # crossbeam-utils = { git = "https://github.com/crossbeam-rs/crossbeam" }
 # socket2 = { git = "https://github.com/alexcrichton/socket2-rs" }
 # REDOX END
+
