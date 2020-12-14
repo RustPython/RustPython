@@ -12,10 +12,6 @@
 #![allow(clippy::module_inception)]
 #![doc(html_logo_url = "https://raw.githubusercontent.com/RustPython/RustPython/master/logo.png")]
 #![doc(html_root_url = "https://docs.rs/rustpython-vm/")]
-#![cfg_attr(
-    target_os = "redox",
-    feature(matches_macro, proc_macro_hygiene, result_map_or)
-)]
 
 #[cfg(feature = "flame-it")]
 #[macro_use]

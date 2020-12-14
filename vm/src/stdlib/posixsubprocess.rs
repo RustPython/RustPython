@@ -30,7 +30,7 @@ mod _posixsubprocess {
     }
 }
 
-use nix::{dir, errno::Errno, fcntl, unistd};
+use nix::{errno::Errno, fcntl, unistd};
 use std::convert::Infallible as Never;
 use std::ffi::{CStr, CString};
 use std::io::{self, prelude::*};
@@ -141,10 +141,12 @@ fn exec_inner(args: &ForkExecArgs, procargs: ProcArgs) -> nix::Result<Never> {
     }
 
     if args.call_setsid {
+        #[cfg(not(target_os = "redox"))]
         unistd::setsid()?;
     }
 
     if args.close_fds {
+        #[cfg(not(target_os = "redox"))]
         close_fds(3, args.fds_to_keep.as_slice())?;
     }
 
@@ -163,11 +165,12 @@ fn exec_inner(args: &ForkExecArgs, procargs: ProcArgs) -> nix::Result<Never> {
     Err(first_err.unwrap_or_else(Errno::last).into())
 }
 
+#[cfg(not(target_os = "redox"))]
 fn close_fds(above: i32, keep: &[i32]) -> nix::Result<()> {
     // TODO: close fds by brute force if readdir doesn't work:
     // https://github.com/python/cpython/blob/3.8/Modules/_posixsubprocess.c#L220
     let path = unsafe { CStr::from_bytes_with_nul_unchecked(FD_DIR_NAME) };
-    let mut dir = dir::Dir::open(
+    let mut dir = nix::dir::Dir::open(
         path,
         fcntl::OFlag::O_RDONLY | fcntl::OFlag::O_DIRECTORY,
         nix::sys::stat::Mode::empty(),
