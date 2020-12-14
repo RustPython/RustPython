@@ -54,7 +54,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let params = compiler.builder.func.dfg.block_params(entry_block).to_vec();
         for (i, (ty, val)) in arg_types.iter().zip(params).enumerate() {
             compiler
-                .store_variable(i, JitValue::new(val, ty.clone()))
+                .store_variable(i as u32, JitValue::new(val, ty.clone()))
                 .unwrap();
         }
         compiler
@@ -66,8 +66,8 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         val: JitValue,
     ) -> Result<(), JitCompileError> {
         let builder = &mut self.builder;
-        let local = self.variables[idx].get_or_insert_with(|| {
-            let var = Variable::new(idx);
+        let local = self.variables[idx as usize].get_or_insert_with(|| {
+            let var = Variable::new(idx as usize);
             let local = Local {
                 var,
                 ty: val.ty.clone(),
@@ -119,7 +119,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let label_targets = bytecode.label_targets();
 
         for (offset, instruction) in bytecode.instructions.iter().enumerate() {
-            let label = Label(offset);
+            let label = Label(offset as u32);
             if label_targets.contains(&label) {
                 let block = self.get_or_create_block(label);
 
@@ -219,7 +219,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 Ok(())
             }
             Instruction::LoadFast(idx) => {
-                let local = self.variables[*idx]
+                let local = self.variables[*idx as usize]
                     .as_ref()
                     .ok_or(JitCompileError::BadBytecode)?;
                 self.stack.push(JitValue {
@@ -232,7 +232,9 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                 self.store_variable(*idx, val)
             }
-            Instruction::LoadConst { idx } => self.load_const(constants[*idx].borrow_constant()),
+            Instruction::LoadConst { idx } => {
+                self.load_const(constants[*idx as usize].borrow_constant())
+            }
             Instruction::ReturnValue => {
                 let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                 if let Some(ref ty) = self.sig.ret {
