@@ -59,7 +59,7 @@ class RegressionTestResult(unittest.TextTestResult):
         e.set('result', args.pop('result', 'completed'))
         if self.__start_time:
             # e.set('time', f'{time.perf_counter() - self.__start_time:0.6f}')
-            e.set('time', f'{time.time() - self.__start_time}')
+            e.set('time', f'{time.time() - self.__start_time:0.6f}')
 
         if capture:
             if self._stdout_buffer is not None:

@@ -9,21 +9,27 @@ use num_complex::Complex64;
 
 use rustpython_parser::{ast, mode::Mode, parser};
 
-use crate::obj::objlist::PyListRef;
-use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{PyObjectRef, PyRef, PyResult, PyValue};
+use crate::builtins::list::PyListRef;
+use crate::builtins::pytype::PyTypeRef;
+use crate::pyobject::{
+    IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
+};
 use crate::vm::VirtualMachine;
 
+#[pyclass(module = "_ast", name = "AST")]
 #[derive(Debug)]
 struct AstNode;
 type AstNodeRef = PyRef<AstNode>;
+
+#[pyimpl(flags(HAS_DICT))]
+impl AstNode {}
 
 const MODULE_NAME: &str = "_ast";
 pub const PY_COMPILE_FLAG_AST_ONLY: i32 = 0x0400;
 
 impl PyValue for AstNode {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.class(MODULE_NAME, "AST")
+    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+        Self::static_type()
     }
 }
 
@@ -35,7 +41,7 @@ macro_rules! node {
         $(
             let field_name = stringify!($attr_name);
             $vm.set_attr(node.as_object(), field_name, $attr_value)?;
-            field_names.push($vm.ctx.new_str(field_name.to_owned()));
+            field_names.push($vm.ctx.new_str(field_name));
         )*
         $vm.set_attr(node.as_object(), "_fields", $vm.ctx.new_tuple(field_names))?;
         node
@@ -81,7 +87,7 @@ fn statement_to_ast(vm: &VirtualMachine, statement: &ast::Statement) -> PyResult
             decorator_list,
             ..
         } => node!(vm, ClassDef, {
-            name => vm.ctx.new_str(name.to_owned()),
+            name => vm.ctx.new_str(name),
             keywords => map_ast(keyword_to_ast, vm, keywords)?,
             body => statements_to_ast(vm, body)?,
             decorator_list => expressions_to_ast(vm, decorator_list)?,
@@ -96,7 +102,7 @@ fn statement_to_ast(vm: &VirtualMachine, statement: &ast::Statement) -> PyResult
         } => {
             if *is_async {
                 node!(vm, AsyncFunctionDef, {
-                    name => vm.ctx.new_str(name.to_owned()),
+                    name => vm.ctx.new_str(name),
                     args => parameters_to_ast(vm, args)?,
                     body => statements_to_ast(vm, body)?,
                     decorator_list => expressions_to_ast(vm, decorator_list)?,
@@ -104,7 +110,7 @@ fn statement_to_ast(vm: &VirtualMachine, statement: &ast::Statement) -> PyResult
                 })
             } else {
                 node!(vm, FunctionDef, {
-                    name => vm.ctx.new_str(name.to_owned()),
+                    name => vm.ctx.new_str(name),
                     args => parameters_to_ast(vm, args)?,
                     body => statements_to_ast(vm, body)?,
                     decorator_list => expressions_to_ast(vm, decorator_list)?,
@@ -203,7 +209,7 @@ fn statement_to_ast(vm: &VirtualMachine, statement: &ast::Statement) -> PyResult
             names,
         } => node!(vm, ImportFrom, {
             level => vm.ctx.new_int(*level),
-            module => optional_string_to_py_obj(vm, module),
+            module => module.as_ref().into_pyobject(vm),
             names => map_ast(alias_to_ast, vm, names)?
         }),
         Nonlocal { names } => node!(vm, Nonlocal, {
@@ -245,8 +251,8 @@ fn statement_to_ast(vm: &VirtualMachine, statement: &ast::Statement) -> PyResult
 
 fn alias_to_ast(vm: &VirtualMachine, alias: &ast::ImportSymbol) -> PyResult<AstNodeRef> {
     Ok(node!(vm, alias, {
-        name => vm.ctx.new_str(alias.symbol.to_owned()),
-        asname => optional_string_to_py_obj(vm, &alias.alias)
+        name => vm.ctx.new_str(&alias.symbol),
+        asname => alias.alias.as_ref().into_pyobject(vm),
     }))
 }
 
@@ -273,7 +279,7 @@ fn with_item_to_ast(vm: &VirtualMachine, with_item: &ast::WithItem) -> PyResult<
 fn handler_to_ast(vm: &VirtualMachine, handler: &ast::ExceptHandler) -> PyResult<AstNodeRef> {
     let node = node!(vm, ExceptHandler, {
         typ => optional_expression_to_ast(vm, &handler.typ)?,
-        name => optional_string_to_py_obj(vm, &handler.name),
+        name => handler.name.as_ref().into_pyobject(vm),
         body => statements_to_ast(vm, &handler.body)?,
     });
     Ok(node)
@@ -281,7 +287,7 @@ fn handler_to_ast(vm: &VirtualMachine, handler: &ast::ExceptHandler) -> PyResult
 
 fn make_string_list(vm: &VirtualMachine, names: &[String]) -> PyObjectRef {
     vm.ctx
-        .new_list(names.iter().map(|x| vm.ctx.new_str(x.to_owned())).collect())
+        .new_list(names.iter().map(|x| vm.ctx.new_str(x)).collect())
 }
 
 fn optional_expressions_to_ast(
@@ -296,12 +302,11 @@ fn optional_expressions_to_ast(
 }
 
 fn optional_expression_to_ast(vm: &VirtualMachine, value: &Option<ast::Expression>) -> PyResult {
-    let value = if let Some(value) = value {
-        expression_to_ast(vm, value)?.into_object()
-    } else {
-        vm.ctx.none()
-    };
-    Ok(value)
+    let ast = value
+        .as_ref()
+        .map(|expr| expression_to_ast(vm, expr))
+        .transpose()?;
+    Ok(ast.into_pyobject(vm))
 }
 
 fn expressions_to_ast(vm: &VirtualMachine, expressions: &[ast::Expression]) -> PyResult<PyListRef> {
@@ -340,7 +345,7 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyRes
                 ast::UnaryOperator::Pos => "UAdd",
             };
             node!(vm, UnaryOp, {
-                op => vm.ctx.new_str(op.to_owned()),
+                op => vm.ctx.new_str(op),
                 operand => expression_to_ast(vm, a)?,
             })
         }
@@ -351,7 +356,7 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyRes
                 ast::BooleanOperator::And => "And",
                 ast::BooleanOperator::Or => "Or",
             };
-            let py_op = vm.ctx.new_str(str_op.to_owned());
+            let py_op = vm.ctx.new_str(str_op);
 
             node!(vm, BoolOp, {
                 op => py_op,
@@ -374,11 +379,9 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyRes
                 ast::Comparison::Is => "Is",
                 ast::Comparison::IsNot => "IsNot",
             };
-            let ops = vm.ctx.new_list(
-                ops.iter()
-                    .map(|x| vm.ctx.new_str(to_operator(x).to_owned()))
-                    .collect(),
-            );
+            let ops = vm
+                .ctx
+                .new_list(ops.iter().map(|x| vm.ctx.new_str(to_operator(x))).collect());
 
             let comparators: PyResult<_> = vals
                 .iter()
@@ -393,7 +396,7 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyRes
             })
         }
         Identifier { name } => node!(vm, Name, {
-            id => vm.ctx.new_str(name.clone()),
+            id => vm.ctx.new_str(name),
             ctx => vm.ctx.none()   // TODO: add context.
         }),
         Lambda { args, body } => node!(vm, Lambda, {
@@ -407,7 +410,7 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyRes
         }),
         Number { value } => {
             let py_n = match value {
-                ast::Number::Integer { value } => vm.ctx.new_int(value.clone()),
+                ast::Number::Integer { value } => vm.ctx.new_bigint(value),
                 ast::Number::Float { value } => vm.ctx.new_float(*value),
                 ast::Number::Complex { real, imag } => {
                     vm.ctx.new_complex(Complex64::new(*real, *imag))
@@ -440,11 +443,8 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyRes
             let mut keys = Vec::new();
             let mut values = Vec::new();
             for (k, v) in elements {
-                if let Some(k) = k {
-                    keys.push(expression_to_ast(vm, k)?.into_object());
-                } else {
-                    keys.push(vm.ctx.none());
-                }
+                let k = k.as_ref().map(|k| expression_to_ast(vm, k)).transpose()?;
+                keys.push(k.into_pyobject(vm));
                 values.push(expression_to_ast(vm, v)?.into_object());
             }
 
@@ -485,13 +485,12 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyRes
             })
         }
         Yield { value } => {
-            let py_value = if let Some(value) = value {
-                expression_to_ast(vm, value)?.into_object()
-            } else {
-                vm.ctx.none()
-            };
+            let py_value = value
+                .as_ref()
+                .map(|v| expression_to_ast(vm, v))
+                .transpose()?;
             node!(vm, Yield, {
-                value => py_value
+                value => py_value.into_pyobject(vm)
             })
         }
         YieldFrom { value } => {
@@ -506,7 +505,7 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyRes
         }),
         Attribute { value, name } => node!(vm, Attribute, {
             value => expression_to_ast(vm, value)?,
-            attr => vm.ctx.new_str(name.to_owned()),
+            attr => vm.ctx.new_str(name),
             ctx => vm.ctx.none()
         }),
         Starred { value } => node!(vm, Starred, {
@@ -517,6 +516,9 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyRes
         }),
         String { value } => string_to_ast(vm, value)?,
         Bytes { value } => node!(vm, Bytes, { s => vm.ctx.new_bytes(value.clone()) }),
+        NamedExpression { left, right } => {
+            node!(vm, NamedExpression, { left => expression_to_ast(vm, left)?, right => expression_to_ast(vm, right)? })
+        }
     };
 
     let lineno = vm.ctx.new_int(expression.location.row());
@@ -557,22 +559,22 @@ fn parameters_to_ast(vm: &VirtualMachine, args: &ast::Parameters) -> PyResult<As
 
 fn vararg_to_ast(vm: &VirtualMachine, vararg: &ast::Varargs) -> PyResult {
     let py_node = match vararg {
-        ast::Varargs::None => vm.get_none(),
-        ast::Varargs::Unnamed => vm.get_none(),
+        ast::Varargs::None => vm.ctx.none(),
+        ast::Varargs::Unnamed => vm.ctx.none(),
         ast::Varargs::Named(parameter) => parameter_to_ast(vm, parameter)?.into_object(),
     };
     Ok(py_node)
 }
 
 fn parameter_to_ast(vm: &VirtualMachine, parameter: &ast::Parameter) -> PyResult<AstNodeRef> {
-    let py_annotation = if let Some(annotation) = &parameter.annotation {
-        expression_to_ast(vm, annotation)?.into_object()
-    } else {
-        vm.ctx.none()
-    };
-
+    let py_annotation = parameter
+        .annotation
+        .as_ref()
+        .map(|expr| expression_to_ast(vm, expr))
+        .transpose()?
+        .into_pyobject(vm);
     let py_node = node!(vm, arg, {
-        arg => vm.ctx.new_str(parameter.arg.to_owned()),
+        arg => vm.ctx.new_str(&parameter.arg),
         annotation => py_annotation
     });
 
@@ -582,17 +584,9 @@ fn parameter_to_ast(vm: &VirtualMachine, parameter: &ast::Parameter) -> PyResult
     Ok(py_node)
 }
 
-fn optional_string_to_py_obj(vm: &VirtualMachine, name: &Option<String>) -> PyObjectRef {
-    if let Some(name) = name {
-        vm.ctx.new_str(name.to_owned())
-    } else {
-        vm.ctx.none()
-    }
-}
-
 fn keyword_to_ast(vm: &VirtualMachine, keyword: &ast::Keyword) -> PyResult<AstNodeRef> {
     Ok(node!(vm, keyword, {
-        arg => optional_string_to_py_obj(vm, &keyword.name),
+        arg => keyword.name.as_ref().into_pyobject(vm),
         value => expression_to_ast(vm, &keyword.value)?
     }))
 }
@@ -615,15 +609,13 @@ fn comprehension_to_ast(
         target => expression_to_ast(vm, &comprehension.target)?,
         iter => expression_to_ast(vm, &comprehension.iter)?,
         ifs => expressions_to_ast(vm, &comprehension.ifs)?,
-        is_async => vm.new_bool(comprehension.is_async),
+        is_async => vm.ctx.new_bool(comprehension.is_async),
     }))
 }
 
 fn string_to_ast(vm: &VirtualMachine, string: &ast::StringGroup) -> PyResult<AstNodeRef> {
     let string = match string {
-        ast::StringGroup::Constant { value } => {
-            node!(vm, Str, { s => vm.ctx.new_str(value.clone()) })
-        }
+        ast::StringGroup::Constant { value } => node!(vm, Str, { s => vm.ctx.new_str(value) }),
         ast::StringGroup::FormattedValue { value, .. } => {
             node!(vm, FormattedValue, { value => expression_to_ast(vm, value)? })
         }
@@ -644,72 +636,74 @@ pub(crate) fn parse(vm: &VirtualMachine, source: &str, mode: Mode) -> PyResult {
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
-    let ast_base = py_class!(ctx, "AST", ctx.object(), {});
+    let ast_base = AstNode::make_class(ctx);
     py_module!(vm, MODULE_NAME, {
         // TODO: There's got to be a better way!
-        "alias" => py_class!(ctx, "alias", ast_base.clone(), {}),
-        "arg" => py_class!(ctx, "arg", ast_base.clone(), {}),
-        "arguments" => py_class!(ctx, "arguments", ast_base.clone(), {}),
-        "AnnAssign" => py_class!(ctx, "AnnAssign", ast_base.clone(), {}),
-        "Assign" => py_class!(ctx, "Assign", ast_base.clone(), {}),
-        "AugAssign" => py_class!(ctx, "AugAssign", ast_base.clone(), {}),
-        "AsyncFor" => py_class!(ctx, "AsyncFor", ast_base.clone(), {}),
-        "AsyncFunctionDef" => py_class!(ctx, "AsyncFunctionDef", ast_base.clone(), {}),
-        "AsyncWith" => py_class!(ctx, "AsyncWith", ast_base.clone(), {}),
-        "Assert" => py_class!(ctx, "Assert", ast_base.clone(), {}),
-        "Attribute" => py_class!(ctx, "Attribute", ast_base.clone(), {}),
-        "Await" => py_class!(ctx, "Await", ast_base.clone(), {}),
-        "BinOp" => py_class!(ctx, "BinOp", ast_base.clone(), {}),
-        "BoolOp" => py_class!(ctx, "BoolOp", ast_base.clone(), {}),
-        "Break" => py_class!(ctx, "Break", ast_base.clone(), {}),
-        "Bytes" => py_class!(ctx, "Bytes", ast_base.clone(), {}),
-        "Call" => py_class!(ctx, "Call", ast_base.clone(), {}),
-        "ClassDef" => py_class!(ctx, "ClassDef", ast_base.clone(), {}),
-        "Compare" => py_class!(ctx, "Compare", ast_base.clone(), {}),
-        "comprehension" => py_class!(ctx, "comprehension", ast_base.clone(), {}),
-        "Continue" => py_class!(ctx, "Continue", ast_base.clone(), {}),
-        "Delete" => py_class!(ctx, "Delete", ast_base.clone(), {}),
-        "Dict" => py_class!(ctx, "Dict", ast_base.clone(), {}),
-        "DictComp" => py_class!(ctx, "DictComp", ast_base.clone(), {}),
-        "Ellipsis" => py_class!(ctx, "Ellipsis", ast_base.clone(), {}),
-        "Expr" => py_class!(ctx, "Expr", ast_base.clone(), {}),
-        "ExceptHandler" => py_class!(ctx, "ExceptHandler", ast_base.clone(), {}),
-        "For" => py_class!(ctx, "For", ast_base.clone(), {}),
-        "FormattedValue" => py_class!(ctx, "FormattedValue", ast_base.clone(), {}),
-        "FunctionDef" => py_class!(ctx, "FunctionDef", ast_base.clone(), {}),
-        "GeneratorExp" => py_class!(ctx, "GeneratorExp", ast_base.clone(), {}),
-        "Global" => py_class!(ctx, "Global", ast_base.clone(), {}),
-        "If" => py_class!(ctx, "If", ast_base.clone(), {}),
-        "IfExp" => py_class!(ctx, "IfExp", ast_base.clone(), {}),
-        "Import" => py_class!(ctx, "Import", ast_base.clone(), {}),
-        "ImportFrom" => py_class!(ctx, "ImportFrom", ast_base.clone(), {}),
-        "JoinedStr" => py_class!(ctx, "JoinedStr", ast_base.clone(), {}),
-        "keyword" => py_class!(ctx, "keyword", ast_base.clone(), {}),
-        "Lambda" => py_class!(ctx, "Lambda", ast_base.clone(), {}),
-        "List" => py_class!(ctx, "List", ast_base.clone(), {}),
-        "ListComp" => py_class!(ctx, "ListComp", ast_base.clone(), {}),
-        "Module" => py_class!(ctx, "Module", ast_base.clone(), {}),
-        "Name" => py_class!(ctx, "Name", ast_base.clone(), {}),
-        "NameConstant" => py_class!(ctx, "NameConstant", ast_base.clone(), {}),
-        "Nonlocal" => py_class!(ctx, "Nonlocal", ast_base.clone(), {}),
-        "Num" => py_class!(ctx, "Num", ast_base.clone(), {}),
-        "Pass" => py_class!(ctx, "Pass", ast_base.clone(), {}),
-        "Raise" => py_class!(ctx, "Raise", ast_base.clone(), {}),
-        "Return" => py_class!(ctx, "Return", ast_base.clone(), {}),
-        "Set" => py_class!(ctx, "Set", ast_base.clone(), {}),
-        "SetComp" => py_class!(ctx, "SetComp", ast_base.clone(), {}),
-        "Starred" => py_class!(ctx, "Starred", ast_base.clone(), {}),
-        "Starred" => py_class!(ctx, "Starred", ast_base.clone(), {}),
-        "Str" => py_class!(ctx, "Str", ast_base.clone(), {}),
-        "Subscript" => py_class!(ctx, "Subscript", ast_base.clone(), {}),
-        "Try" => py_class!(ctx, "Try", ast_base.clone(), {}),
-        "Tuple" => py_class!(ctx, "Tuple", ast_base.clone(), {}),
-        "UnaryOp" => py_class!(ctx, "UnaryOp", ast_base.clone(), {}),
-        "While" => py_class!(ctx, "While", ast_base.clone(), {}),
-        "With" => py_class!(ctx, "With", ast_base.clone(), {}),
-        "withitem" => py_class!(ctx, "withitem", ast_base.clone(), {}),
-        "Yield" => py_class!(ctx, "Yield", ast_base.clone(), {}),
-        "YieldFrom" => py_class!(ctx, "YieldFrom", ast_base.clone(), {}),
+        "alias" => py_class!(ctx, "alias", &ast_base, {}),
+        "arg" => py_class!(ctx, "arg", &ast_base, {}),
+        "arguments" => py_class!(ctx, "arguments", &ast_base, {}),
+        "AnnAssign" => py_class!(ctx, "AnnAssign", &ast_base, {}),
+        "Assign" => py_class!(ctx, "Assign", &ast_base, {}),
+        "AugAssign" => py_class!(ctx, "AugAssign", &ast_base, {}),
+        "AsyncFor" => py_class!(ctx, "AsyncFor", &ast_base, {}),
+        "AsyncFunctionDef" => py_class!(ctx, "AsyncFunctionDef", &ast_base, {}),
+        "AsyncWith" => py_class!(ctx, "AsyncWith", &ast_base, {}),
+        "Assert" => py_class!(ctx, "Assert", &ast_base, {}),
+        "Attribute" => py_class!(ctx, "Attribute", &ast_base, {}),
+        "Await" => py_class!(ctx, "Await", &ast_base, {}),
+        "BinOp" => py_class!(ctx, "BinOp", &ast_base, {}),
+        "BoolOp" => py_class!(ctx, "BoolOp", &ast_base, {}),
+        "Break" => py_class!(ctx, "Break", &ast_base, {}),
+        "Bytes" => py_class!(ctx, "Bytes", &ast_base, {}),
+        "Call" => py_class!(ctx, "Call", &ast_base, {}),
+        "ClassDef" => py_class!(ctx, "ClassDef", &ast_base, {}),
+        "Compare" => py_class!(ctx, "Compare", &ast_base, {}),
+        "comprehension" => py_class!(ctx, "comprehension", &ast_base, {}),
+        "Continue" => py_class!(ctx, "Continue", &ast_base, {}),
+        "Delete" => py_class!(ctx, "Delete", &ast_base, {}),
+        "Dict" => py_class!(ctx, "Dict", &ast_base, {}),
+        "DictComp" => py_class!(ctx, "DictComp", &ast_base, {}),
+        "Ellipsis" => py_class!(ctx, "Ellipsis", &ast_base, {}),
+        "Expr" => py_class!(ctx, "Expr", &ast_base, {}),
+        "ExceptHandler" => py_class!(ctx, "ExceptHandler", &ast_base, {}),
+        "For" => py_class!(ctx, "For", &ast_base, {}),
+        "FormattedValue" => py_class!(ctx, "FormattedValue", &ast_base, {}),
+        "FunctionDef" => py_class!(ctx, "FunctionDef", &ast_base, {}),
+        "GeneratorExp" => py_class!(ctx, "GeneratorExp", &ast_base, {}),
+        "Global" => py_class!(ctx, "Global", &ast_base, {}),
+        "If" => py_class!(ctx, "If", &ast_base, {}),
+        "IfExp" => py_class!(ctx, "IfExp", &ast_base, {}),
+        "Import" => py_class!(ctx, "Import", &ast_base, {}),
+        "ImportFrom" => py_class!(ctx, "ImportFrom", &ast_base, {}),
+        "JoinedStr" => py_class!(ctx, "JoinedStr", &ast_base, {}),
+        "keyword" => py_class!(ctx, "keyword", &ast_base, {}),
+        "Lambda" => py_class!(ctx, "Lambda", &ast_base, {}),
+        "List" => py_class!(ctx, "List", &ast_base, {}),
+        "ListComp" => py_class!(ctx, "ListComp", &ast_base, {}),
+        "Module" => py_class!(ctx, "Module", &ast_base, {}),
+        "Name" => py_class!(ctx, "Name", &ast_base, {}),
+        "NameConstant" => py_class!(ctx, "NameConstant", &ast_base, {}),
+        "NamedExpression" => py_class!(ctx, "NamedExpression", &ast_base, {}),
+        "Nonlocal" => py_class!(ctx, "Nonlocal", &ast_base, {}),
+        "Num" => py_class!(ctx, "Num", &ast_base, {}),
+        "Pass" => py_class!(ctx, "Pass", &ast_base, {}),
+        "Raise" => py_class!(ctx, "Raise", &ast_base, {}),
+        "Return" => py_class!(ctx, "Return", &ast_base, {}),
+        "Set" => py_class!(ctx, "Set", &ast_base, {}),
+        "SetComp" => py_class!(ctx, "SetComp", &ast_base, {}),
+        "Slice" => py_class!(ctx, "Slice", &ast_base, {}),
+        "Starred" => py_class!(ctx, "Starred", &ast_base, {}),
+        "Starred" => py_class!(ctx, "Starred", &ast_base, {}),
+        "Str" => py_class!(ctx, "Str", &ast_base, {}),
+        "Subscript" => py_class!(ctx, "Subscript", &ast_base, {}),
+        "Try" => py_class!(ctx, "Try", &ast_base, {}),
+        "Tuple" => py_class!(ctx, "Tuple", &ast_base, {}),
+        "UnaryOp" => py_class!(ctx, "UnaryOp", &ast_base, {}),
+        "While" => py_class!(ctx, "While", &ast_base, {}),
+        "With" => py_class!(ctx, "With", &ast_base, {}),
+        "withitem" => py_class!(ctx, "withitem", &ast_base, {}),
+        "Yield" => py_class!(ctx, "Yield", &ast_base, {}),
+        "YieldFrom" => py_class!(ctx, "YieldFrom", &ast_base, {}),
         "AST" => ast_base,
         "PyCF_ONLY_AST" => ctx.new_int(PY_COMPILE_FLAG_AST_ONLY),
     })

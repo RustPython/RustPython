@@ -1,17 +1,16 @@
-use std::cell::RefCell;
+use csv as rust_csv;
+use itertools::{self, Itertools};
 use std::fmt::{self, Debug, Formatter};
 
-use csv as rust_csv;
-use itertools::join;
-
-use crate::function::PyFuncArgs;
-
-use crate::obj::objiter;
-use crate::obj::objstr::{self, PyString};
-use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{IntoPyObject, TryFromObject, TypeProtocol};
-use crate::pyobject::{PyClassImpl, PyIterable, PyObjectRef, PyRef, PyResult, PyValue};
-use crate::types::create_type;
+use crate::builtins::pystr::{self, PyStr};
+use crate::builtins::pytype::PyTypeRef;
+use crate::common::lock::PyRwLock;
+use crate::function::FuncArgs;
+use crate::pyobject::{
+    BorrowValue, IntoPyObject, PyClassImpl, PyIterable, PyObjectRef, PyResult, PyValue, StaticType,
+    TryFromObject, TypeProtocol,
+};
+use crate::types::create_simple_type;
 use crate::VirtualMachine;
 
 #[repr(i32)]
@@ -28,29 +27,29 @@ struct ReaderOption {
 }
 
 impl ReaderOption {
-    fn new(args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+    fn new(args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         let delimiter = if let Some(delimiter) = args.get_optional_kwarg("delimiter") {
-            let bytes = objstr::borrow_value(&delimiter).as_bytes();
-            match bytes.len() {
-                1 => bytes[0],
-                _ => {
+            *pystr::borrow_value(&delimiter)
+                .as_bytes()
+                .iter()
+                .exactly_one()
+                .map_err(|_| {
                     let msg = r#""delimiter" must be a 1-character string"#;
-                    return Err(vm.new_type_error(msg.to_owned()));
-                }
-            }
+                    vm.new_type_error(msg.to_owned())
+                })?
         } else {
             b','
         };
 
         let quotechar = if let Some(quotechar) = args.get_optional_kwarg("quotechar") {
-            let bytes = objstr::borrow_value(&quotechar).as_bytes();
-            match bytes.len() {
-                1 => bytes[0],
-                _ => {
+            *pystr::borrow_value(&quotechar)
+                .as_bytes()
+                .iter()
+                .exactly_one()
+                .map_err(|_| {
                     let msg = r#""quotechar" must be a 1-character string"#;
-                    return Err(vm.new_type_error(msg.to_owned()));
-                }
-            }
+                    vm.new_type_error(msg.to_owned())
+                })?
         } else {
             b'"'
         };
@@ -64,12 +63,12 @@ impl ReaderOption {
 
 pub fn build_reader(
     iterable: PyIterable<PyObjectRef>,
-    args: PyFuncArgs,
+    args: FuncArgs,
     vm: &VirtualMachine,
 ) -> PyResult {
     let config = ReaderOption::new(args, vm)?;
 
-    Reader::new(iterable, config).into_ref(vm).into_pyobject(vm)
+    Ok(Reader::new(iterable, config).into_object(vm))
 }
 
 fn into_strings(iterable: &PyIterable<PyObjectRef>, vm: &VirtualMachine) -> PyResult<Vec<String>> {
@@ -77,7 +76,7 @@ fn into_strings(iterable: &PyIterable<PyObjectRef>, vm: &VirtualMachine) -> PyRe
         .iter(vm)?
         .map(|py_obj_ref| {
             match_class!(match py_obj_ref? {
-                py_str @ PyString => Ok(py_str.as_str().trim().to_owned()),
+                py_str @ PyStr => Ok(py_str.borrow_value().trim().to_owned()),
                 obj => {
                     let msg = format!(
             "iterator should return strings, not {} (did you open the file in text mode?)",
@@ -106,7 +105,7 @@ impl ReadState {
     fn cast_to_reader(&mut self, vm: &VirtualMachine) -> PyResult<()> {
         if let ReadState::PyIter(ref iterable, ref config) = self {
             let lines = into_strings(iterable, vm)?;
-            let contents = join(lines, "\n");
+            let contents = itertools::join(lines, "\n");
 
             let bytes = Vec::from(contents.as_bytes());
             let reader = MemIO::new(bytes);
@@ -124,9 +123,9 @@ impl ReadState {
     }
 }
 
-#[pyclass(name = "Reader")]
+#[pyclass(module = "csv", name = "Reader")]
 struct Reader {
-    state: RefCell<ReadState>,
+    state: PyRwLock<ReadState>,
 }
 
 impl Debug for Reader {
@@ -136,29 +135,38 @@ impl Debug for Reader {
 }
 
 impl PyValue for Reader {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.class("_csv", "Reader")
+    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+        Self::static_type()
     }
 }
 
 impl Reader {
     fn new(iter: PyIterable<PyObjectRef>, config: ReaderOption) -> Self {
-        let state = RefCell::new(ReadState::new(iter, config));
+        let state = PyRwLock::new(ReadState::new(iter, config));
         Reader { state }
     }
 }
 
 #[pyimpl]
 impl Reader {
-    #[pymethod(name = "__iter__")]
-    fn iter(this: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        this.state.borrow_mut().cast_to_reader(vm)?;
-        this.into_pyobject(vm)
+    #[pyslot]
+    #[pymethod(magic)]
+    fn iter(this: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let this = match this.downcast::<Self>() {
+            Ok(reader) => reader,
+            Err(_) => return Err(vm.new_type_error("unexpected payload for __iter__".to_owned())),
+        };
+        this.state.write().cast_to_reader(vm)?;
+        Ok(this.into_pyobject(vm))
     }
 
-    #[pymethod(name = "__next__")]
-    fn next(&self, vm: &VirtualMachine) -> PyResult {
-        let mut state = self.state.borrow_mut();
+    #[pyslot]
+    fn tp_iternext(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let zelf = match zelf.downcast_ref::<Self>() {
+            Some(reader) => reader,
+            None => return Err(vm.new_type_error("unexpected payload for __next__".to_owned())),
+        };
+        let mut state = zelf.state.write();
         state.cast_to_reader(vm)?;
 
         if let ReadState::CsvIter(ref mut reader) = &mut *state {
@@ -168,7 +176,7 @@ impl Reader {
                         let iter = records
                             .into_iter()
                             .map(|bytes| bytes.into_pyobject(vm))
-                            .collect::<PyResult<Vec<_>>>()?;
+                            .collect::<Vec<_>>();
                         Ok(vm.ctx.new_list(iter))
                     }
                     Err(_err) => {
@@ -178,7 +186,7 @@ impl Reader {
                     }
                 }
             } else {
-                Err(objiter::new_stop_iteration(vm))
+                Err(vm.new_stop_iteration())
             }
         } else {
             unreachable!()
@@ -186,7 +194,7 @@ impl Reader {
     }
 }
 
-fn csv_reader(fp: PyObjectRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+fn _csv_reader(fp: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
     if let Ok(iterable) = PyIterable::<PyObjectRef>::try_from_object(vm, fp) {
         build_reader(iterable, args, vm)
     } else {
@@ -199,14 +207,10 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     let reader_type = Reader::make_class(ctx);
 
-    let error = create_type(
-        "Error",
-        &ctx.types.type_type,
-        &ctx.exceptions.exception_type,
-    );
+    let error = create_simple_type("Error", &ctx.exceptions.exception_type);
 
     py_module!(vm, "_csv", {
-        "reader" => ctx.new_function(csv_reader),
+        "reader" => named_function!(ctx, _csv, reader),
         "Reader" => reader_type,
         "Error"  => error,
         // constants

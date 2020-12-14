@@ -1,501 +1,790 @@
 use super::Diagnostic;
-use crate::util::path_eq;
-use proc_macro2::{Span, TokenStream as TokenStream2};
-use quote::{quote, quote_spanned, ToTokens};
-use std::collections::{HashMap, HashSet};
-use syn::{
-    parse_quote, spanned::Spanned, Attribute, AttributeArgs, Ident, Index, Item, Lit, Meta,
-    NestedMeta, Signature,
+use crate::util::{
+    path_eq, pyclass_ident_and_attrs, ClassItemMeta, ContentItem, ContentItemInner, ErrorVec,
+    ItemMeta, ItemMetaInner, ItemNursery, SimpleItemMeta, ALL_ALLOWED_NAMES,
 };
-
-fn meta_to_vec(meta: Meta) -> Result<Vec<NestedMeta>, Meta> {
-    match meta {
-        Meta::Path(_) => Ok(Vec::new()),
-        Meta::List(list) => Ok(list.nested.into_iter().collect()),
-        Meta::NameValue(_) => Err(meta),
-    }
-}
+use proc_macro2::TokenStream;
+use quote::{quote, quote_spanned, ToTokens};
+use std::collections::HashMap;
+use syn::{
+    parse_quote, spanned::Spanned, Attribute, AttributeArgs, Ident, Item, Meta, NestedMeta, Result,
+};
+use syn_ext::ext::*;
 
 #[derive(Default)]
-struct Class {
-    items: HashSet<ClassItem>,
+struct ImplContext {
+    impl_extend_items: ItemNursery,
+    getset_items: GetSetNursery,
+    extend_slots_items: ItemNursery,
+    class_extensions: Vec<TokenStream>,
+    errors: Vec<syn::Error>,
 }
 
-#[derive(PartialEq, Eq, Hash)]
-enum ClassItem {
-    Method {
-        item_ident: Ident,
-        py_name: String,
-    },
-    ClassMethod {
-        item_ident: Ident,
-        py_name: String,
-    },
-    Property {
-        item_ident: Ident,
-        py_name: String,
-        setter: bool,
-    },
-    Slot {
-        slot_ident: Ident,
-        item_ident: Ident,
-    },
-}
-
-struct ClassItemMeta<'a> {
-    sig: &'a Signature,
-    parent_type: &'static str,
-    meta: HashMap<String, Option<Lit>>,
-}
-
-impl<'a> ClassItemMeta<'a> {
-    const METHOD_NAMES: &'static [&'static str] = &["name", "magic"];
-    const PROPERTY_NAMES: &'static [&'static str] = &["name", "magic", "setter"];
-
-    fn from_nested_meta(
-        parent_type: &'static str,
-        sig: &'a Signature,
-        nested_meta: &[NestedMeta],
-        names: &[&'static str],
-    ) -> Result<Self, Diagnostic> {
-        let mut extracted = Self {
-            sig,
-            parent_type,
-            meta: HashMap::new(),
-        };
-
-        let validate_name = |name: &str, extracted: &Self| -> Result<(), Diagnostic> {
-            if names.contains(&name) {
-                if extracted.meta.contains_key(name) {
-                    bail_span!(
-                        &sig.ident,
-                        "#[{}] must have only one '{}'",
-                        parent_type,
-                        name
-                    );
-                } else {
-                    Ok(())
-                }
-            } else {
-                bail_span!(
-                    &sig.ident,
-                    "#[{}({})] is not one of allowed attributes {}",
-                    parent_type,
-                    name,
-                    names.join(", ")
-                );
+fn extract_items_into_context<'a, Item>(
+    context: &mut ImplContext,
+    items: impl Iterator<Item = &'a mut Item>,
+) where
+    Item: ItemLike + ToTokens + GetIdent + syn_ext::ext::ItemAttrExt + 'a,
+{
+    for item in items {
+        let r = item.try_split_attr_mut(|attrs, item| {
+            let (pyitems, cfgs) = attrs_to_content_items(&attrs, new_impl_item::<Item>)?;
+            for pyitem in pyitems.iter().rev() {
+                let r = pyitem.gen_impl_item(ImplItemArgs::<Item> {
+                    item,
+                    attrs,
+                    context,
+                    cfgs: cfgs.as_slice(),
+                });
+                context.errors.ok_or_push(r);
             }
-        };
-
-        for meta in nested_meta {
-            let meta = match meta {
-                NestedMeta::Meta(meta) => meta,
-                NestedMeta::Lit(_) => continue,
-            };
-
-            match meta {
-                Meta::NameValue(name_value) => {
-                    if let Some(ident) = name_value.path.get_ident() {
-                        let name = ident.to_string();
-                        validate_name(&name, &extracted)?;
-                        extracted.meta.insert(name, Some(name_value.lit.clone()));
-                    }
-                }
-                Meta::Path(path) => {
-                    if let Some(ident) = path.get_ident() {
-                        let name = ident.to_string();
-                        validate_name(&name, &extracted)?;
-                        extracted.meta.insert(name, None);
-                    } else {
-                        continue;
-                    }
-                }
-                _ => (),
-            }
-        }
-
-        Ok(extracted)
-    }
-
-    fn _str(&self, key: &str) -> Result<Option<String>, Diagnostic> {
-        Ok(match self.meta.get(key) {
-            Some(Some(lit)) => {
-                if let Lit::Str(s) = lit {
-                    Some(s.value())
-                } else {
-                    bail_span!(
-                        &self.sig.ident,
-                        "#[{}({} = ...)] must be a string",
-                        self.parent_type,
-                        key
-                    );
-                }
-            }
-            Some(None) => {
-                bail_span!(
-                    &self.sig.ident,
-                    "#[{}({} = ...)] is expected",
-                    self.parent_type,
-                    key,
-                );
-            }
-            None => None,
-        })
-    }
-
-    fn _bool(&self, key: &str) -> Result<bool, Diagnostic> {
-        Ok(match self.meta.get(key) {
-            Some(Some(_)) => {
-                bail_span!(
-                    &self.sig.ident,
-                    "#[{}({})] is expected",
-                    self.parent_type,
-                    key,
-                );
-            }
-            Some(None) => true,
-            None => false,
-        })
-    }
-
-    fn method_name(&self) -> Result<String, Diagnostic> {
-        let name = self._str("name")?;
-        let magic = self._bool("magic")?;
-        Ok(if let Some(name) = name {
-            name
-        } else {
-            let name = self.sig.ident.to_string();
-            if magic {
-                format!("__{}__", name)
-            } else {
-                name
-            }
-        })
-    }
-
-    fn setter(&self) -> Result<bool, Diagnostic> {
-        self._bool("setter")
-    }
-
-    fn property_name(&self) -> Result<String, Diagnostic> {
-        let magic = self._bool("magic")?;
-        let setter = self._bool("setter")?;
-        let name = self._str("name")?;
-
-        Ok(if let Some(name) = name {
-            name
-        } else {
-            let sig_name = self.sig.ident.to_string();
-            let name = if setter {
-                if let Some(name) = strip_prefix(&sig_name, "set_") {
-                    if name.is_empty() {
-                        bail_span!(
-                            &self.sig.ident,
-                            "A #[{}(setter)] fn with a set_* name must \
-                             have something after \"set_\"",
-                            self.parent_type
-                        )
-                    }
-                    name.to_string()
-                } else {
-                    bail_span!(
-                        &self.sig.ident,
-                        "A #[{}(setter)] fn must either have a `name` \
-                         parameter or a fn name along the lines of \"set_*\"",
-                        self.parent_type
-                    )
-                }
-            } else {
-                sig_name
-            };
-            if magic {
-                format!("__{}__", name)
-            } else {
-                name
-            }
-        })
-    }
-}
-
-impl Class {
-    fn add_item(&mut self, item: ClassItem, span: Span) -> Result<(), Diagnostic> {
-        if self.items.insert(item) {
             Ok(())
-        } else {
-            Err(Diagnostic::span_error(
-                span,
-                "Duplicate #[py*] attribute on pyimpl".to_owned(),
-            ))
-        }
+        });
+        context.errors.ok_or_push(r);
     }
+    context.errors.ok_or_push(context.getset_items.validate());
+}
 
-    fn extract_method(sig: &Signature, meta: Meta) -> Result<ClassItem, Diagnostic> {
-        let nesteds = meta_to_vec(meta).map_err(|meta| {
-            err_span!(
-                meta,
-                "#[pymethod = \"...\"] cannot be a name/value, you probably meant \
-                 #[pymethod(name = \"...\")]",
-            )
-        })?;
+pub(crate) fn impl_pyimpl(
+    attr: AttributeArgs,
+    item: Item,
+) -> std::result::Result<TokenStream, Diagnostic> {
+    let mut context = ImplContext::default();
+    let mut tokens = match item {
+        Item::Impl(mut imp) => {
+            extract_items_into_context(&mut context, imp.items.iter_mut());
 
-        let item_meta = ClassItemMeta::from_nested_meta(
-            "pymethod",
-            sig,
-            &nesteds,
-            ClassItemMeta::METHOD_NAMES,
-        )?;
-        Ok(ClassItem::Method {
-            item_ident: sig.ident.clone(),
-            py_name: item_meta.method_name()?,
-        })
-    }
+            let ExtractedImplAttrs {
+                with_impl,
+                flags,
+                with_slots,
+            } = extract_impl_attrs(attr)?;
 
-    fn extract_classmethod(sig: &Signature, meta: Meta) -> Result<ClassItem, Diagnostic> {
-        let nesteds = meta_to_vec(meta).map_err(|meta| {
-            err_span!(
-                meta,
-                "#[pyclassmethod = \"...\"] cannot be a name/value, you probably meant \
-                 #[pyclassmethod(name = \"...\")]",
-            )
-        })?;
-        let item_meta = ClassItemMeta::from_nested_meta(
-            "pyclassmethod",
-            sig,
-            &nesteds,
-            ClassItemMeta::METHOD_NAMES,
-        )?;
-        Ok(ClassItem::ClassMethod {
-            item_ident: sig.ident.clone(),
-            py_name: item_meta.method_name()?,
-        })
-    }
+            let ty = &imp.self_ty;
 
-    fn extract_property(sig: &Signature, meta: Meta) -> Result<ClassItem, Diagnostic> {
-        let nesteds = meta_to_vec(meta).map_err(|meta| {
-            err_span!(
-                meta,
-                "#[pyproperty = \"...\"] cannot be a name/value, you probably meant \
-                 #[pyproperty(name = \"...\")]"
-            )
-        })?;
-        let item_meta = ClassItemMeta::from_nested_meta(
-            "pyproperty",
-            sig,
-            &nesteds,
-            ClassItemMeta::PROPERTY_NAMES,
-        )?;
-        Ok(ClassItem::Property {
-            py_name: item_meta.property_name()?,
-            item_ident: sig.ident.clone(),
-            setter: item_meta.setter()?,
-        })
-    }
+            let getset_impl = &context.getset_items;
+            let extend_impl = &context.impl_extend_items;
+            let slots_impl = &context.extend_slots_items;
+            let class_extensions = &context.class_extensions;
+            quote! {
+                #imp
+                impl ::rustpython_vm::pyobject::PyClassImpl for #ty {
+                    const TP_FLAGS: ::rustpython_vm::slots::PyTpFlags = ::rustpython_vm::slots::PyTpFlags::from_bits_truncate(#flags);
 
-    fn extract_slot(sig: &Signature, meta: Meta) -> Result<ClassItem, Diagnostic> {
-        let pyslot_err = "#[pyslot] must be of the form #[pyslot] or #[pyslot(slotname)]";
-        let nesteds = meta_to_vec(meta).map_err(|meta| err_span!(meta, "{}", pyslot_err))?;
-        if nesteds.len() > 1 {
-            return Err(Diagnostic::spanned_error(&quote!(#(#nesteds)*), pyslot_err));
-        }
-        let slot_ident = if nesteds.is_empty() {
-            let ident_str = sig.ident.to_string();
-            if let Some(stripped) = strip_prefix(&ident_str, "tp_") {
-                proc_macro2::Ident::new(stripped, sig.ident.span())
-            } else {
-                sig.ident.clone()
+                    fn impl_extend_class(
+                        ctx: &::rustpython_vm::pyobject::PyContext,
+                        class: &::rustpython_vm::builtins::PyTypeRef,
+                    ) {
+                        #getset_impl
+                        #extend_impl
+                        #with_impl
+                        #(#class_extensions)*
+                    }
+
+                    fn extend_slots(slots: &mut ::rustpython_vm::slots::PyTypeSlots) {
+                        #with_slots
+                        #slots_impl
+                    }
+                }
             }
+        }
+        Item::Trait(mut trai) => {
+            let mut context = ImplContext::default();
+            extract_items_into_context(&mut context, trai.items.iter_mut());
+
+            let ExtractedImplAttrs {
+                with_impl,
+                with_slots,
+                ..
+            } = extract_impl_attrs(attr)?;
+
+            let getset_impl = &context.getset_items;
+            let extend_impl = &context.impl_extend_items;
+            let slots_impl = &context.extend_slots_items;
+            let class_extensions = &context.class_extensions;
+            let extra_methods = iter_chain![
+                parse_quote! {
+                    fn __extend_py_class(
+                        ctx: &::rustpython_vm::pyobject::PyContext,
+                        class: &::rustpython_vm::builtins::PyTypeRef,
+                    ) {
+                        #getset_impl
+                        #extend_impl
+                        #with_impl
+                        #(#class_extensions)*
+                    }
+                },
+                parse_quote! {
+                    fn __extend_slots(slots: &mut ::rustpython_vm::slots::PyTypeSlots) {
+                        #with_slots
+                        #slots_impl
+                    }
+                },
+            ];
+            trai.items.extend(extra_methods);
+
+            trai.into_token_stream()
+        }
+        item => item.into_token_stream(),
+    };
+    if let Some(error) = context.errors.into_error() {
+        let error = Diagnostic::from(error);
+        tokens = quote! {
+            #tokens
+            #error
+        }
+    }
+    Ok(tokens)
+}
+
+fn generate_class_def(
+    ident: &Ident,
+    name: &str,
+    module_name: Option<&str>,
+    base: Option<String>,
+    attrs: &[Attribute],
+) -> std::result::Result<TokenStream, Diagnostic> {
+    let doc = if let Some(doc) = attrs.doc() {
+        quote!(Some(#doc))
+    } else {
+        quote!(None)
+    };
+    let module_class_name = if let Some(module_name) = module_name {
+        format!("{}.{}", module_name, name)
+    } else {
+        name.to_owned()
+    };
+    let module_name = match module_name {
+        Some(v) => quote!(Some(#v) ),
+        None => quote!(None),
+    };
+    let is_pystruct = attrs.iter().any(|attr| {
+        path_eq(&attr.path, "derive")
+            && if let Ok(Meta::List(l)) = attr.parse_meta() {
+                l.nested
+                    .into_iter()
+                    .any(|n| n.get_ident().map_or(false, |p| p == "PyStructSequence"))
+            } else {
+                false
+            }
+    });
+    if base.is_some() && is_pystruct {
+        return Err(syn::Error::new_spanned(
+            ident,
+            "PyStructSequence cannot have `base` class attr",
+        )
+        .into());
+    }
+    let base = base.map(|name| Ident::new(&name, ident.span()));
+
+    let base_class = if is_pystruct {
+        quote! {
+            fn static_baseclass() -> &'static ::rustpython_vm::builtins::PyTypeRef {
+                use rustpython_vm::pyobject::StaticType;
+                rustpython_vm::builtins::PyTuple::static_type()
+            }
+        }
+    } else if let Some(base) = base {
+        quote! {
+            fn static_baseclass() -> &'static ::rustpython_vm::builtins::PyTypeRef {
+                use rustpython_vm::pyobject::StaticType;
+                #base::static_type()
+            }
+        }
+    } else {
+        quote!()
+    };
+
+    let tokens = quote! {
+        impl ::rustpython_vm::pyobject::PyClassDef for #ident {
+            const NAME: &'static str = #name;
+            const MODULE_NAME: Option<&'static str> = #module_name;
+            const TP_NAME: &'static str = #module_class_name;
+            const DOC: Option<&'static str> = #doc;
+        }
+
+        impl ::rustpython_vm::pyobject::StaticType for #ident {
+            fn static_cell() -> &'static ::rustpython_common::static_cell::StaticCell<::rustpython_vm::builtins::PyTypeRef> {
+                ::rustpython_common::static_cell! {
+                    static CELL: ::rustpython_vm::builtins::PyTypeRef;
+                }
+                &CELL
+            }
+
+            #base_class
+        }
+    };
+    Ok(tokens)
+}
+
+pub(crate) fn impl_pyclass(
+    attr: AttributeArgs,
+    item: Item,
+) -> std::result::Result<TokenStream, Diagnostic> {
+    let (ident, attrs) = pyclass_ident_and_attrs(&item)?;
+    let fake_ident = Ident::new("pyclass", item.span());
+    let class_meta = ClassItemMeta::from_nested(ident.clone(), fake_ident, attr.into_iter())?;
+    let class_name = class_meta.class_name()?;
+    let module_name = class_meta.module()?;
+    let base = class_meta.base()?;
+    let class_def = generate_class_def(&ident, &class_name, module_name.as_deref(), base, &attrs)?;
+
+    let ret = quote! {
+        #item
+        #class_def
+    };
+    Ok(ret)
+}
+
+/// #[pymethod] and #[pyclassmethod]
+struct MethodItem {
+    inner: ContentItemInner,
+    method_type: String,
+}
+
+/// #[pyproperty]
+struct PropertyItem {
+    inner: ContentItemInner,
+}
+
+/// #[pyslot]
+struct SlotItem {
+    inner: ContentItemInner,
+}
+
+/// #[pyattr]
+struct AttributeItem {
+    inner: ContentItemInner,
+}
+
+/// #[extend_class]
+struct ExtendClassItem {
+    inner: ContentItemInner,
+}
+
+impl ContentItem for MethodItem {
+    fn inner(&self) -> &ContentItemInner {
+        &self.inner
+    }
+}
+impl ContentItem for PropertyItem {
+    fn inner(&self) -> &ContentItemInner {
+        &self.inner
+    }
+}
+impl ContentItem for SlotItem {
+    fn inner(&self) -> &ContentItemInner {
+        &self.inner
+    }
+}
+impl ContentItem for AttributeItem {
+    fn inner(&self) -> &ContentItemInner {
+        &self.inner
+    }
+}
+impl ContentItem for ExtendClassItem {
+    fn inner(&self) -> &ContentItemInner {
+        &self.inner
+    }
+}
+
+struct ImplItemArgs<'a, Item: ItemLike> {
+    item: &'a Item,
+    attrs: &'a mut Vec<Attribute>,
+    context: &'a mut ImplContext,
+    cfgs: &'a [Attribute],
+}
+
+trait ImplItem<Item>: ContentItem
+where
+    Item: ItemLike + ToTokens + GetIdent,
+{
+    fn gen_impl_item(&self, args: ImplItemArgs<'_, Item>) -> Result<()>;
+}
+
+impl<Item> ImplItem<Item> for MethodItem
+where
+    Item: ItemLike + ToTokens + GetIdent,
+{
+    fn gen_impl_item(&self, args: ImplItemArgs<'_, Item>) -> Result<()> {
+        let ident = if args.item.is_function_or_method() {
+            Ok(args.item.get_ident().unwrap())
         } else {
-            match nesteds.into_iter().next().unwrap() {
-                NestedMeta::Meta(Meta::Path(path)) => path
-                    .get_ident()
-                    .cloned()
-                    .ok_or_else(|| err_span!(path, "{}", pyslot_err))?,
-                bad => bail_span!(bad, "{}", pyslot_err),
+            Err(self.new_syn_error(args.item.span(), "can only be on a method"))
+        }?;
+
+        let item_attr = args.attrs.remove(self.index());
+        let item_meta = MethodItemMeta::from_attr(ident.clone(), &item_attr)?;
+
+        let py_name = item_meta.method_name()?;
+        let build_func = Ident::new(&format!("build_{}", &self.method_type), args.item.span());
+        let tokens = {
+            let doc = args.attrs.doc().map_or_else(
+                TokenStream::new,
+                |doc| quote!(.with_doc(#doc.to_owned(), ctx)),
+            );
+            quote! {
+                class.set_str_attr(
+                    #py_name,
+                    ctx.new_function_named(Self::#ident, #py_name.to_owned())
+                        #doc
+                        .#build_func(ctx),
+                );
             }
         };
-        Ok(ClassItem::Slot {
-            slot_ident,
-            item_ident: sig.ident.clone(),
-        })
-    }
 
-    fn extract_item_from_syn(
-        &mut self,
-        attrs: &mut Vec<Attribute>,
-        sig: &Signature,
-    ) -> Result<(), Diagnostic> {
-        let mut attr_idxs = Vec::new();
-        for (i, meta) in attrs
-            .iter()
-            .filter_map(|attr| attr.parse_meta().ok())
-            .enumerate()
-        {
-            let meta_span = meta.span();
-            let name = match meta.path().get_ident() {
-                Some(name) => name,
-                None => continue,
-            };
-            if name == "pymethod" {
-                self.add_item(Self::extract_method(sig, meta)?, meta_span)?;
-            } else if name == "pyclassmethod" {
-                self.add_item(Self::extract_classmethod(sig, meta)?, meta_span)?;
-            } else if name == "pyproperty" {
-                self.add_item(Self::extract_property(sig, meta)?, meta_span)?;
-            } else if name == "pyslot" {
-                self.add_item(Self::extract_slot(sig, meta)?, meta_span)?;
-            } else {
-                continue;
-            }
-            attr_idxs.push(i);
-        }
-        let mut i = 0;
-        let mut attr_idxs = &*attr_idxs;
-        attrs.retain(|_| {
-            let drop = attr_idxs.first().copied() == Some(i);
-            if drop {
-                attr_idxs = &attr_idxs[1..];
-            }
-            i += 1;
-            !drop
-        });
-        for (i, idx) in attr_idxs.iter().enumerate() {
-            attrs.remove(idx - i);
-        }
+        args.context
+            .impl_extend_items
+            .add_item(py_name, args.cfgs.to_vec(), tokens)?;
         Ok(())
     }
 }
 
-struct ItemSig<'a> {
-    attrs: &'a mut Vec<Attribute>,
-    sig: &'a Signature,
+impl<Item> ImplItem<Item> for PropertyItem
+where
+    Item: ItemLike + ToTokens + GetIdent,
+{
+    fn gen_impl_item(&self, args: ImplItemArgs<'_, Item>) -> Result<()> {
+        let ident = if args.item.is_function_or_method() {
+            Ok(args.item.get_ident().unwrap())
+        } else {
+            Err(self.new_syn_error(args.item.span(), "can only be on a method"))
+        }?;
+
+        let item_attr = args.attrs.remove(self.index());
+        let item_meta = PropertyItemMeta::from_attr(ident.clone(), &item_attr)?;
+
+        let (py_name, kind) = item_meta.property_name()?;
+        args.context
+            .getset_items
+            .add_item(py_name, args.cfgs.to_vec(), kind, ident.clone())?;
+        Ok(())
+    }
 }
 
-fn extract_impl_items(mut items: Vec<ItemSig>) -> Result<TokenStream2, Diagnostic> {
-    let mut diagnostics: Vec<Diagnostic> = Vec::new();
+impl<Item> ImplItem<Item> for SlotItem
+where
+    Item: ItemLike + ToTokens + GetIdent,
+{
+    fn gen_impl_item(&self, args: ImplItemArgs<'_, Item>) -> Result<()> {
+        let ident = if args.item.is_function_or_method() {
+            Ok(args.item.get_ident().unwrap())
+        } else {
+            Err(self.new_syn_error(args.item.span(), "can only be on a method"))
+        }?;
 
-    let mut class = Class::default();
+        let item_attr = args.attrs.remove(self.index());
+        let item_meta = SlotItemMeta::from_attr(ident.clone(), &item_attr)?;
 
-    for item in items.iter_mut() {
-        push_diag_result!(
-            diagnostics,
-            class.extract_item_from_syn(&mut item.attrs, item.sig),
-        );
-    }
-
-    let mut properties: HashMap<&str, (Option<&Ident>, Option<&Ident>)> = HashMap::new();
-    for item in class.items.iter() {
-        if let ClassItem::Property {
-            ref item_ident,
-            ref py_name,
-            setter,
-        } = item
-        {
-            let entry = properties.entry(py_name).or_default();
-            let func = if *setter { &mut entry.1 } else { &mut entry.0 };
-            if func.is_some() {
-                bail_span!(
-                    item_ident,
-                    "Multiple property accessors with name {:?}",
-                    py_name
-                )
-            }
-            *func = Some(item_ident);
-        }
-    }
-    let properties = properties
-        .into_iter()
-        .map(|(name, prop)| {
-            let getter_func = match prop.0 {
-                Some(func) => func,
-                None => {
-                    push_err_span!(
-                        diagnostics,
-                        prop.1.unwrap(),
-                        "Property {:?} is missing a getter",
-                        name
-                    );
-                    return TokenStream2::new();
+        let slot_ident = item_meta.slot_name()?;
+        let slot_name = slot_ident.to_string();
+        let tokens = {
+            let into_func = if slot_name == "new" {
+                quote_spanned! {ident.span() =>
+                    ::rustpython_vm::function::IntoPyNativeFunc::into_func(Self::#ident)
+                }
+            } else {
+                quote_spanned! {ident.span() =>
+                    Self::#ident as _
                 }
             };
-            let (new, setter) = match prop.1 {
-                Some(func) => (quote! { with_get_set }, quote! { , &Self::#func }),
-                None => (quote! { with_get }, quote! { }),
-            };
-            let str_name = name.to_string();
-            quote! {
-                class.set_str_attr(
-                    #name,
-                    ::rustpython_vm::pyobject::PyObject::new(
-                        ::rustpython_vm::obj::objgetset::PyGetSet::#new(#str_name.into(), &Self::#getter_func #setter),
-                        ctx.getset_type(), None)
-                );
-            }
-        })
-        .collect::<Vec<_>>();
-    let methods = class.items.into_iter().filter_map(|item| match item {
-        ClassItem::Method {
-            item_ident,
-            py_name,
-        } => {
-            let new_meth = quote_spanned!(item_ident.span()=> .new_method(Self::#item_ident));
-            Some(quote! {
-                class.set_str_attr(#py_name, ctx#new_meth);
-            })
-        }
-        ClassItem::ClassMethod {
-            item_ident,
-            py_name,
-        } => {
-            let new_meth = quote_spanned!(item_ident.span()=> .new_classmethod(Self::#item_ident));
-            Some(quote! {
-                   class.set_str_attr(#py_name, ctx#new_meth);
-            })
-        }
-        ClassItem::Slot {
-            slot_ident,
-            item_ident,
-        } => {
-            let transform = if vec!["new", "call"].contains(&slot_ident.to_string().as_str()) {
-                quote! { ::rustpython_vm::function::IntoPyNativeFunc::into_func }
+            if slot_name == "new" || slot_name == "buffer" {
+                quote! {
+                    slots.#slot_ident = Some(#into_func);
+                }
             } else {
-                quote! { Box::new }
-            };
-            let into_func = quote_spanned! {item_ident.span()=>
-                #transform(Self::#item_ident)
-            };
-            Some(quote! {
-                (*class.slots.borrow_mut()).#slot_ident = Some(#into_func);
-            })
-        }
-        _ => None,
-    });
+                quote! {
+                    slots.#slot_ident.store(Some(#into_func))
+                }
+            }
+        };
 
-    Diagnostic::from_vec(diagnostics)?;
+        args.context.extend_slots_items.add_item(
+            format!("(slot {})", slot_name),
+            args.cfgs.to_vec(),
+            tokens,
+        )?;
 
-    Ok(quote! {
-        #(#methods)*
-        #(#properties)*
-    })
+        Ok(())
+    }
 }
 
-fn extract_impl_attrs(attr: AttributeArgs) -> Result<(TokenStream2, TokenStream2), Diagnostic> {
+impl<Item> ImplItem<Item> for AttributeItem
+where
+    Item: ItemLike + ToTokens + GetIdent,
+{
+    fn gen_impl_item(&self, args: ImplItemArgs<'_, Item>) -> Result<()> {
+        let cfgs = args.cfgs.to_vec();
+        let attr = args.attrs.remove(self.index());
+
+        let get_py_name = |attr: &Attribute, ident: &Ident| -> Result<_> {
+            let item_meta = SimpleItemMeta::from_attr(ident.clone(), attr)?;
+            let py_name = item_meta.simple_name()?;
+            Ok(py_name)
+        };
+        let (py_name, tokens) = if args.item.is_function_or_method() || args.item.is_const() {
+            let ident = args.item.get_ident().unwrap();
+            let py_name = get_py_name(&attr, &ident)?;
+
+            let value = if args.item.is_const() {
+                // TODO: ctx.new_value
+                quote_spanned!(ident.span() => ctx.new_int(Self::#ident))
+            } else {
+                quote_spanned!(ident.span() => Self::#ident(ctx))
+            };
+            (
+                py_name.clone(),
+                quote! {
+                    class.set_str_attr(#py_name, #value);
+                },
+            )
+        } else {
+            return Err(self.new_syn_error(
+                args.item.span(),
+                "can only be on a const or an associated method without argument",
+            ));
+        };
+
+        args.context
+            .impl_extend_items
+            .add_item(py_name, cfgs, tokens)?;
+
+        Ok(())
+    }
+}
+
+impl<Item> ImplItem<Item> for ExtendClassItem
+where
+    Item: ItemLike + ToTokens + GetIdent,
+{
+    fn gen_impl_item(&self, args: ImplItemArgs<'_, Item>) -> Result<()> {
+        args.attrs.remove(self.index());
+
+        let ident = if args.item.is_function_or_method() {
+            Ok(args.item.get_ident().unwrap())
+        } else {
+            Err(self.new_syn_error(args.item.span(), "can only be on a method"))
+        }?;
+
+        args.context.class_extensions.push(quote! {
+            Self::#ident(ctx, class);
+        });
+
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+#[allow(clippy::type_complexity)]
+struct GetSetNursery {
+    map: HashMap<(String, Vec<Attribute>), (Option<Ident>, Option<Ident>, Option<Ident>)>,
+    validated: bool,
+}
+
+enum GetSetItemKind {
+    Get,
+    Set,
+    Delete,
+}
+
+impl GetSetNursery {
+    fn add_item(
+        &mut self,
+        name: String,
+        cfgs: Vec<Attribute>,
+        kind: GetSetItemKind,
+        item_ident: Ident,
+    ) -> Result<()> {
+        assert!(!self.validated, "new item is not allowed after validation");
+        if !matches!(kind, GetSetItemKind::Get) && !cfgs.is_empty() {
+            return Err(syn::Error::new_spanned(
+                item_ident,
+                "Only the getter can have #[cfg]",
+            ));
+        }
+        let entry = self.map.entry((name.clone(), cfgs)).or_default();
+        let func = match kind {
+            GetSetItemKind::Get => &mut entry.0,
+            GetSetItemKind::Set => &mut entry.1,
+            GetSetItemKind::Delete => &mut entry.2,
+        };
+        if func.is_some() {
+            return Err(syn::Error::new_spanned(
+                item_ident,
+                format!("Multiple property accessors with name '{}'", name),
+            ));
+        }
+        *func = Some(item_ident);
+        Ok(())
+    }
+
+    fn validate(&mut self) -> Result<()> {
+        let mut errors = Vec::new();
+        for ((name, _cfgs), (getter, setter, deleter)) in self.map.iter() {
+            if getter.is_none() {
+                errors.push(syn::Error::new_spanned(
+                    setter.as_ref().or_else(|| deleter.as_ref()).unwrap(),
+                    format!("Property '{}' is missing a getter", name),
+                ));
+            };
+        }
+        errors.into_result()?;
+        self.validated = true;
+        Ok(())
+    }
+}
+
+impl ToTokens for GetSetNursery {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        assert!(self.validated, "Call `validate()` before token generation");
+        let properties = self
+            .map
+            .iter()
+            .map(|((name, cfgs), (getter, setter, deleter))| {
+                let setter = match setter {
+                    Some(setter) => quote_spanned! { setter.span()=> .with_set(&Self::#setter)},
+                    None => quote! {},
+                };
+                let deleter = match deleter {
+                    Some(deleter) => {
+                        quote_spanned! { deleter.span()=> .with_delete(&Self::#deleter)}
+                    }
+                    None => quote! {},
+                };
+                quote! {
+                    #( #cfgs )*
+                    class.set_str_attr(
+                        #name,
+                        ::rustpython_vm::pyobject::PyObject::new(
+                            ::rustpython_vm::builtins::PyGetSet::new(#name.into())
+                                .with_get(&Self::#getter)
+                                #setter #deleter,
+                            ctx.types.getset_type.clone(), None)
+                    );
+                }
+            });
+        tokens.extend(properties);
+    }
+}
+
+struct MethodItemMeta(ItemMetaInner);
+
+impl ItemMeta for MethodItemMeta {
+    const ALLOWED_NAMES: &'static [&'static str] = &["name", "magic"];
+
+    fn from_inner(inner: ItemMetaInner) -> Self {
+        Self(inner)
+    }
+    fn inner(&self) -> &ItemMetaInner {
+        &self.0
+    }
+}
+
+impl MethodItemMeta {
+    fn method_name(&self) -> Result<String> {
+        let inner = self.inner();
+        let name = inner._optional_str("name")?;
+        let magic = inner._bool("magic")?;
+        Ok(if let Some(name) = name {
+            name
+        } else {
+            let name = inner.item_name();
+            if magic {
+                format!("__{}__", name)
+            } else {
+                name
+            }
+        })
+    }
+}
+
+struct PropertyItemMeta(ItemMetaInner);
+
+impl ItemMeta for PropertyItemMeta {
+    const ALLOWED_NAMES: &'static [&'static str] = &["name", "magic", "setter", "deleter"];
+
+    fn from_inner(inner: ItemMetaInner) -> Self {
+        Self(inner)
+    }
+    fn inner(&self) -> &ItemMetaInner {
+        &self.0
+    }
+}
+
+impl PropertyItemMeta {
+    fn property_name(&self) -> Result<(String, GetSetItemKind)> {
+        let inner = self.inner();
+        let magic = inner._bool("magic")?;
+        let kind = match (inner._bool("setter")?, inner._bool("deleter")?) {
+            (false, false) => GetSetItemKind::Get,
+            (true, false) => GetSetItemKind::Set,
+            (false, true) => GetSetItemKind::Delete,
+            (true, true) => {
+                return Err(syn::Error::new_spanned(
+                    &inner.meta_ident,
+                    format!(
+                        "can't have both setter and deleter on a #[{}] fn",
+                        inner.meta_name()
+                    ),
+                ))
+            }
+        };
+        let name = inner._optional_str("name")?;
+        let py_name = if let Some(name) = name {
+            name
+        } else {
+            let sig_name = inner.item_name();
+            let extract_prefix_name = |prefix, item_typ| {
+                if let Some(name) = sig_name.strip_prefix(prefix) {
+                    if name.is_empty() {
+                        Err(syn::Error::new_spanned(
+                            &inner.meta_ident,
+                            format!(
+                                "A #[{}({typ})] fn with a {prefix}* name must \
+                                 have something after \"{prefix}\"",
+                                inner.meta_name(),
+                                typ = item_typ,
+                                prefix = prefix
+                            ),
+                        ))
+                    } else {
+                        Ok(name.to_owned())
+                    }
+                } else {
+                    Err(syn::Error::new_spanned(
+                        &inner.meta_ident,
+                        format!(
+                            "A #[{}(setter)] fn must either have a `name` \
+                             parameter or a fn name along the lines of \"set_*\"",
+                            inner.meta_name()
+                        ),
+                    ))
+                }
+            };
+            let name = match kind {
+                GetSetItemKind::Get => sig_name,
+                GetSetItemKind::Set => extract_prefix_name("set_", "setter")?,
+                GetSetItemKind::Delete => extract_prefix_name("del_", "deleter")?,
+            };
+            if magic {
+                format!("__{}__", name)
+            } else {
+                name
+            }
+        };
+        Ok((py_name, kind))
+    }
+}
+
+struct SlotItemMeta(ItemMetaInner);
+
+impl ItemMeta for SlotItemMeta {
+    const ALLOWED_NAMES: &'static [&'static str] = &[]; // not used
+
+    fn from_nested<I>(item_ident: Ident, meta_ident: Ident, mut nested: I) -> Result<Self>
+    where
+        I: std::iter::Iterator<Item = NestedMeta>,
+    {
+        let meta_map = if let Some(nmeta) = nested.next() {
+            match nmeta {
+                NestedMeta::Meta(meta) => {
+                    Some([("name".to_owned(), (0, meta))].iter().cloned().collect())
+                }
+                _ => None,
+            }
+        } else {
+            Some(HashMap::default())
+        };
+        match (meta_map, nested.next()) {
+            (Some(meta_map), None) => Ok(Self::from_inner(ItemMetaInner {
+                item_ident,
+                meta_ident,
+                meta_map,
+            })),
+            _ => Err(syn::Error::new_spanned(
+                meta_ident,
+                "#[pyslot] must be of the form #[pyslot] or #[pyslot(slotname)]",
+            )),
+        }
+    }
+
+    fn from_inner(inner: ItemMetaInner) -> Self {
+        Self(inner)
+    }
+    fn inner(&self) -> &ItemMetaInner {
+        &self.0
+    }
+}
+
+impl SlotItemMeta {
+    fn slot_name(&self) -> Result<Ident> {
+        let inner = self.inner();
+        let slot_name = if let Some((_, meta)) = inner.meta_map.get("name") {
+            match meta {
+                Meta::Path(path) => path.get_ident().cloned(),
+                _ => None,
+            }
+        } else {
+            let ident_str = self.inner().item_name();
+            let name = if let Some(stripped) = ident_str.strip_prefix("tp_") {
+                proc_macro2::Ident::new(stripped, inner.item_ident.span())
+            } else {
+                inner.item_ident.clone()
+            };
+            Some(name)
+        };
+        slot_name.ok_or_else(|| {
+            syn::Error::new_spanned(
+                &inner.meta_ident,
+                "#[pyslot] must be of the form #[pyslot] or #[pyslot(slotname)]",
+            )
+        })
+    }
+}
+
+struct ExtractedImplAttrs {
+    with_impl: TokenStream,
+    with_slots: TokenStream,
+    flags: TokenStream,
+}
+
+fn extract_impl_attrs(attr: AttributeArgs) -> std::result::Result<ExtractedImplAttrs, Diagnostic> {
     let mut withs = Vec::new();
+    let mut with_slots = Vec::new();
     let mut flags = vec![quote! { ::rustpython_vm::slots::PyTpFlags::DEFAULT.bits() }];
+    #[cfg(debug_assertions)]
+    {
+        flags.push(quote! {
+            | ::rustpython_vm::slots::PyTpFlags::_CREATED_WITH_FLAGS.bits()
+        });
+    }
 
     for attr in attr {
         match attr {
             NestedMeta::Meta(Meta::List(syn::MetaList { path, nested, .. })) => {
                 if path_eq(&path, "with") {
                     for meta in nested {
-                        match meta {
-                            NestedMeta::Meta(Meta::Path(path)) => {
-                                withs.push(quote! {
-                                    <Self as #path>::__extend_py_class(ctx, class);
-                                });
-                            }
+                        let path = match meta {
+                            NestedMeta::Meta(Meta::Path(path)) => path,
                             meta => {
                                 bail_span!(meta, "#[pyimpl(with(...))] arguments should be paths")
                             }
+                        };
+                        if path_eq(&path, "PyRef") {
+                            // special handling for PyRef
+                            withs.push(quote! {
+                                PyRef::<Self>::impl_extend_class(ctx, class);
+                            });
+                            with_slots.push(quote! {
+                                PyRef::<Self>::extend_slots(slots);
+                            });
+                        } else {
+                            withs.push(quote! {
+                                <Self as #path>::__extend_py_class(ctx, class);
+                            });
+                            with_slots.push(quote! {
+                                <Self as #path>::__extend_slots(slots);
+                            });
                         }
                     }
                 } else if path_eq(&path, "flags") {
@@ -526,230 +815,93 @@ fn extract_impl_attrs(attr: AttributeArgs) -> Result<(TokenStream2, TokenStream2
         }
     }
 
-    Ok((
-        quote! {
+    Ok(ExtractedImplAttrs {
+        with_impl: quote! {
             #(#withs)*
         },
-        quote! {
+        flags: quote! {
             #(#flags)*
         },
-    ))
+        with_slots: quote! {
+            #(#with_slots)*
+        },
+    })
 }
 
-pub fn impl_pyimpl(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Diagnostic> {
-    match item {
-        Item::Impl(mut imp) => {
-            let items = imp
-                .items
-                .iter_mut()
-                .filter_map(|item| match item {
-                    syn::ImplItem::Method(syn::ImplItemMethod { attrs, sig, .. }) => {
-                        Some(ItemSig { attrs, sig })
-                    }
-                    _ => None,
-                })
-                .collect();
-            let extend_impl = extract_impl_items(items)?;
-            let (with_impl, flags) = extract_impl_attrs(attr)?;
-            let ty = &imp.self_ty;
-            let ret = quote! {
-                #imp
-                impl ::rustpython_vm::pyobject::PyClassImpl for #ty {
-                    const TP_FLAGS: ::rustpython_vm::slots::PyTpFlags = ::rustpython_vm::slots::PyTpFlags::from_bits_truncate(#flags);
-
-                    fn impl_extend_class(
-                        ctx: &::rustpython_vm::pyobject::PyContext,
-                        class: &::rustpython_vm::obj::objtype::PyClassRef,
-                    ) {
-                        #extend_impl
-                        #with_impl
-                    }
-                }
-            };
-            Ok(ret)
-        }
-        Item::Trait(mut trai) => {
-            let items = trai
-                .items
-                .iter_mut()
-                .filter_map(|item| match item {
-                    syn::TraitItem::Method(syn::TraitItemMethod { attrs, sig, .. }) => {
-                        Some(ItemSig { attrs, sig })
-                    }
-                    _ => None,
-                })
-                .collect();
-            let extend_impl = extract_impl_items(items)?;
-            let item = parse_quote! {
-                fn __extend_py_class(
-                    ctx: &::rustpython_vm::pyobject::PyContext,
-                    class: &::rustpython_vm::obj::objtype::PyClassRef,
-                ) {
-                    #extend_impl
-                }
-            };
-            trai.items.push(item);
-            Ok(trai.into_token_stream())
-        }
-        item => Ok(quote!(#item)),
+fn new_impl_item<Item>(index: usize, attr_name: String) -> Box<dyn ImplItem<Item>>
+where
+    Item: ItemLike + ToTokens + GetIdent,
+{
+    assert!(ALL_ALLOWED_NAMES.contains(&attr_name.as_str()));
+    match attr_name.as_str() {
+        attr_name @ "pymethod" | attr_name @ "pyclassmethod" => Box::new(MethodItem {
+            inner: ContentItemInner {
+                index,
+                attr_name: attr_name.to_owned(),
+            },
+            method_type: attr_name.strip_prefix("py").unwrap().to_owned(),
+        }),
+        "pyproperty" => Box::new(PropertyItem {
+            inner: ContentItemInner { index, attr_name },
+        }),
+        "pyslot" => Box::new(SlotItem {
+            inner: ContentItemInner { index, attr_name },
+        }),
+        "pyattr" => Box::new(AttributeItem {
+            inner: ContentItemInner { index, attr_name },
+        }),
+        "extend_class" => Box::new(ExtendClassItem {
+            inner: ContentItemInner { index, attr_name },
+        }),
+        other => unreachable!("#[pyimpl] doesn't accept #[{}]", other),
     }
 }
 
-fn generate_class_def(
-    ident: &Ident,
-    attr_name: &'static str,
-    attr: AttributeArgs,
+fn attrs_to_content_items<F, R>(
     attrs: &[Attribute],
-) -> Result<TokenStream2, Diagnostic> {
-    let mut class_name = None;
-    for attr in attr {
-        if let NestedMeta::Meta(meta) = attr {
-            if let Meta::NameValue(name_value) = meta {
-                if path_eq(&name_value.path, "name") {
-                    if let Lit::Str(s) = name_value.lit {
-                        class_name = Some(s.value());
-                    } else {
-                        bail_span!(
-                            name_value.lit,
-                            "#[{}(name = ...)] must be a string",
-                            attr_name
-                        );
-                    }
-                }
-            }
-        }
-    }
-    let class_name = class_name.unwrap_or_else(|| ident.to_string());
+    new_item: F,
+) -> Result<(Vec<R>, Vec<Attribute>)>
+where
+    F: Fn(usize, String) -> R,
+{
+    let mut cfgs: Vec<Attribute> = Vec::new();
+    let mut result = Vec::new();
 
-    let mut doc: Option<Vec<String>> = None;
-    for attr in attrs.iter() {
-        if attr.path.is_ident("doc") {
-            let meta = attr.parse_meta().expect("expected doc attr to be a meta");
-            if let Meta::NameValue(name_value) = meta {
-                if let Lit::Str(s) = name_value.lit {
-                    let val = s.value().trim().to_owned();
-                    match doc {
-                        Some(ref mut doc) => doc.push(val),
-                        None => doc = Some(vec![val]),
-                    }
-                }
-            }
-        }
-    }
-    let doc = match doc {
-        Some(doc) => {
-            let doc = doc.join("\n");
-            quote!(Some(#doc))
-        }
-        None => quote!(None),
-    };
-
-    let ret = quote! {
-        impl ::rustpython_vm::pyobject::PyClassDef for #ident {
-            const NAME: &'static str = #class_name;
-            const DOC: Option<&'static str> = #doc;
-        }
-    };
-    Ok(ret)
-}
-
-pub fn impl_pyclass(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Diagnostic> {
-    let (item, ident, attrs) = match item {
-        Item::Struct(struc) => (quote!(#struc), struc.ident, struc.attrs),
-        Item::Enum(enu) => (quote!(#enu), enu.ident, enu.attrs),
-        other => bail_span!(
-            other,
-            "#[pyclass] can only be on a struct or enum declaration"
-        ),
-    };
-
-    let class_def = generate_class_def(&ident, "pyclass", attr, &attrs)?;
-
-    let ret = quote! {
-        #item
-        #class_def
-    };
-    Ok(ret)
-}
-
-pub fn impl_pystruct_sequence(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Diagnostic> {
-    let struc = if let Item::Struct(struc) = item {
-        struc
-    } else {
-        bail_span!(
-            item,
-            "#[pystruct_sequence] can only be on a struct declaration"
-        )
-    };
-    let class_def = generate_class_def(&struc.ident, "pystruct_sequence", attr, &struc.attrs)?;
-    let mut properties = Vec::new();
-    let mut field_names = Vec::new();
-    for (i, field) in struc.fields.iter().enumerate() {
-        let idx = Index::from(i);
-        if let Some(ref field_name) = field.ident {
-            let field_name_str = field_name.to_string();
-            // TODO add doc to the generated property
-            let property = quote! {
-                class.set_str_attr(
-                    #field_name_str,
-                    ctx.new_readonly_getset(
-                        #field_name_str,
-                        |zelf: &::rustpython_vm::obj::objtuple::PyTuple,
-                         _vm: &::rustpython_vm::VirtualMachine| {
-                            zelf.fast_getitem(#idx)
-                        }
-                   ),
-                );
-            };
-            properties.push(property);
-            field_names.push(quote!(#field_name));
+    let mut iter = attrs.iter().enumerate().peekable();
+    while let Some((_, attr)) = iter.peek() {
+        // take all cfgs but no py items
+        let attr = *attr;
+        let attr_name = if let Some(ident) = attr.get_ident() {
+            ident.to_string()
         } else {
-            field_names.push(quote!(#idx));
+            continue;
+        };
+        if attr_name == "cfg" {
+            cfgs.push(attr.clone());
+        } else if ALL_ALLOWED_NAMES.contains(&attr_name.as_str()) {
+            break;
         }
+        iter.next();
     }
 
-    let ty = &struc.ident;
-    let ret = quote! {
-        #struc
-        #class_def
-        impl #ty {
-            pub fn into_struct_sequence(&self,
-                vm: &::rustpython_vm::VirtualMachine,
-                cls: ::rustpython_vm::obj::objtype::PyClassRef,
-            ) -> ::rustpython_vm::pyobject::PyResult<::rustpython_vm::obj::objtuple::PyTupleRef> {
-                let tuple = ::rustpython_vm::obj::objtuple::PyTuple::from(
-                    vec![#(::rustpython_vm::pyobject::IntoPyObject::into_pyobject(
-                        ::std::clone::Clone::clone(&self.#field_names),
-                        vm,
-                    )?),*],
-                );
-                ::rustpython_vm::pyobject::PyValue::into_ref_with_type(tuple, vm, cls)
-            }
+    for (i, attr) in iter {
+        // take py items but no cfgs
+        let attr_name = if let Some(ident) = attr.get_ident() {
+            ident.to_string()
+        } else {
+            continue;
+        };
+        if attr_name == "cfg" {
+            return Err(syn::Error::new_spanned(
+                attr,
+                "#[py*] items must be placed under `cfgs`",
+            ));
         }
-        impl ::rustpython_vm::pyobject::PyClassImpl for #ty {
-            fn impl_extend_class(
-                ctx: &::rustpython_vm::pyobject::PyContext,
-                class: &::rustpython_vm::obj::objtype::PyClassRef,
-            ) {
-                #(#properties)*
-            }
-
-            fn make_class(
-                ctx: &::rustpython_vm::pyobject::PyContext
-            ) -> ::rustpython_vm::obj::objtype::PyClassRef {
-                let py_class = ctx.new_class(<Self as ::rustpython_vm::pyobject::PyClassDef>::NAME, ctx.tuple_type());
-                Self::extend_class(ctx, &py_class);
-                py_class
-            }
+        if !ALL_ALLOWED_NAMES.contains(&attr_name.as_str()) {
+            continue;
         }
-    };
-    Ok(ret)
-}
 
-fn strip_prefix<'a>(s: &'a str, prefix: &str) -> Option<&'a str> {
-    if s.starts_with(prefix) {
-        Some(&s[prefix.len()..])
-    } else {
-        None
+        result.push(new_item(i, attr_name));
     }
+    Ok((result, cfgs))
 }

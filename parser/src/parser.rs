@@ -138,7 +138,7 @@ mod tests {
 
     fn as_statement(expr: ast::Expression) -> ast::Statement {
         ast::Statement {
-            location: expr.location.clone(),
+            location: expr.location,
             node: ast::StatementType::Expression { expression: expr },
         }
     }
@@ -258,6 +258,7 @@ mod tests {
                 location: ast::Location::new(1, 1),
                 node: ast::ExpressionType::Lambda {
                     args: Box::new(ast::Parameters {
+                        posonlyargs_count: 0,
                         args: vec![
                             ast::Parameter {
                                 location: ast::Location::new(1, 8),
@@ -335,6 +336,7 @@ mod tests {
                                 is_async: false,
                                 name: String::from("__init__"),
                                 args: Box::new(ast::Parameters {
+                                    posonlyargs_count: 0,
                                     args: vec![ast::Parameter {
                                         location: ast::Location::new(2, 15),
                                         arg: String::from("self"),
@@ -360,6 +362,7 @@ mod tests {
                                 is_async: false,
                                 name: String::from("method_with_default"),
                                 args: Box::new(ast::Parameters {
+                                    posonlyargs_count: 0,
                                     args: vec![
                                         ast::Parameter {
                                             location: ast::Location::new(4, 26),

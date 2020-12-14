@@ -1,6 +1,6 @@
 [package]
-name = "rustpython-compiler"
-version = "0.1.1"
+name = "rustpython-compiler-core"
+version = "0.1.2"
 description = "Compiler for python code into bytecode for the rustpython VM."
 authors = ["RustPython Team"]
 repository = "https://github.com/RustPython/RustPython"
@@ -9,9 +9,13 @@ edition = "2018"
 
 [dependencies]
 indexmap = "1.0"
-itertools = "0.8.0"
+itertools = "0.9"
 rustpython-bytecode = { path = "../bytecode", version = "0.1.1" }
-rustpython-parser = { path = "../parser", version = "0.1.1" }
-num-complex = { version = "0.2", features = ["serde"] }
+rustpython-ast = { path = "../ast" }
+num-complex = { version = "0.3", features = ["serde"] }
 log = "0.4"
 arrayvec = "0.5"
+
+[dev-dependencies]
+rustpython-parser = { path = "../parser" }
+insta = "1.1"

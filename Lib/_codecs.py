@@ -46,7 +46,7 @@ __all__ = ['register', 'lookup', 'lookup_error', 'register_error', 'encode', 'de
            'latin_1_encode', 'mbcs_decode', 'readbuffer_encode', 'escape_encode',
            'utf_8_decode', 'raw_unicode_escape_decode', 'utf_7_decode',
            'unicode_escape_encode', 'latin_1_decode', 'utf_16_decode',
-           'unicode_escape_decode', 'ascii_decode', 'charmap_encode',
+           'unicode_escape_decode', 'ascii_decode', 'charmap_encode', 'charmap_build',
            'unicode_internal_encode', 'unicode_internal_decode', 'utf_16_ex_decode',
            'escape_decode', 'charmap_decode', 'utf_7_encode', 'mbcs_encode',
            'ascii_encode', 'utf_16_encode', 'raw_unicode_escape_encode', 'utf_8_encode',
@@ -115,7 +115,7 @@ def encode(v, encoding=None, errors='strict'):
     if not isinstance(errors, str):
         raise TypeError("Errors must be a string")
     codec = lookup(encoding)
-    res = codec.encode(v, errors)
+    res = codec[0](v, errors)
     if not isinstance(res, tuple) or len(res) != 2:
         raise TypeError("encoder must return a tuple (object, integer)")
     return res[0]
@@ -137,7 +137,7 @@ def decode(obj, encoding=None, errors='strict'):
     if not isinstance(errors, str):
         raise TypeError("Errors must be a string")
     codec = lookup(encoding)
-    res = codec.decode(obj, errors)
+    res = codec[1](obj, errors)
     if not isinstance(res, tuple) or len(res) != 2:
         raise TypeError("encoder must return a tuple (object, integer)")
     return res[0]
@@ -238,6 +238,9 @@ def charmap_encode(obj, errors='strict', mapping='latin-1'):
     res = PyUnicode_EncodeCharmap(obj, len(obj), mapping, errors)
     res = bytes(res)
     return res, len(res)
+
+def charmap_build(s):
+    return {ord(c): i for i, c in enumerate(s)}
 
 if sys.maxunicode == 65535:
     unicode_bytes = 2
@@ -912,7 +915,7 @@ def PyUnicode_DecodeUTF16Stateful(s, size, errors, byteorder='native', final=Tru
     p = []
     if byteorder == 'native':
         if (size >= 2):
-            bom = (ord(s[ihi]) << 8) | ord(s[ilo])
+            bom = (s[ihi] << 8) | s[ilo]
 #ifdef BYTEORDER_IS_LITTLE_ENDIAN
             if sys.byteorder == 'little':
                 if (bom == 0xFEFF):
@@ -959,11 +962,11 @@ def PyUnicode_DecodeUTF16Stateful(s, size, errors, byteorder='native', final=Tru
 #           /* The remaining input chars are ignored if the callback
 ##             chooses to skip the input */
     
-        ch = (ord(s[q+ihi]) << 8) | ord(s[q+ilo])
+        ch = (s[q+ihi] << 8) | s[q+ilo]
         q += 2
     
         if (ch < 0xD800 or ch > 0xDFFF):
-            p += chr(ch)
+            p.append(chr(ch))
             continue
     
         #/* UTF-16 code pair: */
@@ -974,15 +977,14 @@ def PyUnicode_DecodeUTF16Stateful(s, size, errors, byteorder='native', final=Tru
             unicode_call_errorhandler(errors, 'utf-16', errmsg, s, startinpos, endinpos, True)
 
         if (0xD800 <= ch and ch <= 0xDBFF):
-            ch2 = (ord(s[q+ihi]) << 8) | ord(s[q+ilo])
+            ch2 = (s[q+ihi] << 8) | s[q+ilo]
             q += 2
             if (0xDC00 <= ch2 and ch2 <= 0xDFFF):
     #ifndef Py_UNICODE_WIDE
                 if sys.maxunicode < 65536:
-                    p += chr(ch)
-                    p += chr(ch2)
+                    p += [chr(ch), chr(ch2)]
                 else:
-                    p += chr((((ch & 0x3FF)<<10) | (ch2 & 0x3FF)) + 0x10000)
+                    p.append(chr((((ch & 0x3FF)<<10) | (ch2 & 0x3FF)) + 0x10000))
     #endif
                 continue
 
@@ -1003,8 +1005,8 @@ def PyUnicode_DecodeUTF16Stateful(s, size, errors, byteorder='native', final=Tru
 # have any nested variables.
 
 def STORECHAR(CH, byteorder):
-    hi = chr(((CH) >> 8) & 0xff)
-    lo = chr((CH) & 0xff)
+    hi = (CH >> 8) & 0xff
+    lo = CH & 0xff
     if byteorder == 'little':
         return [lo, hi]
     else:
@@ -1344,7 +1346,7 @@ def unicode_encode_ucs1(p, size, errors, limit):
             while collend < len(p) and ord(p[collend]) >= limit:
                 collend += 1
             x = unicode_call_errorhandler(errors, encoding, reason, p, collstart, collend, False)
-            res += str(x[0])
+            res += x[0].encode()
             pos = x[1]
     
     return res
@@ -1403,8 +1405,8 @@ def PyUnicode_DecodeUnicodeEscape(s, size, errors):
     pos = 0
     while (pos < size): 
 ##        /* Non-escape characters are interpreted as Unicode ordinals */
-        if (s[pos] != '\\') :
-            p += chr(ord(s[pos]))
+        if (chr(s[pos]) != '\\') :
+            p += chr(s[pos])
             pos += 1
             continue
 ##        /* \ - Escapes */
@@ -1413,7 +1415,7 @@ def PyUnicode_DecodeUnicodeEscape(s, size, errors):
             if pos >= len(s):
                 errmessage = "\\ at end of string"
                 unicode_call_errorhandler(errors, "unicodeescape", errmessage, s, pos-1, size)
-            ch = s[pos]
+            ch = chr(s[pos])
             pos += 1
     ##        /* \x escapes */
             if ch == '\\'  : p += '\\'
@@ -1466,27 +1468,27 @@ def PyUnicode_DecodeUnicodeEscape(s, size, errors):
 ##        /* \N{name} */
             elif ch == 'N':
                 message = "malformed \\N character escape"
-                #pos += 1
+                # pos += 1
                 look = pos
                 try:
                     import unicodedata
                 except ImportError:
                     message = "\\N escapes not supported (can't load unicodedata module)"
                     unicode_call_errorhandler(errors, "unicodeescape", message, s, pos-1, size)
-                if look < size and s[look] == '{':
+                if look < size and chr(s[look]) == '{':
                     #/* look for the closing brace */
-                    while (look < size and s[look] != '}'):
+                    while (look < size and chr(s[look]) != '}'):
                         look += 1
-                    if (look > pos+1 and look < size and s[look] == '}'):
+                    if (look > pos+1 and look < size and chr(s[look]) == '}'):
                         #/* found a name.  look it up in the unicode database */
                         message = "unknown Unicode character name"
                         st = s[pos+1:look]
                         try:
-                            chr = unicodedata.lookup("%s" % st)
-                        except KeyError as e:
+                            chr_codec = unicodedata.lookup("%s" % st)
+                        except LookupError as e:
                             x = unicode_call_errorhandler(errors, "unicodeescape", message, s, pos-1, look+1)
                         else:
-                            x = chr, look + 1 
+                            x = chr_codec, look + 1 
                         p += x[0]
                         pos = x[1]
                     else:        
@@ -1525,11 +1527,11 @@ def charmapencode_output(c, mapping):
     rep = mapping[c]
     if isinstance(rep, int) or isinstance(rep, int):
         if rep < 256:
-            return chr(rep)
+            return rep
         else:
             raise TypeError("character mapping must be in range(256)")
     elif isinstance(rep, str):
-        return rep
+        return ord(rep)
     elif rep == None:
         raise KeyError("character maps to <undefined>")
     else:
@@ -1579,7 +1581,7 @@ def PyUnicode_DecodeCharmap(s, size, mapping, errors):
         #/* Get mapping (char ordinal -> integer, Unicode char or None) */
         ch = s[inpos]
         try:
-            x = mapping[ord(ch)]
+            x = mapping[ch]
             if isinstance(x, int):
                 if x < 65536:
                     p += chr(x)
@@ -1607,8 +1609,8 @@ def PyUnicode_DecodeRawUnicodeEscape(s, size, errors):
     while (pos < len(s)):
         ch = s[pos]
     #/* Non-escape characters are interpreted as Unicode ordinals */
-        if (ch != '\\'):
-            p += chr(ord(ch))
+        if (ch != ord('\\')):
+            p.append(chr(ch))
             pos += 1
             continue        
         startinpos = pos
@@ -1616,20 +1618,20 @@ def PyUnicode_DecodeRawUnicodeEscape(s, size, errors):
 ##         backslashes is odd */
         bs = pos
         while pos < size:
-            if (s[pos] != '\\'):
+            if (s[pos] != ord('\\')):
                 break
-            p += chr(ord(s[pos]))
+            p.append(chr(s[pos]))
             pos += 1
     
         if (((pos - bs) & 1) == 0 or
             pos >= size or
-            (s[pos] != 'u' and s[pos] != 'U')) :
-            p += chr(ord(s[pos]))
+            (s[pos] != ord('u') and s[pos] != ord('U'))) :
+            p.append(chr(s[pos]))
             pos += 1
             continue
         
         p.pop(-1)
-        if s[pos] == 'u':
+        if s[pos] == ord('u'):
             count = 4 
         else: 
             count = 8
@@ -1643,7 +1645,7 @@ def PyUnicode_DecodeRawUnicodeEscape(s, size, errors):
             res = unicode_call_errorhandler(
                     errors, "rawunicodeescape", "truncated \\uXXXX",
                     s, size, pos, pos+count)
-            p += res[0]
+            p.append(res[0])
             pos = res[1]
         else:
     #ifndef Py_UNICODE_WIDE
@@ -1653,9 +1655,9 @@ def PyUnicode_DecodeRawUnicodeEscape(s, size, errors):
                         errors, "rawunicodeescape", "\\Uxxxxxxxx out of range",
                         s, size, pos, pos+1)
                     pos = res[1]
-                    p += res[0]
+                    p.append(res[0])
                 else:
-                    p += chr(x)
+                    p.append(chr(x))
                     pos += count
             else:
                 if (x > 0x10000):
@@ -1663,11 +1665,11 @@ def PyUnicode_DecodeRawUnicodeEscape(s, size, errors):
                         errors, "rawunicodeescape", "\\Uxxxxxxxx out of range",
                         s, size, pos, pos+1)
                     pos = res[1]
-                    p += res[0]
+                    p.append(res[0])
 
     #endif
                 else:
-                    p += chr(x)
+                    p.append(chr(x))
                     pos += count
 
     return p

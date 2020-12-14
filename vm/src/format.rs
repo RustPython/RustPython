@@ -1,3 +1,10 @@
+use crate::builtins::pystr;
+use crate::common::float_ops;
+use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
+use crate::function::FuncArgs;
+use crate::pyobject::{ItemProtocol, PyObjectRef, PyResult, TypeProtocol};
+use crate::vm::VirtualMachine;
+use itertools::{Itertools, PeekingNext};
 use num_bigint::{BigInt, Sign};
 use num_traits::cast::ToPrimitive;
 use num_traits::Signed;
@@ -5,7 +12,7 @@ use std::cmp;
 use std::str::FromStr;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
-pub enum FormatPreconversor {
+enum FormatPreconversor {
     Str,
     Repr,
     Ascii,
@@ -13,7 +20,7 @@ pub enum FormatPreconversor {
 }
 
 impl FormatPreconversor {
-    pub fn from_char(c: char) -> Option<FormatPreconversor> {
+    fn from_char(c: char) -> Option<FormatPreconversor> {
         match c {
             's' => Some(FormatPreconversor::Str),
             'r' => Some(FormatPreconversor::Repr),
@@ -23,19 +30,16 @@ impl FormatPreconversor {
         }
     }
 
-    pub fn from_string(text: &str) -> Option<FormatPreconversor> {
+    fn from_string(text: &str) -> Option<FormatPreconversor> {
         let mut chars = text.chars();
         if chars.next() != Some('!') {
             return None;
         }
 
-        match chars.next() {
-            None => None, // Should fail instead?
-            Some(c) => FormatPreconversor::from_char(c),
-        }
+        FormatPreconversor::from_char(chars.next()?)
     }
 
-    pub fn parse_and_consume(text: &str) -> (Option<FormatPreconversor>, &str) {
+    fn parse_and_consume(text: &str) -> (Option<FormatPreconversor>, &str) {
         let preconversor = FormatPreconversor::from_string(text);
         match preconversor {
             None => (None, text),
@@ -50,7 +54,7 @@ impl FormatPreconversor {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
-pub enum FormatAlign {
+enum FormatAlign {
     Left,
     Right,
     AfterSign,
@@ -70,20 +74,20 @@ impl FormatAlign {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
-pub enum FormatSign {
+enum FormatSign {
     Plus,
     Minus,
     MinusOrSpace,
 }
 
 #[derive(Debug, PartialEq)]
-pub enum FormatGrouping {
+enum FormatGrouping {
     Comma,
     Underscore,
 }
 
 #[derive(Debug, PartialEq)]
-pub enum FormatType {
+enum FormatType {
     String,
     Binary,
     Character,
@@ -102,7 +106,7 @@ pub enum FormatType {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct FormatSpec {
+pub(crate) struct FormatSpec {
     preconversor: Option<FormatPreconversor>,
     fill: Option<char>,
     align: Option<FormatAlign>,
@@ -114,7 +118,7 @@ pub struct FormatSpec {
     format_type: Option<FormatType>,
 }
 
-pub fn get_num_digits(text: &str) -> usize {
+pub(crate) fn get_num_digits(text: &str) -> usize {
     for (index, character) in text.char_indices() {
         if !character.is_digit(10) {
             return index;
@@ -221,6 +225,7 @@ fn parse_grouping_option(text: &str) -> (Option<FormatGrouping>, &str) {
 fn parse_format_type(text: &str) -> (Option<FormatType>, &str) {
     let mut chars = text.chars();
     match chars.next() {
+        Some('s') => (Some(FormatType::String), chars.as_str()),
         Some('b') => (Some(FormatType::Binary), chars.as_str()),
         Some('c') => (Some(FormatType::Character), chars.as_str()),
         Some('d') => (Some(FormatType::Decimal), chars.as_str()),
@@ -273,7 +278,7 @@ fn parse_format_spec(text: &str) -> Result<FormatSpec, &'static str> {
 }
 
 impl FormatSpec {
-    pub fn parse(text: &str) -> Result<FormatSpec, &'static str> {
+    pub(crate) fn parse(text: &str) -> Result<FormatSpec, &'static str> {
         parse_format_spec(text)
     }
 
@@ -338,20 +343,20 @@ impl FormatSpec {
         }
     }
 
-    pub fn format_float(&self, num: f64) -> Result<String, &'static str> {
+    pub(crate) fn format_float(&self, num: f64) -> Result<String, &'static str> {
         let precision = self.precision.unwrap_or(6);
         let magnitude = num.abs();
         let raw_magnitude_string_result: Result<String, &'static str> = match self.format_type {
-            Some(FormatType::FixedPointUpper) => match magnitude {
-                magnitude if magnitude.is_nan() => Ok("NAN".to_owned()),
-                magnitude if magnitude.is_infinite() => Ok("INF".to_owned()),
-                _ => Ok(format!("{:.*}", precision, magnitude)),
-            },
-            Some(FormatType::FixedPointLower) => match magnitude {
-                magnitude if magnitude.is_nan() => Ok("nan".to_owned()),
-                magnitude if magnitude.is_infinite() => Ok("inf".to_owned()),
-                _ => Ok(format!("{:.*}", precision, magnitude)),
-            },
+            Some(FormatType::FixedPointUpper) => Ok(float_ops::format_fixed(
+                precision,
+                magnitude,
+                float_ops::Case::Upper,
+            )),
+            Some(FormatType::FixedPointLower) => Ok(float_ops::format_fixed(
+                precision,
+                magnitude,
+                float_ops::Case::Lower,
+            )),
             Some(FormatType::Decimal) => Err("Unknown format code 'd' for object of type 'float'"),
             Some(FormatType::Binary) => Err("Unknown format code 'b' for object of type 'float'"),
             Some(FormatType::Octal) => Err("Unknown format code 'o' for object of type 'float'"),
@@ -365,31 +370,41 @@ impl FormatSpec {
                 Err("Format code 'n' for object of type 'float' not implemented yet")
             }
             Some(FormatType::GeneralFormatUpper) => {
-                Err("Format code 'G' for object of type 'float' not implemented yet")
+                let precision = if precision == 0 { 1 } else { precision };
+                Ok(float_ops::format_general(
+                    precision,
+                    magnitude,
+                    float_ops::Case::Upper,
+                ))
             }
             Some(FormatType::GeneralFormatLower) => {
-                Err("Format code 'g' for object of type 'float' not implemented yet")
+                let precision = if precision == 0 { 1 } else { precision };
+                Ok(float_ops::format_general(
+                    precision,
+                    magnitude,
+                    float_ops::Case::Lower,
+                ))
             }
-            Some(FormatType::ExponentUpper) => {
-                Err("Format code 'E' for object of type 'float' not implemented yet")
-            }
-            Some(FormatType::ExponentLower) => {
-                Err("Format code 'e' for object of type 'float' not implemented yet")
-            }
+            Some(FormatType::ExponentUpper) => Ok(float_ops::format_exponent(
+                precision,
+                magnitude,
+                float_ops::Case::Upper,
+            )),
+            Some(FormatType::ExponentLower) => Ok(float_ops::format_exponent(
+                precision,
+                magnitude,
+                float_ops::Case::Lower,
+            )),
             Some(FormatType::Percentage) => match magnitude {
                 magnitude if magnitude.is_nan() => Ok("nan%".to_owned()),
                 magnitude if magnitude.is_infinite() => Ok("inf%".to_owned()),
                 _ => Ok(format!("{:.*}%", precision, magnitude * 100.0)),
             },
-            None => {
-                match magnitude {
-                    magnitude if magnitude.is_nan() => Ok("nan".to_owned()),
-                    magnitude if magnitude.is_infinite() => Ok("inf".to_owned()),
-                    // Using the Debug format here to prevent the automatic conversion of floats
-                    // ending in .0 to their integer representation (e.g., 1.0 -> 1)
-                    _ => Ok(format!("{:?}", magnitude)),
-                }
-            }
+            None => match magnitude {
+                magnitude if magnitude.is_nan() => Ok("nan".to_owned()),
+                magnitude if magnitude.is_infinite() => Ok("inf".to_owned()),
+                _ => Ok(float_ops::to_string(magnitude)),
+            },
         };
 
         if raw_magnitude_string_result.is_err() {
@@ -408,10 +423,10 @@ impl FormatSpec {
             }
         };
 
-        self.format_sign_and_align(magnitude_string, sign_str)
+        self.format_sign_and_align(&magnitude_string, sign_str)
     }
 
-    pub fn format_int(&self, num: &BigInt) -> Result<String, &'static str> {
+    pub(crate) fn format_int(&self, num: &BigInt) -> Result<String, &'static str> {
         let magnitude = num.abs();
         let prefix = if self.alternate_form {
             match self.format_type {
@@ -443,14 +458,10 @@ impl FormatSpec {
             Some(FormatType::GeneralFormatLower) => {
                 Err("Unknown format code 'g' for object of type 'int'")
             }
-            Some(FormatType::ExponentUpper) => {
-                Err("Unknown format code 'E' for object of type 'int'")
-            }
-            Some(FormatType::ExponentLower) => {
-                Err("Unknown format code 'e' for object of type 'int'")
-            }
             Some(FormatType::FixedPointUpper)
             | Some(FormatType::FixedPointLower)
+            | Some(FormatType::ExponentUpper)
+            | Some(FormatType::ExponentLower)
             | Some(FormatType::Percentage) => match num.to_f64() {
                 Some(float) => return self.format_float(float),
                 _ => Err("Unable to convert int to float"),
@@ -476,12 +487,19 @@ impl FormatSpec {
             },
         };
 
-        self.format_sign_and_align(magnitude_string, sign_str)
+        self.format_sign_and_align(&magnitude_string, sign_str)
+    }
+
+    pub(crate) fn format_string(&self, s: &str) -> Result<String, &'static str> {
+        match self.format_type {
+            Some(FormatType::String) | None => self.format_sign_and_align(s, ""),
+            _ => Err("Unknown format code for object of type 'str'"),
+        }
     }
 
     fn format_sign_and_align(
         &self,
-        magnitude_string: String,
+        magnitude_string: &str,
         sign_str: &str,
     ) -> Result<String, &'static str> {
         let align = self.align.unwrap_or(FormatAlign::Right);
@@ -528,10 +546,26 @@ impl FormatSpec {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum FormatParseError {
+pub(crate) enum FormatParseError {
     UnmatchedBracket,
     MissingStartBracket,
     UnescapedStartBracketInLiteral,
+    InvalidFormatSpecifier,
+    UnknownConversion,
+    EmptyAttribute,
+    MissingRightBracket,
+    InvalidCharacterAfterRightBracket,
+}
+
+impl IntoPyException for FormatParseError {
+    fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        match self {
+            FormatParseError::UnmatchedBracket => {
+                vm.new_value_error("expected '}' before end of string".to_owned())
+            }
+            _ => vm.new_value_error("Unexpected error parsing format string".to_owned()),
+        }
+    }
 }
 
 impl FromStr for FormatSpec {
@@ -542,31 +576,102 @@ impl FromStr for FormatSpec {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum FormatPart {
-    AutoSpec(String),
-    IndexSpec(usize, String),
-    KeywordSpec(String, String),
-    Literal(String),
+pub(crate) enum FieldNamePart {
+    Attribute(String),
+    Index(usize),
+    StringIndex(String),
 }
 
-impl FormatPart {
-    pub fn is_auto(&self) -> bool {
-        match self {
-            FormatPart::AutoSpec(_) => true,
-            _ => false,
-        }
-    }
-
-    pub fn is_index(&self) -> bool {
-        match self {
-            FormatPart::IndexSpec(_, _) => true,
-            _ => false,
-        }
+impl FieldNamePart {
+    fn parse_part(
+        chars: &mut impl PeekingNext<Item = char>,
+    ) -> Result<Option<FieldNamePart>, FormatParseError> {
+        chars
+            .next()
+            .map(|ch| match ch {
+                '.' => {
+                    let mut attribute = String::new();
+                    for ch in chars.peeking_take_while(|ch| *ch != '.' && *ch != '[') {
+                        attribute.push(ch);
+                    }
+                    if attribute.is_empty() {
+                        Err(FormatParseError::EmptyAttribute)
+                    } else {
+                        Ok(FieldNamePart::Attribute(attribute))
+                    }
+                }
+                '[' => {
+                    let mut index = String::new();
+                    for ch in chars {
+                        if ch == ']' {
+                            return if index.is_empty() {
+                                Err(FormatParseError::EmptyAttribute)
+                            } else if let Ok(index) = index.parse::<usize>() {
+                                Ok(FieldNamePart::Index(index))
+                            } else {
+                                Ok(FieldNamePart::StringIndex(index))
+                            };
+                        }
+                        index.push(ch);
+                    }
+                    Err(FormatParseError::MissingRightBracket)
+                }
+                _ => Err(FormatParseError::InvalidCharacterAfterRightBracket),
+            })
+            .transpose()
     }
 }
 
 #[derive(Debug, PartialEq)]
-pub struct FormatString {
+pub(crate) enum FieldType {
+    Auto,
+    Index(usize),
+    Keyword(String),
+}
+
+#[derive(Debug, PartialEq)]
+pub(crate) struct FieldName {
+    pub field_type: FieldType,
+    pub parts: Vec<FieldNamePart>,
+}
+
+impl FieldName {
+    pub(crate) fn parse(text: &str) -> Result<FieldName, FormatParseError> {
+        let mut chars = text.chars().peekable();
+        let mut first = String::new();
+        for ch in chars.peeking_take_while(|ch| *ch != '.' && *ch != '[') {
+            first.push(ch);
+        }
+
+        let field_type = if first.is_empty() {
+            FieldType::Auto
+        } else if let Ok(index) = first.parse::<usize>() {
+            FieldType::Index(index)
+        } else {
+            FieldType::Keyword(first)
+        };
+
+        let mut parts = Vec::new();
+        while let Some(part) = FieldNamePart::parse_part(&mut chars)? {
+            parts.push(part)
+        }
+
+        Ok(FieldName { field_type, parts })
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub(crate) enum FormatPart {
+    Field {
+        field_name: String,
+        preconversion_spec: Option<char>,
+        format_spec: String,
+    },
+    Literal(String),
+}
+
+#[derive(Debug, PartialEq)]
+pub(crate) struct FormatString {
     pub format_parts: Vec<FormatPart>,
 }
 
@@ -575,14 +680,15 @@ impl FormatString {
         let mut chars = text.chars();
         // This should never be called with an empty str
         let first_char = chars.next().unwrap();
+        // isn't this detectable only with bytes operation?
         if first_char == '{' || first_char == '}' {
             let maybe_next_char = chars.next();
             // if we see a bracket, it has to be escaped by doubling up to be in a literal
-            if maybe_next_char.is_some() && maybe_next_char.unwrap() != first_char {
-                return Err(FormatParseError::UnescapedStartBracketInLiteral);
+            return if maybe_next_char.is_none() || maybe_next_char.unwrap() != first_char {
+                Err(FormatParseError::UnescapedStartBracketInLiteral)
             } else {
-                return Ok((first_char, chars.as_str()));
-            }
+                Ok((first_char, chars.as_str()))
+            };
         }
         Ok((first_char, chars.as_str()))
     }
@@ -597,11 +703,11 @@ impl FormatString {
                     cur_text = remaining;
                 }
                 Err(err) => {
-                    if !result_string.is_empty() {
-                        return Ok((FormatPart::Literal(result_string), cur_text));
+                    return if !result_string.is_empty() {
+                        Ok((FormatPart::Literal(result_string), cur_text))
                     } else {
-                        return Err(err);
-                    }
+                        Err(err)
+                    };
                 }
             }
         }
@@ -624,48 +730,192 @@ impl FormatString {
         // before the bang is a keyword or arg index, after the comma is maybe a conversor spec.
         let arg_part = parts[0];
 
-        let preconversor_spec = if parts.len() > 1 {
-            "!".to_owned() + parts[1]
-        } else {
-            String::new()
-        };
-        let format_spec = preconversor_spec + &format_spec;
+        let preconversion_spec = parts
+            .get(1)
+            .map(|conversion| {
+                // conversions are only every one character
+                conversion
+                    .chars()
+                    .exactly_one()
+                    .map_err(|_| FormatParseError::UnknownConversion)
+            })
+            .transpose()?;
 
-        if arg_part.is_empty() {
-            return Ok(FormatPart::AutoSpec(format_spec));
-        }
-
-        if let Ok(index) = arg_part.parse::<usize>() {
-            Ok(FormatPart::IndexSpec(index, format_spec))
-        } else {
-            Ok(FormatPart::KeywordSpec(arg_part.to_owned(), format_spec))
-        }
+        Ok(FormatPart::Field {
+            field_name: arg_part.to_owned(),
+            preconversion_spec,
+            format_spec,
+        })
     }
 
     fn parse_spec(text: &str) -> Result<(FormatPart, &str), FormatParseError> {
-        let mut chars = text.chars();
-        if chars.next() != Some('{') {
-            return Err(FormatParseError::MissingStartBracket);
-        }
+        let mut nested = false;
+        let mut end_bracket_pos = None;
+        let mut left = String::new();
 
-        // Get remaining characters after opening bracket.
-        let cur_text = chars.as_str();
-        // Find the matching bracket and parse the text within for a spec
-        match cur_text.find('}') {
-            Some(position) => {
-                let (left, right) = cur_text.split_at(position);
-                let format_part = FormatString::parse_part_in_brackets(left)?;
-                Ok((format_part, &right[1..]))
+        // There may be one layer nesting brackets in spec
+        for (idx, c) in text.chars().enumerate() {
+            if idx == 0 {
+                if c != '{' {
+                    return Err(FormatParseError::MissingStartBracket);
+                }
+            } else if c == '{' {
+                if nested {
+                    return Err(FormatParseError::InvalidFormatSpecifier);
+                } else {
+                    nested = true;
+                    left.push(c);
+                    continue;
+                }
+            } else if c == '}' {
+                if nested {
+                    nested = false;
+                    left.push(c);
+                    continue;
+                } else {
+                    end_bracket_pos = Some(idx);
+                    break;
+                }
+            } else {
+                left.push(c);
             }
-            None => Err(FormatParseError::UnmatchedBracket),
         }
+        if let Some(pos) = end_bracket_pos {
+            let (_, right) = text.split_at(pos);
+            let format_part = FormatString::parse_part_in_brackets(&left)?;
+            Ok((format_part, &right[1..]))
+        } else {
+            Err(FormatParseError::UnmatchedBracket)
+        }
+    }
+
+    fn format_internal(
+        &self,
+        vm: &VirtualMachine,
+        field_func: &mut impl FnMut(FieldType) -> PyResult,
+    ) -> PyResult<String> {
+        let mut final_string = String::new();
+        for part in &self.format_parts {
+            let result_string: String = match part {
+                FormatPart::Field {
+                    field_name,
+                    preconversion_spec,
+                    format_spec,
+                } => {
+                    let FieldName { field_type, parts } = FieldName::parse(field_name.as_str())
+                        .map_err(|e| e.into_pyexception(vm))?;
+
+                    let mut argument = field_func(field_type)?;
+
+                    for name_part in parts {
+                        match name_part {
+                            FieldNamePart::Attribute(attribute) => {
+                                argument = vm.get_attribute(argument, attribute.as_str())?;
+                            }
+                            FieldNamePart::Index(index) => {
+                                argument = argument.get_item(index, vm)?;
+                            }
+                            FieldNamePart::StringIndex(index) => {
+                                argument = argument.get_item(&index, vm)?;
+                            }
+                        }
+                    }
+
+                    let nested_format =
+                        FormatString::from_str(&format_spec).map_err(|e| e.into_pyexception(vm))?;
+                    let format_spec = nested_format.format_internal(vm, field_func)?;
+
+                    let value =
+                        call_object_format(vm, argument, *preconversion_spec, &format_spec)?;
+                    pystr::clone_value(&value)
+                }
+                FormatPart::Literal(literal) => literal.clone(),
+            };
+            final_string.push_str(&result_string);
+        }
+        Ok(final_string)
+    }
+
+    pub(crate) fn format(&self, arguments: &FuncArgs, vm: &VirtualMachine) -> PyResult<String> {
+        let mut auto_argument_index: usize = 0;
+        let mut seen_index = false;
+        self.format_internal(vm, &mut |field_type| match field_type {
+            FieldType::Auto => {
+                if seen_index {
+                    return Err(vm.new_value_error(
+                        "cannot switch from manual field specification to automatic field numbering"
+                            .to_owned(),
+                    ));
+                }
+                auto_argument_index += 1;
+                arguments
+                    .args
+                    .get(auto_argument_index - 1)
+                    .cloned()
+                    .ok_or_else(|| vm.new_index_error("tuple index out of range".to_owned()))
+            }
+            FieldType::Index(index) => {
+                if auto_argument_index != 0 {
+                    return Err(vm.new_value_error(
+                        "cannot switch from automatic field numbering to manual field specification"
+                            .to_owned(),
+                    ));
+                }
+                seen_index = true;
+                arguments
+                    .args
+                    .get(index)
+                    .cloned()
+                    .ok_or_else(|| vm.new_index_error("tuple index out of range".to_owned()))
+            }
+            FieldType::Keyword(keyword) => arguments
+                .get_optional_kwarg(&keyword)
+                .ok_or_else(|| vm.new_key_error(vm.ctx.new_str(keyword))),
+        })
+    }
+
+    pub(crate) fn format_map(&self, dict: &PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
+        self.format_internal(vm, &mut |field_type| match field_type {
+            FieldType::Auto | FieldType::Index(_) => {
+                Err(vm.new_value_error("Format string contains positional fields".to_owned()))
+            }
+            FieldType::Keyword(keyword) => dict.get_item(keyword, &vm),
+        })
     }
 }
 
-impl FromStr for FormatString {
+fn call_object_format(
+    vm: &VirtualMachine,
+    argument: PyObjectRef,
+    preconversion_spec: Option<char>,
+    format_spec: &str,
+) -> PyResult {
+    let argument = match preconversion_spec.and_then(FormatPreconversor::from_char) {
+        Some(FormatPreconversor::Str) => vm.call_method(&argument, "__str__", ())?,
+        Some(FormatPreconversor::Repr) => vm.call_method(&argument, "__repr__", ())?,
+        Some(FormatPreconversor::Ascii) => vm.call_method(&argument, "__repr__", ())?,
+        Some(FormatPreconversor::Bytes) => vm.call_method(&argument, "decode", ())?,
+        None => argument,
+    };
+    let result = vm.call_method(&argument, "__format__", (format_spec,))?;
+    if !result.isinstance(&vm.ctx.types.str_type) {
+        return Err(vm.new_type_error(format!(
+            "__format__ must return a str, not {}",
+            &result.class().name
+        )));
+    }
+    Ok(result)
+}
+
+pub(crate) trait FromTemplate<'a>: Sized {
+    type Err;
+    fn from_str(s: &'a str) -> Result<Self, Self::Err>;
+}
+
+impl<'a> FromTemplate<'a> for FormatString {
     type Err = FormatParseError;
 
-    fn from_str(text: &str) -> Result<Self, Self::Err> {
+    fn from_str(text: &'a str) -> Result<Self, Self::Err> {
         let mut cur_text: &str = text;
         let mut parts: Vec<FormatPart> = Vec::new();
         while !cur_text.is_empty() {
@@ -811,9 +1061,17 @@ mod tests {
         let expected = Ok(FormatString {
             format_parts: vec![
                 FormatPart::Literal("abcd".to_owned()),
-                FormatPart::IndexSpec(1, String::new()),
+                FormatPart::Field {
+                    field_name: "1".to_owned(),
+                    preconversion_spec: None,
+                    format_spec: String::new(),
+                },
                 FormatPart::Literal(":".to_owned()),
-                FormatPart::KeywordSpec("key".to_owned(), String::new()),
+                FormatPart::Field {
+                    field_name: "key".to_owned(),
+                    preconversion_spec: None,
+                    format_spec: String::new(),
+                },
             ],
         });
 
@@ -833,7 +1091,11 @@ mod tests {
         let expected = Ok(FormatString {
             format_parts: vec![
                 FormatPart::Literal("{".to_owned()),
-                FormatPart::KeywordSpec("key".to_owned(), String::new()),
+                FormatPart::Field {
+                    field_name: "key".to_owned(),
+                    preconversion_spec: None,
+                    format_spec: String::new(),
+                },
                 FormatPart::Literal("}ddfe".to_owned()),
             ],
         });
@@ -850,5 +1112,57 @@ mod tests {
         assert_eq!(parse_format_spec("b4"), Err("Invalid format specifier"));
         assert_eq!(parse_format_spec("o!"), Err("Invalid format specifier"));
         assert_eq!(parse_format_spec("d "), Err("Invalid format specifier"));
+    }
+
+    #[test]
+    fn test_parse_field_name() {
+        assert_eq!(
+            FieldName::parse(""),
+            Ok(FieldName {
+                field_type: FieldType::Auto,
+                parts: Vec::new(),
+            })
+        );
+        assert_eq!(
+            FieldName::parse("0"),
+            Ok(FieldName {
+                field_type: FieldType::Index(0),
+                parts: Vec::new(),
+            })
+        );
+        assert_eq!(
+            FieldName::parse("key"),
+            Ok(FieldName {
+                field_type: FieldType::Keyword("key".to_owned()),
+                parts: Vec::new(),
+            })
+        );
+        assert_eq!(
+            FieldName::parse("key.attr[0][string]"),
+            Ok(FieldName {
+                field_type: FieldType::Keyword("key".to_owned()),
+                parts: vec![
+                    FieldNamePart::Attribute("attr".to_owned()),
+                    FieldNamePart::Index(0),
+                    FieldNamePart::StringIndex("string".to_owned())
+                ],
+            })
+        );
+        assert_eq!(
+            FieldName::parse("key.."),
+            Err(FormatParseError::EmptyAttribute)
+        );
+        assert_eq!(
+            FieldName::parse("key[]"),
+            Err(FormatParseError::EmptyAttribute)
+        );
+        assert_eq!(
+            FieldName::parse("key["),
+            Err(FormatParseError::MissingRightBracket)
+        );
+        assert_eq!(
+            FieldName::parse("key[0]after"),
+            Err(FormatParseError::InvalidCharacterAfterRightBracket)
+        );
     }
 }

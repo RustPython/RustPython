@@ -1,68 +1,104 @@
-use std::collections::HashMap;
-use std::mem;
-use std::ops::RangeInclusive;
-
-use indexmap::IndexMap;
-use result_like::impl_option_like;
-
+use self::OptionalArg::*;
+use crate::builtins::pytype::PyTypeRef;
+use crate::builtins::tuple::PyTupleRef;
 use crate::exceptions::PyBaseExceptionRef;
-use crate::obj::objtuple::PyTuple;
-use crate::obj::objtype::{isinstance, PyClassRef};
 use crate::pyobject::{
-    IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    BorrowValue, IntoPyObject, IntoPyResult, PyObjectRef, PyRef, PyResult, PyThreadingConstraint,
+    PyValue, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
+use indexmap::IndexMap;
+use result_like::impl_option_like;
+use std::collections::HashMap;
+use std::marker::PhantomData;
+use std::ops::RangeInclusive;
 
-use self::OptionalArg::*;
+pub trait IntoFuncArgs {
+    fn into_args(self, vm: &VirtualMachine) -> FuncArgs;
+}
 
-/// The `PyFuncArgs` struct is one of the most used structs then creating
+impl<T> IntoFuncArgs for T
+where
+    T: Into<FuncArgs>,
+{
+    fn into_args(self, _vm: &VirtualMachine) -> FuncArgs {
+        self.into()
+    }
+}
+
+// A tuple of values that each implement `IntoPyObject` represents a sequence of
+// arguments that can be bound and passed to a built-in function.
+macro_rules! into_func_args_from_tuple {
+    ($(($n:tt, $T:ident)),*) => {
+        impl<$($T,)*> IntoFuncArgs for ($($T,)*)
+        where
+            $($T: IntoPyObject,)*
+        {
+            #[inline]
+            fn into_args(self, vm: &VirtualMachine) -> FuncArgs {
+                let ($($n,)*) = self;
+                vec![$($n.into_pyobject(vm),)*].into()
+            }
+        }
+    };
+}
+
+into_func_args_from_tuple!((v1, T1));
+into_func_args_from_tuple!((v1, T1), (v2, T2));
+into_func_args_from_tuple!((v1, T1), (v2, T2), (v3, T3));
+into_func_args_from_tuple!((v1, T1), (v2, T2), (v3, T3), (v4, T4));
+into_func_args_from_tuple!((v1, T1), (v2, T2), (v3, T3), (v4, T4), (v5, T5));
+
+/// The `FuncArgs` struct is one of the most used structs then creating
 /// a rust function that can be called from python. It holds both positional
 /// arguments, as well as keyword arguments passed to the function.
 #[derive(Debug, Default, Clone)]
-pub struct PyFuncArgs {
+pub struct FuncArgs {
     pub args: Vec<PyObjectRef>,
     // sorted map, according to https://www.python.org/dev/peps/pep-0468/
     pub kwargs: IndexMap<String, PyObjectRef>,
 }
 
 /// Conversion from vector of python objects to function arguments.
-impl From<Vec<PyObjectRef>> for PyFuncArgs {
-    fn from(args: Vec<PyObjectRef>) -> Self {
-        PyFuncArgs {
-            args,
+impl<A> From<A> for FuncArgs
+where
+    A: Into<Args>,
+{
+    fn from(args: A) -> Self {
+        FuncArgs {
+            args: args.into().into_vec(),
             kwargs: IndexMap::new(),
         }
     }
 }
 
-impl From<PyObjectRef> for PyFuncArgs {
-    fn from(arg: PyObjectRef) -> Self {
-        PyFuncArgs {
-            args: vec![arg],
-            kwargs: IndexMap::new(),
+impl From<KwArgs> for FuncArgs {
+    fn from(kwargs: KwArgs) -> Self {
+        FuncArgs {
+            args: Vec::new(),
+            kwargs: kwargs.0,
         }
     }
 }
 
-impl From<(&Args, &KwArgs)> for PyFuncArgs {
-    fn from(arg: (&Args, &KwArgs)) -> Self {
-        let Args(args) = arg.0;
-        let KwArgs(kwargs) = arg.1;
-        PyFuncArgs {
-            args: args.clone(),
-            kwargs: kwargs.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
-        }
+impl FromArgs for FuncArgs {
+    fn from_args(_vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
+        Ok(std::mem::take(args))
     }
 }
 
-impl FromArgs for PyFuncArgs {
-    fn from_args(_vm: &VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
-        Ok(mem::replace(args, Default::default()))
+impl FuncArgs {
+    pub fn new<A, K>(args: A, kwargs: K) -> Self
+    where
+        A: Into<Args>,
+        K: Into<KwArgs>,
+    {
+        let Args(args) = args.into();
+        let KwArgs(kwargs) = kwargs.into();
+        Self { args, kwargs }
     }
-}
 
-impl PyFuncArgs {
-    pub fn new(mut args: Vec<PyObjectRef>, kwarg_names: Vec<String>) -> PyFuncArgs {
+    pub fn with_kwargs_names(mut args: Vec<PyObjectRef>, kwarg_names: Vec<String>) -> Self {
         // last `kwarg_names.len()` elements of args in order of appearance in the call signature
         let kwarg_values = args.drain((args.len() - kwarg_names.len())..);
 
@@ -70,16 +106,12 @@ impl PyFuncArgs {
         for (name, value) in kwarg_names.iter().zip(kwarg_values) {
             kwargs.insert(name.clone(), value);
         }
-        PyFuncArgs { args, kwargs }
+        FuncArgs { args, kwargs }
     }
 
-    pub fn insert(&self, item: PyObjectRef) -> PyFuncArgs {
-        let mut args = PyFuncArgs {
-            args: self.args.clone(),
-            kwargs: self.kwargs.clone(),
-        };
-        args.args.insert(0, item);
-        args
+    pub fn prepend_arg(&mut self, item: PyObjectRef) {
+        self.args.reserve_exact(1);
+        self.args.insert(0, item)
     }
 
     pub fn shift(&mut self) -> PyObjectRef {
@@ -100,16 +132,16 @@ impl PyFuncArgs {
     pub fn get_optional_kwarg_with_type(
         &self,
         key: &str,
-        ty: PyClassRef,
+        ty: PyTypeRef,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
         match self.get_optional_kwarg(key) {
             Some(kwarg) => {
-                if isinstance(&kwarg, &ty) {
+                if kwarg.isinstance(&ty) {
                     Ok(Some(kwarg))
                 } else {
-                    let expected_ty_name = vm.to_pystr(&ty)?;
-                    let actual_ty_name = vm.to_pystr(&kwarg.class())?;
+                    let expected_ty_name = &ty.name;
+                    let actual_ty_name = &kwarg.class().name;
                     Err(vm.new_type_error(format!(
                         "argument of type {} is required for named parameter `{}` (got: {})",
                         expected_ty_name, key, actual_ty_name
@@ -152,32 +184,8 @@ impl PyFuncArgs {
     /// during the conversion will halt the binding and return the error.
     pub fn bind<T: FromArgs>(mut self, vm: &VirtualMachine) -> PyResult<T> {
         let given_args = self.args.len();
-        let bound = match T::from_args(vm, &mut self) {
-            Ok(args) => args,
-            Err(ArgumentError::TooFewArgs) => {
-                return Err(vm.new_type_error(format!(
-                    "Expected at least {} arguments ({} given)",
-                    T::arity().start(),
-                    given_args,
-                )));
-            }
-            Err(ArgumentError::TooManyArgs) => {
-                return Err(vm.new_type_error(format!(
-                    "Expected at most {} arguments ({} given)",
-                    T::arity().end(),
-                    given_args,
-                )));
-            }
-            Err(ArgumentError::InvalidKeywordArgument(name)) => {
-                return Err(vm.new_type_error(format!("{} is an invalid keyword argument", name)));
-            }
-            Err(ArgumentError::RequiredKeywordArgument(name)) => {
-                return Err(vm.new_type_error(format!("Required keyqord only argument {}", name)));
-            }
-            Err(ArgumentError::Exception(ex)) => {
-                return Err(ex);
-            }
-        };
+        let bound = T::from_args(vm, &mut self)
+            .map_err(|e| e.into_exception(T::arity(), given_args, vm))?;
 
         if !self.args.is_empty() {
             Err(vm.new_type_error(format!(
@@ -185,13 +193,18 @@ impl PyFuncArgs {
                 T::arity().end(),
                 given_args,
             )))
-        } else if !self.kwargs.is_empty() {
-            Err(vm.new_type_error(format!(
-                "Unexpected keyword argument {}",
-                self.kwargs.keys().next().unwrap()
-            )))
+        } else if let Some(err) = self.check_kwargs_empty(vm) {
+            Err(err)
         } else {
             Ok(bound)
+        }
+    }
+
+    pub fn check_kwargs_empty(&self, vm: &VirtualMachine) -> Option<PyBaseExceptionRef> {
+        if let Some(k) = self.kwargs.keys().next() {
+            Some(vm.new_type_error(format!("Unexpected keyword argument {}", k)))
+        } else {
+            None
         }
     }
 }
@@ -218,6 +231,35 @@ impl From<PyBaseExceptionRef> for ArgumentError {
     }
 }
 
+impl ArgumentError {
+    fn into_exception(
+        self,
+        arity: RangeInclusive<usize>,
+        num_given: usize,
+        vm: &VirtualMachine,
+    ) -> PyBaseExceptionRef {
+        match self {
+            ArgumentError::TooFewArgs => vm.new_type_error(format!(
+                "Expected at least {} arguments ({} given)",
+                arity.start(),
+                num_given
+            )),
+            ArgumentError::TooManyArgs => vm.new_type_error(format!(
+                "Expected at most {} arguments ({} given)",
+                arity.end(),
+                num_given
+            )),
+            ArgumentError::InvalidKeywordArgument(name) => {
+                vm.new_type_error(format!("{} is an invalid keyword argument", name))
+            }
+            ArgumentError::RequiredKeywordArgument(name) => {
+                vm.new_type_error(format!("Required keyqord only argument {}", name))
+            }
+            ArgumentError::Exception(ex) => ex,
+        }
+    }
+}
+
 /// Implemented by any type that can be accepted as a parameter to a built-in
 /// function.
 ///
@@ -230,7 +272,24 @@ pub trait FromArgs: Sized {
     }
 
     /// Extracts this item from the next argument(s).
-    fn from_args(vm: &VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError>;
+    fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError>;
+}
+
+pub trait FromArgOptional {
+    type Inner: TryFromObject;
+    fn from_inner(x: Self::Inner) -> Self;
+}
+impl<T: TryFromObject> FromArgOptional for OptionalArg<T> {
+    type Inner = T;
+    fn from_inner(x: T) -> Self {
+        Self::Present(x)
+    }
+}
+impl<T: TryFromObject> FromArgOptional for T {
+    type Inner = Self;
+    fn from_inner(x: Self) -> Self {
+        x
+    }
 }
 
 /// A map of keyword arguments to their values.
@@ -247,11 +306,25 @@ pub trait FromArgs: Sized {
 /// KwArgs is only for functions that accept arbitrary keyword arguments. For
 /// functions that accept only *specific* named arguments, a rust struct with
 /// an appropriate FromArgs implementation must be created.
-pub struct KwArgs<T = PyObjectRef>(HashMap<String, T>);
+pub struct KwArgs<T = PyObjectRef>(IndexMap<String, T>);
 
 impl<T> KwArgs<T> {
+    pub fn new(map: IndexMap<String, T>) -> Self {
+        KwArgs(map)
+    }
+
     pub fn pop_kwarg(&mut self, name: &str) -> Option<T> {
         self.0.remove(name)
+    }
+}
+impl<T> From<HashMap<String, T>> for KwArgs<T> {
+    fn from(kwargs: HashMap<String, T>) -> Self {
+        KwArgs(kwargs.into_iter().collect())
+    }
+}
+impl<T> Default for KwArgs<T> {
+    fn default() -> Self {
+        KwArgs(IndexMap::new())
     }
 }
 
@@ -259,8 +332,8 @@ impl<T> FromArgs for KwArgs<T>
 where
     T: TryFromObject,
 {
-    fn from_args(vm: &VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
-        let mut kwargs = HashMap::new();
+    fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
+        let mut kwargs = IndexMap::new();
         for (name, value) in args.remaining_keywords() {
             kwargs.insert(name, T::try_from_object(vm, value)?);
         }
@@ -270,7 +343,7 @@ where
 
 impl<T> IntoIterator for KwArgs<T> {
     type Item = (String, T);
-    type IntoIter = std::collections::hash_map::IntoIter<String, T>;
+    type IntoIter = indexmap::map::IntoIter<String, T>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
@@ -289,8 +362,34 @@ impl<T> IntoIterator for KwArgs<T> {
 pub struct Args<T = PyObjectRef>(Vec<T>);
 
 impl<T> Args<T> {
+    pub fn new(args: Vec<T>) -> Self {
+        Args(args)
+    }
+
     pub fn into_vec(self) -> Vec<T> {
         self.0
+    }
+
+    pub fn iter(&self) -> std::slice::Iter<T> {
+        self.0.iter()
+    }
+}
+
+impl<T> From<Vec<T>> for Args<T> {
+    fn from(v: Vec<T>) -> Self {
+        Args(v)
+    }
+}
+
+impl From<()> for Args<PyObjectRef> {
+    fn from(_args: ()) -> Self {
+        Args(Vec::new())
+    }
+}
+
+impl<T> AsRef<[T]> for Args<T> {
+    fn as_ref(&self) -> &[T] {
+        &self.0
     }
 }
 
@@ -305,7 +404,7 @@ impl<T> FromArgs for Args<T>
 where
     T: TryFromObject,
 {
-    fn from_args(vm: &VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
+    fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
         let mut varargs = Vec::new();
         while let Some(value) = args.take_positional() {
             varargs.push(T::try_from_object(vm, value)?);
@@ -331,7 +430,7 @@ where
         1..=1
     }
 
-    fn from_args(vm: &VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
+    fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
         if let Some(value) = args.take_positional() {
             Ok(T::try_from_object(vm, value)?)
         } else {
@@ -351,11 +450,17 @@ pub enum OptionalArg<T = PyObjectRef> {
 
 impl_option_like!(OptionalArg, Present, Missing);
 
-pub type OptionalOption<T> = OptionalArg<Option<T>>;
+impl OptionalArg<PyObjectRef> {
+    pub fn unwrap_or_none(self, vm: &VirtualMachine) -> PyObjectRef {
+        self.unwrap_or_else(|| vm.ctx.none())
+    }
+}
+
+pub type OptionalOption<T = PyObjectRef> = OptionalArg<Option<T>>;
 
 impl<T> OptionalOption<T> {
     #[inline]
-    pub fn flat_option(self) -> Option<T> {
+    pub fn flatten(self) -> Option<T> {
         match self {
             Present(Some(value)) => Some(value),
             _ => None,
@@ -371,7 +476,7 @@ where
         0..=1
     }
 
-    fn from_args(vm: &VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
+    fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
         if let Some(value) = args.take_positional() {
             Ok(Present(T::try_from_object(vm, value)?))
         } else {
@@ -383,7 +488,7 @@ where
 // For functions that accept no arguments. Implemented explicitly instead of via
 // macro below to avoid unused warnings.
 impl FromArgs for () {
-    fn from_args(_vm: &VirtualMachine, _args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
+    fn from_args(_vm: &VirtualMachine, _args: &mut FuncArgs) -> Result<Self, ArgumentError> {
         Ok(())
     }
 }
@@ -411,15 +516,15 @@ macro_rules! tuple_from_py_func_args {
                 min..=max
             }
 
-            fn from_args(vm: &VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
+            fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
                 Ok(($($T::from_args(vm, args)?,)+))
             }
         }
     };
 }
 
-// Implement `FromArgs` for up to 5-tuples, allowing built-in functions to bind
-// up to 5 top-level parameters (note that `Args`, `KwArgs`, nested tuples, etc.
+// Implement `FromArgs` for up to 7-tuples, allowing built-in functions to bind
+// up to 7 top-level parameters (note that `Args`, `KwArgs`, nested tuples, etc.
 // count as 1, so this should actually be more than enough).
 tuple_from_py_func_args!(A);
 tuple_from_py_func_args!(A, B);
@@ -427,39 +532,64 @@ tuple_from_py_func_args!(A, B, C);
 tuple_from_py_func_args!(A, B, C, D);
 tuple_from_py_func_args!(A, B, C, D, E);
 tuple_from_py_func_args!(A, B, C, D, E, F);
+tuple_from_py_func_args!(A, B, C, D, E, F, G);
+tuple_from_py_func_args!(A, B, C, D, E, F, G, H);
 
 /// A built-in Python function.
-pub type PyNativeFunc = Box<dyn Fn(&VirtualMachine, PyFuncArgs) -> PyResult + 'static>;
+pub type PyNativeFunc = Box<py_dyn_fn!(dyn Fn(&VirtualMachine, FuncArgs) -> PyResult)>;
 
 /// Implemented by types that are or can generate built-in functions.
 ///
-/// For example, any function that:
+/// This trait is implemented by any function that matches the pattern:
 ///
-/// - Accepts a sequence of types that implement `FromArgs`, followed by a
-///   `&VirtualMachine`
-/// - Returns some type that implements `IntoPyObject`
+/// ```rust,ignore
+/// Fn([&self,] [T where T: FromArgs, ...] [, vm: &VirtualMachine])
+/// ```
 ///
-/// will generate a `PyNativeFunc` that performs the appropriate type and arity
-/// checking, any requested conversions, and then if successful call the function
-/// with the bound values.
+/// For example, anything from `Fn()` to `Fn(vm: &VirtualMachine) -> u32` to
+/// `Fn(PyIntRef, PyIntRef) -> String` to
+/// `Fn(&self, PyStrRef, FooOptions, vm: &VirtualMachine) -> PyResult<PyInt>`
+/// is `IntoPyNativeFunc`. If you do want a really general function signature, e.g.
+/// to forward the args to another function, you can define a function like
+/// `Fn(FuncArgs [, &VirtualMachine]) -> ...`
 ///
-/// A bare `PyNativeFunc` also implements this trait, allowing the above to be
-/// done manually, for rare situations that don't fit into this model.
-pub trait IntoPyNativeFunc<T, R, VM> {
-    fn into_func(self) -> PyNativeFunc;
-}
-
-impl<F> IntoPyNativeFunc<PyFuncArgs, PyResult, VirtualMachine> for F
-where
-    F: Fn(&VirtualMachine, PyFuncArgs) -> PyResult + 'static,
-{
+/// Note that the `Kind` type parameter is meaningless and should be considered
+/// an implementation detail; if you need to use `IntoPyNativeFunc` as a trait bound
+/// just pass an unconstrained generic type, e.g.
+/// `fn foo<F, FKind>(f: F) where F: IntoPyNativeFunc<FKind>`
+pub trait IntoPyNativeFunc<Kind>: Sized + PyThreadingConstraint + 'static {
+    fn call(&self, vm: &VirtualMachine, args: FuncArgs) -> PyResult;
+    /// `IntoPyNativeFunc::into_func()` generates a PyNativeFunc that performs the
+    /// appropriate type and arity checking, any requested conversions, and then if
+    /// successful calls the function with the extracted parameters.
     fn into_func(self) -> PyNativeFunc {
-        Box::new(self)
+        Box::new(move |vm: &VirtualMachine, args| self.call(vm, args))
     }
 }
 
-pub struct OwnedParam<T>(std::marker::PhantomData<T>);
-pub struct RefParam<T>(std::marker::PhantomData<T>);
+// TODO: once higher-rank trait bounds are stabilized, remove the `Kind` type
+// parameter and impl for F where F: for<T, R, VM> PyNativeFuncInternal<T, R, VM>
+impl<F, T, R, VM> IntoPyNativeFunc<(T, R, VM)> for F
+where
+    F: PyNativeFuncInternal<T, R, VM>,
+{
+    fn call(&self, vm: &VirtualMachine, args: FuncArgs) -> PyResult {
+        self.call_(vm, args)
+    }
+}
+
+mod sealed {
+    use super::*;
+    pub trait PyNativeFuncInternal<T, R, VM>: Sized + PyThreadingConstraint + 'static {
+        fn call_(&self, vm: &VirtualMachine, args: FuncArgs) -> PyResult;
+    }
+}
+use sealed::PyNativeFuncInternal;
+
+#[doc(hidden)]
+pub struct OwnedParam<T>(PhantomData<T>);
+#[doc(hidden)]
+pub struct RefParam<T>(PhantomData<T>);
 
 // This is the "magic" that allows rust functions of varying signatures to
 // generate native python functions.
@@ -467,108 +597,121 @@ pub struct RefParam<T>(std::marker::PhantomData<T>);
 // Note that this could be done without a macro - it is simply to avoid repetition.
 macro_rules! into_py_native_func_tuple {
     ($(($n:tt, $T:ident)),*) => {
-        impl<F, $($T,)* R> IntoPyNativeFunc<($(OwnedParam<$T>,)*), R, VirtualMachine> for F
+        impl<F, $($T,)* R> PyNativeFuncInternal<($(OwnedParam<$T>,)*), R, VirtualMachine> for F
         where
-            F: Fn($($T,)* &VirtualMachine) -> R + 'static,
+            F: Fn($($T,)* &VirtualMachine) -> R + PyThreadingConstraint + 'static,
             $($T: FromArgs,)*
-            R: IntoPyObject,
+            R: IntoPyResult,
         {
-            fn into_func(self) -> PyNativeFunc {
-                Box::new(move |vm, args| {
-                    let ($($n,)*) = args.bind::<($($T,)*)>(vm)?;
+            fn call_(&self, vm: &VirtualMachine, args: FuncArgs) -> PyResult {
+                let ($($n,)*) = args.bind::<($($T,)*)>(vm)?;
 
-                    (self)($($n,)* vm).into_pyobject(vm)
-                })
+                (self)($($n,)* vm).into_pyresult(vm)
             }
         }
 
-        impl<F, S, $($T,)* R> IntoPyNativeFunc<(RefParam<S>, $(OwnedParam<$T>,)*), R, VirtualMachine> for F
+        impl<F, S, $($T,)* R> PyNativeFuncInternal<(RefParam<S>, $(OwnedParam<$T>,)*), R, VirtualMachine> for F
         where
-            F: Fn(&S, $($T,)* &VirtualMachine) -> R + 'static,
+            F: Fn(&S, $($T,)* &VirtualMachine) -> R + PyThreadingConstraint + 'static,
             S: PyValue,
             $($T: FromArgs,)*
-            R: IntoPyObject,
+            R: IntoPyResult,
         {
-            fn into_func(self) -> PyNativeFunc {
-                Box::new(move |vm, args| {
-                    let (zelf, $($n,)*) = args.bind::<(PyRef<S>, $($T,)*)>(vm)?;
+            fn call_(&self, vm: &VirtualMachine, args: FuncArgs) -> PyResult {
+                let (zelf, $($n,)*) = args.bind::<(PyRef<S>, $($T,)*)>(vm)?;
 
-                    (self)(&zelf, $($n,)* vm).into_pyobject(vm)
-                })
+                (self)(&zelf, $($n,)* vm).into_pyresult(vm)
             }
         }
 
-        impl<F, $($T,)* R> IntoPyNativeFunc<($(OwnedParam<$T>,)*), R, ()> for F
+        impl<F, $($T,)* R> PyNativeFuncInternal<($(OwnedParam<$T>,)*), R, ()> for F
         where
-            F: Fn($($T,)*) -> R + 'static,
+            F: Fn($($T,)*) -> R + PyThreadingConstraint + 'static,
             $($T: FromArgs,)*
-            R: IntoPyObject,
+            R: IntoPyResult,
         {
-            fn into_func(self) -> PyNativeFunc {
-                IntoPyNativeFunc::into_func(move |$($n,)* _vm: &VirtualMachine| (self)($($n,)*))
+            fn call_(&self, vm: &VirtualMachine, args: FuncArgs) -> PyResult {
+                let ($($n,)*) = args.bind::<($($T,)*)>(vm)?;
+
+                (self)($($n,)*).into_pyresult(vm)
             }
         }
 
-        impl<F, S, $($T,)* R> IntoPyNativeFunc<(RefParam<S>, $(OwnedParam<$T>,)*), R, ()> for F
+        impl<F, S, $($T,)* R> PyNativeFuncInternal<(RefParam<S>, $(OwnedParam<$T>,)*), R, ()> for F
         where
-            F: Fn(&S, $($T,)*) -> R + 'static,
+            F: Fn(&S, $($T,)*) -> R + PyThreadingConstraint + 'static,
             S: PyValue,
             $($T: FromArgs,)*
-            R: IntoPyObject,
+            R: IntoPyResult,
         {
-            fn into_func(self) -> PyNativeFunc {
-                IntoPyNativeFunc::into_func(move |zelf: &S, $($n,)* _vm: &VirtualMachine| (self)(zelf, $($n,)*))
+            fn call_(&self, vm: &VirtualMachine, args: FuncArgs) -> PyResult {
+                let (zelf, $($n,)*) = args.bind::<(PyRef<S>, $($T,)*)>(vm)?;
+
+                (self)(&zelf, $($n,)*).into_pyresult(vm)
             }
         }
     };
 }
 
 into_py_native_func_tuple!();
-into_py_native_func_tuple!((a, A));
-into_py_native_func_tuple!((a, A), (b, B));
-into_py_native_func_tuple!((a, A), (b, B), (c, C));
-into_py_native_func_tuple!((a, A), (b, B), (c, C), (d, D));
-into_py_native_func_tuple!((a, A), (b, B), (c, C), (d, D), (e, E));
+into_py_native_func_tuple!((v1, T1));
+into_py_native_func_tuple!((v1, T1), (v2, T2));
+into_py_native_func_tuple!((v1, T1), (v2, T2), (v3, T3));
+into_py_native_func_tuple!((v1, T1), (v2, T2), (v3, T3), (v4, T4));
+into_py_native_func_tuple!((v1, T1), (v2, T2), (v3, T3), (v4, T4), (v5, T5));
+into_py_native_func_tuple!((v1, T1), (v2, T2), (v3, T3), (v4, T4), (v5, T5), (v6, T6));
+into_py_native_func_tuple!(
+    (v1, T1),
+    (v2, T2),
+    (v3, T3),
+    (v4, T4),
+    (v5, T5),
+    (v6, T6),
+    (v7, T7)
+);
 
 /// Tests that the predicate is True on a single value, or if the value is a tuple a tuple, then
 /// test that any of the values contained within the tuples satisfies the predicate. Type parameter
 /// T specifies the type that is expected, if the input value is not of that type or a tuple of
 /// values of that type, then a TypeError is raised.
-pub fn single_or_tuple_any<T: PyValue, F: Fn(PyRef<T>) -> PyResult<bool>>(
+pub fn single_or_tuple_any<T, F, M>(
     obj: PyObjectRef,
-    predicate: F,
-    message: fn(&PyObjectRef) -> String,
+    predicate: &F,
+    message: &M,
     vm: &VirtualMachine,
-) -> PyResult<bool> {
-    // TODO: figure out some way to have recursive calls without... this
-    use std::marker::PhantomData;
-    struct Checker<'vm, T: PyValue, F: Fn(PyRef<T>) -> PyResult<bool>> {
-        predicate: F,
-        message: fn(&PyObjectRef) -> String,
-        vm: &'vm VirtualMachine,
-        t: PhantomData<T>,
-    }
-    impl<T: PyValue, F: Fn(PyRef<T>) -> PyResult<bool>> Checker<'_, T, F> {
-        fn check(&self, obj: PyObjectRef) -> PyResult<bool> {
-            match_class!(match obj {
-                obj @ T => (self.predicate)(obj),
-                tuple @ PyTuple => {
-                    for obj in tuple.as_slice().iter() {
-                        if self.check(obj.clone())? {
-                            return Ok(true);
-                        }
-                    }
-                    Ok(false)
+) -> PyResult<bool>
+where
+    T: TryFromObject,
+    F: Fn(&T) -> PyResult<bool>,
+    M: Fn(&PyObjectRef) -> String,
+{
+    match T::try_from_object(vm, obj.clone()) {
+        Ok(single) => (predicate)(&single),
+        Err(_) => {
+            let tuple = PyTupleRef::try_from_object(vm, obj.clone())
+                .map_err(|_| vm.new_type_error((message)(&obj)))?;
+            for obj in tuple.borrow_value().iter() {
+                if single_or_tuple_any(obj.clone(), predicate, message, vm)? {
+                    return Ok(true);
                 }
-                obj => Err(self.vm.new_type_error((self.message)(&obj))),
-            })
+            }
+            Ok(false)
         }
     }
-    let checker = Checker {
-        predicate,
-        message,
-        vm,
-        t: PhantomData,
-    };
-    checker.check(obj)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_intonativefunc_noalloc() {
+        let check_zst = |f: PyNativeFunc| assert_eq!(std::mem::size_of_val(f.as_ref()), 0);
+        fn py_func(_b: bool, _vm: &crate::VirtualMachine) -> i32 {
+            1
+        }
+        check_zst(py_func.into_func());
+        let empty_closure = || "foo".to_owned();
+        check_zst(empty_closure.into_func());
+    }
 }

@@ -70,12 +70,12 @@ class SRE_Pattern(object):
         else:
             return None
 
-    def fullmatch(self, string):
+    def fullmatch(self, string, pos=0, endpos=sys.maxsize):
         """If the whole string matches the regular expression pattern, return a
         corresponding match object. Return None if the string does not match the
         pattern; note that this is different from a zero-length match."""
-        match = self.match(string)
-        if match and match.start() == 0 and match.end() == len(string):
+        match = self.match(string, pos, endpos)
+        if match and match.start() == pos and match.end() == min(endpos, len(string)):
             return match
         else:
             return None
@@ -193,8 +193,8 @@ class SRE_Pattern(object):
         scanner = self.scanner(string, pos, endpos)
         return iter(scanner.search, None)
 
-    def scanner(self, string, start=0, end=sys.maxsize):
-        return SRE_Scanner(self, string, start, end)
+    def scanner(self, string, pos=0, endpos=sys.maxsize):
+        return SRE_Scanner(self, string, pos, endpos)
 
     def __copy__(self):
         raise TypeError("cannot copy this pattern object")
@@ -248,6 +248,9 @@ class SRE_Match(object):
             self.lastgroup = pattern._indexgroup[self.lastindex]
         else:
             self.lastgroup = None
+
+    def __getitem__(self, rank):
+        return self.group(rank)
 
     def _create_regs(self, state):
         """Creates a tuple of index pairs representing matched groups."""
@@ -317,7 +320,7 @@ class SRE_Match(object):
         The default argument is used for groups that did not participate in the
         match (defaults to None)."""
         groupdict = {}
-        for key, value in list(self.re.groupindex.items()):
+        for key, value in self.re.groupindex.items():
             groupdict[key] = self._get_slice(value, default)
         return groupdict
 
@@ -344,8 +347,10 @@ class SRE_Match(object):
 class _State(object):
 
     def __init__(self, string, start, end, flags):
+        if isinstance(string, bytearray):
+            string = str(bytes(string), "latin1")
         if isinstance(string, bytes):
-            string = string.decode()
+            string = str(string, "latin1")
         self.string = string
         if start < 0:
             start = 0
@@ -654,6 +659,10 @@ class _OpcodeDispatcher(_Dispatcher):
         self.general_op_literal(ctx, operator.eq, ctx.state.lower)
         return True
 
+    def op_literal_uni_ignore(self, ctx):
+        self.general_op_literal(ctx, operator.eq, ctx.state.lower)
+        return True
+
     def op_not_literal_ignore(self, ctx):
         # match literal regardless of case
         # <LITERAL_IGNORE> <code>
@@ -728,6 +737,10 @@ class _OpcodeDispatcher(_Dispatcher):
         # match set member (or non_member), disregarding case of current char
         # <IN_IGNORE> <skip> <set>
         #self._log(ctx, "OP_IN_IGNORE")
+        self.general_op_in(ctx, ctx.state.lower)
+        return True
+
+    def op_in_uni_ignore(self, ctx):
         self.general_op_in(ctx, ctx.state.lower)
         return True
 

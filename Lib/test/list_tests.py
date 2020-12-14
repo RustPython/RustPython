@@ -33,8 +33,6 @@ class CommonTest(seq_tests.CommonTest):
         self.assertNotEqual(id(a), id(b))
         self.assertEqual(a, b)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_getitem_error(self):
         a = []
         msg = "list indices must be integers or slices"
@@ -565,8 +563,6 @@ class CommonTest(seq_tests.CommonTest):
                 raise KeyboardInterrupt
         self.assertRaises(KeyboardInterrupt, list, F())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exhausted_iterator(self):
         a = self.type2test([1, 2, 3])
         exhit = iter(a)

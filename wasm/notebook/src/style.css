@@ -1,0 +1,278 @@
+body {
+    font-family: 'IBM Plex Sans', sans-serif;
+}
+
+.header {
+    font-family: 'Sen', sans-serif;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+    margin: 0 0 10px;
+}
+
+.d-flex {
+    display: flex;
+}
+
+.d-flex-space-between {
+    justify-content: space-between;
+}
+
+.d-none {
+    display: none;
+}
+
+.p-relative {
+    position: relative;
+}
+
+.mr-1 {
+    margin-right: 1rem;
+}
+
+.mr-px-5 {
+    margin-right: 5px;
+}
+
+.mt-px-5 {
+    margin-top: 5px;
+}
+
+.p-1 {
+    padding: 1rem;
+}
+
+.h-100 {
+    height: 100% !important;
+}
+
+.vertical-align-middle {
+    vertical-align: middle;
+}
+
+.text-white {
+    color: #fff;
+}
+
+.flex-grow {
+    flex-grow: 1;
+}
+
+.item-right {
+    float: right;
+    margin-top: 5px;
+    margin-right: 5px;
+}
+
+.text-right {
+    text-align: right;
+}
+
+.text-center {
+    text-align: center;
+}
+
+.text-black {
+    color: #1f2430;
+}
+
+.bg-black {
+    background-color: #1f2430;
+}
+
+.bg-light {
+    background-color: #f1f1f1;
+}
+
+.nav-bar {
+    border-bottom: 2px solid #f74c00;
+    position: sticky;
+    top: 0px;
+    background-color: #fff;
+    z-index: 10;
+}
+
+ul.list-inline {
+    list-style-type: none;
+    list-style-position: inside;
+    padding: 0;
+    margin: 0;
+}
+
+ul.list-inline li {
+    display: inline-block;
+    cursor: pointer;
+    margin: 0;
+    padding: 0;
+    padding-right: 10px;
+    padding-left: 10px;
+    line-height: 30px;
+}
+
+.active {
+    background-color: #1f2430;
+    color: #fff;
+}
+
+.text-orange {
+    color: #f74c00;
+}
+
+.bg-orange {
+    background-color: #f74c00;
+}
+
+.split-view {
+    display: flex;
+    justify-content: space-between;
+}
+
+.split-view div {
+    flex-basis: 50%;
+}
+
+.full-height {
+    height: calc(90vh - 60px);
+}
+
+.CodeMirror, .CodeMirror-wrap {
+    height: 100% !important;
+}
+#rp-notebook {
+    font-size: 1rem;
+    padding: 10px;
+    overflow-y: scroll;
+}
+
+#rp-notebook p {
+    margin: 0;
+}
+
+.CodeMirror {
+    height: 100% !important;
+}
+
+.nav-bar-links a {
+    outline: none;
+    text-decoration: none;
+    padding: 2px 5px;
+    cursor: pointer;
+}
+
+.code-import {
+    position: absolute;
+    top: 0;
+    right: 10px;
+    font-size: 0.9rem;
+    z-index: 3;
+}
+
+input[type='url'] {
+    border: 1px solid black;
+    border-radius: 0px;
+    width: 75%;
+    font-size: 1rem;
+    padding: 4px;
+    font-family: monospace;
+}
+
+.btn {
+    height: 25px;
+    border: 1px solid black;
+    font-size: 1rem;
+}
+
+#error {
+    color: #f74c00;
+    margin-top: 10px;
+    font-family: monospace;
+    white-space: pre;
+}
+
+.border-left {
+    border-left: 1px solid rgb(221, 221, 221);
+}
+
+/* css popup */
+.overlay {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    visibility: hidden;
+    opacity: 0;
+    z-index: 15;
+}
+
+.overlay:target {
+    visibility: visible;
+    opacity: 1;
+}
+
+.popup {
+    margin: 40px auto;
+    padding: 20px;
+    background: #fff;
+    border: 1px solid #1f2430;
+    width: 50%;
+    position: relative;
+    box-shadow: 0 1rem 3rem rgba(0, 0, 0, 0.175);
+}
+
+.popup h2 {
+    margin-top: 0;
+}
+
+.popup .popup-close {
+    position: absolute;
+    top: 5px;
+    right: 15px;
+    font-size: 30px;
+    font-weight: bold;
+    text-decoration: none;
+    color: #1f2430;
+}
+
+.popup .popup-content {
+    max-height: 30%;
+    overflow: auto;
+}
+
+@media screen and (min-width: 768px) {
+    .md-flex-grow {
+        flex-grow: 1;
+    }
+    
+}
+
+@media screen and (max-width: 768px) {
+    .box {
+        width: 70%;
+    }
+
+    .popup {
+        width: 70%;
+    }
+
+    .d-md-none {
+        display: none;
+    }
+
+    .d-sm-flex-direction-column {
+        flex-direction: column;
+    }
+
+    .sm-mt-5px {
+        margin-top: 5px !important;
+    }
+
+    #run-btn {
+        width: 45px;
+    }
+}

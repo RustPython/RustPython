@@ -1,0 +1,69 @@
+%%py 
+
+print("Javascript called. It wants its DOM elements back.")
+
+%%md 
+
+## RustPython Notebook with Markdown and Math
+
+Look! I can write markdown in the notebook. It's even syntax-highlighted correctly!
+
+1. i can make a list
+1. i can haz many lines and numbers
+1. I can paste emojis  🐍 😱 🤘
+
+In the notebook, you can write markdown, math and python. use %% then: 
+- md for markdown
+- py for python
+- math for large, centered math blocks
+- math-inline for an inline math block
+
+
+I **can** bold things and _italicize_ them. You got the gist, this is standard
+markdown syntax that you can [google](google.com).
+
+<br>
+
+## Math
+
+Supported TeX functions is [here](https://katex.org/docs/supported.html). For example: 
+
+%%math 
+
+\tau(u_f)*l_f
+
+ \newline
+
+H(t) \xrightarrow{write} \Big[A(t+1),\ H(t+1)\Big]
+
+\newline 
+
+
+\newline
+
+% \f is defined as #1f(#2) using the macro
+\f\relax{x} = \int_{-\infty}^\infty
+    \f\hat\xi,e^{2 \pi i \xi x}
+    \,d\xi
+
+\newline
+\begin{Bmatrix}
+   a & b \\
+   c & d
+\end{Bmatrix}
+
+\dbinom{n}{k}
+
+\sqrt[3]{x}
+
+
+%%py
+
+print("RustPython called back and said people need to have")
+
+# You can run regular python code here.
+# Here is a random number generator.
+import random 
+rnd = random.randint(1,5)
+
+print("nice " * rnd + "things.")

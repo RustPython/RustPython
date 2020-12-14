@@ -1,6 +1,6 @@
 [package]
 name = "rustpython-parser"
-version = "0.1.1"
+version = "0.1.2"
 description = "Parser for python code."
 authors = [ "RustPython Team" ]
 build = "build.rs"
@@ -9,12 +9,14 @@ license = "MIT"
 edition = "2018"
 
 [build-dependencies]
-lalrpop="0.17"
+lalrpop = "0.19"
 
 [dependencies]
-lalrpop-util="0.17"
-log="0.4.1"
-num-bigint = "0.2"
+rustpython-ast = { path = "../ast" }
+lalrpop-util = "0.19.1"
+log = "0.4.1"
+num-bigint = "0.3"
 num-traits = "0.2"
 unic-emoji-char = "0.9"
-unic-ucd-ident = "0.9"
+unic-ucd-ident  = "0.9"
+unicode_names2 = "0.4"

@@ -390,8 +390,7 @@ class TypesTests(unittest.TestCase):
             self.assertEqual(locale.format_string('%g', x, grouping=True), format(x, 'n'))
             self.assertEqual(locale.format_string('%.10g', x, grouping=True), format(x, '.10n'))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skip("TODO: RUSTPYTHON")
     @run_with_locale('LC_NUMERIC', 'en_US.UTF8')
     def test_int__format__locale(self):
         # test locale support for __format__ code 'n' for integers
@@ -790,8 +789,6 @@ class MappingProxyTests(unittest.TestCase):
         self.assertEqual(set(view.values()), set(values))
         self.assertEqual(set(view.items()), set(items))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_copy(self):
         original = {'key1': 27, 'key2': 51, 'key3': 93}
         view = self.mappingproxy(original)
@@ -827,8 +824,6 @@ class ClassCreationTests(unittest.TestCase):
         C = types.new_class("C", (int,))
         self.assertTrue(issubclass(C, int))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_new_class_meta(self):
         Meta = self.Meta
         settings = {"metaclass": Meta, "z": 2}
@@ -839,8 +834,6 @@ class ClassCreationTests(unittest.TestCase):
             self.assertEqual(C.y, 1)
             self.assertEqual(C.z, 2)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_new_class_exec_body(self):
         Meta = self.Meta
         def func(ns):
@@ -866,8 +859,6 @@ class ClassCreationTests(unittest.TestCase):
         self.assertEqual(C.__name__, "C")
         self.assertEqual(C.__bases__, (object,))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_new_class_meta_with_base(self):
         Meta = self.Meta
         def func(ns):
@@ -1010,8 +1001,6 @@ class ClassCreationTests(unittest.TestCase):
         for bases in [x, y, z, t]:
             self.assertIs(types.resolve_bases(bases), bases)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_metaclass_derivation(self):
         # issue1294232: correct metaclass calculation
         new_calls = []  # to check the order of __new__ calls
@@ -1066,8 +1055,6 @@ class ClassCreationTests(unittest.TestCase):
         new_calls.clear()
         self.assertIn('BMeta_was_here', E.__dict__)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_metaclass_override_function(self):
         # Special case: the given metaclass isn't a class,
         # so there is no metaclass calculation.
@@ -1469,8 +1456,7 @@ class CoroutineTests(unittest.TestCase):
         self.assertIs(foo(), coro)
         self.assertIs(foo().__await__(), coro)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skip("TODO: RUSTPYTHON, unittest.mock")
     def test_duck_gen(self):
         class GenLike:
             def send(self): pass

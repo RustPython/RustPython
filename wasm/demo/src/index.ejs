@@ -14,9 +14,7 @@
             browser's devtools and play with <code>rp.pyEval('1 + 1')</code>
         </p>
         <div id="code-wrapper">
-            <textarea id="code">
-<%= defaultSnippet %>
-</textarea>
+            <textarea id="code"><%= defaultSnippet %></textarea>
             <select id="snippets">
                 <% for (const name of snippets) { %>
                     <option
@@ -68,6 +66,13 @@
                 <code>this</code> argument
             </li>
         </ul>
+
+        <p>
+            Limited Interaction with browser is possible from Python by using
+            the <code>browser</code> module. Browser APIs such as
+            <code>alert()</code>, <code>confirm()</code>, <code>prompt()</code>
+            and <code>fetch()</code> are included in the module.
+        </p>
 
         <a href="https://github.com/RustPython/RustPython">
             <img

@@ -3,8 +3,8 @@
 //! This means source code is translated into separate tokens.
 
 pub use super::token::Tok;
+use crate::ast::Location;
 use crate::error::{LexicalError, LexicalErrorType};
-use crate::location::Location;
 use num_bigint::BigInt;
 use num_traits::identities::Zero;
 use num_traits::Num;
@@ -285,7 +285,7 @@ where
         let end_pos = self.get_pos();
         let value = BigInt::from_str_radix(&value_text, radix).map_err(|e| LexicalError {
             error: LexicalErrorType::OtherError(format!("{:?}", e)),
-            location: start_pos.clone(),
+            location: start_pos,
         })?;
         Ok((start_pos, Tok::Int { value }, end_pos))
     }
@@ -393,23 +393,11 @@ where
     /// Test if a digit is of a certain radix.
     fn is_digit_of_radix(c: Option<char>, radix: u32) -> bool {
         match radix {
-            2 => match c {
-                Some('0'..='1') => true,
-                _ => false,
-            },
-            8 => match c {
-                Some('0'..='7') => true,
-                _ => false,
-            },
-            10 => match c {
-                Some('0'..='9') => true,
-                _ => false,
-            },
-            16 => match c {
-                Some('0'..='9') | Some('a'..='f') | Some('A'..='F') => true,
-                _ => false,
-            },
-            x => unimplemented!("Radix not implemented: {}", x),
+            2 => matches!(c, Some('0'..='1')),
+            8 => matches!(c, Some('0'..='7')),
+            10 => matches!(c, Some('0'..='9')),
+            16 => matches!(c, Some('0'..='9') | Some('a'..='f') | Some('A'..='F')),
+            other => unimplemented!("Radix not implemented: {}", other),
         }
     }
 
@@ -417,10 +405,7 @@ where
     fn at_exponent(&self) -> bool {
         match self.chr0 {
             Some('e') | Some('E') => match self.chr1 {
-                Some('+') | Some('-') => match self.chr2 {
-                    Some('0'..='9') => true,
-                    _ => false,
-                },
+                Some('+') | Some('-') => matches!(self.chr2, Some('0'..='9')),
                 Some('0'..='9') => true,
                 _ => false,
             },
@@ -462,6 +447,51 @@ where
         }
     }
 
+    fn parse_octet(&mut self, first: char) -> char {
+        let mut octet_content = String::new();
+        octet_content.push(first);
+        while octet_content.len() < 3 {
+            if let Some('0'..='7') = self.chr0 {
+                octet_content.push(self.next_char().unwrap())
+            } else {
+                break;
+            }
+        }
+        let value = u32::from_str_radix(&octet_content, 8).unwrap();
+        char::from_u32(value).unwrap()
+    }
+
+    fn parse_unicode_name(&mut self) -> Result<char, LexicalError> {
+        let start_pos = self.get_pos();
+        match self.next_char() {
+            Some('{') => {}
+            _ => {
+                return Err(LexicalError {
+                    error: LexicalErrorType::StringError,
+                    location: start_pos,
+                })
+            }
+        }
+        let start_pos = self.get_pos();
+        let mut name = String::new();
+        loop {
+            match self.next_char() {
+                Some('}') => break,
+                Some(c) => name.push(c),
+                None => {
+                    return Err(LexicalError {
+                        error: LexicalErrorType::StringError,
+                        location: self.get_pos(),
+                    })
+                }
+            }
+        }
+        unicode_names2::character(&name).ok_or(LexicalError {
+            error: LexicalErrorType::UnicodeError,
+            location: start_pos,
+        })
+    }
+
     fn lex_string(
         &mut self,
         is_bytes: bool,
@@ -486,7 +516,7 @@ where
         loop {
             match self.next_char() {
                 Some('\\') => {
-                    if self.chr0 == Some(quote_char) {
+                    if self.chr0 == Some(quote_char) && !is_raw {
                         string_content.push(quote_char);
                         self.next_char();
                     } else if is_raw {
@@ -519,10 +549,14 @@ where
                             Some('t') => {
                                 string_content.push('\t');
                             }
-                            Some('u') => string_content.push(self.unicode_literal(4)?),
-                            Some('U') => string_content.push(self.unicode_literal(8)?),
-                            Some('x') if !is_bytes => string_content.push(self.unicode_literal(2)?),
                             Some('v') => string_content.push('\x0b'),
+                            Some(o @ '0'..='7') => string_content.push(self.parse_octet(o)),
+                            Some('x') => string_content.push(self.unicode_literal(2)?),
+                            Some('u') if !is_bytes => string_content.push(self.unicode_literal(4)?),
+                            Some('U') if !is_bytes => string_content.push(self.unicode_literal(8)?),
+                            Some('N') if !is_bytes => {
+                                string_content.push(self.parse_unicode_name()?)
+                            }
                             Some(c) => {
                                 string_content.push('\\');
                                 string_content.push(c);
@@ -552,7 +586,7 @@ where
                             break;
                         }
                     } else {
-                        if c == '\n' && !triple_quoted {
+                        if (c == '\n' && !triple_quoted) || (is_bytes && !c.is_ascii()) {
                             return Err(LexicalError {
                                 error: LexicalErrorType::StringError,
                                 location: self.get_pos(),
@@ -572,21 +606,8 @@ where
         let end_pos = self.get_pos();
 
         let tok = if is_bytes {
-            if string_content.is_ascii() {
-                let value = if is_raw {
-                    string_content.into_bytes()
-                } else {
-                    lex_byte(string_content).map_err(|error| LexicalError {
-                        error,
-                        location: self.get_pos(),
-                    })?
-                };
-                Tok::Bytes { value }
-            } else {
-                return Err(LexicalError {
-                    error: LexicalErrorType::StringError,
-                    location: self.get_pos(),
-                });
+            Tok::Bytes {
+                value: string_content.chars().map(|c| c as u8).collect(),
             }
         } else {
             Tok::String {
@@ -685,6 +706,8 @@ where
                     tabs = 0;
                 }
                 None => {
+                    spaces = 0;
+                    tabs = 0;
                     break;
                 }
                 _ => {
@@ -711,9 +734,8 @@ where
                 Ordering::Greater => {
                     // New indentation level:
                     self.indentation_stack.push(indentation_level);
-                    let tok_start = self.get_pos();
-                    let tok_end = tok_start.clone();
-                    self.emit((tok_start, Tok::Indent, tok_end));
+                    let tok_pos = self.get_pos();
+                    self.emit((tok_pos, Tok::Indent, tok_pos));
                 }
                 Ordering::Less => {
                     // One or more dedentations
@@ -726,9 +748,8 @@ where
                         match ordering {
                             Ordering::Less => {
                                 self.indentation_stack.pop();
-                                let tok_start = self.get_pos();
-                                let tok_end = tok_start.clone();
-                                self.emit((tok_start, Tok::Dedent, tok_end));
+                                let tok_pos = self.get_pos();
+                                self.emit((tok_pos, Tok::Dedent, tok_pos));
                             }
                             Ordering::Equal => {
                                 // We arrived at proper level of indentation.
@@ -786,16 +807,16 @@ where
             // Next, insert a trailing newline, if required.
             if !self.at_begin_of_line {
                 self.at_begin_of_line = true;
-                self.emit((tok_pos.clone(), Tok::Newline, tok_pos.clone()));
+                self.emit((tok_pos, Tok::Newline, tok_pos));
             }
 
             // Next, flush the indentation stack to zero.
             while self.indentation_stack.len() > 1 {
                 self.indentation_stack.pop();
-                self.emit((tok_pos.clone(), Tok::Dedent, tok_pos.clone()));
+                self.emit((tok_pos, Tok::Dedent, tok_pos));
             }
 
-            self.emit((tok_pos.clone(), Tok::EndOfFile, tok_pos));
+            self.emit((tok_pos, Tok::EndOfFile, tok_pos));
         }
 
         Ok(())
@@ -1040,7 +1061,16 @@ where
                 self.nesting -= 1;
             }
             ':' => {
-                self.eat_single_char(Tok::Colon);
+                let tok_start = self.get_pos();
+                self.next_char();
+                if let Some('=') = self.chr0 {
+                    self.next_char();
+                    let tok_end = self.get_pos();
+                    self.emit((tok_start, Tok::ColonEqual, tok_end));
+                } else {
+                    let tok_end = self.get_pos();
+                    self.emit((tok_start, Tok::Colon, tok_end));
+                }
             }
             ';' => {
                 self.eat_single_char(Tok::Semi);
@@ -1156,6 +1186,13 @@ where
                         location: self.get_pos(),
                     });
                 }
+
+                if self.chr0.is_none() {
+                    return Err(LexicalError {
+                        error: LexicalErrorType::EOF,
+                        location: self.get_pos(),
+                    });
+                }
             }
 
             _ => {
@@ -1194,7 +1231,7 @@ where
 
     /// Helper function to retrieve the current position.
     fn get_pos(&self) -> Location {
-        self.location.clone()
+        self.location
     }
 
     /// Helper function to emit a lexed token to the queue of tokens.
@@ -1231,54 +1268,6 @@ where
             r => Some(r),
         }
     }
-}
-
-fn lex_byte(s: String) -> Result<Vec<u8>, LexicalErrorType> {
-    let mut res = vec![];
-    let mut escape = false; //flag if previous was \
-    let mut hex_on = false; // hex mode on or off
-    let mut hex_value = String::new();
-
-    for c in s.chars() {
-        if hex_on {
-            if c.is_ascii_hexdigit() {
-                if hex_value.is_empty() {
-                    hex_value.push(c);
-                    continue;
-                } else {
-                    hex_value.push(c);
-                    res.push(u8::from_str_radix(&hex_value, 16).unwrap());
-                    hex_on = false;
-                    hex_value.clear();
-                }
-            } else {
-                return Err(LexicalErrorType::StringError);
-            }
-        } else {
-            match (c, escape) {
-                ('\\', true) => res.push(b'\\'),
-                ('\\', false) => {
-                    escape = true;
-                    continue;
-                }
-                ('x', true) => hex_on = true,
-                ('x', false) => res.push(b'x'),
-                ('t', true) => res.push(b'\t'),
-                ('t', false) => res.push(b't'),
-                ('n', true) => res.push(b'\n'),
-                ('n', false) => res.push(b'n'),
-                ('r', true) => res.push(b'\r'),
-                ('r', false) => res.push(b'r'),
-                (x, true) => {
-                    res.push(b'\\');
-                    res.push(x as u8);
-                }
-                (x, false) => res.push(x as u8),
-            }
-            escape = false;
-        }
-    }
-    Ok(res)
 }
 
 #[cfg(test)]
@@ -1608,7 +1597,7 @@ mod tests {
 
     #[test]
     fn test_string() {
-        let source = r#""double" 'single' 'can\'t' "\\\"" '\t\r\n' '\g' r'raw\''"#;
+        let source = r#""double" 'single' 'can\'t' "\\\"" '\t\r\n' '\g' r'raw\'' '\420' '\200\0a'"#;
         let tokens = lex_source(source);
         assert_eq!(
             tokens,
@@ -1638,7 +1627,15 @@ mod tests {
                     is_fstring: false,
                 },
                 Tok::String {
-                    value: String::from("raw\'"),
+                    value: String::from("raw\\'"),
+                    is_fstring: false,
+                },
+                Tok::String {
+                    value: String::from("Đ"),
+                    is_fstring: false,
+                },
+                Tok::String {
+                    value: String::from("\u{80}\u{0}a"),
                     is_fstring: false,
                 },
                 Tok::Newline,
@@ -1710,6 +1707,37 @@ mod tests {
             vec![
                 Tok::Bytes {
                     value: b"\\x1z".to_vec()
+                },
+                Tok::Newline
+            ]
+        )
+    }
+
+    #[test]
+    fn test_escape_octet() {
+        let source = r##"b'\43a\4\1234'"##;
+        let tokens = lex_source(source);
+        assert_eq!(
+            tokens,
+            vec![
+                Tok::Bytes {
+                    value: b"#a\x04S4".to_vec()
+                },
+                Tok::Newline
+            ]
+        )
+    }
+
+    #[test]
+    fn test_escape_unicode_name() {
+        let source = r#""\N{EN SPACE}""#;
+        let tokens = lex_source(source);
+        assert_eq!(
+            tokens,
+            vec![
+                Tok::String {
+                    value: "\u{2002}".to_owned(),
+                    is_fstring: false,
                 },
                 Tok::Newline
             ]

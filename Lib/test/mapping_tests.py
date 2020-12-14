@@ -170,7 +170,6 @@ class BasicTestMappingProtocol(unittest.TestCase):
 
         self.assertRaises(TypeError, d.__getitem__)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_update(self):
         # mapping argument
         d = self._empty_mapping()

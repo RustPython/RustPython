@@ -1,6 +1,6 @@
 //! Parsing and processing for this form:
 //! ```ignore
-//! py_compile_input!(
+//! py_compile!(
 //!     // either:
 //!     source = "python_source_code",
 //!     // or
@@ -18,13 +18,14 @@ use once_cell::sync::Lazy;
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::quote;
 use rustpython_bytecode::bytecode::{CodeObject, FrozenModule};
-use rustpython_compiler::compile;
+use rustpython_compiler as compile;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use syn::parse::{Parse, ParseStream, Result as ParseResult};
-use syn::{self, parse2, Lit, LitByteStr, LitStr, Meta, Token};
+use syn::spanned::Spanned;
+use syn::{self, parse2, Lit, LitByteStr, LitStr, Macro, Meta, MetaNameValue, Token};
 
 static CARGO_MANIFEST_DIR: Lazy<PathBuf> = Lazy::new(|| {
     PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not present"))
@@ -49,12 +50,14 @@ impl CompilationSource {
         module_name: String,
         origin: F,
     ) -> Result<CodeObject, Diagnostic> {
-        compile::compile(source, mode, module_name, 0).map_err(|err| {
-            Diagnostic::spans_error(
-                self.span,
-                format!("Python compile error from {}: {}", origin(), err),
-            )
-        })
+        compile::compile(source, mode, module_name, compile::CompileOpts::default()).map_err(
+            |err| {
+                Diagnostic::spans_error(
+                    self.span,
+                    format!("Python compile error from {}: {}", origin(), err),
+                )
+            },
+        )
     }
 
     fn compile(
@@ -62,7 +65,25 @@ impl CompilationSource {
         mode: compile::Mode,
         module_name: String,
     ) -> Result<HashMap<String, FrozenModule>, Diagnostic> {
-        Ok(match &self.kind {
+        match &self.kind {
+            CompilationSourceKind::Dir(rel_path) => {
+                self.compile_dir(&CARGO_MANIFEST_DIR.join(rel_path), String::new(), mode)
+            }
+            _ => Ok(hashmap! {
+                module_name.clone() => FrozenModule {
+                    code: self.compile_single(mode, module_name)?,
+                    package: false,
+                },
+            }),
+        }
+    }
+
+    fn compile_single(
+        &self,
+        mode: compile::Mode,
+        module_name: String,
+    ) -> Result<CodeObject, Diagnostic> {
+        match &self.kind {
             CompilationSourceKind::File(rel_path) => {
                 let path = CARGO_MANIFEST_DIR.join(rel_path);
                 let source = fs::read_to_string(&path).map_err(|err| {
@@ -71,25 +92,17 @@ impl CompilationSource {
                         format!("Error reading file {:?}: {}", path, err),
                     )
                 })?;
-                hashmap! {
-                    module_name.clone() => FrozenModule {
-                        code: self.compile_string(&source, mode, module_name, || rel_path.display())?,
-                        package: false,
-                    },
-                }
+                self.compile_string(&source, mode, module_name, || rel_path.display())
             }
             CompilationSourceKind::SourceCode(code) => {
-                hashmap! {
-                    module_name.clone() => FrozenModule {
-                        code: self.compile_string(code, mode, module_name, || "string literal")?,
-                        package: false,
-                    },
-                }
+                self.compile_string(&textwrap::dedent(code), mode, module_name, || {
+                    "string literal"
+                })
             }
-            CompilationSourceKind::Dir(rel_path) => {
-                self.compile_dir(&CARGO_MANIFEST_DIR.join(rel_path), String::new(), mode)?
+            CompilationSourceKind::Dir(_) => {
+                unreachable!("Can't use compile_single with directory source")
             }
-        })
+        }
     }
 
     fn compile_dir(
@@ -157,10 +170,11 @@ struct PyCompileInput {
 }
 
 impl PyCompileInput {
-    fn compile(&self) -> Result<HashMap<String, FrozenModule>, Diagnostic> {
+    fn parse(&self, allow_dir: bool) -> Result<PyCompileArgs, Diagnostic> {
         let mut module_name = None;
         let mut mode = None;
         let mut source: Option<CompilationSource> = None;
+        let mut crate_name = None;
 
         fn assert_source_empty(source: &Option<CompilationSource>) -> Result<(), Diagnostic> {
             if let Some(source) = source {
@@ -213,6 +227,10 @@ impl PyCompileInput {
                         span: extract_spans(&name_value).unwrap(),
                     });
                 } else if ident == "dir" {
+                    if !allow_dir {
+                        bail_span!(ident, "py_compile doesn't accept dir")
+                    }
+
                     assert_source_empty(&source)?;
                     let path = match &name_value.lit {
                         Lit::Str(s) => PathBuf::from(s.value()),
@@ -222,21 +240,50 @@ impl PyCompileInput {
                         kind: CompilationSourceKind::Dir(path),
                         span: extract_spans(&name_value).unwrap(),
                     });
+                } else if ident == "crate_name" {
+                    let name = match &name_value.lit {
+                        Lit::Str(s) => syn::Ident::new(&s.value(), s.span()),
+                        _ => bail_span!(name_value.lit, "source must be a string"),
+                    };
+                    crate_name = Some(name);
                 }
             }
         }
 
-        source
-            .ok_or_else(|| {
-                Diagnostic::span_error(
-                    self.span,
-                    "Must have either file or source in py_compile_bytecode!()",
-                )
-            })?
-            .compile(
-                mode.unwrap_or(compile::Mode::Exec),
-                module_name.unwrap_or_else(|| "frozen".to_owned()),
+        let source = source.ok_or_else(|| {
+            Diagnostic::span_error(
+                self.span,
+                "Must have either file or source in py_compile!()/py_freeze!()",
             )
+        })?;
+
+        Ok(PyCompileArgs {
+            source,
+            mode: mode.unwrap_or(compile::Mode::Exec),
+            module_name: module_name.unwrap_or_else(|| "frozen".to_owned()),
+            crate_name: crate_name.unwrap_or_else(|| syn::parse_quote!(rustpython_vm)),
+        })
+    }
+}
+
+fn parse_meta(input: ParseStream) -> ParseResult<Meta> {
+    let path = input.call(syn::Path::parse_mod_style)?;
+    let eq_token: Token![=] = input.parse()?;
+    let span = input.span();
+    if input.peek(LitStr) {
+        Ok(Meta::NameValue(MetaNameValue {
+            path,
+            eq_token,
+            lit: Lit::Str(input.parse()?),
+        }))
+    } else if let Ok(mac) = input.parse::<Macro>() {
+        Ok(Meta::NameValue(MetaNameValue {
+            path,
+            eq_token,
+            lit: Lit::Str(LitStr::new(&mac.tokens.to_string(), mac.span())),
+        }))
+    } else {
+        Err(syn::Error::new(span, "Expected string or stringify macro"))
     }
 }
 
@@ -244,17 +291,46 @@ impl Parse for PyCompileInput {
     fn parse(input: ParseStream) -> ParseResult<Self> {
         let span = input.cursor().span();
         let metas = input
-            .parse_terminated::<Meta, Token![,]>(Meta::parse)?
+            .parse_terminated::<Meta, Token![,]>(parse_meta)?
             .into_iter()
             .collect();
         Ok(PyCompileInput { span, metas })
     }
 }
 
-pub fn impl_py_compile_bytecode(input: TokenStream2) -> Result<TokenStream2, Diagnostic> {
-    let input: PyCompileInput = parse2(input)?;
+struct PyCompileArgs {
+    source: CompilationSource,
+    mode: compile::Mode,
+    module_name: String,
+    crate_name: syn::Ident,
+}
 
-    let code_map = input.compile()?;
+pub fn impl_py_compile(input: TokenStream2) -> Result<TokenStream2, Diagnostic> {
+    let input: PyCompileInput = parse2(input)?;
+    let args = input.parse(false)?;
+
+    let crate_name = args.crate_name;
+    let code = args.source.compile_single(args.mode, args.module_name)?;
+
+    let bytes = code.to_bytes();
+    let bytes = LitByteStr::new(&bytes, Span::call_site());
+
+    let output = quote! {
+        ::#crate_name::bytecode::CodeObject::from_bytes(#bytes)
+            .expect("Deserializing CodeObject failed")
+    };
+
+    Ok(output)
+}
+
+pub fn impl_py_freeze(input: TokenStream2) -> Result<TokenStream2, Diagnostic> {
+    let input: PyCompileInput = parse2(input)?;
+    let args = input.parse(true)?;
+
+    let crate_name = args.crate_name;
+    let code_map = args.source.compile(args.mode, args.module_name)?;
+
+    let modules_len = code_map.len();
 
     let modules = code_map
         .into_iter()
@@ -263,22 +339,21 @@ pub fn impl_py_compile_bytecode(input: TokenStream2) -> Result<TokenStream2, Dia
             let bytes = code.to_bytes();
             let bytes = LitByteStr::new(&bytes, Span::call_site());
             quote! {
-                #module_name.into() => ::rustpython_vm::bytecode::FrozenModule {
-                    code: ::rustpython_vm::bytecode::CodeObject::from_bytes(
+                m.insert(#module_name.into(), ::#crate_name::bytecode::FrozenModule {
+                    code: ::#crate_name::bytecode::CodeObject::from_bytes(
                         #bytes
                     ).expect("Deserializing CodeObject failed"),
                     package: #package,
-                }
+                });
             }
         });
 
     let output = quote! {
-        ({
-            use ::rustpython_vm::__exports::hashmap;
-            hashmap! {
-                #(#modules),*
-            }
-        })
+        {
+            let mut m = ::std::collections::HashMap::with_capacity(#modules_len);
+            #(#modules)*
+            m
+        }
     };
 
     Ok(output)

@@ -3,19 +3,20 @@
 if __name__ != 'test.support':
     raise ImportError('support must be imported from the test package')
 
-# import asyncio.events
+import asyncio.events
 import collections.abc
 import contextlib
-import datetime
 import errno
-# import faulthandler
+import faulthandler
 import fnmatch
 import functools
 # import gc
+import glob
+import hashlib
 import importlib
 import importlib.util
-import io
-# import logging.handlers
+import locale
+import logging.handlers
 # import nntplib
 import os
 import platform
@@ -27,13 +28,13 @@ import struct
 import subprocess
 import sys
 import sysconfig
-# import tempfile
+import tempfile
 import _thread
-# import threading
+import threading
 import time
 import types
 import unittest
-# import urllib.error
+import urllib.error
 import warnings
 
 from .testresult import get_test_runner
@@ -68,6 +69,11 @@ try:
 except ImportError:
     resource = None
 
+try:
+    import _hashlib
+except ImportError:
+    _hashlib = None
+
 __all__ = [
     # globals
     "PIPE_MAX_SIZE", "verbose", "max_memuse", "use_resources", "failfast",
@@ -85,15 +91,15 @@ __all__ = [
     "create_empty_file", "can_symlink", "fs_is_case_insensitive",
     # unittest
     "is_resource_enabled", "requires", "requires_freebsd_version",
-    "requires_linux_version", "requires_mac_ver", "check_syntax_error",
-    "check_syntax_warning",
+    "requires_linux_version", "requires_mac_ver", "requires_hashdigest",
+    "check_syntax_error", "check_syntax_warning",
     "TransientResource", "time_out", "socket_peer_reset", "ioerror_peer_reset",
     "transient_internet", "BasicTestRunner", "run_unittest", "run_doctest",
     "skip_unless_symlink", "requires_gzip", "requires_bz2", "requires_lzma",
     "bigmemtest", "bigaddrspacetest", "cpython_only", "get_attribute",
     "requires_IEEE_754", "skip_unless_xattr", "requires_zlib",
     "anticipate_failure", "load_package_tests", "detect_api_mismatch",
-    "check__all__", "skip_unless_bind_unix_socket",
+    "check__all__", "skip_unless_bind_unix_socket", "skip_if_buggy_ucrt_strfptime",
     "ignore_warnings",
     # sys
     "is_jython", "is_android", "check_impl_detail", "unix_shell",
@@ -113,6 +119,7 @@ __all__ = [
     "run_with_locale", "swap_item",
     "swap_attr", "Matcher", "set_memlimit", "SuppressCrashReport", "sortdict",
     "run_with_tz", "PGO", "missing_compiler_executable", "fd_count",
+    "ALWAYS_EQ", "LARGEST", "SMALLEST"
     ]
 
 class Error(Exception):
@@ -369,12 +376,24 @@ if sys.platform.startswith("win"):
                       RuntimeWarning, stacklevel=4)
 
     def _unlink(filename):
+        # XXX RUSTPYTHON: on ci, unlink() raises PermissionError when target doesn't exist.
+        # Might also happen locally, but not sure
+        if not os.path.exists(filename):
+            return
         _waitfor(os.unlink, filename)
 
     def _rmdir(dirname):
+        # XXX RUSTPYTHON: on ci, unlink() raises PermissionError when target doesn't exist.
+        # Might also happen locally, but not sure
+        if not os.path.exists(dirname):
+            return
         _waitfor(os.rmdir, dirname)
 
     def _rmtree(path):
+        # XXX RUSTPYTHON: on ci, unlink() raises PermissionError when target doesn't exist.
+        # Might also happen locally, but not sure
+        if not os.path.exists(path):
+            return
         def _rmtree_inner(path):
             for name in _force_run(path, os.listdir, path):
                 fullname = os.path.join(path, name)
@@ -645,6 +664,36 @@ def requires_mac_ver(*min_version):
     return decorator
 
 
+def requires_hashdigest(digestname, openssl=None):
+    """Decorator raising SkipTest if a hashing algorithm is not available
+
+    The hashing algorithm could be missing or blocked by a strict crypto
+    policy.
+
+    If 'openssl' is True, then the decorator checks that OpenSSL provides
+    the algorithm. Otherwise the check falls back to built-in
+    implementations.
+
+    ValueError: [digital envelope routines: EVP_DigestInit_ex] disabled for FIPS
+    ValueError: unsupported hash type md4
+    """
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            try:
+                if openssl and _hashlib is not None:
+                    _hashlib.new(digestname)
+                else:
+                    hashlib.new(digestname)
+            except ValueError:
+                raise unittest.SkipTest(
+                    f"hash digest '{digestname}' is not available."
+                )
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
+
+
 HOST = "localhost"
 HOSTv4 = "127.0.0.1"
 HOSTv6 = "::1"
@@ -757,22 +806,22 @@ def bind_unix_socket(sock, addr):
         sock.close()
         raise unittest.SkipTest('cannot bind AF_UNIX sockets')
 
-# def _is_ipv6_enabled():
-#     """Check whether IPv6 is enabled on this host."""
-#     if socket.has_ipv6:
-#         sock = None
-#         try:
-#             sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
-#             sock.bind((HOSTv6, 0))
-#             return True
-#         except OSError:
-#             pass
-#         finally:
-#             if sock:
-#                 sock.close()
-#     return False
+def _is_ipv6_enabled():
+    """Check whether IPv6 is enabled on this host."""
+    if socket.has_ipv6:
+        sock = None
+        try:
+            sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+            sock.bind((HOSTv6, 0))
+            return True
+        except OSError:
+            pass
+        finally:
+            if sock:
+                sock.close()
+    return False
 
-# IPV6_ENABLED = _is_ipv6_enabled()
+IPV6_ENABLED = _is_ipv6_enabled()
 
 def system_must_validate_cert(f):
     """Skip the test on TLS certificate validation failures."""
@@ -805,6 +854,7 @@ SOCK_MAX_SIZE = 16 * 1024 * 1024 + 1
 # requires_IEEE_754 = unittest.skipUnless(
 #     float.__getformat__("double").startswith("IEEE"),
 #     "test requires IEEE 754 doubles")
+requires_IEEE_754 = unittest.skipIf(False, "RustPython always has IEEE 754 floating point numbers")
 
 requires_zlib = unittest.skipUnless(zlib, 'requires zlib')
 
@@ -896,25 +946,26 @@ if sys.platform == 'darwin':
     TESTFN_UNICODE = unicodedata.normalize('NFD', TESTFN_UNICODE)
 TESTFN_ENCODING = sys.getfilesystemencoding()
 
-# # TESTFN_UNENCODABLE is a filename (str type) that should *not* be able to be
-# # encoded by the filesystem encoding (in strict mode). It can be None if we
-# # cannot generate such filename.
-# TESTFN_UNENCODABLE = None
-# if os.name == 'nt':
-#     # skip win32s (0) or Windows 9x/ME (1)
-#     if sys.getwindowsversion().platform >= 2:
-#         # Different kinds of characters from various languages to minimize the
-#         # probability that the whole name is encodable to MBCS (issue #9819)
-#         TESTFN_UNENCODABLE = TESTFN + "-\u5171\u0141\u2661\u0363\uDC80"
-#         try:
-#             TESTFN_UNENCODABLE.encode(TESTFN_ENCODING)
-#         except UnicodeEncodeError:
-#             pass
-#         else:
-#             print('WARNING: The filename %r CAN be encoded by the filesystem encoding (%s). '
-#                   'Unicode filename tests may not be effective'
-#                   % (TESTFN_UNENCODABLE, TESTFN_ENCODING))
-#             TESTFN_UNENCODABLE = None
+# TESTFN_UNENCODABLE is a filename (str type) that should *not* be able to be
+# encoded by the filesystem encoding (in strict mode). It can be None if we
+# cannot generate such filename.
+TESTFN_UNENCODABLE = None
+if os.name == 'nt':
+    # skip win32s (0) or Windows 9x/ME (1)
+    if sys.getwindowsversion().platform >= 2:
+        # Different kinds of characters from various languages to minimize the
+        # probability that the whole name is encodable to MBCS (issue #9819)
+        TESTFN_UNENCODABLE = TESTFN + "-\u5171\u0141\u2661\u0363\uDC80"
+        try:
+            TESTFN_UNENCODABLE.encode(TESTFN_ENCODING)
+        except UnicodeEncodeError:
+            pass
+        else:
+            print('WARNING: The filename %r CAN be encoded by the filesystem encoding (%s). '
+                  'Unicode filename tests may not be effective'
+                  % (TESTFN_UNENCODABLE, TESTFN_ENCODING),
+                  file=sys.__stderr__)
+            TESTFN_UNENCODABLE = None
 # # Mac OS X denies unencodable filenames (invalid utf-8)
 # elif sys.platform != 'darwin':
 #     try:
@@ -929,35 +980,35 @@ TESTFN_ENCODING = sys.getfilesystemencoding()
 #         # the byte 0xff. Skip some unicode filename tests.
 #         pass
 
-# # TESTFN_UNDECODABLE is a filename (bytes type) that should *not* be able to be
-# # decoded from the filesystem encoding (in strict mode). It can be None if we
-# # cannot generate such filename (ex: the latin1 encoding can decode any byte
-# # sequence). On UNIX, TESTFN_UNDECODABLE can be decoded by os.fsdecode() thanks
-# # to the surrogateescape error handler (PEP 383), but not from the filesystem
-# # encoding in strict mode.
-# TESTFN_UNDECODABLE = None
-# for name in (
-#     # b'\xff' is not decodable by os.fsdecode() with code page 932. Windows
-#     # accepts it to create a file or a directory, or don't accept to enter to
-#     # such directory (when the bytes name is used). So test b'\xe7' first: it is
-#     # not decodable from cp932.
-#     b'\xe7w\xf0',
-#     # undecodable from ASCII, UTF-8
-#     b'\xff',
-#     # undecodable from iso8859-3, iso8859-6, iso8859-7, cp424, iso8859-8, cp856
-#     # and cp857
-#     b'\xae\xd5'
-#     # undecodable from UTF-8 (UNIX and Mac OS X)
-#     b'\xed\xb2\x80', b'\xed\xb4\x80',
-#     # undecodable from shift_jis, cp869, cp874, cp932, cp1250, cp1251, cp1252,
-#     # cp1253, cp1254, cp1255, cp1257, cp1258
-#     b'\x81\x98',
-# ):
-#     try:
-#         name.decode(TESTFN_ENCODING)
-#     except UnicodeDecodeError:
-#         TESTFN_UNDECODABLE = os.fsencode(TESTFN) + name
-#         break
+# TESTFN_UNDECODABLE is a filename (bytes type) that should *not* be able to be
+# decoded from the filesystem encoding (in strict mode). It can be None if we
+# cannot generate such filename (ex: the latin1 encoding can decode any byte
+# sequence). On UNIX, TESTFN_UNDECODABLE can be decoded by os.fsdecode() thanks
+# to the surrogateescape error handler (PEP 383), but not from the filesystem
+# encoding in strict mode.
+TESTFN_UNDECODABLE = None
+for name in (
+    # b'\xff' is not decodable by os.fsdecode() with code page 932. Windows
+    # accepts it to create a file or a directory, or don't accept to enter to
+    # such directory (when the bytes name is used). So test b'\xe7' first: it is
+    # not decodable from cp932.
+    b'\xe7w\xf0',
+    # undecodable from ASCII, UTF-8
+    b'\xff',
+    # undecodable from iso8859-3, iso8859-6, iso8859-7, cp424, iso8859-8, cp856
+    # and cp857
+    b'\xae\xd5'
+    # undecodable from UTF-8 (UNIX and Mac OS X)
+    b'\xed\xb2\x80', b'\xed\xb4\x80',
+    # undecodable from shift_jis, cp869, cp874, cp932, cp1250, cp1251, cp1252,
+    # cp1253, cp1254, cp1255, cp1257, cp1258
+    b'\x81\x98',
+):
+    try:
+        name.decode(TESTFN_ENCODING)
+    except UnicodeDecodeError:
+        TESTFN_UNDECODABLE = os.fsencode(TESTFN) + name
+        break
 
 if FS_NONASCII:
     TESTFN_NONASCII = TESTFN + '-' + FS_NONASCII
@@ -970,6 +1021,10 @@ SAVEDCWD = os.getcwd()
 # Set by libregrtest/main.py so we can skip tests that are not
 # useful for PGO
 PGO = False
+
+# Set by libregrtest/main.py if we are running the extended (time consuming)
+# PGO task.  If this is True, PGO is also True.
+PGO_EXTENDED = False
 
 @contextlib.contextmanager
 def temp_dir(path=None, quiet=False):
@@ -1008,7 +1063,18 @@ def temp_dir(path=None, quiet=False):
         # In case the process forks, let only the parent remove the
         # directory. The child has a different process id. (bpo-30028)
         if dir_created and pid == os.getpid():
-            rmtree(path)
+            try:
+                rmtree(path)
+            except OSError as exc:
+                # XXX RUSTPYTHON: something something async file removal?
+                #                 also part of the thing with rmtree()
+                #                 throwing PermissionError, I think
+                if os.path.exists(path):
+                    if not quiet:
+                        raise
+                    warnings.warn(f'unable to remove temporary'
+                                  f'directory {path!r}: {exc}',
+                                  RuntimeWarning, stacklevel=3)
 
 @contextlib.contextmanager
 def change_cwd(path, quiet=False):
@@ -1025,7 +1091,7 @@ def change_cwd(path, quiet=False):
     """
     saved_dir = os.getcwd()
     try:
-        os.chdir(path)
+        os.chdir(os.path.realpath(path))
     except OSError as exc:
         if not quiet:
             raise
@@ -1490,6 +1556,11 @@ def get_socket_conn_refused_errs():
         # bpo-31910: socket.create_connection() fails randomly
         # with EADDRNOTAVAIL on Travis CI
         errors.append(errno.EADDRNOTAVAIL)
+    if hasattr(errno, 'EHOSTUNREACH'):
+        # bpo-37583: The destination host cannot be reached
+        errors.append(errno.EHOSTUNREACH)
+    if not IPV6_ENABLED:
+        errors.append(errno.EAFNOSUPPORT)
     return errors
 
 
@@ -2003,7 +2074,9 @@ def _run_suite(suite):
 
 # By default, don't filter tests
 _match_test_func = None
-_match_test_patterns = None
+
+_accept_test_patterns = None
+_ignore_test_patterns = None
 
 
 def match_test(test):
@@ -2019,18 +2092,45 @@ def _is_full_match_test(pattern):
     # as a full test identifier.
     # Example: 'test.test_os.FileTests.test_access'.
     #
-    # Reject patterns which contain fnmatch patterns: '*', '?', '[...]'
-    # or '[!...]'. For example, reject 'test_access*'.
+    # ignore patterns which contain fnmatch patterns: '*', '?', '[...]'
+    # or '[!...]'. For example, ignore 'test_access*'.
     return ('.' in pattern) and (not re.search(r'[?*\[\]]', pattern))
 
 
-def set_match_tests(patterns):
-    global _match_test_func, _match_test_patterns
+def set_match_tests(accept_patterns=None, ignore_patterns=None):
+    global _match_test_func, _accept_test_patterns, _ignore_test_patterns
 
-    if patterns == _match_test_patterns:
-        # No change: no need to recompile patterns.
-        return
 
+    if accept_patterns is None:
+        accept_patterns = ()
+    if ignore_patterns is None:
+        ignore_patterns = ()
+
+    accept_func = ignore_func = None
+
+    if accept_patterns != _accept_test_patterns:
+        accept_patterns, accept_func = _compile_match_function(accept_patterns)
+    if ignore_patterns != _ignore_test_patterns:
+        ignore_patterns, ignore_func = _compile_match_function(ignore_patterns)
+
+    # Create a copy since patterns can be mutable and so modified later
+    _accept_test_patterns = tuple(accept_patterns)
+    _ignore_test_patterns = tuple(ignore_patterns)
+
+    if accept_func is not None or ignore_func is not None:
+        def match_function(test_id):
+            accept = True
+            ignore = False
+            if accept_func:
+                accept = accept_func(test_id)
+            if ignore_func:
+                ignore = ignore_func(test_id)
+            return accept and not ignore
+
+        _match_test_func = match_function
+
+
+def _compile_match_function(patterns):
     if not patterns:
         func = None
         # set_match_tests(None) behaves as set_match_tests(())
@@ -2058,10 +2158,7 @@ def set_match_tests(patterns):
 
         func = match_test_regex
 
-    # Create a copy since patterns can be mutable and so modified later
-    _match_test_patterns = tuple(patterns)
-    _match_test_func = func
-
+    return patterns, func
 
 
 def run_unittest(*classes):
@@ -2131,6 +2228,12 @@ def run_doctest(module, verbosity=None, optionflags=0):
 #=======================================================================
 # Support for saving and restoring the imported modules.
 
+def print_warning(msg):
+    # bpo-39983: Print into sys.__stderr__ to display the warning even
+    # when sys.stderr is captured temporarily by a test
+    for line in msg.splitlines():
+        print(f"Warning -- {line}", file=sys.__stderr__, flush=True)
+
 def modules_setup():
     return sys.modules.copy(),
 
@@ -2186,14 +2289,12 @@ def threading_cleanup(*original_values):
             # Display a warning at the first iteration
             environment_altered = True
             dangling_threads = values[1]
-            print("Warning -- threading_cleanup() failed to cleanup "
-                  "%s threads (count: %s, dangling: %s)"
-                  % (values[0] - original_values[0],
-                     values[0], len(dangling_threads)),
-                  file=sys.stderr)
+            print_warning(f"threading_cleanup() failed to cleanup "
+                          f"{values[0] - original_values[0]} threads "
+                          f"(count: {values[0]}, "
+                          f"dangling: {len(dangling_threads)})")
             for thread in dangling_threads:
-                print(f"Dangling thread: {thread!r}", file=sys.stderr)
-            sys.stderr.flush()
+                print_warning(f"Dangling thread: {thread!r}")
 
             # Don't hold references to threads
             dangling_threads = None
@@ -2286,8 +2387,7 @@ def reap_children():
         if pid == 0:
             break
 
-        print("Warning -- reap_children() reaped child process %s"
-              % pid, file=sys.stderr)
+        print_warning(f"reap_children() reaped child process {pid}")
         environment_altered = True
 
 
@@ -2396,7 +2496,8 @@ def strip_python_stderr(stderr):
     This will typically be run on the result of the communicate() method
     of a subprocess.Popen object.
     """
-    stderr = re.sub(br"\[\d+ refs, \d+ blocks\]\r?\n?", b"", stderr).strip()
+    # XXX RustPython TODO: bytes regexes
+    # stderr = re.sub(br"\[\d+ refs, \d+ blocks\]\r?\n?", b"", stderr).strip()
     return stderr
 
 requires_type_collecting = unittest.skipIf(hasattr(sys, 'getcounts'),
@@ -2500,6 +2601,105 @@ def skip_unless_symlink(test):
     msg = "Requires functional symlink implementation"
     return test if ok else unittest.skip(msg)(test)
 
+_buggy_ucrt = None
+def skip_if_buggy_ucrt_strfptime(test):
+    """
+    Skip decorator for tests that use buggy strptime/strftime
+
+    If the UCRT bugs are present time.localtime().tm_zone will be
+    an empty string, otherwise we assume the UCRT bugs are fixed
+
+    See bpo-37552 [Windows] strptime/strftime return invalid
+    results with UCRT version 17763.615
+    """
+    global _buggy_ucrt
+    if _buggy_ucrt is None:
+        if(sys.platform == 'win32' and
+                locale.getdefaultlocale()[1]  == 'cp65001' and
+                time.localtime().tm_zone == ''):
+            _buggy_ucrt = True
+        else:
+            _buggy_ucrt = False
+    return unittest.skip("buggy MSVC UCRT strptime/strftime")(test) if _buggy_ucrt else test
+
+class PythonSymlink:
+    """Creates a symlink for the current Python executable"""
+    def __init__(self, link=None):
+        self.link = link or os.path.abspath(TESTFN)
+        self._linked = []
+        self.real = os.path.realpath(sys.executable)
+        self._also_link = []
+
+        self._env = None
+
+        self._platform_specific()
+
+    def _platform_specific(self):
+        pass
+
+    if sys.platform == "win32":
+        def _platform_specific(self):
+            import _winapi
+
+            if os.path.lexists(self.real) and not os.path.exists(self.real):
+                # App symlink appears to not exist, but we want the
+                # real executable here anyway
+                self.real = _winapi.GetModuleFileName(0)
+
+            dll = _winapi.GetModuleFileName(sys.dllhandle)
+            src_dir = os.path.dirname(dll)
+            dest_dir = os.path.dirname(self.link)
+            self._also_link.append((
+                dll,
+                os.path.join(dest_dir, os.path.basename(dll))
+            ))
+            for runtime in glob.glob(os.path.join(src_dir, "vcruntime*.dll")):
+                self._also_link.append((
+                    runtime,
+                    os.path.join(dest_dir, os.path.basename(runtime))
+                ))
+
+            self._env = {k.upper(): os.getenv(k) for k in os.environ}
+            self._env["PYTHONHOME"] = os.path.dirname(self.real)
+            if sysconfig.is_python_build(True):
+                self._env["PYTHONPATH"] = os.path.dirname(os.__file__)
+
+    def __enter__(self):
+        os.symlink(self.real, self.link)
+        self._linked.append(self.link)
+        for real, link in self._also_link:
+            os.symlink(real, link)
+            self._linked.append(link)
+        return self
+
+    def __exit__(self, exc_type, exc_value, exc_tb):
+        for link in self._linked:
+            try:
+                os.remove(link)
+            except IOError as ex:
+                if verbose:
+                    print("failed to clean up {}: {}".format(link, ex))
+
+    def _call(self, python, args, env, returncode):
+        cmd = [python, *args]
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE, env=env)
+        r = p.communicate()
+        if p.returncode != returncode:
+            if verbose:
+                print(repr(r[0]))
+                print(repr(r[1]), file=sys.stderr)
+            raise RuntimeError(
+                'unexpected return code: {0} (0x{0:08X})'.format(p.returncode))
+        return r
+
+    def call_real(self, *args, returncode=0):
+        return self._call(self.real, args, None, returncode)
+
+    def call_link(self, *args, returncode=0):
+        return self._call(self.link, args, self._env, returncode)
+
+
 _can_xattr = None
 def can_xattr():
     global _can_xattr
@@ -2535,6 +2735,12 @@ def skip_unless_xattr(test):
     """Skip decorator for tests that require functional extended attributes"""
     ok = can_xattr()
     msg = "no non-broken extended attribute support"
+    return test if ok else unittest.skip(msg)(test)
+
+def skip_if_pgo_task(test):
+    """Skip decorator for tests not run in (non-extended) PGO task"""
+    ok = not PGO or PGO_EXTENDED
+    msg = "Not run for (non-extended) PGO task"
     return test if ok else unittest.skip(msg)(test)
 
 _bind_nix_socket_error = None
@@ -2877,7 +3083,7 @@ def fd_count():
     if sys.platform.startswith(('linux', 'freebsd')):
         try:
             names = os.listdir("/proc/self/fd")
-            # Substract one because listdir() opens internally a file
+            # Subtract one because listdir() internally opens a file
             # descriptor to list the content of the /proc/self/fd/ directory.
             return len(names) - 1
         except FileNotFoundError:
@@ -2992,13 +3198,48 @@ class FakePath:
             return self.path
 
 
+class _ALWAYS_EQ:
+    """
+    Object that is equal to anything.
+    """
+    def __eq__(self, other):
+        return True
+    def __ne__(self, other):
+        return False
+
+ALWAYS_EQ = _ALWAYS_EQ()
+
+@functools.total_ordering
+class _LARGEST:
+    """
+    Object that is greater than anything (except itself).
+    """
+    def __eq__(self, other):
+        return isinstance(other, _LARGEST)
+    def __lt__(self, other):
+        return False
+
+LARGEST = _LARGEST()
+
+@functools.total_ordering
+class _SMALLEST:
+    """
+    Object that is less than anything (except itself).
+    """
+    def __eq__(self, other):
+        return isinstance(other, _SMALLEST)
+    def __gt__(self, other):
+        return False
+
+SMALLEST = _SMALLEST()
+
 def maybe_get_event_loop_policy():
     """Return the global event loop policy if one is set, else return None."""
     return asyncio.events._event_loop_policy
 
-# # Helpers for testing hashing.
-# NHASHBITS = sys.hash_info.width # number of bits in hash() result
-# assert NHASHBITS in (32, 64)
+# Helpers for testing hashing.
+NHASHBITS = sys.hash_info.width # number of bits in hash() result
+assert NHASHBITS in (32, 64)
 
 # Return mean and sdev of number of collisions when tossing nballs balls
 # uniformly at random into nbins bins.  By definition, the number of
@@ -3036,3 +3277,104 @@ def collision_stats(nbins, nballs):
         collisions = k - occupied
         var = dn*(dn-1)*((dn-2)/dn)**k + meanempty * (1 - meanempty)
         return float(collisions), float(var.sqrt())
+
+
+class catch_unraisable_exception:
+    """
+    Context manager catching unraisable exception using sys.unraisablehook.
+
+    Storing the exception value (cm.unraisable.exc_value) creates a reference
+    cycle. The reference cycle is broken explicitly when the context manager
+    exits.
+
+    Storing the object (cm.unraisable.object) can resurrect it if it is set to
+    an object which is being finalized. Exiting the context manager clears the
+    stored object.
+
+    Usage:
+
+        with support.catch_unraisable_exception() as cm:
+            # code creating an "unraisable exception"
+            ...
+
+            # check the unraisable exception: use cm.unraisable
+            ...
+
+        # cm.unraisable attribute no longer exists at this point
+        # (to break a reference cycle)
+    """
+
+    def __init__(self):
+        self.unraisable = None
+        self._old_hook = None
+
+    def _hook(self, unraisable):
+        # Storing unraisable.object can resurrect an object which is being
+        # finalized. Storing unraisable.exc_value creates a reference cycle.
+        self.unraisable = unraisable
+
+    def __enter__(self):
+        self._old_hook = sys.unraisablehook
+        sys.unraisablehook = self._hook
+        return self
+
+    def __exit__(self, *exc_info):
+        sys.unraisablehook = self._old_hook
+        del self.unraisable
+
+
+class catch_threading_exception:
+    """
+    Context manager catching threading.Thread exception using
+    threading.excepthook.
+
+    Attributes set when an exception is catched:
+
+    * exc_type
+    * exc_value
+    * exc_traceback
+    * thread
+
+    See threading.excepthook() documentation for these attributes.
+
+    These attributes are deleted at the context manager exit.
+
+    Usage:
+
+        with support.catch_threading_exception() as cm:
+            # code spawning a thread which raises an exception
+            ...
+
+            # check the thread exception, use cm attributes:
+            # exc_type, exc_value, exc_traceback, thread
+            ...
+
+        # exc_type, exc_value, exc_traceback, thread attributes of cm no longer
+        # exists at this point
+        # (to avoid reference cycles)
+    """
+
+    def __init__(self):
+        self.exc_type = None
+        self.exc_value = None
+        self.exc_traceback = None
+        self.thread = None
+        self._old_hook = None
+
+    def _hook(self, args):
+        self.exc_type = args.exc_type
+        self.exc_value = args.exc_value
+        self.exc_traceback = args.exc_traceback
+        self.thread = args.thread
+
+    def __enter__(self):
+        self._old_hook = threading.excepthook
+        threading.excepthook = self._hook
+        return self
+
+    def __exit__(self, *exc_info):
+        threading.excepthook = self._old_hook
+        del self.exc_type
+        del self.exc_value
+        del self.exc_traceback
+        del self.thread

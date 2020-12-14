@@ -1,18 +1,14 @@
-mod readline;
-#[cfg(not(target_os = "wasi"))]
-mod rustyline_helper;
+mod helper;
 
-use rustpython_compiler::{compile, error::CompileError, error::CompileErrorType};
-use rustpython_parser::error::ParseErrorType;
+use rustpython_parser::error::{LexicalErrorType, ParseErrorType};
+use rustpython_vm::readline::{Readline, ReadlineResult};
 use rustpython_vm::{
+    compile::{self, CompileError, CompileErrorType},
     exceptions::{print_exception, PyBaseExceptionRef},
-    obj::objtype,
-    pyobject::{ItemProtocol, PyResult},
+    pyobject::{BorrowValue, PyResult, TypeProtocol},
     scope::Scope,
     VirtualMachine,
 };
-
-use readline::{Readline, ReadlineResult};
 
 enum ShellExecResult {
     Ok,
@@ -22,19 +18,14 @@ enum ShellExecResult {
 
 fn shell_exec(vm: &VirtualMachine, source: &str, scope: Scope) -> ShellExecResult {
     match vm.compile(source, compile::Mode::Single, "<stdin>".to_owned()) {
-        Ok(code) => {
-            match vm.run_code_obj(code, scope.clone()) {
-                Ok(value) => {
-                    // Save non-None values as "_"
-                    if !vm.is_none(&value) {
-                        let key = "_";
-                        scope.globals.set_item(key, value, vm).unwrap();
-                    }
-                    ShellExecResult::Ok
-                }
-                Err(err) => ShellExecResult::PyErr(err),
-            }
-        }
+        Ok(code) => match vm.run_code_obj(code, scope) {
+            Ok(_val) => ShellExecResult::Ok,
+            Err(err) => ShellExecResult::PyErr(err),
+        },
+        Err(CompileError {
+            error: CompileErrorType::Parse(ParseErrorType::Lexical(LexicalErrorType::EOF)),
+            ..
+        }) => ShellExecResult::Continue,
         Err(CompileError {
             error: CompileErrorType::Parse(ParseErrorType::EOF),
             ..
@@ -44,12 +35,7 @@ fn shell_exec(vm: &VirtualMachine, source: &str, scope: Scope) -> ShellExecResul
 }
 
 pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
-    println!(
-        "Welcome to the magnificent Rust Python {} interpreter \u{1f631} \u{1f596}",
-        crate_version!()
-    );
-
-    let mut repl = Readline::new(vm, scope.clone());
+    let mut repl = Readline::new(helper::ShellHelper::new(vm, scope.globals.clone()));
     let mut full_input = String::new();
 
     // Retrieve a `history_path_str` dependent on the OS
@@ -74,7 +60,7 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
             .get_attribute(vm.sys_module.clone(), prompt_name)
             .and_then(|prompt| vm.to_str(&prompt));
         let prompt = match prompt {
-            Ok(ref s) => s.as_str(),
+            Ok(ref s) => s.borrow_value(),
             Err(_) => "",
         };
         let result = match repl.readline(prompt) {
@@ -90,7 +76,7 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
                 } else {
                     full_input.push_str(&line);
                 }
-                full_input.push_str("\n");
+                full_input.push('\n');
 
                 if continuing {
                     if stop_continuing {
@@ -140,11 +126,11 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
         };
 
         if let Err(exc) = result {
-            if objtype::isinstance(&exc, &vm.ctx.exceptions.system_exit) {
+            if exc.isinstance(&vm.ctx.exceptions.system_exit) {
                 repl.save_history(&repl_history_path).unwrap();
                 return Err(exc);
             }
-            print_exception(vm, &exc);
+            print_exception(vm, exc);
         }
     }
     repl.save_history(&repl_history_path).unwrap();

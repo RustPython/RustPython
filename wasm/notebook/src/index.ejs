@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>RustPython Notebook</title>
+    <link defer async href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans&family=Sen:wght@800&display=swap"
+        rel="stylesheet">
+</head>
+
+<body>
+
+<div class="d-flex">
+    <div class="header md-flex-grow text-center">RustPython 🐍 😱 🤘</div>
+    <div>
+        <a target="_blank" class="d-md-none mr-px-5 text-black" href="https://github.com/RustPython/RustPython/tree/master/wasm/notebook">how this works</a>
+        <a target="_blank" class="text-black" href="https://github.com/RustPython/"> github</a>
+    </div>
+</div>
+   
+    <!-- navigation bar -->
+    <div class="nav-bar mt-px-5">
+        <div class="nav-bar-links d-flex d-flex-space-between d-sm-flex-direction-column">
+            <div class="d-flex d-sm-flex-direction-column ">
+                <a href="#" id="run-btn" class="bg-orange mr-px-5 text-white">run &#9658; </a>
+                <ul class="list-inline sm-mt-5px" id="buffers-list"></ul>
+                <ul class="list-inline sm-mt-5px">
+                    <li class="bg-light mr-px-5"> <a href="#" class="text-black" id="new-tab">new tab</a></li>
+                    <li class="bg-light mr-px-5"><a href="#popup" class="text-black" id="import-code">import code</a></li>
+                </ul>
+            </div>
+            <div class="nav-bar-links d-flex sm-mt-5px">
+                <ul class="list-inline ">
+                    <li class="d-md-none bg-light"><a href="#" id="split-view" class="mr-px-5 text-black">split view</a></li>
+                    <li class="d-md-none bg-light"><a href="#" id="default-view" class="mr-px-5  text-black">default view</a></li>
+                    <li class="d-md-none bg-light"><a href="#" id="reader-view" class="text-black">reader view</a></li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- code editor and output display -->
+    <!-- split view -->
+    <div class="split-view full-height d-sm-flex-direction-column ">
+        <div id="primary-editor"></div>
+        <div id="secondary-editor" class="d-none">
+            <select class="item-right" id="buffers-selection"></select>
+        </div>
+
+        <div class="border-left" id="rp-notebook">loading python in your browser...</div>
+    </div>
+
+    <!-- popup forms -->
+    <div id="popup" data-type="python" class="overlay">
+        <div class="popup">
+            <div id="popup-header">Header Placeholder</div>
+            <a class="popup-close" href="#">&times;</a>
+            <div class="popup-content mt-px-5">
+                <input type="url" name="popup-url" id="popup-url">
+                <button id="popup-import" class="btn bg-black text-white">import</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- errors and keyboard shortcuts -->
+    <div>
+        <div class="header">Error(s):</div>
+        <div id="error"></div>
+    </div>
+</body>
+
+</html>

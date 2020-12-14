@@ -1,9 +1,21 @@
 on:
   push:
     branches: [master, release]
-  pull_request:  
+  pull_request:
 
 name: CI
+
+env:
+  CARGO_ARGS: --features "ssl jit"
+  NON_WASM_PACKAGES: >
+    -p rustpython-bytecode
+    -p rustpython-common
+    -p rustpython-compiler
+    -p rustpython-parser
+    -p rustpython-vm
+    -p rustpython-jit
+    -p rustpython-derive
+    -p rustpython
 
 jobs:
   rust_tests:
@@ -15,24 +27,36 @@ jobs:
       fail-fast: false
     steps:
       - uses: actions/checkout@master
-      - name: Convert symlinks to hardlink (windows only)
-        run: powershell.exe scripts/symlinks-to-hardlinks.ps1
+      - uses: actions-rs/toolchain@v1
+      - name: Set up the Windows environment
+        run: |
+          choco install llvm
+          powershell.exe scripts/symlinks-to-hardlinks.ps1
         if: runner.os == 'Windows'
+      - name: Set up the Mac environment
+        run: brew install autoconf automake libtool
+        if: runner.os == 'macOS'
       - name: Cache cargo dependencies
-        uses: actions/cache@v1
+        uses: actions/cache@v2
         with:
-          key: ${{ runner.os }}-rust_tests-${{ hashFiles('Cargo.lock') }}
-          path: target
-          restore-keys: |
-            ${{ runner.os }}-rust_tests-
+          path: |
+              ~/.cargo/registry
+              ~/.cargo/git
+              target
+          key: ${{ runner.os }}-debug_opt3-${{ hashFiles('**/Cargo.lock') }}
       - name: run rust tests
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --verbose --all
+          args: --verbose ${{ env.CARGO_ARGS }} ${{ env.NON_WASM_PACKAGES }}
+      - name: check compilation without threading
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: ${{ env.CARGO_ARGS }} --no-default-features
 
-  snippets:
-    name: Run snippets tests
+  snippets_cpython:
+    name: Run snippets and cpython tests
     runs-on:  ${{ matrix.os }}
     strategy:
       matrix:
@@ -40,36 +64,71 @@ jobs:
       fail-fast: false
     steps:
       - uses: actions/checkout@master
-      - name: Convert symlinks to hardlink (windows only)
-        run: powershell.exe scripts/symlinks-to-hardlinks.ps1
-        if: runner.os == 'Windows'
-      - name: Cache cargo dependencies
-        uses: actions/cache@v1
+      - uses: actions-rs/toolchain@v1
+      - uses: actions/setup-python@v2
         with:
-          key: ${{ runner.os }}-snippets-${{ hashFiles('Cargo.lock') }}
-          path: target
-          restore-keys: |
-            ${{ runner.os }}-snippets-
+          python-version: 3.8
+      - name: Set up the Windows environment
+        run: |
+          choco install llvm
+          powershell.exe scripts/symlinks-to-hardlinks.ps1
+        if: runner.os == 'Windows'
+      - name: Set up the Mac environment
+        run: brew install autoconf automake libtool
+        if: runner.os == 'macOS'
+      - name: Cache cargo dependencies
+        uses: actions/cache@v2
+        # cache gets corrupted for some reason on mac
+        if: runner.os != 'macOS'
+        with:
+          path: |
+              ~/.cargo/registry
+              ~/.cargo/git
+              target
+          key: ${{ runner.os }}-release-${{ hashFiles('**/Cargo.lock') }}
       - name: build rustpython
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --release --verbose --all
+          args: --release --verbose ${{ env.CARGO_ARGS }}
       - uses: actions/setup-python@v1
         with:
-          python-version: 3.6
+          python-version: 3.8
       - name: Install pipenv
         run: |
           python -V
           python -m pip install --upgrade pip
           python -m pip install pipenv
-      - run: pipenv install
-        working-directory: ./tests
+      - run: pipenv install --python 3.8
+        working-directory: ./extra_tests
       - name: run snippets
         run: pipenv run pytest -v
-        working-directory: ./tests
+        working-directory: ./extra_tests
+      - name: run cpython tests
+        run: target/release/rustpython -m test -v
+        env:
+          RUSTPYTHONPATH: ${{ github.workspace }}/Lib
+        if: runner.os == 'Linux'
+      - name: run cpython tests (macOS lightweight)
+        run:
+          target/release/rustpython -m test -v -x
+            test_argparse test_json test_bytes test_bytearray test_long test_unicode test_array
+            test_asyncgen test_list test_complex test_json test_set test_dis test_calendar
+        env:
+          RUSTPYTHONPATH: ${{ github.workspace }}/Lib
+        if: runner.os == 'macOS'
+      - name: run cpython tests (windows partial - fixme)
+        run:
+          target/release/rustpython -m test -v -x
+            test_argparse test_json test_bytes test_long test_pwd test_bool test_cgi test_complex
+            test_exception_hierarchy test_glob test_iter test_list test_os test_pathlib
+            test_py_compile test_set test_shutil test_sys test_unicode test_unittest test_venv
+            test_zipimport test_importlib test_io
+        env:
+          RUSTPYTHONPATH: ${{ github.workspace }}/Lib
+        if: runner.os == 'Windows'
 
-  format:
+  lint:
     name: Check Rust code with rustfmt and clippy
     runs-on: ubuntu-latest
     steps:
@@ -89,48 +148,51 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: clippy
-          args: --all -- -Dwarnings
-
-  lint:
-    name: Lint Python code with flake8
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@master
+          args: ${{ env.CARGO_ARGS }} ${{ env.NON_WASM_PACKAGES }} -- -Dwarnings
+      - name: run clippy on wasm
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: --manifest-path=wasm/lib/Cargo.toml -- -Dwarnings
       - uses: actions/setup-python@v1
         with:
-          python-version: 3.6
+          python-version: 3.8
       - name: install flake8
         run: python -m pip install flake8
       - name: run lint
-        run: flake8 . --count --exclude=./.*,./Lib,./vm/Lib  --select=E9,F63,F7,F82 --show-source --statistics
-
-  cpython:
-    name: Run CPython test suite
+        run: flake8 . --count --exclude=./.*,./Lib,./vm/Lib,./benches/  --select=E9,F63,F7,F82 --show-source --statistics
+  miri:
+    name: Run tests under miri
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@master
-      - name: build rustpython
-        uses: actions-rs/cargo@v1
+      - uses: actions-rs/toolchain@v1
         with:
-          command: build
-          args: --verbose --all
-      - name: run tests
-        run: |
-          export RUSTPYTHONPATH=`pwd`/Lib
-          cargo run -- -m test -v
+            profile: minimal
+            toolchain: nightly
+            components: miri
+            override: true
+      - name: Run tests under miri
+        # miri-ignore-leaks because the type-object circular reference means that there will always be
+        # a memory leak, at least until we have proper cyclic gc
+        run: MIRIFLAGS='-Zmiri-ignore-leaks' cargo +nightly miri test -p rustpython-vm -- miri_test
 
   wasm:
     name: Check the WASM package and demo
+    needs: rust_tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@master
       - name: Cache cargo dependencies
-        uses: actions/cache@v1
+        uses: actions/cache@v2
         with:
-          key: ${{ runner.os }}-wasm-${{ hashFiles('**/Cargo.lock') }}
-          path: target
+          path: |
+              ~/.cargo/registry
+              ~/.cargo/git
+              target
+          key: ${{ runner.os }}-wasm_opt3-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-wasm-
+               ${{ runner.os }}-debug_opt3-${{ hashFiles('**/Cargo.lock') }}
       - name: install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
       - name: install geckodriver
@@ -140,7 +202,7 @@ jobs:
           tar -xzf geckodriver-v0.24.0-linux32.tar.gz -C geckodriver
       - uses: actions/setup-python@v1
         with:
-          python-version: 3.6
+          python-version: 3.8
       - name: Install pipenv
         run: |
           python -V
@@ -155,6 +217,13 @@ jobs:
           npm install
           npm run test
         working-directory: ./wasm/demo
+      - name: build notebook demo
+        if: github.ref == 'refs/heads/release'
+        run: |
+          npm install
+          npm run dist
+          mv dist ../demo/dist/notebook
+        working-directory: ./wasm/notebook
       - name: Deploy demo to Github Pages
         if: success() && github.ref == 'refs/heads/release'
         uses: peaceiris/actions-gh-pages@v2

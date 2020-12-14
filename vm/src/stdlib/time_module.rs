@@ -7,11 +7,13 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use chrono::naive::{NaiveDate, NaiveDateTime, NaiveTime};
 use chrono::{Datelike, Timelike};
 
+use crate::builtins::pystr::PyStrRef;
+use crate::builtins::pytype::PyTypeRef;
+use crate::builtins::tuple::PyTupleRef;
 use crate::function::OptionalArg;
-use crate::obj::objstr::PyStringRef;
-use crate::obj::objtuple::PyTupleRef;
-use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{Either, PyClassImpl, PyObjectRef, PyResult, TryFromObject};
+use crate::pyobject::{
+    BorrowValue, Either, PyClassImpl, PyObjectRef, PyResult, PyStructSequence, TryFromObject,
+};
 use crate::vm::VirtualMachine;
 
 #[cfg(unix)]
@@ -20,7 +22,7 @@ fn time_sleep(dur: Duration, vm: &VirtualMachine) -> PyResult<()> {
 
     let mut ts = libc::timespec {
         tv_sec: std::cmp::min(libc::time_t::max_value() as u64, dur.as_secs()) as libc::time_t,
-        tv_nsec: dur.subsec_nanos().into(),
+        tv_nsec: dur.subsec_nanos() as _,
     };
     let res = unsafe { libc::nanosleep(&ts, &mut ts) };
     let interrupted = res == -1 && nix::errno::errno() == libc::EINTR;
@@ -70,32 +72,41 @@ fn time_monotonic(_vm: &VirtualMachine) -> f64 {
     }
 }
 
-fn pyobj_to_naive_date_time(value: Either<f64, i64>) -> NaiveDateTime {
-    match value {
+fn pyobj_to_naive_date_time(
+    value: Either<f64, i64>,
+    vm: &VirtualMachine,
+) -> PyResult<NaiveDateTime> {
+    let timestamp = match value {
         Either::A(float) => {
             let secs = float.trunc() as i64;
             let nsecs = (float.fract() * 1e9) as u32;
-            NaiveDateTime::from_timestamp(secs, nsecs)
+            NaiveDateTime::from_timestamp_opt(secs, nsecs)
         }
-        Either::B(int) => NaiveDateTime::from_timestamp(int, 0),
-    }
+        Either::B(int) => NaiveDateTime::from_timestamp_opt(int, 0),
+    };
+    timestamp.ok_or_else(|| {
+        vm.new_overflow_error("timestamp out of range for platform time_t".to_owned())
+    })
 }
 
 /// https://docs.python.org/3/library/time.html?highlight=gmtime#time.gmtime
-fn time_gmtime(secs: OptionalArg<Either<f64, i64>>, vm: &VirtualMachine) -> PyObjectRef {
+fn time_gmtime(secs: OptionalArg<Either<f64, i64>>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
     let default = chrono::offset::Utc::now().naive_utc();
     let instant = match secs {
-        OptionalArg::Present(secs) => pyobj_to_naive_date_time(secs),
+        OptionalArg::Present(secs) => pyobj_to_naive_date_time(secs, vm)?,
         OptionalArg::Missing => default,
     };
-    PyStructTime::new(vm, instant, 0).into_obj(vm)
+    Ok(PyStructTime::new(vm, instant, 0).into_obj(vm))
 }
 
-fn time_localtime(secs: OptionalArg<Either<f64, i64>>, vm: &VirtualMachine) -> PyObjectRef {
-    let instant = optional_or_localtime(secs);
+fn time_localtime(
+    secs: OptionalArg<Either<f64, i64>>,
+    vm: &VirtualMachine,
+) -> PyResult<PyObjectRef> {
+    let instant = optional_or_localtime(secs, vm)?;
     // TODO: isdst flag must be valid value here
     // https://docs.python.org/3/library/time.html#time.localtime
-    PyStructTime::new(vm, instant, -1).into_obj(vm)
+    Ok(PyStructTime::new(vm, instant, -1).into_obj(vm))
 }
 
 fn time_mktime(t: PyStructTime, vm: &VirtualMachine) -> PyResult {
@@ -105,12 +116,15 @@ fn time_mktime(t: PyStructTime, vm: &VirtualMachine) -> PyResult {
 }
 
 /// Construct a localtime from the optional seconds, or get the current local time.
-fn optional_or_localtime(secs: OptionalArg<Either<f64, i64>>) -> NaiveDateTime {
+fn optional_or_localtime(
+    secs: OptionalArg<Either<f64, i64>>,
+    vm: &VirtualMachine,
+) -> PyResult<NaiveDateTime> {
     let default = chrono::offset::Local::now().naive_local();
-    match secs {
-        OptionalArg::Present(secs) => pyobj_to_naive_date_time(secs),
+    Ok(match secs {
+        OptionalArg::Present(secs) => pyobj_to_naive_date_time(secs, vm)?,
         OptionalArg::Missing => default,
-    }
+    })
 }
 
 const CFMT: &str = "%a %b %e %H:%M:%S %Y";
@@ -125,40 +139,33 @@ fn time_asctime(t: OptionalArg<PyStructTime>, vm: &VirtualMachine) -> PyResult {
     Ok(vm.ctx.new_str(formatted_time))
 }
 
-fn time_ctime(secs: OptionalArg<Either<f64, i64>>) -> String {
-    let instant = optional_or_localtime(secs);
-    instant.format(&CFMT).to_string()
+fn time_ctime(secs: OptionalArg<Either<f64, i64>>, vm: &VirtualMachine) -> PyResult<String> {
+    let instant = optional_or_localtime(secs, vm)?;
+    Ok(instant.format(&CFMT).to_string())
 }
 
-fn time_strftime(
-    format: PyStringRef,
-    t: OptionalArg<PyStructTime>,
-    vm: &VirtualMachine,
-) -> PyResult {
+fn time_strftime(format: PyStrRef, t: OptionalArg<PyStructTime>, vm: &VirtualMachine) -> PyResult {
     let default = chrono::offset::Local::now().naive_local();
     let instant = match t {
         OptionalArg::Present(t) => t.to_date_time(vm)?,
         OptionalArg::Missing => default,
     };
-    let formatted_time = instant.format(format.as_str()).to_string();
+    let formatted_time = instant.format(format.borrow_value()).to_string();
     Ok(vm.ctx.new_str(formatted_time))
 }
 
-fn time_strptime(
-    string: PyStringRef,
-    format: OptionalArg<PyStringRef>,
-    vm: &VirtualMachine,
-) -> PyResult {
+fn time_strptime(string: PyStrRef, format: OptionalArg<PyStrRef>, vm: &VirtualMachine) -> PyResult {
     let format = match format {
-        OptionalArg::Present(ref format) => format.as_str(),
+        OptionalArg::Present(ref format) => format.borrow_value(),
         OptionalArg::Missing => "%a %b %H:%M:%S %Y",
     };
-    let instant = NaiveDateTime::parse_from_str(string.as_str(), format)
+    let instant = NaiveDateTime::parse_from_str(string.borrow_value(), format)
         .map_err(|e| vm.new_value_error(format!("Parse error: {:?}", e)))?;
     Ok(PyStructTime::new(vm, instant, -1).into_obj(vm))
 }
 
-#[pystruct_sequence(name = "time.struct_time")]
+#[pyclass(module = "time", name = "struct_time")]
+#[derive(PyStructSequence)]
 #[allow(dead_code)]
 struct PyStructTime {
     tm_year: PyObjectRef,
@@ -178,6 +185,7 @@ impl fmt::Debug for PyStructTime {
     }
 }
 
+#[pyimpl(with(PyStructSequence))]
 impl PyStructTime {
     fn new(vm: &VirtualMachine, tm: NaiveDateTime, isdst: i32) -> Self {
         PyStructTime {
@@ -210,13 +218,13 @@ impl PyStructTime {
     }
 
     fn into_obj(self, vm: &VirtualMachine) -> PyObjectRef {
-        self.into_struct_sequence(vm, vm.class("time", "struct_time"))
-            .unwrap()
-            .into_object()
+        self.into_struct_sequence(vm).unwrap().into_object()
     }
 
-    fn tp_new(cls: PyClassRef, seq: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
-        Self::try_from_object(vm, seq)?.into_struct_sequence(vm, cls)
+    #[pyslot]
+    fn tp_new(_cls: PyTypeRef, seq: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        // cls is ignorable because this is not a basetype
+        Self::try_from_object(vm, seq)?.into_struct_sequence(vm)
     }
 }
 
@@ -248,23 +256,18 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     let struct_time_type = PyStructTime::make_class(ctx);
 
-    // TODO: allow $[pyimpl]s for struct_sequences
-    extend_class!(ctx, struct_time_type, {
-        (slot new) => PyStructTime::tp_new,
-    });
-
     py_module!(vm, "time", {
-        "asctime" => ctx.new_function(time_asctime),
-        "ctime" => ctx.new_function(time_ctime),
-        "gmtime" => ctx.new_function(time_gmtime),
-        "mktime" => ctx.new_function(time_mktime),
-        "localtime" => ctx.new_function(time_localtime),
-        "monotonic" => ctx.new_function(time_monotonic),
-        "strftime" => ctx.new_function(time_strftime),
-        "strptime" => ctx.new_function(time_strptime),
-        "sleep" => ctx.new_function(time_sleep),
+        "asctime" => named_function!(ctx, time, asctime),
+        "ctime" => named_function!(ctx, time, ctime),
+        "gmtime" => named_function!(ctx, time, gmtime),
+        "mktime" => named_function!(ctx, time, mktime),
+        "localtime" => named_function!(ctx, time, localtime),
+        "monotonic" => named_function!(ctx, time, monotonic),
+        "strftime" => named_function!(ctx, time, strftime),
+        "strptime" => named_function!(ctx, time, strptime),
+        "sleep" => named_function!(ctx, time, sleep),
         "struct_time" => struct_time_type,
-        "time" => ctx.new_function(time_time),
-        "perf_counter" => ctx.new_function(time_time), // TODO: fix
+        "time" => named_function!(ctx, time, time),
+        "perf_counter" => named_function!(ctx, time, time), // TODO: fix
     })
 }

@@ -1,14 +1,23 @@
 /* Several function to retrieve version information.
  */
 
+use crate::pyobject::PyStructSequence;
+use chrono::prelude::DateTime;
+use chrono::Local;
+use std::time::{Duration, UNIX_EPOCH};
+
 const MAJOR: usize = 3;
 const MINOR: usize = 5;
 const MICRO: usize = 0;
 const RELEASELEVEL: &str = "alpha";
+const RELEASELEVEL_N: usize = 0xA;
 const SERIAL: usize = 0;
 
-#[pystruct_sequence(name = "version_info")]
-#[derive(Default, Debug)]
+pub const VERSION_HEX: usize =
+    (MAJOR << 24) | (MINOR << 16) | (MICRO << 8) | (RELEASELEVEL_N << 4) | SERIAL;
+
+#[pyclass(module = "sys", name = "version_info")]
+#[derive(Default, Debug, PyStructSequence)]
 pub struct VersionInfo {
     major: usize,
     minor: usize,
@@ -16,27 +25,32 @@ pub struct VersionInfo {
     releaselevel: &'static str,
     serial: usize,
 }
-extern crate chrono;
-use chrono::prelude::DateTime;
-use chrono::Local;
-use std::time::{Duration, UNIX_EPOCH};
 
 pub fn get_version() -> String {
     format!(
-        "{:.80} ({:.80}) {:.80}",
+        "{:.80} ({:.80}) \n[{:.80}]",
         get_version_number(),
         get_build_info(),
         get_compiler()
     )
 }
 
-pub fn get_version_info() -> VersionInfo {
-    VersionInfo {
+#[pyimpl(with(PyStructSequence))]
+impl VersionInfo {
+    pub const VERSION: VersionInfo = VersionInfo {
         major: MAJOR,
         minor: MINOR,
         micro: MICRO,
         releaselevel: RELEASELEVEL,
         serial: SERIAL,
+    };
+    #[pyslot]
+    fn tp_new(
+        _cls: crate::builtins::pytype::PyTypeRef,
+        _args: crate::function::FuncArgs,
+        vm: &crate::VirtualMachine,
+    ) -> crate::pyobject::PyResult {
+        Err(vm.new_type_error("cannot create 'sys.version_info' instances".to_owned()))
     }
 }
 
@@ -46,7 +60,7 @@ pub fn get_version_number() -> String {
 
 pub fn get_compiler() -> String {
     let rustc_version = rustc_version_runtime::version_meta();
-    format!("\n[rustc {}]", rustc_version.semver)
+    format!("rustc {}", rustc_version.semver)
 }
 
 pub fn get_build_info() -> String {
@@ -102,9 +116,8 @@ fn get_git_timestamp_datetime() -> DateTime<Local> {
     let timestamp = timestamp.parse::<u64>().unwrap_or(0);
 
     let datetime = UNIX_EPOCH + Duration::from_secs(timestamp);
-    let datetime = DateTime::<Local>::from(datetime);
 
-    datetime
+    datetime.into()
 }
 
 pub fn get_git_date() -> String {

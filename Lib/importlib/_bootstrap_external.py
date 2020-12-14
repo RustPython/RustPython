@@ -26,16 +26,6 @@ _CASE_INSENSITIVE_PLATFORMS =  (_CASE_INSENSITIVE_PLATFORMS_BYTES_KEY
                                 + _CASE_INSENSITIVE_PLATFORMS_STR_KEY)
 
 
-def _w_long(x):
-    """Convert a 32-bit integer to little-endian."""
-    return (int(x) & 0xFFFFFFFF).to_bytes(4, 'little')
-
-
-def _r_long(int_bytes):
-    """Convert 4 bytes in little-endian to an integer."""
-    return int.from_bytes(int_bytes, 'little')
-
-
 def _make_relax_case():
     if sys.platform.startswith(_CASE_INSENSITIVE_PLATFORMS):
         if sys.platform.startswith(_CASE_INSENSITIVE_PLATFORMS_STR_KEY):
@@ -271,11 +261,16 @@ _code_type = type(_write_atomic.__code__)
 #     Python 3.7a2  3391 (update GET_AITER #31709)
 #     Python 3.7a4  3392 (PEP 552: Deterministic pycs #31650)
 #     Python 3.7b1  3393 (remove STORE_ANNOTATION opcode #32550)
-#     Python 3.7b5  3394 (restored docstring as the firts stmt in the body;
+#     Python 3.7b5  3394 (restored docstring as the first stmt in the body;
 #                         this might affected the first line number #32911)
 #     Python 3.8a1  3400 (move frame block handling to compiler #17611)
 #     Python 3.8a1  3401 (add END_ASYNC_FOR #33041)
 #     Python 3.8a1  3410 (PEP570 Python Positional-Only Parameters #36540)
+#     Python 3.8b2  3411 (Reverse evaluation order of key: value in dict
+#                         comprehensions #35224)
+#     Python 3.8b2  3412 (Swap the position of positional args and positional
+#                         only args in ast.arguments #37593)
+#     Python 3.8b4  3413 (Fix "break" and "continue" in "finally" #37830)
 #
 # MAGIC must change whenever the bytecode emitted by the compiler may no
 # longer be understood by older implementations of the eval loop (usually
@@ -973,8 +968,12 @@ class FileLoader:
 
     def get_data(self, path):
         """Return the data from path as raw bytes."""
-        with _io.FileIO(path, 'r') as file:
-            return file.read()
+        if isinstance(self, (SourceLoader, ExtensionFileLoader)):
+            with _io.open_code(str(path)) as file:
+                return file.read()
+        else:
+            with _io.FileIO(path, 'r') as file:
+                return file.read()
 
     # ResourceReader ABC API.
 
@@ -1369,6 +1368,19 @@ class PathFinder:
             return None
         return spec.loader
 
+    @classmethod
+    def find_distributions(cls, *args, **kwargs):
+        """
+        Find distributions.
+
+        Return an iterable of all Distribution instances capable of
+        loading the metadata for packages matching ``context.name``
+        (or all names if ``None`` indicated) along the paths in the list
+        of directories ``context.path``.
+        """
+        from importlib.metadata import MetadataPathFinder
+        return MetadataPathFinder.find_distributions(*args, **kwargs)
+
 
 class FileFinder:
 
@@ -1575,28 +1587,32 @@ def _setup(_bootstrap_module):
         setattr(self_module, builtin_name, builtin_module)
 
     # Directly load the os module (needed during bootstrap).
-    # XXX Changed to fit RustPython!!!
-    builtin_os = "_os"
-    if builtin_os in sys.modules:
-        os_module = sys.modules[builtin_os]
+    os_details = ('posix', ['/']), ('nt', ['\\', '/'])
+    for builtin_os, path_separators in os_details:
+        # Assumption made in _path_join()
+        assert all(len(sep) == 1 for sep in path_separators)
+        path_sep = path_separators[0]
+        if builtin_os in sys.modules:
+            os_module = sys.modules[builtin_os]
+            break
+        else:
+            try:
+                os_module = _bootstrap._builtin_from_name(builtin_os)
+                break
+            except ImportError:
+                continue
     else:
-        try:
-            os_module = _bootstrap._builtin_from_name(builtin_os)
-        except ImportError:
-            raise ImportError('importlib requires _os')
-    path_separators = ['\\', '/'] if os_module.name == 'nt' else ['/']
-    
-    # Assumption made in _path_join()
-    assert all(len(sep) == 1 for sep in path_separators)
-    path_sep = path_separators[0]
-
+        raise ImportError('importlib requires posix or nt')
     setattr(self_module, '_os', os_module)
     setattr(self_module, 'path_sep', path_sep)
     setattr(self_module, 'path_separators', ''.join(path_separators))
     setattr(self_module, '_pathseps_with_colon', {f':{s}' for s in path_separators})
 
     # Directly load the _thread module (needed during bootstrap).
-    thread_module = _bootstrap._builtin_from_name('_thread')
+    try:
+        thread_module = _bootstrap._builtin_from_name('_thread')
+    except ImportError:
+        thread_module = None
     setattr(self_module, '_thread', thread_module)
 
     # Directly load the _weakref module (needed during bootstrap).

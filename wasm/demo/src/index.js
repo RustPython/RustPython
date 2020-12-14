@@ -127,7 +127,7 @@ async function readPrompts() {
         try {
             terminalVM.execSingle(input);
         } catch (err) {
-            if (err instanceof SyntaxError && err.message.includes('EOF')) {
+            if (err.canContinue) {
                 continuing = true;
                 continue;
             } else if (err instanceof WebAssembly.RuntimeError) {
@@ -148,7 +148,7 @@ function onReady() {
     runCodeFromTextarea();
 
     terminalVM = rp.vmStore.init('term_vm');
-    terminalVM.setStdout(data => localEcho.println(data));
+    terminalVM.setStdout(data => localEcho.print(data));
     readPrompts().catch(err => console.error(err));
 
     // so that the test knows that we're ready

@@ -1,30 +1,33 @@
-use crate::function::PyFuncArgs;
-use crate::obj::objnone::PyNone;
-use crate::obj::objstr::{PyString, PyStringRef};
-use crate::obj::objtraceback::PyTracebackRef;
-use crate::obj::objtuple::{PyTuple, PyTupleRef};
-use crate::obj::objtype::{self, PyClass, PyClassRef};
-use crate::py_serde;
+use crate::builtins::pystr::{PyStr, PyStrRef};
+use crate::builtins::pytype::{PyType, PyTypeRef};
+use crate::builtins::singletons::{PyNone, PyNoneRef};
+use crate::builtins::traceback::PyTracebackRef;
+use crate::builtins::tuple::{PyTuple, PyTupleRef};
+use crate::common::lock::PyRwLock;
+use crate::function::FuncArgs;
+use crate::py_io::{self, Write};
+use crate::pyobject::StaticType;
 use crate::pyobject::{
-    PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol,
+    BorrowValue, IntoPyObject, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult,
+    PyValue, TryFromObject, TypeProtocol,
 };
-use crate::slots::PyTpFlags;
-use crate::types::create_type;
+use crate::types::create_type_with_slots;
 use crate::VirtualMachine;
+use crate::{py_serde, sysmodule};
+
+use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
-use std::cell::{Cell, RefCell};
 use std::fmt;
 use std::fs::File;
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, BufRead, BufReader};
 
-#[pyclass]
+#[pyclass(module = false, name = "BaseException")]
 pub struct PyBaseException {
-    traceback: RefCell<Option<PyTracebackRef>>,
-    cause: RefCell<Option<PyBaseExceptionRef>>,
-    context: RefCell<Option<PyBaseExceptionRef>>,
-    suppress_context: Cell<bool>,
-    args: RefCell<PyTupleRef>,
+    traceback: PyRwLock<Option<PyTracebackRef>>,
+    cause: PyRwLock<Option<PyBaseExceptionRef>>,
+    context: PyRwLock<Option<PyBaseExceptionRef>>,
+    suppress_context: AtomicCell<bool>,
+    args: PyRwLock<PyTupleRef>,
 }
 
 impl fmt::Debug for PyBaseException {
@@ -36,102 +39,108 @@ impl fmt::Debug for PyBaseException {
 
 pub type PyBaseExceptionRef = PyRef<PyBaseException>;
 
-impl PyValue for PyBaseException {
-    const HAVE_DICT: bool = true;
+pub trait IntoPyException {
+    fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef;
+}
 
-    fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.exceptions.base_exception_type.clone()
+impl PyValue for PyBaseException {
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.exceptions.base_exception_type
     }
 }
 
-#[pyimpl(flags(BASETYPE))]
+#[pyimpl(flags(BASETYPE, HAS_DICT))]
 impl PyBaseException {
     pub(crate) fn new(args: Vec<PyObjectRef>, vm: &VirtualMachine) -> PyBaseException {
         PyBaseException {
-            traceback: RefCell::new(None),
-            cause: RefCell::new(None),
-            context: RefCell::new(None),
-            suppress_context: Cell::new(false),
-            args: RefCell::new(PyTuple::from(args).into_ref(vm)),
+            traceback: PyRwLock::new(None),
+            cause: PyRwLock::new(None),
+            context: PyRwLock::new(None),
+            suppress_context: AtomicCell::new(false),
+            args: PyRwLock::new(PyTupleRef::with_elements(args, &vm.ctx)),
         }
     }
 
     #[pyslot]
-    fn tp_new(cls: PyClassRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    fn tp_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         PyBaseException::new(args.args, vm).into_ref_with_type(vm, cls)
     }
 
     #[pymethod(name = "__init__")]
-    fn init(&self, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-        self.args.replace(PyTuple::from(args.args).into_ref(vm));
+    fn init(&self, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        *self.args.write() = PyTupleRef::with_elements(args.args, &vm.ctx);
         Ok(())
+    }
+
+    pub fn get_arg(&self, idx: usize) -> Option<PyObjectRef> {
+        self.args.read().borrow_value().get(idx).cloned()
     }
 
     #[pyproperty]
     pub fn args(&self) -> PyTupleRef {
-        self.args.borrow().clone()
+        self.args.read().clone()
     }
 
     #[pyproperty(setter)]
     fn set_args(&self, args: PyIterable, vm: &VirtualMachine) -> PyResult<()> {
         let args = args.iter(vm)?.collect::<PyResult<Vec<_>>>()?;
-        self.args.replace(PyTuple::from(args).into_ref(vm));
+        *self.args.write() = PyTupleRef::with_elements(args, &vm.ctx);
         Ok(())
     }
 
     #[pyproperty(name = "__traceback__")]
     pub fn traceback(&self) -> Option<PyTracebackRef> {
-        self.traceback.borrow().clone()
+        self.traceback.read().clone()
     }
 
     #[pyproperty(name = "__traceback__", setter)]
     pub fn set_traceback(&self, traceback: Option<PyTracebackRef>) {
-        self.traceback.replace(traceback);
+        *self.traceback.write() = traceback;
     }
 
     #[pyproperty(name = "__cause__")]
     pub fn cause(&self) -> Option<PyBaseExceptionRef> {
-        self.cause.borrow().clone()
+        self.cause.read().clone()
     }
 
     #[pyproperty(name = "__cause__", setter)]
     pub fn set_cause(&self, cause: Option<PyBaseExceptionRef>) {
-        self.cause.replace(cause);
+        *self.cause.write() = cause;
     }
 
     #[pyproperty(name = "__context__")]
     pub fn context(&self) -> Option<PyBaseExceptionRef> {
-        self.context.borrow().clone()
+        self.context.read().clone()
     }
 
     #[pyproperty(name = "__context__", setter)]
     pub fn set_context(&self, context: Option<PyBaseExceptionRef>) {
-        self.context.replace(context);
+        *self.context.write() = context;
     }
 
     #[pyproperty(name = "__suppress_context__")]
     fn get_suppress_context(&self) -> bool {
-        self.suppress_context.get()
+        self.suppress_context.load()
     }
 
     #[pyproperty(name = "__suppress_context__", setter)]
     fn set_suppress_context(&self, suppress_context: bool) {
-        self.suppress_context.set(suppress_context);
+        self.suppress_context.store(suppress_context);
     }
 
     #[pymethod]
     fn with_traceback(zelf: PyRef<Self>, tb: Option<PyTracebackRef>) -> PyResult {
-        zelf.traceback.replace(tb);
+        *zelf.traceback.write() = tb;
         Ok(zelf.as_object().clone())
     }
 
     #[pymethod(name = "__str__")]
-    fn str(&self, vm: &VirtualMachine) -> PyStringRef {
+    fn str(&self, vm: &VirtualMachine) -> PyStrRef {
         let str_args = exception_args_as_string(vm, self.args(), true);
         match str_args.into_iter().exactly_one() {
-            Err(i) if i.len() == 0 => PyString::from("").into_ref(vm),
+            Err(i) if i.len() == 0 => PyStr::from("").into_ref(vm),
             Ok(s) => s,
-            Err(i) => PyString::from(format!("({})", i.format(", "))).into_ref(vm),
+            Err(i) => PyStr::from(format!("({})", i.format(", "))).into_ref(vm),
         }
     }
 
@@ -139,25 +148,50 @@ impl PyBaseException {
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> String {
         let repr_args = exception_args_as_string(vm, zelf.args(), false);
         let cls = zelf.class();
-        match repr_args.into_iter().exactly_one() {
-            Ok(one) => format!("{}({},)", cls.name, one),
-            Err(i) => format!("{}({})", cls.name, i.format(", ")),
-        }
+        format!("{}({})", cls.name, repr_args.iter().format(", "))
     }
 }
 
-/// Print exception chain
-pub fn print_exception(vm: &VirtualMachine, exc: &PyBaseExceptionRef) {
-    let stdout = io::stdout();
-    let mut stdout = stdout.lock();
-    let _ = write_exception(&mut stdout, vm, exc);
+pub fn chain<T>(e1: PyResult<()>, e2: PyResult<T>) -> PyResult<T> {
+    match (e1, e2) {
+        (Err(e1), Err(e)) => {
+            e.set_context(Some(e1));
+            Err(e)
+        }
+        (Err(e), Ok(_)) | (Ok(()), Err(e)) => Err(e),
+        (Ok(()), Ok(close_res)) => Ok(close_res),
+    }
+}
+
+/// Print exception chain by calling sys.excepthook
+pub fn print_exception(vm: &VirtualMachine, exc: PyBaseExceptionRef) {
+    let write_fallback = |exc, errstr| {
+        if let Ok(stderr) = sysmodule::get_stderr(vm) {
+            let mut stderr = py_io::PyWriter(stderr, vm);
+            // if this fails stderr might be closed -- ignore it
+            let _ = writeln!(stderr, "{}", errstr);
+            let _ = write_exception(&mut stderr, vm, exc);
+        } else {
+            eprintln!("{}\nlost sys.stderr", errstr);
+            let _ = write_exception(&mut io::stderr(), vm, exc);
+        }
+    };
+    if let Ok(excepthook) = vm.get_attribute(vm.sys_module.clone(), "excepthook") {
+        let (exc_type, exc_val, exc_tb) = split(exc.clone(), vm);
+        if let Err(eh_exc) = vm.invoke(&excepthook, vec![exc_type, exc_val, exc_tb]) {
+            write_fallback(&eh_exc, "Error in sys.excepthook:");
+            write_fallback(&exc, "Original exception was:");
+        }
+    } else {
+        write_fallback(&exc, "missing sys.excepthook");
+    }
 }
 
 pub fn write_exception<W: Write>(
     output: &mut W,
     vm: &VirtualMachine,
     exc: &PyBaseExceptionRef,
-) -> io::Result<()> {
+) -> Result<(), W::Error> {
     if let Some(cause) = exc.cause() {
         write_exception(output, vm, &cause)?;
         writeln!(
@@ -175,7 +209,11 @@ pub fn write_exception<W: Write>(
     write_exception_inner(output, vm, exc)
 }
 
-fn print_source_line<W: Write>(output: &mut W, filename: &str, lineno: usize) -> io::Result<()> {
+fn print_source_line<W: Write>(
+    output: &mut W,
+    filename: &str,
+    lineno: usize,
+) -> Result<(), W::Error> {
     // TODO: use io.open() method instead, when available, according to https://github.com/python/cpython/blob/master/Python/traceback.c#L393
     // TODO: support different encodings
     let file = match File::open(filename) {
@@ -198,7 +236,10 @@ fn print_source_line<W: Write>(output: &mut W, filename: &str, lineno: usize) ->
 }
 
 /// Print exception occurrence location from traceback element
-fn write_traceback_entry<W: Write>(output: &mut W, tb_entry: &PyTracebackRef) -> io::Result<()> {
+fn write_traceback_entry<W: Write>(
+    output: &mut W,
+    tb_entry: &PyTracebackRef,
+) -> Result<(), W::Error> {
     let filename = tb_entry.frame.code.source_path.to_owned();
     writeln!(
         output,
@@ -215,8 +256,8 @@ pub fn write_exception_inner<W: Write>(
     output: &mut W,
     vm: &VirtualMachine,
     exc: &PyBaseExceptionRef,
-) -> io::Result<()> {
-    if let Some(tb) = exc.traceback.borrow().clone() {
+) -> Result<(), W::Error> {
+    if let Some(tb) = exc.traceback.read().clone() {
         writeln!(output, "Traceback (most recent call last):")?;
         for tb in tb.iter() {
             write_traceback_entry(output, &tb)?;
@@ -243,17 +284,17 @@ fn exception_args_as_string(
     vm: &VirtualMachine,
     varargs: PyTupleRef,
     str_single: bool,
-) -> Vec<PyStringRef> {
-    let varargs = varargs.as_slice();
+) -> Vec<PyStrRef> {
+    let varargs = varargs.borrow_value();
     match varargs.len() {
         0 => vec![],
         1 => {
             let args0_repr = if str_single {
                 vm.to_str(&varargs[0])
-                    .unwrap_or_else(|_| PyString::from("<element str() failed>").into_ref(vm))
+                    .unwrap_or_else(|_| PyStr::from("<element str() failed>").into_ref(vm))
             } else {
                 vm.to_repr(&varargs[0])
-                    .unwrap_or_else(|_| PyString::from("<element repr() failed>").into_ref(vm))
+                    .unwrap_or_else(|_| PyStr::from("<element repr() failed>").into_ref(vm))
             };
             vec![args0_repr]
         }
@@ -261,7 +302,7 @@ fn exception_args_as_string(
             .iter()
             .map(|vararg| {
                 vm.to_repr(vararg)
-                    .unwrap_or_else(|_| PyString::from("<element repr() failed>").into_ref(vm))
+                    .unwrap_or_else(|_| PyStr::from("<element repr() failed>").into_ref(vm))
             })
             .collect(),
     }
@@ -269,15 +310,15 @@ fn exception_args_as_string(
 
 #[derive(Clone)]
 pub enum ExceptionCtor {
-    Class(PyClassRef),
+    Class(PyTypeRef),
     Instance(PyBaseExceptionRef),
 }
 
 impl TryFromObject for ExceptionCtor {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        obj.downcast::<PyClass>()
+        obj.downcast::<PyType>()
             .and_then(|cls| {
-                if objtype::issubclass(&cls, &vm.ctx.exceptions.base_exception_type) {
+                if cls.issubclass(&vm.ctx.exceptions.base_exception_type) {
                     Ok(Self::Class(cls))
                 } else {
                     Err(cls.into_object())
@@ -294,7 +335,7 @@ impl TryFromObject for ExceptionCtor {
 }
 
 pub fn invoke(
-    cls: PyClassRef,
+    cls: PyTypeRef,
     args: Vec<PyObjectRef>,
     vm: &VirtualMachine,
 ) -> PyResult<PyBaseExceptionRef> {
@@ -326,19 +367,27 @@ impl ExceptionCtor {
             // if the "type" is an instance and the value isn't, use the "type"
             (Self::Instance(exc), None) => Ok(exc),
             // if the value is an instance of the type, use the instance value
-            (Self::Class(cls), Some(exc)) if objtype::isinstance(&exc, &cls) => Ok(exc),
+            (Self::Class(cls), Some(exc)) if exc.isinstance(&cls) => Ok(exc),
             // otherwise; construct an exception of the type using the value as args
             (Self::Class(cls), _) => {
                 let args = match_class!(match value {
                     PyNone => vec![],
-                    tup @ PyTuple => tup.as_slice().to_vec(),
-                    exc @ PyBaseException => exc.args().as_slice().to_vec(),
+                    tup @ PyTuple => tup.borrow_value().to_vec(),
+                    exc @ PyBaseException => exc.args().borrow_value().to_vec(),
                     obj => vec![obj],
                 });
                 invoke(cls, args, vm)
             }
         }
     }
+}
+
+pub fn split(
+    exc: PyBaseExceptionRef,
+    vm: &VirtualMachine,
+) -> (PyObjectRef, PyObjectRef, PyObjectRef) {
+    let tb = exc.traceback().into_pyobject(vm);
+    (exc.clone_class().into_object(), exc.into_object(), tb)
 }
 
 /// Similar to PyErr_NormalizeException in CPython
@@ -356,163 +405,215 @@ pub fn normalize(
     Ok(exc)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ExceptionZoo {
-    pub arithmetic_error: PyClassRef,
-    pub assertion_error: PyClassRef,
-    pub attribute_error: PyClassRef,
-    pub base_exception_type: PyClassRef,
-    pub exception_type: PyClassRef,
-    pub import_error: PyClassRef,
-    pub index_error: PyClassRef,
-    pub key_error: PyClassRef,
-    pub lookup_error: PyClassRef,
-    pub module_not_found_error: PyClassRef,
-    pub name_error: PyClassRef,
-    pub not_implemented_error: PyClassRef,
-    pub recursion_error: PyClassRef,
-    pub overflow_error: PyClassRef,
-    pub reference_error: PyClassRef,
-    pub runtime_error: PyClassRef,
-    pub stop_iteration: PyClassRef,
-    pub stop_async_iteration: PyClassRef,
-    pub syntax_error: PyClassRef,
-    pub indentation_error: PyClassRef,
-    pub tab_error: PyClassRef,
-    pub system_error: PyClassRef,
-    pub type_error: PyClassRef,
-    pub value_error: PyClassRef,
-    pub unicode_error: PyClassRef,
-    pub unicode_decode_error: PyClassRef,
-    pub unicode_encode_error: PyClassRef,
-    pub unicode_translate_error: PyClassRef,
-    pub zero_division_error: PyClassRef,
-    pub eof_error: PyClassRef,
-    pub memory_error: PyClassRef,
+    pub base_exception_type: PyTypeRef,
+    pub system_exit: PyTypeRef,
+    pub keyboard_interrupt: PyTypeRef,
+    pub generator_exit: PyTypeRef,
+    pub exception_type: PyTypeRef,
+    pub stop_iteration: PyTypeRef,
+    pub stop_async_iteration: PyTypeRef,
+    pub arithmetic_error: PyTypeRef,
+    pub floating_point_error: PyTypeRef,
+    pub overflow_error: PyTypeRef,
+    pub zero_division_error: PyTypeRef,
+    pub assertion_error: PyTypeRef,
+    pub attribute_error: PyTypeRef,
+    pub buffer_error: PyTypeRef,
+    pub eof_error: PyTypeRef,
+    pub import_error: PyTypeRef,
+    pub module_not_found_error: PyTypeRef,
+    pub lookup_error: PyTypeRef,
+    pub index_error: PyTypeRef,
+    pub key_error: PyTypeRef,
+    pub memory_error: PyTypeRef,
+    pub name_error: PyTypeRef,
+    pub unbound_local_error: PyTypeRef,
+    pub os_error: PyTypeRef,
+    pub blocking_io_error: PyTypeRef,
+    pub child_process_error: PyTypeRef,
+    pub connection_error: PyTypeRef,
+    pub broken_pipe_error: PyTypeRef,
+    pub connection_aborted_error: PyTypeRef,
+    pub connection_refused_error: PyTypeRef,
+    pub connection_reset_error: PyTypeRef,
+    pub file_exists_error: PyTypeRef,
+    pub file_not_found_error: PyTypeRef,
+    pub interrupted_error: PyTypeRef,
+    pub is_a_directory_error: PyTypeRef,
+    pub not_a_directory_error: PyTypeRef,
+    pub permission_error: PyTypeRef,
+    pub process_lookup_error: PyTypeRef,
+    pub timeout_error: PyTypeRef,
+    pub reference_error: PyTypeRef,
+    pub runtime_error: PyTypeRef,
+    pub not_implemented_error: PyTypeRef,
+    pub recursion_error: PyTypeRef,
+    pub syntax_error: PyTypeRef,
+    pub target_scope_error: PyTypeRef,
+    pub indentation_error: PyTypeRef,
+    pub tab_error: PyTypeRef,
+    pub system_error: PyTypeRef,
+    pub type_error: PyTypeRef,
+    pub value_error: PyTypeRef,
+    pub unicode_error: PyTypeRef,
+    pub unicode_decode_error: PyTypeRef,
+    pub unicode_encode_error: PyTypeRef,
+    pub unicode_translate_error: PyTypeRef,
 
-    pub os_error: PyClassRef,
-    pub file_not_found_error: PyClassRef,
-    pub permission_error: PyClassRef,
-    pub file_exists_error: PyClassRef,
-    pub blocking_io_error: PyClassRef,
-    pub interrupted_error: PyClassRef,
-    pub connection_error: PyClassRef,
-    pub connection_reset_error: PyClassRef,
-    pub connection_refused_error: PyClassRef,
-    pub connection_aborted_error: PyClassRef,
-    pub broken_pipe_error: PyClassRef,
+    #[cfg(feature = "jit")]
+    pub jit_error: PyTypeRef,
 
-    pub warning: PyClassRef,
-    pub bytes_warning: PyClassRef,
-    pub unicode_warning: PyClassRef,
-    pub deprecation_warning: PyClassRef,
-    pub pending_deprecation_warning: PyClassRef,
-    pub future_warning: PyClassRef,
-    pub import_warning: PyClassRef,
-    pub syntax_warning: PyClassRef,
-    pub resource_warning: PyClassRef,
-    pub runtime_warning: PyClassRef,
-    pub user_warning: PyClassRef,
-
-    pub keyboard_interrupt: PyClassRef,
-    pub generator_exit: PyClassRef,
-    pub system_exit: PyClassRef,
+    pub warning: PyTypeRef,
+    pub deprecation_warning: PyTypeRef,
+    pub pending_deprecation_warning: PyTypeRef,
+    pub runtime_warning: PyTypeRef,
+    pub syntax_warning: PyTypeRef,
+    pub user_warning: PyTypeRef,
+    pub future_warning: PyTypeRef,
+    pub import_warning: PyTypeRef,
+    pub unicode_warning: PyTypeRef,
+    pub bytes_warning: PyTypeRef,
+    pub resource_warning: PyTypeRef,
 }
 
 impl ExceptionZoo {
-    pub fn new(type_type: &PyClassRef, object_type: &PyClassRef) -> Self {
-        let create_exception_type = |name: &str, base: &PyClassRef| {
-            let typ = create_type(name, type_type, base);
-            typ.slots.borrow_mut().flags |= PyTpFlags::BASETYPE;
-            typ
+    pub(crate) fn init() -> Self {
+        let base_exception_type = PyBaseException::init_bare_type().clone();
+        let create_exception_type = |name: &str, base: &PyTypeRef| {
+            create_type_with_slots(
+                name,
+                PyType::static_type(),
+                base,
+                PyBaseException::make_slots(),
+            )
         };
         // Sorted By Hierarchy then alphabetized.
-        let base_exception_type = create_exception_type("BaseException", &object_type);
+        let system_exit = create_exception_type("SystemExit", &base_exception_type);
+        let keyboard_interrupt = create_exception_type("KeyboardInterrupt", &base_exception_type);
+        let generator_exit = create_exception_type("GeneratorExit", &base_exception_type);
+
         let exception_type = create_exception_type("Exception", &base_exception_type);
+        let stop_iteration = create_exception_type("StopIteration", &exception_type);
+        let stop_async_iteration = create_exception_type("StopAsyncIteration", &exception_type);
         let arithmetic_error = create_exception_type("ArithmeticError", &exception_type);
+        let floating_point_error = create_exception_type("FloatingPointError", &arithmetic_error);
+        let overflow_error = create_exception_type("OverflowError", &arithmetic_error);
+        let zero_division_error = create_exception_type("ZeroDivisionError", &arithmetic_error);
         let assertion_error = create_exception_type("AssertionError", &exception_type);
         let attribute_error = create_exception_type("AttributeError", &exception_type);
+        let buffer_error = create_exception_type("BufferError", &exception_type);
+        let eof_error = create_exception_type("EOFError", &exception_type);
         let import_error = create_exception_type("ImportError", &exception_type);
+        let module_not_found_error = create_exception_type("ModuleNotFoundError", &import_error);
         let lookup_error = create_exception_type("LookupError", &exception_type);
         let index_error = create_exception_type("IndexError", &lookup_error);
         let key_error = create_exception_type("KeyError", &lookup_error);
+        let memory_error = create_exception_type("MemoryError", &exception_type);
         let name_error = create_exception_type("NameError", &exception_type);
-        let runtime_error = create_exception_type("RuntimeError", &exception_type);
+        let unbound_local_error = create_exception_type("UnboundLocalError", &name_error);
+
+        // os errors
+        let os_error = create_exception_type("OSError", &exception_type);
+        let blocking_io_error = create_exception_type("BlockingIOError", &os_error);
+        let child_process_error = create_exception_type("ChildProcessError", &os_error);
+        let connection_error = create_exception_type("ConnectionError", &os_error);
+        let connection_aborted_error =
+            create_exception_type("ConnectionAbortedError", &connection_error);
+        let connection_refused_error =
+            create_exception_type("ConnectionRefusedError", &connection_error);
+        let connection_reset_error =
+            create_exception_type("ConnectionResetError", &connection_error);
+        let file_exists_error = create_exception_type("FileExistsError", &os_error);
+        let file_not_found_error = create_exception_type("FileNotFoundError", &os_error);
+        let interrupted_error = create_exception_type("InterruptedError", &os_error);
+        let is_a_directory_error = create_exception_type("IsADirectoryError", &os_error);
+        let not_a_directory_error = create_exception_type("NotADirectoryError", &os_error);
+        let broken_pipe_error = create_exception_type("BrokenPipeError", &connection_error);
+        let permission_error = create_exception_type("PermissionError", &os_error);
+        let process_lookup_error = create_exception_type("ProcessLookupError", &os_error);
+        let timeout_error = create_exception_type("TimeoutError", &os_error);
+
         let reference_error = create_exception_type("ReferenceError", &exception_type);
-        let stop_iteration = create_exception_type("StopIteration", &exception_type);
-        let stop_async_iteration = create_exception_type("StopAsyncIteration", &exception_type);
+        let runtime_error = create_exception_type("RuntimeError", &exception_type);
+        let not_implemented_error = create_exception_type("NotImplementedError", &runtime_error);
+        let recursion_error = create_exception_type("RecursionError", &runtime_error);
         let syntax_error = create_exception_type("SyntaxError", &exception_type);
+        let indentation_error = create_exception_type("IndentationError", &syntax_error);
+        let tab_error = create_exception_type("TabError", &indentation_error);
+        let target_scope_error = create_exception_type("TargetScopeError", &syntax_error);
         let system_error = create_exception_type("SystemError", &exception_type);
         let type_error = create_exception_type("TypeError", &exception_type);
         let value_error = create_exception_type("ValueError", &exception_type);
-        let overflow_error = create_exception_type("OverflowError", &arithmetic_error);
-        let zero_division_error = create_exception_type("ZeroDivisionError", &arithmetic_error);
-        let module_not_found_error = create_exception_type("ModuleNotFoundError", &import_error);
-        let not_implemented_error = create_exception_type("NotImplementedError", &runtime_error);
-        let recursion_error = create_exception_type("RecursionError", &runtime_error);
-        let eof_error = create_exception_type("EOFError", &exception_type);
-        let indentation_error = create_exception_type("IndentationError", &syntax_error);
-        let tab_error = create_exception_type("TabError", &indentation_error);
         let unicode_error = create_exception_type("UnicodeError", &value_error);
         let unicode_decode_error = create_exception_type("UnicodeDecodeError", &unicode_error);
         let unicode_encode_error = create_exception_type("UnicodeEncodeError", &unicode_error);
         let unicode_translate_error =
             create_exception_type("UnicodeTranslateError", &unicode_error);
-        let memory_error = create_exception_type("MemoryError", &exception_type);
 
-        // os errors
-        let os_error = create_exception_type("OSError", &exception_type);
-
-        let file_not_found_error = create_exception_type("FileNotFoundError", &os_error);
-        let permission_error = create_exception_type("PermissionError", &os_error);
-        let file_exists_error = create_exception_type("FileExistsError", &os_error);
-        let blocking_io_error = create_exception_type("BlockingIOError", &os_error);
-        let interrupted_error = create_exception_type("InterruptedError", &os_error);
-        let connection_error = create_exception_type("ConnectionError", &os_error);
-        let connection_reset_error =
-            create_exception_type("ConnectionResetError", &connection_error);
-        let connection_refused_error =
-            create_exception_type("ConnectionRefusedError", &connection_error);
-        let connection_aborted_error =
-            create_exception_type("ConnectionAbortedError", &connection_error);
-        let broken_pipe_error = create_exception_type("BrokenPipeError", &connection_error);
+        #[cfg(feature = "jit")]
+        let jit_error = create_exception_type("JitError", &exception_type);
 
         let warning = create_exception_type("Warning", &exception_type);
-        let bytes_warning = create_exception_type("BytesWarning", &warning);
-        let unicode_warning = create_exception_type("UnicodeWarning", &warning);
         let deprecation_warning = create_exception_type("DeprecationWarning", &warning);
         let pending_deprecation_warning =
             create_exception_type("PendingDeprecationWarning", &warning);
+        let runtime_warning = create_exception_type("RuntimeWarning", &warning);
+        let syntax_warning = create_exception_type("SyntaxWarning", &warning);
+        let user_warning = create_exception_type("UserWarning", &warning);
         let future_warning = create_exception_type("FutureWarning", &warning);
         let import_warning = create_exception_type("ImportWarning", &warning);
-        let syntax_warning = create_exception_type("SyntaxWarning", &warning);
+        let unicode_warning = create_exception_type("UnicodeWarning", &warning);
+        let bytes_warning = create_exception_type("BytesWarning", &warning);
         let resource_warning = create_exception_type("ResourceWarning", &warning);
-        let runtime_warning = create_exception_type("RuntimeWarning", &warning);
-        let user_warning = create_exception_type("UserWarning", &warning);
 
-        let keyboard_interrupt = create_exception_type("KeyboardInterrupt", &base_exception_type);
-        let generator_exit = create_exception_type("GeneratorExit", &base_exception_type);
-        let system_exit = create_exception_type("SystemExit", &base_exception_type);
-
-        ExceptionZoo {
-            arithmetic_error,
-            assertion_error,
-            attribute_error,
+        Self {
             base_exception_type,
+            system_exit,
+            keyboard_interrupt,
+            generator_exit,
             exception_type,
-            import_error,
-            index_error,
-            key_error,
-            lookup_error,
-            module_not_found_error,
-            name_error,
-            not_implemented_error,
-            recursion_error,
-            overflow_error,
-            runtime_error,
             stop_iteration,
             stop_async_iteration,
+            arithmetic_error,
+            floating_point_error,
+            overflow_error,
+            zero_division_error,
+            assertion_error,
+            attribute_error,
+            buffer_error,
+            eof_error,
+            import_error,
+            module_not_found_error,
+            lookup_error,
+            index_error,
+            key_error,
+            memory_error,
+            name_error,
+            unbound_local_error,
+            os_error,
+            blocking_io_error,
+            child_process_error,
+            connection_error,
+            broken_pipe_error,
+            connection_aborted_error,
+            connection_refused_error,
+            connection_reset_error,
+            file_exists_error,
+            file_not_found_error,
+            interrupted_error,
+            is_a_directory_error,
+            not_a_directory_error,
+            permission_error,
+            process_lookup_error,
+            timeout_error,
+            reference_error,
+            runtime_error,
+            not_implemented_error,
+            recursion_error,
             syntax_error,
+            target_scope_error,
             indentation_error,
             tab_error,
             system_error,
@@ -522,77 +623,106 @@ impl ExceptionZoo {
             unicode_decode_error,
             unicode_encode_error,
             unicode_translate_error,
-            zero_division_error,
-            eof_error,
-            memory_error,
-            os_error,
-            file_not_found_error,
-            permission_error,
-            file_exists_error,
-            blocking_io_error,
-            interrupted_error,
-            connection_error,
-            connection_reset_error,
-            connection_refused_error,
-            connection_aborted_error,
-            broken_pipe_error,
+
+            #[cfg(feature = "jit")]
+            jit_error,
+
             warning,
-            bytes_warning,
-            unicode_warning,
             deprecation_warning,
             pending_deprecation_warning,
+            runtime_warning,
+            syntax_warning,
+            user_warning,
             future_warning,
             import_warning,
-            syntax_warning,
+            unicode_warning,
+            bytes_warning,
             resource_warning,
-            runtime_warning,
-            reference_error,
-            user_warning,
-            keyboard_interrupt,
-            generator_exit,
-            system_exit,
         }
+    }
+
+    pub fn extend(ctx: &PyContext) {
+        let excs = &ctx.exceptions;
+
+        PyBaseException::extend_class(ctx, &excs.base_exception_type);
+
+        extend_class!(ctx, &excs.syntax_error, {
+            "msg" => ctx.new_readonly_getset("msg", make_arg_getter(0)),
+            // TODO: members
+            "filename" => ctx.none(),
+            "lineno" => ctx.none(),
+            "offset" => ctx.none(),
+            "text" => ctx.none(),
+        });
+
+        extend_class!(ctx, &excs.system_exit, {
+            "code" => ctx.new_readonly_getset("code", system_exit_code),
+        });
+
+        extend_class!(ctx, &excs.import_error, {
+            "__init__" => ctx.new_method(import_error_init),
+            "msg" => ctx.new_readonly_getset("msg", make_arg_getter(0)),
+        });
+
+        extend_class!(ctx, &excs.stop_iteration, {
+            "value" => ctx.new_readonly_getset("value", make_arg_getter(0)),
+        });
+
+        extend_class!(ctx, &excs.key_error, {
+            "__str__" => ctx.new_method(key_error_str),
+        });
+
+        extend_class!(ctx, &excs.unicode_decode_error, {
+            "encoding" => ctx.new_readonly_getset("encoding", make_arg_getter(0)),
+            "object" => ctx.new_readonly_getset("object", make_arg_getter(1)),
+            "start" => ctx.new_readonly_getset("start", make_arg_getter(2)),
+            "end" => ctx.new_readonly_getset("end", make_arg_getter(3)),
+            "reason" => ctx.new_readonly_getset("reason", make_arg_getter(4)),
+        });
+
+        extend_class!(ctx, &excs.unicode_encode_error, {
+            "encoding" => ctx.new_readonly_getset("encoding", make_arg_getter(0)),
+            "object" => ctx.new_readonly_getset("object", make_arg_getter(1)),
+            "start" => ctx.new_readonly_getset("start", make_arg_getter(2)),
+            "end" => ctx.new_readonly_getset("end", make_arg_getter(3)),
+            "reason" => ctx.new_readonly_getset("reason", make_arg_getter(4)),
+        });
+
+        extend_class!(ctx, &excs.unicode_translate_error, {
+            "encoding" => ctx.new_readonly_getset("encoding", none_getter),
+            "object" => ctx.new_readonly_getset("object", make_arg_getter(0)),
+            "start" => ctx.new_readonly_getset("start", make_arg_getter(1)),
+            "end" => ctx.new_readonly_getset("end", make_arg_getter(2)),
+            "reason" => ctx.new_readonly_getset("reason", make_arg_getter(3)),
+        });
     }
 }
 
-fn import_error_init(exc_self: PyObjectRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+fn import_error_init(exc_self: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
     vm.set_attr(
         &exc_self,
         "name",
-        args.kwargs
-            .get("name")
-            .cloned()
-            .unwrap_or_else(|| vm.get_none()),
+        vm.unwrap_or_none(args.kwargs.get("name").cloned()),
     )?;
     vm.set_attr(
         &exc_self,
         "path",
-        args.kwargs
-            .get("path")
-            .cloned()
-            .unwrap_or_else(|| vm.get_none()),
+        vm.unwrap_or_none(args.kwargs.get("path").cloned()),
     )?;
     Ok(())
 }
 
-fn none_getter(_obj: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-    vm.get_none()
+fn none_getter(_obj: PyObjectRef, vm: &VirtualMachine) -> PyNoneRef {
+    vm.ctx.none.clone()
 }
 
-fn make_arg_getter(idx: usize) -> impl Fn(PyBaseExceptionRef, &VirtualMachine) -> PyObjectRef {
-    move |exc, vm| {
-        exc.args
-            .borrow()
-            .as_slice()
-            .get(idx)
-            .cloned()
-            .unwrap_or_else(|| vm.get_none())
-    }
+fn make_arg_getter(idx: usize) -> impl Fn(PyBaseExceptionRef) -> Option<PyObjectRef> {
+    move |exc| exc.get_arg(idx)
 }
 
-fn key_error_str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyStringRef {
+fn key_error_str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyStrRef {
     let args = exc.args();
-    if args.as_slice().len() == 1 {
+    if args.borrow_value().len() == 1 {
         exception_args_as_string(vm, args, false)
             .into_iter()
             .exactly_one()
@@ -602,56 +732,16 @@ fn key_error_str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyStringRef {
     }
 }
 
-pub fn init(ctx: &PyContext) {
-    let excs = &ctx.exceptions;
-
-    PyBaseException::extend_class(ctx, &excs.base_exception_type);
-
-    extend_class!(ctx, &excs.syntax_error, {
-        "msg" => ctx.new_readonly_getset("msg", make_arg_getter(0)),
-        // TODO: members
-        "filename" => ctx.none(),
-        "lineno" => ctx.none(),
-        "offset" => ctx.none(),
-        "text" => ctx.none(),
-    });
-
-    extend_class!(ctx, &excs.import_error, {
-        "__init__" => ctx.new_method(import_error_init),
-        "msg" => ctx.new_readonly_getset("msg", make_arg_getter(0)),
-    });
-
-    extend_class!(ctx, &excs.stop_iteration, {
-        "value" => ctx.new_readonly_getset("value", make_arg_getter(0)),
-    });
-
-    extend_class!(ctx, &excs.key_error, {
-        "__str__" => ctx.new_method(key_error_str),
-    });
-
-    extend_class!(ctx, &excs.unicode_decode_error, {
-        "encoding" => ctx.new_readonly_getset("encoding", make_arg_getter(0)),
-        "object" => ctx.new_readonly_getset("object", make_arg_getter(1)),
-        "start" => ctx.new_readonly_getset("start", make_arg_getter(2)),
-        "end" => ctx.new_readonly_getset("end", make_arg_getter(3)),
-        "reason" => ctx.new_readonly_getset("reason", make_arg_getter(4)),
-    });
-
-    extend_class!(ctx, &excs.unicode_encode_error, {
-        "encoding" => ctx.new_readonly_getset("encoding", make_arg_getter(0)),
-        "object" => ctx.new_readonly_getset("object", make_arg_getter(1)),
-        "start" => ctx.new_readonly_getset("start", make_arg_getter(2)),
-        "end" => ctx.new_readonly_getset("end", make_arg_getter(3)),
-        "reason" => ctx.new_readonly_getset("reason", make_arg_getter(4)),
-    });
-
-    extend_class!(ctx, &excs.unicode_translate_error, {
-        "encoding" => ctx.new_readonly_getset("encoding", none_getter),
-        "object" => ctx.new_readonly_getset("object", make_arg_getter(0)),
-        "start" => ctx.new_readonly_getset("start", make_arg_getter(1)),
-        "end" => ctx.new_readonly_getset("end", make_arg_getter(2)),
-        "reason" => ctx.new_readonly_getset("reason", make_arg_getter(3)),
-    });
+fn system_exit_code(exc: PyBaseExceptionRef) -> Option<PyObjectRef> {
+    exc.args.read().borrow_value().first().map(|code| {
+        match_class!(match code {
+            ref tup @ PyTuple => match tup.borrow_value() {
+                [x] => x.clone(),
+                _ => code.clone(),
+            },
+            other => other.clone(),
+        })
+    })
 }
 
 pub struct SerializeException<'s> {
@@ -693,7 +783,7 @@ impl serde::Serialize for SerializeException<'_> {
             "context",
             &self.exc.context().as_ref().map(|e| Self::new(self.vm, e)),
         )?;
-        struc.serialize_field("suppress_context", &self.exc.suppress_context.get())?;
+        struc.serialize_field("suppress_context", &self.exc.suppress_context.load())?;
 
         let args = {
             struct Args<'vm>(&'vm VirtualMachine, PyTupleRef);
@@ -701,7 +791,7 @@ impl serde::Serialize for SerializeException<'_> {
                 fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
                     s.collect_seq(
                         self.1
-                            .as_slice()
+                            .borrow_value()
                             .iter()
                             .map(|arg| py_serde::PyObjectSerializer::new(self.0, arg)),
                     )

@@ -2,7 +2,7 @@
 //! The goal is to provide a matching and a safe error API, maksing errors from LALR
 use lalrpop_util::ParseError as LalrpopError;
 
-use crate::location::Location;
+use crate::ast::Location;
 use crate::token::Tok;
 
 use std::error::Error;
@@ -28,6 +28,7 @@ pub enum LexicalErrorType {
     UnrecognizedToken { tok: char },
     FStringError(FStringErrorType),
     LineContinuationError,
+    EOF,
     OtherError(String),
 }
 
@@ -59,14 +60,9 @@ impl fmt::Display for LexicalErrorType {
             LexicalErrorType::LineContinuationError => {
                 write!(f, "unexpected character after line continuation character")
             }
+            LexicalErrorType::EOF => write!(f, "unexpected EOF while parsing"),
             LexicalErrorType::OtherError(msg) => write!(f, "{}", msg),
         }
-    }
-}
-
-impl From<LexicalError> for LalrpopError<Location, Tok, LexicalError> {
-    fn from(err: LexicalError) -> Self {
-        lalrpop_util::ParseError::User { error: err }
     }
 }
 
@@ -81,6 +77,7 @@ pub struct FStringError {
 pub enum FStringErrorType {
     UnclosedLbrace,
     UnopenedRbrace,
+    ExpectedRbrace,
     InvalidExpression(Box<ParseErrorType>),
     InvalidConversionFlag,
     EmptyExpression,
@@ -91,8 +88,9 @@ pub enum FStringErrorType {
 impl fmt::Display for FStringErrorType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            FStringErrorType::UnclosedLbrace => write!(f, "Unclosed '('"),
-            FStringErrorType::UnopenedRbrace => write!(f, "Unopened ')'"),
+            FStringErrorType::UnclosedLbrace => write!(f, "Unclosed '{{'"),
+            FStringErrorType::UnopenedRbrace => write!(f, "Unopened '}}'"),
+            FStringErrorType::ExpectedRbrace => write!(f, "Expected '}}' after conversion flag."),
             FStringErrorType::InvalidExpression(error) => {
                 write!(f, "Invalid expression: {}", error)
             }
@@ -191,7 +189,7 @@ impl fmt::Display for ParseErrorType {
             ParseErrorType::UnrecognizedToken(ref tok, ref expected) => {
                 if *tok == Tok::Indent {
                     write!(f, "unexpected indent")
-                } else if expected.clone() == Some("Indent".to_owned()) {
+                } else if expected.as_deref() == Some("Indent") {
                     write!(f, "expected an indented block")
                 } else {
                     write!(f, "Got unexpected token {}", tok)
@@ -199,6 +197,30 @@ impl fmt::Display for ParseErrorType {
             }
             ParseErrorType::Lexical(ref error) => write!(f, "{}", error),
         }
+    }
+}
+
+impl Error for ParseErrorType {}
+
+impl ParseErrorType {
+    pub fn is_indentation_error(&self) -> bool {
+        match self {
+            ParseErrorType::Lexical(LexicalErrorType::IndentationError) => true,
+            ParseErrorType::UnrecognizedToken(token, expected) => {
+                *token == Tok::Indent || expected.clone() == Some("Indent".to_owned())
+            }
+            _ => false,
+        }
+    }
+    pub fn is_tab_error(&self) -> bool {
+        matches!(self, ParseErrorType::Lexical(LexicalErrorType::TabError))
+    }
+}
+
+impl std::ops::Deref for ParseError {
+    type Target = ParseErrorType;
+    fn deref(&self) -> &Self::Target {
+        &self.error
     }
 }
 

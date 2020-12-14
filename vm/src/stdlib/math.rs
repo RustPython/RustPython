@@ -3,22 +3,17 @@
  *
  */
 
+use num_bigint::BigInt;
+use num_traits::{One, Signed, Zero};
 use statrs::function::erf::{erf, erfc};
 use statrs::function::gamma::{gamma, ln_gamma};
 
-use num_bigint::BigInt;
-use num_traits::cast::ToPrimitive;
-use num_traits::{One, Zero};
-
-use crate::function::OptionalArg;
-use crate::obj::objfloat::{self, IntoPyFloat, PyFloatRef};
-use crate::obj::objint::PyIntRef;
-use crate::obj::objtype;
-use crate::pyobject::{PyObjectRef, PyResult, TypeProtocol};
+use crate::builtins::float::{self, IntoPyFloat, PyFloatRef};
+use crate::builtins::int::{self, PyInt, PyIntRef};
+use crate::function::{Args, OptionalArg};
+use crate::pyobject::{BorrowValue, Either, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
-
-#[cfg(not(target_arch = "wasm32"))]
-use libc::c_double;
+use rustpython_common::float_ops;
 
 use std::cmp::Ordering;
 
@@ -47,13 +42,13 @@ make_math_func_bool!(math_isnan, is_nan);
 
 #[derive(FromArgs)]
 struct IsCloseArgs {
-    #[pyarg(positional_only, optional = false)]
+    #[pyarg(positional)]
     a: IntoPyFloat,
-    #[pyarg(positional_only, optional = false)]
+    #[pyarg(positional)]
     b: IntoPyFloat,
-    #[pyarg(keyword_only, optional = true)]
+    #[pyarg(named, optional)]
     rel_tol: OptionalArg<IntoPyFloat>,
-    #[pyarg(keyword_only, optional = true)]
+    #[pyarg(named, optional)]
     abs_tol: OptionalArg<IntoPyFloat>,
 }
 
@@ -127,11 +122,43 @@ fn math_pow(x: IntoPyFloat, y: IntoPyFloat) -> f64 {
     x.to_f64().powf(y.to_f64())
 }
 
-make_math_func!(math_sqrt, sqrt);
+fn math_sqrt(value: IntoPyFloat, vm: &VirtualMachine) -> PyResult<f64> {
+    let value = value.to_f64();
+    if value.is_sign_negative() {
+        return Err(vm.new_value_error("math domain error".to_owned()));
+    }
+    Ok(value.sqrt())
+}
+
+fn math_isqrt(x: PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt> {
+    let index = vm.to_index(&x)?;
+    let value = index.borrow_value();
+
+    if value.is_negative() {
+        return Err(vm.new_value_error("isqrt() argument must be nonnegative".to_owned()));
+    }
+    Ok(value.sqrt())
+}
 
 // Trigonometric functions:
-make_math_func!(math_acos, acos);
-make_math_func!(math_asin, asin);
+fn math_acos(x: IntoPyFloat, vm: &VirtualMachine) -> PyResult<f64> {
+    let x = x.to_f64();
+    if x.is_nan() || (-1.0_f64..=1.0_f64).contains(&x) {
+        Ok(x.acos())
+    } else {
+        Err(vm.new_value_error("math domain error".to_owned()))
+    }
+}
+
+fn math_asin(x: IntoPyFloat, vm: &VirtualMachine) -> PyResult<f64> {
+    let x = x.to_f64();
+    if x.is_nan() || (-1.0_f64..=1.0_f64).contains(&x) {
+        Ok(x.asin())
+    } else {
+        Err(vm.new_value_error("math domain error".to_owned()))
+    }
+}
+
 make_math_func!(math_atan, atan);
 
 fn math_atan2(y: IntoPyFloat, x: IntoPyFloat) -> f64 {
@@ -140,8 +167,43 @@ fn math_atan2(y: IntoPyFloat, x: IntoPyFloat) -> f64 {
 
 make_math_func!(math_cos, cos);
 
-fn math_hypot(x: IntoPyFloat, y: IntoPyFloat) -> f64 {
-    x.to_f64().hypot(y.to_f64())
+fn math_hypot(coordinates: Args<IntoPyFloat>) -> f64 {
+    let mut coordinates = IntoPyFloat::vec_into_f64(coordinates.into_vec());
+    let mut max = 0.0;
+    let mut has_nan = false;
+    for f in &mut coordinates {
+        *f = f.abs();
+        if f.is_nan() {
+            has_nan = true;
+        } else if *f > max {
+            max = *f
+        }
+    }
+    // inf takes precedence over nan
+    if max.is_infinite() {
+        return max;
+    }
+    if has_nan {
+        return f64::NAN;
+    }
+    vector_norm(&coordinates, max)
+}
+
+fn vector_norm(v: &[f64], max: f64) -> f64 {
+    if max == 0.0 || v.len() <= 1 {
+        return max;
+    }
+    let mut csum = 1.0;
+    let mut frac = 0.0;
+    for &f in v {
+        let f = f / max;
+        let f = f * f;
+        let old = csum;
+        csum += f;
+        // this seemingly redundant operation is to reduce float rounding errors/inaccuracy
+        frac += (old - csum) + f;
+    }
+    max * f64::sqrt(csum - 1.0 + frac)
 }
 
 make_math_func!(math_sin, sin);
@@ -156,7 +218,15 @@ fn math_radians(x: IntoPyFloat) -> f64 {
 }
 
 // Hyperbolic functions:
-make_math_func!(math_acosh, acosh);
+fn math_acosh(x: IntoPyFloat, vm: &VirtualMachine) -> PyResult<f64> {
+    let x = x.to_f64();
+    if x.is_sign_negative() || x.is_zero() {
+        Err(vm.new_value_error("math domain error".to_owned()))
+    } else {
+        Ok(x.acosh())
+    }
+}
+
 make_math_func!(math_asinh, asinh);
 make_math_func!(math_atanh, atanh);
 make_math_func!(math_cosh, cosh);
@@ -212,7 +282,7 @@ fn try_magic_method(func_name: &str, vm: &VirtualMachine, value: &PyObjectRef) -
             func_name,
         )
     })?;
-    vm.invoke(&method, vec![])
+    vm.invoke(&method, ())
 }
 
 fn math_trunc(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -226,9 +296,9 @@ fn math_trunc(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 /// * `value` - Either a float or a python object which implements __ceil__
 /// * `vm` - Represents the python state.
 fn math_ceil(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    if objtype::isinstance(&value, &vm.ctx.float_type()) {
-        let v = objfloat::get_value(&value);
-        let v = objfloat::try_bigint(v.ceil(), vm)?;
+    if value.isinstance(&vm.ctx.types.float_type) {
+        let v = float::get_value(&value);
+        let v = float::try_bigint(v.ceil(), vm)?;
         Ok(vm.ctx.new_int(v))
     } else {
         try_magic_method("__ceil__", vm, &value)
@@ -242,9 +312,9 @@ fn math_ceil(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 /// * `value` - Either a float or a python object which implements __ceil__
 /// * `vm` - Represents the python state.
 fn math_floor(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    if objtype::isinstance(&value, &vm.ctx.float_type()) {
-        let v = objfloat::get_value(&value);
-        let v = objfloat::try_bigint(v.floor(), vm)?;
+    if value.isinstance(&vm.ctx.types.float_type) {
+        let v = float::get_value(&value);
+        let v = float::try_bigint(v.floor(), vm)?;
         Ok(vm.ctx.new_int(v))
     } else {
         try_magic_method("__floor__", vm, &value)
@@ -254,25 +324,57 @@ fn math_floor(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 fn math_frexp(value: IntoPyFloat) -> (f64, i32) {
     let value = value.to_f64();
     if value.is_finite() {
-        let (m, e) = objfloat::ufrexp(value);
+        let (m, e) = float_ops::ufrexp(value);
         (m * value.signum(), e)
     } else {
         (value, 0)
     }
 }
 
-fn math_ldexp(value: PyFloatRef, i: PyIntRef) -> f64 {
-    value.to_f64() * (2_f64).powf(i.as_bigint().to_f64().unwrap())
+fn math_ldexp(
+    value: Either<PyFloatRef, PyIntRef>,
+    i: PyIntRef,
+    vm: &VirtualMachine,
+) -> PyResult<f64> {
+    let value = match value {
+        Either::A(f) => f.to_f64(),
+        Either::B(z) => int::to_float(z.borrow_value(), vm)?,
+    };
+    Ok(value * (2_f64).powf(int::to_float(i.borrow_value(), vm)?))
 }
 
-fn math_gcd(a: PyIntRef, b: PyIntRef) -> BigInt {
+fn math_perf_arb_len_int_op<F>(args: Args<PyIntRef>, op: F, default: BigInt) -> BigInt
+where
+    F: Fn(&BigInt, &PyInt) -> BigInt,
+{
+    let argvec = args.into_vec();
+
+    if argvec.is_empty() {
+        return default;
+    } else if argvec.len() == 1 {
+        return op(argvec[0].borrow_value(), &argvec[0]);
+    }
+
+    let mut res = argvec[0].borrow_value().clone();
+    for num in argvec[1..].iter() {
+        res = op(&res, &num)
+    }
+    res
+}
+
+fn math_gcd(args: Args<PyIntRef>) -> BigInt {
     use num_integer::Integer;
-    a.as_bigint().gcd(b.as_bigint())
+    math_perf_arb_len_int_op(args, |x, y| x.gcd(y.borrow_value()), BigInt::zero())
+}
+
+fn math_lcm(args: Args<PyIntRef>) -> BigInt {
+    use num_integer::Integer;
+    math_perf_arb_len_int_op(args, |x, y| x.lcm(y.borrow_value()), BigInt::one())
 }
 
 fn math_factorial(value: PyIntRef, vm: &VirtualMachine) -> PyResult<BigInt> {
-    let value = value.as_bigint();
-    if *value < BigInt::zero() {
+    let value = value.borrow_value();
+    if value.is_negative() {
         return Err(vm.new_value_error("factorial() not defined for negative values".to_owned()));
     } else if *value <= BigInt::one() {
         return Ok(BigInt::from(1u64));
@@ -294,19 +396,12 @@ fn math_modf(x: IntoPyFloat) -> (f64, f64) {
     (x.fract(), x.trunc())
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-fn math_nextafter(x: IntoPyFloat, y: IntoPyFloat) -> PyResult<f64> {
-    extern "C" {
-        fn nextafter(x: c_double, y: c_double) -> c_double;
-    }
-    let x = x.to_f64();
-    let y = y.to_f64();
-    Ok(unsafe { nextafter(x, y) })
+fn math_nextafter(x: IntoPyFloat, y: IntoPyFloat) -> f64 {
+    float_ops::nextafter(x.to_f64(), y.to_f64())
 }
 
-#[cfg(target_arch = "wasm32")]
-fn math_nextafter(x: IntoPyFloat, y: IntoPyFloat, vm: &VirtualMachine) -> PyResult<f64> {
-    Err(vm.new_not_implemented_error("not implemented for this platform".to_owned()))
+fn math_ulp(x: IntoPyFloat) -> f64 {
+    float_ops::ulp(x.to_f64())
 }
 
 fn fmod(x: f64, y: f64) -> f64 {
@@ -372,68 +467,72 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     py_module!(vm, "math", {
         // Number theory functions:
-        "fabs" => ctx.new_function(math_fabs),
-        "isfinite" => ctx.new_function(math_isfinite),
-        "isinf" => ctx.new_function(math_isinf),
-        "isnan" => ctx.new_function(math_isnan),
-        "isclose" => ctx.new_function(math_isclose),
-        "copysign" => ctx.new_function(math_copysign),
+        "fabs" => named_function!(ctx, math, fabs),
+        "isfinite" => named_function!(ctx, math, isfinite),
+        "isinf" => named_function!(ctx, math, isinf),
+        "isnan" => named_function!(ctx, math, isnan),
+        "isclose" => named_function!(ctx, math, isclose),
+        "copysign" => named_function!(ctx, math, copysign),
 
         // Power and logarithmic functions:
-        "exp" => ctx.new_function(math_exp),
-        "expm1" => ctx.new_function(math_expm1),
-        "log" => ctx.new_function(math_log),
-        "log1p" => ctx.new_function(math_log1p),
-        "log2" => ctx.new_function(math_log2),
-        "log10" => ctx.new_function(math_log10),
-        "pow" => ctx.new_function(math_pow),
-        "sqrt" => ctx.new_function(math_sqrt),
+        "exp" => named_function!(ctx, math, exp),
+        "expm1" => named_function!(ctx, math, expm1),
+        "log" => named_function!(ctx, math, log),
+        "log1p" => named_function!(ctx, math, log1p),
+        "log2" => named_function!(ctx, math, log2),
+        "log10" => named_function!(ctx, math, log10),
+        "pow" => named_function!(ctx, math, pow),
+        "sqrt" => named_function!(ctx, math, sqrt),
+        "isqrt" => named_function!(ctx, math, isqrt),
 
         // Trigonometric functions:
-        "acos" => ctx.new_function(math_acos),
-        "asin" => ctx.new_function(math_asin),
-        "atan" => ctx.new_function(math_atan),
-        "atan2" => ctx.new_function(math_atan2),
-        "cos" => ctx.new_function(math_cos),
-        "hypot" => ctx.new_function(math_hypot),
-        "sin" => ctx.new_function(math_sin),
-        "tan" => ctx.new_function(math_tan),
+        "acos" => named_function!(ctx, math, acos),
+        "asin" => named_function!(ctx, math, asin),
+        "atan" => named_function!(ctx, math, atan),
+        "atan2" => named_function!(ctx, math, atan2),
+        "cos" => named_function!(ctx, math, cos),
+        "hypot" => named_function!(ctx, math, hypot),
+        "sin" => named_function!(ctx, math, sin),
+        "tan" => named_function!(ctx, math, tan),
 
-        "degrees" => ctx.new_function(math_degrees),
-        "radians" => ctx.new_function(math_radians),
+        "degrees" => named_function!(ctx, math, degrees),
+        "radians" => named_function!(ctx, math, radians),
 
         // Hyperbolic functions:
-        "acosh" => ctx.new_function(math_acosh),
-        "asinh" => ctx.new_function(math_asinh),
-        "atanh" => ctx.new_function(math_atanh),
-        "cosh" => ctx.new_function(math_cosh),
-        "sinh" => ctx.new_function(math_sinh),
-        "tanh" => ctx.new_function(math_tanh),
+        "acosh" => named_function!(ctx, math, acosh),
+        "asinh" => named_function!(ctx, math, asinh),
+        "atanh" => named_function!(ctx, math, atanh),
+        "cosh" => named_function!(ctx, math, cosh),
+        "sinh" => named_function!(ctx, math, sinh),
+        "tanh" => named_function!(ctx, math, tanh),
 
         // Special functions:
-        "erf" => ctx.new_function(math_erf),
-        "erfc" => ctx.new_function(math_erfc),
-        "gamma" => ctx.new_function(math_gamma),
-        "lgamma" => ctx.new_function(math_lgamma),
+        "erf" => named_function!(ctx, math, erf),
+        "erfc" => named_function!(ctx, math, erfc),
+        "gamma" => named_function!(ctx, math, gamma),
+        "lgamma" => named_function!(ctx, math, lgamma),
 
-        "frexp" => ctx.new_function(math_frexp),
-        "ldexp" => ctx.new_function(math_ldexp),
-        "modf" => ctx.new_function(math_modf),
-        "fmod" => ctx.new_function(math_fmod),
-        "remainder" => ctx.new_function(math_remainder),
+        "frexp" => named_function!(ctx, math, frexp),
+        "ldexp" => named_function!(ctx, math, ldexp),
+        "modf" => named_function!(ctx, math, modf),
+        "fmod" => named_function!(ctx, math, fmod),
+        "remainder" => named_function!(ctx, math, remainder),
 
         // Rounding functions:
-        "trunc" => ctx.new_function(math_trunc),
-        "ceil" => ctx.new_function(math_ceil),
-        "floor" => ctx.new_function(math_floor),
+        "trunc" => named_function!(ctx, math, trunc),
+        "ceil" => named_function!(ctx, math, ceil),
+        "floor" => named_function!(ctx, math, floor),
 
         // Gcd function
-        "gcd" => ctx.new_function(math_gcd),
+        "gcd" => named_function!(ctx, math, gcd),
+        "lcm" => named_function!(ctx, math, lcm),
 
         // Factorial function
-        "factorial" => ctx.new_function(math_factorial),
+        "factorial" => named_function!(ctx, math, factorial),
 
-        "nextafter" => ctx.new_function(math_nextafter),
+        // Floating point
+        "nextafter" => named_function!(ctx, math, nextafter),
+        "ulp" => named_function!(ctx, math, ulp),
 
         // Constants:
         "pi" => ctx.new_float(std::f64::consts::PI), // 3.14159...

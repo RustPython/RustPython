@@ -1,6 +1,6 @@
 [package]
 name = "rustpython-vm"
-version = "0.1.1"
+version = "0.1.2"
 description = "Rust Python virtual machine."
 authors = ["RustPython Team"]
 repository = "https://github.com/RustPython/RustPython"
@@ -9,10 +9,15 @@ edition = "2018"
 include = ["src/**/*.rs", "Cargo.toml", "build.rs", "Lib/**/*.py"]
 
 [features]
-default = ["rustpython-parser", "rustpython-compiler"]
+default = ["compile-parse", "threading"]
 vm-tracing-logging = []
 flame-it = ["flame", "flamer"]
-freeze-stdlib = []
+freeze-stdlib = ["rustpython-pylib"]
+jit = ["rustpython-jit"]
+threading = ["rustpython-common/threading"]
+compile-parse = ["rustpython-parser", "rustpython-compiler"]
+
+ssl = ["openssl", "openssl-sys", "openssl-probe"]
 
 [dependencies]
 # Crypto:
@@ -22,79 +27,115 @@ sha-1 = "0.8"
 sha2 = "0.8"
 sha3 = "0.8"
 blake2 = "0.8"
-volatile = "0.2"
 
-num-complex = { version = "0.2.2", features = ["serde"] }
-num-bigint = { version = "0.2.4", features = ["serde"] }
+num-complex = { version = "0.3", features = ["serde"] }
+num-bigint = { version = "0.3", features = ["serde"] }
 num-traits = "0.2.8"
 num-integer = "0.1.41"
-num-rational = "0.2.2"
+num-rational = "0.3"
 num-iter = "0.1.39"
-rand = "0.7"
+rand = { version = "0.7", features = ["wasm-bindgen"] }
 rand_core = "0.5"
-getrandom = "0.1"
+getrandom = { version = "0.1", features = ["wasm-bindgen"] }
+mt19937 = "1.0"
 log = "0.4"
-rustpython-derive = {path = "../derive", version = "0.1.1"}
-rustpython-parser = {path = "../parser", optional = true, version = "0.1.1"}
-rustpython-compiler = {path = "../compiler", optional = true, version = "0.1.1"}
-rustpython-bytecode = { path = "../bytecode", version = "0.1.1"}
+rustpython-derive = { path = "../derive", version = "0.1.2" }
+rustpython-parser = { path = "../parser", optional = true, version = "0.1.2" }
+rustpython-compiler = { path = "../compiler/porcelain", optional = true, version = "0.1.2" }
+rustpython-bytecode = { path = "../bytecode", version = "0.1.2" }
+rustpython-jit = { path = "../jit", optional = true, version = "0.1.2" }
+rustpython-pylib = { path = "pylib-crate", optional = true, version = "0.1.0" }
 serde = { version = "1.0.66", features = ["derive"] }
-serde_json = "1.0.26"
+serde_json = "1.0"
 byteorder = "1.2.6"
 regex = "1"
 rustc_version_runtime = "0.1.*"
 statrs = "0.12.0"
 caseless = "0.2.1"
-chrono = { version = "=0.4.9", features = ["wasmbind"] }
-once_cell = "1.3.1"
-lexical = "4"
-itertools = "0.8"
+chrono = { version = "0.4", features = ["wasmbind"] }
+lexical-core = "0.7"
+itertools = "0.9"
 hex = "0.4.0"
 hexf-parse = "0.1.0"
 indexmap = "1.0.2"
 crc = "^1.0.0"
-unicode_names2 = "0.3"
-# TODO: use unic for this; needed for title case:
-# https://github.com/RustPython/RustPython/pull/832#discussion_r275428939
-unicode-casing = "0.1"
-unic = "0.9"
-unic-common = "0.9"
 maplit = "1.0"
 bitflags = "1.2.1"
 libc = "0.2"
-nix = "0.16.0"
+nix = "0.18"
 arr_macro = "0.1.2"
 csv = "1.1.1"
 paste = "0.1"
-base64 = "0.11"
+base64 = "0.13"
 is-macro = "0.1"
-result-like = "^0.2.1"
+result-like = "^0.3"
+foreign-types-shared = "0.1"
+num_enum = "0.4"
+bstr = "0.2.12"
+crossbeam-utils = "0.8"
+parking_lot = "0.11"
+thread_local = "1.0"
+cfg-if = "0.1.10"
+timsort = "0.1"
+thiserror = "1.0"
+atty = "0.2"
+static_assertions = "1.1"
+
+## unicode stuff
+unicode_names2 = "0.4"
+# TODO: use unic for this; needed for title case:
+# https://github.com/RustPython/RustPython/pull/832#discussion_r275428939
+unicode-casing = "0.1"
+# update version all at the same time
+unic-char-property = "0.9"
+unic-normal        = "0.9"
+unic-ucd-bidi      = "0.9"
+unic-ucd-category  = "0.9"
+unic-ucd-age       = "0.9"
+unic-ucd-ident     = "0.9"
 
 flame = { version = "0.2", optional = true }
-flamer = { version = "0.3", optional = true }
+flamer = { version = "0.4", optional = true }
 
-[target.'cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))'.dependencies]
-pwd = "1"
+rustpython-common = { path = "../common" }
 
 [target.'cfg(unix)'.dependencies]
 exitcode = "1.1.2"
+uname = "0.1.1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 crc32fast = "1.2.0"
 adler32 = "1.0.3"
-flate2 = { version = "1.0", features = ["zlib"], default-features = false }
-libz-sys = "1.0.25"
 gethostname = "0.2.0"
-subprocess = "0.2.2"
+socket2 = "0.3"
+rustyline = "6.0"
+openssl = { version = "0.10", features = ["vendored"], optional = true }
+openssl-sys = { version = "0.9", optional = true }
+openssl-probe = { version = "0.1", optional = true }
+utime = "0.3"
+
+[target.'cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))'.dependencies]
 num_cpus = "1"
-socket2 = { version = "0.3", features = ["unix"] }
 
 [target.'cfg(not(any(target_arch = "wasm32", target_os = "redox")))'.dependencies]
 dns-lookup = "1.0"
+flate2 = { version = "1.0", features = ["zlib"], default-features = false }
+libz-sys = "1.0"
 
-[target."cfg(windows)".dependencies.winapi]
+[target.'cfg(windows)'.dependencies]
+winreg = "0.7"
+schannel = "0.1"
+
+[target.'cfg(windows)'.dependencies.winapi]
 version = "0.3"
-features = ["winsock2", "handleapi", "ws2def", "std", "winbase"]
+features = [
+  "winsock2", "handleapi", "ws2def", "std", "winbase", "wincrypt", "fileapi", "processenv",
+  "namedpipeapi", "winnt", "processthreadsapi", "errhandlingapi", "winuser", "synchapi", "wincon",
+  "impl-default",
+]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"
+
+[build-dependencies]
+itertools = "0.9"

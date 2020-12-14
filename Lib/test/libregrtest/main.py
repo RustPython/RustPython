@@ -428,16 +428,21 @@ class Regrtest:
     def display_header(self):
         # Print basic platform information
         print("==", platform.python_implementation(), *sys.version.split())
-        # TODO: Add platform.platform
-        # print("==", platform.platform(aliased=True),
-        #               "%s-endian" % sys.byteorder)
+        try:
+            print("==", platform.platform(aliased=True),
+                          "%s-endian" % sys.byteorder)
+        except:
+            print("== RustPython: Need to fix platform.platform")
         print("== cwd:", os.getcwd())
         cpu_count = os.cpu_count()
         if cpu_count:
             print("== CPU count:", cpu_count)
-        print("== encodings: locale=%s, FS=%s"
+        try:
+            print("== encodings: locale=%s, FS=%s"
               % (locale.getpreferredencoding(False),
                  sys.getfilesystemencoding()))
+        except:
+            print("== RustPython: Need to fix encoding stuff")
 
     def get_tests_result(self):
         result = []
@@ -609,15 +614,16 @@ class Regrtest:
 
         # If we're on windows and this is the parent runner (not a worker),
         # track the load average.
-        if sys.platform == 'win32' and (self.ns.worker_args is None):
-            from test.libregrtest.win_utils import WindowsLoadTracker
+        # TODO: RUSTPYTHON
+        # if sys.platform == 'win32' and (self.ns.worker_args is None):
+        #     from test.libregrtest.win_utils import WindowsLoadTracker
 
-            try:
-                self.win_load_tracker = WindowsLoadTracker()
-            except FileNotFoundError as error:
-                # Windows IoT Core and Windows Nano Server do not provide
-                # typeperf.exe for x64, x86 or ARM
-                print(f'Failed to create WindowsLoadTracker: {error}')
+        #     try:
+        #         self.win_load_tracker = WindowsLoadTracker()
+        #     except FileNotFoundError as error:
+        #         # Windows IoT Core and Windows Nano Server do not provide
+        #         # typeperf.exe for x64, x86 or ARM
+        #         print(f'Failed to create WindowsLoadTracker: {error}')
 
         self.run_tests()
         self.display_result()

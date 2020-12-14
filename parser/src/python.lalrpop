@@ -10,7 +10,6 @@ use crate::fstring::parse_located_fstring;
 use crate::function::{parse_args, parse_params};
 use crate::error::LexicalError;
 use crate::lexer;
-use crate::location;
 
 use num_bigint::BigInt;
 
@@ -108,7 +107,7 @@ ExpressionStatement: ast::Statement = {
             }
         }
     },
-    <location:@L> <target:TestOrStarExprList> <op:AugAssign> <rhs:TestList> => {
+    <location:@L> <target:TestOrStarExprList> <op:AugAssign> <rhs:TestListOrYieldExpr> => {
         ast::Statement {
             location,
             node: ast::StatementType::AugAssign {
@@ -118,22 +117,26 @@ ExpressionStatement: ast::Statement = {
             },
         }
     },
-    <location:@L> <target:Test> ":" <annotation:Test> <rhs:("=" Test)?> => {
+    <location:@L> <target:Test> ":" <annotation:Test> <rhs:AssignSuffix?> => {
         ast::Statement {
             location,
             node: ast::StatementType::AnnAssign {
                 target: Box::new(target),
                 annotation: Box::new(annotation),
-                value: rhs.map(|e| e.1)
+                value: rhs
             },
         }
     },
 };
 
 AssignSuffix: ast::Expression = {
-    "=" <e:TestList> => e,
-    "=" <e:YieldExpr> => e,
+    "=" <e:TestListOrYieldExpr> => e
 };
+
+TestListOrYieldExpr: ast::Expression = {
+    TestList,
+    YieldExpr
+}
 
 TestOrStarExprList: ast::Expression = {
     <location:@L> <elements:OneOrMore<TestOrStarExpr>> <comma:","?> => {
@@ -148,8 +151,26 @@ TestOrStarExprList: ast::Expression = {
     }
 };
 
+TestOrStarNamedExprList: ast::Expression = {
+    <location:@L> <elements:OneOrMore<TestOrStarNamedExpr>> <comma:","?> => {
+        if elements.len() == 1 && comma.is_none() {
+            elements.into_iter().next().unwrap()
+        } else {
+            ast::Expression {
+                location,
+                node: ast::ExpressionType::Tuple { elements }
+            }
+        }
+    }
+};
+
 TestOrStarExpr: ast::Expression = {
     Test,
+    StarExpr,
+};
+
+TestOrStarNamedExpr: ast::Expression = {
+    NamedExpressionTest,
     StarExpr,
 };
 
@@ -314,7 +335,7 @@ CompoundStatement: ast::Statement = {
 };
 
 IfStatement: ast::Statement = {
-    <location:@L> "if" <test:Test> ":" <body:Suite> <s2:(@L "elif" Test ":" Suite)*> <s3:("else" ":" Suite)?> => {
+    <location:@L> "if" <test:NamedExpressionTest> ":" <body:Suite> <s2:(@L "elif" NamedExpressionTest ":" Suite)*> <s3:("else" ":" Suite)?> => {
         // Determine last else:
         let mut last = s3.map(|s| s.2);
 
@@ -335,7 +356,7 @@ IfStatement: ast::Statement = {
 };
 
 WhileStatement: ast::Statement = {
-    <location:@L> "while" <test:Test> ":" <body:Suite> <s2:("else" ":" Suite)?> => {
+    <location:@L> "while" <test:NamedExpressionTest> ":" <body:Suite> <s2:("else" ":" Suite)?> => {
         let orelse = s2.map(|s| s.2);
         ast::Statement {
             location,
@@ -456,22 +477,25 @@ Parameters: ast::Parameters = {
 // once for lambda defs.
 ParameterList<ArgType>: ast::Parameters = {
     <param1:ParameterDefs<ArgType>> <args2:("," ParameterListStarArgs<ArgType>)?> ","? =>? {
-        let (names, default_elements) = parse_params(param1)?;
+        let posonlyargs_count = param1.0.len();
+        let (names, defaults) = parse_params(param1)?;
 
         // Now gather rest of parameters:
         let (vararg, kwonlyargs, kw_defaults, kwarg) = args2.map_or((None, vec![], vec![], None), |x| x.1);
 
         Ok(ast::Parameters {
+            posonlyargs_count,
             args: names,
             kwonlyargs,
             vararg: vararg.into(),
             kwarg: kwarg.into(),
-            defaults: default_elements,
-            kw_defaults: kw_defaults,
+            defaults,
+            kw_defaults,
         })
     },
     <param1:ParameterDefs<ArgType>> <kw:("," KwargParameter<ArgType>)> ","? =>? {
-        let (names, default_elements) = parse_params(param1)?;
+        let posonlyargs_count = param1.0.len();
+        let (names, defaults) = parse_params(param1)?;
 
         // Now gather rest of parameters:
         let vararg = None;
@@ -480,27 +504,30 @@ ParameterList<ArgType>: ast::Parameters = {
         let kwarg = Some(kw.1);
 
         Ok(ast::Parameters {
+            posonlyargs_count,
             args: names,
             kwonlyargs,
             vararg: vararg.into(),
             kwarg: kwarg.into(),
-            defaults: default_elements,
-            kw_defaults: kw_defaults,
+            defaults,
+            kw_defaults,
         })
     },
     <params:ParameterListStarArgs<ArgType>> ","? => {
         let (vararg, kwonlyargs, kw_defaults, kwarg) = params;
         ast::Parameters {
+            posonlyargs_count: 0,
             args: vec![],
             kwonlyargs,
             vararg: vararg.into(),
             kwarg: kwarg.into(),
             defaults: vec![],
-            kw_defaults: kw_defaults,
+            kw_defaults,
         }
     },
     <kw:KwargParameter<ArgType>> ","? => {
         ast::Parameters {
+            posonlyargs_count: 0,
             args: vec![],
             kwonlyargs: vec![],
             vararg: ast::Varargs::None,
@@ -513,10 +540,13 @@ ParameterList<ArgType>: ast::Parameters = {
 
 // Use inline here to make sure the "," is not creating an ambiguity.
 #[inline]
-ParameterDefs<ArgType>: Vec<(ast::Parameter, Option<ast::Expression>)> = {
+ParameterDefs<ArgType>: (Vec<(ast::Parameter, Option<ast::Expression>)>, Vec<(ast::Parameter, Option<ast::Expression>)>) = {
     <args:OneOrMore<ParameterDef<ArgType>>> => {
-        args
-    }
+        (vec![], args)
+    },
+    <pos_args:OneOrMore<ParameterDef<ArgType>>> "," "/" <args:("," ParameterDef<ArgType>)*>  => {
+        (pos_args, args.into_iter().map(|e| e.1).collect())
+    },
 };
 
 ParameterDef<ArgType>: (ast::Parameter, Option<ast::Expression>) = {
@@ -597,20 +627,8 @@ Path: ast::Expression = {
 
 // Decorators:
 Decorator: ast::Expression = {
-    "@" <p:Path> <a: (@L "(" ArgumentList ")")?> "\n" => {
-        match a {
-            Some((location, _, arg, _)) => {
-                ast::Expression {
-                    location,
-                    node: ast::ExpressionType::Call {
-                        function: Box::new(p),
-                        args: arg.args,
-                        keywords: arg.keywords,
-                    }
-                }
-            },
-            None => p,
-        }
+    <location:@L>"@" <p:Test> "\n" => {
+        p
     },
 };
 
@@ -642,6 +660,26 @@ Test: ast::Expression = {
     },
     LambdaDef,
 };
+
+NamedExpressionTest: ast::Expression = {
+    <location:@L><left: (Identifier ":=")?> <right:Test> => {
+        if let Some(l) = left {
+            ast::Expression {
+                location: location,
+                node: ast::ExpressionType::NamedExpression {
+                        left: Box::new(
+                            ast::Expression {
+                                location: location,
+                                node: ast::ExpressionType::Identifier { name: l.0, },
+                            }),
+                        right: Box::new(right),
+                }
+            }
+        } else {
+            right
+        }
+    }
+}
 
 LambdaDef: ast::Expression = {
     <location:@L> "lambda" <p:ParameterList<UntypedParameter>?> ":" <body:Test> =>
@@ -865,9 +903,9 @@ SubscriptList: ast::Expression = {
 Subscript: ast::Expression = {
     Test,
     <e1:Test?> <location:@L> ":" <e2:Test?> <e3:SliceOp?>  => {
-        let s1 = e1.unwrap_or(ast::Expression { location: location.clone(), node: ast::ExpressionType::None });
-        let s2 = e2.unwrap_or(ast::Expression { location: location.clone(), node: ast::ExpressionType::None });
-        let s3 = e3.unwrap_or(ast::Expression { location: location.clone(), node: ast::ExpressionType::None });
+        let s1 = e1.unwrap_or(ast::Expression { location, node: ast::ExpressionType::None });
+        let s2 = e2.unwrap_or(ast::Expression { location, node: ast::ExpressionType::None });
+        let s3 = e3.unwrap_or(ast::Expression { location, node: ast::ExpressionType::None });
         ast::Expression {
             location,
             node: ast::ExpressionType::Slice { elements: vec![s1, s2, s3] }
@@ -903,7 +941,7 @@ Atom: ast::Expression = {
             node: ast::ExpressionType::List { elements }
         }
     },
-    <location:@L> "[" <element:TestOrStarExpr> <generators:CompFor> "]" => {
+    <location:@L> "[" <element:TestOrStarNamedExpr> <generators:CompFor> "]" => {
         ast::Expression {
             location,
             node: ast::ExpressionType::Comprehension {
@@ -912,7 +950,7 @@ Atom: ast::Expression = {
             }
         }
     },
-    <location:@L> "(" <elements:TestOrStarExprList?> ")" => {
+    <location:@L> "(" <elements:TestOrStarNamedExprList?> ")" => {
         elements.unwrap_or(ast::Expression {
              location,
              node: ast::ExpressionType::Tuple { elements: Vec::new() }
@@ -961,7 +999,7 @@ Atom: ast::Expression = {
 };
 
 ListLiteralValues: Vec<ast::Expression> = {
-    <e:OneOrMore<TestOrStarExpr>> ","? => e,
+    <e:OneOrMore<TestOrStarNamedExpr>> ","? => e,
 };
 
 DictLiteralValues: Vec<(Option<ast::Expression>, ast::Expression)> = {
@@ -978,7 +1016,7 @@ DictElement: (Option<ast::Expression>, ast::Expression) = {
 };
 
 SetLiteralValues: Vec<ast::Expression> = {
-    <e1:OneOrMore<TestOrStarExpr>> ","? => e1
+    <e1:OneOrMore<TestOrStarNamedExpr>> ","? => e1
 };
 
 ExpressionOrStarExpression = {
@@ -1008,7 +1046,7 @@ ExpressionList2: Vec<ast::Expression> = {
 // - a single expression
 // - a single expression followed by a trailing comma
 TestList: ast::Expression = {
-    <location:@L> <elements:OneOrMore<Test>> <trailing_comma: ","?> => {
+    <location:@L> <elements:OneOrMore<TestOrStarExpr>> <trailing_comma: ","?> => {
         if elements.len() == 1 && trailing_comma.is_none() {
             elements.into_iter().next().unwrap()
         } else {
@@ -1049,10 +1087,10 @@ ArgumentList: ast::ArgumentList = {
 };
 
 FunctionArgument: (Option<Option<String>>, ast::Expression) = {
-    <e:Test> <c:CompFor?> => {
+    <e:NamedExpressionTest> <c:CompFor?> => {
         let expr = match c {
             Some(c) => ast::Expression {
-                location: e.location.clone(),
+                location: e.location,
                 node: ast::ExpressionType::Comprehension {
                     kind: Box::new(ast::ComprehensionKind::GeneratorExpression { element: e }),
                     generators: c,
@@ -1062,7 +1100,7 @@ FunctionArgument: (Option<Option<String>>, ast::Expression) = {
         };
         (None, expr)
     },
-    <i:Identifier> "=" <e:Test> => (Some(Some(i.clone())), e),
+    <i:Identifier> "=" <e:Test> => (Some(Some(i)), e),
     <location:@L> "*" <e:Test> => (None, ast::Expression { location, node: ast::ExpressionType::Starred { value: Box::new(e) } }),
     "**" <e:Test> => (Some(None), e),
 };
@@ -1096,7 +1134,7 @@ StringGroup: ast::StringGroup = {
         let mut values = vec![];
         for (value, is_fstring) in s {
             values.push(if is_fstring {
-                parse_located_fstring(&value, loc.clone())?
+                parse_located_fstring(&value, loc)?
             } else {
                 ast::StringGroup::Constant { value }
             })
@@ -1120,7 +1158,7 @@ Identifier: String = <s:name> => s;
 
 // Hook external lexer:
 extern {
-    type Location = location::Location;
+    type Location = ast::Location;
     type Error = LexicalError;
 
     enum lexer::Tok {
@@ -1167,6 +1205,7 @@ extern {
         ">>=" => lexer::Tok::RightShiftEqual,
         "**=" => lexer::Tok::DoubleStarEqual,
         "//=" => lexer::Tok::DoubleSlashEqual,
+        ":=" => lexer::Tok::ColonEqual,
         "==" => lexer::Tok::EqEqual,
         "!=" => lexer::Tok::NotEqual,
         "<" => lexer::Tok::Less,

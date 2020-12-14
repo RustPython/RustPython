@@ -1,67 +1,33 @@
-use crate::pyobject::{IdProtocol, PyObjectRef, PyResult};
+use crate::pyobject::{PyObjectRef, PyResult};
+use crate::slots::PyComparisonOp;
 use crate::vm::VirtualMachine;
-use std::ops::Deref;
+use num_traits::cast::ToPrimitive;
 
-type DynPyIter<'a> = Box<dyn ExactSizeIterator<Item = &'a PyObjectRef> + 'a>;
+pub(super) type DynPyIter<'a> = Box<dyn ExactSizeIterator<Item = &'a PyObjectRef> + 'a>;
 
 #[allow(clippy::len_without_is_empty)]
-pub trait SimpleSeq {
+pub(crate) trait SimpleSeq {
     fn len(&self) -> usize;
-    fn iter(&self) -> DynPyIter;
+    fn boxed_iter(&self) -> DynPyIter;
 }
 
-// impl SimpleSeq for &[PyObjectRef] {
-//     fn len(&self) -> usize {
-//         (&**self).len()
-//     }
-//     fn iter(&self) -> DynPyIter {
-//         Box::new((&**self).iter())
-//     }
-// }
-
-impl SimpleSeq for Vec<PyObjectRef> {
-    fn len(&self) -> usize {
-        self.len()
-    }
-    fn iter(&self) -> DynPyIter {
-        Box::new(self.as_slice().iter())
-    }
-}
-
-impl SimpleSeq for std::collections::VecDeque<PyObjectRef> {
-    fn len(&self) -> usize {
-        self.len()
-    }
-    fn iter(&self) -> DynPyIter {
-        Box::new(self.iter())
-    }
-}
-
-impl<T> SimpleSeq for std::cell::Ref<'_, T>
+impl<'a, D> SimpleSeq for D
 where
-    T: SimpleSeq,
+    D: 'a + std::ops::Deref<Target = [PyObjectRef]>,
 {
     fn len(&self) -> usize {
         self.deref().len()
     }
-    fn iter(&self) -> DynPyIter {
-        self.deref().iter()
+
+    fn boxed_iter(&self) -> DynPyIter {
+        Box::new(self.deref().iter())
     }
 }
 
-// impl<'a, I>
-
-pub(crate) fn eq(
-    vm: &VirtualMachine,
-    zelf: &impl SimpleSeq,
-    other: &impl SimpleSeq,
-) -> PyResult<bool> {
+pub(crate) fn eq(vm: &VirtualMachine, zelf: DynPyIter, other: DynPyIter) -> PyResult<bool> {
     if zelf.len() == other.len() {
-        for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
-            if a.is(b) {
-                continue;
-            }
-            if !vm.bool_eq(a.clone(), b.clone())? {
+        for (a, b) in Iterator::zip(zelf, other) {
+            if !vm.identical_or_equal(a, b)? {
                 return Ok(false);
             }
         }
@@ -71,58 +37,30 @@ pub(crate) fn eq(
     }
 }
 
-pub(crate) fn lt(
+pub fn cmp(
     vm: &VirtualMachine,
-    zelf: &impl SimpleSeq,
-    other: &impl SimpleSeq,
+    zelf: DynPyIter,
+    other: DynPyIter,
+    op: PyComparisonOp,
 ) -> PyResult<bool> {
-    for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
-        if let Some(v) = vm.bool_seq_lt(a.clone(), b.clone())? {
+    let less = match op {
+        PyComparisonOp::Eq => return eq(vm, zelf, other),
+        PyComparisonOp::Ne => return eq(vm, zelf, other).map(|eq| !eq),
+        PyComparisonOp::Lt | PyComparisonOp::Le => true,
+        PyComparisonOp::Gt | PyComparisonOp::Ge => false,
+    };
+    let (lhs_len, rhs_len) = (zelf.len(), other.len());
+    for (a, b) in Iterator::zip(zelf, other) {
+        let ret = if less {
+            vm.bool_seq_lt(a, b)?
+        } else {
+            vm.bool_seq_gt(a, b)?
+        };
+        if let Some(v) = ret {
             return Ok(v);
         }
     }
-    Ok(zelf.len() < other.len())
-}
-
-pub(crate) fn gt(
-    vm: &VirtualMachine,
-    zelf: &impl SimpleSeq,
-    other: &impl SimpleSeq,
-) -> PyResult<bool> {
-    for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
-        if let Some(v) = vm.bool_seq_gt(a.clone(), b.clone())? {
-            return Ok(v);
-        }
-    }
-    Ok(zelf.len() > other.len())
-}
-
-pub(crate) fn ge(
-    vm: &VirtualMachine,
-    zelf: &impl SimpleSeq,
-    other: &impl SimpleSeq,
-) -> PyResult<bool> {
-    for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
-        if let Some(v) = vm.bool_seq_gt(a.clone(), b.clone())? {
-            return Ok(v);
-        }
-    }
-
-    Ok(zelf.len() >= other.len())
-}
-
-pub(crate) fn le(
-    vm: &VirtualMachine,
-    zelf: &impl SimpleSeq,
-    other: &impl SimpleSeq,
-) -> PyResult<bool> {
-    for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
-        if let Some(v) = vm.bool_seq_lt(a.clone(), b.clone())? {
-            return Ok(v);
-        }
-    }
-
-    Ok(zelf.len() <= other.len())
+    Ok(op.eval_ord(lhs_len.cmp(&rhs_len)))
 }
 
 pub(crate) struct SeqMul<'a> {
@@ -136,9 +74,6 @@ impl ExactSizeIterator for SeqMul<'_> {}
 impl<'a> Iterator for SeqMul<'a> {
     type Item = &'a PyObjectRef;
     fn next(&mut self) -> Option<Self::Item> {
-        if self.seq.len() == 0 {
-            return None;
-        }
         match self.iter.as_mut().and_then(Iterator::next) {
             Some(item) => Some(item),
             None => {
@@ -146,7 +81,7 @@ impl<'a> Iterator for SeqMul<'a> {
                     None
                 } else {
                     self.repetitions -= 1;
-                    self.iter = Some(self.seq.iter());
+                    self.iter = Some(self.seq.boxed_iter());
                     self.next()
                 }
             }
@@ -160,9 +95,14 @@ impl<'a> Iterator for SeqMul<'a> {
 }
 
 pub(crate) fn seq_mul(seq: &impl SimpleSeq, repetitions: isize) -> SeqMul {
+    let repetitions = if seq.len() > 0 {
+        repetitions.to_usize().unwrap_or(0)
+    } else {
+        0
+    };
     SeqMul {
         seq,
-        repetitions: repetitions.max(0) as usize,
+        repetitions,
         iter: None,
     }
 }

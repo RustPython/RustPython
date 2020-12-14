@@ -1,15 +1,18 @@
-use js_sys::{Array, ArrayBuffer, Object, Promise, Reflect, Uint8Array};
-use serde_wasm_bindgen;
+use js_sys::{Array, ArrayBuffer, Object, Promise, Reflect, SyntaxError, Uint8Array};
 use wasm_bindgen::{closure::Closure, prelude::*, JsCast};
 
+use rustpython_parser::error::ParseErrorType;
+use rustpython_vm::byteslike::PyBytesLike;
+use rustpython_vm::compile::{CompileError, CompileErrorType};
 use rustpython_vm::exceptions::PyBaseExceptionRef;
-use rustpython_vm::function::PyFuncArgs;
-use rustpython_vm::obj::{objbyteinner::PyBytesLike, objtype};
-use rustpython_vm::pyobject::{ItemProtocol, PyObjectRef, PyResult, PyValue, TryFromObject};
+use rustpython_vm::function::FuncArgs;
+use rustpython_vm::pyobject::{
+    ItemProtocol, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+};
 use rustpython_vm::VirtualMachine;
 use rustpython_vm::{exceptions, py_serde};
 
-use crate::browser_module;
+use crate::js_module;
 use crate::vm_class::{stored_vm_from_wasm, WASMVirtualMachine};
 
 #[wasm_bindgen(inline_js = r"
@@ -32,10 +35,25 @@ extern "C" {
 }
 
 pub fn py_err_to_js_err(vm: &VirtualMachine, py_err: &PyBaseExceptionRef) -> JsValue {
-    let res = serde_wasm_bindgen::to_value(&exceptions::SerializeException::new(vm, py_err));
-    match res {
-        Ok(err_info) => PyError::new(err_info).into(),
-        Err(e) => e.into(),
+    let jserr = vm.try_class("_js", "JSError").ok();
+    let js_arg = if jserr.map_or(false, |jserr| py_err.isinstance(&jserr)) {
+        py_err.get_arg(0)
+    } else {
+        None
+    };
+    let js_arg = js_arg
+        .as_ref()
+        .and_then(|x| x.payload::<js_module::PyJsValue>());
+    match js_arg {
+        Some(val) => val.value.clone(),
+        None => {
+            let res =
+                serde_wasm_bindgen::to_value(&exceptions::SerializeException::new(vm, py_err));
+            match res {
+                Ok(err_info) => PyError::new(err_info).into(),
+                Err(e) => e.into(),
+            }
+        }
     }
 }
 
@@ -65,29 +83,32 @@ pub fn js_err_to_py_err(vm: &VirtualMachine, js_err: &JsValue) -> PyBaseExceptio
 
 pub fn py_to_js(vm: &VirtualMachine, py_obj: PyObjectRef) -> JsValue {
     if let Some(ref wasm_id) = vm.wasm_id {
-        if objtype::isinstance(&py_obj, &vm.ctx.function_type()) {
+        if py_obj.isinstance(&vm.ctx.types.function_type) {
             let wasm_vm = WASMVirtualMachine {
                 id: wasm_id.clone(),
             };
             let weak_py_obj = wasm_vm.push_held_rc(py_obj).unwrap();
 
-            let closure =
-                move |args: Option<Array>, kwargs: Option<Object>| -> Result<JsValue, JsValue> {
-                    let py_obj = match wasm_vm.assert_valid() {
-                        Ok(_) => weak_py_obj
-                            .upgrade()
-                            .expect("weak_py_obj to be valid if VM is valid"),
-                        Err(err) => {
-                            return Err(err);
-                        }
-                    };
-                    let vm = &stored_vm_from_wasm(&wasm_vm).vm;
-                    let mut py_func_args = PyFuncArgs::default();
-                    if let Some(ref args) = args {
-                        for arg in args.values() {
-                            py_func_args.args.push(js_to_py(vm, arg?));
-                        }
+            let closure = move |args: Option<Box<[JsValue]>>,
+                                kwargs: Option<Object>|
+                  -> Result<JsValue, JsValue> {
+                let py_obj = match wasm_vm.assert_valid() {
+                    Ok(_) => weak_py_obj
+                        .upgrade()
+                        .expect("weak_py_obj to be valid if VM is valid"),
+                    Err(err) => {
+                        return Err(err);
                     }
+                };
+                stored_vm_from_wasm(&wasm_vm).interp.enter(move |vm| {
+                    let args = match args {
+                        Some(args) => Vec::from(args)
+                            .into_iter()
+                            .map(|arg| js_to_py(vm, arg))
+                            .collect::<Vec<_>>(),
+                        None => Vec::new(),
+                    };
+                    let mut py_func_args = FuncArgs::from(args);
                     if let Some(ref kwargs) = kwargs {
                         for pair in object_entries(kwargs) {
                             let (key, val) = pair?;
@@ -98,9 +119,12 @@ pub fn py_to_js(vm: &VirtualMachine, py_obj: PyObjectRef) -> JsValue {
                     }
                     let result = vm.invoke(&py_obj, py_func_args);
                     pyresult_to_jsresult(vm, result)
-                };
+                })
+            };
             let closure = Closure::wrap(Box::new(closure)
-                as Box<dyn FnMut(Option<Array>, Option<Object>) -> Result<JsValue, JsValue>>);
+                as Box<
+                    dyn FnMut(Option<Box<[JsValue]>>, Option<Object>) -> Result<JsValue, JsValue>,
+                >);
             let func = closure.as_ref().clone();
 
             // stores pretty much nothing, it's fine to leak this because if it gets dropped
@@ -111,8 +135,8 @@ pub fn py_to_js(vm: &VirtualMachine, py_obj: PyObjectRef) -> JsValue {
         }
     }
     // the browser module might not be injected
-    if vm.try_class("browser", "Promise").is_ok() {
-        if let Some(py_prom) = py_obj.payload::<browser_module::PyPromise>() {
+    if vm.try_class("_js", "Promise").is_ok() {
+        if let Some(py_prom) = py_obj.payload::<js_module::PyPromise>() {
             return py_prom.value().into();
         }
     }
@@ -153,7 +177,7 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
         if let Some(promise) = js_val.dyn_ref::<Promise>() {
             // the browser module might not be injected
             if vm.try_class("browser", "Promise").is_ok() {
-                return browser_module::PyPromise::new(promise.clone())
+                return js_module::PyPromise::new(promise.clone())
                     .into_ref(vm)
                     .into_object();
             }
@@ -183,25 +207,29 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
             for pair in object_entries(&Object::from(js_val)) {
                 let (key, val) = pair.expect("iteration over object to not fail");
                 let py_val = js_to_py(vm, val);
-                dict.set_item(&String::from(js_sys::JsString::from(key)), py_val, vm)
-                    .unwrap();
+                dict.set_item(
+                    String::from(js_sys::JsString::from(key)).as_str(),
+                    py_val,
+                    vm,
+                )
+                .unwrap();
             }
             dict.into_object()
         }
     } else if js_val.is_function() {
         let func = js_sys::Function::from(js_val);
         vm.ctx
-            .new_method(move |vm: &VirtualMachine, args: PyFuncArgs| -> PyResult {
-                let func = func.clone();
+            .new_method(move |args: FuncArgs, vm: &VirtualMachine| -> PyResult {
                 let this = Object::new();
                 for (k, v) in args.kwargs {
                     Reflect::set(&this, &k.into(), &py_to_js(vm, v))
                         .expect("property to be settable");
                 }
-                let js_args = Array::new();
-                for v in args.args {
-                    js_args.push(&py_to_js(vm, v));
-                }
+                let js_args = args
+                    .args
+                    .into_iter()
+                    .map(|v| py_to_js(vm, v))
+                    .collect::<Array>();
                 func.apply(&this, &js_args)
                     .map(|val| js_to_py(vm, val))
                     .map_err(|err| js_err_to_py_err(vm, &err))
@@ -210,9 +238,31 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
         js_err_to_py_err(vm, err).into_object()
     } else if js_val.is_undefined() {
         // Because `JSON.stringify(undefined)` returns undefined
-        vm.get_none()
+        vm.ctx.none()
     } else {
         py_serde::deserialize(vm, serde_wasm_bindgen::Deserializer::from(js_val))
-            .unwrap_or_else(|_| vm.get_none())
+            .unwrap_or_else(|_| vm.ctx.none())
+    }
+}
+
+pub fn syntax_err(err: CompileError) -> SyntaxError {
+    let js_err = SyntaxError::new(&format!("Error parsing Python code: {}", err));
+    let _ = Reflect::set(&js_err, &"row".into(), &(err.location.row() as u32).into());
+    let _ = Reflect::set(
+        &js_err,
+        &"col".into(),
+        &(err.location.column() as u32).into(),
+    );
+    let can_continue = matches!(&err.error, CompileErrorType::Parse(ParseErrorType::EOF));
+    let _ = Reflect::set(&js_err, &"canContinue".into(), &can_continue.into());
+    js_err
+}
+
+pub trait PyResultExt<T> {
+    fn to_js(self, vm: &VirtualMachine) -> Result<T, JsValue>;
+}
+impl<T> PyResultExt<T> for PyResult<T> {
+    fn to_js(self, vm: &VirtualMachine) -> Result<T, JsValue> {
+        self.map_err(|err| py_err_to_js_err(vm, &err))
     }
 }

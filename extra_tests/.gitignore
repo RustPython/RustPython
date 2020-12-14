@@ -1,0 +1,4 @@
+snippets/whats_left_*.py
+.cache/
+cpython_tests_results.json
+cpython_generated_slices.py

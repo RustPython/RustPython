@@ -2,14 +2,16 @@
 //! implements bytecode structure.
 
 use bitflags::bitflags;
+use bstr::ByteSlice;
+use itertools::Itertools;
 use num_bigint::BigInt;
 use num_complex::Complex64;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::BTreeSet;
 use std::fmt;
 
-/// Sourcode location.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+/// Sourcecode location.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Location {
     row: usize,
     column: usize,
@@ -29,39 +31,101 @@ impl Location {
     }
 }
 
+pub trait Constant: Sized {
+    type Name: AsRef<str>;
+    fn borrow_constant(&self) -> BorrowedConstant<Self>;
+    fn into_data(self) -> ConstantData {
+        self.borrow_constant().into_data()
+    }
+    fn map_constant<Bag: ConstantBag>(self, bag: &Bag) -> Bag::Constant {
+        bag.make_constant(self.into_data())
+    }
+}
+impl Constant for ConstantData {
+    type Name = String;
+    fn borrow_constant(&self) -> BorrowedConstant<Self> {
+        use BorrowedConstant::*;
+        match self {
+            ConstantData::Integer { value } => Integer { value },
+            ConstantData::Float { value } => Float { value: *value },
+            ConstantData::Complex { value } => Complex { value: *value },
+            ConstantData::Boolean { value } => Boolean { value: *value },
+            ConstantData::Str { value } => Str { value },
+            ConstantData::Bytes { value } => Bytes { value },
+            ConstantData::Code { code } => Code { code },
+            ConstantData::Tuple { elements } => Tuple {
+                elements: Box::new(elements.iter().map(|e| e.borrow_constant())),
+            },
+            ConstantData::None => None,
+            ConstantData::Ellipsis => Ellipsis,
+        }
+    }
+    fn into_data(self) -> ConstantData {
+        self
+    }
+}
+
+pub trait ConstantBag: Sized {
+    type Constant: Constant;
+    fn make_constant(&self, constant: ConstantData) -> Self::Constant;
+    fn make_constant_borrowed<C: Constant>(&self, constant: BorrowedConstant<C>) -> Self::Constant {
+        self.make_constant(constant.into_data())
+    }
+    fn make_name(&self, name: String) -> <Self::Constant as Constant>::Name;
+    fn make_name_ref(&self, name: &str) -> <Self::Constant as Constant>::Name {
+        self.make_name(name.to_owned())
+    }
+}
+
+#[derive(Clone)]
+pub struct BasicBag;
+impl ConstantBag for BasicBag {
+    type Constant = ConstantData;
+    fn make_constant(&self, constant: ConstantData) -> Self::Constant {
+        constant
+    }
+    fn make_name(&self, name: String) -> <Self::Constant as Constant>::Name {
+        name
+    }
+}
+
 /// Primary container of a single code object. Each python function has
 /// a codeobject. Also a module has a codeobject.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
-pub struct CodeObject {
-    pub instructions: Vec<Instruction>,
-    /// Jump targets.
-    pub label_map: HashMap<Label, usize>,
-    pub locations: Vec<Location>,
+pub struct CodeObject<C: Constant = ConstantData> {
+    pub instructions: Box<[Instruction]>,
+    pub locations: Box<[Location]>,
     pub flags: CodeFlags,
-    pub arg_names: Vec<String>, // Names of positional arguments
-    pub varargs: Varargs,       // *args or *
-    pub kwonlyarg_names: Vec<String>,
-    pub varkeywords: Varargs, // **kwargs or **
+    pub posonlyarg_count: usize, // Number of positional-only arguments
+    pub arg_count: usize,
+    pub kwonlyarg_count: usize,
     pub source_path: String,
     pub first_line_number: usize,
     pub obj_name: String, // Name of the object that created this code object
+    pub cell2arg: Option<Box<[isize]>>,
+    pub constants: Box<[C]>,
+    #[serde(bound(
+        deserialize = "C::Name: serde::Deserialize<'de>",
+        serialize = "C::Name: serde::Serialize"
+    ))]
+    pub names: Box<[C::Name]>,
+    pub varnames: Box<[C::Name]>,
+    pub cellvars: Box<[C::Name]>,
+    pub freevars: Box<[C::Name]>,
 }
 
 bitflags! {
     #[derive(Serialize, Deserialize)]
-    pub struct CodeFlags: u8 {
+    pub struct CodeFlags: u16 {
         const HAS_DEFAULTS = 0x01;
         const HAS_KW_ONLY_DEFAULTS = 0x02;
         const HAS_ANNOTATIONS = 0x04;
         const NEW_LOCALS = 0x08;
         const IS_GENERATOR = 0x10;
         const IS_COROUTINE = 0x20;
-    }
-}
-
-impl Default for CodeFlags {
-    fn default() -> Self {
-        Self::NEW_LOCALS
+        const HAS_VARARGS = 0x40;
+        const HAS_VARKEYWORDS = 0x80;
+        const IS_OPTIMIZED = 0x0100;
     }
 }
 
@@ -69,32 +133,24 @@ impl CodeFlags {
     pub const NAME_MAPPING: &'static [(&'static str, CodeFlags)] = &[
         ("GENERATOR", CodeFlags::IS_GENERATOR),
         ("COROUTINE", CodeFlags::IS_COROUTINE),
+        (
+            "ASYNC_GENERATOR",
+            Self::from_bits_truncate(Self::IS_GENERATOR.bits | Self::IS_COROUTINE.bits),
+        ),
+        ("VARARGS", CodeFlags::HAS_VARARGS),
+        ("VARKEYWORDS", CodeFlags::HAS_VARKEYWORDS),
     ];
 }
 
-#[derive(Serialize, Debug, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Label(usize);
-
-impl Label {
-    pub fn new(label: usize) -> Self {
-        Label(label)
+#[derive(Serialize, Debug, Deserialize, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
+#[repr(transparent)]
+// XXX: if you add a new instruction that stores a Label, make sure to add it in
+// compile::CodeInfo::finalize_code and CodeObject::label_targets
+pub struct Label(pub usize);
+impl fmt::Display for Label {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.0.fmt(f)
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-/// An indication where the name must be accessed.
-pub enum NameScope {
-    /// The name will be in the local scope.
-    Local,
-
-    /// The name will be located in scope surrounding the current scope.
-    NonLocal,
-
-    /// The name will be in global scope.
-    Global,
-
-    /// The name will be located in any scope between the current scope and the top scope.
-    Free,
 }
 
 /// Transforms a value prior to formatting it.
@@ -108,40 +164,46 @@ pub enum ConversionFlag {
     Repr,
 }
 
+pub type NameIdx = usize;
+
 /// A Single bytecode instruction.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Instruction {
     Import {
-        name: Option<String>,
-        symbols: Vec<String>,
+        name_idx: Option<NameIdx>,
+        symbols_idx: Vec<NameIdx>,
         level: usize,
     },
     ImportStar,
     ImportFrom {
-        name: String,
+        idx: NameIdx,
     },
-    LoadName {
-        name: String,
-        scope: NameScope,
-    },
-    StoreName {
-        name: String,
-        scope: NameScope,
-    },
-    DeleteName {
-        name: String,
-    },
+    LoadFast(NameIdx),
+    LoadNameAny(NameIdx),
+    LoadGlobal(NameIdx),
+    LoadDeref(NameIdx),
+    LoadClassDeref(NameIdx),
+    StoreFast(NameIdx),
+    StoreLocal(NameIdx),
+    StoreGlobal(NameIdx),
+    StoreDeref(NameIdx),
+    DeleteFast(NameIdx),
+    DeleteLocal(NameIdx),
+    DeleteGlobal(NameIdx),
+    DeleteDeref(NameIdx),
+    LoadClosure(NameIdx),
     Subscript,
     StoreSubscript,
     DeleteSubscript,
     StoreAttr {
-        name: String,
+        idx: NameIdx,
     },
     DeleteAttr {
-        name: String,
+        idx: NameIdx,
     },
     LoadConst {
-        value: Constant,
+        /// index into constants vec
+        idx: usize,
     },
     UnaryOperation {
         op: UnaryOperator,
@@ -151,7 +213,7 @@ pub enum Instruction {
         inplace: bool,
     },
     LoadAttr {
-        name: String,
+        idx: NameIdx,
     },
     CompareOperation {
         op: ComparisonOperator,
@@ -195,6 +257,7 @@ pub enum Instruction {
     ReturnValue,
     YieldValue,
     YieldFrom,
+    SetupAnnotation,
     SetupLoop {
         start: Label,
         end: Label,
@@ -263,6 +326,7 @@ pub enum Instruction {
     MapAdd {
         i: usize,
     },
+
     PrintExpr,
     LoadBuildClass,
     UnpackSequence {
@@ -286,6 +350,13 @@ pub enum Instruction {
     },
     GetAIter,
     GetANext,
+
+    /// Reverse order evaluation in MapAdd
+    /// required to support named expressions of Python 3.8 in dict comprehension
+    /// today (including Py3.9) only required in dict comprehension.
+    MapAddRev {
+        i: usize,
+    },
 }
 
 use self::Instruction::*;
@@ -298,17 +369,87 @@ pub enum CallType {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum Constant {
+pub enum ConstantData {
     Integer { value: BigInt },
     Float { value: f64 },
     Complex { value: Complex64 },
     Boolean { value: bool },
-    String { value: String },
+    Str { value: String },
     Bytes { value: Vec<u8> },
     Code { code: Box<CodeObject> },
-    Tuple { elements: Vec<Constant> },
+    Tuple { elements: Vec<ConstantData> },
     None,
     Ellipsis,
+}
+
+pub enum BorrowedConstant<'a, C: Constant> {
+    Integer { value: &'a BigInt },
+    Float { value: f64 },
+    Complex { value: Complex64 },
+    Boolean { value: bool },
+    Str { value: &'a str },
+    Bytes { value: &'a [u8] },
+    Code { code: &'a CodeObject<C> },
+    Tuple { elements: BorrowedTupleIter<'a, C> },
+    None,
+    Ellipsis,
+}
+type BorrowedTupleIter<'a, C> = Box<dyn Iterator<Item = BorrowedConstant<'a, C>> + 'a>;
+impl<C: Constant> BorrowedConstant<'_, C> {
+    // takes `self` because we need to consume the iterator
+    pub fn fmt_display(self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            BorrowedConstant::Integer { value } => write!(f, "{}", value),
+            BorrowedConstant::Float { value } => write!(f, "{}", value),
+            BorrowedConstant::Complex { value } => write!(f, "{}", value),
+            BorrowedConstant::Boolean { value } => {
+                write!(f, "{}", if value { "True" } else { "False" })
+            }
+            BorrowedConstant::Str { value } => write!(f, "{:?}", value),
+            BorrowedConstant::Bytes { value } => write!(f, "b{:?}", value.as_bstr()),
+            BorrowedConstant::Code { code } => write!(f, "{:?}", code),
+            BorrowedConstant::Tuple { elements } => {
+                write!(f, "(")?;
+                let mut first = true;
+                for c in elements {
+                    if first {
+                        first = false
+                    } else {
+                        write!(f, ", ")?;
+                    }
+                    c.fmt_display(f)?;
+                }
+                write!(f, ")")
+            }
+            BorrowedConstant::None => write!(f, "None"),
+            BorrowedConstant::Ellipsis => write!(f, "..."),
+        }
+    }
+    pub fn into_data(self) -> ConstantData {
+        use ConstantData::*;
+        match self {
+            BorrowedConstant::Integer { value } => Integer {
+                value: value.clone(),
+            },
+            BorrowedConstant::Float { value } => Float { value },
+            BorrowedConstant::Complex { value } => Complex { value },
+            BorrowedConstant::Boolean { value } => Boolean { value },
+            BorrowedConstant::Str { value } => Str {
+                value: value.to_owned(),
+            },
+            BorrowedConstant::Bytes { value } => Bytes {
+                value: value.to_owned(),
+            },
+            BorrowedConstant::Code { code } => Code {
+                code: Box::new(code.map_clone_bag(&BasicBag)),
+            },
+            BorrowedConstant::Tuple { elements } => Tuple {
+                elements: elements.map(BorrowedConstant::into_data).collect(),
+            },
+            BorrowedConstant::None => None,
+            BorrowedConstant::Ellipsis => Ellipsis,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -351,13 +492,6 @@ pub enum UnaryOperator {
     Plus,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum Varargs {
-    None,
-    Unnamed,
-    Named(String),
-}
-
 /*
 Maintain a stack of blocks on the VM.
 pub enum BlockType {
@@ -366,53 +500,130 @@ pub enum BlockType {
 }
 */
 
-impl CodeObject {
-    #[allow(clippy::too_many_arguments)]
+pub struct Arguments<'a, N: AsRef<str>> {
+    pub posonlyargs: &'a [N],
+    pub args: &'a [N],
+    pub vararg: Option<&'a N>,
+    pub kwonlyargs: &'a [N],
+    pub varkwarg: Option<&'a N>,
+}
+
+impl<N: AsRef<str>> fmt::Debug for Arguments<'_, N> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        macro_rules! fmt_slice {
+            ($x:expr) => {
+                format_args!("[{}]", $x.iter().map(AsRef::as_ref).format(", "))
+            };
+        }
+        f.debug_struct("Arguments")
+            .field("posonlyargs", &fmt_slice!(self.posonlyargs))
+            .field("args", &fmt_slice!(self.posonlyargs))
+            .field("vararg", &self.vararg.map(N::as_ref))
+            .field("kwonlyargs", &fmt_slice!(self.kwonlyargs))
+            .field("varkwarg", &self.varkwarg.map(N::as_ref))
+            .finish()
+    }
+}
+
+impl<C: Constant> CodeObject<C> {
     pub fn new(
         flags: CodeFlags,
-        arg_names: Vec<String>,
-        varargs: Varargs,
-        kwonlyarg_names: Vec<String>,
-        varkeywords: Varargs,
+        posonlyarg_count: usize,
+        arg_count: usize,
+        kwonlyarg_count: usize,
         source_path: String,
         first_line_number: usize,
         obj_name: String,
-    ) -> CodeObject {
+    ) -> Self {
         CodeObject {
-            instructions: Vec::new(),
-            label_map: HashMap::new(),
-            locations: Vec::new(),
+            instructions: Box::new([]),
+            locations: Box::new([]),
             flags,
-            arg_names,
-            varargs,
-            kwonlyarg_names,
-            varkeywords,
+            posonlyarg_count,
+            arg_count,
+            kwonlyarg_count,
             source_path,
             first_line_number,
             obj_name,
+            cell2arg: None,
+            constants: Box::new([]),
+            names: Box::new([]),
+            varnames: Box::new([]),
+            cellvars: Box::new([]),
+            freevars: Box::new([]),
         }
     }
 
-    /// Load a code object from bytes
-    pub fn from_bytes(data: &[u8]) -> Result<Self, Box<dyn std::error::Error>> {
-        let data = lz4_compress::decompress(data)?;
-        bincode::deserialize::<Self>(&data).map_err(|e| e.into())
+    // like inspect.getargs
+    pub fn arg_names(&self) -> Arguments<C::Name> {
+        let nargs = self.arg_count;
+        let nkwargs = self.kwonlyarg_count;
+        let mut varargspos = nargs + nkwargs;
+        let posonlyargs = &self.varnames[..self.posonlyarg_count];
+        let args = &self.varnames[..nargs];
+        let kwonlyargs = &self.varnames[nargs..varargspos];
+
+        let vararg = if self.flags.contains(CodeFlags::HAS_VARARGS) {
+            let vararg = &self.varnames[varargspos];
+            varargspos += 1;
+            Some(vararg)
+        } else {
+            None
+        };
+        let varkwarg = if self.flags.contains(CodeFlags::HAS_VARKEYWORDS) {
+            Some(&self.varnames[varargspos])
+        } else {
+            None
+        };
+
+        Arguments {
+            posonlyargs,
+            args,
+            vararg,
+            kwonlyargs,
+            varkwarg,
+        }
     }
 
-    /// Serialize this bytecode to bytes.
-    pub fn to_bytes(&self) -> Vec<u8> {
-        let data = bincode::serialize(&self).expect("Code object must be serializable");
-        lz4_compress::compress(&data)
-    }
+    pub fn label_targets(&self) -> BTreeSet<Label> {
+        let mut label_targets = BTreeSet::new();
+        for instruction in &*self.instructions {
+            match instruction {
+                Jump { target: l }
+                | JumpIfTrue { target: l }
+                | JumpIfFalse { target: l }
+                | JumpIfTrueOrPop { target: l }
+                | JumpIfFalseOrPop { target: l }
+                | ForIter { target: l }
+                | SetupFinally { handler: l }
+                | SetupExcept { handler: l }
+                | SetupWith { end: l }
+                | SetupAsyncWith { end: l } => {
+                    label_targets.insert(*l);
+                }
+                SetupLoop { start, end } => {
+                    label_targets.insert(*start);
+                    label_targets.insert(*end);
+                }
 
-    pub fn get_constants(&self) -> impl Iterator<Item = &Constant> {
-        self.instructions.iter().filter_map(|x| {
-            if let Instruction::LoadConst { value } = x {
-                Some(value)
-            } else {
-                None
+                #[rustfmt::skip]
+                Import { .. } | ImportStar | ImportFrom { .. } | LoadFast(_) | LoadNameAny(_)
+                | LoadGlobal(_) | LoadDeref(_) | LoadClassDeref(_) | StoreFast(_) | StoreLocal(_)
+                | StoreGlobal(_) | StoreDeref(_) | DeleteFast(_) | DeleteLocal(_) | DeleteGlobal(_)
+                | DeleteDeref(_) | LoadClosure(_) | Subscript | StoreSubscript | DeleteSubscript
+                | StoreAttr { .. } | DeleteAttr { .. } | LoadConst { .. } | UnaryOperation { .. }
+                | BinaryOperation { .. } | LoadAttr { .. } | CompareOperation { .. } | Pop
+                | Rotate { .. } | Duplicate | GetIter | Continue | Break | MakeFunction
+                | CallFunction { .. } | ReturnValue | YieldValue | YieldFrom | SetupAnnotation
+                | EnterFinally | EndFinally | WithCleanupStart | WithCleanupFinish | PopBlock
+                | Raise { .. } | BuildString { .. } | BuildTuple { .. } | BuildList { .. }
+                | BuildSet { .. } | BuildMap { .. } | BuildSlice { .. } | ListAppend { .. }
+                | SetAdd { .. } | MapAdd { .. } | PrintExpr | LoadBuildClass | UnpackSequence { .. }
+                | UnpackEx { .. } | FormatValue { .. } | PopException | Reverse { .. }
+                | GetAwaitable | BeforeAsyncWith | GetAIter | GetANext | MapAddRev { .. } => {}
             }
-        })
+        }
+        label_targets
     }
 
     fn display_inner(
@@ -421,9 +632,10 @@ impl CodeObject {
         expand_codeobjects: bool,
         level: usize,
     ) -> fmt::Result {
-        let label_targets: HashSet<&usize> = self.label_map.values().collect();
+        let label_targets = self.label_targets();
+
         for (offset, instruction) in self.instructions.iter().enumerate() {
-            let arrow = if label_targets.contains(&offset) {
+            let arrow = if label_targets.contains(&Label(offset)) {
                 ">>"
             } else {
                 "  "
@@ -432,50 +644,153 @@ impl CodeObject {
                 write!(f, "          ")?;
             }
             write!(f, "{} {:5} ", arrow, offset)?;
-            instruction.fmt_dis(f, &self.label_map, expand_codeobjects, level)?;
+            instruction.fmt_dis(
+                f,
+                &self.constants,
+                &self.names,
+                &self.varnames,
+                &self.cellvars,
+                &self.freevars,
+                expand_codeobjects,
+                level,
+            )?;
         }
         Ok(())
     }
 
     pub fn display_expand_codeobjects<'a>(&'a self) -> impl fmt::Display + 'a {
-        struct Display<'a>(&'a CodeObject);
-        impl fmt::Display for Display<'_> {
+        struct Display<'a, C: Constant>(&'a CodeObject<C>);
+        impl<C: Constant> fmt::Display for Display<'_, C> {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 self.0.display_inner(f, true, 1)
             }
         }
         Display(self)
     }
+
+    pub fn map_bag<Bag: ConstantBag>(self, bag: &Bag) -> CodeObject<Bag::Constant> {
+        let map_names = |names: Box<[C::Name]>| {
+            names
+                .into_vec()
+                .into_iter()
+                .map(|x| bag.make_name_ref(x.as_ref()))
+                .collect::<Box<[_]>>()
+        };
+        CodeObject {
+            constants: self
+                .constants
+                .into_vec()
+                .into_iter()
+                .map(|x| x.map_constant(bag))
+                .collect(),
+            names: map_names(self.names),
+            varnames: map_names(self.varnames),
+            cellvars: map_names(self.cellvars),
+            freevars: map_names(self.freevars),
+
+            instructions: self.instructions,
+            locations: self.locations,
+            flags: self.flags,
+            posonlyarg_count: self.posonlyarg_count,
+            arg_count: self.arg_count,
+            kwonlyarg_count: self.kwonlyarg_count,
+            source_path: self.source_path,
+            first_line_number: self.first_line_number,
+            obj_name: self.obj_name,
+            cell2arg: self.cell2arg,
+        }
+    }
+
+    pub fn map_clone_bag<Bag: ConstantBag>(&self, bag: &Bag) -> CodeObject<Bag::Constant> {
+        let map_names = |names: &[C::Name]| {
+            names
+                .iter()
+                .map(|x| bag.make_name_ref(x.as_ref()))
+                .collect()
+        };
+        CodeObject {
+            constants: self
+                .constants
+                .iter()
+                .map(|x| bag.make_constant_borrowed(x.borrow_constant()))
+                .collect(),
+            names: map_names(&self.names),
+            varnames: map_names(&self.varnames),
+            cellvars: map_names(&self.cellvars),
+            freevars: map_names(&self.freevars),
+
+            instructions: self.instructions.clone(),
+            locations: self.locations.clone(),
+            flags: self.flags,
+            posonlyarg_count: self.posonlyarg_count,
+            arg_count: self.arg_count,
+            kwonlyarg_count: self.kwonlyarg_count,
+            source_path: self.source_path.clone(),
+            first_line_number: self.first_line_number,
+            obj_name: self.obj_name.clone(),
+            cell2arg: self.cell2arg.clone(),
+        }
+    }
 }
 
-impl fmt::Display for CodeObject {
+impl CodeObject<ConstantData> {
+    /// Load a code object from bytes
+    pub fn from_bytes(data: &[u8]) -> Result<Self, Box<dyn std::error::Error>> {
+        let reader = lz_fear::framed::LZ4FrameReader::new(data)?;
+        Ok(bincode::deserialize_from(reader.into_read())?)
+    }
+
+    /// Serialize this bytecode to bytes.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let data = bincode::serialize(&self).expect("CodeObject is not serializable");
+        let mut out = Vec::new();
+        lz_fear::framed::CompressionSettings::default()
+            .compress_with_size_unchecked(data.as_slice(), &mut out, data.len() as u64)
+            .unwrap();
+        out
+    }
+}
+
+impl<C: Constant> fmt::Display for CodeObject<C> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.display_inner(f, false, 1)
+        self.display_inner(f, false, 1)?;
+        for constant in &*self.constants {
+            if let BorrowedConstant::Code { code } = constant.borrow_constant() {
+                write!(f, "\nDisassembly of {:?}\n", code)?;
+                code.fmt(f)?;
+            }
+        }
+        Ok(())
     }
 }
 
 impl Instruction {
-    fn fmt_dis(
+    #[allow(clippy::too_many_arguments)]
+    fn fmt_dis<C: Constant>(
         &self,
         f: &mut fmt::Formatter,
-        label_map: &HashMap<Label, usize>,
+        constants: &[C],
+        names: &[C::Name],
+        varnames: &[C::Name],
+        cellvars: &[C::Name],
+        freevars: &[C::Name],
         expand_codeobjects: bool,
         level: usize,
     ) -> fmt::Result {
         macro_rules! w {
             ($variant:ident) => {
-                write!(f, "{:20}\n", stringify!($variant))
+                writeln!(f, stringify!($variant))
             };
             ($variant:ident, $var:expr) => {
-                write!(f, "{:20} ({})\n", stringify!($variant), $var)
+                writeln!(f, "{:20} ({})", stringify!($variant), $var)
             };
             ($variant:ident, $var1:expr, $var2:expr) => {
-                write!(f, "{:20} ({}, {})\n", stringify!($variant), $var1, $var2)
+                writeln!(f, "{:20} ({}, {})", stringify!($variant), $var1, $var2)
             };
             ($variant:ident, $var1:expr, $var2:expr, $var3:expr) => {
-                write!(
+                writeln!(
                     f,
-                    "{:20} ({}, {}, {})\n",
+                    "{:20} ({}, {}, {})",
                     stringify!($variant),
                     $var1,
                     $var2,
@@ -484,38 +799,69 @@ impl Instruction {
             };
         }
 
+        let cellname = |i: usize| {
+            cellvars
+                .get(i)
+                .unwrap_or_else(|| &freevars[i - cellvars.len()])
+                .as_ref()
+        };
+
         match self {
             Import {
-                name,
-                symbols,
+                name_idx,
+                symbols_idx,
                 level,
             } => w!(
                 Import,
-                format!("{:?}", name),
-                format!("{:?}", symbols),
+                format!("{:?}", name_idx.map(|idx| names[idx].as_ref())),
+                format!(
+                    "({:?})",
+                    symbols_idx
+                        .iter()
+                        .map(|&idx| names[idx].as_ref())
+                        .format(", ")
+                ),
                 level
             ),
             ImportStar => w!(ImportStar),
-            ImportFrom { name } => w!(ImportFrom, name),
-            LoadName { name, scope } => w!(LoadName, name, format!("{:?}", scope)),
-            StoreName { name, scope } => w!(StoreName, name, format!("{:?}", scope)),
-            DeleteName { name } => w!(DeleteName, name),
+            ImportFrom { idx } => w!(ImportFrom, names[*idx].as_ref()),
+            LoadFast(idx) => w!(LoadFast, *idx, varnames[*idx].as_ref()),
+            LoadNameAny(idx) => w!(LoadNameAny, *idx, names[*idx].as_ref()),
+            LoadGlobal(idx) => w!(LoadGlobal, *idx, names[*idx].as_ref()),
+            LoadDeref(idx) => w!(LoadDeref, *idx, cellname(*idx)),
+            LoadClassDeref(idx) => w!(LoadClassDeref, *idx, cellname(*idx)),
+            StoreFast(idx) => w!(StoreFast, *idx, varnames[*idx].as_ref()),
+            StoreLocal(idx) => w!(StoreLocal, *idx, names[*idx].as_ref()),
+            StoreGlobal(idx) => w!(StoreGlobal, *idx, names[*idx].as_ref()),
+            StoreDeref(idx) => w!(StoreDeref, *idx, cellname(*idx)),
+            DeleteFast(idx) => w!(DeleteFast, *idx, varnames[*idx].as_ref()),
+            DeleteLocal(idx) => w!(DeleteLocal, *idx, names[*idx].as_ref()),
+            DeleteGlobal(idx) => w!(DeleteGlobal, *idx, names[*idx].as_ref()),
+            DeleteDeref(idx) => w!(DeleteDeref, *idx, cellname(*idx)),
+            LoadClosure(i) => w!(LoadClosure, *i, cellname(*i)),
             Subscript => w!(Subscript),
             StoreSubscript => w!(StoreSubscript),
             DeleteSubscript => w!(DeleteSubscript),
-            StoreAttr { name } => w!(StoreAttr, name),
-            DeleteAttr { name } => w!(DeleteAttr, name),
-            LoadConst { value } => match value {
-                Constant::Code { code } if expand_codeobjects => {
-                    writeln!(f, "LoadConst ({:?}):", code)?;
-                    code.display_inner(f, true, level + 1)?;
-                    Ok(())
+            StoreAttr { idx } => w!(StoreAttr, names[*idx].as_ref()),
+            DeleteAttr { idx } => w!(DeleteAttr, names[*idx].as_ref()),
+            LoadConst { idx } => {
+                let value = &constants[*idx];
+                match value.borrow_constant() {
+                    BorrowedConstant::Code { code } if expand_codeobjects => {
+                        writeln!(f, "{:20} ({:?}):", "LoadConst", code)?;
+                        code.display_inner(f, true, level + 1)?;
+                        Ok(())
+                    }
+                    c => {
+                        write!(f, "{:20} (", "LoadConst")?;
+                        c.fmt_display(f)?;
+                        writeln!(f, ")")
+                    }
                 }
-                _ => w!(LoadConst, value),
-            },
+            }
             UnaryOperation { op } => w!(UnaryOperation, format!("{:?}", op)),
             BinaryOperation { op, inplace } => w!(BinaryOperation, format!("{:?}", op), inplace),
-            LoadAttr { name } => w!(LoadAttr, name),
+            LoadAttr { idx } => w!(LoadAttr, names[*idx].as_ref()),
             CompareOperation { op } => w!(CompareOperation, format!("{:?}", op)),
             Pop => w!(Pop),
             Rotate { amount } => w!(Rotate, amount),
@@ -523,27 +869,28 @@ impl Instruction {
             GetIter => w!(GetIter),
             Continue => w!(Continue),
             Break => w!(Break),
-            Jump { target } => w!(Jump, label_map[target]),
-            JumpIfTrue { target } => w!(JumpIfTrue, label_map[target]),
-            JumpIfFalse { target } => w!(JumpIfFalse, label_map[target]),
-            JumpIfTrueOrPop { target } => w!(JumpIfTrueOrPop, label_map[target]),
-            JumpIfFalseOrPop { target } => w!(JumpIfFalseOrPop, label_map[target]),
+            Jump { target } => w!(Jump, target),
+            JumpIfTrue { target } => w!(JumpIfTrue, target),
+            JumpIfFalse { target } => w!(JumpIfFalse, target),
+            JumpIfTrueOrPop { target } => w!(JumpIfTrueOrPop, target),
+            JumpIfFalseOrPop { target } => w!(JumpIfFalseOrPop, target),
             MakeFunction => w!(MakeFunction),
             CallFunction { typ } => w!(CallFunction, format!("{:?}", typ)),
-            ForIter { target } => w!(ForIter, label_map[target]),
+            ForIter { target } => w!(ForIter, target),
             ReturnValue => w!(ReturnValue),
             YieldValue => w!(YieldValue),
             YieldFrom => w!(YieldFrom),
-            SetupLoop { start, end } => w!(SetupLoop, label_map[start], label_map[end]),
-            SetupExcept { handler } => w!(SetupExcept, label_map[handler]),
-            SetupFinally { handler } => w!(SetupFinally, label_map[handler]),
+            SetupAnnotation => w!(SetupAnnotation),
+            SetupLoop { start, end } => w!(SetupLoop, start, end),
+            SetupExcept { handler } => w!(SetupExcept, handler),
+            SetupFinally { handler } => w!(SetupFinally, handler),
             EnterFinally => w!(EnterFinally),
             EndFinally => w!(EndFinally),
-            SetupWith { end } => w!(SetupWith, label_map[end]),
+            SetupWith { end } => w!(SetupWith, end),
             WithCleanupStart => w!(WithCleanupStart),
             WithCleanupFinish => w!(WithCleanupFinish),
             BeforeAsyncWith => w!(BeforeAsyncWith),
-            SetupAsyncWith { end } => w!(SetupAsyncWith, label_map[end]),
+            SetupAsyncWith { end } => w!(SetupAsyncWith, end),
             PopBlock => w!(PopBlock),
             Raise { argc } => w!(Raise, argc),
             BuildString { size } => w!(BuildString, size),
@@ -558,7 +905,7 @@ impl Instruction {
             BuildSlice { size } => w!(BuildSlice, size),
             ListAppend { i } => w!(ListAppend, i),
             SetAdd { i } => w!(SetAdd, i),
-            MapAdd { i } => w!(MapAdd, i),
+            MapAddRev { i } => w!(MapAddRev, i),
             PrintExpr => w!(PrintExpr),
             LoadBuildClass => w!(LoadBuildClass),
             UnpackSequence { size } => w!(UnpackSequence, size),
@@ -569,36 +916,18 @@ impl Instruction {
             GetAwaitable => w!(GetAwaitable),
             GetAIter => w!(GetAIter),
             GetANext => w!(GetANext),
+            MapAdd { i } => w!(MapAdd, i),
         }
     }
 }
 
-impl fmt::Display for Constant {
+impl fmt::Display for ConstantData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Constant::Integer { value } => write!(f, "{}", value),
-            Constant::Float { value } => write!(f, "{}", value),
-            Constant::Complex { value } => write!(f, "{}", value),
-            Constant::Boolean { value } => write!(f, "{}", value),
-            Constant::String { value } => write!(f, "{:?}", value),
-            Constant::Bytes { value } => write!(f, "{:?}", value),
-            Constant::Code { code } => write!(f, "{:?}", code),
-            Constant::Tuple { elements } => write!(
-                f,
-                "({})",
-                elements
-                    .iter()
-                    .map(|e| format!("{}", e))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-            Constant::None => write!(f, "None"),
-            Constant::Ellipsis => write!(f, "Ellipsis"),
-        }
+        self.borrow_constant().fmt_display(f)
     }
 }
 
-impl fmt::Debug for CodeObject {
+impl<C: Constant> fmt::Debug for CodeObject<C> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -608,7 +937,12 @@ impl fmt::Debug for CodeObject {
     }
 }
 
-pub struct FrozenModule {
-    pub code: CodeObject,
+#[derive(Serialize, Deserialize)]
+pub struct FrozenModule<C: Constant = ConstantData> {
+    #[serde(bound(
+        deserialize = "C: serde::Deserialize<'de>, C::Name: serde::Deserialize<'de>",
+        serialize = "C: serde::Serialize, C::Name: serde::Serialize"
+    ))]
+    pub code: CodeObject<C>,
     pub package: bool,
 }
