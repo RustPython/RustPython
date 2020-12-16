@@ -164,7 +164,9 @@ cfg_if::cfg_if! {
             }
         }
 
-        impl Hinter for ShellHelper<'_> {}
+        impl Hinter for ShellHelper<'_> {
+            type Hint = String;
+        }
         impl Highlighter for ShellHelper<'_> {}
         impl Validator for ShellHelper<'_> {}
         impl Helper for ShellHelper<'_> {}

@@ -21,12 +21,12 @@ ssl = ["openssl", "openssl-sys", "openssl-probe"]
 
 [dependencies]
 # Crypto:
-digest = "0.8.1"
-md-5 = "0.8"
-sha-1 = "0.8"
-sha2 = "0.8"
-sha3 = "0.8"
-blake2 = "0.8"
+digest = "0.9.0"
+md-5 = "0.9.1"
+sha-1 = "0.9.2"
+sha2 = "0.9.2"
+sha3 = "0.9.1"
+blake2 = "0.9.1"
 
 num-complex = { version = "0.3", features = ["serde"] }
 num-bigint = { version = "0.3", features = ["serde"] }
@@ -36,7 +36,8 @@ num-rational = "0.3"
 num-iter = "0.1.39"
 rand = { version = "0.7", features = ["wasm-bindgen"] }
 rand_core = "0.5"
-getrandom = { version = "0.1", features = ["wasm-bindgen"] }
+# Needs https://github.com/rust-random/getrandom/pull/178 before bumping
+getrandom = { version = "0.1.0", features = ["wasm-bindgen"] }
 mt19937 = "1.0"
 log = "0.4"
 rustpython-derive = { path = "../derive", version = "0.1.2" }
@@ -49,8 +50,8 @@ serde = { version = "1.0.66", features = ["derive"] }
 serde_json = "1.0"
 byteorder = "1.2.6"
 regex = "1"
-rustc_version_runtime = "0.1.*"
-statrs = "0.12.0"
+rustc_version_runtime = "0.2.0"
+statrs = "0.13.0"
 caseless = "0.2.1"
 chrono = { version = "0.4", features = ["wasmbind"] }
 lexical-core = "0.7"
@@ -62,20 +63,22 @@ crc = "^1.0.0"
 maplit = "1.0"
 bitflags = "1.2.1"
 libc = "0.2"
-nix = "0.18"
+nix = "0.19.1"
 arr_macro = "0.1.2"
 csv = "1.1.1"
-paste = "0.1"
+paste = "1.0.4"
 base64 = "0.13"
 is-macro = "0.1"
 result-like = "^0.3"
-foreign-types-shared = "0.1"
-num_enum = "0.4"
+# Required by rust-openssl
+# https://github.com/sfackler/rust-openssl/issues/1076
+foreign-types-shared = "0.1.0"
+num_enum = "0.5.1"
 bstr = "0.2.12"
 crossbeam-utils = "0.8"
 parking_lot = "0.11"
 thread_local = "1.0"
-cfg-if = "0.1.10"
+cfg-if = "1.0.0"
 timsort = "0.1"
 thiserror = "1.0"
 atty = "0.2"
@@ -108,7 +111,7 @@ crc32fast = "1.2.0"
 adler32 = "1.0.3"
 gethostname = "0.2.0"
 socket2 = "0.3"
-rustyline = "6.0"
+rustyline = "7.0.0"
 openssl = { version = "0.10", features = ["vendored"], optional = true }
 openssl-sys = { version = "0.9", optional = true }
 openssl-probe = { version = "0.1", optional = true }
@@ -120,7 +123,7 @@ num_cpus = "1"
 [target.'cfg(not(any(target_arch = "wasm32", target_os = "redox")))'.dependencies]
 dns-lookup = "1.0"
 flate2 = { version = "1.0", features = ["zlib"], default-features = false }
-libz-sys = "1.0"
+libz-sys = "1.1.2"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.7"

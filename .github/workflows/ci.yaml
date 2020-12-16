@@ -7,16 +7,6 @@ name: CI
 
 env:
   CARGO_ARGS: --features "ssl jit"
-  NON_WASM_PACKAGES: >
-    -p rustpython-bytecode
-    -p rustpython-common
-    -p rustpython-compiler
-    -p rustpython-parser
-    -p rustpython-vm
-    -p rustpython-jit
-    -p rustpython-derive
-    -p rustpython
-
 jobs:
   rust_tests:
     name: Run rust tests
@@ -48,7 +38,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --verbose ${{ env.CARGO_ARGS }} ${{ env.NON_WASM_PACKAGES }}
+          args: --verbose ${{ env.CARGO_ARGS }}
       - name: check compilation without threading
         uses: actions-rs/cargo@v1
         with:
@@ -148,7 +138,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: clippy
-          args: ${{ env.CARGO_ARGS }} ${{ env.NON_WASM_PACKAGES }} -- -Dwarnings
+          args: ${{ env.CARGO_ARGS }} -- -Dwarnings
       - name: run clippy on wasm
         uses: actions-rs/cargo@v1
         with:

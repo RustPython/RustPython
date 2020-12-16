@@ -23,7 +23,7 @@ mod _posixsubprocess {
         let argv = &argv;
         let envp = args.env_list.as_ref().map(|s| cstrs_to_ptrs(s.as_slice()));
         let envp = envp.as_deref();
-        match nix::unistd::fork().map_err(|err| err.into_pyexception(vm))? {
+        match unsafe { nix::unistd::fork() }.map_err(|err| err.into_pyexception(vm))? {
             nix::unistd::ForkResult::Child => exec(&args, ProcArgs { argv, envp }),
             nix::unistd::ForkResult::Parent { child } => Ok(child.as_raw()),
         }

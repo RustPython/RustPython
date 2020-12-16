@@ -13,6 +13,10 @@ members = [
     ".", "ast", "bytecode", "common", "compiler", "compiler/porcelain",
     "derive", "jit", "parser", "vm", "vm/pylib-crate", "wasm/lib",
 ]
+default-members = [
+    ".", "ast", "bytecode", "common", "compiler", "compiler/porcelain",
+    "derive", "jit", "parser", "vm", "vm/pylib-crate"
+]
 
 [features]
 default = ["threading", "pylib"]
@@ -25,22 +29,22 @@ ssl = ["rustpython-vm/ssl"]
 
 [dependencies]
 log = "0.4"
-env_logger = "0.7"
+env_logger = "0.8.2"
 clap = "2.33"
 rustpython-compiler = { path = "compiler/porcelain", version = "0.1.1" }
 rustpython-parser = { path = "parser", version = "0.1.1" }
 rustpython-vm = { path = "vm", version = "0.1.1", default-features = false, features = ["compile-parse"] }
 pylib = { package = "rustpython-pylib", path = "vm/pylib-crate", version = "0.1.0", default-features = false, optional = true }
-dirs = { package = "dirs-next", version = "1.0" }
+dirs = { package = "dirs-next", version = "2.0.0" }
 num-traits = "0.2.8"
-cfg-if = "0.1"
+cfg-if = "1.0.0"
 libc = "0.2"
 
 flame = { version = "0.2", optional = true }
 flamescope = { version = "0.1", optional = true }
 
 [target.'cfg(not(target_os = "wasi"))'.dependencies]
-rustyline = "6.0"
+rustyline = "7.0.0"
 
 [dev-dependencies]
 cpython = "0.5.0"

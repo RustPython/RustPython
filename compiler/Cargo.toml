@@ -8,7 +8,7 @@ license = "MIT"
 edition = "2018"
 
 [dependencies]
-indexmap = "1.0"
+indexmap = "1.6.0"
 itertools = "0.9"
 rustpython-bytecode = { path = "../bytecode", version = "0.1.1" }
 rustpython-ast = { path = "../ast" }
@@ -18,4 +18,4 @@ arrayvec = "0.5"
 
 [dev-dependencies]
 rustpython-parser = { path = "../parser" }
-insta = "1.1"
+insta = "1.3.0"

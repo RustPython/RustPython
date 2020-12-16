@@ -74,7 +74,10 @@ mod rustyline_readline {
 
     impl<H: Helper> Readline<H> {
         pub fn new(helper: H) -> Self {
-            use rustyline::{At, Cmd, CompletionType, Config, Editor, KeyPress, Movement, Word};
+            use rustyline::{
+                At, Cmd, CompletionType, Config, Editor, KeyCode, KeyEvent, Modifiers, Movement,
+                Word,
+            };
             let mut repl = Editor::with_config(
                 Config::builder()
                     .completion_type(CompletionType::List)
@@ -82,11 +85,11 @@ mod rustyline_readline {
                     .build(),
             );
             repl.bind_sequence(
-                KeyPress::ControlLeft,
+                KeyEvent(KeyCode::Left, Modifiers::CTRL),
                 Cmd::Move(Movement::BackwardWord(1, Word::Vi)),
             );
             repl.bind_sequence(
-                KeyPress::ControlRight,
+                KeyEvent(KeyCode::Right, Modifiers::CTRL),
                 Cmd::Move(Movement::ForwardWord(1, At::AfterEnd, Word::Vi)),
             );
             repl.set_helper(Some(helper));
