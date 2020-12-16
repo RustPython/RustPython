@@ -113,6 +113,7 @@ pub struct CodeObject<C: Constant = ConstantData> {
     pub kwonlyarg_count: usize,
     pub source_path: C::Name,
     pub first_line_number: usize,
+    pub max_stacksize: u32,
     pub obj_name: C::Name, // Name of the object that created this code object
     pub cell2arg: Option<Box<[isize]>>,
     pub constants: Box<[C]>,
@@ -246,7 +247,9 @@ pub enum Instruction {
     Continue {
         target: Label,
     },
-    Break,
+    Break {
+        target: Label,
+    },
     Jump {
         target: Label,
     },
@@ -285,9 +288,7 @@ pub enum Instruction {
     YieldValue,
     YieldFrom,
     SetupAnnotation,
-    SetupLoop {
-        end: Label,
-    },
+    SetupLoop,
 
     /// Setup a finally handler, which will be called whenever one of this events occurs:
     /// - the block is popped
@@ -556,34 +557,6 @@ impl<N: AsRef<str>> fmt::Debug for Arguments<'_, N> {
 }
 
 impl<C: Constant> CodeObject<C> {
-    pub fn new(
-        flags: CodeFlags,
-        posonlyarg_count: usize,
-        arg_count: usize,
-        kwonlyarg_count: usize,
-        source_path: C::Name,
-        first_line_number: usize,
-        obj_name: C::Name,
-    ) -> Self {
-        CodeObject {
-            instructions: Box::new([]),
-            locations: Box::new([]),
-            flags,
-            posonlyarg_count,
-            arg_count,
-            kwonlyarg_count,
-            source_path,
-            first_line_number,
-            obj_name,
-            cell2arg: None,
-            constants: Box::new([]),
-            names: Box::new([]),
-            varnames: Box::new([]),
-            cellvars: Box::new([]),
-            freevars: Box::new([]),
-        }
-    }
-
     // like inspect.getargs
     pub fn arg_names(&self) -> Arguments<C::Name> {
         let nargs = self.arg_count;
@@ -696,6 +669,7 @@ impl<C: Constant> CodeObject<C> {
             arg_count: self.arg_count,
             kwonlyarg_count: self.kwonlyarg_count,
             first_line_number: self.first_line_number,
+            max_stacksize: self.max_stacksize,
             cell2arg: self.cell2arg,
         }
     }
@@ -727,6 +701,7 @@ impl<C: Constant> CodeObject<C> {
             arg_count: self.arg_count,
             kwonlyarg_count: self.kwonlyarg_count,
             first_line_number: self.first_line_number,
+            max_stacksize: self.max_stacksize,
             cell2arg: self.cell2arg.clone(),
         }
     }
@@ -802,7 +777,7 @@ impl Instruction {
             | SetupExcept { handler: l }
             | SetupWith { end: l }
             | SetupAsyncWith { end: l }
-            | SetupLoop { end: l }
+            | Break { target: l }
             | Continue { target: l } => Some(l),
             _ => None,
         }
@@ -822,9 +797,109 @@ impl Instruction {
             | SetupExcept { handler: l }
             | SetupWith { end: l }
             | SetupAsyncWith { end: l }
-            | SetupLoop { end: l }
+            | Break { target: l }
             | Continue { target: l } => Some(l),
             _ => None,
+        }
+    }
+
+    pub fn unconditional_branch(&self) -> bool {
+        matches!(self, Jump { .. } | Continue{ .. } | Break { .. } | ReturnValue | Raise { .. })
+    }
+
+    pub fn stack_effect(&self, jump: bool) -> i32 {
+        match self {
+            ImportName { .. } | ImportNameless => -1,
+            ImportStar => -1,
+            ImportFrom { .. } => 1,
+            LoadFast(_) | LoadNameAny(_) | LoadGlobal(_) | LoadDeref(_) | LoadClassDeref(_) => 1,
+            StoreFast(_) | StoreLocal(_) | StoreGlobal(_) | StoreDeref(_) => -1,
+            DeleteFast(_) | DeleteLocal(_) | DeleteGlobal(_) | DeleteDeref(_) => 0,
+            LoadClosure(_) => 1,
+            Subscript => -1,
+            StoreSubscript => -3,
+            DeleteSubscript => -2,
+            LoadAttr { .. } => 0,
+            StoreAttr { .. } => -2,
+            DeleteAttr { .. } => -1,
+            LoadConst { .. } => 1,
+            UnaryOperation { .. } => 0,
+            BinaryOperation { .. } | BinaryOperationInplace { .. } | CompareOperation { .. } => -1,
+            Pop => -1,
+            Rotate { .. } => 0,
+            Duplicate => 1,
+            GetIter => 0,
+            Continue { .. } => 0,
+            Break { .. } => 0,
+            Jump { .. } => 0,
+            JumpIfTrue { .. } | JumpIfFalse { .. } => -1,
+            JumpIfTrueOrPop { .. } | JumpIfFalseOrPop { .. } => {
+                if jump {
+                    0
+                } else {
+                    -1
+                }
+            }
+            MakeFunction(flags) => {
+                -2 - flags.contains(MakeFunctionFlags::CLOSURE) as i32
+                    - flags.contains(MakeFunctionFlags::ANNOTATIONS) as i32
+                    - flags.contains(MakeFunctionFlags::KW_ONLY_DEFAULTS) as i32
+                    - flags.contains(MakeFunctionFlags::DEFAULTS) as i32
+                    + 1
+            }
+            CallFunctionPositional { nargs } => -1 - (*nargs as i32) + 1,
+            CallFunctionKeyword { nargs } => -2 - (*nargs as i32) + 1,
+            CallFunctionEx { has_kwargs } => -2 - *has_kwargs as i32 + 1,
+            ForIter { .. } => {
+                if jump {
+                    -1
+                } else {
+                    1
+                }
+            }
+            ReturnValue => -1,
+            YieldValue => 0,
+            YieldFrom => -1,
+            SetupAnnotation
+            | SetupLoop
+            | SetupFinally { .. }
+            | EnterFinally
+            | EndFinally
+            | SetupExcept { .. } => 0,
+            SetupWith { .. } => {
+                if jump {
+                    0
+                } else {
+                    1
+                }
+            }
+            WithCleanupStart => 0,
+            WithCleanupFinish => -1,
+            PopBlock => 0,
+            Raise { kind } => -(*kind as u8 as i32),
+            BuildString { size }
+            | BuildTuple { size, .. }
+            | BuildList { size, .. }
+            | BuildSet { size, .. } => -(*size as i32) + 1,
+            BuildMap { unpack, size, .. } => {
+                let nargs = if *unpack { *size } else { *size * 2 };
+                -(nargs as i32) + 1
+            }
+            BuildSlice { step } => -2 - (*step as i32) + 1,
+            ListAppend { .. } | SetAdd { .. } => -1,
+            MapAdd { .. } | MapAddRev { .. } => -2,
+            PrintExpr => -1,
+            LoadBuildClass => 1,
+            UnpackSequence { size } => -1 + *size as i32,
+            UnpackEx { before, after } => -1 + *before as i32 + 1 + *after as i32,
+            FormatValue { .. } => -1,
+            PopException => 0,
+            Reverse { .. } => 0,
+            GetAwaitable => 0,
+            BeforeAsyncWith => 1,
+            SetupAsyncWith { .. } => 0,
+            GetAIter => 0,
+            GetANext => 1,
         }
     }
 
@@ -922,7 +997,7 @@ impl Instruction {
             Duplicate => w!(Duplicate),
             GetIter => w!(GetIter),
             Continue { target } => w!(Continue, target),
-            Break => w!(Break),
+            Break { target } => w!(Break, target),
             Jump { target } => w!(Jump, target),
             JumpIfTrue { target } => w!(JumpIfTrue, target),
             JumpIfFalse { target } => w!(JumpIfFalse, target),
@@ -937,7 +1012,7 @@ impl Instruction {
             YieldValue => w!(YieldValue),
             YieldFrom => w!(YieldFrom),
             SetupAnnotation => w!(SetupAnnotation),
-            SetupLoop { end } => w!(SetupLoop, end),
+            SetupLoop => w!(SetupLoop),
             SetupExcept { handler } => w!(SetupExcept, handler),
             SetupFinally { handler } => w!(SetupFinally, handler),
             EnterFinally => w!(EnterFinally),

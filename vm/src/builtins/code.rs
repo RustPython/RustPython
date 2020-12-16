@@ -267,6 +267,12 @@ impl PyCodeRef {
     }
 }
 
+impl fmt::Display for PyCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        (**self).fmt(f)
+    }
+}
+
 pub fn init(ctx: &PyContext) {
     PyCodeRef::extend_class(ctx, &ctx.types.code_type);
 }

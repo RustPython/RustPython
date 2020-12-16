@@ -41,9 +41,7 @@ struct Block {
 
 #[derive(Clone, Debug)]
 enum BlockType {
-    Loop {
-        end: bytecode::Label,
-    },
+    Loop,
     TryExcept {
         handler: bytecode::Label,
     },
@@ -73,7 +71,7 @@ enum UnwindReason {
 
     // NoWorries,
     /// We are unwinding blocks, since we hit break
-    Break,
+    Break { target: bytecode::Label },
 
     /// We are unwinding blocks since we hit a continue statements.
     Continue { target: bytecode::Label },
@@ -179,6 +177,12 @@ impl Frame {
             .chain(closure.iter().cloned())
             .collect();
 
+        let state = FrameState {
+            stack: Vec::with_capacity(code.max_stacksize as usize),
+            // stack: Vec::new(),
+            blocks: Vec::new(),
+        };
+
         Frame {
             fastlocals: PyMutex::new(vec![None; code.varnames.len()].into_boxed_slice()),
             cells_frees,
@@ -187,10 +191,7 @@ impl Frame {
             builtins,
             code,
             lasti: AtomicU32::new(0),
-            state: PyMutex::new(FrameState {
-                stack: Vec::new(),
-                blocks: Vec::new(),
-            }),
+            state: PyMutex::new(state),
             trace: PyMutex::new(vm.ctx.none()),
         }
     }
@@ -680,8 +681,8 @@ impl ExecutingFrame<'_> {
                 }
                 Ok(None)
             }
-            bytecode::Instruction::SetupLoop { end } => {
-                self.push_block(BlockType::Loop { end: *end });
+            bytecode::Instruction::SetupLoop => {
+                self.push_block(BlockType::Loop);
                 Ok(None)
             }
             bytecode::Instruction::SetupExcept { handler } => {
@@ -877,7 +878,9 @@ impl ExecutingFrame<'_> {
 
             bytecode::Instruction::Raise { kind } => self.execute_raise(vm, *kind),
 
-            bytecode::Instruction::Break => self.unwind_blocks(vm, UnwindReason::Break),
+            bytecode::Instruction::Break { target } => {
+                self.unwind_blocks(vm, UnwindReason::Break { target: *target })
+            }
             bytecode::Instruction::Continue { target } => {
                 self.unwind_blocks(vm, UnwindReason::Continue { target: *target })
             }
@@ -909,9 +912,7 @@ impl ExecutingFrame<'_> {
                 })?;
                 let msg = match elements.len().cmp(&(*size as usize)) {
                     std::cmp::Ordering::Equal => {
-                        for element in elements.into_iter().rev() {
-                            self.push_value(element);
-                        }
+                        self.state.stack.extend(elements.into_iter().rev());
                         None
                     }
                     std::cmp::Ordering::Greater => {
@@ -1050,10 +1051,10 @@ impl ExecutingFrame<'_> {
         // First unwind all existing blocks on the block stack:
         while let Some(block) = self.current_block() {
             match block.typ {
-                BlockType::Loop { end } => match &reason {
-                    UnwindReason::Break => {
+                BlockType::Loop => match &reason {
+                    UnwindReason::Break { target } => {
                         self.pop_block();
-                        self.jump(end);
+                        self.jump(*target);
                         return Ok(None);
                     }
                     UnwindReason::Continue { target } => {
@@ -1104,7 +1105,7 @@ impl ExecutingFrame<'_> {
         match reason {
             UnwindReason::Raising { exception } => Err(exception),
             UnwindReason::Returning { value } => Ok(Some(ExecutionResult::Return(value))),
-            UnwindReason::Break | UnwindReason::Continue { .. } => {
+            UnwindReason::Break { .. } | UnwindReason::Continue { .. } => {
                 panic!("Internal error: break or continue must occur within a loop block.")
             } // UnwindReason::NoWorries => Ok(None),
         }
@@ -1350,33 +1351,30 @@ impl ExecutingFrame<'_> {
     fn execute_unpack_ex(&mut self, vm: &VirtualMachine, before: u8, after: u8) -> FrameResult {
         let (before, after) = (before as usize, after as usize);
         let value = self.pop_value();
-        let elements = vm.extract_elements::<PyObjectRef>(&value)?;
+        let mut elements = vm.extract_elements::<PyObjectRef>(&value)?;
         let min_expected = before + after;
-        if elements.len() < min_expected {
-            Err(vm.new_value_error(format!(
+
+        let middle = elements.len().checked_sub(min_expected).ok_or_else(|| {
+            vm.new_value_error(format!(
                 "not enough values to unpack (expected at least {}, got {})",
                 min_expected,
                 elements.len()
-            )))
-        } else {
-            let middle = elements.len() - before - after;
+            ))
+        })?;
 
-            // Elements on stack from right-to-left:
-            for element in elements[before + middle..].iter().rev() {
-                self.push_value(element.clone());
-            }
+        // Elements on stack from right-to-left:
+        self.state
+            .stack
+            .extend(elements.drain(before + middle..).rev());
 
-            let middle_elements = elements.iter().skip(before).take(middle).cloned().collect();
-            let t = vm.ctx.new_list(middle_elements);
-            self.push_value(t);
+        let middle_elements = elements.drain(before..).collect();
+        let t = vm.ctx.new_list(middle_elements);
+        self.push_value(t);
 
-            // Lastly the first reversed values:
-            for element in elements[..before].iter().rev() {
-                self.push_value(element.clone());
-            }
+        // Lastly the first reversed values:
+        self.state.stack.extend(elements.into_iter().rev());
 
-            Ok(None)
-        }
+        Ok(None)
     }
 
     #[inline]

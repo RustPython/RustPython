@@ -6,6 +6,7 @@
 //!   https://github.com/micropython/micropython/blob/master/py/compile.c
 
 use crate::error::{CompileError, CompileErrorType};
+use crate::ir::{self, CodeInfo};
 pub use crate::mode::Mode;
 use crate::symboltable::{make_symbol_table, statements_to_symbol_table, SymbolScope, SymbolTable};
 use indexmap::IndexSet;
@@ -13,77 +14,9 @@ use itertools::Itertools;
 use num_complex::Complex64;
 use num_traits::ToPrimitive;
 use rustpython_ast as ast;
-use rustpython_bytecode::{self as bytecode, CodeObject, ConstantData, Instruction, Label};
+use rustpython_bytecode::{self as bytecode, CodeObject, ConstantData, Instruction};
 
 type CompileResult<T> = Result<T, CompileError>;
-
-struct CodeInfo {
-    code: CodeObject,
-    instructions: Vec<Instruction>,
-    locations: Vec<bytecode::Location>,
-    constants: Vec<ConstantData>,
-    name_cache: IndexSet<String>,
-    varname_cache: IndexSet<String>,
-    cellvar_cache: IndexSet<String>,
-    freevar_cache: IndexSet<String>,
-    label_map: Vec<Label>,
-}
-impl CodeInfo {
-    fn finalize_code(self) -> CodeObject {
-        let CodeInfo {
-            mut code,
-            instructions,
-            locations,
-            constants,
-            name_cache,
-            varname_cache,
-            cellvar_cache,
-            freevar_cache,
-            label_map,
-        } = self;
-
-        code.instructions = instructions.into();
-        code.locations = locations.into();
-        code.constants = constants.into();
-        code.names = name_cache.into_iter().collect();
-        code.varnames = varname_cache.into_iter().collect();
-        code.cellvars = cellvar_cache.into_iter().collect();
-        code.freevars = freevar_cache.into_iter().collect();
-
-        if !code.cellvars.is_empty() {
-            let total_args = code.arg_count
-                + code.kwonlyarg_count
-                + code.flags.contains(bytecode::CodeFlags::HAS_VARARGS) as usize
-                + code.flags.contains(bytecode::CodeFlags::HAS_VARKEYWORDS) as usize;
-            let all_args = &code.varnames[..total_args];
-            let mut found_cellarg = false;
-            let cell2arg = code
-                .cellvars
-                .iter()
-                .map(|var| {
-                    all_args.iter().position(|arg| var == arg).map_or(-1, |i| {
-                        found_cellarg = true;
-                        i as isize
-                    })
-                })
-                .collect::<Box<[_]>>();
-            if found_cellarg {
-                code.cell2arg = Some(cell2arg);
-            }
-        }
-
-        for instruction in &mut *code.instructions {
-            // this is a little bit hacky, as until now the data stored inside Labels in
-            // Instructions is just bookkeeping, but I think it's the best way to do this
-            if let Some(l) = instruction.label_arg_mut() {
-                let real_label = label_map[l.0 as usize];
-                debug_assert!(real_label.0 != u32::MAX, "label wasn't set");
-                *l = real_label;
-            }
-        }
-        code
-    }
-}
 
 enum NameUsage {
     Load,
@@ -117,7 +50,7 @@ impl Default for CompileOpts {
 
 #[derive(Debug, Clone, Copy)]
 struct CompileContext {
-    loop_data: Option<(Label, Label)>,
+    loop_data: Option<(ir::BlockIdx, ir::BlockIdx)>,
     in_class: bool,
     func: FunctionContext,
 }
@@ -130,9 +63,6 @@ enum FunctionContext {
 }
 
 impl CompileContext {
-    fn in_loop(self) -> bool {
-        self.loop_data.is_some()
-    }
     fn in_func(self) -> bool {
         self.func != FunctionContext::NoFunction
     }
@@ -199,23 +129,21 @@ pub fn compile_program_single(
 impl Compiler {
     fn new(opts: CompileOpts, source_path: String, code_name: String) -> Self {
         let module_code = CodeInfo {
-            code: CodeObject::new(
-                bytecode::CodeFlags::NEW_LOCALS,
-                0,
-                0,
-                0,
-                source_path.clone(),
-                0,
-                code_name,
-            ),
-            instructions: Vec::new(),
-            locations: Vec::new(),
+            flags: bytecode::CodeFlags::NEW_LOCALS,
+            posonlyarg_count: 0,
+            arg_count: 0,
+            kwonlyarg_count: 0,
+            source_path: source_path.clone(),
+            first_line_number: 0,
+            obj_name: code_name,
+
+            blocks: vec![ir::Block::default()],
+            block_order: vec![bytecode::Label(0)],
             constants: Vec::new(),
             name_cache: IndexSet::new(),
             varname_cache: IndexSet::new(),
             cellvar_cache: IndexSet::new(),
             freevar_cache: IndexSet::new(),
-            label_map: Vec::new(),
         };
         Compiler {
             code_stack: vec![module_code],
@@ -244,7 +172,16 @@ impl Compiler {
         }
     }
 
-    fn push_output(&mut self, code: CodeObject) {
+    fn push_output(
+        &mut self,
+        flags: bytecode::CodeFlags,
+        posonlyarg_count: usize,
+        arg_count: usize,
+        kwonlyarg_count: usize,
+        source_path: String,
+        first_line_number: usize,
+        obj_name: String,
+    ) {
         let table = self
             .symbol_table_stack
             .last_mut()
@@ -268,15 +205,21 @@ impl Compiler {
         self.symbol_table_stack.push(table);
 
         let info = CodeInfo {
-            code,
-            instructions: Vec::new(),
-            locations: Vec::new(),
+            flags,
+            posonlyarg_count,
+            arg_count,
+            kwonlyarg_count,
+            source_path,
+            first_line_number,
+            obj_name,
+
+            blocks: vec![ir::Block::default()],
+            block_order: vec![bytecode::Label(0)],
             constants: Vec::new(),
             name_cache: IndexSet::new(),
             varname_cache: IndexSet::new(),
             cellvar_cache,
             freevar_cache,
-            label_map: Vec::new(),
         };
         self.code_stack.push(info);
     }
@@ -284,7 +227,10 @@ impl Compiler {
     fn pop_code_object(&mut self) -> CodeObject {
         let table = self.symbol_table_stack.pop().unwrap();
         assert!(table.sub_tables.is_empty());
-        self.code_stack.pop().unwrap().finalize_code()
+        self.code_stack
+            .pop()
+            .unwrap()
+            .finalize_code(self.opts.optimize)
     }
 
     // could take impl Into<Cow<str>>, but everything is borrowed from ast structs; we never
@@ -581,27 +527,28 @@ impl Compiler {
                 // Handled during symbol table construction.
             }
             If { test, body, orelse } => {
-                let end_label = self.new_label();
+                let after_block = self.new_block();
                 match orelse {
                     None => {
                         // Only if:
-                        self.compile_jump_if(test, false, end_label)?;
+                        self.compile_jump_if(test, false, after_block)?;
                         self.compile_statements(body)?;
-                        self.set_label(end_label);
                     }
                     Some(statements) => {
                         // if - else:
-                        let else_label = self.new_label();
-                        self.compile_jump_if(test, false, else_label)?;
+                        let else_block = self.new_block();
+                        self.compile_jump_if(test, false, else_block)?;
                         self.compile_statements(body)?;
-                        self.emit(Instruction::Jump { target: end_label });
+                        self.emit(Instruction::Jump {
+                            target: after_block,
+                        });
 
                         // else:
-                        self.set_label(else_label);
+                        self.switch_to_block(else_block);
                         self.compile_statements(statements)?;
                     }
                 }
-                self.set_label(end_label);
+                self.switch_to_block(after_block);
             }
             While { test, body, orelse } => self.compile_while(test, body, orelse)?,
             With {
@@ -611,10 +558,10 @@ impl Compiler {
             } => {
                 let is_async = *is_async;
 
-                let end_labels = items
+                let end_blocks = items
                     .iter()
                     .map(|item| {
-                        let end_label = self.new_label();
+                        let end_block = self.new_block();
                         self.compile_expression(&item.context_expr)?;
 
                         if is_async {
@@ -622,9 +569,9 @@ impl Compiler {
                             self.emit(Instruction::GetAwaitable);
                             self.emit_constant(ConstantData::None);
                             self.emit(Instruction::YieldFrom);
-                            self.emit(Instruction::SetupAsyncWith { end: end_label });
+                            self.emit(Instruction::SetupAsyncWith { end: end_block });
                         } else {
-                            self.emit(Instruction::SetupWith { end: end_label });
+                            self.emit(Instruction::SetupWith { end: end_block });
                         }
 
                         match &item.optional_vars {
@@ -635,7 +582,7 @@ impl Compiler {
                                 self.emit(Instruction::Pop);
                             }
                         }
-                        Ok(end_label)
+                        Ok(end_block)
                     })
                     .collect::<CompileResult<Vec<_>>>()?;
 
@@ -643,10 +590,11 @@ impl Compiler {
 
                 // sort of "stack up" the layers of with blocks:
                 // with a, b: body -> start_with(a) start_with(b) body() end_with(b) end_with(a)
-                for end_label in end_labels.into_iter().rev() {
+                for end_block in end_blocks.into_iter().rev() {
                     self.emit(Instruction::PopBlock);
                     self.emit(Instruction::EnterFinally);
-                    self.set_label(end_label);
+
+                    self.switch_to_block(end_block);
                     self.emit(Instruction::WithCleanupStart);
 
                     if is_async {
@@ -707,8 +655,9 @@ impl Compiler {
             Assert { test, msg } => {
                 // if some flag, ignore all assert statements!
                 if self.opts.optimize == 0 {
-                    let end_label = self.new_label();
-                    self.compile_jump_if(test, true, end_label)?;
+                    let after_block = self.new_block();
+                    self.compile_jump_if(test, true, after_block)?;
+
                     let assertion_error = self.name("AssertionError");
                     self.emit(Instruction::LoadGlobal(assertion_error));
                     match msg {
@@ -723,15 +672,18 @@ impl Compiler {
                     self.emit(Instruction::Raise {
                         kind: bytecode::RaiseKind::Raise,
                     });
-                    self.set_label(end_label);
+
+                    self.switch_to_block(after_block);
                 }
             }
-            Break => {
-                if !self.ctx.in_loop() {
-                    return Err(self.error_loc(CompileErrorType::InvalidBreak, statement.location));
+            Break => match self.ctx.loop_data {
+                Some((_, end)) => {
+                    self.emit(Instruction::Break { target: end });
                 }
-                self.emit(Instruction::Break);
-            }
+                None => {
+                    return Err(self.error_loc(CompileErrorType::InvalidBreak, statement.location))
+                }
+            },
             Continue => match self.ctx.loop_data {
                 Some((start, _)) => {
                     self.emit(Instruction::Continue { target: start });
@@ -750,7 +702,7 @@ impl Compiler {
                     Some(v) => {
                         if self.ctx.func == FunctionContext::AsyncFunction
                             && self
-                                .current_code()
+                                .current_codeinfo()
                                 .flags
                                 .contains(bytecode::CodeFlags::IS_GENERATOR)
                         {
@@ -873,7 +825,7 @@ impl Compiler {
         }
 
         let line_number = self.get_source_line_number();
-        self.push_output(CodeObject::new(
+        self.push_output(
             bytecode::CodeFlags::NEW_LOCALS | bytecode::CodeFlags::IS_OPTIMIZED,
             args.posonlyargs_count,
             args.args.len(),
@@ -881,7 +833,7 @@ impl Compiler {
             self.source_path.clone(),
             line_number,
             name.to_owned(),
-        ));
+        );
 
         for name in &args.args {
             self.varname(&name.arg);
@@ -893,7 +845,7 @@ impl Compiler {
         let mut compile_varargs = |va: &ast::Varargs, flag| match va {
             ast::Varargs::None | ast::Varargs::Unnamed => {}
             ast::Varargs::Named(name) => {
-                self.current_code().flags |= flag;
+                self.current_codeinfo().flags |= flag;
                 self.varname(&name.arg);
             }
         };
@@ -925,29 +877,30 @@ impl Compiler {
         orelse: &Option<ast::Suite>,
         finalbody: &Option<ast::Suite>,
     ) -> CompileResult<()> {
-        let mut handler_label = self.new_label();
-        let finally_handler_label = self.new_label();
-        let else_label = self.new_label();
+        let handler_block = self.new_block();
+        let finally_block = self.new_block();
 
         // Setup a finally block if we have a finally statement.
         if finalbody.is_some() {
             self.emit(Instruction::SetupFinally {
-                handler: finally_handler_label,
+                handler: finally_block,
             });
         }
 
+        let else_block = self.new_block();
+
         // try:
         self.emit(Instruction::SetupExcept {
-            handler: handler_label,
+            handler: handler_block,
         });
         self.compile_statements(body)?;
         self.emit(Instruction::PopBlock);
-        self.emit(Instruction::Jump { target: else_label });
+        self.emit(Instruction::Jump { target: else_block });
 
         // except handlers:
-        self.set_label(handler_label);
+        self.switch_to_block(handler_block);
         // Exception is on top of stack now
-        handler_label = self.new_label();
+        let mut next_handler = self.new_block();
         for handler in handlers {
             // If we gave a typ,
             // check if this handler can handle the exception:
@@ -963,7 +916,7 @@ impl Compiler {
 
                 // We cannot handle this exception type:
                 self.emit(Instruction::JumpIfFalse {
-                    target: handler_label,
+                    target: next_handler,
                 });
 
                 // We have a match, store in name (except x as y)
@@ -990,18 +943,18 @@ impl Compiler {
             }
 
             self.emit(Instruction::Jump {
-                target: finally_handler_label,
+                target: finally_block,
             });
 
             // Emit a new label for the next handler
-            self.set_label(handler_label);
-            handler_label = self.new_label();
+            self.switch_to_block(next_handler);
+            next_handler = self.new_block();
         }
 
         self.emit(Instruction::Jump {
-            target: handler_label,
+            target: next_handler,
         });
-        self.set_label(handler_label);
+        self.switch_to_block(next_handler);
         // If code flows here, we have an unhandled exception,
         // raise the exception again!
         self.emit(Instruction::Raise {
@@ -1010,7 +963,7 @@ impl Compiler {
 
         // We successfully ran the try block:
         // else:
-        self.set_label(else_label);
+        self.switch_to_block(else_block);
         if let Some(statements) = orelse {
             self.compile_statements(statements)?;
         }
@@ -1023,7 +976,7 @@ impl Compiler {
         }
 
         // finally:
-        self.set_label(finally_handler_label);
+        self.switch_to_block(finally_block);
         if let Some(statements) = finalbody {
             self.compile_statements(statements)?;
             self.emit(Instruction::EndFinally);
@@ -1269,7 +1222,7 @@ impl Compiler {
 
         self.emit(Instruction::LoadBuildClass);
         let line_number = self.get_source_line_number();
-        self.push_output(CodeObject::new(
+        self.push_output(
             bytecode::CodeFlags::empty(),
             0,
             0,
@@ -1277,7 +1230,7 @@ impl Compiler {
             self.source_path.clone(),
             line_number,
             name.to_owned(),
-        ));
+        );
 
         let (new_body, doc_str) = get_doc(body);
 
@@ -1396,28 +1349,28 @@ impl Compiler {
         body: &[ast::Statement],
         orelse: &Option<Vec<ast::Statement>>,
     ) -> CompileResult<()> {
-        let start_label = self.new_label();
-        let else_label = self.new_label();
-        let end_label = self.new_label();
+        let while_block = self.new_block();
+        let else_block = self.new_block();
+        let after_block = self.new_block();
 
-        self.emit(Instruction::SetupLoop { end: end_label });
-        self.set_label(start_label);
+        self.emit(Instruction::SetupLoop);
+        self.switch_to_block(while_block);
 
-        self.compile_jump_if(test, false, else_label)?;
+        self.compile_jump_if(test, false, else_block)?;
 
         let was_in_loop = self.ctx.loop_data;
-        self.ctx.loop_data = Some((start_label, end_label));
+        self.ctx.loop_data = Some((while_block, after_block));
         self.compile_statements(body)?;
         self.ctx.loop_data = was_in_loop;
         self.emit(Instruction::Jump {
-            target: start_label,
+            target: while_block,
         });
-        self.set_label(else_label);
+        self.switch_to_block(else_block);
         self.emit(Instruction::PopBlock);
         if let Some(orelse) = orelse {
             self.compile_statements(orelse)?;
         }
-        self.set_label(end_label);
+        self.switch_to_block(after_block);
         Ok(())
     }
 
@@ -1430,77 +1383,73 @@ impl Compiler {
         is_async: bool,
     ) -> CompileResult<()> {
         // Start loop
-        let start_label = self.new_label();
-        let else_label = self.new_label();
-        let end_label = self.new_label();
+        let for_block = self.new_block();
+        let else_block = self.new_block();
+        let after_block = self.new_block();
 
-        self.emit(Instruction::SetupLoop { end: end_label });
+        self.emit(Instruction::SetupLoop);
 
         // The thing iterated:
         self.compile_expression(iter)?;
 
         if is_async {
-            let check_asynciter_label = self.new_label();
-            let body_label = self.new_label();
+            let check_asynciter_block = self.new_block();
+            let body_block = self.new_block();
 
             self.emit(Instruction::GetAIter);
 
-            self.set_label(start_label);
+            self.switch_to_block(for_block);
             self.emit(Instruction::SetupExcept {
-                handler: check_asynciter_label,
+                handler: check_asynciter_block,
             });
             self.emit(Instruction::GetANext);
             self.emit_constant(ConstantData::None);
             self.emit(Instruction::YieldFrom);
             self.compile_store(target)?;
             self.emit(Instruction::PopBlock);
-            self.emit(Instruction::Jump { target: body_label });
+            self.emit(Instruction::Jump { target: body_block });
 
-            self.set_label(check_asynciter_label);
+            self.switch_to_block(check_asynciter_block);
             self.emit(Instruction::Duplicate);
             let stopasynciter = self.name("StopAsyncIteration");
             self.emit(Instruction::LoadGlobal(stopasynciter));
             self.emit(Instruction::CompareOperation {
                 op: bytecode::ComparisonOperator::ExceptionMatch,
             });
-            self.emit(Instruction::JumpIfTrue { target: else_label });
+            self.emit(Instruction::JumpIfTrue { target: else_block });
             self.emit(Instruction::Raise {
                 kind: bytecode::RaiseKind::Reraise,
             });
 
-            let was_in_loop = self.ctx.loop_data;
-            self.ctx.loop_data = Some((start_label, end_label));
-            self.set_label(body_label);
-            self.compile_statements(body)?;
-            self.ctx.loop_data = was_in_loop;
+            self.switch_to_block(body_block);
         } else {
             // Retrieve Iterator
             self.emit(Instruction::GetIter);
 
-            self.set_label(start_label);
-            self.emit(Instruction::ForIter { target: else_label });
+            self.switch_to_block(for_block);
+            self.emit(Instruction::ForIter { target: else_block });
 
             // Start of loop iteration, set targets:
             self.compile_store(target)?;
-
-            let was_in_loop = self.ctx.loop_data;
-            self.ctx.loop_data = Some((start_label, end_label));
-            self.compile_statements(body)?;
-            self.ctx.loop_data = was_in_loop;
         }
 
-        self.emit(Instruction::Jump {
-            target: start_label,
-        });
-        self.set_label(else_label);
+        let was_in_loop = self.ctx.loop_data;
+        self.ctx.loop_data = Some((for_block, after_block));
+        self.compile_statements(body)?;
+        self.ctx.loop_data = was_in_loop;
+        self.emit(Instruction::Jump { target: for_block });
+
+        self.switch_to_block(else_block);
         self.emit(Instruction::PopBlock);
         if let Some(orelse) = orelse {
             self.compile_statements(orelse)?;
         }
-        self.set_label(end_label);
+
+        self.switch_to_block(after_block);
         if is_async {
             self.emit(Instruction::Pop);
         }
+
         Ok(())
     }
 
@@ -1536,8 +1485,13 @@ impl Compiler {
         // initialize lhs outside of loop
         self.compile_expression(&vals[0])?;
 
-        let break_label = self.new_label();
-        let last_label = self.new_label();
+        let end_blocks = if vals.len() > 2 {
+            let break_block = self.new_block();
+            let after_block = self.new_block();
+            Some((break_block, after_block))
+        } else {
+            None
+        };
 
         // for all comparisons except the last (as the last one doesn't need a conditional jump)
         let ops_slice = &ops[0..ops.len()];
@@ -1553,9 +1507,11 @@ impl Compiler {
             });
 
             // if comparison result is false, we break with this value; if true, try the next one.
-            self.emit(Instruction::JumpIfFalseOrPop {
-                target: break_label,
-            });
+            if let Some((break_block, _)) = end_blocks {
+                self.emit(Instruction::JumpIfFalseOrPop {
+                    target: break_block,
+                });
+            }
         }
 
         // handle the last comparison
@@ -1564,15 +1520,17 @@ impl Compiler {
             op: to_operator(ops.last().unwrap()),
         });
 
-        if vals.len() > 2 {
-            self.emit(Instruction::Jump { target: last_label });
+        if let Some((break_block, after_block)) = end_blocks {
+            self.emit(Instruction::Jump {
+                target: after_block,
+            });
 
             // early exit left us with stack: `rhs, comparison_result`. We need to clean up rhs.
-            self.set_label(break_label);
+            self.switch_to_block(break_block);
             self.emit(Instruction::Rotate { amount: 2 });
             self.emit(Instruction::Pop);
 
-            self.set_label(last_label);
+            self.switch_to_block(after_block);
         }
 
         Ok(())
@@ -1715,7 +1673,7 @@ impl Compiler {
         &mut self,
         expression: &ast::Expression,
         condition: bool,
-        target_label: Label,
+        target_block: ir::BlockIdx,
     ) -> CompileResult<()> {
         // Compile expression for test, and jump to label if false
         match &expression.node {
@@ -1724,21 +1682,21 @@ impl Compiler {
                     ast::BooleanOperator::And => {
                         if condition {
                             // If all values are true.
-                            let end_label = self.new_label();
+                            let end_block = self.new_block();
                             let (last_value, values) = values.split_last().unwrap();
 
                             // If any of the values is false, we can short-circuit.
                             for value in values {
-                                self.compile_jump_if(value, false, end_label)?;
+                                self.compile_jump_if(value, false, end_block)?;
                             }
 
                             // It depends upon the last value now: will it be true?
-                            self.compile_jump_if(last_value, true, target_label)?;
-                            self.set_label(end_label);
+                            self.compile_jump_if(last_value, true, target_block)?;
+                            self.switch_to_block(end_block);
                         } else {
                             // If any value is false, the whole condition is false.
                             for value in values {
-                                self.compile_jump_if(value, false, target_label)?;
+                                self.compile_jump_if(value, false, target_block)?;
                             }
                         }
                     }
@@ -1746,21 +1704,21 @@ impl Compiler {
                         if condition {
                             // If any of the values is true.
                             for value in values {
-                                self.compile_jump_if(value, true, target_label)?;
+                                self.compile_jump_if(value, true, target_block)?;
                             }
                         } else {
                             // If all of the values are false.
-                            let end_label = self.new_label();
+                            let end_block = self.new_block();
                             let (last_value, values) = values.split_last().unwrap();
 
                             // If any value is true, we can short-circuit:
                             for value in values {
-                                self.compile_jump_if(value, true, end_label)?;
+                                self.compile_jump_if(value, true, end_block)?;
                             }
 
                             // It all depends upon the last value now!
-                            self.compile_jump_if(last_value, false, target_label)?;
-                            self.set_label(end_label);
+                            self.compile_jump_if(last_value, false, target_block)?;
+                            self.switch_to_block(end_block);
                         }
                     }
                 }
@@ -1769,18 +1727,18 @@ impl Compiler {
                 op: ast::UnaryOperator::Not,
                 a,
             } => {
-                self.compile_jump_if(a, !condition, target_label)?;
+                self.compile_jump_if(a, !condition, target_block)?;
             }
             _ => {
                 // Fall back case which always will work!
                 self.compile_expression(expression)?;
                 if condition {
                     self.emit(Instruction::JumpIfTrue {
-                        target: target_label,
+                        target: target_block,
                     });
                 } else {
                     self.emit(Instruction::JumpIfFalse {
-                        target: target_label,
+                        target: target_block,
                     });
                 }
             }
@@ -1795,7 +1753,7 @@ impl Compiler {
         op: &ast::BooleanOperator,
         values: &[ast::Expression],
     ) -> CompileResult<()> {
-        let end_label = self.new_label();
+        let after_block = self.new_block();
 
         let (last_value, values) = values.split_last().unwrap();
         for value in values {
@@ -1803,17 +1761,21 @@ impl Compiler {
 
             match op {
                 ast::BooleanOperator::And => {
-                    self.emit(Instruction::JumpIfFalseOrPop { target: end_label });
+                    self.emit(Instruction::JumpIfFalseOrPop {
+                        target: after_block,
+                    });
                 }
                 ast::BooleanOperator::Or => {
-                    self.emit(Instruction::JumpIfTrueOrPop { target: end_label });
+                    self.emit(Instruction::JumpIfTrueOrPop {
+                        target: after_block,
+                    });
                 }
             }
         }
 
         // If all values did not qualify, take the value of the last value:
         self.compile_expression(last_value)?;
-        self.set_label(end_label);
+        self.switch_to_block(after_block);
         Ok(())
     }
 
@@ -2046,17 +2008,22 @@ impl Compiler {
                 return Err(self.error(CompileErrorType::InvalidStarExpr));
             }
             IfExpression { test, body, orelse } => {
-                let no_label = self.new_label();
-                let end_label = self.new_label();
-                self.compile_jump_if(test, false, no_label)?;
+                let else_block = self.new_block();
+                let after_block = self.new_block();
+                self.compile_jump_if(test, false, else_block)?;
+
                 // True case
                 self.compile_expression(body)?;
-                self.emit(Instruction::Jump { target: end_label });
+                self.emit(Instruction::Jump {
+                    target: after_block,
+                });
+
                 // False case
-                self.set_label(no_label);
+                self.switch_to_block(else_block);
                 self.compile_expression(orelse)?;
+
                 // End
-                self.set_label(end_label);
+                self.switch_to_block(after_block);
             }
 
             NamedExpression { left, right } => {
@@ -2210,7 +2177,7 @@ impl Compiler {
 
         let line_number = self.get_source_line_number();
         // Create magnificent function <listcomp>:
-        self.push_output(CodeObject::new(
+        self.push_output(
             bytecode::CodeFlags::NEW_LOCALS | bytecode::CodeFlags::IS_OPTIMIZED,
             1,
             1,
@@ -2218,7 +2185,7 @@ impl Compiler {
             self.source_path.clone(),
             line_number,
             name.clone(),
-        ));
+        );
         let arg0 = self.varname(".0");
 
         // Create empty object of proper type:
@@ -2251,6 +2218,9 @@ impl Compiler {
                 unimplemented!("async for comprehensions");
             }
 
+            // Setup for loop:
+            self.emit(Instruction::SetupLoop);
+
             if loop_labels.is_empty() {
                 // Load iterator onto stack (passed as first argument):
                 self.emit(Instruction::LoadFast(arg0));
@@ -2262,19 +2232,20 @@ impl Compiler {
                 self.emit(Instruction::GetIter);
             }
 
-            // Setup for loop:
-            let start_label = self.new_label();
-            let end_label = self.new_label();
-            loop_labels.push((start_label, end_label));
-            self.emit(Instruction::SetupLoop { end: end_label });
-            self.set_label(start_label);
-            self.emit(Instruction::ForIter { target: end_label });
+            let loop_block = self.new_block();
+            let after_block = self.new_block();
+            loop_labels.push((loop_block, after_block));
+
+            self.switch_to_block(loop_block);
+            self.emit(Instruction::ForIter {
+                target: after_block,
+            });
 
             self.compile_store(&generator.target)?;
 
             // Now evaluate the ifs:
             for if_condition in &generator.ifs {
-                self.compile_jump_if(if_condition, false, start_label)?
+                self.compile_jump_if(if_condition, false, loop_block)?
             }
         }
 
@@ -2320,14 +2291,12 @@ impl Compiler {
             }
         }
 
-        for (start_label, end_label) in loop_labels.iter().rev() {
+        for (loop_block, after_block) in loop_labels.iter().rev().copied() {
             // Repeat:
-            self.emit(Instruction::Jump {
-                target: *start_label,
-            });
+            self.emit(Instruction::Jump { target: loop_block });
 
             // End of for loop:
-            self.set_label(*end_label);
+            self.switch_to_block(after_block);
             self.emit(Instruction::PopBlock);
         }
 
@@ -2428,13 +2397,15 @@ impl Compiler {
     }
 
     // Low level helper functions:
-    fn emit(&mut self, instruction: Instruction) {
+    fn emit(&mut self, instr: Instruction) {
         let location = compile_location(&self.current_source_location);
         // TODO: insert source filename
-        let info = self.current_codeinfo();
-        info.instructions.push(instruction);
-        info.locations.push(location);
+        self.current_block()
+            .instructions
+            .push(ir::InstructionInfo { instr, location });
     }
+
+    // fn block_done()
 
     fn emit_constant(&mut self, constant: ConstantData) {
         let info = self.current_codeinfo();
@@ -2443,35 +2414,31 @@ impl Compiler {
         self.emit(Instruction::LoadConst { idx })
     }
 
-    fn current_code(&mut self) -> &mut CodeObject {
-        &mut self.current_codeinfo().code
-    }
-
     fn current_codeinfo(&mut self) -> &mut CodeInfo {
         self.code_stack.last_mut().expect("no code on stack")
     }
 
-    // Generate a new label
-    fn new_label(&mut self) -> Label {
-        let label_map = &mut self.current_codeinfo().label_map;
-        let label = Label(label_map.len() as u32);
-        label_map.push(Label(u32::MAX));
-        label
+    fn current_block(&mut self) -> &mut ir::Block {
+        let info = self.current_codeinfo();
+        &mut info.blocks[info.block_order.last().unwrap().0 as usize]
     }
 
-    // Assign current position the given label
-    fn set_label(&mut self, label: Label) {
-        let CodeInfo {
-            instructions,
-            label_map,
-            ..
-        } = self.current_codeinfo();
-        let actual_label = Label(instructions.len() as u32);
-        let prev_val = std::mem::replace(&mut label_map[label.0 as usize], actual_label);
+    fn new_block(&mut self) -> ir::BlockIdx {
+        let code = self.current_codeinfo();
+        let idx = bytecode::Label(code.blocks.len() as u32);
+        code.blocks.push(ir::Block::default());
+        idx
+    }
+
+    fn switch_to_block(&mut self, block: ir::BlockIdx) {
+        let code = self.current_codeinfo();
+        let last = code.block_order.last().unwrap();
+        code.blocks[last.0 as usize].done = true;
         debug_assert!(
-            prev_val.0 == u32::MAX || prev_val == actual_label,
-            "double-set a label"
+            !code.blocks[block.0 as usize].done,
+            "switching to done block"
         );
+        code.block_order.push(block);
     }
 
     fn set_source_location(&mut self, location: ast::Location) {
@@ -2491,7 +2458,7 @@ impl Compiler {
     }
 
     fn mark_generator(&mut self) {
-        self.current_code().flags |= bytecode::CodeFlags::IS_GENERATOR
+        self.current_codeinfo().flags |= bytecode::CodeFlags::IS_GENERATOR
     }
 }
 
