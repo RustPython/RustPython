@@ -11,7 +11,7 @@ module.exports = (env = {}) => {
         entry: './src/index.js',
         output: {
             path: path.join(__dirname, 'dist'),
-            filename: 'index.js'
+            filename: 'index.js',
         },
         mode: 'development',
         resolve: {
@@ -19,23 +19,23 @@ module.exports = (env = {}) => {
                 rustpython: path.resolve(
                     __dirname,
                     env.rustpythonPkg || '../lib/pkg'
-                )
-            }
+                ),
+            },
         },
         module: {
             rules: [
                 {
                     test: /\.css$/,
-                    use: [MiniCssExtractPlugin.loader, 'css-loader']
+                    use: [MiniCssExtractPlugin.loader, 'css-loader'],
                 },
                 {
                     test: /\.(woff(2)?|ttf)$/,
                     use: {
-                        loader:"file-loader",
-                        options: { name: "fonts/[name].[ext]" }
+                        loader: 'file-loader',
+                        options: { name: 'fonts/[name].[ext]' },
                     },
-                }
-            ]   
+                },
+            ],
         },
         plugins: [
             new CleanWebpackPlugin(),
@@ -55,15 +55,15 @@ module.exports = (env = {}) => {
                 // }
             }),
             new MiniCssExtractPlugin({
-                filename: 'styles.css'
+                filename: 'styles.css',
             }),
-        ]
+        ],
     };
     if (!env.noWasmPack) {
         config.plugins.push(
             new WasmPackPlugin({
                 crateDirectory: path.join(__dirname, '../lib'),
-                forceMode: 'release'
+                forceMode: 'release',
             })
         );
     }

@@ -11,13 +11,13 @@ let rp;
 
 // A dependency graph that contains any wasm must be imported asynchronously.
 import('rustpython')
-    .then(rustpy => {
+    .then((rustpy) => {
         rp = rustpy;
         // so people can play around with it
         window.rp = rustpy;
         onReady();
     })
-    .catch(e => {
+    .catch((e) => {
         console.error('Error importing `rustpython`:', e);
         document.getElementById('error').textContent = e;
     });
@@ -29,15 +29,15 @@ const editor = CodeMirror.fromTextArea(document.getElementById('code'), {
         'Shift-Tab': 'indentLess',
         'Ctrl-/': 'toggleComment',
         'Cmd-/': 'toggleComment',
-        Tab: editor => {
+        Tab: (editor) => {
             var spaces = Array(editor.getOption('indentUnit') + 1).join(' ');
             editor.replaceSelection(spaces);
-        }
+        },
     },
     lineNumbers: true,
     mode: 'text/x-python',
     indentUnit: 4,
-    autofocus: true
+    autofocus: true,
 });
 
 const consoleElement = document.getElementById('console');
@@ -51,7 +51,7 @@ function runCodeFromTextarea() {
     const code = editor.getValue();
     try {
         rp.pyExec(code, {
-            stdout: output => {
+            stdout: (output) => {
                 const shouldScroll =
                     consoleElement.scrollHeight - consoleElement.scrollTop ===
                     consoleElement.clientHeight;
@@ -59,7 +59,7 @@ function runCodeFromTextarea() {
                 if (shouldScroll) {
                     consoleElement.scrollTop = consoleElement.scrollHeight;
                 }
-            }
+            },
         });
     } catch (err) {
         if (err instanceof WebAssembly.RuntimeError) {
@@ -79,7 +79,7 @@ function updateSnippet() {
     // dynamically.
     // https://webpack.js.org/guides/dependency-management/
     const {
-        default: snippet
+        default: snippet,
     } = require(`raw-loader!../snippets/${selected}.py`);
 
     editor.setValue(snippet);
@@ -148,8 +148,8 @@ function onReady() {
     runCodeFromTextarea();
 
     terminalVM = rp.vmStore.init('term_vm');
-    terminalVM.setStdout(data => localEcho.print(data));
-    readPrompts().catch(err => console.error(err));
+    terminalVM.setStdout((data) => localEcho.print(data));
+    readPrompts().catch((err) => console.error(err));
 
     // so that the test knows that we're ready
     const readyElement = document.createElement('div');

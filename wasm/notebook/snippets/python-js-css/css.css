@@ -6,14 +6,19 @@ h1 {
     font-family: 'Sen', 'sans-serif';
 }
 
-h2, h3, h4, button {
+h2,
+h3,
+h4,
+button {
     font-family: 'Turret Road', cursive;
 }
 
 h1 {
     font-size: 1.5rem;
 }
-h2, h3, h4 {
+h2,
+h3,
+h4 {
     padding-top: 1.25rem;
 }
 

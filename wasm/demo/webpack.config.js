@@ -11,7 +11,7 @@ module.exports = (env = {}) => {
         entry: './src/index.js',
         output: {
             path: path.join(__dirname, 'dist'),
-            filename: 'index.js'
+            filename: 'index.js',
         },
         mode: 'development',
         resolve: {
@@ -19,16 +19,16 @@ module.exports = (env = {}) => {
                 rustpython: path.resolve(
                     __dirname,
                     env.rustpythonPkg || '../lib/pkg'
-                )
-            }
+                ),
+            },
         },
         module: {
             rules: [
                 {
                     test: /\.css$/,
-                    use: [MiniCssExtractPlugin.loader, 'css-loader']
-                }
-            ]
+                    use: [MiniCssExtractPlugin.loader, 'css-loader'],
+                },
+            ],
         },
         plugins: [
             new CleanWebpackPlugin(),
@@ -38,24 +38,24 @@ module.exports = (env = {}) => {
                 templateParameters: {
                     snippets: fs
                         .readdirSync(path.join(__dirname, 'snippets'))
-                        .map(filename =>
+                        .map((filename) =>
                             path.basename(filename, path.extname(filename))
                         ),
                     defaultSnippetName: 'fibonacci',
                     defaultSnippet: fs.readFileSync(
                         path.join(__dirname, 'snippets/fibonacci.py')
-                    )
-                }
+                    ),
+                },
             }),
             new MiniCssExtractPlugin({
-                filename: 'styles.css'
+                filename: 'styles.css',
             }),
-        ]
+        ],
     };
     if (!env.noWasmPack) {
         config.plugins.push(
             new WasmPackPlugin({
-                crateDirectory: path.join(__dirname, '../lib')
+                crateDirectory: path.join(__dirname, '../lib'),
             })
         );
     }
