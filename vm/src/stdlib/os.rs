@@ -2280,8 +2280,11 @@ mod posix {
             SupportFunc::new(vm, "chmod", chmod, Some(false), Some(false), Some(false)),
             #[cfg(not(target_os = "redox"))]
             SupportFunc::new(vm, "chroot", chroot, Some(false), None, None),
+            #[cfg(not(target_os = "redox"))]
             SupportFunc::new(vm, "chown", chown, Some(true), Some(true), Some(true)),
+            #[cfg(not(target_os = "redox"))]
             SupportFunc::new(vm, "lchown", lchown, None, None, None),
+            #[cfg(not(target_os = "redox"))]
             SupportFunc::new(vm, "fchown", fchown, Some(true), None, Some(true)),
             SupportFunc::new(vm, "umask", umask, Some(false), Some(false), Some(false)),
             SupportFunc::new(vm, "execv", execv, None, None, None),

@@ -680,6 +680,7 @@ fn socket_getprotobyname(name: PyStrRef, vm: &VirtualMachine) -> PyResult {
     Ok(vm.ctx.new_int(num))
 }
 
+#[cfg(not(target_os = "redox"))]
 fn socket_getnameinfo(
     address: Address,
     flags: i32,
@@ -830,7 +831,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "inet_pton" => ctx.new_function(socket_inet_pton),
         "inet_ntop" => ctx.new_function(socket_inet_ntop),
         "getprotobyname" => ctx.new_function(socket_getprotobyname),
-        "getnameinfo" => ctx.new_function(socket_getnameinfo),
         "getservbyname" => ctx.new_function(socket_getservbyname),
         // constants
         "AF_UNSPEC" => ctx.new_int(0),
@@ -873,6 +873,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "getaddrinfo" => ctx.new_function(socket_getaddrinfo),
         "gethostbyaddr" => ctx.new_function(socket_gethostbyaddr),
         "gethostbyname" => ctx.new_function(socket_gethostbyname),
+        "getnameinfo" => ctx.new_function(socket_getnameinfo),
     });
 
     extend_module_platform_specific(vm, &module);
