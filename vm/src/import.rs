@@ -36,7 +36,7 @@ pub(crate) fn init_importlib(
             let install_external = vm.get_attribute(importlib, "_install_external_importers")?;
             vm.invoke(&install_external, ())?;
             // Set pyc magic number to commit hash. Should be changed when bytecode will be more stable.
-            let importlib_external = vm.import("_frozen_importlib_external", &[], 0)?;
+            let importlib_external = vm.import("_frozen_importlib_external", None, 0)?;
             let mut magic = get_git_revision().into_bytes();
             magic.truncate(4);
             if magic.len() != 4 {
@@ -44,7 +44,7 @@ pub(crate) fn init_importlib(
             }
             vm.set_attr(&importlib_external, "MAGIC_NUMBER", vm.ctx.new_bytes(magic))?;
             let zipimport_res = (|| -> PyResult<()> {
-                let zipimport = vm.import("zipimport", &[], 0)?;
+                let zipimport = vm.import("zipimport", None, 0)?;
                 let zipimporter = vm.get_attribute(zipimport, "zipimporter")?;
                 let path_hooks = vm.get_attribute(vm.sys_module.clone(), "path_hooks")?;
                 let path_hooks = list::PyListRef::try_from_object(vm, path_hooks)?;

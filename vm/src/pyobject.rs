@@ -763,6 +763,7 @@ pub trait TryIntoRef<T: PyObjectPayload> {
 }
 
 impl<T: PyObjectPayload> TryIntoRef<T> for PyRef<T> {
+    #[inline]
     fn try_into_ref(self, _vm: &VirtualMachine) -> PyResult<PyRef<T>> {
         Ok(self)
     }

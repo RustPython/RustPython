@@ -8,6 +8,7 @@ use crate::pyobject::{
 };
 use crate::vm::VirtualMachine;
 use indexmap::IndexMap;
+use itertools::Itertools;
 use result_like::impl_option_like;
 use std::collections::HashMap;
 use std::marker::PhantomData;
@@ -98,15 +99,24 @@ impl FuncArgs {
         Self { args, kwargs }
     }
 
-    pub fn with_kwargs_names(mut args: Vec<PyObjectRef>, kwarg_names: Vec<String>) -> Self {
+    pub fn with_kwargs_names<A, KW>(mut args: A, kwarg_names: KW) -> Self
+    where
+        A: ExactSizeIterator<Item = PyObjectRef>,
+        KW: ExactSizeIterator<Item = String>,
+    {
         // last `kwarg_names.len()` elements of args in order of appearance in the call signature
-        let kwarg_values = args.drain((args.len() - kwarg_names.len())..);
+        let total_argc = args.len();
+        let kwargc = kwarg_names.len();
+        let posargc = total_argc - kwargc;
 
-        let mut kwargs = IndexMap::new();
-        for (name, value) in kwarg_names.iter().zip(kwarg_values) {
-            kwargs.insert(name.clone(), value);
+        let posargs = args.by_ref().take(posargc).collect();
+
+        let kwargs = kwarg_names.zip_eq(args).collect::<IndexMap<_, _>>();
+
+        FuncArgs {
+            args: posargs,
+            kwargs,
         }
-        FuncArgs { args, kwargs }
     }
 
     pub fn prepend_arg(&mut self, item: PyObjectRef) {

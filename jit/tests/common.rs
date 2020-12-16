@@ -78,13 +78,15 @@ impl StackMachine {
         names: &[String],
     ) -> bool {
         match instruction {
-            Instruction::LoadConst { idx } => self.stack.push(constants[idx].clone().into()),
-            Instruction::LoadNameAny(idx) => {
-                self.stack.push(StackValue::String(names[idx].clone()))
+            Instruction::LoadConst { idx } => {
+                self.stack.push(constants[idx as usize].clone().into())
             }
+            Instruction::LoadNameAny(idx) => self
+                .stack
+                .push(StackValue::String(names[idx as usize].clone())),
             Instruction::StoreLocal(idx) => {
                 self.locals
-                    .insert(names[idx].clone(), self.stack.pop().unwrap());
+                    .insert(names[idx as usize].clone(), self.stack.pop().unwrap());
             }
             Instruction::StoreAttr { .. } => {
                 // Do nothing except throw away the stack values
@@ -104,7 +106,7 @@ impl StackMachine {
                 }
                 self.stack.push(StackValue::Map(map));
             }
-            Instruction::MakeFunction => {
+            Instruction::MakeFunction(_flags) => {
                 let name = if let Some(StackValue::String(name)) = self.stack.pop() {
                     name
                 } else {
@@ -134,7 +136,7 @@ impl StackMachine {
                 let mut values = Vec::new();
 
                 // Pop all values from stack:
-                values.extend(self.stack.drain(self.stack.len() - amount..));
+                values.extend(self.stack.drain(self.stack.len() - amount as usize..));
 
                 // Push top of stack back first:
                 self.stack.push(values.pop().unwrap());

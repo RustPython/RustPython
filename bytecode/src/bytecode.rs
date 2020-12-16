@@ -117,15 +117,12 @@ pub struct CodeObject<C: Constant = ConstantData> {
 bitflags! {
     #[derive(Serialize, Deserialize)]
     pub struct CodeFlags: u16 {
-        const HAS_DEFAULTS = 0x01;
-        const HAS_KW_ONLY_DEFAULTS = 0x02;
-        const HAS_ANNOTATIONS = 0x04;
-        const NEW_LOCALS = 0x08;
-        const IS_GENERATOR = 0x10;
-        const IS_COROUTINE = 0x20;
-        const HAS_VARARGS = 0x40;
-        const HAS_VARKEYWORDS = 0x80;
-        const IS_OPTIMIZED = 0x0100;
+        const NEW_LOCALS = 0x01;
+        const IS_GENERATOR = 0x02;
+        const IS_COROUTINE = 0x04;
+        const HAS_VARARGS = 0x08;
+        const HAS_VARKEYWORDS = 0x10;
+        const IS_OPTIMIZED = 0x20;
     }
 }
 
@@ -145,8 +142,8 @@ impl CodeFlags {
 #[derive(Serialize, Debug, Deserialize, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 #[repr(transparent)]
 // XXX: if you add a new instruction that stores a Label, make sure to add it in
-// compile::CodeInfo::finalize_code and CodeObject::label_targets
-pub struct Label(pub usize);
+// Instruction::label_arg{,_mut}
+pub struct Label(pub u32);
 impl fmt::Display for Label {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.0.fmt(f)
@@ -156,6 +153,8 @@ impl fmt::Display for Label {
 /// Transforms a value prior to formatting it.
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ConversionFlag {
+    /// No conversion
+    None,
     /// Converts by calling `str(<value>)`.
     Str,
     /// Converts by calling `ascii(<value>)`.
@@ -164,16 +163,22 @@ pub enum ConversionFlag {
     Repr,
 }
 
-pub type NameIdx = usize;
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum RaiseKind {
+    Reraise,
+    Raise,
+    RaiseCause,
+}
+
+pub type NameIdx = u32;
 
 /// A Single bytecode instruction.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Instruction {
-    Import {
-        name_idx: Option<NameIdx>,
-        symbols_idx: Vec<NameIdx>,
-        level: usize,
+    ImportName {
+        idx: NameIdx,
     },
+    ImportNameless,
     ImportStar,
     ImportFrom {
         idx: NameIdx,
@@ -203,14 +208,16 @@ pub enum Instruction {
     },
     LoadConst {
         /// index into constants vec
-        idx: usize,
+        idx: u32,
     },
     UnaryOperation {
         op: UnaryOperator,
     },
     BinaryOperation {
         op: BinaryOperator,
-        inplace: bool,
+    },
+    BinaryOperationInplace {
+        op: BinaryOperator,
     },
     LoadAttr {
         idx: NameIdx,
@@ -220,11 +227,13 @@ pub enum Instruction {
     },
     Pop,
     Rotate {
-        amount: usize,
+        amount: u32,
     },
     Duplicate,
     GetIter,
-    Continue,
+    Continue {
+        target: Label,
+    },
     Break,
     Jump {
         target: Label,
@@ -247,9 +256,15 @@ pub enum Instruction {
     JumpIfFalseOrPop {
         target: Label,
     },
-    MakeFunction,
-    CallFunction {
-        typ: CallType,
+    MakeFunction(MakeFunctionFlags),
+    CallFunctionPositional {
+        nargs: u32,
+    },
+    CallFunctionKeyword {
+        nargs: u32,
+    },
+    CallFunctionEx {
+        has_kwargs: bool,
     },
     ForIter {
         target: Label,
@@ -259,7 +274,6 @@ pub enum Instruction {
     YieldFrom,
     SetupAnnotation,
     SetupLoop {
-        start: Label,
         end: Label,
     },
 
@@ -292,56 +306,57 @@ pub enum Instruction {
     WithCleanupFinish,
     PopBlock,
     Raise {
-        argc: usize,
+        kind: RaiseKind,
     },
     BuildString {
-        size: usize,
+        size: u32,
     },
     BuildTuple {
-        size: usize,
         unpack: bool,
+        size: u32,
     },
     BuildList {
-        size: usize,
         unpack: bool,
+        size: u32,
     },
     BuildSet {
-        size: usize,
         unpack: bool,
+        size: u32,
     },
     BuildMap {
-        size: usize,
         unpack: bool,
         for_call: bool,
+        size: u32,
     },
     BuildSlice {
-        size: usize,
+        /// whether build a slice with a third step argument
+        step: bool,
     },
     ListAppend {
-        i: usize,
+        i: u32,
     },
     SetAdd {
-        i: usize,
+        i: u32,
     },
     MapAdd {
-        i: usize,
+        i: u32,
     },
 
     PrintExpr,
     LoadBuildClass,
     UnpackSequence {
-        size: usize,
+        size: u32,
     },
     UnpackEx {
-        before: usize,
-        after: usize,
+        before: u8,
+        after: u8,
     },
     FormatValue {
-        conversion: Option<ConversionFlag>,
+        conversion: ConversionFlag,
     },
     PopException,
     Reverse {
-        amount: usize,
+        amount: u32,
     },
     GetAwaitable,
     BeforeAsyncWith,
@@ -355,17 +370,20 @@ pub enum Instruction {
     /// required to support named expressions of Python 3.8 in dict comprehension
     /// today (including Py3.9) only required in dict comprehension.
     MapAddRev {
-        i: usize,
+        i: u32,
     },
 }
 
 use self::Instruction::*;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum CallType {
-    Positional(usize),
-    Keyword(usize),
-    Ex(bool),
+bitflags! {
+    #[derive(Serialize, Deserialize)]
+    pub struct MakeFunctionFlags: u8 {
+        const CLOSURE = 0x01;
+        const ANNOTATIONS = 0x02;
+        const KW_ONLY_DEFAULTS = 0x04;
+        const DEFAULTS = 0x08;
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -452,7 +470,7 @@ impl<C: Constant> BorrowedConstant<'_, C> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ComparisonOperator {
     Greater,
     GreaterOrEqual,
@@ -467,7 +485,7 @@ pub enum ComparisonOperator {
     ExceptionMatch,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 pub enum BinaryOperator {
     Power,
     Multiply,
@@ -484,7 +502,7 @@ pub enum BinaryOperator {
     Or,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 pub enum UnaryOperator {
     Not,
     Invert,
@@ -588,39 +606,8 @@ impl<C: Constant> CodeObject<C> {
     pub fn label_targets(&self) -> BTreeSet<Label> {
         let mut label_targets = BTreeSet::new();
         for instruction in &*self.instructions {
-            match instruction {
-                Jump { target: l }
-                | JumpIfTrue { target: l }
-                | JumpIfFalse { target: l }
-                | JumpIfTrueOrPop { target: l }
-                | JumpIfFalseOrPop { target: l }
-                | ForIter { target: l }
-                | SetupFinally { handler: l }
-                | SetupExcept { handler: l }
-                | SetupWith { end: l }
-                | SetupAsyncWith { end: l } => {
-                    label_targets.insert(*l);
-                }
-                SetupLoop { start, end } => {
-                    label_targets.insert(*start);
-                    label_targets.insert(*end);
-                }
-
-                #[rustfmt::skip]
-                Import { .. } | ImportStar | ImportFrom { .. } | LoadFast(_) | LoadNameAny(_)
-                | LoadGlobal(_) | LoadDeref(_) | LoadClassDeref(_) | StoreFast(_) | StoreLocal(_)
-                | StoreGlobal(_) | StoreDeref(_) | DeleteFast(_) | DeleteLocal(_) | DeleteGlobal(_)
-                | DeleteDeref(_) | LoadClosure(_) | Subscript | StoreSubscript | DeleteSubscript
-                | StoreAttr { .. } | DeleteAttr { .. } | LoadConst { .. } | UnaryOperation { .. }
-                | BinaryOperation { .. } | LoadAttr { .. } | CompareOperation { .. } | Pop
-                | Rotate { .. } | Duplicate | GetIter | Continue | Break | MakeFunction
-                | CallFunction { .. } | ReturnValue | YieldValue | YieldFrom | SetupAnnotation
-                | EnterFinally | EndFinally | WithCleanupStart | WithCleanupFinish | PopBlock
-                | Raise { .. } | BuildString { .. } | BuildTuple { .. } | BuildList { .. }
-                | BuildSet { .. } | BuildMap { .. } | BuildSlice { .. } | ListAppend { .. }
-                | SetAdd { .. } | MapAdd { .. } | PrintExpr | LoadBuildClass | UnpackSequence { .. }
-                | UnpackEx { .. } | FormatValue { .. } | PopException | Reverse { .. }
-                | GetAwaitable | BeforeAsyncWith | GetAIter | GetANext | MapAddRev { .. } => {}
+            if let Some(l) = instruction.label_arg() {
+                label_targets.insert(*l);
             }
         }
         label_targets
@@ -635,7 +622,7 @@ impl<C: Constant> CodeObject<C> {
         let label_targets = self.label_targets();
 
         for (offset, instruction) in self.instructions.iter().enumerate() {
-            let arrow = if label_targets.contains(&Label(offset)) {
+            let arrow = if label_targets.contains(&Label(offset as u32)) {
                 ">>"
             } else {
                 "  "
@@ -736,18 +723,21 @@ impl<C: Constant> CodeObject<C> {
 impl CodeObject<ConstantData> {
     /// Load a code object from bytes
     pub fn from_bytes(data: &[u8]) -> Result<Self, Box<dyn std::error::Error>> {
-        let reader = lz_fear::framed::LZ4FrameReader::new(data)?;
-        Ok(bincode::deserialize_from(reader.into_read())?)
+        // TODO: PR to lz4_flex to make it not panic
+        if data.len() < 4 {
+            return Err(
+                std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "bad bytecode").into(),
+            );
+        }
+        let raw_bincode = lz4_flex::decompress_size_prepended(data)?;
+        let data = bincode::deserialize(&raw_bincode)?;
+        Ok(data)
     }
 
     /// Serialize this bytecode to bytes.
     pub fn to_bytes(&self) -> Vec<u8> {
         let data = bincode::serialize(&self).expect("CodeObject is not serializable");
-        let mut out = Vec::new();
-        lz_fear::framed::CompressionSettings::default()
-            .compress_with_size_unchecked(data.as_slice(), &mut out, data.len() as u64)
-            .unwrap();
-        out
+        lz4_flex::compress_prepend_size(&data)
     }
 }
 
@@ -765,6 +755,46 @@ impl<C: Constant> fmt::Display for CodeObject<C> {
 }
 
 impl Instruction {
+    /// Gets the label stored inside this instruction, if it exists
+    #[inline]
+    pub fn label_arg(&self) -> Option<&Label> {
+        match self {
+            Jump { target: l }
+            | JumpIfTrue { target: l }
+            | JumpIfFalse { target: l }
+            | JumpIfTrueOrPop { target: l }
+            | JumpIfFalseOrPop { target: l }
+            | ForIter { target: l }
+            | SetupFinally { handler: l }
+            | SetupExcept { handler: l }
+            | SetupWith { end: l }
+            | SetupAsyncWith { end: l }
+            | SetupLoop { end: l }
+            | Continue { target: l } => Some(l),
+            _ => None,
+        }
+    }
+
+    /// Gets a mutable reference to the label stored inside this instruction, if it exists
+    #[inline]
+    pub fn label_arg_mut(&mut self) -> Option<&mut Label> {
+        match self {
+            Jump { target: l }
+            | JumpIfTrue { target: l }
+            | JumpIfFalse { target: l }
+            | JumpIfTrueOrPop { target: l }
+            | JumpIfFalseOrPop { target: l }
+            | ForIter { target: l }
+            | SetupFinally { handler: l }
+            | SetupExcept { handler: l }
+            | SetupWith { end: l }
+            | SetupAsyncWith { end: l }
+            | SetupLoop { end: l }
+            | Continue { target: l } => Some(l),
+            _ => None,
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn fmt_dis<C: Constant>(
         &self,
@@ -799,53 +829,41 @@ impl Instruction {
             };
         }
 
-        let cellname = |i: usize| {
+        let varname = |i: u32| varnames[i as usize].as_ref();
+        let name = |i: u32| names[i as usize].as_ref();
+        let cellname = |i: u32| {
             cellvars
-                .get(i)
-                .unwrap_or_else(|| &freevars[i - cellvars.len()])
+                .get(i as usize)
+                .unwrap_or_else(|| &freevars[i as usize - cellvars.len()])
                 .as_ref()
         };
 
         match self {
-            Import {
-                name_idx,
-                symbols_idx,
-                level,
-            } => w!(
-                Import,
-                format!("{:?}", name_idx.map(|idx| names[idx].as_ref())),
-                format!(
-                    "({:?})",
-                    symbols_idx
-                        .iter()
-                        .map(|&idx| names[idx].as_ref())
-                        .format(", ")
-                ),
-                level
-            ),
+            ImportName { idx } => w!(ImportName, name(*idx)),
+            ImportNameless => w!(ImportNameless),
             ImportStar => w!(ImportStar),
-            ImportFrom { idx } => w!(ImportFrom, names[*idx].as_ref()),
-            LoadFast(idx) => w!(LoadFast, *idx, varnames[*idx].as_ref()),
-            LoadNameAny(idx) => w!(LoadNameAny, *idx, names[*idx].as_ref()),
-            LoadGlobal(idx) => w!(LoadGlobal, *idx, names[*idx].as_ref()),
+            ImportFrom { idx } => w!(ImportFrom, name(*idx)),
+            LoadFast(idx) => w!(LoadFast, *idx, varname(*idx)),
+            LoadNameAny(idx) => w!(LoadNameAny, *idx, name(*idx)),
+            LoadGlobal(idx) => w!(LoadGlobal, *idx, name(*idx)),
             LoadDeref(idx) => w!(LoadDeref, *idx, cellname(*idx)),
             LoadClassDeref(idx) => w!(LoadClassDeref, *idx, cellname(*idx)),
-            StoreFast(idx) => w!(StoreFast, *idx, varnames[*idx].as_ref()),
-            StoreLocal(idx) => w!(StoreLocal, *idx, names[*idx].as_ref()),
-            StoreGlobal(idx) => w!(StoreGlobal, *idx, names[*idx].as_ref()),
+            StoreFast(idx) => w!(StoreFast, *idx, varname(*idx)),
+            StoreLocal(idx) => w!(StoreLocal, *idx, name(*idx)),
+            StoreGlobal(idx) => w!(StoreGlobal, *idx, name(*idx)),
             StoreDeref(idx) => w!(StoreDeref, *idx, cellname(*idx)),
-            DeleteFast(idx) => w!(DeleteFast, *idx, varnames[*idx].as_ref()),
-            DeleteLocal(idx) => w!(DeleteLocal, *idx, names[*idx].as_ref()),
-            DeleteGlobal(idx) => w!(DeleteGlobal, *idx, names[*idx].as_ref()),
+            DeleteFast(idx) => w!(DeleteFast, *idx, varname(*idx)),
+            DeleteLocal(idx) => w!(DeleteLocal, *idx, name(*idx)),
+            DeleteGlobal(idx) => w!(DeleteGlobal, *idx, name(*idx)),
             DeleteDeref(idx) => w!(DeleteDeref, *idx, cellname(*idx)),
             LoadClosure(i) => w!(LoadClosure, *i, cellname(*i)),
             Subscript => w!(Subscript),
             StoreSubscript => w!(StoreSubscript),
             DeleteSubscript => w!(DeleteSubscript),
-            StoreAttr { idx } => w!(StoreAttr, names[*idx].as_ref()),
-            DeleteAttr { idx } => w!(DeleteAttr, names[*idx].as_ref()),
+            StoreAttr { idx } => w!(StoreAttr, name(*idx)),
+            DeleteAttr { idx } => w!(DeleteAttr, name(*idx)),
             LoadConst { idx } => {
-                let value = &constants[*idx];
+                let value = &constants[*idx as usize];
                 match value.borrow_constant() {
                     BorrowedConstant::Code { code } if expand_codeobjects => {
                         writeln!(f, "{:20} ({:?}):", "LoadConst", code)?;
@@ -859,29 +877,34 @@ impl Instruction {
                     }
                 }
             }
-            UnaryOperation { op } => w!(UnaryOperation, format!("{:?}", op)),
-            BinaryOperation { op, inplace } => w!(BinaryOperation, format!("{:?}", op), inplace),
-            LoadAttr { idx } => w!(LoadAttr, names[*idx].as_ref()),
-            CompareOperation { op } => w!(CompareOperation, format!("{:?}", op)),
+            UnaryOperation { op } => w!(UnaryOperation, format_args!("{:?}", op)),
+            BinaryOperation { op } => w!(BinaryOperation, format_args!("{:?}", op)),
+            BinaryOperationInplace { op } => {
+                w!(BinaryOperationInplace, format_args!("{:?}", op))
+            }
+            LoadAttr { idx } => w!(LoadAttr, name(*idx)),
+            CompareOperation { op } => w!(CompareOperation, format_args!("{:?}", op)),
             Pop => w!(Pop),
             Rotate { amount } => w!(Rotate, amount),
             Duplicate => w!(Duplicate),
             GetIter => w!(GetIter),
-            Continue => w!(Continue),
+            Continue { target } => w!(Continue, target),
             Break => w!(Break),
             Jump { target } => w!(Jump, target),
             JumpIfTrue { target } => w!(JumpIfTrue, target),
             JumpIfFalse { target } => w!(JumpIfFalse, target),
             JumpIfTrueOrPop { target } => w!(JumpIfTrueOrPop, target),
             JumpIfFalseOrPop { target } => w!(JumpIfFalseOrPop, target),
-            MakeFunction => w!(MakeFunction),
-            CallFunction { typ } => w!(CallFunction, format!("{:?}", typ)),
+            MakeFunction(flags) => w!(MakeFunction, format_args!("{:?}", flags)),
+            CallFunctionPositional { nargs } => w!(CallFunctionPositional, nargs),
+            CallFunctionKeyword { nargs } => w!(CallFunctionKeyword, nargs),
+            CallFunctionEx { has_kwargs } => w!(CallFunctionEx, has_kwargs),
             ForIter { target } => w!(ForIter, target),
             ReturnValue => w!(ReturnValue),
             YieldValue => w!(YieldValue),
             YieldFrom => w!(YieldFrom),
             SetupAnnotation => w!(SetupAnnotation),
-            SetupLoop { start, end } => w!(SetupLoop, start, end),
+            SetupLoop { end } => w!(SetupLoop, end),
             SetupExcept { handler } => w!(SetupExcept, handler),
             SetupFinally { handler } => w!(SetupFinally, handler),
             EnterFinally => w!(EnterFinally),
@@ -892,7 +915,7 @@ impl Instruction {
             BeforeAsyncWith => w!(BeforeAsyncWith),
             SetupAsyncWith { end } => w!(SetupAsyncWith, end),
             PopBlock => w!(PopBlock),
-            Raise { argc } => w!(Raise, argc),
+            Raise { kind } => w!(Raise, format_args!("{:?}", kind)),
             BuildString { size } => w!(BuildString, size),
             BuildTuple { size, unpack } => w!(BuildTuple, size, unpack),
             BuildList { size, unpack } => w!(BuildList, size, unpack),
@@ -902,7 +925,7 @@ impl Instruction {
                 unpack,
                 for_call,
             } => w!(BuildMap, size, unpack, for_call),
-            BuildSlice { size } => w!(BuildSlice, size),
+            BuildSlice { step } => w!(BuildSlice, step),
             ListAppend { i } => w!(ListAppend, i),
             SetAdd { i } => w!(SetAdd, i),
             MapAddRev { i } => w!(MapAddRev, i),
@@ -910,7 +933,7 @@ impl Instruction {
             LoadBuildClass => w!(LoadBuildClass),
             UnpackSequence { size } => w!(UnpackSequence, size),
             UnpackEx { before, after } => w!(UnpackEx, before, after),
-            FormatValue { .. } => w!(FormatValue), // TODO: write conversion
+            FormatValue { conversion } => w!(FormatValue, format_args!("{:?}", conversion)),
             PopException => w!(PopException),
             Reverse { amount } => w!(Reverse, amount),
             GetAwaitable => w!(GetAwaitable),

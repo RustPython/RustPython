@@ -73,7 +73,7 @@ impl FrameRef {
     }
 
     #[pyproperty]
-    fn f_lasti(self) -> usize {
+    fn f_lasti(self) -> u32 {
         self.lasti()
     }
 
