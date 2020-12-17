@@ -40,6 +40,12 @@ pub trait Constant: Sized {
     fn map_constant<Bag: ConstantBag>(self, bag: &Bag) -> Bag::Constant {
         bag.make_constant(self.into_data())
     }
+    fn map_name<Bag: ConstantBag>(
+        name: Self::Name,
+        bag: &Bag,
+    ) -> <Bag::Constant as Constant>::Name {
+        bag.make_name_ref(name.as_ref())
+    }
 }
 impl Constant for ConstantData {
     type Name = String;
@@ -62,6 +68,9 @@ impl Constant for ConstantData {
     }
     fn into_data(self) -> ConstantData {
         self
+    }
+    fn map_name<Bag: ConstantBag>(name: String, bag: &Bag) -> <Bag::Constant as Constant>::Name {
+        bag.make_name(name)
     }
 }
 
@@ -99,9 +108,9 @@ pub struct CodeObject<C: Constant = ConstantData> {
     pub posonlyarg_count: usize, // Number of positional-only arguments
     pub arg_count: usize,
     pub kwonlyarg_count: usize,
-    pub source_path: String,
+    pub source_path: C::Name,
     pub first_line_number: usize,
-    pub obj_name: String, // Name of the object that created this code object
+    pub obj_name: C::Name, // Name of the object that created this code object
     pub cell2arg: Option<Box<[isize]>>,
     pub constants: Box<[C]>,
     #[serde(bound(
@@ -549,9 +558,9 @@ impl<C: Constant> CodeObject<C> {
         posonlyarg_count: usize,
         arg_count: usize,
         kwonlyarg_count: usize,
-        source_path: String,
+        source_path: C::Name,
         first_line_number: usize,
-        obj_name: String,
+        obj_name: C::Name,
     ) -> Self {
         CodeObject {
             instructions: Box::new([]),
@@ -660,7 +669,7 @@ impl<C: Constant> CodeObject<C> {
             names
                 .into_vec()
                 .into_iter()
-                .map(|x| bag.make_name_ref(x.as_ref()))
+                .map(|x| C::map_name(x, bag))
                 .collect::<Box<[_]>>()
         };
         CodeObject {
@@ -674,6 +683,8 @@ impl<C: Constant> CodeObject<C> {
             varnames: map_names(self.varnames),
             cellvars: map_names(self.cellvars),
             freevars: map_names(self.freevars),
+            source_path: C::map_name(self.source_path, bag),
+            obj_name: C::map_name(self.obj_name, bag),
 
             instructions: self.instructions,
             locations: self.locations,
@@ -681,9 +692,7 @@ impl<C: Constant> CodeObject<C> {
             posonlyarg_count: self.posonlyarg_count,
             arg_count: self.arg_count,
             kwonlyarg_count: self.kwonlyarg_count,
-            source_path: self.source_path,
             first_line_number: self.first_line_number,
-            obj_name: self.obj_name,
             cell2arg: self.cell2arg,
         }
     }
@@ -705,6 +714,8 @@ impl<C: Constant> CodeObject<C> {
             varnames: map_names(&self.varnames),
             cellvars: map_names(&self.cellvars),
             freevars: map_names(&self.freevars),
+            source_path: bag.make_name_ref(self.source_path.as_ref()),
+            obj_name: bag.make_name_ref(self.obj_name.as_ref()),
 
             instructions: self.instructions.clone(),
             locations: self.locations.clone(),
@@ -712,9 +723,7 @@ impl<C: Constant> CodeObject<C> {
             posonlyarg_count: self.posonlyarg_count,
             arg_count: self.arg_count,
             kwonlyarg_count: self.kwonlyarg_count,
-            source_path: self.source_path.clone(),
             first_line_number: self.first_line_number,
-            obj_name: self.obj_name.clone(),
             cell2arg: self.cell2arg.clone(),
         }
     }
@@ -955,7 +964,9 @@ impl<C: Constant> fmt::Debug for CodeObject<C> {
         write!(
             f,
             "<code object {} at ??? file {:?}, line {}>",
-            self.obj_name, self.source_path, self.first_line_number
+            self.obj_name.as_ref(),
+            self.source_path.as_ref(),
+            self.first_line_number
         )
     }
 }

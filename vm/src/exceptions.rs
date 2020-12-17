@@ -240,13 +240,13 @@ fn write_traceback_entry<W: Write>(
     output: &mut W,
     tb_entry: &PyTracebackRef,
 ) -> Result<(), W::Error> {
-    let filename = tb_entry.frame.code.source_path.to_owned();
+    let filename = tb_entry.frame.code.source_path.borrow_value();
     writeln!(
         output,
         r##"  File "{}", line {}, in {}"##,
         filename, tb_entry.lineno, tb_entry.frame.code.obj_name
     )?;
-    print_source_line(output, &filename, tb_entry.lineno)?;
+    print_source_line(output, filename, tb_entry.lineno)?;
 
     Ok(())
 }

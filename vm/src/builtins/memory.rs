@@ -673,9 +673,9 @@ impl PyMemoryView {
     #[pymethod(magic)]
     fn repr(zelf: PyRef<Self>) -> String {
         if zelf.released.load() {
-            format!("<released memory at 0x{:x}>", zelf.get_id())
+            format!("<released memory at {:#x}>", zelf.get_id())
         } else {
-            format!("<memory at 0x{:x}>", zelf.get_id())
+            format!("<memory at {:#x}>", zelf.get_id())
         }
     }
 

@@ -9,7 +9,7 @@ use crate::builtins::{code, list};
 #[cfg(feature = "rustpython-compiler")]
 use crate::compile;
 use crate::exceptions::PyBaseExceptionRef;
-use crate::pyobject::{ItemProtocol, PyResult, PyValue, TryFromObject, TypeProtocol};
+use crate::pyobject::{BorrowValue, ItemProtocol, PyResult, PyValue, TryFromObject, TypeProtocol};
 use crate::scope::Scope;
 use crate::version::get_git_revision;
 use crate::vm::{InitParameter, VirtualMachine};
@@ -139,12 +139,12 @@ fn remove_importlib_frames_inner(
         return (None, false);
     };
 
-    let file_name = &traceback.frame.code.source_path;
+    let file_name = traceback.frame.code.source_path.borrow_value();
 
     let (inner_tb, mut now_in_importlib) =
         remove_importlib_frames_inner(vm, traceback.next.clone(), always_trim);
     if file_name == "_frozen_importlib" || file_name == "_frozen_importlib_external" {
-        if traceback.frame.code.obj_name == "_call_with_frames_removed" {
+        if traceback.frame.code.obj_name.borrow_value() == "_call_with_frames_removed" {
             now_in_importlib = true;
         }
         if always_trim || now_in_importlib {

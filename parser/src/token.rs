@@ -124,13 +124,11 @@ impl fmt::Display for Tok {
                 write!(f, "b\"")?;
                 for i in value {
                     match i {
-                        0..=8 => write!(f, "\\x0{}", i)?,
                         9 => f.write_str("\\t")?,
                         10 => f.write_str("\\n")?,
-                        11 => write!(f, "\\x0{:x}", i)?,
                         13 => f.write_str("\\r")?,
                         32..=126 => f.write_char(*i as char)?,
-                        _ => write!(f, "\\x{:x}", i)?,
+                        _ => write!(f, "\\x{:02x}", i)?,
                     }
                 }
                 f.write_str("\"")

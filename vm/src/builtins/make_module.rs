@@ -341,15 +341,9 @@ mod decl {
     // builtin_help
 
     #[pyfunction]
-    fn hex(number: PyIntRef, vm: &VirtualMachine) -> PyResult {
+    fn hex(number: PyIntRef) -> String {
         let n = number.borrow_value();
-        let s = if n.is_negative() {
-            format!("-0x{:x}", -n)
-        } else {
-            format!("0x{:x}", n)
-        };
-
-        Ok(vm.ctx.new_str(s))
+        format!("{:#x}", n)
     }
 
     #[pyfunction]
