@@ -263,7 +263,7 @@ impl ModuleItem for FunctionItem {
             );
             let module = args.module_name();
             let new_func = quote_spanned!(ident.span()=>
-                vm.ctx.new_function_named(#ident, #py_name.to_owned())
+                vm.ctx.make_funcdef(#py_name, #ident)
                     #doc
                     .into_function()
                     .with_module(vm.ctx.new_str(#module.to_owned()))

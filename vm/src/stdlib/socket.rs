@@ -469,7 +469,7 @@ fn get_addr_tuple<A: Into<socket2::SockAddr>>(addr: A) -> AddrTuple {
     }
 }
 
-fn socket_gethostname(vm: &VirtualMachine) -> PyResult {
+fn _socket_gethostname(vm: &VirtualMachine) -> PyResult {
     gethostname()
         .into_string()
         .map(|hostname| vm.ctx.new_str(hostname))
@@ -477,11 +477,11 @@ fn socket_gethostname(vm: &VirtualMachine) -> PyResult {
 }
 
 #[cfg(all(unix, not(target_os = "redox")))]
-fn socket_sethostname(hostname: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
+fn _socket_sethostname(hostname: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
     sethostname(hostname.borrow_value()).map_err(|err| err.into_pyexception(vm))
 }
 
-fn socket_inet_aton(ip_string: PyStrRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+fn _socket_inet_aton(ip_string: PyStrRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
     ip_string
         .borrow_value()
         .parse::<Ipv4Addr>()
@@ -489,13 +489,13 @@ fn socket_inet_aton(ip_string: PyStrRef, vm: &VirtualMachine) -> PyResult<Vec<u8
         .map_err(|_| vm.new_os_error("illegal IP address string passed to inet_aton".to_owned()))
 }
 
-fn socket_inet_ntoa(packed_ip: PyBytesRef, vm: &VirtualMachine) -> PyResult {
+fn _socket_inet_ntoa(packed_ip: PyBytesRef, vm: &VirtualMachine) -> PyResult {
     let packed_ip = <&[u8; 4]>::try_from(&**packed_ip)
         .map_err(|_| vm.new_os_error("packed IP wrong length for inet_ntoa".to_owned()))?;
     Ok(vm.ctx.new_str(Ipv4Addr::from(*packed_ip).to_string()))
 }
 
-fn socket_getservbyname(
+fn _socket_getservbyname(
     servicename: PyStrRef,
     protocolname: OptionalArg<PyStrRef>,
     vm: &VirtualMachine,
@@ -532,7 +532,7 @@ struct GAIOptions {
 }
 
 #[cfg(not(target_os = "redox"))]
-fn socket_getaddrinfo(opts: GAIOptions, vm: &VirtualMachine) -> PyResult {
+fn _socket_getaddrinfo(opts: GAIOptions, vm: &VirtualMachine) -> PyResult {
     let hints = dns_lookup::AddrInfoHints {
         socktype: opts.ty,
         protocol: opts.proto,
@@ -593,7 +593,7 @@ fn socket_getaddrinfo(opts: GAIOptions, vm: &VirtualMachine) -> PyResult {
 }
 
 #[cfg(not(target_os = "redox"))]
-fn socket_gethostbyaddr(
+fn _socket_gethostbyaddr(
     addr: PyStrRef,
     vm: &VirtualMachine,
 ) -> PyResult<(String, PyObjectRef, PyObjectRef)> {
@@ -614,8 +614,8 @@ fn socket_gethostbyaddr(
 }
 
 #[cfg(not(target_os = "redox"))]
-fn socket_gethostbyname(name: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
-    match socket_gethostbyaddr(name, vm) {
+fn _socket_gethostbyname(name: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
+    match _socket_gethostbyaddr(name, vm) {
         Ok((_, _, hosts)) => {
             let lst = vm.extract_elements::<PyStrRef>(&hosts)?;
             Ok(lst.get(0).unwrap().to_string())
@@ -630,7 +630,7 @@ fn socket_gethostbyname(name: PyStrRef, vm: &VirtualMachine) -> PyResult<String>
     }
 }
 
-fn socket_inet_pton(af_inet: i32, ip_string: PyStrRef, vm: &VirtualMachine) -> PyResult {
+fn _socket_inet_pton(af_inet: i32, ip_string: PyStrRef, vm: &VirtualMachine) -> PyResult {
     match af_inet {
         c::AF_INET => ip_string
             .borrow_value()
@@ -650,7 +650,7 @@ fn socket_inet_pton(af_inet: i32, ip_string: PyStrRef, vm: &VirtualMachine) -> P
     }
 }
 
-fn socket_inet_ntop(af_inet: i32, packed_ip: PyBytesRef, vm: &VirtualMachine) -> PyResult<String> {
+fn _socket_inet_ntop(af_inet: i32, packed_ip: PyBytesRef, vm: &VirtualMachine) -> PyResult<String> {
     match af_inet {
         c::AF_INET => {
             let packed_ip = <&[u8; 4]>::try_from(&**packed_ip).map_err(|_| {
@@ -668,7 +668,7 @@ fn socket_inet_ntop(af_inet: i32, packed_ip: PyBytesRef, vm: &VirtualMachine) ->
     }
 }
 
-fn socket_getprotobyname(name: PyStrRef, vm: &VirtualMachine) -> PyResult {
+fn _socket_getprotobyname(name: PyStrRef, vm: &VirtualMachine) -> PyResult {
     use std::ffi::CString;
     let cstr = CString::new(name.borrow_value())
         .map_err(|_| vm.new_value_error("embedded null character".to_owned()))?;
@@ -681,7 +681,7 @@ fn socket_getprotobyname(name: PyStrRef, vm: &VirtualMachine) -> PyResult {
 }
 
 #[cfg(not(target_os = "redox"))]
-fn socket_getnameinfo(
+fn _socket_getnameinfo(
     address: Address,
     flags: i32,
     vm: &VirtualMachine,
@@ -819,19 +819,19 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "error" => ctx.exceptions.os_error.clone(),
         "timeout" => socket_timeout,
         "gaierror" => socket_gaierror,
-        "inet_aton" => ctx.new_function(socket_inet_aton),
-        "inet_ntoa" => ctx.new_function(socket_inet_ntoa),
-        "gethostname" => ctx.new_function(socket_gethostname),
-        "htonl" => ctx.new_function(u32::to_be),
-        "htons" => ctx.new_function(u16::to_be),
-        "ntohl" => ctx.new_function(u32::from_be),
-        "ntohs" => ctx.new_function(u16::from_be),
-        "getdefaulttimeout" => ctx.new_function(|vm: &VirtualMachine| vm.ctx.none()),
+        "inet_aton" => named_function!(ctx, _socket, inet_aton),
+        "inet_ntoa" => named_function!(ctx, _socket, inet_ntoa),
+        "gethostname" => named_function!(ctx, _socket, gethostname),
+        "htonl" => ctx.new_function("htonl", u32::to_be),
+        "htons" => ctx.new_function("htons", u16::to_be),
+        "ntohl" => ctx.new_function("ntohl", u32::from_be),
+        "ntohs" => ctx.new_function("ntohs", u16::from_be),
+        "getdefaulttimeout" => ctx.new_function("getdefaulttimeout", |vm: &VirtualMachine| vm.ctx.none()),
         "has_ipv6" => ctx.new_bool(false),
-        "inet_pton" => ctx.new_function(socket_inet_pton),
-        "inet_ntop" => ctx.new_function(socket_inet_ntop),
-        "getprotobyname" => ctx.new_function(socket_getprotobyname),
-        "getservbyname" => ctx.new_function(socket_getservbyname),
+        "inet_pton" => named_function!(ctx, _socket, inet_pton),
+        "inet_ntop" => named_function!(ctx, _socket, inet_ntop),
+        "getprotobyname" => named_function!(ctx, _socket, getprotobyname),
+        "getservbyname" => named_function!(ctx, _socket, getservbyname),
         // constants
         "AF_UNSPEC" => ctx.new_int(0),
         "AF_INET" => ctx.new_int(c::AF_INET),
@@ -870,10 +870,10 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     #[cfg(not(target_os = "redox"))]
     extend_module!(vm, module, {
-        "getaddrinfo" => ctx.new_function(socket_getaddrinfo),
-        "gethostbyaddr" => ctx.new_function(socket_gethostbyaddr),
-        "gethostbyname" => ctx.new_function(socket_gethostbyname),
-        "getnameinfo" => ctx.new_function(socket_getnameinfo),
+        "getaddrinfo" => named_function!(ctx, _socket, getaddrinfo),
+        "gethostbyaddr" => named_function!(ctx, _socket, gethostbyaddr),
+        "gethostbyname" => named_function!(ctx, _socket, gethostbyname),
+        "getnameinfo" => named_function!(ctx, _socket, getnameinfo),
     });
 
     extend_module_platform_specific(vm, &module);
@@ -890,6 +890,6 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: &PyObjectRef) {
 
     #[cfg(not(target_os = "redox"))]
     extend_module!(vm, module, {
-        "sethostname" => ctx.new_function(socket_sethostname),
+        "sethostname" => named_function!(ctx, _socket, sethostname),
     });
 }

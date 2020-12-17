@@ -660,7 +660,7 @@ impl ExceptionZoo {
         });
 
         extend_class!(ctx, &excs.import_error, {
-            "__init__" => ctx.new_method(import_error_init),
+            "__init__" => ctx.new_method("__init__", import_error_init),
             "msg" => ctx.new_readonly_getset("msg", make_arg_getter(0)),
         });
 
@@ -669,7 +669,7 @@ impl ExceptionZoo {
         });
 
         extend_class!(ctx, &excs.key_error, {
-            "__str__" => ctx.new_method(key_error_str),
+            "__str__" => ctx.new_method("__str__", key_error_str),
         });
 
         extend_class!(ctx, &excs.unicode_decode_error, {

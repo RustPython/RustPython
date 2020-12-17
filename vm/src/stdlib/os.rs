@@ -1029,7 +1029,7 @@ impl<'a> SupportFunc {
     {
         let ctx = &vm.ctx;
         let func_obj = ctx
-            .new_function_named(func, name.to_owned())
+            .make_funcdef(name, func)
             .into_function()
             .with_module(ctx.new_str(MODULE_NAME))
             .build(ctx);

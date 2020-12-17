@@ -41,7 +41,9 @@ fn run(vm: &vm::VirtualMachine) -> vm::pyobject::PyResult<()> {
     let scope: vm::scope::Scope = vm.new_scope_with_builtins();
 
     // typing `quit()` is too long, let's make `on(False)` work instead.
-    scope.globals.set_item("on", vm.ctx.new_function(on), vm)?;
+    scope
+        .globals
+        .set_item("on", vm.ctx.new_function("on", on), vm)?;
 
     // let's include a fibonacci function, but let's be lazy and write it in Python
     add_python_function!(

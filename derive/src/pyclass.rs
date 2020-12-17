@@ -326,7 +326,7 @@ where
             quote! {
                 class.set_str_attr(
                     #py_name,
-                    ctx.new_function_named(Self::#ident, #py_name.to_owned())
+                    ctx.make_funcdef(#py_name, Self::#ident)
                         #doc
                         .#build_func(ctx),
                 );

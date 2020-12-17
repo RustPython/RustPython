@@ -112,7 +112,7 @@ fn obj2py(obj: &Asn1ObjectRef) -> PyNid {
 }
 
 #[cfg(windows)]
-fn ssl_enum_certificates(store_name: PyStrRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+fn _ssl_enum_certificates(store_name: PyStrRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
     use crate::builtins::set::PyFrozenSet;
     use schannel::{cert_context::ValidUses, cert_store::CertStore, RawPointer};
     use winapi::um::wincrypt;
@@ -158,7 +158,7 @@ struct Txt2ObjArgs {
     #[pyarg(any, default = "false")]
     name: bool,
 }
-fn ssl_txt2obj(args: Txt2ObjArgs, vm: &VirtualMachine) -> PyResult<PyNid> {
+fn _ssl_txt2obj(args: Txt2ObjArgs, vm: &VirtualMachine) -> PyResult<PyNid> {
     txt2obj(&args.txt, !args.name)
         .as_deref()
         .map(obj2py)
@@ -167,14 +167,14 @@ fn ssl_txt2obj(args: Txt2ObjArgs, vm: &VirtualMachine) -> PyResult<PyNid> {
         })
 }
 
-fn ssl_nid2obj(nid: libc::c_int, vm: &VirtualMachine) -> PyResult<PyNid> {
+fn _ssl_nid2obj(nid: libc::c_int, vm: &VirtualMachine) -> PyResult<PyNid> {
     nid2obj(Nid::from_raw(nid))
         .as_deref()
         .map(obj2py)
         .ok_or_else(|| vm.new_value_error(format!("unknown NID {}", nid)))
 }
 
-fn ssl_get_default_verify_paths() -> (String, String, String, String) {
+fn _ssl_get_default_verify_paths() -> (String, String, String, String) {
     macro_rules! convert {
         ($f:ident) => {
             CStr::from_ptr(sys::$f()).to_string_lossy().into_owned()
@@ -190,11 +190,11 @@ fn ssl_get_default_verify_paths() -> (String, String, String, String) {
     }
 }
 
-fn ssl_rand_status() -> i32 {
+fn _ssl_rand_status() -> i32 {
     unsafe { sys::RAND_status() }
 }
 
-fn ssl_rand_add(string: Either<PyStrRef, PyBytesLike>, entropy: f64) {
+fn _ssl_rand_add(string: Either<PyStrRef, PyBytesLike>, entropy: f64) {
     let f = |b: &[u8]| {
         for buf in b.chunks(libc::c_int::max_value() as usize) {
             unsafe { sys::RAND_add(buf.as_ptr() as *const _, buf.len() as _, entropy) }
@@ -206,7 +206,7 @@ fn ssl_rand_add(string: Either<PyStrRef, PyBytesLike>, entropy: f64) {
     }
 }
 
-fn ssl_rand_bytes(n: i32, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+fn _ssl_rand_bytes(n: i32, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
     if n < 0 {
         return Err(vm.new_value_error("num must be positive".to_owned()));
     }
@@ -216,7 +216,7 @@ fn ssl_rand_bytes(n: i32, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         .map_err(|e| convert_openssl_error(vm, e))
 }
 
-fn ssl_rand_pseudo_bytes(n: i32, vm: &VirtualMachine) -> PyResult<(Vec<u8>, bool)> {
+fn _ssl_rand_pseudo_bytes(n: i32, vm: &VirtualMachine) -> PyResult<(Vec<u8>, bool)> {
     if n < 0 {
         return Err(vm.new_value_error("num must be positive".to_owned()));
     }
@@ -756,13 +756,13 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "_SSLContext" => PySslContext::make_class(ctx),
         "_SSLSocket" => PySslSocket::make_class(ctx),
         "SSLError" => ssl_error,
-        "txt2obj" => ctx.new_function(ssl_txt2obj),
-        "nid2obj" => ctx.new_function(ssl_nid2obj),
-        "get_default_verify_paths" => ctx.new_function(ssl_get_default_verify_paths),
-        "RAND_status" => ctx.new_function(ssl_rand_status),
-        "RAND_add" => ctx.new_function(ssl_rand_add),
-        "RAND_bytes" => ctx.new_function(ssl_rand_bytes),
-        "RAND_pseudo_bytes" => ctx.new_function(ssl_rand_pseudo_bytes),
+        "txt2obj" => named_function!(ctx, _ssl, txt2obj),
+        "nid2obj" => named_function!(ctx, _ssl, nid2obj),
+        "get_default_verify_paths" => named_function!(ctx, _ssl, get_default_verify_paths),
+        "RAND_status" => named_function!(ctx, _ssl, rand_status),
+        "RAND_add" => named_function!(ctx, _ssl, rand_add),
+        "RAND_bytes" => named_function!(ctx, _ssl, rand_bytes),
+        "RAND_pseudo_bytes" => named_function!(ctx, _ssl, rand_pseudo_bytes),
 
         // Constants
         "OPENSSL_VERSION" => ctx.new_str(openssl::version::version().to_owned()),
@@ -822,7 +822,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 fn extend_module_platform_specific(module: &PyObjectRef, vm: &VirtualMachine) {
     let ctx = &vm.ctx;
     extend_module!(vm, module, {
-        "enum_certificates" => ctx.new_function(ssl_enum_certificates),
+        "enum_certificates" => named_function!(ctx, _ssl, enum_certificates),
     })
 }
 

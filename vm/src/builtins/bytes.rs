@@ -91,7 +91,7 @@ pub(crate) fn init(context: &PyContext) {
     PyBytes::extend_class(context, &context.types.bytes_type);
     let bytes_type = &context.types.bytes_type;
     extend_class!(context, bytes_type, {
-        "maketrans" => context.new_method(PyBytesInner::maketrans),
+        "maketrans" => context.new_method("maketrans", PyBytesInner::maketrans),
     });
     PyBytesIterator::extend_class(context, &context.types.bytes_iterator_type);
 }

@@ -133,8 +133,9 @@ impl PyContext {
 
         let string_cache = Dict::default();
 
+        let new_str = PyRef::new_ref(pystr::PyStr::from("__new__"), types.str_type.clone(), None);
         let tp_new_wrapper = create_object(
-            PyNativeFuncDef::from(pytype::tp_new_wrapper.into_func()).into_function(),
+            PyNativeFuncDef::new(pytype::tp_new_wrapper.into_func(), new_str).into_function(),
             &types.builtin_function_or_method_type,
         )
         .into_object();
@@ -273,45 +274,44 @@ impl PyContext {
         )
     }
 
-    pub fn new_function<F, FKind>(&self, f: F) -> PyObjectRef
-    where
-        F: IntoPyNativeFunc<FKind>,
-    {
-        PyNativeFuncDef::from(f.into_func()).build_function(self)
-    }
-
     pub(crate) fn new_stringref(&self, s: String) -> pystr::PyStrRef {
         PyRef::new_ref(pystr::PyStr::from(s), self.types.str_type.clone(), None)
     }
 
-    pub fn new_function_named<F, FKind>(&self, f: F, name: String) -> PyNativeFuncDef
+    #[inline]
+    pub fn make_funcdef<F, FKind>(&self, name: impl Into<String>, f: F) -> PyNativeFuncDef
     where
         F: IntoPyNativeFunc<FKind>,
     {
-        let mut f = PyNativeFuncDef::from(f.into_func());
-        f.name = Some(self.new_stringref(name));
-        f
+        PyNativeFuncDef::new(f.into_func(), self.new_stringref(name.into()))
     }
 
-    pub fn new_method<F, FKind>(&self, f: F) -> PyObjectRef
+    pub fn new_function<F, FKind>(&self, name: impl Into<String>, f: F) -> PyObjectRef
     where
         F: IntoPyNativeFunc<FKind>,
     {
-        PyNativeFuncDef::from(f.into_func()).build_method(self)
+        self.make_funcdef(name, f).build_function(self)
     }
 
-    pub fn new_classmethod<F, FKind>(&self, f: F) -> PyObjectRef
+    pub fn new_method<F, FKind>(&self, name: impl Into<String>, f: F) -> PyObjectRef
     where
         F: IntoPyNativeFunc<FKind>,
     {
-        PyNativeFuncDef::from(f.into_func()).build_classmethod(self)
+        self.make_funcdef(name, f).build_method(self)
     }
-    pub fn new_staticmethod<F, FKind>(&self, f: F) -> PyObjectRef
+
+    pub fn new_classmethod<F, FKind>(&self, name: impl Into<String>, f: F) -> PyObjectRef
+    where
+        F: IntoPyNativeFunc<FKind>,
+    {
+        self.make_funcdef(name, f).build_classmethod(self)
+    }
+    pub fn new_staticmethod<F, FKind>(&self, name: impl Into<String>, f: F) -> PyObjectRef
     where
         F: IntoPyNativeFunc<FKind>,
     {
         PyObject::new(
-            PyStaticMethod::from(self.new_method(f)),
+            PyStaticMethod::from(self.new_method(name, f)),
             self.types.staticmethod_type.clone(),
             None,
         )
