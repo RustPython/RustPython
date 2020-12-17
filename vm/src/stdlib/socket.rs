@@ -8,12 +8,11 @@ use std::io::{self, prelude::*};
 use std::net::{Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, ToSocketAddrs};
 use std::time::Duration;
 
-use crate::builtins::bytearray::PyByteArrayRef;
 use crate::builtins::bytes::PyBytesRef;
 use crate::builtins::pystr::{PyStr, PyStrRef};
 use crate::builtins::pytype::PyTypeRef;
 use crate::builtins::tuple::PyTupleRef;
-use crate::byteslike::PyBytesLike;
+use crate::byteslike::{PyBytesLike, PyRwBytesLike};
 use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
 use crate::function::{FuncArgs, OptionalArg};
@@ -179,10 +178,8 @@ impl PySocket {
     }
 
     #[pymethod]
-    fn recv_into(&self, buf: PyByteArrayRef, vm: &VirtualMachine) -> PyResult<usize> {
-        let mut buffer = buf.borrow_value_mut();
-        self.sock()
-            .recv(&mut buffer.elements)
+    fn recv_into(&self, buf: PyRwBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
+        buf.with_ref(|buf| self.sock().recv(buf))
             .map_err(|err| convert_sock_error(vm, err))
     }
 
