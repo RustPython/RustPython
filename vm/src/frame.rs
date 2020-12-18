@@ -18,6 +18,7 @@ use crate::builtins::traceback::PyTraceback;
 use crate::builtins::tuple::{PyTuple, PyTupleTyped};
 use crate::builtins::{list, pybool, set};
 use crate::bytecode;
+use crate::common::boxvec::BoxVec;
 use crate::common::lock::PyMutex;
 use crate::coroutine::Coro;
 use crate::exceptions::{self, ExceptionCtor, PyBaseExceptionRef};
@@ -81,7 +82,7 @@ enum UnwindReason {
 struct FrameState {
     // We need 1 stack per frame
     /// The main data frame of the stack machine
-    stack: Vec<PyObjectRef>,
+    stack: BoxVec<PyObjectRef>,
     /// Block frames, for controlling loops and exceptions
     blocks: Vec<Block>,
 }
@@ -162,24 +163,13 @@ impl Frame {
         closure: &[PyCellRef],
         vm: &VirtualMachine,
     ) -> Frame {
-        //populate the globals and locals
-        //TODO: This is wrong, check https://github.com/nedbat/byterun/blob/31e6c4a8212c35b5157919abff43a7daa0f377c6/byterun/pyvm2.py#L95
-        /*
-        let globals = match globals {
-            Some(g) => g,
-            None => HashMap::new(),
-        };
-        */
-        // let locals = globals;
-        // locals.extend(callargs);
         let cells_frees = std::iter::repeat_with(|| PyCell::default().into_ref(vm))
             .take(code.cellvars.len())
             .chain(closure.iter().cloned())
             .collect();
 
         let state = FrameState {
-            stack: Vec::with_capacity(code.max_stacksize as usize),
-            // stack: Vec::new(),
+            stack: BoxVec::new(code.max_stacksize as usize),
             blocks: Vec::new(),
         };
 
@@ -709,7 +699,7 @@ impl ExecutingFrame<'_> {
                         Ok(None)
                     }
                 } else {
-                    panic!(
+                    unreachable!(
                         "Block type must be finally handler when reaching EndFinally instruction!"
                     );
                 }
@@ -741,7 +731,7 @@ impl ExecutingFrame<'_> {
                 let block = self.current_block().unwrap();
                 let reason = match block.typ {
                     BlockType::FinallyHandler { reason } => reason,
-                    _ => panic!("WithCleanupStart expects a FinallyHandler block on stack"),
+                    _ => unreachable!("WithCleanupStart expects a FinallyHandler block on stack"),
                 };
                 let exc = reason.and_then(|reason| match reason {
                     UnwindReason::Raising { exception } => Some(exception),
@@ -764,7 +754,7 @@ impl ExecutingFrame<'_> {
                 let block = self.pop_block();
                 let reason = match block.typ {
                     BlockType::FinallyHandler { reason } => reason,
-                    _ => panic!("WithCleanupFinish expects a FinallyHandler block on stack"),
+                    _ => unreachable!("WithCleanupFinish expects a FinallyHandler block on stack"),
                 };
 
                 let suppress_exception = pybool::boolval(vm, self.pop_value())?;
@@ -954,7 +944,7 @@ impl ExecutingFrame<'_> {
                     vm.pop_exception().expect("Should have exception in stack");
                     Ok(None)
                 } else {
-                    panic!("Block type must be ExceptHandler here.")
+                    unreachable!("block type must be ExceptHandler here.")
                 }
             }
             bytecode::Instruction::Reverse { amount } => {
@@ -1051,14 +1041,14 @@ impl ExecutingFrame<'_> {
         // First unwind all existing blocks on the block stack:
         while let Some(block) = self.current_block() {
             match block.typ {
-                BlockType::Loop => match &reason {
+                BlockType::Loop => match reason {
                     UnwindReason::Break { target } => {
                         self.pop_block();
-                        self.jump(*target);
+                        self.jump(target);
                         return Ok(None);
                     }
                     UnwindReason::Continue { target } => {
-                        self.jump(*target);
+                        self.jump(target);
                         return Ok(None);
                     }
                     _ => {
@@ -1075,10 +1065,10 @@ impl ExecutingFrame<'_> {
                 }
                 BlockType::TryExcept { handler } => {
                     self.pop_block();
-                    if let UnwindReason::Raising { exception } = &reason {
+                    if let UnwindReason::Raising { exception } = reason {
                         self.push_block(BlockType::ExceptHandler {});
                         self.push_value(exception.clone().into_object());
-                        vm.push_exception(exception.clone());
+                        vm.push_exception(exception);
                         self.jump(handler);
                         return Ok(None);
                     }
@@ -1106,7 +1096,7 @@ impl ExecutingFrame<'_> {
             UnwindReason::Raising { exception } => Err(exception),
             UnwindReason::Returning { value } => Ok(Some(ExecutionResult::Return(value))),
             UnwindReason::Break { .. } | UnwindReason::Continue { .. } => {
-                panic!("Internal error: break or continue must occur within a loop block.")
+                unreachable!("break or continue must occur within a loop block.")
             } // UnwindReason::NoWorries => Ok(None),
         }
     }
@@ -1660,23 +1650,31 @@ impl ExecutingFrame<'_> {
     }
 
     fn push_value(&mut self, obj: PyObjectRef) {
-        self.state.stack.push(obj);
+        match self.state.stack.try_push(obj) {
+            Ok(()) => {}
+            Err(_e) => {
+                panic!("tried to push value onto stack but overflowed max_stacksize")
+            }
+        }
     }
 
     fn pop_value(&mut self) -> PyObjectRef {
-        self.state
-            .stack
-            .pop()
-            .expect("Tried to pop value but there was nothing on the stack")
+        match self.state.stack.pop() {
+            Some(x) => x,
+            None => panic!("tried to pop value but there was nothing on the stack"),
+        }
     }
 
-    fn pop_multiple(&mut self, count: usize) -> std::vec::Drain<PyObjectRef> {
+    fn pop_multiple(&mut self, count: usize) -> crate::common::boxvec::Drain<PyObjectRef> {
         let stack_len = self.state.stack.len();
         self.state.stack.drain(stack_len - count..stack_len)
     }
 
     fn last_value(&self) -> PyObjectRef {
-        self.state.stack.last().unwrap().clone()
+        match &*self.state.stack {
+            [.., last] => last.clone(),
+            [] => panic!("tried to get top of stack but stack is empty"),
+        }
     }
 
     fn nth_value(&self, depth: u32) -> PyObjectRef {

@@ -491,6 +491,12 @@ impl<T> DoubleEndedIterator for Drain<'_, T> {
 
 impl<T> ExactSizeIterator for Drain<'_, T> {}
 
+impl<'a, T> Drain<'a, T> {
+    pub fn as_slice(&self) -> &'a [T] {
+        self.iter.as_slice()
+    }
+}
+
 impl<T> Drop for Drain<'_, T> {
     fn drop(&mut self) {
         // len is currently 0 so panicking while dropping will not cause a double drop.

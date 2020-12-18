@@ -178,10 +178,11 @@ impl Compiler {
         posonlyarg_count: usize,
         arg_count: usize,
         kwonlyarg_count: usize,
-        source_path: String,
-        first_line_number: usize,
         obj_name: String,
     ) {
+        let source_path = self.source_path.clone();
+        let first_line_number = self.get_source_line_number();
+
         let table = self
             .symbol_table_stack
             .last_mut()
@@ -824,14 +825,11 @@ impl Compiler {
             funcflags |= bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS;
         }
 
-        let line_number = self.get_source_line_number();
         self.push_output(
             bytecode::CodeFlags::NEW_LOCALS | bytecode::CodeFlags::IS_OPTIMIZED,
             args.posonlyargs_count,
             args.args.len(),
             args.kwonlyargs.len(),
-            self.source_path.clone(),
-            line_number,
             name.to_owned(),
         );
 
@@ -900,8 +898,9 @@ impl Compiler {
         // except handlers:
         self.switch_to_block(handler_block);
         // Exception is on top of stack now
-        let mut next_handler = self.new_block();
         for handler in handlers {
+            let next_handler = self.new_block();
+
             // If we gave a typ,
             // check if this handler can handle the exception:
             if let Some(exc_type) = &handler.typ {
@@ -937,7 +936,7 @@ impl Compiler {
             self.emit(Instruction::PopException);
 
             if finalbody.is_some() {
-                self.emit(Instruction::PopBlock); // pop finally block
+                self.emit(Instruction::PopBlock); // pop excepthandler block
                                                   // We enter the finally block, without exception.
                 self.emit(Instruction::EnterFinally);
             }
@@ -948,13 +947,8 @@ impl Compiler {
 
             // Emit a new label for the next handler
             self.switch_to_block(next_handler);
-            next_handler = self.new_block();
         }
 
-        self.emit(Instruction::Jump {
-            target: next_handler,
-        });
-        self.switch_to_block(next_handler);
         // If code flows here, we have an unhandled exception,
         // raise the exception again!
         self.emit(Instruction::Raise {
@@ -971,7 +965,7 @@ impl Compiler {
         if finalbody.is_some() {
             self.emit(Instruction::PopBlock); // pop finally block
 
-            // We enter the finally block, without return / exception.
+            // We enter the finallyhandler block, without return / exception.
             self.emit(Instruction::EnterFinally);
         }
 
@@ -998,6 +992,9 @@ impl Compiler {
 
         self.prepare_decorators(decorator_list)?;
         let mut funcflags = self.enter_function(name, args)?;
+        self.current_codeinfo()
+            .flags
+            .set(bytecode::CodeFlags::IS_COROUTINE, is_async);
 
         // remember to restore self.ctx.in_loop to the original after the function is compiled
         let prev_ctx = self.ctx;
@@ -1031,7 +1028,7 @@ impl Compiler {
             }
         }
 
-        let mut code = self.pop_code_object();
+        let code = self.pop_code_object();
         self.current_qualified_path = old_qualified_path;
         self.ctx = prev_ctx;
 
@@ -1079,10 +1076,6 @@ impl Compiler {
                 unpack: false,
                 for_call: false,
             });
-        }
-
-        if is_async {
-            code.flags |= bytecode::CodeFlags::IS_COROUTINE;
         }
 
         if self.build_closure(&code) {
@@ -1221,16 +1214,7 @@ impl Compiler {
         self.current_qualified_path = Some(qualified_name.clone());
 
         self.emit(Instruction::LoadBuildClass);
-        let line_number = self.get_source_line_number();
-        self.push_output(
-            bytecode::CodeFlags::empty(),
-            0,
-            0,
-            0,
-            self.source_path.clone(),
-            line_number,
-            name.to_owned(),
-        );
+        self.push_output(bytecode::CodeFlags::empty(), 0, 0, 0, name.to_owned());
 
         let (new_body, doc_str) = get_doc(body);
 
@@ -2175,22 +2159,24 @@ impl Compiler {
         }
         .to_owned();
 
-        let line_number = self.get_source_line_number();
         // Create magnificent function <listcomp>:
         self.push_output(
             bytecode::CodeFlags::NEW_LOCALS | bytecode::CodeFlags::IS_OPTIMIZED,
             1,
             1,
             0,
-            self.source_path.clone(),
-            line_number,
             name.clone(),
         );
         let arg0 = self.varname(".0");
 
+        let is_genexpr = matches!(kind, ast::ComprehensionKind::GeneratorExpression { .. });
+
         // Create empty object of proper type:
         match kind {
-            ast::ComprehensionKind::GeneratorExpression { .. } => {}
+            ast::ComprehensionKind::GeneratorExpression { .. } => {
+                // pop the None that was passed to kickstart the generator
+                self.emit(Instruction::Pop);
+            }
             ast::ComprehensionKind::List { .. } => {
                 self.emit(Instruction::BuildList {
                     size: 0,
@@ -2298,6 +2284,10 @@ impl Compiler {
             // End of for loop:
             self.switch_to_block(after_block);
             self.emit(Instruction::PopBlock);
+        }
+
+        if is_genexpr {
+            self.emit_constant(ConstantData::None)
         }
 
         // Return freshly filled list:

@@ -860,12 +860,14 @@ impl Instruction {
             ReturnValue => -1,
             YieldValue => 0,
             YieldFrom => -1,
-            SetupAnnotation
-            | SetupLoop
-            | SetupFinally { .. }
-            | EnterFinally
-            | EndFinally
-            | SetupExcept { .. } => 0,
+            SetupAnnotation | SetupLoop | SetupFinally { .. } | EnterFinally | EndFinally => 0,
+            SetupExcept { .. } => {
+                if jump {
+                    1
+                } else {
+                    0
+                }
+            }
             SetupWith { .. } => {
                 if jump {
                     0

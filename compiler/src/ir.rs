@@ -161,16 +161,20 @@ impl CodeInfo {
     }
 
     fn max_stacksize(&self) -> u32 {
-        let mut maxdepth = 0;
+        let mut maxdepth = 0u32;
         let mut stack = Vec::with_capacity(self.blocks.len());
-        let mut startdepths = vec![0; self.blocks.len()];
+        let mut startdepths = vec![u32::MAX; self.blocks.len()];
+        // if it's a generator or a coroutine, it starts with something already on the stack
+        startdepths[0] =
+            self.flags
+                .intersects(CodeFlags::IS_GENERATOR | CodeFlags::IS_COROUTINE) as u32;
         stack.push((Label(0), 0));
         'process_blocks: while let Some((block, blockorder)) = stack.pop() {
             let mut depth = startdepths[block.0 as usize];
             for i in &self.blocks[block.0 as usize].instructions {
                 let instr = &i.instr;
                 let effect = instr.stack_effect(false);
-                let new_depth = depth + effect;
+                let new_depth = add_ui(depth, effect);
                 if new_depth > maxdepth {
                     maxdepth = new_depth
                 }
@@ -182,7 +186,7 @@ impl CodeInfo {
                 );
                 if let Some(&target_block) = jump_label {
                     let effect = instr.stack_effect(true);
-                    let target_depth = depth + effect;
+                    let target_depth = add_ui(depth, effect);
                     if target_depth > maxdepth {
                         maxdepth = target_depth
                     }
@@ -206,19 +210,27 @@ impl CodeInfo {
             let next = self.block_order[next_blockorder as usize];
             stackdepth_push(&mut stack, &mut startdepths, (next, next_blockorder), depth);
         }
-        maxdepth as u32
+        maxdepth
     }
 }
 
 fn stackdepth_push(
     stack: &mut Vec<(Label, u32)>,
-    startdepths: &mut [i32],
+    startdepths: &mut [u32],
     target: (Label, u32),
-    depth: i32,
+    depth: u32,
 ) {
     let block_depth = &mut startdepths[target.0 .0 as usize];
-    if depth > *block_depth {
+    if *block_depth == u32::MAX || depth > *block_depth {
         *block_depth = depth;
         stack.push(target);
+    }
+}
+
+fn add_ui(a: u32, b: i32) -> u32 {
+    if b < 0 {
+        a - b.abs() as u32
+    } else {
+        a + b as u32
     }
 }
