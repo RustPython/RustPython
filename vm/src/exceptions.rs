@@ -240,13 +240,13 @@ fn write_traceback_entry<W: Write>(
     output: &mut W,
     tb_entry: &PyTracebackRef,
 ) -> Result<(), W::Error> {
-    let filename = tb_entry.frame.code.source_path.to_owned();
+    let filename = tb_entry.frame.code.source_path.borrow_value();
     writeln!(
         output,
         r##"  File "{}", line {}, in {}"##,
         filename, tb_entry.lineno, tb_entry.frame.code.obj_name
     )?;
-    print_source_line(output, &filename, tb_entry.lineno)?;
+    print_source_line(output, filename, tb_entry.lineno)?;
 
     Ok(())
 }
@@ -660,7 +660,7 @@ impl ExceptionZoo {
         });
 
         extend_class!(ctx, &excs.import_error, {
-            "__init__" => ctx.new_method(import_error_init),
+            "__init__" => ctx.new_method("__init__", import_error_init),
             "msg" => ctx.new_readonly_getset("msg", make_arg_getter(0)),
         });
 
@@ -669,7 +669,7 @@ impl ExceptionZoo {
         });
 
         extend_class!(ctx, &excs.key_error, {
-            "__str__" => ctx.new_method(key_error_str),
+            "__str__" => ctx.new_method("__str__", key_error_str),
         });
 
         extend_class!(ctx, &excs.unicode_decode_error, {

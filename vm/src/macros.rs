@@ -241,9 +241,9 @@ macro_rules! named_function {
         #[allow(unused_variables)] // weird lint, something to do with paste probably
         let ctx: &$crate::pyobject::PyContext = &$ctx;
         $crate::__exports::paste::expr! {
-            ctx.new_function_named(
+            ctx.make_funcdef(
+                stringify!($module),
                 [<$module _ $func>],
-                stringify!($module).to_owned(),
             )
             .into_function()
             .with_module(ctx.new_str(stringify!($func).to_owned()))

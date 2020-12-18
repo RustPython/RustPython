@@ -13,15 +13,15 @@ use crate::vm::VirtualMachine;
 
 pub struct PyNativeFuncDef {
     pub func: PyNativeFunc,
-    pub name: Option<PyStrRef>,
+    pub name: PyStrRef,
     pub doc: Option<PyStrRef>,
 }
 
-impl From<PyNativeFunc> for PyNativeFuncDef {
-    fn from(func: PyNativeFunc) -> Self {
+impl PyNativeFuncDef {
+    pub fn new(func: PyNativeFunc, name: PyStrRef) -> Self {
         Self {
             func,
-            name: None,
+            name,
             doc: None,
         }
     }
@@ -70,19 +70,10 @@ impl PyValue for PyBuiltinFunction {
 
 impl fmt::Debug for PyBuiltinFunction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let name = match &self.value.name {
-            Some(s) => s.borrow_value(),
-            None => "<unknown name>",
-        };
-        write!(f, "builtin function {}", name)
+        write!(f, "builtin function {}", self.value.name.borrow_value())
     }
 }
 
-impl From<PyNativeFunc> for PyBuiltinFunction {
-    fn from(value: PyNativeFunc) -> Self {
-        PyNativeFuncDef::from(value).into()
-    }
-}
 impl From<PyNativeFuncDef> for PyBuiltinFunction {
     fn from(value: PyNativeFuncDef) -> Self {
         Self {
@@ -124,7 +115,7 @@ impl PyBuiltinFunction {
         vm.unwrap_or_none(self.module.clone())
     }
     #[pyproperty(magic)]
-    fn name(&self) -> Option<PyStrRef> {
+    fn name(&self) -> PyStrRef {
         self.value.name.clone()
     }
     #[pyproperty(magic)]
@@ -184,7 +175,7 @@ impl Callable for PyBuiltinMethod {
 #[pyimpl(with(SlotDescriptor, Callable))]
 impl PyBuiltinMethod {
     #[pyproperty(magic)]
-    fn name(&self) -> Option<PyStrRef> {
+    fn name(&self) -> PyStrRef {
         self.value.name.clone()
     }
     #[pyproperty(magic)]

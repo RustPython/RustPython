@@ -252,7 +252,7 @@ pub fn to_hex(value: f64) -> String {
             const BITS: i16 = 52;
             const FRACT_MASK: u64 = 0xf_ffff_ffff_ffff;
             format!(
-                "{}0x{:x}.{:013x}p{:+}",
+                "{}{:#x}.{:013x}p{:+}",
                 sign_fmt,
                 mantissa >> BITS,
                 mantissa & FRACT_MASK,

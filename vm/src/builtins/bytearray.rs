@@ -93,7 +93,7 @@ pub(crate) fn init(context: &PyContext) {
     PyByteArray::extend_class(context, &context.types.bytearray_type);
     let bytearray_type = &context.types.bytearray_type;
     extend_class!(context, bytearray_type, {
-        "maketrans" => context.new_method(PyBytesInner::maketrans),
+        "maketrans" => context.new_method("maketrans", PyBytesInner::maketrans),
     });
 
     PyByteArrayIterator::extend_class(context, &context.types.bytearray_iterator_type);

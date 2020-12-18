@@ -206,7 +206,7 @@ impl PyCodeRef {
     fn repr(self) -> String {
         let code = &self.code;
         format!(
-            "<code object {} at 0x{:x} file {:?}, line {}>",
+            "<code object {} at {:#x} file {:?}, line {}>",
             code.obj_name,
             self.get_id(),
             code.source_path,
@@ -225,7 +225,7 @@ impl PyCodeRef {
     }
 
     #[pyproperty]
-    fn co_filename(self) -> String {
+    fn co_filename(self) -> PyStrRef {
         self.code.source_path.clone()
     }
 
@@ -246,7 +246,7 @@ impl PyCodeRef {
     }
 
     #[pyproperty]
-    fn co_name(self) -> String {
+    fn co_name(self) -> PyStrRef {
         self.code.obj_name.clone()
     }
 

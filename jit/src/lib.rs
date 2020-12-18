@@ -77,7 +77,7 @@ impl Jit {
         builder.finalize();
 
         let id = self.module.declare_function(
-            &format!("jit_{}", bytecode.obj_name),
+            &format!("jit_{}", bytecode.obj_name.as_ref()),
             Linkage::Export,
             &self.ctx.func.signature,
         )?;

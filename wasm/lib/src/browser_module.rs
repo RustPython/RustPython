@@ -264,13 +264,13 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let element = Element::make_class(ctx);
 
     py_module!(vm, "_browser", {
-        "fetch" => ctx.new_function(browser_fetch),
-        "request_animation_frame" => ctx.new_function(browser_request_animation_frame),
-        "cancel_animation_frame" => ctx.new_function(browser_cancel_animation_frame),
+        "fetch" => named_function!(ctx, browser, fetch),
+        "request_animation_frame" => named_function!(ctx, browser, request_animation_frame),
+        "cancel_animation_frame" => named_function!(ctx, browser, cancel_animation_frame),
         "Document" => document_class,
         "document" => document,
         "Element" => element,
-        "load_module" => ctx.new_function(browser_load_module),
+        "load_module" => named_function!(ctx, browser, load_module),
     })
 }
 

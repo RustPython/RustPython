@@ -1,4 +1,4 @@
-use crate::builtins::pytype::PyTypeRef;
+use crate::builtins::{PyStrRef, PyTypeRef};
 use crate::exceptions::{self, PyBaseExceptionRef};
 use crate::frame::{ExecutionResult, FrameRef};
 use crate::pyobject::{PyObjectRef, PyResult, TypeProtocol};
@@ -165,7 +165,7 @@ impl Coro {
     pub fn frame(&self) -> FrameRef {
         self.frame.clone()
     }
-    pub fn name(&self) -> String {
+    pub fn name(&self) -> PyStrRef {
         self.frame.code.obj_name.clone()
     }
 }

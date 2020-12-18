@@ -168,7 +168,7 @@ impl PyBaseObject {
 
     #[pymethod(magic)]
     fn repr(zelf: PyObjectRef) -> String {
-        format!("<{} object at 0x{:x}>", zelf.class().name, zelf.get_id())
+        format!("<{} object at {:#x}>", zelf.class().name, zelf.get_id())
     }
 
     #[pyclassmethod(magic)]

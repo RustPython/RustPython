@@ -218,8 +218,9 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
         }
     } else if js_val.is_function() {
         let func = js_sys::Function::from(js_val);
-        vm.ctx
-            .new_method(move |args: FuncArgs, vm: &VirtualMachine| -> PyResult {
+        vm.ctx.new_method(
+            func.name(),
+            move |args: FuncArgs, vm: &VirtualMachine| -> PyResult {
                 let this = Object::new();
                 for (k, v) in args.kwargs {
                     Reflect::set(&this, &k.into(), &py_to_js(vm, v))
@@ -233,7 +234,8 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
                 func.apply(&this, &js_args)
                     .map(|val| js_to_py(vm, val))
                     .map_err(|err| js_err_to_py_err(vm, &err))
-            })
+            },
+        )
     } else if let Some(err) = js_val.dyn_ref::<js_sys::Error>() {
         js_err_to_py_err(vm, err).into_object()
     } else if js_val.is_undefined() {

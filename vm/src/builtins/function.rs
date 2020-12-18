@@ -40,6 +40,7 @@ pub struct PyFunction {
     closure: Option<PyTupleTyped<PyCellRef>>,
     defaults: Option<PyTupleRef>,
     kw_only_defaults: Option<PyDictRef>,
+    name: PyMutex<PyStrRef>,
 }
 
 impl PyFunction {
@@ -50,6 +51,7 @@ impl PyFunction {
         defaults: Option<PyTupleRef>,
         kw_only_defaults: Option<PyDictRef>,
     ) -> Self {
+        let name = PyMutex::new(code.obj_name.clone());
         PyFunction {
             code,
             #[cfg(feature = "jit")]
@@ -58,6 +60,7 @@ impl PyFunction {
             closure,
             defaults,
             kw_only_defaults,
+            name,
         }
     }
 
@@ -319,6 +322,21 @@ impl PyFunction {
     #[pyproperty(magic)]
     fn globals(&self) -> PyDictRef {
         self.globals.clone()
+    }
+
+    #[pyproperty(magic)]
+    fn name(&self) -> PyStrRef {
+        self.name.lock().clone()
+    }
+
+    #[pyproperty(magic, setter)]
+    fn set_name(&self, name: PyStrRef) {
+        *self.name.lock() = name;
+    }
+
+    #[pymethod(magic)]
+    fn repr(zelf: PyRef<Self>) -> String {
+        format!("<function {} at {:#x}>", zelf.name.lock(), zelf.get_id())
     }
 
     #[cfg(feature = "jit")]
