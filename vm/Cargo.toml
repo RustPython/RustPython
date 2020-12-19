@@ -34,10 +34,10 @@ num-traits = "0.2.8"
 num-integer = "0.1.41"
 num-rational = "0.3"
 num-iter = "0.1.39"
-rand = { version = "0.7", features = ["wasm-bindgen"] }
-rand_core = "0.5"
-getrandom = { version = "0.1", features = ["wasm-bindgen"] }
-mt19937 = "1.0"
+rand = "0.8"
+rand_core = "0.6"
+getrandom = { version = "0.2", features = ["js"] }
+mt19937 = "2.0"
 log = "0.4"
 rustpython-derive = { path = "../derive", version = "0.1.2" }
 rustpython-parser = { path = "../parser", optional = true, version = "0.1.2" }
@@ -49,7 +49,7 @@ serde = { version = "1.0.66", features = ["derive"] }
 serde_json = "1.0"
 regex = "1"
 rustc_version_runtime = "0.1.*"
-statrs = "0.12.0"
+puruspe = "0.1"
 caseless = "0.2.1"
 chrono = { version = "0.4", features = ["wasmbind"] }
 lexical-core = "0.7"
