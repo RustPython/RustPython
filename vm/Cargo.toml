@@ -22,7 +22,7 @@ ast = ["rustpython-ast"]
 compiler = ["rustpython-compiler", "rustpython-compiler-core", "ast"]
 parser = ["rustpython-parser", "ast"]
 
-ssl = ["openssl", "openssl-sys", "openssl-probe"]
+ssl = ["openssl", "openssl-sys", "openssl-probe", "foreign-types-shared"]
 
 [dependencies]
 # Crypto:
@@ -73,7 +73,6 @@ paste = "1.0.5"
 base64 = "0.13"
 is-macro = "0.1"
 result-like = "^0.3"
-foreign-types-shared = "0.1"
 num_enum = "0.5"
 bstr = "0.2.12"
 crossbeam-utils = "0.8"
@@ -127,6 +126,7 @@ openssl = { version = "0.10.32", features = ["vendored"], optional = true }
 openssl-sys = { version = "0.9", optional = true }
 openssl-probe = { version = "0.1", optional = true }
 which = "4.0"
+foreign-types-shared = { version = "0.1", optional = true }
 
 [target.'cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))'.dependencies]
 num_cpus = "1"
