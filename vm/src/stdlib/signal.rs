@@ -3,8 +3,6 @@ use crate::vm::{VirtualMachine, NSIG};
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use arr_macro::arr;
-
 #[cfg(unix)]
 use nix::unistd::alarm as sig_alarm;
 
@@ -18,8 +16,10 @@ const SIG_IGN: libc::sighandler_t = 1;
 #[cfg(windows)]
 const SIG_ERR: libc::sighandler_t = !0;
 
-// We cannot use the NSIG const in the arr macro. This will fail compilation if NSIG is different.
-static TRIGGERS: [AtomicBool; NSIG] = arr![AtomicBool::new(false); 64];
+// hack to get around const array repeat expressions, rust issue #79270
+#[allow(clippy::declare_interior_mutable_const)]
+const ATOMIC_FALSE: AtomicBool = AtomicBool::new(false);
+static TRIGGERS: [AtomicBool; NSIG] = [ATOMIC_FALSE; NSIG];
 
 static ANY_TRIGGERED: AtomicBool = AtomicBool::new(false);
 
@@ -36,11 +36,15 @@ fn assert_in_range(signum: i32, vm: &VirtualMachine) -> PyResult<()> {
     }
 }
 
-fn _signal_signal(signalnum: i32, handler: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+fn _signal_signal(
+    signalnum: i32,
+    handler: PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult<Option<PyObjectRef>> {
     assert_in_range(signalnum, vm)?;
     let signal_handlers = vm
         .signal_handlers
-        .as_ref()
+        .as_deref()
         .ok_or_else(|| vm.new_value_error("signal only works in main thread".to_owned()))?;
 
     let sig_handler = match usize::try_from_object(vm, handler.clone()).ok() {
@@ -70,10 +74,9 @@ fn _signal_signal(signalnum: i32, handler: PyObjectRef, vm: &VirtualMachine) -> 
         }
     }
 
-    let mut old_handler = handler;
-    std::mem::swap(
+    let old_handler = std::mem::replace(
         &mut signal_handlers.borrow_mut()[signalnum as usize],
-        &mut old_handler,
+        Some(handler),
     );
     Ok(old_handler)
 }
@@ -82,9 +85,12 @@ fn _signal_getsignal(signalnum: i32, vm: &VirtualMachine) -> PyResult {
     assert_in_range(signalnum, vm)?;
     let signal_handlers = vm
         .signal_handlers
-        .as_ref()
+        .as_deref()
         .ok_or_else(|| vm.new_value_error("getsignal only works in main thread".to_owned()))?;
-    Ok(signal_handlers.borrow()[signalnum as usize].clone())
+    let handler = signal_handlers.borrow()[signalnum as usize]
+        .clone()
+        .unwrap_or_else(|| vm.ctx.none());
+    Ok(handler)
 }
 
 #[cfg(unix)]
@@ -113,13 +119,17 @@ pub fn check_signals(vm: &VirtualMachine) -> PyResult<()> {
 }
 #[inline(never)]
 #[cold]
-fn trigger_signals(signal_handlers: &[PyObjectRef; NSIG], vm: &VirtualMachine) -> PyResult<()> {
+fn trigger_signals(
+    signal_handlers: &[Option<PyObjectRef>; NSIG],
+    vm: &VirtualMachine,
+) -> PyResult<()> {
     for (signum, trigger) in TRIGGERS.iter().enumerate().skip(1) {
         let triggerd = trigger.swap(false, Ordering::Relaxed);
         if triggerd {
-            let handler = &signal_handlers[signum];
-            if vm.is_callable(handler) {
-                vm.invoke(handler, (signum, vm.ctx.none()))?;
+            if let Some(handler) = &signal_handlers[signum] {
+                if vm.is_callable(handler) {
+                    vm.invoke(handler, (signum, vm.ctx.none()))?;
+                }
             }
         }
     }
@@ -163,13 +173,13 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
             unsafe { libc::signal(signum as i32, handler) };
         }
         let py_handler = if handler == SIG_DFL {
-            sig_dfl.clone()
+            Some(sig_dfl.clone())
         } else if handler == SIG_IGN {
-            sig_ign.clone()
+            Some(sig_ign.clone())
         } else {
-            vm.ctx.none()
+            None
         };
-        vm.signal_handlers.as_ref().unwrap().borrow_mut()[signum] = py_handler;
+        vm.signal_handlers.as_deref().unwrap().borrow_mut()[signum] = py_handler;
     }
 
     _signal_signal(libc::SIGINT, int_handler, vm).expect("Failed to set sigint handler");
