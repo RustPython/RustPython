@@ -732,11 +732,38 @@ impl<C: Constant> CodeObject<C> {
     }
 }
 
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum CodeDeserializeError {
+    Eof,
+    Other,
+}
+impl fmt::Display for CodeDeserializeError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Eof => f.write_str("unexpected end of data"),
+            Self::Other => f.write_str("invalid bytecode"),
+        }
+    }
+}
+impl std::error::Error for CodeDeserializeError {}
+
 impl CodeObject<ConstantData> {
     /// Load a code object from bytes
-    pub fn from_bytes(data: &[u8]) -> Result<Self, Box<dyn std::error::Error>> {
-        let raw_bincode = lz4_flex::decompress_size_prepended(data)?;
-        let data = bincode::deserialize(&raw_bincode)?;
+    pub fn from_bytes(data: &[u8]) -> Result<Self, CodeDeserializeError> {
+        use lz4_flex::block::DecompressError;
+        let raw_bincode = lz4_flex::decompress_size_prepended(data).map_err(|e| match e {
+            DecompressError::OutputTooSmall { .. } | DecompressError::ExpectedAnotherByte => {
+                CodeDeserializeError::Eof
+            }
+            _ => CodeDeserializeError::Other,
+        })?;
+        let data = bincode::deserialize(&raw_bincode).map_err(|e| match *e {
+            bincode::ErrorKind::Io(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                CodeDeserializeError::Eof
+            }
+            _ => CodeDeserializeError::Other,
+        })?;
         Ok(data)
     }
 
