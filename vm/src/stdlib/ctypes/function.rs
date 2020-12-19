@@ -2,11 +2,7 @@ use std::{fmt, os::raw::*, ptr};
 
 use crossbeam_utils::atomic::AtomicCell;
 
-use libffi::low::{
-    call as ffi_call, ffi_abi_FFI_DEFAULT_ABI as ABI, ffi_cif, ffi_type, prep_cif, CodePtr,
-    Error as FFIError,
-};
-use libffi::middle;
+use libffi::middle::{arg, Arg, Cif, CodePtr, Type};
 
 use crate::builtins::pystr::PyStrRef;
 use crate::builtins::{PyInt, PyTypeRef};
@@ -26,7 +22,7 @@ use crate::stdlib::ctypes::dll::dlsym;
 
 macro_rules! ffi_type {
     ($name: ident) => {
-        middle::Type::$name().as_raw_ptr()
+        Type::$name()
     };
 }
 
@@ -38,10 +34,10 @@ macro_rules! match_ffi_type {
             $($type: ident)|+ => $body: expr
         )+
     ) => {
-        match $pointer {
+        match $pointer.as_raw_ptr() {
             $(
                 $(
-                    t if t == ffi_type!($type) => { $body }
+                    t if t == ffi_type!($type).as_raw_ptr() => { $body }
                 )+
             )+
             _ => unreachable!()
@@ -65,7 +61,7 @@ macro_rules! match_ffi_type {
     }
 }
 
-pub fn str_to_type(ty: &str) -> *mut ffi_type {
+pub fn str_to_type(ty: &str) -> Type {
     match_ffi_type!(
         ty,
         "c" => c_schar
@@ -88,49 +84,44 @@ pub fn str_to_type(ty: &str) -> *mut ffi_type {
     )
 }
 
-fn py_to_ffi(
-    ty: *mut *mut ffi_type,
-    obj: PyObjectRef,
-    vm: &VirtualMachine,
-) -> PyResult<*mut c_void> {
+fn py_to_ffi(ty: &Type, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Arg> {
     let res = match_ffi_type!(
-        unsafe { *ty },
+        ty ,
         c_schar => {
-            &mut i8::try_from_object(vm, obj)? as *mut _ as *mut c_void
+            arg(&i8::try_from_object(vm, obj)?)
         }
         c_int => {
-            &mut i32::try_from_object(vm, obj)? as *mut _ as *mut c_void
+            arg(&i32::try_from_object(vm, obj)?)
         }
         c_short => {
-            &mut i16::try_from_object(vm, obj)? as *mut _ as *mut c_void
+            arg(&i16::try_from_object(vm, obj)?)
         }
         c_ushort => {
-            &mut u16::try_from_object(vm, obj)? as *mut _ as *mut c_void
+            arg(&u16::try_from_object(vm, obj)?)
         }
         c_uint => {
-            &mut u32::try_from_object(vm, obj)? as *mut _ as *mut c_void
+            arg(&u32::try_from_object(vm, obj)?)
         }
-        //@ TODO: Convert c*longlong from BigInt?
         c_long | c_longlong => {
-            &mut i64::try_from_object(vm, obj)? as *mut _ as *mut c_void
+            arg(&i64::try_from_object(vm, obj)?)
         }
         c_ulong | c_ulonglong => {
-            &mut u64::try_from_object(vm, obj)? as *mut _ as *mut c_void
+            arg(&u64::try_from_object(vm, obj)?)
         }
         f32 => {
-            &mut f32::try_from_object(vm, obj)? as *mut _ as *mut c_void
+            arg(&f32::try_from_object(vm, obj)?)
         }
         f64 | longdouble=> {
-            &mut f64::try_from_object(vm, obj)? as *mut _ as *mut c_void
+            arg(&f64::try_from_object(vm, obj)?)
         }
         c_uchar => {
-            &mut u8::try_from_object(vm, obj)? as *mut _ as *mut c_void
+            arg(&u8::try_from_object(vm, obj)?)
         }
         pointer => {
-            usize::try_from_object(vm, obj).unwrap() as *mut c_void
+            arg(&usize::try_from_object(vm, obj).unwrap())
         }
         void => {
-            ptr::null_mut()
+            arg(&ptr::null::<usize>())
         }
     );
 
@@ -140,16 +131,14 @@ fn py_to_ffi(
 #[derive(Debug)]
 pub struct Function {
     pointer: *mut c_void,
-    cif: ffi_cif,
-    arguments: Vec<*mut ffi_type>,
-    return_type: Box<*mut ffi_type>,
+    arguments: Vec<Type>,
+    return_type: Box<Type>,
 }
 
 impl Function {
     pub fn new(fn_ptr: usize, arguments: Vec<String>, return_type: &str) -> Function {
         Function {
             pointer: fn_ptr as *mut _,
-            cif: Default::default(),
             arguments: arguments.iter().map(|s| str_to_type(s.as_str())).collect(),
 
             return_type: Box::new(str_to_type(return_type)),
@@ -166,80 +155,66 @@ impl Function {
     }
 
     pub fn call(&mut self, arg_ptrs: Vec<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
-        let result = unsafe {
-            prep_cif(
-                &mut self.cif,
-                ABI,
-                self.arguments.len(),
-                *self.return_type.as_mut(),
-                self.arguments.as_mut_ptr(),
-            )
-        };
-
-        if let Err(FFIError::Typedef) = result {
-            return Err(vm.new_runtime_error(
-                "The type representation is invalid or unsupported".to_string(),
-            ));
-        } else if let Err(FFIError::Abi) = result {
-            return Err(vm.new_runtime_error("The ABI is invalid or unsupported".to_string()));
-        }
-
-        let arg_results: Result<Vec<*mut c_void>, _> = arg_ptrs
+        let args_vec: Vec<Arg> = arg_ptrs
             .iter()
             .zip(self.arguments.iter_mut())
-            .map(|(o, t)| py_to_ffi(t as *mut *mut _, o.clone(), vm))
-            .collect();
+            .map(|(o, t)| py_to_ffi(t, o.clone(), vm))
+            .collect::<PyResult<Vec<Arg>>>()?;
+
+        let args = args_vec.as_slice();
+
+        let cif = Cif::new(
+            self.arguments.clone().into_iter(),
+            self.return_type.as_ref().to_owned(),
+        );
 
         let fun_ptr = CodePtr(self.pointer);
 
-        let cif_ptr = &mut self.cif;
-        let mut arg_pointers = arg_results?;
-
         let res = unsafe {
             match_ffi_type!(
-                *self.return_type.as_mut(),
+                self.return_type.as_ref(),
                 c_schar => {
-                    let r: c_schar = ffi_call(cif_ptr, fun_ptr, arg_pointers.as_mut_ptr());
+                    let r: c_schar = cif.call(fun_ptr, args);
                     vm.new_pyobj(r as i8)
                 }
                 c_int => {
-                    let r: c_int = ffi_call(cif_ptr, fun_ptr, arg_pointers.as_mut_ptr());
+                    let r: c_int = cif.call(fun_ptr, args);
                     vm.new_pyobj(r as i32)
                 }
                 c_short => {
-                    let r: c_short = ffi_call(cif_ptr, fun_ptr, arg_pointers.as_mut_ptr());
+                    let r: c_short = cif.call(fun_ptr, args);
                     vm.new_pyobj(r as i16)
                 }
                 c_ushort => {
-                    let r: c_ushort = ffi_call(cif_ptr, fun_ptr, arg_pointers.as_mut_ptr());
+                    let r: c_ushort = cif.call(fun_ptr, args);
                     vm.new_pyobj(r as u16)
                 }
                 c_uint => {
-                    let r: c_uint = ffi_call(cif_ptr, fun_ptr, arg_pointers.as_mut_ptr());
+                    let r: c_uint = cif.call(fun_ptr, args);
                     vm.new_pyobj(r as u32)
                 }
                 c_long | c_longlong => {
-                    let r: c_long = ffi_call(cif_ptr, fun_ptr, arg_pointers.as_mut_ptr());
+                    let r: c_long = cif.call(fun_ptr, args);
                     vm.new_pyobj(r as i64)
                 }
                 c_ulong | c_ulonglong => {
-                    let r: c_ulong = ffi_call(cif_ptr, fun_ptr, arg_pointers.as_mut_ptr());
+                    let r: c_ulong = cif.call(fun_ptr, args);
                     vm.new_pyobj(r as u64)
                 }
                 f32 => {
-                    let r: c_float = ffi_call(cif_ptr, fun_ptr, arg_pointers.as_mut_ptr());
+                    let r: c_float = cif.call(fun_ptr, args);
                     vm.new_pyobj(r as f32)
                 }
                 f64 | longdouble=> {
-                    let r: c_double = ffi_call(cif_ptr, fun_ptr, arg_pointers.as_mut_ptr());
+                    let r: c_double = cif.call(fun_ptr, args);
                     vm.new_pyobj(r as f64)
                 }
                 c_uchar => {
-                    let r: c_uchar = ffi_call(cif_ptr, fun_ptr, arg_pointers.as_mut_ptr());
+                    let r: c_uchar = cif.call(fun_ptr, args);
                     vm.new_pyobj(r as u8)
                 }
                 pointer => {
-                    let r: *mut c_void = ffi_call(cif_ptr, fun_ptr, arg_pointers.as_mut_ptr());
+                    let r: *mut c_void = cif.call(fun_ptr, args);
                     vm.new_pyobj(r as *const _ as usize)
                 }
                 void => {

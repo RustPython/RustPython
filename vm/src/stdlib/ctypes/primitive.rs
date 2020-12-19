@@ -9,12 +9,12 @@ use crate::builtins::{
 };
 use crate::function::OptionalArg;
 use crate::pyobject::{
-    PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
+    IdProtocol, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
 };
 use crate::VirtualMachine;
 
 use crate::stdlib::ctypes::array::PyCArray;
-use crate::stdlib::ctypes::basics::{compare_classes, PyCData};
+use crate::stdlib::ctypes::basics::PyCData;
 use crate::stdlib::ctypes::function::PyCFuncPtr;
 use crate::stdlib::ctypes::pointer::PyCPointer;
 
@@ -137,7 +137,7 @@ fn generic_xxx_p_from_param(
         Ok(PySimpleType {
             _type_: type_str.to_string(),
             value: AtomicCell::new(value.clone()),
-            __abstract__: compare_classes(cls, PySimpleType::static_type(), vm)?,
+            __abstract__: cls.is(PySimpleType::static_type()),
         }
         .into_object(vm))
     } else if vm.isinstance(value, PySimpleType::static_type())?
@@ -199,8 +199,8 @@ fn from_param_void_p(
         // @TODO: Is there a better way of doing this?
         if let Some(from_address) = vm.get_method(cls.as_object().clone(), "from_address") {
             if let Ok(cdata) = value.clone().downcast_exact::<PyCData>(vm) {
-                let mut buffer_guard = cdata.borrow_value_mut();
-                let addr = buffer_guard.as_mut_ptr() as usize;
+                let buffer_guard = cdata.borrow_value_mut();
+                let addr = buffer_guard.inner as usize;
 
                 Ok(vm.invoke(&from_address?, (cls.clone_class(), addr))?)
             } else {
@@ -215,7 +215,7 @@ fn from_param_void_p(
         Ok(PySimpleType {
             _type_: type_str.to_string(),
             value: AtomicCell::new(value.clone()),
-            __abstract__: compare_classes(cls, PySimpleType::static_type(), vm)?,
+            __abstract__: cls.is(PySimpleType::static_type()),
         }
         .into_object(vm))
     } else {
@@ -225,7 +225,7 @@ fn from_param_void_p(
 }
 
 fn new_simple_type(cls: &PyTypeRef, vm: &VirtualMachine) -> PyResult<PySimpleType> {
-    let is_abstract = compare_classes(cls, PySimpleType::static_type(), vm)?;
+    let is_abstract = cls.is(PySimpleType::static_type());
 
     if is_abstract {
         return Err(vm.new_type_error("abstract class".to_string()));
@@ -333,7 +333,7 @@ impl PySimpleType {
                 return Ok(zelf.as_object().clone());
             }
         }
-        return Ok(zelf.value());
+        Ok(zelf.value())
     }
 
     // From PyCSimpleType_Type PyCSimpleType_methods
@@ -343,7 +343,7 @@ impl PySimpleType {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
-        if compare_classes(&cls, PySimpleType::static_type(), vm)? {
+        if cls.is(PySimpleType::static_type()) {
             Err(vm.new_type_error("abstract class".to_string()))
         } else if vm.isinstance(&value, &cls)? {
             Ok(value)
@@ -374,7 +374,7 @@ impl PySimpleType {
                                         {
                                             Ok(vm.invoke(
                                                 &from_param?,
-                                                (my_base.clone_class(), value.clone()),
+                                                (my_base.clone_class(), value),
                                             )?)
                                         } else {
                                             // @TODO: Make sure of what goes here
