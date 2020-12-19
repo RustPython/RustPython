@@ -9,7 +9,7 @@ use crate::error::{CompileError, CompileErrorType};
 use crate::ir::{self, CodeInfo};
 pub use crate::mode::Mode;
 use crate::symboltable::{make_symbol_table, statements_to_symbol_table, SymbolScope, SymbolTable};
-use indexmap::IndexSet;
+use crate::IndexSet;
 use itertools::Itertools;
 use num_complex::Complex64;
 use num_traits::ToPrimitive;
@@ -140,10 +140,10 @@ impl Compiler {
             blocks: vec![ir::Block::default()],
             current_block: bytecode::Label(0),
             constants: Vec::new(),
-            name_cache: IndexSet::new(),
-            varname_cache: IndexSet::new(),
-            cellvar_cache: IndexSet::new(),
-            freevar_cache: IndexSet::new(),
+            name_cache: IndexSet::default(),
+            varname_cache: IndexSet::default(),
+            cellvar_cache: IndexSet::default(),
+            freevar_cache: IndexSet::default(),
         };
         Compiler {
             code_stack: vec![module_code],
@@ -217,8 +217,8 @@ impl Compiler {
             blocks: vec![ir::Block::default()],
             current_block: bytecode::Label(0),
             constants: Vec::new(),
-            name_cache: IndexSet::new(),
-            varname_cache: IndexSet::new(),
+            name_cache: IndexSet::default(),
+            varname_cache: IndexSet::default(),
             cellvar_cache,
             freevar_cache,
         };

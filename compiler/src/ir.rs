@@ -1,4 +1,4 @@
-use indexmap::IndexSet;
+use crate::IndexSet;
 use rustpython_bytecode::{CodeFlags, CodeObject, ConstantData, Instruction, Label, Location};
 
 pub type BlockIdx = Label;

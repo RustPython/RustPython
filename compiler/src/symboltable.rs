@@ -8,7 +8,7 @@ Inspirational file: https://github.com/python/cpython/blob/master/Python/symtabl
 */
 
 use crate::error::{CompileError, CompileErrorType};
-use indexmap::map::IndexMap;
+use crate::IndexMap;
 use rustpython_ast::{self as ast, Location};
 use std::fmt;
 
@@ -58,7 +58,7 @@ impl SymbolTable {
             typ,
             line_number,
             is_nested,
-            symbols: IndexMap::new(),
+            symbols: IndexMap::default(),
             sub_tables: vec![],
         }
     }
