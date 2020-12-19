@@ -4,7 +4,7 @@ use crate::frame::{ExecutionResult, FrameRef};
 use crate::pyobject::{PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
-use crate::common::lock::PyRwLock;
+use crate::common::lock::PyMutex;
 use crossbeam_utils::atomic::AtomicCell;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -37,20 +37,22 @@ pub struct Coro {
     frame: FrameRef,
     pub closed: AtomicCell<bool>,
     running: AtomicCell<bool>,
-    exceptions: PyRwLock<Vec<PyBaseExceptionRef>>,
+    exceptions: PyMutex<Vec<PyBaseExceptionRef>>,
     started: AtomicCell<bool>,
     variant: Variant,
+    name: PyMutex<PyStrRef>,
 }
 
 impl Coro {
-    pub fn new(frame: FrameRef, variant: Variant) -> Self {
+    pub fn new(frame: FrameRef, variant: Variant, name: PyStrRef) -> Self {
         Coro {
             frame,
             closed: AtomicCell::new(false),
             running: AtomicCell::new(false),
-            exceptions: PyRwLock::new(vec![]),
+            exceptions: PyMutex::new(vec![]),
             started: AtomicCell::new(false),
             variant,
+            name: PyMutex::new(name),
         }
     }
 
@@ -69,10 +71,10 @@ impl Coro {
         let curr_exception_stack_len = vm.exceptions.borrow().len();
         vm.exceptions
             .borrow_mut()
-            .append(&mut self.exceptions.write());
+            .append(&mut self.exceptions.lock());
         let result = vm.with_frame(self.frame.clone(), func);
         std::mem::swap(
-            &mut *self.exceptions.write(),
+            &mut *self.exceptions.lock(),
             &mut vm
                 .exceptions
                 .borrow_mut()
@@ -166,7 +168,18 @@ impl Coro {
         self.frame.clone()
     }
     pub fn name(&self) -> PyStrRef {
-        self.frame.code.obj_name.clone()
+        self.name.lock().clone()
+    }
+    pub fn set_name(&self, name: PyStrRef) {
+        *self.name.lock() = name;
+    }
+    pub fn repr(&self, id: usize) -> String {
+        format!(
+            "<{} object {} at {:#x}>",
+            self.variant.name(),
+            self.name.lock(),
+            id
+        )
     }
 }
 

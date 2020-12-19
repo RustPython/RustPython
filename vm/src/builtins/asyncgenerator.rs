@@ -1,11 +1,12 @@
 use super::code::PyCodeRef;
+use super::pystr::PyStrRef;
 use super::pytype::PyTypeRef;
 use crate::coroutine::{Coro, Variant};
 use crate::exceptions::PyBaseExceptionRef;
 use crate::frame::FrameRef;
 use crate::function::OptionalArg;
 use crate::pyobject::{
-    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::slots::PyIter;
 use crate::vm::VirtualMachine;
@@ -32,17 +33,27 @@ impl PyAsyncGen {
         &self.inner
     }
 
-    pub fn new(frame: FrameRef, vm: &VirtualMachine) -> PyRef<Self> {
+    pub fn new(frame: FrameRef, name: PyStrRef) -> Self {
         PyAsyncGen {
-            inner: Coro::new(frame, Variant::AsyncGen),
+            inner: Coro::new(frame, Variant::AsyncGen, name),
             running_async: AtomicCell::new(false),
         }
-        .into_ref(vm)
     }
 
-    // TODO: fix function names situation
     #[pyproperty(magic)]
-    fn name(&self) {}
+    fn name(&self) -> PyStrRef {
+        self.inner.name()
+    }
+
+    #[pyproperty(magic, setter)]
+    fn set_name(&self, name: PyStrRef) {
+        self.inner.set_name(name)
+    }
+
+    #[pymethod(magic)]
+    fn repr(zelf: PyRef<Self>) -> String {
+        zelf.inner.repr(zelf.get_id())
+    }
 
     #[pymethod(name = "__aiter__")]
     fn aiter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
