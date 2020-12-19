@@ -732,12 +732,6 @@ impl<C: Constant> CodeObject<C> {
 impl CodeObject<ConstantData> {
     /// Load a code object from bytes
     pub fn from_bytes(data: &[u8]) -> Result<Self, Box<dyn std::error::Error>> {
-        // TODO: PR to lz4_flex to make it not panic
-        if data.len() < 4 {
-            return Err(
-                std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "bad bytecode").into(),
-            );
-        }
         let raw_bincode = lz4_flex::decompress_size_prepended(data)?;
         let data = bincode::deserialize(&raw_bincode)?;
         Ok(data)
