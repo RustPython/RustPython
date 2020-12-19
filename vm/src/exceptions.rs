@@ -11,9 +11,9 @@ use crate::pyobject::{
     BorrowValue, IntoPyObject, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult,
     PyValue, TryFromObject, TypeProtocol,
 };
+use crate::sysmodule;
 use crate::types::create_type_with_slots;
 use crate::VirtualMachine;
-use crate::{py_serde, sysmodule};
 
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
@@ -175,7 +175,7 @@ pub fn print_exception(vm: &VirtualMachine, exc: PyBaseExceptionRef) {
             let _ = write_exception(&mut stderr, vm, exc);
         } else {
             eprintln!("{}\nlost sys.stderr", errstr);
-            let _ = write_exception(&mut io::stderr(), vm, exc);
+            let _ = write_exception(&mut py_io::IoWriter(io::stderr()), vm, exc);
         }
     };
     if let Ok(excepthook) = vm.get_attribute(vm.sys_module.clone(), "excepthook") {
@@ -797,7 +797,7 @@ impl serde::Serialize for SerializeException<'_> {
             "context",
             &self.exc.context().as_ref().map(|e| Self::new(self.vm, e)),
         )?;
-        struc.serialize_field("suppress_context", &self.exc.suppress_context.load())?;
+        struc.serialize_field("suppress_context", &self.exc.get_suppress_context())?;
 
         let args = {
             struct Args<'vm>(&'vm VirtualMachine, PyTupleRef);
@@ -807,7 +807,7 @@ impl serde::Serialize for SerializeException<'_> {
                         self.1
                             .borrow_value()
                             .iter()
-                            .map(|arg| py_serde::PyObjectSerializer::new(self.0, arg)),
+                            .map(|arg| crate::py_serde::PyObjectSerializer::new(self.0, arg)),
                     )
                 }
             }
@@ -816,9 +816,9 @@ impl serde::Serialize for SerializeException<'_> {
         struc.serialize_field("args", &args)?;
 
         let rendered = {
-            let mut rendered = Vec::<u8>::new();
+            let mut rendered = String::new();
             write_exception(&mut rendered, self.vm, &self.exc).map_err(S::Error::custom)?;
-            String::from_utf8(rendered).map_err(S::Error::custom)?
+            rendered
         };
         struc.serialize_field("rendered", &rendered)?;
 

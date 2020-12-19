@@ -3,20 +3,49 @@ use crate::builtins::pystr::PyStr;
 use crate::exceptions::PyBaseExceptionRef;
 use crate::pyobject::{BorrowValue, PyObjectRef, PyResult};
 use crate::VirtualMachine;
-use std::{fmt, io};
+use std::{fmt, io, ops};
 
 pub trait Write {
     type Error;
     fn write_fmt(&mut self, args: fmt::Arguments) -> Result<(), Self::Error>;
 }
 
-impl<W> Write for W
+#[repr(transparent)]
+pub struct IoWriter<T>(pub T);
+
+impl<T> IoWriter<T> {
+    pub fn from_ref(x: &mut T) -> &mut Self {
+        // SAFETY: IoWriter is repr(transparent) over T
+        unsafe { &mut *(x as *mut T as *mut Self) }
+    }
+}
+
+impl<T> ops::Deref for IoWriter<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        &self.0
+    }
+}
+impl<T> ops::DerefMut for IoWriter<T> {
+    fn deref_mut(&mut self) -> &mut T {
+        &mut self.0
+    }
+}
+
+impl<W> Write for IoWriter<W>
 where
     W: io::Write,
 {
     type Error = io::Error;
     fn write_fmt(&mut self, args: fmt::Arguments) -> io::Result<()> {
-        <W as io::Write>::write_fmt(self, args)
+        <W as io::Write>::write_fmt(&mut self.0, args)
+    }
+}
+
+impl Write for String {
+    type Error = fmt::Error;
+    fn write_fmt(&mut self, args: fmt::Arguments) -> fmt::Result {
+        <String as fmt::Write>::write_fmt(self, args)
     }
 }
 
