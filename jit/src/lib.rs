@@ -4,7 +4,7 @@ use cranelift::prelude::*;
 use cranelift_module::{FuncId, Linkage, Module, ModuleError};
 use cranelift_simplejit::{SimpleJITBuilder, SimpleJITModule, SimpleJITProduct};
 
-use rustpython_bytecode::bytecode;
+use rustpython_bytecode as bytecode;
 
 mod instructions;
 
