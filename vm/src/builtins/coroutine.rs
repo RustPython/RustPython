@@ -4,7 +4,7 @@ use super::pytype::PyTypeRef;
 use crate::coroutine::{Coro, Variant};
 use crate::frame::FrameRef;
 use crate::function::OptionalArg;
-use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::slots::PyIter;
 use crate::vm::VirtualMachine;
 
@@ -28,17 +28,25 @@ impl PyCoroutine {
         &self.inner
     }
 
-    pub fn new(frame: FrameRef, vm: &VirtualMachine) -> PyRef<Self> {
+    pub fn new(frame: FrameRef, name: PyStrRef) -> Self {
         PyCoroutine {
-            inner: Coro::new(frame, Variant::Coroutine),
+            inner: Coro::new(frame, Variant::Coroutine, name),
         }
-        .into_ref(vm)
     }
 
-    // TODO: fix function names situation
     #[pyproperty(magic)]
-    fn name(&self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.none()
+    fn name(&self) -> PyStrRef {
+        self.inner.name()
+    }
+
+    #[pyproperty(magic, setter)]
+    fn set_name(&self, name: PyStrRef) {
+        self.inner.set_name(name)
+    }
+
+    #[pymethod(magic)]
+    fn repr(zelf: PyRef<Self>) -> String {
+        zelf.inner.repr(zelf.get_id())
     }
 
     #[pymethod]
