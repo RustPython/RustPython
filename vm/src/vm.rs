@@ -9,7 +9,6 @@ use std::collections::hash_map::HashMap;
 use std::collections::hash_set::HashSet;
 use std::fmt;
 
-use arr_macro::arr;
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::{Signed, ToPrimitive};
 
@@ -56,7 +55,7 @@ pub struct VirtualMachine {
     pub trace_func: RefCell<PyObjectRef>,
     pub use_tracing: Cell<bool>,
     pub recursion_limit: Cell<usize>,
-    pub signal_handlers: Option<Box<RefCell<[PyObjectRef; NSIG]>>>,
+    pub signal_handlers: Option<Box<RefCell<[Option<PyObjectRef>; NSIG]>>>,
     pub repr_guards: RefCell<HashSet<usize>>,
     pub state: PyRc<PyGlobalState>,
     pub initialized: bool,
@@ -246,7 +245,9 @@ impl VirtualMachine {
         let import_func = ctx.none();
         let profile_func = RefCell::new(ctx.none());
         let trace_func = RefCell::new(ctx.none());
-        let signal_handlers = RefCell::new(arr![ctx.none(); 64]);
+        // hack to get around const array repeat expressions, rust issue #79270
+        const NONE: Option<PyObjectRef> = None;
+        let signal_handlers = RefCell::new([NONE; NSIG]);
 
         let stdlib_inits = stdlib::get_module_inits();
 
