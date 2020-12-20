@@ -678,9 +678,7 @@ where
                         // This is technically stricter than python3 but spaces before
                         // tabs is even more insane than mixing spaces and tabs.
                         return Err(LexicalError {
-                            error: LexicalErrorType::OtherError(
-                                "Tabs not allowed as part of indentation after spaces".to_owned(),
-                            ),
+                            error: LexicalErrorType::TabsAfterSpaces,
                             location: self.get_pos(),
                         });
                     }

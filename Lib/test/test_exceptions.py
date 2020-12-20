@@ -41,8 +41,6 @@ class ExceptionTests(unittest.TestCase):
         self.assertEqual(buf1, buf2)
         self.assertEqual(exc.__name__, excname)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testRaising(self):
         self.raise_catch(AttributeError, "AttributeError")
         self.assertRaises(AttributeError, getattr, sys, "undefined_attribute")

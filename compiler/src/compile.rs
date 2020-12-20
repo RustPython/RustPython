@@ -13,7 +13,7 @@ use itertools::Itertools;
 use num_complex::Complex64;
 use num_traits::ToPrimitive;
 use rustpython_ast as ast;
-use rustpython_bytecode::bytecode::{self, CodeObject, ConstantData, Instruction, Label};
+use rustpython_bytecode::{self as bytecode, CodeObject, ConstantData, Instruction, Label};
 
 type CompileResult<T> = Result<T, CompileError>;
 
@@ -2548,7 +2548,7 @@ fn compile_conversion_flag(
 mod tests {
     use super::{CompileOpts, Compiler};
     use crate::symboltable::make_symbol_table;
-    use rustpython_bytecode::bytecode::CodeObject;
+    use rustpython_bytecode::CodeObject;
     use rustpython_parser::parser;
 
     fn compile_exec(source: &str) -> CodeObject {

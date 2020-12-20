@@ -22,6 +22,7 @@ pub enum LexicalErrorType {
     NestingError,
     IndentationError,
     TabError,
+    TabsAfterSpaces,
     DefaultArgumentError,
     PositionalArgumentError,
     DuplicateKeywordArgumentError,
@@ -44,6 +45,9 @@ impl fmt::Display for LexicalErrorType {
             }
             LexicalErrorType::TabError => {
                 write!(f, "inconsistent use of tabs and spaces in indentation")
+            }
+            LexicalErrorType::TabsAfterSpaces => {
+                write!(f, "Tabs not allowed as part of indentation after spaces")
             }
             LexicalErrorType::DefaultArgumentError => {
                 write!(f, "non-default argument follows default argument")
@@ -213,7 +217,11 @@ impl ParseErrorType {
         }
     }
     pub fn is_tab_error(&self) -> bool {
-        matches!(self, ParseErrorType::Lexical(LexicalErrorType::TabError))
+        matches!(
+            self,
+            ParseErrorType::Lexical(LexicalErrorType::TabError)
+                | ParseErrorType::Lexical(LexicalErrorType::TabsAfterSpaces)
+        )
     }
 }
 

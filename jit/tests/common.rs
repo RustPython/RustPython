@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use rustpython_bytecode::bytecode::{CodeObject, ConstantData, Instruction};
+use rustpython_bytecode::{CodeObject, ConstantData, Instruction};
 use rustpython_jit::{CompiledCode, JitType};
 
 #[derive(Debug, Clone)]
