@@ -38,7 +38,6 @@ num-bigint = { version = "0.4.0", features = ["serde"] }
 num-traits = "0.2.8"
 num-integer = "0.1.41"
 num-rational = "0.4.0"
-num-iter = "0.1.39"
 rand = "0.8"
 rand_core = "0.6"
 getrandom = { version = "0.2", features = ["js"] }

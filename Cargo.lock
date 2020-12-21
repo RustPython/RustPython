@@ -1260,17 +1260,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "num-iter"
-version = "0.1.42"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2021c8337a54d21aca0d59a92577a029af9431cb59b909b03252b9c164fad59"
-dependencies = [
- "autocfg",
- "num-integer",
- "num-traits",
-]
-
-[[package]]
 name = "num-rational"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2048,7 +2037,6 @@ dependencies = [
  "num-bigint",
  "num-complex",
  "num-integer",
- "num-iter",
  "num-rational",
  "num-traits",
  "num_cpus",
