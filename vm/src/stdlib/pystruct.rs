@@ -14,19 +14,17 @@ use crate::VirtualMachine;
 
 #[pymodule]
 pub(crate) mod _struct {
-    use byteorder::{ByteOrder, ReadBytesExt, WriteBytesExt};
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
     use num_bigint::BigInt;
-    use num_traits::{AsPrimitive, ToPrimitive};
+    use num_traits::{PrimInt, ToPrimitive};
     use std::convert::TryFrom;
-    use std::io::{Cursor, Read, Write};
     use std::iter::Peekable;
     use std::{fmt, mem, os::raw};
 
     use crate::builtins::{
-        bytes::PyBytesRef, float::IntoPyFloat, int::try_to_primitive, pybool::IntoPyBool,
-        pystr::PyStr, pystr::PyStrRef, pytype::PyTypeRef, tuple::PyTupleRef,
+        bytes::PyBytesRef, float, int::try_to_primitive, pybool::IntoPyBool, pystr::PyStr,
+        pystr::PyStrRef, pytype::PyTypeRef, tuple::PyTupleRef,
     };
     use crate::byteslike::{PyBytesLike, PyRwBytesLike};
     use crate::exceptions::PyBaseExceptionRef;
@@ -48,9 +46,10 @@ pub(crate) mod _struct {
 
     #[derive(Debug, Clone)]
     struct FormatCode {
-        repeat: isize,
+        repeat: usize,
         code: FormatType,
         info: &'static FormatInfo,
+        pre_padding: usize,
     }
 
     #[derive(Copy, Clone, num_enum::TryFromPrimitive)]
@@ -84,8 +83,8 @@ pub(crate) mod _struct {
         }
     }
 
-    type PackFunc = fn(&VirtualMachine, &PyObjectRef, &mut dyn Write) -> PyResult<()>;
-    type UnpackFunc = fn(&VirtualMachine, &mut dyn Read) -> PyResult;
+    type PackFunc = fn(&VirtualMachine, PyObjectRef, &mut [u8]) -> PyResult<()>;
+    type UnpackFunc = fn(&VirtualMachine, &[u8]) -> PyObjectRef;
 
     struct FormatInfo {
         size: usize,
@@ -111,8 +110,8 @@ pub(crate) mod _struct {
                     &FormatInfo {
                         size: size_of::<$t>(),
                         align: align_of::<$t>(),
-                        pack: Some(<$t as Packable>::pack::<byteorder::NativeEndian>),
-                        unpack: Some(<$t as Packable>::unpack::<byteorder::NativeEndian>),
+                        pack: Some(<$t as Packable>::pack::<NativeEndian>),
+                        unpack: Some(<$t as Packable>::unpack::<NativeEndian>),
                     }
                 }};
             }
@@ -187,9 +186,9 @@ pub(crate) mod _struct {
                     Double => native_info!(raw::c_double),
                     VoidP => native_info!(*mut raw::c_void),
                 },
-                Endianness::Big => match_nonnative!(self, byteorder::BigEndian),
-                Endianness::Little => match_nonnative!(self, byteorder::LittleEndian),
-                Endianness::Host => match_nonnative!(self, byteorder::NativeEndian),
+                Endianness::Big => match_nonnative!(self, BigEndian),
+                Endianness::Little => match_nonnative!(self, LittleEndian),
+                Endianness::Host => match_nonnative!(self, NativeEndian),
             }
         }
     }
@@ -199,7 +198,7 @@ pub(crate) mod _struct {
             match self.code {
                 FormatType::Pad => 0,
                 FormatType::Str | FormatType::Pascal => 1,
-                _ => self.repeat as usize,
+                _ => self.repeat,
             }
         }
     }
@@ -211,6 +210,7 @@ pub(crate) mod _struct {
         endianness: Endianness,
         codes: Vec<FormatCode>,
         size: usize,
+        arg_count: usize,
     }
 
     impl FormatSpec {
@@ -237,34 +237,32 @@ pub(crate) mod _struct {
             let endianness = parse_endianness(&mut chars);
 
             // Now, analyze struct string furter:
-            let codes = parse_format_codes(&mut chars, endianness)?;
-
-            let size = Self::calc_size(&codes).ok_or_else(|| OVERFLOW_MSG.to_owned())?;
+            let (codes, size, arg_count) = parse_format_codes(&mut chars, endianness)?;
 
             Ok(FormatSpec {
                 endianness,
                 codes,
                 size,
+                arg_count,
             })
         }
 
-        pub fn pack(&self, args: &[PyObjectRef], vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        pub fn pack(&self, args: Vec<PyObjectRef>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
             // Create data vector:
-            let mut data = vec![0; self.size()];
+            let mut data = vec![0; self.size];
 
-            self.pack_into(&mut Cursor::new(&mut data), args, vm)?;
+            self.pack_into(&mut data, args, vm)?;
 
             Ok(data)
         }
 
         fn pack_into(
             &self,
-            buffer: &mut Cursor<&mut [u8]>,
-            args: &[PyObjectRef],
+            mut buffer: &mut [u8],
+            args: Vec<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let arg_count: usize = self.codes.iter().map(|c| c.arg_count()).sum();
-            if arg_count != args.len() {
+            if self.arg_count != args.len() {
                 return Err(new_struct_error(
                     vm,
                     format!(
@@ -275,30 +273,35 @@ pub(crate) mod _struct {
                 ));
             }
 
-            let mut args = args.iter();
+            let mut args = args.into_iter();
             // Loop over all opcodes:
             for code in self.codes.iter() {
+                buffer = &mut buffer[code.pre_padding..];
                 debug!("code: {:?}", code);
                 match code.code {
                     FormatType::Str => {
-                        pack_string(vm, args.next().unwrap(), buffer, code.repeat as usize)?;
+                        let (buf, rest) = buffer.split_at_mut(code.repeat);
+                        pack_string(vm, args.next().unwrap(), buf)?;
+                        buffer = rest;
                     }
                     FormatType::Pascal => {
-                        pack_pascal(vm, args.next().unwrap(), buffer, code.repeat as usize)?;
+                        let (buf, rest) = buffer.split_at_mut(code.repeat);
+                        pack_pascal(vm, args.next().unwrap(), buf)?;
+                        buffer = rest;
                     }
                     FormatType::Pad => {
-                        for _ in 0..code.repeat {
-                            buffer.write_u8(0).unwrap();
+                        let (pad_buf, rest) = buffer.split_at_mut(code.repeat);
+                        for el in pad_buf {
+                            *el = 0
                         }
+                        buffer = rest;
                     }
                     _ => {
-                        let pos = buffer.position() as usize;
-                        let extra = compensate_alignment(pos, code.info.align).unwrap();
-                        buffer.set_position((pos + extra) as u64);
-
                         let pack = code.info.pack.unwrap();
-                        for arg in args.by_ref().take(code.repeat as usize) {
-                            pack(vm, arg, buffer)?;
+                        for arg in args.by_ref().take(code.repeat) {
+                            let (item_buf, rest) = buffer.split_at_mut(code.info.size);
+                            pack(vm, arg, item_buf)?;
+                            buffer = rest;
                         }
                     }
                 }
@@ -307,36 +310,39 @@ pub(crate) mod _struct {
             Ok(())
         }
 
-        pub fn unpack(&self, data: &[u8], vm: &VirtualMachine) -> PyResult<PyTupleRef> {
-            if self.size() != data.len() {
+        pub fn unpack(&self, mut data: &[u8], vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+            if self.size != data.len() {
                 return Err(new_struct_error(
                     vm,
-                    format!("unpack requires a buffer of {} bytes", self.size()),
+                    format!("unpack requires a buffer of {} bytes", self.size),
                 ));
             }
 
-            let mut rdr = Cursor::new(data);
-            let mut items = vec![];
+            let mut items = Vec::with_capacity(self.arg_count);
             for code in &self.codes {
+                data = &data[code.pre_padding..];
                 debug!("unpack code: {:?}", code);
                 match code.code {
                     FormatType::Pad => {
-                        unpack_empty(vm, &mut rdr, code.repeat);
+                        data = &data[code.repeat..];
                     }
                     FormatType::Str => {
-                        items.push(unpack_string(vm, &mut rdr, code.repeat)?);
+                        let (str_data, rest) = data.split_at(code.repeat);
+                        // string is just stored inline
+                        items.push(vm.ctx.new_bytes(str_data.to_vec()));
+                        data = rest;
                     }
                     FormatType::Pascal => {
-                        items.push(unpack_pascal(vm, &mut rdr, code.repeat)?);
+                        let (str_data, rest) = data.split_at(code.repeat);
+                        items.push(unpack_pascal(vm, str_data));
+                        data = rest;
                     }
                     _ => {
-                        let pos = rdr.position() as usize;
-                        let extra = compensate_alignment(pos, code.info.align).unwrap();
-                        rdr.set_position((pos + extra) as u64);
-
                         let unpack = code.info.unpack.unwrap();
                         for _ in 0..code.repeat {
-                            items.push(unpack(vm, &mut rdr)?);
+                            let (item_data, rest) = data.split_at(code.info.size);
+                            items.push(unpack(vm, item_data));
+                            data = rest;
                         }
                     }
                 };
@@ -348,19 +354,6 @@ pub(crate) mod _struct {
         #[inline]
         pub fn size(&self) -> usize {
             self.size
-        }
-
-        fn calc_size(codes: &[FormatCode]) -> Option<usize> {
-            // cpython has size as an isize, so check for isize overflow but then cast it to usize
-            let mut offset = 0isize;
-            for c in codes {
-                let extra = compensate_alignment(offset as usize, c.info.align)?;
-                offset = offset.checked_add(extra.to_isize()?)?;
-
-                let item_size = (c.info.size as isize).checked_mul(c.repeat)?;
-                offset = offset.checked_add(item_size)?;
-            }
-            Some(offset as usize)
         }
     }
 
@@ -394,10 +387,12 @@ pub(crate) mod _struct {
     fn parse_format_codes<I>(
         chars: &mut Peekable<I>,
         endianness: Endianness,
-    ) -> Result<Vec<FormatCode>, String>
+    ) -> Result<(Vec<FormatCode>, usize, usize), String>
     where
         I: Sized + Iterator<Item = u8>,
     {
+        let mut offset = 0isize;
+        let mut arg_count = 0usize;
         let mut codes = vec![];
         while chars.peek().is_some() {
             // determine repeat operator:
@@ -431,19 +426,37 @@ pub(crate) mod _struct {
                     _ => true,
                 })
                 .ok_or_else(|| "bad char in struct format".to_owned())?;
-            codes.push(FormatCode {
-                repeat,
+
+            let info = code.info(endianness);
+
+            let padding = compensate_alignment(offset as usize, info.align)
+                .ok_or_else(|| OVERFLOW_MSG.to_owned())?;
+            offset = padding
+                .to_isize()
+                .and_then(|extra| offset.checked_add(extra))
+                .ok_or_else(|| OVERFLOW_MSG.to_owned())?;
+
+            let code = FormatCode {
+                repeat: repeat as usize,
                 code,
-                info: code.info(endianness),
-            })
+                info,
+                pre_padding: padding,
+            };
+            arg_count += code.arg_count();
+            codes.push(code);
+
+            offset = (info.size as isize)
+                .checked_mul(repeat)
+                .and_then(|item_size| offset.checked_add(item_size))
+                .ok_or_else(|| OVERFLOW_MSG.to_owned())?;
         }
 
-        Ok(codes)
+        Ok((codes, offset as usize, arg_count))
     }
 
     fn get_int_or_index<T>(vm: &VirtualMachine, arg: PyObjectRef) -> PyResult<T>
     where
-        T: num_traits::PrimInt + for<'a> std::convert::TryFrom<&'a BigInt>,
+        T: PrimInt + for<'a> std::convert::TryFrom<&'a BigInt>,
     {
         match vm.to_index_opt(arg) {
             Some(index) => try_to_primitive(index?.borrow_value(), vm),
@@ -452,14 +465,6 @@ pub(crate) mod _struct {
                 "required argument is not an integer".to_owned(),
             )),
         }
-    }
-
-    fn get_float<T>(vm: &VirtualMachine, arg: PyObjectRef) -> PyResult<T>
-    where
-        T: num_traits::Float + 'static,
-        f64: AsPrimitive<T>,
-    {
-        IntoPyFloat::try_from_object(vm, arg).map(|f| f.to_f64().as_())
     }
 
     fn get_buffer_offset(
@@ -514,168 +519,177 @@ pub(crate) mod _struct {
         }
     }
 
+    trait ByteOrder {
+        fn convert<I: PrimInt>(i: I) -> I;
+    }
+    enum BigEndian {}
+    impl ByteOrder for BigEndian {
+        fn convert<I: PrimInt>(i: I) -> I {
+            i.to_be()
+        }
+    }
+    enum LittleEndian {}
+    impl ByteOrder for LittleEndian {
+        fn convert<I: PrimInt>(i: I) -> I {
+            i.to_le()
+        }
+    }
+
+    #[cfg(target_endian = "big")]
+    type NativeEndian = BigEndian;
+    #[cfg(target_endian = "little")]
+    type NativeEndian = LittleEndian;
+
     trait Packable {
-        fn pack<Endianness: ByteOrder>(
+        fn pack<E: ByteOrder>(
             vm: &VirtualMachine,
-            arg: &PyObjectRef,
-            data: &mut dyn Write,
+            arg: PyObjectRef,
+            data: &mut [u8],
         ) -> PyResult<()>;
-        fn unpack<Endianness: ByteOrder>(vm: &VirtualMachine, rdr: &mut dyn Read) -> PyResult;
+        fn unpack<E: ByteOrder>(vm: &VirtualMachine, data: &[u8]) -> PyObjectRef;
     }
 
-    macro_rules! make_pack_no_endianess {
+    trait PackInt: PrimInt {
+        fn pack_int<E: ByteOrder>(self, data: &mut [u8]);
+        fn unpack_int<E: ByteOrder>(data: &[u8]) -> Self;
+    }
+
+    macro_rules! make_pack_primint {
         ($T:ty) => {
-            paste::item! {
-                impl Packable for $T {
-                    fn pack<Endianness: ByteOrder>(vm: &VirtualMachine, arg: &PyObjectRef, data: &mut dyn Write) -> PyResult<()> {
-                        data.[<write_$T>](get_int_or_index(vm, arg.clone())?).unwrap();
-                        Ok(())
-                    }
+            impl PackInt for $T {
+                fn pack_int<E: ByteOrder>(self, data: &mut [u8]) {
+                    let i = E::convert(self);
+                    data.copy_from_slice(&i.to_ne_bytes());
+                }
+                #[inline]
+                fn unpack_int<E: ByteOrder>(data: &[u8]) -> Self {
+                    let mut x = [0; std::mem::size_of::<$T>()];
+                    x.copy_from_slice(data);
+                    E::convert(<$T>::from_ne_bytes(x))
+                }
+            }
 
-                    fn unpack<Endianness: ByteOrder>(vm: &VirtualMachine, rdr: &mut dyn Read) -> PyResult {
-                        _unpack(vm, rdr, |rdr| rdr.[<read_$T>](), |i| Ok(i.into_pyobject(vm)))
-                    }
+            impl Packable for $T {
+                fn pack<E: ByteOrder>(
+                    vm: &VirtualMachine,
+                    arg: PyObjectRef,
+                    data: &mut [u8],
+                ) -> PyResult<()> {
+                    let i: $T = get_int_or_index(vm, arg)?;
+                    i.pack_int::<E>(data);
+                    Ok(())
+                }
+
+                fn unpack<E: ByteOrder>(vm: &VirtualMachine, rdr: &[u8]) -> PyObjectRef {
+                    let i = <$T>::unpack_int::<E>(rdr);
+                    vm.ctx.new_int(i)
                 }
             }
         };
     }
 
-    macro_rules! make_pack_with_endianess {
-        ($T:ty, $fromobj:path) => {
-            paste::item! {
-                impl Packable for $T {
-                    fn pack<Endianness: ByteOrder>(vm: &VirtualMachine, arg: &PyObjectRef, data: &mut dyn Write) -> PyResult<()> {
-                        data.[<write_$T>]::<Endianness>($fromobj(vm, arg.clone())?).unwrap();
-                        Ok(())
-                    }
+    make_pack_primint!(i8);
+    make_pack_primint!(u8);
+    make_pack_primint!(i16);
+    make_pack_primint!(u16);
+    make_pack_primint!(i32);
+    make_pack_primint!(u32);
+    make_pack_primint!(i64);
+    make_pack_primint!(u64);
+    make_pack_primint!(usize);
+    make_pack_primint!(isize);
 
-                    fn unpack<Endianness: ByteOrder>(vm: &VirtualMachine, rdr: &mut dyn Read) -> PyResult {
-                        _unpack(vm, rdr, |rdr| rdr.[<read_$T>]::<Endianness>(), |i| Ok(i.into_pyobject(vm)))
-                    }
+    macro_rules! make_pack_float {
+        ($T:ty) => {
+            impl Packable for $T {
+                fn pack<E: ByteOrder>(
+                    vm: &VirtualMachine,
+                    arg: PyObjectRef,
+                    data: &mut [u8],
+                ) -> PyResult<()> {
+                    let f = float::try_float(&arg, vm)? as $T;
+                    f.to_bits().pack_int::<E>(data);
+                    Ok(())
+                }
+
+                fn unpack<E: ByteOrder>(vm: &VirtualMachine, rdr: &[u8]) -> PyObjectRef {
+                    let i = PackInt::unpack_int::<E>(rdr);
+                    <$T>::from_bits(i).into_pyobject(vm)
                 }
             }
         };
     }
 
-    make_pack_no_endianess!(i8);
-    make_pack_no_endianess!(u8);
-    make_pack_with_endianess!(i16, get_int_or_index);
-    make_pack_with_endianess!(u16, get_int_or_index);
-    make_pack_with_endianess!(i32, get_int_or_index);
-    make_pack_with_endianess!(u32, get_int_or_index);
-    make_pack_with_endianess!(i64, get_int_or_index);
-    make_pack_with_endianess!(u64, get_int_or_index);
-    make_pack_with_endianess!(f32, get_float);
-    make_pack_with_endianess!(f64, get_float);
+    make_pack_float!(f32);
+    make_pack_float!(f64);
 
     impl Packable for *mut raw::c_void {
-        fn pack<Endianness: ByteOrder>(
+        fn pack<E: ByteOrder>(
             vm: &VirtualMachine,
-            arg: &PyObjectRef,
-            data: &mut dyn Write,
+            arg: PyObjectRef,
+            data: &mut [u8],
         ) -> PyResult<()> {
-            usize::pack::<Endianness>(vm, arg, data)
+            usize::pack::<E>(vm, arg, data)
         }
 
-        fn unpack<Endianness: ByteOrder>(vm: &VirtualMachine, rdr: &mut dyn Read) -> PyResult {
-            usize::unpack::<Endianness>(vm, rdr)
+        fn unpack<E: ByteOrder>(vm: &VirtualMachine, rdr: &[u8]) -> PyObjectRef {
+            usize::unpack::<E>(vm, rdr)
         }
     }
 
     impl Packable for bool {
-        fn pack<Endianness: ByteOrder>(
+        fn pack<E: ByteOrder>(
             vm: &VirtualMachine,
-            arg: &PyObjectRef,
-            data: &mut dyn Write,
+            arg: PyObjectRef,
+            data: &mut [u8],
         ) -> PyResult<()> {
-            let v = IntoPyBool::try_from_object(vm, arg.clone())?.to_bool() as u8;
-            data.write_u8(v).unwrap();
+            let v = IntoPyBool::try_from_object(vm, arg)?.to_bool() as u8;
+            v.pack_int::<E>(data);
             Ok(())
         }
 
-        fn unpack<Endianness: ByteOrder>(vm: &VirtualMachine, rdr: &mut dyn Read) -> PyResult {
-            _unpack(
-                vm,
-                rdr,
-                |rdr| rdr.read_u8(),
-                |i| Ok(vm.ctx.new_bool(i != 0)),
-            )
+        fn unpack<E: ByteOrder>(vm: &VirtualMachine, rdr: &[u8]) -> PyObjectRef {
+            let i = u8::unpack_int::<E>(rdr);
+            vm.ctx.new_bool(i != 0)
         }
     }
 
-    macro_rules! make_pack_varsize {
-        ($T:ty, $int:ident) => {
-            paste::item! {
-                impl Packable for $T {
-                    fn pack<Endianness: ByteOrder>(
-                        vm: &VirtualMachine,
-                        arg: &PyObjectRef,
-                        data: &mut dyn Write,
-                    ) -> PyResult<()> {
-                        let v: Self = get_int_or_index(vm, arg.clone())?;
-                        data.[<write_$int>]::<Endianness>(v as _, std::mem::size_of::<isize>())
-                            .unwrap();
-                        Ok(())
-                    }
-
-                    fn unpack<Endianness: ByteOrder>(vm: &VirtualMachine, rdr: &mut dyn Read) -> PyResult {
-                        unpack_int(
-                            vm,
-                            rdr,
-                            |rdr| rdr.[<read_$int>]::<Endianness>(std::mem::size_of::<Self>()),
-                        )
-                    }
-                }
-            }
-        };
+    fn pack_string(vm: &VirtualMachine, arg: PyObjectRef, buf: &mut [u8]) -> PyResult<()> {
+        let b = PyBytesLike::try_from_object(vm, arg)?;
+        b.with_ref(|data| write_string(buf, data));
+        Ok(())
     }
 
-    make_pack_varsize!(usize, uint);
-    make_pack_varsize!(isize, int);
+    fn pack_pascal(vm: &VirtualMachine, arg: PyObjectRef, buf: &mut [u8]) -> PyResult<()> {
+        if buf.is_empty() {
+            return Ok(());
+        }
+        let b = PyBytesLike::try_from_object(vm, arg)?;
+        b.with_ref(|data| {
+            let string_length = std::cmp::min(std::cmp::min(data.len(), 255), buf.len() - 1);
+            buf[0] = string_length as u8;
+            write_string(&mut buf[1..], data);
+        });
+        Ok(())
+    }
 
-    fn pack_string(
-        vm: &VirtualMachine,
-        arg: &PyObjectRef,
-        data: &mut dyn Write,
-        length: usize,
-    ) -> PyResult<()> {
-        let mut v = PyBytesRef::try_from_object(vm, arg.clone())?
-            .borrow_value()
-            .to_vec();
-        v.resize(length, 0);
-        match data.write_all(&v) {
-            Ok(_) => Ok(()),
-            Err(e) => Err(new_struct_error(vm, format!("{:?}", e))),
+    fn write_string(buf: &mut [u8], data: &[u8]) {
+        let len_from_data = std::cmp::min(data.len(), buf.len());
+        buf[..len_from_data].copy_from_slice(&data[..len_from_data]);
+        for byte in &mut buf[len_from_data..] {
+            *byte = 0
         }
     }
 
-    fn pack_pascal(
-        vm: &VirtualMachine,
-        arg: &PyObjectRef,
-        data: &mut dyn Write,
-        length: usize,
-    ) -> PyResult<()> {
-        let mut v = PyBytesRef::try_from_object(vm, arg.clone())?
-            .borrow_value()
-            .to_vec();
-        let string_length = std::cmp::min(std::cmp::min(v.len(), 255), length - 1);
-        data.write_u8(string_length as u8).unwrap();
-        v.resize(length - 1, 0);
-        match data.write_all(&v) {
-            Ok(_) => Ok(()),
-            Err(e) => Err(new_struct_error(vm, format!("{:?}", e))),
-        }
-    }
-
-    fn pack_char(vm: &VirtualMachine, arg: &PyObjectRef, data: &mut dyn Write) -> PyResult<()> {
-        let v = PyBytesRef::try_from_object(vm, arg.clone())?;
+    fn pack_char(vm: &VirtualMachine, arg: PyObjectRef, data: &mut [u8]) -> PyResult<()> {
+        let v = PyBytesRef::try_from_object(vm, arg)?;
         let ch = *v.borrow_value().iter().exactly_one().map_err(|_| {
             new_struct_error(
                 vm,
                 "char format requires a bytes object of length 1".to_owned(),
             )
         })?;
-        data.write_u8(ch).unwrap();
+        data[0] = ch;
         Ok(())
     }
 
@@ -686,7 +700,7 @@ pub(crate) mod _struct {
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
         let format_spec = FormatSpec::decode_and_parse(vm, &fmt)?;
-        format_spec.pack(args.as_ref(), vm)
+        format_spec.pack(args.into_vec(), vm)
     }
 
     #[pyfunction]
@@ -698,65 +712,24 @@ pub(crate) mod _struct {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let format_spec = FormatSpec::decode_and_parse(vm, &fmt)?;
-        let offset = get_buffer_offset(buffer.len(), offset, format_spec.size(), true, vm)?;
-        buffer.with_ref(|data| {
-            let mut data = Cursor::new(data);
-            data.set_position(offset as u64);
-            format_spec.pack_into(&mut data, args.as_ref(), vm)
-        })
+        let offset = get_buffer_offset(buffer.len(), offset, format_spec.size, true, vm)?;
+        buffer.with_ref(|data| format_spec.pack_into(&mut data[offset..], args.into_vec(), vm))
     }
 
-    #[inline]
-    fn _unpack<F, T, G>(vm: &VirtualMachine, rdr: &mut dyn Read, read: F, transform: G) -> PyResult
-    where
-        F: Fn(&mut dyn Read) -> std::io::Result<T>,
-        G: Fn(T) -> PyResult,
-    {
-        match read(rdr) {
-            Ok(v) => transform(v),
-            Err(_) => Err(new_struct_error(
-                vm,
-                format!("unpack requires a buffer of {} bytes", mem::size_of::<T>()),
-            )),
-        }
+    fn unpack_char(vm: &VirtualMachine, data: &[u8]) -> PyObjectRef {
+        vm.ctx.new_bytes(vec![data[0]])
     }
 
-    #[inline]
-    fn unpack_int<F, T>(vm: &VirtualMachine, rdr: &mut dyn Read, read: F) -> PyResult
-    where
-        F: Fn(&mut dyn Read) -> std::io::Result<T>,
-        T: Into<BigInt> + ToPrimitive,
-    {
-        _unpack(vm, rdr, read, |v| Ok(vm.ctx.new_int(v)))
-    }
-
-    fn unpack_empty(_vm: &VirtualMachine, rdr: &mut dyn Read, length: isize) {
-        let mut handle = rdr.take(length as u64);
-        let mut buf: Vec<u8> = Vec::new();
-        let _ = handle.read_to_end(&mut buf);
-    }
-
-    fn unpack_char(vm: &VirtualMachine, rdr: &mut dyn Read) -> PyResult {
-        unpack_string(vm, rdr, 1)
-    }
-
-    fn unpack_string(vm: &VirtualMachine, rdr: &mut dyn Read, length: isize) -> PyResult {
-        let mut handle = rdr.take(length as u64);
-        let mut buf: Vec<u8> = Vec::new();
-        handle.read_to_end(&mut buf).map_err(|_| {
-            new_struct_error(vm, format!("unpack requires a buffer of {} bytes", length,))
-        })?;
-        Ok(vm.ctx.new_bytes(buf))
-    }
-
-    fn unpack_pascal(vm: &VirtualMachine, rdr: &mut dyn Read, length: isize) -> PyResult {
-        let mut handle = rdr.take(length as u64);
-        let mut buf: Vec<u8> = Vec::new();
-        handle.read_to_end(&mut buf).map_err(|_| {
-            new_struct_error(vm, format!("unpack requires a buffer of {} bytes", length,))
-        })?;
-        let string_length = buf[0] as usize;
-        Ok(vm.ctx.new_bytes(buf[1..=string_length].to_vec()))
+    fn unpack_pascal(vm: &VirtualMachine, data: &[u8]) -> PyObjectRef {
+        let (&len, data) = match data.split_first() {
+            Some(x) => x,
+            None => {
+                // cpython throws an internal SystemError here
+                return vm.ctx.new_bytes(vec![]);
+            }
+        };
+        let len = std::cmp::min(len as usize, data.len());
+        vm.ctx.new_bytes(data[..len].to_vec())
     }
 
     #[pyfunction]
@@ -783,10 +756,10 @@ pub(crate) mod _struct {
         vm: &VirtualMachine,
     ) -> PyResult<PyTupleRef> {
         let format_spec = FormatSpec::decode_and_parse(vm, &fmt)?;
-        let size = format_spec.size();
-        let offset = get_buffer_offset(args.buffer.len(), args.offset, size, false, vm)?;
+        let offset =
+            get_buffer_offset(args.buffer.len(), args.offset, format_spec.size, false, vm)?;
         args.buffer
-            .with_ref(|buf| format_spec.unpack(&buf[offset..offset + size], vm))
+            .with_ref(|buf| format_spec.unpack(&buf[offset..][..format_spec.size], vm))
     }
 
     #[pyattr]
@@ -804,17 +777,17 @@ pub(crate) mod _struct {
             format_spec: FormatSpec,
             buffer: PyBytesLike,
         ) -> PyResult<UnpackIterator> {
-            if format_spec.size() == 0 {
+            if format_spec.size == 0 {
                 Err(new_struct_error(
                     vm,
                     "cannot iteratively unpack with a struct of length 0".to_owned(),
                 ))
-            } else if buffer.len() % format_spec.size() != 0 {
+            } else if buffer.len() % format_spec.size != 0 {
                 Err(new_struct_error(
                     vm,
                     format!(
                         "iterative unpacking requires a buffer of a multiple of {} bytes",
-                        format_spec.size()
+                        format_spec.size
                     ),
                 ))
             } else {
@@ -837,12 +810,12 @@ pub(crate) mod _struct {
     impl UnpackIterator {
         #[pymethod(magic)]
         fn length_hint(&self) -> usize {
-            self.buffer.len().saturating_sub(self.offset.load()) / self.format_spec.size()
+            self.buffer.len().saturating_sub(self.offset.load()) / self.format_spec.size
         }
     }
     impl PyIter for UnpackIterator {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-            let size = zelf.format_spec.size();
+            let size = zelf.format_spec.size;
             let offset = zelf.offset.fetch_add(size);
             zelf.buffer.with_ref(|buf| {
                 if let Some(buf) = buf.get(offset..offset + size) {
@@ -867,7 +840,7 @@ pub(crate) mod _struct {
     #[pyfunction]
     fn calcsize(fmt: Either<PyStrRef, PyBytesRef>, vm: &VirtualMachine) -> PyResult<usize> {
         let format_spec = FormatSpec::decode_and_parse(vm, &fmt)?;
-        Ok(format_spec.size())
+        Ok(format_spec.size)
     }
 
     #[pyattr]
@@ -907,13 +880,14 @@ pub(crate) mod _struct {
         }
 
         #[pyproperty]
+        #[inline]
         fn size(&self) -> usize {
-            self.spec.size()
+            self.spec.size
         }
 
         #[pymethod]
         fn pack(&self, args: Args, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-            self.spec.pack(args.as_ref(), vm)
+            self.spec.pack(args.into_vec(), vm)
         }
 
         #[pymethod]
@@ -926,9 +900,8 @@ pub(crate) mod _struct {
         ) -> PyResult<()> {
             let offset = get_buffer_offset(buffer.len(), offset, self.size(), true, vm)?;
             buffer.with_ref(|data| {
-                let mut data = Cursor::new(data);
-                data.set_position(offset as u64);
-                self.spec.pack_into(&mut data, args.as_ref(), vm)
+                self.spec
+                    .pack_into(&mut data[offset..], args.into_vec(), vm)
             })
         }
 
@@ -939,10 +912,9 @@ pub(crate) mod _struct {
 
         #[pymethod]
         fn unpack_from(&self, args: UpdateFromArgs, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
-            let size = self.size();
-            let offset = get_buffer_offset(args.buffer.len(), args.offset, size, false, vm)?;
+            let offset = get_buffer_offset(args.buffer.len(), args.offset, self.size(), false, vm)?;
             args.buffer
-                .with_ref(|buf| self.spec.unpack(&buf[offset..offset + size], vm))
+                .with_ref(|buf| self.spec.unpack(&buf[offset..][..self.size()], vm))
         }
 
         #[pymethod]

@@ -55,7 +55,7 @@ impl From<f64> for PyFloat {
     }
 }
 
-pub(crate) fn try_float(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<f64>> {
+pub fn try_float_opt(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<f64>> {
     if let Some(float) = obj.payload_if_exact::<PyFloat>(vm) {
         return Ok(Some(float.value));
     }
@@ -74,6 +74,11 @@ pub(crate) fn try_float(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Opti
         return Ok(Some(int::to_float(r.borrow_value(), vm)?));
     }
     Ok(None)
+}
+
+pub fn try_float(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
+    try_float_opt(obj, vm)?
+        .ok_or_else(|| vm.new_type_error(format!("must be real number, not {}", obj.class().name)))
 }
 
 pub(crate) fn to_op_float(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<f64>> {
@@ -176,7 +181,7 @@ impl PyFloat {
                     val
                 };
 
-                if let Some(f) = try_float(&val, vm)? {
+                if let Some(f) = try_float_opt(&val, vm)? {
                     f
                 } else if let Some(s) = val.payload_if_subclass::<PyStr>(vm) {
                     float_ops::parse_str(s.borrow_value().trim()).ok_or_else(|| {
@@ -581,9 +586,7 @@ impl IntoPyFloat {
 
 impl TryFromObject for IntoPyFloat {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        let value = try_float(&obj, vm)?.ok_or_else(|| {
-            vm.new_type_error(format!("must be real number, not {}", obj.class().name))
-        })?;
+        let value = try_float(&obj, vm)?;
         Ok(IntoPyFloat { value })
     }
 }

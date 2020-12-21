@@ -500,7 +500,7 @@ impl PyMemoryView {
             .get_pos(i)
             .ok_or_else(|| vm.new_index_error("index out of range".to_owned()))?;
         let itemsize = zelf.options.itemsize;
-        let data = zelf.format_spec.pack(&[value], vm)?;
+        let data = zelf.format_spec.pack(vec![value], vm)?;
         zelf.obj_bytes_mut()[i..i + itemsize].copy_from_slice(&data);
         Ok(())
     }

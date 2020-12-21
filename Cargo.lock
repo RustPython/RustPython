@@ -1840,7 +1840,6 @@ dependencies = [
  "bitflags",
  "blake2",
  "bstr",
- "byteorder",
  "caseless",
  "cfg-if 0.1.10",
  "chrono",

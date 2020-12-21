@@ -435,7 +435,7 @@ fn try_complex(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<(Compl
     if let Some(complex) = obj.payload_if_subclass::<PyComplex>(vm) {
         return Ok(Some((complex.value, true)));
     }
-    if let Some(float) = float::try_float(obj, vm)? {
+    if let Some(float) = float::try_float_opt(obj, vm)? {
         return Ok(Some((Complex64::new(float, 0.0), false)));
     }
     Ok(None)
