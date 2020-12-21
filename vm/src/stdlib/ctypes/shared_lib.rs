@@ -45,7 +45,7 @@ impl SharedLibrary {
                     .map_err(|err| err.to_string())
             }
         } else {
-            return Err("The library has been closed".to_string());
+            Err("The library has been closed".to_string())
         }
     }
 

@@ -1,4 +1,4 @@
-use std::{fmt, os::raw::*, ptr};
+use std::{fmt, os::raw::*};
 
 use crossbeam_utils::atomic::AtomicCell;
 
@@ -47,41 +47,47 @@ macro_rules! match_ffi_type {
         $kind: expr,
 
         $(
-            $($type: tt)|+ => $body: ident
+            $($type: literal)|+ => $body: ident
         )+
     ) => {
         match $kind {
             $(
                 $(
                     t if t == $type => { ffi_type!($body) }
-                )+
+                )?
             )+
             _ => unreachable!()
         }
     }
 }
 
-pub fn str_to_type(ty: &str) -> Type {
-    match_ffi_type!(
-        ty,
-        "c" => c_schar
-        "u" => c_int
-        "b" => i8
-        "h" => c_short
-        "H" => c_ushort
-        "i" => c_int
-        "I" => c_uint
-        "l" => c_long
-        "q" => c_longlong
-        "L" => c_ulong
-        "Q" => c_ulonglong
-        "f" => f32
-        "d" => f64
-        "g" => longdouble
-        "?" | "B" => c_uchar
-        "z" | "Z" => pointer
-        "P" => void
-    )
+fn str_to_type(ty: &str) -> Type {
+    if ty == "u" {
+        if cfg!(windows) {
+            ffi_type!(c_ushort)
+        } else {
+            ffi_type!(c_uint)
+        }
+    } else {
+        match_ffi_type!(
+            ty,
+            "c" => c_schar
+            "b" => i8
+            "h" => c_short
+            "H" => c_ushort
+            "i" => c_int
+            "I" => c_uint
+            "l" => c_long
+            "q" => c_longlong
+            "L" => c_ulong
+            "Q" => c_ulonglong
+            "f" => f32
+            "d" => f64
+            "g" => longdouble
+            "?" | "B" => c_uchar
+            "P" | "z" | "Z" => pointer
+        )
+    }
 }
 
 fn py_to_ffi(ty: &Type, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Arg> {
@@ -120,16 +126,14 @@ fn py_to_ffi(ty: &Type, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Arg> 
         pointer => {
             arg(&(usize::try_from_object(vm, obj)? as *mut usize as *mut c_void))
         }
-        void => {
-            arg(&ptr::null::<c_void>())
-        }
+        // void should not be here, once an argument cannot be pure void
     );
 
     Ok(res)
 }
 
 #[derive(Debug)]
-pub struct Function {
+struct Function {
     pointer: *mut c_void,
     arguments: Vec<Type>,
     return_type: Box<Type>,
@@ -141,7 +145,11 @@ impl Function {
             pointer: fn_ptr as *mut _,
             arguments: arguments.iter().map(|s| str_to_type(s.as_str())).collect(),
 
-            return_type: Box::new(str_to_type(return_type)),
+            return_type: Box::new(if return_type == "P" {
+                Type::void()
+            } else {
+                str_to_type(return_type)
+            }),
         }
     }
     pub fn set_args(&mut self, args: Vec<String>) {
@@ -151,7 +159,11 @@ impl Function {
     }
 
     pub fn set_ret(&mut self, ret: &str) {
-        (*self.return_type.as_mut()) = str_to_type(ret);
+        (*self.return_type.as_mut()) = if ret == "P" {
+            Type::void()
+        } else {
+            str_to_type(ret)
+        };
     }
 
     pub fn call(&mut self, arg_ptrs: Vec<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
