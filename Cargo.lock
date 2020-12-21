@@ -703,9 +703,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "17392a012ea30ef05a610aa97dfb49496e71c9f676b27879922ea5bdf60d9d3f"
 dependencies = [
  "atty",
- "humantime",
  "log",
- "regex",
  "termcolor",
 ]
 
@@ -914,12 +912,6 @@ name = "hexf-parse"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "79296f72d53a89096cbc9a88c9547ee8dfe793388674620e2207593d370550ac"
-
-[[package]]
-name = "humantime"
-version = "2.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a3a5bfb195931eeb336b2a7b4d761daec841b97f947d34394601737a7bba5e4"
 
 [[package]]
 name = "indexmap"
@@ -2069,7 +2061,6 @@ dependencies = [
  "puruspe",
  "rand 0.8.3",
  "rand_core 0.6.2",
- "regex",
  "result-like",
  "rustc_version_runtime",
  "rustpython-ast",
