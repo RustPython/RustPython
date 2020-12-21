@@ -118,10 +118,10 @@ fn py_to_ffi(ty: &Type, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Arg> 
             arg(&u8::try_from_object(vm, obj)?)
         }
         pointer => {
-            arg(&usize::try_from_object(vm, obj).unwrap())
+            arg(&(usize::try_from_object(vm, obj)? as *mut usize as *mut c_void))
         }
         void => {
-            arg(&ptr::null::<usize>())
+            arg(&ptr::null::<c_void>())
         }
     );
 

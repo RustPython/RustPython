@@ -37,17 +37,15 @@ impl SharedLibrary {
     }
 
     pub fn get_sym(&self, name: &str) -> Result<*mut c_void, String> {
-        let inner = if let Some(ref inner) = unsafe { &*self.lib.as_ptr() } {
-            inner
+        if let Some(inner) = unsafe { &*self.lib.as_ptr() } {
+            unsafe {
+                inner
+                    .get(name.as_bytes())
+                    .map(|f: libloading::Symbol<*mut c_void>| *f)
+                    .map_err(|err| err.to_string())
+            }
         } else {
             return Err("The library has been closed".to_string());
-        };
-
-        unsafe {
-            inner
-                .get(name.as_bytes())
-                .map(|f: libloading::Symbol<*mut c_void>| *f)
-                .map_err(|err| err.to_string())
         }
     }
 

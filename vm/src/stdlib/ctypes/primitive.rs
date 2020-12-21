@@ -18,7 +18,7 @@ use crate::stdlib::ctypes::basics::PyCData;
 use crate::stdlib::ctypes::function::PyCFuncPtr;
 use crate::stdlib::ctypes::pointer::PyCPointer;
 
-pub const SIMPLE_TYPE_CHARS: &str = "cbBhHiIlLdfguzZqQ?";
+const SIMPLE_TYPE_CHARS: &str = "cbBhHiIlLdfguzZqQ?";
 
 fn set_primitive(_type_: &str, value: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
     match _type_ {
@@ -84,7 +84,7 @@ fn set_primitive(_type_: &str, value: &PyObjectRef, vm: &VirtualMachine) -> PyRe
         "?" => Ok(vm.ctx.new_bool(boolval(vm, value.clone())?)),
         "B" => {
             if value.clone().downcast_exact::<PyInt>(vm).is_ok() {
-                Ok(vm.new_pyobj(u8::try_from_object(vm, value.clone()).unwrap()))
+                Ok(vm.new_pyobj(u8::try_from_object(vm, value.clone())?))
             } else {
                 Err(vm.new_type_error(format!("int expected instead of {}", value.class().name)))
             }
