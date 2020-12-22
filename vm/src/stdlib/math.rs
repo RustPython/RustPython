@@ -373,12 +373,11 @@ fn math_lcm(args: Args<PyIntRef>) -> BigInt {
 }
 
 fn math_fsum(iter: PyIterable<IntoPyFloat>, vm: &VirtualMachine) -> PyResult<f64> {
-    let mut iter = iter.iter(vm)?;
     let mut partials = vec![];
     let mut special_sum = 0.0;
     let mut inf_sum = 0.0;
 
-    while let Some(obj) = iter.next() {
+    for obj in iter.iter(vm)? {
         let mut x = obj?.to_f64();
 
         let xsave = x;
@@ -453,6 +452,13 @@ fn math_fsum(iter: PyIterable<IntoPyFloat>, vm: &VirtualMachine) -> PyResult<f64
         if n > 0 && ((lo < 0.0 && partials[n - 1] < 0.0) || (lo > 0.0 && partials[n - 1] > 0.0)) {
             let y = lo + lo;
             let x = hi + y;
+
+            /* Make half-even rounding work across multiple partials.
+               Needed so that sum([1e-16, 1, 1e16]) will round-up the last
+               digit to two instead of down to zero (the 1e-16 makes the 1
+               slightly closer to two).  With a potential 1 ULP rounding
+               error fixed-up, math.fsum() can guarantee commutativity. */
+            #[allow(clippy::float_cmp)]
             if y == x - hi {
                 hi = x;
             }
