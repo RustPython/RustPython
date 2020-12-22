@@ -138,7 +138,7 @@ impl Compiler {
             obj_name: code_name,
 
             blocks: vec![ir::Block::default()],
-            block_order: vec![bytecode::Label(0)],
+            current_block: bytecode::Label(0),
             constants: Vec::new(),
             name_cache: IndexSet::new(),
             varname_cache: IndexSet::new(),
@@ -215,7 +215,7 @@ impl Compiler {
             obj_name,
 
             blocks: vec![ir::Block::default()],
-            block_order: vec![bytecode::Label(0)],
+            current_block: bytecode::Label(0),
             constants: Vec::new(),
             name_cache: IndexSet::new(),
             varname_cache: IndexSet::new(),
@@ -2410,7 +2410,7 @@ impl Compiler {
 
     fn current_block(&mut self) -> &mut ir::Block {
         let info = self.current_codeinfo();
-        &mut info.blocks[info.block_order.last().unwrap().0 as usize]
+        &mut info.blocks[info.current_block.0 as usize]
     }
 
     fn new_block(&mut self) -> ir::BlockIdx {
@@ -2422,13 +2422,20 @@ impl Compiler {
 
     fn switch_to_block(&mut self, block: ir::BlockIdx) {
         let code = self.current_codeinfo();
-        let last = code.block_order.last().unwrap();
-        code.blocks[last.0 as usize].done = true;
-        debug_assert!(
-            !code.blocks[block.0 as usize].done,
-            "switching to done block"
+        let prev = code.current_block;
+        assert_eq!(
+            code.blocks[block.0 as usize].next.0,
+            u32::MAX,
+            "switching to completed block"
         );
-        code.block_order.push(block);
+        let prev_block = &mut code.blocks[prev.0 as usize];
+        assert_eq!(
+            prev_block.next.0,
+            u32::MAX,
+            "switching from block that's already got a next"
+        );
+        prev_block.next = block;
+        code.current_block = block;
     }
 
     fn set_source_location(&mut self, location: ast::Location) {

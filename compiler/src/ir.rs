@@ -3,21 +3,25 @@ use rustpython_bytecode::{CodeFlags, CodeObject, ConstantData, Instruction, Labe
 
 pub type BlockIdx = Label;
 
+#[derive(Debug)]
 pub struct InstructionInfo {
     /// If the instruction has a Label argument, it's actually a BlockIdx, not a code offset
     pub instr: Instruction,
     pub location: Location,
 }
 
+// TODO: look into using petgraph for handling blocks and stuff? it's heavier than this, but it
+// might enable more analysis/optimizations
+#[derive(Debug)]
 pub struct Block {
     pub instructions: Vec<InstructionInfo>,
-    pub done: bool,
+    pub next: BlockIdx,
 }
 impl Default for Block {
     fn default() -> Self {
         Block {
             instructions: Vec::new(),
-            done: false,
+            next: Label(u32::MAX),
         }
     }
 }
@@ -32,7 +36,7 @@ pub struct CodeInfo {
     pub obj_name: String, // Name of the object that created this code object
 
     pub blocks: Vec<Block>,
-    pub block_order: Vec<BlockIdx>,
+    pub current_block: BlockIdx,
     pub constants: Vec<ConstantData>,
     pub name_cache: IndexSet<String>,
     pub varname_cache: IndexSet<String>,
@@ -57,8 +61,8 @@ impl CodeInfo {
             first_line_number,
             obj_name,
 
-            mut blocks,
-            block_order,
+            blocks,
+            current_block: _,
             constants,
             name_cache,
             varname_cache,
@@ -66,28 +70,25 @@ impl CodeInfo {
             freevar_cache,
         } = self;
 
-        assert!(block_order.len() == blocks.len());
-
         let mut num_instructions = 0;
         let mut block_to_offset = vec![Label(0); blocks.len()];
 
-        for idx in &block_order {
-            let idx = idx.0 as usize;
-            block_to_offset[idx] = Label(num_instructions as u32);
-            num_instructions += blocks[idx].instructions.len();
+        for (idx, block) in iter_blocks(&blocks) {
+            block_to_offset[idx.0 as usize] = Label(num_instructions as u32);
+            num_instructions += block.instructions.len();
         }
 
         let mut instructions = Vec::with_capacity(num_instructions);
         let mut locations = Vec::with_capacity(num_instructions);
 
-        for idx in block_order {
-            let block = std::mem::take(&mut blocks[idx.0 as usize]);
-            for mut instr in block.instructions {
-                if let Some(l) = instr.instr.label_arg_mut() {
+        for (_, block) in iter_blocks(&blocks) {
+            for info in &block.instructions {
+                let mut instr = info.instr.clone();
+                if let Some(l) = instr.label_arg_mut() {
                     *l = block_to_offset[l.0 as usize];
                 }
-                instructions.push(instr.instr);
-                locations.push(instr.location);
+                instructions.push(instr);
+                locations.push(info.location);
             }
         }
 
@@ -168,10 +169,11 @@ impl CodeInfo {
         startdepths[0] =
             self.flags
                 .intersects(CodeFlags::IS_GENERATOR | CodeFlags::IS_COROUTINE) as u32;
-        stack.push((Label(0), 0));
-        'process_blocks: while let Some((block, blockorder)) = stack.pop() {
+        stack.push(Label(0));
+        'process_blocks: while let Some(block) = stack.pop() {
             let mut depth = startdepths[block.0 as usize];
-            for i in &self.blocks[block.0 as usize].instructions {
+            let block = &self.blocks[block.0 as usize];
+            for i in &block.instructions {
                 let instr = &i.instr;
                 let effect = instr.stack_effect(false);
                 let new_depth = add_ui(depth, effect);
@@ -190,37 +192,21 @@ impl CodeInfo {
                     if target_depth > maxdepth {
                         maxdepth = target_depth
                     }
-                    stackdepth_push(
-                        &mut stack,
-                        &mut startdepths,
-                        (target_block, u32::MAX),
-                        target_depth,
-                    );
+                    stackdepth_push(&mut stack, &mut startdepths, target_block, target_depth);
                 }
                 depth = new_depth;
                 if instr.unconditional_branch() {
                     continue 'process_blocks;
                 }
             }
-            let next_blockorder = if blockorder == u32::MAX {
-                self.block_order.iter().position(|x| *x == block).unwrap() as u32 + 1
-            } else {
-                blockorder + 1
-            };
-            let next = self.block_order[next_blockorder as usize];
-            stackdepth_push(&mut stack, &mut startdepths, (next, next_blockorder), depth);
+            stackdepth_push(&mut stack, &mut startdepths, block.next, depth);
         }
         maxdepth
     }
 }
 
-fn stackdepth_push(
-    stack: &mut Vec<(Label, u32)>,
-    startdepths: &mut [u32],
-    target: (Label, u32),
-    depth: u32,
-) {
-    let block_depth = &mut startdepths[target.0 .0 as usize];
+fn stackdepth_push(stack: &mut Vec<Label>, startdepths: &mut [u32], target: Label, depth: u32) {
+    let block_depth = &mut startdepths[target.0 as usize];
     if *block_depth == u32::MAX || depth > *block_depth {
         *block_depth = depth;
         stack.push(target);
@@ -233,4 +219,9 @@ fn add_ui(a: u32, b: i32) -> u32 {
     } else {
         a + b as u32
     }
+}
+
+fn iter_blocks(blocks: &[Block]) -> impl Iterator<Item = (BlockIdx, &Block)> + '_ {
+    let get_idx = move |i: BlockIdx| blocks.get(i.0 as usize).map(|b| (i, b));
+    std::iter::successors(get_idx(Label(0)), move |(_, b)| get_idx(b.next)) // if b.next is u32::MAX that's the end
 }
