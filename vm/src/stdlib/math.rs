@@ -388,9 +388,7 @@ fn math_fsum(iter: PyIterable<IntoPyFloat>, vm: &VirtualMachine) -> PyResult<f64
         for i in 0..partials.len() {
             let mut y: f64 = partials[i];
             if x.abs() < y.abs() {
-                let t = x;
-                x = y;
-                y = t;
+                std::mem::swap(&mut x, &mut y);
             }
             // Rounded `x+y` is stored in `hi` with round-off stored in
             // `lo`. Together `hi+lo` are exactly equal to `x+y`.

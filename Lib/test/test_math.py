@@ -1557,7 +1557,6 @@ class MathTests(unittest.TestCase):
     # def test_nan_constant(self):
     #     self.assertTrue(math.isnan(math.nan))
 
-    # TODO: RUSTPYTHON
     @requires_IEEE_754
     def test_inf_constant(self):
         self.assertTrue(math.isinf(math.inf))
