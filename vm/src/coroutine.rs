@@ -38,7 +38,6 @@ pub struct Coro {
     pub closed: AtomicCell<bool>,
     running: AtomicCell<bool>,
     exceptions: PyMutex<Vec<PyBaseExceptionRef>>,
-    started: AtomicCell<bool>,
     variant: Variant,
     name: PyMutex<PyStrRef>,
 }
@@ -50,7 +49,6 @@ impl Coro {
             closed: AtomicCell::new(false),
             running: AtomicCell::new(false),
             exceptions: PyMutex::new(vec![]),
-            started: AtomicCell::new(false),
             variant,
             name: PyMutex::new(name),
         }
@@ -67,21 +65,20 @@ impl Coro {
     where
         F: FnOnce(FrameRef) -> PyResult<ExecutionResult>,
     {
-        self.running.store(true);
-        let curr_exception_stack_len = vm.exceptions.borrow().len();
-        vm.exceptions
-            .borrow_mut()
-            .append(&mut self.exceptions.lock());
+        if self.running.compare_exchange(false, true).is_err() {
+            return Err(vm.new_value_error(format!("{} already executing", self.variant.name())));
+        }
+        let curr_exception_stack_len;
+        {
+            let mut vm_excs = vm.exceptions.borrow_mut();
+            curr_exception_stack_len = vm_excs.len();
+            vm_excs.append(&mut self.exceptions.lock());
+        }
         let result = vm.with_frame(self.frame.clone(), func);
-        std::mem::swap(
-            &mut *self.exceptions.lock(),
-            &mut vm
-                .exceptions
-                .borrow_mut()
-                .split_off(curr_exception_stack_len),
-        );
+        self.exceptions
+            .lock()
+            .extend(vm.exceptions.borrow_mut().drain(curr_exception_stack_len..));
         self.running.store(false);
-        self.started.store(true);
         result
     }
 
@@ -89,12 +86,16 @@ impl Coro {
         if self.closed.load() {
             return Err(vm.new_exception_empty(self.variant.stop_iteration(vm)));
         }
-        if !self.started.load() && !vm.is_none(&value) {
+        let value = if self.frame.lasti() > 0 {
+            Some(value)
+        } else if !vm.is_none(&value) {
             return Err(vm.new_type_error(format!(
                 "can't send non-None value to a just-started {}",
                 self.variant.name()
             )));
-        }
+        } else {
+            None
+        };
         let result = self.run_with_context(vm, |f| f.resume(value, vm));
         self.maybe_close(&result);
         match result {
@@ -155,9 +156,6 @@ impl Coro {
         }
     }
 
-    pub fn started(&self) -> bool {
-        self.started.load()
-    }
     pub fn running(&self) -> bool {
         self.running.load()
     }

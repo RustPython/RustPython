@@ -165,10 +165,7 @@ impl CodeInfo {
         let mut maxdepth = 0u32;
         let mut stack = Vec::with_capacity(self.blocks.len());
         let mut startdepths = vec![u32::MAX; self.blocks.len()];
-        // if it's a generator or a coroutine, it starts with something already on the stack
-        startdepths[0] =
-            self.flags
-                .intersects(CodeFlags::IS_GENERATOR | CodeFlags::IS_COROUTINE) as u32;
+        startdepths[0] = 0;
         stack.push(Label(0));
         'process_blocks: while let Some(block) = stack.pop() {
             let mut depth = startdepths[block.0 as usize];

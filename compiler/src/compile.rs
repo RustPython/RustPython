@@ -1376,9 +1376,8 @@ impl Compiler {
         // The thing iterated:
         self.compile_expression(iter)?;
 
-        if is_async {
+        let check_asynciter_block = if is_async {
             let check_asynciter_block = self.new_block();
-            let body_block = self.new_block();
 
             self.emit(Instruction::GetAIter);
 
@@ -1391,21 +1390,8 @@ impl Compiler {
             self.emit(Instruction::YieldFrom);
             self.compile_store(target)?;
             self.emit(Instruction::PopBlock);
-            self.emit(Instruction::Jump { target: body_block });
 
-            self.switch_to_block(check_asynciter_block);
-            self.emit(Instruction::Duplicate);
-            let stopasynciter = self.name("StopAsyncIteration");
-            self.emit(Instruction::LoadGlobal(stopasynciter));
-            self.emit(Instruction::CompareOperation {
-                op: bytecode::ComparisonOperator::ExceptionMatch,
-            });
-            self.emit(Instruction::JumpIfTrue { target: else_block });
-            self.emit(Instruction::Raise {
-                kind: bytecode::RaiseKind::Reraise,
-            });
-
-            self.switch_to_block(body_block);
+            Some(check_asynciter_block)
         } else {
             // Retrieve Iterator
             self.emit(Instruction::GetIter);
@@ -1415,13 +1401,19 @@ impl Compiler {
 
             // Start of loop iteration, set targets:
             self.compile_store(target)?;
-        }
+            None
+        };
 
         let was_in_loop = self.ctx.loop_data;
         self.ctx.loop_data = Some((for_block, after_block));
         self.compile_statements(body)?;
         self.ctx.loop_data = was_in_loop;
         self.emit(Instruction::Jump { target: for_block });
+
+        if let Some(check_asynciter_block) = check_asynciter_block {
+            self.switch_to_block(check_asynciter_block);
+            self.emit(Instruction::EndAsyncFor);
+        }
 
         self.switch_to_block(else_block);
         self.emit(Instruction::PopBlock);
@@ -1430,9 +1422,6 @@ impl Compiler {
         }
 
         self.switch_to_block(after_block);
-        if is_async {
-            self.emit(Instruction::Pop);
-        }
 
         Ok(())
     }
@@ -2169,14 +2158,13 @@ impl Compiler {
         );
         let arg0 = self.varname(".0");
 
+        // if this is a generator expression, we need to insert a LoadConst(None) before we return;
+        // the other kinds load their collection types below
         let is_genexpr = matches!(kind, ast::ComprehensionKind::GeneratorExpression { .. });
 
         // Create empty object of proper type:
         match kind {
-            ast::ComprehensionKind::GeneratorExpression { .. } => {
-                // pop the None that was passed to kickstart the generator
-                self.emit(Instruction::Pop);
-            }
+            ast::ComprehensionKind::GeneratorExpression { .. } => {}
             ast::ComprehensionKind::List { .. } => {
                 self.emit(Instruction::BuildList {
                     size: 0,

@@ -254,11 +254,13 @@ impl FrameRef {
 
     pub(crate) fn resume(
         &self,
-        value: PyObjectRef,
+        value: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<ExecutionResult> {
         self.with_exec(|mut exec| {
-            exec.push_value(value);
+            if let Some(value) = value {
+                exec.push_value(value)
+            }
             exec.run(vm)
         })
     }
@@ -810,6 +812,15 @@ impl ExecutingFrame<'_> {
                 };
                 self.push_value(awaitable);
                 Ok(None)
+            }
+            bytecode::Instruction::EndAsyncFor => {
+                let exc = self.pop_value();
+                if exc.isinstance(&vm.ctx.exceptions.stop_async_iteration) {
+                    vm.pop_exception().expect("Should have exception in stack");
+                    Ok(None)
+                } else {
+                    Err(exc.downcast().unwrap())
+                }
             }
             bytecode::Instruction::ForIter { target } => self.execute_for_iter(vm, *target),
             bytecode::Instruction::MakeFunction(flags) => self.execute_make_function(vm, *flags),

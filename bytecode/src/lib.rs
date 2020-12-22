@@ -378,6 +378,7 @@ pub enum Instruction {
     },
     GetAIter,
     GetANext,
+    EndAsyncFor,
 
     /// Reverse order evaluation in MapAdd
     /// required to support named expressions of Python 3.8 in dict comprehension
@@ -902,6 +903,7 @@ impl Instruction {
             SetupAsyncWith { .. } => 0,
             GetAIter => 0,
             GetANext => 1,
+            EndAsyncFor => -1,
         }
     }
 
@@ -1049,6 +1051,7 @@ impl Instruction {
             GetAwaitable => w!(GetAwaitable),
             GetAIter => w!(GetAIter),
             GetANext => w!(GetANext),
+            EndAsyncFor => w!(EndAsyncFor),
             MapAdd { i } => w!(MapAdd, i),
         }
     }
