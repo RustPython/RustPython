@@ -5,24 +5,75 @@ pub(crate) use _sre::make_module;
 
 #[pymodule]
 mod _sre {
-    use super::{constants::SreFlag, interp::{self, State}};
-    use crate::common::borrow::BorrowValue;
-    use crate::VirtualMachine;
-    use crate::{
-        builtins::PyStrRef,
-        pyobject::{Either, PyCallable, PyObjectRef, PyResult, PyValue, StaticType},
+    use super::interp::{lower_ascii, lower_unicode, upper_unicode};
+    use super::{
+        constants::SreFlag,
+        interp::{self, State},
     };
-    use crate::{builtins::PyTypeRef, byteslike::PyBytesLike};
+    use crate::builtins::{PyStrRef, PyTypeRef};
+    use crate::byteslike::PyBytesLike;
+    use crate::common::borrow::BorrowValue;
+    use crate::pyobject::{Either, PyCallable, PyObjectRef, PyResult, PyValue, StaticType};
+    use crate::VirtualMachine;
     use std::collections::HashMap;
+    use std::convert::TryFrom;
 
     #[pyattr]
-    use super::constants::SRE_CODESIZE as CODESIZE;
+    pub const CODESIZE: usize = 4;
     #[pyattr]
-    use super::constants::SRE_MAGIC as MAGIC;
+    pub use super::constants::SRE_MAGIC as MAGIC;
+    #[cfg(target_pointer_width = "32")]
     #[pyattr]
-    use super::constants::SRE_MAXGROUPS as MAXGROUPS;
+    pub const MAXREPEAT: usize = usize::MAX;
+    #[cfg(target_pointer_width = "64")]
     #[pyattr]
-    use super::constants::SRE_MAXREPEAT as MAXREPEAT;
+    pub const MAXREPEAT: usize = u32::MAX as usize;
+    #[cfg(target_pointer_width = "32")]
+    #[pyattr]
+    pub const MAXGROUPS: usize = MAXREPEAT / 4 / 2;
+    #[cfg(target_pointer_width = "64")]
+    #[pyattr]
+    pub const MAXGROUPS: usize = MAXREPEAT / 2;
+
+    #[pyfunction]
+    fn getcodesize() -> usize {
+        CODESIZE
+    }
+    #[pyfunction]
+    fn ascii_iscased(ch: i32) -> bool {
+        (ch >= b'a' as i32 && ch <= b'z' as i32) || (ch >= b'A' as i32 && ch <= b'Z' as i32)
+    }
+    #[pyfunction]
+    fn unicode_iscased(ch: i32) -> bool {
+        let ch = ch as u32;
+        let ch = match char::try_from(ch) {
+            Ok(ch) => ch,
+            Err(_) => {
+                return false;
+            }
+        };
+        ch != lower_unicode(ch) || ch != upper_unicode(ch)
+    }
+    #[pyfunction]
+    fn ascii_tolower(ch: i32) -> i32 {
+        let ch = match char::try_from(ch as u32) {
+            Ok(ch) => ch,
+            Err(_) => {
+                return ch;
+            }
+        };
+        lower_ascii(ch) as i32
+    }
+    #[pyfunction]
+    fn unicode_tolower(ch: i32) -> i32 {
+        let ch = match char::try_from(ch as u32) {
+            Ok(ch) => ch,
+            Err(_) => {
+                return ch;
+            }
+        };
+        lower_unicode(ch) as i32
+    }
 
     #[pyfunction]
     fn compile(
@@ -94,14 +145,7 @@ mod _sre {
             let flags = self.flags;
             let pattern_codes = self.code.clone();
             let string = string_args.string.borrow_value();
-            let mut state = State::new(
-                // string_args.string,
-                string,
-                start,
-                end,
-                flags,
-                pattern_codes
-            );
+            let mut state = State::new(string, start, end, flags, pattern_codes);
             interp::pymatch(state);
             None
         }
@@ -128,6 +172,10 @@ mod _sre {
         #[pymethod]
         fn sub(&self, sub_args: SubArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
             Err(vm.new_not_implemented_error("".to_owned()))
+        }
+        #[pyproperty]
+        fn flags(&self) -> u16 {
+            self.flags.bits()
         }
     }
 }

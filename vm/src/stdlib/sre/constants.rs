@@ -13,11 +13,7 @@
 
 use bitflags::bitflags;
 
-pub const SRE_MAGIC: usize = 20140917;
-pub const SRE_CODESIZE: usize = 4;
-pub const SRE_MAXREPEAT: usize = usize::max_value();
-pub const SRE_MAXGROUPS: usize = usize::max_value() / std::mem::size_of::<usize>() / 2;
-
+pub const SRE_MAGIC: usize = 20171005;
 #[derive(num_enum::TryFromPrimitive, Debug)]
 #[repr(u32)]
 #[allow(non_camel_case_types)]
@@ -36,25 +32,33 @@ pub enum SreOpcode {
     BIGCHARSET = 11,
     GROUPREF = 12,
     GROUPREF_EXISTS = 13,
-    GROUPREF_IGNORE = 14,
-    IN = 15,
-    IN_IGNORE = 16,
-    INFO = 17,
-    JUMP = 18,
-    LITERAL = 19,
-    LITERAL_IGNORE = 20,
-    MARK = 21,
-    MAX_UNTIL = 22,
-    MIN_UNTIL = 23,
-    NOT_LITERAL = 24,
-    NOT_LITERAL_IGNORE = 25,
-    NEGATE = 26,
-    RANGE = 27,
-    REPEAT = 28,
-    REPEAT_ONE = 29,
-    SUBPATTERN = 30,
-    MIN_REPEAT_ONE = 31,
-    RANGE_IGNORE = 32,
+    IN = 14,
+    INFO = 15,
+    JUMP = 16,
+    LITERAL = 17,
+    MARK = 18,
+    MAX_UNTIL = 19,
+    MIN_UNTIL = 20,
+    NOT_LITERAL = 21,
+    NEGATE = 22,
+    RANGE = 23,
+    REPEAT = 24,
+    REPEAT_ONE = 25,
+    SUBPATTERN = 26,
+    MIN_REPEAT_ONE = 27,
+    GROUPREF_IGNORE = 28,
+    IN_IGNORE = 29,
+    LITERAL_IGNORE = 30,
+    NOT_LITERAL_IGNORE = 31,
+    GROUPREF_LOC_IGNORE = 32,
+    IN_LOC_IGNORE = 33,
+    LITERAL_LOC_IGNORE = 34,
+    NOT_LITERAL_LOC_IGNORE = 35,
+    GROUPREF_UNI_IGNORE = 36,
+    IN_UNI_IGNORE = 37,
+    LITERAL_UNI_IGNORE = 38,
+    NOT_LITERAL_UNI_IGNORE = 39,
+    RANGE_UNI_IGNORE = 40,
 }
 #[derive(num_enum::TryFromPrimitive, Debug)]
 #[repr(u32)]
