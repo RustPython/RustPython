@@ -11,7 +11,7 @@ use statrs::function::gamma::{gamma, ln_gamma};
 use crate::builtins::float::{self, IntoPyFloat, PyFloatRef};
 use crate::builtins::int::{self, PyInt, PyIntRef};
 use crate::function::{Args, OptionalArg};
-use crate::pyobject::{BorrowValue, Either, PyObjectRef, PyResult, TypeProtocol};
+use crate::pyobject::{BorrowValue, Either, PyIterable, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 use rustpython_common::float_ops;
 
@@ -372,6 +372,104 @@ fn math_lcm(args: Args<PyIntRef>) -> BigInt {
     math_perf_arb_len_int_op(args, |x, y| x.lcm(y.borrow_value()), BigInt::one())
 }
 
+fn math_fsum(iter: PyIterable<IntoPyFloat>, vm: &VirtualMachine) -> PyResult<f64> {
+    let mut partials = vec![];
+    let mut special_sum = 0.0;
+    let mut inf_sum = 0.0;
+
+    for obj in iter.iter(vm)? {
+        let mut x = obj?.to_f64();
+
+        let xsave = x;
+        let mut j = 0;
+        // This inner loop applies `hi`/`lo` summation to each
+        // partial so that the list of partial sums remains exact.
+        for i in 0..partials.len() {
+            let mut y: f64 = partials[i];
+            if x.abs() < y.abs() {
+                std::mem::swap(&mut x, &mut y);
+            }
+            // Rounded `x+y` is stored in `hi` with round-off stored in
+            // `lo`. Together `hi+lo` are exactly equal to `x+y`.
+            let hi = x + y;
+            let lo = y - (hi - x);
+            if lo != 0.0 {
+                partials[j] = lo;
+                j += 1;
+            }
+            x = hi;
+        }
+
+        if !x.is_finite() {
+            // a nonfinite x could arise either as
+            // a result of intermediate overflow, or
+            // as a result of a nan or inf in the
+            // summands
+            if xsave.is_finite() {
+                return Err(vm.new_overflow_error("intermediate overflow in fsum".to_owned()));
+            }
+            if xsave.is_infinite() {
+                inf_sum += xsave;
+            }
+            special_sum += xsave;
+            // reset partials
+            partials.clear();
+        }
+
+        if j >= partials.len() {
+            partials.push(x);
+        } else {
+            partials[j] = x;
+            partials.truncate(j + 1);
+        }
+    }
+    if special_sum != 0.0 {
+        return if inf_sum.is_nan() {
+            Err(vm.new_overflow_error("-inf + inf in fsum".to_owned()))
+        } else {
+            Ok(special_sum)
+        };
+    }
+
+    let mut n = partials.len();
+    if n > 0 {
+        n -= 1;
+        let mut hi = partials[n];
+
+        let mut lo = 0.0;
+        while n > 0 {
+            let x = hi;
+
+            n -= 1;
+            let y = partials[n];
+
+            hi = x + y;
+            lo = y - (hi - x);
+            if lo != 0.0 {
+                break;
+            }
+        }
+        if n > 0 && ((lo < 0.0 && partials[n - 1] < 0.0) || (lo > 0.0 && partials[n - 1] > 0.0)) {
+            let y = lo + lo;
+            let x = hi + y;
+
+            // Make half-even rounding work across multiple partials.
+            // Needed so that sum([1e-16, 1, 1e16]) will round-up the last
+            // digit to two instead of down to zero (the 1e-16 makes the 1
+            // slightly closer to two).  With a potential 1 ULP rounding
+            // error fixed-up, math.fsum() can guarantee commutativity.
+            #[allow(clippy::float_cmp)]
+            if y == x - hi {
+                hi = x;
+            }
+        }
+
+        Ok(hi)
+    } else {
+        Ok(0.0)
+    }
+}
+
 fn math_factorial(value: PyIntRef, vm: &VirtualMachine) -> PyResult<BigInt> {
     let value = value.borrow_value();
     if value.is_negative() {
@@ -516,6 +614,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "ldexp" => named_function!(ctx, math, ldexp),
         "modf" => named_function!(ctx, math, modf),
         "fmod" => named_function!(ctx, math, fmod),
+        "fsum" => named_function!(ctx, math, fsum),
         "remainder" => named_function!(ctx, math, remainder),
 
         // Rounding functions:
