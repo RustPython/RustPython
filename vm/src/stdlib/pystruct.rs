@@ -35,6 +35,7 @@ pub(crate) mod _struct {
     };
     use crate::slots::PyIter;
     use crate::VirtualMachine;
+    use half::f16;
 
     #[derive(Debug, Copy, Clone, PartialEq)]
     enum Endianness {
@@ -72,7 +73,7 @@ pub(crate) mod _struct {
         LongLong = b'q',
         ULongLong = b'Q',
         Bool = b'?',
-        // TODO: Half = 'e',
+        Half = b'e',
         Float = b'f',
         Double = b'd',
         VoidP = b'P',
@@ -149,6 +150,7 @@ pub(crate) mod _struct {
                         LongLong => nonnative_info!(i64, $end),
                         ULongLong => nonnative_info!(u64, $end),
                         Bool => nonnative_info!(bool, $end),
+                        Half => nonnative_info!(f16, $end),
                         Float => nonnative_info!(f32, $end),
                         Double => nonnative_info!(f64, $end),
                         _ => unreachable!(), // size_t or void*
@@ -182,6 +184,7 @@ pub(crate) mod _struct {
                     LongLong => native_info!(raw::c_longlong),
                     ULongLong => native_info!(raw::c_ulonglong),
                     Bool => native_info!(bool),
+                    Half => native_info!(f16),
                     Float => native_info!(raw::c_float),
                     Double => native_info!(raw::c_double),
                     VoidP => native_info!(*mut raw::c_void),
@@ -622,6 +625,29 @@ pub(crate) mod _struct {
 
     make_pack_float!(f32);
     make_pack_float!(f64);
+
+    impl Packable for f16 {
+        fn pack<E: ByteOrder>(
+            vm: &VirtualMachine,
+            arg: PyObjectRef,
+            data: &mut [u8],
+        ) -> PyResult<()> {
+            let f_64 = float::try_float(&arg, vm)?;
+            let f_16 = f16::from_f64(f_64);
+            if f_16.is_infinite() != f_64.is_infinite() {
+                return Err(
+                    vm.new_overflow_error("float too large to pack with e format".to_owned())
+                );
+            }
+            f_16.to_bits().pack_int::<E>(data);
+            Ok(())
+        }
+
+        fn unpack<E: ByteOrder>(vm: &VirtualMachine, rdr: &[u8]) -> PyObjectRef {
+            let i = PackInt::unpack_int::<E>(rdr);
+            f16::from_bits(i).to_f64().into_pyobject(vm)
+        }
+    }
 
     impl Packable for *mut raw::c_void {
         fn pack<E: ByteOrder>(

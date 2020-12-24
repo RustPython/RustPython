@@ -723,8 +723,6 @@ class UnpackIteratorTest(unittest.TestCase):
         self.assertRaises(StopIteration, next, it)
         self.assertRaises(StopIteration, next, it)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_half_float(self):
         # Little-endian examples from:
         # http://en.wikipedia.org/wiki/Half_precision_floating-point_format
