@@ -146,7 +146,8 @@ mod _sre {
             let pattern_codes = self.code.clone();
             let string = string_args.string.borrow_value();
             let mut state = State::new(string, start, end, flags, pattern_codes);
-            interp::pymatch(state);
+            dbg!(&state);
+            dbg!(interp::pymatch(state));
             None
         }
         #[pymethod]
