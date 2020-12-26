@@ -335,9 +335,9 @@ impl Drop for PyObjectRef {
 
         // __del__ might have resurrected the object at this point, but that's fine,
         // inner.strong_count would be >1 now and it'll maybe get dropped the next time
-        // unsafe {
-        //     (self.vtable.drop_rc)(&mut self.rc)
-        // }
+        unsafe {
+            (self.vtable.drop_rc)(&mut self.rc)
+        }
     }
 }
 
