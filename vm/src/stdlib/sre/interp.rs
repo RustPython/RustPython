@@ -1,21 +1,24 @@
 // good luck to those that follow; here be dragons
 
-use super::_sre::MAXREPEAT;
+use rustpython_common::borrow::BorrowValue;
+
+use super::_sre::{Match, Pattern, MAXREPEAT};
 use super::constants::{SreAtCode, SreCatCode, SreFlag, SreOpcode};
+use crate::builtins::PyStrRef;
 use std::collections::HashMap;
 use std::convert::TryFrom;
 
 #[derive(Debug)]
-pub struct State<'a> {
+pub(crate) struct State<'a> {
     string: &'a str,
     // chars count
     string_len: usize,
-    start: usize,
-    end: usize,
+    pub start: usize,
+    pub end: usize,
     flags: SreFlag,
-    pattern_codes: Vec<u32>,
+    pattern_codes: &'a [u32],
     marks: Vec<Option<usize>>,
-    lastindex: isize,
+    pub lastindex: isize,
     marks_stack: Vec<(Vec<Option<usize>>, isize)>,
     context_stack: Vec<MatchContext>,
     repeat: Option<usize>,
@@ -28,7 +31,7 @@ impl<'a> State<'a> {
         start: usize,
         end: usize,
         flags: SreFlag,
-        pattern_codes: Vec<u32>,
+        pattern_codes: &'a [u32],
     ) -> Self {
         let string_len = string.chars().count();
         let end = std::cmp::min(end, string_len);
@@ -75,20 +78,36 @@ impl<'a> State<'a> {
         }
     }
     fn marks_push(&mut self) {
-        self.marks_stack.push(self.marks.clone(), self.lastindex);
+        self.marks_stack.push((self.marks.clone(), self.lastindex));
     }
     fn marks_pop(&mut self) {
-        (self.marks, self.lastindex) = self.marks_stack.pop().unwrap();
+        let (marks, lastindex) = self.marks_stack.pop().unwrap();
+        self.marks = marks;
+        self.lastindex = lastindex;
     }
     fn marks_pop_keep(&mut self) {
-        (self.marks, self.lastindex) = self.marks_stack.last().unwrap();
+        let (marks, lastindex) = self.marks_stack.last().unwrap().clone();
+        self.marks = marks;
+        self.lastindex = lastindex;
     }
     fn marks_pop_discard(&mut self) {
         self.marks_stack.pop();
     }
 }
 
-pub(crate) fn pymatch(mut state: State) -> bool {
+pub(crate) fn pymatch(
+    string: PyStrRef,
+    start: usize,
+    end: usize,
+    pattern: &Pattern,
+) -> Option<Match> {
+    let mut state = State::new(
+        string.borrow_value(),
+        start,
+        end,
+        pattern.flags.clone(),
+        &pattern.code,
+    );
     let ctx = MatchContext {
         string_position: state.start,
         string_offset: state
@@ -117,7 +136,12 @@ pub(crate) fn pymatch(mut state: State) -> bool {
             state.context_stack.pop();
         }
     }
-    has_matched.unwrap_or(false)
+
+    if has_matched == None || has_matched == Some(false) {
+        return None;
+    }
+
+    Some(Match::new(&state, pattern.pattern.clone(), string.clone()))
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -635,7 +659,7 @@ fn charset(set: &[u32], c: char) -> bool {
 }
 
 fn count(stack_drive: &StackDrive, maxcount: usize) -> usize {
-    let drive = WrapDrive::drive(stack_drive.ctx().clone(), stack_drive);
+    let mut drive = WrapDrive::drive(stack_drive.ctx().clone(), stack_drive);
     let maxcount = std::cmp::min(maxcount, drive.remaining_chars());
     let opcode = match SreOpcode::try_from(drive.peek_code(1)) {
         Ok(code) => code,
@@ -660,28 +684,28 @@ fn count(stack_drive: &StackDrive, maxcount: usize) -> usize {
             }
         }
         SreOpcode::LITERAL => {
-            general_count_literal(drive, |code, c| code == c as u32);
+            general_count_literal(&mut drive, |code, c| code == c as u32);
         }
         SreOpcode::NOT_LITERAL => {
-            general_count_literal(drive, |code, c| code != c as u32);
+            general_count_literal(&mut drive, |code, c| code != c as u32);
         }
         SreOpcode::LITERAL_IGNORE => {
-            general_count_literal(drive, |code, c| code == lower_ascii(c) as u32);
+            general_count_literal(&mut drive, |code, c| code == lower_ascii(c) as u32);
         }
         SreOpcode::NOT_LITERAL_IGNORE => {
-            general_count_literal(drive, |code, c| code != lower_ascii(c) as u32);
+            general_count_literal(&mut drive, |code, c| code != lower_ascii(c) as u32);
         }
         SreOpcode::LITERAL_LOC_IGNORE => {
-            general_count_literal(drive, |code, c| char_loc_ignore(code, c));
+            general_count_literal(&mut drive, |code, c| char_loc_ignore(code, c));
         }
         SreOpcode::NOT_LITERAL_LOC_IGNORE => {
-            general_count_literal(drive, |code, c| !char_loc_ignore(code, c));
+            general_count_literal(&mut drive, |code, c| !char_loc_ignore(code, c));
         }
         SreOpcode::LITERAL_UNI_IGNORE => {
-            general_count_literal(drive, |code, c| code == lower_unicode(c) as u32);
+            general_count_literal(&mut drive, |code, c| code == lower_unicode(c) as u32);
         }
         SreOpcode::NOT_LITERAL_UNI_IGNORE => {
-            general_count_literal(drive, |code, c| code != lower_unicode(c) as u32);
+            general_count_literal(&mut drive, |code, c| code != lower_unicode(c) as u32);
         }
         _ => {
             panic!("TODO: Not Implemented.");
@@ -691,7 +715,7 @@ fn count(stack_drive: &StackDrive, maxcount: usize) -> usize {
     drive.ctx().string_position - stack_drive.ctx().string_position
 }
 
-fn general_count_literal<F: FnMut(u32, char) -> bool>(drive: &mut WrapDrive, f: F) {
+fn general_count_literal<F: FnMut(u32, char) -> bool>(drive: &mut WrapDrive, mut f: F) {
     let ch = drive.peek_code(1);
     while !drive.at_end() && f(ch, drive.peek_char()) {
         drive.skip_char(1);

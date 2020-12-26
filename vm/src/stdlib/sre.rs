@@ -10,11 +10,14 @@ mod _sre {
         constants::SreFlag,
         interp::{self, State},
     };
-    use crate::builtins::{PyStrRef, PyTypeRef};
     use crate::byteslike::PyBytesLike;
     use crate::common::borrow::BorrowValue;
     use crate::pyobject::{Either, PyCallable, PyObjectRef, PyResult, PyValue, StaticType};
     use crate::VirtualMachine;
+    use crate::{
+        builtins::{PyStrRef, PyTypeRef},
+        pyobject::PyRef,
+    };
     use std::collections::HashMap;
     use std::convert::TryFrom;
 
@@ -121,13 +124,13 @@ mod _sre {
     #[pyattr]
     #[pyclass(name = "Pattern")]
     #[derive(Debug)]
-    struct Pattern {
-        pattern: PyObjectRef,
-        flags: SreFlag,
-        code: Vec<u32>,
-        groups: usize,
-        groupindex: HashMap<String, usize>,
-        indexgroup: Vec<Option<String>>,
+    pub(crate) struct Pattern {
+        pub pattern: PyObjectRef,
+        pub flags: SreFlag,
+        pub code: Vec<u32>,
+        pub groups: usize,
+        pub groupindex: HashMap<String, usize>,
+        pub indexgroup: Vec<Option<String>>,
     }
 
     impl PyValue for Pattern {
@@ -139,16 +142,10 @@ mod _sre {
     #[pyimpl]
     impl Pattern {
         #[pymethod(name = "match")]
-        fn pymatch(&self, string_args: StringArgs) -> Option<PyObjectRef> {
+        fn pymatch(&self, string_args: StringArgs, vm: &VirtualMachine) -> Option<PyRef<Match>> {
             let start = string_args.pos;
             let end = string_args.endpos;
-            let flags = self.flags;
-            let pattern_codes = self.code.clone();
-            let string = string_args.string.borrow_value();
-            let mut state = State::new(string, start, end, flags, pattern_codes);
-            dbg!(&state);
-            dbg!(interp::pymatch(state));
-            None
+            interp::pymatch(string_args.string, start, end, &self).map(|x| x.into_ref(vm))
         }
         #[pymethod]
         fn fullmatch(&self, string_args: StringArgs) -> Option<PyObjectRef> {
@@ -177,6 +174,61 @@ mod _sre {
         #[pyproperty]
         fn flags(&self) -> u16 {
             self.flags.bits()
+        }
+    }
+
+    #[pyattr]
+    #[pyclass(name = "Match")]
+    #[derive(Debug)]
+    pub(crate) struct Match {
+        string: PyStrRef,
+        pattern: PyObjectRef,
+        start: usize,
+        end: usize,
+        lastindex: isize,
+        // regs
+        // lastgroup
+    }
+    impl PyValue for Match {
+        fn class(vm: &VirtualMachine) -> &PyTypeRef {
+            Self::static_type()
+        }
+    }
+
+    #[pyimpl]
+    impl Match {
+        pub(crate) fn new(state: &State, pattern: PyObjectRef, string: PyStrRef) -> Self {
+            Self {
+                string,
+                pattern,
+                start: state.start,
+                end: state.end,
+                lastindex: state.lastindex,
+            }
+        }
+        #[pyproperty]
+        fn pos(&self) -> usize {
+            self.start
+        }
+        #[pyproperty]
+        fn endpos(&self) -> usize {
+            self.end
+        }
+        #[pyproperty]
+        fn lastindex(&self) -> isize {
+            self.lastindex
+        }
+        #[pyproperty]
+        fn lastgroup(&self) -> Option<String> {
+            None
+        }
+        #[pyproperty]
+        fn re(&self) -> PyObjectRef {
+            self.pattern.clone()
+        }
+        #[pyproperty]
+        fn string(&self) -> PyStrRef {
+            self.string.clone()
         }
     }
 }
