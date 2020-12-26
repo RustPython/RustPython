@@ -5,19 +5,11 @@ pub(crate) use _sre::make_module;
 
 #[pymodule]
 mod _sre {
-    use super::interp::{lower_ascii, lower_unicode, upper_unicode};
-    use super::{
-        constants::SreFlag,
-        interp::{self, State},
-    };
-    use crate::byteslike::PyBytesLike;
-    use crate::common::borrow::BorrowValue;
-    use crate::pyobject::{Either, PyCallable, PyObjectRef, PyResult, PyValue, StaticType};
+    use super::constants::SreFlag;
+    use super::interp::{self, lower_ascii, lower_unicode, upper_unicode, State};
+    use crate::builtins::{PyStrRef, PyTypeRef};
+    use crate::pyobject::{Either, PyCallable, PyObjectRef, PyRef, PyResult, PyValue, StaticType};
     use crate::VirtualMachine;
-    use crate::{
-        builtins::{PyStrRef, PyTypeRef},
-        pyobject::PyRef,
-    };
     use std::collections::HashMap;
     use std::convert::TryFrom;
 
@@ -114,9 +106,9 @@ mod _sre {
     #[derive(FromArgs)]
     struct SubArgs {
         #[pyarg(any)]
-        repl: Either<PyCallable, PyBytesLike>,
+        repl: Either<PyCallable, PyStrRef>,
         #[pyarg(any)]
-        string: PyBytesLike,
+        string: PyStrRef,
         #[pyarg(any, default = "0")]
         count: usize,
     }
@@ -143,16 +135,38 @@ mod _sre {
     impl Pattern {
         #[pymethod(name = "match")]
         fn pymatch(&self, string_args: StringArgs, vm: &VirtualMachine) -> Option<PyRef<Match>> {
-            let start = string_args.pos;
-            let end = string_args.endpos;
-            interp::pymatch(string_args.string, start, end, &self).map(|x| x.into_ref(vm))
+            interp::pymatch(
+                string_args.string,
+                string_args.pos,
+                string_args.endpos,
+                &self,
+            )
+            .map(|x| x.into_ref(vm))
         }
         #[pymethod]
-        fn fullmatch(&self, string_args: StringArgs) -> Option<PyObjectRef> {
+        fn fullmatch(&self, string_args: StringArgs, vm: &VirtualMachine) -> Option<PyRef<Match>> {
+            // TODO: need optimize
+            let start = string_args.pos;
+            let end = string_args.endpos;
+            let m = self.pymatch(string_args, vm);
+            if let Some(m) = m {
+                if m.start == start && m.end == end {
+                    return Some(m);
+                }
+            }
             None
         }
         #[pymethod]
-        fn search(&self, string_args: StringArgs) -> Option<PyObjectRef> {
+        fn search(&self, string_args: StringArgs, vm: &VirtualMachine) -> Option<PyRef<Match>> {
+            // TODO: optimize by op info and skip prefix
+            let start = string_args.pos;
+            for i in start..string_args.endpos {
+                if let Some(m) =
+                    interp::pymatch(string_args.string.clone(), i, string_args.endpos, &self)
+                {
+                    return Some(m.into_ref(vm));
+                }
+            }
             None
         }
         #[pymethod]

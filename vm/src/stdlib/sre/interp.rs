@@ -1,10 +1,9 @@
 // good luck to those that follow; here be dragons
 
-use rustpython_common::borrow::BorrowValue;
-
 use super::_sre::{Match, Pattern, MAXREPEAT};
 use super::constants::{SreAtCode, SreCatCode, SreFlag, SreOpcode};
 use crate::builtins::PyStrRef;
+use rustpython_common::borrow::BorrowValue;
 use std::collections::HashMap;
 use std::convert::TryFrom;
 
