@@ -23,6 +23,7 @@ use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
 use num_bigint::BigInt;
 use num_traits::{One, Signed, ToPrimitive, Zero};
+use rustpython_common::borrow::BorrowValue;
 
 #[derive(Debug)]
 pub struct BufferRef(Box<dyn Buffer>);
@@ -701,6 +702,46 @@ impl PyMemoryView {
         };
 
         bytes_to_hex(bytes, sep, bytes_per_sep, vm)
+    }
+
+    // TODO: support cast shape
+    #[pymethod]
+    fn cast(zelf: PyRef<Self>, format: PyStrRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        zelf.try_not_released(vm)?;
+        if !zelf.options.contiguous {
+            return Err(vm.new_type_error(
+                "memoryview: casts are restricted to C-contiguous views".to_owned(),
+            ));
+        }
+
+        let format_spec = Self::parse_format(format.borrow_value(), vm)?;
+        let itemsize = format_spec.size();
+
+        if zelf.options.len % itemsize != 0 {
+            return Err(
+                vm.new_type_error("memoryview: length is not a multiple of itemsize".to_owned())
+            );
+        }
+
+        let buffer = BufferRef(Box::new(zelf.clone()));
+        zelf.exports.fetch_add(1);
+
+        Ok(PyMemoryView {
+            obj: zelf.obj.clone(),
+            buffer,
+            options: BufferOptions {
+                itemsize,
+                format: format.to_string().into(),
+                ..zelf.options.clone()
+            },
+            released: AtomicCell::new(false),
+            stop: zelf.stop + itemsize - zelf.options.itemsize,
+            exports: AtomicCell::new(0),
+            format_spec,
+            hash: OnceCell::new(),
+            ..*zelf
+        }
+        .into_ref(vm))
     }
 
     fn eq(zelf: &PyRef<Self>, other: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
