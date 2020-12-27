@@ -53,12 +53,12 @@ struct PyObjVTable {
 }
 
 unsafe fn drop_rc_obj<T: PyObjectPayload>(x: &mut PyRc<PyObject<Erased>>) {
-    let to_drop: &mut PyRc<PyObject<T>> = std::mem::transmute(x);
+    let to_drop: &mut PyRc<PyObject<T>> = &mut *(x as *mut PyRc<PyObject<Erased>> as *mut PyRc<PyObject<T>>);
     drop_in_place(to_drop);
 }
 
 unsafe fn drop_weak_obj<T: PyObjectPayload>(x: &mut PyWeak<PyObject<Erased>>) {
-    let to_drop: &mut PyWeak<PyObject<T>> = std::mem::transmute(x);
+    let to_drop: &mut PyWeak<PyObject<T>> = &mut *(x as *mut PyWeak<PyObject<Erased>> as *mut PyWeak<PyObject<T>>);
     drop_in_place(to_drop);
 }
 
