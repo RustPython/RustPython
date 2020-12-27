@@ -89,6 +89,7 @@ impl<T: fmt::Debug> fmt::Debug for PyObject<T> {
 /// This is an actual python object. It consists of a `typ` which is the
 /// python class, and carries some rust payload optionally. This rust
 /// payload can be a rust float or rust int in case of float and int objects.
+#[repr(C)]
 pub struct PyObject<T: 'static> {
     vtable: &'static PyObjVTable,
     // TODO: move typeid into vtable once TypeId::of is const
@@ -571,9 +572,12 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::builtins::PyFloat;
 
     #[test]
     fn miri_test_type_initialization() {
-        let _ = init_type_hierarchy();
+        let a = init_type_hierarchy();
+        let b = PyObject::new(PyFloat::from(5.0), a.0, None);
+        drop(b)
     }
 }
