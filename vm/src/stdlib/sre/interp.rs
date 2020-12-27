@@ -109,12 +109,7 @@ pub(crate) fn pymatch(
     );
     let ctx = MatchContext {
         string_position: state.start,
-        string_offset: state
-            .string
-            .char_indices()
-            .nth(state.start)
-            .map(|x| x.0)
-            .unwrap_or(0),
+        string_offset: calc_string_offset(state.string, state.start),
         code_position: 0,
         has_matched: None,
     };
@@ -411,7 +406,7 @@ impl OpcodeDispatcher {
                 }
             }),
             SreOpcode::ASSERT => Box::new(OpAssert::default()),
-            SreOpcode::ASSERT_NOT => unimplemented(),
+            SreOpcode::ASSERT_NOT => Box::new(OpAssertNot::default()),
             SreOpcode::AT => once(|drive| {
                 let atcode = SreAtCode::try_from(drive.peek_code(1)).unwrap();
                 if !at(drive, atcode) {
@@ -432,9 +427,6 @@ impl OpcodeDispatcher {
                 }
             }),
             SreOpcode::CHARSET | SreOpcode::BIGCHARSET => unreachable!("unexpected opcode"),
-            SreOpcode::GROUPREF => unimplemented(),
-            SreOpcode::GROUPREF_EXISTS => unimplemented(),
-            SreOpcode::GROUPREF_IGNORE => unimplemented(),
             SreOpcode::IN => once(|drive| {
                 general_op_in(drive, |x| x);
             }),
@@ -480,7 +472,12 @@ impl OpcodeDispatcher {
             SreOpcode::NOT_LITERAL_LOC_IGNORE => once(|drive| {
                 general_op_literal(drive, |code, c| !char_loc_ignore(code, c));
             }),
-            SreOpcode::MARK => unimplemented(),
+            SreOpcode::MARK => once(|drive| {
+                drive
+                    .state
+                    .set_mark(drive.peek_code(1) as usize, drive.ctx().string_position);
+                drive.skip_code(2);
+            }),
             SreOpcode::MAX_UNTIL => unimplemented(),
             SreOpcode::MIN_UNTIL => unimplemented(),
             SreOpcode::NEGATE => unimplemented(),
@@ -489,11 +486,34 @@ impl OpcodeDispatcher {
             SreOpcode::REPEAT_ONE => unimplemented(),
             SreOpcode::SUBPATTERN => unimplemented(),
             SreOpcode::MIN_REPEAT_ONE => Box::new(OpMinRepeatOne::default()),
-            SreOpcode::GROUPREF_LOC_IGNORE => unimplemented(),
-            SreOpcode::GROUPREF_UNI_IGNORE => unimplemented(),
+            SreOpcode::GROUPREF => once(|drive| general_op_groupref(drive, |x| x)),
+            SreOpcode::GROUPREF_IGNORE => once(|drive| general_op_groupref(drive, lower_ascii)),
+            SreOpcode::GROUPREF_LOC_IGNORE => {
+                once(|drive| general_op_groupref(drive, lower_locate))
+            }
+            SreOpcode::GROUPREF_UNI_IGNORE => {
+                once(|drive| general_op_groupref(drive, lower_unicode))
+            }
+            SreOpcode::GROUPREF_EXISTS => once(|drive| {
+                let (group_start, group_end) = drive.state.get_marks(drive.peek_code(1) as usize);
+                match (group_start, group_end) {
+                    (Some(start), Some(end)) if start <= end => {
+                        drive.skip_code(3);
+                    }
+                    _ => drive.skip_code(drive.peek_code(2) as usize + 1),
+                }
+            }),
             SreOpcode::RANGE_UNI_IGNORE => unimplemented(),
         }
     }
+}
+
+fn calc_string_offset(string: &str, position: usize) -> usize {
+    string
+        .char_indices()
+        .nth(position)
+        .map(|(i, _)| i)
+        .unwrap_or(0)
 }
 
 fn char_loc_ignore(code: u32, c: char) -> bool {
@@ -507,6 +527,40 @@ fn charset_loc_ignore(set: &[u32], c: char) -> bool {
     }
     let up = upper_locate(c);
     up != lo && charset(set, up)
+}
+
+fn general_op_groupref<F: FnMut(char) -> char>(drive: &mut StackDrive, mut f: F) {
+    let (group_start, group_end) = drive.state.get_marks(drive.peek_code(1) as usize);
+    let (group_start, group_end) = match (group_start, group_end) {
+        (Some(start), Some(end)) if start <= end => (start, end),
+        _ => {
+            drive.ctx_mut().has_matched = Some(false);
+            return;
+        }
+    };
+    let mut wdrive = WrapDrive::drive(*drive.ctx(), &drive);
+    let mut gdrive = WrapDrive::drive(
+        MatchContext {
+            string_position: group_start,
+            // TODO: cache the offset
+            string_offset: calc_string_offset(drive.state.string, group_start),
+            ..*drive.ctx()
+        },
+        &drive,
+    );
+    for _ in group_start..group_end {
+        if wdrive.at_end() || f(wdrive.peek_char()) != f(gdrive.peek_char()) {
+            drive.ctx_mut().has_matched = Some(false);
+            return;
+        }
+        wdrive.skip_char(1);
+        gdrive.skip_char(1);
+    }
+    let position = wdrive.ctx().string_position;
+    let offset = wdrive.ctx().string_offset;
+    drive.skip_code(2);
+    drive.ctx_mut().string_position = position;
+    drive.ctx_mut().string_offset = offset;
 }
 
 fn general_op_literal<F: FnOnce(u32, char) -> bool>(drive: &mut StackDrive, f: F) {
@@ -766,11 +820,19 @@ fn is_uni_space(c: char) -> bool {
     c.is_whitespace()
 }
 fn is_uni_linebreak(c: char) -> bool {
-    match c {
-        '\u{000A}' | '\u{000B}' | '\u{000C}' | '\u{000D}' | '\u{001C}' | '\u{001D}'
-        | '\u{001E}' | '\u{0085}' | '\u{2028}' | '\u{2029}' => true,
-        _ => false,
-    }
+    matches!(
+        c,
+        '\u{000A}'
+            | '\u{000B}'
+            | '\u{000C}'
+            | '\u{000D}'
+            | '\u{001C}'
+            | '\u{001D}'
+            | '\u{001E}'
+            | '\u{0085}'
+            | '\u{2028}'
+            | '\u{2029}'
+    )
 }
 fn is_uni_alnum(c: char) -> bool {
     // TODO: check with cpython
@@ -802,7 +864,7 @@ struct OpAssert {
 }
 impl Default for OpAssert {
     fn default() -> Self {
-        OpAssert {
+        Self {
             child_ctx_id: 0,
             jump_id: 0,
         }
@@ -834,6 +896,49 @@ impl OpAssert {
             drive.skip_code(drive.peek_code(1) as usize + 1);
         } else {
             drive.ctx_mut().has_matched = Some(false);
+        }
+        None
+    }
+}
+
+struct OpAssertNot {
+    child_ctx_id: usize,
+    jump_id: usize,
+}
+impl Default for OpAssertNot {
+    fn default() -> Self {
+        Self {
+            child_ctx_id: 0,
+            jump_id: 0,
+        }
+    }
+}
+impl OpcodeExecutor for OpAssertNot {
+    fn next(&mut self, drive: &mut StackDrive) -> Option<()> {
+        match self.jump_id {
+            0 => self._0(drive),
+            1 => self._1(drive),
+            _ => unreachable!(),
+        }
+    }
+}
+impl OpAssertNot {
+    fn _0(&mut self, drive: &mut StackDrive) -> Option<()> {
+        let back = drive.peek_code(2) as usize;
+        if back > drive.ctx().string_position {
+            drive.skip_code(drive.peek_code(1) as usize + 1);
+            return None;
+        }
+        drive.state.string_position = drive.ctx().string_position - back;
+        self.child_ctx_id = drive.push_new_context(3);
+        self.jump_id = 1;
+        Some(())
+    }
+    fn _1(&mut self, drive: &mut StackDrive) -> Option<()> {
+        if drive.state.context_stack[self.child_ctx_id].has_matched == Some(true) {
+            drive.ctx_mut().has_matched = Some(false);
+        } else {
+            drive.skip_code(drive.peek_code(1) as usize + 1);
         }
         None
     }
