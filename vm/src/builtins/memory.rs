@@ -655,6 +655,7 @@ impl PyMemoryView {
     fn toreadonly(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         zelf.try_not_released(vm)?;
         let buffer = BufferRef(Box::new(zelf.clone()));
+        zelf.exports.fetch_add(1);
         Ok(PyMemoryView {
             obj: zelf.obj.clone(),
             buffer,
