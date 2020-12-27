@@ -90,6 +90,7 @@ impl<T: fmt::Debug> fmt::Debug for PyObject<T> {
 /// python class, and carries some rust payload optionally. This rust
 /// payload can be a rust float or rust int in case of float and int objects.
 pub struct PyObject<T: 'static> {
+    vtable: &'static PyObjVTable,
     // TODO: move typeid into vtable once TypeId::of is const
     typeid: TypeId,
 
@@ -105,6 +106,7 @@ impl<T: PyObjectPayload> PyObject<T> {
     #[allow(clippy::new_ret_no_self)]
     pub fn new(payload: T, typ: PyTypeRef, dict: Option<PyDictRef>) -> PyObjectRef {
         PyObjectRef::new(PyObject {
+            vtable: PyObjVTable::of::<T>(),
             typeid: TypeId::of::<T>(),
             typ: PyRwLock::new(typ),
             dict: dict.map(PyRwLock::new),
@@ -129,7 +131,6 @@ impl<T: 'static> Drop for PyObject<T> {
 #[derive(Clone)]
 pub struct PyObjectRef {
     rc: ManuallyDrop<PyRc<PyObject<Erased>>>,
-    vtable: &'static PyObjVTable,
 }
 
 #[derive(Clone)]
@@ -146,7 +147,6 @@ impl PyObjectRef {
         let rc = PyRc::from_raw(rc as *const PyObject<Erased>);
         Self {
             rc: ManuallyDrop::new(rc),
-            vtable: PyObjVTable::of::<T>(),
         }
     }
 
@@ -170,7 +170,7 @@ impl PyObjectRef {
     pub fn downgrade(this: &Self) -> PyObjectWeak {
         PyObjectWeak {
             weak: ManuallyDrop::new(PyRc::downgrade(&this.rc)),
-            vtable: this.vtable,
+            vtable: this.rc.vtable,
         }
     }
 
@@ -290,7 +290,6 @@ impl PyObjectWeak {
     pub fn upgrade(&self) -> Option<PyObjectRef> {
         self.weak.upgrade().map(|rc| PyObjectRef {
             rc: ManuallyDrop::new(rc),
-            vtable: self.vtable,
         })
     }
 }
@@ -302,7 +301,7 @@ impl Drop for PyObjectRef {
         // PyObjectRef will drop the value when its count goes to 0
         if PyRc::strong_count(&self.rc) != 1 {
             unsafe {
-                (self.vtable.drop_rc)(&mut self.rc)
+                (self.rc.vtable.drop_rc)(&mut self.rc)
             }
 
             return;
@@ -336,7 +335,7 @@ impl Drop for PyObjectRef {
         // __del__ might have resurrected the object at this point, but that's fine,
         // inner.strong_count would be >1 now and it'll maybe get dropped the next time
         unsafe {
-            (self.vtable.drop_rc)(&mut self.rc)
+            (self.rc.vtable.drop_rc)(&mut self.rc)
         }
     }
 }
@@ -353,7 +352,7 @@ impl fmt::Debug for PyObjectRef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // SAFETY: the vtable contains functions that accept payload types that always match up
         // with the payload of the object
-        unsafe { (self.vtable.debug)(PyRc::as_ptr(&self.rc), f) }
+        unsafe { (self.rc.vtable.debug)(PyRc::as_ptr(&self.rc), f) }
     }
 }
 
@@ -516,6 +515,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef) {
         };
         let type_type = PyRc::new(partially_init!(
             PyObject::<PyType> {
+                vtable: PyObjVTable::of::<PyType>(),
                 typeid: TypeId::of::<PyType>(),
                 dict: None,
                 payload: type_payload,
@@ -524,6 +524,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef) {
         ));
         let object_type = PyRc::new(partially_init!(
             PyObject::<PyType> {
+                vtable: PyObjVTable::of::<PyType>(),
                 typeid: TypeId::of::<PyType>(),
                 dict: None,
                 payload: object_payload,
@@ -531,27 +532,27 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef) {
             Uninit { typ },
         ));
 
-        fn cast_to_init_mut(arc: PyRc<MaybeUninit<PyObject<PyType>>>) -> *mut PyObject<PyType> {
+        fn into_raw_init_mut(arc: PyRc<MaybeUninit<PyObject<PyType>>>) -> *mut PyObject<PyType> {
             PyRc::into_raw(arc) as *mut PyObject<PyType>
         }
 
         unsafe {
-            let object_type_ptr = cast_to_init_mut(object_type);
-            let type_type_ptr = cast_to_init_mut(type_type.clone());
+            let object_type_ptr = into_raw_init_mut(object_type);
+            let type_type_ptr = into_raw_init_mut(type_type.clone());
 
             ptr::write(
                 &mut (*object_type_ptr).typ as *mut PyRwLock<PyTypeRef> as *mut PyRwLock<PyObjectRef>,
-                PyRwLock::new(PyObjectRef::from_inner::<PyType>(cast_to_init_mut(type_type.clone()))),
+                PyRwLock::new(PyObjectRef::from_inner(into_raw_init_mut(type_type.clone()))),
             );
             ptr::write(
                 &mut (*type_type_ptr).typ as *mut PyRwLock<PyTypeRef> as *mut PyRwLock<PyObjectRef>,
-                PyRwLock::new(PyObjectRef::from_inner::<PyType>(cast_to_init_mut(type_type))),
+                PyRwLock::new(PyObjectRef::from_inner(into_raw_init_mut(type_type))),
             );
 
             let object_type =
-                PyTypeRef::from_obj_unchecked(PyObjectRef::from_inner::<PyType>(object_type_ptr));
+                PyTypeRef::from_obj_unchecked(PyObjectRef::from_inner(object_type_ptr));
             let type_type =
-                PyTypeRef::from_obj_unchecked(PyObjectRef::from_inner::<PyType>(type_type_ptr));
+                PyTypeRef::from_obj_unchecked(PyObjectRef::from_inner(type_type_ptr));
 
             (*type_type_ptr).payload.mro = vec![object_type.clone()];
             (*type_type_ptr).payload.bases = vec![object_type.clone()];
