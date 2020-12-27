@@ -152,9 +152,7 @@ impl PyObjectRef {
     }
 
     fn new<T: PyObjectPayload>(value: PyObject<T>) -> Self {
-        unsafe {
-            Self::from_inner(PyRc::into_raw(PyRc::new(value)))
-        }
+        unsafe { Self::from_inner(PyRc::into_raw(PyRc::new(value))) }
     }
 
     /// Gets the number of strong (`PyRef` or `PyObjectRef`) pointers to this allocation.
@@ -183,8 +181,7 @@ impl PyObjectRef {
         if self.payload_is::<T>() {
             // we cast to a PyObject<T> first because we don't know T's exact offset because of
             // varying alignment, but once we get a PyObject<T> the compiler can get it for us
-            let inner =
-                unsafe { &*(PyRc::as_ptr(&self.rc) as *const PyObject<T>) };
+            let inner = unsafe { &*(PyRc::as_ptr(&self.rc) as *const PyObject<T>) };
             Some(&inner.payload)
         } else {
             None
@@ -301,9 +298,7 @@ impl Drop for PyObjectRef {
 
         // PyObjectRef will drop the value when its count goes to 0
         if PyRc::strong_count(&self.rc) != 1 {
-            unsafe {
-                (self.rc.vtable.drop_rc)(&mut self.rc)
-            }
+            unsafe { (self.rc.vtable.drop_rc)(&mut self.rc) }
 
             return;
         }
@@ -312,7 +307,7 @@ impl Drop for PyObjectRef {
             crate::vm::thread::with_vm(self, |vm| {
                 if let Err(e) = del_slot(self, vm) {
                     // exception in del will be ignored but printed
-                    print!("Exception ignored in: ", );
+                    print!("Exception ignored in: ",);
                     let del_method = self.get_class_attr("__del__").unwrap();
                     let repr = vm.to_repr(&del_method);
                     match repr {
@@ -333,17 +328,13 @@ impl Drop for PyObjectRef {
 
         // __del__ might have resurrected the object at this point, but that's fine,
         // inner.strong_count would be >1 now and it'll maybe get dropped the next time
-        unsafe {
-            (self.rc.vtable.drop_rc)(&mut self.rc)
-        }
+        unsafe { (self.rc.vtable.drop_rc)(&mut self.rc) }
     }
 }
 
 impl Drop for PyObjectWeak {
     fn drop(&mut self) {
-        unsafe {
-            (self.vtable.drop_weak)(&mut self.weak)
-        }
+        unsafe { (self.vtable.drop_weak)(&mut self.weak) }
     }
 }
 
@@ -426,8 +417,8 @@ impl<T: PyObjectPayload> PyRef<T> {
 }
 
 impl<T> Deref for PyRef<T>
-    where
-        T: PyObjectPayload,
+where
+    T: PyObjectPayload,
 {
     type Target = T;
 
@@ -540,8 +531,11 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef) {
             let type_type_ptr = into_raw_init_mut(type_type.clone());
 
             ptr::write(
-                &mut (*object_type_ptr).typ as *mut PyRwLock<PyTypeRef> as *mut PyRwLock<PyObjectRef>,
-                PyRwLock::new(PyObjectRef::from_inner(into_raw_init_mut(type_type.clone()))),
+                &mut (*object_type_ptr).typ as *mut PyRwLock<PyTypeRef>
+                    as *mut PyRwLock<PyObjectRef>,
+                PyRwLock::new(PyObjectRef::from_inner(into_raw_init_mut(
+                    type_type.clone(),
+                ))),
             );
             ptr::write(
                 &mut (*type_type_ptr).typ as *mut PyRwLock<PyTypeRef> as *mut PyRwLock<PyObjectRef>,
@@ -550,8 +544,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef) {
 
             let object_type =
                 PyTypeRef::from_obj_unchecked(PyObjectRef::from_inner(object_type_ptr));
-            let type_type =
-                PyTypeRef::from_obj_unchecked(PyObjectRef::from_inner(type_type_ptr));
+            let type_type = PyTypeRef::from_obj_unchecked(PyObjectRef::from_inner(type_type_ptr));
 
             (*type_type_ptr).payload.mro = vec![object_type.clone()];
             (*type_type_ptr).payload.bases = vec![object_type.clone()];
