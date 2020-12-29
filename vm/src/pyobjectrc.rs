@@ -480,11 +480,6 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef) {
     // to produce this circular dependency, we need an unsafe block.
     // (and yes, this will never get dropped. TODO?)
     let (type_type, object_type) = {
-        // We cast between these 2 types, so make sure (at compile time) that there's no change in
-        // layout when we wrap PyObject<PyTypeObj> in MaybeUninit<>
-        static_assertions::assert_eq_size!(MaybeUninit<PyObject<PyType>>, PyObject<PyType>);
-        static_assertions::assert_eq_align!(MaybeUninit<PyObject<PyType>>, PyObject<PyType>);
-
         let type_payload = PyType {
             name: PyTypeRef::NAME.to_owned(),
             base: None,
@@ -527,9 +522,15 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef) {
         }
 
         unsafe {
+            // We only write to these behind a raw pointer or store them as raw pointers,
+            // so transmuting the MaybeUninit<T> to T is sound in all cases.
+            // The layout stability is guaranteed by the standard library, and we take care
+            // not to pass a pointer to an owning function without incrementing the ref count.
             let object_type_ptr = into_raw_init_mut(object_type);
             let type_type_ptr = into_raw_init_mut(type_type.clone());
 
+            // We write the type field of `object_type`, as `PyObjectRef` only stores raw pointers,
+            // passing the casted MaybeUninit<T> to `PyObjectRef::from_inner` is safe.
             ptr::write(
                 &mut (*object_type_ptr).typ as *mut PyRwLock<PyTypeRef>
                     as *mut PyRwLock<PyObjectRef>,
@@ -537,15 +538,19 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef) {
                     type_type.clone(),
                 ))),
             );
+            // Ditto.
             ptr::write(
                 &mut (*type_type_ptr).typ as *mut PyRwLock<PyTypeRef> as *mut PyRwLock<PyObjectRef>,
                 PyRwLock::new(PyObjectRef::from_inner(into_raw_init_mut(type_type))),
             );
 
+            // Both structs are initialized now, so we can cast away the MaybeUninit for real
+            // PyRc::assume_init is unstable, so we reuse the initial pointers.
             let object_type =
                 PyTypeRef::from_obj_unchecked(PyObjectRef::from_inner(object_type_ptr));
             let type_type = PyTypeRef::from_obj_unchecked(PyObjectRef::from_inner(type_type_ptr));
 
+            // This is equivalent to `PyRc::get_mut`, and is safe because nothing else can be dereferencing these pointers
             (*type_type_ptr).payload.mro = vec![object_type.clone()];
             (*type_type_ptr).payload.bases = vec![object_type.clone()];
             (*type_type_ptr).payload.base = Some(object_type.clone());
