@@ -417,7 +417,6 @@ impl OpcodeDispatcher {
                 }
             }),
             SreOpcode::BRANCH => unimplemented(),
-            SreOpcode::CALL => unimplemented(),
             SreOpcode::CATEGORY => once(|drive| {
                 let catcode = SreCatCode::try_from(drive.peek_code(1)).unwrap();
                 if drive.at_end() || !category(catcode, drive.peek_char()) {
@@ -1143,6 +1142,54 @@ impl OpcodeExecutor for OpMaxUntil {
                 None
             }
             _ => unreachable!(),
+        }
+    }
+}
+
+struct OpBranch {
+    jump_id: usize,
+    child_ctx_id: usize,
+    current_branch_length: usize,
+}
+impl Default for OpBranch {
+    fn default() -> Self {
+        Self { jump_id: 0, child_ctx_id: 0, current_branch_length: 0 }
+    }
+}
+impl OpcodeExecutor for OpBranch {
+    fn next(&mut self, drive: &mut StackDrive) -> Option<()> {
+        match self.jump_id {
+            0 => {
+                drive.state.marks_push();
+                // jump out the head
+                self.current_branch_length = 1;
+                self.jump_id = 1;
+                self.next(drive)
+            }
+            1 => {
+                drive.skip_code(self.current_branch_length);
+                self.current_branch_length = drive.peek_code(0) as usize;
+                if self.current_branch_length == 0 {
+                    drive.state.marks_pop_discard();
+                    drive.ctx_mut().has_matched = Some(false);
+                    return None;
+                }
+                drive.state.string_position = drive.ctx().string_position;
+                self.child_ctx_id = drive.push_new_context(1);
+                self.jump_id = 2;
+                Some(())
+            }
+            2 => {
+                let child_ctx = &drive.state.context_stack[self.child_ctx_id];
+                if child_ctx.has_matched == Some(true) {
+                    drive.ctx_mut().has_matched = Some(true);
+                    return None;
+                }
+                drive.state.marks_pop_keep();
+                self.jump_id = 1;
+                Some(())
+            }
+            _ => unreachable!()
         }
     }
 }
