@@ -90,7 +90,7 @@ impl std::fmt::Debug for PyTypeSlots {
 }
 
 #[pyimpl]
-pub trait SlotDesctuctor: PyValue {
+pub trait SlotDestructor: PyValue {
     #[pyslot]
     fn tp_del(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if let Some(zelf) = zelf.downcast_ref() {
@@ -118,10 +118,8 @@ pub trait Callable: PyValue {
             Err(vm.new_type_error("unexpected payload for __call__".to_owned()))
         }
     }
-    #[pymethod]
-    fn __call__(zelf: PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        Self::call(&zelf, args, vm)
-    }
+
+    #[pymethod(magic)]
     fn call(zelf: &PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult;
 }
 
