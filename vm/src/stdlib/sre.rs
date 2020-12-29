@@ -204,7 +204,7 @@ mod _sre {
         // lastgroup
     }
     impl PyValue for Match {
-        fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
             Self::static_type()
         }
     }
