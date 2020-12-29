@@ -416,7 +416,7 @@ impl OpcodeDispatcher {
                     drive.skip_code(2);
                 }
             }),
-            SreOpcode::BRANCH => unimplemented(),
+            SreOpcode::BRANCH => Box::new(OpBranch::default()),
             SreOpcode::CATEGORY => once(|drive| {
                 let catcode = SreCatCode::try_from(drive.peek_code(1)).unwrap();
                 if drive.at_end() || !category(catcode, drive.peek_char()) {
@@ -1146,6 +1146,39 @@ impl OpcodeExecutor for OpMaxUntil {
     }
 }
 
+struct OpMinUntil {
+    jump_id: usize,
+    count: isize,
+    child_ctx_id: usize,
+}
+impl Default for OpMinUntil {
+    fn default() -> Self {
+        Self {
+            jump_id: 0,
+            count: 0,
+            child_ctx_id: 0,
+        }
+    }
+}
+impl OpcodeExecutor for OpMinUntil {
+    fn next(&mut self, drive: &mut StackDrive) -> Option<()> {
+        match self.jump_id {
+            0 => {
+                drive.state.string_position = drive.ctx().string_position;
+                let repeat = match drive.state.repeat_stack.last_mut() {
+                    Some(repeat) => repeat,
+                    None => {
+                        todo!("Internal re error: MAX_UNTIL without REPEAT.");
+                    }
+                };
+                self.count = repeat.count + 1;
+                None
+            }
+            _ => unreachable!(),
+        }
+    }
+}
+
 struct OpBranch {
     jump_id: usize,
     child_ctx_id: usize,
@@ -1153,7 +1186,11 @@ struct OpBranch {
 }
 impl Default for OpBranch {
     fn default() -> Self {
-        Self { jump_id: 0, child_ctx_id: 0, current_branch_length: 0 }
+        Self {
+            jump_id: 0,
+            child_ctx_id: 0,
+            current_branch_length: 0,
+        }
     }
 }
 impl OpcodeExecutor for OpBranch {
@@ -1189,7 +1226,46 @@ impl OpcodeExecutor for OpBranch {
                 self.jump_id = 1;
                 Some(())
             }
-            _ => unreachable!()
+            _ => unreachable!(),
+        }
+    }
+}
+
+struct OpRepeat {
+    jump_id: usize,
+    child_ctx_id: usize,
+}
+impl Default for OpRepeat {
+    fn default() -> Self {
+        Self {
+            jump_id: 0,
+            child_ctx_id: 0,
+        }
+    }
+}
+impl OpcodeExecutor for OpRepeat {
+    fn next(&mut self, drive: &mut StackDrive) -> Option<()> {
+        match self.jump_id {
+            0 => {
+                let repeat = RepeatContext {
+                    skip: drive.peek_code(1),
+                    mincount: drive.peek_code(2),
+                    maxcount: drive.peek_code(3),
+                    count: -1,
+                    last_position: -1,
+                };
+                drive.state.repeat_stack.push(repeat);
+                drive.state.string_position = drive.ctx().string_position;
+                self.child_ctx_id = drive.push_new_context(drive.peek_code(1) as usize + 1);
+                self.jump_id = 1;
+                Some(())
+            }
+            1 => {
+                let child_ctx = &drive.state.context_stack[self.child_ctx_id];
+                drive.ctx_mut().has_matched = child_ctx.has_matched;
+                None
+            }
+            _ => unreachable!(),
         }
     }
 }
