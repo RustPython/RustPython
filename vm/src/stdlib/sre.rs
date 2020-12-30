@@ -80,13 +80,10 @@ mod _sre {
         indexgroup: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<Pattern> {
-        let code = vm.extract_elements::<u32>(&code)?;
-        dbg!(&code);
-
         Ok(Pattern {
             pattern,
             flags: SreFlag::from_bits_truncate(flags),
-            code,
+            code: vm.extract_elements::<u32>(&code)?,
             groups,
             groupindex,
             indexgroup: vm.extract_elements(&indexgroup)?,
@@ -134,21 +131,21 @@ mod _sre {
     #[pyimpl]
     impl Pattern {
         #[pymethod(name = "match")]
-        fn pymatch(&self, string_args: StringArgs, vm: &VirtualMachine) -> Option<PyRef<Match>> {
+        fn pymatch(zelf: PyRef<Pattern>, string_args: StringArgs, vm: &VirtualMachine) -> Option<PyRef<Match>> {
             interp::pymatch(
                 string_args.string,
                 string_args.pos,
                 string_args.endpos,
-                &self,
+                zelf,
             )
             .map(|x| x.into_ref(vm))
         }
         #[pymethod]
-        fn fullmatch(&self, string_args: StringArgs, vm: &VirtualMachine) -> Option<PyRef<Match>> {
+        fn fullmatch(zelf: PyRef<Pattern>, string_args: StringArgs, vm: &VirtualMachine) -> Option<PyRef<Match>> {
             // TODO: need optimize
             let start = string_args.pos;
             let end = string_args.endpos;
-            let m = self.pymatch(string_args, vm);
+            let m = Self::pymatch(zelf, string_args, vm);
             if let Some(m) = m {
                 if m.start == start && m.end == end {
                     return Some(m);
@@ -157,12 +154,12 @@ mod _sre {
             None
         }
         #[pymethod]
-        fn search(&self, string_args: StringArgs, vm: &VirtualMachine) -> Option<PyRef<Match>> {
+        fn search(zelf: PyRef<Pattern>, string_args: StringArgs, vm: &VirtualMachine) -> Option<PyRef<Match>> {
             // TODO: optimize by op info and skip prefix
             let start = string_args.pos;
             for i in start..string_args.endpos {
                 if let Some(m) =
-                    interp::pymatch(string_args.string.clone(), i, string_args.endpos, &self)
+                    interp::pymatch(string_args.string.clone(), i, string_args.endpos, zelf.clone())
                 {
                     return Some(m.into_ref(vm));
                 }
@@ -188,6 +185,10 @@ mod _sre {
         #[pyproperty]
         fn flags(&self) -> u16 {
             self.flags.bits()
+        }
+
+        fn subx(&self, sub_args: SubArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+            Err(vm.new_not_implemented_error("".to_owned()))
         }
     }
 

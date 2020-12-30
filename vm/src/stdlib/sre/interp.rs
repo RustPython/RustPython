@@ -3,6 +3,7 @@
 use super::_sre::{Match, Pattern, MAXREPEAT};
 use super::constants::{SreAtCode, SreCatCode, SreFlag, SreOpcode};
 use crate::builtins::PyStrRef;
+use crate::pyobject::PyRef;
 use rustpython_common::borrow::BorrowValue;
 use std::collections::HashMap;
 use std::convert::TryFrom;
@@ -98,7 +99,7 @@ pub(crate) fn pymatch(
     string: PyStrRef,
     start: usize,
     end: usize,
-    pattern: &Pattern,
+    pattern: PyRef<Pattern>,
 ) -> Option<Match> {
     let mut state = State::new(
         string.borrow_value(),
@@ -135,7 +136,7 @@ pub(crate) fn pymatch(
         return None;
     }
 
-    Some(Match::new(&state, pattern.pattern.clone(), string.clone()))
+    Some(Match::new(&state, pattern.clone().into_object(), string.clone()))
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -425,7 +426,7 @@ impl OpcodeDispatcher {
             }),
             SreOpcode::IN_LOC_IGNORE => once(|drive| {
                 let skip = drive.peek_code(1) as usize;
-                if drive.at_end() || !charset_loc_ignore(&drive.pattern()[1..], drive.peek_char()) {
+                if drive.at_end() || !charset_loc_ignore(&drive.pattern()[2..], drive.peek_char()) {
                     drive.ctx_mut().has_matched = Some(false);
                 } else {
                     drive.skip_code(skip + 1);
@@ -561,7 +562,7 @@ fn general_op_literal<F: FnOnce(u32, char) -> bool>(drive: &mut StackDrive, f: F
 
 fn general_op_in<F: FnOnce(char) -> char>(drive: &mut StackDrive, f: F) {
     let skip = drive.peek_code(1) as usize;
-    if drive.at_end() || !charset(&drive.pattern()[1..], f(drive.peek_char())) {
+    if drive.at_end() || !charset(&drive.pattern()[2..], f(drive.peek_char())) {
         drive.ctx_mut().has_matched = Some(false);
     } else {
         drive.skip_code(skip + 1);
@@ -698,7 +699,28 @@ fn charset(set: &[u32], c: char) -> bool {
     false
 }
 
-fn count(stack_drive: &StackDrive, maxcount: usize) -> usize {
+fn count(drive: &mut StackDrive, maxcount: usize) -> usize {
+    let mut count = 0;
+    let maxcount = std::cmp::min(maxcount, drive.remaining_chars());
+
+    let save_ctx = *drive.ctx();
+    drive.skip_code(4);
+    let reset_position = drive.ctx().code_position;
+
+    let mut dispatcher = OpcodeDispatcher::new();
+    while count < maxcount {
+        drive.ctx_mut().code_position = reset_position;
+        dispatcher.dispatch(SreOpcode::try_from(drive.peek_code(0)).unwrap(), drive);
+        if drive.ctx().has_matched == Some(false) {
+            break;
+        }
+        count += 1;
+    }
+    *drive.ctx_mut() = save_ctx;
+    count
+}
+
+fn _count(stack_drive: &StackDrive, maxcount: usize) -> usize {
     let mut drive = WrapDrive::drive(*stack_drive.ctx(), stack_drive);
     let maxcount = std::cmp::min(maxcount, drive.remaining_chars());
     let end = drive.ctx().string_position + maxcount;
