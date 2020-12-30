@@ -17,12 +17,12 @@ pub(crate) struct State<'a> {
     pub end: usize,
     flags: SreFlag,
     pattern_codes: &'a [u32],
-    marks: Vec<Option<usize>>,
+    pub marks: Vec<Option<usize>>,
     pub lastindex: isize,
     marks_stack: Vec<(Vec<Option<usize>>, isize)>,
     context_stack: Vec<MatchContext>,
     repeat_stack: Vec<RepeatContext>,
-    string_position: usize,
+    pub string_position: usize,
 }
 
 impl<'a> State<'a> {
@@ -136,7 +136,7 @@ pub(crate) fn pymatch(
         return None;
     }
 
-    Some(Match::new(&state, pattern.clone().into_object(), string.clone()))
+    Some(Match::new(&state, pattern.clone(), string.clone()))
 }
 
 #[derive(Debug, Copy, Clone)]
