@@ -1,4 +1,5 @@
 from testutils import assert_raises
+import sys
 
 a = []
 assert a[:] == []
@@ -129,3 +130,5 @@ def test_all_slices():
 
 
 test_all_slices()
+
+assert_raises(IndexError, lambda: b[::0], _msg='bytearray index out of range')
