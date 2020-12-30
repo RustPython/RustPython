@@ -1,5 +1,6 @@
 from testutils import assert_raises
 import pickle
+import sys
 
 # new
 assert bytearray([1, 2, 3])
@@ -754,3 +755,7 @@ assert type(a) == type(b)
 assert a.x == b.x
 assert a.y == b.y
 assert a == b
+
+a = bytearray()
+for i in range(-1, 2, 1):
+    assert_raises(IndexError, lambda: a[-sys.maxsize - i], _msg='bytearray index out of range')
