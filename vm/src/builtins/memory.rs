@@ -717,8 +717,9 @@ impl PyMemoryView {
 
         let format_spec = Self::parse_format(format.borrow_value(), vm)?;
         let itemsize = format_spec.size();
+        let bytelen = zelf.options.len * zelf.options.itemsize;
 
-        if zelf.options.len % itemsize != 0 {
+        if bytelen % itemsize != 0 {
             return Err(
                 vm.new_type_error("memoryview: length is not a multiple of itemsize".to_owned())
             );
@@ -732,6 +733,7 @@ impl PyMemoryView {
             buffer,
             options: BufferOptions {
                 itemsize,
+                len: bytelen / itemsize,
                 format: format.to_string().into(),
                 ..zelf.options.clone()
             },
