@@ -4,10 +4,10 @@ use std::{fmt, mem, os::raw::*};
 use num_bigint::Sign;
 use widestring::{WideCString, WideChar};
 
-use crate::builtins::memory::{try_buffer_from_object, Buffer, BufferOptions};
+use crate::builtins::memory::{try_buffer_from_object, Buffer};
 use crate::builtins::slice::PySliceRef;
 use crate::builtins::{PyBytes, PyInt, PyList, PyStr, PyTypeRef};
-use crate::common::lock::PyRwLockReadGuard;
+use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::function::FuncArgs;
 use crate::pyobject::{
     BorrowValue, Either, IdProtocol, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
@@ -16,7 +16,10 @@ use crate::pyobject::{
 use crate::slots::BufferProtocol;
 use crate::VirtualMachine;
 
-use crate::stdlib::ctypes::basics::{PyCData, PyCDataBuffer, RawBuffer};
+use crate::stdlib::ctypes::basics::{
+    generic_get_buffer, BorrowValue as BorrowValueCData, BorrowValueMut, PyCData, PyCDataMethods,
+    RawBuffer,
+};
 use crate::stdlib::ctypes::pointer::PyCPointer;
 use crate::stdlib::ctypes::primitive::PySimpleType;
 
@@ -161,18 +164,13 @@ pub fn make_array_with_lenght(
 
                 let itemsize = get_size(subletter.as_str());
 
-                let parent = PyCData::new(
-                    None,
-                    Some(RawBuffer {
-                        inner: Vec::with_capacity(length * itemsize).as_mut_ptr(),
-                        size: length * itemsize,
-                    }),
-                );
-
                 Ok(PyCArray {
                     _type_: subletter,
                     _length_: length,
-                    _parent: parent,
+                    _buffer: PyRwLock::new(RawBuffer {
+                        inner: Vec::with_capacity(length * itemsize).as_mut_ptr(),
+                        size: length * itemsize,
+                    }),
                 }
                 .into_ref_with_type(vm, cls)?)
             }
@@ -187,7 +185,7 @@ pub fn make_array_with_lenght(
 pub struct PyCArray {
     _type_: String,
     _length_: usize,
-    _parent: PyCData, //a hack
+    _buffer: PyRwLock<RawBuffer>,
 }
 
 impl fmt::Debug for PyCArray {
@@ -207,33 +205,29 @@ impl PyValue for PyCArray {
     }
 }
 
-impl<'a> BorrowValue<'a> for PyCArray {
-    type Borrowed = PyRwLockReadGuard<'a, RawBuffer>;
+impl<'a> BorrowValueCData<'a> for PyCArray {
+    fn borrow_value(&'a self) -> PyRwLockReadGuard<'a, RawBuffer> {
+        self._buffer.read()
+    }
+}
 
-    fn borrow_value(&'a self) -> Self::Borrowed {
-        self._parent.borrow_value()
+impl<'a> BorrowValueMut<'a> for PyCArray {
+    fn borrow_value_mut(&'a self) -> PyRwLockWriteGuard<'a, RawBuffer> {
+        self._buffer.write()
     }
 }
 
 impl BufferProtocol for PyCArray {
     fn get_buffer(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<Box<dyn Buffer>> {
-        let raw_buffer_guard = zelf.borrow_value();
-        let raw_buffer = RawBuffer {
-            inner: raw_buffer_guard.inner,
-            size: raw_buffer_guard.size,
-        };
-        let parent_cloned_ref = PyCData::new(None, Some(raw_buffer)).into_ref(vm);
-
-        Ok(Box::new(PyCDataBuffer {
-            data: parent_cloned_ref,
-            options: BufferOptions {
-                readonly: false,
-                len: raw_buffer_guard.size,
-                ..Default::default()
-            },
-        }))
+        generic_get_buffer::<Self>(zelf, vm)
     }
 }
+
+// impl PyCDataMethods for PyCArray {
+//     fn from_param(cls: PyTypeRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+
+//     }
+// }
 
 #[pyimpl(flags(BASETYPE), with(BufferProtocol))]
 impl PyCArray {
@@ -247,10 +241,11 @@ impl PyCArray {
                             "The '_length_' attribute must not be negative".to_string(),
                         ))
                     } else {
-                        Ok(usize::try_from_object(vm, length_obj.clone())
-                            .or(Err(vm.new_overflow_error(
+                        Ok(usize::try_from_object(vm, length_obj.clone()).map_err(|_| {
+                            vm.new_overflow_error(
                                 "The '_length_' attribute is too large".to_string(),
-                            )))?)
+                            )
+                        })?)
                     }
                 } else {
                     Err(vm
@@ -394,7 +389,7 @@ impl PyCArray {
     }
 
     #[pyproperty(name = "raw")]
-    pub fn raw(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+    fn raw(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         // zelf._type_ == "c"
 
         let obj = zelf.as_object();
@@ -456,6 +451,9 @@ impl PyCArray {
                     .clone()
                     .map_or(Ok(1), |o| isize::try_from_object(vm, o))?;
 
+                assert!(step != 0);
+                assert!(step >= -isize::MAX);
+
                 let mut start = slice
                     .start
                     .clone()
@@ -494,9 +492,29 @@ impl PyCArray {
     //     obj: PyObjectRef,
     //     vm: &VirtualMachine,
     // ) -> PyResult<()> {
+    //     let buffer = try_buffer_from_object(vm, zelf.as_object())?;
+    //     let buffer_size = buffer.get_options().len;
+    //     let buffer_bytes = buffer.obj_bytes_mut();
+    //     let offset = buffer_size / zelf.len();
+
     //     match k_or_idx {
     //         Either::A(idx) => {
+    //             if idx < 0 || idx as usize > zelf._length_ {
+    //                 Err(vm.new_index_error("invalid index".to_string()))
+    //             } else {
+    //                 let idx = idx as usize;
+    //                 let type_obj = get_obj(zelf._type_.as_str())
+    //                 if let Some(from_param) = vm.get_method(type_obj.clone(), "from_param"){
+    //                     let cobj = vm.invoke(
+    //                         &from_param?,
+    //                         (type_obj, obj),
+    //                     )?;
+    //                 } else {
 
+    //                 }
+    //                 // buffer_bytes[idx..idx + offset];
+    //                 Ok(())
+    //             }?
     //         },
     //         Either::B(slice) => {
     //             let slice_length = slice_adjust_size(zelf._length_ as isize, &mut start, &mut stop, step) as usize;

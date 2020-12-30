@@ -4,7 +4,7 @@ use crate::builtins::PyTypeRef;
 use crate::pyobject::{PyValue, StaticType};
 use crate::VirtualMachine;
 
-use crate::stdlib::ctypes::basics::PyCData;
+use crate::stdlib::ctypes::basics::{PyCData, PyCDataMethods};
 
 #[pyclass(module = "_ctypes", name = "_Pointer", base = "PyCData")]
 pub struct PyCPointer {}
@@ -20,3 +20,12 @@ impl PyValue for PyCPointer {
         Self::static_type()
     }
 }
+
+// impl PyCDataMethods for PyCPointer {
+//     fn from_param(cls: PyTypeRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+
+//     }
+// }
+
+#[pyimpl(flags(BASETYPE))]
+impl PyCPointer {}

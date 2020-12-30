@@ -14,7 +14,7 @@ use crate::pyobject::{
 use crate::VirtualMachine;
 
 use crate::stdlib::ctypes::array::PyCArray;
-use crate::stdlib::ctypes::basics::PyCData;
+use crate::stdlib::ctypes::basics::{BorrowValueMut, PyCData, PyCDataMethods};
 use crate::stdlib::ctypes::function::PyCFuncPtr;
 use crate::stdlib::ctypes::pointer::PyCPointer;
 
@@ -130,8 +130,11 @@ fn generic_xxx_p_from_param(
     type_str: &str,
     vm: &VirtualMachine,
 ) -> PyResult<PyObjectRef> {
-    if vm.is_none(value)
-        || vm.isinstance(value, &vm.ctx.types.str_type)?
+    if vm.is_none(value) {
+        return Ok(vm.ctx.none());
+    }
+
+    if vm.isinstance(value, &vm.ctx.types.str_type)?
         || vm.isinstance(value, &vm.ctx.types.bytes_type)?
     {
         Ok(PySimpleType {
@@ -198,7 +201,7 @@ fn from_param_void_p(
     {
         // @TODO: Is there a better way of doing this?
         if let Some(from_address) = vm.get_method(cls.as_object().clone(), "from_address") {
-            if let Ok(cdata) = value.clone().downcast_exact::<PyCData>(vm) {
+            if let Ok(cdata) = value.clone().downcast::<PyCData>() {
                 let buffer_guard = cdata.borrow_value_mut();
                 let addr = buffer_guard.inner as usize;
 
@@ -285,6 +288,12 @@ impl PyValue for PySimpleType {
         Self::static_type()
     }
 }
+
+// impl PyCDataMethods for PySimpleType {
+//     fn from_param(cls: PyTypeRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+
+//     }
+// }
 
 #[pyimpl(flags(BASETYPE))]
 impl PySimpleType {

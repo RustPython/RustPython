@@ -8,7 +8,7 @@ use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
 use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::function::OptionalArg;
 use crate::pyobject::{
-    BorrowValue, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
+    PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
 };
 use crate::slots::BufferProtocol;
 use crate::VirtualMachine;
@@ -119,6 +119,24 @@ fn buffer_copy(
     }
 }
 
+pub fn default_from_param(
+    cls: PyTypeRef,
+    value: PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult<PyObjectRef> {
+    if vm.isinstance(&value, &cls)? {
+        Ok(value)
+    } else if let Ok(parameter) = vm.get_attribute(value.clone(), "_as_parameter_") {
+        default_from_param(cls, parameter, vm)
+    } else {
+        Err(vm.new_attribute_error(format!(
+            "expected {} instance instead of {}",
+            cls.name,
+            value.class().name
+        )))
+    }
+}
+
 #[pyimpl]
 pub trait PyCDataMethods: PyValue {
     // A lot of the logic goes in this trait
@@ -132,7 +150,8 @@ pub trait PyCDataMethods: PyValue {
     // PyCFuncPtrType_Type
 
     #[pyclassmethod]
-    fn from_param(cls: PyTypeRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyCData>;
+    fn from_param(cls: PyTypeRef, value: PyObjectRef, vm: &VirtualMachine)
+        -> PyResult<PyObjectRef>;
 
     #[pyclassmethod]
     fn from_address(
@@ -218,35 +237,59 @@ pub trait PyCDataSequenceMethods: PyValue {
     }
 }
 
-impl<'a> BorrowValue<'a> for PyCData {
-    type Borrowed = PyRwLockReadGuard<'a, RawBuffer>;
+pub fn generic_get_buffer<T>(zelf: &PyRef<T>, vm: &VirtualMachine) -> PyResult<Box<dyn Buffer>>
+where
+    for<'a> T: PyValue + fmt::Debug + BorrowValue<'a> + BorrowValueMut<'a>,
+{
+    if let Ok(buffer) = vm.get_attribute(zelf.as_object().clone(), "_buffer") {
+        if let Ok(_buffer) = buffer.downcast_exact::<RawBuffer>(vm) {
+            Ok(Box::new(PyCBuffer::<T> {
+                data: zelf.clone(),
+                options: BufferOptions {
+                    readonly: false,
+                    len: _buffer.size,
+                    ..Default::default()
+                },
+            }))
+        } else {
+            Err(vm.new_attribute_error("_buffer attribute should be RawBuffer".to_string()))
+        }
+    } else {
+        Err(vm.new_attribute_error("_buffer not found".to_string()))
+    }
+}
 
-    fn borrow_value(&'a self) -> Self::Borrowed {
+pub trait BorrowValueMut<'a> {
+    fn borrow_value_mut(&'a self) -> PyRwLockWriteGuard<'a, RawBuffer>;
+}
+
+pub trait BorrowValue<'a> {
+    fn borrow_value(&'a self) -> PyRwLockReadGuard<'a, RawBuffer>;
+}
+
+impl<'a> BorrowValue<'a> for PyCData {
+    fn borrow_value(&'a self) -> PyRwLockReadGuard<'a, RawBuffer> {
         self._buffer.read()
     }
 }
 
-impl BufferProtocol for PyCData {
-    fn get_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<Box<dyn Buffer>> {
-        Ok(Box::new(PyCDataBuffer {
-            data: zelf.clone(),
-            options: BufferOptions {
-                readonly: false,
-                len: zelf._buffer.read().size,
-                ..Default::default()
-            },
-        }))
+impl<'a> BorrowValueMut<'a> for PyCData {
+    fn borrow_value_mut(&'a self) -> PyRwLockWriteGuard<'a, RawBuffer> {
+        self._buffer.write()
     }
 }
 
-#[derive(Debug)]
-pub struct PyCDataBuffer {
-    pub data: PyCDataRef,
-    pub options: BufferOptions,
+impl BufferProtocol for PyCData {
+    fn get_buffer(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<Box<dyn Buffer>> {
+        generic_get_buffer::<Self>(zelf, vm)
+    }
 }
 
 // This trait will be used by all types
-impl Buffer for PyCDataBuffer {
+impl<T> Buffer for PyCBuffer<T>
+where
+    for<'a> T: PyValue + fmt::Debug + BorrowValue<'a> + BorrowValueMut<'a>,
+{
     fn obj_bytes(&self) -> BorrowedValue<[u8]> {
         PyRwLockReadGuard::map(self.data.borrow_value(), |x| unsafe {
             slice::from_raw_parts(x.inner, x.size)
@@ -267,6 +310,16 @@ impl Buffer for PyCDataBuffer {
         &self.options
     }
 }
+
+#[derive(Debug)]
+pub struct PyCBuffer<T>
+where
+    for<'a> T: PyValue + fmt::Debug + BorrowValue<'a> + BorrowValueMut<'a>,
+{
+    pub data: PyRef<T>,
+    pub options: BufferOptions,
+}
+
 pub struct RawBuffer {
     pub inner: *mut u8,
     pub size: usize,
@@ -296,8 +349,6 @@ pub struct PyCData {
     _buffer: PyRwLock<RawBuffer>,
 }
 
-pub type PyCDataRef = PyRef<PyCData>;
-
 impl fmt::Debug for PyCData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "PyCData {{ _objects: {{}}, _buffer: {{}}}}",)
@@ -319,10 +370,6 @@ impl PyCData {
                 size: 0,
             })),
         }
-    }
-
-    pub fn borrow_value_mut(&self) -> PyRwLockWriteGuard<'_, RawBuffer> {
-        self._buffer.write()
     }
 }
 
