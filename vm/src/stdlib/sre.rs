@@ -5,10 +5,17 @@ pub(crate) use _sre::make_module;
 
 #[pymodule]
 mod _sre {
+    use rustpython_common::borrow::BorrowValue;
+    use rustpython_common::lock::OnceCell;
+
     use super::constants::SreFlag;
     use super::interp::{self, lower_ascii, lower_unicode, upper_unicode, State};
+    use crate::builtins::tuple::PyTupleRef;
     use crate::builtins::{PyStrRef, PyTypeRef};
-    use crate::pyobject::{Either, PyCallable, PyObjectRef, PyRef, PyResult, PyValue, StaticType};
+    use crate::function::OptionalArg;
+    use crate::pyobject::{
+        Either, IntoPyObject, PyCallable, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TypeProtocol,
+    };
     use crate::VirtualMachine;
     use std::collections::HashMap;
     use std::convert::TryFrom;
@@ -131,7 +138,11 @@ mod _sre {
     #[pyimpl]
     impl Pattern {
         #[pymethod(name = "match")]
-        fn pymatch(zelf: PyRef<Pattern>, string_args: StringArgs, vm: &VirtualMachine) -> Option<PyRef<Match>> {
+        fn pymatch(
+            zelf: PyRef<Pattern>,
+            string_args: StringArgs,
+            vm: &VirtualMachine,
+        ) -> Option<PyRef<Match>> {
             interp::pymatch(
                 string_args.string,
                 string_args.pos,
@@ -141,26 +152,35 @@ mod _sre {
             .map(|x| x.into_ref(vm))
         }
         #[pymethod]
-        fn fullmatch(zelf: PyRef<Pattern>, string_args: StringArgs, vm: &VirtualMachine) -> Option<PyRef<Match>> {
+        fn fullmatch(
+            zelf: PyRef<Pattern>,
+            string_args: StringArgs,
+            vm: &VirtualMachine,
+        ) -> Option<PyRef<Match>> {
             // TODO: need optimize
-            let start = string_args.pos;
-            let end = string_args.endpos;
             let m = Self::pymatch(zelf, string_args, vm);
             if let Some(m) = m {
-                if m.start == start && m.end == end {
+                if m.regs[0].0 == m.pos as isize && m.regs[0].1 == m.endpos as isize {
                     return Some(m);
                 }
             }
             None
         }
         #[pymethod]
-        fn search(zelf: PyRef<Pattern>, string_args: StringArgs, vm: &VirtualMachine) -> Option<PyRef<Match>> {
+        fn search(
+            zelf: PyRef<Pattern>,
+            string_args: StringArgs,
+            vm: &VirtualMachine,
+        ) -> Option<PyRef<Match>> {
             // TODO: optimize by op info and skip prefix
             let start = string_args.pos;
             for i in start..string_args.endpos {
-                if let Some(m) =
-                    interp::pymatch(string_args.string.clone(), i, string_args.endpos, zelf.clone())
-                {
+                if let Some(m) = interp::pymatch(
+                    string_args.string.clone(),
+                    i,
+                    string_args.endpos,
+                    zelf.clone(),
+                ) {
                     return Some(m.into_ref(vm));
                 }
             }
@@ -197,11 +217,12 @@ mod _sre {
     #[derive(Debug)]
     pub(crate) struct Match {
         string: PyStrRef,
-        pattern: PyObjectRef,
-        start: usize,
-        end: usize,
+        pattern: PyRef<Pattern>,
+        pos: usize,
+        endpos: usize,
         lastindex: isize,
-        // regs
+        regs: Vec<(isize, isize)>,
+        regs_pytuple: OnceCell<PyTupleRef>,
         // lastgroup
     }
     impl PyValue for Match {
@@ -212,22 +233,41 @@ mod _sre {
 
     #[pyimpl]
     impl Match {
-        pub(crate) fn new(state: &State, pattern: PyObjectRef, string: PyStrRef) -> Self {
+        pub(crate) fn new(state: &State, pattern: PyRef<Pattern>, string: PyStrRef) -> Self {
+            let mut regs = vec![(state.start as isize, state.string_position as isize)];
+            for group in 0..pattern.groups {
+                let mark_index = 2 * group;
+                match (
+                    mark_index + 1 < state.marks.len(),
+                    state.marks[mark_index],
+                    state.marks[mark_index + 1],
+                ) {
+                    (true, Some(start), Some(end)) => {
+                        regs.push((start as isize, end as isize));
+                    }
+                    _ => {
+                        regs.push((-1, -1));
+                    }
+                }
+            }
             Self {
                 string,
                 pattern,
-                start: state.start,
-                end: state.end,
+                pos: state.start,
+                endpos: state.end,
                 lastindex: state.lastindex,
+                regs,
+                regs_pytuple: OnceCell::new()
             }
         }
+
         #[pyproperty]
         fn pos(&self) -> usize {
-            self.start
+            self.pos
         }
         #[pyproperty]
         fn endpos(&self) -> usize {
-            self.end
+            self.endpos
         }
         #[pyproperty]
         fn lastindex(&self) -> isize {
@@ -239,11 +279,62 @@ mod _sre {
         }
         #[pyproperty]
         fn re(&self) -> PyObjectRef {
-            self.pattern.clone()
+            self.pattern.clone().into_object()
         }
         #[pyproperty]
         fn string(&self) -> PyStrRef {
             self.string.clone()
+        }
+        #[pyproperty]
+        fn regs(&self, vm: &VirtualMachine) -> PyTupleRef {
+            self.regs_pytuple
+                .get_or_init(|| {
+                    PyTupleRef::with_elements(
+                        self.regs.iter().map(|&x| x.into_pyobject(vm)).collect(),
+                        &vm.ctx,
+                    )
+                })
+                .clone()
+        }
+
+        #[pymethod]
+        fn start(&self, group: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult<isize> {
+            self.get_index(group, vm).map(|x| self.regs[x].0)
+        }
+        #[pymethod]
+        fn end(&self, group: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult<isize> {
+            self.get_index(group, vm).map(|x| self.regs[x].1)
+        }
+        #[pymethod]
+        fn span(&self, group: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult<(isize, isize)> {
+            self.get_index(group, vm).map(|x| self.regs[x])
+        }
+        #[pymethod(magic)]
+        fn repr(zelf: PyRef<Match>) -> String {
+            format!(
+                "<re.Match object; span=({}, {}), match='{}'>",
+                zelf.regs[0].0,
+                zelf.regs[0].1,
+                zelf.get_slice(0).unwrap()
+            )
+        }
+
+        fn get_index(&self, group: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult<usize> {
+            // TODO: support key, value index
+            let group = group.unwrap_or(0);
+            if group >= 0 && group as usize <= self.pattern.groups {
+                Ok(group as usize)
+            } else {
+                Err(vm.new_index_error("no such group".to_owned()))
+            }
+        }
+
+        fn get_slice(&self, group: usize) -> Option<String> {
+            let (start, end) = self.regs[group];
+            if start < 0 || end < 0 {
+                return None;
+            }
+            self.string.borrow_value().get(start as usize..end as usize).map(|x| x.to_string())
         }
     }
 }
