@@ -391,7 +391,7 @@ impl TryFromObject for SequenceIndex {
 // Use PySliceableSequence::wrap_index for implementors
 pub(crate) fn wrap_index(p: isize, len: usize) -> Option<usize> {
     let neg = p.is_negative();
-    let p = p.abs().to_usize()?;
+    let p = p.wrapping_abs() as usize;
     if neg {
         len.checked_sub(p)
     } else if p >= len {
