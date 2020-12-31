@@ -262,7 +262,7 @@ fn new_simple_type(cls: &PyTypeRef, vm: &VirtualMachine) -> PyResult<PySimpleTyp
 
 #[pyclass(module = "_ctypes", name = "_SimpleCData", base = "PyCData")]
 pub struct PySimpleType {
-    _type_: String,
+    pub _type_: String,
     value: AtomicCell<PyObjectRef>,
     __abstract__: bool,
 }
@@ -289,75 +289,20 @@ impl PyValue for PySimpleType {
     }
 }
 
-// impl PyCDataMethods for PySimpleType {
-//     fn from_param(cls: PyTypeRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-
-//     }
-// }
-
-#[pyimpl(flags(BASETYPE))]
-impl PySimpleType {
-    #[pyslot]
-    fn tp_new(cls: PyTypeRef, _: OptionalArg, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        new_simple_type(&cls, vm)?.into_ref_with_type(vm, cls)
-    }
-
-    #[pymethod(magic)]
-    pub fn init(&self, value: OptionalArg, vm: &VirtualMachine) -> PyResult<()> {
-        match value.into_option() {
-            Some(ref v) => {
-                let content = set_primitive(self._type_.as_str(), v, vm)?;
-                self.value.store(content);
-            }
-            _ => {
-                self.value.store(match self._type_.as_str() {
-                    "c" | "u" => vm.ctx.new_bytes(vec![0]),
-                    "b" | "B" | "h" | "H" | "i" | "I" | "l" | "q" | "L" | "Q" => vm.ctx.new_int(0),
-                    "f" | "d" | "g" => vm.ctx.new_float(0.0),
-                    "?" => vm.ctx.new_bool(false),
-                    _ => vm.ctx.none(), // "z" | "Z" | "P"
-                });
-            }
-        }
-        Ok(())
-    }
-
-    #[pyproperty(name = "value")]
-    pub fn value(&self) -> PyObjectRef {
-        unsafe { (*self.value.as_ptr()).clone() }
-    }
-
-    #[pyproperty(name = "value", setter)]
-    fn set_value(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let content = set_primitive(self._type_.as_str(), &value, vm)?;
-        self.value.store(content);
-        Ok(())
-    }
-
-    // From Simple_Type Simple_methods
-    #[pymethod(magic)]
-    pub fn ctypes_from_outparam(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        if let Some(base) = zelf.class().base.clone() {
-            if vm.bool_eq(&base.as_object(), PySimpleType::static_type().as_object())? {
-                return Ok(zelf.as_object().clone());
-            }
-        }
-        Ok(zelf.value())
-    }
-
+impl PyCDataMethods for PySimpleType {
     // From PyCSimpleType_Type PyCSimpleType_methods
-    #[pyclassmethod]
-    pub fn from_param(
-        cls: PyTypeRef,
+    fn from_param(
+        zelf: PyRef<Self>,
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
+        let cls = zelf.clone_class();
         if cls.is(PySimpleType::static_type()) {
             Err(vm.new_type_error("abstract class".to_string()))
         } else if vm.isinstance(&value, &cls)? {
             Ok(value)
         } else {
-            match vm.get_attribute(cls.as_object().to_owned(), "_type_") {
+            match vm.get_attribute(zelf.as_object().clone(), "_type_") {
                 Ok(tp_obj) if vm.isinstance(&tp_obj, &vm.ctx.types.str_type)? => {
                     let _type_ = tp_obj.downcast_exact::<PyStr>(vm).unwrap();
                     let tp_str = _type_.as_ref();
@@ -408,6 +353,57 @@ impl PySimpleType {
                 }
             }
         }
+    }
+}
+
+#[pyimpl(flags(BASETYPE))]
+impl PySimpleType {
+    #[pyslot]
+    fn tp_new(cls: PyTypeRef, _: OptionalArg, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        new_simple_type(&cls, vm)?.into_ref_with_type(vm, cls)
+    }
+
+    #[pymethod(magic)]
+    pub fn init(&self, value: OptionalArg, vm: &VirtualMachine) -> PyResult<()> {
+        match value.into_option() {
+            Some(ref v) => {
+                let content = set_primitive(self._type_.as_str(), v, vm)?;
+                self.value.store(content);
+            }
+            _ => {
+                self.value.store(match self._type_.as_str() {
+                    "c" | "u" => vm.ctx.new_bytes(vec![0]),
+                    "b" | "B" | "h" | "H" | "i" | "I" | "l" | "q" | "L" | "Q" => vm.ctx.new_int(0),
+                    "f" | "d" | "g" => vm.ctx.new_float(0.0),
+                    "?" => vm.ctx.new_bool(false),
+                    _ => vm.ctx.none(), // "z" | "Z" | "P"
+                });
+            }
+        }
+        Ok(())
+    }
+
+    #[pyproperty(name = "value")]
+    pub fn value(&self) -> PyObjectRef {
+        unsafe { (*self.value.as_ptr()).clone() }
+    }
+
+    #[pyproperty(name = "value", setter)]
+    fn set_value(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let content = set_primitive(self._type_.as_str(), &value, vm)?;
+        self.value.store(content);
+        Ok(())
+    }
+
+    // From Simple_Type Simple_methods
+    #[pymethod(magic)]
+    pub fn ctypes_from_outparam(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        if let Some(base) = zelf.class().base.clone() {
+            if vm.bool_eq(&base.as_object(), PySimpleType::static_type().as_object())? {
+                return Ok(zelf.as_object().clone());
+            }
+        }
+        Ok(zelf.value())
     }
 
     // Simple_repr

@@ -22,7 +22,7 @@ impl PyValue for PyCPointer {
 }
 
 // impl PyCDataMethods for PyCPointer {
-//     fn from_param(cls: PyTypeRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+//     fn from_param(zelf: PyRef<Self>, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
 
 //     }
 // }

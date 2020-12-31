@@ -149,9 +149,12 @@ pub trait PyCDataMethods: PyValue {
     // PyCArrayType_Type
     // PyCFuncPtrType_Type
 
-    #[pyclassmethod]
-    fn from_param(cls: PyTypeRef, value: PyObjectRef, vm: &VirtualMachine)
-        -> PyResult<PyObjectRef>;
+    #[pymethod]
+    fn from_param(
+        zelf: PyRef<Self>,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef>;
 
     #[pyclassmethod]
     fn from_address(

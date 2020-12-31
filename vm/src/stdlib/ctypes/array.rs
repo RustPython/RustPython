@@ -7,6 +7,7 @@ use widestring::{WideCString, WideChar};
 use crate::builtins::memory::{try_buffer_from_object, Buffer};
 use crate::builtins::slice::PySliceRef;
 use crate::builtins::{PyBytes, PyInt, PyList, PyStr, PyTypeRef};
+use crate::common::borrow::BorrowedValueMut;
 use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::function::FuncArgs;
 use crate::pyobject::{
@@ -150,40 +151,91 @@ pub fn make_array_with_lenght(
     vm: &VirtualMachine,
 ) -> PyResult<PyRef<PyCArray>> {
     if let Ok(ref outer_type) = vm.get_attribute(cls.as_object().to_owned(), "_type_") {
-        match vm.get_attribute(outer_type.clone(), "_type_") {
-            Ok(inner_type)
-                if vm.issubclass(&inner_type.clone_class(), &PyCPointer::static_type())?
-                    || vm
-                        .issubclass(&inner_type.clone_class(), &PySimpleType::static_type())? =>
-            {
-                let subletter = vm
-                    .get_attribute(outer_type.clone(), "_type_")?
-                    .downcast_exact::<PyStr>(vm)
-                    .unwrap()
-                    .to_string();
+        if let Ok(_type_) = outer_type.clone().downcast_exact::<PySimpleType>(vm) {
+            let itemsize = get_size(_type_._type_.as_str());
 
-                let itemsize = get_size(subletter.as_str());
-
-                Ok(PyCArray {
-                    _type_: subletter,
-                    _length_: length,
-                    _buffer: PyRwLock::new(RawBuffer {
-                        inner: Vec::with_capacity(length * itemsize).as_mut_ptr(),
-                        size: length * itemsize,
-                    }),
-                }
-                .into_ref_with_type(vm, cls)?)
+            Ok(PyCArray {
+                _type_,
+                _length_: length,
+                _buffer: PyRwLock::new(RawBuffer {
+                    inner: Vec::with_capacity(length * itemsize).as_mut_ptr(),
+                    size: length * itemsize,
+                }),
             }
-            _ => Err(vm.new_type_error("_type_ must have storage info".to_string())),
+            .into_ref_with_type(vm, cls)?)
+        } else {
+            Err(vm.new_type_error("_type_ must have storage info".to_string()))
         }
     } else {
         Err(vm.new_attribute_error("class must define a '_type_' attribute".to_string()))
     }
 }
 
+fn set_array_value(
+    zelf: &PyRef<PyCArray>,
+    dst_buffer: &mut BorrowedValueMut<[u8]>,
+    idx: usize,
+    offset: usize,
+    obj: PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    if obj.clone().downcast::<PyCData>().is_err() {
+        let value = PyCDataMethods::from_param(zelf._type_.clone(), obj, vm)?;
+
+        let v_buffer = try_buffer_from_object(vm, &value)?;
+        let v_buffer_bytes = v_buffer.obj_bytes_mut();
+
+        dst_buffer[idx..idx + offset].copy_from_slice(&v_buffer_bytes[0..]);
+        Ok(())
+    } else if vm.isinstance(&obj, &zelf._type_.clone_class())? {
+        let o_buffer = try_buffer_from_object(vm, &obj)?;
+        let src_buffer = o_buffer.obj_bytes_mut();
+
+        dst_buffer[idx..idx + offset].copy_from_slice(&src_buffer[idx..idx + offset]);
+        Ok(())
+    } else if vm.isinstance(zelf._type_.as_object(), PyCPointer::static_type())?
+        && vm.isinstance(&obj, PyCArray::static_type())?
+    {
+        //@TODO: Fill here once CPointer is done
+        Ok(())
+    } else {
+        Err(vm.new_type_error(format!(
+            "incompatible types, {} instance instead of {} instance",
+            obj.class().name,
+            zelf.class().name
+        )))
+    }
+}
+
+fn array_get_slice_inner(
+    slice: PySliceRef,
+    vm: &VirtualMachine,
+) -> PyResult<(isize, isize, isize)> {
+    let step = slice
+        .step
+        .clone()
+        .map_or(Ok(1), |o| isize::try_from_object(vm, o))?;
+
+    assert!(step != 0);
+    assert!(step >= -isize::MAX);
+
+    let start = slice
+        .start
+        .clone()
+        .map_or(Ok(0), |o| isize::try_from_object(vm, o))?;
+
+    let stop = if slice.stop.is(&vm.ctx.none()) {
+        Err(vm.new_value_error("slice stop is required".to_string()))
+    } else {
+        Ok(isize::try_from_object(vm, slice.stop.clone())?)
+    }?;
+
+    Ok((step, start, stop))
+}
+
 #[pyclass(module = "_ctypes", name = "Array", base = "PyCData")]
 pub struct PyCArray {
-    _type_: String,
+    _type_: PyRef<PySimpleType>,
     _length_: usize,
     _buffer: PyRwLock<RawBuffer>,
 }
@@ -193,7 +245,7 @@ impl fmt::Debug for PyCArray {
         write!(
             f,
             "PyCArray {{ {} {} }}",
-            self._type_.as_str(),
+            self._type_._type_.as_str(),
             self._length_
         )
     }
@@ -224,7 +276,7 @@ impl BufferProtocol for PyCArray {
 }
 
 // impl PyCDataMethods for PyCArray {
-//     fn from_param(cls: PyTypeRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+//     fn from_param(zelf: PyRef<Self>, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
 
 //     }
 // }
@@ -271,7 +323,7 @@ impl PyCArray {
         let obj = zelf.as_object();
         let buffer = try_buffer_from_object(vm, obj)?;
 
-        let res = if zelf._type_ == "u" {
+        let res = if zelf._type_._type_ == "u" {
             vm.new_pyobj(
                 unsafe {
                     if cfg!(windows) {
@@ -328,7 +380,7 @@ impl PyCArray {
         let my_size = buffer.get_options().len;
         let mut bytes = buffer.obj_bytes_mut();
 
-        if zelf._type_ == "c" {
+        if zelf._type_._type_ == "c" {
             // bytes
             if let Ok(value) = value.clone().downcast_exact::<PyBytes>(vm) {
                 let wide_bytes = value.to_vec();
@@ -442,28 +494,11 @@ impl PyCArray {
                 } else {
                     let idx = idx as usize;
                     let buffer_slice = buffer_bytes[idx..idx + offset].as_ref();
-                    Ok(byte_to_pyobj(zelf._type_.as_str(), buffer_slice, vm))
+                    Ok(byte_to_pyobj(zelf._type_._type_.as_str(), buffer_slice, vm))
                 }?
             }
             Either::B(slice) => {
-                let step = slice
-                    .step
-                    .clone()
-                    .map_or(Ok(1), |o| isize::try_from_object(vm, o))?;
-
-                assert!(step != 0);
-                assert!(step >= -isize::MAX);
-
-                let mut start = slice
-                    .start
-                    .clone()
-                    .map_or(Ok(0), |o| isize::try_from_object(vm, o))?;
-
-                let mut stop = if slice.stop.is(&vm.ctx.none()) {
-                    Err(vm.new_value_error("slice stop is required".to_string()))
-                } else {
-                    Ok(isize::try_from_object(vm, slice.stop.clone())?)
-                }?;
+                let (step, mut start, mut stop) = array_get_slice_inner(slice, vm)?;
 
                 let slice_length =
                     slice_adjust_size(zelf._length_ as isize, &mut start, &mut stop, step) as usize;
@@ -472,7 +507,7 @@ impl PyCArray {
 
                 for i in (start as usize..stop as usize).step_by(step as usize) {
                     obj_vec.push(byte_to_pyobj(
-                        zelf._type_.as_str(),
+                        zelf._type_._type_.as_str(),
                         buffer_bytes[i..i + offset].as_ref(),
                         vm,
                     ));
@@ -485,40 +520,47 @@ impl PyCArray {
         Ok(res)
     }
 
-    // #[pymethod(magic)]
-    // fn setitem(
-    //     zelf: PyRef<Self>,
-    //     k_or_idx: Either<isize, PySliceRef>,
-    //     obj: PyObjectRef,
-    //     vm: &VirtualMachine,
-    // ) -> PyResult<()> {
-    //     let buffer = try_buffer_from_object(vm, zelf.as_object())?;
-    //     let buffer_size = buffer.get_options().len;
-    //     let buffer_bytes = buffer.obj_bytes_mut();
-    //     let offset = buffer_size / zelf.len();
+    #[pymethod(magic)]
+    fn setitem(
+        zelf: PyRef<Self>,
+        k_or_idx: Either<isize, PySliceRef>,
+        obj: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let buffer = try_buffer_from_object(vm, zelf.as_object())?;
+        let buffer_size = buffer.get_options().len;
+        let mut buffer_bytes = buffer.obj_bytes_mut();
 
-    //     match k_or_idx {
-    //         Either::A(idx) => {
-    //             if idx < 0 || idx as usize > zelf._length_ {
-    //                 Err(vm.new_index_error("invalid index".to_string()))
-    //             } else {
-    //                 let idx = idx as usize;
-    //                 let type_obj = get_obj(zelf._type_.as_str())
-    //                 if let Some(from_param) = vm.get_method(type_obj.clone(), "from_param"){
-    //                     let cobj = vm.invoke(
-    //                         &from_param?,
-    //                         (type_obj, obj),
-    //                     )?;
-    //                 } else {
+        let offset = buffer_size / zelf.len();
 
-    //                 }
-    //                 // buffer_bytes[idx..idx + offset];
-    //                 Ok(())
-    //             }?
-    //         },
-    //         Either::B(slice) => {
-    //             let slice_length = slice_adjust_size(zelf._length_ as isize, &mut start, &mut stop, step) as usize;
-    //         }
-    //     }
-    // }
+        match k_or_idx {
+            Either::A(idx) => {
+                if idx < 0 || idx as usize > zelf._length_ {
+                    Err(vm.new_index_error("invalid index".to_string()))
+                } else {
+                    set_array_value(&zelf, &mut buffer_bytes, idx as usize, offset, obj, vm)
+                }
+            }
+            Either::B(slice) => {
+                let (step, mut start, mut stop) = array_get_slice_inner(slice, vm)?;
+
+                let slice_length =
+                    slice_adjust_size(zelf._length_ as isize, &mut start, &mut stop, step) as usize;
+
+                let values: Vec<PyObjectRef> = vm.extract_elements(&obj)?;
+
+                if values.len() != slice_length {
+                    Err(vm.new_value_error("Can only assign sequence of same size".to_string()))
+                } else {
+                    let mut cur = start as usize;
+
+                    for v in values {
+                        set_array_value(&zelf, &mut buffer_bytes, cur, offset, v, vm)?;
+                        cur += step as usize;
+                    }
+                    Ok(())
+                }
+            }
+        }
+    }
 }
