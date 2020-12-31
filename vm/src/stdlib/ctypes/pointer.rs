@@ -1,7 +1,7 @@
 use std::fmt;
 
 use crate::builtins::PyTypeRef;
-use crate::pyobject::{PyValue, StaticType};
+use crate::pyobject::{PyObjectRef, PyValue, StaticType};
 use crate::VirtualMachine;
 
 use crate::stdlib::ctypes::basics::{PyCData, PyCDataMethods};
@@ -29,3 +29,7 @@ impl PyValue for PyCPointer {
 
 #[pyimpl(flags(BASETYPE))]
 impl PyCPointer {}
+
+pub fn POINTER(cls: PyTypeRef) {}
+
+pub fn pointer_fn(inst: PyObjectRef) {}

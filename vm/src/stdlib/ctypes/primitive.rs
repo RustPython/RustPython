@@ -14,7 +14,9 @@ use crate::pyobject::{
 use crate::VirtualMachine;
 
 use crate::stdlib::ctypes::array::PyCArray;
-use crate::stdlib::ctypes::basics::{BorrowValueMut, PyCData, PyCDataMethods};
+use crate::stdlib::ctypes::basics::{
+    get_size, BorrowValueMut, PyCData, PyCDataFunctions, PyCDataMethods,
+};
 use crate::stdlib::ctypes::function::PyCFuncPtr;
 use crate::stdlib::ctypes::pointer::PyCPointer;
 
@@ -424,5 +426,27 @@ impl PySimpleType {
             .to_vec();
 
         Ok(vm.new_pyobj(buffer != vec![0]))
+    }
+}
+
+impl PyCDataFunctions for PySimpleType {
+    fn size_of_instances(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        Ok(vm.new_pyobj(get_size(zelf._type_.as_str())))
+    }
+
+    fn alignment_of_instances(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        Self::size_of_instances(zelf, vm)
+    }
+
+    fn ref_to(
+        zelf: PyRef<Self>,
+        offset: OptionalArg,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef> {
+        Ok(vm.new_pyobj(zelf.value.as_ptr() as *mut _ as *mut usize as usize))
+    }
+
+    fn address_of(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        Ok(vm.new_pyobj(unsafe { &*zelf.value.as_ptr() } as *const _ as *const usize as usize))
     }
 }

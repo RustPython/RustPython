@@ -1,15 +1,15 @@
 use std::convert::TryInto;
-use std::{fmt, mem, os::raw::*};
+use std::{fmt, mem};
 
 use num_bigint::Sign;
-use widestring::{WideCString, WideChar};
+use widestring::WideCString;
 
 use crate::builtins::memory::{try_buffer_from_object, Buffer};
 use crate::builtins::slice::PySliceRef;
 use crate::builtins::{PyBytes, PyInt, PyList, PyStr, PyTypeRef};
 use crate::common::borrow::BorrowedValueMut;
 use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
-use crate::function::FuncArgs;
+use crate::function::{FuncArgs, OptionalArg};
 use crate::pyobject::{
     BorrowValue, Either, IdProtocol, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
     TryFromObject, TypeProtocol,
@@ -18,30 +18,11 @@ use crate::slots::BufferProtocol;
 use crate::VirtualMachine;
 
 use crate::stdlib::ctypes::basics::{
-    generic_get_buffer, BorrowValue as BorrowValueCData, BorrowValueMut, PyCData, PyCDataMethods,
-    RawBuffer,
+    generic_get_buffer, get_size, BorrowValue as BorrowValueCData, BorrowValueMut, PyCData,
+    PyCDataFunctions, PyCDataMethods, RawBuffer,
 };
 use crate::stdlib::ctypes::pointer::PyCPointer;
 use crate::stdlib::ctypes::primitive::PySimpleType;
-
-macro_rules! os_match_type {
-    (
-        $kind: expr,
-
-        $(
-            $($type: literal)|+ => $body: ident
-        )+
-    ) => {
-        match $kind {
-            $(
-                $(
-                    t if t == $type => { mem::size_of::<$body>() }
-                )+
-            )+
-            _ => unreachable!()
-        }
-    }
-}
 
 macro_rules! byte_match_type {
     (
@@ -64,26 +45,6 @@ macro_rules! byte_match_type {
             _ => unreachable!()
         }
     }
-}
-
-fn get_size(ty: &str) -> usize {
-    os_match_type!(
-        ty,
-        "u" => WideChar
-        "c" | "b" => c_schar
-        "h" => c_short
-        "H" => c_ushort
-        "i" => c_int
-        "I" => c_uint
-        "l" => c_long
-        "q" => c_longlong
-        "L" => c_ulong
-        "Q" => c_ulonglong
-        "f" => c_float
-        "d" | "g" => c_double
-        "?" | "B" => c_uchar
-        "P" | "z" | "Z" => c_void
-    )
 }
 
 fn byte_to_pyobj(ty: &str, b: &[u8], vm: &VirtualMachine) -> PyObjectRef {
@@ -562,5 +523,45 @@ impl PyCArray {
                 }
             }
         }
+    }
+}
+
+impl PyCDataFunctions for PyCArray {
+    fn size_of_instances(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        Ok(vm.new_pyobj(
+            zelf._length_
+                * usize::try_from_object(
+                    vm,
+                    PyCDataFunctions::size_of_instances(zelf._type_.clone(), vm)?,
+                )?,
+        ))
+    }
+
+    fn alignment_of_instances(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        PyCDataFunctions::alignment_of_instances(zelf._type_.clone(), vm)
+    }
+
+    fn ref_to(
+        zelf: PyRef<Self>,
+        offset: OptionalArg,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef> {
+        let off_set = offset
+            .into_option()
+            .map_or(Ok(0), |o| usize::try_from_object(vm, o))?;
+
+        if off_set > zelf._length_ {
+            Err(vm.new_index_error("offset out of bounds".to_string()))
+        } else {
+            let guard = zelf.borrow_value();
+            let ref_at: *mut u8 = unsafe { guard.inner.add(off_set) };
+
+            Ok(vm.new_pyobj(ref_at as *mut _ as *mut usize as usize))
+        }
+    }
+
+    fn address_of(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        Ok(vm
+            .new_pyobj(unsafe { &*zelf.borrow_value().inner } as *const _ as *const usize as usize))
     }
 }

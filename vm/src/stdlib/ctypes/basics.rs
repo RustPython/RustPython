@@ -1,4 +1,6 @@
-use std::{fmt, ptr, slice};
+use std::{fmt, mem, os::raw::*, ptr, slice};
+
+use widestring::WideChar;
 
 use crate::builtins::int::PyInt;
 use crate::builtins::memory::{try_buffer_from_object, Buffer, BufferOptions};
@@ -17,6 +19,45 @@ use crate::stdlib::ctypes::array::make_array_with_lenght;
 use crate::stdlib::ctypes::dll::dlsym;
 
 use crossbeam_utils::atomic::AtomicCell;
+
+macro_rules! os_match_type {
+    (
+        $kind: expr,
+
+        $(
+            $($type: literal)|+ => $body: ident
+        )+
+    ) => {
+        match $kind {
+            $(
+                $(
+                    t if t == $type => { mem::size_of::<$body>() }
+                )+
+            )+
+            _ => unreachable!()
+        }
+    }
+}
+
+pub fn get_size(ty: &str) -> usize {
+    os_match_type!(
+        ty,
+        "u" => WideChar
+        "c" | "b" => c_schar
+        "h" => c_short
+        "H" => c_ushort
+        "i" => c_int
+        "I" => c_uint
+        "l" => c_long
+        "q" => c_longlong
+        "L" => c_ulong
+        "Q" => c_ulonglong
+        "f" => c_float
+        "d" | "g" => c_double
+        "?" | "B" => c_uchar
+        "P" | "z" | "Z" => c_void
+    )
+}
 
 fn at_address(cls: &PyTypeRef, buf: usize, vm: &VirtualMachine) -> PyResult<RawBuffer> {
     match vm.get_attribute(cls.as_object().to_owned(), "__abstract__") {
@@ -136,7 +177,21 @@ pub fn default_from_param(
         )))
     }
 }
+#[pyimpl]
+pub trait PyCDataFunctions: PyValue {
+    #[pymethod]
+    fn size_of_instances(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef>;
 
+    #[pymethod]
+    fn alignment_of_instances(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef>;
+
+    #[pymethod]
+    fn ref_to(zelf: PyRef<Self>, offset: OptionalArg, vm: &VirtualMachine)
+        -> PyResult<PyObjectRef>;
+
+    #[pymethod]
+    fn address_of(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef>;
+}
 #[pyimpl]
 pub trait PyCDataMethods: PyValue {
     // A lot of the logic goes in this trait
@@ -387,4 +442,52 @@ impl PyCData {
 
     #[pymethod(magic)]
     pub fn setstate(zelf: PyRef<Self>) {}
+}
+
+pub fn sizeof_func(tp: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    if tp.clone().downcast::<PyCData>().is_err() {
+        Err(vm.new_type_error(format!(
+            "sizeof() argument must be a ctypes instance, not {}",
+            tp.class().name
+        )))
+    } else {
+        let size_of_instances = vm.get_method(tp, "size_of_instances").unwrap();
+        vm.invoke(&size_of_instances?, ())
+    }
+}
+
+pub fn alignment(tp: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    if tp.clone().downcast::<PyCData>().is_err() {
+        Err(vm.new_type_error(format!(
+            "alignment() argument must be a ctypes instance, not {}",
+            tp.class().name
+        )))
+    } else {
+        let alignment_of_instances = vm.get_method(tp, "alignment_of_instances").unwrap();
+        vm.invoke(&alignment_of_instances?, ())
+    }
+}
+
+pub fn byref(tp: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    if tp.clone().downcast::<PyCData>().is_err() {
+        Err(vm.new_type_error(format!(
+            "byref() argument must be a ctypes instance, not {}",
+            tp.class().name
+        )))
+    } else {
+        let ref_to = vm.get_method(tp, "ref_to").unwrap();
+        vm.invoke(&ref_to?, ())
+    }
+}
+
+pub fn addressof(tp: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    if tp.clone().downcast::<PyCData>().is_err() {
+        Err(vm.new_type_error(format!(
+            "addressof() argument must be a ctypes instance, not {}",
+            tp.class().name
+        )))
+    } else {
+        let address_of = vm.get_method(tp, "address_of").unwrap();
+        vm.invoke(&address_of?, ())
+    }
 }
