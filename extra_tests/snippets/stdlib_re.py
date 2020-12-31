@@ -26,12 +26,12 @@ idpattern = r'([_a-z][_a-z0-9]*)'
 # TODO:
 # assert mo.group(0) == '_boe0'
 
-p = re.compile('[a-z]')
-mo = p.match('z')
-assert mo.start() == 0
-assert mo.end() == 1
+assert re.compile('[a-z]').match('a').span() == (0, 1)
+assert re.compile('[a-z]').fullmatch('z').span() == (0, 1)
 
-mo = p.fullmatch('a')
-assert mo.span() == (0, 1)
-
-print(re.compile('a*').match('aaa').span())
+# test op repeat one
+assert re.compile('a*').match('aaa').span() == (0, 3)
+assert re.compile('abcd*').match('abcdddd').group() == 'abcdddd'
+assert re.compile('abcd*').match('abc').group() == 'abc'
+assert re.compile('abcd*e').match('abce').group() == 'abce'
+assert re.compile('abcd+').match('abcddd').group() == 'abcddd'
