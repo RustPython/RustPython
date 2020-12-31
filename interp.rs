@@ -115,6 +115,7 @@ pub(crate) fn pymatch(
         has_matched: None,
     };
     state.context_stack.push(ctx);
+    let mut dispatcher = OpcodeDispatcher::new();
 
     let mut has_matched = None;
     loop {
@@ -123,7 +124,6 @@ pub(crate) fn pymatch(
         }
         let ctx_id = state.context_stack.len() - 1;
         let mut drive = StackDrive::drive(ctx_id, state);
-        let mut dispatcher = OpcodeDispatcher::new();
 
         has_matched = dispatcher.pymatch(&mut drive);
         state = drive.take();
@@ -132,11 +132,11 @@ pub(crate) fn pymatch(
         }
     }
 
-    if has_matched == None || has_matched == Some(false) {
-        return None;
+    if has_matched != Some(true) {
+        None
+    } else {
+        Some(Match::new(&state, pattern.clone(), string.clone()))
     }
-
-    Some(Match::new(&state, pattern.clone(), string.clone()))
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -344,7 +344,9 @@ impl OpcodeDispatcher {
         while drive.remaining_codes() > 0 && drive.ctx().has_matched.is_none() {
             let code = drive.peek_code(0);
             let opcode = SreOpcode::try_from(code).unwrap();
-            self.dispatch(opcode, drive);
+            if !self.dispatch(opcode, drive) {
+                return None;
+            }
         }
         match drive.ctx().has_matched {
             Some(matched) => Some(matched),
@@ -469,7 +471,7 @@ impl OpcodeDispatcher {
             SreOpcode::MAX_UNTIL => Box::new(OpMaxUntil::default()),
             SreOpcode::MIN_UNTIL => Box::new(OpMinUntil::default()),
             SreOpcode::REPEAT => Box::new(OpRepeat::default()),
-            SreOpcode::REPEAT_ONE => Box::new(OpMinRepeatOne::default()),
+            SreOpcode::REPEAT_ONE => Box::new(OpRepeatOne::default()),
             SreOpcode::MIN_REPEAT_ONE => Box::new(OpMinRepeatOne::default()),
             SreOpcode::GROUPREF => once(|drive| general_op_groupref(drive, |x| x)),
             SreOpcode::GROUPREF_IGNORE => once(|drive| general_op_groupref(drive, lower_ascii)),
@@ -1329,7 +1331,7 @@ struct OpRepeatOne {
     child_ctx_id: usize,
     mincount: usize,
     maxcount: usize,
-    count: usize,
+    count: isize,
 }
 impl Default for OpRepeatOne {
     fn default() -> Self {
@@ -1354,9 +1356,9 @@ impl OpcodeExecutor for OpRepeatOne {
                     return None;
                 }
                 drive.state.string_position = drive.ctx().string_position;
-                self.count = count(drive, self.maxcount);
-                drive.skip_char(self.count);
-                if self.count < self.mincount {
+                self.count = count(drive, self.maxcount) as isize;
+                drive.skip_char(self.count as usize);
+                if self.count < self.mincount as isize {
                     drive.ctx_mut().has_matched = Some(false);
                     return None;
                 }
@@ -1378,7 +1380,7 @@ impl OpcodeExecutor for OpRepeatOne {
             }
             1 => {
                 // General case: backtracking
-                if self.count >= self.mincount {
+                if self.count >= self.mincount as isize {
                     drive.state.string_position = drive.ctx().string_position;
                     self.child_ctx_id = drive.push_new_context(drive.peek_code(1) as usize + 1);
                     self.jump_id = 2;
