@@ -1070,7 +1070,6 @@ impl OpMinRepeatOne {
     }
 }
 
-// Everything is stored in RepeatContext
 struct OpMaxUntil {
     jump_id: usize,
     count: isize,
@@ -1088,188 +1087,84 @@ impl Default for OpMaxUntil {
 impl OpcodeExecutor for OpMaxUntil {
     fn next(&mut self, drive: &mut StackDrive) -> Option<()> {
         match self.jump_id {
-            0 => self._0(drive),
-            1 => self._1(drive),
-            2 => self._2(drive),
-            3 => self._3(drive),
-            4 => self._4(drive),
+            0 => {
+                let RepeatContext {
+                    count,
+                    code_position,
+                    last_position,
+                } = *drive.repeat_ctx();
+                drive.ctx_mut().code_position = code_position;
+                let mincount = drive.peek_code(2) as usize;
+                let maxcount = drive.peek_code(3) as usize;
+                drive.state.string_position = drive.ctx().string_position;
+                self.count = count + 1;
+
+                if (self.count as usize) < mincount {
+                    // not enough matches
+                    drive.repeat_ctx_mut().count = self.count;
+                    drive.push_new_context(4);
+                    self.jump_id = 1;
+                    return Some(());
+                }
+
+                if ((count as usize) < maxcount || maxcount == MAXREPEAT)
+                    && drive.state.string_position != last_position
+                {
+                    // we may have enough matches, if we can match another item, do so
+                    drive.repeat_ctx_mut().count = self.count;
+                    drive.state.marks_push();
+                    self.save_last_position = last_position;
+                    drive.repeat_ctx_mut().last_position = drive.state.string_position;
+                    drive.push_new_context(4);
+                    self.jump_id = 2;
+                    return Some(());
+                }
+
+                self.jump_id = 3;
+                self.next(drive)
+            }
+            1 => {
+                let child_ctx = drive.state.popped_context.unwrap();
+                drive.ctx_mut().has_matched = child_ctx.has_matched;
+                if drive.ctx().has_matched != Some(true) {
+                    drive.repeat_ctx_mut().count = self.count - 1;
+                    drive.state.string_position = drive.ctx().string_position;
+                }
+                None
+            }
+            2 => {
+                drive.repeat_ctx_mut().last_position = self.save_last_position;
+                let child_ctx = drive.state.popped_context.unwrap();
+                if child_ctx.has_matched == Some(true) {
+                    drive.state.marks_pop_discard();
+                    drive.ctx_mut().has_matched = Some(true);
+                    return None;
+                }
+                drive.state.marks_pop();
+                drive.repeat_ctx_mut().count = self.count - 1;
+                drive.state.string_position = drive.ctx().string_position;
+                self.jump_id = 3;
+                self.next(drive)
+            }
+            3 => {
+                // cannot match more repeated items here.  make sure the tail matches
+                drive.skip_code(drive.peek_code(1) as usize + 1);
+                drive.push_new_context(1);
+                self.jump_id = 4;
+                Some(())
+            }
+            4 => {
+                let child_ctx = drive.state.popped_context.unwrap();
+                drive.ctx_mut().has_matched = child_ctx.has_matched;
+                if drive.ctx().has_matched != Some(true) {
+                    drive.state.string_position = drive.ctx().string_position;
+                }
+                None
+            }
             _ => unreachable!(),
         }
     }
 }
-impl OpMaxUntil {
-    fn _0(&mut self, drive: &mut StackDrive) -> Option<()> {
-        let RepeatContext {
-            count,
-            code_position,
-            last_position,
-        } = *drive.repeat_ctx();
-        drive.ctx_mut().code_position = code_position;
-        let mincount = drive.peek_code(2) as usize;
-        let maxcount = drive.peek_code(3) as usize;
-        drive.state.string_position = drive.ctx().string_position;
-        self.count = count + 1;
-
-        if (self.count as usize) < mincount {
-            // not enough matches
-            drive.repeat_ctx_mut().count = self.count;
-            drive.push_new_context(4);
-            self.jump_id = 1;
-            return Some(());
-        }
-
-        if ((count as usize) < maxcount || maxcount == MAXREPEAT)
-            && drive.state.string_position != last_position
-        {
-            // we may have enough matches, if we can match another item, do so
-            drive.repeat_ctx_mut().count = self.count;
-            drive.state.marks_push();
-            self.save_last_position = last_position;
-            drive.repeat_ctx_mut().last_position = drive.state.string_position;
-            drive.push_new_context(4);
-            self.jump_id = 2;
-            return Some(());
-        }
-
-        self.jump_id = 3;
-        self.next(drive)
-    }
-    fn _1(&mut self, drive: &mut StackDrive) -> Option<()> {
-        let child_ctx = drive.state.popped_context.unwrap();
-        drive.ctx_mut().has_matched = child_ctx.has_matched;
-        if drive.ctx().has_matched != Some(true) {
-            drive.repeat_ctx_mut().count = self.count - 1;
-            drive.state.string_position = drive.ctx().string_position;
-        }
-        None
-    }
-    fn _2(&mut self, drive: &mut StackDrive) -> Option<()> {
-        drive.repeat_ctx_mut().last_position = self.save_last_position;
-        let child_ctx = drive.state.popped_context.unwrap();
-        if child_ctx.has_matched == Some(true) {
-            drive.state.marks_pop_discard();
-            drive.ctx_mut().has_matched = Some(true);
-            return None;
-        }
-        drive.state.marks_pop();
-        drive.repeat_ctx_mut().count = self.count - 1;
-        drive.state.string_position = drive.ctx().string_position;
-        self.jump_id = 3;
-        self.next(drive)
-    }
-    fn _3(&mut self, drive: &mut StackDrive) -> Option<()> {
-        // cannot match more repeated items here.  make sure the tail matches
-        drive.skip_code(drive.peek_code(1) as usize + 1);
-        drive.push_new_context(1);
-        self.jump_id = 4;
-        Some(())
-    }
-    fn _4(&mut self, drive: &mut StackDrive) -> Option<()> {
-        let child_ctx = drive.state.popped_context.unwrap();
-        drive.ctx_mut().has_matched = child_ctx.has_matched;
-        if drive.ctx().has_matched != Some(true) {
-            drive.state.string_position = drive.ctx().string_position;
-        }
-        None
-    }
-}
-
-// struct OpMaxUntil {
-//     jump_id: usize,
-//     count: isize,
-//     save_last_position: isize,
-// }
-// impl Default for OpMaxUntil {
-//     fn default() -> Self {
-//         Self {
-//             jump_id: 0,
-//             count: 0,
-//             save_last_position: -1,
-//         }
-//     }
-// }
-// impl OpcodeExecutor for OpMaxUntil {
-//     fn next(&mut self, drive: &mut StackDrive) -> Option<()> {
-//         match self.jump_id {
-//             0 => {
-//                 drive.state.string_position = drive.ctx().string_position;
-//                 let repeat = match drive.state.repeat_stack.last_mut() {
-//                     Some(repeat) => repeat,
-//                     None => {
-//                         panic!("Internal re error: MAX_UNTIL without REPEAT.");
-//                     }
-//                 };
-//                 self.count = repeat.count + 1;
-
-//                 if self.count < repeat.mincount as isize {
-//                     // not enough matches
-//                     repeat.count = self.count;
-//                     drive.push_new_context(4);
-//                     self.jump_id = 1;
-//                     return Some(());
-//                 }
-
-//                 if (self.count < repeat.maxcount as isize || repeat.maxcount == MAXREPEAT)
-//                     && (drive.state.string_position as isize != repeat.last_position)
-//                 {
-//                     // we may have enough matches, if we can match another item, do so
-//                     repeat.count = self.count;
-//                     self.save_last_position = repeat.last_position;
-//                     repeat.last_position = drive.state.string_position as isize;
-//                     drive.state.marks_push();
-//                     drive.push_new_context(4);
-//                     self.jump_id = 2;
-//                     return Some(());
-//                 }
-
-//                 drive.push_new_context(1);
-
-//                 self.jump_id = 3;
-//                 Some(())
-//             }
-//             1 => {
-//                 let child_ctx = drive.state.popped_context.unwrap();
-//                 drive.ctx_mut().has_matched = child_ctx.has_matched;
-//                 if drive.ctx().has_matched != Some(true) {
-//                     drive.state.string_position = drive.ctx().string_position;
-//                     let repeat = drive.state.repeat_stack.last_mut().unwrap();
-//                     repeat.count = self.count - 1;
-//                 }
-//                 None
-//             }
-//             2 => {
-//                 let repeat = drive.state.repeat_stack.last_mut().unwrap();
-//                 repeat.last_position = drive.state.string_position as isize;
-//                 let child_ctx = drive.state.popped_context.unwrap();
-//                 if child_ctx.has_matched == Some(true) {
-//                     drive.state.marks_pop_discard();
-//                     drive.ctx_mut().has_matched = Some(true);
-//                     return None;
-//                 }
-//                 repeat.count = self.count - 1;
-//                 drive.state.marks_pop();
-//                 drive.state.string_position = drive.ctx().string_position;
-
-//                 drive.push_new_context(1);
-
-//                 self.jump_id = 3;
-//                 Some(())
-//             }
-//             3 => {
-//                 // cannot match more repeated items here. make sure the tail matches
-//                 let child_ctx = drive.state.popped_context.unwrap();
-//                 drive.ctx_mut().has_matched = child_ctx.has_matched;
-//                 if drive.ctx().has_matched != Some(true) {
-//                     drive.state.string_position = drive.ctx().string_position;
-//                 } else {
-//                     drive.state.repeat_stack.pop();
-//                 }
-//                 None
-//             }
-//             _ => unreachable!(),
-//         }
-//     }
-// }
 
 struct OpMinUntil {
     jump_id: usize,

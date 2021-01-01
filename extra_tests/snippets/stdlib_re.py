@@ -21,8 +21,8 @@ p = re.compile('ab')
 
 idpattern = r'([_a-z][_a-z0-9]*)'
 
-# mo = re.search(idpattern, '7382 _boe0+2')
-# print(mo)
+mo = re.search(idpattern, '7382 _boe0+2')
+print(mo)
 # TODO:
 # assert mo.group(0) == '_boe0'
 
@@ -45,3 +45,7 @@ assert re.compile('a(b)(cd)').match('abcd').group(0, 1, 2) == ('abcd', 'b', 'cd'
 # test op repeat
 assert re.compile('(ab)+').match('abab')
 assert re.compile('(a)(b)(cd)*').match('abcdcdcd').group(0, 1, 2, 3) == ('abcdcdcd', 'a', 'b', 'cd')
+assert re.compile('ab()+cd').match('abcd').group() == 'abcd'
+
+assert re.compile('(a)+').match('aaa').groups() == ('a',)
+assert re.compile('(a+)').match('aaa').groups() == ('aaa',)

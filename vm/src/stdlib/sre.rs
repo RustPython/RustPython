@@ -309,6 +309,7 @@ mod _sre {
         fn span(&self, group: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult<(isize, isize)> {
             self.get_index(group.unwrap_or(0), vm).map(|x| self.regs[x])
         }
+
         #[pymethod]
         fn group(&self, args: Args<isize>, vm: &VirtualMachine) -> PyResult {
             let mut args = args.into_vec();
@@ -328,6 +329,24 @@ mod _sre {
                 Ok(vm.ctx.new_tuple(v))
             }
         }
+
+        #[pymethod]
+        fn groups(
+            zelf: PyRef<Match>,
+            default: OptionalArg<PyObjectRef>,
+            vm: &VirtualMachine,
+        ) -> PyTupleRef {
+            let default = default.unwrap_or(vm.ctx.none());
+            let v: Vec<PyObjectRef> = (1..zelf.regs.len())
+                .map(|i| {
+                    zelf.get_slice(i)
+                        .map(|s| s.into_pyobject(vm))
+                        .unwrap_or_else(|| default.clone())
+                })
+                .collect();
+            PyTupleRef::with_elements(v, &vm.ctx)
+        }
+
         #[pymethod(magic)]
         fn repr(zelf: PyRef<Match>) -> String {
             format!(
