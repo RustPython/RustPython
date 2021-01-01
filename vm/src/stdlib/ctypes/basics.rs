@@ -165,6 +165,7 @@ pub fn default_from_param(
     value: PyObjectRef,
     vm: &VirtualMachine,
 ) -> PyResult<PyObjectRef> {
+    //@TODO: check if this behaves like it should
     if vm.isinstance(&value, &cls)? {
         Ok(value)
     } else if let Ok(parameter) = vm.get_attribute(value.clone(), "_as_parameter_") {

@@ -5,11 +5,11 @@ use num_bigint::Sign;
 use widestring::WideCString;
 
 use crate::builtins::memory::{try_buffer_from_object, Buffer};
-use crate::builtins::slice::PySliceRef;
+use crate::builtins::slice::PySlice;
 use crate::builtins::{PyBytes, PyInt, PyList, PyStr, PyTypeRef};
 use crate::common::borrow::BorrowedValueMut;
 use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
-use crate::function::{FuncArgs, OptionalArg};
+use crate::function::OptionalArg;
 use crate::pyobject::{
     BorrowValue, Either, IdProtocol, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
     TryFromObject, TypeProtocol,
@@ -18,8 +18,8 @@ use crate::slots::BufferProtocol;
 use crate::VirtualMachine;
 
 use crate::stdlib::ctypes::basics::{
-    generic_get_buffer, get_size, BorrowValue as BorrowValueCData, BorrowValueMut, PyCData,
-    PyCDataFunctions, PyCDataMethods, RawBuffer,
+    default_from_param, generic_get_buffer, get_size, BorrowValue as BorrowValueCData,
+    BorrowValueMut, PyCData, PyCDataFunctions, PyCDataMethods, RawBuffer,
 };
 use crate::stdlib::ctypes::pointer::PyCPointer;
 use crate::stdlib::ctypes::primitive::PySimpleType;
@@ -169,7 +169,7 @@ fn set_array_value(
 }
 
 fn array_get_slice_inner(
-    slice: PySliceRef,
+    slice: PyRef<PySlice>,
     vm: &VirtualMachine,
 ) -> PyResult<(isize, isize, isize)> {
     let step = slice
@@ -236,11 +236,41 @@ impl BufferProtocol for PyCArray {
     }
 }
 
-// impl PyCDataMethods for PyCArray {
-//     fn from_param(zelf: PyRef<Self>, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+impl PyCDataMethods for PyCArray {
+    fn from_param(
+        zelf: PyRef<Self>,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef> {
+        if vm.isinstance(&value, PyCArray::static_type())? {
+            return Ok(value);
+        };
 
-//     }
-// }
+        if vm.obj_len(&value)? > zelf._length_ {
+            Err(vm.new_value_error("Invalid length".to_string()))
+        } else if zelf._type_._type_.as_str() == "c"
+            && value.clone().downcast_exact::<PyBytes>(vm).is_err()
+        {
+            Err(vm.new_value_error(format!("expected bytes, {} found", value.class().name)))
+        } else if zelf._type_._type_.as_str() == "u"
+            && value.clone().downcast_exact::<PyStr>(vm).is_err()
+        {
+            Err(vm.new_value_error(format!(
+                "expected unicode string, {} found",
+                value.class().name
+            )))
+        } else if vm.isinstance(&value, &vm.ctx.types.tuple_type)? {
+            Ok(())
+        } else {
+            //@TODO: make sure what goes here
+            Err(vm.new_type_error("Invalid type".to_string()))
+        }?;
+
+        PyCArray::init(zelf.clone(), value, vm)?;
+
+        default_from_param(zelf.clone_class(), zelf.as_object().clone(), vm)
+    }
+}
 
 #[pyimpl(flags(BASETYPE), with(BufferProtocol))]
 impl PyCArray {
@@ -274,9 +304,31 @@ impl PyCArray {
     }
 
     #[pymethod(magic)]
-    pub fn init(&self, value: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-        // @TODO
-        Ok(())
+    pub fn init(zelf: PyRef<Self>, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let value_lenght = vm.obj_len(&value)?;
+
+        if value_lenght < zelf._length_ {
+            let value_vec: Vec<PyObjectRef> = vm.extract_elements(&value)?;
+            for (i, v) in value_vec.iter().enumerate() {
+                Self::setitem(zelf.clone(), Either::A(i as isize), v.clone(), vm)?
+            }
+            Ok(())
+        } else if value_lenght == zelf._length_ {
+            let py_slice = Either::B(
+                PySlice {
+                    start: Some(vm.new_pyobj(0)),
+                    stop: vm.new_pyobj(zelf._length_),
+                    step: None,
+                }
+                .into_ref(vm),
+            );
+
+            Self::setitem(zelf, py_slice, value, vm)
+        } else {
+            Err(vm.new_value_error(
+                "number of values is greater than the size of the array".to_string(),
+            ))
+        }
     }
 
     #[pyproperty(name = "value")]
@@ -440,7 +492,7 @@ impl PyCArray {
     #[pymethod(magic)]
     fn getitem(
         zelf: PyRef<Self>,
-        k_or_idx: Either<isize, PySliceRef>,
+        k_or_idx: Either<isize, PyRef<PySlice>>,
         vm: &VirtualMachine,
     ) -> PyResult {
         let buffer = try_buffer_from_object(vm, zelf.as_object())?;
@@ -484,7 +536,7 @@ impl PyCArray {
     #[pymethod(magic)]
     fn setitem(
         zelf: PyRef<Self>,
-        k_or_idx: Either<isize, PySliceRef>,
+        k_or_idx: Either<isize, PyRef<PySlice>>,
         obj: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -511,7 +563,7 @@ impl PyCArray {
                 let values: Vec<PyObjectRef> = vm.extract_elements(&obj)?;
 
                 if values.len() != slice_length {
-                    Err(vm.new_value_error("Can only assign sequence of same size".to_string()))
+                    Err(vm.new_value_error("can only assign sequence of same size".to_string()))
                 } else {
                     let mut cur = start as usize;
 
@@ -550,7 +602,7 @@ impl PyCDataFunctions for PyCArray {
             .into_option()
             .map_or(Ok(0), |o| usize::try_from_object(vm, o))?;
 
-        if off_set > zelf._length_ {
+        if off_set > zelf._length_ * get_size(zelf._type_._type_.as_str()) {
             Err(vm.new_index_error("offset out of bounds".to_string()))
         } else {
             let guard = zelf.borrow_value();

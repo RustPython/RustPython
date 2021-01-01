@@ -2,7 +2,6 @@
 """create and manipulate C data types in Python"""
 
 import os as _os, sys as _sys
-import types as _types
 
 __version__ = "1.1.0"
 
@@ -307,3 +306,44 @@ class LibraryLoader(object):
 
     def LoadLibrary(self, name):
         return self._dlltype(name)
+
+cdll = LibraryLoader(CDLL)
+
+if _os.name == "nt":
+    windll = LibraryLoader(CDLL)
+    oledll = LibraryLoader(CDLL)
+
+    GetLastError = windll.kernel32.GetLastError
+
+    def WinError(code=None, descr=None):
+        if code is None:
+            code = GetLastError()
+        if descr is None:
+            # descr = FormatError(code).strip()
+            descr = "Windows Error " + str(code)
+        return OSError(None, descr, None, code)
+
+if sizeof(c_uint) == sizeof(c_void_p):
+    c_size_t = c_uint
+    c_ssize_t = c_int
+elif sizeof(c_ulong) == sizeof(c_void_p):
+    c_size_t = c_ulong
+    c_ssize_t = c_long
+elif sizeof(c_ulonglong) == sizeof(c_void_p):
+    c_size_t = c_ulonglong
+    c_ssize_t = c_longlong
+
+# Fill in specifically-sized types
+c_int8 = c_byte
+c_uint8 = c_ubyte
+for kind in [c_short, c_int, c_long, c_longlong]:
+    if sizeof(kind) == 2: c_int16 = kind
+    elif sizeof(kind) == 4: c_int32 = kind
+    elif sizeof(kind) == 8: c_int64 = kind
+for kind in [c_ushort, c_uint, c_ulong, c_ulonglong]:
+    if sizeof(kind) == 2: c_uint16 = kind
+    elif sizeof(kind) == 4: c_uint32 = kind
+    elif sizeof(kind) == 8: c_uint64 = kind
+del(kind)
+
+_reset_cache()

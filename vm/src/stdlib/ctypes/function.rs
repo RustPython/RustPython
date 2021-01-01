@@ -281,7 +281,7 @@ impl PyCFuncPtr {
         if vm.isinstance(&argtypes, &vm.ctx.types.list_type).is_ok()
             || vm.isinstance(&argtypes, &vm.ctx.types.tuple_type).is_ok()
         {
-            let args: Vec<PyObjectRef> = vm.extract_elements(&argtypes)?;
+            let args = vm.extract_elements(&argtypes)?;
             let c_args_res: PyResult<Vec<PyObjectRef>> = args
                 .iter()
                 .enumerate()
