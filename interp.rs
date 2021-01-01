@@ -497,22 +497,16 @@ impl OpcodeDispatcher {
                 }
             }),
             SreOpcode::IN => once(|drive| {
-                general_op_in(drive, |x| x);
+                general_op_in(drive, |set, c| charset(set, c));
             }),
             SreOpcode::IN_IGNORE => once(|drive| {
-                general_op_in(drive, lower_ascii);
+                general_op_in(drive, |set, c| charset(set, lower_ascii(c)));
             }),
             SreOpcode::IN_UNI_IGNORE => once(|drive| {
-                general_op_in(drive, lower_unicode);
+                general_op_in(drive, |set, c| charset(set, lower_unicode(c)));
             }),
             SreOpcode::IN_LOC_IGNORE => once(|drive| {
-                let skip = drive.peek_code(1) as usize;
-                if drive.at_end() || !charset_loc_ignore(&drive.pattern()[2..], drive.peek_char()) {
-                    drive.ctx_mut().has_matched = Some(false);
-                } else {
-                    drive.skip_code(skip + 1);
-                    drive.skip_char(1);
-                }
+                general_op_in(drive, |set, c| charset_loc_ignore(set, c));
             }),
             SreOpcode::INFO | SreOpcode::JUMP => once(|drive| {
                 drive.skip_code(drive.peek_code(1) as usize + 1);
@@ -661,9 +655,9 @@ fn general_op_literal<F: FnOnce(u32, char) -> bool>(drive: &mut StackDrive, f: F
     }
 }
 
-fn general_op_in<F: FnOnce(char) -> char>(drive: &mut StackDrive, f: F) {
+fn general_op_in<F: FnOnce(&[u32], char) -> bool>(drive: &mut StackDrive, f: F) {
     let skip = drive.peek_code(1) as usize;
-    if drive.at_end() || !charset(&drive.pattern()[2..], f(drive.peek_char())) {
+    if drive.at_end() || !f(&drive.pattern()[2..], drive.peek_char()) {
         drive.ctx_mut().has_matched = Some(false);
     } else {
         drive.skip_code(skip + 1);
@@ -749,18 +743,20 @@ fn charset(set: &[u32], c: char) -> bool {
             }
             SreOpcode::BIGCHARSET => {
                 /* <BIGCHARSET> <blockcount> <256 blockindices> <blocks> */
-                let count = set[i + 1];
+                let count = set[i + 1] as usize;
                 if ch < 0x10000 {
-                    let (_, blockindices, _) = unsafe { set[i + 2..].align_to::<u8>() };
-                    let block = blockindices[(ch >> 8) as usize];
-                    if set[2 + 64 + ((block as u32 * 256 + (ch & 255)) / 32) as usize]
-                        & (1 << (ch & (32 - 1)))
+                    let set = &set[2..];
+                    let block_index = ch >> 8;
+                    let (_, blockindices, _) = unsafe { set.align_to::<u8>() };
+                    let blocks = &set[64..];
+                    let block = blockindices[block_index as usize];
+                    if blocks[((block as u32 * 256 + (ch & 255)) / 32) as usize] & (1u32 << (ch & 31))
                         != 0
                     {
                         return ok;
                     }
                 }
-                i += 2 + 64 + count as usize * 8;
+                i += 2 + 64 + count * 8;
             }
             SreOpcode::LITERAL => {
                 /* <LITERAL> <code> */
