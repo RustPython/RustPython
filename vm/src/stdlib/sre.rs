@@ -330,6 +330,11 @@ mod _sre {
             }
         }
 
+        #[pymethod(magic)]
+        fn getitem(&self, index: isize, vm: &VirtualMachine) -> Option<String> {
+            self.get_index(index, vm).ok().and_then(|i| self.get_slice(i))
+        }
+
         #[pymethod]
         fn groups(
             zelf: PyRef<Match>,
@@ -353,7 +358,7 @@ mod _sre {
                 "<re.Match object; span=({}, {}), match='{}'>",
                 zelf.regs[0].0,
                 zelf.regs[0].1,
-                zelf.get_slice(0).unwrap_or_else(|| "".to_owned())
+                zelf.get_slice(0).unwrap()
             )
         }
 
@@ -379,8 +384,6 @@ mod _sre {
                     .skip(start as usize)
                     .collect(),
             )
-            // .get(start as usize..end as usize)
-            // .map(|x| x.to_string())
         }
     }
 }
