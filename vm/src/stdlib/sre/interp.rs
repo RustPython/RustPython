@@ -1107,6 +1107,7 @@ impl OpMaxUntil {
         drive.ctx_mut().code_position = code_position;
         let mincount = drive.peek_code(2) as usize;
         let maxcount = drive.peek_code(3) as usize;
+        drive.state.string_position = drive.ctx().string_position;
         self.count = count + 1;
 
         if (self.count as usize) < mincount {
@@ -1123,8 +1124,8 @@ impl OpMaxUntil {
             // we may have enough matches, if we can match another item, do so
             drive.repeat_ctx_mut().count = self.count;
             drive.state.marks_push();
-            // self.save_last_position = last_position;
-            // drive.repeat_ctx_mut().last_position = drive.state.string_position;
+            self.save_last_position = last_position;
+            drive.repeat_ctx_mut().last_position = drive.state.string_position;
             drive.push_new_context(4);
             self.jump_id = 2;
             return Some(());
@@ -1143,7 +1144,7 @@ impl OpMaxUntil {
         None
     }
     fn _2(&mut self, drive: &mut StackDrive) -> Option<()> {
-        // drive.repeat_ctx_mut().last_position = self.save_last_position;
+        drive.repeat_ctx_mut().last_position = self.save_last_position;
         let child_ctx = drive.state.popped_context.unwrap();
         if child_ctx.has_matched == Some(true) {
             drive.state.marks_pop_discard();
