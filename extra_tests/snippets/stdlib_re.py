@@ -22,13 +22,14 @@ p = re.compile('ab')
 idpattern = r'([_a-z][_a-z0-9]*)'
 
 mo = re.search(idpattern, '7382 _boe0+2')
-print(mo)
-# TODO:
-# assert mo.group(0) == '_boe0'
+assert mo.group(0) == '_boe0'
 
 # tes op range
 assert re.compile('[a-z]').match('a').span() == (0, 1)
 assert re.compile('[a-z]').fullmatch('z').span() == (0, 1)
+
+# test op charset
+assert re.compile('[_a-z0-9]*').match('_09az').group() == '_09az'
 
 # test op repeat one
 assert re.compile('a*').match('aaa').span() == (0, 3)

@@ -741,7 +741,8 @@ fn charset(set: &[u32], c: char) -> bool {
             }
             SreOpcode::CHARSET => {
                 /* <CHARSET> <bitmap> */
-                if ch < 256 && (set[(ch / 32) as usize] & (1 << (32 - 1))) != 0 {
+                let set = &set[1..];
+                if ch < 256 && ((set[(ch >> 5) as usize] & (1u32 << (ch & 31))) != 0) {
                     return ok;
                 }
                 i += 8;
