@@ -31,6 +31,9 @@ assert re.compile('[a-z]').fullmatch('z').span() == (0, 1)
 # test op charset
 assert re.compile('[_a-z0-9]*').match('_09az').group() == '_09az'
 
+# test op bigcharset
+assert re.compile('[你好a-z]*').match('a好z你?').group() == 'a好z你'
+
 # test op repeat one
 assert re.compile('a*').match('aaa').span() == (0, 3)
 assert re.compile('abcd*').match('abcdddd').group() == 'abcdddd'

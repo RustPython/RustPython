@@ -353,7 +353,7 @@ mod _sre {
                 "<re.Match object; span=({}, {}), match='{}'>",
                 zelf.regs[0].0,
                 zelf.regs[0].1,
-                zelf.get_slice(0).unwrap()
+                zelf.get_slice(0).unwrap_or_else(|| "".to_owned())
             )
         }
 
@@ -371,10 +371,16 @@ mod _sre {
             if start < 0 || end < 0 {
                 return None;
             }
-            self.string
-                .borrow_value()
-                .get(start as usize..end as usize)
-                .map(|x| x.to_string())
+            Some(
+                self.string
+                    .borrow_value()
+                    .chars()
+                    .take(end as usize)
+                    .skip(start as usize)
+                    .collect(),
+            )
+            // .get(start as usize..end as usize)
+            // .map(|x| x.to_string())
         }
     }
 }
