@@ -16,7 +16,6 @@ mod _sre {
     use crate::function::{Args, OptionalArg};
     use crate::pyobject::{
         Either, IntoPyObject, PyCallable, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
-        TypeProtocol,
     };
     use crate::VirtualMachine;
     use std::collections::HashMap;
@@ -239,18 +238,15 @@ mod _sre {
             let mut regs = vec![(state.start as isize, state.string_position as isize)];
             for group in 0..pattern.groups {
                 let mark_index = 2 * group;
-                match (
-                    mark_index + 1 < state.marks.len(),
-                    state.marks[mark_index],
-                    state.marks[mark_index + 1],
-                ) {
-                    (true, Some(start), Some(end)) => {
+                if mark_index + 1 < state.marks.len() {
+                    if let (Some(start), Some(end)) =
+                        (state.marks[mark_index], state.marks[mark_index + 1])
+                    {
                         regs.push((start as isize, end as isize));
-                    }
-                    _ => {
-                        regs.push((-1, -1));
+                        continue;
                     }
                 }
+                regs.push((-1, -1));
             }
             Self {
                 string,

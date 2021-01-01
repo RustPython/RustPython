@@ -26,6 +26,7 @@ idpattern = r'([_a-z][_a-z0-9]*)'
 # TODO:
 # assert mo.group(0) == '_boe0'
 
+# tes op range
 assert re.compile('[a-z]').match('a').span() == (0, 1)
 assert re.compile('[a-z]').fullmatch('z').span() == (0, 1)
 
@@ -34,4 +35,13 @@ assert re.compile('a*').match('aaa').span() == (0, 3)
 assert re.compile('abcd*').match('abcdddd').group() == 'abcdddd'
 assert re.compile('abcd*').match('abc').group() == 'abc'
 assert re.compile('abcd*e').match('abce').group() == 'abce'
+assert re.compile('abcd*e+').match('abcddeee').group() == 'abcddeee'
 assert re.compile('abcd+').match('abcddd').group() == 'abcddd'
+
+# test op mark
+assert re.compile('(a)b').match('ab').group(0, 1) == ('ab', 'a')
+assert re.compile('a(b)(cd)').match('abcd').group(0, 1, 2) == ('abcd', 'b', 'cd')
+
+# test op repeat
+assert re.compile('(ab)+').match('abab')
+assert re.compile('(a)(b)(cd)*').match('abcdcdcd').group(0, 1, 2, 3) == ('abcdcdcd', 'a', 'b', 'cd')
