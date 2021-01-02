@@ -12,7 +12,7 @@ mod _sre {
     use super::constants::SreFlag;
     use super::interp::{self, lower_ascii, lower_unicode, upper_unicode, State};
     use crate::builtins::tuple::PyTupleRef;
-    use crate::builtins::{PyStrRef, PyTypeRef};
+    use crate::builtins::{PyDictRef, PyStrRef, PyTypeRef};
     use crate::function::{Args, OptionalArg};
     use crate::pyobject::{
         Either, IntoPyObject, PyCallable, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
@@ -84,7 +84,7 @@ mod _sre {
         flags: u16,
         code: PyObjectRef,
         groups: usize,
-        groupindex: HashMap<String, usize>,
+        groupindex: PyDictRef,
         indexgroup: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<Pattern> {
@@ -126,7 +126,7 @@ mod _sre {
         pub flags: SreFlag,
         pub code: Vec<u32>,
         pub groups: usize,
-        pub groupindex: HashMap<String, usize>,
+        pub groupindex: PyDictRef,
         pub indexgroup: Vec<Option<String>>,
     }
 
@@ -206,6 +206,10 @@ mod _sre {
         #[pyproperty]
         fn flags(&self) -> u16 {
             self.flags.bits()
+        }
+        #[pyproperty]
+        fn groupindex(&self) -> PyDictRef {
+            self.groupindex.clone()
         }
 
         fn subx(&self, sub_args: SubArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
@@ -308,6 +312,13 @@ mod _sre {
         #[pymethod]
         fn span(&self, group: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult<(isize, isize)> {
             self.get_index(group.unwrap_or(0), vm).map(|x| self.regs[x])
+        }
+
+        #[pymethod]
+        fn expand(zelf: PyRef<Match>, template: PyStrRef, vm: &VirtualMachine) -> PyResult {
+            let re = vm.import("re", &[], 0)?;
+            let func = vm.get_attribute(re, "_expand")?;
+            vm.invoke(&func, (zelf.pattern.clone(), zelf, template))
         }
 
         #[pymethod]
