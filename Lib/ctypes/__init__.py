@@ -346,4 +346,4 @@ for kind in [c_ushort, c_uint, c_ulong, c_ulonglong]:
     elif sizeof(kind) == 8: c_uint64 = kind
 del(kind)
 
-_reset_cache()
+# _reset_cache()

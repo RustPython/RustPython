@@ -177,37 +177,42 @@ class ArrayTestCase(unittest.TestCase):
         with self.assertRaises(AttributeError):
             class T(Array):
                 pass
+            T()
         with self.assertRaises(AttributeError):
             class T(Array):
                 _type_ = c_int
+            T()
         with self.assertRaises(AttributeError):
             class T(Array):
                 _length_ = 13
-
+            T()
     def test_bad_length(self):
         with self.assertRaises(ValueError):
             class T(Array):
                 _type_ = c_int
                 _length_ = - sys.maxsize * 2
+            T()
         with self.assertRaises(ValueError):
             class T(Array):
                 _type_ = c_int
                 _length_ = -1
+            T()
         with self.assertRaises(TypeError):
             class T(Array):
                 _type_ = c_int
                 _length_ = 1.87
+            T()
         with self.assertRaises(OverflowError):
             class T(Array):
                 _type_ = c_int
                 _length_ = sys.maxsize * 2
-
+            T()
     def test_zero_length(self):
         # _length_ can be zero.
         class T(Array):
             _type_ = c_int
             _length_ = 0
-
+        T()
     @unittest.skip("TODO: RUSTPYTHON, implrment Structure")
     def test_empty_element_struct(self):
         class EmptyStruct(Structure):

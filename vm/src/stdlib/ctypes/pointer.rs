@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::builtins::PyTypeRef;
+use crate::builtins::{PyDict, PyTypeRef};
 use crate::pyobject::{PyObjectRef, PyValue, StaticType};
 use crate::VirtualMachine;
 

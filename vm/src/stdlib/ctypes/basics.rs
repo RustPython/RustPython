@@ -10,13 +10,14 @@ use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
 use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::function::OptionalArg;
 use crate::pyobject::{
-    PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
+    Either, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
 };
 use crate::slots::BufferProtocol;
 use crate::VirtualMachine;
 
 use crate::stdlib::ctypes::array::make_array_with_lenght;
 use crate::stdlib::ctypes::dll::dlsym;
+use crate::stdlib::ctypes::primitive::{new_simple_type, PySimpleType};
 
 use crossbeam_utils::atomic::AtomicCell;
 
@@ -55,7 +56,7 @@ pub fn get_size(ty: &str) -> usize {
         "f" => c_float
         "d" | "g" => c_double
         "?" | "B" => c_uchar
-        "P" | "z" | "Z" => c_void
+        "P" | "z" | "Z" => usize
     )
 }
 
@@ -445,50 +446,61 @@ impl PyCData {
     pub fn setstate(zelf: PyRef<Self>) {}
 }
 
-pub fn sizeof_func(tp: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    if tp.clone().downcast::<PyCData>().is_err() {
-        Err(vm.new_type_error(format!(
-            "sizeof() argument must be a ctypes instance, not {}",
-            tp.class().name
-        )))
-    } else {
-        let size_of_instances = vm.get_method(tp, "size_of_instances").unwrap();
-        vm.invoke(&size_of_instances?, ())
+pub fn sizeof_func(tp: Either<PyTypeRef, PyObjectRef>, vm: &VirtualMachine) -> PyResult {
+    match tp {
+        Either::A(type_) if type_.issubclass(PySimpleType::static_type()) => {
+            let zelf = new_simple_type(Either::B(&type_), vm)?;
+            PyCDataFunctions::size_of_instances(zelf.into_ref(vm), vm)
+        }
+        Either::B(obj) if obj.has_class_attr("size_of_instances") => {
+            let size_of = vm.get_attribute(obj, "size_of_instances").unwrap();
+            vm.invoke(&size_of, ())
+        }
+        _ => Err(vm.new_type_error("this type has no size".to_string())),
     }
 }
 
-pub fn alignment(tp: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    if tp.clone().downcast::<PyCData>().is_err() {
-        Err(vm.new_type_error(format!(
-            "alignment() argument must be a ctypes instance, not {}",
-            tp.class().name
-        )))
-    } else {
-        let alignment_of_instances = vm.get_method(tp, "alignment_of_instances").unwrap();
-        vm.invoke(&alignment_of_instances?, ())
+pub fn alignment(tp: Either<PyTypeRef, PyObjectRef>, vm: &VirtualMachine) -> PyResult {
+    match tp {
+        Either::A(type_) if type_.issubclass(PySimpleType::static_type()) => {
+            let zelf = new_simple_type(Either::B(&type_), vm)?;
+            PyCDataFunctions::alignment_of_instances(zelf.into_ref(vm), vm)
+        }
+        Either::B(obj) if obj.has_class_attr("alignment_of_instances") => {
+            let size_of = vm.get_attribute(obj, "alignment_of_instances").unwrap();
+            vm.invoke(&size_of, ())
+        }
+        _ => Err(vm.new_type_error("no alignment info".to_string())),
     }
 }
 
 pub fn byref(tp: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    if tp.clone().downcast::<PyCData>().is_err() {
-        Err(vm.new_type_error(format!(
-            "byref() argument must be a ctypes instance, not {}",
-            tp.class().name
-        )))
-    } else {
-        let ref_to = vm.get_method(tp, "ref_to").unwrap();
-        vm.invoke(&ref_to?, ())
-    }
+    //@TODO: Return a Pointer when Pointer implementation is ready
+    let class = tp.clone_class();
+
+    if class.issubclass(PyCData::static_type()) {
+        if let Some(ref_to) = vm.get_method(tp, "ref_to") {
+            return vm.invoke(&ref_to?, ());
+        }
+    };
+
+    Err(vm.new_type_error(format!(
+        "byref() argument must be a ctypes instance, not '{}'",
+        class.name
+    )))
 }
 
 pub fn addressof(tp: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    if tp.clone().downcast::<PyCData>().is_err() {
-        Err(vm.new_type_error(format!(
-            "addressof() argument must be a ctypes instance, not {}",
-            tp.class().name
-        )))
-    } else {
-        let address_of = vm.get_method(tp, "address_of").unwrap();
-        vm.invoke(&address_of?, ())
-    }
+    let class = tp.clone_class();
+
+    if class.issubclass(PyCData::static_type()) {
+        if let Some(address_of) = vm.get_method(tp, "address_of") {
+            return vm.invoke(&address_of?, ());
+        }
+    };
+
+    Err(vm.new_type_error(format!(
+        "addressof() argument must be a ctypes instance, not '{}'",
+        class.name
+    )))
 }

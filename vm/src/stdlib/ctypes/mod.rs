@@ -1,5 +1,4 @@
-use crate::pyobject::PyClassImpl;
-use crate::pyobject::PyObjectRef;
+use crate::pyobject::{PyClassImpl, PyObjectRef, PyValue};
 use crate::VirtualMachine;
 
 mod array;
@@ -37,6 +36,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
         "POINTER" => ctx.new_function(POINTER),
         "pointer" => ctx.new_function(pointer_fn),
+        "_pointer_type_cache" => ctx.new_dict(),
 
         "CFuncPtr" => PyCFuncPtr::make_class(ctx),
         "_SimpleCData" => PySimpleType::make_class(ctx),

@@ -9,18 +9,19 @@ use crate::builtins::{
 };
 use crate::function::OptionalArg;
 use crate::pyobject::{
-    IdProtocol, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
+    Either, IdProtocol, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject,
+    TypeProtocol,
 };
 use crate::VirtualMachine;
 
 use crate::stdlib::ctypes::array::PyCArray;
 use crate::stdlib::ctypes::basics::{
-    get_size, BorrowValueMut, PyCData, PyCDataFunctions, PyCDataMethods,
+    get_size, BorrowValueMut, PyCData, PyCDataFunctions, PyCDataMethods, PyCDataSequenceMethods,
 };
 use crate::stdlib::ctypes::function::PyCFuncPtr;
 use crate::stdlib::ctypes::pointer::PyCPointer;
 
-const SIMPLE_TYPE_CHARS: &str = "cbBhHiIlLdfguzZqQ?";
+const SIMPLE_TYPE_CHARS: &str = "cbBhHiIlLdfguzZPqQ?";
 
 fn set_primitive(_type_: &str, value: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
     match _type_ {
@@ -229,14 +230,21 @@ fn from_param_void_p(
     }
 }
 
-fn new_simple_type(cls: &PyTypeRef, vm: &VirtualMachine) -> PyResult<PySimpleType> {
+pub fn new_simple_type(
+    cls: Either<&PyObjectRef, &PyTypeRef>,
+    vm: &VirtualMachine,
+) -> PyResult<PySimpleType> {
+    let cls = match cls {
+        Either::A(obj) => obj,
+        Either::B(typ) => typ.as_object(),
+    };
+
     let is_abstract = cls.is(PySimpleType::static_type());
 
     if is_abstract {
         return Err(vm.new_type_error("abstract class".to_string()));
     }
-
-    match vm.get_attribute(cls.as_object().to_owned(), "_type_") {
+    match vm.get_attribute(cls.clone(), "_type_") {
         Ok(_type_) if vm.isinstance(&_type_, &vm.ctx.types.str_type)? => {
             let tp_str = _type_.downcast_exact::<PyStr>(vm).unwrap().to_string();
 
@@ -258,7 +266,7 @@ fn new_simple_type(cls: &PyTypeRef, vm: &VirtualMachine) -> PyResult<PySimpleTyp
         Ok(_) => {
             Err(vm.new_type_error("class must define a '_type_' string attribute".to_string()))
         }
-        Err(_) => Err(vm.new_attribute_error("class must define a '_type_' attribute".to_string())),
+        _ => Err(vm.new_attribute_error("class must define a '_type_' attribute".to_string())),
     }
 }
 
@@ -313,7 +321,7 @@ impl PyCDataMethods for PySimpleType {
                         "z" | "Z" => from_param_char_p(&cls, &value, vm),
                         "P" => from_param_void_p(&cls, &value, vm),
                         _ => {
-                            match new_simple_type(&cls, vm) {
+                            match new_simple_type(Either::B(&cls), vm) {
                                 Ok(obj) => Ok(obj.into_object(vm)),
                                 Err(e)
                                     if vm.isinstance(
@@ -358,11 +366,11 @@ impl PyCDataMethods for PySimpleType {
     }
 }
 
-#[pyimpl(flags(BASETYPE))]
+#[pyimpl(with(PyCDataFunctions, PyCDataMethods), flags(BASETYPE))]
 impl PySimpleType {
     #[pyslot]
     fn tp_new(cls: PyTypeRef, _: OptionalArg, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        new_simple_type(&cls, vm)?.into_ref_with_type(vm, cls)
+        new_simple_type(Either::B(&cls), vm)?.into_ref_with_type(vm, cls)
     }
 
     #[pymethod(magic)]
@@ -450,3 +458,5 @@ impl PyCDataFunctions for PySimpleType {
         Ok(vm.new_pyobj(unsafe { &*zelf.value.as_ptr() } as *const _ as *const usize as usize))
     }
 }
+
+impl PyCDataSequenceMethods for PySimpleType {}
