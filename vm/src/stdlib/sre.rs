@@ -12,13 +12,10 @@ mod _sre {
     use super::constants::SreFlag;
     use super::interp::{self, lower_ascii, lower_unicode, upper_unicode, State};
     use crate::builtins::tuple::PyTupleRef;
-    use crate::builtins::{PyDictRef, PyStrRef, PyTypeRef};
+    use crate::builtins::{PyDictRef, PyList, PyStr, PyStrRef, PyTypeRef};
     use crate::function::{Args, OptionalArg};
-    use crate::pyobject::{
-        Either, IntoPyObject, PyCallable, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
-    };
+    use crate::pyobject::{Either, IntoPyObject, PyCallable, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, StaticType};
     use crate::VirtualMachine;
-    use std::collections::HashMap;
     use std::convert::TryFrom;
 
     #[pyattr]
@@ -173,19 +170,13 @@ mod _sre {
             string_args: StringArgs,
             vm: &VirtualMachine,
         ) -> Option<PyRef<Match>> {
-            // TODO: optimize by op info and skip prefix
-            let start = string_args.pos;
-            for i in start..string_args.endpos {
-                if let Some(m) = interp::pymatch(
-                    string_args.string.clone(),
-                    i,
-                    string_args.endpos,
-                    zelf.clone(),
-                ) {
-                    return Some(m.into_ref(vm));
-                }
-            }
-            None
+            interp::search(
+                string_args.string,
+                string_args.pos,
+                string_args.endpos,
+                zelf,
+            )
+            .map(|x| x.into_ref(vm))
         }
         #[pymethod]
         fn findall(&self, string_args: StringArgs) -> Option<PyObjectRef> {
@@ -200,9 +191,14 @@ mod _sre {
             None
         }
         #[pymethod]
-        fn sub(&self, sub_args: SubArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-            Err(vm.new_not_implemented_error("".to_owned()))
+        fn sub(zelf: PyRef<Pattern>, sub_args: SubArgs, vm: &VirtualMachine) -> PyResult {
+            Self::subx(zelf, sub_args, false, vm)
         }
+        #[pymethod]
+        fn subn(zelf: PyRef<Pattern>, sub_args: SubArgs, vm: &VirtualMachine) -> PyResult {
+            Self::subx(zelf, sub_args, true, vm)
+        }
+
         #[pyproperty]
         fn flags(&self) -> u16 {
             self.flags.bits()
@@ -211,9 +207,100 @@ mod _sre {
         fn groupindex(&self) -> PyDictRef {
             self.groupindex.clone()
         }
+        #[pyproperty]
+        fn groups(&self) -> usize {
+            self.groups
+        }
+        #[pyproperty]
+        fn pattern(&self) -> PyObjectRef {
+            self.pattern.clone()
+        }
 
-        fn subx(&self, sub_args: SubArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-            Err(vm.new_not_implemented_error("".to_owned()))
+        fn subx(
+            zelf: PyRef<Pattern>,
+            sub_args: SubArgs,
+            subn: bool,
+            vm: &VirtualMachine,
+        ) -> PyResult {
+            let filter: PyObjectRef = match sub_args.repl {
+                Either::A(callable) => callable.into_object(),
+                Either::B(s) => {
+                    if s.borrow_value().contains('\\') {
+                        // handle non-literal strings ; hand it over to the template compiler
+                        let re = vm.import("re", &[], 0)?;
+                        let func = vm.get_attribute(re, "_subx")?;
+                        vm.invoke(&func, (zelf.clone(), s))?
+                    } else {
+                        s.into_object()
+                    }
+                }
+            };
+
+            let mut sublist: Vec<PyObjectRef> = Vec::new();
+
+            let mut n = 0;
+            let mut last_pos = 0;
+            while sub_args.count == 0 || n < sub_args.count {
+                let m = match interp::search(
+                    sub_args.string.clone(),
+                    last_pos,
+                    std::usize::MAX,
+                    zelf.clone(),
+                ) {
+                    Some(m) => m,
+                    None => {
+                        break;
+                    }
+                };
+                let start = m.regs[0].0 as usize;
+                if last_pos < start {
+                    /* get segment before this match */
+                    sublist.push(
+                        m.string
+                            .borrow_value()
+                            .chars()
+                            .take(start)
+                            .skip(last_pos)
+                            .collect::<String>()
+                            .into_pyobject(vm),
+                    );
+                }
+
+                last_pos = m.regs[0].1 as usize;
+                if last_pos == start {
+                    last_pos += 1;
+                }
+
+                if vm.is_callable(&filter) {
+                    let ret = vm.invoke(&filter, (m.into_ref(vm),))?;
+                    sublist.push(ret);
+                } else {
+                    sublist.push(filter.clone());
+                }
+
+                n += 1;
+            }
+
+            /* get segment following last match */
+            sublist.push(
+                sub_args
+                    .string
+                    .borrow_value()
+                    .chars()
+                    .skip(last_pos)
+                    .collect::<String>()
+                    .into_pyobject(vm),
+            );
+
+            let list = PyList::from(sublist).into_object(vm);
+            let s = vm.ctx.new_str("");
+            let ret = vm.call_method(&s, "join", (list,))?;
+
+            Ok(if subn {
+                (ret, n).into_pyobject(vm)
+            } else {
+                ret
+            })
         }
     }
 
@@ -343,7 +430,9 @@ mod _sre {
 
         #[pymethod(magic)]
         fn getitem(&self, index: isize, vm: &VirtualMachine) -> Option<String> {
-            self.get_index(index, vm).ok().and_then(|i| self.get_slice(i))
+            self.get_index(index, vm)
+                .ok()
+                .and_then(|i| self.get_slice(i))
         }
 
         #[pymethod]
