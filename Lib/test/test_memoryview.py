@@ -384,8 +384,6 @@ class AbstractMemoryTests:
             mm.release()
             m.tolist()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_issue22668(self):
         a = array.array('H', [256, 256, 256, 256])
         x = memoryview(a)
