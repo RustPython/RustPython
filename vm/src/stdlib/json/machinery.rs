@@ -39,6 +39,7 @@ static ESCAPE_CHARS: [&str; 0x20] = [
 // And which one need to be escaped (1)
 // The characters that need escaping are 0x00 to 0x1F, 0x22 ("), 0x5C (\), 0x7F (DEL)
 // Non-ASCII unicode characters can be safely included in a JSON string
+#[allow(clippy::unusual_byte_groupings)] // it's groups of 16, come on clippy
 static NEEDS_ESCAPING_BITSET: [u64; 4] = [
     //fedcba9876543210_fedcba9876543210_fedcba9876543210_fedcba9876543210
     0b0000000000000000_0000000000000100_1111111111111111_1111111111111111, // 3_2_1_0

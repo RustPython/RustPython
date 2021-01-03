@@ -984,10 +984,7 @@ mod decl {
             args: ProductArgs,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
-            let repeat = match args.repeat.into_option() {
-                Some(i) => i,
-                None => 1,
-            };
+            let repeat = args.repeat.unwrap_or(1);
 
             let mut pools = Vec::new();
             for arg in iterables.into_iter() {

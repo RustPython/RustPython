@@ -9,26 +9,15 @@ use num_traits::{cast::ToPrimitive, sign::Signed};
 use std::str::FromStr;
 
 #[derive(FromArgs)]
-pub struct SplitArgs<'a, T, S, E>
-where
-    T: TryFromObject + AnyStrWrapper<S>,
-    S: ?Sized + AnyStr<'a, E>,
-    E: Copy,
-{
+pub struct SplitArgs<'s, T: TryFromObject + AnyStrWrapper<'s>> {
     #[pyarg(any, default)]
     sep: Option<T>,
     #[pyarg(any, default = "-1")]
     maxsplit: isize,
-    _phantom1: std::marker::PhantomData<&'a S>,
-    _phantom2: std::marker::PhantomData<E>,
+    _phantom: std::marker::PhantomData<&'s ()>,
 }
 
-impl<'a, T, S, E> SplitArgs<'a, T, S, E>
-where
-    T: TryFromObject + AnyStrWrapper<S>,
-    S: ?Sized + AnyStr<'a, E>,
-    E: Copy,
-{
+impl<'s, T: TryFromObject + AnyStrWrapper<'s>> SplitArgs<'s, T> {
     pub fn get_value(self, vm: &VirtualMachine) -> PyResult<(Option<T>, isize)> {
         let sep = if let Some(s) = self.sep {
             let sep = s.as_ref();
@@ -124,11 +113,9 @@ impl StringRange for std::ops::Range<usize> {
     }
 }
 
-pub trait AnyStrWrapper<S>
-where
-    S: ?Sized,
-{
-    fn as_ref(&self) -> &S;
+pub trait AnyStrWrapper<'s> {
+    type Str: ?Sized + AnyStr<'s>;
+    fn as_ref(&self) -> &Self::Str;
 }
 
 pub trait AnyStrContainer<S>
@@ -140,28 +127,23 @@ where
     fn push_str(&mut self, s: &S);
 }
 
-pub trait AnyStr<'s, E>
-where
-    E: Copy,
-    Self: 's,
-    Self::Container: AnyStrContainer<Self> + std::iter::Extend<E>,
-    Self::CharIter: 's + std::iter::Iterator<Item = char>,
-    Self::ElementIter: 's + std::iter::Iterator<Item = E>,
-{
-    type Container;
-    type CharIter;
-    type ElementIter;
+// TODO: GATs for `'s` once stabilized
+pub trait AnyStr<'s>: 's {
+    type Char: Copy;
+    type Container: AnyStrContainer<Self> + Extend<Self::Char>;
+    type CharIter: Iterator<Item = char> + 's;
+    type ElementIter: Iterator<Item = Self::Char> + 's;
 
-    fn element_bytes_len(c: E) -> usize;
+    fn element_bytes_len(c: Self::Char) -> usize;
 
     fn to_container(&self) -> Self::Container;
     fn as_bytes(&self) -> &[u8];
     fn as_utf8_str(&self) -> Result<&str, std::str::Utf8Error>;
     fn chars(&'s self) -> Self::CharIter;
     fn elements(&'s self) -> Self::ElementIter;
-    fn get_bytes<'a>(&'a self, range: std::ops::Range<usize>) -> &'a Self;
+    fn get_bytes(&self, range: std::ops::Range<usize>) -> &Self;
     // FIXME: get_chars is expensive for str
-    fn get_chars<'a>(&'a self, range: std::ops::Range<usize>) -> &'a Self;
+    fn get_chars(&self, range: std::ops::Range<usize>) -> &Self;
     fn bytes_len(&self) -> usize;
     // fn chars_len(&self) -> usize;  // cannot access to cache here
     fn is_empty(&self) -> bool;
@@ -175,14 +157,14 @@ where
 
     fn py_split<T, SP, SN, SW, R>(
         &self,
-        args: SplitArgs<'s, T, Self, E>,
+        args: SplitArgs<'s, T>,
         vm: &VirtualMachine,
         split: SP,
         splitn: SN,
         splitw: SW,
     ) -> PyResult<Vec<R>>
     where
-        T: TryFromObject + AnyStrWrapper<Self>,
+        T: TryFromObject + AnyStrWrapper<'s, Str = Self>,
         SP: Fn(&Self, &Self, &VirtualMachine) -> Vec<R>,
         SN: Fn(&Self, &Self, usize, &VirtualMachine) -> Vec<R>,
         SW: Fn(&Self, isize, &VirtualMachine) -> Vec<R>,
@@ -249,7 +231,7 @@ where
         func_default: FD,
     ) -> &'a Self
     where
-        S: AnyStrWrapper<Self>,
+        S: AnyStrWrapper<'s, Str = Self>,
         FC: Fn(&'a Self, &Self) -> &'a Self,
         FD: Fn(&'a Self) -> &'a Self,
     {
@@ -286,7 +268,7 @@ where
         }
     }
 
-    fn py_pad(&self, left: usize, right: usize, fillchar: E) -> Self::Container {
+    fn py_pad(&self, left: usize, right: usize, fillchar: Self::Char) -> Self::Container {
         let mut u = Self::Container::with_capacity(
             (left + right) * Self::element_bytes_len(fillchar) + self.bytes_len(),
         );
@@ -296,23 +278,23 @@ where
         u
     }
 
-    fn py_center(&self, width: usize, fillchar: E, len: usize) -> Self::Container {
+    fn py_center(&self, width: usize, fillchar: Self::Char, len: usize) -> Self::Container {
         let marg = width - len;
         let left = marg / 2 + (marg & width & 1);
         self.py_pad(left, marg - left, fillchar)
     }
 
-    fn py_ljust(&self, width: usize, fillchar: E, len: usize) -> Self::Container {
+    fn py_ljust(&self, width: usize, fillchar: Self::Char, len: usize) -> Self::Container {
         self.py_pad(0, width - len, fillchar)
     }
 
-    fn py_rjust(&self, width: usize, fillchar: E, len: usize) -> Self::Container {
+    fn py_rjust(&self, width: usize, fillchar: Self::Char, len: usize) -> Self::Container {
         self.py_pad(width - len, 0, fillchar)
     }
 
     fn py_join<'a>(
         &self,
-        mut iter: PyIterator<'a, impl AnyStrWrapper<Self> + TryFromObject>,
+        mut iter: PyIterator<'a, impl AnyStrWrapper<'s, Str = Self> + TryFromObject>,
     ) -> PyResult<Self::Container> {
         let mut joined = if let Some(elem) = iter.next() {
             elem?.as_ref().to_container()

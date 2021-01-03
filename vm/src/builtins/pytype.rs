@@ -864,7 +864,7 @@ fn calculate_meta_class(
     Ok(winner)
 }
 
-fn best_base<'a>(bases: &'a [PyTypeRef], vm: &VirtualMachine) -> PyResult<PyTypeRef> {
+fn best_base(bases: &[PyTypeRef], vm: &VirtualMachine) -> PyResult<PyTypeRef> {
     // let mut base = None;
     // let mut winner = None;
 

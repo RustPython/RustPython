@@ -178,9 +178,7 @@ impl FuncArgs {
         self.kwargs.swap_remove(name)
     }
 
-    pub fn remaining_keywords<'a>(
-        &'a mut self,
-    ) -> impl Iterator<Item = (String, PyObjectRef)> + 'a {
+    pub fn remaining_keywords(&mut self) -> impl Iterator<Item = (String, PyObjectRef)> + '_ {
         self.kwargs.drain(..)
     }
 
