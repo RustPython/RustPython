@@ -142,6 +142,27 @@ pub(crate) fn pymatch(
     }
 }
 
+pub(crate) fn search(
+    string: PyStrRef,
+    start: usize,
+    end: usize,
+    pattern: PyRef<Pattern>,
+) -> Option<Match> {
+    // TODO: optimize by op info and skip prefix
+    let end = std::cmp::min(end, string.char_len());
+    for i in start..end {
+        if let Some(m) = pymatch(
+            string.clone(),
+            i,
+            end,
+            pattern.clone(),
+        ) {
+            return Some(m);
+        }
+    }
+    None
+}
+
 #[derive(Debug, Copy, Clone)]
 struct MatchContext {
     string_position: usize,
@@ -750,7 +771,8 @@ fn charset(set: &[u32], c: char) -> bool {
                     let (_, blockindices, _) = unsafe { set.align_to::<u8>() };
                     let blocks = &set[64..];
                     let block = blockindices[block_index as usize];
-                    if blocks[((block as u32 * 256 + (ch & 255)) / 32) as usize] & (1u32 << (ch & 31))
+                    if blocks[((block as u32 * 256 + (ch & 255)) / 32) as usize]
+                        & (1u32 << (ch & 31))
                         != 0
                     {
                         return ok;
