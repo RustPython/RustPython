@@ -151,12 +151,7 @@ pub(crate) fn search(
     // TODO: optimize by op info and skip prefix
     let end = std::cmp::min(end, string.char_len());
     for i in start..end {
-        if let Some(m) = pymatch(
-            string.clone(),
-            i,
-            end,
-            pattern.clone(),
-        ) {
+        if let Some(m) = pymatch(string.clone(), i, end, pattern.clone()) {
             return Some(m);
         }
     }
@@ -294,12 +289,13 @@ impl<'a> StackDrive<'a> {
         self.state
     }
     fn push_new_context(&mut self, pattern_offset: usize) {
-        let ctx = self.ctx();
-        let mut child_ctx = MatchContext { ..*ctx };
+        let mut child_ctx = MatchContext { ..*self.ctx() };
         child_ctx.code_position += pattern_offset;
-        if child_ctx.code_position > self.state.pattern_codes.len() {
-            child_ctx.code_position = self.state.pattern_codes.len();
-        }
+        self.state.context_stack.push(child_ctx);
+    }
+    fn push_new_context_at(&mut self, code_position: usize) {
+        let mut child_ctx = MatchContext { ..*self.ctx() };
+        child_ctx.code_position = code_position;
         self.state.context_stack.push(child_ctx);
     }
     fn repeat_ctx_mut(&mut self) -> &mut RepeatContext {
@@ -571,6 +567,8 @@ impl OpcodeDispatcher {
                         count: -1,
                         code_position: drive.ctx().code_position,
                         last_position: std::usize::MAX,
+                        mincount: drive.peek_code(2) as usize,
+                        maxcount: drive.peek_code(3) as usize,
                     };
                     drive.state.repeat_stack.push(repeat);
                     drive.state.string_position = drive.ctx().string_position;
@@ -584,7 +582,7 @@ impl OpcodeDispatcher {
                 },
             ),
             SreOpcode::MAX_UNTIL => Box::new(OpMaxUntil::default()),
-            SreOpcode::MIN_UNTIL => todo!("min until"),
+            SreOpcode::MIN_UNTIL => Box::new(OpMinUntil::default()),
             SreOpcode::REPEAT_ONE => Box::new(OpRepeatOne::default()),
             SreOpcode::MIN_REPEAT_ONE => Box::new(OpMinRepeatOne::default()),
             SreOpcode::GROUPREF => once(|drive| general_op_groupref(drive, |x| x)),
@@ -996,6 +994,8 @@ struct RepeatContext {
     code_position: usize,
     // zero-width match protection
     last_position: usize,
+    mincount: usize,
+    maxcount: usize,
 }
 
 struct OpMinRepeatOne {
@@ -1111,22 +1111,22 @@ impl OpcodeExecutor for OpMaxUntil {
                     count,
                     code_position,
                     last_position,
+                    mincount,
+                    maxcount,
                 } = *drive.repeat_ctx();
-                drive.ctx_mut().code_position = code_position;
-                let mincount = drive.peek_code(2) as usize;
-                let maxcount = drive.peek_code(3) as usize;
+
                 drive.state.string_position = drive.ctx().string_position;
                 self.count = count + 1;
 
                 if (self.count as usize) < mincount {
                     // not enough matches
                     drive.repeat_ctx_mut().count = self.count;
-                    drive.push_new_context(4);
+                    drive.push_new_context_at(code_position + 4);
                     self.jump_id = 1;
                     return Some(());
                 }
 
-                if ((count as usize) < maxcount || maxcount == MAXREPEAT)
+                if ((self.count as usize) < maxcount || maxcount == MAXREPEAT)
                     && drive.state.string_position != last_position
                 {
                     // we may have enough matches, if we can match another item, do so
@@ -1134,7 +1134,7 @@ impl OpcodeExecutor for OpMaxUntil {
                     drive.state.marks_push();
                     self.save_last_position = last_position;
                     drive.repeat_ctx_mut().last_position = drive.state.string_position;
-                    drive.push_new_context(4);
+                    drive.push_new_context_at(code_position + 4);
                     self.jump_id = 2;
                     return Some(());
                 }
@@ -1167,7 +1167,6 @@ impl OpcodeExecutor for OpMaxUntil {
             }
             3 => {
                 // cannot match more repeated items here.  make sure the tail matches
-                drive.skip_code(drive.peek_code(1) as usize + 1);
                 drive.push_new_context(1);
                 self.jump_id = 4;
                 Some(())
@@ -1188,18 +1187,79 @@ impl OpcodeExecutor for OpMaxUntil {
 struct OpMinUntil {
     jump_id: usize,
     count: isize,
+    save_repeat: Option<RepeatContext>,
 }
 impl Default for OpMinUntil {
     fn default() -> Self {
         Self {
             jump_id: 0,
             count: 0,
+            save_repeat: None,
         }
     }
 }
 impl OpcodeExecutor for OpMinUntil {
     fn next(&mut self, drive: &mut StackDrive) -> Option<()> {
-        None
+        match self.jump_id {
+            0 => {
+                let RepeatContext {
+                    count,
+                    code_position,
+                    last_position: _,
+                    mincount,
+                    maxcount: _,
+                } = *drive.repeat_ctx();
+                drive.state.string_position = drive.ctx().string_position;
+                self.count = count + 1;
+
+                if (self.count as usize) < mincount {
+                    // not enough matches
+                    drive.repeat_ctx_mut().count = self.count;
+                    drive.push_new_context_at(code_position + 4);
+                    self.jump_id = 1;
+                    return Some(());
+                }
+
+                // see if the tail matches
+                drive.state.marks_push();
+                self.save_repeat = drive.state.repeat_stack.pop();
+                drive.push_new_context(1);
+                self.jump_id = 2;
+                Some(())
+            }
+            1 => {
+                let child_ctx = drive.state.popped_context.unwrap();
+                drive.ctx_mut().has_matched = child_ctx.has_matched;
+                if drive.ctx().has_matched != Some(true) {
+                    drive.repeat_ctx_mut().count = self.count - 1;
+                    drive.state.string_position = drive.ctx().string_position;
+                }
+                None
+            }
+            2 => {
+                let child_ctx = drive.state.popped_context.unwrap();
+                if child_ctx.has_matched == Some(true) {
+                    drive.ctx_mut().has_matched = Some(true);
+                    return None;
+                }
+                drive.state.repeat_stack.push(self.save_repeat.unwrap());
+                drive.state.string_position = drive.ctx().string_position;
+                drive.state.marks_pop();
+
+                // match more unital tail matches
+                let maxcount = drive.repeat_ctx().maxcount;
+                let code_position = drive.repeat_ctx().code_position;
+                if self.count as usize >= maxcount && maxcount != MAXREPEAT {
+                    drive.ctx_mut().has_matched = Some(false);
+                    return None;
+                }
+                drive.repeat_ctx_mut().count = self.count;
+                drive.push_new_context_at(code_position + 4);
+                self.jump_id = 1;
+                Some(())
+            }
+            _ => unreachable!(),
+        }
         // match self.jump_id {
         //     0 => {
         //         drive.state.string_position = drive.ctx().string_position;

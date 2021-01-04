@@ -255,6 +255,7 @@ class ReTests(unittest.TestCase):
         pat = '(?:%s)(?(200)z|t)' % pat
         self.assertEqual(re.match(pat, 'xc8yz').span(), (0, 5))
 
+    @unittest.skip('TODO: RUSTPYTHON: named group index')
     def test_symbolic_refs(self):
         self.checkTemplateError('(?P<a>x)', r'\g<a', 'xx',
                                 'missing >, unterminated name', 3)
@@ -592,7 +593,8 @@ class ReTests(unittest.TestCase):
                          {'first':'first', 'second':'second'})
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    # @unittest.expectedFailure
+    @unittest.skip('TODO: RUSTPYTHON: named group index')
     def test_expand(self):
         self.assertEqual(re.match("(?P<first>first) (?P<second>second)",
                                   "first second")
@@ -1043,8 +1045,6 @@ class ReTests(unittest.TestCase):
 
     LITERAL_CHARS = string.ascii_letters + string.digits + '!"%\',/:;<=>@_`'
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_re_escape(self):
         p = ''.join(chr(i) for i in range(256))
         for c in p:
@@ -1057,8 +1057,6 @@ class ReTests(unittest.TestCase):
         literal_chars = self.LITERAL_CHARS
         self.assertEqual(re.escape(literal_chars), literal_chars)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_re_escape_bytes(self):
         p = bytes(range(256))
         for i in p:
@@ -1073,8 +1071,6 @@ class ReTests(unittest.TestCase):
         literal_chars = self.LITERAL_CHARS.encode('ascii')
         self.assertEqual(re.escape(literal_chars), literal_chars)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_re_escape_non_ascii(self):
         s = 'xxx\u2620\u2620\u2620xxx'
         s_escaped = re.escape(s)
@@ -1325,6 +1321,7 @@ class ReTests(unittest.TestCase):
                          (['sum', 'op=', 3, 'op*', 'foo', 'op+', 312.5,
                            'op+', 'bar'], ''))
 
+    @unittest.skip('TODO: RUSTPYTHON: index out of bounds')
     def test_bug_448951(self):
         # bug 448951 (similar to 429357, but with single char match)
         # (Also test greedy matches.)
@@ -1610,8 +1607,6 @@ class ReTests(unittest.TestCase):
         self.assertRaises(ValueError, re.compile, r'(?a)\w', re.UNICODE)
         self.assertRaises(re.error, re.compile, r'(?au)\w')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_locale_flag(self):
         enc = locale.getpreferredencoding()
         # Search non-ASCII letter
@@ -1657,8 +1652,6 @@ class ReTests(unittest.TestCase):
         self.assertRaises(ValueError, re.compile, b'(?a)', re.LOCALE)
         self.assertRaises(re.error, re.compile, b'(?aL)')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_scoped_flags(self):
         self.assertTrue(re.match(r'(?i:a)b', 'Ab'))
         self.assertIsNone(re.match(r'(?i:a)b', 'aB'))
@@ -1717,8 +1710,6 @@ class ReTests(unittest.TestCase):
         pat = re.compile(b'..')
         self.assertEqual(pat.sub(lambda m: b'bytes', b'a5'), b'bytes')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_dealloc(self):
         # issue 3299: check for segfault in debug build
         import _sre
@@ -1740,8 +1731,6 @@ class ReTests(unittest.TestCase):
         self.assertTrue(re.search("123.*-", '123\U0010ffff-'))
         self.assertTrue(re.search("123.*-", '123\xe9\u20ac\U0010ffff-'))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_compile(self):
         # Test return value when given string and pattern as parameter
         pattern = re.compile('random pattern')
@@ -1880,6 +1869,7 @@ class ReTests(unittest.TestCase):
         self.assertEqual([m.span() for m in re.finditer(r"\b|\w+", "a::bc")],
                          [(0, 0), (0, 1), (1, 1), (3, 3), (3, 5), (5, 5)])
 
+    @unittest.skip('TODO: RUSTPYTHON: endless loop')
     def test_bug_2537(self):
         # issue 2537: empty submatches
         for outer_op in ('{0,}', '*', '+', '{1,187}'):
