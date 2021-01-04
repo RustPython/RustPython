@@ -402,10 +402,19 @@ pub struct Parameter<U = ()> {
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, PartialEq)]
 pub enum ComprehensionKind<U = ()> {
-    GeneratorExpression { element: Expression<U> },
-    List { element: Expression<U> },
-    Set { element: Expression<U> },
-    Dict { key: Expression<U>, value: Expression<U> },
+    GeneratorExpression {
+        element: Expression<U>,
+    },
+    List {
+        element: Expression<U>,
+    },
+    Set {
+        element: Expression<U>,
+    },
+    Dict {
+        key: Expression<U>,
+        value: Expression<U>,
+    },
 }
 
 /// A list/set/dict/generator compression.
