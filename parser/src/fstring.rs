@@ -283,6 +283,7 @@ mod tests {
     fn mk_ident(name: &str, row: usize, col: usize) -> ast::Expression {
         ast::Expression {
             location: ast::Location::new(row, col),
+            custom: (),
             node: ast::ExpressionType::Identifier {
                 name: name.to_owned(),
             },
