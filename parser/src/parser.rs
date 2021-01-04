@@ -60,9 +60,11 @@ pub fn parse_statement(source: &str) -> Result<Vec<ast::Statement>, ParseError> 
 ///
 /// assert_eq!(ast::Expression {
 ///         location: ast::Location::new(1, 3),
+///         custom: (),
 ///         node: ast::ExpressionType::Binop {
 ///             a: Box::new(ast::Expression {
 ///                 location: ast::Location::new(1, 1),
+///                 custom: (),
 ///                 node: ast::ExpressionType::Number {
 ///                     value: ast::Number::Integer { value: BigInt::from(1) }
 ///                 }
@@ -70,6 +72,7 @@ pub fn parse_statement(source: &str) -> Result<Vec<ast::Statement>, ParseError> 
 ///             op: ast::Operator::Add,
 ///             b: Box::new(ast::Expression {
 ///                 location: ast::Location::new(1, 5),
+///                 custom: (),
 ///                 node: ast::ExpressionType::Number {
 ///                     value: ast::Number::Integer { value: BigInt::from(2) }
 ///                 }
@@ -108,6 +111,7 @@ mod tests {
     fn mk_ident(name: &str, row: usize, col: usize) -> ast::Expression {
         ast::Expression {
             location: ast::Location::new(row, col),
+            custom: (),
             node: ast::ExpressionType::Identifier {
                 name: name.to_owned(),
             },
@@ -117,6 +121,7 @@ mod tests {
     fn make_int(value: i32, row: usize, col: usize) -> ast::Expression {
         ast::Expression {
             location: ast::Location::new(row, col),
+            custom: (),
             node: ast::ExpressionType::Number {
                 value: ast::Number::Integer {
                     value: BigInt::from(value),
@@ -128,6 +133,7 @@ mod tests {
     fn make_string(value: &str, row: usize, col: usize) -> ast::Expression {
         ast::Expression {
             location: ast::Location::new(row, col),
+            custom: (),
             node: ast::ExpressionType::String {
                 value: ast::StringGroup::Constant {
                     value: String::from(value),
@@ -139,6 +145,7 @@ mod tests {
     fn as_statement(expr: ast::Expression) -> ast::Statement {
         ast::Statement {
             location: expr.location,
+            custom: (),
             node: ast::StatementType::Expression { expression: expr },
         }
     }
@@ -158,8 +165,10 @@ mod tests {
             ast::Program {
                 statements: vec![ast::Statement {
                     location: ast::Location::new(1, 1),
+                    custom: (),
                     node: ast::StatementType::Expression {
                         expression: ast::Expression {
+                            custom: (),
                             location: ast::Location::new(1, 6),
                             node: ast::ExpressionType::Call {
                                 function: Box::new(mk_ident("print", 1, 1)),
@@ -182,9 +191,11 @@ mod tests {
             ast::Program {
                 statements: vec![ast::Statement {
                     location: ast::Location::new(1, 1),
+                    custom: (),
                     node: ast::StatementType::Expression {
                         expression: ast::Expression {
                             location: ast::Location::new(1, 6),
+                            custom: (),
                             node: ast::ExpressionType::Call {
                                 function: Box::new(mk_ident("print", 1, 1)),
                                 args: vec![make_string("Hello world", 1, 8), make_int(2, 1, 22),],
@@ -206,9 +217,11 @@ mod tests {
             ast::Program {
                 statements: vec![ast::Statement {
                     location: ast::Location::new(1, 1),
+                    custom: (),
                     node: ast::StatementType::Expression {
                         expression: ast::Expression {
                             location: ast::Location::new(1, 8),
+                            custom: (),
                             node: ast::ExpressionType::Call {
                                 function: Box::new(mk_ident("my_func", 1, 1)),
                                 args: vec![make_string("positional", 1, 10)],
@@ -232,11 +245,13 @@ mod tests {
             parse_ast,
             vec![ast::Statement {
                 location: ast::Location::new(1, 1),
+                custom: (),
                 node: ast::StatementType::If {
                     test: make_int(1, 1, 4),
                     body: vec![as_statement(make_int(10, 1, 7))],
                     orelse: Some(vec![ast::Statement {
                         location: ast::Location::new(2, 1),
+                        custom: (),
                         node: ast::StatementType::If {
                             test: make_int(2, 2, 6),
                             body: vec![as_statement(make_int(20, 2, 9))],
@@ -256,6 +271,7 @@ mod tests {
             parse_ast,
             Ok(vec![as_statement(ast::Expression {
                 location: ast::Location::new(1, 1),
+                custom: (),
                 node: ast::ExpressionType::Lambda {
                     args: Box::new(ast::Parameters {
                         posonlyargs_count: 0,
@@ -279,6 +295,7 @@ mod tests {
                     }),
                     body: Box::new(ast::Expression {
                         location: ast::Location::new(1, 16),
+                        custom: (),
                         node: ast::ExpressionType::Binop {
                             a: Box::new(mk_ident("x", 1, 14)),
                             op: ast::Operator::Mult,
@@ -298,8 +315,10 @@ mod tests {
             parse_statement(&source),
             Ok(vec![ast::Statement {
                 location: ast::Location::new(1, 1),
+                custom: (),
                 node: ast::StatementType::Assign {
                     targets: vec![ast::Expression {
+                        custom: (),
                         location: ast::Location::new(1, 1),
                         node: ast::ExpressionType::Tuple {
                             elements: vec![mk_ident("a", 1, 1), mk_ident("b", 1, 4),]
@@ -307,6 +326,7 @@ mod tests {
                     }],
                     value: ast::Expression {
                         location: ast::Location::new(1, 8),
+                        custom: (),
                         node: ast::ExpressionType::Tuple {
                             elements: vec![make_int(4, 1, 8), make_int(5, 1, 11),]
                         }
@@ -325,6 +345,7 @@ mod tests {
             parse_statement(&source),
             Ok(vec![ast::Statement {
                 location: ast::Location::new(1, 1),
+                custom: (),
                 node: ast::StatementType::ClassDef {
                     name: String::from("Foo"),
                     bases: vec![mk_ident("A", 1, 11), mk_ident("B", 1, 14)],
@@ -332,6 +353,7 @@ mod tests {
                     body: vec![
                         ast::Statement {
                             location: ast::Location::new(2, 2),
+                            custom: (),
                             node: ast::StatementType::FunctionDef {
                                 is_async: false,
                                 name: String::from("__init__"),
@@ -350,6 +372,7 @@ mod tests {
                                 }),
                                 body: vec![ast::Statement {
                                     location: ast::Location::new(3, 3),
+                                    custom: (),
                                     node: ast::StatementType::Pass,
                                 }],
                                 decorator_list: vec![],
@@ -358,6 +381,7 @@ mod tests {
                         },
                         ast::Statement {
                             location: ast::Location::new(4, 2),
+                            custom: (),
                             node: ast::StatementType::FunctionDef {
                                 is_async: false,
                                 name: String::from("method_with_default"),
@@ -383,6 +407,7 @@ mod tests {
                                 }),
                                 body: vec![ast::Statement {
                                     location: ast::Location::new(5, 3),
+                                    custom: (),
                                     node: ast::StatementType::Pass,
                                 }],
                                 decorator_list: vec![],
@@ -404,6 +429,7 @@ mod tests {
             parse_ast,
             ast::Expression {
                 location: ast::Location::new(1, 1),
+                custom: (),
                 node: ast::ExpressionType::Comprehension {
                     kind: Box::new(ast::ComprehensionKind::Dict {
                         key: mk_ident("x1", 1, 2),
@@ -428,6 +454,7 @@ mod tests {
         assert_eq!(
             parse_ast,
             ast::Expression {
+                custom: (),
                 location: ast::Location::new(1, 1),
                 node: ast::ExpressionType::Comprehension {
                     kind: Box::new(ast::ComprehensionKind::List {
@@ -452,6 +479,7 @@ mod tests {
         assert_eq!(
             parse_ast,
             ast::Expression {
+                custom: (),
                 location: ast::Location::new(1, 1),
                 node: ast::ExpressionType::Comprehension {
                     kind: Box::new(ast::ComprehensionKind::List {
@@ -461,6 +489,7 @@ mod tests {
                         ast::Comprehension {
                             location: ast::Location::new(1, 4),
                             target: ast::Expression {
+                                custom: (),
                                 location: ast::Location::new(1, 8),
                                 node: ast::ExpressionType::Tuple {
                                     elements: vec![mk_ident("y", 1, 8), mk_ident("y2", 1, 11),],
@@ -476,6 +505,7 @@ mod tests {
                             iter: mk_ident("b", 1, 28),
                             ifs: vec![
                                 ast::Expression {
+                                    custom: (),
                                     location: ast::Location::new(1, 35),
                                     node: ast::ExpressionType::Compare {
                                         vals: vec![mk_ident("a", 1, 33), make_int(5, 1, 37),],
@@ -483,6 +513,7 @@ mod tests {
                                     }
                                 },
                                 ast::Expression {
+                                    custom: (),
                                     location: ast::Location::new(1, 44),
                                     node: ast::ExpressionType::Compare {
                                         vals: vec![mk_ident("a", 1, 42), make_int(10, 1, 46),],

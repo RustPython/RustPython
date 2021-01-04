@@ -69,6 +69,7 @@ PassStatement: ast::Statement = {
     <location:@L> "pass" => {
         ast::Statement {
             location,
+            custom: Default::default(),
             node: ast::StatementType::Pass,
         }
     },
@@ -78,6 +79,7 @@ DelStatement: ast::Statement = {
     <location:@L> "del" <targets:ExpressionList2> => {
         ast::Statement {
             location,
+            custom: Default::default(),
             node: ast::StatementType::Delete { targets },
         }
     },
@@ -88,6 +90,7 @@ ExpressionStatement: ast::Statement = {
         // Just an expression, no assignment:
         if suffix.is_empty() {
             ast::Statement {
+                custom: Default::default(),
                 location,
                 node: ast::StatementType::Expression { expression }
             }
@@ -102,6 +105,7 @@ ExpressionStatement: ast::Statement = {
             let value = values.into_iter().next().unwrap();
 
             ast::Statement {
+                custom: Default::default(),
                 location,
                 node: ast::StatementType::Assign { targets, value },
             }
@@ -109,6 +113,7 @@ ExpressionStatement: ast::Statement = {
     },
     <location:@L> <target:TestOrStarExprList> <op:AugAssign> <rhs:TestListOrYieldExpr> => {
         ast::Statement {
+            custom: Default::default(),
             location,
             node: ast::StatementType::AugAssign {
                 target: Box::new(target),
@@ -119,6 +124,7 @@ ExpressionStatement: ast::Statement = {
     },
     <location:@L> <target:Test> ":" <annotation:Test> <rhs:AssignSuffix?> => {
         ast::Statement {
+            custom: Default::default(),
             location,
             node: ast::StatementType::AnnAssign {
                 target: Box::new(target),
@@ -145,6 +151,7 @@ TestOrStarExprList: ast::Expression = {
         } else {
             ast::Expression {
                 location,
+                custom: Default::default(),
                 node: ast::ExpressionType::Tuple { elements }
             }
         }
@@ -158,6 +165,7 @@ TestOrStarNamedExprList: ast::Expression = {
         } else {
             ast::Expression {
                 location,
+                custom: Default::default(),
                 node: ast::ExpressionType::Tuple { elements }
             }
         }
@@ -193,24 +201,28 @@ AugAssign: ast::Operator = {
 FlowStatement: ast::Statement = {
     <location:@L> "break" => {
         ast::Statement {
+            custom: Default::default(),
             location,
             node: ast::StatementType::Break,
         }
     },
     <location:@L> "continue" => {
         ast::Statement {
+            custom: Default::default(),
             location,
             node: ast::StatementType::Continue,
         }
     },
     <location:@L> "return" <value:TestList?> => {
         ast::Statement {
+            custom: Default::default(),
             location,
             node: ast::StatementType::Return { value },
         }
     },
     <location:@L> <expression:YieldExpr> => {
         ast::Statement {
+            custom: Default::default(),
             location,
             node: ast::StatementType::Expression { expression },
         }
@@ -221,12 +233,14 @@ FlowStatement: ast::Statement = {
 RaiseStatement: ast::Statement = {
     <location:@L> "raise" => {
         ast::Statement {
+            custom: Default::default(),
             location,
             node: ast::StatementType::Raise { exception: None, cause: None },
         }
     },
     <location:@L> "raise" <t:Test> <c:("from" Test)?> => {
         ast::Statement {
+            custom: Default::default(),
             location,
             node: ast::StatementType::Raise { exception: Some(t), cause: c.map(|x| x.1) },
         }
@@ -236,6 +250,7 @@ RaiseStatement: ast::Statement = {
 ImportStatement: ast::Statement = {
     <location:@L> "import" <names: OneOrMore<ImportAsAlias<DottedName>>> => {
         ast::Statement {
+            custom: Default::default(),
             location,
             node: ast::StatementType::Import { names },
         }
@@ -243,6 +258,7 @@ ImportStatement: ast::Statement = {
     <location:@L> "from" <source:ImportFromLocation> "import" <names: ImportAsNames> => {
         let (level, module) = source;
         ast::Statement {
+            custom: Default::default(),
             location,
             node: ast::StatementType::ImportFrom {
                 level,
@@ -298,6 +314,7 @@ DottedName: String = {
 GlobalStatement: ast::Statement = {
     <location:@L> "global" <names:OneOrMore<Identifier>> => {
         ast::Statement {
+            custom: Default::default(),
             location,
             node: ast::StatementType::Global { names }
         }
@@ -307,6 +324,7 @@ GlobalStatement: ast::Statement = {
 NonlocalStatement: ast::Statement = {
     <location:@L> "nonlocal" <names:OneOrMore<Identifier>> => {
         ast::Statement {
+            custom: Default::default(),
             location,
             node: ast::StatementType::Nonlocal { names }
         }
@@ -316,6 +334,7 @@ NonlocalStatement: ast::Statement = {
 AssertStatement: ast::Statement = {
     <location:@L> "assert" <test:Test> <msg: ("," Test)?> => {
         ast::Statement {
+            custom: Default::default(),
             location,
             node: ast::StatementType::Assert {
                 test, msg: msg.map(|e| e.1)
@@ -342,6 +361,7 @@ IfStatement: ast::Statement = {
         // handle elif:
         for i in s2.into_iter().rev() {
             let x = ast::Statement {
+                custom: Default::default(),
                 location: i.0,
                 node: ast::StatementType::If { test: i.2, body: i.4, orelse: last },
             };
@@ -349,6 +369,7 @@ IfStatement: ast::Statement = {
         }
 
         ast::Statement {
+            custom: Default::default(),
             location,
             node: ast::StatementType::If { test, body, orelse: last }
         }
@@ -359,6 +380,7 @@ WhileStatement: ast::Statement = {
     <location:@L> "while" <test:NamedExpressionTest> ":" <body:Suite> <s2:("else" ":" Suite)?> => {
         let orelse = s2.map(|s| s.2);
         ast::Statement {
+            custom: Default::default(),
             location,
             node: ast::StatementType::While {
                 test,
@@ -374,6 +396,7 @@ ForStatement: ast::Statement = {
         let is_async = is_async.is_some();
         let orelse = s2.map(|s| s.2);
         ast::Statement {
+            custom: Default::default(),
             location,
             node: ast::StatementType::For {
                 is_async,
@@ -391,6 +414,7 @@ TryStatement: ast::Statement = {
         let orelse = else_suite.map(|s| s.2);
         let finalbody = finally.map(|s| s.2);
         ast::Statement {
+            custom: Default::default(),
             location,
             node: ast::StatementType::Try {
                 body,
@@ -405,6 +429,7 @@ TryStatement: ast::Statement = {
         let orelse = None;
         let finalbody = Some(finally.2);
         ast::Statement {
+            custom: Default::default(),
             location,
             node: ast::StatementType::Try {
                 body,
@@ -439,6 +464,7 @@ WithStatement: ast::Statement = {
     <location:@L> <is_async:"async"?> "with" <items:OneOrMore<WithItem>> ":" <body:Suite> => {
         let is_async = is_async.is_some();
         ast::Statement {
+            custom: Default::default(),
             location,
             node: ast::StatementType::With { is_async, items, body },
         }
@@ -456,6 +482,7 @@ FuncDef: ast::Statement = {
     <decorator_list:Decorator*> <location:@L> <is_async:"async"?> "def" <name:Identifier> <args:Parameters> <r:("->" Test)?> ":" <body:Suite> => {
         let is_async = is_async.is_some();
         ast::Statement {
+            custom: Default::default(),
             location,
             node: ast::StatementType::FunctionDef {
                 is_async,
@@ -597,6 +624,7 @@ ClassDef: ast::Statement = {
             None => (vec![], vec![]),
         };
         ast::Statement {
+            custom: Default::default(),
             location,
             node: ast::StatementType::ClassDef {
                 name,
@@ -612,11 +640,13 @@ ClassDef: ast::Statement = {
 Path: ast::Expression = {
     <location:@L> <n:Identifier> => ast::Expression {
         location,
+        custom: Default::default(),
         node: ast::ExpressionType::Identifier { name: n }
     },
     <p:Path> <location:@L> "." <n:name> => {
         ast::Expression {
             location,
+            custom: Default::default(),
             node: ast::ExpressionType::Attribute {
                 value: Box::new(p),
                 name: n,
@@ -635,10 +665,12 @@ Decorator: ast::Expression = {
 YieldExpr: ast::Expression = {
     <location:@L> "yield" <value:TestList?> => ast::Expression {
         location,
+        custom: Default::default(),
         node: ast::ExpressionType::Yield { value: value.map(Box::new) }
     },
     <location:@L> "yield" "from" <e:Test> => ast::Expression {
         location,
+        custom: Default::default(),
         node: ast::ExpressionType::YieldFrom { value: Box::new(e) }
     },
 };
@@ -648,6 +680,7 @@ Test: ast::Expression = {
         if let Some(c) = condition {
             ast::Expression {
                 location: c.0,
+                custom: Default::default(),
                 node: ast::ExpressionType::IfExpression {
                     test: Box::new(c.2),
                     body: Box::new(expr),
@@ -666,10 +699,12 @@ NamedExpressionTest: ast::Expression = {
         if let Some(l) = left {
             ast::Expression {
                 location: location,
+                custom: Default::default(),
                 node: ast::ExpressionType::NamedExpression {
                         left: Box::new(
                             ast::Expression {
                                 location: location,
+                                custom: Default::default(),
                                 node: ast::ExpressionType::Identifier { name: l.0, },
                             }),
                         right: Box::new(right),
@@ -685,6 +720,7 @@ LambdaDef: ast::Expression = {
     <location:@L> "lambda" <p:ParameterList<UntypedParameter>?> ":" <body:Test> =>
         ast::Expression {
             location,
+            custom: Default::default(),
             node: ast::ExpressionType::Lambda {
                 args: Box::new(p.unwrap_or_default()),
                 body: Box::new(body)
@@ -701,6 +737,7 @@ OrTest: ast::Expression = {
             values.extend(e2.into_iter().map(|e| e.1));
             ast::Expression {
                 location,
+                custom: Default::default(),
                 node: ast::ExpressionType::BoolOp { op: ast::BooleanOperator::Or, values }
             }
         }
@@ -716,6 +753,7 @@ AndTest: ast::Expression = {
             values.extend(e2.into_iter().map(|e| e.1));
             ast::Expression {
                 location,
+                custom: Default::default(),
                 node: ast::ExpressionType::BoolOp { op: ast::BooleanOperator::And, values }
             }
         }
@@ -725,6 +763,7 @@ AndTest: ast::Expression = {
 NotTest: ast::Expression = {
     <location:@L> "not" <e:NotTest> => ast::Expression {
         location,
+        custom: Default::default(),
         node: ast::ExpressionType::Unop { a: Box::new(e), op: ast::UnaryOperator::Not }
     },
     Comparison,
@@ -740,6 +779,7 @@ Comparison: ast::Expression = {
         }
         ast::Expression {
             location,
+            custom: Default::default(),
             node: ast::ExpressionType::Compare { vals, ops }
         }
     },
@@ -762,6 +802,7 @@ CompOp: ast::Comparison = {
 Expression: ast::Expression = {
     <e1:Expression> <location:@L> "|" <e2:XorExpression> => ast::Expression {
         location,
+        custom: Default::default(),
         node: ast::ExpressionType::Binop { a: Box::new(e1), op: ast::Operator::BitOr, b: Box::new(e2) }
     },
     XorExpression,
@@ -770,6 +811,7 @@ Expression: ast::Expression = {
 XorExpression: ast::Expression = {
     <e1:XorExpression> <location:@L> "^" <e2:AndExpression> => ast::Expression {
         location,
+        custom: Default::default(),
         node: ast::ExpressionType::Binop { a: Box::new(e1), op: ast::Operator::BitXor, b: Box::new(e2) }
     },
     AndExpression,
@@ -778,6 +820,7 @@ XorExpression: ast::Expression = {
 AndExpression: ast::Expression = {
     <e1:AndExpression> <location:@L> "&" <e2:ShiftExpression> => ast::Expression {
         location,
+        custom: Default::default(),
         node: ast::ExpressionType::Binop { a: Box::new(e1), op: ast::Operator::BitAnd, b: Box::new(e2) }
     },
     ShiftExpression,
@@ -786,6 +829,7 @@ AndExpression: ast::Expression = {
 ShiftExpression: ast::Expression = {
     <e1:ShiftExpression> <location:@L> <op:ShiftOp> <e2:ArithmaticExpression> => ast::Expression {
         location,
+        custom: Default::default(),
         node: ast::ExpressionType::Binop { a: Box::new(e1), op, b: Box::new(e2) }
     },
     ArithmaticExpression,
@@ -799,6 +843,7 @@ ShiftOp: ast::Operator = {
 ArithmaticExpression: ast::Expression = {
     <a:ArithmaticExpression> <location:@L> <op:AddOp> <b:Term> => ast::Expression {
         location,
+        custom: Default::default(),
         node: ast::ExpressionType::Binop { a: Box::new(a), op, b: Box::new(b) }
     },
     Term,
@@ -812,6 +857,7 @@ AddOp: ast::Operator = {
 Term: ast::Expression = {
     <a:Term> <location:@L> <op:MulOp> <b:Factor> => ast::Expression {
         location,
+        custom: Default::default(),
         node: ast::ExpressionType::Binop { a: Box::new(a), op, b: Box::new(b) }
     },
     Factor,
@@ -828,6 +874,7 @@ MulOp: ast::Operator = {
 Factor: ast::Expression = {
     <location:@L> <op:UnOp> <e:Factor> => ast::Expression {
         location,
+        custom: Default::default(),
         node: ast::ExpressionType::Unop { a: Box::new(e), op }
     },
     Power,
@@ -845,6 +892,7 @@ Power: ast::Expression = {
             None => e,
             Some((location, _, b)) => ast::Expression {
                 location,
+                custom: Default::default(),
                 node: ast::ExpressionType::Binop { a: Box::new(e), op: ast::Operator::Pow, b: Box::new(b) }
             },
         }
@@ -856,6 +904,7 @@ AtomExpr: ast::Expression = {
         if is_await.is_some() {
             ast::Expression {
                 location,
+                custom: Default::default(),
                 node: ast::ExpressionType::Await { value: Box::new(atom) }
             }
         } else {
@@ -869,15 +918,18 @@ AtomExpr2: ast::Expression = {
     <f:AtomExpr2> <location:@L> "(" <a:ArgumentList> ")" => {
         ast::Expression {
             location,
+            custom: Default::default(),
             node: ast::ExpressionType::Call { function: Box::new(f), args: a.args, keywords: a.keywords }
         }
     },
     <e:AtomExpr2> <location:@L> "[" <s:SubscriptList> "]" => ast::Expression {
         location,
+        custom: Default::default(),
         node: ast::ExpressionType::Subscript { a: Box::new(e), b: Box::new(s) }
     },
     <e:AtomExpr2> <location:@L> "." <name:Identifier> => ast::Expression {
         location,
+        custom: Default::default(),
         node: ast::ExpressionType::Attribute { value: Box::new(e), name }
     },
 };
@@ -894,6 +946,7 @@ SubscriptList: ast::Expression = {
 
             ast::Expression {
                 location,
+                custom: Default::default(),
                 node: ast::ExpressionType::Tuple { elements: dims },
             }
         }
@@ -903,47 +956,54 @@ SubscriptList: ast::Expression = {
 Subscript: ast::Expression = {
     Test,
     <e1:Test?> <location:@L> ":" <e2:Test?> <e3:SliceOp?>  => {
-        let s1 = e1.unwrap_or(ast::Expression { location, node: ast::ExpressionType::None });
-        let s2 = e2.unwrap_or(ast::Expression { location, node: ast::ExpressionType::None });
-        let s3 = e3.unwrap_or(ast::Expression { location, node: ast::ExpressionType::None });
+        let s1 = e1.unwrap_or(ast::Expression { location, custom: Default::default(), node: ast::ExpressionType::None });
+        let s2 = e2.unwrap_or(ast::Expression { location, custom: Default::default(), node: ast::ExpressionType::None });
+        let s3 = e3.unwrap_or(ast::Expression { location, custom: Default::default(), node: ast::ExpressionType::None });
         ast::Expression {
             location,
+            custom: Default::default(),
             node: ast::ExpressionType::Slice { elements: vec![s1, s2, s3] }
         }
     }
 };
 
 SliceOp: ast::Expression = {
-    <location:@L> ":" <e:Test?> => e.unwrap_or(ast::Expression {location, node: ast::ExpressionType::None})
+    <location:@L> ":" <e:Test?> => e.unwrap_or(ast::Expression {location, custom: Default::default(), node: ast::ExpressionType::None})
 }
 
 Atom: ast::Expression = {
     <location:@L> <value:StringGroup> => ast::Expression {
         location,
+        custom: Default::default(),
         node: ast::ExpressionType::String { value }
     },
     <location:@L> <value:Bytes> => ast::Expression {
         location,
+        custom: Default::default(),
         node: ast::ExpressionType::Bytes { value }
     },
     <location:@L> <value:Number> => ast::Expression {
         location,
+        custom: Default::default(),
         node: ast::ExpressionType::Number { value }
     },
     <location:@L> <name:Identifier> => ast::Expression {
         location,
+        custom: Default::default(),
         node: ast::ExpressionType::Identifier { name }
     },
     <location:@L> "[" <e:ListLiteralValues?> "]" => {
         let elements = e.unwrap_or_default();
         ast::Expression {
             location,
+            custom: Default::default(),
             node: ast::ExpressionType::List { elements }
         }
     },
     <location:@L> "[" <element:TestOrStarNamedExpr> <generators:CompFor> "]" => {
         ast::Expression {
             location,
+            custom: Default::default(),
             node: ast::ExpressionType::Comprehension {
                 kind: Box::new(ast::ComprehensionKind::List { element }),
                 generators,
@@ -953,6 +1013,7 @@ Atom: ast::Expression = {
     <location:@L> "(" <elements:TestOrStarNamedExprList?> ")" => {
         elements.unwrap_or(ast::Expression {
              location,
+             custom: Default::default(),
              node: ast::ExpressionType::Tuple { elements: Vec::new() }
         })
     },
@@ -960,6 +1021,7 @@ Atom: ast::Expression = {
     <location:@L> "(" <element:Test> <generators:CompFor> ")" => {
         ast::Expression {
             location,
+            custom: Default::default(),
             node: ast::ExpressionType::Comprehension {
                 kind: Box::new(ast::ComprehensionKind::GeneratorExpression { element }),
                 generators,
@@ -968,11 +1030,13 @@ Atom: ast::Expression = {
     },
     <location:@L> "{" <e:DictLiteralValues?> "}" => ast::Expression {
         location,
+        custom: Default::default(),
         node: ast::ExpressionType::Dict { elements: e.unwrap_or_default() }
     },
     <location:@L> "{" <e1:DictEntry> <generators:CompFor> "}" => {
         ast::Expression {
             location,
+            custom: Default::default(),
             node: ast::ExpressionType::Comprehension {
                 kind: Box::new(ast::ComprehensionKind::Dict { key: e1.0, value: e1.1 }),
                 generators,
@@ -981,21 +1045,23 @@ Atom: ast::Expression = {
     },
     <location:@L> "{" <elements:SetLiteralValues> "}" => ast::Expression {
         location,
+        custom: Default::default(),
         node: ast::ExpressionType::Set { elements }
     },
     <location:@L> "{" <element:Test> <generators:CompFor> "}" => {
         ast::Expression {
             location,
+            custom: Default::default(),
             node: ast::ExpressionType::Comprehension {
                 kind: Box::new(ast::ComprehensionKind::Set { element }),
                 generators,
             }
         }
     },
-    <location:@L> "True" => ast::Expression { location, node: ast::ExpressionType::True },
-    <location:@L> "False" => ast::Expression { location, node: ast::ExpressionType::False },
-    <location:@L> "None" => ast::Expression { location, node: ast::ExpressionType::None },
-    <location:@L> "..." => ast::Expression { location, node: ast::ExpressionType::Ellipsis },
+    <location:@L> "True" => ast::Expression { location, custom: Default::default(), node: ast::ExpressionType::True },
+    <location:@L> "False" => ast::Expression { location, custom: Default::default(), node: ast::ExpressionType::False },
+    <location:@L> "None" => ast::Expression { location, custom: Default::default(), node: ast::ExpressionType::None },
+    <location:@L> "..." => ast::Expression { location, custom: Default::default(), node: ast::ExpressionType::Ellipsis },
 };
 
 ListLiteralValues: Vec<ast::Expression> = {
@@ -1031,6 +1097,7 @@ ExpressionList: ast::Expression = {
         } else {
             ast::Expression {
                 location,
+                custom: Default::default(),
                 node: ast::ExpressionType::Tuple { elements },
             }
         }
@@ -1052,6 +1119,7 @@ TestList: ast::Expression = {
         } else {
             ast::Expression {
                 location,
+                custom: Default::default(),
                 node: ast::ExpressionType::Tuple { elements },
             }
         }
@@ -1062,6 +1130,7 @@ TestList: ast::Expression = {
 StarExpr: ast::Expression = {
     <location:@L> "*" <e:Expression> => ast::Expression {
         location,
+        custom: Default::default(),
         node: ast::ExpressionType::Starred { value: Box::new(e) },
     }
 };
@@ -1091,6 +1160,7 @@ FunctionArgument: (Option<Option<String>>, ast::Expression) = {
         let expr = match c {
             Some(c) => ast::Expression {
                 location: e.location,
+                custom: Default::default(),
                 node: ast::ExpressionType::Comprehension {
                     kind: Box::new(ast::ComprehensionKind::GeneratorExpression { element: e }),
                     generators: c,
@@ -1101,7 +1171,7 @@ FunctionArgument: (Option<Option<String>>, ast::Expression) = {
         (None, expr)
     },
     <i:Identifier> "=" <e:Test> => (Some(Some(i)), e),
-    <location:@L> "*" <e:Test> => (None, ast::Expression { location, node: ast::ExpressionType::Starred { value: Box::new(e) } }),
+    <location:@L> "*" <e:Test> => (None, ast::Expression { location, custom: Default::default(), node: ast::ExpressionType::Starred { value: Box::new(e) } }),
     "**" <e:Test> => (Some(None), e),
 };
 

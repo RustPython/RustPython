@@ -9,16 +9,16 @@ use num_bigint::BigInt;
 
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, PartialEq)]
-pub enum Top {
-    Program(Program),
-    Statement(Vec<Statement>),
-    Expression(Expression),
+pub enum Top<U = ()> {
+    Program(Program<U>),
+    Statement(Vec<Statement<U>>),
+    Expression(Expression<U>),
 }
 
 #[derive(Debug, PartialEq)]
 /// A full python program, it's a sequence of statements.
-pub struct Program {
-    pub statements: Suite,
+pub struct Program<U = ()> {
+    pub statements: Suite<U>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -28,17 +28,18 @@ pub struct ImportSymbol {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct Located<T> {
+pub struct Located<T, U = ()> {
     pub location: Location,
     pub node: T,
+    pub custom: U,
 }
 
-pub type Statement = Located<StatementType>;
-pub type Suite = Vec<Statement>;
+pub type Statement<U = ()> = Located<StatementType<U>, U>;
+pub type Suite<U = ()> = Vec<Statement<U>>;
 
 /// Abstract syntax tree nodes for python statements.
 #[derive(Debug, PartialEq)]
-pub enum StatementType {
+pub enum StatementType<U = ()> {
     /// A [`break`](https://docs.python.org/3/reference/simple_stmts.html#the-break-statement) statement.
     Break,
 
@@ -47,7 +48,7 @@ pub enum StatementType {
 
     /// A [`return`](https://docs.python.org/3/reference/simple_stmts.html#the-return-statement) statement.
     /// This is used to return from a function.
-    Return { value: Option<Expression> },
+    Return { value: Option<Expression<U>> },
 
     /// An [`import`](https://docs.python.org/3/reference/simple_stmts.html#the-import-statement) statement.
     Import { names: Vec<ImportSymbol> },
@@ -64,35 +65,35 @@ pub enum StatementType {
 
     /// An [`assert`](https://docs.python.org/3/reference/simple_stmts.html#the-assert-statement) statement.
     Assert {
-        test: Expression,
-        msg: Option<Expression>,
+        test: Expression<U>,
+        msg: Option<Expression<U>>,
     },
 
     /// A `del` statement, to delete some variables.
-    Delete { targets: Vec<Expression> },
+    Delete { targets: Vec<Expression<U>> },
 
     /// Variable assignment. Note that we can assign to multiple targets.
     Assign {
-        targets: Vec<Expression>,
-        value: Expression,
+        targets: Vec<Expression<U>>,
+        value: Expression<U>,
     },
 
     /// Augmented assignment.
     AugAssign {
-        target: Box<Expression>,
+        target: Box<Expression<U>>,
         op: Operator,
-        value: Box<Expression>,
+        value: Box<Expression<U>>,
     },
 
     /// A type annotated assignment.
     AnnAssign {
-        target: Box<Expression>,
-        annotation: Box<Expression>,
-        value: Option<Expression>,
+        target: Box<Expression<U>>,
+        annotation: Box<Expression<U>>,
+        value: Option<Expression<U>>,
     },
 
     /// An expression used as a statement.
-    Expression { expression: Expression },
+    Expression { expression: Expression<U> },
 
     /// The [`global`](https://docs.python.org/3/reference/simple_stmts.html#the-global-statement) statement,
     /// to declare names as global variables.
@@ -104,56 +105,56 @@ pub enum StatementType {
 
     /// An [`if`](https://docs.python.org/3/reference/compound_stmts.html#the-if-statement) statement.
     If {
-        test: Expression,
-        body: Suite,
-        orelse: Option<Suite>,
+        test: Expression<U>,
+        body: Suite<U>,
+        orelse: Option<Suite<U>>,
     },
 
     /// A [`while`](https://docs.python.org/3/reference/compound_stmts.html#the-while-statement) statement.
     While {
-        test: Expression,
-        body: Suite,
-        orelse: Option<Suite>,
+        test: Expression<U>,
+        body: Suite<U>,
+        orelse: Option<Suite<U>>,
     },
 
     /// The [`with`](https://docs.python.org/3/reference/compound_stmts.html#the-with-statement) statement.
     With {
         is_async: bool,
-        items: Vec<WithItem>,
-        body: Suite,
+        items: Vec<WithItem<U>>,
+        body: Suite<U>,
     },
 
     /// A [`for`](https://docs.python.org/3/reference/compound_stmts.html#the-for-statement) statement.
     /// Contains the body of the loop, and the `else` clause.
     For {
         is_async: bool,
-        target: Box<Expression>,
-        iter: Box<Expression>,
-        body: Suite,
-        orelse: Option<Suite>,
+        target: Box<Expression<U>>,
+        iter: Box<Expression<U>>,
+        body: Suite<U>,
+        orelse: Option<Suite<U>>,
     },
 
     /// A `raise` statement.
     Raise {
-        exception: Option<Expression>,
-        cause: Option<Expression>,
+        exception: Option<Expression<U>>,
+        cause: Option<Expression<U>>,
     },
 
     /// A [`try`](https://docs.python.org/3/reference/compound_stmts.html#the-try-statement) statement.
     Try {
-        body: Suite,
-        handlers: Vec<ExceptHandler>,
-        orelse: Option<Suite>,
-        finalbody: Option<Suite>,
+        body: Suite<U>,
+        handlers: Vec<ExceptHandler<U>>,
+        orelse: Option<Suite<U>>,
+        finalbody: Option<Suite<U>>,
     },
 
     /// A [class definition](https://docs.python.org/3/reference/compound_stmts.html#class-definitions).
     ClassDef {
         name: String,
-        body: Suite,
-        bases: Vec<Expression>,
-        keywords: Vec<Keyword>,
-        decorator_list: Vec<Expression>,
+        body: Suite<U>,
+        bases: Vec<Expression<U>>,
+        keywords: Vec<Keyword<U>>,
+        decorator_list: Vec<Expression<U>>,
     },
 
     /// A [function definition](https://docs.python.org/3/reference/compound_stmts.html#function-definitions).
@@ -162,82 +163,82 @@ pub enum StatementType {
     FunctionDef {
         is_async: bool,
         name: String,
-        args: Box<Parameters>,
-        body: Suite,
-        decorator_list: Vec<Expression>,
-        returns: Option<Expression>,
+        args: Box<Parameters<U>>,
+        body: Suite<U>,
+        decorator_list: Vec<Expression<U>>,
+        returns: Option<Expression<U>>,
     },
 }
 
 #[derive(Debug, PartialEq)]
-pub struct WithItem {
-    pub context_expr: Expression,
-    pub optional_vars: Option<Expression>,
+pub struct WithItem<U = ()> {
+    pub context_expr: Expression<U>,
+    pub optional_vars: Option<Expression<U>>,
 }
 
 /// An expression at a given location in the sourcecode.
-pub type Expression = Located<ExpressionType>;
+pub type Expression<U = ()> = Located<ExpressionType<U>, U>;
 
 /// A certain type of expression.
 #[derive(Debug, PartialEq)]
-pub enum ExpressionType {
+pub enum ExpressionType<U = ()> {
     BoolOp {
         op: BooleanOperator,
-        values: Vec<Expression>,
+        values: Vec<Expression<U>>,
     },
 
     /// A binary operation on two operands.
     Binop {
-        a: Box<Expression>,
+        a: Box<Expression<U>>,
         op: Operator,
-        b: Box<Expression>,
+        b: Box<Expression<U>>,
     },
 
     /// Subscript operation.
     Subscript {
-        a: Box<Expression>,
-        b: Box<Expression>,
+        a: Box<Expression<U>>,
+        b: Box<Expression<U>>,
     },
 
     /// An unary operation.
     Unop {
         op: UnaryOperator,
-        a: Box<Expression>,
+        a: Box<Expression<U>>,
     },
 
     /// An await expression.
     Await {
-        value: Box<Expression>,
+        value: Box<Expression<U>>,
     },
 
     /// A yield expression.
     Yield {
-        value: Option<Box<Expression>>,
+        value: Option<Box<Expression<U>>>,
     },
 
     // A yield from expression.
     YieldFrom {
-        value: Box<Expression>,
+        value: Box<Expression<U>>,
     },
 
     /// A chained comparison. Note that in python you can use
     /// `1 < a < 10` for example.
     Compare {
-        vals: Vec<Expression>,
+        vals: Vec<Expression<U>>,
         ops: Vec<Comparison>,
     },
 
     /// Attribute access in the form of `value.name`.
     Attribute {
-        value: Box<Expression>,
+        value: Box<Expression<U>>,
         name: String,
     },
 
     /// A call expression.
     Call {
-        function: Box<Expression>,
-        args: Vec<Expression>,
-        keywords: Vec<Keyword>,
+        function: Box<Expression<U>>,
+        args: Vec<Expression<U>>,
+        keywords: Vec<Keyword<U>>,
     },
 
     /// A numeric literal.
@@ -247,43 +248,43 @@ pub enum ExpressionType {
 
     /// A `list` literal value.
     List {
-        elements: Vec<Expression>,
+        elements: Vec<Expression<U>>,
     },
 
     /// A `tuple` literal value.
     Tuple {
-        elements: Vec<Expression>,
+        elements: Vec<Expression<U>>,
     },
 
     /// A `dict` literal value.
     /// For example: `{2: 'two', 3: 'three'}`
     Dict {
-        elements: Vec<(Option<Expression>, Expression)>,
+        elements: Vec<(Option<Expression<U>>, Expression<U>)>,
     },
 
     /// A `set` literal.
     Set {
-        elements: Vec<Expression>,
+        elements: Vec<Expression<U>>,
     },
 
     Comprehension {
-        kind: Box<ComprehensionKind>,
-        generators: Vec<Comprehension>,
+        kind: Box<ComprehensionKind<U>>,
+        generators: Vec<Comprehension<U>>,
     },
 
     /// A starred expression.
     Starred {
-        value: Box<Expression>,
+        value: Box<Expression<U>>,
     },
 
     /// A slice expression.
     Slice {
-        elements: Vec<Expression>,
+        elements: Vec<Expression<U>>,
     },
 
     /// A string literal.
     String {
-        value: StringGroup,
+        value: StringGroup<U>,
     },
 
     /// A bytes literal.
@@ -298,21 +299,21 @@ pub enum ExpressionType {
 
     /// A `lambda` function expression.
     Lambda {
-        args: Box<Parameters>,
-        body: Box<Expression>,
+        args: Box<Parameters<U>>,
+        body: Box<Expression<U>>,
     },
 
     /// An if-expression.
     IfExpression {
-        test: Box<Expression>,
-        body: Box<Expression>,
-        orelse: Box<Expression>,
+        test: Box<Expression<U>>,
+        body: Box<Expression<U>>,
+        orelse: Box<Expression<U>>,
     },
 
     // A named expression
     NamedExpression {
-        left: Box<Expression>,
-        right: Box<Expression>,
+        left: Box<Expression<U>>,
+        right: Box<Expression<U>>,
     },
 
     /// The literal 'True'.
@@ -328,7 +329,7 @@ pub enum ExpressionType {
     Ellipsis,
 }
 
-impl Expression {
+impl<U> Expression<U> {
     /// Returns a short name for the node suitable for use in error messages.
     pub fn name(&self) -> &'static str {
         use self::ExpressionType::*;
@@ -380,61 +381,61 @@ impl Expression {
 /// In cpython this is called arguments, but we choose parameters to
 /// distinguish between function parameters and actual call arguments.
 #[derive(Debug, PartialEq, Default)]
-pub struct Parameters {
+pub struct Parameters<U = ()> {
     pub posonlyargs_count: usize,
-    pub args: Vec<Parameter>,
-    pub kwonlyargs: Vec<Parameter>,
-    pub vararg: Varargs, // Optionally we handle optionally named '*args' or '*'
-    pub kwarg: Varargs,
-    pub defaults: Vec<Expression>,
-    pub kw_defaults: Vec<Option<Expression>>,
+    pub args: Vec<Parameter<U>>,
+    pub kwonlyargs: Vec<Parameter<U>>,
+    pub vararg: Varargs<U>, // Optionally we handle optionally named '*args' or '*'
+    pub kwarg: Varargs<U>,
+    pub defaults: Vec<Expression<U>>,
+    pub kw_defaults: Vec<Option<Expression<U>>>,
 }
 
 /// A single formal parameter to a function.
 #[derive(Debug, PartialEq, Default)]
-pub struct Parameter {
+pub struct Parameter<U = ()> {
     pub location: Location,
     pub arg: String,
-    pub annotation: Option<Box<Expression>>,
+    pub annotation: Option<Box<Expression<U>>>,
 }
 
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, PartialEq)]
-pub enum ComprehensionKind {
-    GeneratorExpression { element: Expression },
-    List { element: Expression },
-    Set { element: Expression },
-    Dict { key: Expression, value: Expression },
+pub enum ComprehensionKind<U = ()> {
+    GeneratorExpression { element: Expression<U> },
+    List { element: Expression<U> },
+    Set { element: Expression<U> },
+    Dict { key: Expression<U>, value: Expression<U> },
 }
 
 /// A list/set/dict/generator compression.
 #[derive(Debug, PartialEq)]
-pub struct Comprehension {
+pub struct Comprehension<U = ()> {
     pub location: Location,
-    pub target: Expression,
-    pub iter: Expression,
-    pub ifs: Vec<Expression>,
+    pub target: Expression<U>,
+    pub iter: Expression<U>,
+    pub ifs: Vec<Expression<U>>,
     pub is_async: bool,
 }
 
 #[derive(Debug, PartialEq)]
-pub struct ArgumentList {
-    pub args: Vec<Expression>,
-    pub keywords: Vec<Keyword>,
+pub struct ArgumentList<U = ()> {
+    pub args: Vec<Expression<U>>,
+    pub keywords: Vec<Keyword<U>>,
 }
 
 #[derive(Debug, PartialEq)]
-pub struct Keyword {
+pub struct Keyword<U = ()> {
     pub name: Option<String>,
-    pub value: Expression,
+    pub value: Expression<U>,
 }
 
 #[derive(Debug, PartialEq)]
-pub struct ExceptHandler {
+pub struct ExceptHandler<U = ()> {
     pub location: Location,
-    pub typ: Option<Expression>,
+    pub typ: Option<Expression<U>>,
     pub name: Option<String>,
-    pub body: Suite,
+    pub body: Suite<U>,
 }
 
 /// An operator for a binary operation (an operation with two operands).
@@ -506,35 +507,35 @@ pub enum ConversionFlag {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum StringGroup {
+pub enum StringGroup<U = ()> {
     Constant {
         value: String,
     },
     FormattedValue {
-        value: Box<Expression>,
+        value: Box<Expression<U>>,
         conversion: Option<ConversionFlag>,
-        spec: Option<Box<StringGroup>>,
+        spec: Option<Box<StringGroup<U>>>,
     },
     Joined {
-        values: Vec<StringGroup>,
+        values: Vec<StringGroup<U>>,
     },
 }
 
 #[derive(Debug, PartialEq)]
-pub enum Varargs {
+pub enum Varargs<U = ()> {
     None,
     Unnamed,
-    Named(Parameter),
+    Named(Parameter<U>),
 }
 
-impl Default for Varargs {
-    fn default() -> Varargs {
+impl<U> Default for Varargs<U> {
+    fn default() -> Varargs<U> {
         Varargs::None
     }
 }
 
-impl From<Option<Option<Parameter>>> for Varargs {
-    fn from(opt: Option<Option<Parameter>>) -> Varargs {
+impl<U> From<Option<Option<Parameter<U>>>> for Varargs<U> {
+    fn from(opt: Option<Option<Parameter<U>>>) -> Varargs<U> {
         match opt {
             Some(inner_opt) => match inner_opt {
                 Some(param) => Varargs::Named(param),
