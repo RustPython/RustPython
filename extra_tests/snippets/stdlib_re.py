@@ -56,3 +56,4 @@ assert re.compile('(a+)').match('aaa').groups() == ('aaa',)
 
 # test Match object method
 assert re.compile('(a)(bc)').match('abc')[1] == 'a'
+assert re.compile('a(b)(?P<a>c)d').match('abcd').groupdict() == {'a': 'c'}

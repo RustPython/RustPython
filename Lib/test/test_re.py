@@ -255,7 +255,7 @@ class ReTests(unittest.TestCase):
         pat = '(?:%s)(?(200)z|t)' % pat
         self.assertEqual(re.match(pat, 'xc8yz').span(), (0, 5))
 
-    @unittest.skip('TODO: RUSTPYTHON: named group index')
+    # @unittest.skip('TODO: RUSTPYTHON: named group index')
     def test_symbolic_refs(self):
         self.checkTemplateError('(?P<a>x)', r'\g<a', 'xx',
                                 'missing >, unterminated name', 3)
@@ -594,7 +594,7 @@ class ReTests(unittest.TestCase):
 
     # TODO: RUSTPYTHON
     # @unittest.expectedFailure
-    @unittest.skip('TODO: RUSTPYTHON: named group index')
+    # @unittest.skip('TODO: RUSTPYTHON: named group index')
     def test_expand(self):
         self.assertEqual(re.match("(?P<first>first) (?P<second>second)",
                                   "first second")
