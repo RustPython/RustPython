@@ -11,6 +11,7 @@ mod _sre {
 
     use super::constants::SreFlag;
     use super::interp::{self, lower_ascii, lower_unicode, upper_unicode, State};
+    use crate::builtins::list::PyListRef;
     use crate::builtins::tuple::PyTupleRef;
     use crate::builtins::{PyDictRef, PyInt, PyList, PyStrRef, PyTypeRef};
     use crate::function::{Args, OptionalArg};
@@ -182,8 +183,39 @@ mod _sre {
             .map(|x| x.into_ref(vm))
         }
         #[pymethod]
-        fn findall(&self, string_args: StringArgs) -> Option<PyObjectRef> {
-            None
+        fn findall(
+            zelf: PyRef<Pattern>,
+            string_args: StringArgs,
+            vm: &VirtualMachine,
+        ) -> Option<PyListRef> {
+            let mut matchlist: Vec<PyObjectRef> = Vec::new();
+
+            let mut last_pos = string_args.pos;
+            while let Some(m) = interp::search(
+                string_args.string.clone(),
+                last_pos,
+                string_args.endpos,
+                zelf.clone(),
+            ) {
+                let start = m.regs[0].0 as usize;
+                last_pos = m.regs[0].1 as usize;
+
+                let item = if zelf.groups == 0 || zelf.groups == 1 {
+                    m.get_slice(zelf.groups)
+                        .unwrap_or_default()
+                        .into_pyobject(vm)
+                } else {
+                    m.groups(OptionalArg::Present(vm.ctx.new_str("")), vm)
+                        .into_pyobject(vm)
+                };
+                matchlist.push(item);
+
+                if last_pos == start {
+                    last_pos += 1;
+                }
+            }
+
+            Some(PyList::from(matchlist).into_ref(vm))
         }
         #[pymethod]
         fn finditer(&self, string_args: StringArgs) -> Option<PyObjectRef> {
@@ -424,7 +456,11 @@ mod _sre {
                 .map(|x| {
                     self.get_index(x, vm)
                         .ok_or_else(|| vm.new_index_error("no such group".to_owned()))
-                        .map(|index| self.get_slice(index).unwrap().into_pyobject(vm))
+                        .map(|index| {
+                            self.get_slice(index)
+                                .map(|x| x.into_pyobject(vm))
+                                .unwrap_or_else(|| vm.ctx.none())
+                        })
                 })
                 .try_collect()?;
             if v.len() == 1 {
@@ -453,7 +489,11 @@ mod _sre {
         }
 
         #[pymethod]
-        fn groupdict(&self, default: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+        fn groupdict(
+            &self,
+            default: OptionalArg<PyObjectRef>,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyDictRef> {
             let default = default.unwrap_or_else(|| vm.ctx.none());
             let dict = vm.ctx.new_dict();
             for (key, index) in self.pattern.groupindex.clone() {
