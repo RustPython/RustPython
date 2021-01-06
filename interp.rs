@@ -1260,64 +1260,6 @@ impl OpcodeExecutor for OpMinUntil {
             }
             _ => unreachable!(),
         }
-        // match self.jump_id {
-        //     0 => {
-        //         drive.state.string_position = drive.ctx().string_position;
-        //         let repeat = match drive.state.repeat_stack.last_mut() {
-        //             Some(repeat) => repeat,
-        //             None => {
-        //                 todo!("Internal re error: MAX_UNTIL without REPEAT.");
-        //             }
-        //         };
-        //         self.count = repeat.count + 1;
-
-        //         if self.count < repeat.mincount as isize {
-        //             // not enough matches
-        //             repeat.count = self.count;
-        //             drive.push_new_context(4);
-        //             self.jump_id = 1;
-        //             return Some(());
-        //         }
-
-        //         // see if the tail matches
-        //         drive.state.marks_push();
-        //         drive.push_new_context(1);
-        //         self.jump_id = 2;
-        //         Some(())
-        //     }
-        //     1 => {
-        //         let child_ctx = drive.state.popped_context.unwrap();
-        //         drive.ctx_mut().has_matched = child_ctx.has_matched;
-        //         if drive.ctx().has_matched != Some(true) {
-        //             drive.state.string_position = drive.ctx().string_position;
-        //             let repeat = drive.state.repeat_stack.last_mut().unwrap();
-        //             repeat.count = self.count - 1;
-        //         }
-        //         None
-        //     }
-        //     2 => {
-        //         let child_ctx = drive.state.popped_context.unwrap();
-        //         if child_ctx.has_matched == Some(true) {
-        //             drive.state.repeat_stack.pop();
-        //             drive.ctx_mut().has_matched = Some(true);
-        //             return None;
-        //         }
-        //         drive.state.string_position = drive.ctx().string_position;
-        //         drive.state.marks_pop();
-
-        //         // match more until tail matches
-        //         let repeat = drive.state.repeat_stack.last_mut().unwrap();
-        //         if self.count >= repeat.maxcount as isize && repeat.maxcount != MAXREPEAT {
-        //             drive.ctx_mut().has_matched = Some(false);
-        //             return None;
-        //         }
-        //         repeat.count = self.count;
-        //         drive.push_new_context(4);
-        //         self.jump_id = 1;
-        //         Some(())
-        //     }
-        //     _ => unreachable!(),
-        // }
     }
 }
 
