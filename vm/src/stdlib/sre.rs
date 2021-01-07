@@ -5,6 +5,7 @@ pub(crate) use _sre::make_module;
 
 #[pymodule]
 mod _sre {
+    use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
     use num_traits::ToPrimitive;
     use rustpython_common::borrow::BorrowValue;
@@ -187,7 +188,7 @@ mod _sre {
             zelf: PyRef<Pattern>,
             string_args: StringArgs,
             vm: &VirtualMachine,
-        ) -> Option<PyListRef> {
+        ) -> PyListRef {
             let mut matchlist: Vec<PyObjectRef> = Vec::new();
 
             let mut last_pos = string_args.pos;
@@ -215,15 +216,25 @@ mod _sre {
                 }
             }
 
-            Some(PyList::from(matchlist).into_ref(vm))
+            PyList::from(matchlist).into_ref(vm)
         }
         #[pymethod]
         fn finditer(&self, string_args: StringArgs) -> Option<PyObjectRef> {
             None
         }
         #[pymethod]
-        fn scanner(&self, string_args: StringArgs) -> Option<PyObjectRef> {
-            None
+        fn scanner(
+            zelf: PyRef<Pattern>,
+            string_args: StringArgs,
+            vm: &VirtualMachine,
+        ) -> PyRef<SreScanner> {
+            SreScanner {
+                pattern: zelf,
+                string: string_args.string,
+                start: AtomicCell::new(string_args.pos),
+                end: AtomicCell::new(string_args.endpos),
+            }
+            .into_ref(vm)
         }
         #[pymethod]
         fn sub(zelf: PyRef<Pattern>, sub_args: SubArgs, vm: &VirtualMachine) -> PyResult {
@@ -549,6 +560,65 @@ mod _sre {
                     .skip(start as usize)
                     .collect(),
             )
+        }
+    }
+
+    #[pyattr]
+    #[pyclass(name = "SRE_Scanner")]
+    #[derive(Debug)]
+    struct SreScanner {
+        pattern: PyRef<Pattern>,
+        string: PyStrRef,
+        start: AtomicCell<usize>,
+        end: AtomicCell<usize>,
+    }
+    impl PyValue for SreScanner {
+        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+            Self::static_type()
+        }
+    }
+
+    #[pyimpl]
+    impl SreScanner {
+        #[pyproperty]
+        fn pattern(&self) -> PyRef<Pattern> {
+            self.pattern.clone()
+        }
+
+        #[pymethod(name = "match")]
+        fn pymatch(&self, vm: &VirtualMachine) -> Option<PyRef<Match>> {
+            let m = interp::pymatch(
+                self.string.clone(),
+                self.start.load(),
+                self.end.load(),
+                self.pattern.clone(),
+            )?;
+            let start = m.regs[0].0 as usize;
+            let end = m.regs[0].1 as usize;
+            if start == end {
+                self.start.store(end + 1);
+            } else {
+                self.start.store(end);
+            }
+            Some(m.into_ref(vm))
+        }
+
+        #[pymethod]
+        fn search(&self, vm: &VirtualMachine) -> Option<PyRef<Match>> {
+            let m = interp::search(
+                self.string.clone(),
+                self.start.load(),
+                self.end.load(),
+                self.pattern.clone(),
+            )?;
+            let start = m.regs[0].0 as usize;
+            let end = m.regs[0].1 as usize;
+            if start == end {
+                self.start.store(end + 1);
+            } else {
+                self.start.store(end);
+            }
+            Some(m.into_ref(vm))
         }
     }
 }
