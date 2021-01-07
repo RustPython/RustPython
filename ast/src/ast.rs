@@ -170,10 +170,156 @@ pub enum StatementType<U = ()> {
     },
 }
 
+impl<U> Statement<U> {
+    /// Maps `custom: U` into `custom: T` recursively
+    pub fn map<T, F: Fn(U) -> T>(self, f: &F) -> Statement<T> {
+        use StatementType::*;
+        let custom = f(self.custom);
+        let node = match self.node {
+            Break => Break,
+            Continue => Continue,
+            Return { value } => Return {
+                value: value.map(|v| v.map(f)),
+            },
+            Import { names } => Import { names },
+            ImportFrom {
+                level,
+                module,
+                names,
+            } => ImportFrom {
+                level,
+                module,
+                names,
+            },
+            Pass => Pass,
+            Assert { test, msg } => Assert {
+                test: test.map(f),
+                msg: msg.map(|v| v.map(f)),
+            },
+            Delete { targets } => Delete {
+                targets: targets.into_iter().map(|v| v.map(f)).collect(),
+            },
+            Assign { targets, value } => Assign {
+                targets: targets.into_iter().map(|v| v.map(f)).collect(),
+                value: value.map(f),
+            },
+            AugAssign { target, op, value } => AugAssign {
+                target: target.map(f).into(),
+                op,
+                value: value.map(f).into(),
+            },
+            AnnAssign {
+                target,
+                annotation,
+                value,
+            } => AnnAssign {
+                target: target.map(f).into(),
+                annotation: annotation.map(f).into(),
+                value: value.map(|v| v.map(f)),
+            },
+            Expression { expression } => Expression {
+                expression: expression.map(f),
+            },
+            Global { names } => Global { names },
+            Nonlocal { names } => Nonlocal { names },
+            If { test, body, orelse } => If {
+                test: test.map(f),
+                body: body.into_iter().map(|v| v.map(f)).collect(),
+                orelse: orelse.map(|orelse| orelse.into_iter().map(|v| v.map(f)).collect()),
+            },
+            While { test, body, orelse } => While {
+                test: test.map(f),
+                body: body.into_iter().map(|v| v.map(f)).collect(),
+                orelse: orelse.map(|orelse| orelse.into_iter().map(|v| v.map(f)).collect()),
+            },
+            With {
+                is_async,
+                items,
+                body,
+            } => With {
+                is_async,
+                items: items.into_iter().map(|v| v.map(f)).collect(),
+                body: body.into_iter().map(|v| v.map(f)).collect(),
+            },
+            For {
+                is_async,
+                target,
+                iter,
+                body,
+                orelse,
+            } => For {
+                is_async,
+                target: target.map(f).into(),
+                iter: iter.map(f).into(),
+                body: body.into_iter().map(|v| v.map(f)).collect(),
+                orelse: orelse.map(|orelse| orelse.into_iter().map(|v| v.map(f)).collect()),
+            },
+            Raise { exception, cause } => Raise {
+                exception: exception.map(|v| v.map(f)),
+                cause: cause.map(|v| v.map(f)),
+            },
+            Try {
+                body,
+                handlers,
+                orelse,
+                finalbody,
+            } => Try {
+                body: body.into_iter().map(|v| v.map(f)).collect(),
+                handlers: handlers.into_iter().map(|v| v.map(f)).collect(),
+                orelse: orelse.map(|orelse| orelse.into_iter().map(|v| v.map(f)).collect()),
+                finalbody: finalbody.map(|orelse| orelse.into_iter().map(|v| v.map(f)).collect()),
+            },
+            ClassDef {
+                name,
+                body,
+                bases,
+                keywords,
+                decorator_list,
+            } => ClassDef {
+                name,
+                body: body.into_iter().map(|v| v.map(f)).collect(),
+                bases: bases.into_iter().map(|v| v.map(f)).collect(),
+                keywords: keywords.into_iter().map(|v| v.map(f)).collect(),
+                decorator_list: decorator_list.into_iter().map(|v| v.map(f)).collect(),
+            },
+            FunctionDef {
+                is_async,
+                name,
+                args,
+                body,
+                decorator_list,
+                returns,
+            } => FunctionDef {
+                is_async,
+                name,
+                args: args.map(f).into(),
+                body: body.into_iter().map(|v| v.map(f)).collect(),
+                decorator_list: decorator_list.into_iter().map(|v| v.map(f)).collect(),
+                returns: returns.map(|v| v.map(f)),
+            },
+        };
+        Statement {
+            location: self.location,
+            custom,
+            node,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub struct WithItem<U = ()> {
     pub context_expr: Expression<U>,
     pub optional_vars: Option<Expression<U>>,
+}
+
+impl<U> WithItem<U> {
+    /// Maps `custom: U` into `custom: T` recursively
+    pub fn map<T, F: Fn(U) -> T>(self, f: &F) -> WithItem<T> {
+        WithItem {
+            context_expr: self.context_expr.map(f),
+            optional_vars: self.optional_vars.map(|v| v.map(f)),
+        }
+    }
 }
 
 /// An expression at a given location in the sourcecode.
@@ -330,6 +476,110 @@ pub enum ExpressionType<U = ()> {
 }
 
 impl<U> Expression<U> {
+    /// Maps `custom: U` into `custom: T` recursively
+    pub fn map<T, F: Fn(U) -> T>(self, f: &F) -> Expression<T> {
+        use self::ExpressionType::*;
+        let custom = f(self.custom);
+        let node = match self.node {
+            BoolOp { op, values } => BoolOp {
+                op,
+                values: values.into_iter().map(|v| v.map(f)).collect(),
+            },
+            Binop { a, op, b } => Binop {
+                a: a.map(f).into(),
+                b: b.map(f).into(),
+                op,
+            },
+            Subscript { a, b } => Subscript {
+                a: a.map(f).into(),
+                b: b.map(f).into(),
+            },
+            Unop { op, a } => Unop {
+                a: a.map(f).into(),
+                op,
+            },
+            Await { value } => Await {
+                value: value.map(f).into(),
+            },
+            Yield { value } => Yield {
+                value: value.map(|v| v.map(f).into()),
+            },
+            YieldFrom { value } => YieldFrom {
+                value: value.map(f).into(),
+            },
+            Compare { vals, ops } => Compare {
+                vals: vals.into_iter().map(|v| v.map(f)).collect(),
+                ops,
+            },
+            Attribute { value, name } => Attribute {
+                value: value.map(f).into(),
+                name,
+            },
+            Call {
+                function,
+                args,
+                keywords,
+            } => Call {
+                function: function.map(f).into(),
+                args: args.into_iter().map(|v| v.map(f)).collect(),
+                keywords: keywords.into_iter().map(|v| v.map(f)).collect(),
+            },
+            Number { value } => Number { value },
+            List { elements } => List {
+                elements: elements.into_iter().map(|v| v.map(f)).collect(),
+            },
+            Tuple { elements } => Tuple {
+                elements: elements.into_iter().map(|v| v.map(f)).collect(),
+            },
+            Dict { elements } => Dict {
+                elements: elements
+                    .into_iter()
+                    .map(|(a, b)| (a.map(|v| v.map(f)), b.map(f)))
+                    .collect(),
+            },
+            Set { elements } => Set {
+                elements: elements.into_iter().map(|v| v.map(f)).collect(),
+            },
+            Comprehension { kind, generators } => Comprehension {
+                kind: kind.map(f).into(),
+                generators: generators.into_iter().map(|v| v.map(f)).collect(),
+            },
+            Starred { value } => Starred {
+                value: value.map(f).into(),
+            },
+            Slice { elements } => Slice {
+                elements: elements.into_iter().map(|v| v.map(f)).collect(),
+            },
+            String { value } => String {
+                value: value.map(f),
+            },
+            Bytes { value } => Bytes { value },
+            Identifier { name } => Identifier { name },
+            Lambda { args, body } => Lambda {
+                args: args.map(f).into(),
+                body: body.map(f).into(),
+            },
+            IfExpression { test, body, orelse } => IfExpression {
+                test: test.map(f).into(),
+                body: body.map(f).into(),
+                orelse: orelse.map(f).into(),
+            },
+            NamedExpression { left, right } => NamedExpression {
+                left: left.map(f).into(),
+                right: right.map(f).into(),
+            },
+            True => True,
+            False => False,
+            None => None,
+            Ellipsis => Ellipsis,
+        };
+        Located {
+            location: self.location,
+            node,
+            custom,
+        }
+    }
+
     /// Returns a short name for the node suitable for use in error messages.
     pub fn name(&self) -> &'static str {
         use self::ExpressionType::*;
@@ -391,12 +641,42 @@ pub struct Parameters<U = ()> {
     pub kw_defaults: Vec<Option<Expression<U>>>,
 }
 
+impl<U> Parameters<U> {
+    /// Maps `custom: U` into `custom: T` recursively
+    pub fn map<T, F: Fn(U) -> T>(self, f: &F) -> Parameters<T> {
+        Parameters {
+            posonlyargs_count: self.posonlyargs_count,
+            args: self.args.into_iter().map(|v| v.map(f)).collect(),
+            kwonlyargs: self.kwonlyargs.into_iter().map(|v| v.map(f)).collect(),
+            vararg: self.vararg.map(f),
+            kwarg: self.kwarg.map(f),
+            defaults: self.defaults.into_iter().map(|v| v.map(f)).collect(),
+            kw_defaults: self
+                .kw_defaults
+                .into_iter()
+                .map(|v| v.map(|u| u.map(f)))
+                .collect(),
+        }
+    }
+}
+
 /// A single formal parameter to a function.
 #[derive(Debug, PartialEq, Default)]
 pub struct Parameter<U = ()> {
     pub location: Location,
     pub arg: String,
     pub annotation: Option<Box<Expression<U>>>,
+}
+
+impl<U> Parameter<U> {
+    /// Maps `custom: U` into `custom: T` recursively
+    pub fn map<T, F: Fn(U) -> T>(self, f: &F) -> Parameter<T> {
+        Parameter {
+            location: self.location,
+            arg: self.arg,
+            annotation: self.annotation.map(|v| v.map(f).into()),
+        }
+    }
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -417,6 +697,28 @@ pub enum ComprehensionKind<U = ()> {
     },
 }
 
+impl<U> ComprehensionKind<U> {
+    /// Maps `custom: U` into `custom: T` recursively
+    pub fn map<T, F: Fn(U) -> T>(self, f: &F) -> ComprehensionKind<T> {
+        use ComprehensionKind::*;
+        match self {
+            GeneratorExpression { element } => GeneratorExpression {
+                element: element.map(f),
+            },
+            List { element } => List {
+                element: element.map(f),
+            },
+            Set { element } => Set {
+                element: element.map(f),
+            },
+            Dict { key, value } => Dict {
+                key: key.map(f),
+                value: value.map(f),
+            },
+        }
+    }
+}
+
 /// A list/set/dict/generator compression.
 #[derive(Debug, PartialEq)]
 pub struct Comprehension<U = ()> {
@@ -427,10 +729,33 @@ pub struct Comprehension<U = ()> {
     pub is_async: bool,
 }
 
+impl<U> Comprehension<U> {
+    /// Maps `custom: U` into `custom: T` recursively
+    pub fn map<T, F: Fn(U) -> T>(self, f: &F) -> Comprehension<T> {
+        Comprehension {
+            location: self.location,
+            target: self.target.map(f),
+            iter: self.iter.map(f),
+            ifs: self.ifs.into_iter().map(|v| v.map(f)).collect(),
+            is_async: self.is_async,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub struct ArgumentList<U = ()> {
     pub args: Vec<Expression<U>>,
     pub keywords: Vec<Keyword<U>>,
+}
+
+impl<U> ArgumentList<U> {
+    /// Maps `custom: U` into `custom: T` recursively
+    pub fn map<T, F: Fn(U) -> T>(self, f: &F) -> ArgumentList<T> {
+        ArgumentList {
+            args: self.args.into_iter().map(|v| v.map(f)).collect(),
+            keywords: self.keywords.into_iter().map(|v| v.map(f)).collect(),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -439,12 +764,34 @@ pub struct Keyword<U = ()> {
     pub value: Expression<U>,
 }
 
+impl<U> Keyword<U> {
+    /// Maps `custom: U` into `custom: T` recursively
+    pub fn map<T, F: Fn(U) -> T>(self, f: &F) -> Keyword<T> {
+        Keyword {
+            name: self.name,
+            value: self.value.map(f),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub struct ExceptHandler<U = ()> {
     pub location: Location,
     pub typ: Option<Expression<U>>,
     pub name: Option<String>,
     pub body: Suite<U>,
+}
+
+impl<U> ExceptHandler<U> {
+    /// Maps `custom: U` into `custom: T` recursively
+    pub fn map<T, F: Fn(U) -> T>(self, f: &F) -> ExceptHandler<T> {
+        ExceptHandler {
+            location: self.location,
+            typ: self.typ.map(|v| v.map(f)),
+            name: self.name,
+            body: self.body.into_iter().map(|v| v.map(f)).collect(),
+        }
+    }
 }
 
 /// An operator for a binary operation (an operation with two operands).
@@ -530,11 +877,45 @@ pub enum StringGroup<U = ()> {
     },
 }
 
+impl<U> StringGroup<U> {
+    /// Maps `custom: U` into `custom: T` recursively
+    pub fn map<T, F: Fn(U) -> T>(self, f: &F) -> StringGroup<T> {
+        use StringGroup::*;
+        match self {
+            Constant { value } => Constant { value },
+            FormattedValue {
+                value,
+                conversion,
+                spec,
+            } => FormattedValue {
+                value: value.map(f).into(),
+                conversion,
+                spec: spec.map(|v| v.map(f).into()),
+            },
+            Joined { values } => Joined {
+                values: values.into_iter().map(|v| v.map(f)).collect(),
+            },
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum Varargs<U = ()> {
     None,
     Unnamed,
     Named(Parameter<U>),
+}
+
+impl<U> Varargs<U> {
+    /// Maps `custom: U` into `custom: T` recursively
+    pub fn map<T, F: Fn(U) -> T>(self, f: &F) -> Varargs<T> {
+        use Varargs::*;
+        match self {
+            Named(param) => Named(param.map(f)),
+            Unnamed => Unnamed,
+            None => None,
+        }
+    }
 }
 
 impl<U> Default for Varargs<U> {
