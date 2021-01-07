@@ -120,6 +120,14 @@ mod _sre {
         count: usize,
     }
 
+    #[derive(FromArgs)]
+    struct SplitArgs {
+        #[pyarg(any)]
+        string: PyStrRef,
+        #[pyarg(any, default = "0")]
+        maxsplit: isize,
+    }
+
     #[pyattr]
     #[pyclass(name = "Pattern")]
     #[derive(Debug)]
@@ -263,6 +271,66 @@ mod _sre {
         #[pymethod]
         fn subn(zelf: PyRef<Pattern>, sub_args: SubArgs, vm: &VirtualMachine) -> PyResult {
             Self::subx(zelf, sub_args, true, vm)
+        }
+
+        #[pymethod]
+        fn split(zelf: PyRef<Pattern>, split_args: SplitArgs, vm: &VirtualMachine) -> PyListRef {
+            let mut splitlist: Vec<PyObjectRef> = Vec::new();
+
+            let mut n = 0;
+            let mut last_pos = 0;
+            while split_args.maxsplit == 0 || n < split_args.maxsplit {
+                let m = match interp::search(
+                    split_args.string.clone(),
+                    last_pos,
+                    std::usize::MAX,
+                    zelf.clone(),
+                ) {
+                    Some(m) => m,
+                    None => {
+                        break;
+                    }
+                };
+                let start = m.regs[0].0 as usize;
+                let end = m.regs[0].1 as usize;
+                if start == end {
+                    if last_pos == m.endpos {
+                        break;
+                    }
+                    last_pos = end + 1;
+                    continue;
+                }
+
+                splitlist.push(
+                    m.string
+                        .borrow_value()
+                        .chars()
+                        .take(start)
+                        .skip(last_pos)
+                        .collect::<String>()
+                        .into_pyobject(vm),
+                );
+
+                // add groups (if any)
+                for i in 1..zelf.groups + 1 {
+                    splitlist.push(m.get_slice(i).unwrap_or_default().into_pyobject(vm));
+                }
+                n += 1;
+                last_pos = end;
+            }
+
+            // get segment following last match (even if empty)
+            splitlist.push(
+                split_args
+                    .string
+                    .borrow_value()
+                    .chars()
+                    .skip(last_pos)
+                    .collect::<String>()
+                    .into_pyobject(vm),
+            );
+
+            PyList::from(splitlist).into_ref(vm)
         }
 
         #[pyproperty]
