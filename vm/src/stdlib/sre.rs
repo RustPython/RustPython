@@ -14,11 +14,11 @@ mod _sre {
     use super::interp::{self, lower_ascii, lower_unicode, upper_unicode, State};
     use crate::builtins::list::PyListRef;
     use crate::builtins::tuple::PyTupleRef;
-    use crate::builtins::{PyDictRef, PyInt, PyList, PyStrRef, PyTypeRef};
+    use crate::builtins::{PyCallableIterator, PyDictRef, PyInt, PyList, PyStrRef, PyTypeRef};
     use crate::function::{Args, OptionalArg};
     use crate::pyobject::{
         Either, IntoPyObject, ItemProtocol, PyCallable, PyObjectRef, PyRef, PyResult, PyValue,
-        StaticType,
+        StaticType, TryFromObject,
     };
     use crate::VirtualMachine;
     use std::convert::TryFrom;
@@ -154,6 +154,7 @@ mod _sre {
             )
             .map(|x| x.into_ref(vm))
         }
+
         #[pymethod]
         fn fullmatch(
             zelf: PyRef<Pattern>,
@@ -169,6 +170,7 @@ mod _sre {
             }
             None
         }
+
         #[pymethod]
         fn search(
             zelf: PyRef<Pattern>,
@@ -183,6 +185,7 @@ mod _sre {
             )
             .map(|x| x.into_ref(vm))
         }
+
         #[pymethod]
         fn findall(
             zelf: PyRef<Pattern>,
@@ -218,10 +221,26 @@ mod _sre {
 
             PyList::from(matchlist).into_ref(vm)
         }
+
         #[pymethod]
-        fn finditer(&self, string_args: StringArgs) -> Option<PyObjectRef> {
-            None
+        fn finditer(
+            zelf: PyRef<Pattern>,
+            string_args: StringArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyCallableIterator> {
+            let scanner = SreScanner {
+                pattern: zelf,
+                string: string_args.string,
+                start: AtomicCell::new(string_args.pos),
+                end: AtomicCell::new(string_args.endpos),
+            }
+            .into_ref(vm);
+            let search = vm.get_method(scanner.into_object(), "search").unwrap()?;
+            let search = PyCallable::try_from_object(vm, search)?;
+            let iterator = PyCallableIterator::new(search, vm.ctx.none());
+            Ok(iterator)
         }
+
         #[pymethod]
         fn scanner(
             zelf: PyRef<Pattern>,
@@ -236,6 +255,7 @@ mod _sre {
             }
             .into_ref(vm)
         }
+
         #[pymethod]
         fn sub(zelf: PyRef<Pattern>, sub_args: SubArgs, vm: &VirtualMachine) -> PyResult {
             Self::subx(zelf, sub_args, false, vm)
