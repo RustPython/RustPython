@@ -491,12 +491,20 @@ mod _sre {
             self.endpos
         }
         #[pyproperty]
-        fn lastindex(&self) -> isize {
-            self.lastindex
+        fn lastindex(&self) -> Option<isize> {
+            if self.lastindex >= 0 {
+                Some(self.lastindex)
+            } else {
+                None
+            }
         }
         #[pyproperty]
         fn lastgroup(&self) -> Option<String> {
-            None
+            if self.lastindex >= 0 && (self.lastindex as usize) < self.pattern.indexgroup.len() {
+                self.pattern.indexgroup[self.lastindex as usize].clone()
+            } else {
+                None
+            }
         }
         #[pyproperty]
         fn re(&self) -> PyObjectRef {

@@ -1235,7 +1235,7 @@ class ReTests(unittest.TestCase):
         self.assertEqual(re.match(r'(a)|(b)', 'b').span(1), (-1, -1))
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    # @unittest.expectedFailure
     def test_bug_527371(self):
         # bug described in patches 527371/672491
         self.assertIsNone(re.match(r'(a)?a','a').lastindex)

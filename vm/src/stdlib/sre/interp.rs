@@ -150,7 +150,7 @@ pub(crate) fn search(
 ) -> Option<Match> {
     // TODO: optimize by op info and skip prefix
     let end = std::cmp::min(end, string.char_len());
-    for i in start..end {
+    for i in start..end + 1 {
         if let Some(m) = pymatch(string.clone(), i, end, pattern.clone()) {
             return Some(m);
         }
@@ -1382,6 +1382,13 @@ impl OpcodeExecutor for OpRepeatOne {
                     drive.ctx_mut().has_matched = Some(true);
                     return None;
                 }
+                if self.count <= self.mincount as isize {
+                    drive.state.marks_pop_discard();
+                    drive.ctx_mut().has_matched = Some(false);
+                    return None;
+                }
+
+                // TODO: unnesscary double check
                 drive.back_skip_char(1);
                 self.count -= 1;
                 drive.state.marks_pop_keep();
