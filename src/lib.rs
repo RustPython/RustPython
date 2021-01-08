@@ -297,14 +297,17 @@ fn parse_arguments<'a>(app: App<'a, '_>) -> ArgMatches<'a> {
 /// Create settings by examining command line arguments and environment
 /// variables.
 fn create_settings(matches: &ArgMatches) -> PySettings {
-    let mut settings = PySettings::default();
-    settings.isolated = matches.is_present("isolate");
-    settings.ignore_environment = matches.is_present("ignore-environment");
+    let mut settings = PySettings {
+        isolated: matches.is_present("isolate"),
+        ignore_environment: matches.is_present("ignore-environment"),
+        interactive: !matches.is_present("c")
+            && !matches.is_present("m")
+            && (!matches.is_present("script") || matches.is_present("inspect")),
+        bytes_warning: matches.occurrences_of("bytes-warning"),
+        no_site: matches.is_present("no-site"),
+        ..Default::default()
+    };
     let ignore_environment = settings.ignore_environment || settings.isolated;
-
-    settings.interactive = !matches.is_present("c")
-        && !matches.is_present("m")
-        && (!matches.is_present("script") || matches.is_present("inspect"));
 
     // add the current directory to sys.path
     settings.path_list.push("".to_owned());
@@ -351,10 +354,6 @@ fn create_settings(matches: &ArgMatches) -> PySettings {
             settings.verbose = value;
         }
     }
-
-    settings.bytes_warning = matches.occurrences_of("bytes-warning");
-
-    settings.no_site = matches.is_present("no-site");
 
     if matches.is_present("no-user-site")
         || matches.is_present("isolate")

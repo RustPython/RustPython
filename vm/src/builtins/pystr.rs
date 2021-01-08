@@ -876,7 +876,7 @@ impl PyStr {
         fillchar: OptionalArg<PyStrRef>,
         vm: &VirtualMachine,
     ) -> PyResult<String> {
-        self._pad(width, fillchar, AnyStr::<char>::py_center, vm)
+        self._pad(width, fillchar, AnyStr::py_center, vm)
     }
 
     #[pymethod]
@@ -886,7 +886,7 @@ impl PyStr {
         fillchar: OptionalArg<PyStrRef>,
         vm: &VirtualMachine,
     ) -> PyResult<String> {
-        self._pad(width, fillchar, AnyStr::<char>::py_ljust, vm)
+        self._pad(width, fillchar, AnyStr::py_ljust, vm)
     }
 
     #[pymethod]
@@ -896,7 +896,7 @@ impl PyStr {
         fillchar: OptionalArg<PyStrRef>,
         vm: &VirtualMachine,
     ) -> PyResult<String> {
-        self._pad(width, fillchar, AnyStr::<char>::py_rjust, vm)
+        self._pad(width, fillchar, AnyStr::py_rjust, vm)
     }
 
     #[pymethod]
@@ -904,7 +904,7 @@ impl PyStr {
         let tab_stop = args.tabsize();
         let mut expanded_str = String::with_capacity(self.value.len());
         let mut tab_size = tab_stop;
-        let mut col_count = 0 as usize;
+        let mut col_count = 0usize;
         for ch in self.value.chars() {
             match ch {
                 '\t' => {
@@ -1157,7 +1157,7 @@ impl TryFromObject for std::ffi::OsString {
     }
 }
 
-type SplitArgs<'a> = anystr::SplitArgs<'a, PyStrRef, str, char>;
+type SplitArgs<'a> = anystr::SplitArgs<'a, PyStrRef>;
 
 #[derive(FromArgs)]
 pub struct FindArgs {
@@ -1338,7 +1338,8 @@ mod tests {
     }
 }
 
-impl AnyStrWrapper<str> for PyStrRef {
+impl<'s> AnyStrWrapper<'s> for PyStrRef {
+    type Str = str;
     fn as_ref(&self) -> &str {
         &*self.value
     }
@@ -1358,7 +1359,8 @@ impl AnyStrContainer<str> for String {
     }
 }
 
-impl<'s> AnyStr<'s, char> for str {
+impl<'s> AnyStr<'s> for str {
+    type Char = char;
     type Container = String;
     type CharIter = std::str::Chars<'s>;
     type ElementIter = std::str::Chars<'s>;
@@ -1387,11 +1389,11 @@ impl<'s> AnyStr<'s, char> for str {
         str::chars(self)
     }
 
-    fn get_bytes<'a>(&'a self, range: std::ops::Range<usize>) -> &'a Self {
+    fn get_bytes(&self, range: std::ops::Range<usize>) -> &Self {
         &self[range]
     }
 
-    fn get_chars<'a>(&'a self, range: std::ops::Range<usize>) -> &'a Self {
+    fn get_chars(&self, range: std::ops::Range<usize>) -> &Self {
         rustpython_common::str::get_chars(self, range)
     }
 

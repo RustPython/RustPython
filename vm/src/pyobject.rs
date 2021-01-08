@@ -1104,9 +1104,11 @@ pub trait PyClassImpl: PyClassDef {
     fn extend_slots(slots: &mut PyTypeSlots);
 
     fn make_slots() -> PyTypeSlots {
-        let mut slots = PyTypeSlots::default();
-        slots.flags = Self::TP_FLAGS;
-        slots.name = PyRwLock::new(Some(Self::TP_NAME.to_owned()));
+        let mut slots = PyTypeSlots {
+            flags: Self::TP_FLAGS,
+            name: PyRwLock::new(Some(Self::TP_NAME.to_owned())),
+            ..Default::default()
+        };
         Self::extend_slots(&mut slots);
         slots
     }

@@ -116,7 +116,7 @@ pub fn get_keywords() -> HashMap<String, Tok> {
 pub type Spanned = (Location, Tok, Location);
 pub type LexResult = Result<Spanned, LexicalError>;
 
-pub fn make_tokenizer<'a>(source: &'a str) -> impl Iterator<Item = LexResult> + 'a {
+pub fn make_tokenizer(source: &str) -> impl Iterator<Item = LexResult> + '_ {
     let nlh = NewlineHandler::new(source.chars());
     Lexer::new(nlh)
 }

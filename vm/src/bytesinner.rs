@@ -227,7 +227,7 @@ impl ByteInnerTranslateOptions {
     }
 }
 
-pub type ByteInnerSplitOptions<'a> = anystr::SplitArgs<'a, PyBytesInner, [u8], u8>;
+pub type ByteInnerSplitOptions<'a> = anystr::SplitArgs<'a, PyBytesInner>;
 
 #[allow(clippy::len_without_is_empty)]
 impl PyBytesInner {
@@ -468,7 +468,7 @@ impl PyBytesInner {
         options: ByteInnerPaddingOptions,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
-        self._pad(options, AnyStr::<u8>::py_center, vm)
+        self._pad(options, AnyStr::py_center, vm)
     }
 
     pub fn ljust(
@@ -476,7 +476,7 @@ impl PyBytesInner {
         options: ByteInnerPaddingOptions,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
-        self._pad(options, AnyStr::<u8>::py_ljust, vm)
+        self._pad(options, AnyStr::py_ljust, vm)
     }
 
     pub fn rjust(
@@ -484,7 +484,7 @@ impl PyBytesInner {
         options: ByteInnerPaddingOptions,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
-        self._pad(options, AnyStr::<u8>::py_rjust, vm)
+        self._pad(options, AnyStr::py_rjust, vm)
     }
 
     pub fn count(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<usize> {
@@ -938,7 +938,8 @@ pub trait ByteOr: ToPrimitive {
 
 impl ByteOr for BigInt {}
 
-impl AnyStrWrapper<[u8]> for PyBytesInner {
+impl<'s> AnyStrWrapper<'s> for PyBytesInner {
+    type Str = [u8];
     fn as_ref(&self) -> &[u8] {
         &self.elements
     }
@@ -960,7 +961,8 @@ impl AnyStrContainer<[u8]> for Vec<u8> {
 
 const ASCII_WHITESPACES: [u8; 6] = [0x20, 0x09, 0x0a, 0x0c, 0x0d, 0x0b];
 
-impl<'s> AnyStr<'s, u8> for [u8] {
+impl<'s> AnyStr<'s> for [u8] {
+    type Char = u8;
     type Container = Vec<u8>;
     type CharIter = bstr::Chars<'s>;
     type ElementIter = std::iter::Copied<std::slice::Iter<'s, u8>>;
@@ -989,11 +991,11 @@ impl<'s> AnyStr<'s, u8> for [u8] {
         self.iter().copied()
     }
 
-    fn get_bytes<'a>(&'a self, range: std::ops::Range<usize>) -> &'a Self {
+    fn get_bytes(&self, range: std::ops::Range<usize>) -> &Self {
         &self[range]
     }
 
-    fn get_chars<'a>(&'a self, range: std::ops::Range<usize>) -> &'a Self {
+    fn get_chars(&self, range: std::ops::Range<usize>) -> &Self {
         &self[range]
     }
 

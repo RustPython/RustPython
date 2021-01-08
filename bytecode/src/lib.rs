@@ -657,7 +657,7 @@ impl<C: Constant> CodeObject<C> {
         Ok(())
     }
 
-    pub fn display_expand_codeobjects<'a>(&'a self) -> impl fmt::Display + 'a {
+    pub fn display_expand_codeobjects(&self) -> impl fmt::Display + '_ {
         struct Display<'a, C: Constant>(&'a CodeObject<C>);
         impl<C: Constant> fmt::Display for Display<'_, C> {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

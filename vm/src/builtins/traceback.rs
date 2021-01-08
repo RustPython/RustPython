@@ -53,7 +53,7 @@ impl PyTraceback {
 }
 
 impl PyTracebackRef {
-    pub fn iter<'a>(&'a self) -> impl Iterator<Item = PyTracebackRef> + 'a {
+    pub fn iter(&self) -> impl Iterator<Item = PyTracebackRef> {
         std::iter::successors(Some(self.clone()), |tb| tb.next.clone())
     }
 }
