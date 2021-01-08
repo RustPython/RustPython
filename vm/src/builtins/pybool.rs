@@ -162,7 +162,7 @@ pub(crate) fn init(context: &PyContext) {
 // }
 
 // Retrieve inner int value:
-pub fn get_value(obj: &PyObjectRef) -> bool {
+pub(crate) fn get_value(obj: &PyObjectRef) -> bool {
     !obj.payload::<PyInt>().unwrap().borrow_value().is_zero()
 }
 

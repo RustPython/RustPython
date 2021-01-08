@@ -7,5 +7,6 @@ extern crate log;
 
 pub mod compile;
 pub mod error;
+pub mod ir;
 pub mod mode;
 pub mod symboltable;

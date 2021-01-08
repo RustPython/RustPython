@@ -18,6 +18,7 @@ use crate::builtins::traceback::PyTraceback;
 use crate::builtins::tuple::{PyTuple, PyTupleTyped};
 use crate::builtins::{list, pybool, set};
 use crate::bytecode;
+use crate::common::boxvec::BoxVec;
 use crate::common::lock::PyMutex;
 use crate::coroutine::Coro;
 use crate::exceptions::{self, ExceptionCtor, PyBaseExceptionRef};
@@ -41,9 +42,7 @@ struct Block {
 
 #[derive(Clone, Debug)]
 enum BlockType {
-    Loop {
-        end: bytecode::Label,
-    },
+    Loop,
     TryExcept {
         handler: bytecode::Label,
     },
@@ -73,7 +72,7 @@ enum UnwindReason {
 
     // NoWorries,
     /// We are unwinding blocks, since we hit break
-    Break,
+    Break { target: bytecode::Label },
 
     /// We are unwinding blocks since we hit a continue statements.
     Continue { target: bytecode::Label },
@@ -83,7 +82,7 @@ enum UnwindReason {
 struct FrameState {
     // We need 1 stack per frame
     /// The main data frame of the stack machine
-    stack: Vec<PyObjectRef>,
+    stack: BoxVec<PyObjectRef>,
     /// Block frames, for controlling loops and exceptions
     blocks: Vec<Block>,
 }
@@ -164,20 +163,15 @@ impl Frame {
         closure: &[PyCellRef],
         vm: &VirtualMachine,
     ) -> Frame {
-        //populate the globals and locals
-        //TODO: This is wrong, check https://github.com/nedbat/byterun/blob/31e6c4a8212c35b5157919abff43a7daa0f377c6/byterun/pyvm2.py#L95
-        /*
-        let globals = match globals {
-            Some(g) => g,
-            None => HashMap::new(),
-        };
-        */
-        // let locals = globals;
-        // locals.extend(callargs);
         let cells_frees = std::iter::repeat_with(|| PyCell::default().into_ref(vm))
             .take(code.cellvars.len())
             .chain(closure.iter().cloned())
             .collect();
+
+        let state = FrameState {
+            stack: BoxVec::new(code.max_stacksize as usize),
+            blocks: Vec::new(),
+        };
 
         Frame {
             fastlocals: PyMutex::new(vec![None; code.varnames.len()].into_boxed_slice()),
@@ -187,10 +181,7 @@ impl Frame {
             builtins,
             code,
             lasti: AtomicU32::new(0),
-            state: PyMutex::new(FrameState {
-                stack: Vec::new(),
-                blocks: Vec::new(),
-            }),
+            state: PyMutex::new(state),
             trace: PyMutex::new(vm.ctx.none()),
         }
     }
@@ -263,11 +254,13 @@ impl FrameRef {
 
     pub(crate) fn resume(
         &self,
-        value: PyObjectRef,
+        value: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<ExecutionResult> {
         self.with_exec(|mut exec| {
-            exec.push_value(value);
+            if let Some(value) = value {
+                exec.push_value(value)
+            }
             exec.run(vm)
         })
     }
@@ -680,8 +673,8 @@ impl ExecutingFrame<'_> {
                 }
                 Ok(None)
             }
-            bytecode::Instruction::SetupLoop { end } => {
-                self.push_block(BlockType::Loop { end: *end });
+            bytecode::Instruction::SetupLoop => {
+                self.push_block(BlockType::Loop);
                 Ok(None)
             }
             bytecode::Instruction::SetupExcept { handler } => {
@@ -708,7 +701,7 @@ impl ExecutingFrame<'_> {
                         Ok(None)
                     }
                 } else {
-                    panic!(
+                    unreachable!(
                         "Block type must be finally handler when reaching EndFinally instruction!"
                     );
                 }
@@ -740,7 +733,7 @@ impl ExecutingFrame<'_> {
                 let block = self.current_block().unwrap();
                 let reason = match block.typ {
                     BlockType::FinallyHandler { reason } => reason,
-                    _ => panic!("WithCleanupStart expects a FinallyHandler block on stack"),
+                    _ => unreachable!("WithCleanupStart expects a FinallyHandler block on stack"),
                 };
                 let exc = reason.and_then(|reason| match reason {
                     UnwindReason::Raising { exception } => Some(exception),
@@ -763,7 +756,7 @@ impl ExecutingFrame<'_> {
                 let block = self.pop_block();
                 let reason = match block.typ {
                     BlockType::FinallyHandler { reason } => reason,
-                    _ => panic!("WithCleanupFinish expects a FinallyHandler block on stack"),
+                    _ => unreachable!("WithCleanupFinish expects a FinallyHandler block on stack"),
                 };
 
                 let suppress_exception = pybool::boolval(vm, self.pop_value())?;
@@ -819,6 +812,15 @@ impl ExecutingFrame<'_> {
                 };
                 self.push_value(awaitable);
                 Ok(None)
+            }
+            bytecode::Instruction::EndAsyncFor => {
+                let exc = self.pop_value();
+                if exc.isinstance(&vm.ctx.exceptions.stop_async_iteration) {
+                    vm.pop_exception().expect("Should have exception in stack");
+                    Ok(None)
+                } else {
+                    Err(exc.downcast().unwrap())
+                }
             }
             bytecode::Instruction::ForIter { target } => self.execute_for_iter(vm, *target),
             bytecode::Instruction::MakeFunction(flags) => self.execute_make_function(vm, *flags),
@@ -877,7 +879,9 @@ impl ExecutingFrame<'_> {
 
             bytecode::Instruction::Raise { kind } => self.execute_raise(vm, *kind),
 
-            bytecode::Instruction::Break => self.unwind_blocks(vm, UnwindReason::Break),
+            bytecode::Instruction::Break { target } => {
+                self.unwind_blocks(vm, UnwindReason::Break { target: *target })
+            }
             bytecode::Instruction::Continue { target } => {
                 self.unwind_blocks(vm, UnwindReason::Continue { target: *target })
             }
@@ -909,9 +913,7 @@ impl ExecutingFrame<'_> {
                 })?;
                 let msg = match elements.len().cmp(&(*size as usize)) {
                     std::cmp::Ordering::Equal => {
-                        for element in elements.into_iter().rev() {
-                            self.push_value(element);
-                        }
+                        self.state.stack.extend(elements.into_iter().rev());
                         None
                     }
                     std::cmp::Ordering::Greater => {
@@ -953,7 +955,7 @@ impl ExecutingFrame<'_> {
                     vm.pop_exception().expect("Should have exception in stack");
                     Ok(None)
                 } else {
-                    panic!("Block type must be ExceptHandler here.")
+                    unreachable!("block type must be ExceptHandler here.")
                 }
             }
             bytecode::Instruction::Reverse { amount } => {
@@ -1050,14 +1052,14 @@ impl ExecutingFrame<'_> {
         // First unwind all existing blocks on the block stack:
         while let Some(block) = self.current_block() {
             match block.typ {
-                BlockType::Loop { end } => match &reason {
-                    UnwindReason::Break => {
+                BlockType::Loop => match reason {
+                    UnwindReason::Break { target } => {
                         self.pop_block();
-                        self.jump(end);
+                        self.jump(target);
                         return Ok(None);
                     }
                     UnwindReason::Continue { target } => {
-                        self.jump(*target);
+                        self.jump(target);
                         return Ok(None);
                     }
                     _ => {
@@ -1074,10 +1076,10 @@ impl ExecutingFrame<'_> {
                 }
                 BlockType::TryExcept { handler } => {
                     self.pop_block();
-                    if let UnwindReason::Raising { exception } = &reason {
+                    if let UnwindReason::Raising { exception } = reason {
                         self.push_block(BlockType::ExceptHandler {});
                         self.push_value(exception.clone().into_object());
-                        vm.push_exception(exception.clone());
+                        vm.push_exception(exception);
                         self.jump(handler);
                         return Ok(None);
                     }
@@ -1104,8 +1106,8 @@ impl ExecutingFrame<'_> {
         match reason {
             UnwindReason::Raising { exception } => Err(exception),
             UnwindReason::Returning { value } => Ok(Some(ExecutionResult::Return(value))),
-            UnwindReason::Break | UnwindReason::Continue { .. } => {
-                panic!("Internal error: break or continue must occur within a loop block.")
+            UnwindReason::Break { .. } | UnwindReason::Continue { .. } => {
+                unreachable!("break or continue must occur within a loop block.")
             } // UnwindReason::NoWorries => Ok(None),
         }
     }
@@ -1350,33 +1352,30 @@ impl ExecutingFrame<'_> {
     fn execute_unpack_ex(&mut self, vm: &VirtualMachine, before: u8, after: u8) -> FrameResult {
         let (before, after) = (before as usize, after as usize);
         let value = self.pop_value();
-        let elements = vm.extract_elements::<PyObjectRef>(&value)?;
+        let mut elements = vm.extract_elements::<PyObjectRef>(&value)?;
         let min_expected = before + after;
-        if elements.len() < min_expected {
-            Err(vm.new_value_error(format!(
+
+        let middle = elements.len().checked_sub(min_expected).ok_or_else(|| {
+            vm.new_value_error(format!(
                 "not enough values to unpack (expected at least {}, got {})",
                 min_expected,
                 elements.len()
-            )))
-        } else {
-            let middle = elements.len() - before - after;
+            ))
+        })?;
 
-            // Elements on stack from right-to-left:
-            for element in elements[before + middle..].iter().rev() {
-                self.push_value(element.clone());
-            }
+        // Elements on stack from right-to-left:
+        self.state
+            .stack
+            .extend(elements.drain(before + middle..).rev());
 
-            let middle_elements = elements.iter().skip(before).take(middle).cloned().collect();
-            let t = vm.ctx.new_list(middle_elements);
-            self.push_value(t);
+        let middle_elements = elements.drain(before..).collect();
+        let t = vm.ctx.new_list(middle_elements);
+        self.push_value(t);
 
-            // Lastly the first reversed values:
-            for element in elements[..before].iter().rev() {
-                self.push_value(element.clone());
-            }
+        // Lastly the first reversed values:
+        self.state.stack.extend(elements.into_iter().rev());
 
-            Ok(None)
-        }
+        Ok(None)
     }
 
     #[inline]
@@ -1662,23 +1661,31 @@ impl ExecutingFrame<'_> {
     }
 
     fn push_value(&mut self, obj: PyObjectRef) {
-        self.state.stack.push(obj);
+        match self.state.stack.try_push(obj) {
+            Ok(()) => {}
+            Err(_e) => {
+                panic!("tried to push value onto stack but overflowed max_stacksize")
+            }
+        }
     }
 
     fn pop_value(&mut self) -> PyObjectRef {
-        self.state
-            .stack
-            .pop()
-            .expect("Tried to pop value but there was nothing on the stack")
+        match self.state.stack.pop() {
+            Some(x) => x,
+            None => panic!("tried to pop value but there was nothing on the stack"),
+        }
     }
 
-    fn pop_multiple(&mut self, count: usize) -> std::vec::Drain<PyObjectRef> {
+    fn pop_multiple(&mut self, count: usize) -> crate::common::boxvec::Drain<PyObjectRef> {
         let stack_len = self.state.stack.len();
         self.state.stack.drain(stack_len - count..stack_len)
     }
 
     fn last_value(&self) -> PyObjectRef {
-        self.state.stack.last().unwrap().clone()
+        match &*self.state.stack {
+            [.., last] => last.clone(),
+            [] => panic!("tried to get top of stack but stack is empty"),
+        }
     }
 
     fn nth_value(&self, depth: u32) -> PyObjectRef {
