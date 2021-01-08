@@ -545,11 +545,11 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "splitlines")]
-    fn splitlines(&self, options: anystr::SplitLinesArgs, vm: &VirtualMachine) -> PyResult {
+    fn splitlines(&self, options: anystr::SplitLinesArgs, vm: &VirtualMachine) -> PyObjectRef {
         let lines = self
             .borrow_value()
             .splitlines(options, |x| vm.ctx.new_bytearray(x.to_vec()));
-        Ok(vm.ctx.new_list(lines))
+        vm.ctx.new_list(lines)
     }
 
     #[pymethod(name = "zfill")]
@@ -607,9 +607,8 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "reverse")]
-    fn reverse(&self) -> PyResult<()> {
+    fn reverse(&self) {
         self.borrow_value_mut().elements.reverse();
-        Ok(())
     }
 
     #[pymethod]

@@ -570,11 +570,8 @@ impl PyInt {
     }
 
     #[pymethod(name = "as_integer_ratio")]
-    fn as_integer_ratio(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_tuple(vec![
-            vm.ctx.new_bigint(&self.value),
-            vm.ctx.new_bigint(&BigInt::one()),
-        ]))
+    fn as_integer_ratio(&self, vm: &VirtualMachine) -> (PyObjectRef, BigInt) {
+        (vm.ctx.new_bigint(&self.value), BigInt::one())
     }
 
     #[pymethod]

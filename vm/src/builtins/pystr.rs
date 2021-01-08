@@ -572,8 +572,8 @@ impl PyStr {
     }
 
     #[pymethod(name = "__rmod__")]
-    fn rmod(&self, _values: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.not_implemented())
+    fn rmod(&self, _values: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.not_implemented()
     }
 
     #[pymethod]
