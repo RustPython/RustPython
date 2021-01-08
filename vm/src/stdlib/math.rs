@@ -5,8 +5,7 @@
 
 use num_bigint::BigInt;
 use num_traits::{One, Signed, Zero};
-use statrs::function::erf::{erf, erfc};
-use statrs::function::gamma::{gamma, ln_gamma};
+use puruspe::{erf, erfc, gamma, ln_gamma};
 
 use crate::builtins::float::{self, IntoPyFloat, PyFloatRef};
 use crate::builtins::int::{self, PyInt, PyIntRef};
