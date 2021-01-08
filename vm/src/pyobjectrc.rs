@@ -489,7 +489,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef) {
             bases: vec![],
             mro: vec![],
             subclasses: PyRwLock::default(),
-            attributes: PyRwLock::new(PyAttributes::new()),
+            attributes: PyRwLock::new(PyAttributes::default()),
             slots: PyType::make_slots(),
         };
         let object_payload = PyType {
@@ -498,7 +498,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef) {
             bases: vec![],
             mro: vec![],
             subclasses: PyRwLock::default(),
-            attributes: PyRwLock::new(PyAttributes::new()),
+            attributes: PyRwLock::new(PyAttributes::default()),
             slots: object::PyBaseObject::make_slots(),
         };
         let type_type = PyRc::new(partially_init!(

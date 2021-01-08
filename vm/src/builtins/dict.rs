@@ -450,7 +450,7 @@ impl PyDictRef {
 
     /// Take a python dictionary and convert it to attributes.
     pub fn to_attributes(self) -> PyAttributes {
-        let mut attrs = PyAttributes::new();
+        let mut attrs = PyAttributes::default();
         for (key, value) in self {
             let key = pystr::clone_value(&key);
             attrs.insert(key, value);

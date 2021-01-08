@@ -1957,6 +1957,7 @@ name = "rustpython-vm"
 version = "0.1.2"
 dependencies = [
  "adler32",
+ "ahash 0.6.2",
  "atty",
  "base64",
  "bitflags",
@@ -1988,7 +1989,6 @@ dependencies = [
  "libc",
  "libz-sys",
  "log",
- "maplit",
  "md-5",
  "mt19937",
  "nix",

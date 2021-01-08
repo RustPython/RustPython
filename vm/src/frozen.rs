@@ -19,8 +19,10 @@ pub fn map_frozen<'a>(
         })
 }
 
-pub fn get_module_inits(vm: &VirtualMachine) -> HashMap<String, code::FrozenModule> {
-    let mut modules = HashMap::new();
+pub fn get_module_inits(
+    vm: &VirtualMachine,
+) -> HashMap<String, code::FrozenModule, ahash::RandomState> {
+    let mut modules = HashMap::default();
 
     macro_rules! ext_modules {
         ($($t:tt)*) => {

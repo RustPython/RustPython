@@ -71,9 +71,10 @@ mod zlib;
 
 pub type StdlibInitFunc = Box<py_dyn_fn!(dyn Fn(&VirtualMachine) -> PyObjectRef)>;
 
-pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
+pub fn get_module_inits() -> HashMap<String, StdlibInitFunc, ahash::RandomState> {
     #[allow(unused_mut)]
     let mut modules = hashmap! {
+        hasher = ahash::RandomState::default(),
         "array".to_owned() => Box::new(array::make_module) as StdlibInitFunc,
         "atexit".to_owned() => Box::new(atexit::make_module),
         "binascii".to_owned() => Box::new(binascii::make_module),
