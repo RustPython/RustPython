@@ -1,8 +1,8 @@
 use std::fmt;
 
 use cranelift::prelude::*;
+use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module, ModuleError};
-use cranelift_simplejit::{SimpleJITBuilder, SimpleJITModule, SimpleJITProduct};
 
 use rustpython_bytecode as bytecode;
 
@@ -32,13 +32,13 @@ pub enum JitArgumentError {
 struct Jit {
     builder_context: FunctionBuilderContext,
     ctx: codegen::Context,
-    module: SimpleJITModule,
+    module: JITModule,
 }
 
 impl Jit {
     fn new() -> Self {
-        let builder = SimpleJITBuilder::new(cranelift_module::default_libcall_names());
-        let module = SimpleJITModule::new(builder);
+        let builder = JITBuilder::new(cranelift_module::default_libcall_names());
+        let module = JITModule::new(builder);
         Self {
             builder_context: FunctionBuilderContext::new(),
             ctx: module.make_context(),
@@ -105,14 +105,14 @@ pub fn compile<C: bytecode::Constant>(
     Ok(CompiledCode {
         sig,
         code,
-        memory: jit.module.finish(),
+        module: jit.module,
     })
 }
 
 pub struct CompiledCode {
     sig: JitSig,
     code: *const u8,
-    memory: SimpleJITProduct,
+    module: JITModule,
 }
 
 impl CompiledCode {
@@ -287,7 +287,7 @@ unsafe impl Sync for CompiledCode {}
 impl Drop for CompiledCode {
     fn drop(&mut self) {
         // SAFETY: The only pointer that this memory will also be dropped now
-        unsafe { self.memory.free_memory() }
+        unsafe { self.module.free_memory() }
     }
 }
 
