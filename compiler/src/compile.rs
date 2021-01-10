@@ -8,7 +8,7 @@
 use crate::error::{CompileError, CompileErrorType};
 use crate::ir::{self, CodeInfo};
 pub use crate::mode::Mode;
-use crate::symboltable::{make_symbol_table, statements_to_symbol_table, SymbolScope, SymbolTable};
+use crate::symboltable::{make_symbol_table, make_symbol_table_expr, SymbolScope, SymbolTable};
 use crate::IndexSet;
 use itertools::Itertools;
 use num_complex::Complex64;
@@ -81,49 +81,62 @@ fn with_compiler(
     Ok(code)
 }
 
-/// Compile a standard Python program to bytecode
-pub fn compile_program(
-    ast: ast::Program,
+/// Compile an ast::Mod produced from rustpython_parser::parser::parse()
+pub fn compile_top(
+    ast: &ast::Mod,
     source_path: String,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
-    let symbol_table = match make_symbol_table(&ast) {
-        Ok(x) => x,
-        Err(e) => return Err(e.into_compile_error(source_path)),
-    };
-    with_compiler(source_path, opts, |compiler| {
-        compiler.compile_program(&ast, symbol_table)
-    })
+    match ast {
+        ast::Mod::Module { body, .. } => compile_program(body, source_path, opts),
+        ast::Mod::Interactive { body } => compile_program_single(body, source_path, opts),
+        ast::Mod::Expression { body } => compile_expression(body, source_path, opts),
+        ast::Mod::FunctionType { .. } => panic!("can't compile a FunctionType"),
+    }
 }
 
-/// Compile a single Python expression to bytecode
-pub fn compile_statement_eval(
-    statement: Vec<ast::Statement>,
+macro_rules! compile_impl {
+    ($ast:expr, $source_path:expr, $opts:expr, $st:ident, $compile:ident) => {{
+        let symbol_table = match $st($ast) {
+            Ok(x) => x,
+            Err(e) => return Err(e.into_compile_error($source_path)),
+        };
+        with_compiler($source_path, $opts, |compiler| {
+            compiler.$compile($ast, symbol_table)
+        })
+    }};
+}
+
+/// Compile a standard Python program to bytecode
+pub fn compile_program(
+    ast: &[ast::Stmt],
     source_path: String,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
-    let symbol_table = match statements_to_symbol_table(&statement) {
-        Ok(x) => x,
-        Err(e) => return Err(e.into_compile_error(source_path)),
-    };
-    with_compiler(source_path, opts, |compiler| {
-        compiler.compile_statement_eval(&statement, symbol_table)
-    })
+    compile_impl!(ast, source_path, opts, make_symbol_table, compile_program)
 }
 
 /// Compile a Python program to bytecode for the context of a REPL
 pub fn compile_program_single(
-    ast: ast::Program,
+    ast: &[ast::Stmt],
     source_path: String,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
-    let symbol_table = match make_symbol_table(&ast) {
-        Ok(x) => x,
-        Err(e) => return Err(e.into_compile_error(source_path)),
-    };
-    with_compiler(source_path, opts, |compiler| {
-        compiler.compile_program_single(&ast, symbol_table)
-    })
+    compile_impl!(
+        ast,
+        source_path,
+        opts,
+        make_symbol_table,
+        compile_program_single
+    )
+}
+
+pub fn compile_expression(
+    ast: &ast::Expr,
+    source_path: String,
+    opts: CompileOpts,
+) -> CompileResult<CodeObject> {
+    compile_impl!(ast, source_path, opts, make_symbol_table_expr, compile_eval)
 }
 
 impl Compiler {
@@ -255,13 +268,13 @@ impl Compiler {
 
     fn compile_program(
         &mut self,
-        program: &ast::Program,
+        body: &[ast::Stmt],
         symbol_table: SymbolTable,
     ) -> CompileResult<()> {
         let size_before = self.code_stack.len();
         self.symbol_table_stack.push(symbol_table);
 
-        let (statements, doc) = get_doc(&program.statements);
+        let (statements, doc) = get_doc(body);
         if let Some(value) = doc {
             self.emit_constant(ConstantData::Str { value });
             let doc = self.name("__doc__");
@@ -284,18 +297,18 @@ impl Compiler {
 
     fn compile_program_single(
         &mut self,
-        program: &ast::Program,
+        body: &[ast::Stmt],
         symbol_table: SymbolTable,
     ) -> CompileResult<()> {
         self.symbol_table_stack.push(symbol_table);
 
         let mut emitted_return = false;
 
-        for (i, statement) in program.statements.iter().enumerate() {
-            let is_last = i == program.statements.len() - 1;
+        for (i, statement) in body.iter().enumerate() {
+            let is_last = i == body.len() - 1;
 
-            if let ast::StatementType::Expression { ref expression } = statement.node {
-                self.compile_expression(expression)?;
+            if let ast::StmtKind::Expr { value } = &statement.node {
+                self.compile_expression(value)?;
 
                 if is_last {
                     self.emit(Instruction::Duplicate);
@@ -319,24 +332,18 @@ impl Compiler {
     }
 
     // Compile statement in eval mode:
-    fn compile_statement_eval(
+    fn compile_eval(
         &mut self,
-        statements: &[ast::Statement],
+        expression: &ast::Expr,
         symbol_table: SymbolTable,
     ) -> CompileResult<()> {
         self.symbol_table_stack.push(symbol_table);
-        for statement in statements {
-            if let ast::StatementType::Expression { ref expression } = statement.node {
-                self.compile_expression(expression)?;
-            } else {
-                return Err(self.error_loc(CompileErrorType::ExpectExpr, statement.location));
-            }
-        }
+        self.compile_expression(expression)?;
         self.emit(Instruction::ReturnValue);
         Ok(())
     }
 
-    fn compile_statements(&mut self, statements: &[ast::Statement]) -> CompileResult<()> {
+    fn compile_statements(&mut self, statements: &[ast::Stmt]) -> CompileResult<()> {
         for statement in statements {
             self.compile_statement(statement)?
         }
@@ -420,10 +427,10 @@ impl Compiler {
         self.emit(op(idx as u32));
     }
 
-    fn compile_statement(&mut self, statement: &ast::Statement) -> CompileResult<()> {
+    fn compile_statement(&mut self, statement: &ast::Stmt) -> CompileResult<()> {
         trace!("Compiling {:?}", statement);
         self.set_source_location(statement.location);
-        use ast::StatementType::*;
+        use ast::StmtKind::*;
 
         match &statement.node {
             // we do this here because `from __future__` still executes that `from` statement at runtime,
@@ -443,16 +450,16 @@ impl Compiler {
                         value: num_traits::Zero::zero(),
                     });
                     self.emit_constant(ConstantData::None);
-                    let idx = self.name(&name.symbol);
+                    let idx = self.name(&name.name);
                     self.emit(Instruction::ImportName { idx });
-                    if let Some(alias) = &name.alias {
-                        for part in name.symbol.split('.').skip(1) {
+                    if let Some(alias) = &name.asname {
+                        for part in name.name.split('.').skip(1) {
                             let idx = self.name(part);
                             self.emit(Instruction::LoadAttr { idx });
                         }
                         self.store_name(alias);
                     } else {
-                        self.store_name(name.symbol.split('.').next().unwrap());
+                        self.store_name(name.name.split('.').next().unwrap());
                     }
                 }
             }
@@ -461,7 +468,7 @@ impl Compiler {
                 module,
                 names,
             } => {
-                let import_star = names.iter().any(|n| n.symbol == "*");
+                let import_star = names.iter().any(|n| n.name == "*");
 
                 let from_list = if import_star {
                     if self.ctx.in_func() {
@@ -475,7 +482,7 @@ impl Compiler {
                     names
                         .iter()
                         .map(|n| ConstantData::Str {
-                            value: n.symbol.to_owned(),
+                            value: n.name.to_owned(),
                         })
                         .collect()
                 };
@@ -502,15 +509,15 @@ impl Compiler {
                     // from mod import a, b as c
 
                     for name in names {
-                        let idx = self.name(&name.symbol);
+                        let idx = self.name(&name.name);
                         // import symbol from module:
                         self.emit(Instruction::ImportFrom { idx });
 
                         // Store module under proper name:
-                        if let Some(alias) = &name.alias {
+                        if let Some(alias) = &name.asname {
                             self.store_name(alias);
                         } else {
-                            self.store_name(&name.symbol);
+                            self.store_name(&name.name);
                         }
                     }
 
@@ -518,8 +525,8 @@ impl Compiler {
                     self.emit(Instruction::Pop);
                 }
             }
-            Expression { expression } => {
-                self.compile_expression(expression)?;
+            Expr { value } => {
+                self.compile_expression(value)?;
 
                 // Pop result of stack, since we not use it:
                 self.emit(Instruction::Pop);
@@ -529,93 +536,44 @@ impl Compiler {
             }
             If { test, body, orelse } => {
                 let after_block = self.new_block();
-                match orelse {
-                    None => {
-                        // Only if:
-                        self.compile_jump_if(test, false, after_block)?;
-                        self.compile_statements(body)?;
-                    }
-                    Some(statements) => {
-                        // if - else:
-                        let else_block = self.new_block();
-                        self.compile_jump_if(test, false, else_block)?;
-                        self.compile_statements(body)?;
-                        self.emit(Instruction::Jump {
-                            target: after_block,
-                        });
+                if orelse.is_empty() {
+                    // Only if:
+                    self.compile_jump_if(test, false, after_block)?;
+                    self.compile_statements(body)?;
+                } else {
+                    // if - else:
+                    let else_block = self.new_block();
+                    self.compile_jump_if(test, false, else_block)?;
+                    self.compile_statements(body)?;
+                    self.emit(Instruction::Jump {
+                        target: after_block,
+                    });
 
-                        // else:
-                        self.switch_to_block(else_block);
-                        self.compile_statements(statements)?;
-                    }
+                    // else:
+                    self.switch_to_block(else_block);
+                    self.compile_statements(orelse)?;
                 }
                 self.switch_to_block(after_block);
             }
             While { test, body, orelse } => self.compile_while(test, body, orelse)?,
-            With {
-                is_async,
-                items,
-                body,
-            } => {
-                let is_async = *is_async;
-
-                let end_blocks = items
-                    .iter()
-                    .map(|item| {
-                        let end_block = self.new_block();
-                        self.compile_expression(&item.context_expr)?;
-
-                        if is_async {
-                            self.emit(Instruction::BeforeAsyncWith);
-                            self.emit(Instruction::GetAwaitable);
-                            self.emit_constant(ConstantData::None);
-                            self.emit(Instruction::YieldFrom);
-                            self.emit(Instruction::SetupAsyncWith { end: end_block });
-                        } else {
-                            self.emit(Instruction::SetupWith { end: end_block });
-                        }
-
-                        match &item.optional_vars {
-                            Some(var) => {
-                                self.compile_store(var)?;
-                            }
-                            None => {
-                                self.emit(Instruction::Pop);
-                            }
-                        }
-                        Ok(end_block)
-                    })
-                    .collect::<CompileResult<Vec<_>>>()?;
-
-                self.compile_statements(body)?;
-
-                // sort of "stack up" the layers of with blocks:
-                // with a, b: body -> start_with(a) start_with(b) body() end_with(b) end_with(a)
-                for end_block in end_blocks.into_iter().rev() {
-                    self.emit(Instruction::PopBlock);
-                    self.emit(Instruction::EnterFinally);
-
-                    self.switch_to_block(end_block);
-                    self.emit(Instruction::WithCleanupStart);
-
-                    if is_async {
-                        self.emit(Instruction::GetAwaitable);
-                        self.emit_constant(ConstantData::None);
-                        self.emit(Instruction::YieldFrom);
-                    }
-
-                    self.emit(Instruction::WithCleanupFinish);
-                }
-            }
+            With { items, body, .. } => self.compile_with(items, body, false)?,
+            AsyncWith { items, body, .. } => self.compile_with(items, body, true)?,
             For {
-                is_async,
                 target,
                 iter,
                 body,
                 orelse,
-            } => self.compile_for(target, iter, body, orelse, *is_async)?,
-            Raise { exception, cause } => {
-                let kind = match exception {
+                ..
+            } => self.compile_for(target, iter, body, orelse, false)?,
+            AsyncFor {
+                target,
+                iter,
+                body,
+                orelse,
+                ..
+            } => self.compile_for(target, iter, body, orelse, true)?,
+            Raise { exc, cause } => {
+                let kind = match exc {
                     Some(value) => {
                         self.compile_expression(value)?;
                         match cause {
@@ -637,15 +595,35 @@ impl Compiler {
                 finalbody,
             } => self.compile_try_statement(body, handlers, orelse, finalbody)?,
             FunctionDef {
-                is_async,
                 name,
                 args,
                 body,
                 decorator_list,
                 returns,
-            } => {
-                self.compile_function_def(name, args, body, decorator_list, returns, *is_async)?;
-            }
+                ..
+            } => self.compile_function_def(
+                name,
+                args,
+                body,
+                decorator_list,
+                returns.as_deref(),
+                false,
+            )?,
+            AsyncFunctionDef {
+                name,
+                args,
+                body,
+                decorator_list,
+                returns,
+                ..
+            } => self.compile_function_def(
+                name,
+                args,
+                body,
+                decorator_list,
+                returns.as_deref(),
+                true,
+            )?,
             ClassDef {
                 name,
                 body,
@@ -721,7 +699,7 @@ impl Compiler {
 
                 self.emit(Instruction::ReturnValue);
             }
-            Assign { targets, value } => {
+            Assign { targets, value, .. } => {
                 self.compile_expression(value)?;
 
                 for (i, target) in targets.iter().enumerate() {
@@ -743,7 +721,8 @@ impl Compiler {
                 target,
                 annotation,
                 value,
-            } => self.compile_annotated_assign(target, annotation, value)?,
+                ..
+            } => self.compile_annotated_assign(target, annotation, value.as_deref())?,
             Delete { targets } => {
                 for target in targets {
                     self.compile_delete(target)?;
@@ -756,27 +735,27 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_delete(&mut self, expression: &ast::Expression) -> CompileResult<()> {
+    fn compile_delete(&mut self, expression: &ast::Expr) -> CompileResult<()> {
         match &expression.node {
-            ast::ExpressionType::Identifier { name } => {
-                self.compile_name(name, NameUsage::Delete);
+            ast::ExprKind::Name { id, .. } => {
+                self.compile_name(id, NameUsage::Delete);
             }
-            ast::ExpressionType::Attribute { value, name } => {
+            ast::ExprKind::Attribute { value, attr, .. } => {
                 self.compile_expression(value)?;
-                let idx = self.name(name);
+                let idx = self.name(attr);
                 self.emit(Instruction::DeleteAttr { idx });
             }
-            ast::ExpressionType::Subscript { a, b } => {
-                self.compile_expression(a)?;
-                self.compile_expression(b)?;
+            ast::ExprKind::Subscript { value, slice, .. } => {
+                self.compile_expression(value)?;
+                self.compile_expression(slice)?;
                 self.emit(Instruction::DeleteSubscript);
             }
-            ast::ExpressionType::Tuple { elements } => {
-                for element in elements {
+            ast::ExprKind::Tuple { elts, .. } => {
+                for element in elts {
                     self.compile_delete(element)?;
                 }
             }
-            _ => return Err(self.error(CompileErrorType::Delete(expression.name()))),
+            _ => return Err(self.error(CompileErrorType::Delete(expression.node.name()))),
         }
         Ok(())
     }
@@ -784,7 +763,7 @@ impl Compiler {
     fn enter_function(
         &mut self,
         name: &str,
-        args: &ast::Parameters,
+        args: &ast::Arguments,
     ) -> CompileResult<bytecode::MakeFunctionFlags> {
         let have_defaults = !args.defaults.is_empty();
         if have_defaults {
@@ -803,7 +782,7 @@ impl Compiler {
         for (kw, default) in args.kwonlyargs.iter().zip(&args.kw_defaults) {
             if let Some(default) = default {
                 self.emit_constant(ConstantData::Str {
-                    value: kw.arg.clone(),
+                    value: kw.node.arg.clone(),
                 });
                 self.compile_expression(default)?;
                 num_kw_only_defaults += 1;
@@ -827,41 +806,41 @@ impl Compiler {
 
         self.push_output(
             bytecode::CodeFlags::NEW_LOCALS | bytecode::CodeFlags::IS_OPTIMIZED,
-            args.posonlyargs_count,
-            args.args.len(),
+            args.posonlyargs.len(),
+            args.posonlyargs.len() + args.args.len(),
             args.kwonlyargs.len(),
             name.to_owned(),
         );
 
-        for name in &args.args {
-            self.varname(&name.arg);
-        }
-        for name in &args.kwonlyargs {
-            self.varname(&name.arg);
+        let args_iter = std::iter::empty()
+            .chain(&args.posonlyargs)
+            .chain(&args.args)
+            .chain(&args.kwonlyargs);
+        for name in args_iter {
+            self.varname(&name.node.arg);
         }
 
-        let mut compile_varargs = |va: &ast::Varargs, flag| match va {
-            ast::Varargs::None | ast::Varargs::Unnamed => {}
-            ast::Varargs::Named(name) => {
+        let mut compile_varargs = |va: Option<&ast::Arg>, flag| {
+            if let Some(name) = va {
                 self.current_codeinfo().flags |= flag;
-                self.varname(&name.arg);
+                self.varname(&name.node.arg);
             }
         };
 
-        compile_varargs(&args.vararg, bytecode::CodeFlags::HAS_VARARGS);
-        compile_varargs(&args.kwarg, bytecode::CodeFlags::HAS_VARKEYWORDS);
+        compile_varargs(args.vararg.as_deref(), bytecode::CodeFlags::HAS_VARARGS);
+        compile_varargs(args.kwarg.as_deref(), bytecode::CodeFlags::HAS_VARKEYWORDS);
 
         Ok(funcflags)
     }
 
-    fn prepare_decorators(&mut self, decorator_list: &[ast::Expression]) -> CompileResult<()> {
+    fn prepare_decorators(&mut self, decorator_list: &[ast::Expr]) -> CompileResult<()> {
         for decorator in decorator_list {
             self.compile_expression(decorator)?;
         }
         Ok(())
     }
 
-    fn apply_decorators(&mut self, decorator_list: &[ast::Expression]) {
+    fn apply_decorators(&mut self, decorator_list: &[ast::Expr]) {
         // Apply decorators:
         for _ in decorator_list {
             self.emit(Instruction::CallFunctionPositional { nargs: 1 });
@@ -870,16 +849,16 @@ impl Compiler {
 
     fn compile_try_statement(
         &mut self,
-        body: &[ast::Statement],
-        handlers: &[ast::ExceptHandler],
-        orelse: &Option<ast::Suite>,
-        finalbody: &Option<ast::Suite>,
+        body: &[ast::Stmt],
+        handlers: &[ast::Excepthandler],
+        orelse: &[ast::Stmt],
+        finalbody: &[ast::Stmt],
     ) -> CompileResult<()> {
         let handler_block = self.new_block();
         let finally_block = self.new_block();
 
         // Setup a finally block if we have a finally statement.
-        if finalbody.is_some() {
+        if !finalbody.is_empty() {
             self.emit(Instruction::SetupFinally {
                 handler: finally_block,
             });
@@ -899,11 +878,12 @@ impl Compiler {
         self.switch_to_block(handler_block);
         // Exception is on top of stack now
         for handler in handlers {
+            let ast::ExcepthandlerKind::ExceptHandler { type_, name, body } = &handler.node;
             let next_handler = self.new_block();
 
             // If we gave a typ,
             // check if this handler can handle the exception:
-            if let Some(exc_type) = &handler.typ {
+            if let Some(exc_type) = type_ {
                 // Duplicate exception for test:
                 self.emit(Instruction::Duplicate);
 
@@ -919,7 +899,7 @@ impl Compiler {
                 });
 
                 // We have a match, store in name (except x as y)
-                if let Some(alias) = &handler.name {
+                if let Some(alias) = name {
                     self.store_name(alias);
                 } else {
                     // Drop exception from top of stack:
@@ -932,10 +912,10 @@ impl Compiler {
             }
 
             // Handler code:
-            self.compile_statements(&handler.body)?;
+            self.compile_statements(body)?;
             self.emit(Instruction::PopException);
 
-            if finalbody.is_some() {
+            if !finalbody.is_empty() {
                 self.emit(Instruction::PopBlock); // pop excepthandler block
                                                   // We enter the finally block, without exception.
                 self.emit(Instruction::EnterFinally);
@@ -958,11 +938,9 @@ impl Compiler {
         // We successfully ran the try block:
         // else:
         self.switch_to_block(else_block);
-        if let Some(statements) = orelse {
-            self.compile_statements(statements)?;
-        }
+        self.compile_statements(orelse)?;
 
-        if finalbody.is_some() {
+        if !finalbody.is_empty() {
             self.emit(Instruction::PopBlock); // pop finally block
 
             // We enter the finallyhandler block, without return / exception.
@@ -971,8 +949,8 @@ impl Compiler {
 
         // finally:
         self.switch_to_block(finally_block);
-        if let Some(statements) = finalbody {
-            self.compile_statements(statements)?;
+        if !finalbody.is_empty() {
+            self.compile_statements(finalbody)?;
             self.emit(Instruction::EndFinally);
         }
 
@@ -982,10 +960,10 @@ impl Compiler {
     fn compile_function_def(
         &mut self,
         name: &str,
-        args: &ast::Parameters,
-        body: &[ast::Statement],
-        decorator_list: &[ast::Expression],
-        returns: &Option<ast::Expression>, // TODO: use type hint somehow..
+        args: &ast::Arguments,
+        body: &[ast::Stmt],
+        decorator_list: &[ast::Expr],
+        returns: Option<&ast::Expr>, // TODO: use type hint somehow..
         is_async: bool,
     ) -> CompileResult<()> {
         // Create bytecode for this function:
@@ -1019,7 +997,7 @@ impl Compiler {
 
         // Emit None at end:
         match body.last().map(|s| &s.node) {
-            Some(ast::StatementType::Return { .. }) => {
+            Some(ast::StmtKind::Return { .. }) => {
                 // the last instruction is a ReturnValue already, we don't need to emit it
             }
             _ => {
@@ -1046,27 +1024,20 @@ impl Compiler {
             num_annotations += 1;
         }
 
-        let mut visit_arg_annotation = |arg: &ast::Parameter| -> CompileResult<()> {
-            if let Some(annotation) = &arg.annotation {
+        let args_iter = std::iter::empty()
+            .chain(&args.posonlyargs)
+            .chain(&args.args)
+            .chain(&args.kwonlyargs)
+            .chain(args.vararg.as_deref())
+            .chain(args.kwarg.as_deref());
+        for arg in args_iter {
+            if let Some(annotation) = &arg.node.annotation {
                 self.emit_constant(ConstantData::Str {
-                    value: arg.arg.to_owned(),
+                    value: arg.node.arg.to_owned(),
                 });
                 self.compile_expression(&annotation)?;
                 num_annotations += 1;
             }
-            Ok(())
-        };
-
-        for arg in args.args.iter().chain(args.kwonlyargs.iter()) {
-            visit_arg_annotation(arg)?;
-        }
-
-        if let ast::Varargs::Named(arg) = &args.vararg {
-            visit_arg_annotation(arg)?;
-        }
-
-        if let ast::Varargs::Named(arg) = &args.kwarg {
-            visit_arg_annotation(arg)?;
         }
 
         if num_annotations > 0 {
@@ -1135,54 +1106,22 @@ impl Compiler {
         true
     }
 
-    fn find_ann(&self, body: &[ast::Statement]) -> bool {
-        use ast::StatementType::*;
-        let option_stmt_to_bool = |suit: &Option<ast::Suite>| -> bool {
-            match suit {
-                Some(stmts) => self.find_ann(stmts),
-                None => false,
-            }
-        };
+    fn find_ann(&self, body: &[ast::Stmt]) -> bool {
+        use ast::StmtKind::*;
 
         for statement in body {
             let res = match &statement.node {
-                AnnAssign {
-                    target: _,
-                    annotation: _,
-                    value: _,
-                } => true,
-                For {
-                    is_async: _,
-                    target: _,
-                    iter: _,
-                    body,
-                    orelse,
-                } => self.find_ann(body) || option_stmt_to_bool(orelse),
-                If {
-                    test: _,
-                    body,
-                    orelse,
-                } => self.find_ann(body) || option_stmt_to_bool(orelse),
-                While {
-                    test: _,
-                    body,
-                    orelse,
-                } => self.find_ann(body) || option_stmt_to_bool(orelse),
-                With {
-                    is_async: _,
-                    items: _,
-                    body,
-                } => self.find_ann(body),
+                AnnAssign { .. } => true,
+                For { body, orelse, .. } => self.find_ann(body) || self.find_ann(orelse),
+                If { body, orelse, .. } => self.find_ann(body) || self.find_ann(orelse),
+                While { body, orelse, .. } => self.find_ann(body) || self.find_ann(orelse),
+                With { body, .. } => self.find_ann(body),
                 Try {
                     body,
-                    handlers: _,
                     orelse,
                     finalbody,
-                } => {
-                    self.find_ann(&body)
-                        || option_stmt_to_bool(orelse)
-                        || option_stmt_to_bool(finalbody)
-                }
+                    ..
+                } => self.find_ann(&body) || self.find_ann(orelse) || self.find_ann(finalbody),
                 _ => false,
             };
             if res {
@@ -1195,10 +1134,10 @@ impl Compiler {
     fn compile_class_def(
         &mut self,
         name: &str,
-        body: &[ast::Statement],
-        bases: &[ast::Expression],
+        body: &[ast::Stmt],
+        bases: &[ast::Expr],
         keywords: &[ast::Keyword],
-        decorator_list: &[ast::Expression],
+        decorator_list: &[ast::Expr],
     ) -> CompileResult<()> {
         self.prepare_decorators(decorator_list)?;
 
@@ -1287,7 +1226,7 @@ impl Compiler {
         if !keywords.is_empty() {
             let mut kwarg_names = vec![];
             for keyword in keywords {
-                if let Some(name) = &keyword.name {
+                if let Some(name) = &keyword.node.arg {
                     kwarg_names.push(ConstantData::Str {
                         value: name.to_owned(),
                     });
@@ -1295,7 +1234,7 @@ impl Compiler {
                     // This means **kwargs!
                     panic!("name must be set");
                 }
-                self.compile_expression(&keyword.value)?;
+                self.compile_expression(&keyword.node.value)?;
             }
 
             self.emit_constant(ConstantData::Tuple {
@@ -1329,9 +1268,9 @@ impl Compiler {
 
     fn compile_while(
         &mut self,
-        test: &ast::Expression,
-        body: &[ast::Statement],
-        orelse: &Option<Vec<ast::Statement>>,
+        test: &ast::Expr,
+        body: &[ast::Stmt],
+        orelse: &[ast::Stmt],
     ) -> CompileResult<()> {
         let while_block = self.new_block();
         let else_block = self.new_block();
@@ -1351,19 +1290,74 @@ impl Compiler {
         });
         self.switch_to_block(else_block);
         self.emit(Instruction::PopBlock);
-        if let Some(orelse) = orelse {
-            self.compile_statements(orelse)?;
-        }
+        self.compile_statements(orelse)?;
         self.switch_to_block(after_block);
+        Ok(())
+    }
+
+    fn compile_with(
+        &mut self,
+        items: &[ast::Withitem],
+        body: &[ast::Stmt],
+        is_async: bool,
+    ) -> CompileResult<()> {
+        let end_blocks = items
+            .iter()
+            .map(|item| {
+                let end_block = self.new_block();
+                self.compile_expression(&item.context_expr)?;
+
+                if is_async {
+                    self.emit(Instruction::BeforeAsyncWith);
+                    self.emit(Instruction::GetAwaitable);
+                    self.emit_constant(ConstantData::None);
+                    self.emit(Instruction::YieldFrom);
+                    self.emit(Instruction::SetupAsyncWith { end: end_block });
+                } else {
+                    self.emit(Instruction::SetupWith { end: end_block });
+                }
+
+                match &item.optional_vars {
+                    Some(var) => {
+                        self.compile_store(var)?;
+                    }
+                    None => {
+                        self.emit(Instruction::Pop);
+                    }
+                }
+                Ok(end_block)
+            })
+            .collect::<CompileResult<Vec<_>>>()?;
+
+        self.compile_statements(body)?;
+
+        // sort of "stack up" the layers of with blocks:
+        // with a, b: body -> start_with(a) start_with(b) body() end_with(b) end_with(a)
+        for end_block in end_blocks.into_iter().rev() {
+            self.emit(Instruction::PopBlock);
+            self.emit(Instruction::EnterFinally);
+
+            self.switch_to_block(end_block);
+            self.emit(Instruction::WithCleanupStart);
+
+            if is_async {
+                self.emit(Instruction::GetAwaitable);
+                self.emit_constant(ConstantData::None);
+                self.emit(Instruction::YieldFrom);
+            }
+
+            self.emit(Instruction::WithCleanupFinish);
+        }
+
         Ok(())
     }
 
     fn compile_for(
         &mut self,
-        target: &ast::Expression,
-        iter: &ast::Expression,
-        body: &[ast::Statement],
-        orelse: &Option<Vec<ast::Statement>>,
+        target: &ast::Expr,
+        iter: &ast::Expr,
+        body: &[ast::Stmt],
+        orelse: &[ast::Stmt],
         is_async: bool,
     ) -> CompileResult<()> {
         // Start loop
@@ -1417,9 +1411,7 @@ impl Compiler {
 
         self.switch_to_block(else_block);
         self.emit(Instruction::PopBlock);
-        if let Some(orelse) = orelse {
-            self.compile_statements(orelse)?;
-        }
+        self.compile_statements(orelse)?;
 
         self.switch_to_block(after_block);
 
@@ -1428,23 +1420,26 @@ impl Compiler {
 
     fn compile_chained_comparison(
         &mut self,
-        vals: &[ast::Expression],
-        ops: &[ast::Comparison],
+        left: &ast::Expr,
+        ops: &[ast::Cmpop],
+        vals: &[ast::Expr],
     ) -> CompileResult<()> {
         assert!(!ops.is_empty());
-        assert_eq!(vals.len(), ops.len() + 1);
+        assert_eq!(vals.len(), ops.len());
+        let (last_op, mid_ops) = ops.split_last().unwrap();
+        let (last_val, mid_vals) = vals.split_last().unwrap();
 
-        let to_operator = |op: &ast::Comparison| match op {
-            ast::Comparison::Equal => bytecode::ComparisonOperator::Equal,
-            ast::Comparison::NotEqual => bytecode::ComparisonOperator::NotEqual,
-            ast::Comparison::Less => bytecode::ComparisonOperator::Less,
-            ast::Comparison::LessOrEqual => bytecode::ComparisonOperator::LessOrEqual,
-            ast::Comparison::Greater => bytecode::ComparisonOperator::Greater,
-            ast::Comparison::GreaterOrEqual => bytecode::ComparisonOperator::GreaterOrEqual,
-            ast::Comparison::In => bytecode::ComparisonOperator::In,
-            ast::Comparison::NotIn => bytecode::ComparisonOperator::NotIn,
-            ast::Comparison::Is => bytecode::ComparisonOperator::Is,
-            ast::Comparison::IsNot => bytecode::ComparisonOperator::IsNot,
+        let compile_cmpop = |op: &ast::Cmpop| match op {
+            ast::Cmpop::Eq => bytecode::ComparisonOperator::Equal,
+            ast::Cmpop::NotEq => bytecode::ComparisonOperator::NotEqual,
+            ast::Cmpop::Lt => bytecode::ComparisonOperator::Less,
+            ast::Cmpop::LtE => bytecode::ComparisonOperator::LessOrEqual,
+            ast::Cmpop::Gt => bytecode::ComparisonOperator::Greater,
+            ast::Cmpop::GtE => bytecode::ComparisonOperator::GreaterOrEqual,
+            ast::Cmpop::In => bytecode::ComparisonOperator::In,
+            ast::Cmpop::NotIn => bytecode::ComparisonOperator::NotIn,
+            ast::Cmpop::Is => bytecode::ComparisonOperator::Is,
+            ast::Cmpop::IsNot => bytecode::ComparisonOperator::IsNot,
         };
 
         // a == b == c == d
@@ -1456,27 +1451,25 @@ impl Compiler {
         //     result = c == d
 
         // initialize lhs outside of loop
-        self.compile_expression(&vals[0])?;
+        self.compile_expression(left)?;
 
-        let end_blocks = if vals.len() > 2 {
+        let end_blocks = if mid_vals.is_empty() {
+            None
+        } else {
             let break_block = self.new_block();
             let after_block = self.new_block();
             Some((break_block, after_block))
-        } else {
-            None
         };
 
         // for all comparisons except the last (as the last one doesn't need a conditional jump)
-        let ops_slice = &ops[0..ops.len()];
-        let vals_slice = &vals[1..ops.len()];
-        for (op, val) in ops_slice.iter().zip(vals_slice.iter()) {
+        for (op, val) in mid_ops.iter().zip(mid_vals) {
             self.compile_expression(val)?;
             // store rhs for the next comparison in chain
             self.emit(Instruction::Duplicate);
             self.emit(Instruction::Rotate { amount: 3 });
 
             self.emit(Instruction::CompareOperation {
-                op: to_operator(op),
+                op: compile_cmpop(op),
             });
 
             // if comparison result is false, we break with this value; if true, try the next one.
@@ -1488,9 +1481,9 @@ impl Compiler {
         }
 
         // handle the last comparison
-        self.compile_expression(vals.last().unwrap())?;
+        self.compile_expression(last_val)?;
         self.emit(Instruction::CompareOperation {
-            op: to_operator(ops.last().unwrap()),
+            op: compile_cmpop(last_op),
         });
 
         if let Some((break_block, after_block)) = end_blocks {
@@ -1511,9 +1504,9 @@ impl Compiler {
 
     fn compile_annotated_assign(
         &mut self,
-        target: &ast::Expression,
-        annotation: &ast::Expression,
-        value: &Option<ast::Expression>,
+        target: &ast::Expr,
+        annotation: &ast::Expr,
+        value: Option<&ast::Expr>,
     ) -> CompileResult<()> {
         if let Some(value) = value {
             self.compile_expression(value)?;
@@ -1528,12 +1521,12 @@ impl Compiler {
         // Compile annotation:
         self.compile_expression(annotation)?;
 
-        if let ast::ExpressionType::Identifier { name } = &target.node {
+        if let ast::ExprKind::Name { id, .. } = &target.node {
             // Store as dict entry in __annotations__ dict:
             let annotations = self.name("__annotations__");
             self.emit(Instruction::LoadNameAny(annotations));
             self.emit_constant(ConstantData::Str {
-                value: name.to_owned(),
+                value: id.to_owned(),
             });
             self.emit(Instruction::StoreSubscript);
         } else {
@@ -1544,33 +1537,33 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_store(&mut self, target: &ast::Expression) -> CompileResult<()> {
+    fn compile_store(&mut self, target: &ast::Expr) -> CompileResult<()> {
         match &target.node {
-            ast::ExpressionType::Identifier { name } => {
-                self.store_name(name);
+            ast::ExprKind::Name { id, .. } => {
+                self.store_name(id);
             }
-            ast::ExpressionType::Subscript { a, b } => {
-                self.compile_expression(a)?;
-                self.compile_expression(b)?;
+            ast::ExprKind::Subscript { value, slice, .. } => {
+                self.compile_expression(value)?;
+                self.compile_expression(slice)?;
                 self.emit(Instruction::StoreSubscript);
             }
-            ast::ExpressionType::Attribute { value, name } => {
+            ast::ExprKind::Attribute { value, attr, .. } => {
                 self.compile_expression(value)?;
-                let idx = self.name(name);
+                let idx = self.name(attr);
                 self.emit(Instruction::StoreAttr { idx });
             }
-            ast::ExpressionType::List { elements } | ast::ExpressionType::Tuple { elements } => {
+            ast::ExprKind::List { elts, .. } | ast::ExprKind::Tuple { elts, .. } => {
                 let mut seen_star = false;
 
                 // Scan for star args:
-                for (i, element) in elements.iter().enumerate() {
-                    if let ast::ExpressionType::Starred { .. } = &element.node {
+                for (i, element) in elts.iter().enumerate() {
+                    if let ast::ExprKind::Starred { .. } = &element.node {
                         if seen_star {
                             return Err(self.error(CompileErrorType::MultipleStarArgs));
                         } else {
                             seen_star = true;
                             let before = i;
-                            let after = elements.len() - i - 1;
+                            let after = elts.len() - i - 1;
                             let (before, after) = (|| Some((before.to_u8()?, after.to_u8()?)))()
                                 .ok_or_else(|| {
                                     self.error_loc(
@@ -1585,12 +1578,12 @@ impl Compiler {
 
                 if !seen_star {
                     self.emit(Instruction::UnpackSequence {
-                        size: elements.len() as u32,
+                        size: elts.len() as u32,
                     });
                 }
 
-                for element in elements {
-                    if let ast::ExpressionType::Starred { value } = &element.node {
+                for element in elts {
+                    if let ast::ExprKind::Starred { value, .. } = &element.node {
                         self.compile_store(value)?;
                     } else {
                         self.compile_store(element)?;
@@ -1599,10 +1592,10 @@ impl Compiler {
             }
             _ => {
                 return Err(self.error(match target.node {
-                    ast::ExpressionType::Starred { .. } => CompileErrorType::SyntaxError(
+                    ast::ExprKind::Starred { .. } => CompileErrorType::SyntaxError(
                         "starred assignment target must be in a list or tuple".to_owned(),
                     ),
-                    _ => CompileErrorType::Assign(target.name()),
+                    _ => CompileErrorType::Assign(target.node.name()),
                 }))
             }
         }
@@ -1644,15 +1637,15 @@ impl Compiler {
     /// (indicated by the condition parameter).
     fn compile_jump_if(
         &mut self,
-        expression: &ast::Expression,
+        expression: &ast::Expr,
         condition: bool,
         target_block: ir::BlockIdx,
     ) -> CompileResult<()> {
         // Compile expression for test, and jump to label if false
         match &expression.node {
-            ast::ExpressionType::BoolOp { op, values } => {
+            ast::ExprKind::BoolOp { op, values } => {
                 match op {
-                    ast::BooleanOperator::And => {
+                    ast::Boolop::And => {
                         if condition {
                             // If all values are true.
                             let end_block = self.new_block();
@@ -1673,7 +1666,7 @@ impl Compiler {
                             }
                         }
                     }
-                    ast::BooleanOperator::Or => {
+                    ast::Boolop::Or => {
                         if condition {
                             // If any of the values is true.
                             for value in values {
@@ -1696,11 +1689,11 @@ impl Compiler {
                     }
                 }
             }
-            ast::ExpressionType::Unop {
-                op: ast::UnaryOperator::Not,
-                a,
+            ast::ExprKind::UnaryOp {
+                op: ast::Unaryop::Not,
+                operand,
             } => {
-                self.compile_jump_if(a, !condition, target_block)?;
+                self.compile_jump_if(operand, !condition, target_block)?;
             }
             _ => {
                 // Fall back case which always will work!
@@ -1721,11 +1714,7 @@ impl Compiler {
 
     /// Compile a boolean operation as an expression.
     /// This means, that the last value remains on the stack.
-    fn compile_bool_op(
-        &mut self,
-        op: &ast::BooleanOperator,
-        values: &[ast::Expression],
-    ) -> CompileResult<()> {
+    fn compile_bool_op(&mut self, op: &ast::Boolop, values: &[ast::Expr]) -> CompileResult<()> {
         let after_block = self.new_block();
 
         let (last_value, values) = values.split_last().unwrap();
@@ -1733,12 +1722,12 @@ impl Compiler {
             self.compile_expression(value)?;
 
             match op {
-                ast::BooleanOperator::And => {
+                ast::Boolop::And => {
                     self.emit(Instruction::JumpIfFalseOrPop {
                         target: after_block,
                     });
                 }
-                ast::BooleanOperator::Or => {
+                ast::Boolop::Or => {
                     self.emit(Instruction::JumpIfTrueOrPop {
                         target: after_block,
                     });
@@ -1754,11 +1743,12 @@ impl Compiler {
 
     fn compile_dict(
         &mut self,
-        pairs: &[(Option<ast::Expression>, ast::Expression)],
+        keys: &[Option<Box<ast::Expr>>],
+        values: &[ast::Expr],
     ) -> CompileResult<()> {
         let mut size = 0;
         let mut has_unpacking = false;
-        for (is_unpacking, subpairs) in &pairs.iter().group_by(|e| e.0.is_none()) {
+        for (is_unpacking, subpairs) in &keys.iter().zip(values).group_by(|e| e.0.is_none()) {
             if is_unpacking {
                 for (_, value) in subpairs {
                     self.compile_expression(value)?;
@@ -1799,95 +1789,99 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_expression(&mut self, expression: &ast::Expression) -> CompileResult<()> {
+    fn compile_expression(&mut self, expression: &ast::Expr) -> CompileResult<()> {
         trace!("Compiling {:?}", expression);
         self.set_source_location(expression.location);
 
-        use ast::ExpressionType::*;
+        use ast::ExprKind::*;
         match &expression.node {
             Call {
-                function,
+                func,
                 args,
                 keywords,
-            } => self.compile_call(function, args, keywords)?,
+            } => self.compile_call(func, args, keywords)?,
             BoolOp { op, values } => self.compile_bool_op(op, values)?,
-            Binop { a, op, b } => {
-                self.compile_expression(a)?;
-                self.compile_expression(b)?;
+            BinOp { left, op, right } => {
+                self.compile_expression(left)?;
+                self.compile_expression(right)?;
 
                 // Perform operation:
                 self.compile_op(op, false);
             }
-            Subscript { a, b } => {
-                self.compile_expression(a)?;
-                self.compile_expression(b)?;
+            Subscript { value, slice, .. } => {
+                self.compile_expression(value)?;
+                self.compile_expression(slice)?;
                 self.emit(Instruction::Subscript);
             }
-            Unop { op, a } => {
-                self.compile_expression(a)?;
+            UnaryOp { op, operand } => {
+                self.compile_expression(operand)?;
 
                 // Perform operation:
                 let i = match op {
-                    ast::UnaryOperator::Pos => bytecode::UnaryOperator::Plus,
-                    ast::UnaryOperator::Neg => bytecode::UnaryOperator::Minus,
-                    ast::UnaryOperator::Not => bytecode::UnaryOperator::Not,
-                    ast::UnaryOperator::Inv => bytecode::UnaryOperator::Invert,
+                    ast::Unaryop::UAdd => bytecode::UnaryOperator::Plus,
+                    ast::Unaryop::USub => bytecode::UnaryOperator::Minus,
+                    ast::Unaryop::Not => bytecode::UnaryOperator::Not,
+                    ast::Unaryop::Invert => bytecode::UnaryOperator::Invert,
                 };
                 let i = Instruction::UnaryOperation { op: i };
                 self.emit(i);
             }
-            Attribute { value, name } => {
+            Attribute { value, attr, .. } => {
                 self.compile_expression(value)?;
-                let idx = self.name(name);
+                let idx = self.name(attr);
                 self.emit(Instruction::LoadAttr { idx });
             }
-            Compare { vals, ops } => {
-                self.compile_chained_comparison(vals, ops)?;
+            Compare {
+                left,
+                ops,
+                comparators,
+            } => {
+                self.compile_chained_comparison(left, ops, comparators)?;
             }
-            Number { value } => {
-                let const_value = match value {
-                    ast::Number::Integer { value } => ConstantData::Integer {
-                        value: value.clone(),
-                    },
-                    ast::Number::Float { value } => ConstantData::Float { value: *value },
-                    ast::Number::Complex { real, imag } => ConstantData::Complex {
-                        value: Complex64::new(*real, *imag),
-                    },
-                };
-                self.emit_constant(const_value);
+            Constant { value, .. } => {
+                self.emit_constant(compile_constant(value));
             }
-            List { elements } => {
-                let size = elements.len() as u32;
-                let must_unpack = self.gather_elements(elements)?;
+            List { elts, .. } => {
+                let size = elts.len() as u32;
+                let must_unpack = self.gather_elements(elts)?;
                 self.emit(Instruction::BuildList {
                     size,
                     unpack: must_unpack,
                 });
             }
-            Tuple { elements } => {
-                let size = elements.len() as u32;
-                let must_unpack = self.gather_elements(elements)?;
+            Tuple { elts, .. } => {
+                let size = elts.len() as u32;
+                let must_unpack = self.gather_elements(elts)?;
                 self.emit(Instruction::BuildTuple {
                     size,
                     unpack: must_unpack,
                 });
             }
-            Set { elements } => {
-                let size = elements.len() as u32;
-                let must_unpack = self.gather_elements(elements)?;
+            Set { elts, .. } => {
+                let size = elts.len() as u32;
+                let must_unpack = self.gather_elements(elts)?;
                 self.emit(Instruction::BuildSet {
                     size,
                     unpack: must_unpack,
                 });
             }
-            Dict { elements } => {
-                self.compile_dict(elements)?;
+            Dict { keys, values } => {
+                self.compile_dict(keys, values)?;
             }
-            Slice { elements } => {
-                let step = elements.len() >= 3;
-                for element in elements {
-                    self.compile_expression(element)?;
+            Slice { lower, upper, step } => {
+                let mut compile_bound = |bound: Option<&ast::Expr>| match bound {
+                    Some(exp) => self.compile_expression(exp),
+                    None => {
+                        self.emit_constant(ConstantData::None);
+                        Ok(())
+                    }
+                };
+                compile_bound(lower.as_deref())?;
+                compile_bound(upper.as_deref())?;
+                if let Some(step) = step {
+                    self.compile_expression(step)?;
                 }
+                let step = step.is_some();
                 self.emit(Instruction::BuildSlice { step });
             }
             Yield { value } => {
@@ -1926,28 +1920,36 @@ impl Compiler {
                 self.emit_constant(ConstantData::None);
                 self.emit(Instruction::YieldFrom);
             }
-            True => {
-                self.emit_constant(ConstantData::Boolean { value: true });
+            ast::ExprKind::JoinedStr { values } => {
+                if let Some(value) = try_get_constant_string(values) {
+                    self.emit_constant(ConstantData::Str { value })
+                } else {
+                    for value in values {
+                        self.compile_expression(value)?;
+                    }
+                    self.emit(Instruction::BuildString {
+                        size: values.len() as u32,
+                    })
+                }
             }
-            False => {
-                self.emit_constant(ConstantData::Boolean { value: false });
-            }
-            ast::ExpressionType::None => {
-                self.emit_constant(ConstantData::None);
-            }
-            Ellipsis => {
-                self.emit_constant(ConstantData::Ellipsis);
-            }
-            ast::ExpressionType::String { value } => {
-                self.compile_string(value)?;
-            }
-            Bytes { value } => {
-                self.emit_constant(ConstantData::Bytes {
-                    value: value.clone(),
+            ast::ExprKind::FormattedValue {
+                value,
+                conversion,
+                format_spec,
+            } => {
+                match format_spec {
+                    Some(spec) => self.compile_expression(spec)?,
+                    None => self.emit_constant(ConstantData::Str {
+                        value: String::new(),
+                    }),
+                };
+                self.compile_expression(value)?;
+                self.emit(Instruction::FormatValue {
+                    conversion: compile_conversion_flag(*conversion),
                 });
             }
-            Identifier { name } => {
-                self.load_name(name);
+            Name { id, .. } => {
+                self.load_name(id);
             }
             Lambda { args, body } => {
                 let prev_ctx = self.ctx;
@@ -1974,13 +1976,83 @@ impl Compiler {
 
                 self.ctx = prev_ctx;
             }
-            Comprehension { kind, generators } => {
-                self.compile_comprehension(kind, generators)?;
+            ListComp { elt, generators } => {
+                self.compile_comprehension(
+                    "<listcomp>",
+                    Some(Instruction::BuildList {
+                        size: 0,
+                        unpack: false,
+                    }),
+                    generators,
+                    &mut |compiler| {
+                        compiler.compile_comprehension_element(elt)?;
+                        compiler.emit(Instruction::ListAppend {
+                            i: (1 + generators.len()) as u32,
+                        });
+                        Ok(())
+                    },
+                )?;
             }
+            SetComp { elt, generators } => {
+                self.compile_comprehension(
+                    "<setcomp>",
+                    Some(Instruction::BuildSet {
+                        size: 0,
+                        unpack: false,
+                    }),
+                    generators,
+                    &mut |compiler| {
+                        compiler.compile_comprehension_element(elt)?;
+                        compiler.emit(Instruction::SetAdd {
+                            i: (1 + generators.len()) as u32,
+                        });
+                        Ok(())
+                    },
+                )?;
+            }
+            DictComp {
+                key,
+                value,
+                generators,
+            } => {
+                self.compile_comprehension(
+                    "<dictcomp>",
+                    Some(Instruction::BuildMap {
+                        size: 0,
+                        for_call: false,
+                        unpack: false,
+                    }),
+                    generators,
+                    &mut |compiler| {
+                        // changed evaluation order for Py38 named expression PEP 572
+                        compiler.compile_expression(key)?;
+                        compiler.compile_expression(value)?;
+
+                        compiler.emit(Instruction::MapAddRev {
+                            i: (1 + generators.len()) as u32,
+                        });
+
+                        Ok(())
+                    },
+                )?;
+            }
+            GeneratorExp { elt, generators } => {
+                self.compile_comprehension("<genexpr>", None, generators, &mut |compiler| {
+                    compiler.compile_comprehension_element(elt)?;
+                    compiler.mark_generator();
+                    compiler.emit(Instruction::YieldValue);
+                    compiler.emit(Instruction::Pop);
+
+                    Ok(())
+                })?;
+            }
+            // Comprehension { kind, generators } => {
+            //     self.compile_comprehension(kind, generators)?;
+            // }
             Starred { .. } => {
                 return Err(self.error(CompileErrorType::InvalidStarExpr));
             }
-            IfExpression { test, body, orelse } => {
+            IfExp { test, body, orelse } => {
                 let else_block = self.new_block();
                 let after_block = self.new_block();
                 self.compile_jump_if(test, false, else_block)?;
@@ -1999,10 +2071,10 @@ impl Compiler {
                 self.switch_to_block(after_block);
             }
 
-            NamedExpression { left, right } => {
-                self.compile_expression(right)?;
+            NamedExpr { target, value } => {
+                self.compile_expression(value)?;
                 self.emit(Instruction::Duplicate);
-                self.compile_store(left)?;
+                self.compile_store(target)?;
             }
         }
         Ok(())
@@ -2010,20 +2082,21 @@ impl Compiler {
 
     fn compile_keywords(&mut self, keywords: &[ast::Keyword]) -> CompileResult<()> {
         let mut size = 0;
-        for (is_unpacking, subkeywords) in &keywords.iter().group_by(|e| e.name.is_none()) {
+        let groupby = keywords.iter().group_by(|e| e.node.arg.is_none());
+        for (is_unpacking, subkeywords) in &groupby {
             if is_unpacking {
                 for keyword in subkeywords {
-                    self.compile_expression(&keyword.value)?;
+                    self.compile_expression(&keyword.node.value)?;
                     size += 1;
                 }
             } else {
                 let mut subsize = 0;
                 for keyword in subkeywords {
-                    if let Some(name) = &keyword.name {
+                    if let Some(name) = &keyword.node.arg {
                         self.emit_constant(ConstantData::Str {
                             value: name.to_owned(),
                         });
-                        self.compile_expression(&keyword.value)?;
+                        self.compile_expression(&keyword.node.value)?;
                         subsize += 1;
                     }
                 }
@@ -2047,8 +2120,8 @@ impl Compiler {
 
     fn compile_call(
         &mut self,
-        function: &ast::Expression,
-        args: &[ast::Expression],
+        function: &ast::Expr,
+        args: &[ast::Expr],
         keywords: &[ast::Keyword],
     ) -> CompileResult<()> {
         self.compile_expression(function)?;
@@ -2056,7 +2129,7 @@ impl Compiler {
 
         // Normal arguments:
         let must_unpack = self.gather_elements(args)?;
-        let has_double_star = keywords.iter().any(|k| k.name.is_none());
+        let has_double_star = keywords.iter().any(|k| k.node.arg.is_none());
 
         if must_unpack || has_double_star {
             // Create a tuple with positional args:
@@ -2077,7 +2150,7 @@ impl Compiler {
             if !keywords.is_empty() {
                 let mut kwarg_names = vec![];
                 for keyword in keywords {
-                    if let Some(name) = &keyword.name {
+                    if let Some(name) = &keyword.node.arg {
                         kwarg_names.push(ConstantData::Str {
                             value: name.to_owned(),
                         });
@@ -2085,7 +2158,7 @@ impl Compiler {
                         // This means **kwargs!
                         panic!("name must be set");
                     }
-                    self.compile_expression(&keyword.value)?;
+                    self.compile_expression(&keyword.node.value)?;
                 }
 
                 self.emit_constant(ConstantData::Tuple {
@@ -2101,14 +2174,14 @@ impl Compiler {
 
     // Given a vector of expr / star expr generate code which gives either
     // a list of expressions on the stack, or a list of tuples.
-    fn gather_elements(&mut self, elements: &[ast::Expression]) -> CompileResult<bool> {
+    fn gather_elements(&mut self, elements: &[ast::Expr]) -> CompileResult<bool> {
         // First determine if we have starred elements:
         let has_stars = elements
             .iter()
-            .any(|e| matches!(e.node, ast::ExpressionType::Starred { .. }));
+            .any(|e| matches!(e.node, ast::ExprKind::Starred { .. }));
 
         for element in elements {
-            if let ast::ExpressionType::Starred { value } = &element.node {
+            if let ast::ExprKind::Starred { value, .. } = &element.node {
                 self.compile_expression(value)?;
             } else {
                 self.compile_expression(element)?;
@@ -2124,10 +2197,24 @@ impl Compiler {
         Ok(has_stars)
     }
 
+    fn compile_comprehension_element(&mut self, element: &ast::Expr) -> CompileResult<()> {
+        self.compile_expression(element).map_err(|e| {
+            if let CompileErrorType::InvalidStarExpr = e.error {
+                self.error(CompileErrorType::SyntaxError(
+                    "iterable unpacking cannot be used in comprehension".to_owned(),
+                ))
+            } else {
+                e
+            }
+        })
+    }
+
     fn compile_comprehension(
         &mut self,
-        kind: &ast::ComprehensionKind,
+        name: &str,
+        init_collection: Option<Instruction>,
         generators: &[ast::Comprehension],
+        compile_element: &dyn Fn(&mut Self) -> CompileResult<()>,
     ) -> CompileResult<()> {
         let prev_ctx = self.ctx;
 
@@ -2140,50 +2227,20 @@ impl Compiler {
         // We must have at least one generator:
         assert!(!generators.is_empty());
 
-        let name = match kind {
-            ast::ComprehensionKind::GeneratorExpression { .. } => "<genexpr>",
-            ast::ComprehensionKind::List { .. } => "<listcomp>",
-            ast::ComprehensionKind::Set { .. } => "<setcomp>",
-            ast::ComprehensionKind::Dict { .. } => "<dictcomp>",
-        }
-        .to_owned();
-
         // Create magnificent function <listcomp>:
         self.push_output(
             bytecode::CodeFlags::NEW_LOCALS | bytecode::CodeFlags::IS_OPTIMIZED,
             1,
             1,
             0,
-            name.clone(),
+            name.to_owned(),
         );
         let arg0 = self.varname(".0");
 
-        // if this is a generator expression, we need to insert a LoadConst(None) before we return;
-        // the other kinds load their collection types below
-        let is_genexpr = matches!(kind, ast::ComprehensionKind::GeneratorExpression { .. });
-
+        let return_none = init_collection.is_none();
         // Create empty object of proper type:
-        match kind {
-            ast::ComprehensionKind::GeneratorExpression { .. } => {}
-            ast::ComprehensionKind::List { .. } => {
-                self.emit(Instruction::BuildList {
-                    size: 0,
-                    unpack: false,
-                });
-            }
-            ast::ComprehensionKind::Set { .. } => {
-                self.emit(Instruction::BuildSet {
-                    size: 0,
-                    unpack: false,
-                });
-            }
-            ast::ComprehensionKind::Dict { .. } => {
-                self.emit(Instruction::BuildMap {
-                    size: 0,
-                    unpack: false,
-                    for_call: false,
-                });
-            }
+        if let Some(init_collection) = init_collection {
+            self.emit(init_collection)
         }
 
         let mut loop_labels = vec![];
@@ -2223,47 +2280,7 @@ impl Compiler {
             }
         }
 
-        let mut compile_element = |element| {
-            self.compile_expression(element).map_err(|e| {
-                if let CompileErrorType::InvalidStarExpr = e.error {
-                    self.error(CompileErrorType::SyntaxError(
-                        "iterable unpacking cannot be used in comprehension".to_owned(),
-                    ))
-                } else {
-                    e
-                }
-            })
-        };
-
-        match kind {
-            ast::ComprehensionKind::GeneratorExpression { element } => {
-                compile_element(element)?;
-                self.mark_generator();
-                self.emit(Instruction::YieldValue);
-                self.emit(Instruction::Pop);
-            }
-            ast::ComprehensionKind::List { element } => {
-                compile_element(element)?;
-                self.emit(Instruction::ListAppend {
-                    i: (1 + generators.len()) as u32,
-                });
-            }
-            ast::ComprehensionKind::Set { element } => {
-                compile_element(element)?;
-                self.emit(Instruction::SetAdd {
-                    i: (1 + generators.len()) as u32,
-                });
-            }
-            ast::ComprehensionKind::Dict { key, value } => {
-                // changed evaluation order for Py38 named expression PEP 572
-                self.compile_expression(key)?;
-                self.compile_expression(value)?;
-
-                self.emit(Instruction::MapAddRev {
-                    i: (1 + generators.len()) as u32,
-                });
-            }
-        }
+        compile_element(self)?;
 
         for (loop_block, after_block) in loop_labels.iter().rev().copied() {
             // Repeat:
@@ -2274,7 +2291,7 @@ impl Compiler {
             self.emit(Instruction::PopBlock);
         }
 
-        if is_genexpr {
+        if return_none {
             self.emit_constant(ConstantData::None)
         }
 
@@ -2297,7 +2314,9 @@ impl Compiler {
         });
 
         // List comprehension function name:
-        self.emit_constant(ConstantData::Str { value: name });
+        self.emit_constant(ConstantData::Str {
+            value: name.to_owned(),
+        });
 
         // Turn code object into function object:
         self.emit(Instruction::MakeFunction(funcflags));
@@ -2313,54 +2332,12 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_string(&mut self, string: &ast::StringGroup) -> CompileResult<()> {
-        if let Some(value) = try_get_constant_string(string) {
-            self.emit_constant(ConstantData::Str { value });
-        } else {
-            match string {
-                ast::StringGroup::Joined { values } => {
-                    for value in values {
-                        self.compile_string(value)?;
-                    }
-                    self.emit(Instruction::BuildString {
-                        size: values.len() as u32,
-                    })
-                }
-                ast::StringGroup::Constant { value } => {
-                    self.emit_constant(ConstantData::Str {
-                        value: value.to_owned(),
-                    });
-                }
-                ast::StringGroup::FormattedValue {
-                    value,
-                    conversion,
-                    spec,
-                } => {
-                    match spec {
-                        Some(spec) => self.compile_string(spec)?,
-                        None => self.emit_constant(ConstantData::Str {
-                            value: String::new(),
-                        }),
-                    };
-                    self.compile_expression(value)?;
-                    self.emit(Instruction::FormatValue {
-                        conversion: compile_conversion_flag(*conversion),
-                    });
-                }
-            }
-        }
-        Ok(())
-    }
-
-    fn compile_future_features(
-        &mut self,
-        features: &[ast::ImportSymbol],
-    ) -> Result<(), CompileError> {
+    fn compile_future_features(&mut self, features: &[ast::Alias]) -> Result<(), CompileError> {
         if self.done_with_future_stmts {
             return Err(self.error(CompileErrorType::InvalidFuturePlacement));
         }
         for feature in features {
-            match &*feature.symbol {
+            match &*feature.name {
                 // Python 3 features; we've already implemented them by default
                 "nested_scopes" | "generators" | "division" | "absolute_import"
                 | "with_statement" | "print_function" | "unicode_literals" => {}
@@ -2447,34 +2424,38 @@ impl Compiler {
     }
 }
 
-fn get_doc(body: &[ast::Statement]) -> (&[ast::Statement], Option<String>) {
+fn get_doc(body: &[ast::Stmt]) -> (&[ast::Stmt], Option<String>) {
     if let Some((val, body_rest)) = body.split_first() {
-        if let ast::StatementType::Expression { ref expression } = val.node {
-            if let ast::ExpressionType::String { value } = &expression.node {
-                if let Some(value) = try_get_constant_string(value) {
-                    return (body_rest, Some(value));
-                }
+        if let ast::StmtKind::Expr { value } = &val.node {
+            if let Some(doc) = try_get_constant_string(std::slice::from_ref(value)) {
+                return (body_rest, Some(doc));
             }
         }
     }
     (body, None)
 }
 
-fn try_get_constant_string(string: &ast::StringGroup) -> Option<String> {
-    fn get_constant_string_inner(out_string: &mut String, string: &ast::StringGroup) -> bool {
-        match string {
-            ast::StringGroup::Constant { value } => {
-                out_string.push_str(&value);
+fn try_get_constant_string(values: &[ast::Expr]) -> Option<String> {
+    fn get_constant_string_inner(out_string: &mut String, value: &ast::Expr) -> bool {
+        match &value.node {
+            ast::ExprKind::Constant {
+                value: ast::Constant::Str(s),
+                ..
+            } => {
+                out_string.push_str(s);
                 true
             }
-            ast::StringGroup::Joined { values } => values
+            ast::ExprKind::JoinedStr { values } => values
                 .iter()
                 .all(|value| get_constant_string_inner(out_string, value)),
-            ast::StringGroup::FormattedValue { .. } => false,
+            _ => false,
         }
     }
     let mut out_string = String::new();
-    if get_constant_string_inner(&mut out_string, string) {
+    if values
+        .iter()
+        .all(|v| get_constant_string_inner(&mut out_string, v))
+    {
         Some(out_string)
     } else {
         None
@@ -2493,6 +2474,24 @@ fn compile_conversion_flag(
         Some(ast::ConversionFlag::Ascii) => bytecode::ConversionFlag::Ascii,
         Some(ast::ConversionFlag::Repr) => bytecode::ConversionFlag::Repr,
         Some(ast::ConversionFlag::Str) => bytecode::ConversionFlag::Str,
+    }
+}
+
+fn compile_constant(value: &ast::Constant) -> ConstantData {
+    match value {
+        ast::Constant::None => ConstantData::None,
+        ast::Constant::Bool(b) => ConstantData::Boolean { value: *b },
+        ast::Constant::Str(s) => ConstantData::Str { value: s.clone() },
+        ast::Constant::Bytes(b) => ConstantData::Bytes { value: b.clone() },
+        ast::Constant::Int(i) => ConstantData::Integer { value: i.clone() },
+        ast::Constant::Tuple(t) => ConstantData::Tuple {
+            elements: t.iter().map(compile_constant).collect(),
+        },
+        ast::Constant::Float(f) => ConstantData::Float { value: *f },
+        ast::Constant::Complex { real, imag } => ConstantData::Complex {
+            value: Complex64::new(*real, *imag),
+        },
+        ast::Constant::Ellipsis => ConstantData::Ellipsis,
     }
 }
 
