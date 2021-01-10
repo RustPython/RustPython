@@ -908,7 +908,7 @@ pub(crate) fn try_int(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt
                 vm.to_repr(obj)?,
             ))),
         }
-    };
+    }
 
     // test for strings and bytes
     if let Some(s) = obj.downcast_ref::<PyStr>() {

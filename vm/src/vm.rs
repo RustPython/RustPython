@@ -5,8 +5,8 @@
 //!
 
 use std::cell::{Cell, Ref, RefCell};
-use std::collections::hash_map::HashMap;
-use std::collections::hash_set::HashSet;
+use std::collections::HashMap;
+use std::collections::HashSet;
 use std::fmt;
 
 use crossbeam_utils::atomic::AtomicCell;
@@ -110,8 +110,8 @@ pub(crate) mod thread {
 
 pub struct PyGlobalState {
     pub settings: PySettings,
-    pub stdlib_inits: HashMap<String, stdlib::StdlibInitFunc>,
-    pub frozen: HashMap<String, code::FrozenModule>,
+    pub stdlib_inits: HashMap<String, stdlib::StdlibInitFunc, ahash::RandomState>,
+    pub frozen: HashMap<String, code::FrozenModule, ahash::RandomState>,
     pub stacksize: AtomicCell<usize>,
     pub thread_count: AtomicCell<usize>,
     pub hash_secret: HashSecret,
@@ -273,7 +273,7 @@ impl VirtualMachine {
             state: PyRc::new(PyGlobalState {
                 settings,
                 stdlib_inits,
-                frozen: HashMap::new(),
+                frozen: HashMap::default(),
                 stacksize: AtomicCell::new(0),
                 thread_count: AtomicCell::new(0),
                 hash_secret,

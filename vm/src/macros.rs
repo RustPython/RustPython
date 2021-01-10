@@ -256,3 +256,21 @@ cfg_if::cfg_if! {
         }
     }
 }
+
+/// A modified version of the hashmap! macro from the maplit crate
+macro_rules! hashmap {
+    (@single $($x:tt)*) => (());
+    (@count $($rest:expr),*) => (<[()]>::len(&[$(hashmap!(@single $rest)),*]));
+
+    (hasher=$hasher:expr, $($key:expr => $value:expr,)+) => { hashmap!(hasher=$hasher, $($key => $value),+) };
+    (hasher=$hasher:expr, $($key:expr => $value:expr),*) => {
+        {
+            let _cap = hashmap!(@count $($key),*);
+            let mut _map = ::std::collections::HashMap::with_capacity_and_hasher(_cap, $hasher);
+            $(
+                let _ = _map.insert($key, $value);
+            )*
+            _map
+        }
+    };
+}

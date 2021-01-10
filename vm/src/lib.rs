@@ -21,8 +21,6 @@ extern crate flamer;
 extern crate bitflags;
 #[macro_use]
 extern crate log;
-#[macro_use]
-extern crate maplit;
 // extern crate env_logger;
 
 #[macro_use]

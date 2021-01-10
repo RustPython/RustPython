@@ -5,6 +5,9 @@
 #[macro_use]
 extern crate log;
 
+type IndexMap<K, V> = indexmap::IndexMap<K, V, ahash::RandomState>;
+type IndexSet<T> = indexmap::IndexSet<T, ahash::RandomState>;
+
 pub mod compile;
 pub mod error;
 pub mod ir;

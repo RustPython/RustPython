@@ -64,7 +64,7 @@ pub type PyResult<T = PyObjectRef> = Result<T, PyBaseExceptionRef>; // A valid v
 /// For attributes we do not use a dict, but a hashmap. This is probably
 /// faster, unordered, and only supports strings as keys.
 /// TODO: class attributes should maintain insertion order (use IndexMap here)
-pub type PyAttributes = HashMap<String, PyObjectRef>;
+pub type PyAttributes = HashMap<String, PyObjectRef, ahash::RandomState>;
 
 // TODO: remove this impl
 impl fmt::Display for PyObjectRef {

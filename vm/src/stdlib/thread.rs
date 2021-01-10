@@ -4,7 +4,7 @@ use crate::builtins::pytype::PyTypeRef;
 use crate::builtins::tuple::PyTupleRef;
 /// Implementation of the _thread module
 use crate::exceptions::{self, IntoPyException};
-use crate::function::{FuncArgs, OptionalArg};
+use crate::function::{FuncArgs, KwArgs, OptionalArg};
 use crate::pyobject::{
     BorrowValue, Either, IdProtocol, ItemProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef,
     PyResult, PyValue, StaticType, TypeProtocol,
@@ -224,7 +224,10 @@ fn _thread_start_new_thread(
 ) -> PyResult<u64> {
     let args = FuncArgs::new(
         args.borrow_value().to_owned(),
-        kwargs.map_or_else(Default::default, |k| k.to_attributes()),
+        kwargs
+            .map_or_else(Default::default, |k| k.to_attributes())
+            .into_iter()
+            .collect::<KwArgs>(),
     );
     let mut thread_builder = thread::Builder::new();
     let stacksize = vm.state.stacksize.load();
