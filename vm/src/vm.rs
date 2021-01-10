@@ -1034,7 +1034,10 @@ impl VirtualMachine {
         Ok(())
     }
 
-    pub fn extract_elements<T: TryFromObject>(&self, value: &PyObjectRef) -> PyResult<Vec<T>> {
+    pub fn extract_elements_func<T, F>(&self, value: &PyObjectRef, func: F) -> PyResult<Vec<T>>
+    where
+        F: Fn(PyObjectRef) -> PyResult<T>,
+    {
         // Extract elements from item, if possible:
         let cls = value.class();
         if cls.is(&self.ctx.types.tuple_type) {
@@ -1043,7 +1046,7 @@ impl VirtualMachine {
                 .unwrap()
                 .borrow_value()
                 .iter()
-                .map(|obj| T::try_from_object(self, obj.clone()))
+                .map(|obj| func(obj.clone()))
                 .collect()
         } else if cls.is(&self.ctx.types.list_type) {
             value
@@ -1051,12 +1054,16 @@ impl VirtualMachine {
                 .unwrap()
                 .borrow_value()
                 .iter()
-                .map(|obj| T::try_from_object(self, obj.clone()))
+                .map(|obj| func(obj.clone()))
                 .collect()
         } else {
             let iter = iterator::get_iter(self, value.clone())?;
-            iterator::get_all(self, &iter)
+            iterator::try_map(self, &iter, |obj| func(obj))
         }
+    }
+
+    pub fn extract_elements<T: TryFromObject>(&self, value: &PyObjectRef) -> PyResult<Vec<T>> {
+        self.extract_elements_func(value, |obj| T::try_from_object(self, obj))
     }
 
     pub fn map_iterable_object<F, R>(
