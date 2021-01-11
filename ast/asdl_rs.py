@@ -279,7 +279,7 @@ class ClassDefVisitor(EmitVisitor):
         fields = ",".join(f"ctx.new_str({json.dumps(f.name)})" for f in fields)
         self.emit(f'class.set_str_attr("_fields", ctx.new_list(vec![{fields}]));', depth + 2)
         attrs = ",".join(f"ctx.new_str({json.dumps(attr.name)})" for attr in attrs)
-        self.emit(f'class.set_str_attr("_attributes", ctx.new_list(vec![{fields}]));', depth + 2)
+        self.emit(f'class.set_str_attr("_attributes", ctx.new_list(vec![{attrs}]));', depth + 2)
         self.emit("}", depth + 1)
         self.emit("}", depth)
 
