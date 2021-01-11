@@ -1082,7 +1082,12 @@ impl Compiler {
         }
         for var in &*code.freevars {
             let table = self.symbol_table_stack.last().unwrap();
-            let symbol = table.lookup(var).unwrap();
+            let symbol = table.lookup(var).unwrap_or_else(|| {
+                panic!(
+                    "couldn't look up var {} in {} in {}",
+                    var, code.obj_name, self.source_path
+                )
+            });
             let parent_code = self.code_stack.last().unwrap();
             let vars = match symbol.scope {
                 SymbolScope::Free => &parent_code.freevar_cache,
@@ -1984,7 +1989,7 @@ impl Compiler {
                         unpack: false,
                     }),
                     generators,
-                    &mut |compiler| {
+                    &|compiler| {
                         compiler.compile_comprehension_element(elt)?;
                         compiler.emit(Instruction::ListAppend {
                             i: (1 + generators.len()) as u32,
@@ -2001,7 +2006,7 @@ impl Compiler {
                         unpack: false,
                     }),
                     generators,
-                    &mut |compiler| {
+                    &|compiler| {
                         compiler.compile_comprehension_element(elt)?;
                         compiler.emit(Instruction::SetAdd {
                             i: (1 + generators.len()) as u32,
@@ -2023,7 +2028,7 @@ impl Compiler {
                         unpack: false,
                     }),
                     generators,
-                    &mut |compiler| {
+                    &|compiler| {
                         // changed evaluation order for Py38 named expression PEP 572
                         compiler.compile_expression(key)?;
                         compiler.compile_expression(value)?;
@@ -2037,7 +2042,7 @@ impl Compiler {
                 )?;
             }
             GeneratorExp { elt, generators } => {
-                self.compile_comprehension("<genexpr>", None, generators, &mut |compiler| {
+                self.compile_comprehension("<genexpr>", None, generators, &|compiler| {
                     compiler.compile_comprehension_element(elt)?;
                     compiler.mark_generator();
                     compiler.emit(Instruction::YieldValue);
@@ -2046,9 +2051,6 @@ impl Compiler {
                     Ok(())
                 })?;
             }
-            // Comprehension { kind, generators } => {
-            //     self.compile_comprehension(kind, generators)?;
-            // }
             Starred { .. } => {
                 return Err(self.error(CompileErrorType::InvalidStarExpr));
             }

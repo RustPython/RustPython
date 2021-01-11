@@ -358,15 +358,11 @@ impl SymbolTableAnalyzer {
     }
 
     fn found_in_outer_scope(&mut self, name: &str) -> Option<SymbolScope> {
-        // Interesting stuff about the __class__ variable:
-        // https://docs.python.org/3/reference/datamodel.html?highlight=__class__#creating-the-class-object
-        if name == "__class__" {
-            return Some(SymbolScope::Free);
-        }
-
         let mut decl_depth = None;
         for (i, (symbols, typ)) in self.tables.iter().rev().enumerate() {
-            if let SymbolTableType::Class | SymbolTableType::Module = typ {
+            if matches!(typ, SymbolTableType::Module)
+                || matches!(typ, SymbolTableType::Class if name != "__class__")
+            {
                 continue;
             }
             if let Some(sym) = symbols.get(name) {
@@ -958,6 +954,8 @@ impl SymbolTableBuilder {
                         self.register_name(id, SymbolUsage::Iter, location)?;
                     }
                 }
+                // Interesting stuff about the __class__ variable:
+                // https://docs.python.org/3/reference/datamodel.html?highlight=__class__#creating-the-class-object
                 if context == ExpressionContext::Load
                     && self.tables.last().unwrap().typ == SymbolTableType::Function
                     && id == "super"

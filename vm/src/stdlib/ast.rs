@@ -15,6 +15,7 @@ use rustpython_parser::parser;
 use rustpython_compiler as compile;
 
 use crate::builtins::{self, PyStrRef, PyTypeRef};
+use crate::function::FuncArgs;
 use crate::pyobject::{
     BorrowValue, IdProtocol, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
     PyValue, StaticType, TryFromObject, TypeProtocol,
@@ -22,6 +23,7 @@ use crate::pyobject::{
 use crate::vm::VirtualMachine;
 
 #[rustfmt::skip]
+#[allow(clippy::all)]
 mod gen;
 
 fn node_add_location(node: &AstNodeRef, location: ast::Location, vm: &VirtualMachine) {
@@ -43,7 +45,38 @@ pub(crate) struct AstNode;
 type AstNodeRef = PyRef<AstNode>;
 
 #[pyimpl(flags(HAS_DICT))]
-impl AstNode {}
+impl AstNode {
+    #[pymethod(magic)]
+    fn init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let fields = vm.get_attribute(zelf.clone_class().into_object(), "_fields")?;
+        let fields = vm.extract_elements::<PyStrRef>(&fields)?;
+        let numargs = args.args.len();
+        if numargs > fields.len() {
+            return Err(vm.new_type_error(format!(
+                "{} constructor takes at most {} positional argument{}",
+                zelf.class().name,
+                fields.len(),
+                if fields.len() == 1 { "" } else { "s" },
+            )));
+        }
+        for (name, arg) in fields.iter().zip(args.args) {
+            vm.set_attr(&zelf, name.clone(), arg)?;
+        }
+        for (key, value) in args.kwargs {
+            if let Some(pos) = fields.iter().position(|f| f.borrow_value() == key) {
+                if pos < numargs {
+                    return Err(vm.new_type_error(format!(
+                        "{} got multiple values for argument '{}'",
+                        zelf.class().name,
+                        key
+                    )));
+                }
+            }
+            vm.set_attr(&zelf, key, value)?;
+        }
+        Ok(())
+    }
+}
 
 const MODULE_NAME: &str = "_ast";
 pub const PY_COMPILE_FLAG_AST_ONLY: i32 = 0x0400;

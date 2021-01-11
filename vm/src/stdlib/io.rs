@@ -1840,7 +1840,7 @@ mod _io {
         }
     }
 
-    #[pyimpl]
+    #[pyimpl(flags(BASETYPE))]
     impl TextIOWrapper {
         #[pyslot]
         fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {

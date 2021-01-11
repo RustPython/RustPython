@@ -272,7 +272,7 @@ class ClassDefVisitor(EmitVisitor):
         structname = "Node" + name
         self.emit(f'#[pyclass(module = "_ast", name = {json.dumps(name)}, base = "AstNode")]', depth)
         self.emit(f"struct {structname};", depth)
-        self.emit("#[pyimpl(flags(HAS_DICT))]", depth)
+        self.emit("#[pyimpl(flags(HAS_DICT, BASETYPE))]", depth)
         self.emit(f"impl {structname} {{", depth)
         self.emit(f"#[extend_class]", depth + 1)
         self.emit("fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {", depth + 1)

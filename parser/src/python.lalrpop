@@ -21,7 +21,7 @@ grammar;
 pub Top: ast::Mod = {
     StartModule <body:Program> => ast::Mod::Module { body, type_ignores: vec![] },
     StartInteractive <body:Program> => ast::Mod::Interactive { body },
-    StartExpression <body:Test> ("\n")* => ast::Mod::Expression { body: Box::new(body) },
+    StartExpression <body:TestList> ("\n")* => ast::Mod::Expression { body: Box::new(body) },
 };
 
 Program: ast::Suite = {
