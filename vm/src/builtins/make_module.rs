@@ -30,8 +30,8 @@ mod decl {
     };
     use crate::iterator;
     use crate::pyobject::{
-        BorrowValue, Either, IdProtocol, ItemProtocol, PyArithmaticValue, PyCallable, PyIterable,
-        PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+        BorrowValue, Either, IdProtocol, ItemProtocol, PyArithmaticValue, PyCallable, PyClassImpl,
+        PyIterable, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
     };
     use crate::readline::{Readline, ReadlineResult};
     use crate::scope::Scope;
@@ -104,7 +104,7 @@ mod decl {
     #[allow(dead_code)]
     struct CompileArgs {
         #[pyarg(any)]
-        source: Either<PyStrRef, PyBytesRef>,
+        source: PyObjectRef,
         #[pyarg(any)]
         filename: PyStrRef,
         #[pyarg(any)]
@@ -120,43 +120,73 @@ mod decl {
     #[cfg(feature = "rustpython-compiler")]
     #[pyfunction]
     fn compile(args: CompileArgs, vm: &VirtualMachine) -> PyResult {
-        // TODO: compile::compile should probably get bytes
-        let source = match &args.source {
-            Either::A(string) => string.borrow_value(),
-            Either::B(bytes) => std::str::from_utf8(bytes).unwrap(),
-        };
-
-        let mode_str = args.mode.borrow_value();
-
-        let flags = args
-            .flags
-            .map_or(Ok(0), |v| i32::try_from_object(vm, v.into_object()))?;
-
-        #[cfg(feature = "rustpython-parser")]
+        #[cfg(not(feature = "rustpython-ast"))]
+        {
+            Err(vm.new_value_error("can't use compile() when the `compiler` and `parser` features of rustpython are disabled".to_owned()))
+        }
+        #[cfg(feature = "rustpython-ast")]
         {
             use crate::stdlib::ast;
-            use rustpython_parser::parser;
 
-            if (flags & ast::PY_COMPILE_FLAG_AST_ONLY).is_zero() {
-                let mode = mode_str
-                    .parse::<compile::Mode>()
-                    .map_err(|err| vm.new_value_error(err.to_string()))?;
+            let mode_str = args.mode.borrow_value();
 
-                vm.compile(&source, mode, args.filename.borrow_value().to_owned())
-                    .map(|o| o.into_object())
-                    .map_err(|err| vm.new_syntax_error(&err))
-            } else {
-                let mode = mode_str
-                    .parse::<parser::Mode>()
-                    .map_err(|err| vm.new_value_error(err.to_string()))?;
-                ast::parse(&vm, &source, mode)
+            if args.source.isinstance(&ast::AstNode::make_class(&vm.ctx)) {
+                #[cfg(not(feature = "rustpython-compiler"))]
+                {
+                    return Err(vm.new_value_error("can't compile ast nodes when the `compiler` feature of rustpython is disabled"));
+                }
+                #[cfg(feature = "rustpython-compiler")]
+                {
+                    let mode = mode_str
+                        .parse::<compile::Mode>()
+                        .map_err(|err| vm.new_value_error(err.to_string()))?;
+                    return ast::compile(vm, args.source, args.filename.borrow_value(), mode);
+                }
             }
-        }
-        #[cfg(not(feature = "rustpython-parser"))]
-        {
-            Err(vm.new_value_error(
-                "PyCF_ONLY_AST flag is not supported without parser support".to_string(),
-            ))
+
+            #[cfg(not(feature = "rustpython-parser"))]
+            {
+                Err(vm.new_value_error(
+                    "can't compile() a string when the `parser` feature of rustpython is disabled",
+                ))
+            }
+            #[cfg(feature = "rustpython-parser")]
+            {
+                use rustpython_parser::parser;
+
+                let source = Either::<PyStrRef, PyBytesRef>::try_from_object(vm, args.source)?;
+                // TODO: compile::compile should probably get bytes
+                let source = match &source {
+                    Either::A(string) => string.borrow_value(),
+                    Either::B(bytes) => std::str::from_utf8(bytes).unwrap(),
+                };
+
+                let flags = args
+                    .flags
+                    .map_or(Ok(0), |v| i32::try_from_object(vm, v.into_object()))?;
+
+                if (flags & ast::PY_COMPILE_FLAG_AST_ONLY).is_zero() {
+                    #[cfg(not(feature = "rustpython-compiler"))]
+                    {
+                        Err(vm.new_value_error("can't compile() a string to bytecode when the `compiler` feature of rustpython is disabled".to_owned()))
+                    }
+                    #[cfg(feature = "rustpython-compiler")]
+                    {
+                        let mode = mode_str
+                            .parse::<compile::Mode>()
+                            .map_err(|err| vm.new_value_error(err.to_string()))?;
+
+                        vm.compile(&source, mode, args.filename.borrow_value().to_owned())
+                            .map(|o| o.into_object())
+                            .map_err(|err| vm.new_syntax_error(&err))
+                    }
+                } else {
+                    let mode = mode_str
+                        .parse::<parser::Mode>()
+                        .map_err(|err| vm.new_value_error(err.to_string()))?;
+                    ast::parse(&vm, &source, mode)
+                }
+            }
         }
     }
 

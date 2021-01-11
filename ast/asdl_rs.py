@@ -312,9 +312,6 @@ class ExtendModuleVisitor(EmitVisitor):
 
 
 class TraitImplVisitor(EmitVisitor):
-    def __init__(self, file, typeinfo):
-        self.typeinfo = typeinfo
-        super().__init__(file)
 
     def visitModule(self, mod):
         for dfn in mod.dfns:
@@ -341,7 +338,7 @@ class TraitImplVisitor(EmitVisitor):
         self.emit("node.into_object()", depth + 2)
         self.emit("}", depth + 1)
         self.emit("fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {", depth + 1)
-        self.emit("todo!()", depth + 2)
+        self.gen_sum_fromobj(sum, name, enumname, depth + 2)
         self.emit("}", depth + 1)
         self.emit("}", depth)
 
@@ -370,7 +367,7 @@ class TraitImplVisitor(EmitVisitor):
         self.emit("node.into_object()", depth + 2)
         self.emit("}", depth + 1)
         self.emit("fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {", depth + 1)
-        self.emit("todo!()", depth + 2)
+        self.gen_product_fromobj(product, name, structname, depth + 2)
         self.emit("}", depth + 1)
         self.emit("}", depth)
 
@@ -389,6 +386,54 @@ class TraitImplVisitor(EmitVisitor):
     def add_location(self, depth):
         self.emit(f"node_add_location(&node, self.location, _vm);", depth)
 
+    def gen_sum_fromobj(self, sum, sumname, enumname, depth):
+        if sum.attributes:
+            self.extract_location(sumname, depth)
+
+        self.emit("let _cls = _object.class();", depth)
+        self.emit("let node =", depth)
+        for cons in sum.types:
+            self.emit(f"if _cls.is(Node{cons.name}::static_type()) {{", depth)
+            self.gen_construction(f"{enumname}::{cons.name}", cons, sumname, depth + 1)
+            self.emit("} else", depth)
+
+        self.emit("{", depth)
+        msg = f'format!("expected some sort of {sumname}, but got {{}}",_vm.to_repr(&_object)?)'
+        self.emit(f"return Err(_vm.new_type_error({msg}));", depth + 1)
+        self.emit("};", depth)
+
+        if sum.attributes:
+            self.wrap_located_node(depth)
+
+        self.emit("Ok(node)", depth)
+
+    def gen_product_fromobj(self, product, prodname, structname, depth):
+        if product.attributes:
+            self.extract_location(prodname, depth)
+
+        self.emit("let node =", depth)
+        self.gen_construction(structname, product, prodname, depth + 1)
+        self.emit(";", depth)
+
+        if product.attributes:
+            self.wrap_located_node(depth)
+
+        self.emit("Ok(node)", depth)
+
+    def gen_construction(self, cons_path, cons, name, depth):
+        self.emit(f"ast::{cons_path} {{", depth)
+        for field in cons.fields:
+            self.emit(f"{rust_field(field.name)}: {self.decode_field(field.name, name)},", depth + 1)
+        self.emit("}", depth)
+
+    def extract_location(self, typename, depth):
+        self.emit(f"let _location = ast::Location::new({self.decode_field('lineno', typename)}, {self.decode_field('col_offset', typename)});", depth)
+
+    def wrap_located_node(self, depth):
+        self.emit(f"let node = ast::Located::new(_location, node);", depth)
+
+    def decode_field(self, field, typename):
+        return f"Node::ast_from_object(_vm, get_node_field(_vm, &_object, {json.dumps(field)}, {json.dumps(typename)})?)?"
 
 def write_ast_def(mod, typeinfo, f):
     f.write('pub use crate::location::Location;\n')
@@ -413,7 +458,7 @@ def write_ast_def(mod, typeinfo, f):
     StructVisitor(f, typeinfo).visit(mod)
 
 
-def write_ast_mod(mod, typeinfo, f):
+def write_ast_mod(mod, f):
     f.write('use super::*;\n')
     f.write('\n')
 
@@ -421,7 +466,7 @@ def write_ast_mod(mod, typeinfo, f):
 
     f.write('\n')
 
-    TraitImplVisitor(f, typeinfo).visit(mod)
+    TraitImplVisitor(f).visit(mod)
 
     f.write('\n')
 
@@ -445,7 +490,7 @@ def main(input_filename, ast_mod_filename, ast_def_filename, dump_module=False):
         write_ast_def(mod, typeinfo, def_file)
 
         mod_file.write(auto_gen_msg)
-        write_ast_mod(mod, typeinfo, mod_file)
+        write_ast_mod(mod, mod_file)
 
     print(f"{ast_def_filename}, {ast_mod_filename} regenerated.")
 

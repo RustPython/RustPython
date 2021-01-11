@@ -3,7 +3,7 @@ use crate::vm::VirtualMachine;
 use std::collections::HashMap;
 
 pub mod array;
-#[cfg(feature = "rustpython-parser")]
+#[cfg(feature = "rustpython-ast")]
 pub(crate) mod ast;
 mod atexit;
 mod binascii;
@@ -105,12 +105,16 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc, ahash::RandomState>
     };
 
     // Insert parser related modules:
-    #[cfg(feature = "rustpython-parser")]
+    #[cfg(feature = "rustpython-ast")]
     {
         modules.insert(
             "_ast".to_owned(),
             Box::new(ast::make_module) as StdlibInitFunc,
         );
+    }
+
+    #[cfg(feature = "rustpython-parser")]
+    {
         modules.insert("keyword".to_owned(), Box::new(keyword::make_module));
         modules.insert("tokenize".to_owned(), Box::new(tokenize::make_module));
     }

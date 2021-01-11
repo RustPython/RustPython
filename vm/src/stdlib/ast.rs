@@ -4,14 +4,20 @@
 //! into python ast.AST objects.
 
 use num_complex::Complex64;
-use num_traits::ToPrimitive;
+use num_traits::{ToPrimitive, Zero};
 
-use rustpython_parser::{ast, mode::Mode, parser};
+use rustpython_ast as ast;
 
-use crate::builtins::{PyStrRef, PyTypeRef};
+#[cfg(feature = "rustpython-parser")]
+use rustpython_parser::parser;
+
+#[cfg(feature = "rustpython-compiler")]
+use rustpython_compiler as compile;
+
+use crate::builtins::{self, PyStrRef, PyTypeRef};
 use crate::pyobject::{
-    BorrowValue, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    StaticType, TryFromObject,
+    BorrowValue, IdProtocol, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
+    PyValue, StaticType, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -26,9 +32,14 @@ fn node_add_location(node: &AstNodeRef, location: ast::Location, vm: &VirtualMac
         .unwrap();
 }
 
+fn get_node_field(vm: &VirtualMachine, obj: &PyObjectRef, field: &str, _typ: &str) -> PyResult {
+    // TODO: use typ and give a better error message, 'required field "{field}" missing from {typ}'
+    vm.get_attribute(obj.clone(), field)
+}
+
 #[pyclass(module = "_ast", name = "AST")]
 #[derive(Debug)]
-struct AstNode;
+pub(crate) struct AstNode;
 type AstNodeRef = PyRef<AstNode>;
 
 #[pyimpl(flags(HAS_DICT))]
@@ -136,8 +147,39 @@ impl Node for ast::Constant {
         }
     }
 
-    fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        todo!()
+    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+        let constant = match_class!(match object {
+            ref i @ builtins::int::PyInt => {
+                let value = i.borrow_value();
+                if object.class().is(&vm.ctx.types.bool_type) {
+                    ast::Constant::Bool(!value.is_zero())
+                } else {
+                    ast::Constant::Int(value.clone())
+                }
+            }
+            ref f @ builtins::float::PyFloat => ast::Constant::Float(f.to_f64()),
+            ref c @ builtins::complex::PyComplex => {
+                let c = c.to_complex();
+                ast::Constant::Complex {
+                    real: c.re,
+                    imag: c.im,
+                }
+            }
+            ref s @ builtins::pystr::PyStr => ast::Constant::Str(s.borrow_value().to_owned()),
+            ref b @ builtins::bytes::PyBytes => ast::Constant::Bytes(b.borrow_value().to_owned()),
+            ref t @ builtins::tuple::PyTuple => {
+                ast::Constant::Tuple(
+                    t.borrow_value()
+                        .iter()
+                        .map(|elt| Self::ast_from_object(vm, elt.clone()))
+                        .collect::<Result<_, _>>()?,
+                )
+            }
+            builtins::singletons::PyNone => ast::Constant::None,
+            builtins::slice::PyEllipsis => ast::Constant::Ellipsis,
+            _ => return Err(vm.new_type_error("unsupported type for constant".to_owned())),
+        });
+        Ok(constant)
     }
 }
 
@@ -154,10 +196,26 @@ impl Node for ast::ConversionFlag {
     }
 }
 
-pub(crate) fn parse(vm: &VirtualMachine, source: &str, mode: Mode) -> PyResult {
+#[cfg(feature = "rustpython-parser")]
+pub(crate) fn parse(vm: &VirtualMachine, source: &str, mode: parser::Mode) -> PyResult {
     // TODO: use vm.new_syntax_error()
     let top = parser::parse(source, mode).map_err(|err| vm.new_value_error(format!("{}", err)))?;
     Ok(top.ast_to_object(vm))
+}
+
+#[cfg(feature = "rustpython-compiler")]
+pub(crate) fn compile(
+    vm: &VirtualMachine,
+    object: PyObjectRef,
+    filename: &str,
+    _mode: compile::Mode,
+) -> PyResult {
+    let opts = vm.compile_opts();
+    let ast = Node::ast_from_object(vm, object)?;
+    let code = rustpython_compiler_core::compile::compile_top(&ast, filename.to_owned(), opts)
+        // TODO: use vm.new_syntax_error()
+        .map_err(|err| vm.new_value_error(err.to_string()))?;
+    Ok(vm.new_code_object(code).into_object())
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {

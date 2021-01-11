@@ -996,7 +996,34 @@ impl Node for ast::Mod {
         node.into_object()
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        todo!()
+        let _cls = _object.class();
+        let node =
+        if _cls.is(NodeModule::static_type()) {
+            ast::Mod::Module {
+                body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "mod")?)?,
+                type_ignores: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "type_ignores", "mod")?)?,
+            }
+        } else
+        if _cls.is(NodeInteractive::static_type()) {
+            ast::Mod::Interactive {
+                body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "mod")?)?,
+            }
+        } else
+        if _cls.is(NodeExpression::static_type()) {
+            ast::Mod::Expression {
+                body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "mod")?)?,
+            }
+        } else
+        if _cls.is(NodeFunctionType::static_type()) {
+            ast::Mod::FunctionType {
+                argtypes: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "argtypes", "mod")?)?,
+                returns: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "returns", "mod")?)?,
+            }
+        } else
+        {
+            return Err(_vm.new_type_error(format!("expected some sort of mod, but got {}",_vm.to_repr(&_object)?)));
+        };
+        Ok(node)
     }
 }
 impl Node for ast::Stmt {
@@ -1195,7 +1222,180 @@ impl Node for ast::Stmt {
         node.into_object()
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        todo!()
+        let _location = ast::Location::new(Node::ast_from_object(_vm, get_node_field(_vm, &_object, "lineno", "stmt")?)?, Node::ast_from_object(_vm, get_node_field(_vm, &_object, "col_offset", "stmt")?)?);
+        let _cls = _object.class();
+        let node =
+        if _cls.is(NodeFunctionDef::static_type()) {
+            ast::StmtKind::FunctionDef {
+                name: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "name", "stmt")?)?,
+                args: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "args", "stmt")?)?,
+                body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "stmt")?)?,
+                decorator_list: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "decorator_list", "stmt")?)?,
+                returns: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "returns", "stmt")?)?,
+                type_comment: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "type_comment", "stmt")?)?,
+            }
+        } else
+        if _cls.is(NodeAsyncFunctionDef::static_type()) {
+            ast::StmtKind::AsyncFunctionDef {
+                name: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "name", "stmt")?)?,
+                args: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "args", "stmt")?)?,
+                body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "stmt")?)?,
+                decorator_list: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "decorator_list", "stmt")?)?,
+                returns: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "returns", "stmt")?)?,
+                type_comment: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "type_comment", "stmt")?)?,
+            }
+        } else
+        if _cls.is(NodeClassDef::static_type()) {
+            ast::StmtKind::ClassDef {
+                name: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "name", "stmt")?)?,
+                bases: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "bases", "stmt")?)?,
+                keywords: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "keywords", "stmt")?)?,
+                body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "stmt")?)?,
+                decorator_list: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "decorator_list", "stmt")?)?,
+            }
+        } else
+        if _cls.is(NodeReturn::static_type()) {
+            ast::StmtKind::Return {
+                value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "stmt")?)?,
+            }
+        } else
+        if _cls.is(NodeDelete::static_type()) {
+            ast::StmtKind::Delete {
+                targets: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "targets", "stmt")?)?,
+            }
+        } else
+        if _cls.is(NodeAssign::static_type()) {
+            ast::StmtKind::Assign {
+                targets: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "targets", "stmt")?)?,
+                value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "stmt")?)?,
+                type_comment: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "type_comment", "stmt")?)?,
+            }
+        } else
+        if _cls.is(NodeAugAssign::static_type()) {
+            ast::StmtKind::AugAssign {
+                target: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "target", "stmt")?)?,
+                op: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "op", "stmt")?)?,
+                value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "stmt")?)?,
+            }
+        } else
+        if _cls.is(NodeAnnAssign::static_type()) {
+            ast::StmtKind::AnnAssign {
+                target: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "target", "stmt")?)?,
+                annotation: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "annotation", "stmt")?)?,
+                value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "stmt")?)?,
+                simple: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "simple", "stmt")?)?,
+            }
+        } else
+        if _cls.is(NodeFor::static_type()) {
+            ast::StmtKind::For {
+                target: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "target", "stmt")?)?,
+                iter: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "iter", "stmt")?)?,
+                body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "stmt")?)?,
+                orelse: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "orelse", "stmt")?)?,
+                type_comment: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "type_comment", "stmt")?)?,
+            }
+        } else
+        if _cls.is(NodeAsyncFor::static_type()) {
+            ast::StmtKind::AsyncFor {
+                target: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "target", "stmt")?)?,
+                iter: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "iter", "stmt")?)?,
+                body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "stmt")?)?,
+                orelse: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "orelse", "stmt")?)?,
+                type_comment: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "type_comment", "stmt")?)?,
+            }
+        } else
+        if _cls.is(NodeWhile::static_type()) {
+            ast::StmtKind::While {
+                test: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "test", "stmt")?)?,
+                body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "stmt")?)?,
+                orelse: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "orelse", "stmt")?)?,
+            }
+        } else
+        if _cls.is(NodeIf::static_type()) {
+            ast::StmtKind::If {
+                test: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "test", "stmt")?)?,
+                body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "stmt")?)?,
+                orelse: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "orelse", "stmt")?)?,
+            }
+        } else
+        if _cls.is(NodeWith::static_type()) {
+            ast::StmtKind::With {
+                items: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "items", "stmt")?)?,
+                body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "stmt")?)?,
+                type_comment: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "type_comment", "stmt")?)?,
+            }
+        } else
+        if _cls.is(NodeAsyncWith::static_type()) {
+            ast::StmtKind::AsyncWith {
+                items: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "items", "stmt")?)?,
+                body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "stmt")?)?,
+                type_comment: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "type_comment", "stmt")?)?,
+            }
+        } else
+        if _cls.is(NodeRaise::static_type()) {
+            ast::StmtKind::Raise {
+                exc: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "exc", "stmt")?)?,
+                cause: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "cause", "stmt")?)?,
+            }
+        } else
+        if _cls.is(NodeTry::static_type()) {
+            ast::StmtKind::Try {
+                body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "stmt")?)?,
+                handlers: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "handlers", "stmt")?)?,
+                orelse: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "orelse", "stmt")?)?,
+                finalbody: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "finalbody", "stmt")?)?,
+            }
+        } else
+        if _cls.is(NodeAssert::static_type()) {
+            ast::StmtKind::Assert {
+                test: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "test", "stmt")?)?,
+                msg: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "msg", "stmt")?)?,
+            }
+        } else
+        if _cls.is(NodeImport::static_type()) {
+            ast::StmtKind::Import {
+                names: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "names", "stmt")?)?,
+            }
+        } else
+        if _cls.is(NodeImportFrom::static_type()) {
+            ast::StmtKind::ImportFrom {
+                module: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "module", "stmt")?)?,
+                names: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "names", "stmt")?)?,
+                level: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "level", "stmt")?)?,
+            }
+        } else
+        if _cls.is(NodeGlobal::static_type()) {
+            ast::StmtKind::Global {
+                names: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "names", "stmt")?)?,
+            }
+        } else
+        if _cls.is(NodeNonlocal::static_type()) {
+            ast::StmtKind::Nonlocal {
+                names: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "names", "stmt")?)?,
+            }
+        } else
+        if _cls.is(NodeExpr::static_type()) {
+            ast::StmtKind::Expr {
+                value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "stmt")?)?,
+            }
+        } else
+        if _cls.is(NodePass::static_type()) {
+            ast::StmtKind::Pass {
+            }
+        } else
+        if _cls.is(NodeBreak::static_type()) {
+            ast::StmtKind::Break {
+            }
+        } else
+        if _cls.is(NodeContinue::static_type()) {
+            ast::StmtKind::Continue {
+            }
+        } else
+        {
+            return Err(_vm.new_type_error(format!("expected some sort of stmt, but got {}",_vm.to_repr(&_object)?)));
+        };
+        let node = ast::Located::new(_location, node);
+        Ok(node)
     }
 }
 impl Node for ast::Expr {
@@ -1399,7 +1599,180 @@ impl Node for ast::Expr {
         node.into_object()
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        todo!()
+        let _location = ast::Location::new(Node::ast_from_object(_vm, get_node_field(_vm, &_object, "lineno", "expr")?)?, Node::ast_from_object(_vm, get_node_field(_vm, &_object, "col_offset", "expr")?)?);
+        let _cls = _object.class();
+        let node =
+        if _cls.is(NodeBoolOp::static_type()) {
+            ast::ExprKind::BoolOp {
+                op: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "op", "expr")?)?,
+                values: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "values", "expr")?)?,
+            }
+        } else
+        if _cls.is(NodeNamedExpr::static_type()) {
+            ast::ExprKind::NamedExpr {
+                target: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "target", "expr")?)?,
+                value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "expr")?)?,
+            }
+        } else
+        if _cls.is(NodeBinOp::static_type()) {
+            ast::ExprKind::BinOp {
+                left: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "left", "expr")?)?,
+                op: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "op", "expr")?)?,
+                right: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "right", "expr")?)?,
+            }
+        } else
+        if _cls.is(NodeUnaryOp::static_type()) {
+            ast::ExprKind::UnaryOp {
+                op: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "op", "expr")?)?,
+                operand: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "operand", "expr")?)?,
+            }
+        } else
+        if _cls.is(NodeLambda::static_type()) {
+            ast::ExprKind::Lambda {
+                args: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "args", "expr")?)?,
+                body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "expr")?)?,
+            }
+        } else
+        if _cls.is(NodeIfExp::static_type()) {
+            ast::ExprKind::IfExp {
+                test: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "test", "expr")?)?,
+                body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "expr")?)?,
+                orelse: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "orelse", "expr")?)?,
+            }
+        } else
+        if _cls.is(NodeDict::static_type()) {
+            ast::ExprKind::Dict {
+                keys: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "keys", "expr")?)?,
+                values: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "values", "expr")?)?,
+            }
+        } else
+        if _cls.is(NodeSet::static_type()) {
+            ast::ExprKind::Set {
+                elts: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "elts", "expr")?)?,
+            }
+        } else
+        if _cls.is(NodeListComp::static_type()) {
+            ast::ExprKind::ListComp {
+                elt: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "elt", "expr")?)?,
+                generators: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "generators", "expr")?)?,
+            }
+        } else
+        if _cls.is(NodeSetComp::static_type()) {
+            ast::ExprKind::SetComp {
+                elt: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "elt", "expr")?)?,
+                generators: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "generators", "expr")?)?,
+            }
+        } else
+        if _cls.is(NodeDictComp::static_type()) {
+            ast::ExprKind::DictComp {
+                key: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "key", "expr")?)?,
+                value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "expr")?)?,
+                generators: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "generators", "expr")?)?,
+            }
+        } else
+        if _cls.is(NodeGeneratorExp::static_type()) {
+            ast::ExprKind::GeneratorExp {
+                elt: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "elt", "expr")?)?,
+                generators: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "generators", "expr")?)?,
+            }
+        } else
+        if _cls.is(NodeAwait::static_type()) {
+            ast::ExprKind::Await {
+                value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "expr")?)?,
+            }
+        } else
+        if _cls.is(NodeYield::static_type()) {
+            ast::ExprKind::Yield {
+                value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "expr")?)?,
+            }
+        } else
+        if _cls.is(NodeYieldFrom::static_type()) {
+            ast::ExprKind::YieldFrom {
+                value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "expr")?)?,
+            }
+        } else
+        if _cls.is(NodeCompare::static_type()) {
+            ast::ExprKind::Compare {
+                left: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "left", "expr")?)?,
+                ops: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "ops", "expr")?)?,
+                comparators: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "comparators", "expr")?)?,
+            }
+        } else
+        if _cls.is(NodeCall::static_type()) {
+            ast::ExprKind::Call {
+                func: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "func", "expr")?)?,
+                args: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "args", "expr")?)?,
+                keywords: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "keywords", "expr")?)?,
+            }
+        } else
+        if _cls.is(NodeFormattedValue::static_type()) {
+            ast::ExprKind::FormattedValue {
+                value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "expr")?)?,
+                conversion: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "conversion", "expr")?)?,
+                format_spec: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "format_spec", "expr")?)?,
+            }
+        } else
+        if _cls.is(NodeJoinedStr::static_type()) {
+            ast::ExprKind::JoinedStr {
+                values: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "values", "expr")?)?,
+            }
+        } else
+        if _cls.is(NodeConstant::static_type()) {
+            ast::ExprKind::Constant {
+                value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "expr")?)?,
+                kind: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "kind", "expr")?)?,
+            }
+        } else
+        if _cls.is(NodeAttribute::static_type()) {
+            ast::ExprKind::Attribute {
+                value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "expr")?)?,
+                attr: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "attr", "expr")?)?,
+                ctx: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "ctx", "expr")?)?,
+            }
+        } else
+        if _cls.is(NodeSubscript::static_type()) {
+            ast::ExprKind::Subscript {
+                value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "expr")?)?,
+                slice: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "slice", "expr")?)?,
+                ctx: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "ctx", "expr")?)?,
+            }
+        } else
+        if _cls.is(NodeStarred::static_type()) {
+            ast::ExprKind::Starred {
+                value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "expr")?)?,
+                ctx: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "ctx", "expr")?)?,
+            }
+        } else
+        if _cls.is(NodeName::static_type()) {
+            ast::ExprKind::Name {
+                id: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "id", "expr")?)?,
+                ctx: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "ctx", "expr")?)?,
+            }
+        } else
+        if _cls.is(NodeList::static_type()) {
+            ast::ExprKind::List {
+                elts: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "elts", "expr")?)?,
+                ctx: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "ctx", "expr")?)?,
+            }
+        } else
+        if _cls.is(NodeTuple::static_type()) {
+            ast::ExprKind::Tuple {
+                elts: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "elts", "expr")?)?,
+                ctx: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "ctx", "expr")?)?,
+            }
+        } else
+        if _cls.is(NodeSlice::static_type()) {
+            ast::ExprKind::Slice {
+                lower: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "lower", "expr")?)?,
+                upper: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "upper", "expr")?)?,
+                step: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "step", "expr")?)?,
+            }
+        } else
+        {
+            return Err(_vm.new_type_error(format!("expected some sort of expr, but got {}",_vm.to_repr(&_object)?)));
+        };
+        let node = ast::Located::new(_location, node);
+        Ok(node)
     }
 }
 impl Node for ast::ExprContext {
@@ -1421,7 +1794,24 @@ impl Node for ast::ExprContext {
         node.into_object()
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        todo!()
+        let _cls = _object.class();
+        let node =
+        if _cls.is(NodeLoad::static_type()) {
+            ast::ExprContext::Load {
+            }
+        } else
+        if _cls.is(NodeStore::static_type()) {
+            ast::ExprContext::Store {
+            }
+        } else
+        if _cls.is(NodeDel::static_type()) {
+            ast::ExprContext::Del {
+            }
+        } else
+        {
+            return Err(_vm.new_type_error(format!("expected some sort of expr_context, but got {}",_vm.to_repr(&_object)?)));
+        };
+        Ok(node)
     }
 }
 impl Node for ast::Boolop {
@@ -1439,7 +1829,20 @@ impl Node for ast::Boolop {
         node.into_object()
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        todo!()
+        let _cls = _object.class();
+        let node =
+        if _cls.is(NodeAnd::static_type()) {
+            ast::Boolop::And {
+            }
+        } else
+        if _cls.is(NodeOr::static_type()) {
+            ast::Boolop::Or {
+            }
+        } else
+        {
+            return Err(_vm.new_type_error(format!("expected some sort of boolop, but got {}",_vm.to_repr(&_object)?)));
+        };
+        Ok(node)
     }
 }
 impl Node for ast::Operator {
@@ -1501,7 +1904,64 @@ impl Node for ast::Operator {
         node.into_object()
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        todo!()
+        let _cls = _object.class();
+        let node =
+        if _cls.is(NodeAdd::static_type()) {
+            ast::Operator::Add {
+            }
+        } else
+        if _cls.is(NodeSub::static_type()) {
+            ast::Operator::Sub {
+            }
+        } else
+        if _cls.is(NodeMult::static_type()) {
+            ast::Operator::Mult {
+            }
+        } else
+        if _cls.is(NodeMatMult::static_type()) {
+            ast::Operator::MatMult {
+            }
+        } else
+        if _cls.is(NodeDiv::static_type()) {
+            ast::Operator::Div {
+            }
+        } else
+        if _cls.is(NodeMod::static_type()) {
+            ast::Operator::Mod {
+            }
+        } else
+        if _cls.is(NodePow::static_type()) {
+            ast::Operator::Pow {
+            }
+        } else
+        if _cls.is(NodeLShift::static_type()) {
+            ast::Operator::LShift {
+            }
+        } else
+        if _cls.is(NodeRShift::static_type()) {
+            ast::Operator::RShift {
+            }
+        } else
+        if _cls.is(NodeBitOr::static_type()) {
+            ast::Operator::BitOr {
+            }
+        } else
+        if _cls.is(NodeBitXor::static_type()) {
+            ast::Operator::BitXor {
+            }
+        } else
+        if _cls.is(NodeBitAnd::static_type()) {
+            ast::Operator::BitAnd {
+            }
+        } else
+        if _cls.is(NodeFloorDiv::static_type()) {
+            ast::Operator::FloorDiv {
+            }
+        } else
+        {
+            return Err(_vm.new_type_error(format!("expected some sort of operator, but got {}",_vm.to_repr(&_object)?)));
+        };
+        Ok(node)
     }
 }
 impl Node for ast::Unaryop {
@@ -1527,7 +1987,28 @@ impl Node for ast::Unaryop {
         node.into_object()
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        todo!()
+        let _cls = _object.class();
+        let node =
+        if _cls.is(NodeInvert::static_type()) {
+            ast::Unaryop::Invert {
+            }
+        } else
+        if _cls.is(NodeNot::static_type()) {
+            ast::Unaryop::Not {
+            }
+        } else
+        if _cls.is(NodeUAdd::static_type()) {
+            ast::Unaryop::UAdd {
+            }
+        } else
+        if _cls.is(NodeUSub::static_type()) {
+            ast::Unaryop::USub {
+            }
+        } else
+        {
+            return Err(_vm.new_type_error(format!("expected some sort of unaryop, but got {}",_vm.to_repr(&_object)?)));
+        };
+        Ok(node)
     }
 }
 impl Node for ast::Cmpop {
@@ -1577,7 +2058,52 @@ impl Node for ast::Cmpop {
         node.into_object()
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        todo!()
+        let _cls = _object.class();
+        let node =
+        if _cls.is(NodeEq::static_type()) {
+            ast::Cmpop::Eq {
+            }
+        } else
+        if _cls.is(NodeNotEq::static_type()) {
+            ast::Cmpop::NotEq {
+            }
+        } else
+        if _cls.is(NodeLt::static_type()) {
+            ast::Cmpop::Lt {
+            }
+        } else
+        if _cls.is(NodeLtE::static_type()) {
+            ast::Cmpop::LtE {
+            }
+        } else
+        if _cls.is(NodeGt::static_type()) {
+            ast::Cmpop::Gt {
+            }
+        } else
+        if _cls.is(NodeGtE::static_type()) {
+            ast::Cmpop::GtE {
+            }
+        } else
+        if _cls.is(NodeIs::static_type()) {
+            ast::Cmpop::Is {
+            }
+        } else
+        if _cls.is(NodeIsNot::static_type()) {
+            ast::Cmpop::IsNot {
+            }
+        } else
+        if _cls.is(NodeIn::static_type()) {
+            ast::Cmpop::In {
+            }
+        } else
+        if _cls.is(NodeNotIn::static_type()) {
+            ast::Cmpop::NotIn {
+            }
+        } else
+        {
+            return Err(_vm.new_type_error(format!("expected some sort of cmpop, but got {}",_vm.to_repr(&_object)?)));
+        };
+        Ok(node)
     }
 }
 impl Node for ast::Comprehension {
@@ -1595,7 +2121,15 @@ impl Node for ast::Comprehension {
         node.into_object()
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        todo!()
+        let node =
+            ast::Comprehension {
+                target: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "target", "comprehension")?)?,
+                iter: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "iter", "comprehension")?)?,
+                ifs: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "ifs", "comprehension")?)?,
+                is_async: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "is_async", "comprehension")?)?,
+            }
+        ;
+        Ok(node)
     }
 }
 impl Node for ast::Excepthandler {
@@ -1614,7 +2148,21 @@ impl Node for ast::Excepthandler {
         node.into_object()
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        todo!()
+        let _location = ast::Location::new(Node::ast_from_object(_vm, get_node_field(_vm, &_object, "lineno", "excepthandler")?)?, Node::ast_from_object(_vm, get_node_field(_vm, &_object, "col_offset", "excepthandler")?)?);
+        let _cls = _object.class();
+        let node =
+        if _cls.is(NodeExceptHandler::static_type()) {
+            ast::ExcepthandlerKind::ExceptHandler {
+                type_: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "type", "excepthandler")?)?,
+                name: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "name", "excepthandler")?)?,
+                body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "excepthandler")?)?,
+            }
+        } else
+        {
+            return Err(_vm.new_type_error(format!("expected some sort of excepthandler, but got {}",_vm.to_repr(&_object)?)));
+        };
+        let node = ast::Located::new(_location, node);
+        Ok(node)
     }
 }
 impl Node for ast::Arguments {
@@ -1635,7 +2183,18 @@ impl Node for ast::Arguments {
         node.into_object()
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        todo!()
+        let node =
+            ast::Arguments {
+                posonlyargs: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "posonlyargs", "arguments")?)?,
+                args: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "args", "arguments")?)?,
+                vararg: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "vararg", "arguments")?)?,
+                kwonlyargs: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "kwonlyargs", "arguments")?)?,
+                kw_defaults: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "kw_defaults", "arguments")?)?,
+                kwarg: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "kwarg", "arguments")?)?,
+                defaults: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "defaults", "arguments")?)?,
+            }
+        ;
+        Ok(node)
     }
 }
 impl Node for ast::Arg {
@@ -1653,7 +2212,16 @@ impl Node for ast::Arg {
         node.into_object()
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        todo!()
+        let _location = ast::Location::new(Node::ast_from_object(_vm, get_node_field(_vm, &_object, "lineno", "arg")?)?, Node::ast_from_object(_vm, get_node_field(_vm, &_object, "col_offset", "arg")?)?);
+        let node =
+            ast::ArgData {
+                arg: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "arg", "arg")?)?,
+                annotation: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "annotation", "arg")?)?,
+                type_comment: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "type_comment", "arg")?)?,
+            }
+        ;
+        let node = ast::Located::new(_location, node);
+        Ok(node)
     }
 }
 impl Node for ast::Keyword {
@@ -1670,7 +2238,15 @@ impl Node for ast::Keyword {
         node.into_object()
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        todo!()
+        let _location = ast::Location::new(Node::ast_from_object(_vm, get_node_field(_vm, &_object, "lineno", "keyword")?)?, Node::ast_from_object(_vm, get_node_field(_vm, &_object, "col_offset", "keyword")?)?);
+        let node =
+            ast::KeywordData {
+                arg: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "arg", "keyword")?)?,
+                value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "keyword")?)?,
+            }
+        ;
+        let node = ast::Located::new(_location, node);
+        Ok(node)
     }
 }
 impl Node for ast::Alias {
@@ -1686,7 +2262,13 @@ impl Node for ast::Alias {
         node.into_object()
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        todo!()
+        let node =
+            ast::Alias {
+                name: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "name", "alias")?)?,
+                asname: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "asname", "alias")?)?,
+            }
+        ;
+        Ok(node)
     }
 }
 impl Node for ast::Withitem {
@@ -1702,7 +2284,13 @@ impl Node for ast::Withitem {
         node.into_object()
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        todo!()
+        let node =
+            ast::Withitem {
+                context_expr: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "context_expr", "withitem")?)?,
+                optional_vars: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "optional_vars", "withitem")?)?,
+            }
+        ;
+        Ok(node)
     }
 }
 impl Node for ast::TypeIgnore {
@@ -1719,7 +2307,18 @@ impl Node for ast::TypeIgnore {
         node.into_object()
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        todo!()
+        let _cls = _object.class();
+        let node =
+        if _cls.is(NodeTypeIgnore::static_type()) {
+            ast::TypeIgnore::TypeIgnore {
+                lineno: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "lineno", "type_ignore")?)?,
+                tag: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "tag", "type_ignore")?)?,
+            }
+        } else
+        {
+            return Err(_vm.new_type_error(format!("expected some sort of type_ignore, but got {}",_vm.to_repr(&_object)?)));
+        };
+        Ok(node)
     }
 }
 

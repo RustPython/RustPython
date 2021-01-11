@@ -209,7 +209,7 @@ impl PyCodeRef {
             "<code object {} at {:#x} file {:?}, line {}>",
             code.obj_name,
             self.get_id(),
-            code.source_path,
+            code.source_path.borrow_value(),
             code.first_line_number
         )
     }
