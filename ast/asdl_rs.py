@@ -249,6 +249,78 @@ class StructVisitor(EmitVisitor):
         else:
             return "", ""
 
+class MapAstImplVisitor(EmitVisitor):
+    def __init__(self, file, typeinfo):
+        self.typeinfo = typeinfo
+        super().__init__(file)
+
+    def get_generics(self, typ):
+        if self.typeinfo[typ].has_userdata:
+            return "<T>", "<U>"
+        else:
+            return "", ""
+
+    def visitModule(self, mod):
+        for dfn in mod.dfns:
+            self.visit(dfn)
+
+    def visitType(self, type, depth=0):
+        self.visit(type.value, type.name, depth)
+
+    def visitSum(self, sum, name, depth):
+        apply_t, apply_u = self.get_generics(name)
+        enumname = get_rust_type(name)
+        if sum.attributes:
+            enumname += "Kind"
+
+        if not apply_t:
+            self.emit(f"no_user!({enumname});", depth)
+            return
+
+
+        self.emit(f"impl<T, U> MapAst<T, U> for {enumname}{apply_t} {{", depth)
+        self.emit(f"type Mapped = {enumname}{apply_u};", depth + 1)
+        self.emit("fn try_map_ast<E, F: FnMut(T) -> Result<U, E>>(self, f: &mut F) -> Result<Self::Mapped, E> {", depth + 1)
+        self.emit("match self {", depth + 2)
+        for cons in sum.types:
+            fields_pattern = self.make_pattern(cons.fields)
+            self.emit(f"{enumname}::{cons.name} {{ {fields_pattern} }} => {{", depth + 3)
+            self.gen_construction(f"{enumname}::{cons.name}", cons.fields, depth + 4)
+            self.emit("}", depth + 3)
+        self.emit("}", depth + 2)
+        self.emit("}", depth + 1)
+        self.emit("}", depth)
+
+    def visitProduct(self, product, name, depth):
+        apply_t, apply_u = self.get_generics(name)
+        structname = get_rust_type(name)
+        if product.attributes:
+            structname += "Data"
+
+        if not apply_t:
+            self.emit(f"no_user!({structname});", depth)
+            return
+
+        self.emit(f"impl<T, U> MapAst<T, U> for {structname}{apply_t} {{", depth)
+        self.emit(f"type Mapped = {structname}{apply_u};", depth + 1)
+        self.emit("fn try_map_ast<E, F: FnMut(T) -> Result<U, E>>(self, f: &mut F) -> Result<Self::Mapped, E> {", depth + 1)
+        fields_pattern = self.make_pattern(product.fields)
+        self.emit(f"let {structname} {{ {fields_pattern} }} = self;", depth + 2)
+        self.gen_construction(structname, product.fields, depth + 2)
+        self.emit("}", depth + 1)
+        self.emit("}", depth)
+
+    def make_pattern(self, fields):
+        return ",".join(rust_field(f.name) for f in fields)
+
+    def gen_construction(self, cons_path, fields, depth):
+        self.emit(f"Ok({cons_path} {{", depth)
+        for field in fields:
+            name = rust_field(field.name)
+            self.emit(f"{name}: {name}.try_map_ast(f)?,", depth + 1)
+        self.emit("})", depth)
+
+
 class ClassDefVisitor(EmitVisitor):
 
     def visitModule(self, mod):
@@ -321,21 +393,20 @@ class TraitImplVisitor(EmitVisitor):
         self.visit(type.value, type.name, depth)
 
     def visitSum(self, sum, name, depth):
-        rustname = enumname = get_rust_type(name)
-        node = "self"
+        enumname = get_rust_type(name)
         if sum.attributes:
-            enumname = rustname + "Kind"
-            node = "self.node"
+            enumname += "Kind"
 
-        self.emit(f"impl Node for ast::{rustname} {{", depth)
+
+        self.emit(f"impl NamedNode for ast::{enumname} {{", depth)
+        self.emit(f"const NAME: &'static str = {json.dumps(name)};", depth + 1)
+        self.emit("}", depth)
+        self.emit(f"impl Node for ast::{enumname} {{", depth)
         self.emit("fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {", depth + 1)
-        self.emit(f"let node = match {node} {{", depth + 2)
+        self.emit("match self {", depth + 2)
         for variant in sum.types:
             self.constructor_to_object(variant, enumname, depth + 3)
-        self.emit("};", depth + 2)
-        if sum.attributes:
-            self.add_location(depth + 2)
-        self.emit("node.into_object()", depth + 2)
+        self.emit("}", depth + 2)
         self.emit("}", depth + 1)
         self.emit("fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {", depth + 1)
         self.gen_sum_fromobj(sum, name, enumname, depth + 2)
@@ -349,22 +420,18 @@ class TraitImplVisitor(EmitVisitor):
         self.emit("}", depth)
 
     def visitProduct(self, product, name, depth):
-        rustname = structname = get_rust_type(name)
-        node = "self"
+        structname = get_rust_type(name)
         if product.attributes:
-            structname = rustname + "Data"
-            node = "self.node"
+            structname += "Data"
 
-        self.emit(f"impl Node for ast::{rustname} {{", depth)
+        self.emit(f"impl NamedNode for ast::{structname} {{", depth)
+        self.emit(f"const NAME: &'static str = {json.dumps(name)};", depth + 1)
+        self.emit("}", depth)
+        self.emit(f"impl Node for ast::{structname} {{", depth)
         self.emit("fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {", depth + 1)
         fields_pattern = self.make_pattern(product.fields)
-        self.emit("let node = {", depth + 2)
-        self.emit(f"let ast::{structname} {{ {fields_pattern} }} = {node};", depth + 3)
-        self.make_node(name, product.fields, depth + 3)
-        self.emit("};", depth + 2)
-        if product.attributes:
-            self.add_location(depth + 2)
-        self.emit("node.into_object()", depth + 2)
+        self.emit(f"let ast::{structname} {{ {fields_pattern} }} = self;", depth + 2)
+        self.make_node(name, product.fields, depth + 2)
         self.emit("}", depth + 1)
         self.emit("fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {", depth + 1)
         self.gen_product_fromobj(product, name, structname, depth + 2)
@@ -378,20 +445,17 @@ class TraitImplVisitor(EmitVisitor):
             self.emit("let _dict = _node.as_object().dict().unwrap();", depth)
         for f in fields:
             self.emit(f"_dict.set_item({json.dumps(f.name)}, {rust_field(f.name)}.ast_to_object(_vm), _vm).unwrap();", depth)
-        self.emit("_node", depth)
+        self.emit("_node.into_object()", depth)
 
     def make_pattern(self, fields):
         return ",".join(rust_field(f.name) for f in fields)
-
-    def add_location(self, depth):
-        self.emit(f"node_add_location(&node, self.location, _vm);", depth)
 
     def gen_sum_fromobj(self, sum, sumname, enumname, depth):
         if sum.attributes:
             self.extract_location(sumname, depth)
 
         self.emit("let _cls = _object.class();", depth)
-        self.emit("let node =", depth)
+        self.emit("Ok(", depth)
         for cons in sum.types:
             self.emit(f"if _cls.is(Node{cons.name}::static_type()) {{", depth)
             self.gen_construction(f"{enumname}::{cons.name}", cons, sumname, depth + 1)
@@ -400,25 +464,15 @@ class TraitImplVisitor(EmitVisitor):
         self.emit("{", depth)
         msg = f'format!("expected some sort of {sumname}, but got {{}}",_vm.to_repr(&_object)?)'
         self.emit(f"return Err(_vm.new_type_error({msg}));", depth + 1)
-        self.emit("};", depth)
-
-        if sum.attributes:
-            self.wrap_located_node(depth)
-
-        self.emit("Ok(node)", depth)
+        self.emit("})", depth)
 
     def gen_product_fromobj(self, product, prodname, structname, depth):
         if product.attributes:
             self.extract_location(prodname, depth)
 
-        self.emit("let node =", depth)
+        self.emit("Ok(", depth)
         self.gen_construction(structname, product, prodname, depth + 1)
-        self.emit(";", depth)
-
-        if product.attributes:
-            self.wrap_located_node(depth)
-
-        self.emit("Ok(node)", depth)
+        self.emit(")", depth)
 
     def gen_construction(self, cons_path, cons, name, depth):
         self.emit(f"ast::{cons_path} {{", depth)
@@ -441,9 +495,20 @@ class TraitImplVisitor(EmitVisitor):
         else:
             return f"Node::ast_from_object(_vm, get_node_field(_vm, &_object, {name}, {json.dumps(typename)})?)?"
 
+class ChainOfVisitors:
+    def __init__(self, *visitors):
+        self.visitors = visitors
+
+    def visit(self, object):
+        for v in self.visitors:
+            v.visit(object)
+            v.emit("", 0)
+
+
 def write_ast_def(mod, typeinfo, f):
     f.write('pub use crate::location::Location;\n')
     f.write('pub use crate::constant::*;\n')
+    f.write('use crate::map_ast::MapAst;\n')
     f.write('\n')
     f.write('type Ident = String;\n')
     f.write('\n')
@@ -461,22 +526,19 @@ def write_ast_def(mod, typeinfo, f):
     f.write('}\n')
     f.write('\n')
 
-    StructVisitor(f, typeinfo).visit(mod)
+    c = ChainOfVisitors(StructVisitor(f, typeinfo),
+                        MapAstImplVisitor(f, typeinfo))
+    c.visit(mod)
 
 
 def write_ast_mod(mod, f):
     f.write('use super::*;\n')
     f.write('\n')
 
-    ClassDefVisitor(f).visit(mod)
-
-    f.write('\n')
-
-    TraitImplVisitor(f).visit(mod)
-
-    f.write('\n')
-
-    ExtendModuleVisitor(f).visit(mod)
+    c = ChainOfVisitors(ClassDefVisitor(f),
+                        TraitImplVisitor(f),
+                        ExtendModuleVisitor(f))
+    c.visit(mod)
 
 def main(input_filename, ast_mod_filename, ast_def_filename, dump_module=False):
     auto_gen_msg = AUTOGEN_MESSAGE.format("/".join(Path(__file__).parts[-2:]))

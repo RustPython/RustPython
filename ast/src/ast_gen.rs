@@ -2,6 +2,7 @@
 
 pub use crate::constant::*;
 pub use crate::location::Location;
+use crate::map_ast::MapAst;
 
 type Ident = String;
 
@@ -387,3 +388,437 @@ pub struct Withitem<U = ()> {
 pub enum TypeIgnore {
     TypeIgnore { lineno: usize, tag: String },
 }
+
+impl<T, U> MapAst<T, U> for Mod<T> {
+    type Mapped = Mod<U>;
+    fn try_map_ast<E, F: FnMut(T) -> Result<U, E>>(self, f: &mut F) -> Result<Self::Mapped, E> {
+        match self {
+            Mod::Module { body, type_ignores } => Ok(Mod::Module {
+                body: body.try_map_ast(f)?,
+                type_ignores: type_ignores.try_map_ast(f)?,
+            }),
+            Mod::Interactive { body } => Ok(Mod::Interactive {
+                body: body.try_map_ast(f)?,
+            }),
+            Mod::Expression { body } => Ok(Mod::Expression {
+                body: body.try_map_ast(f)?,
+            }),
+            Mod::FunctionType { argtypes, returns } => Ok(Mod::FunctionType {
+                argtypes: argtypes.try_map_ast(f)?,
+                returns: returns.try_map_ast(f)?,
+            }),
+        }
+    }
+}
+impl<T, U> MapAst<T, U> for StmtKind<T> {
+    type Mapped = StmtKind<U>;
+    fn try_map_ast<E, F: FnMut(T) -> Result<U, E>>(self, f: &mut F) -> Result<Self::Mapped, E> {
+        match self {
+            StmtKind::FunctionDef {
+                name,
+                args,
+                body,
+                decorator_list,
+                returns,
+                type_comment,
+            } => Ok(StmtKind::FunctionDef {
+                name: name.try_map_ast(f)?,
+                args: args.try_map_ast(f)?,
+                body: body.try_map_ast(f)?,
+                decorator_list: decorator_list.try_map_ast(f)?,
+                returns: returns.try_map_ast(f)?,
+                type_comment: type_comment.try_map_ast(f)?,
+            }),
+            StmtKind::AsyncFunctionDef {
+                name,
+                args,
+                body,
+                decorator_list,
+                returns,
+                type_comment,
+            } => Ok(StmtKind::AsyncFunctionDef {
+                name: name.try_map_ast(f)?,
+                args: args.try_map_ast(f)?,
+                body: body.try_map_ast(f)?,
+                decorator_list: decorator_list.try_map_ast(f)?,
+                returns: returns.try_map_ast(f)?,
+                type_comment: type_comment.try_map_ast(f)?,
+            }),
+            StmtKind::ClassDef {
+                name,
+                bases,
+                keywords,
+                body,
+                decorator_list,
+            } => Ok(StmtKind::ClassDef {
+                name: name.try_map_ast(f)?,
+                bases: bases.try_map_ast(f)?,
+                keywords: keywords.try_map_ast(f)?,
+                body: body.try_map_ast(f)?,
+                decorator_list: decorator_list.try_map_ast(f)?,
+            }),
+            StmtKind::Return { value } => Ok(StmtKind::Return {
+                value: value.try_map_ast(f)?,
+            }),
+            StmtKind::Delete { targets } => Ok(StmtKind::Delete {
+                targets: targets.try_map_ast(f)?,
+            }),
+            StmtKind::Assign {
+                targets,
+                value,
+                type_comment,
+            } => Ok(StmtKind::Assign {
+                targets: targets.try_map_ast(f)?,
+                value: value.try_map_ast(f)?,
+                type_comment: type_comment.try_map_ast(f)?,
+            }),
+            StmtKind::AugAssign { target, op, value } => Ok(StmtKind::AugAssign {
+                target: target.try_map_ast(f)?,
+                op: op.try_map_ast(f)?,
+                value: value.try_map_ast(f)?,
+            }),
+            StmtKind::AnnAssign {
+                target,
+                annotation,
+                value,
+                simple,
+            } => Ok(StmtKind::AnnAssign {
+                target: target.try_map_ast(f)?,
+                annotation: annotation.try_map_ast(f)?,
+                value: value.try_map_ast(f)?,
+                simple: simple.try_map_ast(f)?,
+            }),
+            StmtKind::For {
+                target,
+                iter,
+                body,
+                orelse,
+                type_comment,
+            } => Ok(StmtKind::For {
+                target: target.try_map_ast(f)?,
+                iter: iter.try_map_ast(f)?,
+                body: body.try_map_ast(f)?,
+                orelse: orelse.try_map_ast(f)?,
+                type_comment: type_comment.try_map_ast(f)?,
+            }),
+            StmtKind::AsyncFor {
+                target,
+                iter,
+                body,
+                orelse,
+                type_comment,
+            } => Ok(StmtKind::AsyncFor {
+                target: target.try_map_ast(f)?,
+                iter: iter.try_map_ast(f)?,
+                body: body.try_map_ast(f)?,
+                orelse: orelse.try_map_ast(f)?,
+                type_comment: type_comment.try_map_ast(f)?,
+            }),
+            StmtKind::While { test, body, orelse } => Ok(StmtKind::While {
+                test: test.try_map_ast(f)?,
+                body: body.try_map_ast(f)?,
+                orelse: orelse.try_map_ast(f)?,
+            }),
+            StmtKind::If { test, body, orelse } => Ok(StmtKind::If {
+                test: test.try_map_ast(f)?,
+                body: body.try_map_ast(f)?,
+                orelse: orelse.try_map_ast(f)?,
+            }),
+            StmtKind::With {
+                items,
+                body,
+                type_comment,
+            } => Ok(StmtKind::With {
+                items: items.try_map_ast(f)?,
+                body: body.try_map_ast(f)?,
+                type_comment: type_comment.try_map_ast(f)?,
+            }),
+            StmtKind::AsyncWith {
+                items,
+                body,
+                type_comment,
+            } => Ok(StmtKind::AsyncWith {
+                items: items.try_map_ast(f)?,
+                body: body.try_map_ast(f)?,
+                type_comment: type_comment.try_map_ast(f)?,
+            }),
+            StmtKind::Raise { exc, cause } => Ok(StmtKind::Raise {
+                exc: exc.try_map_ast(f)?,
+                cause: cause.try_map_ast(f)?,
+            }),
+            StmtKind::Try {
+                body,
+                handlers,
+                orelse,
+                finalbody,
+            } => Ok(StmtKind::Try {
+                body: body.try_map_ast(f)?,
+                handlers: handlers.try_map_ast(f)?,
+                orelse: orelse.try_map_ast(f)?,
+                finalbody: finalbody.try_map_ast(f)?,
+            }),
+            StmtKind::Assert { test, msg } => Ok(StmtKind::Assert {
+                test: test.try_map_ast(f)?,
+                msg: msg.try_map_ast(f)?,
+            }),
+            StmtKind::Import { names } => Ok(StmtKind::Import {
+                names: names.try_map_ast(f)?,
+            }),
+            StmtKind::ImportFrom {
+                module,
+                names,
+                level,
+            } => Ok(StmtKind::ImportFrom {
+                module: module.try_map_ast(f)?,
+                names: names.try_map_ast(f)?,
+                level: level.try_map_ast(f)?,
+            }),
+            StmtKind::Global { names } => Ok(StmtKind::Global {
+                names: names.try_map_ast(f)?,
+            }),
+            StmtKind::Nonlocal { names } => Ok(StmtKind::Nonlocal {
+                names: names.try_map_ast(f)?,
+            }),
+            StmtKind::Expr { value } => Ok(StmtKind::Expr {
+                value: value.try_map_ast(f)?,
+            }),
+            StmtKind::Pass {} => Ok(StmtKind::Pass {}),
+            StmtKind::Break {} => Ok(StmtKind::Break {}),
+            StmtKind::Continue {} => Ok(StmtKind::Continue {}),
+        }
+    }
+}
+impl<T, U> MapAst<T, U> for ExprKind<T> {
+    type Mapped = ExprKind<U>;
+    fn try_map_ast<E, F: FnMut(T) -> Result<U, E>>(self, f: &mut F) -> Result<Self::Mapped, E> {
+        match self {
+            ExprKind::BoolOp { op, values } => Ok(ExprKind::BoolOp {
+                op: op.try_map_ast(f)?,
+                values: values.try_map_ast(f)?,
+            }),
+            ExprKind::NamedExpr { target, value } => Ok(ExprKind::NamedExpr {
+                target: target.try_map_ast(f)?,
+                value: value.try_map_ast(f)?,
+            }),
+            ExprKind::BinOp { left, op, right } => Ok(ExprKind::BinOp {
+                left: left.try_map_ast(f)?,
+                op: op.try_map_ast(f)?,
+                right: right.try_map_ast(f)?,
+            }),
+            ExprKind::UnaryOp { op, operand } => Ok(ExprKind::UnaryOp {
+                op: op.try_map_ast(f)?,
+                operand: operand.try_map_ast(f)?,
+            }),
+            ExprKind::Lambda { args, body } => Ok(ExprKind::Lambda {
+                args: args.try_map_ast(f)?,
+                body: body.try_map_ast(f)?,
+            }),
+            ExprKind::IfExp { test, body, orelse } => Ok(ExprKind::IfExp {
+                test: test.try_map_ast(f)?,
+                body: body.try_map_ast(f)?,
+                orelse: orelse.try_map_ast(f)?,
+            }),
+            ExprKind::Dict { keys, values } => Ok(ExprKind::Dict {
+                keys: keys.try_map_ast(f)?,
+                values: values.try_map_ast(f)?,
+            }),
+            ExprKind::Set { elts } => Ok(ExprKind::Set {
+                elts: elts.try_map_ast(f)?,
+            }),
+            ExprKind::ListComp { elt, generators } => Ok(ExprKind::ListComp {
+                elt: elt.try_map_ast(f)?,
+                generators: generators.try_map_ast(f)?,
+            }),
+            ExprKind::SetComp { elt, generators } => Ok(ExprKind::SetComp {
+                elt: elt.try_map_ast(f)?,
+                generators: generators.try_map_ast(f)?,
+            }),
+            ExprKind::DictComp {
+                key,
+                value,
+                generators,
+            } => Ok(ExprKind::DictComp {
+                key: key.try_map_ast(f)?,
+                value: value.try_map_ast(f)?,
+                generators: generators.try_map_ast(f)?,
+            }),
+            ExprKind::GeneratorExp { elt, generators } => Ok(ExprKind::GeneratorExp {
+                elt: elt.try_map_ast(f)?,
+                generators: generators.try_map_ast(f)?,
+            }),
+            ExprKind::Await { value } => Ok(ExprKind::Await {
+                value: value.try_map_ast(f)?,
+            }),
+            ExprKind::Yield { value } => Ok(ExprKind::Yield {
+                value: value.try_map_ast(f)?,
+            }),
+            ExprKind::YieldFrom { value } => Ok(ExprKind::YieldFrom {
+                value: value.try_map_ast(f)?,
+            }),
+            ExprKind::Compare {
+                left,
+                ops,
+                comparators,
+            } => Ok(ExprKind::Compare {
+                left: left.try_map_ast(f)?,
+                ops: ops.try_map_ast(f)?,
+                comparators: comparators.try_map_ast(f)?,
+            }),
+            ExprKind::Call {
+                func,
+                args,
+                keywords,
+            } => Ok(ExprKind::Call {
+                func: func.try_map_ast(f)?,
+                args: args.try_map_ast(f)?,
+                keywords: keywords.try_map_ast(f)?,
+            }),
+            ExprKind::FormattedValue {
+                value,
+                conversion,
+                format_spec,
+            } => Ok(ExprKind::FormattedValue {
+                value: value.try_map_ast(f)?,
+                conversion: conversion.try_map_ast(f)?,
+                format_spec: format_spec.try_map_ast(f)?,
+            }),
+            ExprKind::JoinedStr { values } => Ok(ExprKind::JoinedStr {
+                values: values.try_map_ast(f)?,
+            }),
+            ExprKind::Constant { value, kind } => Ok(ExprKind::Constant {
+                value: value.try_map_ast(f)?,
+                kind: kind.try_map_ast(f)?,
+            }),
+            ExprKind::Attribute { value, attr, ctx } => Ok(ExprKind::Attribute {
+                value: value.try_map_ast(f)?,
+                attr: attr.try_map_ast(f)?,
+                ctx: ctx.try_map_ast(f)?,
+            }),
+            ExprKind::Subscript { value, slice, ctx } => Ok(ExprKind::Subscript {
+                value: value.try_map_ast(f)?,
+                slice: slice.try_map_ast(f)?,
+                ctx: ctx.try_map_ast(f)?,
+            }),
+            ExprKind::Starred { value, ctx } => Ok(ExprKind::Starred {
+                value: value.try_map_ast(f)?,
+                ctx: ctx.try_map_ast(f)?,
+            }),
+            ExprKind::Name { id, ctx } => Ok(ExprKind::Name {
+                id: id.try_map_ast(f)?,
+                ctx: ctx.try_map_ast(f)?,
+            }),
+            ExprKind::List { elts, ctx } => Ok(ExprKind::List {
+                elts: elts.try_map_ast(f)?,
+                ctx: ctx.try_map_ast(f)?,
+            }),
+            ExprKind::Tuple { elts, ctx } => Ok(ExprKind::Tuple {
+                elts: elts.try_map_ast(f)?,
+                ctx: ctx.try_map_ast(f)?,
+            }),
+            ExprKind::Slice { lower, upper, step } => Ok(ExprKind::Slice {
+                lower: lower.try_map_ast(f)?,
+                upper: upper.try_map_ast(f)?,
+                step: step.try_map_ast(f)?,
+            }),
+        }
+    }
+}
+no_user!(ExprContext);
+no_user!(Boolop);
+no_user!(Operator);
+no_user!(Unaryop);
+no_user!(Cmpop);
+impl<T, U> MapAst<T, U> for Comprehension<T> {
+    type Mapped = Comprehension<U>;
+    fn try_map_ast<E, F: FnMut(T) -> Result<U, E>>(self, f: &mut F) -> Result<Self::Mapped, E> {
+        let Comprehension {
+            target,
+            iter,
+            ifs,
+            is_async,
+        } = self;
+        Ok(Comprehension {
+            target: target.try_map_ast(f)?,
+            iter: iter.try_map_ast(f)?,
+            ifs: ifs.try_map_ast(f)?,
+            is_async: is_async.try_map_ast(f)?,
+        })
+    }
+}
+impl<T, U> MapAst<T, U> for ExcepthandlerKind<T> {
+    type Mapped = ExcepthandlerKind<U>;
+    fn try_map_ast<E, F: FnMut(T) -> Result<U, E>>(self, f: &mut F) -> Result<Self::Mapped, E> {
+        match self {
+            ExcepthandlerKind::ExceptHandler { type_, name, body } => {
+                Ok(ExcepthandlerKind::ExceptHandler {
+                    type_: type_.try_map_ast(f)?,
+                    name: name.try_map_ast(f)?,
+                    body: body.try_map_ast(f)?,
+                })
+            }
+        }
+    }
+}
+impl<T, U> MapAst<T, U> for Arguments<T> {
+    type Mapped = Arguments<U>;
+    fn try_map_ast<E, F: FnMut(T) -> Result<U, E>>(self, f: &mut F) -> Result<Self::Mapped, E> {
+        let Arguments {
+            posonlyargs,
+            args,
+            vararg,
+            kwonlyargs,
+            kw_defaults,
+            kwarg,
+            defaults,
+        } = self;
+        Ok(Arguments {
+            posonlyargs: posonlyargs.try_map_ast(f)?,
+            args: args.try_map_ast(f)?,
+            vararg: vararg.try_map_ast(f)?,
+            kwonlyargs: kwonlyargs.try_map_ast(f)?,
+            kw_defaults: kw_defaults.try_map_ast(f)?,
+            kwarg: kwarg.try_map_ast(f)?,
+            defaults: defaults.try_map_ast(f)?,
+        })
+    }
+}
+impl<T, U> MapAst<T, U> for ArgData<T> {
+    type Mapped = ArgData<U>;
+    fn try_map_ast<E, F: FnMut(T) -> Result<U, E>>(self, f: &mut F) -> Result<Self::Mapped, E> {
+        let ArgData {
+            arg,
+            annotation,
+            type_comment,
+        } = self;
+        Ok(ArgData {
+            arg: arg.try_map_ast(f)?,
+            annotation: annotation.try_map_ast(f)?,
+            type_comment: type_comment.try_map_ast(f)?,
+        })
+    }
+}
+impl<T, U> MapAst<T, U> for KeywordData<T> {
+    type Mapped = KeywordData<U>;
+    fn try_map_ast<E, F: FnMut(T) -> Result<U, E>>(self, f: &mut F) -> Result<Self::Mapped, E> {
+        let KeywordData { arg, value } = self;
+        Ok(KeywordData {
+            arg: arg.try_map_ast(f)?,
+            value: value.try_map_ast(f)?,
+        })
+    }
+}
+no_user!(Alias);
+impl<T, U> MapAst<T, U> for Withitem<T> {
+    type Mapped = Withitem<U>;
+    fn try_map_ast<E, F: FnMut(T) -> Result<U, E>>(self, f: &mut F) -> Result<Self::Mapped, E> {
+        let Withitem {
+            context_expr,
+            optional_vars,
+        } = self;
+        Ok(Withitem {
+            context_expr: context_expr.try_map_ast(f)?,
+            optional_vars: optional_vars.try_map_ast(f)?,
+        })
+    }
+}
+no_user!(TypeIgnore);

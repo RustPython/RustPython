@@ -17,8 +17,8 @@ use rustpython_compiler as compile;
 use crate::builtins::{self, PyStrRef, PyTypeRef};
 use crate::function::FuncArgs;
 use crate::pyobject::{
-    BorrowValue, IdProtocol, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
-    PyValue, StaticType, TryFromObject, TypeProtocol,
+    BorrowValue, IdProtocol, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue,
+    StaticType, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -26,13 +26,6 @@ use crate::vm::VirtualMachine;
 #[allow(clippy::all)]
 mod gen;
 
-fn node_add_location(node: &AstNodeRef, location: ast::Location, vm: &VirtualMachine) {
-    let dict = node.as_object().dict().unwrap();
-    dict.set_item("lineno", vm.ctx.new_int(location.row()), vm)
-        .unwrap();
-    dict.set_item("col_offset", vm.ctx.new_int(location.column()), vm)
-        .unwrap();
-}
 
 fn get_node_field(vm: &VirtualMachine, obj: &PyObjectRef, field: &str, typ: &str) -> PyResult {
     vm.get_attribute_opt(obj.clone(), field)?.ok_or_else(|| {
@@ -53,7 +46,6 @@ fn get_node_field_opt(
 #[pyclass(module = "_ast", name = "AST")]
 #[derive(Debug)]
 pub(crate) struct AstNode;
-type AstNodeRef = PyRef<AstNode>;
 
 #[pyimpl(flags(HAS_DICT))]
 impl AstNode {
@@ -103,6 +95,10 @@ trait Node: Sized {
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self>;
 }
 
+trait NamedNode: Node {
+    const NAME: &'static str;
+}
+
 impl<T: Node> Node for Vec<T> {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_list(
@@ -142,6 +138,31 @@ impl<T: Node> Node for Option<T> {
             Ok(Some(T::ast_from_object(vm, object)?))
         }
     }
+}
+
+impl<T: NamedNode> Node for ast::Located<T> {
+    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+        let obj = self.node.ast_to_object(vm);
+        node_add_location(&obj, self.location, vm);
+        obj
+    }
+
+    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+        let location = ast::Location::new(
+            Node::ast_from_object(vm, get_node_field(vm, &object, "lineno", T::NAME)?)?,
+            Node::ast_from_object(vm, get_node_field(vm, &object, "col_offset", T::NAME)?)?,
+        );
+        let node = T::ast_from_object(vm, object)?;
+        Ok(ast::Located::new(location, node))
+    }
+}
+
+fn node_add_location(node: &PyObjectRef, location: ast::Location, vm: &VirtualMachine) {
+    let dict = node.dict().unwrap();
+    dict.set_item("lineno", vm.ctx.new_int(location.row()), vm)
+        .unwrap();
+    dict.set_item("col_offset", vm.ctx.new_int(location.column()), vm)
+        .unwrap();
 }
 
 impl Node for String {

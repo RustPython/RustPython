@@ -1,3 +1,7 @@
+// above for the macro
+#[macro_use]
+pub mod map_ast;
+
 mod ast_gen;
 mod constant;
 mod impls;
