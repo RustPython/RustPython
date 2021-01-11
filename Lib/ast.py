@@ -27,12 +27,25 @@
 from _ast import *
 
 
-def parse(source, filename='<unknown>', mode='exec'):
+def parse(source, filename='<unknown>', mode='exec', *,
+          type_comments=False, feature_version=None):
     """
     Parse the source into an AST node.
     Equivalent to compile(source, filename, mode, PyCF_ONLY_AST).
+    Pass type_comments=True to get back type comments where the syntax allows.
     """
-    return compile(source, filename, mode, PyCF_ONLY_AST)
+    flags = PyCF_ONLY_AST
+    if type_comments:
+        flags |= PyCF_TYPE_COMMENTS
+    if isinstance(feature_version, tuple):
+        major, minor = feature_version  # Should be a 2-tuple.
+        assert major == 3
+        feature_version = minor
+    elif feature_version is None:
+        feature_version = -1
+    # Else it should be an int giving the minor version for 3.x.
+    return compile(source, filename, mode, flags)
+                   # _feature_version=feature_version)
 
 
 def literal_eval(node_or_string):
@@ -46,13 +59,12 @@ def literal_eval(node_or_string):
         node_or_string = parse(node_or_string, mode='eval')
     if isinstance(node_or_string, Expression):
         node_or_string = node_or_string.body
+    def _raise_malformed_node(node):
+        raise ValueError(f'malformed node or string: {node!r}')
     def _convert_num(node):
-        if isinstance(node, Constant):
-            if isinstance(node.value, (int, float, complex)):
-                return node.value
-        elif isinstance(node, Num):
-            return node.n
-        raise ValueError('malformed node or string: ' + repr(node))
+        if not isinstance(node, Constant) or type(node.value) not in (int, float, complex):
+            _raise_malformed_node(node)
+        return node.value
     def _convert_signed_num(node):
         if isinstance(node, UnaryOp) and isinstance(node.op, (UAdd, USub)):
             operand = _convert_num(node.operand)
@@ -64,10 +76,6 @@ def literal_eval(node_or_string):
     def _convert(node):
         if isinstance(node, Constant):
             return node.value
-        elif isinstance(node, (Str, Bytes)):
-            return node.s
-        elif isinstance(node, Num):
-            return node.n
         elif isinstance(node, Tuple):
             return tuple(map(_convert, node.elts))
         elif isinstance(node, List):
@@ -75,10 +83,10 @@ def literal_eval(node_or_string):
         elif isinstance(node, Set):
             return set(map(_convert, node.elts))
         elif isinstance(node, Dict):
+            if len(node.keys) != len(node.values):
+                _raise_malformed_node(node)
             return dict(zip(map(_convert, node.keys),
                             map(_convert, node.values)))
-        elif isinstance(node, NameConstant):
-            return node.value
         elif isinstance(node, BinOp) and isinstance(node.op, (Add, Sub)):
             left = _convert_signed_num(node.left)
             right = _convert_num(node.right)
@@ -93,26 +101,35 @@ def literal_eval(node_or_string):
 
 def dump(node, annotate_fields=True, include_attributes=False):
     """
-    Return a formatted dump of the tree in *node*.  This is mainly useful for
-    debugging purposes.  The returned string will show the names and the values
-    for fields.  This makes the code impossible to evaluate, so if evaluation is
-    wanted *annotate_fields* must be set to False.  Attributes such as line
+    Return a formatted dump of the tree in node.  This is mainly useful for
+    debugging purposes.  If annotate_fields is true (by default),
+    the returned string will show the names and the values for fields.
+    If annotate_fields is false, the result string will be more compact by
+    omitting unambiguous field names.  Attributes such as line
     numbers and column offsets are not dumped by default.  If this is wanted,
-    *include_attributes* can be set to True.
+    include_attributes can be set to true.
     """
     def _format(node):
         if isinstance(node, AST):
-            fields = [(a, _format(b)) for a, b in iter_fields(node)]
-            rv = '%s(%s' % (node.__class__.__name__, ', '.join(
-                ('%s=%s' % field for field in fields)
-                if annotate_fields else
-                (b for a, b in fields)
-            ))
+            args = []
+            keywords = annotate_fields
+            for field in node._fields:
+                try:
+                    value = getattr(node, field)
+                except AttributeError:
+                    keywords = True
+                else:
+                    if keywords:
+                        args.append('%s=%s' % (field, _format(value)))
+                    else:
+                        args.append(_format(value))
             if include_attributes and node._attributes:
-                rv += fields and ', ' or ' '
-                rv += ', '.join('%s=%s' % (a, _format(getattr(node, a)))
-                                for a in node._attributes)
-            return rv + ')'
+                for a in node._attributes:
+                    try:
+                        args.append('%s=%s' % (a, _format(getattr(node, a))))
+                    except AttributeError:
+                        pass
+            return '%s(%s)' % (node.__class__.__name__, ', '.join(args))
         elif isinstance(node, list):
             return '[%s]' % ', '.join(_format(x) for x in node)
         return repr(node)
@@ -123,13 +140,18 @@ def dump(node, annotate_fields=True, include_attributes=False):
 
 def copy_location(new_node, old_node):
     """
-    Copy source location (`lineno` and `col_offset` attributes) from
-    *old_node* to *new_node* if possible, and return *new_node*.
+    Copy source location (`lineno`, `col_offset`, `end_lineno`, and `end_col_offset`
+    attributes) from *old_node* to *new_node* if possible, and return *new_node*.
     """
-    for attr in 'lineno', 'col_offset':
-        if attr in old_node._attributes and attr in new_node._attributes \
-           and hasattr(old_node, attr):
-            setattr(new_node, attr, getattr(old_node, attr))
+    for attr in 'lineno', 'col_offset', 'end_lineno', 'end_col_offset':
+        if attr in old_node._attributes and attr in new_node._attributes:
+            value = getattr(old_node, attr, None)
+            # end_lineno and end_col_offset are optional attributes, and they
+            # should be copied whether the value is None or not.
+            if value is not None or (
+                hasattr(old_node, attr) and attr.startswith("end_")
+            ):
+                setattr(new_node, attr, value)
     return new_node
 
 
@@ -141,31 +163,47 @@ def fix_missing_locations(node):
     recursively where not already set, by setting them to the values of the
     parent node.  It works recursively starting at *node*.
     """
-    def _fix(node, lineno, col_offset):
+    def _fix(node, lineno, col_offset, end_lineno, end_col_offset):
         if 'lineno' in node._attributes:
             if not hasattr(node, 'lineno'):
                 node.lineno = lineno
             else:
                 lineno = node.lineno
+        if 'end_lineno' in node._attributes:
+            if not hasattr(node, 'end_lineno'):
+                node.end_lineno = end_lineno
+            else:
+                end_lineno = node.end_lineno
         if 'col_offset' in node._attributes:
             if not hasattr(node, 'col_offset'):
                 node.col_offset = col_offset
             else:
                 col_offset = node.col_offset
+        if 'end_col_offset' in node._attributes:
+            if not hasattr(node, 'end_col_offset'):
+                node.end_col_offset = end_col_offset
+            else:
+                end_col_offset = node.end_col_offset
         for child in iter_child_nodes(node):
-            _fix(child, lineno, col_offset)
-    _fix(node, 1, 0)
+            _fix(child, lineno, col_offset, end_lineno, end_col_offset)
+    _fix(node, 1, 0, 1, 0)
     return node
 
 
 def increment_lineno(node, n=1):
     """
-    Increment the line number of each node in the tree starting at *node* by *n*.
-    This is useful to "move code" to a different location in a file.
+    Increment the line number and end line number of each node in the tree
+    starting at *node* by *n*. This is useful to "move code" to a different
+    location in a file.
     """
     for child in walk(node):
         if 'lineno' in child._attributes:
             child.lineno = getattr(child, 'lineno', 0) + n
+        if (
+            "end_lineno" in child._attributes
+            and (end_lineno := getattr(child, "end_lineno", 0)) is not None
+        ):
+            child.end_lineno = end_lineno + n
     return node
 
 
@@ -221,6 +259,77 @@ def get_docstring(node, clean=True):
     return text
 
 
+def _splitlines_no_ff(source):
+    """Split a string into lines ignoring form feed and other chars.
+
+    This mimics how the Python parser splits source code.
+    """
+    idx = 0
+    lines = []
+    next_line = ''
+    while idx < len(source):
+        c = source[idx]
+        next_line += c
+        idx += 1
+        # Keep \r\n together
+        if c == '\r' and idx < len(source) and source[idx] == '\n':
+            next_line += '\n'
+            idx += 1
+        if c in '\r\n':
+            lines.append(next_line)
+            next_line = ''
+
+    if next_line:
+        lines.append(next_line)
+    return lines
+
+
+def _pad_whitespace(source):
+    r"""Replace all chars except '\f\t' in a line with spaces."""
+    result = ''
+    for c in source:
+        if c in '\f\t':
+            result += c
+        else:
+            result += ' '
+    return result
+
+
+def get_source_segment(source, node, *, padded=False):
+    """Get source code segment of the *source* that generated *node*.
+
+    If some location information (`lineno`, `end_lineno`, `col_offset`,
+    or `end_col_offset`) is missing, return None.
+
+    If *padded* is `True`, the first line of a multi-line statement will
+    be padded with spaces to match its original position.
+    """
+    try:
+        lineno = node.lineno - 1
+        end_lineno = node.end_lineno - 1
+        col_offset = node.col_offset
+        end_col_offset = node.end_col_offset
+    except AttributeError:
+        return None
+
+    lines = _splitlines_no_ff(source)
+    if end_lineno == lineno:
+        return lines[lineno].encode()[col_offset:end_col_offset].decode()
+
+    if padded:
+        padding = _pad_whitespace(lines[lineno].encode()[:col_offset].decode())
+    else:
+        padding = ''
+
+    first = padding + lines[lineno].encode()[col_offset:].decode()
+    last = lines[end_lineno].encode()[:end_col_offset].decode()
+    lines = lines[lineno+1:end_lineno]
+
+    lines.insert(0, first)
+    lines.append(last)
+    return ''.join(lines)
+
+
 def walk(node):
     """
     Recursively yield all descendant nodes in the tree starting at *node*
@@ -271,6 +380,27 @@ class NodeVisitor(object):
             elif isinstance(value, AST):
                 self.visit(value)
 
+    def visit_Constant(self, node):
+        value = node.value
+        type_name = _const_node_type_names.get(type(value))
+        if type_name is None:
+            for cls, name in _const_node_type_names.items():
+                if isinstance(value, cls):
+                    type_name = name
+                    break
+        if type_name is not None:
+            method = 'visit_' + type_name
+            try:
+                visitor = getattr(self, method)
+            except AttributeError:
+                pass
+            else:
+                import warnings
+                warnings.warn(f"{method} is deprecated; add visit_Constant",
+                              PendingDeprecationWarning, 2)
+                return visitor(node)
+        return self.generic_visit(node)
+
 
 class NodeTransformer(NodeVisitor):
     """
@@ -289,11 +419,11 @@ class NodeTransformer(NodeVisitor):
        class RewriteName(NodeTransformer):
 
            def visit_Name(self, node):
-               return copy_location(Subscript(
+               return Subscript(
                    value=Name(id='data', ctx=Load()),
                    slice=Index(value=Str(s=node.id)),
                    ctx=node.ctx
-               ), node)
+               )
 
     Keep in mind that if the node you're operating on has child nodes you must
     either transform the child nodes yourself or call the :meth:`generic_visit`
@@ -329,3 +459,89 @@ class NodeTransformer(NodeVisitor):
                 else:
                     setattr(node, field, new_node)
         return node
+
+
+# The following code is for backward compatibility.
+# It will be removed in future.
+
+def _getter(self):
+    return self.value
+
+def _setter(self, value):
+    self.value = value
+
+Constant.n = property(_getter, _setter)
+Constant.s = property(_getter, _setter)
+
+class _ABC(type):
+
+    def __instancecheck__(cls, inst):
+        if not isinstance(inst, Constant):
+            return False
+        if cls in _const_types:
+            try:
+                value = inst.value
+            except AttributeError:
+                return False
+            else:
+                return (
+                    isinstance(value, _const_types[cls]) and
+                    not isinstance(value, _const_types_not.get(cls, ()))
+                )
+        return type.__instancecheck__(cls, inst)
+
+def _new(cls, *args, **kwargs):
+    for key in kwargs:
+        if key not in cls._fields:
+            # arbitrary keyword arguments are accepted
+            continue
+        pos = cls._fields.index(key)
+        if pos < len(args):
+            raise TypeError(f"{cls.__name__} got multiple values for argument {key!r}")
+    if cls in _const_types:
+        return Constant(*args, **kwargs)
+    return Constant.__new__(cls, *args, **kwargs)
+
+class Num(Constant, metaclass=_ABC):
+    _fields = ('n',)
+    __new__ = _new
+
+class Str(Constant, metaclass=_ABC):
+    _fields = ('s',)
+    __new__ = _new
+
+class Bytes(Constant, metaclass=_ABC):
+    _fields = ('s',)
+    __new__ = _new
+
+class NameConstant(Constant, metaclass=_ABC):
+    __new__ = _new
+
+class Ellipsis(Constant, metaclass=_ABC):
+    _fields = ()
+
+    def __new__(cls, *args, **kwargs):
+        if cls is Ellipsis:
+            return Constant(..., *args, **kwargs)
+        return Constant.__new__(cls, *args, **kwargs)
+
+_const_types = {
+    Num: (int, float, complex),
+    Str: (str,),
+    Bytes: (bytes,),
+    NameConstant: (type(None), bool),
+    Ellipsis: (type(...),),
+}
+_const_types_not = {
+    Num: (bool,),
+}
+_const_node_type_names = {
+    bool: 'NameConstant',  # should be before int
+    type(None): 'NameConstant',
+    int: 'Num',
+    float: 'Num',
+    complex: 'Num',
+    str: 'Str',
+    bytes: 'Bytes',
+    type(...): 'Ellipsis',
+}
