@@ -22,6 +22,10 @@ from unittest import TestCase, skipUnless
 from test import support
 from test.support import HOST, HOSTv6
 
+import sys
+if sys.platform == 'win32':
+    raise unittest.SkipTest("test_ftplib not working on windows")
+
 TIMEOUT = 3
 # the dummy data returned by server over the data channel when
 # RETR, LIST, NLST, MLSD commands are issued
