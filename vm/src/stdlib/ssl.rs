@@ -345,6 +345,15 @@ impl PySslContext {
             unreachable!()
         }
     }
+    #[pyproperty]
+    fn options(&self) -> libc::c_ulong {
+        self.ctx.read().options().bits()
+    }
+    #[pyproperty(setter)]
+    fn set_options(&self, opts: libc::c_ulong) {
+        self.builder()
+            .set_options(SslOptions::from_bits_truncate(opts));
+    }
     #[pyproperty(setter)]
     fn set_verify_mode(&self, cert: i32, vm: &VirtualMachine) -> PyResult<()> {
         let mut ctx = self.builder();
