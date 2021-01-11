@@ -1,9 +1,8 @@
 use super::os::PyPathLike;
 use super::socket::PySocketRef;
-use crate::builtins::bytearray::PyByteArrayRef;
 use crate::builtins::pystr::PyStrRef;
 use crate::builtins::{pytype::PyTypeRef, weakref::PyWeak};
-use crate::byteslike::PyBytesLike;
+use crate::byteslike::{PyBytesLike, PyRwBytesLike};
 use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
 use crate::function::{OptionalArg, OptionalOption};
@@ -688,14 +687,11 @@ impl PySslSocket {
     }
 
     #[pymethod]
-    fn read(&self, n: usize, buffer: OptionalArg<PyByteArrayRef>, vm: &VirtualMachine) -> PyResult {
+    fn read(&self, n: usize, buffer: OptionalArg<PyRwBytesLike>, vm: &VirtualMachine) -> PyResult {
         let mut stream = self.stream_mut();
         let ret_nread = buffer.is_present();
         let ssl_res = if let OptionalArg::Present(buffer) = buffer {
-            let mut buf = buffer.borrow_value_mut();
-            stream
-                .ssl_read(&mut buf.elements)
-                .map(|n| vm.ctx.new_int(n))
+            buffer.with_ref(|buf| stream.ssl_read(buf).map(|n| vm.ctx.new_int(n)))
         } else {
             let mut buf = vec![0u8; n];
             stream.ssl_read(&mut buf).map(|n| {
