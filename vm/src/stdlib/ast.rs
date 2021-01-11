@@ -34,9 +34,20 @@ fn node_add_location(node: &AstNodeRef, location: ast::Location, vm: &VirtualMac
         .unwrap();
 }
 
-fn get_node_field(vm: &VirtualMachine, obj: &PyObjectRef, field: &str, _typ: &str) -> PyResult {
-    // TODO: use typ and give a better error message, 'required field "{field}" missing from {typ}'
-    vm.get_attribute(obj.clone(), field)
+fn get_node_field(vm: &VirtualMachine, obj: &PyObjectRef, field: &str, typ: &str) -> PyResult {
+    vm.get_attribute_opt(obj.clone(), field)?.ok_or_else(|| {
+        vm.new_type_error(format!("required field \"{}\" missing from {}", field, typ))
+    })
+}
+
+fn get_node_field_opt(
+    vm: &VirtualMachine,
+    obj: &PyObjectRef,
+    field: &str,
+) -> PyResult<Option<PyObjectRef>> {
+    Ok(vm
+        .get_attribute_opt(obj.clone(), field)?
+        .filter(|obj| !vm.is_none(obj)))
 }
 
 #[pyclass(module = "_ast", name = "AST")]

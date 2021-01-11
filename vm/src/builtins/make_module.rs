@@ -24,7 +24,6 @@ mod decl {
     use crate::common::{hash::PyHash, str::to_ascii};
     #[cfg(feature = "rustpython-compiler")]
     use crate::compile;
-    use crate::exceptions::PyBaseExceptionRef;
     use crate::function::{
         single_or_tuple_any, Args, FuncArgs, KwArgs, OptionalArg, OptionalOption,
     };
@@ -322,18 +321,6 @@ mod decl {
             })
     }
 
-    fn catch_attr_exception<T>(
-        ex: PyBaseExceptionRef,
-        default: T,
-        vm: &VirtualMachine,
-    ) -> PyResult<T> {
-        if ex.isinstance(&vm.ctx.exceptions.attribute_error) {
-            Ok(default)
-        } else {
-            Err(ex)
-        }
-    }
-
     #[pyfunction]
     fn getattr(
         obj: PyObjectRef,
@@ -341,11 +328,10 @@ mod decl {
         default: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let ret = vm.get_attribute(obj, attr);
         if let OptionalArg::Present(default) = default {
-            ret.or_else(|ex| catch_attr_exception(ex, default, vm))
+            Ok(vm.get_attribute_opt(obj, attr)?.unwrap_or(default))
         } else {
-            ret
+            vm.get_attribute(obj, attr)
         }
     }
 
@@ -356,11 +342,7 @@ mod decl {
 
     #[pyfunction]
     fn hasattr(obj: PyObjectRef, attr: PyStrRef, vm: &VirtualMachine) -> PyResult<bool> {
-        if let Err(ex) = vm.get_attribute(obj, attr) {
-            catch_attr_exception(ex, false, vm)
-        } else {
-            Ok(true)
-        }
+        Ok(vm.get_attribute_opt(obj, attr)?.is_some())
     }
 
     #[pyfunction]

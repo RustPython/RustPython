@@ -1231,8 +1231,8 @@ impl Node for ast::Stmt {
                 args: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "args", "stmt")?)?,
                 body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "stmt")?)?,
                 decorator_list: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "decorator_list", "stmt")?)?,
-                returns: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "returns", "stmt")?)?,
-                type_comment: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "type_comment", "stmt")?)?,
+                returns: get_node_field_opt(_vm, &_object, "returns")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
+                type_comment: get_node_field_opt(_vm, &_object, "type_comment")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
             }
         } else
         if _cls.is(NodeAsyncFunctionDef::static_type()) {
@@ -1241,8 +1241,8 @@ impl Node for ast::Stmt {
                 args: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "args", "stmt")?)?,
                 body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "stmt")?)?,
                 decorator_list: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "decorator_list", "stmt")?)?,
-                returns: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "returns", "stmt")?)?,
-                type_comment: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "type_comment", "stmt")?)?,
+                returns: get_node_field_opt(_vm, &_object, "returns")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
+                type_comment: get_node_field_opt(_vm, &_object, "type_comment")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
             }
         } else
         if _cls.is(NodeClassDef::static_type()) {
@@ -1256,7 +1256,7 @@ impl Node for ast::Stmt {
         } else
         if _cls.is(NodeReturn::static_type()) {
             ast::StmtKind::Return {
-                value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "stmt")?)?,
+                value: get_node_field_opt(_vm, &_object, "value")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
             }
         } else
         if _cls.is(NodeDelete::static_type()) {
@@ -1268,7 +1268,7 @@ impl Node for ast::Stmt {
             ast::StmtKind::Assign {
                 targets: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "targets", "stmt")?)?,
                 value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "stmt")?)?,
-                type_comment: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "type_comment", "stmt")?)?,
+                type_comment: get_node_field_opt(_vm, &_object, "type_comment")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
             }
         } else
         if _cls.is(NodeAugAssign::static_type()) {
@@ -1282,7 +1282,7 @@ impl Node for ast::Stmt {
             ast::StmtKind::AnnAssign {
                 target: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "target", "stmt")?)?,
                 annotation: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "annotation", "stmt")?)?,
-                value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "stmt")?)?,
+                value: get_node_field_opt(_vm, &_object, "value")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
                 simple: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "simple", "stmt")?)?,
             }
         } else
@@ -1292,7 +1292,7 @@ impl Node for ast::Stmt {
                 iter: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "iter", "stmt")?)?,
                 body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "stmt")?)?,
                 orelse: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "orelse", "stmt")?)?,
-                type_comment: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "type_comment", "stmt")?)?,
+                type_comment: get_node_field_opt(_vm, &_object, "type_comment")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
             }
         } else
         if _cls.is(NodeAsyncFor::static_type()) {
@@ -1301,7 +1301,7 @@ impl Node for ast::Stmt {
                 iter: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "iter", "stmt")?)?,
                 body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "stmt")?)?,
                 orelse: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "orelse", "stmt")?)?,
-                type_comment: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "type_comment", "stmt")?)?,
+                type_comment: get_node_field_opt(_vm, &_object, "type_comment")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
             }
         } else
         if _cls.is(NodeWhile::static_type()) {
@@ -1322,20 +1322,20 @@ impl Node for ast::Stmt {
             ast::StmtKind::With {
                 items: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "items", "stmt")?)?,
                 body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "stmt")?)?,
-                type_comment: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "type_comment", "stmt")?)?,
+                type_comment: get_node_field_opt(_vm, &_object, "type_comment")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
             }
         } else
         if _cls.is(NodeAsyncWith::static_type()) {
             ast::StmtKind::AsyncWith {
                 items: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "items", "stmt")?)?,
                 body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "stmt")?)?,
-                type_comment: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "type_comment", "stmt")?)?,
+                type_comment: get_node_field_opt(_vm, &_object, "type_comment")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
             }
         } else
         if _cls.is(NodeRaise::static_type()) {
             ast::StmtKind::Raise {
-                exc: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "exc", "stmt")?)?,
-                cause: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "cause", "stmt")?)?,
+                exc: get_node_field_opt(_vm, &_object, "exc")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
+                cause: get_node_field_opt(_vm, &_object, "cause")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
             }
         } else
         if _cls.is(NodeTry::static_type()) {
@@ -1349,7 +1349,7 @@ impl Node for ast::Stmt {
         if _cls.is(NodeAssert::static_type()) {
             ast::StmtKind::Assert {
                 test: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "test", "stmt")?)?,
-                msg: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "msg", "stmt")?)?,
+                msg: get_node_field_opt(_vm, &_object, "msg")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
             }
         } else
         if _cls.is(NodeImport::static_type()) {
@@ -1359,7 +1359,7 @@ impl Node for ast::Stmt {
         } else
         if _cls.is(NodeImportFrom::static_type()) {
             ast::StmtKind::ImportFrom {
-                module: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "module", "stmt")?)?,
+                module: get_node_field_opt(_vm, &_object, "module")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
                 names: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "names", "stmt")?)?,
                 level: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "level", "stmt")?)?,
             }
@@ -1683,7 +1683,7 @@ impl Node for ast::Expr {
         } else
         if _cls.is(NodeYield::static_type()) {
             ast::ExprKind::Yield {
-                value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "expr")?)?,
+                value: get_node_field_opt(_vm, &_object, "value")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
             }
         } else
         if _cls.is(NodeYieldFrom::static_type()) {
@@ -1708,8 +1708,8 @@ impl Node for ast::Expr {
         if _cls.is(NodeFormattedValue::static_type()) {
             ast::ExprKind::FormattedValue {
                 value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "expr")?)?,
-                conversion: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "conversion", "expr")?)?,
-                format_spec: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "format_spec", "expr")?)?,
+                conversion: get_node_field_opt(_vm, &_object, "conversion")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
+                format_spec: get_node_field_opt(_vm, &_object, "format_spec")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
             }
         } else
         if _cls.is(NodeJoinedStr::static_type()) {
@@ -1720,7 +1720,7 @@ impl Node for ast::Expr {
         if _cls.is(NodeConstant::static_type()) {
             ast::ExprKind::Constant {
                 value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "expr")?)?,
-                kind: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "kind", "expr")?)?,
+                kind: get_node_field_opt(_vm, &_object, "kind")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
             }
         } else
         if _cls.is(NodeAttribute::static_type()) {
@@ -1763,9 +1763,9 @@ impl Node for ast::Expr {
         } else
         if _cls.is(NodeSlice::static_type()) {
             ast::ExprKind::Slice {
-                lower: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "lower", "expr")?)?,
-                upper: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "upper", "expr")?)?,
-                step: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "step", "expr")?)?,
+                lower: get_node_field_opt(_vm, &_object, "lower")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
+                upper: get_node_field_opt(_vm, &_object, "upper")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
+                step: get_node_field_opt(_vm, &_object, "step")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
             }
         } else
         {
@@ -2153,8 +2153,8 @@ impl Node for ast::Excepthandler {
         let node =
         if _cls.is(NodeExceptHandler::static_type()) {
             ast::ExcepthandlerKind::ExceptHandler {
-                type_: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "type", "excepthandler")?)?,
-                name: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "name", "excepthandler")?)?,
+                type_: get_node_field_opt(_vm, &_object, "type")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
+                name: get_node_field_opt(_vm, &_object, "name")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
                 body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "excepthandler")?)?,
             }
         } else
@@ -2187,10 +2187,10 @@ impl Node for ast::Arguments {
             ast::Arguments {
                 posonlyargs: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "posonlyargs", "arguments")?)?,
                 args: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "args", "arguments")?)?,
-                vararg: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "vararg", "arguments")?)?,
+                vararg: get_node_field_opt(_vm, &_object, "vararg")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
                 kwonlyargs: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "kwonlyargs", "arguments")?)?,
                 kw_defaults: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "kw_defaults", "arguments")?)?,
-                kwarg: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "kwarg", "arguments")?)?,
+                kwarg: get_node_field_opt(_vm, &_object, "kwarg")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
                 defaults: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "defaults", "arguments")?)?,
             }
         ;
@@ -2216,8 +2216,8 @@ impl Node for ast::Arg {
         let node =
             ast::ArgData {
                 arg: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "arg", "arg")?)?,
-                annotation: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "annotation", "arg")?)?,
-                type_comment: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "type_comment", "arg")?)?,
+                annotation: get_node_field_opt(_vm, &_object, "annotation")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
+                type_comment: get_node_field_opt(_vm, &_object, "type_comment")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
             }
         ;
         let node = ast::Located::new(_location, node);
@@ -2241,7 +2241,7 @@ impl Node for ast::Keyword {
         let _location = ast::Location::new(Node::ast_from_object(_vm, get_node_field(_vm, &_object, "lineno", "keyword")?)?, Node::ast_from_object(_vm, get_node_field(_vm, &_object, "col_offset", "keyword")?)?);
         let node =
             ast::KeywordData {
-                arg: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "arg", "keyword")?)?,
+                arg: get_node_field_opt(_vm, &_object, "arg")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
                 value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "keyword")?)?,
             }
         ;
@@ -2265,7 +2265,7 @@ impl Node for ast::Alias {
         let node =
             ast::Alias {
                 name: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "name", "alias")?)?,
-                asname: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "asname", "alias")?)?,
+                asname: get_node_field_opt(_vm, &_object, "asname")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
             }
         ;
         Ok(node)
@@ -2287,7 +2287,7 @@ impl Node for ast::Withitem {
         let node =
             ast::Withitem {
                 context_expr: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "context_expr", "withitem")?)?,
-                optional_vars: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "optional_vars", "withitem")?)?,
+                optional_vars: get_node_field_opt(_vm, &_object, "optional_vars")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
             }
         ;
         Ok(node)

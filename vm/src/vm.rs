@@ -1120,6 +1120,21 @@ impl VirtualMachine {
         getattro(obj, attr_name, self)
     }
 
+    pub fn get_attribute_opt<T>(
+        &self,
+        obj: PyObjectRef,
+        attr_name: T,
+    ) -> PyResult<Option<PyObjectRef>>
+    where
+        T: TryIntoRef<PyStr>,
+    {
+        match self.get_attribute(obj, attr_name) {
+            Ok(attr) => Ok(Some(attr)),
+            Err(e) if e.isinstance(&self.ctx.exceptions.attribute_error) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
     pub fn set_attr<K, V>(&self, obj: &PyObjectRef, attr_name: K, attr_value: V) -> PyResult
     where
         K: TryIntoRef<PyStr>,

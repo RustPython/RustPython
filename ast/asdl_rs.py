@@ -423,17 +423,23 @@ class TraitImplVisitor(EmitVisitor):
     def gen_construction(self, cons_path, cons, name, depth):
         self.emit(f"ast::{cons_path} {{", depth)
         for field in cons.fields:
-            self.emit(f"{rust_field(field.name)}: {self.decode_field(field.name, name)},", depth + 1)
+            self.emit(f"{rust_field(field.name)}: {self.decode_field(field, name)},", depth + 1)
         self.emit("}", depth)
 
     def extract_location(self, typename, depth):
-        self.emit(f"let _location = ast::Location::new({self.decode_field('lineno', typename)}, {self.decode_field('col_offset', typename)});", depth)
+        row = self.decode_field(asdl.Field('int', 'lineno'), typename)
+        column = self.decode_field(asdl.Field('int', 'col_offset'), typename)
+        self.emit(f"let _location = ast::Location::new({row}, {column});", depth)
 
     def wrap_located_node(self, depth):
         self.emit(f"let node = ast::Located::new(_location, node);", depth)
 
     def decode_field(self, field, typename):
-        return f"Node::ast_from_object(_vm, get_node_field(_vm, &_object, {json.dumps(field)}, {json.dumps(typename)})?)?"
+        name = json.dumps(field.name)
+        if field.opt and not field.seq:
+            return f"get_node_field_opt(_vm, &_object, {name})?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?"
+        else:
+            return f"Node::ast_from_object(_vm, get_node_field(_vm, &_object, {name}, {json.dumps(typename)})?)?"
 
 def write_ast_def(mod, typeinfo, f):
     f.write('pub use crate::location::Location;\n')
