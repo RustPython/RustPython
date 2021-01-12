@@ -30,6 +30,25 @@ impl Write for PyWriter<'_> {
     }
 }
 
+pub fn write_all(
+    mut buf: &[u8],
+    mut write: impl FnMut(&[u8]) -> io::Result<usize>,
+) -> io::Result<()> {
+    while !buf.is_empty() {
+        match write(buf) {
+            Ok(0) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::WriteZero,
+                    "failed to write whole buffer",
+                ))
+            }
+            Ok(n) => buf = &buf[n..],
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(())
+}
+
 pub fn file_readline(obj: &PyObjectRef, size: Option<usize>, vm: &VirtualMachine) -> PyResult {
     let args = size.map_or_else(Vec::new, |size| vec![vm.ctx.new_int(size)]);
     let ret = vm.call_method(obj, "readline", args)?;

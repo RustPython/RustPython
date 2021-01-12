@@ -68,7 +68,5 @@ opt-level = 3
 
 [patch.crates-io]
 # REDOX START, Uncommment when you want to compile/check with redoxer
-# # following patches are just waiting on a new version to be released to crates.io
-# socket2 = { git = "https://github.com/alexcrichton/socket2-rs", branch = "v0.3.x" }
 # REDOX END
 
