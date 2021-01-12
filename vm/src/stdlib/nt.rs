@@ -356,6 +356,16 @@ pub(crate) mod module {
         raw_set_handle_inheritable(handle, inheritable).map_err(|e| e.to_pyexception(vm))
     }
 
+    fn ctermid(vm: &VirtualMachine) -> PyResult{
+        let ret = unsafe { libc::ctermid() };
+        if ret.is_null(){
+            Err(errno_err(vm))
+        } else {
+            let ret = unsafe { ffi::CStr::from_ptr(ret) }.to_str().unwrap();
+            Ok(vm.ctx.new_str(name))
+        }
+    }
+
     #[pyfunction]
     fn mkdir(
         path: PyPathLike,
