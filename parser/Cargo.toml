@@ -21,5 +21,4 @@ unic-emoji-char = "0.9"
 unic-ucd-ident  = "0.9"
 unicode_names2 = "0.4"
 phf = { version = "0.8", features = ["macros"] }
-hashbrown = "0.9"
 ahash = "0.6"
