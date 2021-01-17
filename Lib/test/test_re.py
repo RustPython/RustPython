@@ -1865,7 +1865,6 @@ class ReTests(unittest.TestCase):
         self.assertEqual([m.span() for m in re.finditer(r"\b|\w+", "a::bc")],
                          [(0, 0), (0, 1), (1, 1), (3, 3), (3, 5), (5, 5)])
 
-    @unittest.skip('TODO: RUSTPYTHON: endless loop')
     def test_bug_2537(self):
         # issue 2537: empty submatches
         for outer_op in ('{0,}', '*', '+', '{1,187}'):
