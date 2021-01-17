@@ -1,18 +1,18 @@
 // good luck to those that follow; here be dragons
 
-use super::_sre::{Match, Pattern, MAXREPEAT};
+use super::_sre::MAXREPEAT;
 use super::constants::{SreAtCode, SreCatCode, SreFlag, SreOpcode};
-use crate::builtins::PyStrRef;
-use crate::pyobject::PyRef;
-use rustpython_common::borrow::BorrowValue;
+use crate::builtins::PyBytes;
+use crate::bytesinner::is_py_ascii_whitespace;
+use crate::pyobject::{IntoPyObject, PyObjectRef};
+use crate::VirtualMachine;
 use std::collections::HashMap;
 use std::convert::TryFrom;
+use std::unreachable;
 
 #[derive(Debug)]
 pub(crate) struct State<'a> {
-    string: &'a str,
-    // chars count
-    string_len: usize,
+    pub string: StrDrive<'a>,
     pub start: usize,
     pub end: usize,
     flags: SreFlag,
@@ -24,22 +24,21 @@ pub(crate) struct State<'a> {
     repeat_stack: Vec<RepeatContext>,
     pub string_position: usize,
     popped_context: Option<MatchContext>,
+    pub has_matched: Option<bool>,
 }
 
 impl<'a> State<'a> {
     pub(crate) fn new(
-        string: &'a str,
+        string: StrDrive<'a>,
         start: usize,
         end: usize,
         flags: SreFlag,
         pattern_codes: &'a [u32],
     ) -> Self {
-        let string_len = string.chars().count();
-        let end = std::cmp::min(end, string_len);
+        let end = std::cmp::min(end, string.count());
         let start = std::cmp::min(start, end);
         Self {
             string,
-            string_len,
             start,
             end,
             flags,
@@ -51,16 +50,19 @@ impl<'a> State<'a> {
             marks: Vec::new(),
             string_position: start,
             popped_context: None,
+            has_matched: None,
         }
     }
 
-    fn reset(&mut self) {
-        self.marks.clear();
+    pub fn reset(&mut self) {
         self.lastindex = -1;
         self.marks_stack.clear();
         self.context_stack.clear();
         self.repeat_stack.clear();
+        self.marks.clear();
+        self.string_position = self.start;
         self.popped_context = None;
+        self.has_matched = None;
     }
 
     fn set_mark(&mut self, mark_nr: usize, position: usize) {
@@ -96,66 +98,133 @@ impl<'a> State<'a> {
     fn marks_pop_discard(&mut self) {
         self.marks_stack.pop();
     }
+
+    pub fn pymatch(mut self) -> Self {
+        let ctx = MatchContext {
+            string_position: self.start,
+            string_offset: self.string.offset(0, self.start),
+            code_position: 0,
+            has_matched: None,
+        };
+        self.context_stack.push(ctx);
+
+        let mut dispatcher = OpcodeDispatcher::new();
+        let mut has_matched = None;
+
+        loop {
+            if self.context_stack.is_empty() {
+                break;
+            }
+            let ctx_id = self.context_stack.len() - 1;
+            let mut drive = StackDrive::drive(ctx_id, self);
+
+            has_matched = dispatcher.pymatch(&mut drive);
+            self = drive.take();
+            if has_matched.is_some() {
+                self.popped_context = self.context_stack.pop();
+            }
+        }
+
+        self.has_matched = has_matched;
+        self
+    }
+
+    pub fn search(mut self) -> Self {
+        // TODO: optimize by op info and skip prefix
+        loop {
+            self = self.pymatch();
+
+            if self.has_matched == Some(true) {
+                return self;
+            }
+            self.start += 1;
+            if self.start > self.end {
+                return self;
+            }
+            self.reset();
+        }
+    }
 }
 
-pub(crate) fn pymatch(
-    string: PyStrRef,
-    start: usize,
-    end: usize,
-    pattern: PyRef<Pattern>,
-) -> Option<Match> {
-    let mut state = State::new(
-        string.borrow_value(),
-        start,
-        end,
-        pattern.flags,
-        &pattern.code,
-    );
-    let ctx = MatchContext {
-        string_position: state.start,
-        string_offset: calc_string_offset(state.string, state.start),
-        code_position: 0,
-        has_matched: None,
-    };
-    state.context_stack.push(ctx);
-    let mut dispatcher = OpcodeDispatcher::new();
-
-    let mut has_matched = None;
-    loop {
-        if state.context_stack.is_empty() {
-            break;
-        }
-        let ctx_id = state.context_stack.len() - 1;
-        let mut drive = StackDrive::drive(ctx_id, state);
-
-        has_matched = dispatcher.pymatch(&mut drive);
-        state = drive.take();
-        if has_matched.is_some() {
-            state.popped_context = state.context_stack.pop();
-        }
-    }
-
-    if has_matched != Some(true) {
-        None
-    } else {
-        Some(Match::new(&state, pattern.clone(), string.clone()))
-    }
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum StrDrive<'a> {
+    Str(&'a str),
+    Bytes(&'a [u8]),
 }
-
-pub(crate) fn search(
-    string: PyStrRef,
-    start: usize,
-    end: usize,
-    pattern: PyRef<Pattern>,
-) -> Option<Match> {
-    // TODO: optimize by op info and skip prefix
-    let end = std::cmp::min(end, string.char_len());
-    for i in start..end + 1 {
-        if let Some(m) = pymatch(string.clone(), i, end, pattern.clone()) {
-            return Some(m);
+impl<'a> StrDrive<'a> {
+    fn offset(&self, offset: usize, skip: usize) -> usize {
+        match *self {
+            StrDrive::Str(s) => s
+                .get(offset..)
+                .and_then(|s| s.char_indices().nth(skip).map(|x| x.0 + offset))
+                .unwrap_or_else(|| s.len()),
+            StrDrive::Bytes(b) => std::cmp::min(offset + skip, b.len()),
         }
     }
-    None
+
+    pub fn count(&self) -> usize {
+        match *self {
+            StrDrive::Str(s) => s.chars().count(),
+            StrDrive::Bytes(b) => b.len(),
+        }
+    }
+
+    fn peek(&self, offset: usize) -> u32 {
+        match *self {
+            StrDrive::Str(s) => unsafe { s.get_unchecked(offset..) }.chars().next().unwrap() as u32,
+            StrDrive::Bytes(b) => b[offset] as u32,
+        }
+    }
+
+    fn back_peek(&self, offset: usize) -> u32 {
+        match *self {
+            StrDrive::Str(s) => {
+                let bytes = s.as_bytes();
+                let back_offset = utf8_back_peek_offset(bytes, offset);
+                match offset - back_offset {
+                    1 => u32::from_ne_bytes([0, 0, 0, bytes[offset]]),
+                    2 => u32::from_ne_bytes([0, 0, bytes[offset], bytes[offset + 1]]),
+                    3 => {
+                        u32::from_ne_bytes([0, bytes[offset], bytes[offset + 1], bytes[offset + 2]])
+                    }
+                    4 => u32::from_ne_bytes([
+                        bytes[offset],
+                        bytes[offset + 1],
+                        bytes[offset + 2],
+                        bytes[offset + 3],
+                    ]),
+                    _ => unreachable!(),
+                }
+            }
+            StrDrive::Bytes(b) => b[offset - 1] as u32,
+        }
+    }
+
+    fn back_offset(&self, offset: usize, skip: usize) -> usize {
+        match *self {
+            StrDrive::Str(s) => {
+                let bytes = s.as_bytes();
+                let mut back_offset = offset;
+                for _ in 0..skip {
+                    back_offset = utf8_back_peek_offset(bytes, back_offset);
+                }
+                back_offset
+            }
+            StrDrive::Bytes(_) => offset - skip,
+        }
+    }
+
+    pub fn slice_to_pyobject(&self, start: usize, end: usize, vm: &VirtualMachine) -> PyObjectRef {
+        match *self {
+            StrDrive::Str(s) => s
+                .chars()
+                .take(end)
+                .skip(start)
+                .collect::<String>()
+                .into_pyobject(vm),
+            StrDrive::Bytes(b) => PyBytes::from(b[start..end].to_vec()).into_pyobject(vm),
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -173,33 +242,21 @@ trait MatchContextDrive {
     fn repeat_ctx(&self) -> &RepeatContext {
         self.state().repeat_stack.last().unwrap()
     }
-    fn str(&self) -> &str {
-        unsafe {
-            std::str::from_utf8_unchecked(
-                &self.state().string.as_bytes()[self.ctx().string_offset..],
-            )
-        }
-    }
     fn pattern(&self) -> &[u32] {
         &self.state().pattern_codes[self.ctx().code_position..]
     }
-    fn peek_char(&self) -> char {
-        self.str().chars().next().unwrap()
+    fn peek_char(&self) -> u32 {
+        self.state().string.peek(self.ctx().string_offset)
     }
     fn peek_code(&self, peek: usize) -> u32 {
         self.state().pattern_codes[self.ctx().code_position + peek]
     }
     fn skip_char(&mut self, skip_count: usize) {
-        match self.str().char_indices().nth(skip_count).map(|x| x.0) {
-            Some(skipped) => {
-                self.ctx_mut().string_position += skip_count;
-                self.ctx_mut().string_offset += skipped;
-            }
-            None => {
-                self.ctx_mut().string_position = self.state().end;
-                self.ctx_mut().string_offset = self.state().string.len(); // bytes len
-            }
-        }
+        self.ctx_mut().string_offset = self
+            .state()
+            .string
+            .offset(self.ctx().string_offset, skip_count);
+        self.ctx_mut().string_position += skip_count;
     }
     fn skip_code(&mut self, skip_count: usize) {
         self.ctx_mut().code_position += skip_count;
@@ -222,7 +279,7 @@ trait MatchContextDrive {
     fn at_linebreak(&self) -> bool {
         !self.at_end() && is_linebreak(self.peek_char())
     }
-    fn at_boundary<F: FnMut(char) -> bool>(&self, mut word_checker: F) -> bool {
+    fn at_boundary<F: FnMut(u32) -> bool>(&self, mut word_checker: F) -> bool {
         if self.at_beginning() && self.at_end() {
             return false;
         }
@@ -230,47 +287,15 @@ trait MatchContextDrive {
         let this = !self.at_end() && word_checker(self.peek_char());
         this != that
     }
-    fn back_peek_offset(&self) -> usize {
-        let bytes = self.state().string.as_bytes();
-        let mut offset = self.ctx().string_offset - 1;
-        if !is_utf8_first_byte(bytes[offset]) {
-            offset -= 1;
-            if !is_utf8_first_byte(bytes[offset]) {
-                offset -= 1;
-                if !is_utf8_first_byte(bytes[offset]) {
-                    offset -= 1;
-                    if !is_utf8_first_byte(bytes[offset]) {
-                        panic!("not utf-8 code point");
-                    }
-                }
-            }
-        }
-        offset
-    }
-    fn back_peek_char(&self) -> char {
-        let bytes = self.state().string.as_bytes();
-        let offset = self.back_peek_offset();
-        let current_offset = self.ctx().string_offset;
-        let code = match current_offset - offset {
-            1 => u32::from_ne_bytes([0, 0, 0, bytes[offset]]),
-            2 => u32::from_ne_bytes([0, 0, bytes[offset], bytes[offset + 1]]),
-            3 => u32::from_ne_bytes([0, bytes[offset], bytes[offset + 1], bytes[offset + 2]]),
-            4 => u32::from_ne_bytes([
-                bytes[offset],
-                bytes[offset + 1],
-                bytes[offset + 2],
-                bytes[offset + 3],
-            ]),
-            _ => unreachable!(),
-        };
-        // TODO: char::from_u32_unchecked is stable from 1.5.0
-        unsafe { std::mem::transmute(code) }
+    fn back_peek_char(&self) -> u32 {
+        self.state().string.back_peek(self.ctx().string_offset)
     }
     fn back_skip_char(&mut self, skip_count: usize) {
         self.ctx_mut().string_position -= skip_count;
-        for _ in 0..skip_count {
-            self.ctx_mut().string_offset = self.back_peek_offset();
-        }
+        self.ctx_mut().string_offset = self
+            .state()
+            .string
+            .back_offset(self.ctx().string_offset, skip_count);
     }
 }
 
@@ -529,22 +554,22 @@ impl OpcodeDispatcher {
                 drive.skip_code(drive.peek_code(1) as usize + 1);
             }),
             SreOpcode::LITERAL => once(|drive| {
-                general_op_literal(drive, |code, c| code == c as u32);
+                general_op_literal(drive, |code, c| code == c);
             }),
             SreOpcode::NOT_LITERAL => once(|drive| {
-                general_op_literal(drive, |code, c| code != c as u32);
+                general_op_literal(drive, |code, c| code != c);
             }),
             SreOpcode::LITERAL_IGNORE => once(|drive| {
-                general_op_literal(drive, |code, c| code == lower_ascii(c) as u32);
+                general_op_literal(drive, |code, c| code == lower_ascii(c));
             }),
             SreOpcode::NOT_LITERAL_IGNORE => once(|drive| {
-                general_op_literal(drive, |code, c| code != lower_ascii(c) as u32);
+                general_op_literal(drive, |code, c| code != lower_ascii(c));
             }),
             SreOpcode::LITERAL_UNI_IGNORE => once(|drive| {
-                general_op_literal(drive, |code, c| code == lower_unicode(c) as u32);
+                general_op_literal(drive, |code, c| code == lower_unicode(c));
             }),
             SreOpcode::NOT_LITERAL_UNI_IGNORE => once(|drive| {
-                general_op_literal(drive, |code, c| code != lower_unicode(c) as u32);
+                general_op_literal(drive, |code, c| code != lower_unicode(c));
             }),
             SreOpcode::LITERAL_LOC_IGNORE => once(|drive| {
                 general_op_literal(drive, char_loc_ignore);
@@ -610,19 +635,11 @@ impl OpcodeDispatcher {
     }
 }
 
-fn calc_string_offset(string: &str, position: usize) -> usize {
-    string
-        .char_indices()
-        .nth(position)
-        .map(|(i, _)| i)
-        .unwrap_or(0)
+fn char_loc_ignore(code: u32, c: u32) -> bool {
+    code == c || code == lower_locate(c) || code == upper_locate(c)
 }
 
-fn char_loc_ignore(code: u32, c: char) -> bool {
-    code == c as u32 || code == lower_locate(c) as u32 || code == upper_locate(c) as u32
-}
-
-fn charset_loc_ignore(set: &[u32], c: char) -> bool {
+fn charset_loc_ignore(set: &[u32], c: u32) -> bool {
     let lo = lower_locate(c);
     if charset(set, c) {
         return true;
@@ -631,7 +648,7 @@ fn charset_loc_ignore(set: &[u32], c: char) -> bool {
     up != lo && charset(set, up)
 }
 
-fn general_op_groupref<F: FnMut(char) -> char>(drive: &mut StackDrive, mut f: F) {
+fn general_op_groupref<F: FnMut(u32) -> u32>(drive: &mut StackDrive, mut f: F) {
     let (group_start, group_end) = drive.state.get_marks(drive.peek_code(1) as usize);
     let (group_start, group_end) = match (group_start, group_end) {
         (Some(start), Some(end)) if start <= end => (start, end),
@@ -645,7 +662,7 @@ fn general_op_groupref<F: FnMut(char) -> char>(drive: &mut StackDrive, mut f: F)
         MatchContext {
             string_position: group_start,
             // TODO: cache the offset
-            string_offset: calc_string_offset(drive.state.string, group_start),
+            string_offset: drive.state.string.offset(0, group_start),
             ..*drive.ctx()
         },
         &drive,
@@ -665,7 +682,7 @@ fn general_op_groupref<F: FnMut(char) -> char>(drive: &mut StackDrive, mut f: F)
     drive.ctx_mut().string_offset = offset;
 }
 
-fn general_op_literal<F: FnOnce(u32, char) -> bool>(drive: &mut StackDrive, f: F) {
+fn general_op_literal<F: FnOnce(u32, u32) -> bool>(drive: &mut StackDrive, f: F) {
     if drive.at_end() || !f(drive.peek_code(1), drive.peek_char()) {
         drive.ctx_mut().has_matched = Some(false);
     } else {
@@ -674,7 +691,7 @@ fn general_op_literal<F: FnOnce(u32, char) -> bool>(drive: &mut StackDrive, f: F
     }
 }
 
-fn general_op_in<F: FnOnce(&[u32], char) -> bool>(drive: &mut StackDrive, f: F) {
+fn general_op_in<F: FnOnce(&[u32], u32) -> bool>(drive: &mut StackDrive, f: F) {
     let skip = drive.peek_code(1) as usize;
     if drive.at_end() || !f(&drive.pattern()[2..], drive.peek_char()) {
         drive.ctx_mut().has_matched = Some(false);
@@ -700,7 +717,7 @@ fn at(drive: &StackDrive, atcode: SreAtCode) -> bool {
     }
 }
 
-fn category(catcode: SreCatCode, c: char) -> bool {
+fn category(catcode: SreCatCode, c: u32) -> bool {
     match catcode {
         SreCatCode::DIGIT => is_digit(c),
         SreCatCode::NOT_DIGIT => !is_digit(c),
@@ -723,9 +740,8 @@ fn category(catcode: SreCatCode, c: char) -> bool {
     }
 }
 
-fn charset(set: &[u32], c: char) -> bool {
+fn charset(set: &[u32], ch: u32) -> bool {
     /* check if character is a member of the given set */
-    let ch = c as u32;
     let mut ok = true;
     let mut i = 0;
     while i < set.len() {
@@ -747,7 +763,7 @@ fn charset(set: &[u32], c: char) -> bool {
                         break;
                     }
                 };
-                if category(catcode, c) {
+                if category(catcode, ch) {
                     return ok;
                 }
                 i += 2;
@@ -801,7 +817,7 @@ fn charset(set: &[u32], c: char) -> bool {
                 if set[i + 1] <= ch && ch <= set[i + 2] {
                     return ok;
                 }
-                let ch = upper_unicode(c) as u32;
+                let ch = upper_unicode(ch);
                 if set[i + 1] <= ch && ch <= set[i + 2] {
                     return ok;
                 }
@@ -898,86 +914,128 @@ fn _count(stack_drive: &StackDrive, maxcount: usize) -> usize {
     drive.ctx().string_position - drive.state().string_position
 }
 
-fn general_count_literal<F: FnMut(u32, char) -> bool>(drive: &mut WrapDrive, end: usize, mut f: F) {
+fn general_count_literal<F: FnMut(u32, u32) -> bool>(drive: &mut WrapDrive, end: usize, mut f: F) {
     let ch = drive.peek_code(1);
     while !drive.ctx().string_position < end && f(ch, drive.peek_char()) {
         drive.skip_char(1);
     }
 }
 
-fn eq_loc_ignore(code: u32, c: char) -> bool {
-    code == c as u32 || code == lower_locate(c) as u32 || code == upper_locate(c) as u32
+fn eq_loc_ignore(code: u32, ch: u32) -> bool {
+    code == ch || code == lower_locate(ch) || code == upper_locate(ch)
 }
 
-fn is_word(c: char) -> bool {
-    c.is_ascii_alphanumeric() || c == '_'
+fn is_word(ch: u32) -> bool {
+    ch == '_' as u32
+        || u8::try_from(ch)
+            .map(|x| x.is_ascii_alphanumeric())
+            .unwrap_or(false)
 }
-fn is_space(c: char) -> bool {
-    c.is_ascii_whitespace()
+fn is_space(ch: u32) -> bool {
+    u8::try_from(ch)
+        .map(is_py_ascii_whitespace)
+        .unwrap_or(false)
 }
-fn is_digit(c: char) -> bool {
-    c.is_ascii_digit()
+fn is_digit(ch: u32) -> bool {
+    u8::try_from(ch)
+        .map(|x| x.is_ascii_digit())
+        .unwrap_or(false)
 }
-fn is_loc_alnum(c: char) -> bool {
+fn is_loc_alnum(ch: u32) -> bool {
     // TODO: check with cpython
-    c.is_alphanumeric()
+    u8::try_from(ch)
+        .map(|x| x.is_ascii_alphanumeric())
+        .unwrap_or(false)
 }
-fn is_loc_word(c: char) -> bool {
-    is_loc_alnum(c) || c == '_'
+fn is_loc_word(ch: u32) -> bool {
+    ch == '_' as u32 || is_loc_alnum(ch)
 }
-fn is_linebreak(c: char) -> bool {
-    c == '\n'
+fn is_linebreak(ch: u32) -> bool {
+    ch == '\n' as u32
 }
-pub(crate) fn lower_ascii(c: char) -> char {
-    c.to_ascii_lowercase()
+pub(crate) fn lower_ascii(ch: u32) -> u32 {
+    u8::try_from(ch)
+        .map(|x| x.to_ascii_lowercase() as u32)
+        .unwrap_or(ch)
 }
-fn lower_locate(c: char) -> char {
+fn lower_locate(ch: u32) -> u32 {
     // TODO: check with cpython
     // https://doc.rust-lang.org/std/primitive.char.html#method.to_lowercase
-    c.to_lowercase().next().unwrap()
+    lower_ascii(ch)
 }
-fn upper_locate(c: char) -> char {
+fn upper_locate(ch: u32) -> u32 {
     // TODO: check with cpython
     // https://doc.rust-lang.org/std/primitive.char.html#method.to_uppercase
-    c.to_uppercase().next().unwrap()
+    u8::try_from(ch)
+        .map(|x| x.to_ascii_uppercase() as u32)
+        .unwrap_or(ch)
 }
-fn is_uni_digit(c: char) -> bool {
+fn is_uni_digit(ch: u32) -> bool {
     // TODO: check with cpython
-    c.is_digit(10)
+    char::try_from(ch).map(|x| x.is_digit(10)).unwrap_or(false)
 }
-fn is_uni_space(c: char) -> bool {
+fn is_uni_space(ch: u32) -> bool {
     // TODO: check with cpython
-    c.is_whitespace()
+    is_space(ch)
+        || matches!(
+            ch,
+            0x0009
+                | 0x000A
+                | 0x000B
+                | 0x000C
+                | 0x000D
+                | 0x001C
+                | 0x001D
+                | 0x001E
+                | 0x001F
+                | 0x0020
+                | 0x0085
+                | 0x00A0
+                | 0x1680
+                | 0x2000
+                | 0x2001
+                | 0x2002
+                | 0x2003
+                | 0x2004
+                | 0x2005
+                | 0x2006
+                | 0x2007
+                | 0x2008
+                | 0x2009
+                | 0x200A
+                | 0x2028
+                | 0x2029
+                | 0x202F
+                | 0x205F
+                | 0x3000
+        )
 }
-fn is_uni_linebreak(c: char) -> bool {
+fn is_uni_linebreak(ch: u32) -> bool {
     matches!(
-        c,
-        '\u{000A}'
-            | '\u{000B}'
-            | '\u{000C}'
-            | '\u{000D}'
-            | '\u{001C}'
-            | '\u{001D}'
-            | '\u{001E}'
-            | '\u{0085}'
-            | '\u{2028}'
-            | '\u{2029}'
+        ch,
+        0x000A | 0x000B | 0x000C | 0x000D | 0x001C | 0x001D | 0x001E | 0x0085 | 0x2028 | 0x2029
     )
 }
-fn is_uni_alnum(c: char) -> bool {
+fn is_uni_alnum(ch: u32) -> bool {
     // TODO: check with cpython
-    c.is_alphanumeric()
+    char::try_from(ch)
+        .map(|x| x.is_alphanumeric())
+        .unwrap_or(false)
 }
-fn is_uni_word(c: char) -> bool {
-    is_uni_alnum(c) || c == '_'
+fn is_uni_word(ch: u32) -> bool {
+    ch == '_' as u32 || is_uni_alnum(ch)
 }
-pub(crate) fn lower_unicode(c: char) -> char {
+pub(crate) fn lower_unicode(ch: u32) -> u32 {
     // TODO: check with cpython
-    c.to_lowercase().next().unwrap()
+    char::try_from(ch)
+        .map(|x| x.to_lowercase().next().unwrap() as u32)
+        .unwrap_or(ch)
 }
-pub(crate) fn upper_unicode(c: char) -> char {
+pub(crate) fn upper_unicode(ch: u32) -> u32 {
     // TODO: check with cpython
-    c.to_uppercase().next().unwrap()
+    char::try_from(ch)
+        .map(|x| x.to_uppercase().next().unwrap() as u32)
+        .unwrap_or(ch)
 }
 
 fn is_utf8_first_byte(b: u8) -> bool {
@@ -986,6 +1044,23 @@ fn is_utf8_first_byte(b: u8) -> bool {
     // 10xxxxxx : 2nd, 3rd or 4th byte of code
     // 11xxxxxx : 1st byte of multibyte code
     (b & 0b10000000 == 0) || (b & 0b11000000 == 0b11000000)
+}
+
+fn utf8_back_peek_offset(bytes: &[u8], offset: usize) -> usize {
+    let mut offset = offset - 1;
+    if !is_utf8_first_byte(bytes[offset]) {
+        offset -= 1;
+        if !is_utf8_first_byte(bytes[offset]) {
+            offset -= 1;
+            if !is_utf8_first_byte(bytes[offset]) {
+                offset -= 1;
+                if !is_utf8_first_byte(bytes[offset]) {
+                    panic!("not utf-8 code point");
+                }
+            }
+        }
+    }
+    offset
 }
 
 #[derive(Debug, Copy, Clone)]
