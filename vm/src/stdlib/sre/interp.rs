@@ -131,18 +131,17 @@ impl<'a> State<'a> {
 
     pub fn search(mut self) -> Self {
         // TODO: optimize by op info and skip prefix
-        loop {
+        while self.start <= self.end {
             self = self.pymatch();
 
             if self.has_matched == Some(true) {
                 return self;
             }
             self.start += 1;
-            if self.start > self.end {
-                return self;
-            }
             self.reset();
         }
+
+        self
     }
 }
 
@@ -182,16 +181,19 @@ impl<'a> StrDrive<'a> {
                 let bytes = s.as_bytes();
                 let back_offset = utf8_back_peek_offset(bytes, offset);
                 match offset - back_offset {
-                    1 => u32::from_ne_bytes([0, 0, 0, bytes[offset]]),
-                    2 => u32::from_ne_bytes([0, 0, bytes[offset], bytes[offset + 1]]),
-                    3 => {
-                        u32::from_ne_bytes([0, bytes[offset], bytes[offset + 1], bytes[offset + 2]])
-                    }
+                    1 => u32::from_ne_bytes([0, 0, 0, bytes[offset - 1]]),
+                    2 => u32::from_ne_bytes([0, 0, bytes[offset - 2], bytes[offset - 1]]),
+                    3 => u32::from_ne_bytes([
+                        0,
+                        bytes[offset - 3],
+                        bytes[offset - 2],
+                        bytes[offset - 1],
+                    ]),
                     4 => u32::from_ne_bytes([
-                        bytes[offset],
-                        bytes[offset + 1],
-                        bytes[offset + 2],
-                        bytes[offset + 3],
+                        bytes[offset - 4],
+                        bytes[offset - 3],
+                        bytes[offset - 2],
+                        bytes[offset - 1],
                     ]),
                     _ => unreachable!(),
                 }
@@ -222,7 +224,10 @@ impl<'a> StrDrive<'a> {
                 .skip(start)
                 .collect::<String>()
                 .into_pyobject(vm),
-            StrDrive::Bytes(b) => PyBytes::from(b[start..end].to_vec()).into_pyobject(vm),
+            StrDrive::Bytes(b) => {
+                PyBytes::from(b.iter().take(end).skip(start).cloned().collect::<Vec<u8>>())
+                    .into_pyobject(vm)
+            }
         }
     }
 }
@@ -256,13 +261,11 @@ trait MatchContextDrive {
             .state()
             .string
             .offset(self.ctx().string_offset, skip_count);
-        self.ctx_mut().string_position += skip_count;
+        self.ctx_mut().string_position =
+            std::cmp::min(self.ctx().string_position + skip_count, self.state().end);
     }
     fn skip_code(&mut self, skip_count: usize) {
         self.ctx_mut().code_position += skip_count;
-        if self.ctx().code_position > self.state().pattern_codes.len() {
-            self.ctx_mut().code_position = self.state().pattern_codes.len();
-        }
     }
     fn remaining_chars(&self) -> usize {
         self.state().end - self.ctx().string_position
@@ -314,9 +317,7 @@ impl<'a> StackDrive<'a> {
         self.state
     }
     fn push_new_context(&mut self, pattern_offset: usize) {
-        let mut child_ctx = MatchContext { ..*self.ctx() };
-        child_ctx.code_position += pattern_offset;
-        self.state.context_stack.push(child_ctx);
+        self.push_new_context_at(self.ctx().code_position + pattern_offset);
     }
     fn push_new_context_at(&mut self, code_position: usize) {
         let mut child_ctx = MatchContext { ..*self.ctx() };
@@ -352,11 +353,9 @@ impl MatchContextDrive for WrapDrive<'_> {
     fn ctx_mut(&mut self) -> &mut MatchContext {
         &mut self.ctx
     }
-
     fn ctx(&self) -> &MatchContext {
         &self.ctx
     }
-
     fn state(&self) -> &State {
         self.stack_drive.state()
     }
@@ -833,6 +832,7 @@ fn charset(set: &[u32], ch: u32) -> bool {
     false
 }
 
+/* General case */
 fn count(drive: &mut StackDrive, maxcount: usize) -> usize {
     let mut count = 0;
     let maxcount = std::cmp::min(maxcount, drive.remaining_chars());
@@ -853,6 +853,8 @@ fn count(drive: &mut StackDrive, maxcount: usize) -> usize {
     *drive.ctx_mut() = save_ctx;
     count
 }
+
+/* TODO: check literal cases should improve the perfermance
 
 fn _count(stack_drive: &StackDrive, maxcount: usize) -> usize {
     let mut drive = WrapDrive::drive(*stack_drive.ctx(), stack_drive);
@@ -924,6 +926,7 @@ fn general_count_literal<F: FnMut(u32, u32) -> bool>(drive: &mut WrapDrive, end:
 fn eq_loc_ignore(code: u32, ch: u32) -> bool {
     code == ch || code == lower_locate(ch) || code == upper_locate(ch)
 }
+*/
 
 fn is_word(ch: u32) -> bool {
     ch == '_' as u32
@@ -1073,6 +1076,7 @@ struct RepeatContext {
     maxcount: usize,
 }
 
+#[derive(Default)]
 struct OpMinRepeatOne {
     jump_id: usize,
     mincount: usize,
@@ -1082,101 +1086,78 @@ struct OpMinRepeatOne {
 impl OpcodeExecutor for OpMinRepeatOne {
     fn next(&mut self, drive: &mut StackDrive) -> Option<()> {
         match self.jump_id {
-            0 => self._0(drive),
-            1 => self._1(drive),
-            2 => self._2(drive),
+            0 => {
+                self.mincount = drive.peek_code(2) as usize;
+                self.maxcount = drive.peek_code(3) as usize;
+
+                if drive.remaining_chars() < self.mincount {
+                    drive.ctx_mut().has_matched = Some(false);
+                    return None;
+                }
+
+                drive.state.string_position = drive.ctx().string_position;
+
+                self.count = if self.mincount == 0 {
+                    0
+                } else {
+                    let count = count(drive, self.mincount);
+                    if count < self.mincount {
+                        drive.ctx_mut().has_matched = Some(false);
+                        return None;
+                    }
+                    drive.skip_char(count);
+                    count
+                };
+
+                if drive.peek_code(drive.peek_code(1) as usize + 1) == SreOpcode::SUCCESS as u32 {
+                    drive.state.string_position = drive.ctx().string_position;
+                    drive.ctx_mut().has_matched = Some(true);
+                    return None;
+                }
+
+                drive.state.marks_push();
+                self.jump_id = 1;
+                self.next(drive)
+            }
+            1 => {
+                if self.maxcount == MAXREPEAT || self.count <= self.maxcount {
+                    drive.state.string_position = drive.ctx().string_position;
+                    drive.push_new_context(drive.peek_code(1) as usize + 1);
+                    self.jump_id = 2;
+                    return Some(());
+                }
+
+                drive.state.marks_pop_discard();
+                drive.ctx_mut().has_matched = Some(false);
+                None
+            }
+            2 => {
+                let child_ctx = drive.state.popped_context.unwrap();
+                if child_ctx.has_matched == Some(true) {
+                    drive.ctx_mut().has_matched = Some(true);
+                    return None;
+                }
+                drive.state.string_position = drive.ctx().string_position;
+                if count(drive, 1) == 0 {
+                    drive.ctx_mut().has_matched = Some(false);
+                    return None;
+                }
+                drive.skip_char(1);
+                self.count += 1;
+                drive.state.marks_pop_keep();
+                self.jump_id = 1;
+                self.next(drive)
+            }
             _ => unreachable!(),
         }
     }
 }
-impl Default for OpMinRepeatOne {
-    fn default() -> Self {
-        OpMinRepeatOne {
-            jump_id: 0,
-            mincount: 0,
-            maxcount: 0,
-            count: 0,
-        }
-    }
-}
-impl OpMinRepeatOne {
-    fn _0(&mut self, drive: &mut StackDrive) -> Option<()> {
-        self.mincount = drive.peek_code(2) as usize;
-        self.maxcount = drive.peek_code(3) as usize;
 
-        if drive.remaining_chars() < self.mincount {
-            drive.ctx_mut().has_matched = Some(false);
-            return None;
-        }
-
-        drive.state.string_position = drive.ctx().string_position;
-
-        self.count = if self.mincount == 0 {
-            0
-        } else {
-            let count = count(drive, self.mincount);
-            if count < self.mincount {
-                drive.ctx_mut().has_matched = Some(false);
-                return None;
-            }
-            drive.skip_char(count);
-            count
-        };
-
-        if drive.peek_code(drive.peek_code(1) as usize + 1) == SreOpcode::SUCCESS as u32 {
-            drive.state.string_position = drive.ctx().string_position;
-            drive.ctx_mut().has_matched = Some(true);
-            return None;
-        }
-
-        drive.state.marks_push();
-        self.jump_id = 1;
-        self._1(drive)
-    }
-    fn _1(&mut self, drive: &mut StackDrive) -> Option<()> {
-        if self.maxcount == MAXREPEAT || self.count <= self.maxcount {
-            drive.state.string_position = drive.ctx().string_position;
-            drive.push_new_context(drive.peek_code(1) as usize + 1);
-            self.jump_id = 2;
-            return Some(());
-        }
-
-        drive.state.marks_pop_discard();
-        drive.ctx_mut().has_matched = Some(false);
-        None
-    }
-    fn _2(&mut self, drive: &mut StackDrive) -> Option<()> {
-        let child_ctx = drive.state.popped_context.unwrap();
-        if child_ctx.has_matched == Some(true) {
-            drive.ctx_mut().has_matched = Some(true);
-            return None;
-        }
-        drive.state.string_position = drive.ctx().string_position;
-        if count(drive, 1) == 0 {
-            drive.ctx_mut().has_matched = Some(false);
-            return None;
-        }
-        drive.skip_char(1);
-        self.count += 1;
-        drive.state.marks_pop_keep();
-        self.jump_id = 1;
-        self._1(drive)
-    }
-}
-
+#[derive(Default)]
 struct OpMaxUntil {
     jump_id: usize,
     count: isize,
     save_last_position: usize,
-}
-impl Default for OpMaxUntil {
-    fn default() -> Self {
-        OpMaxUntil {
-            jump_id: 0,
-            count: 0,
-            save_last_position: 0,
-        }
-    }
 }
 impl OpcodeExecutor for OpMaxUntil {
     fn next(&mut self, drive: &mut StackDrive) -> Option<()> {
@@ -1259,19 +1240,11 @@ impl OpcodeExecutor for OpMaxUntil {
     }
 }
 
+#[derive(Default)]
 struct OpMinUntil {
     jump_id: usize,
     count: isize,
     save_repeat: Option<RepeatContext>,
-}
-impl Default for OpMinUntil {
-    fn default() -> Self {
-        Self {
-            jump_id: 0,
-            count: 0,
-            save_repeat: None,
-        }
-    }
 }
 impl OpcodeExecutor for OpMinUntil {
     fn next(&mut self, drive: &mut StackDrive) -> Option<()> {
@@ -1338,17 +1311,10 @@ impl OpcodeExecutor for OpMinUntil {
     }
 }
 
+#[derive(Default)]
 struct OpBranch {
     jump_id: usize,
     current_branch_length: usize,
-}
-impl Default for OpBranch {
-    fn default() -> Self {
-        Self {
-            jump_id: 0,
-            current_branch_length: 0,
-        }
-    }
 }
 impl OpcodeExecutor for OpBranch {
     fn next(&mut self, drive: &mut StackDrive) -> Option<()> {
@@ -1388,21 +1354,12 @@ impl OpcodeExecutor for OpBranch {
     }
 }
 
+#[derive(Default)]
 struct OpRepeatOne {
     jump_id: usize,
     mincount: usize,
     maxcount: usize,
     count: isize,
-}
-impl Default for OpRepeatOne {
-    fn default() -> Self {
-        Self {
-            jump_id: 0,
-            mincount: 0,
-            maxcount: 0,
-            count: 0,
-        }
-    }
 }
 impl OpcodeExecutor for OpRepeatOne {
     fn next(&mut self, drive: &mut StackDrive) -> Option<()> {
@@ -1413,7 +1370,6 @@ impl OpcodeExecutor for OpRepeatOne {
 
                 if drive.remaining_chars() < self.mincount {
                     drive.ctx_mut().has_matched = Some(false);
-                    return None;
                 }
                 drive.state.string_position = drive.ctx().string_position;
                 self.count = count(drive, self.maxcount) as isize;

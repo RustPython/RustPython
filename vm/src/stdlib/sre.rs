@@ -351,21 +351,17 @@ mod _sre {
                     let mut splitlist: Vec<PyObjectRef> = Vec::new();
 
                     let mut n = 0;
-                    let mut last_pos = 0;
+                    let mut last = 0;
                     while split_args.maxsplit == 0 || n < split_args.maxsplit {
+                        state.reset();
                         state = state.search();
 
-                        let start = state.start;
-                        let end = state.string_position;
-                        if start == end {
-                            if last_pos == state.end {
-                                break;
-                            }
-                            last_pos = end + 1;
-                            continue;
+                        if state.has_matched != Some(true) {
+                            break;
                         }
 
-                        splitlist.push(state.string.slice_to_pyobject(last_pos, start, vm));
+                        /* get segment before this match */
+                        splitlist.push(state.string.slice_to_pyobject(last, state.start, vm));
 
                         let m = Match::new(&state, zelf.clone(), split_args.string.clone());
 
@@ -376,16 +372,23 @@ mod _sre {
                                     .unwrap_or_else(|| vm.ctx.none()),
                             );
                         }
+
                         n += 1;
-                        last_pos = end;
+                        last = state.string_position;
+
+                        if state.start == state.string_position {
+                            state.start += 1;
+                        } else {
+                            state.start = state.string_position;
+                        }
                     }
 
                     // get segment following last match (even if empty)
-                    splitlist.push(state.string.slice_to_pyobject(
-                        last_pos,
-                        state.string.count(),
-                        vm,
-                    ));
+                    splitlist.push(
+                        state
+                            .string
+                            .slice_to_pyobject(last, state.string.count(), vm),
+                    );
 
                     Ok(PyList::from(splitlist).into_ref(vm))
                 },
@@ -439,6 +442,7 @@ mod _sre {
                 let mut n = 0;
                 let mut last_pos = 0;
                 while count == 0 || n < count {
+                    state.reset();
                     state = state.search();
 
                     if state.has_matched != Some(true) {
@@ -450,12 +454,18 @@ mod _sre {
                         sublist.push(state.string.slice_to_pyobject(last_pos, state.start, vm));
                     }
 
-                    if vm.is_callable(&filter) {
-                        let m = Match::new(&state, zelf.clone(), string.clone());
-                        let ret = vm.invoke(&filter, (m.into_ref(vm),))?;
-                        sublist.push(ret);
-                    } else {
-                        sublist.push(filter.clone());
+                    if !(last_pos == state.start && last_pos == state.string_position && n > 1) {
+                        // the above ignores empty matches on latest position
+                        if vm.is_callable(&filter) {
+                            let m = Match::new(&state, zelf.clone(), string.clone());
+                            let ret = vm.invoke(&filter, (m.into_ref(vm),))?;
+                            sublist.push(ret);
+                        } else {
+                            sublist.push(filter.clone());
+                        }
+
+                        last_pos = state.string_position;
+                        n += 1;
                     }
 
                     if state.string_position == state.start {
@@ -463,17 +473,10 @@ mod _sre {
                     } else {
                         state.start = state.string_position;
                     }
-
-                    last_pos = state.string_position;
-                    n += 1;
                 }
 
                 /* get segment following last match */
-                sublist.push(
-                    state
-                        .string
-                        .slice_to_pyobject(last_pos, state.string.count(), vm),
-                );
+                sublist.push(state.string.slice_to_pyobject(last_pos, state.end, vm));
 
                 let list = PyList::from(sublist).into_object(vm);
                 let s = vm.ctx.new_str("");
@@ -637,9 +640,10 @@ mod _sre {
         ) -> PyResult<Option<PyObjectRef>> {
             self.pattern
                 .with_str_drive(self.string.clone(), vm, |str_drive| {
-                    Ok(self
+                    let i = self
                         .get_index(group, vm)
-                        .and_then(|i| self.get_slice(i, str_drive, vm)))
+                        .ok_or_else(|| vm.new_index_error("no such group".to_owned()))?;
+                    Ok(self.get_slice(i, str_drive, vm))
                 })
         }
 
@@ -785,13 +789,18 @@ mod _sre {
 
         #[pymethod]
         fn search(&self, vm: &VirtualMachine) -> PyResult<Option<PyRef<Match>>> {
+            if self.start.load() > self.end.load() {
+                return Ok(None);
+            }
             self.pattern.with_state(
                 self.string.clone(),
                 self.start.load(),
                 self.end.load(),
                 vm,
                 |mut state| {
+                    state.reset();
                     state = state.search();
+                    self.end.store(state.end);
 
                     if state.has_matched == Some(true) {
                         if state.start == state.string_position {
