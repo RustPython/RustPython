@@ -428,7 +428,7 @@ mod _sre {
                 Either::B(s) => {
                     if s.borrow_value().contains('\\') {
                         // handle non-literal strings ; hand it over to the template compiler
-                        let re = vm.import("re", &[], 0)?;
+                        let re = vm.import("re", None, 0)?;
                         let func = vm.get_attribute(re, "_subx")?;
                         vm.invoke(&func, (zelf.clone(), s))?
                     } else {
@@ -599,7 +599,7 @@ mod _sre {
 
         #[pymethod]
         fn expand(zelf: PyRef<Match>, template: PyStrRef, vm: &VirtualMachine) -> PyResult {
-            let re = vm.import("re", &[], 0)?;
+            let re = vm.import("re", None, 0)?;
             let func = vm.get_attribute(re, "_expand")?;
             vm.invoke(&func, (zelf.pattern.clone(), zelf, template))
         }

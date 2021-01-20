@@ -255,7 +255,6 @@ class ReTests(unittest.TestCase):
         pat = '(?:%s)(?(200)z|t)' % pat
         self.assertEqual(re.match(pat, 'xc8yz').span(), (0, 5))
 
-    # @unittest.skip('TODO: RUSTPYTHON: named group index')
     def test_symbolic_refs(self):
         self.checkTemplateError('(?P<a>x)', r'\g<a', 'xx',
                                 'missing >, unterminated name', 3)
@@ -1225,8 +1224,6 @@ class ReTests(unittest.TestCase):
         self.assertEqual(re.match(r'(a)|(b)', 'b').end(1), -1)
         self.assertEqual(re.match(r'(a)|(b)', 'b').span(1), (-1, -1))
 
-    # TODO: RUSTPYTHON
-    # @unittest.expectedFailure
     def test_bug_527371(self):
         # bug described in patches 527371/672491
         self.assertIsNone(re.match(r'(a)?a','a').lastindex)
@@ -1278,7 +1275,6 @@ class ReTests(unittest.TestCase):
                         self.checkPatternError(r'x%s%s' % (inner_op, outer_op),
                                 'multiple repeat', 1 + len(inner_op))
 
-    @unittest.skip('TODO: RUSTPYTHON')
     def test_unlimited_zero_width_repeat(self):
         # Issue #9669
         self.assertIsNone(re.match(r'(?:a?)*y', 'z'))
