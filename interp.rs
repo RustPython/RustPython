@@ -1245,6 +1245,7 @@ struct OpMinUntil {
     jump_id: usize,
     count: isize,
     save_repeat: Option<RepeatContext>,
+    save_last_position: usize,
 }
 impl OpcodeExecutor for OpMinUntil {
     fn next(&mut self, drive: &mut StackDrive) -> Option<()> {
@@ -1280,6 +1281,7 @@ impl OpcodeExecutor for OpMinUntil {
                 drive.ctx_mut().has_matched = child_ctx.has_matched;
                 if drive.ctx().has_matched != Some(true) {
                     drive.repeat_ctx_mut().count = self.count - 1;
+                    drive.repeat_ctx_mut().last_position = self.save_last_position;
                     drive.state.string_position = drive.ctx().string_position;
                 }
                 None
@@ -1295,13 +1297,26 @@ impl OpcodeExecutor for OpMinUntil {
                 drive.state.marks_pop();
 
                 // match more unital tail matches
-                let maxcount = drive.repeat_ctx().maxcount;
-                let code_position = drive.repeat_ctx().code_position;
-                if self.count as usize >= maxcount && maxcount != MAXREPEAT {
+                let RepeatContext {
+                    count: _,
+                    code_position,
+                    last_position,
+                    mincount: _,
+                    maxcount,
+                } = *drive.repeat_ctx();
+
+                if self.count as usize >= maxcount && maxcount != MAXREPEAT
+                    || drive.state.string_position == last_position
+                {
                     drive.ctx_mut().has_matched = Some(false);
                     return None;
                 }
                 drive.repeat_ctx_mut().count = self.count;
+
+                /* zero-width match protection */
+                self.save_last_position = last_position;
+                drive.repeat_ctx_mut().last_position = drive.state.string_position;
+
                 drive.push_new_context_at(code_position + 4);
                 self.jump_id = 1;
                 Some(())
