@@ -295,8 +295,7 @@ class ReTests(unittest.TestCase):
         self.assertEqual(re.subn("b*", "x", "xyz", count=2), ('xxxyz', 2))
 
     # TODO: RUSTPYTHON
-    # @unittest.expectedFailure
-    @unittest.skip("remaining_char()")
+    @unittest.expectedFailure
     def test_re_split(self):
         for string in ":a:b::c", S(":a:b::c"):
             self.assertTypedEqual(re.split(":", string),
@@ -332,7 +331,6 @@ class ReTests(unittest.TestCase):
         self.assertEqual(re.split("(?:b)|(?::+)", ":a:b::c"),
                          ['', 'a', '', '', 'c'])
 
-#TODO: RUSTPYTHON subTest?
         for sep, expected in [
             (':*', ['', '', 'a', '', 'b', '', 'c', '']),
             ('(?::*)', ['', '', 'a', '', 'b', '', 'c', '']),
@@ -937,7 +935,6 @@ class ReTests(unittest.TestCase):
     def test_category(self):
         self.assertEqual(re.match(r"(\s)", " ").group(1), " ")
 
-    @cpython_only
     def test_case_helpers(self):
         import _sre
         for i in range(128):
@@ -1232,7 +1229,6 @@ class ReTests(unittest.TestCase):
         self.assertEqual(re.match(r"(?P<a>a(b))", "ab").lastgroup, 'a')
         self.assertEqual(re.match(r"((a))", "a").lastindex, 1)
 
-    @unittest.skip('TODO: RUSTPYTHON; takes too long time')
     def test_bug_418626(self):
         # bugs 418626 at al. -- Testing Greg Chapman's addition of op code
         # SRE_OP_MIN_REPEAT_ONE for eliminating recursion on simple uses of
@@ -1249,7 +1245,6 @@ class ReTests(unittest.TestCase):
         pat="["+re.escape("\u2039")+"]"
         self.assertEqual(re.compile(pat) and 1, 1)
 
-    @unittest.skip('TODO: RUSTPYTHON; takes too long time')
     def test_stack_overflow(self):
         # nasty cases that used to overflow the straightforward recursive
         # implementation of repeated groups.
@@ -1284,7 +1279,6 @@ class ReTests(unittest.TestCase):
         self.assertIsNone(re.match(r'(?:a?)+?y', 'z'))
         self.assertIsNone(re.match(r'(?:a?){2,}?y', 'z'))
 
-    @unittest.skip("fail to identity input type")
     def test_scanner(self):
         def s_ident(scanner, token): return token
         def s_operator(scanner, token): return "op%s" % token
@@ -1305,7 +1299,6 @@ class ReTests(unittest.TestCase):
                          (['sum', 'op=', 3, 'op*', 'foo', 'op+', 312.5,
                            'op+', 'bar'], ''))
 
-    @unittest.skip('TODO: RUSTPYTHON: index out of bounds')
     def test_bug_448951(self):
         # bug 448951 (similar to 429357, but with single char match)
         # (Also test greedy matches.)
@@ -1748,7 +1741,6 @@ class ReTests(unittest.TestCase):
         self.assertEqual(re.findall(r"(?i)(a)\1", "aa \u0100"), ['a'])
         self.assertEqual(re.match(r"(?s).{1,3}", "\u0100\u0100").span(), (0, 2))
 
-    @unittest.skip('TODO: RUSTPYTHON; takes too long time')
     def test_repeat_minmax_overflow(self):
         # Issue #13169
         string = "x" * 100000
@@ -1764,7 +1756,6 @@ class ReTests(unittest.TestCase):
         self.assertRaises(OverflowError, re.compile, r".{%d,}?" % 2**128)
         self.assertRaises(OverflowError, re.compile, r".{%d,%d}" % (2**129, 2**128))
 
-    @cpython_only
     def test_repeat_minmax_overflow_maxrepeat(self):
         try:
             from _sre import MAXREPEAT
@@ -1861,7 +1852,6 @@ class ReTests(unittest.TestCase):
                 self.assertEqual(m.group(1), "")
                 self.assertEqual(m.group(2), "y")
 
-    @cpython_only
     def test_debug_flag(self):
         pat = r'(\.)(?:[ch]|py)(?(1)$|: )'
         with captured_stdout() as out:

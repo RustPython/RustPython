@@ -75,7 +75,12 @@ mod _sre {
         indexgroup: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<Pattern> {
-        let isbytes = !pattern.payload_is::<PyStr>();
+        // FIXME:
+        // pattern could only be None if called by re.Scanner
+        // re.Scanner has no offical API and in CPython's implement
+        // isbytes will be hanging (-1)
+        // here is just a hack to let re.Scanner works only with str not bytes
+        let isbytes = !vm.is_none(&pattern) && !pattern.payload_is::<PyStr>();
         Ok(Pattern {
             pattern,
             flags: SreFlag::from_bits_truncate(flags),
