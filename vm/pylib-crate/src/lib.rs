@@ -5,8 +5,8 @@
 pub const LIB_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/Lib");
 
 #[cfg(feature = "compiled-bytecode")]
-use {rustpython_bytecode::FrozenModule, std::collections::HashMap};
+use rustpython_bytecode::FrozenModule;
 #[cfg(feature = "compiled-bytecode")]
-pub fn frozen_stdlib() -> HashMap<String, FrozenModule> {
+pub fn frozen_stdlib() -> impl Iterator<Item = (String, FrozenModule)> {
     rustpython_derive::py_freeze!(dir = "Lib", crate_name = "rustpython_bytecode")
 }
