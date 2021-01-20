@@ -13,6 +13,7 @@ crate-type = ["cdylib", "rlib"]
 [features]
 default = ["freeze-stdlib"]
 freeze-stdlib = ["rustpython-vm/freeze-stdlib"]
+no-start-func = []
 
 [dependencies]
 rustpython-parser = { path = "../../parser" }

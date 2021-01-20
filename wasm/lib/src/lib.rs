@@ -38,6 +38,7 @@ pub fn panic_hook(info: &panic::PanicInfo) {
 }
 
 #[doc(hidden)]
+#[cfg(not(feature = "no-start-func"))]
 #[wasm_bindgen(start)]
 pub fn _setup_console_error() {
     std::panic::set_hook(Box::new(panic_hook));
