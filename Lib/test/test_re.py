@@ -88,8 +88,6 @@ class ReTests(unittest.TestCase):
         int_value = int(matchobj.group(0))
         return str(int_value + 1)
 
-    # TODO: RUSTPYTHON
-    # @unittest.expectedFailure
     def test_basic_re_sub(self):
         self.assertTypedEqual(re.sub('y', 'a', 'xyz'), 'xaz')
         self.assertTypedEqual(re.sub('y', S('a'), S('xyz')), 'xaz')
@@ -1661,8 +1659,6 @@ class ReTests(unittest.TestCase):
         self.checkPatternError(r'(?i+', 'missing -, : or )', 3)
         self.checkPatternError(r'(?iz', 'unknown flag', 3)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bug_6509(self):
         # Replacement strings of both types must parse properly.
         # all strings
