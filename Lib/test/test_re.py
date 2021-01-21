@@ -89,7 +89,7 @@ class ReTests(unittest.TestCase):
         return str(int_value + 1)
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    # @unittest.expectedFailure
     def test_basic_re_sub(self):
         self.assertTypedEqual(re.sub('y', 'a', 'xyz'), 'xaz')
         self.assertTypedEqual(re.sub('y', S('a'), S('xyz')), 'xaz')

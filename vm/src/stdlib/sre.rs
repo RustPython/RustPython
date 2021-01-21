@@ -20,8 +20,8 @@ mod _sre {
     };
     use crate::function::{Args, OptionalArg};
     use crate::pyobject::{
-        Either, IntoPyObject, ItemProtocol, PyCallable, PyObjectRef, PyRef, PyResult, PyValue,
-        StaticType, TryFromObject,
+        IntoPyObject, ItemProtocol, PyCallable, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
+        TryFromObject,
     };
     use crate::VirtualMachine;
     use core::str;
@@ -105,7 +105,8 @@ mod _sre {
     #[derive(FromArgs)]
     struct SubArgs {
         #[pyarg(any)]
-        repl: Either<PyCallable, PyStrRef>,
+        // repl: Either<PyCallable, PyStrRef>,
+        repl: PyObjectRef,
         #[pyarg(any)]
         string: PyObjectRef,
         #[pyarg(any, default = "0")]
@@ -428,17 +429,23 @@ mod _sre {
                 string,
                 count,
             } = sub_args;
-            let filter: PyObjectRef = match repl {
-                Either::A(callable) => callable.into_object(),
-                Either::B(s) => {
-                    if s.borrow_value().contains('\\') {
-                        // handle non-literal strings ; hand it over to the template compiler
-                        let re = vm.import("re", None, 0)?;
-                        let func = vm.get_attribute(re, "_subx")?;
-                        vm.invoke(&func, (zelf.clone(), s))?
-                    } else {
-                        s.into_object()
-                    }
+
+            let (is_callable, filter) = if vm.is_callable(&repl) {
+                (true, repl)
+            } else {
+                let is_template = zelf.with_str_drive::<_, _>(repl.clone(), vm, |str_drive| {
+                    Ok(match str_drive {
+                        StrDrive::Str(s) => s.contains('\\'),
+                        StrDrive::Bytes(b) => b.contains(&b'\\'),
+                    })
+                })?;
+                if is_template {
+                    let re = vm.import("re", None, 0)?;
+                    let func = vm.get_attribute(re, "_subx")?;
+                    let filter = vm.invoke(&func, (zelf.clone(), repl))?;
+                    (vm.is_callable(&filter), filter)
+                } else {
+                    (false, repl)
                 }
             };
 
@@ -461,7 +468,7 @@ mod _sre {
 
                     if !(last_pos == state.start && last_pos == state.string_position && n > 1) {
                         // the above ignores empty matches on latest position
-                        if vm.is_callable(&filter) {
+                        if is_callable {
                             let m = Match::new(&state, zelf.clone(), string.clone());
                             let ret = vm.invoke(&filter, (m.into_ref(vm),))?;
                             sublist.push(ret);
@@ -484,8 +491,13 @@ mod _sre {
                 sublist.push(state.string.slice_to_pyobject(last_pos, state.end, vm));
 
                 let list = PyList::from(sublist).into_object(vm);
-                let s = vm.ctx.new_str("");
-                let ret = vm.call_method(&s, "join", (list,))?;
+
+                let join_type = if zelf.isbytes {
+                    vm.ctx.new_bytes(vec![])
+                } else {
+                    vm.ctx.new_str("")
+                };
+                let ret = vm.call_method(&join_type, "join", (list,))?;
 
                 Ok(if subn {
                     (ret, n).into_pyobject(vm)
