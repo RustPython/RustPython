@@ -1329,28 +1329,30 @@ impl OpcodeExecutor for OpMinUntil {
 #[derive(Default)]
 struct OpBranch {
     jump_id: usize,
-    current_branch_length: usize,
+    branch_offset: usize,
 }
 impl OpcodeExecutor for OpBranch {
+    // alternation
+    // <BRANCH> <0=skip> code <JUMP> ... <NULL>
     fn next(&mut self, drive: &mut StackDrive) -> Option<()> {
         match self.jump_id {
             0 => {
                 drive.state.marks_push();
                 // jump out the head
-                self.current_branch_length = 1;
+                self.branch_offset = 1;
                 self.jump_id = 1;
                 self.next(drive)
             }
             1 => {
-                drive.skip_code(self.current_branch_length);
-                self.current_branch_length = drive.peek_code(0) as usize;
-                if self.current_branch_length == 0 {
+                let next_branch_length = drive.peek_code(self.branch_offset) as usize;
+                if next_branch_length == 0 {
                     drive.state.marks_pop_discard();
                     drive.ctx_mut().has_matched = Some(false);
                     return None;
                 }
                 drive.state.string_position = drive.ctx().string_position;
-                drive.push_new_context(1);
+                drive.push_new_context(self.branch_offset + 1);
+                self.branch_offset += next_branch_length;
                 self.jump_id = 2;
                 Some(())
             }
