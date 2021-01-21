@@ -181,15 +181,15 @@ impl<'a> StrDrive<'a> {
                 let bytes = s.as_bytes();
                 let back_offset = utf8_back_peek_offset(bytes, offset);
                 match offset - back_offset {
-                    1 => u32::from_ne_bytes([0, 0, 0, bytes[offset - 1]]),
-                    2 => u32::from_ne_bytes([0, 0, bytes[offset - 2], bytes[offset - 1]]),
-                    3 => u32::from_ne_bytes([
+                    1 => u32::from_be_bytes([0, 0, 0, bytes[offset - 1]]),
+                    2 => u32::from_be_bytes([0, 0, bytes[offset - 2], bytes[offset - 1]]),
+                    3 => u32::from_be_bytes([
                         0,
                         bytes[offset - 3],
                         bytes[offset - 2],
                         bytes[offset - 1],
                     ]),
-                    4 => u32::from_ne_bytes([
+                    4 => u32::from_be_bytes([
                         bytes[offset - 4],
                         bytes[offset - 3],
                         bytes[offset - 2],

@@ -292,8 +292,6 @@ class ReTests(unittest.TestCase):
         self.assertEqual(re.subn("b*", "x", "xyz", 2), ('xxxyz', 2))
         self.assertEqual(re.subn("b*", "x", "xyz", count=2), ('xxxyz', 2))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_re_split(self):
         for string in ":a:b::c", S(":a:b::c"):
             self.assertTypedEqual(re.split(":", string),
@@ -653,8 +651,6 @@ class ReTests(unittest.TestCase):
             p.groupindex['other'] = 0
         self.assertEqual(p.groupindex['other'], 2)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_special_escapes(self):
         self.assertEqual(re.search(r"\b(b.)\b",
                                    "abcd abc bcd bx").group(1), "bx")

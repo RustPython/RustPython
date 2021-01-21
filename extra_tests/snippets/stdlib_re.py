@@ -62,3 +62,5 @@ assert re.compile('a(b)(?P<a>c)d').match('abcd').groupdict() == {'a': 'c'}
 assert re.compile(r'((?=\d|\.\d)(?P<int>\d*)|a)').match('123.2132').group() == '123'
 
 assert re.sub(r'^\s*', 'X', 'test') == 'Xtest'
+
+assert re.match(r'\babc\b', 'abc').group() == 'abc'
