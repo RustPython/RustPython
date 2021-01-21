@@ -419,8 +419,6 @@ class ReTests(unittest.TestCase):
                          (None, 'b', None))
         self.assertEqual(pat.match('ac').group(1, 'b2', 3), ('a', None, 'c'))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_group(self):
         class Index:
             def __init__(self, value):

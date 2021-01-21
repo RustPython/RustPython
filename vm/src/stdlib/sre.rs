@@ -723,15 +723,15 @@ mod _sre {
         }
 
         fn get_index(&self, group: PyObjectRef, vm: &VirtualMachine) -> Option<usize> {
-            let i = match group.downcast::<PyInt>() {
-                Ok(i) => i,
-                Err(group) => self
-                    .pattern
+            let i = if let Ok(i) = vm.to_index(&group) {
+                i
+            } else {
+                self.pattern
                     .groupindex
                     .get_item_option(group, vm)
                     .ok()??
                     .downcast::<PyInt>()
-                    .ok()?,
+                    .ok()?
             };
             let i = i.borrow_value().to_isize()?;
             if i >= 0 && i as usize <= self.pattern.groups {
