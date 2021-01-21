@@ -274,7 +274,8 @@ trait MatchContextDrive {
         self.state().pattern_codes.len() - self.ctx().code_position
     }
     fn at_beginning(&self) -> bool {
-        self.ctx().string_position == self.state().start
+        // self.ctx().string_position == self.state().start
+        self.ctx().string_position == 0
     }
     fn at_end(&self) -> bool {
         self.ctx().string_position == self.state().end
