@@ -219,14 +219,23 @@ mod _sre {
             string_args: StringArgs,
             vm: &VirtualMachine,
         ) -> PyResult<Option<PyRef<Match>>> {
-            // TODO: need optimize
-            let m = Self::pymatch(zelf, string_args, vm)?;
-            if let Some(m) = m {
-                if m.regs[0].0 == m.pos as isize && m.regs[0].1 == m.endpos as isize {
-                    return Ok(Some(m));
-                }
-            }
-            Ok(None)
+            zelf.with_state(
+                string_args.string.clone(),
+                string_args.pos,
+                string_args.endpos,
+                vm,
+                |mut state| {
+                    state.match_all = true;
+                    state = state.pymatch();
+                    if state.has_matched != Some(true) {
+                        Ok(None)
+                    } else {
+                        Ok(Some(
+                            Match::new(&state, zelf.clone(), string_args.string).into_ref(vm),
+                        ))
+                    }
+                },
+            )
         }
 
         #[pymethod]

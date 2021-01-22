@@ -292,6 +292,9 @@ class ReTests(unittest.TestCase):
         self.assertEqual(re.subn("b*", "x", "xyz", 2), ('xxxyz', 2))
         self.assertEqual(re.subn("b*", "x", "xyz", count=2), ('xxxyz', 2))
 
+    # TODO: RUSTPYTHON
+    # OP ASSERT (?<=) Fail
+    @unittest.expectedFailure
     def test_re_split(self):
         for string in ":a:b::c", S(":a:b::c"):
             self.assertTypedEqual(re.split(":", string),

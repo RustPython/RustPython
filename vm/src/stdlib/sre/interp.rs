@@ -25,6 +25,7 @@ pub(crate) struct State<'a> {
     pub string_position: usize,
     popped_context: Option<MatchContext>,
     pub has_matched: Option<bool>,
+    pub match_all: bool,
 }
 
 impl<'a> State<'a> {
@@ -51,6 +52,7 @@ impl<'a> State<'a> {
             string_position: start,
             popped_context: None,
             has_matched: None,
+            match_all: false,
         }
     }
 
@@ -105,6 +107,7 @@ impl<'a> State<'a> {
             string_offset: self.string.offset(0, self.start),
             code_position: 0,
             has_matched: None,
+            toplevel: true,
         };
         self.context_stack.push(ctx);
 
@@ -132,6 +135,7 @@ impl<'a> State<'a> {
     pub fn search(mut self) -> Self {
         // TODO: optimize by op info and skip prefix
         while self.start <= self.end {
+            self.match_all = false;
             self = self.pymatch();
 
             if self.has_matched == Some(true) {
@@ -232,12 +236,13 @@ impl<'a> StrDrive<'a> {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone, Copy)]
 struct MatchContext {
     string_position: usize,
     string_offset: usize,
     code_position: usize,
     has_matched: Option<bool>,
+    toplevel: bool,
 }
 
 trait MatchContextDrive {
@@ -463,8 +468,12 @@ impl OpcodeDispatcher {
                 drive.ctx_mut().has_matched = Some(false);
             }),
             SreOpcode::SUCCESS => once(|drive| {
-                drive.state.string_position = drive.ctx().string_position;
-                drive.ctx_mut().has_matched = Some(true);
+                if drive.ctx().toplevel && drive.state.match_all && !drive.at_end() {
+                    drive.ctx_mut().has_matched = Some(false);
+                } else {
+                    drive.state.string_position = drive.ctx().string_position;
+                    drive.ctx_mut().has_matched = Some(true);
+                }
             }),
             SreOpcode::ANY => once(|drive| {
                 if drive.at_end() || drive.at_linebreak() {
@@ -482,15 +491,19 @@ impl OpcodeDispatcher {
                     drive.skip_char(1);
                 }
             }),
+            /* assert subpattern */
+            /* <ASSERT> <skip> <back> <pattern> */
             SreOpcode::ASSERT => twice(
                 |drive| {
                     let back = drive.peek_code(2) as usize;
-                    if back > drive.ctx().string_position {
+                    let passed = drive.ctx().string_position - drive.state.start;
+                    if passed < back {
                         drive.ctx_mut().has_matched = Some(false);
                         return;
                     }
                     drive.state.string_position = drive.ctx().string_position - back;
                     drive.push_new_context(3);
+                    drive.state.context_stack.last_mut().unwrap().toplevel = false;
                 },
                 |drive| {
                     let child_ctx = drive.state.popped_context.unwrap();
@@ -504,12 +517,14 @@ impl OpcodeDispatcher {
             SreOpcode::ASSERT_NOT => twice(
                 |drive| {
                     let back = drive.peek_code(2) as usize;
-                    if back > drive.ctx().string_position {
+                    let passed = drive.ctx().string_position - drive.state.start;
+                    if passed < back {
                         drive.skip_code(drive.peek_code(1) as usize + 1);
                         return;
                     }
                     drive.state.string_position = drive.ctx().string_position - back;
                     drive.push_new_context(3);
+                    drive.state.context_stack.last_mut().unwrap().toplevel = false;
                 },
                 |drive| {
                     let child_ctx = drive.state.popped_context.unwrap();
@@ -770,17 +785,17 @@ fn charset(set: &[u32], ch: u32) -> bool {
             }
             SreOpcode::CHARSET => {
                 /* <CHARSET> <bitmap> */
-                let set = &set[1..];
+                let set = &set[i + 1..];
                 if ch < 256 && ((set[(ch >> 5) as usize] & (1u32 << (ch & 31))) != 0) {
                     return ok;
                 }
-                i += 8;
+                i += 1 + 8;
             }
             SreOpcode::BIGCHARSET => {
                 /* <BIGCHARSET> <blockcount> <256 blockindices> <blocks> */
                 let count = set[i + 1] as usize;
                 if ch < 0x10000 {
-                    let set = &set[2..];
+                    let set = &set[i + 2..];
                     let block_index = ch >> 8;
                     let (_, blockindices, _) = unsafe { set.align_to::<u8>() };
                     let blocks = &set[64..];
@@ -1085,6 +1100,7 @@ struct OpMinRepeatOne {
     count: usize,
 }
 impl OpcodeExecutor for OpMinRepeatOne {
+    /* <MIN_REPEAT_ONE> <skip> <1=min> <2=max> item <SUCCESS> tail */
     fn next(&mut self, drive: &mut StackDrive) -> Option<()> {
         match self.jump_id {
             0 => {
@@ -1110,7 +1126,11 @@ impl OpcodeExecutor for OpMinRepeatOne {
                     count
                 };
 
-                if drive.peek_code(drive.peek_code(1) as usize + 1) == SreOpcode::SUCCESS as u32 {
+                let next_code = drive.peek_code(drive.peek_code(1) as usize + 1);
+                if next_code == SreOpcode::SUCCESS as u32
+                    && !(drive.ctx().toplevel && drive.state.match_all && !drive.at_end())
+                {
+                    // tail is empty.  we're finished
                     drive.state.string_position = drive.ctx().string_position;
                     drive.ctx_mut().has_matched = Some(true);
                     return None;
@@ -1377,9 +1397,18 @@ struct OpRepeatOne {
     jump_id: usize,
     mincount: usize,
     maxcount: usize,
-    count: isize,
+    count: usize,
+    following_literal: Option<u32>,
 }
 impl OpcodeExecutor for OpRepeatOne {
+    /* match repeated sequence (maximizing regexp) */
+
+    /* this operator only works if the repeated item is
+    exactly one character wide, and we're not already
+    collecting backtracking points.  for other cases,
+    use the MAX_REPEAT operator */
+
+    /* <REPEAT_ONE> <skip> <1=min> <2=max> item <SUCCESS> tail */
     fn next(&mut self, drive: &mut StackDrive) -> Option<()> {
         match self.jump_id {
             0 => {
@@ -1388,17 +1417,21 @@ impl OpcodeExecutor for OpRepeatOne {
 
                 if drive.remaining_chars() < self.mincount {
                     drive.ctx_mut().has_matched = Some(false);
+                    return None;
                 }
+
                 drive.state.string_position = drive.ctx().string_position;
-                self.count = count(drive, self.maxcount) as isize;
-                drive.skip_char(self.count as usize);
-                if self.count < self.mincount as isize {
+
+                self.count = count(drive, self.maxcount);
+                drive.skip_char(self.count);
+                if self.count < self.mincount {
                     drive.ctx_mut().has_matched = Some(false);
                     return None;
                 }
 
                 let next_code = drive.peek_code(drive.peek_code(1) as usize + 1);
-                if next_code == SreOpcode::SUCCESS as u32 {
+                if next_code == SreOpcode::SUCCESS as u32 && drive.at_end() && !drive.ctx().toplevel
+                {
                     // tail is empty.  we're finished
                     drive.state.string_position = drive.ctx().string_position;
                     drive.ctx_mut().has_matched = Some(true);
@@ -1406,24 +1439,34 @@ impl OpcodeExecutor for OpRepeatOne {
                 }
 
                 drive.state.marks_push();
-                // TODO:
+
                 // Special case: Tail starts with a literal. Skip positions where
                 // the rest of the pattern cannot possibly match.
+                if next_code == SreOpcode::LITERAL as u32 {
+                    self.following_literal = Some(drive.peek_code(drive.peek_code(1) as usize + 2))
+                }
+
                 self.jump_id = 1;
                 self.next(drive)
             }
             1 => {
-                // General case: backtracking
-                if self.count >= self.mincount as isize {
-                    drive.state.string_position = drive.ctx().string_position;
-                    drive.push_new_context(drive.peek_code(1) as usize + 1);
-                    self.jump_id = 2;
-                    return Some(());
+                if let Some(c) = self.following_literal {
+                    while drive.at_end() || drive.peek_char() != c {
+                        if self.count <= self.mincount {
+                            drive.state.marks_pop_discard();
+                            drive.ctx_mut().has_matched = Some(false);
+                            return None;
+                        }
+                        drive.back_skip_char(1);
+                        self.count -= 1;
+                    }
                 }
 
-                drive.state.marks_pop_discard();
-                drive.ctx_mut().has_matched = Some(false);
-                None
+                // General case: backtracking
+                drive.state.string_position = drive.ctx().string_position;
+                drive.push_new_context(drive.peek_code(1) as usize + 1);
+                self.jump_id = 2;
+                Some(())
             }
             2 => {
                 let child_ctx = drive.state.popped_context.unwrap();
@@ -1431,19 +1474,19 @@ impl OpcodeExecutor for OpRepeatOne {
                     drive.ctx_mut().has_matched = Some(true);
                     return None;
                 }
-                if self.count <= self.mincount as isize {
+                if self.count <= self.mincount {
                     drive.state.marks_pop_discard();
                     drive.ctx_mut().has_matched = Some(false);
                     return None;
                 }
 
-                // TODO: unnesscary double check
                 drive.back_skip_char(1);
                 self.count -= 1;
+
                 drive.state.marks_pop_keep();
 
                 self.jump_id = 1;
-                Some(())
+                self.next(drive)
             }
             _ => unreachable!(),
         }

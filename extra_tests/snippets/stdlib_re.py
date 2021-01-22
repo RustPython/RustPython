@@ -64,3 +64,7 @@ assert re.compile(r'((?=\d|\.\d)(?P<int>\d*)|a)').match('123.2132').group() == '
 assert re.sub(r'^\s*', 'X', 'test') == 'Xtest'
 
 assert re.match(r'\babc\b', 'abc').group() == 'abc'
+
+urlpattern = re.compile('//([^/#?]*)(.*)', re.DOTALL)
+url = '//www.example.org:80/foo/bar/baz.html'
+assert urlpattern.match(url).group(1) == 'www.example.org:80'
