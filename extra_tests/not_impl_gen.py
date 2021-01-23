@@ -6,6 +6,7 @@ import pkgutil
 import os
 import sys
 import warnings
+from pydoc import ModuleScanner
 
 sys.path = list(
     filter(
@@ -94,6 +95,27 @@ def gen_methods(header, footer, output):
     output.write("}\n\n")
     output.write(footer.read())
 
+
+def scan_modules():
+    """taken from the source code of help('modules')
+
+    https://github.com/python/cpython/blob/63298930fb531ba2bb4f23bc3b915dbf1e17e9e1/Lib/pydoc.py#L2178"""
+    modules = {}
+
+    def callback(path, modname, desc, modules=modules):
+        if modname and modname[-9:] == ".__init__":
+            modname = modname[:-9] + " (package)"
+        if modname.find(".") < 0:
+            modules[modname] = 1
+    def onerror(modname):
+        callback(None, modname, None)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")  # ignore warnings from importing deprecated modules
+        ModuleScanner().run(callback, onerror=onerror)
+    return list(modules.keys())
+
+
 def get_module_methods(name):
     with warnings.catch_warnings():
         # ignore warnings caused by importing deprecated modules
@@ -105,20 +127,13 @@ def get_module_methods(name):
         except Exception as e:
             print("!!! {} skipped because {}: {}".format(name, type(e).__name__, str(e)))
 
+
 def gen_modules(header, footer, output):
     output.write(header.read())
 
-    modules = dict(
-        map(
-            lambda mod: (
-                mod.name,
-                # check name b/c modules listed have side effects on import,
-                # e.g. printing something or opening a webpage
-                get_module_methods(mod.name)
-            ),
-            pkgutil.iter_modules(),
-        )
-    )
+    # check name because modules listed have side effects on import,
+    # e.g. printing something or opening a webpage
+    modules = {mod_name: get_module_methods(mod_name) for mod_name in scan_modules()}
 
     print(
         f"""
