@@ -9,7 +9,7 @@ def dir_of_mod_or_default(module, default=None):
 
 mod_names = [
     name.decode() for name, ext in map(os.path.splitext, os.listdir(libdir))
-    if ext == b'.py' or os.path.isdir(f'{libdir}/{name}')]
+    if ext == b'.py' or os.path.isdir(os.path.join(libdir, name))]
 mod_names += list(sys.builtin_module_names)
 
 not_imported = {'not imported'}
