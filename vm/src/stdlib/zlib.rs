@@ -34,6 +34,8 @@ mod decl {
     const MAX_WBITS: u8 = 15;
     #[pyattr]
     const DEF_BUF_SIZE: usize = 16 * 1024;
+    #[pyattr]
+    const DEF_MEM_LEVEL: u8 = 8;
 
     #[pyattr]
     fn error(vm: &VirtualMachine) -> PyTypeRef {
