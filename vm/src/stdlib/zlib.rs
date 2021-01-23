@@ -55,13 +55,14 @@ mod decl {
 
     /// Compute a CRC-32 checksum of data.
     #[pyfunction]
-    fn crc32(data: PyBytesRef, begin_state: OptionalArg<i32>) -> u32 {
-        let data = data.borrow_value();
-        let begin_state = begin_state.unwrap_or(0);
+    fn crc32(data: PyBytesLike, begin_state: OptionalArg<u32>) -> u32 {
+        data.with_ref(|data| {
+            let begin_state = begin_state.unwrap_or(0);
 
-        let mut hasher = Crc32::new_with_initial(begin_state as u32);
-        hasher.update(data);
-        hasher.finalize()
+            let mut hasher = Crc32::new_with_initial(begin_state);
+            hasher.update(data);
+            hasher.finalize()
+        })
     }
 
     /// Returns a bytes object containing compressed data.
@@ -340,7 +341,7 @@ mod decl {
         _method: OptionalArg<i32>,
         wbits: OptionalArg<i8>,
         // these aren't used.
-        _mem_level: OptionalArg<i32>,  // this is memLevel in CPython
+        _mem_level: OptionalArg<i32>, // this is memLevel in CPython
         _strategy: OptionalArg<i32>,
         _zdict: OptionalArg<PyBytesLike>,
         vm: &VirtualMachine,
