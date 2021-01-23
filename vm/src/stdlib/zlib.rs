@@ -389,12 +389,13 @@ mod decl {
             data.with_ref(|b| inner.compress(b, vm))
         }
 
+        // TODO: mode argument isn't used
         #[pymethod]
-        fn flush(&self, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        fn flush(&self, _mode: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
             self.inner.lock().flush(vm)
         }
 
-        // TODO: This is optional feature of Compress
+        // TODO: This is an optional feature of Compress
         // #[pymethod]
         // #[pymethod(magic)]
         // #[pymethod(name = "__deepcopy__")]
