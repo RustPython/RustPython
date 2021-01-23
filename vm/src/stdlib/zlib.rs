@@ -182,14 +182,10 @@ mod decl {
     }
 
     #[pyfunction]
-    fn decompressobj(
-        wbits: OptionalArg<i8>,
-        zdict: OptionalArg<PyBytesLike>,
-        vm: &VirtualMachine,
-    ) -> PyDecompress {
-        let (header, wbits) = header_from_wbits(wbits);
+    fn decompressobj(args: DecopmressobjArgs, vm: &VirtualMachine) -> PyDecompress {
+        let (header, wbits) = header_from_wbits(args.wbits);
         let mut decompress = Decompress::new_with_window_bits(header, wbits);
-        if let OptionalArg::Present(dict) = zdict {
+        if let OptionalArg::Present(dict) = args.zdict {
             dict.with_ref(|d| decompress.set_dictionary(d).unwrap());
         }
         PyDecompress {
@@ -329,12 +325,24 @@ mod decl {
         max_length: usize,
     }
 
+    #[derive(FromArgs)]
+    struct DecopmressobjArgs {
+        #[pyarg(any, optional)]
+        wbits: OptionalArg<i8>,
+        #[pyarg(any, optional)]
+        zdict: OptionalArg<PyBytesLike>,
+    }
+
     #[pyfunction]
     fn compressobj(
         level: OptionalArg<i32>,
         // only DEFLATED is valid right now, it's w/e
         _method: OptionalArg<i32>,
         wbits: OptionalArg<i8>,
+        // these aren't used.
+        _mem_level: OptionalArg<i32>,  // this is memLevel in CPython
+        _strategy: OptionalArg<i32>,
+        _zdict: OptionalArg<PyBytesLike>,
         vm: &VirtualMachine,
     ) -> PyResult<PyCompress> {
         let (header, wbits) = header_from_wbits(wbits);
