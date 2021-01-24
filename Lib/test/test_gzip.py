@@ -91,6 +91,7 @@ class TestGzip(BaseTest):
     # The following test_write_xy methods test that write accepts
     # the corresponding bytes-like object type as input
     # and that the data written equals bytes(xy) in all cases.
+    @unittest.skip("TODO: RUSTPYTHON (memoryview.cast doesn't support shape= arg)")
     def test_write_memoryview(self):
         self.write_and_read_back(memoryview(data1 * 50))
         m = memoryview(bytes(range(256)))
@@ -685,6 +686,7 @@ class TestOpen(BaseTest):
         with self.assertRaises(ValueError):
             gzip.open(self.filename, "rb", newline="\n")
 
+    @unittest.skip("TODO: RUSTPYTHON (io.TextIOWrapper doesn't support non-UTF8)")
     def test_encoding(self):
         # Test non-default encoding.
         uncompressed = data1.decode("ascii") * 50
@@ -697,6 +699,8 @@ class TestOpen(BaseTest):
         with gzip.open(self.filename, "rt", encoding="utf-16") as f:
             self.assertEqual(f.read(), uncompressed)
 
+
+    @unittest.skip("TODO: RUSTPYTHON (io.TextIOWrapper doesn't support errors= arg)")
     def test_encoding_error_handler(self):
         # Test with non-default encoding error handler.
         with gzip.open(self.filename, "wb") as f:
@@ -705,6 +709,7 @@ class TestOpen(BaseTest):
                 as f:
             self.assertEqual(f.read(), "foobar")
 
+    @unittest.skip("TODO: RUSTPYTHON (io.TextIOWrapper doesn't respect newline=)")
     def test_newline(self):
         # Test with explicit newline (universal newline mode disabled).
         uncompressed = data1.decode("ascii") * 50

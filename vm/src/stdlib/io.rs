@@ -1824,8 +1824,11 @@ mod _io {
     #[derive(Debug)]
     struct TextIOData {
         buffer: PyObjectRef,
+        // TODO: respect the encoding
         encoding: PyStrRef,
+        // TODO: respect errors setting
         errors: PyStrRef,
+        // TODO: respect newline
         newline: Option<PyStrRef>,
     }
     #[pyattr]
