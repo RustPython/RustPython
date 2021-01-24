@@ -1460,11 +1460,3 @@ impl<'s> AnyStr<'s> for str {
         splited
     }
 }
-
-impl TryFromObject for String {
-    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        Ok(PyStrRef::try_from_object(vm, obj)?
-            .borrow_value()
-            .to_owned())
-    }
-}

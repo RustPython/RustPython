@@ -130,7 +130,7 @@ mod _sre {
         pub code: Vec<u32>,
         pub groups: usize,
         pub groupindex: PyDictRef,
-        pub indexgroup: Vec<Option<String>>,
+        pub indexgroup: Vec<Option<PyStrRef>>,
         pub isbytes: bool,
     }
 
@@ -577,12 +577,10 @@ mod _sre {
             }
         }
         #[pyproperty]
-        fn lastgroup(&self) -> Option<String> {
-            if self.lastindex >= 0 && (self.lastindex as usize) < self.pattern.indexgroup.len() {
-                self.pattern.indexgroup[self.lastindex as usize].clone()
-            } else {
-                None
-            }
+        fn lastgroup(&self) -> Option<PyStrRef> {
+            self.lastindex
+                .to_usize()
+                .and_then(|i| self.pattern.indexgroup.get(i).cloned().flatten())
         }
         #[pyproperty]
         fn re(&self) -> PyObjectRef {
