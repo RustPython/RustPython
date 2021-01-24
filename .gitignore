@@ -9,7 +9,6 @@ __pycache__
 .vscode
 wasm-pack.log
 .idea/
-extra_tests/snippets/resources
 
 flame-graph.html
 flame.txt
@@ -17,3 +16,6 @@ flamescope.json
 /wapm.lock
 /wapm_packages
 /.cargo/config
+
+extra_tests/snippets/resources
+extra_tests/snippets/not_impl.py
