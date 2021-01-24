@@ -903,7 +903,7 @@ mod _io {
                         // raw file is non-blocking
                         if remaining > self.buffer.len() {
                             // can't buffer everything, buffer what we can and error
-                            let buf = rcbuf.obj_bytes();
+                            let buf = rcbuf.as_contiguous().unwrap();
                             let buffer_len = self.buffer.len();
                             self.buffer.copy_from_slice(&buf[written..][..buffer_len]);
                             self.raw_pos = 0;
@@ -926,7 +926,7 @@ mod _io {
                 self.reset_read();
             }
             if remaining > 0 {
-                let buf = rcbuf.obj_bytes();
+                let buf = rcbuf.as_contiguous().unwrap();
                 self.buffer[..remaining].copy_from_slice(&buf[written..][..remaining]);
                 written += remaining;
             }
@@ -1025,13 +1025,13 @@ mod _io {
                 0
             };
             let buf_end = self.buffer.len();
-            let res = self.raw_read(Either::A(None), start..buf_end, vm);
-            if let Ok(Some(n)) = &res {
-                let new_start = (start + *n) as Offset;
+            let res = self.raw_read(Either::A(None), start..buf_end, vm)?;
+            if let Some(n) = res.filter(|n| *n > 0) {
+                let new_start = (start + n) as Offset;
                 self.read_end = new_start;
                 self.raw_pos = new_start;
             }
-            res
+            Ok(res)
         }
 
         fn raw_read(
@@ -1094,7 +1094,7 @@ mod _io {
                     n, len
                 )));
             }
-            if self.abs_pos != -1 {
+            if n > 0 && self.abs_pos != -1 {
                 self.abs_pos += n as Offset
             }
             Ok(Some(n as usize))
@@ -1194,10 +1194,10 @@ mod _io {
             let n = self.readahead();
             let buf_len;
             {
-                let mut b = buf.obj_bytes_mut();
+                let mut b = buf.as_contiguous_mut().unwrap();
                 buf_len = b.len();
                 if n > 0 {
-                    if n as usize > b.len() {
+                    if n as usize >= b.len() {
                         b.copy_from_slice(&self.buffer[self.pos as usize..][..buf_len]);
                         self.pos += buf_len as Offset;
                         return Ok(Some(buf_len));
@@ -1224,7 +1224,7 @@ mod _io {
                     let n = self.fill_buffer(vm)?;
                     if let Some(n) = n.filter(|&n| n > 0) {
                         let n = std::cmp::min(n, remaining);
-                        rcbuf.obj_bytes_mut()[written..][..n]
+                        rcbuf.as_contiguous_mut().unwrap()[written..][..n]
                             .copy_from_slice(&self.buffer[self.pos as usize..][..n]);
                         self.pos += n as Offset;
                         written += n;
@@ -1233,7 +1233,7 @@ mod _io {
                     }
                     n
                 } else {
-                    Some(0)
+                    break;
                 };
                 let n = match n {
                     Some(0) => break,

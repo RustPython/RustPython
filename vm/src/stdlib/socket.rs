@@ -59,6 +59,7 @@ pub struct PySocket {
     kind: AtomicCell<i32>,
     family: AtomicCell<i32>,
     proto: AtomicCell<i32>,
+    timeout: AtomicCell<f64>,
     sock: PyRwLock<Socket>,
 }
 
@@ -86,6 +87,7 @@ impl PySocket {
             kind: AtomicCell::default(),
             family: AtomicCell::default(),
             proto: AtomicCell::default(),
+            timeout: AtomicCell::new(-1.0),
             sock: PyRwLock::new(invalid_sock()),
         }
         .into_ref_with_type(vm, cls)
@@ -128,11 +130,33 @@ impl PySocket {
         Ok(())
     }
 
+    fn sock_op<F, R>(&self, vm: &VirtualMachine, mut f: F) -> PyResult<R>
+    where
+        F: FnMut() -> io::Result<R>,
+    {
+        loop {
+            let err = loop {
+                // loop on interrupt
+                match f() {
+                    Ok(x) => return Ok(x),
+                    Err(e) if e.kind() == io::ErrorKind::Interrupted => vm.check_signals()?,
+                    Err(e) => break e,
+                }
+            };
+            if self.timeout.load() > 0.0 && err.kind() == io::ErrorKind::WouldBlock {
+                continue;
+            }
+            return Err(convert_sock_error(vm, err));
+        }
+    }
+
     #[pymethod]
     fn connect(&self, address: Address, vm: &VirtualMachine) -> PyResult<()> {
         let sock_addr = get_addr(vm, address, Some(self.family.load()))?;
-        let res = if let Some(duration) = self.sock().read_timeout().unwrap() {
-            self.sock().connect_timeout(&sock_addr, duration)
+        let timeout = self.timeout.load();
+        let res = if timeout > 0.0 {
+            let timeout = Duration::from_secs_f64(timeout);
+            self.sock().connect_timeout(&sock_addr, timeout)
         } else {
             self.sock().connect(&sock_addr)
         };
@@ -176,10 +200,8 @@ impl PySocket {
     ) -> PyResult<Vec<u8>> {
         let flags = flags.unwrap_or(0);
         let mut buffer = vec![0u8; bufsize];
-        let n = self
-            .sock()
-            .recv_with_flags(&mut buffer, flags)
-            .map_err(|err| convert_sock_error(vm, err))?;
+        let sock = self.sock();
+        let n = self.sock_op(vm, || sock.recv_with_flags(&mut buffer, flags))?;
         buffer.truncate(n);
         Ok(buffer)
     }
@@ -192,8 +214,8 @@ impl PySocket {
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
         let flags = flags.unwrap_or(0);
-        buf.with_ref(|buf| self.sock().recv_with_flags(buf, flags))
-            .map_err(|err| convert_sock_error(vm, err))
+        let sock = self.sock();
+        buf.with_ref(|buf| self.sock_op(vm, || sock.recv_with_flags(buf, flags)))
     }
 
     #[pymethod]
@@ -290,24 +312,29 @@ impl PySocket {
     }
 
     #[pymethod]
-    fn gettimeout(&self, vm: &VirtualMachine) -> PyResult<Option<f64>> {
-        let dur = self
-            .sock()
-            .read_timeout()
-            .map_err(|err| convert_sock_error(vm, err))?;
-        Ok(dur.map(|d| d.as_secs_f64()))
+    fn gettimeout(&self) -> Option<f64> {
+        let timeout = self.timeout.load();
+        if timeout >= 0.0 {
+            Some(timeout)
+        } else {
+            None
+        }
     }
 
     #[pymethod]
     fn setblocking(&self, block: bool, vm: &VirtualMachine) -> PyResult<()> {
-        self.sock()
-            .set_nonblocking(!block)
-            .map_err(|err| convert_sock_error(vm, err))
+        self.timeout.store(if block { -1.0 } else { 0.0 });
+        let timeout = if block {
+            Some(Duration::from_secs(0))
+        } else {
+            None
+        };
+        self.settimeout_sock(Some(block), timeout, vm)
     }
 
     #[pymethod]
-    fn getblocking(&self, vm: &VirtualMachine) -> PyResult<bool> {
-        Ok(self.gettimeout(vm)?.map_or(false, |t| t == 0.0))
+    fn getblocking(&self) -> bool {
+        self.timeout.load() != 0.0
     }
 
     #[pymethod]
@@ -315,11 +342,21 @@ impl PySocket {
         // timeout is None: blocking, no timeout
         // timeout is 0: non-blocking, no timeout
         // otherwise: timeout is timeout, don't change blocking
-        let (block, timeout) = match timeout {
-            None => (Some(true), None),
-            Some(d) if d == Duration::from_secs(0) => (Some(false), None),
-            Some(d) => (None, Some(d)),
+        let (block, timeout, f64_timeout) = match timeout {
+            None => (Some(true), None, -1.0),
+            Some(d) if d == Duration::from_secs(0) => (Some(false), None, 0.0),
+            Some(d) => (None, Some(d), d.as_secs_f64()),
         };
+        self.timeout.store(f64_timeout);
+        self.settimeout_sock(block, timeout, vm)
+    }
+
+    fn settimeout_sock(
+        &self,
+        block: Option<bool>,
+        timeout: Option<Duration>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         self.sock()
             .set_read_timeout(timeout)
             .map_err(|err| convert_sock_error(vm, err))?;
