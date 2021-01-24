@@ -85,7 +85,7 @@ macro_rules! repr_lock_impl {
             "unlocked"
         };
         format!(
-            "<{} {} object at {}>",
+            "<{} {} object at {:#x}>",
             status,
             $zelf.class().name,
             $zelf.get_id()
