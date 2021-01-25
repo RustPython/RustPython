@@ -61,13 +61,13 @@ impl PyWeak {
         let id = zelf.get_id();
         if let Some(o) = zelf.upgrade() {
             format!(
-                "<weakref at {}; to '{}' at {}>",
+                "<weakref at {:#x}; to '{}' at {:#x}>",
                 id,
                 o.class().name,
                 o.get_id(),
             )
         } else {
-            format!("<weakref at {}; dead>", id)
+            format!("<weakref at {:#x}; dead>", id)
         }
     }
 }
