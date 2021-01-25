@@ -13,15 +13,27 @@
 
 # update when constants are added or removed
 
-MAGIC = 20140917
+MAGIC = 20171005
 
-MAXGROUPS = 2 ** 31 - 1
-MAXREPEAT = 2 ** 32 - 1
+from _sre import MAXREPEAT, MAXGROUPS
 
 # SRE standard exception (access as sre.error)
 # should this really be here?
 
 class error(Exception):
+    """Exception raised for invalid regular expressions.
+
+    Attributes:
+
+        msg: The unformatted error message
+        pattern: The regular expression pattern
+        pos: The index in the pattern where compilation failed (may be None)
+        lineno: The line corresponding to pos (may be None)
+        colno: The column corresponding to pos (may be None)
+    """
+
+    __module__ = 're'
+
     def __init__(self, msg, pattern=None, pos=None):
         self.msg = msg
         self.pattern = pattern
@@ -47,10 +59,8 @@ class _NamedIntConstant(int):
         self.name = name
         return self
 
-    def __str__(self):
+    def __repr__(self):
         return self.name
-
-    __repr__ = __str__
 
 MAXREPEAT = _NamedIntConstant(MAXREPEAT, 'MAXREPEAT')
 
@@ -72,22 +82,37 @@ OPCODES = _makecodes("""
     CALL
     CATEGORY
     CHARSET BIGCHARSET
-    GROUPREF GROUPREF_EXISTS GROUPREF_IGNORE
-    IN IN_IGNORE
+    GROUPREF GROUPREF_EXISTS
+    IN
     INFO
     JUMP
-    LITERAL LITERAL_IGNORE
+    LITERAL
     MARK
     MAX_UNTIL
     MIN_UNTIL
-    NOT_LITERAL NOT_LITERAL_IGNORE
+    NOT_LITERAL
     NEGATE
     RANGE
     REPEAT
     REPEAT_ONE
     SUBPATTERN
     MIN_REPEAT_ONE
-    RANGE_IGNORE
+
+    GROUPREF_IGNORE
+    IN_IGNORE
+    LITERAL_IGNORE
+    NOT_LITERAL_IGNORE
+
+    GROUPREF_LOC_IGNORE
+    IN_LOC_IGNORE
+    LITERAL_LOC_IGNORE
+    NOT_LITERAL_LOC_IGNORE
+
+    GROUPREF_UNI_IGNORE
+    IN_UNI_IGNORE
+    LITERAL_UNI_IGNORE
+    NOT_LITERAL_UNI_IGNORE
+    RANGE_UNI_IGNORE
 
     MIN_REPEAT MAX_REPEAT
 """)
@@ -98,7 +123,9 @@ ATCODES = _makecodes("""
     AT_BEGINNING AT_BEGINNING_LINE AT_BEGINNING_STRING
     AT_BOUNDARY AT_NON_BOUNDARY
     AT_END AT_END_LINE AT_END_STRING
+
     AT_LOC_BOUNDARY AT_LOC_NON_BOUNDARY
+
     AT_UNI_BOUNDARY AT_UNI_NON_BOUNDARY
 """)
 
@@ -108,7 +135,9 @@ CHCODES = _makecodes("""
     CATEGORY_SPACE CATEGORY_NOT_SPACE
     CATEGORY_WORD CATEGORY_NOT_WORD
     CATEGORY_LINEBREAK CATEGORY_NOT_LINEBREAK
+
     CATEGORY_LOC_WORD CATEGORY_LOC_NOT_WORD
+
     CATEGORY_UNI_DIGIT CATEGORY_UNI_NOT_DIGIT
     CATEGORY_UNI_SPACE CATEGORY_UNI_NOT_SPACE
     CATEGORY_UNI_WORD CATEGORY_UNI_NOT_WORD
@@ -118,11 +147,18 @@ CHCODES = _makecodes("""
 
 # replacement operations for "ignore case" mode
 OP_IGNORE = {
-    GROUPREF: GROUPREF_IGNORE,
-    IN: IN_IGNORE,
     LITERAL: LITERAL_IGNORE,
     NOT_LITERAL: NOT_LITERAL_IGNORE,
-    RANGE: RANGE_IGNORE,
+}
+
+OP_LOCALE_IGNORE = {
+    LITERAL: LITERAL_LOC_IGNORE,
+    NOT_LITERAL: NOT_LITERAL_LOC_IGNORE,
+}
+
+OP_UNICODE_IGNORE = {
+    LITERAL: LITERAL_UNI_IGNORE,
+    NOT_LITERAL: NOT_LITERAL_UNI_IGNORE,
 }
 
 AT_MULTILINE = {
@@ -179,11 +215,22 @@ SRE_INFO_LITERAL = 2 # entire pattern is literal (given by prefix)
 SRE_INFO_CHARSET = 4 # pattern starts with character from given set
 
 if __name__ == "__main__":
-    def dump(f, d, prefix):
+    def dump(f, d, typ, int_t, prefix):
         items = sorted(d)
+        f.write(f"""\
+#[derive(num_enum::TryFromPrimitive, Debug)]
+#[repr({int_t})]
+#[allow(non_camel_case_types)]
+pub enum {typ} {{
+""")
         for item in items:
-            f.write("#define %s_%s %d\n" % (prefix, item, item))
-    with open("sre_constants.h", "w") as f:
+            name = str(item).removeprefix(prefix)
+            val = int(item)
+            f.write(f"    {name} = {val},\n")
+        f.write("""\
+}
+""")
+    with open("vm/src/stdlib/sre/constants.rs", "w") as f:
         f.write("""\
 /*
  * Secret Labs' Regular Expression Engine
@@ -200,24 +247,41 @@ if __name__ == "__main__":
 
 """)
 
-        f.write("#define SRE_MAGIC %d\n" % MAGIC)
+        f.write("use bitflags::bitflags;\n\n");
 
-        dump(f, OPCODES, "SRE_OP")
-        dump(f, ATCODES, "SRE")
-        dump(f, CHCODES, "SRE")
+        f.write("pub const SRE_MAGIC: usize = %d;\n" % MAGIC)
 
-        f.write("#define SRE_FLAG_TEMPLATE %d\n" % SRE_FLAG_TEMPLATE)
-        f.write("#define SRE_FLAG_IGNORECASE %d\n" % SRE_FLAG_IGNORECASE)
-        f.write("#define SRE_FLAG_LOCALE %d\n" % SRE_FLAG_LOCALE)
-        f.write("#define SRE_FLAG_MULTILINE %d\n" % SRE_FLAG_MULTILINE)
-        f.write("#define SRE_FLAG_DOTALL %d\n" % SRE_FLAG_DOTALL)
-        f.write("#define SRE_FLAG_UNICODE %d\n" % SRE_FLAG_UNICODE)
-        f.write("#define SRE_FLAG_VERBOSE %d\n" % SRE_FLAG_VERBOSE)
-        f.write("#define SRE_FLAG_DEBUG %d\n" % SRE_FLAG_DEBUG)
-        f.write("#define SRE_FLAG_ASCII %d\n" % SRE_FLAG_ASCII)
+        dump(f, OPCODES, "SreOpcode", "u32", "")
+        dump(f, ATCODES, "SreAtCode", "u32", "AT_")
+        dump(f, CHCODES, "SreCatCode", "u32", "CATEGORY_")
 
-        f.write("#define SRE_INFO_PREFIX %d\n" % SRE_INFO_PREFIX)
-        f.write("#define SRE_INFO_LITERAL %d\n" % SRE_INFO_LITERAL)
-        f.write("#define SRE_INFO_CHARSET %d\n" % SRE_INFO_CHARSET)
+        def bitflags(typ, int_t, prefix, flags):
+            f.write(f"""\
+bitflags! {{
+    pub struct {typ}: {int_t} {{
+""")
+            for name in flags:
+                val = globals()[prefix + name]
+                f.write(f"        const {name} = {val};\n")
+            f.write("""\
+    }
+}
+""")
+
+        bitflags("SreFlag", "u16", "SRE_FLAG_", [
+            "TEMPLATE",
+            "IGNORECASE",
+            "LOCALE",
+            "MULTILINE",
+            "DOTALL",
+            "UNICODE",
+            "VERBOSE",
+            "DEBUG",
+            "ASCII",
+        ])
+
+        bitflags("SreInfo", "u32", "SRE_INFO_", [
+            "PREFIX", "LITERAL", "CHARSET",
+        ])
 
     print("done")

@@ -1175,7 +1175,7 @@ pub fn bytes_to_hex(
     }
 }
 
-const fn is_py_ascii_whitespace(b: u8) -> bool {
+pub const fn is_py_ascii_whitespace(b: u8) -> bool {
     matches!(b, b'\t' | b'\n' | b'\x0C' | b'\r' | b' ' | b'\x0B')
 }
 

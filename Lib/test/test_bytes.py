@@ -1203,8 +1203,6 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         self.assertEqual(bb, b'abcd')
         self.assertEqual(b, b'abc')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_regexps(self):
         def by(s):
             return bytearray(map(ord, s))

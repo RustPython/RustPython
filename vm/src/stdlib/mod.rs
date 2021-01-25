@@ -29,6 +29,7 @@ mod re;
 mod serde_json;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod socket;
+mod sre;
 mod string;
 #[cfg(feature = "rustpython-compiler")]
 mod symtable;
@@ -94,6 +95,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc, ahash::RandomState>
         "regex_crate".to_owned() => Box::new(re::make_module),
         "_random".to_owned() => Box::new(random::make_module),
         "_serde_json".to_owned() => Box::new(serde_json::make_module),
+        "_sre".to_owned() => Box::new(sre::make_module),
         "_string".to_owned() => Box::new(string::make_module),
         "_struct".to_owned() => Box::new(pystruct::make_module),
         "time".to_owned() => Box::new(time_module::make_module),

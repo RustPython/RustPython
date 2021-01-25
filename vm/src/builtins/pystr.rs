@@ -285,6 +285,9 @@ impl PyStr {
             len
         })
     }
+    pub fn char_len(&self) -> usize {
+        self.len()
+    }
 
     #[pymethod(name = "__sizeof__")]
     fn sizeof(&self) -> usize {
