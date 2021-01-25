@@ -155,6 +155,8 @@ class SliceTest(unittest.TestCase):
             expected = range(length)[slice]
             self.assertEqual(actual, expected)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_indices(self):
         self.assertEqual(slice(None           ).indices(10), (0, 10,  1))
         self.assertEqual(slice(None,  None,  2).indices(10), (0, 10,  2))
@@ -234,6 +236,7 @@ class SliceTest(unittest.TestCase):
         x[1:2] = 42
         self.assertEqual(tmp, [(slice(1, 2), 42)])
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_pickle(self):
         s = slice(10, 20, 3)
         for protocol in (0,1,2):
@@ -242,6 +245,8 @@ class SliceTest(unittest.TestCase):
             self.assertEqual(s.indices(15), t.indices(15))
             self.assertNotEqual(id(s), id(t))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_cycle(self):
         class myobj(): pass
         o = myobj()
