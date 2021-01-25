@@ -15,7 +15,10 @@ flame-it = ["flame", "flamer"]
 freeze-stdlib = ["rustpython-pylib"]
 jit = ["rustpython-jit"]
 threading = ["rustpython-common/threading"]
-compile-parse = ["rustpython-parser", "rustpython-compiler"]
+compile-parse = ["parser", "compiler"]
+ast = ["rustpython-ast"]
+compiler = ["rustpython-compiler", "rustpython-compiler-core", "ast"]
+parser = ["rustpython-parser", "ast"]
 
 ssl = ["openssl", "openssl-sys", "openssl-probe"]
 
@@ -40,8 +43,10 @@ getrandom = { version = "0.2", features = ["js"] }
 mt19937 = "2.0"
 log = "0.4"
 rustpython-derive = { path = "../derive", version = "0.1.2" }
+rustpython-ast = { path = "../ast", optional = true, version = "0.1" }
 rustpython-parser = { path = "../parser", optional = true, version = "0.1.2" }
 rustpython-compiler = { path = "../compiler/porcelain", optional = true, version = "0.1.2" }
+rustpython-compiler-core = { path = "../compiler", optional = true, version = "0.1.2" }
 rustpython-bytecode = { path = "../bytecode", version = "0.1.2" }
 rustpython-jit = { path = "../jit", optional = true, version = "0.1.2" }
 rustpython-pylib = { path = "pylib-crate", optional = true, version = "0.1.0" }

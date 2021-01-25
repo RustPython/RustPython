@@ -75,18 +75,7 @@ pub fn get_next_object(
 
 /* Retrieve all elements from an iterator */
 pub fn get_all<T: TryFromObject>(vm: &VirtualMachine, iter_obj: &PyObjectRef) -> PyResult<Vec<T>> {
-    let cap = length_hint(vm, iter_obj.clone())?.unwrap_or(0);
-    // TODO: fix extend to do this check (?), see test_extend in Lib/test/list_tests.py,
-    // https://github.com/python/cpython/blob/master/Objects/listobject.c#L934-L940
-    if cap >= isize::max_value() as usize {
-        return Ok(Vec::new());
-    }
-    let mut elements = Vec::with_capacity(cap);
-    while let Some(element) = get_next_object(vm, iter_obj)? {
-        elements.push(T::try_from_object(vm, element)?);
-    }
-    elements.shrink_to_fit();
-    Ok(elements)
+    try_map(vm, iter_obj, |obj| T::try_from_object(vm, obj))
 }
 
 pub fn try_map<F, R>(vm: &VirtualMachine, iter_obj: &PyObjectRef, mut f: F) -> PyResult<Vec<R>>

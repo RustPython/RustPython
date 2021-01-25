@@ -17,8 +17,6 @@ pub enum CompileErrorType {
     Assign(&'static str),
     /// Invalid delete
     Delete(&'static str),
-    /// Expected an expression got a statement
-    ExpectExpr,
     SyntaxError(String),
     /// Multiple `*` detected
     MultipleStarArgs,
@@ -45,7 +43,6 @@ impl fmt::Display for CompileErrorType {
         match self {
             CompileErrorType::Assign(target) => write!(f, "can't assign to {}", target),
             CompileErrorType::Delete(target) => write!(f, "can't delete {}", target),
-            CompileErrorType::ExpectExpr => write!(f, "Expecting expression, got statement"),
             CompileErrorType::SyntaxError(err) => write!(f, "{}", err.as_str()),
             CompileErrorType::MultipleStarArgs => {
                 write!(f, "two starred expressions in assignment")

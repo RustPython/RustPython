@@ -292,15 +292,14 @@ dependencies = [
 
 [[package]]
 name = "console"
-version = "0.12.0"
+version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c0b1aacfaffdbff75be81c15a399b4bedf78aaefe840e8af1d299ac2ade885d2"
+checksum = "7cc80946b3480f421c2f17ed1cb841753a371c7c5104f51d507e13f532c856aa"
 dependencies = [
  "encode_unicode",
  "lazy_static 1.4.0",
  "libc",
  "terminal_size",
- "termios",
  "winapi",
 ]
 
@@ -919,9 +918,9 @@ dependencies = [
 
 [[package]]
 name = "insta"
-version = "1.3.0"
+version = "1.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "863bf97e7130bf788f29a99bc4073735af6b8ecc3da6a39c23b3a688d2d3109a"
+checksum = "bca6f2bcc5e2ce13f3652ecd05a643b986d035add3f0c38fbabd78f723b5f7e9"
 dependencies = [
  "console",
  "difference",
@@ -929,6 +928,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "uuid",
 ]
 
 [[package]]
@@ -1923,6 +1923,7 @@ name = "rustpython-parser"
 version = "0.1.2"
 dependencies = [
  "ahash",
+ "insta",
  "lalrpop",
  "lalrpop-util",
  "log",
@@ -2002,9 +2003,11 @@ dependencies = [
  "regex",
  "result-like",
  "rustc_version_runtime",
+ "rustpython-ast",
  "rustpython-bytecode",
  "rustpython-common",
  "rustpython-compiler",
+ "rustpython-compiler-core",
  "rustpython-derive",
  "rustpython-jit",
  "rustpython-parser",
@@ -2329,15 +2332,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "termios"
-version = "0.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "411c5bf740737c7918b8b1fe232dca4dc9f8e754b8ad5e20966814001ed0ac6b"
-dependencies = [
- "libc",
-]
-
-[[package]]
 name = "textwrap"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2640,6 +2634,12 @@ dependencies = [
  "libc",
  "winapi",
 ]
+
+[[package]]
+name = "uuid"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9fde2f6a4bea1d6e007c4ad38c6839fa71cbb63b6dbf5b595aa38dc9b1093c11"
 
 [[package]]
 name = "vcpkg"

@@ -1,0 +1,69 @@
+---
+source: parser/src/fstring.rs
+expression: parse_ast
+---
+Located {
+    location: Location {
+        row: 0,
+        column: 0,
+    },
+    custom: (),
+    node: FormattedValue {
+        value: Located {
+            location: Location {
+                row: 1,
+                column: 4,
+            },
+            custom: (),
+            node: Compare {
+                left: Located {
+                    location: Location {
+                        row: 1,
+                        column: 2,
+                    },
+                    custom: (),
+                    node: Constant {
+                        value: Int(
+                            BigInt {
+                                sign: Plus,
+                                data: BigUint {
+                                    data: [
+                                        1,
+                                    ],
+                                },
+                            },
+                        ),
+                        kind: None,
+                    },
+                },
+                ops: [
+                    NotEq,
+                ],
+                comparators: [
+                    Located {
+                        location: Location {
+                            row: 1,
+                            column: 7,
+                        },
+                        custom: (),
+                        node: Constant {
+                            value: Int(
+                                BigInt {
+                                    sign: Plus,
+                                    data: BigUint {
+                                        data: [
+                                            2,
+                                        ],
+                                    },
+                                },
+                            ),
+                            kind: None,
+                        },
+                    },
+                ],
+            },
+        },
+        conversion: None,
+        format_spec: None,
+    },
+}
