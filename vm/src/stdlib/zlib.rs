@@ -89,12 +89,16 @@ mod decl {
         Ok(vm.ctx.new_bytes(encoded_bytes))
     }
 
-    fn header_from_wbits(wbits: OptionalArg<i8>, vm: &VirtualMachine) -> PyResult<(bool, u8)> {
+    fn header_from_wbits(
+        wbits: OptionalArg<i8>,
+        vm: &VirtualMachine,
+    ) -> PyResult<(Option<bool>, u8)> {
         let wbits = wbits.unwrap_or(MAX_WBITS as i8);
         let header = wbits > 0;
         let wbits = wbits.abs() as u8;
         match wbits {
-            9..=15 => Ok((header, wbits)),
+            9..=15 => Ok((Some(header), wbits)),
+            25..=31 => Ok((None, wbits - 16)),
             _ => Err(vm.new_value_error("Invalid initialization option".to_owned())),
         }
     }
@@ -179,7 +183,10 @@ mod decl {
             let (header, wbits) = header_from_wbits(wbits, vm)?;
             let bufsize = bufsize.unwrap_or(DEF_BUF_SIZE);
 
-            let mut d = Decompress::new_with_window_bits(header, wbits);
+            let mut d = match header {
+                Some(header) => Decompress::new_with_window_bits(header, wbits),
+                None => Decompress::new_gzip(wbits),
+            };
             _decompress(data, &mut d, bufsize, None, vm).and_then(|(buf, stream_end)| {
                 if stream_end {
                     Ok(buf)
@@ -193,7 +200,10 @@ mod decl {
     #[pyfunction]
     fn decompressobj(args: DecopmressobjArgs, vm: &VirtualMachine) -> PyResult<PyDecompress> {
         let (header, wbits) = header_from_wbits(args.wbits, vm)?;
-        let mut decompress = Decompress::new_with_window_bits(header, wbits);
+        let mut decompress = match header {
+            Some(header) => Decompress::new_with_window_bits(header, wbits),
+            None => Decompress::new_gzip(wbits),
+        };
         if let OptionalArg::Present(dict) = args.zdict {
             dict.with_ref(|d| decompress.set_dictionary(d).unwrap());
         }
@@ -362,7 +372,11 @@ mod decl {
             n @ 0..=9 => n as u32,
             _ => return Err(vm.new_value_error("invalid initialization option".to_owned())),
         };
-        let compress = Compress::new_with_window_bits(Compression::new(level), header, wbits);
+        let level = Compression::new(level);
+        let compress = match header {
+            Some(header) => Compress::new_with_window_bits(level, header, wbits),
+            None => Compress::new_gzip(level, wbits),
+        };
         Ok(PyCompress {
             inner: PyMutex::new(CompressInner {
                 compress,
