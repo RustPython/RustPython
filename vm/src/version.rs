@@ -7,7 +7,7 @@ use chrono::Local;
 use std::time::{Duration, UNIX_EPOCH};
 
 const MAJOR: usize = 3;
-const MINOR: usize = 5;
+const MINOR: usize = 9;
 const MICRO: usize = 0;
 const RELEASELEVEL: &str = "alpha";
 const RELEASELEVEL_N: usize = 0xA;
