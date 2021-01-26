@@ -283,8 +283,6 @@ class AbstractMemoryTests:
         self.assertNotEqual(m, memoryview(tp(self._source)))
         self.assertNotEqual(m, tp(self._source))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_contextmanager(self):
         for tp in self._types:
             b = tp(self._source)
