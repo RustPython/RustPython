@@ -128,6 +128,23 @@ impl_try_from_object_int!(
     (u64, to_u64),
 );
 
+// _PyLong_AsUnsignedLongMask
+pub fn bigint_unsigned_mask(v: &BigInt) -> u32 {
+    v.to_u32()
+        .or_else(|| v.to_i32().map(|i| i as u32))
+        .unwrap_or_else(|| {
+            let (sign, digits) = v.to_u32_digits();
+            let mut out = 0u32;
+            for digit in digits {
+                out = out.wrapping_shl(32) | digit;
+            }
+            match sign {
+                num_bigint::Sign::Minus => out * -1i32 as u32,
+                _ => out,
+            }
+        })
+}
+
 fn inner_pow(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
     if int2.is_negative() {
         let v1 = to_float(int1, vm)?;

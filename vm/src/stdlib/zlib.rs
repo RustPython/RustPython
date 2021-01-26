@@ -3,6 +3,7 @@ pub(crate) use decl::make_module;
 #[pymodule(name = "zlib")]
 mod decl {
     use crate::builtins::bytes::{PyBytes, PyBytesRef};
+    use crate::builtins::int::{self, PyIntRef};
     use crate::builtins::pytype::PyTypeRef;
     use crate::byteslike::PyBytesLike;
     use crate::common::lock::PyMutex;
@@ -44,20 +45,23 @@ mod decl {
 
     /// Compute an Adler-32 checksum of data.
     #[pyfunction]
-    fn adler32(data: PyBytesRef, begin_state: OptionalArg<i32>) -> u32 {
-        let data = data.borrow_value();
-        let begin_state = begin_state.unwrap_or(1);
+    fn adler32(data: PyBytesLike, begin_state: OptionalArg<PyIntRef>) -> u32 {
+        data.with_ref(|data| {
+            let begin_state =
+                begin_state.map_or(1, |i| int::bigint_unsigned_mask(i.borrow_value()));
 
-        let mut hasher = Adler32::from_value(begin_state as u32);
-        hasher.update_buffer(data);
-        hasher.hash()
+            let mut hasher = Adler32::from_value(begin_state);
+            hasher.update_buffer(data);
+            hasher.hash()
+        })
     }
 
     /// Compute a CRC-32 checksum of data.
     #[pyfunction]
-    fn crc32(data: PyBytesLike, begin_state: OptionalArg<u32>) -> u32 {
+    fn crc32(data: PyBytesLike, begin_state: OptionalArg<PyIntRef>) -> u32 {
         data.with_ref(|data| {
-            let begin_state = begin_state.unwrap_or(0);
+            let begin_state =
+                begin_state.map_or(0, |i| int::bigint_unsigned_mask(i.borrow_value()));
 
             let mut hasher = Crc32::new_with_initial(begin_state);
             hasher.update(data);
