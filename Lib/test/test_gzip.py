@@ -644,6 +644,7 @@ class TestOpen(BaseTest):
             file_data = gzip.decompress(f.read())
             self.assertEqual(file_data, uncompressed)
 
+    @unittest.skipIf(sys.platform == 'win32', "TODO: RUSTPYTHON, windows text mode")
     def test_text_modes(self):
         uncompressed = data1.decode("ascii") * 50
         uncompressed_raw = uncompressed.replace("\n", os.linesep)
