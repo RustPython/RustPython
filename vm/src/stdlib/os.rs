@@ -3,10 +3,11 @@ use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::{self, ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 use std::{env, fs};
 
 use crossbeam_utils::atomic::AtomicCell;
+use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 
 use super::errno::errors;
@@ -590,7 +591,6 @@ mod _os {
             self.mode.process_path(self.entry.path(), vm)
         }
 
-        #[allow(clippy::match_bool)]
         fn perform_on_metadata(
             &self,
             follow_symlinks: FollowSymlinks,
@@ -645,6 +645,11 @@ mod _os {
                 follow_symlinks,
                 vm,
             )
+        }
+
+        #[pymethod(magic)]
+        fn fspath(&self, vm: &VirtualMachine) -> PyResult {
+            self.path(vm)
         }
     }
 
@@ -735,6 +740,9 @@ mod _os {
         pub st_atime: f64,
         pub st_mtime: f64,
         pub st_ctime: f64,
+        pub st_atime_ns: BigInt,
+        pub st_mtime_ns: BigInt,
+        pub st_ctime_ns: BigInt,
     }
 
     #[pyimpl(with(PyStructSequence))]
@@ -1090,15 +1098,17 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 }
 pub(crate) use _os::open;
 
-// Copied code from Duration::as_secs_f64 as it's still unstable
-fn duration_as_secs_f64(duration: Duration) -> f64 {
-    (duration.as_secs() as f64) + f64::from(duration.subsec_nanos()) / 1_000_000_000_f64
-}
-
 fn to_seconds_from_unix_epoch(sys_time: SystemTime) -> f64 {
     match sys_time.duration_since(SystemTime::UNIX_EPOCH) {
-        Ok(duration) => duration_as_secs_f64(duration),
-        Err(err) => -duration_as_secs_f64(err.duration()),
+        Ok(duration) => duration.as_secs_f64(),
+        Err(err) => -err.duration().as_secs_f64(),
+    }
+}
+
+fn to_nanoseconds_epoch(sys_time: SystemTime) -> BigInt {
+    match sys_time.duration_since(SystemTime::UNIX_EPOCH) {
+        Ok(duration) => BigInt::from(duration.as_nanos()),
+        Err(err) => -BigInt::from(err.duration().as_nanos()),
     }
 }
 
@@ -1334,11 +1344,6 @@ mod posix {
         environ
     }
 
-    fn to_seconds_from_nanos(secs: i64, nanos: i64) -> f64 {
-        let duration = Duration::new(secs as u64, nanos as u32);
-        duration_as_secs_f64(duration)
-    }
-
     #[pyfunction]
     pub(super) fn stat(
         file: Either<PyPathLike, i64>,
@@ -1372,6 +1377,18 @@ mod posix {
         let get_stats = move || -> io::Result<PyObjectRef> {
             let meta = meta?;
 
+            let accessed = meta.accessed()?;
+            let modified = meta.modified()?;
+            // TODO: figure out a better way to do this, SystemTime is just a wrapper over timespec
+            let changed = {
+                let (ctime, ctime_ns) = (meta.st_ctime(), meta.st_ctime_nsec());
+                let dur = std::time::Duration::new(ctime.abs() as _, ctime_ns as _);
+                if ctime < 0 {
+                    SystemTime::UNIX_EPOCH - dur
+                } else {
+                    SystemTime::UNIX_EPOCH + dur
+                }
+            };
             Ok(super::_os::StatResult {
                 st_mode: meta.st_mode(),
                 st_ino: meta.st_ino(),
@@ -1380,9 +1397,12 @@ mod posix {
                 st_uid: meta.st_uid(),
                 st_gid: meta.st_gid(),
                 st_size: meta.st_size(),
-                st_atime: to_seconds_from_unix_epoch(meta.accessed()?),
-                st_mtime: to_seconds_from_unix_epoch(meta.modified()?),
-                st_ctime: to_seconds_from_nanos(meta.st_ctime(), meta.st_ctime_nsec()),
+                st_atime: to_seconds_from_unix_epoch(accessed),
+                st_mtime: to_seconds_from_unix_epoch(modified),
+                st_ctime: to_seconds_from_unix_epoch(changed),
+                st_atime_ns: to_nanoseconds_epoch(accessed),
+                st_mtime_ns: to_nanoseconds_epoch(modified),
+                st_ctime_ns: to_nanoseconds_epoch(changed),
             }
             .into_obj(vm))
         };
@@ -2452,6 +2472,9 @@ mod nt {
                 }
             };
 
+            let accessed = meta.accessed()?;
+            let modified = meta.modified()?;
+            let created = meta.created()?;
             Ok(super::_os::StatResult {
                 st_mode: attributes_to_mode(meta.file_attributes()),
                 st_ino: 0,   // TODO: Not implemented in std::os::windows::fs::MetadataExt.
@@ -2460,9 +2483,12 @@ mod nt {
                 st_uid: 0,   // 0 on windows
                 st_gid: 0,   // 0 on windows
                 st_size: meta.file_size(),
-                st_atime: to_seconds_from_unix_epoch(meta.accessed()?),
-                st_mtime: to_seconds_from_unix_epoch(meta.modified()?),
-                st_ctime: to_seconds_from_unix_epoch(meta.created()?),
+                st_atime: to_seconds_from_unix_epoch(accessed),
+                st_mtime: to_seconds_from_unix_epoch(modified),
+                st_ctime: to_seconds_from_unix_epoch(created),
+                st_atime_ns: to_nanoseconds_epoch(accessed),
+                st_mtime_ns: to_nanoseconds_epoch(modified),
+                st_ctime_ns: to_nanoseconds_epoch(created),
             }
             .into_obj(vm))
         };
