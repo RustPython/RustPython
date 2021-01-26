@@ -465,7 +465,11 @@ impl PyInt {
                                     None
                                 }
                             }
-                            let a = inverse(a % modulus, modulus).unwrap();
+                            let a = inverse(a % modulus, modulus).ok_or_else(|| {
+                                vm.new_value_error(
+                                    "base is not invertible for the given modulus".to_owned(),
+                                )
+                            })?;
                             let b = -b;
                             a.modpow(&b, modulus)
                         } else {
