@@ -31,8 +31,6 @@ class VersionTestCase(unittest.TestCase):
 
 
 class ChecksumTestCase(unittest.TestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     # checksum test cases
     def test_crc32start(self):
         self.assertEqual(zlib.crc32(b""), zlib.crc32(b"", 0))
@@ -43,8 +41,6 @@ class ChecksumTestCase(unittest.TestCase):
         self.assertEqual(zlib.crc32(b"", 1), 1)
         self.assertEqual(zlib.crc32(b"", 432), 432)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_adler32start(self):
         self.assertEqual(zlib.adler32(b""), zlib.adler32(b"", 1))
         self.assertTrue(zlib.adler32(b"abc", 0xffffffff))
@@ -284,8 +280,6 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         y = do.decompress(x, max_length=len(HAMLET_SCENE)) + do.flush()
         self.assertEqual(HAMLET_SCENE, y)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_compressoptions(self):
         # specify lots of options to compressobj()
         level = 2
@@ -491,6 +485,7 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
                                         "mode=%i, level=%i") % (sync, level))
                 del obj
 
+    @unittest.skip("TODO: RUSTPYTHON, panics")
     @unittest.skipUnless(hasattr(zlib, 'Z_SYNC_FLUSH'),
                          'requires zlib.Z_SYNC_FLUSH')
     def test_odd_flush(self):

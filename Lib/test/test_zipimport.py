@@ -228,8 +228,6 @@ class UncompressedZipImportTestCase(ImportHooksBaseTestCase):
         files = {TESTMOD + ".py": (NOW, "")}
         self.doTest(None, files, TESTMOD)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testBadMagic(self):
         # make pyc magic word invalid, forcing loading from .py
         badmagic_pyc = bytearray(test_pyc)
@@ -238,8 +236,6 @@ class UncompressedZipImportTestCase(ImportHooksBaseTestCase):
                  TESTMOD + pyc_ext: (NOW, badmagic_pyc)}
         self.doTest(".py", files, TESTMOD)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testBadMagic2(self):
         # make pyc magic word invalid, causing an ImportError
         badmagic_pyc = bytearray(test_pyc)
@@ -252,8 +248,6 @@ class UncompressedZipImportTestCase(ImportHooksBaseTestCase):
         else:
             self.fail("expected ImportError; import from bad pyc")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testBadMTime(self):
         badtime_pyc = bytearray(test_pyc)
         # flip the second bit -- not the first as that one isn't stored in the

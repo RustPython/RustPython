@@ -10,7 +10,7 @@ use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
 use crate::common::hash::PyHash;
 use crate::common::lock::OnceCell;
 use crate::common::rc::PyRc;
-use crate::function::OptionalArg;
+use crate::function::{FuncArgs, OptionalArg};
 use crate::pyobject::{
     Either, IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef,
     PyRef, PyResult, PyThreadingConstraint, PyValue, TypeProtocol,
@@ -322,7 +322,7 @@ impl PyMemoryView {
     }
 
     #[pymethod(magic)]
-    fn exit(&self) {
+    fn exit(&self, _args: FuncArgs) {
         self.release();
     }
 

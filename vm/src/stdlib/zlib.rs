@@ -3,6 +3,7 @@ pub(crate) use decl::make_module;
 #[pymodule(name = "zlib")]
 mod decl {
     use crate::builtins::bytes::{PyBytes, PyBytesRef};
+    use crate::builtins::int::{self, PyIntRef};
     use crate::builtins::pytype::PyTypeRef;
     use crate::byteslike::PyBytesLike;
     use crate::common::lock::PyMutex;
@@ -24,8 +25,9 @@ mod decl {
 
     #[pyattr]
     use libz::{
-        Z_BEST_COMPRESSION, Z_BEST_SPEED, Z_DEFAULT_COMPRESSION, Z_DEFLATED as DEFLATED,
-        Z_NO_COMPRESSION,
+        Z_BEST_COMPRESSION, Z_BEST_SPEED, Z_BLOCK, Z_DEFAULT_COMPRESSION, Z_DEFAULT_STRATEGY,
+        Z_DEFLATED as DEFLATED, Z_FILTERED, Z_FINISH, Z_FIXED, Z_FULL_FLUSH, Z_HUFFMAN_ONLY,
+        Z_NO_COMPRESSION, Z_NO_FLUSH, Z_PARTIAL_FLUSH, Z_RLE, Z_SYNC_FLUSH, Z_TREES,
     };
 
     // copied from zlibmodule.c (commit 530f506ac91338)
@@ -33,6 +35,8 @@ mod decl {
     const MAX_WBITS: u8 = 15;
     #[pyattr]
     const DEF_BUF_SIZE: usize = 16 * 1024;
+    #[pyattr]
+    const DEF_MEM_LEVEL: u8 = 8;
 
     #[pyattr]
     fn error(vm: &VirtualMachine) -> PyTypeRef {
@@ -41,24 +45,28 @@ mod decl {
 
     /// Compute an Adler-32 checksum of data.
     #[pyfunction]
-    fn adler32(data: PyBytesRef, begin_state: OptionalArg<i32>) -> u32 {
-        let data = data.borrow_value();
-        let begin_state = begin_state.unwrap_or(1);
+    fn adler32(data: PyBytesLike, begin_state: OptionalArg<PyIntRef>) -> u32 {
+        data.with_ref(|data| {
+            let begin_state =
+                begin_state.map_or(1, |i| int::bigint_unsigned_mask(i.borrow_value()));
 
-        let mut hasher = Adler32::from_value(begin_state as u32);
-        hasher.update_buffer(data);
-        hasher.hash()
+            let mut hasher = Adler32::from_value(begin_state);
+            hasher.update_buffer(data);
+            hasher.hash()
+        })
     }
 
     /// Compute a CRC-32 checksum of data.
     #[pyfunction]
-    fn crc32(data: PyBytesRef, begin_state: OptionalArg<i32>) -> u32 {
-        let data = data.borrow_value();
-        let begin_state = begin_state.unwrap_or(0);
+    fn crc32(data: PyBytesLike, begin_state: OptionalArg<PyIntRef>) -> u32 {
+        data.with_ref(|data| {
+            let begin_state =
+                begin_state.map_or(0, |i| int::bigint_unsigned_mask(i.borrow_value()));
 
-        let mut hasher = Crc32::new_with_initial(begin_state as u32);
-        hasher.update(data);
-        hasher.finalize()
+            let mut hasher = Crc32::new_with_initial(begin_state);
+            hasher.update(data);
+            hasher.finalize()
+        })
     }
 
     /// Returns a bytes object containing compressed data.
@@ -179,14 +187,10 @@ mod decl {
     }
 
     #[pyfunction]
-    fn decompressobj(
-        wbits: OptionalArg<i8>,
-        zdict: OptionalArg<PyBytesLike>,
-        vm: &VirtualMachine,
-    ) -> PyDecompress {
-        let (header, wbits) = header_from_wbits(wbits);
+    fn decompressobj(args: DecopmressobjArgs, vm: &VirtualMachine) -> PyDecompress {
+        let (header, wbits) = header_from_wbits(args.wbits);
         let mut decompress = Decompress::new_with_window_bits(header, wbits);
-        if let OptionalArg::Present(dict) = zdict {
+        if let OptionalArg::Present(dict) = args.zdict {
             dict.with_ref(|d| decompress.set_dictionary(d).unwrap());
         }
         PyDecompress {
@@ -326,12 +330,24 @@ mod decl {
         max_length: usize,
     }
 
+    #[derive(FromArgs)]
+    struct DecopmressobjArgs {
+        #[pyarg(any, optional)]
+        wbits: OptionalArg<i8>,
+        #[pyarg(any, optional)]
+        zdict: OptionalArg<PyBytesLike>,
+    }
+
     #[pyfunction]
     fn compressobj(
         level: OptionalArg<i32>,
         // only DEFLATED is valid right now, it's w/e
         _method: OptionalArg<i32>,
         wbits: OptionalArg<i8>,
+        // these aren't used.
+        _mem_level: OptionalArg<i32>, // this is memLevel in CPython
+        _strategy: OptionalArg<i32>,
+        _zdict: OptionalArg<PyBytesLike>,
         vm: &VirtualMachine,
     ) -> PyResult<PyCompress> {
         let (header, wbits) = header_from_wbits(wbits);
@@ -378,12 +394,13 @@ mod decl {
             data.with_ref(|b| inner.compress(b, vm))
         }
 
+        // TODO: mode argument isn't used
         #[pymethod]
-        fn flush(&self, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        fn flush(&self, _mode: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
             self.inner.lock().flush(vm)
         }
 
-        // TODO: This is optional feature of Compress
+        // TODO: This is an optional feature of Compress
         // #[pymethod]
         // #[pymethod(magic)]
         // #[pymethod(name = "__deepcopy__")]
