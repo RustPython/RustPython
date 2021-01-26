@@ -445,11 +445,33 @@ impl PyInt {
                 self.general_op(
                     other,
                     |a, b| {
-                        if b.is_negative() {
-                            Err(vm.new_value_error("modular inverses not supported".to_owned()))
+                        let i = if b.is_negative() {
+                            // modular multiplicative inverse
+                            // based on rust-num/num-integer#10, should hopefully be published soon
+                            fn normalize(a: BigInt, n: &BigInt) -> BigInt {
+                                let a = a % n;
+                                if a.is_negative() {
+                                    a + n
+                                } else {
+                                    a
+                                }
+                            }
+                            fn inverse(a: BigInt, n: &BigInt) -> Option<BigInt> {
+                                use num_integer::*;
+                                let ExtendedGcd { gcd, x: c, .. } = a.extended_gcd(n);
+                                if gcd.is_one() {
+                                    Some(normalize(c, n))
+                                } else {
+                                    None
+                                }
+                            }
+                            let a = inverse(a % modulus, modulus).unwrap();
+                            let b = -b;
+                            a.modpow(&b, modulus)
                         } else {
-                            Ok(vm.ctx.new_int(a.modpow(b, modulus)))
-                        }
+                            a.modpow(b, modulus)
+                        };
+                        Ok(vm.ctx.new_int(i))
                     },
                     vm,
                 )
