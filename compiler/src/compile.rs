@@ -5,16 +5,20 @@
 //!   https://github.com/python/cpython/blob/master/Python/compile.c
 //!   https://github.com/micropython/micropython/blob/master/py/compile.c
 
-use crate::error::{CompileError, CompileErrorType};
 use crate::ir::{self, CodeInfo};
 pub use crate::mode::Mode;
 use crate::symboltable::{make_symbol_table, make_symbol_table_expr, SymbolScope, SymbolTable};
 use crate::IndexSet;
+use crate::{
+    error::{CompileError, CompileErrorType},
+    symboltable,
+};
 use itertools::Itertools;
 use num_complex::Complex64;
 use num_traits::ToPrimitive;
 use rustpython_ast as ast;
 use rustpython_bytecode::{self as bytecode, CodeObject, ConstantData, Instruction};
+use std::borrow::Cow;
 
 type CompileResult<T> = Result<T, CompileError>;
 
@@ -33,6 +37,7 @@ struct Compiler {
     current_qualified_path: Option<String>,
     done_with_future_stmts: bool,
     ctx: CompileContext,
+    class_name: Option<String>,
     opts: CompileOpts,
 }
 
@@ -170,6 +175,7 @@ impl Compiler {
                 in_class: false,
                 func: FunctionContext::NoFunction,
             },
+            class_name: None,
             opts,
         }
     }
@@ -260,10 +266,11 @@ impl Compiler {
         name: &str,
         cache: impl FnOnce(&mut CodeInfo) -> &mut IndexSet<String>,
     ) -> bytecode::NameIdx {
+        let name = self.mangle(name);
         let cache = cache(self.current_codeinfo());
         cache
-            .get_index_of(name)
-            .unwrap_or_else(|| cache.insert_full(name.to_owned()).0) as u32
+            .get_index_of(name.as_ref())
+            .unwrap_or_else(|| cache.insert_full(name.into_owned()).0) as u32
     }
 
     fn compile_program(
@@ -358,9 +365,14 @@ impl Compiler {
         self.compile_name(name, NameUsage::Store)
     }
 
+    fn mangle<'a>(&self, name: &'a str) -> Cow<'a, str> {
+        symboltable::mangle_name(self.class_name.as_deref(), name)
+    }
+
     fn compile_name(&mut self, name: &str, usage: NameUsage) {
+        let name = self.mangle(name);
         let symbol_table = self.symbol_table_stack.last().unwrap();
-        let symbol = symbol_table.lookup(name).expect(
+        let symbol = symbol_table.lookup(name.as_ref()).expect(
             "The symbol must be present in the symbol table, even when it is undefined in python.",
         );
         let info = self.code_stack.last_mut().unwrap();
@@ -394,8 +406,8 @@ impl Compiler {
             // SymbolScope::Unknown => NameOpType::Global,
         };
         let mut idx = cache
-            .get_index_of(name)
-            .unwrap_or_else(|| cache.insert_full(name.to_owned()).0);
+            .get_index_of(name.as_ref())
+            .unwrap_or_else(|| cache.insert_full(name.into_owned()).0);
         if let SymbolScope::Free = symbol.scope {
             idx += info.cellvar_cache.len();
         }
@@ -1033,7 +1045,7 @@ impl Compiler {
         for arg in args_iter {
             if let Some(annotation) = &arg.node.annotation {
                 self.emit_constant(ConstantData::Str {
-                    value: arg.node.arg.to_owned(),
+                    value: self.mangle(&arg.node.arg).into_owned(),
                 });
                 self.compile_expression(&annotation)?;
                 num_annotations += 1;
@@ -1153,9 +1165,13 @@ impl Compiler {
             loop_data: None,
         };
 
+        let prev_class_name = std::mem::replace(&mut self.class_name, Some(name.to_owned()));
+
         let qualified_name = self.create_qualified_name(name, "");
-        let old_qualified_path = self.current_qualified_path.take();
-        self.current_qualified_path = Some(qualified_name.clone());
+        let old_qualified_path = std::mem::replace(
+            &mut self.current_qualified_path,
+            Some(qualified_name.clone()),
+        );
 
         self.emit(Instruction::LoadBuildClass);
         self.push_output(bytecode::CodeFlags::empty(), 0, 0, 0, name.to_owned());
@@ -1201,6 +1217,7 @@ impl Compiler {
 
         let code = self.pop_code_object();
 
+        self.class_name = prev_class_name;
         self.current_qualified_path = old_qualified_path;
         self.ctx = prev_ctx;
 
@@ -1531,7 +1548,7 @@ impl Compiler {
             let annotations = self.name("__annotations__");
             self.emit(Instruction::LoadNameAny(annotations));
             self.emit_constant(ConstantData::Str {
-                value: id.to_owned(),
+                value: self.mangle(id).into_owned(),
             });
             self.emit(Instruction::StoreSubscript);
         } else {
