@@ -14,7 +14,7 @@ cranelift = "0.69.0"
 cranelift-module = "0.69.0"
 cranelift-jit = "0.69.0"
 num-traits = "0.2"
-libffi = "1.0"
+libffi = "1.0.0"
 rustpython-bytecode = { path = "../bytecode", version = "0.1.2" }
 thiserror = "1.0"
 

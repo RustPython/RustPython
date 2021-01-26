@@ -9,6 +9,7 @@ mod atexit;
 mod binascii;
 mod collections;
 mod csv;
+mod ctypes;
 mod dis;
 mod errno;
 mod functools;
@@ -129,6 +130,9 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc, ahash::RandomState>
 
     #[cfg(any(unix, windows, target_os = "wasi"))]
     modules.insert(os::MODULE_NAME.to_owned(), Box::new(os::make_module));
+
+    #[cfg(any(unix, windows, target_os = "wasi"))]
+    modules.insert("_ctypes".to_owned(), Box::new(ctypes::make_module));
 
     // disable some modules on WASM
     #[cfg(not(target_arch = "wasm32"))]
