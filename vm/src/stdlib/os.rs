@@ -737,6 +737,10 @@ mod _os {
         pub st_uid: u32,
         pub st_gid: u32,
         pub st_size: u64,
+        // TODO: unnamed structsequence fields
+        pub __st_atime_int: BigInt,
+        pub __st_mtime_int: BigInt,
+        pub __st_ctime_int: BigInt,
         pub st_atime: f64,
         pub st_mtime: f64,
         pub st_ctime: f64,
@@ -1112,6 +1116,13 @@ fn to_nanoseconds_epoch(sys_time: SystemTime) -> BigInt {
     }
 }
 
+fn int_seconds_epoch(sys_time: SystemTime) -> BigInt {
+    match sys_time.duration_since(SystemTime::UNIX_EPOCH) {
+        Ok(duration) => BigInt::from(duration.as_secs()),
+        Err(err) => -BigInt::from(err.duration().as_secs()),
+    }
+}
+
 #[cfg(unix)]
 #[pymodule]
 mod posix {
@@ -1397,6 +1408,9 @@ mod posix {
                 st_uid: meta.st_uid(),
                 st_gid: meta.st_gid(),
                 st_size: meta.st_size(),
+                __st_atime_int: int_seconds_epoch(accessed),
+                __st_mtime_int: int_seconds_epoch(modified),
+                __st_ctime_int: int_seconds_epoch(changed),
                 st_atime: to_seconds_from_unix_epoch(accessed),
                 st_mtime: to_seconds_from_unix_epoch(modified),
                 st_ctime: to_seconds_from_unix_epoch(changed),
@@ -2483,6 +2497,9 @@ mod nt {
                 st_uid: 0,   // 0 on windows
                 st_gid: 0,   // 0 on windows
                 st_size: meta.file_size(),
+                __st_atime_int: int_seconds_epoch(accessed),
+                __st_mtime_int: int_seconds_epoch(modified),
+                __st_ctime_int: int_seconds_epoch(created),
                 st_atime: to_seconds_from_unix_epoch(accessed),
                 st_mtime: to_seconds_from_unix_epoch(modified),
                 st_ctime: to_seconds_from_unix_epoch(created),

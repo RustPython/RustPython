@@ -276,6 +276,13 @@ fn parse_arguments<'a>(app: App<'a, '_>) -> ArgMatches<'a> {
                 .short("b")
                 .multiple(true)
                 .help("issue warnings about using bytes where strings are usually expected (-bb: issue errors)"),
+        ).arg(
+            Arg::with_name("unbuffered")
+                .short("u")
+                .help(
+                    "force the stdout and stderr streams to be unbuffered; \
+                        this option has no effect on stdin; also PYTHONUNBUFFERED=x",
+                ),
         );
     #[cfg(feature = "flame-it")]
     let app = app

@@ -181,6 +181,10 @@ pub struct PySettings {
 
     /// PYTHONHASHSEED=x
     pub hash_seed: Option<u32>,
+
+    /// -u, PYTHONUNBUFFERED=x
+    // TODO: use this; can TextIOWrapper even work with a non-buffered?
+    pub stdio_unbuffered: bool,
 }
 
 /// Trace events for sys.settrace and sys.setprofile.
@@ -221,6 +225,7 @@ impl Default for PySettings {
             path_list: vec![],
             argv: vec![],
             hash_seed: None,
+            stdio_unbuffered: false,
         }
     }
 }
