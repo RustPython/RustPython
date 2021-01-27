@@ -398,7 +398,7 @@ const ABIFLAGS: &str = "";
 // not the same as CPython (e.g. rust's x86_x64-unknown-linux-gnu is just x86_64-linux-gnu)
 // but hopefully that's just an implementation detail? TODO: copy CPython's multiarch exactly,
 // https://github.com/python/cpython/blob/3.8/configure.ac#L725
-const MULTIARCH: &str = env!("RUSTPYTHON_TARGET_TRIPLE");
+pub(crate) const MULTIARCH: &str = env!("RUSTPYTHON_TARGET_TRIPLE");
 
 pub(crate) fn sysconfigdata_name() -> String {
     format!("_sysconfigdata_{}_{}_{}", ABIFLAGS, PLATFORM, MULTIARCH)

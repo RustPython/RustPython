@@ -80,6 +80,12 @@ _INSTALL_SCHEMES = {
         },
     }
 
+# XXX RUSTPYTHON: replace python with rustpython in all these paths
+for group in _INSTALL_SCHEMES.values():
+    for key in group.keys():
+        group[key] = group[key].replace("Python", "RustPython").replace("python", "rustpython")
+
+
 _SCHEME_KEYS = ('stdlib', 'platstdlib', 'purelib', 'platlib', 'include',
                 'scripts', 'data')
 
