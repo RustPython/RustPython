@@ -22,6 +22,7 @@ class UnicodeMethodsTest(unittest.TestCase):
     # update this, if the database changes
     expectedchecksum = '9129d6f2bdf008a81c2476e5b5127014a62130c1'
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_method_checksum(self):
         h = hashlib.sha1()
         for i in range(0x10000):
@@ -81,6 +82,7 @@ class UnicodeFunctionsTest(UnicodeDatabaseTest):
     # Update this if the database changes. Make sure to do a full rebuild
     # (e.g. 'make distclean && make') to get the correct checksum.
     expectedchecksum = 'c44a49ca7c5cb6441640fe174ede604b45028652'
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_function_checksum(self):
         data = []
         h = hashlib.sha1()
@@ -102,6 +104,7 @@ class UnicodeFunctionsTest(UnicodeDatabaseTest):
         result = h.hexdigest()
         self.assertEqual(result, self.expectedchecksum)
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_digit(self):
         self.assertEqual(self.db.digit('A', None), None)
         self.assertEqual(self.db.digit('9'), 9)
@@ -114,6 +117,7 @@ class UnicodeFunctionsTest(UnicodeDatabaseTest):
         self.assertRaises(TypeError, self.db.digit, 'xx')
         self.assertRaises(ValueError, self.db.digit, 'x')
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_numeric(self):
         self.assertEqual(self.db.numeric('A',None), None)
         self.assertEqual(self.db.numeric('9'), 9)
@@ -127,6 +131,7 @@ class UnicodeFunctionsTest(UnicodeDatabaseTest):
         self.assertRaises(TypeError, self.db.numeric, 'xx')
         self.assertRaises(ValueError, self.db.numeric, 'x')
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_decimal(self):
         self.assertEqual(self.db.decimal('A',None), None)
         self.assertEqual(self.db.decimal('9'), 9)
@@ -149,6 +154,8 @@ class UnicodeFunctionsTest(UnicodeDatabaseTest):
         self.assertRaises(TypeError, self.db.category)
         self.assertRaises(TypeError, self.db.category, 'xx')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_bidirectional(self):
         self.assertEqual(self.db.bidirectional('\uFFFE'), '')
         self.assertEqual(self.db.bidirectional(' '), 'WS')
@@ -158,6 +165,7 @@ class UnicodeFunctionsTest(UnicodeDatabaseTest):
         self.assertRaises(TypeError, self.db.bidirectional)
         self.assertRaises(TypeError, self.db.bidirectional, 'xx')
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_decomposition(self):
         self.assertEqual(self.db.decomposition('\uFFFE'),'')
         self.assertEqual(self.db.decomposition('\u00bc'), '<fraction> 0031 2044 0034')
@@ -165,6 +173,7 @@ class UnicodeFunctionsTest(UnicodeDatabaseTest):
         self.assertRaises(TypeError, self.db.decomposition)
         self.assertRaises(TypeError, self.db.decomposition, 'xx')
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_mirrored(self):
         self.assertEqual(self.db.mirrored('\uFFFE'), 0)
         self.assertEqual(self.db.mirrored('a'), 0)
@@ -174,6 +183,7 @@ class UnicodeFunctionsTest(UnicodeDatabaseTest):
         self.assertRaises(TypeError, self.db.mirrored)
         self.assertRaises(TypeError, self.db.mirrored, 'xx')
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_combining(self):
         self.assertEqual(self.db.combining('\uFFFE'), 0)
         self.assertEqual(self.db.combining('a'), 0)
@@ -208,6 +218,8 @@ class UnicodeFunctionsTest(UnicodeDatabaseTest):
         b = 'C\u0338' * 20  + '\xC7'
         self.assertEqual(self.db.normalize('NFC', a), b)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_issue29456(self):
         # Fix #29456
         u1176_str_a = '\u1100\u1176\u11a8'
@@ -223,6 +235,7 @@ class UnicodeFunctionsTest(UnicodeDatabaseTest):
     # For tests of unicodedata.is_normalized / self.db.is_normalized ,
     # see test_normalization.py .
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_east_asian_width(self):
         eaw = self.db.east_asian_width
         self.assertRaises(TypeError, eaw, b'a')
@@ -237,12 +250,15 @@ class UnicodeFunctionsTest(UnicodeDatabaseTest):
         self.assertEqual(eaw('\u2010'), 'A')
         self.assertEqual(eaw('\U00020000'), 'W')
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_east_asian_width_9_0_changes(self):
         self.assertEqual(self.db.ucd_3_2_0.east_asian_width('\u231a'), 'N')
         self.assertEqual(self.db.east_asian_width('\u231a'), 'W')
 
 class UnicodeMiscTest(UnicodeDatabaseTest):
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_failed_import_during_compiling(self):
         # Issue 4367
         # Decoding \N escapes requires the unicodedata module. If it can't be
@@ -259,6 +275,7 @@ class UnicodeMiscTest(UnicodeDatabaseTest):
             "(can't load unicodedata module)"
         self.assertIn(error, result.err.decode("ascii"))
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_decimal_numeric_consistent(self):
         # Test that decimal and numeric are consistent,
         # i.e. if a character has a decimal value,
@@ -272,6 +289,7 @@ class UnicodeMiscTest(UnicodeDatabaseTest):
                 count += 1
         self.assertTrue(count >= 10) # should have tested at least the ASCII digits
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_digit_numeric_consistent(self):
         # Test that digit and numeric are consistent,
         # i.e. if a character has a digit value,
@@ -288,6 +306,7 @@ class UnicodeMiscTest(UnicodeDatabaseTest):
     def test_bug_1704793(self):
         self.assertEqual(self.db.lookup("GOTHIC LETTER FAIHU"), '\U00010346')
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_ucd_510(self):
         import unicodedata
         # In UCD 5.1.0, a mirrored property changed wrt. UCD 3.2.0
@@ -299,6 +318,7 @@ class UnicodeMiscTest(UnicodeDatabaseTest):
         self.assertTrue("\u1d79".upper()=='\ua77d')
         self.assertTrue(".".upper()=='.')
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_bug_5828(self):
         self.assertEqual("\u1d79".lower(), "\u1d79")
         # Only U+0000 should have U+0000 as its upper/lower/titlecase variant
@@ -310,12 +330,16 @@ class UnicodeMiscTest(UnicodeDatabaseTest):
             [0]
         )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_bug_4971(self):
         # LETTER DZ WITH CARON: DZ, Dz, dz
         self.assertEqual("\u01c4".title(), "\u01c5")
         self.assertEqual("\u01c5".title(), "\u01c5")
         self.assertEqual("\u01c6".title(), "\u01c5")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_linebreak_7643(self):
         for i in range(0x10000):
             lines = (chr(i) + 'A').splitlines()

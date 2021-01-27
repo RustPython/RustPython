@@ -92,6 +92,7 @@ class UnicodeFileTests(unittest.TestCase):
                              "with bad filename in the exception: %a" %
                              (fn.__name__, filename, exc_filename))
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_failures(self):
         # Pass non-existing Unicode filenames all over the place.
         for name in self.files:
@@ -109,6 +110,7 @@ class UnicodeFileTests(unittest.TestCase):
     else:
         _listdir_failure = NotADirectoryError
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_open(self):
         for name in self.files:
             f = open(name, 'wb')
@@ -121,6 +123,7 @@ class UnicodeFileTests(unittest.TestCase):
     # NFD (a variant of Unicode NFD form). Normalize the filename to NFC, NFKC,
     # NFKD in Python is useless, because darwin will normalize it later and so
     # open(), os.stat(), etc. don't raise any exception.
+    @unittest.skip("TODO: RUSTPYTHON")
     @unittest.skipIf(sys.platform == 'darwin', 'irrelevant test on Mac OS X')
     def test_normalize(self):
         files = set(self.files)
