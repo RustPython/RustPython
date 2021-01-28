@@ -672,6 +672,14 @@ impl ExceptionZoo {
             "__str__" => ctx.new_method("__str__", key_error_str),
         });
 
+        extend_class!(ctx, &excs.os_error, {
+            "errno" => ctx.new_readonly_getset("errno", |exc: PyBaseExceptionRef| {
+                let args = exc.args();
+                let args = args.borrow_value();
+                args.get(0).filter(|_| args.len() > 1).cloned()
+            }),
+        });
+
         extend_class!(ctx, &excs.unicode_decode_error, {
             "encoding" => ctx.new_readonly_getset("encoding", make_arg_getter(0)),
             "object" => ctx.new_readonly_getset("object", make_arg_getter(1)),
