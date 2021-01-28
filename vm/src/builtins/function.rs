@@ -149,7 +149,7 @@ impl PyFunction {
                 kwargs.set_item(name, value, vm)?;
             } else {
                 return Err(
-                    vm.new_type_error(format!("Got an unexpected keyword argument '{}'", name))
+                    vm.new_type_error(format!("got an unexpected keyword argument '{}'", name))
                 );
             }
         }
