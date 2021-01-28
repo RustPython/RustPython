@@ -1,17 +1,16 @@
 // good luck to those that follow; here be dragons
 
-use super::_sre::MAXREPEAT;
 use super::constants::{SreAtCode, SreCatCode, SreFlag, SreOpcode};
-use crate::builtins::PyBytes;
-use crate::bytesinner::is_py_ascii_whitespace;
-use crate::pyobject::{IntoPyObject, PyObjectRef};
-use crate::VirtualMachine;
+use super::MAXREPEAT;
 use std::collections::HashMap;
 use std::convert::TryFrom;
-use std::unreachable;
+
+const fn is_py_ascii_whitespace(b: u8) -> bool {
+    matches!(b, b'\t' | b'\n' | b'\x0C' | b'\r' | b' ' | b'\x0B')
+}
 
 #[derive(Debug)]
-pub(crate) struct State<'a> {
+pub struct State<'a> {
     pub string: StrDrive<'a>,
     pub start: usize,
     pub end: usize,
@@ -29,7 +28,7 @@ pub(crate) struct State<'a> {
 }
 
 impl<'a> State<'a> {
-    pub(crate) fn new(
+    pub fn new(
         string: StrDrive<'a>,
         start: usize,
         end: usize,
@@ -150,7 +149,7 @@ impl<'a> State<'a> {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum StrDrive<'a> {
+pub enum StrDrive<'a> {
     Str(&'a str),
     Bytes(&'a [u8]),
 }
@@ -217,21 +216,6 @@ impl<'a> StrDrive<'a> {
                 back_offset
             }
             StrDrive::Bytes(_) => offset - skip,
-        }
-    }
-
-    pub fn slice_to_pyobject(&self, start: usize, end: usize, vm: &VirtualMachine) -> PyObjectRef {
-        match *self {
-            StrDrive::Str(s) => s
-                .chars()
-                .take(end)
-                .skip(start)
-                .collect::<String>()
-                .into_pyobject(vm),
-            StrDrive::Bytes(b) => {
-                PyBytes::from(b.iter().take(end).skip(start).cloned().collect::<Vec<u8>>())
-                    .into_pyobject(vm)
-            }
         }
     }
 }
@@ -972,7 +956,7 @@ fn is_loc_word(ch: u32) -> bool {
 fn is_linebreak(ch: u32) -> bool {
     ch == '\n' as u32
 }
-pub(crate) fn lower_ascii(ch: u32) -> u32 {
+pub fn lower_ascii(ch: u32) -> u32 {
     u8::try_from(ch)
         .map(|x| x.to_ascii_lowercase() as u32)
         .unwrap_or(ch)
@@ -1044,13 +1028,13 @@ fn is_uni_alnum(ch: u32) -> bool {
 fn is_uni_word(ch: u32) -> bool {
     ch == '_' as u32 || is_uni_alnum(ch)
 }
-pub(crate) fn lower_unicode(ch: u32) -> u32 {
+pub fn lower_unicode(ch: u32) -> u32 {
     // TODO: check with cpython
     char::try_from(ch)
         .map(|x| x.to_lowercase().next().unwrap() as u32)
         .unwrap_or(ch)
 }
-pub(crate) fn upper_unicode(ch: u32) -> u32 {
+pub fn upper_unicode(ch: u32) -> u32 {
     // TODO: check with cpython
     char::try_from(ch)
         .map(|x| x.to_uppercase().next().unwrap() as u32)
