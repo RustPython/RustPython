@@ -1,6 +1,3 @@
-mod constants;
-mod interp;
-
 pub(crate) use _sre::make_module;
 
 #[pymodule]
@@ -10,8 +7,6 @@ mod _sre {
     use num_traits::ToPrimitive;
     use rustpython_common::borrow::BorrowValue;
 
-    use super::constants::SreFlag;
-    use super::interp::{lower_ascii, lower_unicode, upper_unicode, State, StrDrive};
     use crate::builtins::list::PyListRef;
     use crate::builtins::memory::try_buffer_from_object;
     use crate::builtins::tuple::PyTupleRef;
@@ -25,23 +20,11 @@ mod _sre {
     };
     use crate::VirtualMachine;
     use core::str;
+    use sre_engine::constants::SreFlag;
+    use sre_engine::engine::{lower_ascii, lower_unicode, upper_unicode, State, StrDrive};
 
     #[pyattr]
-    pub const CODESIZE: usize = 4;
-    #[pyattr]
-    pub use super::constants::SRE_MAGIC as MAGIC;
-    #[cfg(target_pointer_width = "32")]
-    #[pyattr]
-    pub const MAXREPEAT: usize = usize::MAX;
-    #[cfg(target_pointer_width = "64")]
-    #[pyattr]
-    pub const MAXREPEAT: usize = u32::MAX as usize;
-    #[cfg(target_pointer_width = "32")]
-    #[pyattr]
-    pub const MAXGROUPS: usize = MAXREPEAT / 4 / 2;
-    #[cfg(target_pointer_width = "64")]
-    #[pyattr]
-    pub const MAXGROUPS: usize = MAXREPEAT / 2;
+    pub use sre_engine::{constants::SRE_MAGIC as MAGIC, CODESIZE, MAXGROUPS, MAXREPEAT};
 
     #[pyfunction]
     fn getcodesize() -> usize {
@@ -63,6 +46,22 @@ mod _sre {
     #[pyfunction]
     fn unicode_tolower(ch: i32) -> i32 {
         lower_unicode(ch as u32) as i32
+    }
+
+    fn slice_drive(
+        this: &StrDrive<'_>,
+        start: usize,
+        end: usize,
+        vm: &VirtualMachine,
+    ) -> PyObjectRef {
+        match this {
+            StrDrive::Str(s) => vm
+                .ctx
+                .new_str(s.chars().take(end).skip(start).collect::<String>()),
+            StrDrive::Bytes(b) => vm
+                .ctx
+                .new_bytes(b.iter().take(end).skip(start).cloned().collect()),
+        }
     }
 
     #[pyfunction]
@@ -376,7 +375,7 @@ mod _sre {
                         }
 
                         /* get segment before this match */
-                        splitlist.push(state.string.slice_to_pyobject(last, state.start, vm));
+                        splitlist.push(slice_drive(&state.string, last, state.start, vm));
 
                         let m = Match::new(&state, zelf.clone(), split_args.string.clone());
 
@@ -399,11 +398,7 @@ mod _sre {
                     }
 
                     // get segment following last match (even if empty)
-                    splitlist.push(
-                        state
-                            .string
-                            .slice_to_pyobject(last, state.string.count(), vm),
-                    );
+                    splitlist.push(slice_drive(&state.string, last, state.string.count(), vm));
 
                     Ok(PyList::from(splitlist).into_ref(vm))
                 },
@@ -472,7 +467,7 @@ mod _sre {
 
                     if last_pos < state.start {
                         /* get segment before this match */
-                        sublist.push(state.string.slice_to_pyobject(last_pos, state.start, vm));
+                        sublist.push(slice_drive(&state.string, last_pos, state.start, vm));
                     }
 
                     if !(last_pos == state.start && last_pos == state.string_position && n > 1) {
@@ -497,7 +492,7 @@ mod _sre {
                 }
 
                 /* get segment following last match */
-                sublist.push(state.string.slice_to_pyobject(last_pos, state.end, vm));
+                sublist.push(slice_drive(&state.string, last_pos, state.end, vm));
 
                 let list = PyList::from(sublist).into_object(vm);
 
@@ -758,7 +753,7 @@ mod _sre {
             if start < 0 || end < 0 {
                 return None;
             }
-            Some(str_drive.slice_to_pyobject(start as usize, end as usize, vm))
+            Some(slice_drive(&str_drive, start as usize, end as usize, vm))
         }
     }
 

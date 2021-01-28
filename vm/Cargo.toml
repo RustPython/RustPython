@@ -40,7 +40,6 @@ num-iter = "0.1.39"
 rand = "0.8"
 rand_core = "0.6"
 getrandom = { version = "0.2", features = ["js"] }
-mt19937 = "2.0"
 log = "0.4"
 rustpython-derive = { path = "../derive", version = "0.1.2" }
 rustpython-ast = { path = "../ast", optional = true, version = "0.1" }
@@ -73,7 +72,7 @@ base64 = "0.13"
 is-macro = "0.1"
 result-like = "^0.3"
 foreign-types-shared = "0.1"
-num_enum = "0.4"
+num_enum = "0.5"
 bstr = "0.2.12"
 crossbeam-utils = "0.8"
 parking_lot = "0.11"
@@ -84,6 +83,12 @@ thiserror = "1.0"
 atty = "0.2"
 static_assertions = "1.1"
 half = "1.6"
+
+# RustPython crates implementing functionality based on CPython
+mt19937 = "2.0"
+sre-engine = { git = "https://github.com/RustPython/sre-engine" }
+# to work on sre-engine locally
+# sre-engine = { path = "../../sre-engine" }
 
 ## unicode stuff
 unicode_names2 = "0.4"
