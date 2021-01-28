@@ -1,0 +1,7 @@
+[package]
+name = "sre-engine"
+version = "0.1.0"
+authors = ["Kangzhi Shi <shikangzhi@gmail.com>", "RustPython Team"]
+edition = "2018"
+
+[dependencies]
