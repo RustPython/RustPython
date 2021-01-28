@@ -83,6 +83,7 @@ thiserror = "1.0"
 atty = "0.2"
 static_assertions = "1.1"
 half = "1.6"
+memchr = "2"
 
 # RustPython crates implementing functionality based on CPython
 mt19937 = "2.0"
