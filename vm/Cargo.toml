@@ -119,7 +119,7 @@ adler32 = "1.0.3"
 gethostname = "0.2.0"
 socket2 = "0.3.19"
 rustyline = "6.0"
-openssl = { version = "0.10", features = ["vendored"], optional = true }
+openssl = { version = "0.10.32", features = ["vendored"], optional = true }
 openssl-sys = { version = "0.9", optional = true }
 openssl-probe = { version = "0.1", optional = true }
 utime = "0.3"
