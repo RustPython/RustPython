@@ -230,7 +230,13 @@ pub enum {typ} {{
         f.write("""\
 }
 """)
-    with open("vm/src/stdlib/sre/constants.rs", "w") as f:
+    import sys
+    if len(sys.argv) > 1:
+        constants_file = sys.argv[1]
+    else:
+        import os
+        constants_file = os.path.join(os.path.dirname(__file__), "../../sre-engine/src/constants.rs")
+    with open(constants_file, "w") as f:
         f.write("""\
 /*
  * Secret Labs' Regular Expression Engine
