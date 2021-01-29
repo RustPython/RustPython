@@ -26,21 +26,24 @@ impl PyValue for PyEnumerate {
     }
 }
 
+#[derive(FromArgs)]
+struct EnumerateArgs {
+    #[pyarg(any)]
+    iterable: PyObjectRef,
+    #[pyarg(any, optional)]
+    start: OptionalArg<PyIntRef>,
+}
+
 #[pyimpl(with(PyIter))]
 impl PyEnumerate {
     #[pyslot]
-    fn tp_new(
-        cls: PyTypeRef,
-        iterable: PyObjectRef,
-        start: OptionalArg<PyIntRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyRef<Self>> {
-        let counter = match start {
+    fn tp_new(cls: PyTypeRef, args: EnumerateArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        let counter = match args.start {
             OptionalArg::Present(start) => start.borrow_value().clone(),
             OptionalArg::Missing => BigInt::zero(),
         };
 
-        let iterator = iterator::get_iter(vm, iterable)?;
+        let iterator = iterator::get_iter(vm, args.iterable)?;
         PyEnumerate {
             counter: PyRwLock::new(counter),
             iterator,

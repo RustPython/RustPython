@@ -29,6 +29,18 @@ fn argv(vm: &VirtualMachine) -> PyObjectRef {
 }
 
 fn executable(ctx: &PyContext) -> PyObjectRef {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        if let Some(exec_path) = env::args_os().next() {
+            if let Ok(path) = which::which(exec_path) {
+                return ctx.new_str(
+                    path.into_os_string()
+                        .into_string()
+                        .unwrap_or_else(|p| p.to_string_lossy().into_owned()),
+                );
+            }
+        }
+    }
     if let Some(exec_path) = env::args().next() {
         let path = path::Path::new(&exec_path);
         if !path.exists() {

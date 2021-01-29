@@ -238,9 +238,12 @@ impl PyStr {
     }
 
     #[pymethod(name = "__add__")]
-    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
+    fn add(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if other.isinstance(&vm.ctx.types.str_type) {
-            Ok(self.value.py_add(borrow_value(&other)))
+            Ok(vm.ctx.new_str(zelf.value.py_add(borrow_value(&other))))
+        } else if let Some(radd) = vm.get_method(other.clone(), "__radd__") {
+            // hack to get around not distinguishing number add from seq concat
+            vm.invoke(&radd?, (zelf,))
         } else {
             Err(vm.new_type_error(format!(
                 "can only concatenate str (not \"{}\") to str",

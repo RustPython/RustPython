@@ -34,8 +34,6 @@ class SubOSErrorWithStandaloneInit(OSError):
 
 class HierarchyTest(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_builtin_errors(self):
         self.assertEqual(OSError.__name__, 'OSError')
         self.assertIs(IOError, OSError)

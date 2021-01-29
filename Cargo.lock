@@ -1803,7 +1803,7 @@ dependencies = [
 name = "rustpython"
 version = "0.1.2"
 dependencies = [
- "cfg-if 0.1.10",
+ "cfg-if 1.0.0",
  "clap",
  "cpython",
  "criterion",
@@ -1846,7 +1846,7 @@ dependencies = [
 name = "rustpython-common"
 version = "0.0.0"
 dependencies = [
- "cfg-if 0.1.10",
+ "cfg-if 1.0.0",
  "derive_more",
  "hexf-parse",
  "lexical-core",
@@ -1956,7 +1956,7 @@ dependencies = [
  "blake2",
  "bstr",
  "caseless",
- "cfg-if 0.1.10",
+ "cfg-if 1.0.0",
  "chrono",
  "crc",
  "crc32fast",
@@ -2035,6 +2035,7 @@ dependencies = [
  "unicode_names2",
  "utime",
  "wasm-bindgen",
+ "which",
  "winapi",
  "winreg",
 ]
@@ -2762,6 +2763,16 @@ checksum = "222b1ef9334f92a21d3fb53dc3fd80f30836959a90f9274a626d7e06315ba3c3"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "which"
+version = "4.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "87c14ef7e1b8b8ecfc75d5eca37949410046e66f15d185c01d70824f1f8111ef"
+dependencies = [
+ "libc",
+ "thiserror",
 ]
 
 [[package]]
