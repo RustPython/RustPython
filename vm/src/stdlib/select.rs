@@ -1,5 +1,6 @@
 use crate::pyobject::{PyObjectRef, PyResult, TryFromObject};
 use crate::vm::VirtualMachine;
+use std::io;
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     #[cfg(windows)]
@@ -68,8 +69,8 @@ impl TryFromObject for Selectable {
     }
 }
 
-#[repr(C)]
-struct FdSet(platform::fd_set);
+#[repr(transparent)]
+pub struct FdSet(platform::fd_set);
 
 impl FdSet {
     pub fn new() -> FdSet {
@@ -100,6 +101,33 @@ impl FdSet {
         }
 
         None
+    }
+}
+
+pub fn select(
+    nfds: libc::c_int,
+    readfds: &mut FdSet,
+    writefds: &mut FdSet,
+    errfds: &mut FdSet,
+    timeout: Option<&mut timeval>,
+) -> io::Result<i32> {
+    let timeout = match timeout {
+        Some(tv) => tv as *mut timeval,
+        None => std::ptr::null_mut(),
+    };
+    let ret = unsafe {
+        platform::select(
+            nfds,
+            &mut readfds.0,
+            &mut writefds.0,
+            &mut errfds.0,
+            timeout,
+        )
+    };
+    if ret < 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(ret)
     }
 }
 
@@ -162,19 +190,14 @@ mod decl {
             .max()
             .map_or(0, |n| n + 1) as i32;
 
-        let (select_res, err) = loop {
+        loop {
             let mut tv = timeout.map(sec_to_timeval);
-            let timeout_ptr = match tv {
-                Some(ref mut tv) => tv as *mut _,
-                None => std::ptr::null_mut(),
-            };
-            let res =
-                unsafe { super::platform::select(nfds, &mut r.0, &mut w.0, &mut x.0, timeout_ptr) };
+            let res = super::select(nfds, &mut r, &mut w, &mut x, tv.as_mut());
 
-            let err = std::io::Error::last_os_error();
-
-            if res >= 0 || err.kind() != std::io::ErrorKind::Interrupted {
-                break (res, err);
+            match res {
+                Ok(_) => break,
+                Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
+                Err(err) => return Err(err.into_pyexception(vm)),
             }
 
             vm.check_signals()?;
@@ -185,14 +208,10 @@ mod decl {
                     r.clear();
                     w.clear();
                     x.clear();
-                    break (0, err);
+                    break;
                 }
                 // retry select() if we haven't reached the deadline yet
             }
-        };
-
-        if select_res < 0 {
-            return Err(err.into_pyexception(vm));
         }
 
         let set2list = |list: Vec<Selectable>, mut set: FdSet| {
