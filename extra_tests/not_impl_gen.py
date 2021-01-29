@@ -15,12 +15,11 @@ import inspect
 from pydoc import ModuleScanner
 
 
-sys.path = list(
-    filter(
-        lambda path: "site-packages" not in path and "dist-packages" not in path,
-        sys.path,
-    )
-)
+sys.path = [
+    path
+    for path in sys.path
+    if ("site-packages" not in path and "dist-packages" not in path)
+]
 
 
 def attr_is_not_inherited(type_, attr):
