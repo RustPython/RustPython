@@ -31,7 +31,6 @@ def attr_is_not_inherited(type_, attr):
     return getattr(type_, attr) not in (getattr(base, attr, None) for base in bases)
 
 
-# TODO: move this function to a shared library both CPython and RustPython import
 def extra_info(obj):
     if callable(obj):
         # TODO: check for the correct thing above and remove try
@@ -110,7 +109,6 @@ def gen_methods():
         for attr, attr_extra in attrs:
             output += f"    ({attr!r}, {attr_extra!r}),\n"
         output += " ]),\n"
-        # TODO: why?
         if typ_code != objects[-1]:
             output += "\n"
     output += "}\n\n"
