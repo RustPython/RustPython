@@ -4,7 +4,7 @@ csv.py - read/write/investigate CSV files
 """
 
 import re
-from _csv import Error, reader, \
+from _csv import Error, writer, reader, \
                  QUOTE_MINIMAL, QUOTE_ALL, QUOTE_NONNUMERIC, QUOTE_NONE, \
                  __doc__
 

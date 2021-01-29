@@ -1961,7 +1961,7 @@ dependencies = [
  "crc",
  "crc32fast",
  "crossbeam-utils",
- "csv",
+ "csv-core",
  "digest",
  "dns-lookup",
  "exitcode",
