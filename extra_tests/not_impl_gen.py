@@ -95,15 +95,11 @@ def gen_methods():
     methods = {}
     for typ_code in objects + iters:
         typ = eval(typ_code)
-        methods[typ.__name__] = (
-            typ_code,
-            extra_info(typ),
-            [
-                (attr, extra_info(attr))
-                for attr in dir(typ)
-                if attr_is_not_inherited(typ, attr)
-            ],
-        )
+        attrs = []
+        for attr in dir(typ):
+            if attr_is_not_inherited(typ, attr):
+                attrs.append((attr, extra_info(getattr(typ, attr))))
+        methods[typ.__name__] = (typ_code, extra_info(typ), attrs)
 
     output = "expected_methods = {\n"
     for name, (typ_code, extra, attrs) in methods.items():
