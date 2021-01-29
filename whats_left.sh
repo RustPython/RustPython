@@ -7,18 +7,6 @@ set -e
 # it has available and compares that against the first dictionary we generated.
 # We then run this second generated script with RustPython.
 
-ALL_SECTIONS=(methods modules)
-
-GREEN='[32m'
-BOLD='[1m'
-NC='[m'
-
-print_header() {
-  # uppercase input
-  header_name=$(echo "$@" | tr "[:lower:]" "[:upper:]")
-  echo "$GREEN""$BOLD"===== "$header_name" ====="$NC"
-}
-
 cd "$(dirname "$0")"
 
 export RUSTPYTHONPATH=Lib
