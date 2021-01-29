@@ -38,8 +38,12 @@ def extra_info(obj):
             sig = str(inspect.signature(obj))
             # remove function memory addresses
             return re.sub(" at 0x[0-9A-Fa-f]+", " at 0xdeadbeef", sig)
-        except Exception:
-            return None
+        except Exception as e:
+            exception = repr(e)
+            # CPython uses ' RustPython uses "
+            if exception.replace('"', "'").startswith("ValueError('no signature found"):
+                return "ValueError('no signature found')"
+            return exception
     return None
 
 
@@ -131,9 +135,8 @@ def scan_modules():
         callback(None, modname, None)
 
     with warnings.catch_warnings():
-        warnings.simplefilter(
-            "ignore"
-        )  # ignore warnings from importing deprecated modules
+        # ignore warnings from importing deprecated modules
+        warnings.simplefilter("ignore")
         ModuleScanner().run(callback, onerror=onerror)
     return list(modules.keys())
 
