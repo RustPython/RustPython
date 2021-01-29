@@ -277,8 +277,8 @@ def compare():
     # missing from modules
     for modname in not_implemented:
         print(modname, "(entire module)")
-    for modname in failed_to_import:
-        print(f"{modname} (exists but not importable: {rustpymod})")
+    for modname, exception in failed_to_import.items():
+        print(f"{modname} (exists but not importable: {exception})")
     for modname, missing in missing_items.items():
         for item in missing:
             print(item)
