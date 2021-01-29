@@ -703,6 +703,7 @@ fn sock_select(sock: &Socket, kind: SelectKind, interval: Option<Duration>) -> i
         let mut writes = select::FdSet::new();
         let mut errs = select::FdSet::new();
 
+        let fd = fd as usize;
         match kind {
             SelectKind::Read => reads.insert(fd),
             SelectKind::Write => writes.insert(fd),
@@ -712,7 +713,7 @@ fn sock_select(sock: &Socket, kind: SelectKind, interval: Option<Duration>) -> i
             }
         }
 
-        let mut interval = interval.map(|dur| libc::timeval {
+        let mut interval = interval.map(|dur| select::timeval {
             tv_sec: dur.as_secs() as _,
             tv_usec: dur.subsec_micros() as _,
         });

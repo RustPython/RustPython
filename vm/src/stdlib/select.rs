@@ -13,18 +13,18 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
 #[cfg(unix)]
 mod platform {
-    pub(super) use libc::{fd_set, select, timeval, FD_ISSET, FD_SET, FD_SETSIZE, FD_ZERO};
-    pub(super) use std::os::unix::io::RawFd;
+    pub use libc::{fd_set, select, timeval, FD_ISSET, FD_SET, FD_SETSIZE, FD_ZERO};
+    pub use std::os::unix::io::RawFd;
 }
 
 #[allow(non_snake_case)]
 #[cfg(windows)]
 mod platform {
-    pub(super) use winapi::um::winsock2::{fd_set, select, timeval, FD_SETSIZE, SOCKET as RawFd};
+    pub use winapi::um::winsock2::{fd_set, select, timeval, FD_SETSIZE, SOCKET as RawFd};
 
     // from winsock2.h: https://gist.github.com/piscisaureus/906386#file-winsock2-h-L128-L141
 
-    pub(super) unsafe fn FD_SET(fd: RawFd, set: *mut fd_set) {
+    pub unsafe fn FD_SET(fd: RawFd, set: *mut fd_set) {
         let mut i = 0;
         for idx in 0..(*set).fd_count as usize {
             i = idx;
@@ -40,17 +40,18 @@ mod platform {
         }
     }
 
-    pub(super) unsafe fn FD_ZERO(set: *mut fd_set) {
+    pub unsafe fn FD_ZERO(set: *mut fd_set) {
         (*set).fd_count = 0;
     }
 
-    pub(super) unsafe fn FD_ISSET(fd: RawFd, set: *mut fd_set) -> bool {
+    pub unsafe fn FD_ISSET(fd: RawFd, set: *mut fd_set) -> bool {
         use winapi::um::winsock2::__WSAFDIsSet;
         __WSAFDIsSet(fd as _, set) != 0
     }
 }
 
-use platform::{timeval, RawFd};
+pub use platform::timeval;
+use platform::RawFd;
 
 struct Selectable {
     obj: PyObjectRef,
