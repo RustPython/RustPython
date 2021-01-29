@@ -28,6 +28,7 @@ impl ParameterKind {
 }
 
 struct ArgAttribute {
+    name: Option<String>,
     kind: ParameterKind,
     default: Option<DefaultValue>,
 }
@@ -60,6 +61,7 @@ impl ArgAttribute {
                 })?;
 
                 let mut attribute = ArgAttribute {
+                    name: None,
                     kind,
                     default: None,
                 };
@@ -99,6 +101,15 @@ impl ArgAttribute {
                         Lit::Str(ref val) => self.default = Some(Some(val.parse()?)),
                         _ => bail_span!(name_value, "Expected string value for default argument"),
                     }
+                } else if path_eq(&name_value.path, "name") {
+                    if self.name.is_some() {
+                        bail_span!(name_value, "already have a name")
+                    }
+
+                    match &name_value.lit {
+                        Lit::Str(val) => self.name = Some(val.value()),
+                        _ => bail_span!(name_value, "Expected string value for name argument"),
+                    }
                 } else {
                     bail_span!(name_value, "Unrecognised pyarg attribute");
                 }
@@ -118,6 +129,7 @@ fn generate_field(field: &Field) -> Result<TokenStream2, Diagnostic> {
         .collect::<Result<Vec<_>, _>>()?;
     let attr = if pyarg_attrs.is_empty() {
         ArgAttribute {
+            name: None,
             kind: ParameterKind::PositionalOrKeyword,
             default: None,
         }
@@ -127,19 +139,19 @@ fn generate_field(field: &Field) -> Result<TokenStream2, Diagnostic> {
         bail_span!(field, "Multiple pyarg attributes on field");
     };
 
-    let name = &field.ident;
-    if let Some(name) = name {
-        if name.to_string().starts_with("_phantom") {
-            return Ok(quote! {
-                #name: ::std::marker::PhantomData,
-            });
-        }
+    let name = field.ident.as_ref().unwrap();
+    let namestring = name.to_string();
+    if namestring.starts_with("_phantom") {
+        return Ok(quote! {
+            #name: ::std::marker::PhantomData,
+        });
     }
     if let ParameterKind::Flatten = attr.kind {
         return Ok(quote! {
             #name: ::rustpython_vm::function::FromArgs::from_args(vm, args)?,
         });
     }
+    let pyname = attr.name.unwrap_or(namestring);
     let middle = quote! {
         .map(|x| ::rustpython_vm::pyobject::TryFromObject::try_from_object(vm, x)).transpose()?
     };
@@ -155,7 +167,7 @@ fn generate_field(field: &Field) -> Result<TokenStream2, Diagnostic> {
                 ::rustpython_vm::function::ArgumentError::TooFewArgs
             },
             ParameterKind::KeywordOnly => quote! {
-                ::rustpython_vm::function::ArgumentError::RequiredKeywordArgument(stringify!(#name))
+                ::rustpython_vm::function::ArgumentError::RequiredKeywordArgument(#pyname)
             },
             ParameterKind::Flatten => unreachable!(),
         };
@@ -172,12 +184,12 @@ fn generate_field(field: &Field) -> Result<TokenStream2, Diagnostic> {
         }
         ParameterKind::PositionalOrKeyword => {
             quote! {
-                #name: args.take_positional_keyword(stringify!(#name))#middle#ending,
+                #name: args.take_positional_keyword(#pyname)#middle#ending,
             }
         }
         ParameterKind::KeywordOnly => {
             quote! {
-                #name: args.take_keyword(stringify!(#name))#middle#ending,
+                #name: args.take_keyword(#pyname)#middle#ending,
             }
         }
         ParameterKind::Flatten => unreachable!(),

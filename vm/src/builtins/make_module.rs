@@ -594,15 +594,25 @@ mod decl {
         }
     }
 
+    #[derive(FromArgs)]
+    struct PowArgs {
+        #[pyarg(any)]
+        base: PyObjectRef,
+        #[pyarg(any)]
+        exp: PyObjectRef,
+        #[pyarg(any, optional, name = "mod")]
+        modulus: Option<PyObjectRef>,
+    }
+
     #[allow(clippy::suspicious_else_formatting)]
     #[pyfunction]
-    fn pow(
-        x: PyObjectRef,
-        y: PyObjectRef,
-        mod_value: OptionalOption<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
-        match mod_value.flatten() {
+    fn pow(args: PowArgs, vm: &VirtualMachine) -> PyResult {
+        let PowArgs {
+            base: x,
+            exp: y,
+            modulus,
+        } = args;
+        match modulus {
             None => vm.call_or_reflection(&x, &y, "__pow__", "__rpow__", |vm, x, y| {
                 Err(vm.new_unsupported_binop_error(x, y, "pow"))
             }),
