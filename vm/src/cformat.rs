@@ -652,11 +652,16 @@ impl CFormatBytes {
         let (num_specifiers, mapping_required) = check_specifiers(self.parts.as_slice(), vm)?;
         let mut result = vec![];
 
+        let is_mapping = values_obj.class().has_attr("__getitem__")
+            && !values_obj.isinstance(&vm.ctx.types.tuple_type)
+            && !values_obj.isinstance(&vm.ctx.types.str_type);
+
         if num_specifiers == 0 {
             // literal only
-            return if values_obj.isinstance(&vm.ctx.types.dict_type)
-                || (values_obj.isinstance(&vm.ctx.types.tuple_type)
-                    && tuple::get_value(&values_obj).is_empty())
+            return if is_mapping
+                || values_obj
+                    .payload::<tuple::PyTuple>()
+                    .map_or(false, |e| e.borrow_value().is_empty())
             {
                 for (_, part) in &mut self.parts {
                     match part {
@@ -674,7 +679,7 @@ impl CFormatBytes {
 
         if mapping_required {
             // dict
-            return if values_obj.isinstance(&vm.ctx.types.dict_type) {
+            return if is_mapping {
                 for (_, part) in &mut self.parts {
                     match part {
                         CFormatPart::Literal(literal) => result.append(literal),
@@ -695,15 +700,12 @@ impl CFormatBytes {
         }
 
         // tuple
-        let values;
-        let vec;
-        let mut value_iter = if values_obj.isinstance(&vm.ctx.types.tuple_type) {
-            values = tuple::get_value(&values_obj);
-            values.iter()
+        let values = if let Some(tup) = values_obj.payload_if_subclass::<tuple::PyTuple>(vm) {
+            tup.borrow_value()
         } else {
-            vec = vec![values_obj];
-            vec.iter()
+            std::slice::from_ref(&values_obj)
         };
+        let mut value_iter = values.iter();
 
         for (_, part) in &mut self.parts {
             match part {
@@ -725,7 +727,7 @@ impl CFormatBytes {
         }
 
         // check that all arguments were converted
-        if value_iter.next().is_some() {
+        if value_iter.next().is_some() && !is_mapping {
             Err(vm
                 .new_type_error("not all arguments converted during string formatting".to_owned()))
         } else {
@@ -802,11 +804,16 @@ impl CFormatString {
         let (num_specifiers, mapping_required) = check_specifiers(self.parts.as_slice(), vm)?;
         let mut result = String::new();
 
+        let is_mapping = values_obj.class().has_attr("__getitem__")
+            && !values_obj.isinstance(&vm.ctx.types.tuple_type)
+            && !values_obj.isinstance(&vm.ctx.types.str_type);
+
         if num_specifiers == 0 {
             // literal only
-            return if values_obj.isinstance(&vm.ctx.types.dict_type)
-                || (values_obj.isinstance(&vm.ctx.types.tuple_type)
-                    && tuple::get_value(&values_obj).is_empty())
+            return if is_mapping
+                || values_obj
+                    .payload::<tuple::PyTuple>()
+                    .map_or(false, |e| e.borrow_value().is_empty())
             {
                 for (_, part) in &self.parts {
                     match part {
@@ -824,7 +831,7 @@ impl CFormatString {
 
         if mapping_required {
             // dict
-            return if values_obj.isinstance(&vm.ctx.types.dict_type) {
+            return if is_mapping {
                 for (_, part) in &self.parts {
                     match part {
                         CFormatPart::Literal(literal) => result.push_str(&literal),
@@ -845,15 +852,12 @@ impl CFormatString {
         }
 
         // tuple
-        let values;
-        let vec;
-        let mut value_iter = if values_obj.isinstance(&vm.ctx.types.tuple_type) {
-            values = tuple::get_value(&values_obj);
-            values.iter()
+        let values = if let Some(tup) = values_obj.payload_if_subclass::<tuple::PyTuple>(vm) {
+            tup.borrow_value()
         } else {
-            vec = vec![values_obj];
-            vec.iter()
+            std::slice::from_ref(&values_obj)
         };
+        let mut value_iter = values.iter();
 
         for (_, part) in &mut self.parts {
             match part {
@@ -875,7 +879,7 @@ impl CFormatString {
         }
 
         // check that all arguments were converted
-        if value_iter.next().is_some() {
+        if value_iter.next().is_some() && !is_mapping {
             Err(vm
                 .new_type_error("not all arguments converted during string formatting".to_owned()))
         } else {

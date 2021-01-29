@@ -82,10 +82,6 @@ impl PyTupleRef {
     }
 }
 
-pub(crate) fn get_value(obj: &PyObjectRef) -> &[PyObjectRef] {
-    obj.payload::<PyTuple>().unwrap().borrow_value()
-}
-
 #[pyimpl(flags(BASETYPE), with(Hashable, Comparable, Iterable))]
 impl PyTuple {
     /// Creating a new tuple with given boxed slice.
