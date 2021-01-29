@@ -32,7 +32,6 @@ def attr_is_not_inherited(type_, attr):
 
 def extra_info(obj):
     if callable(obj):
-        # TODO: check for the correct thing above and remove try
         try:
             sig = str(inspect.signature(obj))
             # remove function memory addresses
