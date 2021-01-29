@@ -186,7 +186,7 @@ libdir = {os.path.abspath("../Lib/").encode('utf8')!r}
 """
 
 # Copy the source code of functions we will reuse in the generated script
-for fn in [extra_info, dir_of_mod_or_error]:
+for fn in [attr_is_not_inherited, extra_info, dir_of_mod_or_error]:
     output += "".join(inspect.getsourcelines(fn)[0]) + "\n\n"
 
 # Prevent missing variable linter errors from compare()
@@ -202,30 +202,28 @@ def compare():
     import inspect
     import platform
 
-    def attr_is_not_inherited(type_, attr):
-        """
-        returns True if type_'s attr is not inherited from any of its base classes
-        """
-        bases = type_.__mro__[1:]
-        return getattr(type_, attr) not in (getattr(base, attr, None) for base in bases)
+    def method_incompatability_reason(typ, method_name, real_method_value):
+        has_method = hasattr(typ, method_name)
+        if not has_method:
+            return ""
+
+        is_inherited = not attr_is_not_inherited(typ, method_name)
+        if is_inherited:
+            return "inherited"
+
+        value = extra_info(getattr(typ, method_name))
+        if value != real_method_value:
+            return f"{value} != {real_method_value}"
+
+        return None
 
     not_implementeds = {}
     for name, (typ, real_value, methods) in expected_methods.items():
         missing_methods = {}
-        for method, method_extra in methods:
-            has_method = hasattr(typ, method)
-            is_inherited = has_method and not attr_is_not_inherited(typ, method)
-            value = extra_info(method)
-            if has_method and not is_inherited and value == real_value:
-                continue
-
-            if not has_method:
-                reason = ""
-            elif is_inherited:
-                reason = "inherited"
-            else:
-                reason = f"{value} != {real_value}"
-            missing_methods[method] = reason
+        for method, real_method_value in methods:
+            reason = method_incompatability_reason(typ, method, real_method_value)
+            if reason is not None:
+                missing_methods[method] = reason
         if missing_methods:
             not_implementeds[name] = missing_methods
 
