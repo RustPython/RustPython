@@ -330,30 +330,11 @@ pub fn impl_py_freeze(input: TokenStream2) -> Result<TokenStream2, Diagnostic> {
     let crate_name = args.crate_name;
     let code_map = args.source.compile(args.mode, args.module_name)?;
 
-    let modules_len = code_map.len();
-
-    let modules = code_map
-        .into_iter()
-        .map(|(module_name, FrozenModule { code, package })| {
-            let module_name = LitStr::new(&module_name, Span::call_site());
-            let bytes = code.to_bytes();
-            let bytes = LitByteStr::new(&bytes, Span::call_site());
-            quote! {
-                m.insert(#module_name.into(), #crate_name::FrozenModule {
-                    code: #crate_name::CodeObject::from_bytes(
-                        #bytes
-                    ).expect("Deserializing CodeObject failed"),
-                    package: #package,
-                });
-            }
-        });
+    let data = rustpython_bytecode::frozen_lib::encode_lib(code_map.iter().map(|(k, v)| (&**k, v)));
+    let bytes = LitByteStr::new(&data, Span::call_site());
 
     let output = quote! {
-        {
-            let mut m = ::std::collections::HashMap::with_capacity(#modules_len);
-            #(#modules)*
-            m
-        }
+        #crate_name::frozen_lib::decode_lib(#bytes)
     };
 
     Ok(output)

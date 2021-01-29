@@ -1075,7 +1075,7 @@ impl<C: Constant> fmt::Debug for CodeObject<C> {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct FrozenModule<C: Constant = ConstantData> {
     #[serde(bound(
         deserialize = "C: serde::Deserialize<'de>, C::Name: serde::Deserialize<'de>",
@@ -1083,4 +1083,133 @@ pub struct FrozenModule<C: Constant = ConstantData> {
     ))]
     pub code: CodeObject<C>,
     pub package: bool,
+}
+
+pub mod frozen_lib {
+    use super::*;
+    use bincode::{options, Options};
+    use std::convert::TryInto;
+    use std::io;
+
+    pub fn decode_lib(bytes: &[u8]) -> FrozenModulesIter {
+        let data = lz4_flex::decompress_size_prepended(bytes).unwrap();
+        let r = VecReader { data, pos: 0 };
+        let mut de = bincode::Deserializer::with_bincode_read(r, options());
+        let len = u64::deserialize(&mut de).unwrap().try_into().unwrap();
+        FrozenModulesIter { len, de }
+    }
+
+    pub struct FrozenModulesIter {
+        len: usize,
+        // ideally this could be a SeqAccess, but I think that would require existential types
+        de: bincode::Deserializer<VecReader, bincode::DefaultOptions>,
+    }
+
+    impl Iterator for FrozenModulesIter {
+        type Item = (String, FrozenModule);
+
+        fn next(&mut self) -> Option<Self::Item> {
+            // manually mimic bincode's seq encoding, which is <len:u64> <element*len>
+            // This probably won't change (bincode doesn't require padding or anything), but
+            // it's not guaranteed by semver as far as I can tell
+            if self.len > 0 {
+                let entry = Deserialize::deserialize(&mut self.de).unwrap();
+                self.len -= 1;
+                Some(entry)
+            } else {
+                None
+            }
+        }
+
+        fn size_hint(&self) -> (usize, Option<usize>) {
+            (self.len, Some(self.len))
+        }
+    }
+
+    impl ExactSizeIterator for FrozenModulesIter {}
+
+    pub fn encode_lib<'a, I>(lib: I) -> Vec<u8>
+    where
+        I: IntoIterator<Item = (&'a str, &'a FrozenModule)>,
+        I::IntoIter: ExactSizeIterator + Clone,
+    {
+        let iter = lib.into_iter();
+        let data = options().serialize(&SerializeLib { iter }).unwrap();
+        lz4_flex::compress_prepend_size(&data)
+    }
+
+    struct SerializeLib<I> {
+        iter: I,
+    }
+
+    impl<'a, I> Serialize for SerializeLib<I>
+    where
+        I: ExactSizeIterator<Item = (&'a str, &'a FrozenModule)> + Clone,
+    {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer,
+        {
+            serializer.collect_seq(self.iter.clone())
+        }
+    }
+
+    /// Owned version of bincode::de::read::SliceReader<'a>
+    struct VecReader {
+        data: Vec<u8>,
+        pos: usize,
+    }
+
+    impl io::Read for VecReader {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            let mut subslice = &self.data[self.pos..];
+            let n = io::Read::read(&mut subslice, buf)?;
+            self.pos += n;
+            Ok(n)
+        }
+        fn read_exact(&mut self, buf: &mut [u8]) -> io::Result<()> {
+            self.get_byte_slice(buf.len())
+                .map(|data| buf.copy_from_slice(data))
+        }
+    }
+
+    impl VecReader {
+        #[inline(always)]
+        fn get_byte_slice(&mut self, length: usize) -> io::Result<&[u8]> {
+            let subslice = &self.data[self.pos..];
+            match subslice.get(..length) {
+                Some(ret) => {
+                    self.pos += length;
+                    Ok(ret)
+                }
+                None => Err(io::ErrorKind::UnexpectedEof.into()),
+            }
+        }
+    }
+
+    impl<'storage> bincode::BincodeRead<'storage> for VecReader {
+        fn forward_read_str<V>(&mut self, length: usize, visitor: V) -> bincode::Result<V::Value>
+        where
+            V: serde::de::Visitor<'storage>,
+        {
+            let bytes = self.get_byte_slice(length)?;
+            match ::std::str::from_utf8(bytes) {
+                Ok(s) => visitor.visit_str(s),
+                Err(e) => Err(bincode::ErrorKind::InvalidUtf8Encoding(e).into()),
+            }
+        }
+
+        fn get_byte_buffer(&mut self, length: usize) -> bincode::Result<Vec<u8>> {
+            self.get_byte_slice(length)
+                .map(|x| x.to_vec())
+                .map_err(Into::into)
+        }
+
+        fn forward_read_bytes<V>(&mut self, length: usize, visitor: V) -> bincode::Result<V::Value>
+        where
+            V: serde::de::Visitor<'storage>,
+        {
+            visitor.visit_bytes(self.get_byte_slice(length)?)
+        }
+    }
 }

@@ -282,7 +282,7 @@ impl VirtualMachine {
             initialized: false,
         };
 
-        let frozen = frozen::get_module_inits(&vm);
+        let frozen = frozen::map_frozen(&vm, frozen::get_module_inits()).collect();
         PyRc::get_mut(&mut vm.state).unwrap().frozen = frozen;
 
         module::init_module_dict(
