@@ -97,7 +97,11 @@ def gen_methods():
         methods[typ.__name__] = (
             typ_code,
             extra_info(typ),
-            [(attr, extra_info(attr)) for attr in dir(typ) if attr_is_not_inherited(typ, attr)],
+            [
+                (attr, extra_info(attr))
+                for attr in dir(typ)
+                if attr_is_not_inherited(typ, attr)
+            ],
         )
 
     output = "expected_methods = {\n"
@@ -129,12 +133,13 @@ def scan_modules():
         callback(None, modname, None)
 
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore")  # ignore warnings from importing deprecated modules
+        warnings.simplefilter(
+            "ignore"
+        )  # ignore warnings from importing deprecated modules
         ModuleScanner().run(callback, onerror=onerror)
     return list(modules.keys())
 
 
-# TODO: move this function to a shared library both CPython and RustPython import
 def dir_of_mod_or_error(module_name):
     with warnings.catch_warnings():
         # ignore warnings caused by importing deprecated modules
@@ -166,11 +171,7 @@ def gen_modules():
             )
             continue
         modules[mod_name] = dir_result
-    return f"""
-cpymods = {modules!r}
-libdir = {os.path.abspath("../Lib/").encode('utf8')!r}
-
-"""
+    return modules
 
 
 output = """\
@@ -183,7 +184,15 @@ output = """\
 """
 
 output += gen_methods()
-output += gen_modules()
+output += f"""
+cpymods = {gen_modules()!r}
+libdir = {os.path.abspath("../Lib/").encode('utf8')!r}
+
+"""
+
+# Copy the source code of functions we will reuse in the generated script
+for fn in [extra_info, dir_of_mod_or_error]:
+    output += "".join(inspect.getsourcelines(fn)[0]) + "\n\n"
 
 # Prevent missing variable linter errors from compare()
 expected_methods = {}
@@ -205,20 +214,9 @@ def compare():
         bases = type_.__mro__[1:]
         return getattr(type_, attr) not in (getattr(base, attr, None) for base in bases)
 
-    # TODO: move this function to a shared library both CPython and RustPython import
-    def extra_info(obj):
-        if callable(obj):
-            # TODO: check for the correct thing above and remove try
-            try:
-                sig = str(inspect.signature(obj))
-                # remove function memory addresses
-                return re.sub(" at 0x[0-9A-Fa-f]+", " at 0xdeadbeef", sig)
-            except Exception:
-                return None
-        return None
-
-    not_implementeds = []
+    not_implementeds = {}
     for name, (typ, real_value, methods) in expected_methods.items():
+        missing_methods = {}
         for method, method_extra in methods:
             has_method = hasattr(typ, method)
             is_inherited = has_method and not attr_is_not_inherited(typ, method)
@@ -232,32 +230,13 @@ def compare():
                 reason = "inherited"
             else:
                 reason = f"{value} != {real_value}"
-            not_implementeds.append((name, method, reason))
-
-    for module, method, reason in not_implementeds:
-        print(f"{module}.{method}" + (f" {reason}" if reason else ""))
-    if not not_implementeds:
-        print("Not much \\o/")
+            missing_methods[method] = reason
+        if missing_methods:
+            not_implementeds[name] = missing_methods
 
     if platform.python_implementation() == "CPython":
         if not_implementeds:
             sys.exit("ERROR: CPython should have all the methods")
-
-    # TODO: move this function to a shared library both CPython and RustPython import
-    def dir_of_mod_or_error(module_name):
-        with warnings.catch_warnings():
-            # ignore warnings caused by importing deprecated modules
-            warnings.filterwarnings("ignore", category=DeprecationWarning)
-            try:
-                module = __import__(module_name)
-            except Exception as e:
-                return e
-        item_names = sorted(set(dir(module)))
-        result = {}
-        for item_name in item_names:
-            item = getattr(module, item_name)
-            result[item_name] = extra_info(item)
-        return result
 
     mod_names = [
         name.decode()
@@ -270,23 +249,61 @@ def compare():
 
     rustpymods = {mod: dir_of_mod_or_error(mod) for mod in mod_names}
 
+    not_implemented = {}
+    failed_to_import = {}
+    missing_items = {}
+    mismatched_items = {}
     for modname, cpymod in cpymods.items():
-        rustpymod = rustpymods.get(modname, {})
-        if isinstance(rustpymod, ImportError):
-            print(modname, "(entire module)")
+        rustpymod = rustpymods.get(modname)
+        if rustpymod is None:
+            not_implemented[modname] = None
         elif isinstance(rustpymod, Exception):
-            print(f"{modname} (exists but not importable: {rustpymod})")
+            failed_to_import[modname] = rustpymod
         else:
             implemented_items = sorted(set(cpymod) & set(rustpymod))
-            missing_items = set(cpymod) - set(rustpymod)
-            if not rustpymod and cpymod:
-                print(modname, "(entire module)")  # TODO: why do I have this twice
-            else:
-                for item in missing_items:
-                    print(f"{modname}.{item}")
-                for item in implemented_items:
-                    if rustpymod[item] != cpymod[item] and cpymod[item] != "None":
-                        print(f"{modname}.{item}: {rustpymod[item]} != {cpymod[item]}")
+            mod_missing_items = set(cpymod) - set(rustpymod)
+            mod_missing_items = sorted(
+                f"{modname}.{item}" for item in mod_missing_items
+            )
+            mod_mismatched_items = [
+                (f"{modname}.{item}", rustpymod[item], cpymod[item])
+                for item in implemented_items
+                if rustpymod[item] != cpymod[item]
+                and not isinstance(cpymod[item], Exception)
+            ]
+            if mod_missing_items:
+                missing_items[modname] = mod_missing_items
+            if mod_mismatched_items:
+                mismatched_items[modname] = mod_mismatched_items
+
+    # missing from builtins
+    for module, missing_methods in not_implementeds.items():
+        for method, reason in missing_methods.items():
+            print(f"{module}.{method}" + (f" {reason}" if reason else ""))
+
+    # missing from modules
+    for modname in not_implemented:
+        print(modname, "(entire module)")
+    for modname in failed_to_import:
+        print(f"{modname} (exists but not importable: {rustpymod})")
+    for modname, missing in missing_items.items():
+        for item in missing:
+            print(item)
+    for modname, mismatched in mismatched_items.items():
+        for (item, rustpy_value, cpython_value) in mismatched:
+            print(f"{item} {rustpy_value} != {cpython_value}")
+
+    result = {
+        "not_implemented": not_implemented,
+        "failed_to_import": failed_to_import,
+        "missing_items": missing_items,
+        "mismatched_items": mismatched_items,
+    }
+
+    print()
+    print("out of", len(cpymods), "modules:")
+    for error_type, modules in result.items():
+        print(" ", error_type, len(modules))
 
 
 def remove_one_indent(s):
