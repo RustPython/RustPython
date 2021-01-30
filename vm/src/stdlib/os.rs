@@ -3,21 +3,20 @@ use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::{self, ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 use std::{env, fs};
 
 use crossbeam_utils::atomic::AtomicCell;
 use num_bigint::BigInt;
-use num_traits::ToPrimitive;
 
 use super::errno::errors;
 use crate::builtins::bytes::{PyBytes, PyBytesRef};
 use crate::builtins::dict::PyDictRef;
-use crate::builtins::int::{PyInt, PyIntRef};
+use crate::builtins::int::{self, PyIntRef};
 use crate::builtins::pystr::{PyStr, PyStrRef};
 use crate::builtins::pytype::PyTypeRef;
 use crate::builtins::set::PySet;
-use crate::builtins::tuple::PyTupleRef;
+use crate::builtins::tuple::{PyTuple, PyTupleRef};
 use crate::byteslike::PyBytesLike;
 use crate::common::lock::PyRwLock;
 use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
@@ -880,41 +879,62 @@ mod _os {
         #[pyarg(named, default)]
         ns: Option<PyTupleRef>,
         #[pyarg(flatten)]
-        _dir_fd: DirFd,
+        dir_fd: DirFd,
         #[pyarg(flatten)]
-        _follow_symlinks: FollowSymlinks,
+        follow_symlinks: FollowSymlinks,
     }
 
     #[cfg(not(target_os = "wasi"))]
     #[pyfunction]
     fn utime(args: UtimeArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let parse_tup = |tup: PyTupleRef| -> Option<(i64, i64)> {
+        let parse_tup = |tup: &PyTuple| -> Option<(PyObjectRef, PyObjectRef)> {
             let tup = tup.borrow_value();
             if tup.len() != 2 {
-                return None;
+                None
+            } else {
+                Some((tup[0].clone(), tup[1].clone()))
             }
-            let i = |e: &PyObjectRef| e.clone().downcast::<PyInt>().ok()?.borrow_value().to_i64();
-            Some((i(&tup[0])?, i(&tup[1])?))
         };
         let (acc, modif) = match (args.times, args.ns) {
-            (Some(t), None) => parse_tup(t).ok_or_else(|| {
-                vm.new_type_error(
-                    "utime: 'times' must be either a tuple of two ints or None".to_owned(),
+            (Some(t), None) => {
+                let (a, m) = parse_tup(&t).ok_or_else(|| {
+                    vm.new_type_error(
+                        "utime: 'times' must be either a tuple of two ints or None".to_owned(),
+                    )
+                })?;
+                (
+                    Duration::try_from_object(vm, a)?,
+                    Duration::try_from_object(vm, m)?,
                 )
-            })?,
+            }
             (None, Some(ns)) => {
-                let (a, m) = parse_tup(ns).ok_or_else(|| {
+                let (a, m) = parse_tup(&ns).ok_or_else(|| {
                     vm.new_type_error("utime: 'ns' must be a tuple of two ints".to_owned())
                 })?;
+                let ns_in_sec = vm.ctx.new_int(1_000_000_000);
+                let ns_to_dur = |obj: PyObjectRef| {
+                    let divmod = vm._divmod(&obj, &ns_in_sec)?;
+                    let (div, rem) =
+                        divmod
+                            .payload::<PyTuple>()
+                            .and_then(parse_tup)
+                            .ok_or_else(|| {
+                                vm.new_type_error(format!(
+                                    "{}.__divmod__() must return a 2-tuple, not {}",
+                                    obj.class().name,
+                                    divmod.class().name
+                                ))
+                            })?;
+                    let secs = int::try_to_primitive(vm.to_index(&div)?.borrow_value(), vm)?;
+                    let ns = int::try_to_primitive(vm.to_index(&rem)?.borrow_value(), vm)?;
+                    Ok(Duration::new(secs, ns))
+                };
                 // TODO: do validation to make sure this doesn't.. underflow?
-                (a / 1_000_000_000, m / 1_000_000_000)
+                (ns_to_dur(a)?, ns_to_dur(m)?)
             }
             (None, None) => {
                 let now = SystemTime::now();
-                let now = now
-                    .duration_since(SystemTime::UNIX_EPOCH)
-                    .map(|d| d.as_secs() as i64)
-                    .unwrap_or_else(|e| -(e.duration().as_secs() as i64));
+                let now = now.duration_since(SystemTime::UNIX_EPOCH).unwrap();
                 (now, now)
             }
             (Some(_), Some(_)) => {
@@ -923,7 +943,87 @@ mod _os {
                 ))
             }
         };
-        utime::set_file_times(&args.path.path, acc, modif).map_err(|err| err.into_pyexception(vm))
+        utime_impl(
+            args.path.as_ref(),
+            acc,
+            modif,
+            args.dir_fd,
+            args.follow_symlinks,
+            vm,
+        )
+    }
+
+    #[cfg(not(target_os = "wasi"))]
+    fn utime_impl(
+        path: &Path,
+        acc: Duration,
+        modif: Duration,
+        _dir_fd: DirFd,
+        _follow_symlinks: FollowSymlinks,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        #[cfg(unix)]
+        {
+            #[cfg(not(target_os = "redox"))]
+            {
+                // TODO: follow symlinks and stuff
+                nix::sys::stat::utimensat(
+                    None,
+                    path,
+                    &acc.into(),
+                    &modif.into(),
+                    if _follow_symlinks.follow_symlinks {
+                        nix::sys::stat::UtimensatFlags::FollowSymlink
+                    } else {
+                        nix::sys::stat::UtimensatFlags::NoFollowSymlink
+                    },
+                )
+                .map_err(|err| err.into_pyexception(vm))
+            }
+            #[cfg(target_os = "redox")]
+            {
+                let tv = |d: Duration| libc::timeval {
+                    tv_sec: d.as_secs() as _,
+                    tv_usec: d.as_micros() as _,
+                };
+                nix::sys::stat::utimes(path, &tv(acc).into(), &tv(modif).into())
+                    .map_err(|err| err.into_pyexception(vm))
+            }
+        }
+        #[cfg(windows)]
+        {
+            use std::fs::OpenOptions;
+            use std::os::windows::prelude::*;
+            use winapi::shared::minwindef::{DWORD, FILETIME};
+            use winapi::um::fileapi::SetFileTime;
+
+            let ft = |d: Duration| {
+                let intervals =
+                    ((d.as_secs() as i64 + 11644473600) * 10_000_000) + (d.as_nanos() as i64 / 100);
+                FILETIME {
+                    dwLowDateTime: intervals as DWORD,
+                    dwHighDateTime: (intervals >> 32) as DWORD,
+                }
+            };
+
+            let acc = ft(acc);
+            let modif = ft(modif);
+
+            let f = OpenOptions::new()
+                .write(true)
+                .custom_flags(winapi::um::winbase::FILE_FLAG_BACKUP_SEMANTICS)
+                .open(path)
+                .map_err(|err| err.into_pyexception(vm))?;
+
+            let ret =
+                unsafe { SetFileTime(f.as_raw_handle() as _, std::ptr::null(), &acc, &modif) };
+
+            if ret == 0 {
+                Err(io::Error::last_os_error().into_pyexception(vm))
+            } else {
+                Ok(())
+            }
+        }
     }
 
     #[pyfunction]
@@ -1391,7 +1491,7 @@ mod posix {
             // TODO: figure out a better way to do this, SystemTime is just a wrapper over timespec
             let changed = {
                 let (ctime, ctime_ns) = (meta.st_ctime(), meta.st_ctime_nsec());
-                let dur = std::time::Duration::new(ctime.abs() as _, ctime_ns as _);
+                let dur = Duration::new(ctime.abs() as _, ctime_ns as _);
                 if ctime < 0 {
                     SystemTime::UNIX_EPOCH - dur
                 } else {

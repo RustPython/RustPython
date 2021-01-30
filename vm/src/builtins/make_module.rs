@@ -206,9 +206,7 @@ mod decl {
 
     #[pyfunction]
     fn divmod(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        vm.call_or_reflection(&a, &b, "__divmod__", "__rdivmod__", |vm, a, b| {
-            Err(vm.new_unsupported_binop_error(a, b, "divmod"))
-        })
+        vm._divmod(&a, &b)
     }
 
     #[cfg(feature = "rustpython-compiler")]
