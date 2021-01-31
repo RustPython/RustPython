@@ -1278,9 +1278,9 @@ dependencies = [
 
 [[package]]
 name = "num_enum"
-version = "0.4.3"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ca565a7df06f3d4b485494f25ba05da1435950f4dc263440eda7a6fa9b8e36e4"
+checksum = "226b45a5c2ac4dd696ed30fa6b94b057ad909c7b7fc2e0d0808192bced894066"
 dependencies = [
  "derivative",
  "num_enum_derive",
@@ -1288,9 +1288,9 @@ dependencies = [
 
 [[package]]
 name = "num_enum_derive"
-version = "0.4.3"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ffa5a33ddddfee04c0283a7653987d634e880347e96b5b2ed64de07efb59db9d"
+checksum = "1c0fd9eba1d5db0994a239e09c1be402d35622277e35468ba891aa5e3188ce7e"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -2020,6 +2020,7 @@ dependencies = [
  "sha2",
  "sha3",
  "socket2",
+ "sre-engine",
  "static_assertions",
  "thiserror",
  "thread_local",
@@ -2244,6 +2245,14 @@ dependencies = [
  "cfg-if 1.0.0",
  "libc",
  "winapi",
+]
+
+[[package]]
+name = "sre-engine"
+version = "0.1.0"
+dependencies = [
+ "bitflags",
+ "num_enum",
 ]
 
 [[package]]
