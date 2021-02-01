@@ -137,12 +137,32 @@ pub fn format_exponent(precision: usize, magnitude: f64, case: Case) -> String {
     }
 }
 
+/// If s represents a floating point value, trailing zeros and a possibly trailing
+/// decimal point will be removed.
+/// This function does NOT work with decimal commas.
+fn remove_trailing_redundant_chars(s: String) -> String {
+    if s.contains('.') {
+        // only truncate floating point values
+        let s = remove_trailing_zeros(s);
+        remove_trailing_decimal_point(s)
+    } else {
+        s
+    }
+}
+
 fn remove_trailing_zeros(s: String) -> String {
     let mut s = s;
-    while s.ends_with('0') || s.ends_with('.') {
-        s.truncate(s.len() - 1);
+    while s.ends_with('0') {
+        s.pop();
     }
+    s
+}
 
+fn remove_trailing_decimal_point(s: String) -> String {
+    let mut s = s;
+    if s.ends_with('.') {
+        s.pop();
+    }
     s
 }
 
@@ -159,12 +179,12 @@ pub fn format_general(precision: usize, magnitude: f64, case: Case) -> String {
                     Case::Upper => 'E',
                 };
 
-                let base = remove_trailing_zeros(format!("{:.*}", precision + 1, base));
+                let base = remove_trailing_redundant_chars(format!("{:.*}", precision + 1, base));
                 format!("{}{}{:+#03}", base, e, exponent)
             } else {
                 let precision = (precision as i64) - 1 - exponent;
                 let precision = precision as usize;
-                remove_trailing_zeros(format!("{:.*}", precision, magnitude))
+                remove_trailing_redundant_chars(format!("{:.*}", precision, magnitude))
             }
         }
         magnitude if magnitude.is_nan() => format_nan(case),
@@ -361,4 +381,35 @@ fn test_to_hex() {
         // println!("  -> {}", roundtrip);
         assert!(f == roundtrip, "{} {} {}", f, hex, roundtrip);
     }
+}
+
+#[test]
+fn test_remove_trailing_zeros() {
+    assert!(remove_trailing_zeros(String::from("100")) == String::from("1"));
+    assert!(remove_trailing_zeros(String::from("100.00")) == String::from("100."));
+
+    // leave leading zeros untouched
+    assert!(remove_trailing_zeros(String::from("001")) == String::from("001"));
+
+    // leave strings untouched if they don't end with 0
+    assert!(remove_trailing_zeros(String::from("101")) == String::from("101"));
+}
+
+#[test]
+fn test_remove_trailing_decimal_point() {
+    assert!(remove_trailing_decimal_point(String::from("100.")) == String::from("100"));
+    assert!(remove_trailing_decimal_point(String::from("1.")) == String::from("1"));
+
+    // leave leading decimal points untouched
+    assert!(remove_trailing_decimal_point(String::from(".5")) == String::from(".5"));
+}
+
+#[test]
+fn test_remove_trailing_redundant_chars() {
+    assert!(remove_trailing_redundant_chars(String::from("100.")) == String::from("100"));
+    assert!(remove_trailing_redundant_chars(String::from("1.")) == String::from("1"));
+    assert!(remove_trailing_redundant_chars(String::from("10.0")) == String::from("10"));
+
+    // don't truncate integers
+    assert!(remove_trailing_redundant_chars(String::from("1000")) == String::from("1000"));
 }
