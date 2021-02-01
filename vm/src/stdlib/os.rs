@@ -20,7 +20,7 @@ use crate::builtins::tuple::{PyTuple, PyTupleRef};
 use crate::byteslike::PyBytesLike;
 use crate::common::lock::PyRwLock;
 use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
-use crate::function::{FuncArgs, IntoPyNativeFunc, OptionalArg};
+use crate::function::{ArgumentError, FromArgs, FuncArgs, IntoPyNativeFunc, OptionalArg};
 use crate::pyobject::{
     BorrowValue, Either, IntoPyObject, ItemProtocol, PyObjectRef, PyRef, PyResult,
     PyStructSequence, PyValue, StaticType, TryFromObject, TypeProtocol,
@@ -162,7 +162,7 @@ fn make_path<'a>(
     path: &'a PyPathLike,
     dir_fd: &DirFd,
 ) -> PyResult<&'a ffi::OsStr> {
-    if dir_fd.dir_fd.is_some() {
+    if dir_fd.0.is_some() {
         Err(vm.new_os_error("dir_fd not supported yet".to_owned()))
     } else {
         Ok(path.path.as_os_str())
@@ -236,10 +236,29 @@ pub struct TargetIsDirectory {
     target_is_directory: bool,
 }
 
-#[derive(FromArgs, Default)]
-pub struct DirFd {
-    #[pyarg(named, default)]
-    dir_fd: Option<PyIntRef>,
+// TODO: we can have a const AVAIL: bool const generic argument once min_const_generics to mimic
+// CPython's dir_fd_unavailable
+#[derive(Default)]
+pub struct DirFd(Option<i32>);
+
+impl FromArgs for DirFd {
+    fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
+        let fd = match args.take_keyword("dir_fd") {
+            Some(o) if vm.is_none(&o) => None,
+            Some(o) => {
+                let fd = vm.to_index_opt(o.clone()).unwrap_or_else(|| {
+                    Err(vm.new_type_error(format!(
+                        "argument should be integer or None, not {}",
+                        o.class().name
+                    )))
+                })?;
+                let fd = int::try_to_primitive(fd.borrow_value(), vm)?;
+                Some(fd)
+            }
+            None => None,
+        };
+        Ok(Self(fd))
+    }
 }
 
 #[derive(FromArgs)]
@@ -282,7 +301,7 @@ fn os_unimpl<T>(func: &str, vm: &VirtualMachine) -> PyResult<T> {
     Err(vm.new_os_error(format!("{} is not supported on this platform", func)))
 }
 
-#[pymodule]
+#[pymodule(name = "os")]
 mod _os {
     use super::OpenFlags;
     use super::*;
@@ -318,12 +337,9 @@ mod _os {
         name: PyPathLike,
         flags: OpenFlags,
         _mode: OptionalArg<PyIntRef>,
-        dir_fd: OptionalArg<PyIntRef>,
+        dir_fd: DirFd,
         vm: &VirtualMachine,
     ) -> PyResult<i64> {
-        let dir_fd = DirFd {
-            dir_fd: dir_fd.into_option(),
-        };
         let fname = make_path(vm, &name, &dir_fd)?;
         if osstr_contains_nul(fname) {
             return Err(vm.new_value_error("embedded null character".to_owned()));
@@ -966,9 +982,8 @@ mod _os {
         {
             #[cfg(not(target_os = "redox"))]
             {
-                // TODO: follow symlinks and stuff
                 nix::sys::stat::utimensat(
-                    None,
+                    _dir_fd.0,
                     path,
                     &acc.into(),
                     &modif.into(),
@@ -1115,7 +1130,14 @@ mod _os {
             // truncate Some None None
             SupportFunc::new(vm, "unlink", remove, Some(false), Some(false), None),
             #[cfg(not(target_os = "wasi"))]
-            SupportFunc::new(vm, "utime", utime, Some(false), Some(false), Some(false)),
+            SupportFunc::new(
+                vm,
+                "utime",
+                utime,
+                Some(false),
+                Some(cfg!(all(unix, not(target_os = "redox")))),
+                Some(cfg!(all(unix, not(target_os = "redox")))),
+            ),
         ]);
         supports
     }
@@ -1577,18 +1599,13 @@ mod posix {
             nix::unistd::FchownatFlags::NoFollowSymlink
         };
 
-        let dir_fd: Option<std::os::unix::io::RawFd> = match dir_fd.dir_fd {
-            Some(int_ref) => Some(i32::try_from_object(&vm, int_ref.as_object().clone())?),
-            None => None,
-        };
-
         match path {
-            Either::A(p) => nix::unistd::fchownat(dir_fd, p.path.as_os_str(), uid, gid, flag),
+            Either::A(p) => nix::unistd::fchownat(dir_fd.0, p.path.as_os_str(), uid, gid, flag),
             Either::B(fd) => {
                 let path = fs::read_link(format!("/proc/self/fd/{}", fd)).map_err(|_| {
                     vm.new_os_error(String::from("Cannot find path for specified fd"))
                 })?;
-                nix::unistd::fchownat(dir_fd, &path, uid, gid, flag)
+                nix::unistd::fchownat(dir_fd.0, &path, uid, gid, flag)
             }
         }
         .map_err(|err| err.into_pyexception(vm))
@@ -1601,7 +1618,7 @@ mod posix {
             Either::A(path),
             uid,
             gid,
-            DirFd { dir_fd: None },
+            DirFd(None),
             FollowSymlinks {
                 follow_symlinks: false,
             },
@@ -1616,7 +1633,7 @@ mod posix {
             Either::B(fd),
             uid,
             gid,
-            DirFd { dir_fd: None },
+            DirFd(None),
             FollowSymlinks {
                 follow_symlinks: true,
             },

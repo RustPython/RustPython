@@ -5,7 +5,7 @@ use super::pystr::PyStrRef;
 use super::pytype::PyTypeRef;
 use crate::builtins::pytype::PyType;
 use crate::common::hash::PyHash;
-use crate::function::{FuncArgs, OptionalArg};
+use crate::function::FuncArgs;
 use crate::pyobject::{
     BorrowValue, Either, IdProtocol, ItemProtocol, PyArithmaticValue, PyAttributes, PyClassImpl,
     PyComparisonValue, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject,
@@ -246,13 +246,13 @@ impl PyBaseObject {
     }
 
     #[pymethod(magic)]
-    fn reduce(obj: PyObjectRef, proto: OptionalArg<usize>, vm: &VirtualMachine) -> PyResult {
-        common_reduce(obj, proto.unwrap_or(0), vm)
+    fn reduce(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        common_reduce(obj, 0, vm)
     }
 
     #[pymethod(magic)]
     fn reduce_ex(obj: PyObjectRef, proto: usize, vm: &VirtualMachine) -> PyResult {
-        if let Some(reduce) = obj.get_class_attr("__reduce__") {
+        if let Some(reduce) = vm.get_attribute_opt(obj.clone(), "__reduce__")? {
             let object_reduce = vm.ctx.types.object_type.get_attr("__reduce__").unwrap();
             if !reduce.is(&object_reduce) {
                 return vm.invoke(&reduce, ());

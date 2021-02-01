@@ -200,6 +200,13 @@ impl PyTuple {
         Ok(false)
     }
 
+    #[pymethod(magic)]
+    fn getnewargs(zelf: PyRef<Self>) -> PyTuple {
+        PyTuple {
+            elements: Box::new([zelf.into_object()]),
+        }
+    }
+
     #[pyslot]
     fn tp_new(
         cls: PyTypeRef,
