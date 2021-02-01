@@ -153,6 +153,18 @@ pub enum StrDrive<'a> {
     Str(&'a str),
     Bytes(&'a [u8]),
 }
+
+impl<'a> From<&'a str> for StrDrive<'a> {
+    fn from(s: &'a str) -> Self {
+        Self::Str(s)
+    }
+}
+impl<'a> From<&'a [u8]> for StrDrive<'a> {
+    fn from(b: &'a [u8]) -> Self {
+        Self::Bytes(b)
+    }
+}
+
 impl<'a> StrDrive<'a> {
     fn offset(&self, offset: usize, skip: usize) -> usize {
         match *self {
