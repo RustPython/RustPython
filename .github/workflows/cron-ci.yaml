@@ -86,3 +86,37 @@ jobs:
           git add ./_data/regrtests_results.json
           git -c user.name="Github Actions" -c user.email="actions@github.com" commit -m "Update regression test results" --author="$GITHUB_ACTOR"
           git push
+
+  whatsleft:
+    name: Collect what is left data
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@master
+      - name: build rustpython
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release --verbose
+      - name: collect what is left data
+        run: |
+          chmod +x ./whats_left.sh
+          ./whats_left.sh > whats_left.temp
+        env:
+          RUSTPYTHONPATH: ${{ github.workspace }}/Lib
+      - name: upload data to the website
+        env:
+          SSHKEY: ${{ secrets.ACTIONS_TESTS_DATA_DEPLOY_KEY }}
+          GITHUB_ACTOR: ${{ github.actor }}
+        run: |
+          echo "$SSHKEY" >~/github_key
+          chmod 600 ~/github_key
+          export GIT_SSH_COMMAND="ssh -i ~/github_key"
+
+          git clone git@github.com:RustPython/rustpython.github.io.git website
+          cd website
+          [ -f ./_data/whats_left.temp ] && cp ./_data/whats_left.temp ./_data/whats_left_lastrun.temp
+          cp ../whats_left.temp ./_data/whats_left.temp
+          git add ./_data/whats_left_lastrun.temp
+          git add ./_data/whats_left.temp
+          git -c user.name="Github Actions" -c user.email="actions@github.com" commit -m "Update regression test results" --author="$GITHUB_ACTOR"
+          git push
