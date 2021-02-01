@@ -369,20 +369,18 @@ fn once<F: FnOnce(&mut StackDrive)>(f: F) -> Box<OpOnce<F>> {
     Box::new(OpOnce { f: Some(f) })
 }
 
-// F1 F2 are same identical, but workaround for closure
 struct OpTwice<F1, F2> {
     f1: Option<F1>,
     f2: Option<F2>,
 }
 impl<F1, F2> OpcodeExecutor for OpTwice<F1, F2>
 where
-    F1: FnOnce(&mut StackDrive),
+    F1: FnOnce(&mut StackDrive) -> Option<()>,
     F2: FnOnce(&mut StackDrive),
 {
     fn next(&mut self, drive: &mut StackDrive) -> Option<()> {
         if let Some(f1) = self.f1.take() {
-            f1(drive);
-            Some(())
+            f1(drive)
         } else if let Some(f2) = self.f2.take() {
             f2(drive);
             None
@@ -393,7 +391,7 @@ where
 }
 fn twice<F1, F2>(f1: F1, f2: F2) -> Box<OpTwice<F1, F2>>
 where
-    F1: FnOnce(&mut StackDrive),
+    F1: FnOnce(&mut StackDrive) -> Option<()>,
     F2: FnOnce(&mut StackDrive),
 {
     Box::new(OpTwice {
@@ -483,11 +481,12 @@ impl OpcodeDispatcher {
                     let passed = drive.ctx().string_position - drive.state.start;
                     if passed < back {
                         drive.ctx_mut().has_matched = Some(false);
-                        return;
+                        return None;
                     }
                     drive.state.string_position = drive.ctx().string_position - back;
                     drive.push_new_context(3);
                     drive.state.context_stack.last_mut().unwrap().toplevel = false;
+                    Some(())
                 },
                 |drive| {
                     let child_ctx = drive.state.popped_context.unwrap();
@@ -504,11 +503,12 @@ impl OpcodeDispatcher {
                     let passed = drive.ctx().string_position - drive.state.start;
                     if passed < back {
                         drive.skip_code(drive.peek_code(1) as usize + 1);
-                        return;
+                        return None;
                     }
                     drive.state.string_position = drive.ctx().string_position - back;
                     drive.push_new_context(3);
                     drive.state.context_stack.last_mut().unwrap().toplevel = false;
+                    Some(())
                 },
                 |drive| {
                     let child_ctx = drive.state.popped_context.unwrap();
@@ -598,6 +598,7 @@ impl OpcodeDispatcher {
                     drive.state.string_position = drive.ctx().string_position;
                     // execute UNTIL operator
                     drive.push_new_context(drive.peek_code(1) as usize + 1);
+                    Some(())
                 },
                 |drive| {
                     drive.state.repeat_stack.pop();
