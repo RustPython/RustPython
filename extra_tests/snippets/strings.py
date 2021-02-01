@@ -545,6 +545,8 @@ assert '{:e}'.format(float('-inf')) == '-inf'
 assert '{:E}'.format(float('inf')) == 'INF'
 
 # Test g & G formatting
+assert '{:g}'.format(10.0) == '10'
+assert '{:g}'.format(100000.0) == '100000'
 assert '{:g}'.format(123456.78901234567890) == '123457'
 assert '{:.0g}'.format(123456.78901234567890) == '1e+05'
 assert '{:.1g}'.format(123456.78901234567890) == '1e+05'
