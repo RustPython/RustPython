@@ -262,10 +262,7 @@ impl FromArgs for DirFd {
 }
 
 #[derive(FromArgs)]
-struct FollowSymlinks {
-    #[pyarg(named, default = "true")]
-    follow_symlinks: bool,
-}
+struct FollowSymlinks(#[pyarg(named, name = "follow_symlinks", default = "true")] bool);
 
 #[cfg(unix)]
 use posix::bytes_as_osstr;
@@ -610,7 +607,7 @@ mod _os {
             action: fn(fs::Metadata) -> bool,
             vm: &VirtualMachine,
         ) -> PyResult<bool> {
-            let meta = fs_metadata(self.entry.path(), follow_symlinks.follow_symlinks)
+            let meta = fs_metadata(self.entry.path(), follow_symlinks.0)
                 .map_err(|err| err.into_pyexception(vm))?;
             Ok(action(meta))
         }
@@ -771,14 +768,7 @@ mod _os {
 
     #[pyfunction]
     fn lstat(file: Either<PyPathLike, i64>, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult {
-        super::platform::stat(
-            file,
-            dir_fd,
-            FollowSymlinks {
-                follow_symlinks: false,
-            },
-            vm,
-        )
+        super::platform::stat(file, dir_fd, FollowSymlinks(false), vm)
     }
 
     #[pyfunction]
@@ -987,7 +977,7 @@ mod _os {
                     path,
                     &acc.into(),
                     &modif.into(),
-                    if _follow_symlinks.follow_symlinks {
+                    if _follow_symlinks.0 {
                         nix::sys::stat::UtimensatFlags::FollowSymlink
                     } else {
                         nix::sys::stat::UtimensatFlags::NoFollowSymlink
@@ -1494,10 +1484,7 @@ mod posix {
         use std::os::redox::fs::MetadataExt;
 
         let meta = match file {
-            Either::A(path) => fs_metadata(
-                make_path(vm, &path, &dir_fd)?,
-                follow_symlinks.follow_symlinks,
-            ),
+            Either::A(path) => fs_metadata(make_path(vm, &path, &dir_fd)?, follow_symlinks.0),
             Either::B(fno) => {
                 let file = rust_file(fno);
                 let res = file.metadata();
@@ -1593,7 +1580,7 @@ mod posix {
             return Err(vm.new_os_error(String::from("Specified gid is not valid.")));
         };
 
-        let flag = if follow_symlinks.follow_symlinks {
+        let flag = if follow_symlinks.0 {
             nix::unistd::FchownatFlags::FollowSymlink
         } else {
             nix::unistd::FchownatFlags::NoFollowSymlink
@@ -1619,9 +1606,7 @@ mod posix {
             uid,
             gid,
             DirFd(None),
-            FollowSymlinks {
-                follow_symlinks: false,
-            },
+            FollowSymlinks(false),
             vm,
         )
     }
@@ -1634,9 +1619,7 @@ mod posix {
             uid,
             gid,
             DirFd(None),
-            FollowSymlinks {
-                follow_symlinks: true,
-            },
+            FollowSymlinks(true),
             vm,
         )
     }
@@ -1751,7 +1734,7 @@ mod posix {
         let path = make_path(vm, &path, &dir_fd)?;
         let body = move || {
             use std::os::unix::fs::PermissionsExt;
-            let meta = fs_metadata(path, follow_symlinks.follow_symlinks)?;
+            let meta = fs_metadata(path, follow_symlinks.0)?;
             let mut permissions = meta.permissions();
             permissions.set_mode(mode);
             fs::set_permissions(path, permissions)
@@ -2616,7 +2599,7 @@ mod nt {
 
         let get_stats = move || -> io::Result<PyObjectRef> {
             let meta = match file {
-                Either::A(path) => fs_metadata(path.path, follow_symlinks.follow_symlinks)?,
+                Either::A(path) => fs_metadata(path.path, follow_symlinks.0)?,
                 Either::B(fno) => {
                     let f = rust_file(fno);
                     let meta = f.metadata()?;
@@ -2662,7 +2645,7 @@ mod nt {
     ) -> PyResult<()> {
         const S_IWRITE: u32 = 128;
         let path = make_path(vm, &path, &dir_fd)?;
-        let metadata = if follow_symlinks.follow_symlinks {
+        let metadata = if follow_symlinks.0 {
             fs::metadata(path)
         } else {
             fs::symlink_metadata(path)
