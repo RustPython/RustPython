@@ -46,6 +46,7 @@ class GeneralTests(unittest.TestCase):
             self.assertIsNotNone(tn.get_socket())
         self.assertIsNone(tn.get_socket())
 
+    @unittest.skip("TODO: RUSTPYTHON implement socket.setdefaulttimeout()")
     def testTimeoutDefault(self):
         self.assertTrue(socket.getdefaulttimeout() is None)
         socket.setdefaulttimeout(30)
@@ -56,6 +57,7 @@ class GeneralTests(unittest.TestCase):
         self.assertEqual(telnet.sock.gettimeout(), 30)
         telnet.sock.close()
 
+    @unittest.skip("TODO: RUSTPYTHON implement socket.setdefaulttimeout()")
     def testTimeoutNone(self):
         # None, having other default
         self.assertTrue(socket.getdefaulttimeout() is None)
