@@ -87,7 +87,7 @@ class LoaderTests(abc.LoaderTests):
  Source_LoaderTests
  ) = util.test_both(LoaderTests, machinery=machinery)
 
-@unittest.skip("TODO: RUSTPYTHON")
+@unittest.skip("TODO: RUSTPYTHON, AssertionError")
 class MultiPhaseExtensionModuleTests(abc.LoaderTests):
     """Test loading extension modules with multi-phase initialization (PEP 489)
     """
