@@ -107,7 +107,7 @@ class LoaderTests(abc.LoaderTests):
             self.assertEqual(stdout.getvalue(), 'Hello world!\n')
             self.assertFalse(hasattr(module, '__file__'))
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, ImportError: '__phello__' is not a frozen module")
     def test_package(self):
         with util.uncache('__phello__'),  captured_stdout() as stdout:
             with warnings.catch_warnings():
