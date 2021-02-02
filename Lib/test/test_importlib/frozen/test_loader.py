@@ -34,7 +34,7 @@ class ExecModuleTests(abc.LoaderTests):
         self.assertEqual(output, 'Hello world!\n')
         self.assertTrue(hasattr(module, '__spec__'))
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, ImportError: '__phello__' is not a frozen module")
     def test_package(self):
         name = '__phello__'
         module, output = self.exec_module(name)
