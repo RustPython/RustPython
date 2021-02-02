@@ -1424,7 +1424,7 @@ class DoubleTest(FPTest, unittest.TestCase):
     typecode = 'd'
     minitemsize = 8
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'capacity overflow'")
     def test_alloc_overflow(self):
         from sys import maxsize
         a = array.array('d', [-1]*65536)
