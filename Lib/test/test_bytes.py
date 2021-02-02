@@ -336,7 +336,7 @@ class BaseBytesTest:
         self.assertRaises(TypeError, lambda: b1 + "def")
         self.assertRaises(TypeError, lambda: "abc" + b2)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'capacity overflow'")
     def test_repeat(self):
         for b in b"abc", self.type2test(b"abc"):
             self.assertEqual(b * 3, b"abcabcabc")
