@@ -75,7 +75,7 @@ class LoaderTests(abc.LoaderTests):
             self.load_module(name)
         self.assertEqual(cm.exception.name, name)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, AttributeError: 'NoneType' object has no attribute 'rpartition'")
     def test_is_package(self):
         self.assertFalse(self.loader.is_package(util.EXTENSIONS.name))
         for suffix in self.machinery.EXTENSION_SUFFIXES:
