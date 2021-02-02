@@ -374,7 +374,7 @@ class TestCopy(unittest.TestCase):
         self.assertIsNot(x, y)
         self.assertIsNot(x[0], y[0])
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, segmentation fault")
     def test_deepcopy_reflexive_list(self):
         x = []
         x.append(x)
