@@ -254,7 +254,8 @@ impl PyBaseObject {
     fn reduce_ex(obj: PyObjectRef, proto: usize, vm: &VirtualMachine) -> PyResult {
         if let Some(reduce) = vm.get_attribute_opt(obj.clone(), "__reduce__")? {
             let object_reduce = vm.ctx.types.object_type.get_attr("__reduce__").unwrap();
-            if !reduce.is(&object_reduce) {
+            let class_reduce = vm.get_attribute(obj.clone_class().into_object(), "__reduce__")?;
+            if !class_reduce.is(&object_reduce) {
                 return vm.invoke(&reduce, ());
             }
         }

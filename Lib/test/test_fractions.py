@@ -711,8 +711,6 @@ class FractionTest(unittest.TestCase):
             s += num / fact * sign
         self.assertAlmostEqual(math.cos(1), s)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_copy_deepcopy_pickle(self):
         r = F(13, 7)
         dr = DummyFraction(13, 7)
