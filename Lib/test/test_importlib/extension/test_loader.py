@@ -22,7 +22,7 @@ class LoaderTests(abc.LoaderTests):
     def load_module(self, fullname):
         return self.loader.load_module(fullname)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, AttributeError: 'NoneType' object has no attribute 'rpartition'")
     def test_load_module_API(self):
         # Test the default argument for load_module().
         self.loader.load_module()
