@@ -126,7 +126,7 @@ class LoaderTests(abc.LoaderTests):
             self.assertEqual(stdout.getvalue(), 'Hello world!\n')
             self.assertFalse(hasattr(module, '__file__'))
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, ImportError: '__phello__.spam' is not a frozen module")
     def test_lacking_parent(self):
         with util.uncache('__phello__', '__phello__.spam'), \
              captured_stdout() as stdout:
