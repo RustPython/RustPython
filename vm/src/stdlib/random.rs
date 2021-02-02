@@ -8,7 +8,7 @@ mod _random {
     use crate::builtins::pytype::PyTypeRef;
     use crate::common::lock::PyMutex;
     use crate::function::OptionalOption;
-    use crate::pyobject::{BorrowValue, PyRef, PyResult, PyValue, StaticType};
+    use crate::pyobject::{BorrowValue, PyObjectRef, PyRef, PyResult, PyValue, StaticType};
     use crate::VirtualMachine;
     use num_bigint::{BigInt, Sign};
     use num_traits::Signed;
@@ -69,7 +69,12 @@ mod _random {
     #[pyimpl(flags(BASETYPE))]
     impl PyRandom {
         #[pyslot(new)]
-        fn new(cls: PyTypeRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        fn new(
+            cls: PyTypeRef,
+            // TODO: use x as the seed.
+            _x: OptionalOption<PyObjectRef>,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyRef<Self>> {
             PyRandom {
                 rng: PyMutex::default(),
             }
@@ -82,6 +87,7 @@ mod _random {
             mt19937::gen_res53(&mut *rng)
         }
 
+        // TODO: n can be a float, str, bytes, or bytearray
         #[pymethod]
         fn seed(&self, n: OptionalOption<PyIntRef>) {
             let new_rng = match n.flatten() {
