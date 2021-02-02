@@ -1131,7 +1131,7 @@ class StringTest(BaseTest):
         a = array.array(self.typecode, self.example)
         self.assertRaises(TypeError, a.__setitem__, 0, self.example[:2])
 
-@unittest.skip("TODO: RUSTPYTHON")
+@unittest.skip("TODO: RUSTPYTHON, ValueError: bad typecode")
 class UnicodeTest(StringTest, unittest.TestCase):
     typecode = 'u'
     example = '\x01\u263a\x00\ufeff'
