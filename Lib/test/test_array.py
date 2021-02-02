@@ -471,7 +471,7 @@ class BaseTest:
                 nb_warnings += 1
         self.assertEqual(len(r), nb_warnings)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, OverflowError: Python int too large to convert to Rust i8")
     def test_tofrombytes(self):
         a = array.array(self.typecode, 2*self.example)
         b = array.array(self.typecode)
