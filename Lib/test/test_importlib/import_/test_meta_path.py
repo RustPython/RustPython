@@ -53,7 +53,6 @@ class CallingOrder:
  ) = util.test_both(CallingOrder, __import__=util.__import__)
 
 
-@unittest.skip("TODO: RUSTPYTHON")
 class CallSignature:
 
     """If there is no __path__ entry on the parent module, then 'path' is None
@@ -68,6 +67,7 @@ class CallSignature:
             return fxn(*args, **kwargs)
         return log, wrapper
 
+    @unittest.skip("TODO: RUSTPYTHON, TypeError: unexpected payload for __call__")
     def test_no_path(self):
         # [no path]
         mod_name = 'top_level'
@@ -83,6 +83,7 @@ class CallSignature:
                 self.assertEqual(args[0], mod_name)
                 self.assertIsNone(args[1])
 
+    @unittest.skip("TODO: RUSTPYTHON, TypeError: unexpected payload for __call__")
     def test_with_path(self):
         # [path set]
         pkg_name = 'pkg'
