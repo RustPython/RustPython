@@ -204,7 +204,7 @@ class InspectLoaderTests:
         result = self.machinery.FrozenImporter.get_source('__hello__')
         self.assertIsNone(result)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, ImportError: '__phello__' is not a frozen module")
     def test_is_package(self):
         # Should be able to tell what is a package.
         test_for = (('__hello__', False), ('__phello__', True),
