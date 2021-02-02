@@ -402,7 +402,7 @@ class TestCopy(unittest.TestCase):
         y = copy.deepcopy(x)
         self.assertIs(x, y)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, segmentation fault")
     def test_deepcopy_reflexive_tuple(self):
         x = ([],)
         x[0].append(x)
