@@ -59,7 +59,7 @@ class LoaderTests(abc.LoaderTests):
     # No extension module in a package available for testing.
     test_lacking_parent = None
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, AttributeError: 'NoneType' object has no attribute 'rpartition'")
     def test_module_reuse(self):
         with util.uncache(util.EXTENSIONS.name):
             module1 = self.load_module(util.EXTENSIONS.name)
