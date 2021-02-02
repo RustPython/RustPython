@@ -1,7 +1,5 @@
 pub mod constants;
 pub mod engine;
-#[cfg(test)]
-mod tests;
 
 pub const CODESIZE: usize = 4;
 
