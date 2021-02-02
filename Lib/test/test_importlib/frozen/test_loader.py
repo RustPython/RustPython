@@ -47,7 +47,7 @@ class ExecModuleTests(abc.LoaderTests):
                                  expected=value))
         self.assertEqual(output, 'Hello world!\n')
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, ImportError: '__phello__.spam' is not a frozen module")
     def test_lacking_parent(self):
         name = '__phello__.spam'
         with util.uncache('__phello__'):
