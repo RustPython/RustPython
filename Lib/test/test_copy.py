@@ -420,7 +420,7 @@ class TestCopy(unittest.TestCase):
         self.assertIsNot(x, y)
         self.assertIsNot(x["foo"], y["foo"])
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, segmentation fault")
     def test_deepcopy_reflexive_dict(self):
         x = {}
         x['foo'] = x
