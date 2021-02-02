@@ -408,7 +408,6 @@ class CommonTest(unittest.TestCase):
         self.assertRaises(ValueError, a.index, 0, 4*sys.maxsize,-4*sys.maxsize)
         self.assertRaises(ValueError, a.index, 2, 0, -10)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_pickle(self):
         lst = self.type2test([4, 5, 6, 7])
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
