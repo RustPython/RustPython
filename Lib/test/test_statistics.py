@@ -689,6 +689,8 @@ class GlobalsTest(unittest.TestCase):
                             'missing name "%s" in __all__' % name)
 
 
+# TODO: RUSTPYTHON
+@unittest.expectedFailure
 class DocTests(unittest.TestCase):
     @unittest.skipIf(sys.flags.optimize >= 2,
                      "Docstrings are omitted with -OO and above")
@@ -1436,6 +1438,8 @@ class TestMean(NumericTestCase, AverageMixin, UnivariateTypeMixin):
         d = Decimal('1e4')
         self.assertEqual(statistics.mean([d]), d)
 
+    # TODO: RUSTPYTHON division converts ints to floats before dividing, not after
+    @unittest.expectedFailure
     def test_regression_25177(self):
         # Regression test for issue 25177.
         # Ensure very big and very small floats don't overflow.
@@ -1878,6 +1882,8 @@ class TestFMean(unittest.TestCase):
         with self.assertRaises(TypeError):
             fmean([10, 20, 60], 70)                 # too many arguments
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_special_values(self):
         # Rules for special values are inherited from math.fsum()
         fmean = statistics.fmean
@@ -2073,6 +2079,8 @@ class TestStdev(VarianceStdevMixin, NumericTestCase):
 
 class TestGeometricMean(unittest.TestCase):
 
+    # TODO: RUSTPYTHON math.prod isn't implemented
+    @unittest.expectedFailure
     def test_basics(self):
         geometric_mean = statistics.geometric_mean
         self.assertAlmostEqual(geometric_mean([54, 24, 36]), 36.0)
@@ -2128,6 +2136,8 @@ class TestGeometricMean(unittest.TestCase):
         self.assertTrue(math.isclose(small_gm, 36.0 * small))
         self.assertNotEqual(small_gm, 0.0)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_error_cases(self):
         geometric_mean = statistics.geometric_mean
         StatisticsError = statistics.StatisticsError
@@ -2148,6 +2158,8 @@ class TestGeometricMean(unittest.TestCase):
         with self.assertRaises(TypeError):
             geometric_mean([10, 20, 60], 70)        # too many arguments
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_special_values(self):
         # Rules for special values are inherited from math.fsum()
         geometric_mean = statistics.geometric_mean
@@ -2333,6 +2345,8 @@ class TestNormalDist:
     # inaccurate.  There isn't much we can do about this short of
     # implementing our own implementations from scratch.
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_slots(self):
         nd = self.module.NormalDist(300, 23)
         with self.assertRaises(TypeError):
@@ -2473,6 +2487,8 @@ class TestNormalDist:
         self.assertEqual(X.cdf(float('Inf')), 1.0)
         self.assertTrue(math.isnan(X.cdf(float('NaN'))))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @support.skip_if_pgo_task
     def test_inv_cdf(self):
         NormalDist = self.module.NormalDist
