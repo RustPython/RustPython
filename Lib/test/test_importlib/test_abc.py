@@ -960,11 +960,11 @@ class SourceLoaderBytecodeTests(SourceLoaderTestHarness):
                          loader_mock=SPLIT_SL)
 
 
-@unittest.skip("TODO: RUSTPYTHON")
 class SourceLoaderGetSourceTests:
 
     """Tests for importlib.abc.SourceLoader.get_source()."""
 
+    @unittest.skip("TODO: RUSTPYTHON, AttributeError: module 'tokenize' has no attribute 'detect_encoding'")
     def test_default_encoding(self):
         # Should have no problems with UTF-8 text.
         name = 'mod'
@@ -974,6 +974,7 @@ class SourceLoaderGetSourceTests:
         returned_source = mock.get_source(name)
         self.assertEqual(returned_source, source)
 
+    @unittest.skip("TODO: RUSTPYTHON, AttributeError: module 'tokenize' has no attribute 'detect_encoding'")
     def test_decoded_source(self):
         # Decoding should work.
         name = 'mod'
@@ -984,6 +985,7 @@ class SourceLoaderGetSourceTests:
         returned_source = mock.get_source(name)
         self.assertEqual(returned_source, source)
 
+    @unittest.skip("TODO: RUSTPYTHON, AttributeError: module 'io' has no attribute 'IncrementalNewlineDecoder'")
     def test_universal_newlines(self):
         # PEP 302 says universal newlines should be used.
         name = 'mod'
