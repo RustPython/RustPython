@@ -259,3 +259,9 @@ class A():
     a: int
 
 assert A.__annotations__['a'] == int
+
+class A: pass
+class B: pass
+
+class C(*(A, B), **{"metaclass": type}):
+    pass
