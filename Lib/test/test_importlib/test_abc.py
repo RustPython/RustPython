@@ -789,7 +789,7 @@ class SourceOnlyLoaderTests(SourceLoaderTestHarness):
 
     """
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, AttributeError: module 'tokenize' has no attribute 'detect_encoding'")
     def test_get_source(self):
         # Verify the source code is returned as a string.
         # If an OSError is raised by get_data then raise ImportError.
