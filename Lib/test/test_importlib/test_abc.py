@@ -844,7 +844,7 @@ class SourceOnlyLoaderTests(SourceLoaderTestHarness):
             self.verify_module(module)
             self.assertFalse(hasattr(module, '__path__'))
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, AttributeError: module 'tokenize' has no attribute 'detect_encoding'")
     def test_get_source_encoding(self):
         # Source is considered encoded in UTF-8 by default unless otherwise
         # specified by an encoding line.
