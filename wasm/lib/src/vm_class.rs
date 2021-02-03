@@ -40,6 +40,12 @@ impl StoredVirtualMachine {
                 setup_browser_module(vm);
             }
 
+            VM_INIT_FUNCS.with(|cell| {
+                for f in cell.borrow().iter() {
+                    f(vm)
+                }
+            });
+
             scope = Some(vm.new_scope_with_builtins());
 
             InitParameter::Internal
@@ -53,11 +59,18 @@ impl StoredVirtualMachine {
     }
 }
 
+/// Add a hook to add builtins or frozen modules to the RustPython VirtualMachine while it's
+/// initializing.
+pub fn add_init_func(f: fn(&mut VirtualMachine)) {
+    VM_INIT_FUNCS.with(|cell| cell.borrow_mut().push(f))
+}
+
 // It's fine that it's thread local, since WASM doesn't even have threads yet. thread_local!
 // probably gets compiled down to a normal-ish static varible, like Atomic* types do:
 // https://rustwasm.github.io/2018/10/24/multithreading-rust-and-wasm.html#atomic-instructions
 thread_local! {
     static STORED_VMS: RefCell<HashMap<String, Rc<StoredVirtualMachine>>> = RefCell::default();
+    static VM_INIT_FUNCS: RefCell<Vec<fn(&mut VirtualMachine)>> = RefCell::default();
 }
 
 pub fn get_vm_id(vm: &VirtualMachine) -> &str {

@@ -304,6 +304,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "console_error_panic_hook"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b8d976903543e0c48546a91908f21588a680a8c8f984df9a5d69feccb2b2a211"
+dependencies = [
+ "cfg-if 0.1.10",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "const_fn"
 version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2045,6 +2055,7 @@ dependencies = [
 name = "rustpython_wasm"
 version = "0.1.2"
 dependencies = [
+ "console_error_panic_hook",
  "js-sys",
  "parking_lot",
  "rustpython-common",
