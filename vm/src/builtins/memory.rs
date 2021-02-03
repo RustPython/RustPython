@@ -95,7 +95,13 @@ impl Buffer for RcBuffer {
 
 pub trait Buffer: Debug + PyThreadingConstraint {
     fn get_options(&self) -> &BufferOptions;
+    /// Get the full inner buffer of this memory. You probably want [`as_contiguous()`], as
+    /// `obj_bytes` doesn't take into account the range a memoryview might operate on, among other
+    /// footguns.
     fn obj_bytes(&self) -> BorrowedValue<[u8]>;
+    /// Get the full inner buffer of this memory, mutably. You probably want
+    /// [`as_contiguous_mut()`], as `obj_bytes` doesn't take into account the range a memoryview
+    /// might operate on, among other footguns.
     fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]>;
     fn release(&self);
 

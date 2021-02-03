@@ -6,7 +6,7 @@ use socket2::{Domain, Protocol, Socket, Type as SocketType};
 use std::convert::TryFrom;
 use std::io;
 use std::net::{Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, ToSocketAddrs};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::builtins::bytes::PyBytesRef;
 use crate::builtins::pystr::{PyStr, PyStrRef};
@@ -20,7 +20,7 @@ use crate::pyobject::{
     BorrowValue, Either, IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
     StaticType, TryFromObject,
 };
-use crate::{py_io, VirtualMachine};
+use crate::VirtualMachine;
 
 #[cfg(unix)]
 type RawSocket = std::os::unix::io::RawFd;
@@ -59,6 +59,7 @@ pub struct PySocket {
     kind: AtomicCell<i32>,
     family: AtomicCell<i32>,
     proto: AtomicCell<i32>,
+    timeout: AtomicCell<f64>,
     sock: PyRwLock<Socket>,
 }
 
@@ -86,6 +87,7 @@ impl PySocket {
             kind: AtomicCell::default(),
             family: AtomicCell::default(),
             proto: AtomicCell::default(),
+            timeout: AtomicCell::new(-1.0),
             sock: PyRwLock::new(invalid_sock()),
         }
         .into_ref_with_type(vm, cls)
@@ -128,15 +130,94 @@ impl PySocket {
         Ok(())
     }
 
+    fn sock_op<F, R>(&self, vm: &VirtualMachine, select: SelectKind, f: F) -> PyResult<R>
+    where
+        F: FnMut() -> io::Result<R>,
+    {
+        let timeout = self.timeout.load();
+        let timeout = if timeout > 0.0 {
+            Some(Duration::from_secs_f64(timeout))
+        } else {
+            None
+        };
+        self.sock_op_timeout(vm, select, timeout, f)
+    }
+
+    fn sock_op_timeout<F, R>(
+        &self,
+        vm: &VirtualMachine,
+        select: SelectKind,
+        timeout: Option<Duration>,
+        mut f: F,
+    ) -> PyResult<R>
+    where
+        F: FnMut() -> io::Result<R>,
+    {
+        let deadline = timeout.map(Deadline::new);
+
+        loop {
+            if deadline.is_some() || matches!(select, SelectKind::Connect) {
+                let interval = deadline.as_ref().map(|d| d.time_until(vm)).transpose()?;
+                let res = sock_select(&self.sock(), select, interval);
+                match res {
+                    Ok(true) => return Err(timeout_error(vm)),
+                    Err(e) if e.kind() == io::ErrorKind::Interrupted => {
+                        vm.check_signals()?;
+                        continue;
+                    }
+                    Err(e) => return Err(convert_sock_error(vm, e)),
+                    Ok(false) => {} // no timeout, continue as normal
+                }
+            }
+
+            let err = loop {
+                // loop on interrupt
+                match f() {
+                    Ok(x) => return Ok(x),
+                    Err(e) if e.kind() == io::ErrorKind::Interrupted => vm.check_signals()?,
+                    Err(e) => break e,
+                }
+            };
+            if timeout.is_some() && err.kind() == io::ErrorKind::WouldBlock {
+                continue;
+            }
+            return Err(convert_sock_error(vm, err));
+        }
+    }
+
     #[pymethod]
     fn connect(&self, address: Address, vm: &VirtualMachine) -> PyResult<()> {
         let sock_addr = get_addr(vm, address, Some(self.family.load()))?;
-        let res = if let Some(duration) = self.sock().read_timeout().unwrap() {
-            self.sock().connect_timeout(&sock_addr, duration)
-        } else {
-            self.sock().connect(&sock_addr)
+
+        let err = match self.sock().connect(&sock_addr) {
+            Ok(()) => return Ok(()),
+            Err(e) => e,
         };
-        res.map_err(|err| convert_sock_error(vm, err))
+
+        let wait_connect = if err.kind() == io::ErrorKind::Interrupted {
+            vm.check_signals()?;
+            self.timeout.load() != 0.0
+        } else {
+            self.timeout.load() > 0.0 && err.raw_os_error() == Some(libc::EINPROGRESS)
+        };
+
+        if wait_connect {
+            // basically, connect() is async, and it registers an "error" on the socket when it's
+            // done connecting. SelectKind::Connect fills the errorfds fd_set, so if we wake up
+            // from poll and the error is EISCONN then we know that the connect is done
+            self.sock_op(vm, SelectKind::Connect, || {
+                let sock = self.sock();
+                let err = sock.take_error()?;
+                match err {
+                    Some(e) if e.raw_os_error() == Some(libc::EISCONN) => Ok(()),
+                    Some(e) => Err(e),
+                    // TODO: is this accurate?
+                    None => Ok(()),
+                }
+            })
+        } else {
+            Err(convert_sock_error(vm, err))
+        }
     }
 
     #[pymethod]
@@ -158,11 +239,7 @@ impl PySocket {
 
     #[pymethod]
     fn _accept(&self, vm: &VirtualMachine) -> PyResult<(RawSocket, AddrTuple)> {
-        let (sock, addr) = self
-            .sock()
-            .accept()
-            .map_err(|err| convert_sock_error(vm, err))?;
-
+        let (sock, addr) = self.sock_op(vm, SelectKind::Read, || self.sock().accept())?;
         let fd = into_sock_fileno(sock);
         Ok((fd, get_addr_tuple(addr)))
     }
@@ -176,10 +253,10 @@ impl PySocket {
     ) -> PyResult<Vec<u8>> {
         let flags = flags.unwrap_or(0);
         let mut buffer = vec![0u8; bufsize];
-        let n = self
-            .sock()
-            .recv_with_flags(&mut buffer, flags)
-            .map_err(|err| convert_sock_error(vm, err))?;
+        let sock = self.sock();
+        let n = self.sock_op(vm, SelectKind::Read, || {
+            sock.recv_with_flags(&mut buffer, flags)
+        })?;
         buffer.truncate(n);
         Ok(buffer)
     }
@@ -192,8 +269,10 @@ impl PySocket {
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
         let flags = flags.unwrap_or(0);
-        buf.with_ref(|buf| self.sock().recv_with_flags(buf, flags))
-            .map_err(|err| convert_sock_error(vm, err))
+        let sock = self.sock();
+        self.sock_op(vm, SelectKind::Read, || {
+            buf.with_ref(|buf| sock.recv_with_flags(buf, flags))
+        })
     }
 
     #[pymethod]
@@ -205,10 +284,9 @@ impl PySocket {
     ) -> PyResult<(Vec<u8>, AddrTuple)> {
         let flags = flags.unwrap_or(0);
         let mut buffer = vec![0u8; bufsize];
-        let (n, addr) = self
-            .sock()
-            .recv_from_with_flags(&mut buffer, flags)
-            .map_err(|err| convert_sock_error(vm, err))?;
+        let (n, addr) = self.sock_op(vm, SelectKind::Read, || {
+            self.sock().recv_from_with_flags(&mut buffer, flags)
+        })?;
         buffer.truncate(n);
         Ok((buffer, get_addr_tuple(addr)))
     }
@@ -221,9 +299,9 @@ impl PySocket {
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
         let flags = flags.unwrap_or(0);
-        bytes
-            .with_ref(|b| self.sock().send_with_flags(b, flags))
-            .map_err(|err| convert_sock_error(vm, err))
+        self.sock_op(vm, SelectKind::Write, || {
+            bytes.with_ref(|b| self.sock().send_with_flags(b, flags))
+        })
     }
 
     #[pymethod]
@@ -234,10 +312,31 @@ impl PySocket {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let flags = flags.unwrap_or(0);
-        let sock = self.sock();
-        bytes
-            .with_ref(|buf| py_io::write_all(buf, |b| sock.send_with_flags(b, flags)))
-            .map_err(|err| convert_sock_error(vm, err))
+
+        let timeout = self.timeout.load();
+        let timeout = if timeout > 0.0 {
+            Some(Duration::from_secs_f64(timeout))
+        } else {
+            None
+        };
+
+        let deadline = timeout.map(Deadline::new);
+
+        let buf_len = bytes.len();
+        let mut buf_offset = 0;
+        // now we have like 3 layers of interrupt loop :)
+        while buf_offset < buf_len {
+            let interval = deadline.as_ref().map(|d| d.time_until(vm)).transpose()?;
+            self.sock_op_timeout(vm, SelectKind::Write, interval, || {
+                bytes.with_ref(|b| {
+                    let subbuf = &b[buf_offset..];
+                    buf_offset += self.sock().send_with_flags(subbuf, flags)?;
+                    Ok(())
+                })
+            })?;
+            vm.check_signals()?;
+        }
+        Ok(())
     }
 
     #[pymethod]
@@ -247,13 +346,12 @@ impl PySocket {
         address: Address,
         flags: OptionalArg<i32>,
         vm: &VirtualMachine,
-    ) -> PyResult<()> {
+    ) -> PyResult<usize> {
         let flags = flags.unwrap_or(0);
         let addr = get_addr(vm, address, Some(self.family.load()))?;
-        bytes
-            .with_ref(|b| self.sock().send_to_with_flags(b, &addr, flags))
-            .map_err(|err| convert_sock_error(vm, err))?;
-        Ok(())
+        self.sock_op(vm, SelectKind::Write, || {
+            bytes.with_ref(|b| self.sock().send_to_with_flags(b, &addr, flags))
+        })
     }
 
     #[pymethod]
@@ -290,24 +388,26 @@ impl PySocket {
     }
 
     #[pymethod]
-    fn gettimeout(&self, vm: &VirtualMachine) -> PyResult<Option<f64>> {
-        let dur = self
-            .sock()
-            .read_timeout()
-            .map_err(|err| convert_sock_error(vm, err))?;
-        Ok(dur.map(|d| d.as_secs_f64()))
+    fn gettimeout(&self) -> Option<f64> {
+        let timeout = self.timeout.load();
+        if timeout >= 0.0 {
+            Some(timeout)
+        } else {
+            None
+        }
     }
 
     #[pymethod]
     fn setblocking(&self, block: bool, vm: &VirtualMachine) -> PyResult<()> {
+        self.timeout.store(if block { -1.0 } else { 0.0 });
         self.sock()
             .set_nonblocking(!block)
             .map_err(|err| convert_sock_error(vm, err))
     }
 
     #[pymethod]
-    fn getblocking(&self, vm: &VirtualMachine) -> PyResult<bool> {
-        Ok(self.gettimeout(vm)?.map_or(false, |t| t == 0.0))
+    fn getblocking(&self) -> bool {
+        self.timeout.load() != 0.0
     }
 
     #[pymethod]
@@ -316,22 +416,14 @@ impl PySocket {
         // timeout is 0: non-blocking, no timeout
         // otherwise: timeout is timeout, don't change blocking
         let (block, timeout) = match timeout {
-            None => (Some(true), None),
-            Some(d) if d == Duration::from_secs(0) => (Some(false), None),
-            Some(d) => (None, Some(d)),
+            None => (true, -1.0),
+            Some(d) if d == Duration::from_secs(0) => (false, 0.0),
+            Some(d) => (true, d.as_secs_f64()),
         };
+        self.timeout.store(timeout);
         self.sock()
-            .set_read_timeout(timeout)
-            .map_err(|err| convert_sock_error(vm, err))?;
-        self.sock()
-            .set_write_timeout(timeout)
-            .map_err(|err| convert_sock_error(vm, err))?;
-        if let Some(blocking) = block {
-            self.sock()
-                .set_nonblocking(!blocking)
-                .map_err(|err| convert_sock_error(vm, err))?;
-        }
-        Ok(())
+            .set_nonblocking(!block)
+            .map_err(|err| convert_sock_error(vm, err))
     }
 
     #[pymethod]
@@ -548,6 +640,72 @@ fn _socket_getservbyname(
     }
     let port = unsafe { (*serv).s_port };
     Ok(vm.ctx.new_int(u16::from_be(port as u16)))
+}
+
+#[derive(Copy, Clone)]
+enum SelectKind {
+    Read,
+    Write,
+    Connect,
+}
+
+/// returns true if timed out
+fn sock_select(sock: &Socket, kind: SelectKind, interval: Option<Duration>) -> io::Result<bool> {
+    let fd = sock_fileno(sock);
+    #[cfg(unix)]
+    {
+        let mut pollfd = libc::pollfd {
+            fd,
+            events: match kind {
+                SelectKind::Read => libc::POLLIN,
+                SelectKind::Write => libc::POLLOUT,
+                SelectKind::Connect => libc::POLLOUT | libc::POLLERR,
+            },
+            revents: 0,
+        };
+        let timeout = match interval {
+            Some(d) => d.as_millis() as _,
+            None => -1,
+        };
+        let ret = unsafe { libc::poll(&mut pollfd, 1, timeout) };
+        if ret < 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(ret == 0)
+        }
+    }
+    #[cfg(windows)]
+    {
+        use crate::stdlib::select;
+
+        let mut reads = select::FdSet::new();
+        let mut writes = select::FdSet::new();
+        let mut errs = select::FdSet::new();
+
+        let fd = fd as usize;
+        match kind {
+            SelectKind::Read => reads.insert(fd),
+            SelectKind::Write => writes.insert(fd),
+            SelectKind::Connect => {
+                writes.insert(fd);
+                errs.insert(fd);
+            }
+        }
+
+        let mut interval = interval.map(|dur| select::timeval {
+            tv_sec: dur.as_secs() as _,
+            tv_usec: dur.subsec_micros() as _,
+        });
+
+        select::select(
+            fd as i32 + 1,
+            &mut reads,
+            &mut writes,
+            &mut errs,
+            interval.as_mut(),
+        )
+        .map(|ret| ret == 0)
+    }
 }
 
 #[derive(FromArgs)]
@@ -817,10 +975,32 @@ fn convert_sock_error(vm: &VirtualMachine, err: io::Error) -> PyBaseExceptionRef
     }
 }
 
+fn timeout_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
+    vm.new_exception_msg(TIMEOUT_ERROR.get().unwrap().clone(), "timed out".to_owned())
+}
+
 fn get_ipv6_addr_str(ipv6: Ipv6Addr) -> String {
     match ipv6.to_ipv4() {
         Some(v4) if matches!(v4.octets(), [0, 0, _, _]) => format!("::{:x}", u32::from(v4)),
         _ => ipv6.to_string(),
+    }
+}
+
+struct Deadline {
+    deadline: Instant,
+}
+
+impl Deadline {
+    fn new(timeout: Duration) -> Self {
+        Self {
+            deadline: Instant::now() + timeout,
+        }
+    }
+    fn time_until(&self, vm: &VirtualMachine) -> PyResult<Duration> {
+        self.deadline
+            .checked_duration_since(Instant::now())
+            // past the deadline already
+            .ok_or_else(|| timeout_error(vm))
     }
 }
 
