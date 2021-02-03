@@ -238,7 +238,7 @@ class SimpleTest(abc.LoaderTests):
                 warnings.simplefilter('ignore', DeprecationWarning)
                 loader.load_module('bad name')
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, TypeError: object of type 'NoneType' has no len()")
     @util.writes_bytecode_files
     def test_checked_hash_based_pyc(self):
         with util.create_modules('_temp') as mapping:
