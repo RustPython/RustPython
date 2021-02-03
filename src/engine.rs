@@ -490,14 +490,24 @@ impl OpcodeDispatcher {
             SreOpcode::ASSERT => twice(
                 |drive| {
                     let back = drive.peek_code(2) as usize;
-                    let passed = drive.ctx().string_position - drive.state.start;
+                    let passed = drive.ctx().string_position;
                     if passed < back {
                         drive.ctx_mut().has_matched = Some(false);
                         return None;
                     }
+                    let back_offset = drive
+                        .state
+                        .string
+                        .back_offset(drive.ctx().string_offset, back);
+
                     drive.state.string_position = drive.ctx().string_position - back;
+
                     drive.push_new_context(3);
-                    drive.state.context_stack.last_mut().unwrap().toplevel = false;
+                    let child_ctx = drive.state.context_stack.last_mut().unwrap();
+                    child_ctx.toplevel = false;
+                    child_ctx.string_position -= back;
+                    child_ctx.string_offset = back_offset;
+
                     Some(())
                 },
                 |drive| {
@@ -512,14 +522,24 @@ impl OpcodeDispatcher {
             SreOpcode::ASSERT_NOT => twice(
                 |drive| {
                     let back = drive.peek_code(2) as usize;
-                    let passed = drive.ctx().string_position - drive.state.start;
+                    let passed = drive.ctx().string_position;
                     if passed < back {
                         drive.skip_code(drive.peek_code(1) as usize + 1);
                         return None;
                     }
+                    let back_offset = drive
+                        .state
+                        .string
+                        .back_offset(drive.ctx().string_offset, back);
+
                     drive.state.string_position = drive.ctx().string_position - back;
+
                     drive.push_new_context(3);
-                    drive.state.context_stack.last_mut().unwrap().toplevel = false;
+                    let child_ctx = drive.state.context_stack.last_mut().unwrap();
+                    child_ctx.toplevel = false;
+                    child_ctx.string_position -= back;
+                    child_ctx.string_offset = back_offset;
+
                     Some(())
                 },
                 |drive| {

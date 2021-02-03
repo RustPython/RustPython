@@ -24,3 +24,12 @@ fn test_2427() {
     state = state.pymatch();
     assert!(state.has_matched == Some(true));
 }
+
+#[test]
+fn test_assert() {
+    // '(?<=abc)def', flags=re.UNICODE
+    let pattern = include!("positive_lookbehind.re");
+    let mut state = pattern.state("abcdef", 0..usize::MAX);
+    state = state.search();
+    assert!(state.has_matched == Some(true));
+}
