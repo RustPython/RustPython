@@ -178,7 +178,7 @@ class FinderTests(abc.FinderTests):
         found = self._find(finder, 'doesnotexist')
         self.assertEqual(found, self.NOT_FOUND)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, OSError: Not a directory (os error 20)")
     def test_ignore_file(self):
         # If a directory got changed to a file from underneath us, then don't
         # worry about looking for submodules.
