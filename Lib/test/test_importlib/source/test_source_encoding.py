@@ -62,7 +62,7 @@ class EncodingTest:
         self.run_test(self.source_line.encode('utf-8'))
 
     # [encoding first line]
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'called `Result::unwrap()` on an `Err` value: Utf8Error { valid_up_to: 17, error_len: Some(1) }'")
     def test_encoding_on_first_line(self):
         encoding = 'Latin-1'
         source = self.create_source(encoding)
