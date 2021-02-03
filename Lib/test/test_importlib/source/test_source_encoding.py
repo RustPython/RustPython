@@ -85,7 +85,7 @@ class EncodingTest:
         source = codecs.BOM_UTF8 + self.create_source('utf-8')
         self.run_test(source)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'called `Result::unwrap()` on an `Err` value: Utf8Error { valid_up_to: 20, error_len: Some(1) }'")
     # [BOM conflict]
     def test_bom_conflict(self):
         source = codecs.BOM_UTF8 + self.create_source('latin-1')
