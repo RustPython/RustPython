@@ -296,7 +296,7 @@ class SimpleTest(abc.LoaderTests):
             loader.exec_module(mod)
             self.assertEqual(mod.state, 'old')
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, TypeError: object of type 'NoneType' has no len()")
     @util.writes_bytecode_files
     def test_unchecked_hash_based_pyc(self):
         with util.create_modules('_temp') as mapping:
