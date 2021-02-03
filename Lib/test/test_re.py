@@ -292,9 +292,6 @@ class ReTests(unittest.TestCase):
         self.assertEqual(re.subn("b*", "x", "xyz", 2), ('xxxyz', 2))
         self.assertEqual(re.subn("b*", "x", "xyz", count=2), ('xxxyz', 2))
 
-    # TODO: RUSTPYTHON
-    # OP ASSERT (?<=) Fail
-    @unittest.expectedFailure
     def test_re_split(self):
         for string in ":a:b::c", S(":a:b::c"):
             self.assertTypedEqual(re.split(":", string),
@@ -487,8 +484,6 @@ class ReTests(unittest.TestCase):
         # No len().
         self.assertRaises(TypeError, len, m)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_re_fullmatch(self):
         # Issue 16203: Proposal: add re.fullmatch() method.
         self.assertEqual(re.fullmatch(r"a", "a").span(), (0, 1))
@@ -817,8 +812,6 @@ class ReTests(unittest.TestCase):
         self.assertIsNone(re.match(r'(a)b(?=(?(2)b|x))(c)', 'abc'))
         self.assertTrue(re.match(r'(a)b(?=(?(1)c|x))(c)', 'abc'))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_lookbehind(self):
         self.assertTrue(re.match(r'ab(?<=b)c', 'abc'))
         self.assertIsNone(re.match(r'ab(?<=c)c', 'abc'))
