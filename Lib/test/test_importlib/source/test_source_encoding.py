@@ -74,7 +74,7 @@ class EncodingTest:
         source = b"#/usr/bin/python\n" + self.create_source('Latin-1')
         self.run_test(source)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, SyntaxError: Got unexpected token ﻿ at line 1 column 2")
     # [BOM]
     def test_bom(self):
         self.run_test(codecs.BOM_UTF8 + self.source_line.encode('utf-8'))
