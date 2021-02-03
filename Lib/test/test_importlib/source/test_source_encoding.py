@@ -57,7 +57,6 @@ class EncodingTest:
         source = "{0}\na=42\n".format(encoding_line).encode("koi8-r")
         self.run_test(source)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     # [default encoding]
     def test_default_encoding(self):
         self.run_test(self.source_line.encode('utf-8'))
