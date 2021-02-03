@@ -153,22 +153,11 @@ impl PySocket {
     where
         F: FnMut() -> io::Result<R>,
     {
-        let mut deadline: Option<Instant> = None;
+        let deadline = timeout.map(Deadline::new);
 
         loop {
-            if timeout.is_some() || matches!(select, SelectKind::Connect) {
-                let interval = timeout.map(|dur| match deadline {
-                    Some(d) => d
-                        .checked_duration_since(Instant::now())
-                        // past the deadline already
-                        .ok_or_else(|| timeout_error(vm)),
-                    None => {
-                        let dl = Instant::now() + dur;
-                        deadline = Some(dl);
-                        Ok(dur)
-                    }
-                });
-                let interval = interval.transpose()?;
+            if deadline.is_some() || matches!(select, SelectKind::Connect) {
+                let interval = deadline.as_ref().map(|d| d.time_until(vm)).transpose()?;
                 let res = sock_select(&self.sock(), select, interval);
                 match res {
                     Ok(true) => return Err(timeout_error(vm)),
@@ -222,6 +211,7 @@ impl PySocket {
                 match err {
                     Some(e) if e.raw_os_error() == Some(libc::EISCONN) => Ok(()),
                     Some(e) => Err(e),
+                    // TODO: is this accurate?
                     None => Ok(()),
                 }
             })
@@ -330,24 +320,13 @@ impl PySocket {
             None
         };
 
-        let mut deadline: Option<Instant> = None;
+        let deadline = timeout.map(Deadline::new);
 
         let buf_len = bytes.len();
         let mut buf_offset = 0;
         // now we have like 3 layers of interrupt loop :)
         while buf_offset < buf_len {
-            let interval = timeout.map(|dur| match deadline {
-                Some(d) => d
-                    .checked_duration_since(Instant::now())
-                    // past the deadline already
-                    .ok_or_else(|| timeout_error(vm)),
-                None => {
-                    let dl = Instant::now() + dur;
-                    deadline = Some(dl);
-                    Ok(dur)
-                }
-            });
-            let interval = interval.transpose()?;
+            let interval = deadline.as_ref().map(|d| d.time_until(vm)).transpose()?;
             self.sock_op_timeout(vm, SelectKind::Write, interval, || {
                 bytes.with_ref(|b| {
                     let subbuf = &b[buf_offset..];
@@ -1004,6 +983,24 @@ fn get_ipv6_addr_str(ipv6: Ipv6Addr) -> String {
     match ipv6.to_ipv4() {
         Some(v4) if matches!(v4.octets(), [0, 0, _, _]) => format!("::{:x}", u32::from(v4)),
         _ => ipv6.to_string(),
+    }
+}
+
+struct Deadline {
+    deadline: Instant,
+}
+
+impl Deadline {
+    fn new(timeout: Duration) -> Self {
+        Self {
+            deadline: Instant::now() + timeout,
+        }
+    }
+    fn time_until(&self, vm: &VirtualMachine) -> PyResult<Duration> {
+        self.deadline
+            .checked_duration_since(Instant::now())
+            // past the deadline already
+            .ok_or_else(|| timeout_error(vm))
     }
 }
 
