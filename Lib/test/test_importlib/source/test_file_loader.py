@@ -270,7 +270,7 @@ class SimpleTest(abc.LoaderTests):
                 data[8:16],
             )
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, AttributeError: module 'unittest' has no attribute 'mock'")
     @util.writes_bytecode_files
     def test_overridden_checked_hash_based_pyc(self):
         with util.create_modules('_temp') as mapping, \
