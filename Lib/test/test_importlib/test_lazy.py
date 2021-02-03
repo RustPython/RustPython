@@ -52,7 +52,6 @@ class TestingImporter(abc.MetaPathFinder, abc.Loader):
         self.loaded = module
 
 
-@unittest.skip("TODO: RUSTPYTHON")
 class LazyLoaderTests(unittest.TestCase):
 
     def test_init(self):
@@ -76,6 +75,7 @@ class LazyLoaderTests(unittest.TestCase):
         self.assertIsNone(loader.loaded)
         return module
 
+    @unittest.skip("TODO: RUSTPYTHON, TypeError: __class__ assignment only supported for types without a payload")
     def test_e2e(self):
         # End-to-end test to verify the load is in fact lazy.
         importer = TestingImporter()
@@ -89,18 +89,21 @@ class LazyLoaderTests(unittest.TestCase):
         self.assertIsNotNone(importer.loaded)
         self.assertEqual(module, importer.loaded)
 
+    @unittest.skip("TODO: RUSTPYTHON, TypeError: __class__ assignment only supported for types without a payload")
     def test_attr_unchanged(self):
         # An attribute only mutated as a side-effect of import should not be
         # changed needlessly.
         module = self.new_module()
         self.assertEqual(TestingImporter.mutated_name, module.__name__)
 
+    @unittest.skip("TODO: RUSTPYTHON, TypeError: __class__ assignment only supported for types without a payload")
     def test_new_attr(self):
         # A new attribute should persist.
         module = self.new_module()
         module.new_attr = 42
         self.assertEqual(42, module.new_attr)
 
+    @unittest.skip("TODO: RUSTPYTHON, TypeError: __class__ assignment only supported for types without a payload")
     def test_mutated_preexisting_attr(self):
         # Changing an attribute that already existed on the module --
         # e.g. __name__ -- should persist.
@@ -108,6 +111,7 @@ class LazyLoaderTests(unittest.TestCase):
         module.__name__ = 'bogus'
         self.assertEqual('bogus', module.__name__)
 
+    @unittest.skip("TODO: RUSTPYTHON, TypeError: __class__ assignment only supported for types without a payload")
     def test_mutated_attr(self):
         # Changing an attribute that comes into existence after an import
         # should persist.
@@ -115,17 +119,20 @@ class LazyLoaderTests(unittest.TestCase):
         module.attr = 6
         self.assertEqual(6, module.attr)
 
+    @unittest.skip("TODO: RUSTPYTHON, TypeError: __class__ assignment only supported for types without a payload")
     def test_delete_eventual_attr(self):
         # Deleting an attribute should stay deleted.
         module = self.new_module()
         del module.attr
         self.assertFalse(hasattr(module, 'attr'))
 
+    @unittest.skip("TODO: RUSTPYTHON, TypeError: __class__ assignment only supported for types without a payload")
     def test_delete_preexisting_attr(self):
         module = self.new_module()
         del module.__name__
         self.assertFalse(hasattr(module, '__name__'))
 
+    @unittest.skip("TODO: RUSTPYTHON, TypeError: __class__ assignment only supported for types without a payload")
     def test_module_substitution_error(self):
         with test_util.uncache(TestingImporter.module_name):
             fresh_module = types.ModuleType(TestingImporter.module_name)
@@ -134,6 +141,7 @@ class LazyLoaderTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "substituted"):
                 module.__name__
 
+    @unittest.skip("TODO: RUSTPYTHON, TypeError: __class__ assignment only supported for types without a payload")
     def test_module_already_in_sys(self):
         with test_util.uncache(TestingImporter.module_name):
             module = self.new_module()
