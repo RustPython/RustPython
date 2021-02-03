@@ -47,6 +47,8 @@ pub(crate) type GenericMethod = fn(&PyObjectRef, FuncArgs, &VirtualMachine) -> P
 pub(crate) type DelFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<()>;
 pub(crate) type DescrGetFunc =
     fn(PyObjectRef, Option<PyObjectRef>, Option<PyObjectRef>, &VirtualMachine) -> PyResult;
+pub(crate) type DescrSetFunc =
+    fn(PyObjectRef, PyObjectRef, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>;
 pub(crate) type HashFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<PyHash>;
 pub(crate) type CmpFunc = fn(
     &PyObjectRef,
@@ -67,6 +69,7 @@ pub struct PyTypeSlots {
     pub del: AtomicCell<Option<DelFunc>>,
     pub call: AtomicCell<Option<GenericMethod>>,
     pub descr_get: AtomicCell<Option<DescrGetFunc>>,
+    pub descr_set: AtomicCell<Option<DescrSetFunc>>,
     pub hash: AtomicCell<Option<HashFunc>>,
     pub cmp: AtomicCell<Option<CmpFunc>>,
     pub getattro: AtomicCell<Option<GetattroFunc>>,

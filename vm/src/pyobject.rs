@@ -359,7 +359,7 @@ impl PyContext {
         PyObject::new(object::PyBaseObject, class, dict)
     }
 
-    pub fn add_tp_new_wrapper(&self, ty: &PyTypeRef) {
+    pub fn add_slot_wrappers(&self, ty: &PyTypeRef) {
         if !ty.attributes.read().contains_key("__new__") {
             let new_wrapper =
                 self.new_bound_method(self.tp_new_wrapper.clone(), ty.clone().into_object());
@@ -1075,7 +1075,7 @@ pub trait PyClassImpl: PyClassDef {
             );
         }
         Self::impl_extend_class(ctx, class);
-        ctx.add_tp_new_wrapper(&class);
+        ctx.add_slot_wrappers(&class);
         if let Some(doc) = Self::DOC {
             class.set_str_attr("__doc__", ctx.new_str(doc));
         }

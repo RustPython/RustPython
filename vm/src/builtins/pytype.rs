@@ -167,6 +167,16 @@ impl PyType {
                 } as _;
                 update_slot!(descr_get, func);
             }
+            "__set__" | "__delete__" => {
+                let func: slots::DescrSetFunc = |zelf, obj, value, vm| {
+                    match value {
+                        Some(val) => vm.call_method(&zelf, "__set__", (obj, val)),
+                        None => vm.call_method(&zelf, "__delete__", (obj,)),
+                    }
+                    .map(drop)
+                } as _;
+                update_slot!(descr_set, func);
+            }
             "__hash__" => {
                 let func: slots::HashFunc = |zelf, vm| {
                     let magic = get_class_magic(&zelf, "__hash__");
@@ -347,9 +357,9 @@ impl PyType {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         if let Some(attr) = zelf.get_class_attr(attr_name.borrow_value()) {
-            if let Some(ref descriptor) = attr.get_class_attr("__set__") {
-                vm.invoke(descriptor, (attr, zelf, value))?;
-                return Ok(());
+            let descr_set = attr.class().mro_find_map(|cls| cls.slots.descr_set.load());
+            if let Some(descriptor) = descr_set {
+                return descriptor(attr, zelf.into_object(), Some(value), vm);
             }
         }
         let attr_name = attr_name.borrow_value();
@@ -364,8 +374,9 @@ impl PyType {
     #[pymethod(magic)]
     fn delattr(zelf: PyRef<Self>, attr_name: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
         if let Some(attr) = zelf.get_class_attr(attr_name.borrow_value()) {
-            if let Some(ref descriptor) = attr.get_class_attr("__delete__") {
-                return vm.invoke(descriptor, (attr, zelf)).map(|_| ());
+            let descr_set = attr.class().mro_find_map(|cls| cls.slots.descr_set.load());
+            if let Some(set) = descr_set {
+                return set(attr, zelf.into_object(), None, vm);
             }
         }
 
@@ -494,7 +505,7 @@ impl PyType {
         )
         .map_err(|e| vm.new_type_error(e))?;
 
-        vm.ctx.add_tp_new_wrapper(&typ);
+        vm.ctx.add_slot_wrappers(&typ);
 
         // avoid deadlock
         let attributes = typ
@@ -558,10 +569,11 @@ impl SlotGetattro for PyType {
 
         if let Some(ref attr) = mcl_attr {
             let attr_class = attr.class();
-            if attr_class.has_attr("__set__") {
-                if let Some(ref descr_get) =
-                    attr_class.mro_find_map(|cls| cls.slots.descr_get.load())
-                {
+            if attr_class
+                .mro_find_map(|cls| cls.slots.descr_set.load())
+                .is_some()
+            {
+                if let Some(descr_get) = attr_class.mro_find_map(|cls| cls.slots.descr_get.load()) {
                     let mcl = PyLease::into_pyref(mcl).into_object();
                     return descr_get(attr.clone(), Some(zelf.into_object()), Some(mcl), vm);
                 }
@@ -644,19 +656,22 @@ fn subtype_set_dict(obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -
     let cls = obj.clone_class();
     match find_base_dict_descr(&cls, vm) {
         Some(descr) => {
-            descr
-                .get_class_attr("__set__")
-                .map(|set| vm.invoke(&set, vec![descr, obj, value]))
-                .unwrap_or_else(|| {
-                    Err(vm.new_type_error(format!(
+            let descr_set = descr
+                .class()
+                .mro_find_map(|cls| cls.slots.descr_set.load())
+                .ok_or_else(|| {
+                    vm.new_type_error(format!(
                         "this __dict__ descriptor does not support '{}' objects",
                         cls.name
-                    )))
+                    ))
                 })?;
+            descr_set(descr, obj, Some(value), vm)
         }
-        None => object::object_set_dict(obj, PyDictRef::try_from_object(vm, value)?, vm)?,
+        None => {
+            object::object_set_dict(obj, PyDictRef::try_from_object(vm, value)?, vm)?;
+            Ok(())
+        }
     }
-    Ok(())
 }
 
 /*

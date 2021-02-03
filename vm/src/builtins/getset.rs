@@ -303,29 +303,37 @@ impl PyGetSet {
 impl PyGetSet {
     // Descriptor methods
 
-    #[pymethod(magic)]
-    fn set(&self, obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        if let Some(ref f) = self.setter {
-            f(vm, obj, value)
-        } else {
-            Err(vm.new_attribute_error(format!(
-                "attribute '{}' of '{}' objects is not writable",
-                self.name,
-                obj.class().name
-            )))
-        }
-    }
-
-    #[pymethod(magic)]
-    fn delete(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        if let Some(ref f) = self.deleter {
-            f(vm, obj)
-        } else {
-            Err(vm.new_attribute_error(format!(
-                "attribute '{}' of '{}' objects is not writable",
-                self.name,
-                obj.class().name
-            )))
+    #[pyslot]
+    fn descr_set(
+        zelf: PyObjectRef,
+        obj: PyObjectRef,
+        value: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let zelf = PyRef::<Self>::try_from_object(vm, zelf)?;
+        match value {
+            Some(value) => {
+                if let Some(ref f) = zelf.setter {
+                    f(vm, obj, value)
+                } else {
+                    Err(vm.new_attribute_error(format!(
+                        "attribute '{}' of '{}' objects is not writable",
+                        zelf.name,
+                        obj.class().name
+                    )))
+                }
+            }
+            None => {
+                if let Some(ref f) = zelf.deleter {
+                    f(vm, obj)
+                } else {
+                    Err(vm.new_attribute_error(format!(
+                        "attribute '{}' of '{}' objects is not writable",
+                        zelf.name,
+                        obj.class().name
+                    )))
+                }
+            }
         }
     }
 

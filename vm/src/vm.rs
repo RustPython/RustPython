@@ -1259,7 +1259,10 @@ impl VirtualMachine {
                 let descr_cls = descr.class();
                 let descr_get = descr_cls.mro_find_map(|cls| cls.slots.descr_get.load());
                 if let Some(descr_get) = descr_get {
-                    if descr_cls.has_attr("__set__") {
+                    if descr_cls
+                        .mro_find_map(|cls| cls.slots.descr_set.load())
+                        .is_some()
+                    {
                         drop(descr_cls);
                         let cls = PyLease::into_pyref(obj_cls).into_object();
                         return descr_get(descr, Some(obj), Some(cls), self).map(Some);
