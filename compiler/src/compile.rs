@@ -1158,6 +1158,8 @@ impl Compiler {
     ) -> CompileResult<()> {
         self.prepare_decorators(decorator_list)?;
 
+        self.emit(Instruction::LoadBuildClass);
+
         let prev_ctx = self.ctx;
         self.ctx = CompileContext {
             func: FunctionContext::NoFunction,
@@ -1173,7 +1175,6 @@ impl Compiler {
             Some(qualified_name.clone()),
         );
 
-        self.emit(Instruction::LoadBuildClass);
         self.push_output(bytecode::CodeFlags::empty(), 0, 0, 0, name.to_owned());
 
         let (new_body, doc_str) = get_doc(body);
@@ -1241,35 +1242,7 @@ impl Compiler {
             value: qualified_name,
         });
 
-        for base in bases {
-            self.compile_expression(base)?;
-        }
-
-        if !keywords.is_empty() {
-            let mut kwarg_names = vec![];
-            for keyword in keywords {
-                if let Some(name) = &keyword.node.arg {
-                    kwarg_names.push(ConstantData::Str {
-                        value: name.to_owned(),
-                    });
-                } else {
-                    // This means **kwargs!
-                    panic!("name must be set");
-                }
-                self.compile_expression(&keyword.node.value)?;
-            }
-
-            self.emit_constant(ConstantData::Tuple {
-                elements: kwarg_names,
-            });
-            self.emit(Instruction::CallFunctionKeyword {
-                nargs: (2 + keywords.len() + bases.len()) as u32,
-            });
-        } else {
-            self.emit(Instruction::CallFunctionPositional {
-                nargs: (2 + bases.len()) as u32,
-            });
-        }
+        self.compile_call(2, bases, keywords)?;
 
         self.apply_decorators(decorator_list);
 
@@ -1821,7 +1794,10 @@ impl Compiler {
                 func,
                 args,
                 keywords,
-            } => self.compile_call(func, args, keywords)?,
+            } => {
+                self.compile_expression(func)?;
+                self.compile_call(0, args, keywords)?;
+            }
             BoolOp { op, values } => self.compile_bool_op(op, values)?,
             BinOp { left, op, right } => {
                 self.compile_expression(left)?;
@@ -1864,28 +1840,16 @@ impl Compiler {
                 self.emit_constant(compile_constant(value));
             }
             List { elts, .. } => {
-                let size = elts.len() as u32;
-                let must_unpack = self.gather_elements(elts)?;
-                self.emit(Instruction::BuildList {
-                    size,
-                    unpack: must_unpack,
-                });
+                let (size, unpack) = self.gather_elements(0, elts)?;
+                self.emit(Instruction::BuildList { size, unpack });
             }
             Tuple { elts, .. } => {
-                let size = elts.len() as u32;
-                let must_unpack = self.gather_elements(elts)?;
-                self.emit(Instruction::BuildTuple {
-                    size,
-                    unpack: must_unpack,
-                });
+                let (size, unpack) = self.gather_elements(0, elts)?;
+                self.emit(Instruction::BuildTuple { size, unpack });
             }
             Set { elts, .. } => {
-                let size = elts.len() as u32;
-                let must_unpack = self.gather_elements(elts)?;
-                self.emit(Instruction::BuildSet {
-                    size,
-                    unpack: must_unpack,
-                });
+                let (size, unpack) = self.gather_elements(0, elts)?;
+                self.emit(Instruction::BuildSet { size, unpack });
             }
             Dict { keys, values } => {
                 self.compile_dict(keys, values)?;
@@ -2139,81 +2103,111 @@ impl Compiler {
 
     fn compile_call(
         &mut self,
-        function: &ast::Expr,
+        additional_positional: u32,
         args: &[ast::Expr],
         keywords: &[ast::Keyword],
     ) -> CompileResult<()> {
-        self.compile_expression(function)?;
-        let count = (args.len() + keywords.len()) as u32;
+        let count = (args.len() + keywords.len()) as u32 + additional_positional;
 
         // Normal arguments:
-        let must_unpack = self.gather_elements(args)?;
+        let (size, unpack) = self.gather_elements(additional_positional, args)?;
         let has_double_star = keywords.iter().any(|k| k.node.arg.is_none());
 
-        if must_unpack || has_double_star {
+        if unpack || has_double_star {
             // Create a tuple with positional args:
-            self.emit(Instruction::BuildTuple {
-                size: args.len() as u32,
-                unpack: must_unpack,
-            });
+            self.emit(Instruction::BuildTuple { size, unpack });
 
             // Create an optional map with kw-args:
-            if !keywords.is_empty() {
+            let has_kwargs = !keywords.is_empty();
+            if has_kwargs {
                 self.compile_keywords(keywords)?;
-                self.emit(Instruction::CallFunctionEx { has_kwargs: true });
-            } else {
-                self.emit(Instruction::CallFunctionEx { has_kwargs: false });
             }
-        } else {
-            // Keyword arguments:
-            if !keywords.is_empty() {
-                let mut kwarg_names = vec![];
-                for keyword in keywords {
-                    if let Some(name) = &keyword.node.arg {
-                        kwarg_names.push(ConstantData::Str {
-                            value: name.to_owned(),
-                        });
-                    } else {
-                        // This means **kwargs!
-                        panic!("name must be set");
-                    }
-                    self.compile_expression(&keyword.node.value)?;
+            self.emit(Instruction::CallFunctionEx { has_kwargs });
+        } else if !keywords.is_empty() {
+            let mut kwarg_names = vec![];
+            for keyword in keywords {
+                if let Some(name) = &keyword.node.arg {
+                    kwarg_names.push(ConstantData::Str {
+                        value: name.to_owned(),
+                    });
+                } else {
+                    // This means **kwargs!
+                    panic!("name must be set");
                 }
-
-                self.emit_constant(ConstantData::Tuple {
-                    elements: kwarg_names,
-                });
-                self.emit(Instruction::CallFunctionKeyword { nargs: count });
-            } else {
-                self.emit(Instruction::CallFunctionPositional { nargs: count });
+                self.compile_expression(&keyword.node.value)?;
             }
+
+            self.emit_constant(ConstantData::Tuple {
+                elements: kwarg_names,
+            });
+            self.emit(Instruction::CallFunctionKeyword { nargs: count });
+        } else {
+            self.emit(Instruction::CallFunctionPositional { nargs: count });
         }
+
         Ok(())
     }
 
     // Given a vector of expr / star expr generate code which gives either
     // a list of expressions on the stack, or a list of tuples.
-    fn gather_elements(&mut self, elements: &[ast::Expr]) -> CompileResult<bool> {
+    fn gather_elements(
+        &mut self,
+        before: u32,
+        elements: &[ast::Expr],
+    ) -> CompileResult<(u32, bool)> {
         // First determine if we have starred elements:
         let has_stars = elements
             .iter()
             .any(|e| matches!(e.node, ast::ExprKind::Starred { .. }));
 
-        for element in elements {
-            if let ast::ExprKind::Starred { value, .. } = &element.node {
-                self.compile_expression(value)?;
-            } else {
-                self.compile_expression(element)?;
-                if has_stars {
+        let size = if has_stars {
+            let mut size = 0;
+
+            if before > 0 {
+                self.emit(Instruction::BuildTuple {
+                    size: before,
+                    unpack: false,
+                });
+                size += 1;
+            }
+
+            let groups = elements
+                .iter()
+                .map(|element| {
+                    if let ast::ExprKind::Starred { value, .. } = &element.node {
+                        (true, value.as_ref())
+                    } else {
+                        (false, element)
+                    }
+                })
+                .group_by(|(starred, _)| *starred);
+
+            for (starred, run) in &groups {
+                let mut run_size = 0;
+                for (_, value) in run {
+                    self.compile_expression(value)?;
+                    run_size += 1
+                }
+                if starred {
+                    size += run_size
+                } else {
                     self.emit(Instruction::BuildTuple {
-                        size: 1,
+                        size: run_size,
                         unpack: false,
                     });
+                    size += 1
                 }
             }
-        }
 
-        Ok(has_stars)
+            size
+        } else {
+            for element in elements {
+                self.compile_expression(element)?;
+            }
+            before + elements.len() as u32
+        };
+
+        Ok((size, has_stars))
     }
 
     fn compile_comprehension_element(&mut self, element: &ast::Expr) -> CompileResult<()> {
