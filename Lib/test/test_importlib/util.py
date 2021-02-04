@@ -461,7 +461,6 @@ class CommonResourceTests(abc.ABC):
     def execute(self, package, path):
         raise NotImplementedError
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_package_name(self):
         # Passing in the package name should succeed.
         self.execute(data01.__name__, 'utf-8.file')
