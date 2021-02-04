@@ -35,7 +35,7 @@ class OpenTests:
             result = fp.read()
         self.assertEqual(result, 'Hello, UTF-16 world!\n')
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, UnicodeDecodeError: cannot decode byte at index: 0")
     def test_open_text_with_errors(self):
         # Raises UnicodeError without the 'errors' argument.
         with resources.open_text(
