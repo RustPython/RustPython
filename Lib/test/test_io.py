@@ -4357,7 +4357,6 @@ class PyMiscIOTest(MiscIOTest):
 
 
 
-@unittest.skip("TODO: RUSTPYTHON")
 @unittest.skipIf(os.name == 'nt', 'POSIX signals required for this test.')
 class SignalsTest(unittest.TestCase):
 
@@ -4428,6 +4427,7 @@ class SignalsTest(unittest.TestCase):
     def test_interrupted_write_buffered(self):
         self.check_interrupted_write(b"xy", b"xy", mode="wb")
 
+    @unittest.skip("TODO: RUSTPYTHON, CSignalsTest passes while PySignalsTest hangs")
     def test_interrupted_write_text(self):
         self.check_interrupted_write("xy", b"xy", mode="w", encoding="ascii")
 
@@ -4489,10 +4489,12 @@ class SignalsTest(unittest.TestCase):
             os.close(w)
             os.close(r)
 
+    @unittest.skip("TODO: RUSTPYTHON, OSError: Broken pipe (os error 32)")
     def test_interrupted_read_retry_buffered(self):
         self.check_interrupted_read_retry(lambda x: x.decode('latin1'),
                                           mode="rb")
 
+    @unittest.skip("TODO: RUSTPYTHON, OSError: Broken pipe (os error 32)")
     def test_interrupted_read_retry_text(self):
         self.check_interrupted_read_retry(lambda x: x,
                                           mode="r")
@@ -4565,9 +4567,11 @@ class SignalsTest(unittest.TestCase):
                 if e.errno != errno.EBADF:
                     raise
 
+    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'already borrowed: BorrowMutError'")
     def test_interrupted_write_retry_buffered(self):
         self.check_interrupted_write_retry(b"x", mode="wb")
 
+    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'already borrowed: BorrowMutError'")
     def test_interrupted_write_retry_text(self):
         self.check_interrupted_write_retry("x", mode="w", encoding="latin1")
 
