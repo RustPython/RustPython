@@ -105,7 +105,8 @@ class TestScanstring:
         assertScan('"z\ud834\\udd20x"', 'z\ud834\udd20x')
         assertScan('"z\ud834x"', 'z\ud834x')
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, TestCScanstring passes while TestPyScanstring errors: "
+        "ValueError: chr() arg not in range(0x110000)")
     def test_bad_escapes(self):
         scanstring = self.json.decoder.scanstring
         bad_escapes = [
