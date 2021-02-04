@@ -4218,7 +4218,7 @@ class MiscIOTest(unittest.TestCase):
     def test_nonblock_pipe_write_bigbuf(self):
         self._test_nonblock_pipe_write(16*1024)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, BlockingIOError: Resource temporarily unavailable (os error 11)")
     def test_nonblock_pipe_write_smallbuf(self):
         self._test_nonblock_pipe_write(1024)
 
