@@ -2366,8 +2366,6 @@ class TestZeroCopySendfile(_ZeroCopyFileTest, unittest.TestCase):
                 dst.seek(0)
                 self.assertEqual(dst.read(), self.FILEDATA)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exception_on_second_call(self):
         def sendfile(*args, **kwargs):
             if not flag:
