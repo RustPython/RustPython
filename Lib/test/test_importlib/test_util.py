@@ -546,7 +546,7 @@ class MagicNumberTests:
         # Should be 4 bytes.
         self.assertEqual(len(self.util.MAGIC_NUMBER), 4)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, Source_MagicNumberTests passes while Frozen_MagicNumberTests fails")
     def test_incorporates_rn(self):
         # The magic number uses \r\n to come out wrong when splitting on lines.
         self.assertTrue(self.util.MAGIC_NUMBER.endswith(b'\r\n'))
