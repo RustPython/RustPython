@@ -2913,7 +2913,7 @@ class TextIOWrapperTest(unittest.TestCase):
         support.gc_collect()
         self.assertEqual([b"abc"], l)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, PyTextIOWrapperTest passes while CTextIOWrapperTest fails")
     def test_override_destructor(self):
         record = []
         class MyTextIO(self.TextIOWrapper):
