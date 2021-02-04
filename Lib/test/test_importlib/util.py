@@ -492,7 +492,6 @@ class CommonResourceTests(abc.ABC):
         with self.assertRaises(ValueError):
             self.execute(data01, '../data01/utf-8.file')
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_importing_module_as_side_effect(self):
         # The anchor package can already be imported.
         del sys.modules[data01.__name__]
