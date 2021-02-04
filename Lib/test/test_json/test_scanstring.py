@@ -86,7 +86,9 @@ class TestScanstring:
             scanstring('["Bad value", truth]', 2, True),
             ('Bad value', 12))
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, "
+        "json.decoder.JSONDecodeError: unpaired surrogate: line 1 column 3 (char 2); "
+        "ValueError: chr() arg not in range(0x110000)")
     def test_surrogates(self):
         scanstring = self.json.decoder.scanstring
         def assertScan(given, expect):
