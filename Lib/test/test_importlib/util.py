@@ -465,7 +465,6 @@ class CommonResourceTests(abc.ABC):
         # Passing in the package name should succeed.
         self.execute(data01.__name__, 'utf-8.file')
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_package_object(self):
         # Passing in the package itself should succeed.
         self.execute(data01, 'utf-8.file')
