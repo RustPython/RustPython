@@ -79,7 +79,7 @@ SKIPS = {
 }
 
 class TestFail:
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, TestPyFail passes while TestCFail fails")
     def test_failures(self):
         for idx, doc in enumerate(JSONDOCS):
             idx = idx + 1
