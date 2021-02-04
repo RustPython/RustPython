@@ -516,7 +516,6 @@ class CommonResourceTests(abc.ABC):
         self.assertEqual(package.__loader__._path, 'utf-8.file')
 
     @unittest.skipIf(sys.version_info < (3,), 'No ResourceReader in Python 2')
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_resource_path(self):
         bytes_data = io.BytesIO(b'Hello, world!')
         path = __file__
