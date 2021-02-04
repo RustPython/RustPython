@@ -2590,7 +2590,6 @@ class StatefulIncrementalDecoderTest(unittest.TestCase):
         self.assertEqual(d.decode(b'oiabcd'), '')
         self.assertEqual(d.decode(b'', 1), 'abcd.')
 
-@unittest.skip("TODO: RUSTPYTHON")
 class TextIOWrapperTest(unittest.TestCase):
 
     def setUp(self):
@@ -2601,6 +2600,8 @@ class TextIOWrapperTest(unittest.TestCase):
     def tearDown(self):
         support.unlink(support.TESTFN)
 
+    @unittest.skip("TODO: RUSTPYTHON, PyTextIOWrapperTest fails while CTextIOWrapperTest errors: "
+        "AttributeError: 'TextIOWrapper' object has no attribute 'line_buffering'")
     def test_constructor(self):
         r = self.BytesIO(b"\xc3\xa9\n\n")
         b = self.BufferedReader(r, 1000)
@@ -2615,6 +2616,7 @@ class TextIOWrapperTest(unittest.TestCase):
         self.assertRaises(TypeError, t.__init__, b, newline=42)
         self.assertRaises(ValueError, t.__init__, b, newline='xyzzy')
 
+    @unittest.skip("TODO: RUSTPYTHON, PyTextIOWrapperTest passes while CTextIOWrapperTest fails")
     def test_uninitialized(self):
         t = self.TextIOWrapper.__new__(self.TextIOWrapper)
         del t
@@ -2626,6 +2628,7 @@ class TextIOWrapperTest(unittest.TestCase):
         t.__init__(self.MockRawIO())
         self.assertEqual(t.read(0), '')
 
+    @unittest.skip("TODO: RUSTPYTHON, PyTextIOWrapperTest passes while CTextIOWrapperTest fails")
     def test_non_text_encoding_codecs_are_rejected(self):
         # Ensure the constructor complains if passed a codec that isn't
         # marked as a text encoding
@@ -2635,6 +2638,9 @@ class TextIOWrapperTest(unittest.TestCase):
         with self.assertRaisesRegex(LookupError, "is not a text encoding"):
             self.TextIOWrapper(b, encoding="hex")
 
+    @unittest.skip("TODO: RUSTPYTHON, "
+        "AttributeError: 'TextIOWrapper' object has no attribute 'detach'; "
+        "BufferError: Existing exports of data: object cannot be re-sized")
     def test_detach(self):
         r = self.BytesIO()
         b = self.BufferedWriter(r)
@@ -2655,6 +2661,7 @@ class TextIOWrapperTest(unittest.TestCase):
         self.assertFalse(t.line_buffering)
         self.assertFalse(t.write_through)
 
+    @unittest.skip("TODO: RUSTPYTHON, PyTextIOWrapperTest passes while CTextIOWrapperTest fails")
     def test_repr(self):
         raw = self.BytesIO("hello".encode("utf-8"))
         b = self.BufferedReader(raw)
@@ -2685,6 +2692,9 @@ class TextIOWrapperTest(unittest.TestCase):
             except RuntimeError:
                 pass
 
+    @unittest.skip("TODO: RUSTPYTHON, "
+        "TypeError: Unexpected keyword argument line_buffering; "
+        "BufferError: Existing exports of data: object cannot be re-sized")
     def test_line_buffering(self):
         r = self.BytesIO()
         b = self.BufferedWriter(r, 1000)
@@ -2696,6 +2706,9 @@ class TextIOWrapperTest(unittest.TestCase):
         t.write("A\rB")
         self.assertEqual(r.getvalue(), b"XY\nZA\rB")
 
+    @unittest.skip("TODO: RUSTPYTHON, "
+        "TypeError: Unexpected keyword argument line_buffering; "
+        "BufferError: Existing exports of data: object cannot be re-sized")
     def test_reconfigure_line_buffering(self):
         r = self.BytesIO()
         b = self.BufferedWriter(r, 1000)
@@ -2762,6 +2775,8 @@ class TextIOWrapperTest(unittest.TestCase):
         self.assertIsNotNone(t.encoding)
         codecs.lookup(t.encoding)
 
+    @unittest.skip("TODO: RUSTPYTHON, PyTextIOWrapperTest passes while CTextIOWrapperTest errors: "
+        "UnicodeDecodeError: cannot decode byte at index: 4")
     def test_encoding_errors_reading(self):
         # (1) default
         b = self.BytesIO(b"abc\n\xff\n")
@@ -2780,6 +2795,7 @@ class TextIOWrapperTest(unittest.TestCase):
         t = self.TextIOWrapper(b, encoding="ascii", errors="replace")
         self.assertEqual(t.read(), "abc\n\ufffd\n")
 
+    @unittest.skip("TODO: RUSTPYTHON, PyTextIOWrapperTest passes while CTextIOWrapperTest fails")
     def test_encoding_errors_writing(self):
         # (1) default
         b = self.BytesIO()
@@ -2804,6 +2820,7 @@ class TextIOWrapperTest(unittest.TestCase):
         t.flush()
         self.assertEqual(b.getvalue(), b"abc?def\n")
 
+    @unittest.skip("TODO: RUSTPYTHON, PyTextIOWrapperTest passes while CTextIOWrapperTest fails")
     def test_newlines(self):
         input_lines = [ "unix\n", "windows\r\n", "os9\r", "last\n", "nonl" ]
 
@@ -2846,6 +2863,7 @@ class TextIOWrapperTest(unittest.TestCase):
                             self.assertEqual(got_line, exp_line)
                         self.assertEqual(len(got_lines), len(exp_lines))
 
+    @unittest.skip("TODO: RUSTPYTHON, PyTextIOWrapperTest passes while CTextIOWrapperTest fails")
     def test_newlines_input(self):
         testdata = b"AAA\nBB\x00B\nCCC\rDDD\rEEE\r\nFFF\r\nGGG"
         normalized = testdata.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
@@ -2862,6 +2880,7 @@ class TextIOWrapperTest(unittest.TestCase):
             txt.seek(0)
             self.assertEqual(txt.read(), "".join(expected))
 
+    @unittest.skip("TODO: RUSTPYTHON, PyTextIOWrapperTest passes while CTextIOWrapperTest fails")
     def test_newlines_output(self):
         testdict = {
             "": b"AAA\nBBB\nCCC\nX\rY\r\nZ",
@@ -2935,6 +2954,9 @@ class TextIOWrapperTest(unittest.TestCase):
 
     # Systematic tests of the text I/O API
 
+    @unittest.skip("TODO: RUSTPYTHON, "
+        "io.UnsupportedOperation: TextIOWrapper.truncate() not supported; "
+        "OSError: can't reconstruct logical file position")
     def test_basic_io(self):
         for chunksize in (1, 2, 3, 4, 5, 15, 16, 17, 31, 32, 33, 63, 64, 65):
             for enc in "ascii", "latin-1", "utf-8" :# , "utf-16-be", "utf-16-le":
@@ -2986,6 +3008,8 @@ class TextIOWrapperTest(unittest.TestCase):
             rlines.append((pos, line))
         self.assertEqual(rlines, wlines)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_telling(self):
         f = self.open(support.TESTFN, "w+", encoding="utf-8")
         p0 = f.tell()
@@ -3006,6 +3030,7 @@ class TextIOWrapperTest(unittest.TestCase):
         self.assertEqual(f.tell(), p2)
         f.close()
 
+    @unittest.skip("TODO: RUSTPYTHON, AttributeError: 'TextIOWrapper' object has no attribute '_CHUNK_SIZE'")
     def test_seeking(self):
         chunk_size = _default_chunk_size()
         prefix_size = chunk_size - 2
@@ -3023,6 +3048,9 @@ class TextIOWrapperTest(unittest.TestCase):
             self.assertEqual(f.tell(), prefix_size)
             self.assertEqual(f.readline(), u_suffix)
 
+    @unittest.skip("TODO: RUSTPYTHON, "
+        "AttributeError: 'TextIOWrapper' object has no attribute '_CHUNK_SIZE'; "
+        "OSError: can't reconstruct logical file position")
     def test_seeking_too(self):
         # Regression test for a specific bug
         data = b'\xe0\xbf\xbf\n'
@@ -3081,6 +3109,8 @@ class TextIOWrapperTest(unittest.TestCase):
         finally:
             StatefulIncrementalDecoder.codecEnabled = 0
 
+    @unittest.skip("TODO: RUSTPYTHON, CTextIOWrapperTest passes while PyTextIOWrapperTest errors: "
+        "LookupError: unknown encoding: euc_jp")
     def test_multibyte_seek_and_tell(self):
         f = self.open(support.TESTFN, "w", encoding="euc_jp")
         f.write("AB\n\u3046\u3048\n")
@@ -3096,6 +3126,8 @@ class TextIOWrapperTest(unittest.TestCase):
         self.assertEqual(f.tell(), p1)
         f.close()
 
+    @unittest.skip("TODO: RUSTPYTHON, CTextIOWrapperTest passes while PyTextIOWrapperTest errors: "
+        "LookupError: unknown encoding: euc_jis_2004")
     def test_seek_with_encoder_state(self):
         f = self.open(support.TESTFN, "w", encoding="euc_jis_2004")
         f.write("\u00e6\u0300")
@@ -3109,6 +3141,8 @@ class TextIOWrapperTest(unittest.TestCase):
         self.assertEqual(f.readline(), "\u00e6\u0300\u0300")
         f.close()
 
+    @unittest.skip("TODO: RUSTPYTHON, CTextIOWrapperTest fails while PyTextIOWrapperTest errors: "
+        "AttributeError: module 'codecs' has no attribute 'utf_32_encode'")
     def test_encoded_writes(self):
         data = "1234567890"
         tests = ("utf-16",
@@ -3136,6 +3170,7 @@ class TextIOWrapperTest(unittest.TestCase):
         txt = self.TextIOWrapper(UnReadable())
         self.assertRaises(OSError, txt.read)
 
+    @unittest.skip("TODO: RUSTPYTHON, PyTextIOWrapperTest passes while CTextIOWrapperTest fails")
     def test_read_one_by_one(self):
         txt = self.TextIOWrapper(self.BytesIO(b"AA\r\nBB"))
         reads = ""
@@ -3154,6 +3189,7 @@ class TextIOWrapperTest(unittest.TestCase):
         txt.seek(0)
         self.assertEqual(txt.readlines(5), ["AA\n", "BB\n"])
 
+    @unittest.skip("TODO: RUSTPYTHON, PyTextIOWrapperTest passes while CTextIOWrapperTest fails")
     # read in amounts equal to TextIOWrapper._CHUNK_SIZE which is 128.
     def test_read_by_chunk(self):
         # make sure "\r\n" straddles 128 char boundary.
@@ -3188,6 +3224,7 @@ class TextIOWrapperTest(unittest.TestCase):
         self.assertRaises(TypeError, txt.writelines, None)
         self.assertRaises(TypeError, txt.writelines, b'abc')
 
+    @unittest.skip("TODO: RUSTPYTHON, PyTextIOWrapperTest passes while CTextIOWrapperTest fails")
     def test_issue1395_1(self):
         txt = self.TextIOWrapper(self.BytesIO(self.testdata), encoding="ascii")
 
@@ -3200,6 +3237,7 @@ class TextIOWrapperTest(unittest.TestCase):
             reads += c
         self.assertEqual(reads, self.normalized)
 
+    @unittest.skip("TODO: RUSTPYTHON, PyTextIOWrapperTest passes while CTextIOWrapperTest fails")
     def test_issue1395_2(self):
         txt = self.TextIOWrapper(self.BytesIO(self.testdata), encoding="ascii")
         txt._CHUNK_SIZE = 4
@@ -3212,6 +3250,7 @@ class TextIOWrapperTest(unittest.TestCase):
             reads += c
         self.assertEqual(reads, self.normalized)
 
+    @unittest.skip("TODO: RUSTPYTHON, PyTextIOWrapperTest passes while CTextIOWrapperTest fails")
     def test_issue1395_3(self):
         txt = self.TextIOWrapper(self.BytesIO(self.testdata), encoding="ascii")
         txt._CHUNK_SIZE = 4
@@ -3223,6 +3262,7 @@ class TextIOWrapperTest(unittest.TestCase):
         reads += txt.readline()
         self.assertEqual(reads, self.normalized)
 
+    @unittest.skip("TODO: RUSTPYTHON, PyTextIOWrapperTest passes while CTextIOWrapperTest fails")
     def test_issue1395_4(self):
         txt = self.TextIOWrapper(self.BytesIO(self.testdata), encoding="ascii")
         txt._CHUNK_SIZE = 4
@@ -3231,6 +3271,7 @@ class TextIOWrapperTest(unittest.TestCase):
         reads += txt.read()
         self.assertEqual(reads, self.normalized)
 
+    @unittest.skip("TODO: RUSTPYTHON, PyTextIOWrapperTest passes while CTextIOWrapperTest fails")
     def test_issue1395_5(self):
         txt = self.TextIOWrapper(self.BytesIO(self.testdata), encoding="ascii")
         txt._CHUNK_SIZE = 4
@@ -3241,12 +3282,15 @@ class TextIOWrapperTest(unittest.TestCase):
         txt.seek(pos)
         self.assertEqual(txt.read(4), "BBB\n")
 
+    @unittest.skip("TODO: RUSTPYTHON, PyTextIOWrapperTest passes while CTextIOWrapperTest fails")
     def test_issue2282(self):
         buffer = self.BytesIO(self.testdata)
         txt = self.TextIOWrapper(buffer, encoding="ascii")
 
         self.assertEqual(buffer.seekable(), txt.seekable())
 
+    @unittest.skip("TODO: RUSTPYTHON, CTextIOWrapperTest fails while PyTextIOWrapperTest errors:"
+        "AttributeError: module 'codecs' has no attribute 'utf_32_encode'")
     def test_append_bom(self):
         # The BOM is not written again when appending to a non-empty file
         filename = support.TESTFN
@@ -3262,6 +3306,8 @@ class TextIOWrapperTest(unittest.TestCase):
             with self.open(filename, 'rb') as f:
                 self.assertEqual(f.read(), 'aaaxxx'.encode(charset))
 
+    @unittest.skip("TODO: RUSTPYTHON, CTextIOWrapperTest fails while PyTextIOWrapperTest errors:"
+        "AttributeError: module 'codecs' has no attribute 'utf_32_encode'")
     def test_seek_bom(self):
         # Same test, but when seeking manually
         filename = support.TESTFN
@@ -3277,6 +3323,8 @@ class TextIOWrapperTest(unittest.TestCase):
             with self.open(filename, 'rb') as f:
                 self.assertEqual(f.read(), 'bbbzzz'.encode(charset))
 
+    @unittest.skip("TODO: RUSTPYTHON, CTextIOWrapperTest fails while PyTextIOWrapperTest errors:"
+        "AttributeError: module 'codecs' has no attribute 'utf_32_encode'")
     def test_seek_append_bom(self):
         # Same test, but first seek to the start and then to the end
         filename = support.TESTFN
@@ -3314,6 +3362,7 @@ class TextIOWrapperTest(unittest.TestCase):
             for n in range(20):
                 self.assertEqual(content.count("Thread%03d\n" % n), 1)
 
+    @unittest.skip("TODO: RUSTPYTHON, PyTextIOWrapperTest passes while CTextIOWrapperTest fails")
     def test_flush_error_on_close(self):
         # Test that text file is closed despite failed flush
         # and that flush() is called before file closed.
@@ -3331,6 +3380,7 @@ class TextIOWrapperTest(unittest.TestCase):
         self.assertFalse(closed[1])
         txt.flush = lambda: None  # break reference loop
 
+    @unittest.skip("TODO: RUSTPYTHON, PyTextIOWrapperTest passes while CTextIOWrapperTest fails")
     def test_close_error_on_close(self):
         buffer = self.BytesIO(self.testdata)
         def bad_flush():
@@ -3351,6 +3401,7 @@ class TextIOWrapperTest(unittest.TestCase):
         buffer.close = lambda: None
         txt.flush = lambda: None
 
+    @unittest.skip("TODO: RUSTPYTHON, PyTextIOWrapperTest passes while CTextIOWrapperTest fails")
     def test_nonnormalized_close_error_on_close(self):
         # Issue #21677
         buffer = self.BytesIO(self.testdata)
@@ -3390,6 +3441,7 @@ class TextIOWrapperTest(unittest.TestCase):
         with self.assertRaises(AttributeError):
             txt.buffer = buf
 
+    @unittest.skip("TODO: RUSTPYTHON, PyTextIOWrapperTest passes while CTextIOWrapperTest fails")
     def test_rawio(self):
         # Issue #12591: TextIOWrapper must work with raw I/O objects, so
         # that subprocess.Popen() can have the required unbuffered
@@ -3401,6 +3453,8 @@ class TextIOWrapperTest(unittest.TestCase):
         self.assertEqual(txt.readline(), 'efghi\n')
         self.assertEqual(list(txt), ['jkl\n', 'opq\n'])
 
+    @unittest.skip("TODO: RUSTPYTHON, PyTextIOWrapperTest passes while CTextIOWrapperTest errors: "
+        "TypeError: Unexpected keyword argument write_through")
     def test_rawio_write_through(self):
         # Issue #12591: with write_through=True, writes don't need a flush
         raw = self.MockRawIO([b'abc', b'def', b'ghi\njkl\nopq\n'])
@@ -3411,6 +3465,9 @@ class TextIOWrapperTest(unittest.TestCase):
         txt.write('5')
         self.assertEqual(b''.join(raw._write_stack), b'123\n45')
 
+    @unittest.skip("TODO: RUSTPYTHON, "
+        "TypeError: Unexpected keyword argument write_through; "
+        "BufferError: Existing exports of data: object cannot be re-sized")
     def test_bufio_write_through(self):
         # Issue #21396: write_through=True doesn't force a flush()
         # on the underlying binary buffered object.
@@ -3443,6 +3500,8 @@ class TextIOWrapperTest(unittest.TestCase):
         self.assertTrue(write_called)
         self.assertEqual(rawio.getvalue(), data * 11) # all flushed
 
+    @unittest.skip("TODO: RUSTPYTHON, PyTextIOWrapperTest passes while CTextIOWrapperTest errors: "
+        "AttributeError: 'TextIOWrapper' object has no attribute 'reconfigure'")
     def test_reconfigure_write_through(self):
         raw = self.MockRawIO([])
         t = self.TextIOWrapper(raw, encoding='ascii', newline='\n')
@@ -3476,6 +3535,8 @@ class TextIOWrapperTest(unittest.TestCase):
         t = self.TextIOWrapper(self.StringIO('a'))
         self.assertRaises(TypeError, t.read)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_illegal_encoder(self):
         # Issue 31271: Calling write() while the return value of encoder's
         # encode() is invalid shouldn't cause an assertion failure.
@@ -3484,6 +3545,7 @@ class TextIOWrapperTest(unittest.TestCase):
             t = io.TextIOWrapper(io.BytesIO(b'foo'), encoding="rot13")
         self.assertRaises(TypeError, t.write, 'bar')
 
+    @unittest.skip("TODO: RUSTPYTHON, PyTextIOWrapperTest passes while CTextIOWrapperTest fails")
     def test_illegal_decoder(self):
         # Issue #17106
         # Bypass the early encoding check added in issue 20404
@@ -3546,6 +3608,8 @@ class TextIOWrapperTest(unittest.TestCase):
         return assert_python_ok("-c", code)
 
     @support.requires_type_collecting
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_create_at_shutdown_without_encoding(self):
         rc, out, err = self._check_create_at_shutdown()
         if err:
@@ -3556,6 +3620,8 @@ class TextIOWrapperTest(unittest.TestCase):
             self.assertEqual("ok", out.decode().strip())
 
     @support.requires_type_collecting
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_create_at_shutdown_with_encoding(self):
         rc, out, err = self._check_create_at_shutdown(encoding='utf-8',
                                                       errors='strict')
@@ -3588,6 +3654,8 @@ class TextIOWrapperTest(unittest.TestCase):
         F.tell = lambda x: 0
         t = self.TextIOWrapper(F(), encoding='utf-8')
 
+    @unittest.skip("TODO: RUSTPYTHON, PyTextIOWrapperTest fails while CTextIOWrapperTest errors: "
+        "UnicodeDecodeError: cannot decode byte at index: 3")
     def test_reconfigure_encoding_read(self):
         # latin1 -> utf8
         # (latin1 can decode utf-8 encoded string)
@@ -3600,6 +3668,8 @@ class TextIOWrapperTest(unittest.TestCase):
         with self.assertRaises(self.UnsupportedOperation):
             txt.reconfigure(newline=None)
 
+    @unittest.skip("TODO: RUSTPYTHON, PyTextIOWrapperTest passes while CTextIOWrapperTest errors: "
+        "AttributeError: 'TextIOWrapper' object has no attribute 'reconfigure'")
     def test_reconfigure_write_fromascii(self):
         # ascii has a specific encodefunc in the C implementation,
         # but utf-8-sig has not. Make sure that we get rid of the
@@ -3612,6 +3682,8 @@ class TextIOWrapperTest(unittest.TestCase):
         txt.flush()
         self.assertEqual(raw.getvalue(), b'foo\n\xc3\xa9\n')
 
+    @unittest.skip("TODO: RUSTPYTHON, PyTextIOWrapperTest passes while CTextIOWrapperTest errors: "
+        "AttributeError: 'TextIOWrapper' object has no attribute 'reconfigure'")
     def test_reconfigure_write(self):
         # latin -> utf8
         raw = self.BytesIO()
@@ -3633,6 +3705,8 @@ class TextIOWrapperTest(unittest.TestCase):
         txt.flush()
         self.assertEqual(raw.getvalue(), b'abc\nd\xc3\xa9f\n')
 
+    @unittest.skip("TODO: RUSTPYTHON, PyTextIOWrapperTest passes while CTextIOWrapperTest errors: "
+        "AttributeError: 'TextIOWrapper' object has no attribute 'reconfigure'")
     def test_reconfigure_write_non_seekable(self):
         raw = self.BytesIO()
         raw.seekable = lambda: False
@@ -3646,6 +3720,8 @@ class TextIOWrapperTest(unittest.TestCase):
         # If the raw stream is not seekable, there'll be a BOM
         self.assertEqual(raw.getvalue(),  b'abc\n\xef\xbb\xbfd\xc3\xa9f\n')
 
+    @unittest.skip("TODO: RUSTPYTHON, PyTextIOWrapperTest passes while CTextIOWrapperTest errors: "
+        "AttributeError: 'TextIOWrapper' object has no attribute 'reconfigure'")
     def test_reconfigure_defaults(self):
         txt = self.TextIOWrapper(self.BytesIO(), 'ascii', 'replace', '\n')
         txt.reconfigure(encoding=None)
@@ -3669,6 +3745,8 @@ class TextIOWrapperTest(unittest.TestCase):
 
         self.assertEqual(txt.detach().getvalue(), b'LF\nCRLF\r\n')
 
+    @unittest.skip("TODO: RUSTPYTHON, PyTextIOWrapperTest passes while CTextIOWrapperTest errors: "
+        "AttributeError: 'TextIOWrapper' object has no attribute 'reconfigure'")
     def test_reconfigure_newline(self):
         raw = self.BytesIO(b'CR\rEOF')
         txt = self.TextIOWrapper(raw, 'ascii', newline='\n')
@@ -3740,6 +3818,8 @@ class CTextIOWrapperTest(TextIOWrapperTest):
     io = io
     shutdown_error = "RuntimeError: could not find io module state"
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_initialization(self):
         r = self.BytesIO(b"\xc3\xa9\n\n")
         b = self.BufferedReader(r, 1000)
@@ -3783,6 +3863,7 @@ class CTextIOWrapperTest(TextIOWrapperTest):
             t2.buddy = t1
         support.gc_collect()
 
+    @unittest.skip("TODO: RUSTPYTHON, KeyError: '_CHUNK_SIZE'")
     def test_del__CHUNK_SIZE_SystemError(self):
         t = self.TextIOWrapper(self.BytesIO(), encoding='ascii')
         with self.assertRaises(AttributeError):
