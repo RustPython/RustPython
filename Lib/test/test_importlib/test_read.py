@@ -30,7 +30,7 @@ class ReadTests:
             self.data, 'utf-16.file', encoding='utf-16')
         self.assertEqual(result, 'Hello, UTF-16 world!\n')
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, UnicodeDecodeError: cannot decode byte at index: 0")
     def test_read_text_with_errors(self):
         # Raises UnicodeError without the 'errors' argument.
         self.assertRaises(
