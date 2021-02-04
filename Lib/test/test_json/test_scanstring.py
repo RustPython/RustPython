@@ -138,7 +138,9 @@ class TestScanstring:
             with self.assertRaises(self.JSONDecodeError, msg=s):
                 scanstring(s, 1, True)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, "
+        "TypeError: Expected type 'str', not 'bytes'; "
+        "TypeError: expected string")
     def test_overflow(self):
         with self.assertRaises(OverflowError):
             self.json.decoder.scanstring(b"xxx", sys.maxsize+1)
