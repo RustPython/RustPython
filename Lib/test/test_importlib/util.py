@@ -469,7 +469,6 @@ class CommonResourceTests(abc.ABC):
         # Passing in the package itself should succeed.
         self.execute(data01, 'utf-8.file')
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_string_path(self):
         # Passing in a string for the path should succeed.
         path = 'utf-8.file'
