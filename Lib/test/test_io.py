@@ -4344,7 +4344,6 @@ class CMiscIOTest(MiscIOTest):
         else:
             self.assertFalse(err.strip('.!'))
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_daemon_threads_shutdown_stdout_deadlock(self):
         self.check_daemon_threads_shutdown_deadlock('stdout')
 
