@@ -23,7 +23,6 @@ class OpenTests:
             result = fp.read()
             self.assertEqual(result, b'\x00\x01\x02\x03')
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_open_text_default_encoding(self):
         with resources.open_text(self.data, 'utf-8.file') as fp:
             result = fp.read()
