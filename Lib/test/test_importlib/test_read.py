@@ -20,7 +20,6 @@ class ReadTests:
         result = resources.read_binary(self.data, 'binary.file')
         self.assertEqual(result, b'\0\1\2\3')
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_read_text_default_encoding(self):
         result = resources.read_text(self.data, 'utf-8.file')
         self.assertEqual(result, 'Hello, UTF-8 world!\n')
