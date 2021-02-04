@@ -420,7 +420,7 @@ impl PySslContext {
         #[cfg(ossl102)]
         {
             let mut ctx = self.builder();
-            protos.with_ref(|pbuf| {
+            let server = protos.with_ref(|pbuf| {
                 if pbuf.len() > libc::c_uint::MAX as usize {
                     return Err(vm.new_overflow_error(format!(
                         "protocols longer than {} bytes",
@@ -429,12 +429,10 @@ impl PySslContext {
                 }
                 ctx.set_alpn_protos(pbuf)
                     .map_err(|e| convert_openssl_error(vm, e))?;
-                Ok(())
+                Ok(pbuf.to_vec())
             })?;
             ctx.set_alpn_select_callback(move |_, client| {
-                protos.with_ref(|server| {
-                    ssl::select_next_proto(server, client).ok_or(ssl::AlpnError::NOACK)
-                })
+                ssl::select_next_proto(&server, client).ok_or(ssl::AlpnError::NOACK)
             });
             Ok(())
         }
