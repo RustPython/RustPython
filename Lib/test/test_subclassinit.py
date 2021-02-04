@@ -197,8 +197,6 @@ class Test(unittest.TestCase):
         self.assertIs(B.meta_owner, B)
         self.assertEqual(B.name, 'd')
 
-    #TODO: RUSTPYTHON
-    @unittest.skip("infinite loops")
     def test_set_name_modifying_dict(self):
         notified = []
         class Descriptor:
@@ -215,8 +213,6 @@ class Test(unittest.TestCase):
 
         self.assertCountEqual(notified, ['a', 'b', 'c', 'd', 'e'])
 
-    #TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_errors(self):
         class MyMeta(type):
             pass

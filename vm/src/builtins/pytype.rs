@@ -11,7 +11,7 @@ use super::int::PyInt;
 use super::list::PyList;
 use super::mappingproxy::PyMappingProxy;
 use super::object;
-use super::pystr::PyStrRef;
+use super::pystr::{PyStr, PyStrRef};
 use super::staticmethod::PyStaticMethod;
 use super::tuple::PyTuple;
 use super::weakref::PyWeak;
@@ -496,21 +496,29 @@ impl PyType {
 
         vm.ctx.add_tp_new_wrapper(&typ);
 
-        for (name, obj) in typ.attributes.read().clone().iter() {
-            if let Some(meth) = vm.get_method(obj.clone(), "__set_name__") {
-                let set_name = meth?;
-                vm.invoke(&set_name, (typ.clone(), name.clone()))
-                    .map_err(|e| {
-                        let err = vm.new_runtime_error(format!(
-                            "Error calling __set_name__ on '{}' instance {} in '{}'",
-                            obj.class().name,
-                            name,
-                            typ.name
-                        ));
-                        err.set_cause(Some(e));
-                        err
-                    })?;
-            }
+        // avoid deadlock
+        let attributes = typ
+            .attributes
+            .read()
+            .iter()
+            .filter_map(|(name, obj)| {
+                vm.get_method(obj.clone(), "__set_name__").map(|res| {
+                    res.map(|meth| (obj.clone(), PyStr::from(name.clone()).into_ref(vm), meth))
+                })
+            })
+            .collect::<PyResult<Vec<_>>>()?;
+        for (obj, name, set_name) in attributes {
+            vm.invoke(&set_name, (typ.clone(), name.clone()))
+                .map_err(|e| {
+                    let err = vm.new_runtime_error(format!(
+                        "Error calling __set_name__ on '{}' instance {} in '{}'",
+                        obj.class().name,
+                        name,
+                        typ.name
+                    ));
+                    err.set_cause(Some(e));
+                    err
+                })?;
         }
 
         if let Some(initter) = typ.get_super_attr("__init_subclass__") {
