@@ -509,7 +509,6 @@ class CommonResourceTests(abc.ABC):
             self.execute(module, 'utf-8.file')
 
     @unittest.skipIf(sys.version_info < (3,), 'No ResourceReader in Python 2')
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_resource_opener(self):
         bytes_data = io.BytesIO(b'Hello, world!')
         package = create_package(file=bytes_data, path=FileNotFoundError())
