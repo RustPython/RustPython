@@ -12,7 +12,6 @@ class CommonTests(util.CommonResourceTests, unittest.TestCase):
 
 
 class PathTests:
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_reading(self):
         # Path should be readable.
         # Test also implicitly verifies the returned object is a pathlib.Path
