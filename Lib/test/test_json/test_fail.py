@@ -105,7 +105,6 @@ class TestFail:
                 'Object of type module is not JSON serializable'):
             self.dumps(sys)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_truncated_input(self):
         test_cases = [
             ('', 'Expecting value', 0),
