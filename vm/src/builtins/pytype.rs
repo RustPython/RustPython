@@ -330,7 +330,12 @@ impl PyType {
     }
 
     #[pymethod(magic)]
-    fn prepare(_name: PyStrRef, _bases: PyObjectRef, vm: &VirtualMachine) -> PyDictRef {
+    fn prepare(
+        _name: PyStrRef,
+        _bases: PyObjectRef,
+        _kwargs: KwArgs,
+        vm: &VirtualMachine,
+    ) -> PyDictRef {
         vm.ctx.new_dict()
     }
 
