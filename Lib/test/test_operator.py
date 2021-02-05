@@ -474,7 +474,7 @@ class OperatorTestCase:
         self.assertEqual(operator.ixor     (c, 5), "ixor")
         self.assertEqual(operator.iconcat  (c, c), "iadd")
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, TypeError: 'NotImplementedType' object cannot be interpreted as an integer")
     def test_length_hint(self):
         operator = self.module
         class X(object):
