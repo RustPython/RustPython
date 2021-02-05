@@ -1362,7 +1362,6 @@ class _BasePathTest(object):
             self.assertIsInstance(f, io.RawIOBase)
             self.assertEqual(f.read().strip(), b"this is file A")
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_read_write_bytes(self):
         p = self.cls(BASE)
         (p / 'fileA').write_bytes(b'abcdefg')
