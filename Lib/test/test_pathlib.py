@@ -1332,7 +1332,7 @@ class _BasePathTest(object):
         p = P(P('').absolute().anchor) / '~'
         self.assertEqual(p.expanduser(), p)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, OSError: data provided contains a nul byte")
     def test_exists(self):
         P = self.cls
         p = P(BASE)
