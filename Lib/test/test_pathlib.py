@@ -1370,7 +1370,8 @@ class _BasePathTest(object):
         self.assertRaises(TypeError, (p / 'fileA').write_bytes, 'somestr')
         self.assertEqual((p / 'fileA').read_bytes(), b'abcdefg')
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_read_write_text(self):
         p = self.cls(BASE)
         (p / 'fileA').write_text('äbcdefg', encoding='latin-1')
