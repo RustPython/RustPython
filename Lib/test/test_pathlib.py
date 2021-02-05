@@ -1435,7 +1435,7 @@ class _BasePathTest(object):
         else:
             _check(p.glob("*/fileB"), ['dirB/fileB', 'linkB/fileB'])
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, FileNotFoundError: No such file or directory (os error 2)")
     def test_rglob_common(self):
         def _check(glob, expected):
             self.assertEqual(set(glob), { P(BASE, q) for q in expected })
