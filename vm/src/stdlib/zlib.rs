@@ -20,14 +20,35 @@ mod decl {
         write::ZlibEncoder, Compress, Compression, Decompress, FlushCompress, FlushDecompress,
         Status,
     };
-    use libz_sys as libz;
     use std::io::Write;
 
+    #[cfg(not(feature = "zlib"))]
+    mod constants {
+        pub const Z_NO_COMPRESSION: i32 = 0;
+        pub const Z_BEST_COMPRESSION: i32 = 9;
+        pub const Z_BEST_SPEED: i32 = 1;
+        pub const Z_DEFAULT_COMPRESSION: i32 = -1;
+        pub const Z_NO_FLUSH: i32 = 0;
+        pub const Z_PARTIAL_FLUSH: i32 = 1;
+        pub const Z_SYNC_FLUSH: i32 = 2;
+        pub const Z_FULL_FLUSH: i32 = 3;
+        // not sure what the value here means, but it's the only compression method zlibmodule
+        // supports, so it doesn't really matter
+        pub const Z_DEFLATED: i32 = 8;
+    }
+    #[cfg(feature = "zlib")]
+    use libz_sys as constants;
+
     #[pyattr]
-    use libz::{
-        Z_BEST_COMPRESSION, Z_BEST_SPEED, Z_BLOCK, Z_DEFAULT_COMPRESSION, Z_DEFAULT_STRATEGY,
-        Z_DEFLATED as DEFLATED, Z_FILTERED, Z_FINISH, Z_FIXED, Z_FULL_FLUSH, Z_HUFFMAN_ONLY,
-        Z_NO_COMPRESSION, Z_NO_FLUSH, Z_PARTIAL_FLUSH, Z_RLE, Z_SYNC_FLUSH, Z_TREES,
+    use constants::{
+        Z_BEST_COMPRESSION, Z_BEST_SPEED, Z_DEFAULT_COMPRESSION, Z_DEFLATED as DEFLATED,
+        Z_FULL_FLUSH, Z_NO_COMPRESSION, Z_NO_FLUSH, Z_PARTIAL_FLUSH, Z_SYNC_FLUSH,
+    };
+
+    #[cfg(feature = "zlib")]
+    #[pyattr]
+    use libz_sys::{
+        Z_BLOCK, Z_DEFAULT_STRATEGY, Z_FILTERED, Z_FINISH, Z_FIXED, Z_HUFFMAN_ONLY, Z_RLE, Z_TREES,
     };
 
     // copied from zlibmodule.c (commit 530f506ac91338)
@@ -69,18 +90,21 @@ mod decl {
         })
     }
 
+    fn compression_from_int(level: Option<i32>) -> Option<Compression> {
+        match level.unwrap_or(Z_DEFAULT_COMPRESSION) {
+            Z_DEFAULT_COMPRESSION => Some(Compression::default()),
+            valid_level @ Z_NO_COMPRESSION..=Z_BEST_COMPRESSION => {
+                Some(Compression::new(valid_level as u32))
+            }
+            _ => None,
+        }
+    }
+
     /// Returns a bytes object containing compressed data.
     #[pyfunction]
     fn compress(data: PyBytesLike, level: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult {
-        let level = level.unwrap_or(libz::Z_DEFAULT_COMPRESSION);
-
-        let compression = match level {
-            valid_level @ libz::Z_NO_COMPRESSION..=libz::Z_BEST_COMPRESSION => {
-                Compression::new(valid_level as u32)
-            }
-            libz::Z_DEFAULT_COMPRESSION => Compression::default(),
-            _ => return Err(new_zlib_error("Bad compression level", vm)),
-        };
+        let compression = compression_from_int(level.into_option())
+            .ok_or_else(|| new_zlib_error("Bad compression level", vm))?;
 
         let mut encoder = ZlibEncoder::new(Vec::new(), compression);
         data.with_ref(|input_bytes| encoder.write_all(input_bytes).unwrap());
@@ -89,16 +113,55 @@ mod decl {
         Ok(vm.ctx.new_bytes(encoded_bytes))
     }
 
-    fn header_from_wbits(
-        wbits: OptionalArg<i8>,
-        vm: &VirtualMachine,
-    ) -> PyResult<(Option<bool>, u8)> {
+    enum InitOptions {
+        Standard {
+            header: bool,
+            // [De]Compress::new_with_window_bits is only enabled for zlib; miniz_oxide doesn't
+            // support wbits (yet?)
+            #[cfg(feature = "zlib")]
+            wbits: u8,
+        },
+        #[cfg(feature = "zlib")]
+        Gzip { wbits: u8 },
+    }
+
+    impl InitOptions {
+        fn decompress(self) -> Decompress {
+            match self {
+                #[cfg(not(feature = "zlib"))]
+                Self::Standard { header } => Decompress::new(header),
+                #[cfg(feature = "zlib")]
+                Self::Standard { header, wbits } => Decompress::new_with_window_bits(header, wbits),
+                #[cfg(feature = "zlib")]
+                Self::Gzip { wbits } => Decompress::new_gzip(wbits),
+            }
+        }
+        fn compress(self, level: Compression) -> Compress {
+            match self {
+                #[cfg(not(feature = "zlib"))]
+                Self::Standard { header } => Compress::new(level, header),
+                #[cfg(feature = "zlib")]
+                Self::Standard { header, wbits } => {
+                    Compress::new_with_window_bits(level, header, wbits)
+                }
+                #[cfg(feature = "zlib")]
+                Self::Gzip { wbits } => Compress::new_gzip(level, wbits),
+            }
+        }
+    }
+
+    fn header_from_wbits(wbits: OptionalArg<i8>, vm: &VirtualMachine) -> PyResult<InitOptions> {
         let wbits = wbits.unwrap_or(MAX_WBITS as i8);
         let header = wbits > 0;
         let wbits = wbits.abs() as u8;
         match wbits {
-            9..=15 => Ok((Some(header), wbits)),
-            25..=31 => Ok((None, wbits - 16)),
+            9..=15 => Ok(InitOptions::Standard {
+                header,
+                #[cfg(feature = "zlib")]
+                wbits,
+            }),
+            #[cfg(feature = "zlib")]
+            25..=31 => Ok(InitOptions::Gzip { wbits: wbits - 16 }),
             _ => Err(vm.new_value_error("Invalid initialization option".to_owned())),
         }
     }
@@ -180,13 +243,10 @@ mod decl {
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
         data.with_ref(|data| {
-            let (header, wbits) = header_from_wbits(wbits, vm)?;
             let bufsize = bufsize.unwrap_or(DEF_BUF_SIZE);
 
-            let mut d = match header {
-                Some(header) => Decompress::new_with_window_bits(header, wbits),
-                None => Decompress::new_gzip(wbits),
-            };
+            let mut d = header_from_wbits(wbits, vm)?.decompress();
+
             _decompress(data, &mut d, bufsize, None, vm).and_then(|(buf, stream_end)| {
                 if stream_end {
                     Ok(buf)
@@ -198,12 +258,10 @@ mod decl {
     }
 
     #[pyfunction]
-    fn decompressobj(args: DecopmressobjArgs, vm: &VirtualMachine) -> PyResult<PyDecompress> {
-        let (header, wbits) = header_from_wbits(args.wbits, vm)?;
-        let mut decompress = match header {
-            Some(header) => Decompress::new_with_window_bits(header, wbits),
-            None => Decompress::new_gzip(wbits),
-        };
+    fn decompressobj(args: DecompressobjArgs, vm: &VirtualMachine) -> PyResult<PyDecompress> {
+        #[allow(unused_mut)]
+        let mut decompress = header_from_wbits(args.wbits, vm)?.decompress();
+        #[cfg(feature = "zlib")]
         if let OptionalArg::Present(dict) = args.zdict {
             dict.with_ref(|d| decompress.set_dictionary(d).unwrap());
         }
@@ -346,9 +404,10 @@ mod decl {
     }
 
     #[derive(FromArgs)]
-    struct DecopmressobjArgs {
+    struct DecompressobjArgs {
         #[pyarg(any, optional)]
         wbits: OptionalArg<i8>,
+        #[cfg(feature = "zlib")]
         #[pyarg(any, optional)]
         zdict: OptionalArg<PyBytesLike>,
     }
@@ -365,19 +424,9 @@ mod decl {
         _zdict: OptionalArg<PyBytesLike>,
         vm: &VirtualMachine,
     ) -> PyResult<PyCompress> {
-        let (header, wbits) = header_from_wbits(wbits, vm)?;
-        let level = level.unwrap_or(-1);
-
-        let level = match level {
-            -1 => libz::Z_DEFAULT_COMPRESSION as u32,
-            n @ 0..=9 => n as u32,
-            _ => return Err(vm.new_value_error("invalid initialization option".to_owned())),
-        };
-        let level = Compression::new(level);
-        let compress = match header {
-            Some(header) => Compress::new_with_window_bits(level, header, wbits),
-            None => Compress::new_gzip(level, wbits),
-        };
+        let level = compression_from_int(level.into_option())
+            .ok_or_else(|| vm.new_value_error("invalid initialization option".to_owned()))?;
+        let compress = header_from_wbits(wbits, vm)?.compress(level);
         Ok(PyCompress {
             inner: PyMutex::new(CompressInner {
                 compress,
@@ -428,7 +477,7 @@ mod decl {
         // }
     }
 
-    const CHUNKSIZE: usize = libc::c_uint::MAX as usize;
+    const CHUNKSIZE: usize = u32::MAX as usize;
 
     impl CompressInner {
         fn save_unconsumed_input(&mut self, data: &[u8], orig_in: u64) {

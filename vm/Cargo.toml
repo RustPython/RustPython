@@ -10,6 +10,8 @@ include = ["src/**/*.rs", "Cargo.toml", "build.rs", "Lib/**/*.py"]
 
 [features]
 default = ["compile-parse", "threading"]
+# TODO: use resolver = "2" instead of features
+zlib = ["libz-sys", "flate2/zlib"]
 vm-tracing-logging = []
 flame-it = ["flame", "flamer"]
 freeze-stdlib = ["rustpython-pylib"]
@@ -84,6 +86,10 @@ atty = "0.2"
 static_assertions = "1.1"
 half = "1.6"
 memchr = "2"
+crc32fast = "1.2.0"
+adler32 = "1.0.3"
+flate2 = "1.0.20"
+libz-sys = { version = "1.0", optional = true }
 
 # RustPython crates implementing functionality based on CPython
 mt19937 = "2.0"
@@ -114,8 +120,6 @@ exitcode = "1.1.2"
 uname = "0.1.1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-crc32fast = "1.2.0"
-adler32 = "1.0.3"
 gethostname = "0.2.0"
 socket2 = "0.3.19"
 rustyline = "6.0"
@@ -129,8 +133,6 @@ num_cpus = "1"
 
 [target.'cfg(not(any(target_arch = "wasm32", target_os = "redox")))'.dependencies]
 dns-lookup = "1.0"
-flate2 = { version = "1.0.20", features = ["zlib"], default-features = false }
-libz-sys = "1.0"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.7"
