@@ -52,11 +52,16 @@ import _io
 import abc
 
 from _io import (DEFAULT_BUFFER_SIZE, BlockingIOError, UnsupportedOperation,
-                 open, open_code, FileIO, BytesIO, StringIO, BufferedReader,
+                 open, open_code, BytesIO, StringIO, BufferedReader,
                  BufferedWriter, BufferedRWPair, BufferedRandom,
                  # XXX RUSTPYTHON TODO: IncrementalNewlineDecoder
                  # IncrementalNewlineDecoder, TextIOWrapper)
                  TextIOWrapper)
+
+try:
+    from _io import FileIO
+except ImportError:
+    pass
 
 OpenWrapper = _io.open # for compatibility with _pyio
 

@@ -8,13 +8,22 @@ import functools
 import importlib.util
 import io
 import itertools
-import os
+try:
+    import os
+except ImportError:
+    import _dummy_os as os
 import posixpath
-import shutil
+try:
+    import shutil
+except ImportError:
+    pass
 import stat
 import struct
 import sys
-import threading
+try:
+    import threading
+except ImportError:
+    import _dummy_thread as threading
 import time
 import contextlib
 from collections import OrderedDict

@@ -22,7 +22,10 @@ defpath = '/bin:/usr/bin'
 altsep = None
 devnull = '/dev/null'
 
-import os
+try:
+    import os
+except ImportError:
+    import _dummy_os as os
 import sys
 import stat
 import genericpath
