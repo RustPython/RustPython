@@ -1698,7 +1698,7 @@ class _BasePathTest(object):
         self.assertEqual(os.stat(r).st_size, size)
         self.assertFileNotFound(q.stat)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, TypeError: utime: 'times' must be either a tuple of two ints or None")
     def test_touch_common(self):
         P = self.cls(BASE)
         p = P / 'newfileA'
