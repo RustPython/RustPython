@@ -1919,7 +1919,7 @@ class _BasePathTest(object):
         self.assertIs((P / 'fileA\x00').is_file(), False)
 
     @only_posix
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, OSError: data provided contains a nul byte")
     def test_is_mount(self):
         P = self.cls(BASE)
         R = self.cls('/')  # TODO: Work out Windows.
