@@ -1904,7 +1904,7 @@ class _BasePathTest(object):
         self.assertIs((P / 'dirA\udfff').is_dir(), False)
         self.assertIs((P / 'dirA\x00').is_dir(), False)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, OSError: data provided contains a nul byte")
     def test_is_file(self):
         P = self.cls(BASE)
         self.assertTrue((P / 'fileA').is_file())
