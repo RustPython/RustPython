@@ -619,7 +619,7 @@ class _BasePurePathTest(object):
         self.assertRaises(ValueError, p.relative_to, '')
         self.assertRaises(ValueError, p.relative_to, P('a'))
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, TypeError: Missing 1 required positional arguments: self")
     def test_pickling_common(self):
         P = self.cls
         p = P('/a/b')
