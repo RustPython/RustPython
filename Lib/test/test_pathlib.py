@@ -1350,7 +1350,6 @@ class _BasePathTest(object):
         self.assertIs(False, P(BASE + '\udfff').exists())
         self.assertIs(False, P(BASE + '\x00').exists())
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_open_common(self):
         p = self.cls(BASE)
         with (p / 'fileA').open('r') as f:
