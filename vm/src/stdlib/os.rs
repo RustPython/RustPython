@@ -646,7 +646,7 @@ mod _os {
             follow_symlinks: FollowSymlinks,
             vm: &VirtualMachine,
         ) -> PyResult {
-            super::platform::stat(
+            stat(
                 Either::A(PyPathLike {
                     path: self.entry.path(),
                     mode: OutputMode::String,
@@ -739,7 +739,7 @@ mod _os {
     #[pyattr]
     #[pyclass(module = "os", name = "stat_result")]
     #[derive(Debug, PyStructSequence)]
-    pub(super) struct StatResult {
+    struct StatResult {
         pub st_mode: u32,
         pub st_ino: u64,
         pub st_dev: u64,
@@ -761,29 +761,159 @@ mod _os {
 
     #[pyimpl(with(PyStructSequence))]
     impl StatResult {
-        pub(super) fn into_obj(self, vm: &VirtualMachine) -> PyObjectRef {
+        fn into_obj(self, vm: &VirtualMachine) -> PyObjectRef {
             self.into_struct_sequence(vm).unwrap().into_object()
+        }
+
+        fn from_metadata(meta: fs::Metadata) -> io::Result<Self> {
+            let (st_mode, st_ino, st_dev, st_nlink, st_uid, st_gid, ctime);
+            #[cfg(windows)]
+            {
+                ctime = meta.created()?;
+                st_ino = 0; // TODO: Not implemented in std::os::windows::fs::MetadataExt.
+                st_dev = 0; // TODO: Not implemented in std::os::windows::fs::MetadataExt.
+                st_nlink = 0; // TODO: Not implemented in std::os::windows::fs::MetadataExt.
+                st_uid = 0; // 0 on windows
+                st_gid = 0; // 0 on windows
+            }
+            #[cfg(unix)]
+            {
+                #[cfg(target_os = "android")]
+                use std::os::android::fs::MetadataExt;
+                #[cfg(target_os = "linux")]
+                use std::os::linux::fs::MetadataExt;
+                #[cfg(target_os = "macos")]
+                use std::os::macos::fs::MetadataExt;
+                #[cfg(target_os = "openbsd")]
+                use std::os::openbsd::fs::MetadataExt;
+                #[cfg(target_os = "redox")]
+                use std::os::redox::fs::MetadataExt;
+
+                // TODO: figure out a better way to do this, SystemTime is just a wrapper over timespec
+                ctime = {
+                    let (ctime, ctime_ns) = (meta.st_ctime(), meta.st_ctime_nsec());
+                    let dur = std::time::Duration::new(ctime.abs() as _, ctime_ns as _);
+                    if ctime < 0 {
+                        SystemTime::UNIX_EPOCH - dur
+                    } else {
+                        SystemTime::UNIX_EPOCH + dur
+                    }
+                };
+                st_mode = meta.st_mode();
+                st_ino = meta.st_ino();
+                st_dev = meta.st_dev();
+                st_nlink = meta.st_nlink();
+                st_uid = meta.st_uid();
+                st_gid = meta.st_gid();
+            }
+            #[cfg(target_os = "wasi")]
+            {
+                // XXX: currently meta.created() returns filestat_t.ctim, which is changetime. That
+                // might change in the future and meta.created() might return an error
+                ctime = meta.created()?;
+
+                // TODO: wasi::MetadataExt once stable
+                // use std::os::wasi::fs::MetadataExt;
+                // st_ino = meta.ino();
+                // st_dev = meta.dev();
+                // st_nlink = meta.nlink();
+                st_ino = 0;
+                st_dev = 0;
+                st_nlink = 0;
+
+                st_uid = 0;
+                st_gid = 0;
+            }
+            #[cfg(not(unix))]
+            {
+                // Based on CPython fileutils.c' attributes_to_mode
+                st_mode = {
+                    const S_IFDIR: u32 = 0o040000;
+                    const S_IFREG: u32 = 0o100000;
+                    let mut m: u32 = 0;
+                    if meta.is_dir() {
+                        m |= S_IFDIR | 0o111; /* IFEXEC for user,group,other */
+                    } else {
+                        m |= S_IFREG;
+                    }
+                    if meta.permissions().readonly() {
+                        m |= 0o444;
+                    } else {
+                        m |= 0o666;
+                    }
+                    m
+                };
+            }
+
+            let accessed = meta.accessed()?;
+            let modified = meta.modified()?;
+            Ok(StatResult {
+                st_mode,
+                st_ino,
+                st_dev,
+                st_nlink,
+                st_uid,
+                st_gid,
+                st_size: meta.len(),
+                __st_atime_int: int_seconds_epoch(accessed),
+                __st_mtime_int: int_seconds_epoch(modified),
+                __st_ctime_int: int_seconds_epoch(ctime),
+                st_atime: to_seconds_from_unix_epoch(accessed),
+                st_mtime: to_seconds_from_unix_epoch(modified),
+                st_ctime: to_seconds_from_unix_epoch(ctime),
+                st_atime_ns: to_nanoseconds_epoch(accessed),
+                st_mtime_ns: to_nanoseconds_epoch(modified),
+                st_ctime_ns: to_nanoseconds_epoch(ctime),
+            })
         }
     }
 
     #[pyfunction]
+    fn stat(
+        file: Either<PyPathLike, i64>,
+        dir_fd: super::DirFd,
+        follow_symlinks: FollowSymlinks,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let meta = match file {
+            Either::A(path) => fs_metadata(make_path(vm, &path, &dir_fd)?, follow_symlinks.0),
+            Either::B(fno) => {
+                let file = rust_file(fno);
+                let res = file.metadata();
+                raw_file_number(file);
+                res
+            }
+        };
+        meta.and_then(StatResult::from_metadata)
+            .map(|stat| stat.into_obj(vm))
+            .map_err(|err| err.into_pyexception(vm))
+    }
+
+    #[pyfunction]
     fn lstat(file: Either<PyPathLike, i64>, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult {
-        super::platform::stat(file, dir_fd, FollowSymlinks(false), vm)
+        stat(file, dir_fd, FollowSymlinks(false), vm)
+    }
+
+    fn curdir_inner(vm: &VirtualMachine) -> PyResult<PathBuf> {
+        // getcwd (should) return FileNotFoundError if cwd is invalid; on wasi, we never have a
+        // valid cwd ;)
+        let res = if cfg!(target_os = "wasi") {
+            Err(io::ErrorKind::NotFound.into())
+        } else {
+            env::current_dir()
+        };
+
+        res.map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
-    fn getcwd(vm: &VirtualMachine) -> PyResult<String> {
-        Ok(env::current_dir()
-            .map_err(|err| err.into_pyexception(vm))?
-            .as_path()
-            .to_str()
-            .unwrap()
-            .to_owned())
+    fn getcwd(vm: &VirtualMachine) -> PyResult {
+        OutputMode::String.process_path(curdir_inner(vm)?, vm)
     }
 
     #[pyfunction]
-    fn getcwdb(vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        Ok(getcwd(vm)?.into_bytes().to_vec())
+    fn getcwdb(vm: &VirtualMachine) -> PyResult {
+        OutputMode::Bytes.process_path(curdir_inner(vm)?, vm)
     }
 
     #[pyfunction]
@@ -1100,22 +1230,8 @@ mod _os {
             SupportFunc::new(vm, "replace", rename, Some(false), Some(false), None), // TODO: Fix replace
             SupportFunc::new(vm, "rmdir", rmdir, Some(false), Some(false), None),
             SupportFunc::new(vm, "scandir", scandir, Some(false), None, None),
-            SupportFunc::new(
-                vm,
-                "stat",
-                platform::stat,
-                Some(false),
-                Some(false),
-                Some(false),
-            ),
-            SupportFunc::new(
-                vm,
-                "fstat",
-                platform::stat,
-                Some(false),
-                Some(false),
-                Some(false),
-            ),
+            SupportFunc::new(vm, "stat", stat, Some(false), Some(false), Some(false)),
+            SupportFunc::new(vm, "fstat", stat, Some(false), Some(false), Some(false)),
             SupportFunc::new(vm, "symlink", platform::symlink, None, Some(false), None),
             // truncate Some None None
             SupportFunc::new(vm, "unlink", remove, Some(false), Some(false), None),
@@ -1463,72 +1579,6 @@ mod posix {
         }
 
         environ
-    }
-
-    #[pyfunction]
-    pub(super) fn stat(
-        file: Either<PyPathLike, i64>,
-        dir_fd: super::DirFd,
-        follow_symlinks: FollowSymlinks,
-        vm: &VirtualMachine,
-    ) -> PyResult {
-        #[cfg(target_os = "android")]
-        use std::os::android::fs::MetadataExt;
-        #[cfg(target_os = "linux")]
-        use std::os::linux::fs::MetadataExt;
-        #[cfg(target_os = "macos")]
-        use std::os::macos::fs::MetadataExt;
-        #[cfg(target_os = "openbsd")]
-        use std::os::openbsd::fs::MetadataExt;
-        #[cfg(target_os = "redox")]
-        use std::os::redox::fs::MetadataExt;
-
-        let meta = match file {
-            Either::A(path) => fs_metadata(make_path(vm, &path, &dir_fd)?, follow_symlinks.0),
-            Either::B(fno) => {
-                let file = rust_file(fno);
-                let res = file.metadata();
-                raw_file_number(file);
-                res
-            }
-        };
-        let get_stats = move || -> io::Result<PyObjectRef> {
-            let meta = meta?;
-
-            let accessed = meta.accessed()?;
-            let modified = meta.modified()?;
-            // TODO: figure out a better way to do this, SystemTime is just a wrapper over timespec
-            let changed = {
-                let (ctime, ctime_ns) = (meta.st_ctime(), meta.st_ctime_nsec());
-                let dur = Duration::new(ctime.abs() as _, ctime_ns as _);
-                if ctime < 0 {
-                    SystemTime::UNIX_EPOCH - dur
-                } else {
-                    SystemTime::UNIX_EPOCH + dur
-                }
-            };
-            Ok(super::_os::StatResult {
-                st_mode: meta.st_mode(),
-                st_ino: meta.st_ino(),
-                st_dev: meta.st_dev(),
-                st_nlink: meta.st_nlink(),
-                st_uid: meta.st_uid(),
-                st_gid: meta.st_gid(),
-                st_size: meta.st_size(),
-                __st_atime_int: int_seconds_epoch(accessed),
-                __st_mtime_int: int_seconds_epoch(modified),
-                __st_ctime_int: int_seconds_epoch(changed),
-                st_atime: to_seconds_from_unix_epoch(accessed),
-                st_mtime: to_seconds_from_unix_epoch(modified),
-                st_ctime: to_seconds_from_unix_epoch(changed),
-                st_atime_ns: to_nanoseconds_epoch(accessed),
-                st_mtime_ns: to_nanoseconds_epoch(modified),
-                st_ctime_ns: to_nanoseconds_epoch(changed),
-            }
-            .into_obj(vm))
-        };
-
-        get_stats().map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
@@ -2556,26 +2606,6 @@ mod nt {
         }
     }
 
-    // Copied from CPython fileutils.c
-    fn attributes_to_mode(attr: u32) -> u32 {
-        const FILE_ATTRIBUTE_DIRECTORY: u32 = 16;
-        const FILE_ATTRIBUTE_READONLY: u32 = 1;
-        const S_IFDIR: u32 = 0o040000;
-        const S_IFREG: u32 = 0o100000;
-        let mut m: u32 = 0;
-        if attr & FILE_ATTRIBUTE_DIRECTORY == FILE_ATTRIBUTE_DIRECTORY {
-            m |= S_IFDIR | 0o111; /* IFEXEC for user,group,other */
-        } else {
-            m |= S_IFREG;
-        }
-        if attr & FILE_ATTRIBUTE_READONLY == FILE_ATTRIBUTE_READONLY {
-            m |= 0o444;
-        } else {
-            m |= 0o666;
-        }
-        m
-    }
-
     #[pyattr]
     fn environ(vm: &VirtualMachine) -> PyDictRef {
         let environ = vm.ctx.new_dict();
@@ -2586,53 +2616,6 @@ mod nt {
                 .unwrap();
         }
         environ
-    }
-
-    #[pyfunction]
-    pub(super) fn stat(
-        file: Either<PyPathLike, i64>,
-        _dir_fd: DirFd, // TODO: error
-        follow_symlinks: FollowSymlinks,
-        vm: &VirtualMachine,
-    ) -> PyResult {
-        use std::os::windows::fs::MetadataExt;
-
-        let get_stats = move || -> io::Result<PyObjectRef> {
-            let meta = match file {
-                Either::A(path) => fs_metadata(path.path, follow_symlinks.0)?,
-                Either::B(fno) => {
-                    let f = rust_file(fno);
-                    let meta = f.metadata()?;
-                    raw_file_number(f);
-                    meta
-                }
-            };
-
-            let accessed = meta.accessed()?;
-            let modified = meta.modified()?;
-            let created = meta.created()?;
-            Ok(super::_os::StatResult {
-                st_mode: attributes_to_mode(meta.file_attributes()),
-                st_ino: 0,   // TODO: Not implemented in std::os::windows::fs::MetadataExt.
-                st_dev: 0,   // TODO: Not implemented in std::os::windows::fs::MetadataExt.
-                st_nlink: 0, // TODO: Not implemented in std::os::windows::fs::MetadataExt.
-                st_uid: 0,   // 0 on windows
-                st_gid: 0,   // 0 on windows
-                st_size: meta.file_size(),
-                __st_atime_int: int_seconds_epoch(accessed),
-                __st_mtime_int: int_seconds_epoch(modified),
-                __st_ctime_int: int_seconds_epoch(created),
-                st_atime: to_seconds_from_unix_epoch(accessed),
-                st_mtime: to_seconds_from_unix_epoch(modified),
-                st_ctime: to_seconds_from_unix_epoch(created),
-                st_atime_ns: to_nanoseconds_epoch(accessed),
-                st_mtime_ns: to_nanoseconds_epoch(modified),
-                st_ctime_ns: to_nanoseconds_epoch(created),
-            }
-            .into_obj(vm))
-        };
-
-        get_stats().map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
@@ -2858,16 +2841,6 @@ mod minor {
     #[pyfunction]
     pub(super) fn access(_path: PyStrRef, _mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
         os_unimpl("os.access", vm)
-    }
-
-    #[pyfunction]
-    pub(super) fn stat(
-        _file: Either<PyPathLike, i64>,
-        _dir_fd: DirFd,
-        _follow_symlinks: FollowSymlinks,
-        vm: &VirtualMachine,
-    ) -> PyResult {
-        os_unimpl("os.stat", vm)
     }
 
     #[pyfunction]
