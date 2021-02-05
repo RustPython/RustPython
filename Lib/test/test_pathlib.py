@@ -1410,7 +1410,7 @@ class _BasePathTest(object):
         self.assertIn(cm.exception.errno, (errno.ENOTDIR,
                                            errno.ENOENT, errno.EINVAL))
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, FileNotFoundError: No such file or directory (os error 2)")
     def test_glob_common(self):
         def _check(glob, expected):
             self.assertEqual(set(glob), { P(BASE, q) for q in expected })
