@@ -1723,7 +1723,6 @@ class _BasePathTest(object):
         self.assertTrue(p.exists())
         self.assertRaises(OSError, p.touch, exist_ok=False)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_touch_nochange(self):
         P = self.cls(BASE)
         p = P / 'fileA'
