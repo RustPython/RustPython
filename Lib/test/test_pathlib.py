@@ -1933,7 +1933,7 @@ class _BasePathTest(object):
         self.assertIs(self.cls('/\udfff').is_mount(), False)
         self.assertIs(self.cls('/\x00').is_mount(), False)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, OSError: data provided contains a nul byte")
     def test_is_symlink(self):
         P = self.cls(BASE)
         self.assertFalse((P / 'fileA').is_symlink())
