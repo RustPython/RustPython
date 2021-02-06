@@ -2002,7 +2002,7 @@ class _BasePathTest(object):
         self.assertIs(self.cls(BASE, 'mysock\udfff').is_socket(), False)
         self.assertIs(self.cls(BASE, 'mysock\x00').is_socket(), False)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, OSError: data provided contains a nul byte")
     def test_is_block_device_false(self):
         P = self.cls(BASE)
         self.assertFalse((P / 'fileA').is_block_device())
