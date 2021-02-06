@@ -2012,7 +2012,7 @@ class _BasePathTest(object):
         self.assertIs((P / 'fileA\udfff').is_block_device(), False)
         self.assertIs((P / 'fileA\x00').is_block_device(), False)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, OSError: data provided contains a nul byte")
     def test_is_char_device_false(self):
         P = self.cls(BASE)
         self.assertFalse((P / 'fileA').is_char_device())
