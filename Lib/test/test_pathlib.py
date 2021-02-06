@@ -2034,7 +2034,7 @@ class _BasePathTest(object):
         self.assertIs(self.cls('/dev/null\udfff').is_char_device(), False)
         self.assertIs(self.cls('/dev/null\x00').is_char_device(), False)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, TypeError: Missing 1 required positional arguments: self")
     def test_pickling_common(self):
         p = self.cls(BASE, 'fileA')
         for proto in range(0, pickle.HIGHEST_PROTOCOL + 1):
