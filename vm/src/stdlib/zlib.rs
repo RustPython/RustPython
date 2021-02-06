@@ -167,24 +167,34 @@ mod decl {
     }
 
     fn _decompress(
-        data: &[u8],
+        mut data: &[u8],
         d: &mut Decompress,
         bufsize: usize,
         max_length: Option<usize>,
+        is_flush: bool,
         vm: &VirtualMachine,
     ) -> PyResult<(Vec<u8>, bool)> {
         if data.is_empty() {
             return Ok((Vec::new(), true));
         }
-        let orig_in = d.total_in();
         let mut buf = Vec::new();
 
-        for mut chunk in data.chunks(CHUNKSIZE) {
-            // if this is the final chunk, finish it
-            let flush = if d.total_in() - orig_in == (data.len() - chunk.len()) as u64 {
-                FlushDecompress::Finish
+        loop {
+            let final_chunk = data.len() <= CHUNKSIZE;
+            let chunk = if final_chunk {
+                data
             } else {
-                FlushDecompress::None
+                &data[..CHUNKSIZE]
+            };
+            // if this is the final chunk, finish it
+            let flush = if is_flush {
+                if final_chunk {
+                    FlushDecompress::Finish
+                } else {
+                    FlushDecompress::None
+                }
+            } else {
+                FlushDecompress::Sync
             };
             loop {
                 let additional = if let Some(max_length) = max_length {
@@ -192,46 +202,31 @@ mod decl {
                 } else {
                     bufsize
                 };
+                if additional == 0 {
+                    return Ok((buf, false));
+                }
 
                 buf.reserve_exact(additional);
                 let prev_in = d.total_in();
                 let status = d
                     .decompress_vec(chunk, &mut buf, flush)
                     .map_err(|_| new_zlib_error("invalid input data", vm))?;
-                match status {
+                let consumed = d.total_in() - prev_in;
+                data = &data[consumed as usize..];
+                let stream_end = status == Status::StreamEnd;
+                if stream_end || data.is_empty() {
                     // we've reached the end of the stream, we're done
-                    Status::StreamEnd => {
-                        buf.shrink_to_fit();
-                        return Ok((buf, true));
-                    }
-                    // we have hit the maximum length that we can decompress, so stop
-                    _ if max_length.map_or(false, |max_length| buf.len() == max_length) => {
-                        return Ok((buf, false));
-                    }
-                    _ => {
-                        chunk = &chunk[(d.total_in() - prev_in) as usize..];
-
-                        if !chunk.is_empty() {
-                            // there is more input to process
-                            continue;
-                        } else if flush == FlushDecompress::Finish {
-                            if buf.len() == buf.capacity() {
-                                // we've run out of space, loop again and allocate more room
-                                continue;
-                            } else {
-                                // we need more input to continue
-                                buf.shrink_to_fit();
-                                return Ok((buf, false));
-                            }
-                        } else {
-                            // progress onto next chunk
-                            break;
-                        }
-                    }
+                    buf.shrink_to_fit();
+                    return Ok((buf, stream_end));
+                } else if !chunk.is_empty() && consumed == 0 {
+                    // we're gonna need a bigger buffer
+                    continue;
+                } else {
+                    // next chunk
+                    break;
                 }
             }
         }
-        unreachable!("Didn't reach end of stream or capacity limit")
     }
 
     /// Returns a bytes object containing the uncompressed data.
@@ -247,7 +242,7 @@ mod decl {
 
             let mut d = header_from_wbits(wbits, vm)?.decompress();
 
-            _decompress(data, &mut d, bufsize, None, vm).and_then(|(buf, stream_end)| {
+            _decompress(data, &mut d, bufsize, None, false, vm).and_then(|(buf, stream_end)| {
                 if stream_end {
                     Ok(buf)
                 } else {
@@ -336,23 +331,25 @@ mod decl {
             let mut d = self.decompress.lock();
             let orig_in = d.total_in();
 
-            let (ret, stream_end) = match _decompress(data, &mut d, DEF_BUF_SIZE, max_length, vm) {
-                Ok((buf, true)) => {
-                    self.eof.store(true);
-                    (Ok(buf), true)
-                }
-                Ok((buf, false)) => (Ok(buf), false),
-                Err(err) => (Err(err), false),
-            };
+            let (ret, stream_end) =
+                match _decompress(data, &mut d, DEF_BUF_SIZE, max_length, false, vm) {
+                    Ok((buf, true)) => {
+                        self.eof.store(true);
+                        (Ok(buf), true)
+                    }
+                    Ok((buf, false)) => (Ok(buf), false),
+                    Err(err) => (Err(err), false),
+                };
             self.save_unused_input(&mut d, data, stream_end, orig_in, vm);
 
-            let leftover = if !stream_end {
-                &data[(d.total_in() - orig_in) as usize..]
-            } else {
+            let leftover = if stream_end {
                 b""
+            } else {
+                &data[(d.total_in() - orig_in) as usize..]
             };
+
             let mut unconsumed_tail = self.unconsumed_tail.lock();
-            if !leftover.is_empty() || unconsumed_tail.len() > 0 {
+            if !leftover.is_empty() || !unconsumed_tail.is_empty() {
                 *unconsumed_tail = PyBytes::from(leftover.to_owned()).into_ref(vm);
             }
 
@@ -379,7 +376,7 @@ mod decl {
 
             let orig_in = d.total_in();
 
-            let (ret, stream_end) = match _decompress(&data, &mut d, length, None, vm) {
+            let (ret, stream_end) = match _decompress(&data, &mut d, length, None, true, vm) {
                 Ok((buf, stream_end)) => (Ok(buf), stream_end),
                 Err(err) => (Err(err), false),
             };
