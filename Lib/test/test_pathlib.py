@@ -2148,7 +2148,8 @@ class PosixPathTest(_BasePathTest, unittest.TestCase):
         st = os.stat(join('other_new_file'))
         self.assertEqual(stat.S_IMODE(st.st_mode), 0o644)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_touch_mode(self):
         old_mask = os.umask(0)
         self.addCleanup(os.umask, old_mask)
