@@ -2194,7 +2194,6 @@ class PosixPathTest(_BasePathTest, unittest.TestCase):
         self.assertEqual(given, expect)
         self.assertEqual(set(p.glob("FILEa*")), set())
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_rglob(self):
         P = self.cls
         p = P(BASE, "dirC")
