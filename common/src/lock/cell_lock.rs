@@ -121,7 +121,7 @@ unsafe impl RawRwLock for RawCellRwLock {
 
 unsafe impl RawRwLockDowngrade for RawCellRwLock {
     unsafe fn downgrade(&self) {
-        // no-op -- we're always exclusively locked for this thread
+        self.state.set(ONE_READER);
     }
 }
 
@@ -170,7 +170,7 @@ unsafe impl RawRwLockUpgradeDowngrade for RawCellRwLock {
 
     #[inline]
     unsafe fn downgrade_to_upgradable(&self) {
-        // no-op -- we're always exclusively locked for this thread
+        self.state.set(ONE_READER);
     }
 }
 
