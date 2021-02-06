@@ -2186,7 +2186,6 @@ class PosixPathTest(_BasePathTest, unittest.TestCase):
         # Non-strict
         self._check_symlink_loop(BASE, 'linkW', 'foo', strict=False)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_glob(self):
         P = self.cls
         p = P(BASE)
