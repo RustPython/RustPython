@@ -14,8 +14,12 @@ except ImportError:
         import os
         return getattr(os, name)
 
+    import posixpath as path
+    import sys
+    sys.modules['os.path'] = path
+    del sys
 
-    sep = '/'
+    sep = path.sep
 
 
     def fspath(path):

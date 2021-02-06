@@ -9,7 +9,10 @@ expression.  They cache the compiled regular expressions for speed.
 The function translate(PATTERN) returns a regular expression
 corresponding to PATTERN.  (It does not compile it.)
 """
-import os
+try:
+    import os
+except ImportError:
+    import _dummy_os as os
 import posixpath
 import re
 import functools
