@@ -1974,7 +1974,7 @@ class _BasePathTest(object):
         self.assertIs(self.cls(BASE, 'myfifo\udfff').is_fifo(), False)
         self.assertIs(self.cls(BASE, 'myfifo\x00').is_fifo(), False)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, OSError: data provided contains a nul byte")
     def test_is_socket_false(self):
         P = self.cls(BASE)
         self.assertFalse((P / 'fileA').is_socket())
