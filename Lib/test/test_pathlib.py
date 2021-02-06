@@ -1961,7 +1961,7 @@ class _BasePathTest(object):
         self.assertIs((P / 'fileA\x00').is_fifo(), False)
 
     @unittest.skipUnless(hasattr(os, "mkfifo"), "os.mkfifo() required")
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, unimplemented")
     def test_is_fifo_true(self):
         P = self.cls(BASE, 'myfifo')
         try:
