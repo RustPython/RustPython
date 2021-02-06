@@ -2329,6 +2329,30 @@ mod posix {
             SupportFunc::new(vm, "execv", execv, None, None, None),
         ]
     }
+
+    /// Return a string containing the name of the user logged in on the
+    /// controlling terminal of the process.
+    ///
+    /// Exceptions:
+    ///
+    /// - `OSError`: Raised if login name could not be determined (`getlogin()`
+    ///   returned a null pointer).
+    /// - `UnicodeDecodeError`: Raised if login name contained invalid UTF-8 bytes.
+    #[pyfunction]
+    fn getlogin(vm: &VirtualMachine) -> PyResult<String> {
+        // Get a pointer to the login name string. The string is statically
+        // allocated and might be overwritten on subsequent calls to this
+        // function or to `cuserid()`. See man getlogin(3) for more information.
+        let ptr = unsafe { libc::getlogin() };
+        if ptr.is_null() {
+            return Err(vm.new_os_error("unable to determine login name".to_owned()));
+        }
+        let slice = unsafe { ffi::CStr::from_ptr(ptr) };
+        slice
+            .to_str()
+            .map(|s| s.to_owned())
+            .map_err(|e| vm.new_unicode_decode_error(format!("unable to decode login name: {}", e)))
+    }
 }
 #[cfg(unix)]
 use posix as platform;
