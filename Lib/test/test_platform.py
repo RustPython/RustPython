@@ -18,7 +18,6 @@ class PlatformTest(unittest.TestCase):
     def test_architecture(self):
         res = platform.architecture()
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @support.skip_unless_symlink
     def test_architecture_via_symlink(self): # issue3762
         # On Windows, the EXE needs to know where pythonXY.dll and *.pyd is at
