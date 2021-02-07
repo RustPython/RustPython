@@ -20,7 +20,8 @@ class TestBasicOps:
         """Helper function to make a list of random numbers"""
         return [self.gen.random() for i in range(n)]
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, MersenneTwister_TestBasicOps errors: "
+        "AttributeError: 'super' object has no attribute 'getstate'")
     def test_autoseed(self):
         self.gen.seed()
         state1 = self.gen.getstate()
