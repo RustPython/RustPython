@@ -316,7 +316,7 @@ class TestJointOps:
             self.assertRaises(RuntimeError, s.discard, BadCmp())
             self.assertRaises(RuntimeError, s.remove, BadCmp())
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, TestSetSubclass fails")
     def test_cyclical_repr(self):
         w = ReprWrapper()
         s = self.thetype([w])
