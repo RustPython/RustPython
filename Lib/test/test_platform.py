@@ -15,7 +15,6 @@ class PlatformTest(unittest.TestCase):
         platform._sys_version_cache.clear()
         platform._uname_cache = None
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_architecture(self):
         res = platform.architecture()
 
