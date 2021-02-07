@@ -195,7 +195,7 @@ class PyCompileTestsBase:
         self.assertEqual(flags, 0b1)
 
 
-@unittest.skip("TODO: RUSTPYTHON")
+@unittest.skip("TODO: RUSTPYTHON, TypeError: object of type 'NoneType' has no len()")
 class PyCompileTestsWithSourceEpoch(PyCompileTestsBase,
                                     unittest.TestCase,
                                     metaclass=SourceDateEpochTestMeta,
