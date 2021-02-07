@@ -63,7 +63,7 @@ class TestJointOps:
     def test_len(self):
         self.assertEqual(len(self.s), len(self.d))
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, TypeError: unhashable type")
     def test_contains(self):
         for c in self.letters:
             self.assertEqual(c in self.s, c in self.d)
