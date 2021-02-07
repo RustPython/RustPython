@@ -282,7 +282,7 @@ class TestBasicOps:
                 r = pickle.load(f)
             self.assertEqual(int(r.random()*1000), value)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, MersenneTwister_TestBasicOps fails")
     def test_bug_9025(self):
         # Had problem with an uneven distribution in int(n*random())
         # Verify the fix by checking that distributions fall within expectations.
