@@ -375,7 +375,7 @@ class TestJointOps:
         gc.collect()
         self.assertTrue(ref() is None, "Cycle was not collected")
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, AttributeError: module 'test.support' has no attribute 'check_free_after_iterating'")
     def test_free_after_iterating(self):
         support.check_free_after_iterating(self, iter, self.thetype)
 
