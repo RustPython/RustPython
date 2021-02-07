@@ -227,7 +227,9 @@ class TestJointOps:
         self.assertFalse(set('a').issubset('cbs'))
         self.assertFalse(set('cbs').issuperset('a'))
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, "
+        "RuntimeError: Unexpected payload 'frozenset' for type 'SetSubclass'; "
+        "RuntimeError: Unexpected payload 'set' for type 'SetSubclass'")
     def test_pickling(self):
         for i in range(pickle.HIGHEST_PROTOCOL + 1):
             p = pickle.dumps(self.s, i)
