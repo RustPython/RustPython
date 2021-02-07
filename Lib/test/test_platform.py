@@ -354,7 +354,7 @@ class PlatformTest(unittest.TestCase):
         self.assertLess(V('0.960923'), V('2.2beta29'))
 
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, AttributeError: module 'platform' has no attribute '_sys_version_cache'")
     def test_macos(self):
         self.addCleanup(self.clear_caches)
 
