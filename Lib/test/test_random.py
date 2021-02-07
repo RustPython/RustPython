@@ -992,7 +992,7 @@ class TestDistributions(unittest.TestCase):
 
 
 class TestRandomSubclassing(unittest.TestCase):
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, TypeError: Unexpected keyword argument newarg")
     def test_random_subclass_with_kwargs(self):
         # SF bug #1486663 -- this used to erroneously raise a TypeError
         class Subclass(random.Random):
