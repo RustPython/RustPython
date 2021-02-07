@@ -282,7 +282,6 @@ class TestJointOps:
         self.assertNotEqual(id(t), id(newt))
         self.assertEqual(t.value + 1, newt.value)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_gc(self):
         # Create a nest of cycles to exercise overall ref count check
         class A:
