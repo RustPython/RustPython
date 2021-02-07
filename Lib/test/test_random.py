@@ -901,7 +901,7 @@ class TestDistributions(unittest.TestCase):
         returned_value = random.gammavariate(1.0, 3.14)
         self.assertAlmostEqual(returned_value, 1.877208182372648)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, StopIteration")
     @unittest.mock.patch('random.Random.random')
     def test_gammavariate_alpha_equal_one_equals_expovariate(self, random_mock):
 
