@@ -40,7 +40,8 @@ class TestBasicOps:
         self.gen.setstate(state)    # should regenerate the same sequence
         self.assertEqual(randseq, self.randomlist(N))
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, MersenneTwister_TestBasicOps errors: "
+        "TypeError: Expected type 'int', not 'float'")
     def test_seedargs(self):
         # Seed value with a negative hash.
         class MySeed(object):
