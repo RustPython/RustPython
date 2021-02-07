@@ -362,7 +362,7 @@ class TestJointOps:
         self.assertEqual(sum(elem.hash_count for elem in d), n)
         self.assertEqual(d3, dict.fromkeys(d, 123))
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, NameError: name 'gc' is not defined")
     def test_container_iterator(self):
         # Bug #3680: tp_traverse was not implemented for set iterator object
         class C(object):
