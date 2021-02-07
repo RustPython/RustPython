@@ -490,7 +490,7 @@ class MersenneTwister_TestBasicOps(TestBasicOps, unittest.TestCase):
     def test_setstate_first_arg(self):
         self.assertRaises(ValueError, self.gen.setstate, (1, None, None))
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, AttributeError: 'super' object has no attribute 'getstate'")
     def test_setstate_middle_arg(self):
         start_state = self.gen.getstate()
         # Wrong type, s/b tuple
