@@ -175,7 +175,7 @@ class PyCompileTestsBase:
         # Specifying optimized bytecode should lead to a path reflecting that.
         self.assertIn('opt-2', py_compile.compile(self.source_path, optimize=2))
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, TypeError: object of type 'NoneType' has no len()")
     def test_invalidation_mode(self):
         py_compile.compile(
             self.source_path,
