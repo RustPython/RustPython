@@ -1885,7 +1885,6 @@ def faces(G):
     return f
 
 
-@unittest.skip("TODO: RUSTPYTHON")
 class TestGraphs(unittest.TestCase):
 
     def test_cube(self):
