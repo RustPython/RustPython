@@ -452,15 +452,12 @@ def utf_16_be_decode( data, errors='strict', byteorder=0, final = 0):
 class _PretendCFunction:
     def __init__(self, f):
         self.__f = f
-    @property
-    def _f(self):
-        return self.__dict__['__f']
     def __repr__(self):
-        return repr(self._f)
+        return repr(self.__f)
     def __str__(self):
-        return str(self._f)
+        return str(self.__f)
     def __call__(self, *args, **kwargs):
-        return self._f(*args, **kwargs)
+        return self.__f(*args, **kwargs)
 
 _mod = globals()
 for exp in __all__:

@@ -10,6 +10,7 @@ Inspirational file: https://github.com/python/cpython/blob/master/Python/symtabl
 use crate::error::{CompileError, CompileErrorType};
 use crate::IndexMap;
 use rustpython_ast::{self as ast, Location};
+use std::borrow::Cow;
 use std::fmt;
 
 pub fn make_symbol_table(program: &[ast::Stmt]) -> SymbolTableResult<SymbolTable> {
@@ -533,6 +534,7 @@ enum SymbolUsage {
 }
 
 struct SymbolTableBuilder {
+    class_name: Option<String>,
     // Scope stack.
     tables: Vec<SymbolTable>,
 }
@@ -552,7 +554,10 @@ enum ExpressionContext {
 
 impl SymbolTableBuilder {
     fn new() -> Self {
-        let mut this = Self { tables: vec![] };
+        let mut this = Self {
+            class_name: None,
+            tables: vec![],
+        };
         this.enter_scope("top", SymbolTableType::Module, 0);
         this
     }
@@ -664,12 +669,14 @@ impl SymbolTableBuilder {
                 decorator_list,
             } => {
                 self.enter_scope(name, SymbolTableType::Class, location.row());
+                let prev_class = std::mem::replace(&mut self.class_name, Some(name.to_owned()));
                 self.register_name("__module__", SymbolUsage::Assigned, location)?;
                 self.register_name("__qualname__", SymbolUsage::Assigned, location)?;
                 self.register_name("__doc__", SymbolUsage::Assigned, location)?;
                 self.register_name("__class__", SymbolUsage::Assigned, location)?;
                 self.scan_statements(body)?;
                 self.leave_scope();
+                self.class_name = prev_class;
                 self.scan_expressions(bases, ExpressionContext::Load)?;
                 for keyword in keywords {
                     self.scan_expression(&keyword.node.value, ExpressionContext::Load)?;
@@ -1108,15 +1115,14 @@ impl SymbolTableBuilder {
         let scope_depth = self.tables.len();
         let table = self.tables.last_mut().unwrap();
 
+        let name = mangle_name(self.class_name.as_deref(), name);
+
         // Some checks for the symbol that present on this scope level:
-        let symbol = if let Some(symbol) = table.symbols.get_mut(name) {
+        let symbol = if let Some(symbol) = table.symbols.get_mut(name.as_ref()) {
             // Role already set..
             match role {
                 SymbolUsage::Global => {
-                    if symbol.is_global() {
-                        // Ok
-                        symbol.scope = SymbolScope::GlobalExplicit;
-                    } else {
+                    if !symbol.is_global() {
                         return Err(SymbolTableError {
                             error: format!("name '{}' is used prior to global declaration", name),
                             location,
@@ -1172,8 +1178,8 @@ impl SymbolTableBuilder {
                 }
             }
             // Insert symbol when required:
-            let symbol = Symbol::new(name);
-            table.symbols.entry(name.to_owned()).or_insert(symbol)
+            let symbol = Symbol::new(name.as_ref());
+            table.symbols.entry(name.into_owned()).or_insert(symbol)
         };
 
         // Set proper flags on symbol:
@@ -1205,16 +1211,7 @@ impl SymbolTableBuilder {
                 symbol.is_assign_namedexpr_in_comprehension = true;
             }
             SymbolUsage::Global => {
-                if let SymbolScope::Unknown = symbol.scope {
-                    symbol.scope = SymbolScope::GlobalExplicit;
-                } else if symbol.is_global() {
-                    symbol.scope = SymbolScope::GlobalExplicit;
-                } else {
-                    return Err(SymbolTableError {
-                        error: format!("Symbol {} scope cannot be set to global, since its scope was already determined otherwise.", name),
-                        location,
-                    });
-                }
+                symbol.scope = SymbolScope::GlobalExplicit;
             }
             SymbolUsage::Used => {
                 symbol.is_referenced = true;
@@ -1238,4 +1235,21 @@ impl SymbolTableBuilder {
         }
         Ok(())
     }
+}
+
+pub(crate) fn mangle_name<'a>(class_name: Option<&str>, name: &'a str) -> Cow<'a, str> {
+    let class_name = match class_name {
+        Some(n) => n,
+        None => return name.into(),
+    };
+    if !name.starts_with("__") || name.ends_with("__") || name.contains('.') {
+        return name.into();
+    }
+    // strip leading underscore
+    let class_name = class_name.strip_prefix(|c| c == '_').unwrap_or(class_name);
+    let mut ret = String::with_capacity(1 + class_name.len() + name.len());
+    ret.push('_');
+    ret.push_str(class_name);
+    ret.push_str(name);
+    ret.into()
 }
