@@ -55,7 +55,6 @@ class TestBasicOps:
         self.assertRaises(TypeError, self.gen.seed, 1, 2, 3, 4)
         self.assertRaises(TypeError, type(self.gen), [])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @unittest.mock.patch('random._urandom') # os.urandom
     def test_seed_when_randomness_source_not_found(self, urandom_mock):
         # Random.seed() uses time.time() when an operating system specific
