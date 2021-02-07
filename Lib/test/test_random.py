@@ -106,7 +106,7 @@ class TestBasicOps:
         shuffle(seq, mock_random)
         mock_random.assert_called_with()
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, MersenneTwister_TestBasicOps hangs?")
     def test_choice(self):
         choice = self.gen.choice
         with self.assertRaises(IndexError):
