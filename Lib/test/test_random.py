@@ -319,7 +319,7 @@ class SystemRandom_TestBasicOps(TestBasicOps, unittest.TestCase):
         self.gen.seed(100)
         self.assertEqual(self.gen.gauss_next, None)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, TypeError: Missing 1 required positional arguments: self")
     def test_pickling(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             self.assertRaises(NotImplementedError, pickle.dumps, self.gen, proto)
