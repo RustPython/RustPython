@@ -241,7 +241,7 @@ class TestJointOps:
                 dup = pickle.loads(p)
                 self.assertEqual(self.s.x, dup.x)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, AttributeError: module '__main__' has no attribute 'set_iterator'")
     def test_iterator_pickling(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             itorg = iter(self.s)
