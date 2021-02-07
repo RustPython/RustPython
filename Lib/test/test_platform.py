@@ -272,7 +272,8 @@ class PlatformTest(unittest.TestCase):
             self.assertEqual(cpid, pid)
             self.assertEqual(sts, 0)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_libc_ver(self):
         # check that libc_ver(executable) doesn't raise an exception
         if os.path.isdir(sys.executable) and \
