@@ -775,7 +775,7 @@ def gamma(z, sqrt2pi=(2.0*pi)**0.5):
     ])
 
 class TestDistributions(unittest.TestCase):
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, ValueError: math domain error")
     def test_zeroinputs(self):
         # Verify that distributions can handle a series of zero inputs'
         g = random.Random()
