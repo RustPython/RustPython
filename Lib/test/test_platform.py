@@ -52,7 +52,7 @@ class PlatformTest(unittest.TestCase):
         finally:
             os.remove(link)
 
-    @unittest.skipUnless(sys.platform == 'linux', "TODO: RUSTPYTHON")
+    @unittest.skipUnless(sys.platform == 'linux', "TODO: RUSTPYTHON, only works on Linux")
     def test_platform(self):
         for aliased in (False, True):
             for terse in (False, True):
