@@ -1566,7 +1566,7 @@ class TestCopying:
         for i in range(len(dup_list)):
             self.assertTrue(dup_list[i] is set_list[i])
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, TestCopyingNested, TestCopyingSingleton, TestCopyingTriple, and TestCopyingTuple fail")
     def test_deep_copy(self):
         dup = copy.deepcopy(self.set)
         ##print type(dup), repr(dup)
