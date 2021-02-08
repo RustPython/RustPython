@@ -118,19 +118,20 @@ mod decl {
         newline: bool,
     }
 
-    /// trim a newline from the end of the bytestring, if it exists
-    fn trim_newline(b: &[u8]) -> &[u8] {
-        if b.ends_with(b"\n") {
-            &b[..b.len() - 1]
-        } else {
-            b
-        }
-    }
-
     #[pyfunction]
     fn a2b_base64(s: SerializedData, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        s.with_ref(|b| base64::decode(trim_newline(b)))
-            .map_err(|err| vm.new_value_error(format!("error decoding base64: {}", err)))
+        s.with_ref(|b| {
+            let mut buf;
+            let b = if memchr::memchr(b'\n', b).is_some() {
+                buf = b.to_vec();
+                buf.retain(|c| *c != b'\n');
+                &buf
+            } else {
+                b
+            };
+            base64::decode(b)
+        })
+        .map_err(|err| vm.new_value_error(format!("error decoding base64: {}", err)))
     }
 
     #[pyfunction]

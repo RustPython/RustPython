@@ -1804,8 +1804,6 @@ class ExecTests(unittest.TestCase):
             self.assertSequenceEqual(calls[0],
                 ('execve', native_fullpath, (arguments, env_path)))
 
-    # TODO: RUSTPYTHON (NameError: name 'orig_execve' is not defined)
-    @unittest.expectedFailure
     def test_internal_execvpe_str(self):
         self._test_internal_execvpe(str)
         if os.name != "nt":

@@ -59,7 +59,7 @@ pub struct PySocket {
     kind: AtomicCell<i32>,
     family: AtomicCell<i32>,
     proto: AtomicCell<i32>,
-    timeout: AtomicCell<f64>,
+    pub(crate) timeout: AtomicCell<f64>,
     sock: PyRwLock<Socket>,
 }
 
@@ -907,7 +907,7 @@ fn get_addr(
                 } else if dom == i32::from(Domain::ipv6()) {
                     sock_addrs.find(|a| a.is_ipv6())
                 } else {
-                    unreachable!("Unknown IP domain / socket family");
+                    sock_addrs.next()
                 }
             }
         },
