@@ -293,7 +293,6 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         y2 = dco.flush()
         self.assertEqual(HAMLET_SCENE, y1 + y2)
 
-    @unittest.skip('TODO: RUSTPYTHON')
     def test_compressincremental(self):
         # compress object in steps, decompress object as one-shot
         data = HAMLET_SCENE * 128
