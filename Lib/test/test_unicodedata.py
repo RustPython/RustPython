@@ -250,7 +250,7 @@ class UnicodeFunctionsTest(UnicodeDatabaseTest):
         self.assertEqual(eaw('\u2010'), 'A')
         self.assertEqual(eaw('\U00020000'), 'W')
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, AttributeError: 'UCD' object has no attribute 'east_asian_width'")
     def test_east_asian_width_9_0_changes(self):
         self.assertEqual(self.db.ucd_3_2_0.east_asian_width('\u231a'), 'N')
         self.assertEqual(self.db.east_asian_width('\u231a'), 'W')
