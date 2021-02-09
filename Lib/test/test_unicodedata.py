@@ -235,7 +235,7 @@ class UnicodeFunctionsTest(UnicodeDatabaseTest):
     # For tests of unicodedata.is_normalized / self.db.is_normalized ,
     # see test_normalization.py .
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, AttributeError: module 'unicodedata' has no attribute 'east_asian_width'")
     def test_east_asian_width(self):
         eaw = self.db.east_asian_width
         self.assertRaises(TypeError, eaw, b'a')
