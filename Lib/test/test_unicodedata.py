@@ -22,7 +22,7 @@ class UnicodeMethodsTest(unittest.TestCase):
     # update this, if the database changes
     expectedchecksum = '9129d6f2bdf008a81c2476e5b5127014a62130c1'
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, ValueError: chr() arg not in range(0x110000)")
     def test_method_checksum(self):
         h = hashlib.sha1()
         for i in range(0x10000):
