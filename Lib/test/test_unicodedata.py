@@ -318,7 +318,7 @@ class UnicodeMiscTest(UnicodeDatabaseTest):
         self.assertTrue("\u1d79".upper()=='\ua77d')
         self.assertTrue(".".upper()=='.')
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, ValueError: chr() arg not in range(0x110000)")
     def test_bug_5828(self):
         self.assertEqual("\u1d79".lower(), "\u1d79")
         # Only U+0000 should have U+0000 as its upper/lower/titlecase variant
