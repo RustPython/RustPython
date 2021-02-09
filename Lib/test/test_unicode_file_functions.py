@@ -123,7 +123,7 @@ class UnicodeFileTests(unittest.TestCase):
     # NFD (a variant of Unicode NFD form). Normalize the filename to NFC, NFKC,
     # NFKD in Python is useless, because darwin will normalize it later and so
     # open(), os.stat(), etc. don't raise any exception.
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, AttributeError: 'FileNotFoundError' object has no attribute 'filename'")
     @unittest.skipIf(sys.platform == 'darwin', 'irrelevant test on Mac OS X')
     def test_normalize(self):
         files = set(self.files)
