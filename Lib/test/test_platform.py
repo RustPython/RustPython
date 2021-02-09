@@ -254,7 +254,7 @@ class PlatformTest(unittest.TestCase):
                 self.assertEqual(res[2], 'PowerPC')
 
 
-    # @unittest.skip("TODO: RUSTPYTHON")  # needs a macOS tester
+    @unittest.skip("TODO: RUSTPYTHON, AttributeError: module 'os' has no attribute 'fork'")
     @unittest.skipUnless(sys.platform == 'darwin', "OSX only test")
     def test_mac_ver_with_fork(self):
         # Issue7895: platform.mac_ver() crashes when using fork without exec
