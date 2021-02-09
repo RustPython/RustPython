@@ -183,7 +183,7 @@ class UnicodeFunctionsTest(UnicodeDatabaseTest):
         self.assertRaises(TypeError, self.db.mirrored)
         self.assertRaises(TypeError, self.db.mirrored, 'xx')
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, AttributeError: module 'unicodedata' has no attribute 'combining'")
     def test_combining(self):
         self.assertEqual(self.db.combining('\uFFFE'), 0)
         self.assertEqual(self.db.combining('a'), 0)
