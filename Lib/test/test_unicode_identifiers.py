@@ -20,7 +20,7 @@ class PEP3131Test(unittest.TestCase):
         𝔘𝔫𝔦𝔠𝔬𝔡𝔢 = 1
         self.assertIn("Unicode", dir())
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, ImportError: cannot import name 'badsyntax_3131'")
     def test_invalid(self):
         try:
             from test import badsyntax_3131
