@@ -104,7 +104,7 @@ class UnicodeFunctionsTest(UnicodeDatabaseTest):
         result = h.hexdigest()
         self.assertEqual(result, self.expectedchecksum)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, AttributeError: module 'unicodedata' has no attribute 'digit'")
     def test_digit(self):
         self.assertEqual(self.db.digit('A', None), None)
         self.assertEqual(self.db.digit('9'), 9)
