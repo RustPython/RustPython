@@ -92,7 +92,7 @@ class UnicodeFileTests(unittest.TestCase):
                              "with bad filename in the exception: %a" %
                              (fn.__name__, filename, exc_filename))
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, AttributeError: 'FileNotFoundError' object has no attribute 'filename'")
     def test_failures(self):
         # Pass non-existing Unicode filenames all over the place.
         for name in self.files:
