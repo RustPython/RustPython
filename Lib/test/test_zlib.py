@@ -104,7 +104,6 @@ class ExceptionTestCase(unittest.TestCase):
             self.assertRaises(TypeError, zlib.compress, arg)
             self.assertRaises(TypeError, zlib.decompress, arg)
 
-    @unittest.skip('TODO: RUSTPYTHON')
     def test_badcompressobj(self):
         # verify failure on building compress object with bad params
         self.assertRaises(ValueError, zlib.compressobj, 1, zlib.DEFLATED, 0)
