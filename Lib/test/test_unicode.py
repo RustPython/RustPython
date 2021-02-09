@@ -1500,7 +1500,6 @@ class UnicodeTest(string_tests.CommonTest,
         self.assertEqual('...%(foo)f...' % {'foo':Float.PI,'def':123},
                          '...3.141593...')
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_formatting_huge_precision(self):
         format_string = "%.{}f".format(sys.maxsize + 1)
         with self.assertRaises(ValueError):
