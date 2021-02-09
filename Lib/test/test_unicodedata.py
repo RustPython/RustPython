@@ -82,7 +82,7 @@ class UnicodeFunctionsTest(UnicodeDatabaseTest):
     # Update this if the database changes. Make sure to do a full rebuild
     # (e.g. 'make distclean && make') to get the correct checksum.
     expectedchecksum = 'c44a49ca7c5cb6441640fe174ede604b45028652'
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, AttributeError: module 'unicodedata' has no attribute 'digit'")
     def test_function_checksum(self):
         data = []
         h = hashlib.sha1()
