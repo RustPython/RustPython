@@ -110,7 +110,7 @@ class UnicodeFileTests(unittest.TestCase):
     else:
         _listdir_failure = NotADirectoryError
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, OSError: Not a directory (os error 20)")
     def test_open(self):
         for name in self.files:
             f = open(name, 'wb')
