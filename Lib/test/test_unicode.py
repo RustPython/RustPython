@@ -2364,7 +2364,7 @@ class UnicodeTest(string_tests.CommonTest,
         s = 'abc'
         self.assertIs(s.expandtabs(), s)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, aborted: memory allocation of 9223372036854775759 bytes failed")
     def test_raiseMemError(self):
         if struct.calcsize('P') == 8:
             # 64 bits pointers
