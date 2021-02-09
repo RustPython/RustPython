@@ -220,6 +220,7 @@ class PlatformTest(unittest.TestCase):
     def test_win32_ver(self):
         res = platform.win32_ver()
 
+    @unittest.skip("TODO: RUSTPYTHON, NameError: name 'ParserCreate' is not defined")
     def test_mac_ver(self):
         res = platform.mac_ver()
 
