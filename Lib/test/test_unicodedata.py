@@ -289,7 +289,7 @@ class UnicodeMiscTest(UnicodeDatabaseTest):
                 count += 1
         self.assertTrue(count >= 10) # should have tested at least the ASCII digits
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, AttributeError: module 'unicodedata' has no attribute 'digit'")
     def test_digit_numeric_consistent(self):
         # Test that digit and numeric are consistent,
         # i.e. if a character has a digit value,
