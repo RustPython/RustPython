@@ -48,51 +48,16 @@ def main(async_func):
 async def _main_wrapper(coro):
     try:
         await coro
-    except BaseException as e:
-        for line in _format_exc(e, 1):
-            print(line)
-
-
-# TODO: get traceback/linecache working in wasm
-
-
-def _format_exc(exc, skip_tb=0):
-    exc_type, exc_value, exc_traceback = type(exc), exc, exc.__traceback__
-
-    _str = _some_str(exc_value)
-
-    yield "Traceback (most recent call last):"
-    tb = exc_traceback
-    while tb:
-        if skip_tb:
-            skip_tb -= 1
-        else:
-            co = tb.tb_frame.f_code
-            yield f'  File "{co.co_filename}", line {tb.tb_lineno}, in {co.co_name}'
-        tb = tb.tb_next
-
-    stype = exc_type.__qualname__
-    smod = exc_type.__module__
-    if smod not in ("__main__", "builtins"):
-        stype = smod + "." + stype
-
-    yield _format_final_exc_line(stype, _str)
-
-
-def _format_final_exc_line(etype, value):
-    valuestr = _some_str(value)
-    if value is None or not valuestr:
-        line = "%s" % etype
-    else:
-        line = "%s: %s" % (etype, valuestr)
-    return line
-
-
-def _some_str(value):
-    try:
-        return str(value)
     except:
-        return "<unprintable %s object>" % type(value).__name__
+        try:
+            import traceback, sys
+            traceback.print_exc(file=sys.stdout)
+        except BaseException as e:
+            tb = e.__traceback__
+            while tb:
+                print(tb.tb_lineno, tb.tb_frame.f_code.co_name, tb.tb_frame.f_code.co_filename)
+                tb = tb.tb_next
+            print(type(e), e)
 
 
 def _resolve(prom):

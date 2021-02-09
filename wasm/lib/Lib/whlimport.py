@@ -73,14 +73,27 @@ class WheelFinder:
         return None
     
     @classmethod
-    def exec_module(cls, module):
-        origin = module.__spec__.origin
+    def get_source(cls, fullname):
+        spec = cls.find_spec(fullname)
+        if spec:
+            return cls._get_source(spec)
+        else:
+            raise ImportError('cannot find source for module', name=fullname)
+
+    @classmethod
+    def _get_source(cls, spec):
+        origin = spec.origin
         if not origin or not origin.startswith("wheel:"):
             raise ImportError(f'{module.__spec__.name!r} is not a zip module')
 
         zipname, slash, path = origin[len('wheel:'):].partition('/')
-        source = cls._packages[zipname].read(path)
-        code = _bootstrap._call_with_frames_removed(compile, source, origin, 'exec', dont_inherit=True)
+        return cls._packages[zipname].read(path).decode()
+
+    @classmethod
+    def exec_module(cls, module):
+        spec = module.__spec__
+        source = cls._get_source(spec)
+        code = _bootstrap._call_with_frames_removed(compile, source, spec.origin, 'exec', dont_inherit=True)
         _bootstrap._call_with_frames_removed(exec, code, module.__dict__)
 
 

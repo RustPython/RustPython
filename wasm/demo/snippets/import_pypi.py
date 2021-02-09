@@ -1,19 +1,17 @@
 import asyncweb
-import pypimport
+import whlimport
 
-pypimport.setup()
+whlimport.setup()
 
-# shim path utilities into the "os" module
-class os:
-    import posixpath as path
-import sys
-sys.modules['os'] = os
-sys.modules['os.path'] = os.path
-del sys, os
+# make sys.modules['os'] a dumb version of the os module, which has posixpath
+# available as os.path as well as a few other utilities, but will raise an
+# OSError for anything that actually requires an OS
+import _dummy_os
+_dummy_os._shim()
 
 @asyncweb.main
 async def main():
-    await pypimport.load_package("pygments")
+    await whlimport.load_package("pygments")
     import pygments
     import pygments.lexers
     import pygments.formatters.html

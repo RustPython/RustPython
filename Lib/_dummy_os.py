@@ -7,12 +7,13 @@ try:
 except ImportError:
     import abc
 
-    # this will throw an appropriate error if os isn't available and a module
-    # tries to use an os function. If os has become available, then this will
-    # just work.
     def __getattr__(name):
-        import os
-        return getattr(os, name)
+        raise OSError("no os specific module found")
+
+    def _shim():
+        import _dummy_os, sys
+        sys.modules['os'] = _dummy_os
+        sys.modules['os.path'] = _dummy_os.path
 
     import posixpath as path
     import sys
