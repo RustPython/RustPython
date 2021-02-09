@@ -49,15 +49,9 @@ async def _main_wrapper(coro):
     try:
         await coro
     except:
-        try:
-            import traceback, sys
-            traceback.print_exc(file=sys.stdout)
-        except BaseException as e:
-            tb = e.__traceback__
-            while tb:
-                print(tb.tb_lineno, tb.tb_frame.f_code.co_name, tb.tb_frame.f_code.co_filename)
-                tb = tb.tb_next
-            print(type(e), e)
+        import traceback, sys
+
+        traceback.print_exc(file=sys.stdout)
 
 
 def _resolve(prom):
