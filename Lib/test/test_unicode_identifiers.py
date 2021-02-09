@@ -2,7 +2,7 @@ import unittest
 
 class PEP3131Test(unittest.TestCase):
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, AttributeError: type object 'T' has no attribute 'μ'")
     def test_valid(self):
         class T:
             ä = 1
