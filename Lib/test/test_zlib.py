@@ -746,7 +746,7 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
 
     # Memory use of the following functions takes into account overallocation
 
-    @unittest.skip('TODO: RUSTPYTHON')
+    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'range start index 27394048 out of range for slice of length 10485760'")
     @bigmemtest(size=_1G + 1024 * 1024, memuse=3)
     def test_big_compress_buffer(self, size):
         c = zlib.compressobj(1)
