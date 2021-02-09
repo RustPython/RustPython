@@ -111,7 +111,6 @@ class ExceptionTestCase(unittest.TestCase):
         self.assertRaises(ValueError,
                 zlib.compressobj, 1, zlib.DEFLATED, zlib.MAX_WBITS + 1)
 
-    @unittest.skip('TODO: RUSTPYTHON')
     def test_baddecompressobj(self):
         # verify failure on building decompress object with bad params
         self.assertRaises(ValueError, zlib.decompressobj, -1)
