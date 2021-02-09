@@ -1523,7 +1523,6 @@ class UnicodeTest(string_tests.CommonTest,
         with self.assertRaises(ValueError):
             result = format_string % 2.34
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_formatting_huge_width(self):
         format_string = "%{}f".format(sys.maxsize + 1)
         with self.assertRaises(ValueError):
