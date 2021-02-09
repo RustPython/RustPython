@@ -275,7 +275,7 @@ class UnicodeMiscTest(UnicodeDatabaseTest):
             "(can't load unicodedata module)"
         self.assertIn(error, result.err.decode("ascii"))
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, AttributeError: module 'unicodedata' has no attribute 'decimal'")
     def test_decimal_numeric_consistent(self):
         # Test that decimal and numeric are consistent,
         # i.e. if a character has a decimal value,
