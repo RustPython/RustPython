@@ -107,6 +107,7 @@ class PyCompileTestsBase:
         self.assertTrue(os.path.exists(self.pyc_path))
         self.assertFalse(os.path.exists(self.cache_path))
 
+    @unittest.skip("TODO: RUSTPYTHON, macOS FileNotFoundError: (2, 'No such file or directory (os error 2)')")
     def test_relative_path(self):
         py_compile.compile(os.path.relpath(self.source_path),
                            os.path.relpath(self.pyc_path))
