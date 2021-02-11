@@ -200,6 +200,19 @@ impl PyTuple {
         Ok(false)
     }
 
+    #[pymethod(magic)]
+    fn getnewargs(zelf: PyRef<Self>, vm: &VirtualMachine) -> (PyTupleRef,) {
+        // the arguments to pass to tuple() is just one tuple - so we'll be doing tuple(tup), which
+        // should just return tup, or tuplesubclass(tup), which'll copy/validate (e.g. for a
+        // structseq)
+        let tup_arg = if zelf.class().is(&vm.ctx.types.tuple_type) {
+            zelf
+        } else {
+            PyTupleRef::with_elements(zelf.elements.clone().into_vec(), &vm.ctx)
+        };
+        (tup_arg,)
+    }
+
     #[pyslot]
     fn tp_new(
         cls: PyTypeRef,

@@ -1,10 +1,8 @@
 use crate::util::path_eq;
 use crate::Diagnostic;
 use proc_macro2::TokenStream as TokenStream2;
-use quote::quote;
-use syn::{
-    parse_quote, Attribute, Data, DeriveInput, Expr, Field, Fields, Ident, Lit, Meta, NestedMeta,
-};
+use quote::{quote, ToTokens};
+use syn::{parse_quote, Attribute, Data, DeriveInput, Expr, Field, Ident, Lit, Meta, NestedMeta};
 
 /// The kind of the python parameter, this corresponds to the value of Parameter.kind
 /// (https://docs.python.org/3/library/inspect.html#inspect.Parameter.kind)
@@ -121,7 +119,7 @@ impl ArgAttribute {
     }
 }
 
-fn generate_field(field: &Field) -> Result<TokenStream2, Diagnostic> {
+fn generate_field((i, field): (usize, &Field)) -> Result<TokenStream2, Diagnostic> {
     let mut pyarg_attrs = field
         .attrs
         .iter()
@@ -139,19 +137,26 @@ fn generate_field(field: &Field) -> Result<TokenStream2, Diagnostic> {
         bail_span!(field, "Multiple pyarg attributes on field");
     };
 
-    let name = field.ident.as_ref().unwrap();
-    let namestring = name.to_string();
-    if namestring.starts_with("_phantom") {
+    let name = field.ident.as_ref();
+    let namestring = name.map(Ident::to_string);
+    if matches!(&namestring, Some(s) if s.starts_with("_phantom")) {
         return Ok(quote! {
             #name: ::std::marker::PhantomData,
         });
     }
+    let fieldname = match name {
+        Some(id) => id.to_token_stream(),
+        None => syn::Index::from(i).into_token_stream(),
+    };
     if let ParameterKind::Flatten = attr.kind {
         return Ok(quote! {
-            #name: ::rustpython_vm::function::FromArgs::from_args(vm, args)?,
+            #fieldname: ::rustpython_vm::function::FromArgs::from_args(vm, args)?,
         });
     }
-    let pyname = attr.name.unwrap_or(namestring);
+    let pyname = attr
+        .name
+        .or(namestring)
+        .ok_or_else(|| err_span!(field, "field in tuple struct must have name attribute"))?;
     let middle = quote! {
         .map(|x| ::rustpython_vm::pyobject::TryFromObject::try_from_object(vm, x)).transpose()?
     };
@@ -179,17 +184,17 @@ fn generate_field(field: &Field) -> Result<TokenStream2, Diagnostic> {
     let file_output = match attr.kind {
         ParameterKind::PositionalOnly => {
             quote! {
-                #name: args.take_positional()#middle#ending,
+                #fieldname: args.take_positional()#middle#ending,
             }
         }
         ParameterKind::PositionalOrKeyword => {
             quote! {
-                #name: args.take_positional_keyword(#pyname)#middle#ending,
+                #fieldname: args.take_positional_keyword(#pyname)#middle#ending,
             }
         }
         ParameterKind::KeywordOnly => {
             quote! {
-                #name: args.take_keyword(#pyname)#middle#ending,
+                #fieldname: args.take_keyword(#pyname)#middle#ending,
             }
         }
         ParameterKind::Flatten => unreachable!(),
@@ -199,15 +204,12 @@ fn generate_field(field: &Field) -> Result<TokenStream2, Diagnostic> {
 
 pub fn impl_from_args(input: DeriveInput) -> Result<TokenStream2, Diagnostic> {
     let fields = match input.data {
-        Data::Struct(syn::DataStruct {
-            fields: Fields::Named(fields),
-            ..
-        }) => fields
-            .named
+        Data::Struct(syn::DataStruct { fields, .. }) => fields
             .iter()
+            .enumerate()
             .map(generate_field)
             .collect::<Result<TokenStream2, Diagnostic>>()?,
-        _ => bail_span!(input, "FromArgs input must be a struct with named fields"),
+        _ => bail_span!(input, "FromArgs input must be a struct"),
     };
 
     let name = input.ident;
