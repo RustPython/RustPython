@@ -31,7 +31,9 @@ def attr_is_not_inherited(type_, attr):
 
 
 def extra_info(obj):
-    if callable(obj):
+    # RustPython doesn't support __text_signature__ for getting signatures of builtins
+    # https://github.com/RustPython/RustPython/issues/2410
+    if callable(obj) and not inspect._signature_is_builtin(obj):
         try:
             sig = str(inspect.signature(obj))
             # remove function memory addresses
