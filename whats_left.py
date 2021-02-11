@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # It's recommended to run this with `python3 -I not_impl_gen.py`, to make sure
 # that nothing in your global Python environment interferes with what's being
 # extracted here.
@@ -6,13 +8,50 @@
 # expected_methods - a dictionary mapping builtin objects to their methods
 # cpymods - a dictionary mapping module names to their contents
 # libdir - the location of RustPython's Lib/ directory.
+#
+# TODO: include this:
+# which finds all modules it has available and
+# creates a Python dictionary mapping module names to their contents, which is
+# in turn used to generate a second Python script that also finds which modules
+# it has available and compares that against the first dictionary we generated.
+# We then run this second generated script with RustPython.
 
+import argparse
 import re
 import os
 import sys
+import json
 import warnings
 import inspect
+import subprocess
+import platform
 from pydoc import ModuleScanner
+
+GENERATED_FILE = "extra_tests/snippets/not_impl.py"
+
+implementation = platform.python_implementation()
+if implementation != "CPython":
+    sys.exit("whats_left.py must be run under CPython, got {implementation} instead")
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Process some integers.")
+    parser.add_argument(
+        "--mismatched-values",
+        action="store_true",
+        help="print functions whose signatures don't match CPython's",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="print output as JSON (instead of line by line)",
+    )
+
+    args = parser.parse_args()
+    return args
+
+
+args = parse_args()
 
 
 sys.path = [
@@ -31,7 +70,9 @@ def attr_is_not_inherited(type_, attr):
 
 
 def extra_info(obj):
-    if callable(obj):
+    # RustPython doesn't support __text_signature__ for getting signatures of builtins
+    # https://github.com/RustPython/RustPython/issues/2410
+    if callable(obj) and not inspect._signature_is_builtin(obj):
         try:
             sig = str(inspect.signature(obj))
             # remove function memory addresses
@@ -181,7 +222,7 @@ output = """\
 output += gen_methods()
 output += f"""
 cpymods = {gen_modules()!r}
-libdir = {os.path.abspath("../Lib/").encode('utf8')!r}
+libdir = {os.path.abspath("Lib/").encode('utf8')!r}
 
 """
 
@@ -199,6 +240,7 @@ def compare():
     import os
     import sys
     import warnings
+    import json
     import inspect
     import platform
 
@@ -242,16 +284,21 @@ def compare():
 
     rustpymods = {mod: dir_of_mod_or_error(mod) for mod in mod_names}
 
-    not_implemented = {}
-    failed_to_import = {}
-    missing_items = {}
-    mismatched_items = {}
+    result = {
+        "implemented": {},
+        "not_implemented": {},
+        "failed_to_import": {},
+        "missing_items": {},
+        "mismatched_items": {},
+    }
     for modname, cpymod in cpymods.items():
         rustpymod = rustpymods.get(modname)
         if rustpymod is None:
-            not_implemented[modname] = None
+            result["not_implemented"][modname] = None
         elif isinstance(rustpymod, Exception):
-            failed_to_import[modname] = rustpymod
+            result["failed_to_import"][modname] = rustpymod.__class__.__name__ + str(
+                rustpymod
+            )
         else:
             implemented_items = sorted(set(cpymod) & set(rustpymod))
             mod_missing_items = set(cpymod) - set(rustpymod)
@@ -264,39 +311,21 @@ def compare():
                 if rustpymod[item] != cpymod[item]
                 and not isinstance(cpymod[item], Exception)
             ]
-            if mod_missing_items:
-                missing_items[modname] = mod_missing_items
-            if mod_mismatched_items:
-                mismatched_items[modname] = mod_mismatched_items
 
-    # missing from builtins
-    for module, missing_methods in not_implementeds.items():
-        for method, reason in missing_methods.items():
-            print(f"{module}.{method}" + (f" {reason}" if reason else ""))
+            if mod_missing_items or mod_mismatched_items:
+                if mod_missing_items:
+                    result["missing_items"][modname] = mod_missing_items
+                if mod_mismatched_items:
+                    result["mismatched_items"][modname] = mod_mismatched_items
+            else:
+                result["implemented"][modname] = None
 
-    # missing from modules
-    for modname in not_implemented:
-        print(modname, "(entire module)")
-    for modname, exception in failed_to_import.items():
-        print(f"{modname} (exists but not importable: {exception})")
-    for modname, missing in missing_items.items():
-        for item in missing:
-            print(item)
-    for modname, mismatched in mismatched_items.items():
-        for (item, rustpy_value, cpython_value) in mismatched:
-            print(f"{item} {rustpy_value} != {cpython_value}")
-
+    # TODO: fix variable names
     result = {
-        "not_implemented": not_implemented,
-        "failed_to_import": failed_to_import,
-        "missing_items": missing_items,
-        "mismatched_items": mismatched_items,
+        "builtins": not_implementeds,
+        "modules": result,
     }
-
-    print()
-    print("out of", len(cpymods), "modules:")
-    for error_type, modules in result.items():
-        print(" ", error_type, len(modules))
+    print(json.dumps(result))
 
 
 def remove_one_indent(s):
@@ -307,5 +336,42 @@ def remove_one_indent(s):
 compare_src = inspect.getsourcelines(compare)[0][1:]
 output += "".join(remove_one_indent(line) for line in compare_src)
 
-with open("snippets/not_impl.py", "w") as f:
+with open(GENERATED_FILE, "w") as f:
     f.write(output + "\n")
+
+
+subprocess.run(["cargo", "build", "--release"], check=True)
+result = subprocess.run(
+    ["cargo", "run", "--release", "-q", "--", GENERATED_FILE],
+    env={**os.environ.copy(), "RUSTPYTHONPATH": "Lib"},
+    text=True,
+    capture_output=True,
+)
+# The last line should be json output, the rest of the lines can contain noise
+# because importing certain modules can print stuff to stdout/stderr
+result = json.loads(result.stdout.splitlines()[-1])
+
+if args.json:
+    print(json.dumps(result))
+    sys.exit()
+
+modules = result["modules"]
+builtins = result["builtins"]
+
+# missing from builtins
+for module, missing_methods in builtins.items():
+    for method, reason in missing_methods.items():
+        print(f"{module}.{method}" + (f" {reason}" if reason else ""))
+
+# missing from modules
+for modname in modules["not_implemented"]:
+    print(modname, "(entire module)")
+for modname, exception in modules["failed_to_import"].items():
+    print(f"{modname} (exists but not importable: {exception})")
+for modname, missing in modules["missing_items"].items():
+    for item in missing:
+        print(item)
+if args.mismatched_values:
+    for modname, mismatched in modules["mismatched_items"].items():
+        for (item, rustpy_value, cpython_value) in mismatched:
+            print(f"{item} {rustpy_value} != {cpython_value}")
