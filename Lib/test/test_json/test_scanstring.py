@@ -86,7 +86,9 @@ class TestScanstring:
             scanstring('["Bad value", truth]', 2, True),
             ('Bad value', 12))
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, "
+        "json.decoder.JSONDecodeError: unpaired surrogate: line 1 column 3 (char 2); "
+        "ValueError: chr() arg not in range(0x110000)")
     def test_surrogates(self):
         scanstring = self.json.decoder.scanstring
         def assertScan(given, expect):
@@ -103,7 +105,8 @@ class TestScanstring:
         assertScan('"z\ud834\\udd20x"', 'z\ud834\udd20x')
         assertScan('"z\ud834x"', 'z\ud834x')
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, TestCScanstring passes while TestPyScanstring errors: "
+        "ValueError: chr() arg not in range(0x110000)")
     def test_bad_escapes(self):
         scanstring = self.json.decoder.scanstring
         bad_escapes = [
@@ -135,7 +138,9 @@ class TestScanstring:
             with self.assertRaises(self.JSONDecodeError, msg=s):
                 scanstring(s, 1, True)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, "
+        "TypeError: Expected type 'str', not 'bytes'; "
+        "TypeError: expected string")
     def test_overflow(self):
         with self.assertRaises(OverflowError):
             self.json.decoder.scanstring(b"xxx", sys.maxsize+1)

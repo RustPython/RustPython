@@ -117,7 +117,7 @@ class TestUnicodeFiles(unittest.TestCase):
 
     # The 'test' functions are unittest entry points, and simply call our
     # _test functions with each of the filename combinations we wish to test
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, TypeError: utime: 'times' must be either a tuple of two ints or None")
     def test_single_files(self):
         self._test_single(TESTFN_UNICODE)
         if TESTFN_UNENCODABLE is not None:

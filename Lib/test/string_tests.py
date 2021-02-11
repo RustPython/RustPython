@@ -673,7 +673,7 @@ class BaseTest:
         self.checkraises(TypeError, 'hello', 'replace', 42, 'h')
         self.checkraises(TypeError, 'hello', 'replace', 'h', 42)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, may only apply to 32-bit platforms")
     @unittest.skipIf(sys.maxsize > (1 << 32) or struct.calcsize('P') != 4,
                      'only applies to 32-bit platforms')
     def test_replace_overflow(self):

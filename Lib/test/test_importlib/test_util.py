@@ -17,21 +17,23 @@ import unittest.mock
 import warnings
 
 
-@unittest.skip("TODO: RUSTPYTHON")
 class DecodeSourceBytesTests:
 
     source = "string ='ü'"
 
+    @unittest.skip("TODO: RUSTPYTHON, AttributeError: module 'tokenize' has no attribute 'detect_encoding'")
     def test_ut8_default(self):
         source_bytes = self.source.encode('utf-8')
         self.assertEqual(self.util.decode_source(source_bytes), self.source)
 
+    @unittest.skip("TODO: RUSTPYTHON, AttributeError: module 'tokenize' has no attribute 'detect_encoding'")
     def test_specified_encoding(self):
         source = '# coding=latin-1\n' + self.source
         source_bytes = source.encode('latin-1')
         assert source_bytes != source.encode('utf-8')
         self.assertEqual(self.util.decode_source(source_bytes), source)
 
+    @unittest.skip("TODO: RUSTPYTHON, AttributeError: module 'tokenize' has no attribute 'detect_encoding'")
     def test_universal_newlines(self):
         source = '\r\n'.join([self.source, self.source])
         source_bytes = source.encode('utf-8')
@@ -544,7 +546,7 @@ class MagicNumberTests:
         # Should be 4 bytes.
         self.assertEqual(len(self.util.MAGIC_NUMBER), 4)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, Source_MagicNumberTests passes while Frozen_MagicNumberTests fails")
     def test_incorporates_rn(self):
         # The magic number uses \r\n to come out wrong when splitting on lines.
         self.assertTrue(self.util.MAGIC_NUMBER.endswith(b'\r\n'))

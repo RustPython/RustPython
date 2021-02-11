@@ -79,7 +79,7 @@ SKIPS = {
 }
 
 class TestFail:
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, TestPyFail passes while TestCFail fails")
     def test_failures(self):
         for idx, doc in enumerate(JSONDOCS):
             idx = idx + 1
@@ -105,7 +105,6 @@ class TestFail:
                 'Object of type module is not JSON serializable'):
             self.dumps(sys)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_truncated_input(self):
         test_cases = [
             ('', 'Expecting value', 0),

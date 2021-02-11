@@ -61,7 +61,7 @@ class ListTest(list_tests.CommonTest):
         self.assertEqual(len([0]), 1)
         self.assertEqual(len([0, 1, 2]), 3)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'capacity overflow'")
     def test_overflow(self):
         lst = [4, 5, 6, 7]
         n = int((sys.maxsize*2+2) // len(lst))

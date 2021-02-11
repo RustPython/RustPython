@@ -1571,7 +1571,7 @@ class BuiltinTest(unittest.TestCase):
             self.assertRaises(TypeError, tp, a=1, b=2)
 
 
-@unittest.skip("TODO: RUSTPYTHON")
+@unittest.skip("TODO: RUSTPYTHON, AttributeError: module 'sys' has no attribute '__breakpointhook__'")
 class TestBreakpoint(unittest.TestCase):
     def setUp(self):
         # These tests require a clean slate environment.  For example, if the

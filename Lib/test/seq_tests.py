@@ -321,7 +321,7 @@ class CommonTest(unittest.TestCase):
             self.assertEqual(self.type2test(s)*(-4), self.type2test([]))
             self.assertEqual(id(s), id(s*1))
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, only works on 32-bit systems?")
     def test_bigrepeat(self):
         if sys.maxsize <= 2147483647:
             x = self.type2test([0])
@@ -365,7 +365,7 @@ class CommonTest(unittest.TestCase):
 
         self.assertRaises(BadExc, a.count, BadCmp())
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, TypeError: Expected at most 2 arguments (3 given)")
     def test_index(self):
         u = self.type2test([0, 1])
         self.assertEqual(u.index(0), 0)
@@ -408,7 +408,6 @@ class CommonTest(unittest.TestCase):
         self.assertRaises(ValueError, a.index, 0, 4*sys.maxsize,-4*sys.maxsize)
         self.assertRaises(ValueError, a.index, 2, 0, -10)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_pickle(self):
         lst = self.type2test([4, 5, 6, 7])
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
@@ -416,7 +415,7 @@ class CommonTest(unittest.TestCase):
             self.assertEqual(lst2, lst)
             self.assertNotEqual(id(lst2), id(lst))
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, AttributeError: module 'test.support' has no attribute 'check_free_after_iterating'")
     def test_free_after_iterating(self):
         support.check_free_after_iterating(self, iter, self.type2test)
         support.check_free_after_iterating(self, reversed, self.type2test)

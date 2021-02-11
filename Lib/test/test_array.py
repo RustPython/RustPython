@@ -471,7 +471,7 @@ class BaseTest:
                 nb_warnings += 1
         self.assertEqual(len(r), nb_warnings)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, OverflowError: Python int too large to convert to Rust i8")
     def test_tofrombytes(self):
         a = array.array(self.typecode, 2*self.example)
         b = array.array(self.typecode)
@@ -1131,7 +1131,7 @@ class StringTest(BaseTest):
         a = array.array(self.typecode, self.example)
         self.assertRaises(TypeError, a.__setitem__, 0, self.example[:2])
 
-@unittest.skip("TODO: RUSTPYTHON")
+@unittest.skip("TODO: RUSTPYTHON, ValueError: bad typecode")
 class UnicodeTest(StringTest, unittest.TestCase):
     typecode = 'u'
     example = '\x01\u263a\x00\ufeff'
@@ -1424,7 +1424,7 @@ class DoubleTest(FPTest, unittest.TestCase):
     typecode = 'd'
     minitemsize = 8
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'capacity overflow'")
     def test_alloc_overflow(self):
         from sys import maxsize
         a = array.array('d', [-1]*65536)

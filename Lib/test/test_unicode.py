@@ -1328,19 +1328,20 @@ class UnicodeTest(string_tests.CommonTest,
         self.assertRaises(TypeError, '{a}'.format_map, [])
         self.assertRaises(ZeroDivisionError, '{a}'.format_map, BadMapping())
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, killed for chewing up RAM")
     def test_format_huge_precision(self):
         format_string = ".{}f".format(sys.maxsize + 1)
         with self.assertRaises(ValueError):
             result = format(2.34, format_string)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_format_huge_width(self):
         format_string = "{}f".format(sys.maxsize + 1)
         with self.assertRaises(ValueError):
             result = format(2.34, format_string)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, IndexError: tuple index out of range")
     def test_format_huge_item_number(self):
         format_string = "{{{}:.6f}}".format(sys.maxsize + 1)
         with self.assertRaises(ValueError):
@@ -1499,7 +1500,6 @@ class UnicodeTest(string_tests.CommonTest,
         self.assertEqual('...%(foo)f...' % {'foo':Float.PI,'def':123},
                          '...3.141593...')
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_formatting_huge_precision(self):
         format_string = "%.{}f".format(sys.maxsize + 1)
         with self.assertRaises(ValueError):
@@ -1523,7 +1523,6 @@ class UnicodeTest(string_tests.CommonTest,
         with self.assertRaises(ValueError):
             result = format_string % 2.34
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_formatting_huge_width(self):
         format_string = "%{}f".format(sys.maxsize + 1)
         with self.assertRaises(ValueError):
@@ -2365,7 +2364,7 @@ class UnicodeTest(string_tests.CommonTest,
         s = 'abc'
         self.assertIs(s.expandtabs(), s)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, aborted: memory allocation of 9223372036854775759 bytes failed")
     def test_raiseMemError(self):
         if struct.calcsize('P') == 8:
             # 64 bits pointers

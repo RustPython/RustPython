@@ -57,36 +57,35 @@ class EncodingTest:
         source = "{0}\na=42\n".format(encoding_line).encode("koi8-r")
         self.run_test(source)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     # [default encoding]
     def test_default_encoding(self):
         self.run_test(self.source_line.encode('utf-8'))
 
     # [encoding first line]
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'called `Result::unwrap()` on an `Err` value: Utf8Error { valid_up_to: 17, error_len: Some(1) }'")
     def test_encoding_on_first_line(self):
         encoding = 'Latin-1'
         source = self.create_source(encoding)
         self.run_test(source)
 
     # [encoding second line]
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'called `Result::unwrap()` on an `Err` value: Utf8Error { valid_up_to: 34, error_len: Some(1) }'")
     def test_encoding_on_second_line(self):
         source = b"#/usr/bin/python\n" + self.create_source('Latin-1')
         self.run_test(source)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, SyntaxError: Got unexpected token ﻿ at line 1 column 2")
     # [BOM]
     def test_bom(self):
         self.run_test(codecs.BOM_UTF8 + self.source_line.encode('utf-8'))
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, SyntaxError: Got unexpected token ﻿ at line 1 column 2")
     # [BOM and utf-8]
     def test_bom_and_utf_8(self):
         source = codecs.BOM_UTF8 + self.create_source('utf-8')
         self.run_test(source)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'called `Result::unwrap()` on an `Err` value: Utf8Error { valid_up_to: 20, error_len: Some(1) }'")
     # [BOM conflict]
     def test_bom_conflict(self):
         source = codecs.BOM_UTF8 + self.create_source('latin-1')

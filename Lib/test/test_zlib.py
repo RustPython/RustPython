@@ -104,7 +104,6 @@ class ExceptionTestCase(unittest.TestCase):
             self.assertRaises(TypeError, zlib.compress, arg)
             self.assertRaises(TypeError, zlib.decompress, arg)
 
-    @unittest.skip('TODO: RUSTPYTHON')
     def test_badcompressobj(self):
         # verify failure on building compress object with bad params
         self.assertRaises(ValueError, zlib.compressobj, 1, zlib.DEFLATED, 0)
@@ -112,7 +111,6 @@ class ExceptionTestCase(unittest.TestCase):
         self.assertRaises(ValueError,
                 zlib.compressobj, 1, zlib.DEFLATED, zlib.MAX_WBITS + 1)
 
-    @unittest.skip('TODO: RUSTPYTHON')
     def test_baddecompressobj(self):
         # verify failure on building decompress object with bad params
         self.assertRaises(ValueError, zlib.decompressobj, -1)
@@ -295,7 +293,6 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         y2 = dco.flush()
         self.assertEqual(HAMLET_SCENE, y1 + y2)
 
-    @unittest.skip('TODO: RUSTPYTHON')
     def test_compressincremental(self):
         # compress object in steps, decompress object as one-shot
         data = HAMLET_SCENE * 128
@@ -749,7 +746,7 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
 
     # Memory use of the following functions takes into account overallocation
 
-    @unittest.skip('TODO: RUSTPYTHON')
+    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'range start index 27394048 out of range for slice of length 10485760'")
     @bigmemtest(size=_1G + 1024 * 1024, memuse=3)
     def test_big_compress_buffer(self, size):
         c = zlib.compressobj(1)

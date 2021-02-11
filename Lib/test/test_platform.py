@@ -15,11 +15,9 @@ class PlatformTest(unittest.TestCase):
         platform._sys_version_cache.clear()
         platform._uname_cache = None
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_architecture(self):
         res = platform.architecture()
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @support.skip_unless_symlink
     def test_architecture_via_symlink(self): # issue3762
         # On Windows, the EXE needs to know where pythonXY.dll and *.pyd is at
@@ -54,7 +52,7 @@ class PlatformTest(unittest.TestCase):
         finally:
             os.remove(link)
 
-    @unittest.skipUnless(sys.platform == 'linux', "TODO: RUSTPYTHON")
+    @unittest.skipUnless(sys.platform == 'linux', "TODO: RUSTPYTHON, only works on Linux")
     def test_platform(self):
         for aliased in (False, True):
             for terse in (False, True):
@@ -222,7 +220,7 @@ class PlatformTest(unittest.TestCase):
     def test_win32_ver(self):
         res = platform.win32_ver()
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, NameError: name 'ParserCreate' is not defined")
     def test_mac_ver(self):
         res = platform.mac_ver()
 
@@ -256,7 +254,7 @@ class PlatformTest(unittest.TestCase):
                 self.assertEqual(res[2], 'PowerPC')
 
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, AttributeError: module 'os' has no attribute 'fork'")
     @unittest.skipUnless(sys.platform == 'darwin', "OSX only test")
     def test_mac_ver_with_fork(self):
         # Issue7895: platform.mac_ver() crashes when using fork without exec
@@ -275,7 +273,8 @@ class PlatformTest(unittest.TestCase):
             self.assertEqual(cpid, pid)
             self.assertEqual(sts, 0)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_libc_ver(self):
         # check that libc_ver(executable) doesn't raise an exception
         if os.path.isdir(sys.executable) and \
@@ -356,7 +355,7 @@ class PlatformTest(unittest.TestCase):
         self.assertLess(V('0.960923'), V('2.2beta29'))
 
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, AttributeError: module 'platform' has no attribute '_sys_version_cache'")
     def test_macos(self):
         self.addCleanup(self.clear_caches)
 

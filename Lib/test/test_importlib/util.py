@@ -461,17 +461,14 @@ class CommonResourceTests(abc.ABC):
     def execute(self, package, path):
         raise NotImplementedError
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_package_name(self):
         # Passing in the package name should succeed.
         self.execute(data01.__name__, 'utf-8.file')
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_package_object(self):
         # Passing in the package itself should succeed.
         self.execute(data01, 'utf-8.file')
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_string_path(self):
         # Passing in a string for the path should succeed.
         path = 'utf-8.file'
@@ -495,7 +492,6 @@ class CommonResourceTests(abc.ABC):
         with self.assertRaises(ValueError):
             self.execute(data01, '../data01/utf-8.file')
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_importing_module_as_side_effect(self):
         # The anchor package can already be imported.
         del sys.modules[data01.__name__]
@@ -513,7 +509,6 @@ class CommonResourceTests(abc.ABC):
             self.execute(module, 'utf-8.file')
 
     @unittest.skipIf(sys.version_info < (3,), 'No ResourceReader in Python 2')
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_resource_opener(self):
         bytes_data = io.BytesIO(b'Hello, world!')
         package = create_package(file=bytes_data, path=FileNotFoundError())
@@ -521,7 +516,6 @@ class CommonResourceTests(abc.ABC):
         self.assertEqual(package.__loader__._path, 'utf-8.file')
 
     @unittest.skipIf(sys.version_info < (3,), 'No ResourceReader in Python 2')
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_resource_path(self):
         bytes_data = io.BytesIO(b'Hello, world!')
         path = __file__

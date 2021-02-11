@@ -77,7 +77,8 @@ class TupleTest(seq_tests.CommonTest):
     # We expect tuples whose base components have deterministic hashes to
     # have deterministic hashes too - and, indeed, the same hashes across
     # platforms with hash codes of the same bit width.
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_hash_exact(self):
         def check_one_exact(t, e32, e64):
             got = hash(t)

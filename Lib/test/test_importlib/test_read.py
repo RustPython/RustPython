@@ -20,18 +20,17 @@ class ReadTests:
         result = resources.read_binary(self.data, 'binary.file')
         self.assertEqual(result, b'\0\1\2\3')
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_read_text_default_encoding(self):
         result = resources.read_text(self.data, 'utf-8.file')
         self.assertEqual(result, 'Hello, UTF-8 world!\n')
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, UnicodeDecodeError: cannot decode byte at index: 0")
     def test_read_text_given_encoding(self):
         result = resources.read_text(
             self.data, 'utf-16.file', encoding='utf-16')
         self.assertEqual(result, 'Hello, UTF-16 world!\n')
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, UnicodeDecodeError: cannot decode byte at index: 0")
     def test_read_text_with_errors(self):
         # Raises UnicodeError without the 'errors' argument.
         self.assertRaises(

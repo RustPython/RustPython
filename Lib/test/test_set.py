@@ -63,7 +63,7 @@ class TestJointOps:
     def test_len(self):
         self.assertEqual(len(self.s), len(self.d))
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, TypeError: unhashable type")
     def test_contains(self):
         for c in self.letters:
             self.assertEqual(c in self.s, c in self.d)
@@ -227,7 +227,9 @@ class TestJointOps:
         self.assertFalse(set('a').issubset('cbs'))
         self.assertFalse(set('cbs').issuperset('a'))
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, "
+        "RuntimeError: Unexpected payload 'frozenset' for type 'SetSubclass'; "
+        "RuntimeError: Unexpected payload 'set' for type 'SetSubclass'")
     def test_pickling(self):
         for i in range(pickle.HIGHEST_PROTOCOL + 1):
             p = pickle.dumps(self.s, i)
@@ -239,7 +241,7 @@ class TestJointOps:
                 dup = pickle.loads(p)
                 self.assertEqual(self.s.x, dup.x)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, AttributeError: module '__main__' has no attribute 'set_iterator'")
     def test_iterator_pickling(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             itorg = iter(self.s)
@@ -280,7 +282,6 @@ class TestJointOps:
         self.assertNotEqual(id(t), id(newt))
         self.assertEqual(t.value + 1, newt.value)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_gc(self):
         # Create a nest of cycles to exercise overall ref count check
         class A:
@@ -315,7 +316,7 @@ class TestJointOps:
             self.assertRaises(RuntimeError, s.discard, BadCmp())
             self.assertRaises(RuntimeError, s.remove, BadCmp())
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, TestSetSubclass fails")
     def test_cyclical_repr(self):
         w = ReprWrapper()
         s = self.thetype([w])
@@ -361,7 +362,7 @@ class TestJointOps:
         self.assertEqual(sum(elem.hash_count for elem in d), n)
         self.assertEqual(d3, dict.fromkeys(d, 123))
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, NameError: name 'gc' is not defined")
     def test_container_iterator(self):
         # Bug #3680: tp_traverse was not implemented for set iterator object
         class C(object):
@@ -374,7 +375,7 @@ class TestJointOps:
         gc.collect()
         self.assertTrue(ref() is None, "Cycle was not collected")
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, AttributeError: module 'test.support' has no attribute 'check_free_after_iterating'")
     def test_free_after_iterating(self):
         support.check_free_after_iterating(self, iter, self.thetype)
 
@@ -1565,7 +1566,7 @@ class TestCopying:
         for i in range(len(dup_list)):
             self.assertTrue(dup_list[i] is set_list[i])
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, TestCopyingNested, TestCopyingSingleton, TestCopyingTriple, and TestCopyingTuple fail")
     def test_deep_copy(self):
         dup = copy.deepcopy(self.set)
         ##print type(dup), repr(dup)
@@ -1884,7 +1885,6 @@ def faces(G):
     return f
 
 
-@unittest.skip("TODO: RUSTPYTHON")
 class TestGraphs(unittest.TestCase):
 
     def test_cube(self):

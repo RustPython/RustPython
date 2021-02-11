@@ -192,7 +192,6 @@ class SimpleTest(abc.LoaderTests):
             if os.path.exists(pycache):
                 shutil.rmtree(pycache)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @util.writes_bytecode_files
     def test_timestamp_overflow(self):
         # When a modification timestamp is larger than 2**32, it should be
@@ -239,7 +238,7 @@ class SimpleTest(abc.LoaderTests):
                 warnings.simplefilter('ignore', DeprecationWarning)
                 loader.load_module('bad name')
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, TypeError: object of type 'NoneType' has no len()")
     @util.writes_bytecode_files
     def test_checked_hash_based_pyc(self):
         with util.create_modules('_temp') as mapping:
@@ -271,7 +270,7 @@ class SimpleTest(abc.LoaderTests):
                 data[8:16],
             )
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, AttributeError: module 'unittest' has no attribute 'mock'")
     @util.writes_bytecode_files
     def test_overridden_checked_hash_based_pyc(self):
         with util.create_modules('_temp') as mapping, \
@@ -297,7 +296,7 @@ class SimpleTest(abc.LoaderTests):
             loader.exec_module(mod)
             self.assertEqual(mod.state, 'old')
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, TypeError: object of type 'NoneType' has no len()")
     @util.writes_bytecode_files
     def test_unchecked_hash_based_pyc(self):
         with util.create_modules('_temp') as mapping:
@@ -328,7 +327,7 @@ class SimpleTest(abc.LoaderTests):
                 data[8:16],
             )
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, AttributeError: module 'unittest' has no attribute 'mock'")
     @util.writes_bytecode_files
     def test_overiden_unchecked_hash_based_pyc(self):
         with util.create_modules('_temp') as mapping, \
