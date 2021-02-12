@@ -805,7 +805,10 @@ impl Instruction {
     }
 
     pub fn unconditional_branch(&self) -> bool {
-        matches!(self, Jump { .. } | Continue{ .. } | Break { .. } | ReturnValue | Raise { .. })
+        matches!(
+            self,
+            Jump { .. } | Continue { .. } | Break { .. } | ReturnValue | Raise { .. }
+        )
     }
 
     pub fn stack_effect(&self, jump: bool) -> i32 {

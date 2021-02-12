@@ -180,9 +180,12 @@ impl CodeInfo {
                 // we don't want to worry about Continue or Break, they use unwinding to jump to
                 // their targets and as such the stack size is taken care of in frame.rs by setting
                 // it back to the level it was at when SetupLoop was run
-                let jump_label = instr.label_arg().filter(
-                    |_| !matches!(instr, Instruction::Continue { .. } | Instruction::Break { .. }),
-                );
+                let jump_label = instr.label_arg().filter(|_| {
+                    !matches!(
+                        instr,
+                        Instruction::Continue { .. } | Instruction::Break { .. }
+                    )
+                });
                 if let Some(&target_block) = jump_label {
                     let effect = instr.stack_effect(true);
                     let target_depth = add_ui(depth, effect);
