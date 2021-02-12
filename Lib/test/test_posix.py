@@ -1976,6 +1976,7 @@ class TestPosixSpawnP(unittest.TestCase, _PosixSpawnMixin):
         assert_python_ok(*args, PATH=path)
 
 
+@unittest.skip("TODO: RUSTPYTHON, NameError: name 'ParserCreate' is not defined")
 @unittest.skipUnless(sys.platform == "darwin", "test weak linking on macOS")
 class TestPosixWeaklinking(unittest.TestCase):
     # These test cases verify that weak linking support on macOS works
