@@ -2501,6 +2501,26 @@ mod posix {
             .map(|s| s.to_owned())
             .map_err(|e| vm.new_unicode_decode_error(format!("unable to decode login name: {}", e)))
     }
+
+    // cfg from nix
+    #[cfg(any(
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "openbsd"
+    ))]
+    #[pyfunction]
+    fn getgrouplist(user: PyStrRef, group: u32, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        let user = ffi::CString::new(user.borrow_value()).unwrap();
+        let gid = Gid::from_raw(group);
+        let group_ids = unistd::getgrouplist(&user, gid).map_err(|err| err.into_pyexception(vm))?;
+        Ok(vm.ctx.new_list(
+            group_ids
+                .into_iter()
+                .map(|gid| vm.ctx.new_int(gid.as_raw()))
+                .collect(),
+        ))
+    }
 }
 #[cfg(unix)]
 use posix as platform;
