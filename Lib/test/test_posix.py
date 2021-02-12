@@ -86,6 +86,8 @@ class PosixTester(unittest.TestCase):
         for val in group_ids:
             self.assertGreaterEqual(val, 0)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(posix, 'setresuid'),
                          'test needs posix.setresuid()')
     def test_setresuid(self):
@@ -94,6 +96,8 @@ class PosixTester(unittest.TestCase):
         # -1 means don't change that value.
         self.assertIsNone(posix.setresuid(-1, -1, -1))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(posix, 'setresuid'),
                          'test needs posix.setresuid()')
     def test_setresuid_exception(self):
@@ -103,6 +107,8 @@ class PosixTester(unittest.TestCase):
             new_user_ids = (current_user_ids[0]+1, -1, -1)
             self.assertRaises(OSError, posix.setresuid, *new_user_ids)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(posix, 'setresgid'),
                          'test needs posix.setresgid()')
     def test_setresgid(self):
@@ -111,6 +117,8 @@ class PosixTester(unittest.TestCase):
         # -1 means don't change that value.
         self.assertIsNone(posix.setresgid(-1, -1, -1))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(posix, 'setresgid'),
                          'test needs posix.setresgid()')
     def test_setresgid_exception(self):
@@ -602,6 +610,8 @@ class PosixTester(unittest.TestCase):
                               os.O_RDONLY|os.O_EXLOCK|os.O_NONBLOCK)
             os.close(fd)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(posix, 'fstat'),
                          'test needs posix.fstat()')
     def test_fstat(self):
@@ -616,6 +626,8 @@ class PosixTester(unittest.TestCase):
         finally:
             fp.close()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_stat(self):
         self.assertTrue(posix.stat(support.TESTFN))
         self.assertTrue(posix.stat(os.fsencode(support.TESTFN)))
@@ -754,6 +766,8 @@ class PosixTester(unittest.TestCase):
             self.assertRaises(TypeError, chown_func, first_param, uid, t(gid))
             check_stat(uid, gid)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(posix, 'chown'), "test needs os.chown()")
     def test_chown(self):
         # raise an OSError if the file does not exist
@@ -764,6 +778,8 @@ class PosixTester(unittest.TestCase):
         support.create_empty_file(support.TESTFN)
         self._test_all_chown_common(posix.chown, support.TESTFN, posix.stat)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(posix, 'fchown'), "test needs os.fchown()")
     def test_fchown(self):
         os.unlink(support.TESTFN)
@@ -777,6 +793,8 @@ class PosixTester(unittest.TestCase):
         finally:
             test_file.close()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(posix, 'lchown'), "test needs os.lchown()")
     def test_lchown(self):
         os.unlink(support.TESTFN)
@@ -793,6 +811,8 @@ class PosixTester(unittest.TestCase):
     def test_listdir(self):
         self.assertIn(support.TESTFN, posix.listdir(os.curdir))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_listdir_default(self):
         # When listdir is called without argument,
         # it's the same as listdir(os.curdir).
@@ -803,6 +823,8 @@ class PosixTester(unittest.TestCase):
         # the returned strings are of type bytes.
         self.assertIn(os.fsencode(support.TESTFN), posix.listdir(b'.'))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_listdir_bytes_like(self):
         for cls in bytearray, memoryview:
             with self.assertWarns(DeprecationWarning):
@@ -969,6 +991,7 @@ class PosixTester(unittest.TestCase):
             self.assertEqual(type(k), item_type)
             self.assertEqual(type(v), item_type)
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_putenv(self):
         with self.assertRaises(ValueError):
             os.putenv('FRUIT\0VEGETABLE', 'cabbage')
@@ -1028,6 +1051,8 @@ class PosixTester(unittest.TestCase):
         self.assertIn(group, posix.getgrouplist(user, group))
 
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(os, 'getegid'), "test needs os.getegid()")
     def test_getgroups(self):
         with os.popen('id -G 2>/dev/null') as idg:
@@ -1166,8 +1191,11 @@ class PosixTester(unittest.TestCase):
             posix.close(f)
             support.rmtree(support.TESTFN + 'dir')
 
-    @unittest.skipUnless((os.mknod in os.supports_dir_fd) and hasattr(stat, 'S_IFIFO'),
-                         "test requires both stat.S_IFIFO and dir_fd support for os.mknod()")
+    # TODO: RUSTPYTHON: AttributeError: module 'os' has no attribute 'mknod'
+    # 
+    # @unittest.skipUnless((os.mknod in os.supports_dir_fd) and hasattr(stat, 'S_IFIFO'),
+    #                      "test requires both stat.S_IFIFO and dir_fd support for os.mknod()")
+    @unittest.expectedFailure
     def test_mknod_dir_fd(self):
         # Test using mknodat() to create a FIFO (the only use specified
         # by POSIX).
@@ -1260,7 +1288,10 @@ class PosixTester(unittest.TestCase):
         finally:
             posix.close(f)
 
-    @unittest.skipUnless(os.mkfifo in os.supports_dir_fd, "test needs dir_fd support in os.mkfifo()")
+    # TODO: RUSTPYTHON: AttributeError: module 'os' has no attribute 'mkfifo'
+    # 
+    # @unittest.skipUnless(os.mkfifo in os.supports_dir_fd, "test needs dir_fd support in os.mkfifo()")
+    @unittest.expectedFailure
     def test_mkfifo_dir_fd(self):
         support.unlink(support.TESTFN)
         f = posix.open(posix.getcwd(), posix.O_RDONLY)
@@ -1381,6 +1412,8 @@ class PosixTester(unittest.TestCase):
         self.assertRaises(OverflowError, posix.sched_setaffinity, 0, [1<<128])
         self.assertRaises(OSError, posix.sched_setaffinity, -1, mask)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_rtld_constants(self):
         # check presence of major RTLD_* constants
         posix.RTLD_LAZY
@@ -1415,6 +1448,8 @@ class PosixTester(unittest.TestCase):
                 # http://lists.freebsd.org/pipermail/freebsd-amd64/2012-January/014332.html
                 raise unittest.SkipTest("OSError raised!")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_path_error2(self):
         """
         Test functions that call path_error2(), providing two filenames in their exceptions.
@@ -1433,6 +1468,8 @@ class PosixTester(unittest.TestCase):
             else:
                 self.fail("No valid path_error2() test for os." + name)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_path_with_null_character(self):
         fn = support.TESTFN
         fn_with_NUL = fn + '\0'
@@ -1451,6 +1488,8 @@ class PosixTester(unittest.TestCase):
         open(fn, 'wb').close()
         self.assertRaises(ValueError, os.stat, fn_with_NUL)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_path_with_null_byte(self):
         fn = os.fsencode(support.TESTFN)
         fn_with_NUL = fn + b'\0'
@@ -1529,6 +1568,8 @@ class _PosixSpawnMixin:
         # test_close_file() to fail.
         return (sys.executable, '-I', '-S', *args)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_returns_pid(self):
         pidfile = support.TESTFN
         self.addCleanup(support.unlink, pidfile)
@@ -1543,6 +1584,8 @@ class _PosixSpawnMixin:
         with open(pidfile) as f:
             self.assertEqual(f.read(), str(pid))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_no_such_executable(self):
         no_such_executable = 'no_such_executable'
         try:
@@ -1558,6 +1601,8 @@ class _PosixSpawnMixin:
             self.assertEqual(pid2, pid)
             self.assertNotEqual(status, 0)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_specify_environment(self):
         envfile = support.TESTFN
         self.addCleanup(support.unlink, envfile)
@@ -1573,6 +1618,8 @@ class _PosixSpawnMixin:
         with open(envfile) as f:
             self.assertEqual(f.read(), 'bar')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_none_file_actions(self):
         pid = self.spawn_func(
             self.NOOP_PROGRAM[0],
@@ -1582,6 +1629,8 @@ class _PosixSpawnMixin:
         )
         support.wait_process(pid, exitcode=0)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_empty_file_actions(self):
         pid = self.spawn_func(
             self.NOOP_PROGRAM[0],
@@ -1591,6 +1640,8 @@ class _PosixSpawnMixin:
         )
         support.wait_process(pid, exitcode=0)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_resetids_explicit_default(self):
         pid = self.spawn_func(
             sys.executable,
@@ -1600,6 +1651,8 @@ class _PosixSpawnMixin:
         )
         support.wait_process(pid, exitcode=0)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_resetids(self):
         pid = self.spawn_func(
             sys.executable,
@@ -1615,6 +1668,8 @@ class _PosixSpawnMixin:
                             [sys.executable, "-c", "pass"],
                             os.environ, resetids=None)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_setpgroup(self):
         pid = self.spawn_func(
             sys.executable,
@@ -1645,6 +1700,8 @@ class _PosixSpawnMixin:
         )
         support.wait_process(pid, exitcode=0)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_setsigmask_wrong_type(self):
         with self.assertRaises(TypeError):
             self.spawn_func(sys.executable,
@@ -1660,6 +1717,8 @@ class _PosixSpawnMixin:
                             os.environ, setsigmask=[signal.NSIG,
                                                     signal.NSIG+1])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_setsid(self):
         rfd, wfd = os.pipe()
         self.addCleanup(os.close, rfd)
@@ -1710,6 +1769,8 @@ class _PosixSpawnMixin:
 
         support.wait_process(pid, exitcode=-signal.SIGUSR1)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_setsigdef_wrong_type(self):
         with self.assertRaises(TypeError):
             self.spawn_func(sys.executable,
@@ -1764,6 +1825,8 @@ class _PosixSpawnMixin:
         )
         support.wait_process(pid, exitcode=0)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_multiple_file_actions(self):
         file_actions = [
             (os.POSIX_SPAWN_OPEN, 3, os.path.realpath(__file__), os.O_RDONLY, 0),
@@ -1805,6 +1868,8 @@ class _PosixSpawnMixin:
                                            3, __file__ + '\0',
                                            os.O_RDONLY, 0)])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_open_file(self):
         outfile = support.TESTFN
         self.addCleanup(support.unlink, outfile)
@@ -1825,6 +1890,8 @@ class _PosixSpawnMixin:
         with open(outfile) as f:
             self.assertEqual(f.read(), 'hello')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_close_file(self):
         closefile = support.TESTFN
         self.addCleanup(support.unlink, closefile)
@@ -1844,6 +1911,8 @@ class _PosixSpawnMixin:
         with open(closefile) as f:
             self.assertEqual(f.read(), 'is closed %d' % errno.EBADF)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_dup2(self):
         dupfile = support.TESTFN
         self.addCleanup(support.unlink, dupfile)
@@ -1872,6 +1941,8 @@ class TestPosixSpawn(unittest.TestCase, _PosixSpawnMixin):
 class TestPosixSpawnP(unittest.TestCase, _PosixSpawnMixin):
     spawn_func = getattr(posix, 'posix_spawnp', None)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @support.skip_unless_symlink
     def test_posix_spawnp(self):
         # Use a symlink to create a program in its own temporary directory
