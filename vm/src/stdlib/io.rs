@@ -2890,7 +2890,7 @@ mod fileio {
                     path,
                     flags as _,
                     OptionalArg::Missing,
-                    OptionalArg::Missing,
+                    Default::default(),
                     vm,
                 )?
             };

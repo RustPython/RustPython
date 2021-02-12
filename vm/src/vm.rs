@@ -1474,6 +1474,12 @@ impl VirtualMachine {
         })
     }
 
+    pub fn _divmod(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
+        self.call_or_reflection(a, b, "__divmod__", "__rdivmod__", |vm, a, b| {
+            Err(vm.new_unsupported_binop_error(a, b, "divmod"))
+        })
+    }
+
     pub fn _lshift(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
         self.call_or_reflection(a, b, "__lshift__", "__rlshift__", |vm, a, b| {
             Err(vm.new_unsupported_binop_error(a, b, "<<"))
