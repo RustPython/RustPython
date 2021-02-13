@@ -36,7 +36,7 @@
 //!
 //! The binary will have all the standard arguments of a python interpreter (including a REPL!) but
 //! it will have your modules loaded into the vm.
-#![allow(clippy::needless_doctest_main)]
+#![allow(clippy::needless_doctest_main, clippy::unnecessary_wraps)]
 
 #[macro_use]
 extern crate clap;
