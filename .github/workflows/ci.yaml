@@ -148,12 +148,12 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: clippy
-          args: ${{ env.CARGO_ARGS }} ${{ env.NON_WASM_PACKAGES }} -- -Dwarnings
+          args: ${{ env.CARGO_ARGS }} ${{ env.NON_WASM_PACKAGES }} -- -Dwarnings -A clippy::unnecessary_wraps
       - name: run clippy on wasm
         uses: actions-rs/cargo@v1
         with:
           command: clippy
-          args: --manifest-path=wasm/lib/Cargo.toml -- -Dwarnings
+          args: --manifest-path=wasm/lib/Cargo.toml -- -Dwarnings -A clippy::unnecessary_wraps
       - uses: actions/setup-python@v1
         with:
           python-version: 3.8
