@@ -187,6 +187,7 @@ impl IntoPyException for &'_ io::Error {
                 | Some(errors::EALREADY)
                 | Some(errors::EWOULDBLOCK)
                 | Some(errors::EINPROGRESS) => vm.ctx.exceptions.blocking_io_error.clone(),
+                Some(errors::ESRCH) => vm.ctx.exceptions.process_lookup_error.clone(),
                 _ => vm.ctx.exceptions.os_error.clone(),
             },
         };
@@ -308,6 +309,9 @@ mod _os {
         O_APPEND, O_CREAT, O_EXCL, O_RDONLY, O_RDWR, O_TRUNC, O_WRONLY, SEEK_CUR, SEEK_END,
         SEEK_SET,
     };
+    #[cfg(not(target_os = "windows"))]
+    #[pyattr]
+    use libc::{PRIO_PGRP, PRIO_PROCESS, PRIO_USER};
     #[cfg(any(target_os = "dragonfly", target_os = "freebsd", target_os = "linux"))]
     #[pyattr]
     use libc::{SEEK_DATA, SEEK_HOLE};
@@ -1358,7 +1362,7 @@ mod posix {
     use crate::builtins::list::PyListRef;
     use crate::pyobject::PyIterable;
     use bitflags::bitflags;
-    use nix::errno::Errno;
+    use nix::errno::{errno, Errno};
     use nix::unistd::{self, Gid, Pid, Uid};
     use std::convert::TryFrom;
     pub(super) use std::os::unix::fs::OpenOptionsExt;
@@ -2520,6 +2524,42 @@ mod posix {
                 .map(|gid| vm.ctx.new_int(gid.as_raw()))
                 .collect(),
         ))
+    }
+
+    cfg_if::cfg_if! {
+        if #[cfg(all(target_os = "linux", target_env = "gnu"))] {
+            type PriorityWhichType = libc::__priority_which_t;
+        } else {
+            type PriorityWhichType = libc::c_int;
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[pyfunction]
+    fn getpriority(which: PriorityWhichType, who: u32, vm: &VirtualMachine) -> PyResult {
+        Errno::clear();
+        let retval = unsafe { libc::getpriority(which, who) };
+        if errno() != 0 {
+            Err(errno_err(vm))
+        } else {
+            Ok(vm.ctx.new_int(retval))
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[pyfunction]
+    fn setpriority(
+        which: PriorityWhichType,
+        who: u32,
+        priority: i32,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let retval = unsafe { libc::setpriority(which, who, priority) };
+        if retval == -1 {
+            Err(errno_err(vm))
+        } else {
+            Ok(())
+        }
     }
 }
 #[cfg(unix)]
