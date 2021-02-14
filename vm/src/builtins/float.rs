@@ -389,6 +389,11 @@ impl PyFloat {
         try_bigint(self.value, vm)
     }
 
+    #[pymethod(magic)]
+    fn ceil(&self, vm: &VirtualMachine) -> PyResult<BigInt> {
+        try_bigint(self.value.ceil(), vm)
+    }
+
     #[pymethod(name = "__round__")]
     fn round(&self, ndigits: OptionalOption<PyIntRef>, vm: &VirtualMachine) -> PyResult {
         let ndigits = ndigits.flatten();
