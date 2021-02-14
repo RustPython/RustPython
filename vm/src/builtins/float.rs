@@ -389,6 +389,11 @@ impl PyFloat {
         try_bigint(self.value, vm)
     }
 
+    #[pymethod(name = "__floor__")]
+    fn floor(&self, vm: &VirtualMachine) -> PyResult<BigInt> {
+        try_bigint(self.value.floor(), vm)
+    }
+
     #[pymethod(name = "__ceil__")]
     fn ceil(&self, vm: &VirtualMachine) -> PyResult<BigInt> {
         try_bigint(self.value.ceil(), vm)
