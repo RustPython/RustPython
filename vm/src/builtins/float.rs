@@ -390,6 +390,11 @@ impl PyFloat {
     }
 
     #[pymethod(magic)]
+    fn floor(&self, vm: &VirtualMachine) -> PyResult<BigInt> {
+        try_bigint(self.value.floor(), vm)
+    }
+
+    #[pymethod(magic)]
     fn ceil(&self, vm: &VirtualMachine) -> PyResult<BigInt> {
         try_bigint(self.value.ceil(), vm)
     }

@@ -324,8 +324,6 @@ class GeneralFloatCases(unittest.TestCase):
         # distinguishes -0.0 and 0.0.
         self.assertEqual((a, copysign(1.0, a)), (b, copysign(1.0, b)))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_float_floor(self):
         self.assertIsInstance(float(0.5).__floor__(), int)
         self.assertEqual(float(0.5).__floor__(), 0)
