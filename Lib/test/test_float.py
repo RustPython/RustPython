@@ -340,8 +340,6 @@ class GeneralFloatCases(unittest.TestCase):
         self.assertRaises(OverflowError, float("inf").__floor__)
         self.assertRaises(OverflowError, float("-inf").__floor__)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_float_ceil(self):
         self.assertIsInstance(float(0.5).__ceil__(), int)
         self.assertEqual(float(0.5).__ceil__(), 1)
