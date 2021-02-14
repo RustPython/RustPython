@@ -216,7 +216,7 @@ impl WASMVirtualMachine {
     pub fn add_to_scope(&self, name: String, value: JsValue) -> Result<(), JsValue> {
         self.with_vm(move |vm, StoredVirtualMachine { ref scope, .. }| {
             let value = convert::js_to_py(vm, value);
-            scope.globals.set_item(name, value, vm).to_js(vm)
+            scope.globals.set_item(name, value, vm).into_js(vm)
         })?
     }
 
@@ -265,7 +265,7 @@ impl WASMVirtualMachine {
             let attrs = vm.ctx.new_dict();
             attrs
                 .set_item("__name__", vm.ctx.new_str(name.clone()), vm)
-                .to_js(vm)?;
+                .into_js(vm)?;
 
             if let Some(imports) = imports {
                 for entry in convert::object_entries(&imports) {
@@ -273,19 +273,19 @@ impl WASMVirtualMachine {
                     let key: String = Object::from(key).to_string().into();
                     attrs
                         .set_item(key.as_str(), convert::js_to_py(vm, value), vm)
-                        .to_js(vm)?;
+                        .into_js(vm)?;
                 }
             }
 
             vm.run_code_obj(code, Scope::new(None, attrs.clone()))
-                .to_js(vm)?;
+                .into_js(vm)?;
 
             let module = vm.new_module(&name, attrs);
 
             let sys_modules = vm
                 .get_attribute(vm.sys_module.clone(), "modules")
-                .to_js(vm)?;
-            sys_modules.set_item(name, module, vm).to_js(vm)?;
+                .into_js(vm)?;
+            sys_modules.set_item(name, module, vm).into_js(vm)?;
 
             Ok(())
         })?
@@ -305,8 +305,8 @@ impl WASMVirtualMachine {
 
             let sys_modules = vm
                 .get_attribute(vm.sys_module.clone(), "modules")
-                .to_js(vm)?;
-            sys_modules.set_item(name, py_module, vm).to_js(vm)?;
+                .into_js(vm)?;
+            sys_modules.set_item(name, py_module, vm).into_js(vm)?;
 
             Ok(())
         })?

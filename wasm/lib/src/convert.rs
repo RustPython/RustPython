@@ -261,10 +261,10 @@ pub fn syntax_err(err: CompileError) -> SyntaxError {
 }
 
 pub trait PyResultExt<T> {
-    fn to_js(self, vm: &VirtualMachine) -> Result<T, JsValue>;
+    fn into_js(self, vm: &VirtualMachine) -> Result<T, JsValue>;
 }
 impl<T> PyResultExt<T> for PyResult<T> {
-    fn to_js(self, vm: &VirtualMachine) -> Result<T, JsValue> {
+    fn into_js(self, vm: &VirtualMachine) -> Result<T, JsValue> {
         self.map_err(|err| py_err_to_js_err(vm, &err))
     }
 }
