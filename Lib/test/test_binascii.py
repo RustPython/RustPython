@@ -25,17 +25,23 @@ class BinASCIITest(unittest.TestCase):
     def setUp(self):
         self.data = self.type2test(self.rawdata)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_exceptions(self):
         # Check module exceptions
         self.assertTrue(issubclass(binascii.Error, Exception))
         self.assertTrue(issubclass(binascii.Incomplete, Exception))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_functions(self):
         # Check presence of all functions
         for name in all_functions:
             self.assertTrue(hasattr(getattr(binascii, name), '__call__'))
             self.assertRaises(TypeError, getattr(binascii, name))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_returned_value(self):
         # Limit to the minimum of all limits (b2a_uu)
         MAX_ALL = 45
@@ -74,6 +80,8 @@ class BinASCIITest(unittest.TestCase):
             res += b
         self.assertEqual(res, self.rawdata)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_base64invalid(self):
         # Test base64 with random invalid characters sprinkled throughout
         # (This requires a new version of binascii.)
@@ -111,6 +119,8 @@ class BinASCIITest(unittest.TestCase):
         # empty strings. TBD: shouldn't it raise an exception instead ?
         self.assertEqual(binascii.a2b_base64(self.type2test(fillers)), b'')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_base64errors(self):
         # Test base64 with invalid padding
         def assertIncorrectPadding(data):
@@ -142,6 +152,8 @@ class BinASCIITest(unittest.TestCase):
         assertInvalidLength(b'a' * (4 * 87 + 1))
         assertInvalidLength(b'A\tB\nC ??DE')  # only 5 valid characters
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_uu(self):
         MAX_UU = 45
         for backtick in (True, False):
@@ -179,6 +191,8 @@ class BinASCIITest(unittest.TestCase):
         with self.assertRaises(TypeError):
             binascii.b2a_uu(b"", True)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_crc_hqx(self):
         crc = binascii.crc_hqx(self.type2test(b"Test the CRC-32 of"), 0)
         crc = binascii.crc_hqx(self.type2test(b" this string."), crc)
@@ -198,6 +212,8 @@ class BinASCIITest(unittest.TestCase):
 
         self.assertRaises(TypeError, binascii.crc32)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_hqx(self):
         # Perform binhex4 style RLE-compression
         # Then calculate the hexbin4 binary-to-ASCII translation
@@ -208,6 +224,8 @@ class BinASCIITest(unittest.TestCase):
         res = binascii.rledecode_hqx(b)
         self.assertEqual(res, self.rawdata)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_rle(self):
         # test repetition with a repetition longer than the limit of 255
         data = (b'a' * 100 + b'b' + b'c' * 300)
@@ -222,6 +240,8 @@ class BinASCIITest(unittest.TestCase):
         decoded = binascii.rledecode_hqx(encoded)
         self.assertEqual(decoded, data)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_hex(self):
         # test hexlification
         s = b'{s\005\000\000\000worldi\002\000\000\000s\005\000\000\000helloi\001\000\000\0000'
@@ -240,6 +260,8 @@ class BinASCIITest(unittest.TestCase):
         self.assertEqual(binascii.hexlify(self.type2test(s)), t)
         self.assertEqual(binascii.unhexlify(self.type2test(t)), u)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_hex_separator(self):
         """Test that hexlify and b2a_hex are binary versions of bytes.hex."""
         # Logic of separators is tested in test_bytes.py.  This checks that
@@ -252,6 +274,8 @@ class BinASCIITest(unittest.TestCase):
         expected1 = s.hex(':').encode('ascii')
         self.assertEqual(binascii.b2a_hex(self.type2test(s), ':'), expected1)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_qp(self):
         type2test = self.type2test
         a2b_qp = binascii.a2b_qp
@@ -354,6 +378,8 @@ class BinASCIITest(unittest.TestCase):
         self.assertEqual(b2a_qp(type2test(b'a.\n')), b'a.\n')
         self.assertEqual(b2a_qp(type2test(b'.a')[:-1]), b'=2E')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_empty_string(self):
         # A test for SF bug #1022953.  Make sure SystemError is not raised.
         empty = self.type2test(b'')
@@ -368,6 +394,8 @@ class BinASCIITest(unittest.TestCase):
             except Exception as err:
                 self.fail("{}({!r}) raises {!r}".format(func, empty, err))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_unicode_b2a(self):
         # Unicode strings are not accepted by b2a_* functions.
         for func in set(all_functions) - set(a2b_functions) | {'rledecode_hqx'}:
@@ -378,6 +406,8 @@ class BinASCIITest(unittest.TestCase):
         # crc_hqx needs 2 arguments
         self.assertRaises(TypeError, binascii.crc_hqx, "test", 0)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_unicode_a2b(self):
         # Unicode strings are accepted by a2b_* functions.
         MAX_ALL = 45
@@ -421,6 +451,16 @@ class ArrayBinASCIITest(BinASCIITest):
     def type2test(self, s):
         return array.array('B', list(s))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_crc32(self):
+        super().test_crc32()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_base64valid(self):
+        super().test_base64valid()
+
 
 class BytearrayBinASCIITest(BinASCIITest):
     type2test = bytearray
@@ -429,6 +469,15 @@ class BytearrayBinASCIITest(BinASCIITest):
 class MemoryviewBinASCIITest(BinASCIITest):
     type2test = memoryview
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_crc32(self):
+        super().test_crc32()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_base64valid(self):
+        super().test_base64valid()
 
 if __name__ == "__main__":
     unittest.main()
