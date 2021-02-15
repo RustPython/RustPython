@@ -14,6 +14,12 @@ def run(coro):
     """
     _Runner(coro)
 
+def spawn(coro):
+    """
+    Run a coroutine. Like run(), but returns a promise that resolves with
+    the result of the coroutine.
+    """
+    return Promise.resolve(_CoroPromise(coro))
 
 class _Runner:
     def __init__(self, coro):
@@ -77,7 +83,7 @@ class _CallbackMap:
 
         if self.done == -1:
             if error:
-                return _call_resolve(error, self._error)
+                return _call_resolve(error, self._result)
             else:
                 return self
         elif self.done == 1:
@@ -87,7 +93,6 @@ class _CallbackMap:
                 return self
 
         if success:
-            # def onsuccess(then=
             self._successes.append(success)
         if error:
             self._errors.append(error)

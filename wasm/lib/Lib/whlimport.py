@@ -2,7 +2,10 @@ import browser
 import zipfile
 import asyncweb
 import io
+import re
+from urllib.parse import urlparse, unquote
 import _frozen_importlib as _bootstrap
+import _microdistlib
 
 _IS_SETUP = False
 
@@ -13,16 +16,16 @@ def setup(*, log=print):
     if not _IS_SETUP:
         import sys
 
-        sys.meta_path.insert(0, WheelFinder)
+        sys.meta_path.insert(0, ZipFinder)
         _IS_SETUP = True
 
-    if not log:
+    if log:
+
+        LOG_FUNC = log
+    else:
 
         def LOG_FUNC(log):
             pass
-
-    else:
-        LOG_FUNC = log
 
 
 async def load_package(*args):
@@ -33,12 +36,38 @@ _loaded_packages = {}
 
 LOG_FUNC = print
 
+_http_url = re.compile("^http[s]?://")
+
 
 async def _load_package(pkg):
-    # TODO: support pkg==X.Y semver specifiers as well as arbitrary URLs
-    info = await browser.fetch(
-        f"https://pypi.org/pypi/{pkg}/json", response_format="json"
+    if isinstance(pkg, str) and _http_url.match(pkg):
+        urlobj = urlparse(pkg)
+        fname = posixpath.basename(urlobj.path)
+        name, url, size, deps = fname, pkg, None, []
+    else:
+        # TODO: load dependencies as well
+        name, fname, url, size, deps = await _load_info_pypi(pkg)
+    if name in _loaded_packages:
+        return
+    deps = asyncweb.spawn(asyncweb.wait_all(_load_package for dep in deps))
+    size_str = format_size(size) if size is not None else "unknown size"
+    LOG_FUNC(f"Downloading {fname} ({size_str})...")
+    zip_data = io.BytesIO(await browser.fetch(url, response_format="array_buffer"))
+    size = len(zip_data.getbuffer())
+    LOG_FUNC(f"{fname} done!")
+    _loaded_packages[name] = zipfile.ZipFile(zip_data)
+    await deps
+
+
+async def _load_info_pypi(pkg):
+    pkg = _microdistlib.parse_requirement(pkg)
+    # TODO: use VersionMatcher from distlib
+    api_url = (
+        f"https://pypi.org/pypi/{pkg.name}/json"
+        if not pkg.constraints
+        else f"https://pypi.org/pypi/{pkg}/{pkg.constraints[0][1]}/json"
     )
+    info = await browser.fetch(api_url, response_format="json")
     name = info["info"]["name"]
     ver = info["info"]["version"]
     ver_downloads = info["releases"][ver]
@@ -46,16 +75,7 @@ async def _load_package(pkg):
         dl = next(dl for dl in ver_downloads if dl["packagetype"] == "bdist_wheel")
     except StopIteration:
         raise ValueError(f"no wheel available for package {Name!r} {ver}")
-    if name in _loaded_packages:
-        return
-    fname = dl["filename"]
-    LOG_FUNC(f"Downloading {fname} ({format_size(dl['size'])})...")
-    zip_data = io.BytesIO(
-        await browser.fetch(dl["url"], response_format="array_buffer")
-    )
-    size = len(zip_data.getbuffer())
-    LOG_FUNC(f"{fname} done!")
-    _loaded_packages[name] = zipfile.ZipFile(zip_data)
+    return name, dl["filename"], dl["url"], dl["size"], info["info"]["requires_dist"] or []
 
 
 def format_size(bytes):
@@ -70,7 +90,7 @@ def format_size(bytes):
         return "{} bytes".format(int(bytes))
 
 
-class WheelFinder:
+class ZipFinder:
     _packages = _loaded_packages
 
     @classmethod
@@ -80,7 +100,7 @@ class WheelFinder:
             mi, fullpath = _get_module_info(z, path)
             if mi is not None:
                 return _bootstrap.spec_from_loader(
-                    fullname, cls, origin=f"wheel:{zname}/{fullpath}", is_package=mi
+                    fullname, cls, origin=f"zip:{zname}/{fullpath}", is_package=mi
                 )
         return None
 
@@ -99,10 +119,10 @@ class WheelFinder:
     @classmethod
     def _get_source(cls, spec):
         origin = spec.origin
-        if not origin or not origin.startswith("wheel:"):
+        if not origin or not origin.startswith("zip:"):
             raise ImportError(f"{module.__spec__.name!r} is not a zip module")
 
-        zipname, slash, path = origin[len("wheel:") :].partition("/")
+        zipname, slash, path = origin[len("zip:") :].partition("/")
         return cls._packages[zipname].read(path).decode()
 
     @classmethod
@@ -116,9 +136,9 @@ class WheelFinder:
 
 
 _zip_searchorder = (
-    # (path_sep + '__init__.pyc', True, True),
+    ("/__init__.pyc", True, True),
     ("/__init__.py", False, True),
-    # ('.pyc', True, False),
+    (".pyc", True, False),
     (".py", False, False),
 )
 
