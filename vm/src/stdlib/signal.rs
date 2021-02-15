@@ -111,9 +111,10 @@ pub fn check_signals(vm: &VirtualMachine) -> PyResult<()> {
         None => return Ok(()),
     };
 
-    if !ANY_TRIGGERED.swap(false, Ordering::Relaxed) {
+    if !ANY_TRIGGERED.load(Ordering::Relaxed) {
         return Ok(());
     }
+    ANY_TRIGGERED.store(false, Ordering::Relaxed);
 
     trigger_signals(&signal_handlers.borrow(), vm)
 }
