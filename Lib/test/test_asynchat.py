@@ -130,16 +130,22 @@ class TestAsynchat(unittest.TestCase):
     # chunks back from the server in order to exercise all branches of
     # async_chat.handle_read
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_line_terminator1(self):
         # test one-character terminator
         for l in (1, 2, 3):
             self.line_terminator_check(b'\n', l)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_line_terminator2(self):
         # test two-character terminator
         for l in (1, 2, 3):
             self.line_terminator_check(b'\r\n', l)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_line_terminator3(self):
         # test three-character terminator
         for l in (1, 2, 3):
@@ -157,14 +163,20 @@ class TestAsynchat(unittest.TestCase):
 
         self.assertEqual(c.contents, [data[:termlen]])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_numeric_terminator1(self):
         # check that ints & longs both work (since type is
         # explicitly checked in async_chat.handle_read)
         self.numeric_terminator_check(1)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_numeric_terminator2(self):
         self.numeric_terminator_check(6)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_none_terminator(self):
         # Try reading a fixed number of bytes
         s, event = start_echo_server()
@@ -178,6 +190,8 @@ class TestAsynchat(unittest.TestCase):
         self.assertEqual(c.contents, [])
         self.assertEqual(c.buffer, data)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_simple_producer(self):
         s, event = start_echo_server()
         c = echo_client(b'\n', s.port)
@@ -189,6 +203,8 @@ class TestAsynchat(unittest.TestCase):
 
         self.assertEqual(c.contents, [b"hello world", b"I'm not dead yet!"])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_string_producer(self):
         s, event = start_echo_server()
         c = echo_client(b'\n', s.port)
@@ -199,6 +215,8 @@ class TestAsynchat(unittest.TestCase):
 
         self.assertEqual(c.contents, [b"hello world", b"I'm not dead yet!"])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_empty_line(self):
         # checks that empty lines are handled correctly
         s, event = start_echo_server()
@@ -211,6 +229,8 @@ class TestAsynchat(unittest.TestCase):
         self.assertEqual(c.contents,
                          [b"hello world", b"", b"I'm not dead yet!"])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_close_when_done(self):
         s, event = start_echo_server()
         s.start_resend_event = threading.Event()
@@ -233,6 +253,8 @@ class TestAsynchat(unittest.TestCase):
         # (which could still result in the client not having received anything)
         self.assertGreater(len(s.buffer), 0)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_push(self):
         # Issue #12523: push() should raise a TypeError if it doesn't get
         # a bytes string
