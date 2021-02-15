@@ -51,5 +51,15 @@ class CharmapCodecTest(unittest.TestCase):
     def test_maptoundefined(self):
         self.assertRaises(UnicodeError, str, b'abc\001', codecname)
 
+    # TODO: RUSTPYTHON
+    import sys
+    if sys.platform == "win32":
+        # TODO: RUSTPYTHON
+        test_constructorx = unittest.expectedFailure(test_constructorx)
+        # TODO: RUSTPYTHON
+        test_constructory = unittest.expectedFailure(test_constructory)
+        # TODO: RUSTPYTHON
+        test_maptoundefined = unittest.expectedFailure(test_maptoundefined)
+
 if __name__ == "__main__":
     unittest.main()
