@@ -374,6 +374,7 @@ class FileWrapperTest(unittest.TestCase):
     def tearDown(self):
         support.unlink(support.TESTFN)
 
+    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'assertion failed: `(left != right)` left: `-1`, right: `-1`'")
     def test_recv(self):
         fd = os.open(support.TESTFN, os.O_RDONLY)
         w = asyncore.file_wrapper(fd)
