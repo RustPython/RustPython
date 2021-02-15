@@ -33,6 +33,8 @@ class CharmapCodecTest(unittest.TestCase):
         self.assertEqual(str(b'dxf', codecname), 'dabcf')
         self.assertEqual(str(b'dxfx', codecname), 'dabcfabc')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_encodex(self):
         self.assertEqual('abc'.encode(codecname), b'abc')
         self.assertEqual('xdef'.encode(codecname), b'abcdef')
