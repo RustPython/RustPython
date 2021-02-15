@@ -2,7 +2,7 @@ use crate::builtins::{PyStrRef, PyTypeRef};
 use crate::exceptions::{self, PyBaseExceptionRef};
 use crate::frame::{ExecutionResult, FrameRef};
 use crate::pyobject::{PyObjectRef, PyResult, TypeProtocol};
-use crate::vm::VirtualMachine;
+use crate::vm::{self, VirtualMachine};
 
 use crate::common::lock::PyMutex;
 use crossbeam_utils::atomic::AtomicCell;
@@ -37,7 +37,7 @@ pub struct Coro {
     frame: FrameRef,
     pub closed: AtomicCell<bool>,
     running: AtomicCell<bool>,
-    exceptions: PyMutex<Vec<PyBaseExceptionRef>>,
+    exceptions: PyMutex<vm::ExceptionStack>,
     variant: Variant,
     name: PyMutex<PyStrRef>,
 }
@@ -48,7 +48,7 @@ impl Coro {
             frame,
             closed: AtomicCell::new(false),
             running: AtomicCell::new(false),
-            exceptions: PyMutex::new(vec![]),
+            exceptions: PyMutex::default(),
             variant,
             name: PyMutex::new(name),
         }
@@ -68,16 +68,28 @@ impl Coro {
         if self.running.compare_exchange(false, true).is_err() {
             return Err(vm.new_value_error(format!("{} already executing", self.variant.name())));
         }
-        let curr_exception_stack_len;
         {
             let mut vm_excs = vm.exceptions.borrow_mut();
-            curr_exception_stack_len = vm_excs.len();
-            vm_excs.append(&mut self.exceptions.lock());
+            let mut gen_excs = self.exceptions.lock();
+            // CPython's logic:
+            // gen->gi_exc_state.previous_item = tstate->exc_info;
+            // tstate->exc_info = &gen->gi_exc_state;
+            let vm_e = std::mem::take(&mut *vm_excs);
+            let mut gen_e = std::mem::take(&mut *gen_excs);
+            gen_e.prev = Some(Box::new(vm_e));
+            *vm_excs = gen_e;
+            // sorta? ¯\_(ツ)_/¯
         }
         let result = vm.with_frame(self.frame.clone(), func);
-        self.exceptions
-            .lock()
-            .extend(vm.exceptions.borrow_mut().drain(curr_exception_stack_len..));
+        {
+            let mut vm_excs = vm.exceptions.borrow_mut();
+            let mut gen_excs = self.exceptions.lock();
+            // CPython:
+            // tstate->exc_info = gen->gi_exc_state.previous_item;
+            // gen->gi_exc_state.previous_item = NULL;
+            std::mem::swap(&mut *vm_excs, &mut *gen_excs);
+            *vm_excs = *gen_excs.prev.take().unwrap();
+        }
         self.running.store(false);
         result
     }
