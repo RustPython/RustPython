@@ -20,11 +20,9 @@ assert int.__trunc__
 assert int.__floor__
 assert int.__ceil__
 
-# assert float.__trunc__
-with assert_raises(AttributeError):
-    assert float.__floor__
-with assert_raises(AttributeError):
-    assert float.__ceil__
+assert float.__trunc__
+assert float.__floor__
+assert float.__ceil__
 
 assert math.trunc(2) == 2
 assert math.ceil(3) == 3
