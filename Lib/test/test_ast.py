@@ -263,6 +263,8 @@ class AST_Tests(unittest.TestCase):
             elif value is not None:
                 self._assertTrueorder(value, parent_pos)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_AST_objects(self):
         x = ast.AST()
         self.assertEqual(x._fields, ())
@@ -277,6 +279,8 @@ class AST_Tests(unittest.TestCase):
             # "_ast.AST constructor takes 0 positional arguments"
             ast.AST(2)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_AST_garbage_collection(self):
         class X:
             pass
@@ -325,6 +329,8 @@ class AST_Tests(unittest.TestCase):
         mod.body[0].module = " __future__ ".strip()
         compile(mod, "<test>", "exec")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_base_classes(self):
         self.assertTrue(issubclass(ast.For, ast.stmt))
         self.assertTrue(issubclass(ast.Name, ast.expr))
@@ -333,6 +339,8 @@ class AST_Tests(unittest.TestCase):
         self.assertTrue(issubclass(ast.comprehension, ast.AST))
         self.assertTrue(issubclass(ast.Gt, ast.AST))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_field_attr_existence(self):
         for name, item in ast.__dict__.items():
             if isinstance(item, type) and name != 'AST' and name[0].isupper():
@@ -340,6 +348,8 @@ class AST_Tests(unittest.TestCase):
                 if isinstance(x, ast.AST):
                     self.assertEqual(type(x._fields), tuple)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_arguments(self):
         x = ast.arguments()
         self.assertEqual(x._fields, ('posonlyargs', 'args', 'vararg', 'kwonlyargs',
@@ -357,6 +367,8 @@ class AST_Tests(unittest.TestCase):
         x._fields = 666
         self.assertEqual(x._fields, 666)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_classattrs(self):
         x = ast.Num()
         self.assertEqual(x._fields, ('value', 'kind'))
@@ -500,6 +512,8 @@ class AST_Tests(unittest.TestCase):
         x = ast.Module(body, [])
         self.assertEqual(x.body, body)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_nodeclasses(self):
         # Zero arguments constructor explicitly allowed
         x = ast.BinOp()
@@ -544,6 +558,8 @@ class AST_Tests(unittest.TestCase):
         x = ast.BinOp(1, 2, 3, foobarbaz=42)
         self.assertEqual(x.foobarbaz, 42)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_no_fields(self):
         # this used to fail because Sub._fields was None
         x = ast.Sub()
@@ -564,6 +580,8 @@ class AST_Tests(unittest.TestCase):
                     ast2 = mod.loads(mod.dumps(ast, protocol))
                     self.assertEqual(to_tuple(ast2), to_tuple(ast))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_invalid_sum(self):
         pos = dict(lineno=2, col_offset=3)
         m = ast.Module([ast.Expr(ast.expr(**pos), **pos)], [])
@@ -571,6 +589,8 @@ class AST_Tests(unittest.TestCase):
             compile(m, "<test>", "exec")
         self.assertIn("but got <_ast.expr", str(cm.exception))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_invalid_identitifer(self):
         m = ast.Module([ast.Expr(ast.Name(42, ast.Load()))], [])
         ast.fix_missing_locations(m)
@@ -578,6 +598,8 @@ class AST_Tests(unittest.TestCase):
             compile(m, "<test>", "exec")
         self.assertIn("identifier must be of type str", str(cm.exception))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_empty_yield_from(self):
         # Issue 16546: yield from value is not optional.
         empty_yield_from = ast.parse("def f():\n yield from g()")
@@ -596,6 +618,8 @@ class AST_Tests(unittest.TestCase):
         with support.swap_attr(unicodedata, 'normalize', bad_normalize):
             self.assertRaises(TypeError, ast.parse, '\u03D5')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_issue18374_binop_col_offset(self):
         tree = ast.parse('4+5+6+7')
         parent_binop = tree.body[0].value
@@ -627,16 +651,22 @@ class AST_Tests(unittest.TestCase):
         self.assertEqual(grandchild_binop.end_col_offset, 3)
         self.assertEqual(grandchild_binop.end_lineno, 1)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_issue39579_dotted_name_end_col_offset(self):
         tree = ast.parse('@a.b.c\ndef f(): pass')
         attr_b = tree.body[0].decorator_list[0].value
         self.assertEqual(attr_b.end_col_offset, 4)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_issue40614_feature_version(self):
         ast.parse('f"{x=}"', feature_version=(3, 8))
         with self.assertRaises(SyntaxError):
             ast.parse('f"{x=}"', feature_version=(3, 7))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_constant_as_name(self):
         for constant in "True", "False", "None":
             expr = ast.Expression(ast.Name(constant, ast.Load()))
@@ -653,6 +683,8 @@ class ASTHelpers_Test(unittest.TestCase):
         b = compile('foo(1 + 1)', '<unknown>', 'exec', ast.PyCF_ONLY_AST)
         self.assertEqual(ast.dump(a), ast.dump(b))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_parse_in_error(self):
         try:
             1/0
@@ -661,6 +693,8 @@ class ASTHelpers_Test(unittest.TestCase):
                 ast.literal_eval(r"'\U'")
             self.assertIsNotNone(e.exception.__context__)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_dump(self):
         node = ast.parse('spam(eggs, "and cheese")')
         self.assertEqual(ast.dump(node),
@@ -711,6 +745,8 @@ class ASTHelpers_Test(unittest.TestCase):
             "Raise(cause=Name('e', Load()))"
         )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_copy_location(self):
         src = ast.parse('1 + 1', mode='eval')
         src.body.right = ast.copy_location(ast.Num(2), src.body.right)
@@ -730,6 +766,8 @@ class ASTHelpers_Test(unittest.TestCase):
         self.assertEqual(new.lineno, 1)
         self.assertEqual(new.col_offset, 1)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_fix_missing_locations(self):
         src = ast.parse('write("spam")')
         src.body.append(ast.Expr(ast.Call(ast.Name('spam', ast.Load()),
@@ -750,6 +788,8 @@ class ASTHelpers_Test(unittest.TestCase):
             "type_ignores=[])"
         )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_increment_lineno(self):
         src = ast.parse('1 + 1', mode='eval')
         self.assertEqual(ast.increment_lineno(src, n=3), src)
@@ -832,6 +872,8 @@ class ASTHelpers_Test(unittest.TestCase):
         node = ast.parse('async def foo():\n  x = "not docstring"')
         self.assertIsNone(ast.get_docstring(node.body[0]))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_multi_line_docstring_col_offset_and_lineno_issue16806(self):
         node = ast.parse(
             '"""line one\nline two"""\n\n'
@@ -851,18 +893,24 @@ class ASTHelpers_Test(unittest.TestCase):
         self.assertEqual(node.body[2].col_offset, 0)
         self.assertEqual(node.body[2].lineno, 13)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_elif_stmt_start_position(self):
         node = ast.parse('if a:\n    pass\nelif b:\n    pass\n')
         elif_stmt = node.body[0].orelse[0]
         self.assertEqual(elif_stmt.lineno, 3)
         self.assertEqual(elif_stmt.col_offset, 0)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_elif_stmt_start_position_with_else(self):
         node = ast.parse('if a:\n    pass\nelif b:\n    pass\nelse:\n    pass\n')
         elif_stmt = node.body[0].orelse[0]
         self.assertEqual(elif_stmt.lineno, 3)
         self.assertEqual(elif_stmt.col_offset, 0)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_starred_expr_end_position_within_call(self):
         node = ast.parse('f(*[0, 1])')
         starred_expr = node.body[0].value.args[0]
@@ -914,6 +962,8 @@ class ASTHelpers_Test(unittest.TestCase):
         malformed = ast.Dict(keys=[ast.Constant(1)], values=[ast.Constant(2), ast.Constant(3)])
         self.assertRaises(ValueError, ast.literal_eval, malformed)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_bad_integer(self):
         # issue13436: Bad error message with invalid numeric values
         body = [ast.ImportFrom(module='time',
@@ -925,6 +975,8 @@ class ASTHelpers_Test(unittest.TestCase):
             compile(mod, 'test', 'exec')
         self.assertIn("invalid integer value: None", str(cm.exception))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_level_as_none(self):
         body = [ast.ImportFrom(module='time',
                                names=[ast.alias(name='sleep')],
@@ -957,6 +1009,8 @@ class ASTValidatorTests(unittest.TestCase):
         mod = ast.Module([stmt], [])
         self.mod(mod, msg)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_module(self):
         m = ast.Interactive([ast.Expr(ast.Name("x", ast.Store()))])
         self.mod(m, "must have Load context", "single")
@@ -997,6 +1051,8 @@ class ASTValidatorTests(unittest.TestCase):
                           kw_defaults=[None, ast.Name("x", ast.Store())]),
                           "must have Load context")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_funcdef(self):
         a = ast.arguments([], [], None, [], [], None, [])
         f = ast.FunctionDef("x", a, [], [], None)
@@ -1011,6 +1067,8 @@ class ASTValidatorTests(unittest.TestCase):
             return ast.FunctionDef("x", args, [ast.Pass()], [], None)
         self._check_arguments(fac, self.stmt)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_classdef(self):
         def cls(bases=None, keywords=None, body=None, decorator_list=None):
             if bases is None:
@@ -1032,12 +1090,16 @@ class ASTValidatorTests(unittest.TestCase):
         self.stmt(cls(decorator_list=[ast.Name("x", ast.Store())]),
                   "must have Load context")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_delete(self):
         self.stmt(ast.Delete([]), "empty targets on Delete")
         self.stmt(ast.Delete([None]), "None disallowed")
         self.stmt(ast.Delete([ast.Name("x", ast.Load())]),
                   "must have Del context")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_assign(self):
         self.stmt(ast.Assign([], ast.Num(3)), "empty targets on Assign")
         self.stmt(ast.Assign([None], ast.Num(3)), "None disallowed")
@@ -1047,6 +1109,8 @@ class ASTValidatorTests(unittest.TestCase):
                                 ast.Name("y", ast.Store())),
                   "must have Load context")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_augassign(self):
         aug = ast.AugAssign(ast.Name("x", ast.Load()), ast.Add(),
                             ast.Name("y", ast.Load()))
@@ -1055,6 +1119,8 @@ class ASTValidatorTests(unittest.TestCase):
                             ast.Name("y", ast.Store()))
         self.stmt(aug, "must have Load context")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_for(self):
         x = ast.Name("x", ast.Store())
         y = ast.Name("y", ast.Load())
@@ -1068,6 +1134,8 @@ class ASTValidatorTests(unittest.TestCase):
         self.stmt(ast.For(x, y, [e], []), "must have Load context")
         self.stmt(ast.For(x, y, [p], [e]), "must have Load context")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_while(self):
         self.stmt(ast.While(ast.Num(3), [], []), "empty body on While")
         self.stmt(ast.While(ast.Name("x", ast.Store()), [ast.Pass()], []),
@@ -1076,6 +1144,8 @@ class ASTValidatorTests(unittest.TestCase):
                              [ast.Expr(ast.Name("x", ast.Store()))]),
                              "must have Load context")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_if(self):
         self.stmt(ast.If(ast.Num(3), [], []), "empty body on If")
         i = ast.If(ast.Name("x", ast.Store()), [ast.Pass()], [])
@@ -1086,6 +1156,8 @@ class ASTValidatorTests(unittest.TestCase):
                    [ast.Expr(ast.Name("x", ast.Store()))])
         self.stmt(i, "must have Load context")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_with(self):
         p = ast.Pass()
         self.stmt(ast.With([], [p]), "empty items on With")
@@ -1096,6 +1168,8 @@ class ASTValidatorTests(unittest.TestCase):
         i = ast.withitem(ast.Num(3), ast.Name("x", ast.Load()))
         self.stmt(ast.With([i], [p]), "must have Store context")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_raise(self):
         r = ast.Raise(None, ast.Num(3))
         self.stmt(r, "Raise with cause but no exception")
@@ -1104,6 +1178,8 @@ class ASTValidatorTests(unittest.TestCase):
         r = ast.Raise(ast.Num(4), ast.Name("x", ast.Store()))
         self.stmt(r, "must have Load context")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_try(self):
         p = ast.Pass()
         t = ast.Try([], [], [], [p])
@@ -1124,6 +1200,8 @@ class ASTValidatorTests(unittest.TestCase):
         t = ast.Try([p], e, [p], [ast.Expr(ast.Name("x", ast.Store()))])
         self.stmt(t, "must have Load context")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_assert(self):
         self.stmt(ast.Assert(ast.Name("x", ast.Store()), None),
                   "must have Load context")
@@ -1131,20 +1209,30 @@ class ASTValidatorTests(unittest.TestCase):
                            ast.Name("y", ast.Store()))
         self.stmt(assrt, "must have Load context")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_import(self):
         self.stmt(ast.Import([]), "empty names on Import")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_importfrom(self):
         imp = ast.ImportFrom(None, [ast.alias("x", None)], -42)
         self.stmt(imp, "Negative ImportFrom level")
         self.stmt(ast.ImportFrom(None, [], 0), "empty names on ImportFrom")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_global(self):
         self.stmt(ast.Global([]), "empty names on Global")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_nonlocal(self):
         self.stmt(ast.Nonlocal([]), "empty names on Nonlocal")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_expr(self):
         e = ast.Expr(ast.Name("x", ast.Store()))
         self.stmt(e, "must have Load context")
@@ -1160,10 +1248,14 @@ class ASTValidatorTests(unittest.TestCase):
         b = ast.BoolOp(ast.And(), [ast.Num(4), ast.Name("x", ast.Store())])
         self.expr(b, "must have Load context")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_unaryop(self):
         u = ast.UnaryOp(ast.Not(), ast.Name("x", ast.Store()))
         self.expr(u, "must have Load context")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_lambda(self):
         a = ast.arguments([], [], None, [], [], None, [])
         self.expr(ast.Lambda(a, ast.Name("x", ast.Store())),
@@ -1172,18 +1264,24 @@ class ASTValidatorTests(unittest.TestCase):
             return ast.Lambda(args, ast.Name("x", ast.Load()))
         self._check_arguments(fac, self.expr)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_ifexp(self):
         l = ast.Name("x", ast.Load())
         s = ast.Name("y", ast.Store())
         for args in (s, l, l), (l, s, l), (l, l, s):
             self.expr(ast.IfExp(*args), "must have Load context")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_dict(self):
         d = ast.Dict([], [ast.Name("x", ast.Load())])
         self.expr(d, "same number of keys as values")
         d = ast.Dict([ast.Name("x", ast.Load())], [None])
         self.expr(d, "None disallowed")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_set(self):
         self.expr(ast.Set([None]), "None disallowed")
         s = ast.Set([ast.Name("x", ast.Store())])
@@ -1213,15 +1311,23 @@ class ASTValidatorTests(unittest.TestCase):
             return fac(ast.Name("x", ast.Store()), gens)
         self._check_comprehension(wrap)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_listcomp(self):
         self._simple_comp(ast.ListComp)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_setcomp(self):
         self._simple_comp(ast.SetComp)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_generatorexp(self):
         self._simple_comp(ast.GeneratorExp)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_dictcomp(self):
         g = ast.comprehension(ast.Name("y", ast.Store()),
                               ast.Name("p", ast.Load()), [], 0)
@@ -1237,6 +1343,8 @@ class ASTValidatorTests(unittest.TestCase):
             return ast.DictComp(k, v, comps)
         self._check_comprehension(factory)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_yield(self):
         self.expr(ast.Yield(ast.Name("x", ast.Store())), "must have Load")
         self.expr(ast.YieldFrom(ast.Name("x", ast.Store())), "must have Load")
@@ -1253,6 +1361,8 @@ class ASTValidatorTests(unittest.TestCase):
         comp = ast.Compare(left, [ast.In()], [ast.Num("blah")])
         self.expr(comp)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_call(self):
         func = ast.Name("x", ast.Load())
         args = [ast.Name("y", ast.Load())]
@@ -1265,6 +1375,8 @@ class ASTValidatorTests(unittest.TestCase):
         call = ast.Call(func, args, bad_keywords)
         self.expr(call, "must have Load context")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_num(self):
         class subint(int):
             pass
@@ -1277,10 +1389,14 @@ class ASTValidatorTests(unittest.TestCase):
         for obj in subint(), subfloat(), subcomplex():
             self.expr(ast.Num(obj), "invalid type", exc=TypeError)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_attribute(self):
         attr = ast.Attribute(ast.Name("x", ast.Store()), "y", ast.Load())
         self.expr(attr, "must have Load context")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_subscript(self):
         sub = ast.Subscript(ast.Name("x", ast.Store()), ast.Index(ast.Num(3)),
                             ast.Load())
@@ -1299,6 +1415,8 @@ class ASTValidatorTests(unittest.TestCase):
         sl = ast.ExtSlice([ast.Index(s)])
         self.expr(ast.Subscript(x, sl, ast.Load()), "must have Load context")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_starred(self):
         left = ast.List([ast.Starred(ast.Name("x", ast.Load()), ast.Store())],
                         ast.Store())
@@ -1310,15 +1428,21 @@ class ASTValidatorTests(unittest.TestCase):
         self.expr(fac([ast.Name("x", ast.Store())], ast.Load()),
                   "must have Load context")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_list(self):
         self._sequence(ast.List)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_tuple(self):
         self._sequence(ast.Tuple)
 
     def test_nameconstant(self):
         self.expr(ast.NameConstant(4))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_stdlib_validates(self):
         stdlib = os.path.dirname(ast.__file__)
         tests = [fn for fn in os.listdir(stdlib) if fn.endswith(".py")]
@@ -1349,18 +1473,24 @@ class ConstantTests(unittest.TestCase):
         exec(code, ns)
         return ns['x']
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_validation(self):
         with self.assertRaises(TypeError) as cm:
             self.compile_constant([1, 2, 3])
         self.assertEqual(str(cm.exception),
                          "got an invalid type in Constant: list")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_singletons(self):
         for const in (None, False, True, Ellipsis, b'', frozenset()):
             with self.subTest(const=const):
                 value = self.compile_constant(const)
                 self.assertIs(value, const)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_values(self):
         nested_tuple = (1,)
         nested_frozenset = frozenset({1})
@@ -1376,6 +1506,8 @@ class ConstantTests(unittest.TestCase):
                 result = self.compile_constant(value)
                 self.assertEqual(result, value)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_assign_to_constant(self):
         tree = ast.parse("x = 1")
 
@@ -1447,6 +1579,8 @@ class ConstantTests(unittest.TestCase):
 
         self.assertEqual(ast.literal_eval(binop), 10+20j)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_string_kind(self):
         c = ast.parse('"x"', mode='eval').body
         self.assertEqual(c.value, "x")
@@ -1483,6 +1617,8 @@ class EndPositionTests(unittest.TestCase):
         # and a right hand side of an assignment statement.
         return ast.parse(s).body[0].value
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_lambda(self):
         s = 'lambda x, *y: None'
         lam = self._parse_value(s)
@@ -1490,6 +1626,8 @@ class EndPositionTests(unittest.TestCase):
         self._check_content(s, lam.args.args[0], 'x')
         self._check_content(s, lam.args.vararg, 'y')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_func_def(self):
         s = dedent('''
             def func(x: int,
@@ -1506,6 +1644,8 @@ class EndPositionTests(unittest.TestCase):
         self._check_content(s, fdef.args.kwarg, 'kwargs: Any')
         self._check_content(s, fdef.args.kwarg.annotation, 'Any')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_call(self):
         s = 'func(x, y=2, **kw)'
         call = self._parse_value(s)
@@ -1513,12 +1653,16 @@ class EndPositionTests(unittest.TestCase):
         self._check_content(s, call.keywords[0].value, '2')
         self._check_content(s, call.keywords[1].value, 'kw')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_call_noargs(self):
         s = 'x[0]()'
         call = self._parse_value(s)
         self._check_content(s, call.func, 'x[0]')
         self._check_end_pos(call, 1, 6)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_class_def(self):
         s = dedent('''
             class C(A, B):
@@ -1529,11 +1673,15 @@ class EndPositionTests(unittest.TestCase):
         self._check_content(s, cdef.bases[1], 'B')
         self._check_content(s, cdef.body[0], 'x: int = 0')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_class_kw(self):
         s = 'class S(metaclass=abc.ABCMeta): pass'
         cdef = ast.parse(s).body[0]
         self._check_content(s, cdef.keywords[0].value, 'abc.ABCMeta')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_multi_line_str(self):
         s = dedent('''
             x = """Some multi-line text.
@@ -1544,6 +1692,8 @@ class EndPositionTests(unittest.TestCase):
         self._check_end_pos(assign, 3, 40)
         self._check_end_pos(assign.value, 3, 40)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_continued_str(self):
         s = dedent('''
             x = "first part" \\
@@ -1553,6 +1703,8 @@ class EndPositionTests(unittest.TestCase):
         self._check_end_pos(assign, 2, 13)
         self._check_end_pos(assign.value, 2, 13)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_suites(self):
         # We intentionally put these into the same string to check
         # that empty lines are not part of the suite.
@@ -1597,12 +1749,16 @@ class EndPositionTests(unittest.TestCase):
         self._check_content(s, try_stmt.body[0], 'raise RuntimeError')
         self._check_content(s, try_stmt.handlers[0].type, 'TypeError')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_fstring(self):
         s = 'x = f"abc {x + y} abc"'
         fstr = self._parse_value(s)
         binop = fstr.values[1].value
         self._check_content(s, binop, 'x + y')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_fstring_multi_line(self):
         s = dedent('''
             f"""Some multi-line text.
@@ -1619,6 +1775,8 @@ class EndPositionTests(unittest.TestCase):
         self._check_content(s, binop.left, 'arg_one')
         self._check_content(s, binop.right, 'arg_two')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_import_from_multi_line(self):
         s = dedent('''
             from x.y.z import (
@@ -1628,6 +1786,8 @@ class EndPositionTests(unittest.TestCase):
         imp = ast.parse(s).body[0]
         self._check_end_pos(imp, 3, 1)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_slices(self):
         s1 = 'f()[1, 2] [0]'
         s2 = 'x[ a.b: c.d]'
@@ -1645,6 +1805,8 @@ class EndPositionTests(unittest.TestCase):
         self._check_content(sm, im.slice.dims[1].lower, 'g ()')
         self._check_end_pos(im, 3, 3)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_binop(self):
         s = dedent('''
             (1 * 2 + (3 ) +
@@ -1657,6 +1819,8 @@ class EndPositionTests(unittest.TestCase):
         self._check_content(s, binop.left, '1 * 2 + (3 )')
         self._check_content(s, binop.left.right, '3')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_boolop(self):
         s = dedent('''
             if (one_condition and
@@ -1668,6 +1832,8 @@ class EndPositionTests(unittest.TestCase):
         self._check_content(s, bop.values[1],
                             'other_condition or yet_another_one')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_tuples(self):
         s1 = 'x = () ;'
         s2 = 'x = 1 , ;'
@@ -1683,12 +1849,16 @@ class EndPositionTests(unittest.TestCase):
         self._check_content(s3, t3, '(1 , 2 )')
         self._check_end_pos(tm, 3, 1)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_attribute_spaces(self):
         s = 'func(x. y .z)'
         call = self._parse_value(s)
         self._check_content(s, call, s)
         self._check_content(s, call.args[0], 'x. y .z')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_redundant_parenthesis(self):
         s = '( ( ( a + b ) ) )'
         v = ast.parse(s).body[0].value
@@ -1699,6 +1869,8 @@ class EndPositionTests(unittest.TestCase):
         self.assertEqual(type(v).__name__, 'BinOp')
         self._check_content(s2, v, 'a + b')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_trailers_with_redundant_parenthesis(self):
         tests = (
             ('( ( ( a ) ) ) ( )', 'Call'),
@@ -1716,6 +1888,8 @@ class EndPositionTests(unittest.TestCase):
                 self.assertEqual(type(v).__name__, t)
                 self._check_content(s2, v, s)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_displays(self):
         s1 = '[{}, {1, }, {1, 2,} ]'
         s2 = '{a: b, f (): g () ,}'
@@ -1727,6 +1901,8 @@ class EndPositionTests(unittest.TestCase):
         self._check_content(s2, c2.keys[1], 'f ()')
         self._check_content(s2, c2.values[1], 'g ()')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_comprehensions(self):
         s = dedent('''
             x = [{x for x, y in stuff
@@ -1739,6 +1915,8 @@ class EndPositionTests(unittest.TestCase):
         self._check_content(s, cmp.elt.generators[0].ifs[0], 'cond.x')
         self._check_content(s, cmp.elt.generators[0].target, 'x, y')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_yield_await(self):
         s = dedent('''
             async def f():
@@ -1749,6 +1927,8 @@ class EndPositionTests(unittest.TestCase):
         self._check_content(s, fdef.body[0].value, 'yield x')
         self._check_content(s, fdef.body[1].value, 'await y')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_source_segment_multi(self):
         s_orig = dedent('''
             x = (
@@ -1763,6 +1943,8 @@ class EndPositionTests(unittest.TestCase):
         binop = self._parse_value(s_orig)
         self.assertEqual(ast.get_source_segment(s_orig, binop.left), s_tuple)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_source_segment_padded(self):
         s_orig = dedent('''
             class C:
@@ -1775,6 +1957,8 @@ class EndPositionTests(unittest.TestCase):
         self.assertEqual(ast.get_source_segment(s_orig, cdef.body[0], padded=True),
                          s_method)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_source_segment_endings(self):
         s = 'v = 1\r\nw = 1\nx = 1\n\ry = 1\rz = 1\r\n'
         v, w, x, y, z = ast.parse(s).body
@@ -1784,6 +1968,8 @@ class EndPositionTests(unittest.TestCase):
         self._check_content(s, y, 'y = 1')
         self._check_content(s, z, 'z = 1')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_source_segment_tabs(self):
         s = dedent('''
             class C:
