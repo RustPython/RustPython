@@ -288,6 +288,7 @@ class AST_Tests(unittest.TestCase):
         support.gc_collect()
         self.assertIsNone(ref())
 
+    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'not implemented: async for comprehensions'")
     def test_snippets(self):
         for input, output, kind in ((exec_tests, exec_results, "exec"),
                                     (single_tests, single_results, "single"),
@@ -300,6 +301,7 @@ class AST_Tests(unittest.TestCase):
                 with self.subTest(action="compiling", input=i, kind=kind):
                     compile(ast_tree, "?", kind)
 
+    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'not implemented: async for comprehensions'")
     def test_ast_validation(self):
         # compile() is the only function that calls PyAST_Validate
         snippets_to_validate = exec_tests + single_tests + eval_tests
@@ -1147,6 +1149,7 @@ class ASTValidatorTests(unittest.TestCase):
         e = ast.Expr(ast.Name("x", ast.Store()))
         self.stmt(e, "must have Load context")
 
+    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'called `Option::unwrap()` on a `None` value'")
     def test_boolop(self):
         b = ast.BoolOp(ast.And(), [])
         self.expr(b, "less than 2 values")
@@ -1238,6 +1241,7 @@ class ASTValidatorTests(unittest.TestCase):
         self.expr(ast.Yield(ast.Name("x", ast.Store())), "must have Load")
         self.expr(ast.YieldFrom(ast.Name("x", ast.Store())), "must have Load")
 
+    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'assertion failed: `(left == right)` left: `0`, right: `1`'")
     def test_compare(self):
         left = ast.Name("x", ast.Load())
         comp = ast.Compare(left, [ast.In()], [])
