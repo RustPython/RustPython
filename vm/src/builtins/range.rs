@@ -78,28 +78,36 @@ impl PyRange {
     pub fn get(&self, index: &BigInt) -> Option<BigInt> {
         let start = self.start.borrow_value();
         let step = self.step.borrow_value();
-        let index = index.clone();
+        let stop = self.stop.borrow_value();
         if self.is_empty() {
             return None;
         }
 
-        let length = self.length();
-
-        let index = if index.is_negative() {
-            let new_index: BigInt = &length + &index;
-            if new_index.is_negative() {
+        if index.is_negative() {
+            let length = self.length();
+            let index: BigInt = &length + index;
+            if index.is_negative() {
                 return None;
             }
-            length + index
+
+            Some(if step.is_one() {
+                start + index
+            } else {
+                start + step * index
+            })
         } else {
-            if length <= index {
-                return None;
-            }
-            index
-        };
+            let index = if step.is_one() {
+                start + index
+            } else {
+                start + step * index
+            };
 
-        let result = start + step * index;
-        Some(result)
+            if (step.is_positive() && stop > &index) || (step.is_negative() && stop < &index) {
+                Some(index)
+            } else {
+                None
+            }
+        }
     }
 
     #[inline]
@@ -109,7 +117,13 @@ impl PyRange {
         let step = self.step.borrow_value();
 
         match step.sign() {
-            Sign::Plus if start < stop => (stop - start - 1usize) / step + 1,
+            Sign::Plus if start < stop => {
+                if step.is_one() {
+                    stop - start
+                } else {
+                    (stop - start - 1usize) / step + 1
+                }
+            }
             Sign::Minus if start > stop => (start - stop - 1usize) / (-step) + 1,
             Sign::Plus | Sign::Minus => BigInt::zero(),
             Sign::NoSign => unreachable!(),
