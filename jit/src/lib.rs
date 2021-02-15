@@ -1,3 +1,4 @@
+#![allow(clippy::unnecessary_wraps)]
 use std::fmt;
 
 use cranelift::prelude::*;
