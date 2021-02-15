@@ -26,6 +26,8 @@ class LegacyBase64TestCase(unittest.TestCase):
         with self.assertWarns(DeprecationWarning):
             base64.decodestring(b"d3d3LnB5dGhvbi5vcmc=\n")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_encodebytes(self):
         eq = self.assertEqual
         eq(base64.encodebytes(b"www.python.org"), b"d3d3LnB5dGhvbi5vcmc=\n")
@@ -45,6 +47,8 @@ class LegacyBase64TestCase(unittest.TestCase):
         eq(base64.encodebytes(array('B', b'abc')), b'YWJj\n')
         self.check_type_errors(base64.encodebytes)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_decodebytes(self):
         eq = self.assertEqual
         eq(base64.decodebytes(b"d3d3LnB5dGhvbi5vcmc=\n"), b"www.python.org")
@@ -238,10 +242,14 @@ class BaseXYTestCase(unittest.TestCase):
                                b'\xd3V\xbeo\xf7\x1d')
         self.check_decode_type_errors(base64.urlsafe_b64decode)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_b64decode_padding_error(self):
         self.assertRaises(binascii.Error, base64.b64decode, b'abc')
         self.assertRaises(binascii.Error, base64.b64decode, 'abc')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_b64decode_invalid_chars(self):
         # issue 1466065: Test some invalid characters.
         tests = ((b'%3d==', b'\xdd'),
@@ -306,6 +314,8 @@ class BaseXYTestCase(unittest.TestCase):
         self.check_other_types(base64.b32decode, b'MFRGG===', b"abc")
         self.check_decode_type_errors(base64.b32decode)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_b32decode_casefold(self):
         eq = self.assertEqual
         tests = {b'': b'',
@@ -347,6 +357,8 @@ class BaseXYTestCase(unittest.TestCase):
             self.assertRaises(binascii.Error, base64.b32decode, data)
             self.assertRaises(binascii.Error, base64.b32decode, data_str)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_b32decode_error(self):
         tests = [b'abc', b'ABCDEF==', b'==ABCDEF']
         prefixes = [b'M', b'ME', b'MFRA', b'MFRGG', b'MFRGGZA', b'MFRGGZDF']
@@ -373,6 +385,8 @@ class BaseXYTestCase(unittest.TestCase):
                                b'0102ABCDEF')
         self.check_encode_type_errors(base64.b16encode)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_b16decode(self):
         eq = self.assertEqual
         eq(base64.b16decode(b'0102ABCDEF'), b'\x01\x02\xab\xcd\xef')
@@ -598,6 +612,8 @@ class BaseXYTestCase(unittest.TestCase):
         eq(base64.b85decode(b'czAet'), b"xxxx")
         eq(base64.b85decode(b'czAetcmMzZ'), b"xxxxx\x00\x00\x00")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_a85decode_errors(self):
         illegal = (set(range(32)) | set(range(118, 256))) - set(b' \t\n\r\v')
         for c in illegal:
@@ -633,6 +649,8 @@ class BaseXYTestCase(unittest.TestCase):
         self.assertRaises(ValueError, base64.a85decode, b's8W-', adobe=False)
         self.assertRaises(ValueError, base64.a85decode, b's8W-"', adobe=False)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_b85decode_errors(self):
         illegal = list(range(33)) + \
                   list(b'"\',./:[\\]') + \
@@ -658,6 +676,8 @@ class BaseXYTestCase(unittest.TestCase):
         for f in decode_funcs:
             self.assertRaises(ValueError, f, 'with non-ascii \xcb')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_ErrorHeritage(self):
         self.assertTrue(issubclass(binascii.Error, ValueError))
 
