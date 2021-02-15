@@ -65,21 +65,11 @@ class BufferSizeTest:
 class CBufferSizeTest(BufferSizeTest, unittest.TestCase):
     open = io.open
 
+# TODO: RUSTPYTHON
+import sys
+@unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON, can't cleanup temporary file on Windows")
 class PyBufferSizeTest(BufferSizeTest, unittest.TestCase):
     open = staticmethod(pyio.open)
-
-    # TODO: RUSTPYTHON
-    import sys
-    if sys.platform == "win32":
-        # TODO RUSTPYTHON
-        @unittest.expectedFailure
-        def test_nullpat(self):
-            super().test_nullpat()
-
-        # TODO: RUSTPYTHON
-        @unittest.expectedFailure
-        def test_primepat(self):
-            super().test_primepat()
 
 
 if __name__ == "__main__":
