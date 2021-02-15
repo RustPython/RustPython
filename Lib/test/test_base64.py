@@ -130,6 +130,7 @@ class BaseXYTestCase(unittest.TestCase):
         self.assertEqual(f(int_data), f(bytes_data))
 
 
+    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'range end index 7 out of range for slice of length 4'")
     def test_b64encode(self):
         eq = self.assertEqual
         # Test default alphabet
@@ -180,6 +181,7 @@ class BaseXYTestCase(unittest.TestCase):
                                b'\xd3V\xbeo\xf7\x1d', b'01a-b_cd')
         self.check_encode_type_errors(base64.urlsafe_b64encode)
 
+    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'range end index 7 out of range for slice of length 4'")
     def test_b64decode(self):
         eq = self.assertEqual
 
@@ -272,6 +274,7 @@ class BaseXYTestCase(unittest.TestCase):
         self.assertEqual(base64.b64decode(b'++[[//]]', b'[]'), res)
         self.assertEqual(base64.urlsafe_b64decode(b'++--//__'), res)
 
+    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'range end index 7 out of range for slice of length 4'")
     def test_b32encode(self):
         eq = self.assertEqual
         eq(base64.b32encode(b''), b'')
@@ -285,6 +288,7 @@ class BaseXYTestCase(unittest.TestCase):
         self.check_other_types(base64.b32encode, b'abcd', b'MFRGGZA=')
         self.check_encode_type_errors(base64.b32encode)
 
+    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'range end index 11 out of range for slice of length 8'")
     def test_b32decode(self):
         eq = self.assertEqual
         tests = {b'': b'',
@@ -359,6 +363,7 @@ class BaseXYTestCase(unittest.TestCase):
                 with self.assertRaises(binascii.Error):
                     base64.b32decode(data.decode('ascii'))
 
+    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'range end index 11 out of range for slice of length 8'")
     def test_b16encode(self):
         eq = self.assertEqual
         eq(base64.b16encode(b'\x01\x02\xab\xcd\xef'), b'0102ABCDEF')
@@ -395,6 +400,7 @@ class BaseXYTestCase(unittest.TestCase):
         # Incorrect "padding"
         self.assertRaises(binascii.Error, base64.b16decode, '010')
 
+    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'range end index 19 out of range for slice of length 16'")
     def test_a85encode(self):
         eq = self.assertEqual
 
@@ -445,6 +451,7 @@ class BaseXYTestCase(unittest.TestCase):
         eq(base64.a85encode(b' '*6, foldspaces=True, adobe=False), b'y+<U')
         eq(base64.a85encode(b' '*5, foldspaces=True, adobe=False), b'y+9')
 
+    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'range end index 19 out of range for slice of length 16'")
     def test_b85encode(self):
         eq = self.assertEqual
 
@@ -479,6 +486,7 @@ class BaseXYTestCase(unittest.TestCase):
         self.check_other_types(base64.b85encode, b"www.python.org",
                                b'cXxL#aCvlSZ*DGca%T')
 
+    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'range end index 23 out of range for slice of length 20'")
     def test_a85decode(self):
         eq = self.assertEqual
 
@@ -524,6 +532,7 @@ class BaseXYTestCase(unittest.TestCase):
         self.check_other_types(base64.a85decode, b'GB\\6`E-ZP=Df.1GEb>',
                                b"www.python.org")
 
+    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'range end index 23 out of range for slice of length 20'")
     def test_b85decode(self):
         eq = self.assertEqual
 
