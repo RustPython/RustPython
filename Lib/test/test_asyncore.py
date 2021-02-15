@@ -323,6 +323,8 @@ class DispatcherWithSendTests(unittest.TestCase):
     def tearDown(self):
         asyncore.close_all()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @support.reap_threads
     def test_send(self):
         evt = threading.Event()
@@ -423,6 +425,8 @@ class FileWrapperTest(unittest.TestCase):
             f = None
             support.gc_collect()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_close_twice(self):
         fd = os.open(support.TESTFN, os.O_RDONLY)
         f = asyncore.file_wrapper(fd)
@@ -513,6 +517,8 @@ class BaseTestAPI:
             time.sleep(timeout)
         self.fail("flag not set")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_handle_connect(self):
         # make sure handle_connect is called on connect()
 
@@ -524,6 +530,8 @@ class BaseTestAPI:
         client = TestClient(self.family, server.address)
         self.loop_waiting_for_flag(client)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_handle_accept(self):
         # make sure handle_accept() is called when a client connects
 
@@ -543,6 +551,8 @@ class BaseTestAPI:
         client = BaseClient(self.family, server.address)
         self.loop_waiting_for_flag(server)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_handle_accepted(self):
         # make sure handle_accepted() is called when a client connects
 
@@ -567,6 +577,8 @@ class BaseTestAPI:
         self.loop_waiting_for_flag(server)
 
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_handle_read(self):
         # make sure handle_read is called on data received
 
@@ -583,6 +595,8 @@ class BaseTestAPI:
         client = TestClient(self.family, server.address)
         self.loop_waiting_for_flag(client)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_handle_write(self):
         # make sure handle_write is called
 
@@ -594,6 +608,8 @@ class BaseTestAPI:
         client = TestClient(self.family, server.address)
         self.loop_waiting_for_flag(client)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_handle_close(self):
         # make sure handle_close is called when the other end closes
         # the connection
@@ -618,6 +634,8 @@ class BaseTestAPI:
         client = TestClient(self.family, server.address)
         self.loop_waiting_for_flag(client)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_handle_close_after_conn_broken(self):
         # Check that ECONNRESET/EPIPE is correctly handled (issues #5661 and
         # #11265).
@@ -650,6 +668,8 @@ class BaseTestAPI:
         client = TestClient(self.family, server.address)
         self.loop_waiting_for_flag(client)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipIf(sys.platform.startswith("sunos"),
                      "OOB support is broken on Solaris")
     def test_handle_expt(self):
@@ -676,6 +696,8 @@ class BaseTestAPI:
         client = TestClient(self.family, server.address)
         self.loop_waiting_for_flag(client)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_handle_error(self):
 
         class TestClient(BaseClient):
@@ -694,6 +716,8 @@ class BaseTestAPI:
         client = TestClient(self.family, server.address)
         self.loop_waiting_for_flag(client)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_connection_attributes(self):
         server = BaseServer(self.family, self.addr)
         client = BaseClient(self.family, server.address)
@@ -767,6 +791,8 @@ class BaseTestAPI:
                 self.assertTrue(s.socket.getsockopt(socket.SOL_SOCKET,
                                                      socket.SO_REUSEADDR))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @support.reap_threads
     def test_quick_connect(self):
         # see: http://bugs.python.org/issue10340
