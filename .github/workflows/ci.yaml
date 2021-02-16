@@ -104,29 +104,23 @@ jobs:
       - name: run snippets
         run: pipenv run pytest -v
         working-directory: ./extra_tests
-      - name: run cpython tests
+      - if: runner.os == 'Linux'
+        name: run cpython tests
         run: target/release/rustpython -m test -v
-        env:
-          RUSTPYTHONPATH: ${{ github.workspace }}/Lib
-        if: runner.os == 'Linux'
-      - name: run cpython tests (macOS lightweight)
+      - if: runner.os == 'macOS'
+        name: run cpython tests (macOS lightweight)
         run:
           target/release/rustpython -m test -v -x
             test_argparse test_json test_bytes test_bytearray test_long test_unicode test_array
             test_asyncgen test_list test_complex test_json test_set test_dis test_calendar
-        env:
-          RUSTPYTHONPATH: ${{ github.workspace }}/Lib
-        if: runner.os == 'macOS'
-      - name: run cpython tests (windows partial - fixme)
+      - if: runner.os == 'Windows'
+        name: run cpython tests (windows partial - fixme)
         run:
           target/release/rustpython -m test -v -x
             test_argparse test_json test_bytes test_long test_pwd test_bool test_cgi test_complex
             test_exception_hierarchy test_glob test_iter test_list test_os test_pathlib
             test_py_compile test_set test_shutil test_sys test_unicode test_unittest test_venv
             test_zipimport test_importlib test_io
-        env:
-          RUSTPYTHONPATH: ${{ github.workspace }}/Lib
-        if: runner.os == 'Windows'
 
   lint:
     name: Check Rust code with rustfmt and clippy

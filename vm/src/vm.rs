@@ -1700,7 +1700,9 @@ impl VirtualMachine {
     }
 
     pub(crate) fn set_exception(&self, exc: Option<PyBaseExceptionRef>) {
-        self.exceptions.borrow_mut().exc = exc
+        // don't be holding the refcell guard while __del__ is called
+        let prev = std::mem::replace(&mut self.exceptions.borrow_mut().exc, exc);
+        drop(prev);
     }
 
     pub(crate) fn contextualize_exception(&self, exception: &PyBaseExceptionRef) {
