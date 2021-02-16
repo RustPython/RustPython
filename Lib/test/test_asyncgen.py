@@ -179,8 +179,6 @@ class AsyncGenTest(unittest.TestCase):
         else:
             self.fail('StopAsyncIteration was not raised')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_async_gen_exception_03(self):
         async def gen():
             await awaitable()
@@ -741,8 +739,6 @@ class AsyncGenAsyncioTest(unittest.TestCase):
         self.loop.run_until_complete(run())
         self.assertEqual(DONE, 10)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_async_gen_asyncio_aclose_12(self):
         DONE = 0
 
@@ -844,8 +840,6 @@ class AsyncGenAsyncioTest(unittest.TestCase):
             self.loop.run_until_complete(run())
         self.assertEqual(DONE, 1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_async_gen_asyncio_asend_03(self):
         DONE = 0
 
@@ -933,8 +927,6 @@ class AsyncGenAsyncioTest(unittest.TestCase):
         self.loop.run_until_complete(run())
         self.assertEqual(DONE, 1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_async_gen_asyncio_athrow_02(self):
         DONE = 0
 
@@ -1053,8 +1045,6 @@ class AsyncGenAsyncioTest(unittest.TestCase):
 
         self.loop.run_until_complete(run())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_async_gen_asyncio_shutdown_01(self):
         finalized = 0
 
