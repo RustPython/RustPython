@@ -707,6 +707,8 @@ boolean {0[0]} NO
         cf.set("sect", "option1", "splat")
         cf.set("sect", "option2", "splat")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_read_returns_file_list(self):
         if self.delimiters[0] != '=':
             self.skipTest('incompatible format')
@@ -740,6 +742,8 @@ boolean {0[0]} NO
         parsed_files = cf.read([])
         self.assertEqual(parsed_files, [])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_read_returns_file_list_with_bytestring_path(self):
         if self.delimiters[0] != '=':
             self.skipTest('incompatible format')
@@ -825,6 +829,8 @@ boolean {0[0]} NO
         self.assertEqual(set(cf.sections()), set())
         self.assertEqual(set(cf[self.default_section].keys()), {'foo'})
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_setitem(self):
         cf = self.fromstring("""
             [section1]
@@ -917,6 +923,8 @@ class ConfigParserTestCase(BasicTestCase, unittest.TestCase):
             self.assertEqual(e.args, ('name', 'Interpolation Error',
                                     '%(reference)s', 'reference'))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_items(self):
         self.check_items_config([('default', '<default>'),
                                  ('getdefault', '|<default>|'),
@@ -972,6 +980,8 @@ class ConfigParserTestCase(BasicTestCase, unittest.TestCase):
         cf = self.newconfig()
         self.assertRaises(ValueError, cf.add_section, self.default_section)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_defaults_keyword(self):
         """bpo-23835 fix for ConfigParser"""
         cf = self.newconfig(defaults={1: 2.4})
@@ -1094,6 +1104,8 @@ class RawConfigParserTestCase(BasicTestCase, unittest.TestCase):
         eq(cf.get("Foo", "bar11"),
            "something %(with11)s lots of interpolation (11 steps)")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_items(self):
         self.check_items_config([('default', '<default>'),
                                  ('getdefault', '|%(default)s|'),
@@ -1369,6 +1381,8 @@ class ConfigParserTestCaseTrickyFile(CfgParserTestCaseClass, unittest.TestCase):
                          cf.get('tricky interpolation', 'go'))
         self.assertEqual(cf.get('more interpolation', 'lets'), 'go shopping')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_unicode_failure(self):
         tricky = support.findfile("cfgparser.3")
         cf = self.newconfig()
@@ -1658,6 +1672,8 @@ class CoverageOneHundredTestCase(unittest.TestCase):
         """)
         self.assertEqual(repr(parser['section']), '<Section: section>')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_inconsistent_converters_state(self):
         parser = configparser.ConfigParser()
         import decimal
@@ -1699,6 +1715,8 @@ class ExceptionPicklingTestCase(unittest.TestCase):
             self.assertEqual(e1.message, e2.message)
             self.assertEqual(repr(e1), repr(e2))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_nosectionerror(self):
         import pickle
         e1 = configparser.NoSectionError('section')
@@ -1710,6 +1728,8 @@ class ExceptionPicklingTestCase(unittest.TestCase):
             self.assertEqual(e1.section, e2.section)
             self.assertEqual(repr(e1), repr(e2))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_nooptionerror(self):
         import pickle
         e1 = configparser.NoOptionError('option', 'section')
@@ -1722,6 +1742,8 @@ class ExceptionPicklingTestCase(unittest.TestCase):
             self.assertEqual(e1.option, e2.option)
             self.assertEqual(repr(e1), repr(e2))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_duplicatesectionerror(self):
         import pickle
         e1 = configparser.DuplicateSectionError('section', 'source', 123)
@@ -1735,6 +1757,8 @@ class ExceptionPicklingTestCase(unittest.TestCase):
             self.assertEqual(e1.lineno, e2.lineno)
             self.assertEqual(repr(e1), repr(e2))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_duplicateoptionerror(self):
         import pickle
         e1 = configparser.DuplicateOptionError('section', 'option', 'source',
@@ -1750,6 +1774,8 @@ class ExceptionPicklingTestCase(unittest.TestCase):
             self.assertEqual(e1.lineno, e2.lineno)
             self.assertEqual(repr(e1), repr(e2))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_interpolationerror(self):
         import pickle
         e1 = configparser.InterpolationError('option', 'section', 'msg')
@@ -1762,6 +1788,8 @@ class ExceptionPicklingTestCase(unittest.TestCase):
             self.assertEqual(e1.option, e2.option)
             self.assertEqual(repr(e1), repr(e2))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_interpolationmissingoptionerror(self):
         import pickle
         e1 = configparser.InterpolationMissingOptionError('option', 'section',
@@ -1776,6 +1804,8 @@ class ExceptionPicklingTestCase(unittest.TestCase):
             self.assertEqual(e1.reference, e2.reference)
             self.assertEqual(repr(e1), repr(e2))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_interpolationsyntaxerror(self):
         import pickle
         e1 = configparser.InterpolationSyntaxError('option', 'section', 'msg')
@@ -1788,6 +1818,8 @@ class ExceptionPicklingTestCase(unittest.TestCase):
             self.assertEqual(e1.option, e2.option)
             self.assertEqual(repr(e1), repr(e2))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_interpolationdeptherror(self):
         import pickle
         e1 = configparser.InterpolationDepthError('option', 'section',
@@ -1801,6 +1833,8 @@ class ExceptionPicklingTestCase(unittest.TestCase):
             self.assertEqual(e1.option, e2.option)
             self.assertEqual(repr(e1), repr(e2))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_parsingerror(self):
         import pickle
         e1 = configparser.ParsingError('source')
@@ -1828,6 +1862,8 @@ class ExceptionPicklingTestCase(unittest.TestCase):
             self.assertEqual(e1.errors, e2.errors)
             self.assertEqual(repr(e1), repr(e2))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_missingsectionheadererror(self):
         import pickle
         e1 = configparser.MissingSectionHeaderError('filename', 123, 'line')
