@@ -72,6 +72,8 @@ class DictComprehensionTest(unittest.TestCase):
         self.assertEqual(actual, expected)
         self.assertEqual(v, "Local variable")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_illegal_assignment(self):
         with self.assertRaisesRegex(SyntaxError, "cannot assign"):
             compile("{x: y for y, x in ((1, 2), (3, 4))} = 5", "<test>",
