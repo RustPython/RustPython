@@ -860,7 +860,7 @@ mod decl {
                         None => vm._add(&value, &obj)?,
                         Some(op) => vm.invoke(op, vec![value, obj])?,
                     }
-                },
+                }
             };
             *zelf.acc_value.write() = Some(next_acc_value.clone());
 
