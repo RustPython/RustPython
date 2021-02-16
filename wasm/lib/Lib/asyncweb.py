@@ -2,6 +2,11 @@ from _js import Promise
 from collections.abc import Coroutine, Awaitable
 from abc import ABC, abstractmethod
 
+try:
+    import browser
+except ImportError:
+    browser = None
+
 
 def is_promise(prom):
     return callable(getattr(prom, "then", None))
@@ -14,12 +19,14 @@ def run(coro):
     """
     _Runner(coro)
 
+
 def spawn(coro):
     """
     Run a coroutine. Like run(), but returns a promise that resolves with
     the result of the coroutine.
     """
-    return Promise.resolve(_CoroPromise(coro))
+    return _coro_promise(coro)
+
 
 class _Runner:
     def __init__(self, coro):
@@ -62,18 +69,18 @@ async def _main_wrapper(coro):
 
 def _resolve(prom):
     if is_promise(prom):
-        pass
+        return prom
     elif isinstance(prom, Coroutine):
-        prom = _CoroPromise(prom)
+        return _coro_promise(prom)
+    else:
+        return Promise.resolve(prom)
 
-    return Promise.resolve(prom)
 
-
-class _CallbackMap:
+class CallbackPromise:
     def __init__(self):
         self.done = 0
-        self._successes = []
-        self._errors = []
+        self.__successes = []
+        self.__errors = []
 
     def then(self, success=None, error=None):
         if success and not callable(success):
@@ -81,53 +88,55 @@ class _CallbackMap:
         if error and not callable(error):
             raise TypeError("error callback must be callable")
 
-        if self.done == -1:
-            if error:
-                return _call_resolve(error, self._result)
-            else:
-                return self
-        elif self.done == 1:
+        if not self.done:
             if success:
-                return _call_resolve(success, self._result)
-            else:
-                return self
+                self.__successes.append(success)
+            if error:
+                self.__errors.append(error)
+            return
 
-        if success:
-            self._successes.append(success)
-        if error:
-            self._errors.append(error)
+        cb = success if self.done == 1 else error
+        if cb:
+            return _call_resolve(cb, self.__result)
+        else:
+            return self
+
+    def __await__(self):
+        yield self
 
     def resolve(self, value):
-        self._result = value
+        if self.done:
+            return
+        self.__result = value
         self.done = 1
-        for f in self._successes:
+        for f in self.__successes:
             f(value)
-        del self._successes, self._errors
+        del self.__successes, self.__errors
 
     def reject(self, err):
-        self._result = err
+        if self.done:
+            return
+        self.__result = err
         self.done = -1
-        for f in self._errors:
+        for f in self.__errors:
             f(err)
-        del self._successes, self._errors
+        del self.__successes, self.__errors
 
 
-class _CoroPromise:
-    def __init__(self, coro):
-        self._cbs = _CallbackMap()
+def _coro_promise(coro):
+    prom = CallbackPromise()
 
-        async def run_coro():
-            try:
-                res = await coro
-            except BaseException as e:
-                self._cbs.reject(e)
-            else:
-                self._cbs.resolve(res)
+    async def run_coro():
+        try:
+            res = await coro
+        except BaseException as e:
+            prom.reject(e)
+        else:
+            prom.resolve(res)
 
-        run(run_coro())
+    run(run_coro())
 
-    def then(self, on_success=None, on_failure=None):
-        self._cbs.then(on_success, on_failure)
+    return prom
 
 
 def _call_resolve(f, arg):
@@ -139,47 +148,62 @@ def _call_resolve(f, arg):
         return _resolve(ret)
 
 
-def wait_all(proms):
-    return Promise.resolve(_WaitAll(proms))
-
-
 # basically an implementation of Promise.all
-class _WaitAll:
-    def __init__(self, proms):
-        if not isinstance(proms, (list, tuple)):
-            proms = tuple(proms)
-        self._completed = 0
-        self.cbs = _CallbackMap()
-        num_proms = len(proms)
-        self._results = [None] * num_proms
+def wait_all(proms):
+    cbs = CallbackPromise()
 
-        # needs to be a separate function for creating a closure in a loop
-        def register_promise(i, prom):
-            completed = False
+    if not isinstance(proms, (list, tuple)):
+        proms = tuple(proms)
+    num_completed = 0
+    num_proms = len(proms)
 
-            def promise_done(success, res):
-                nonlocal completed
-                if completed or self.cbs.done:
-                    return
-                completed = True
-                if success:
-                    self._results[i] = res
-                    self._completed += 1
-                    if self._completed == num_proms:
-                        results = tuple(self._results)
-                        del self._results
-                        self.cbs.resolve(results)
-                else:
-                    del self._results
-                    self.cbs.reject(res)
+    if num_proms == 0:
+        cbs.resolve(())
+        return cbs
 
-            _resolve(prom).then(
-                lambda res: promise_done(True, res),
-                lambda err: promise_done(False, err),
-            )
+    results = [None] * num_proms
 
-        for i, prom in enumerate(proms):
-            register_promise(i, prom)
+    # needs to be a separate function for creating a closure in a loop
+    def register_promise(i, prom):
+        prom_completed = False
 
-    def then(self, success=None, error=None):
-        self.cbs.then(success, error)
+        def promise_done(success, res):
+            nonlocal prom_completed, results, num_completed
+            if prom_completed or cbs.done:
+                return
+            prom_completed = True
+            if success:
+                results[i] = res
+                num_completed += 1
+                if num_completed == num_proms:
+                    result = tuple(results)
+                    del results
+                    cbs.resolve(result)
+            else:
+                del results
+                cbs.reject(res)
+
+        _resolve(prom).then(
+            lambda res: promise_done(True, res),
+            lambda err: promise_done(False, err),
+        )
+
+    for i, prom in enumerate(proms):
+        register_promise(i, prom)
+
+    return cbs
+
+
+if browser:
+    _settimeout = browser.window.get_prop("setTimeout")
+
+    def timeout(ms):
+        prom = asyncweb.CallbackPromise()
+
+        @browser.jsclosure_once
+        def cb(this):
+            print("AAA")
+            prom.resolve(None)
+
+        _settimeout.call(cb.detach(), browser.jsfloat(ms))
+        return prom

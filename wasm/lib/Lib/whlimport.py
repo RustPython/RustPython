@@ -65,7 +65,7 @@ async def _load_info_pypi(pkg):
     api_url = (
         f"https://pypi.org/pypi/{pkg.name}/json"
         if not pkg.constraints
-        else f"https://pypi.org/pypi/{pkg}/{pkg.constraints[0][1]}/json"
+        else f"https://pypi.org/pypi/{pkg.name}/{pkg.constraints[0][1]}/json"
     )
     info = await browser.fetch(api_url, response_format="json")
     name = info["info"]["name"]
@@ -75,7 +75,13 @@ async def _load_info_pypi(pkg):
         dl = next(dl for dl in ver_downloads if dl["packagetype"] == "bdist_wheel")
     except StopIteration:
         raise ValueError(f"no wheel available for package {Name!r} {ver}")
-    return name, dl["filename"], dl["url"], dl["size"], info["info"]["requires_dist"] or []
+    return (
+        name,
+        dl["filename"],
+        dl["url"],
+        dl["size"],
+        info["info"]["requires_dist"] or [],
+    )
 
 
 def format_size(bytes):

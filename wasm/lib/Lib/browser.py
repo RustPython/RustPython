@@ -6,6 +6,12 @@ from _window import window
 
 jsstr = window.new_from_str
 jsclosure = window.new_closure
+jsclosure_once = window.new_closure_once
+_jsfloat = window.new_from_float
+
+
+def jsfloat(n):
+    return _jsfloat(float(n))
 
 
 _alert = window.get_prop("alert")

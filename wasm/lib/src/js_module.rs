@@ -122,7 +122,12 @@ impl PyJsValue {
 
     #[pymethod]
     fn new_closure(&self, obj: PyObjectRef, vm: &VirtualMachine) -> JsClosure {
-        JsClosure::new(obj, vm)
+        JsClosure::new(obj, false, vm)
+    }
+
+    #[pymethod]
+    fn new_closure_once(&self, obj: PyObjectRef, vm: &VirtualMachine) -> JsClosure {
+        JsClosure::new(obj, true, vm)
     }
 
     #[pymethod]
@@ -273,7 +278,7 @@ struct NewObjectOptions {
     prototype: Option<PyJsValueRef>,
 }
 
-type ClosureType = Closure<dyn Fn(JsValue, Box<[JsValue]>) -> Result<JsValue, JsValue>>;
+type ClosureType = Closure<dyn FnMut(JsValue, Box<[JsValue]>) -> Result<JsValue, JsValue>>;
 
 #[pyclass(module = "_js", name = "JSClosure")]
 struct JsClosure {
@@ -296,7 +301,7 @@ impl PyValue for JsClosure {
 
 #[pyimpl]
 impl JsClosure {
-    fn new(obj: PyObjectRef, vm: &VirtualMachine) -> Self {
+    fn new(obj: PyObjectRef, once: bool, vm: &VirtualMachine) -> Self {
         let wasm_vm = WASMVirtualMachine {
             id: vm.wasm_id.clone().unwrap(),
         };
@@ -321,7 +326,11 @@ impl JsClosure {
                 convert::pyresult_to_jsresult(vm, res)
             })
         };
-        let closure = Closure::wrap(Box::new(f) as _);
+        let closure: ClosureType = if once {
+            Closure::wrap(Box::new(f))
+        } else {
+            Closure::once(Box::new(f))
+        };
         let wrapped = PyJsValue::new(wrap_closure(closure.as_ref())).into_ref(vm);
         JsClosure {
             closure: Some((closure, wrapped)).into(),
@@ -496,7 +505,7 @@ impl PyPromise {
                         },
                         Err(err) => match on_reject {
                             Some(on_reject) => stored_vm.interp.enter(move |vm| {
-                                let err = convert::js_to_py(vm, err);
+                                let err = new_js_error(vm, err);
                                 let res = on_reject.invoke((err,), vm);
                                 convert::pyresult_to_jsresult(vm, res)
                             }),
