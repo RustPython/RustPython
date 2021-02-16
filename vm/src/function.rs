@@ -313,6 +313,7 @@ impl<T: TryFromObject> FromArgOptional for T {
 /// KwArgs is only for functions that accept arbitrary keyword arguments. For
 /// functions that accept only *specific* named arguments, a rust struct with
 /// an appropriate FromArgs implementation must be created.
+#[derive(Clone)]
 pub struct KwArgs<T = PyObjectRef>(IndexMap<String, T>);
 
 impl<T> KwArgs<T> {

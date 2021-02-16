@@ -855,7 +855,10 @@ mod decl {
 
         // Prepare uses full __getattribute__ resolution chain.
         let prepare = vm.get_attribute(metaclass.clone().into_object(), "__prepare__")?;
-        let namespace = vm.invoke(&prepare, vec![name_obj.clone(), bases.clone()])?;
+        let namespace = vm.invoke(
+            &prepare,
+            FuncArgs::new(vec![name_obj.clone(), bases.clone()], kwargs.clone()),
+        )?;
 
         let namespace = PyDictRef::try_from_object(vm, namespace)?;
 
