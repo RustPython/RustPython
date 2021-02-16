@@ -6,7 +6,7 @@ on:
 name: CI
 
 env:
-  CARGO_ARGS: --features "ssl jit"
+  CARGO_ARGS: --features ssl,jit
   NON_WASM_PACKAGES: >
     -p rustpython-bytecode
     -p rustpython-common

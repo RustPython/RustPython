@@ -15,11 +15,12 @@ members = [
 ]
 
 [features]
-default = ["threading", "pylib"]
+default = ["threading", "pylib", "zlib"]
 flame-it = ["rustpython-vm/flame-it", "flame", "flamescope"]
 freeze-stdlib = ["rustpython-vm/freeze-stdlib"]
 jit = ["rustpython-vm/jit"]
 threading = ["rustpython-vm/threading"]
+zlib = ["rustpython-vm/zlib"]
 
 ssl = ["rustpython-vm/ssl"]
 
