@@ -48,7 +48,7 @@ pub struct VirtualMachine {
     pub ctx: PyRc<PyContext>,
     pub frames: RefCell<Vec<FrameRef>>,
     pub wasm_id: Option<String>,
-    pub(crate) exceptions: RefCell<ExceptionStack>,
+    exceptions: RefCell<ExceptionStack>,
     pub import_func: PyObjectRef,
     pub profile_func: RefCell<PyObjectRef>,
     pub trace_func: RefCell<PyObjectRef>,
@@ -61,9 +61,9 @@ pub struct VirtualMachine {
 }
 
 #[derive(Debug, Default)]
-pub(crate) struct ExceptionStack {
-    pub exc: Option<PyBaseExceptionRef>,
-    pub prev: Option<Box<ExceptionStack>>,
+struct ExceptionStack {
+    exc: Option<PyBaseExceptionRef>,
+    prev: Option<Box<ExceptionStack>>,
 }
 
 pub(crate) mod thread {
@@ -1677,9 +1677,19 @@ impl VirtualMachine {
         }
     }
 
-    // pub(crate) fn push_exception(&self, exc: PyBaseExceptionRef) {
-    //     self.exceptions.borrow_mut().push(exc)
-    // }
+    pub(crate) fn push_exception(&self, exc: Option<PyBaseExceptionRef>) {
+        let mut excs = self.exceptions.borrow_mut();
+        let prev = std::mem::take(&mut *excs);
+        excs.prev = Some(Box::new(prev));
+        excs.exc = exc
+    }
+
+    pub(crate) fn pop_exception(&self) -> Option<PyBaseExceptionRef> {
+        let mut excs = self.exceptions.borrow_mut();
+        let cur = std::mem::take(&mut *excs);
+        *excs = *cur.prev.expect("pop_exception() without nested exc stack");
+        cur.exc
+    }
 
     pub(crate) fn take_exception(&self) -> Option<PyBaseExceptionRef> {
         self.exceptions.borrow_mut().exc.take()
