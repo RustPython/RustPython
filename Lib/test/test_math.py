@@ -372,8 +372,6 @@ class MathTests(unittest.TestCase):
         self.assertTrue(math.isnan(math.atan2(NAN, INF)))
         self.assertTrue(math.isnan(math.atan2(NAN, NAN)))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testCeil(self):
         self.assertRaises(TypeError, math.ceil)
         self.assertEqual(int, type(math.ceil(0.5)))
@@ -525,8 +523,6 @@ class MathTests(unittest.TestCase):
         with self.assertWarns(DeprecationWarning):
             self.assertRaises(OverflowError, math.factorial, 1e100)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testFloor(self):
         self.assertRaises(TypeError, math.floor)
         self.assertEqual(int, type(math.floor(0.5)))
