@@ -295,13 +295,14 @@ fn math_trunc(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 /// * `value` - Either a float or a python object which implements __ceil__
 /// * `vm` - Represents the python state.
 fn math_ceil(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    if value.isinstance(&vm.ctx.types.float_type) {
-        let v = float::get_value(&value);
-        let v = float::try_bigint(v.ceil(), vm)?;
-        Ok(vm.ctx.new_int(v))
-    } else {
-        try_magic_method("__ceil__", vm, &value)
+    let result_or_err = try_magic_method("__ceil__", vm, &value);
+    if result_or_err.is_err() {
+        if let Ok(Some(v)) = float::try_float_opt(&value, &vm) {
+            let v = float::try_bigint(v.ceil(), vm)?;
+            return Ok(vm.ctx.new_int(v));
+        }
     }
+    result_or_err
 }
 
 /// Applies floor to a float, returning an Integral.
@@ -311,13 +312,14 @@ fn math_ceil(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 /// * `value` - Either a float or a python object which implements __ceil__
 /// * `vm` - Represents the python state.
 fn math_floor(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    if value.isinstance(&vm.ctx.types.float_type) {
-        let v = float::get_value(&value);
-        let v = float::try_bigint(v.floor(), vm)?;
-        Ok(vm.ctx.new_int(v))
-    } else {
-        try_magic_method("__floor__", vm, &value)
+    let result_or_err = try_magic_method("__floor__", vm, &value);
+    if result_or_err.is_err() {
+        if let Ok(Some(v)) = float::try_float_opt(&value, &vm) {
+            let v = float::try_bigint(v.floor(), vm)?;
+            return Ok(vm.ctx.new_int(v));
+        }
     }
+    result_or_err
 }
 
 fn math_frexp(value: IntoPyFloat) -> (f64, i32) {
