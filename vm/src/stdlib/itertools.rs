@@ -804,8 +804,18 @@ mod decl {
     #[derive(Debug)]
     struct PyItertoolsAccumulate {
         iterable: PyObjectRef,
-        binop: PyObjectRef,
+        binop: Option<PyObjectRef>,
+        initial: Option<PyObjectRef>,
         acc_value: PyRwLock<Option<PyObjectRef>>,
+    }
+
+    #[derive(FromArgs)]
+    struct AccumulateArgs {
+        iterable: PyObjectRef,
+        #[pyarg(any, optional)]
+        func: OptionalOption<PyObjectRef>,
+        #[pyarg(named, optional)]
+        initial: OptionalOption<PyObjectRef>,
     }
 
     impl PyValue for PyItertoolsAccumulate {
@@ -819,15 +829,15 @@ mod decl {
         #[pyslot]
         fn tp_new(
             cls: PyTypeRef,
-            iterable: PyObjectRef,
-            binop: OptionalArg<PyObjectRef>,
+            args: AccumulateArgs,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
-            let iter = get_iter(vm, iterable)?;
+            let iter = get_iter(vm, args.iterable)?;
 
             PyItertoolsAccumulate {
                 iterable: iter,
-                binop: binop.unwrap_or_none(vm),
+                binop: args.func.flatten(),
+                initial: args.initial.flatten(),
                 acc_value: PyRwLock::new(None),
             }
             .into_ref_with_type(vm, cls)
@@ -836,19 +846,21 @@ mod decl {
     impl PyIter for PyItertoolsAccumulate {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             let iterable = &zelf.iterable;
-            let obj = call_next(vm, iterable)?;
 
             let acc_value = zelf.acc_value.read().clone();
 
             let next_acc_value = match acc_value {
-                None => obj,
+                None => match &zelf.initial {
+                    None => call_next(vm, iterable)?,
+                    Some(obj) => obj.clone(),
+                },
                 Some(value) => {
-                    if vm.is_none(&zelf.binop) {
-                        vm._add(&value, &obj)?
-                    } else {
-                        vm.invoke(&zelf.binop, vec![value, obj])?
+                    let obj = call_next(vm, iterable)?;
+                    match &zelf.binop {
+                        None => vm._add(&value, &obj)?,
+                        Some(op) => vm.invoke(op, vec![value, obj])?,
                     }
-                }
+                },
             };
             *zelf.acc_value.write() = Some(next_acc_value.clone());
 
