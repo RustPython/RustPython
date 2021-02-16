@@ -51,20 +51,30 @@ class TestUserObjects(unittest.TestCase):
         self.assertEqual(obj.data, obj_copy.data)
         self.assertIs(obj.test, obj_copy.test)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_str_protocol(self):
         self._superset_test(UserString, str)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_list_protocol(self):
         self._superset_test(UserList, list)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_dict_protocol(self):
         self._superset_test(UserDict, dict)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_list_copy(self):
         obj = UserList()
         obj.append(123)
         self._copy_test(obj)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_dict_copy(self):
         obj = UserDict()
         obj[123] = "abc"
@@ -270,6 +280,8 @@ class TestNamedTuple(unittest.TestCase):
         self.assertRaises(TypeError, Point._make, [11])                     # catch too few args
         self.assertRaises(TypeError, Point._make, [11, 22, 33])             # catch too many args
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_defaults(self):
         Point = namedtuple('Point', 'x y', defaults=(10, 20))              # 2 defaults
         self.assertEqual(Point._field_defaults, {'x': 10, 'y': 20})
@@ -479,6 +491,8 @@ class TestNamedTuple(unittest.TestCase):
         self.assertEqual(b2, tuple(b2_expected))
         self.assertEqual(b._fields, tuple(names))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_pickle(self):
         p = TestNT(x=10, y=20, z=30)
         for module in (pickle,):
@@ -589,6 +603,8 @@ class TestNamedTuple(unittest.TestCase):
         a.w = 5
         self.assertEqual(a.__dict__, {'w': 5})
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_field_descriptor(self):
         Point = namedtuple('Point', 'x y')
         p = Point(11, 22)
@@ -675,6 +691,8 @@ def _test_gen():
 
 class TestOneTrickPonyABCs(ABCTestCase):
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_Awaitable(self):
         def gen():
             yield
@@ -725,6 +743,8 @@ class TestOneTrickPonyABCs(ABCTestCase):
         CoroLike = None
         support.gc_collect() # Kill CoroLike to clean-up ABCMeta cache
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_Coroutine(self):
         def gen():
             yield
@@ -790,6 +810,8 @@ class TestOneTrickPonyABCs(ABCTestCase):
         self.assertFalse(isinstance(CoroLike(), Coroutine))
         self.assertFalse(issubclass(CoroLike, Coroutine))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_Hashable(self):
         # Check some non-hashables
         non_samples = [bytearray(), list(), set(), dict()]
@@ -816,6 +838,8 @@ class TestOneTrickPonyABCs(ABCTestCase):
         self.validate_abstract_methods(Hashable, '__hash__')
         self.validate_isinstance(Hashable, '__hash__')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_AsyncIterable(self):
         class AI:
             def __aiter__(self):
@@ -830,6 +854,8 @@ class TestOneTrickPonyABCs(ABCTestCase):
         self.validate_abstract_methods(AsyncIterable, '__aiter__')
         self.validate_isinstance(AsyncIterable, '__aiter__')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_AsyncIterator(self):
         class AI:
             def __aiter__(self):
@@ -850,6 +876,8 @@ class TestOneTrickPonyABCs(ABCTestCase):
         self.assertNotIsInstance(AnextOnly(), AsyncIterator)
         self.validate_abstract_methods(AsyncIterator, '__anext__', '__aiter__')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_Iterable(self):
         # Check some non-iterables
         non_samples = [None, 42, 3.14, 1j]
@@ -884,6 +912,8 @@ class TestOneTrickPonyABCs(ABCTestCase):
         self.assertFalse(issubclass(ItBlocked, Iterable))
         self.assertFalse(isinstance(ItBlocked(), Iterable))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_Reversible(self):
         # Check some non-reversibles
         non_samples = [None, 42, 3.14, 1j, set(), frozenset()]
@@ -941,6 +971,8 @@ class TestOneTrickPonyABCs(ABCTestCase):
         self.assertFalse(issubclass(RevRevBlocked, Reversible))
         self.assertFalse(isinstance(RevRevBlocked(), Reversible))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_Collection(self):
         # Check some non-collections
         non_collections = [None, 42, 3.14, 1j, lambda x: 2*x]
@@ -1029,6 +1061,8 @@ class TestOneTrickPonyABCs(ABCTestCase):
         self.assertFalse(isinstance(NonCol(), Collection))
 
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_Iterator(self):
         non_samples = [None, 42, 3.14, 1j, b"", "", (), [], {}, set()]
         for x in non_samples:
@@ -1054,6 +1088,8 @@ class TestOneTrickPonyABCs(ABCTestCase):
                 return
         self.assertNotIsInstance(NextOnly(), Iterator)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_Generator(self):
         class NonGen1:
             def __iter__(self): return self
@@ -1125,6 +1161,8 @@ class TestOneTrickPonyABCs(ABCTestCase):
 
         self.assertRaises(RuntimeError, IgnoreGeneratorExit().close)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_AsyncGenerator(self):
         class NonAGen1:
             def __aiter__(self): return self
@@ -1206,6 +1244,8 @@ class TestOneTrickPonyABCs(ABCTestCase):
         with self.assertRaises(RuntimeError):
             run_async(IgnoreGeneratorExit().aclose())
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_Sized(self):
         non_samples = [None, 42, 3.14, 1j,
                        _test_gen(),
@@ -1224,6 +1264,8 @@ class TestOneTrickPonyABCs(ABCTestCase):
         self.validate_abstract_methods(Sized, '__len__')
         self.validate_isinstance(Sized, '__len__')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_Container(self):
         non_samples = [None, 42, 3.14, 1j,
                        _test_gen(),
@@ -1242,6 +1284,8 @@ class TestOneTrickPonyABCs(ABCTestCase):
         self.validate_abstract_methods(Container, '__contains__')
         self.validate_isinstance(Container, '__contains__')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_Callable(self):
         non_samples = [None, 42, 3.14, 1j,
                        "", b"", (), [], {}, set(),
@@ -1303,6 +1347,8 @@ class TestCollectionABCs(ABCTestCase):
     # We should also test the proper behavior of the collection ABCs
     # as real base classes or mix-in classes.
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_Set(self):
         for sample in [set, frozenset]:
             self.assertIsInstance(sample(), Set)
@@ -1385,6 +1431,8 @@ class TestCollectionABCs(ABCTestCase):
         s3 = s1 & s2
         self.assertEqual(s3, MySet((3,)))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_MutableSet(self):
         self.assertIsInstance(set(), MutableSet)
         self.assertTrue(issubclass(set, MutableSet))
@@ -1399,6 +1447,8 @@ class TestCollectionABCs(ABCTestCase):
         s &= WithSet('cdef')            # This used to fail
         self.assertEqual(set(s), set('cd'))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_issue_4920(self):
         # MutableSet.pop() method did not work
         class MySet(MutableSet):
@@ -1503,6 +1553,8 @@ class TestCollectionABCs(ABCTestCase):
         # coerce both to a real set then check equality
         self.assertSetEqual(set(s1), set(s2))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_Set_interoperability_with_real_sets(self):
         # Issue: 8743
         class ListSet(Set):
@@ -1655,6 +1707,8 @@ class TestCollectionABCs(ABCTestCase):
         self.assertTrue(f1 != l1)
         self.assertTrue(f1 != l2)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_Mapping(self):
         for sample in [dict]:
             self.assertIsInstance(sample(), Mapping)
@@ -1671,6 +1725,8 @@ class TestCollectionABCs(ABCTestCase):
         self.validate_comparison(MyMapping())
         self.assertRaises(TypeError, reversed, MyMapping())
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_MutableMapping(self):
         for sample in [dict]:
             self.assertIsInstance(sample(), MutableMapping)
@@ -1703,6 +1759,8 @@ class TestCollectionABCs(ABCTestCase):
         mymap['blue'] = 7               # Shouldn't affect 'z'
         self.assertEqual(z, {('orange', 3), ('red', 5)})
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_Sequence(self):
         for sample in [tuple, list, bytes, str]:
             self.assertIsInstance(sample(), Sequence)
@@ -1715,6 +1773,8 @@ class TestCollectionABCs(ABCTestCase):
         self.validate_abstract_methods(Sequence, '__contains__', '__iter__', '__len__',
             '__getitem__')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_Sequence_mixins(self):
         class SequenceSubclass(Sequence):
             def __init__(self, seq=()):
@@ -1760,6 +1820,8 @@ class TestCollectionABCs(ABCTestCase):
         self.assertNotIsInstance(memoryview(b""), ByteString)
         self.assertFalse(issubclass(memoryview, ByteString))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_MutableSequence(self):
         for sample in [tuple, str, bytes]:
             self.assertNotIsInstance(sample(), MutableSequence)
@@ -1914,6 +1976,8 @@ class TestCounter(unittest.TestCase):
         self.assertRaises(TypeError, Counter, (), ())
         self.assertRaises(TypeError, Counter.__init__)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_order_preservation(self):
         # Input order dictates items() order
         self.assertEqual(list(Counter('abracadabra').items()),
