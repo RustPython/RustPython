@@ -2211,13 +2211,16 @@ class TestCounter(unittest.TestCase):
 ################################################################################
 
 def test_main(verbose=None):
-    NamedTupleDocs = doctest.DocTestSuite(module=collections)
-    test_classes = [TestNamedTuple, NamedTupleDocs, TestOneTrickPonyABCs,
+    # TODO: RUSTPYTHON
+    # NamedTupleDocs = doctest.DocTestSuite(module=collections)
+    # test_classes = [TestNamedTuple, NamedTupleDocs, TestOneTrickPonyABCs,
+    test_classes = [TestNamedTuple, TestOneTrickPonyABCs,
                     TestCollectionABCs, TestCounter, TestChainMap,
                     TestUserObjects,
                     ]
     support.run_unittest(*test_classes)
-    support.run_doctest(collections, verbose)
+    # TODO: RUSTPYTHON
+    # support.run_doctest(collections, verbose)
 
 
 if __name__ == "__main__":
