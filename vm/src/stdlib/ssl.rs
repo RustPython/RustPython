@@ -3,13 +3,12 @@ use super::socket::PySocketRef;
 use crate::builtins::{pytype, weakref::PyWeak, PyStrRef, PyTypeRef};
 use crate::byteslike::{PyBytesLike, PyRwBytesLike};
 use crate::common::lock::{PyRwLock, PyRwLockWriteGuard};
-use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
+use crate::exceptions::{create_exception_type, IntoPyException, PyBaseExceptionRef};
 use crate::function::OptionalArg;
 use crate::pyobject::{
     BorrowValue, Either, IntoPyObject, ItemProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef,
     PyResult, PyValue, StaticType,
 };
-use crate::types::create_simple_type;
 use crate::VirtualMachine;
 
 use crossbeam_utils::atomic::AtomicCell;
@@ -914,7 +913,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     let ctx = &vm.ctx;
 
-    let ssl_error = create_simple_type("SSLError", &vm.ctx.exceptions.os_error);
+    let ssl_error = create_exception_type("SSLError", &vm.ctx.exceptions.os_error);
 
     let ssl_cert_verification_error = pytype::new(
         ctx.types.type_type.clone(),
@@ -922,14 +921,14 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         ssl_error.clone(),
         vec![ssl_error.clone(), ctx.exceptions.value_error.clone()],
         Default::default(),
-        Default::default(),
+        crate::exceptions::exception_slots(),
     )
     .unwrap();
-    let ssl_zero_return_error = create_simple_type("SSLZeroReturnError", &ssl_error);
-    let ssl_want_read_error = create_simple_type("SSLWantReadError", &ssl_error);
-    let ssl_want_write_error = create_simple_type("SSLWantWriteError", &ssl_error);
-    let ssl_syscall_error = create_simple_type("SSLSyscallError", &ssl_error);
-    let ssl_eof_error = create_simple_type("SSLEOFError", &ssl_error);
+    let ssl_zero_return_error = create_exception_type("SSLZeroReturnError", &ssl_error);
+    let ssl_want_read_error = create_exception_type("SSLWantReadError", &ssl_error);
+    let ssl_want_write_error = create_exception_type("SSLWantWriteError", &ssl_error);
+    let ssl_syscall_error = create_exception_type("SSLSyscallError", &ssl_error);
+    let ssl_eof_error = create_exception_type("SSLEOFError", &ssl_error);
 
     let module = py_module!(vm, "_ssl", {
         "_SSLContext" => PySslContext::make_class(ctx),

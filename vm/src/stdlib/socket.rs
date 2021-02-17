@@ -34,7 +34,13 @@ mod c {
     #[cfg(target_os = "redox")]
     pub const AI_PASSIVE: c_int = 0x01;
     #[cfg(target_os = "redox")]
+    pub const AI_NUMERICHOST: c_int = 0x0004;
+    #[cfg(target_os = "redox")]
     pub const AI_ALL: c_int = 0x10;
+    #[cfg(target_os = "redox")]
+    pub const AI_ADDRCONFIG: c_int = 0x0020;
+    #[cfg(target_os = "redox")]
+    pub const AI_NUMERICSERV: c_int = 0x0400;
     // https://gitlab.redox-os.org/redox-os/relibc/-/blob/master/src/header/sys_socket/constants.rs
     #[cfg(target_os = "redox")]
     pub const SO_TYPE: c_int = 3;
@@ -1072,8 +1078,11 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "SO_OOBINLINE" => ctx.new_int(c::SO_OOBINLINE),
         "SO_ERROR" => ctx.new_int(c::SO_ERROR),
         "TCP_NODELAY" => ctx.new_int(c::TCP_NODELAY),
-        "AI_ALL" => ctx.new_int(c::AI_ALL),
         "AI_PASSIVE" => ctx.new_int(c::AI_PASSIVE),
+        "AI_NUMERICHOST" => ctx.new_int(c::AI_NUMERICHOST),
+        "AI_ALL" => ctx.new_int(c::AI_ALL),
+        "AI_ADDRCONFIG" => ctx.new_int(c::AI_ADDRCONFIG),
+        "AI_NUMERICSERV" => ctx.new_int(c::AI_NUMERICSERV),
         "NI_NAMEREQD" => ctx.new_int(c::NI_NAMEREQD),
         "NI_NOFQDN" => ctx.new_int(c::NI_NOFQDN),
         "NI_NUMERICHOST" => ctx.new_int(c::NI_NUMERICHOST),

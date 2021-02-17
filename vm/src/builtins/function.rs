@@ -325,6 +325,11 @@ impl PyFunction {
     }
 
     #[pyproperty(magic)]
+    fn closure(&self) -> Option<PyTupleTyped<PyCellRef>> {
+        self.closure.clone()
+    }
+
+    #[pyproperty(magic)]
     fn name(&self) -> PyStrRef {
         self.name.lock().clone()
     }
