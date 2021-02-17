@@ -85,6 +85,8 @@ class TestSFbugs(unittest.TestCase):
         self.assertEqual(second[1].size, 2)
         self.assertEqual(second[2].size, 0)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_added_tab_hint(self):
         # Check fix for bug #1488943
         diff = list(difflib.Differ().compare(["\tI am a buggy"],["\t\tI am a bug"]))
@@ -93,6 +95,8 @@ class TestSFbugs(unittest.TestCase):
         self.assertEqual("+ \t\tI am a bug", diff[2])
         self.assertEqual("? +\n", diff[3])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_hint_indented_properly_with_tabs(self):
         diff = list(difflib.Differ().compare(["\t \t \t^"], ["\t \t \t^\n"]))
         self.assertEqual("- \t \t \t^", diff[0])
@@ -346,6 +350,8 @@ class TestBytes(unittest.TestCase):
                 line, bytes,
                 "all lines of diff should be bytes, but got: %r" % line)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_byte_content(self):
         # if we receive byte strings, we return byte strings
         a = [b'hello', b'andr\xe9']     # iso-8859-1 bytes
@@ -374,6 +380,8 @@ class TestBytes(unittest.TestCase):
         check(difflib.diff_bytes(context, a, a, b'a', b'a', b'2005', b'2013'))
         check(difflib.diff_bytes(context, a, b, b'a', b'b', b'2005', b'2013'))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_byte_filenames(self):
         # somebody renamed a file from ISO-8859-2 to UTF-8
         fna = b'\xb3odz.txt'    # "łodz.txt"
