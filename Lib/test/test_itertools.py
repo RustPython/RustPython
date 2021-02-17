@@ -12,6 +12,8 @@ from functools import reduce
 import sys
 import struct
 import threading
+import gc
+
 maxsize = support.MAX_Py_ssize_t
 minsize = -maxsize-1
 
@@ -120,6 +122,8 @@ class TestBasicOps(unittest.TestCase):
             c = expand(compare[took:])
             self.assertEqual(a, c);
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_accumulate(self):
         self.assertEqual(list(accumulate(range(10))),               # one positional arg
                           [0, 1, 3, 6, 10, 15, 21, 28, 36, 45])
@@ -146,18 +150,14 @@ class TestBasicOps(unittest.TestCase):
                          [2, 16, 144, 720, 5040, 0, 0, 0, 0, 0])
         with self.assertRaises(TypeError):
             list(accumulate(s, chr))                                # unary-operation
+        for proto in range(pickle.HIGHEST_PROTOCOL + 1):
+            self.pickletest(proto, accumulate(range(10)))           # test pickling
+            self.pickletest(proto, accumulate(range(10), initial=7))
         self.assertEqual(list(accumulate([10, 5, 1], initial=None)), [10, 15, 16])
         self.assertEqual(list(accumulate([10, 5, 1], initial=100)), [100, 110, 115, 116])
         self.assertEqual(list(accumulate([], initial=100)), [100])
         with self.assertRaises(TypeError):
             list(accumulate([10, 20], 100))
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_accumulate_pickle(self):
-        for proto in range(pickle.HIGHEST_PROTOCOL + 1):
-            self.pickletest(proto, accumulate(range(10)))           # test pickling
-            self.pickletest(proto, accumulate(range(10), initial=7))
 
     def test_chain(self):
 
@@ -195,7 +195,6 @@ class TestBasicOps(unittest.TestCase):
             self.assertRaises(TypeError, list, oper(chain(2, 3)))
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             self.pickletest(proto, chain('abc', 'def'), compare=list('abcdef'))
-
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_chain_setstate(self):
@@ -210,7 +209,6 @@ class TestBasicOps(unittest.TestCase):
         it = chain()
         it.__setstate__((iter(['abc', 'def']), iter(['ghi'])))
         self.assertEqual(list(it), ['ghi', 'a', 'b', 'c', 'd', 'e', 'f'])
-
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_combinations(self):
@@ -1055,6 +1053,25 @@ class TestBasicOps(unittest.TestCase):
         self.assertEqual(next(it), (1, 2))
         self.assertRaises(RuntimeError, next, it)
 
+    def test_pairwise(self):
+        self.assertEqual(list(pairwise('')), [])
+        self.assertEqual(list(pairwise('a')), [])
+        self.assertEqual(list(pairwise('ab')),
+                              [('a', 'b')]),
+        self.assertEqual(list(pairwise('abcde')),
+                              [('a', 'b'), ('b', 'c'), ('c', 'd'), ('d', 'e')])
+        self.assertEqual(list(pairwise(range(10_000))),
+                         list(zip(range(10_000), range(1, 10_000))))
+
+        with self.assertRaises(TypeError):
+            pairwise()                                      # too few arguments
+        with self.assertRaises(TypeError):
+            pairwise('abc', 10)                             # too many arguments
+        with self.assertRaises(TypeError):
+            pairwise(iterable='abc')                        # keyword arguments
+        with self.assertRaises(TypeError):
+            pairwise(None)                                  # non-iterable argument
+
     def test_product(self):
         for args, result in [
             ([], [()]),                     # zero iterables
@@ -1611,6 +1628,51 @@ class TestBasicOps(unittest.TestCase):
             self.assertRaises(StopIteration, next, f(lambda x:x, []))
             self.assertRaises(StopIteration, next, f(lambda x:x, StopNow()))
 
+    @support.cpython_only
+    def test_combinations_result_gc(self):
+        # bpo-42536: combinations's tuple-reuse speed trick breaks the GC's
+        # assumptions about what can be untracked. Make sure we re-track result
+        # tuples whenever we reuse them.
+        it = combinations([None, []], 1)
+        next(it)
+        gc.collect()
+        # That GC collection probably untracked the recycled internal result
+        # tuple, which has the value (None,). Make sure it's re-tracked when
+        # it's mutated and returned from __next__:
+        self.assertTrue(gc.is_tracked(next(it)))
+
+    @support.cpython_only
+    def test_combinations_with_replacement_result_gc(self):
+        # Ditto for combinations_with_replacement.
+        it = combinations_with_replacement([None, []], 1)
+        next(it)
+        gc.collect()
+        self.assertTrue(gc.is_tracked(next(it)))
+
+    @support.cpython_only
+    def test_permutations_result_gc(self):
+        # Ditto for permutations.
+        it = permutations([None, []], 1)
+        next(it)
+        gc.collect()
+        self.assertTrue(gc.is_tracked(next(it)))
+
+    @support.cpython_only
+    def test_product_result_gc(self):
+        # Ditto for product.
+        it = product([None, []])
+        next(it)
+        gc.collect()
+        self.assertTrue(gc.is_tracked(next(it)))
+
+    @support.cpython_only
+    def test_zip_longest_result_gc(self):
+        # Ditto for zip_longest.
+        it = zip_longest([[]])
+        gc.collect()
+        self.assertTrue(gc.is_tracked(next(it)))
+
+
 class TestExamples(unittest.TestCase):
 
     def test_accumulate(self):
@@ -1850,6 +1912,10 @@ class TestGC(unittest.TestCase):
         a = []
         self.makecycle(islice([a]*2, None), a)
 
+    def test_pairwise(self):
+        a = []
+        self.makecycle(pairwise([a]*5), a)
+
     def test_permutations(self):
         a = []
         self.makecycle(permutations([1,2,a,3], 3), a)
@@ -1948,6 +2014,7 @@ def L(seqn):
 
 
 class TestVariousIteratorArgs(unittest.TestCase):
+
     def test_accumulate(self):
         s = [1,2,3,4,5]
         r = [1,3,6,10,15]
@@ -2056,6 +2123,17 @@ class TestVariousIteratorArgs(unittest.TestCase):
             self.assertRaises(TypeError, islice, X(s), 10)
             self.assertRaises(TypeError, islice, N(s), 10)
             self.assertRaises(ZeroDivisionError, list, islice(E(s), 10))
+
+    def test_pairwise(self):
+        for s in ("123", "", range(1000), ('do', 1.2), range(2000,2200,5)):
+            for g in (G, I, Ig, S, L, R):
+                seq = list(g(s))
+                expected = list(zip(seq, seq[1:]))
+                actual = list(pairwise(g(s)))
+                self.assertEqual(actual, expected)
+            self.assertRaises(TypeError, pairwise, X(s))
+            self.assertRaises(TypeError, pairwise, N(s))
+            self.assertRaises(ZeroDivisionError, list, pairwise(E(s)))
 
     def test_starmap(self):
         for s in (range(10), range(0), range(100), (7,11), range(20,50,5)):
@@ -2358,7 +2436,7 @@ Samuele
 ...     "Count how many times the predicate is true"
 ...     return sum(map(pred, iterable))
 
->>> def padnone(iterable):
+>>> def pad_none(iterable):
 ...     "Returns the sequence elements and then returns None indefinitely"
 ...     return chain(iterable, repeat(None))
 
@@ -2379,15 +2457,6 @@ Samuele
 ...         return starmap(func, repeat(args))
 ...     else:
 ...         return starmap(func, repeat(args, times))
-
->>> def pairwise(iterable):
-...     "s -> (s0,s1), (s1,s2), (s2, s3), ..."
-...     a, b = tee(iterable)
-...     try:
-...         next(b)
-...     except StopIteration:
-...         pass
-...     return zip(a, b)
 
 >>> def grouper(n, iterable, fillvalue=None):
 ...     "grouper(3, 'ABCDEFG', 'x') --> ABC DEF Gxx"
@@ -2519,16 +2588,7 @@ True
 >>> take(5, map(int, repeatfunc(random.random)))
 [0, 0, 0, 0, 0]
 
->>> list(pairwise('abcd'))
-[('a', 'b'), ('b', 'c'), ('c', 'd')]
-
->>> list(pairwise([]))
-[]
-
->>> list(pairwise('a'))
-[]
-
->>> list(islice(padnone('abc'), 0, 6))
+>>> list(islice(pad_none('abc'), 0, 6))
 ['a', 'b', 'c', None, None, None]
 
 >>> list(ncycles('abc', 3))
