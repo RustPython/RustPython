@@ -214,6 +214,8 @@ class TestEnum(unittest.TestCase):
                 set(['__class__', '__doc__', '__module__', 'name', 'value', 'invisible']),
                 )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_dir_on_sub_with_behavior_including_instance_dict_on_super(self):
         # see issue40084
         class SuperEnum(IntEnum):
@@ -429,6 +431,8 @@ class TestEnum(unittest.TestCase):
                 green = 2
                 blue = 3
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_enum_with_value_name(self):
         class Huh(Enum):
             name = 1
@@ -486,6 +490,8 @@ class TestEnum(unittest.TestCase):
         self.assertEqual(str(EnumWithStrFormatOverrides.one), 'Str!')
         self.assertEqual('{}'.format(EnumWithStrFormatOverrides.one), 'Format!')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_str_override_mixin(self):
         class MixinEnumWithStrOverride(float, Enum):
             one = 1.0
@@ -529,6 +535,8 @@ class TestEnum(unittest.TestCase):
         self.assertFormatIsValue('{:%Y %m}', Holiday.IDES_OF_MARCH)
         self.assertFormatIsValue('{:%Y %m %M:00}', Holiday.IDES_OF_MARCH)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_format_enum_float(self):
         Konstants = self.Konstants
         self.assertFormatIsValue('{}', Konstants.TAU)
@@ -562,6 +570,8 @@ class TestEnum(unittest.TestCase):
         self.assertFormatIsValue('{:>20}', Directional.WEST)
         self.assertFormatIsValue('{:<20}', Directional.WEST)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_object_str_override(self):
         class Colors(Enum):
             RED, GREEN, BLUE = 1, 2, 3
@@ -570,6 +580,8 @@ class TestEnum(unittest.TestCase):
             __str__ = object.__str__
         self.assertEqual(str(Colors.RED), 'test.RED')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_enum_str_override(self):
         class MyStrEnum(Enum):
             def __str__(self):
@@ -600,6 +612,8 @@ class TestEnum(unittest.TestCase):
             C = 3
         self.assertEqual(repr(MyEnum.A), '<MyEnum.A: 0x1>')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_too_many_data_types(self):
         with self.assertRaisesRegex(TypeError, 'too many data types'):
             class Huh(str, int, Enum):
@@ -711,11 +725,15 @@ class TestEnum(unittest.TestCase):
         self.assertEqual([k for k,v in WeekDay.__members__.items()
                 if v.name != k], ['TEUSDAY', ])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_intenum_from_bytes(self):
         self.assertIs(IntStooges.from_bytes(b'\x00\x03', 'big'), IntStooges.MOE)
         with self.assertRaises(ValueError):
             IntStooges.from_bytes(b'\x00\x05', 'big')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_floatenum_fromhex(self):
         h = float.hex(FloatStooges.MOE.value)
         self.assertIs(FloatStooges.fromhex(h), FloatStooges.MOE)
@@ -741,12 +759,16 @@ class TestEnum(unittest.TestCase):
         test_pickle_dump_load(self.assertIs, FloatStooges.CURLY)
         test_pickle_dump_load(self.assertIs, FloatStooges)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_pickle_enum_function(self):
         if isinstance(Answer, Exception):
             raise Answer
         test_pickle_dump_load(self.assertIs, Answer.him)
         test_pickle_dump_load(self.assertIs, Answer)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_pickle_enum_function_with_module(self):
         if isinstance(Question, Exception):
             raise Question
@@ -758,6 +780,8 @@ class TestEnum(unittest.TestCase):
             raise Theory
         self.assertEqual(Theory.__qualname__, 'spanish_inquisition')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_class_nested_enum_and_pickle_protocol_four(self):
         # would normally just have this directly in the class namespace
         class NestedEnum(Enum):
@@ -1004,6 +1028,8 @@ class TestEnum(unittest.TestCase):
         self.assertIs(Name.BDFL, getattr(Name, 'BDFL'))
         test_pickle_dump_load(self.assertIs, Name.BDFL)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_extending(self):
         class Color(Enum):
             red = 1
@@ -1177,6 +1203,8 @@ class TestEnum(unittest.TestCase):
             b = 3
             c = ...
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_subclasses_with_getnewargs(self):
         class NamedInt(int):
             __qualname__ = 'NamedInt'       # needed for pickle protocol 4
@@ -1234,6 +1262,8 @@ class TestEnum(unittest.TestCase):
         test_pickle_dump_load(self.assertIs, NEI.y)
         test_pickle_dump_load(self.assertIs, NEI)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_subclasses_with_getnewargs_ex(self):
         class NamedInt(int):
             __qualname__ = 'NamedInt'       # needed for pickle protocol 4
@@ -1405,6 +1435,8 @@ class TestEnum(unittest.TestCase):
         test_pickle_dump_load(self.assertIs, NEI.y)
         test_pickle_dump_load(self.assertIs, NEI)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_subclasses_without_direct_pickle_support(self):
         class NamedInt(int):
             __qualname__ = 'NamedInt'
@@ -1458,6 +1490,8 @@ class TestEnum(unittest.TestCase):
         test_pickle_exception(self.assertRaises, TypeError, NEI.x)
         test_pickle_exception(self.assertRaises, PicklingError, NEI)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_subclasses_without_direct_pickle_support_using_name(self):
         class NamedInt(int):
             __qualname__ = 'NamedInt'
@@ -1525,6 +1559,8 @@ class TestEnum(unittest.TestCase):
         globals()['SomeTuple'] = SomeTuple
         test_pickle_dump_load(self.assertIs, SomeTuple.first)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_duplicate_values_give_unique_enum_items(self):
         class AutoNumber(Enum):
             first = ()
@@ -1545,6 +1581,8 @@ class TestEnum(unittest.TestCase):
         self.assertEqual(AutoNumber.third.value, 3)
         self.assertIs(AutoNumber(1), AutoNumber.first)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_inherited_new_from_enhanced_enum(self):
         class AutoNumber(Enum):
             def __new__(cls):
@@ -1561,6 +1599,8 @@ class TestEnum(unittest.TestCase):
         self.assertEqual(list(Color), [Color.red, Color.green, Color.blue])
         self.assertEqual(list(map(int, Color)), [1, 2, 3])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_inherited_new_from_mixed_enum(self):
         class AutoNumber(IntEnum):
             def __new__(cls):
@@ -1650,6 +1690,8 @@ class TestEnum(unittest.TestCase):
             test = 1
         self.assertIs(type(Test.test), Test)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_subclass_duplicate_name_dynamic(self):
         from types import DynamicClassAttribute
         class Base(Enum):
@@ -1660,6 +1702,8 @@ class TestEnum(unittest.TestCase):
             test = 1
         self.assertEqual(Test.test.test, 'dynamic')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_no_duplicates(self):
         class UniqueEnum(Enum):
             def __init__(self, *args):
@@ -1731,6 +1775,8 @@ class TestEnum(unittest.TestCase):
         self.assertTrue(Period.month_1 is Period.day_30)
         self.assertTrue(Period.week_4 is Period.day_28)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_nonhash_value(self):
         class AutoNumberInAList(Enum):
             def __new__(cls):
@@ -1820,6 +1866,8 @@ class TestEnum(unittest.TestCase):
         self.assertEqual(Color.blue.value, 2)
         self.assertEqual(Color.green.value, 3)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_auto_order(self):
         with self.assertRaises(TypeError):
             class Color(Enum):
@@ -1860,6 +1908,8 @@ class TestEnum(unittest.TestCase):
         else:
             raise Exception('Exception not raised.')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_missing(self):
         class Color(Enum):
             red = 1
@@ -1897,6 +1947,8 @@ class TestEnum(unittest.TestCase):
         else:
             raise Exception('Exception not raised.')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_multiple_mixin(self):
         class MaxMixin:
             @classproperty
@@ -2014,6 +2066,8 @@ class TestEnum(unittest.TestCase):
             REVERT_ALL = "REVERT_ALL"
             RETRY = "RETRY"
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_multiple_mixin_inherited(self):
         class MyInt(int):
             def __new__(cls, value):
@@ -2417,6 +2471,8 @@ class TestFlag(unittest.TestCase):
             d = 6
         self.assertEqual(repr(Bizarre(7)), '<Bizarre.d|c|b: 7>')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_multiple_mixin(self):
         class AllMixin:
             @classproperty
@@ -2460,6 +2516,8 @@ class TestFlag(unittest.TestCase):
         self.assertEqual(Color.ALL.value, 7)
         self.assertEqual(str(Color.BLUE), 'blue')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @support.reap_threads
     def test_unique_composite(self):
         # override __eq__ to be identity only
@@ -2608,6 +2666,8 @@ class TestIntFlag(unittest.TestCase):
         self.assertEqual(format(Perm.R, ''), '4')
         self.assertEqual(format(Perm.R | Perm.X, ''), '5')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_or(self):
         Perm = self.Perm
         for i in Perm:
@@ -2629,6 +2689,8 @@ class TestIntFlag(unittest.TestCase):
         Open = self.Open
         self.assertIs(Open.RO | Open.CE, Open.CE)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_and(self):
         Perm = self.Perm
         RW = Perm.R | Perm.W
@@ -2655,6 +2717,8 @@ class TestIntFlag(unittest.TestCase):
         Open = self.Open
         self.assertIs(Open.RO & Open.CE, Open.RO)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_xor(self):
         Perm = self.Perm
         for i in Perm:
@@ -2841,6 +2905,8 @@ class TestIntFlag(unittest.TestCase):
         for f in Open:
             self.assertEqual(bool(f.value), bool(f))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_multiple_mixin(self):
         class AllMixin:
             @classproperty
@@ -2884,6 +2950,8 @@ class TestIntFlag(unittest.TestCase):
         self.assertEqual(Color.ALL.value, 7)
         self.assertEqual(str(Color.BLUE), 'blue')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @support.reap_threads
     def test_unique_composite(self):
         # override __eq__ to be identity only
@@ -3066,6 +3134,8 @@ class TestStdLib(unittest.TestCase):
         green = 2
         blue = 3
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_pydoc(self):
         # indirectly test __objclass__
         if StrEnum.__doc__ is None:
@@ -3078,6 +3148,8 @@ class TestStdLib(unittest.TestCase):
         result = output.getvalue().strip()
         self.assertEqual(result, expected_text)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_inspect_getmembers(self):
         values = dict((
                 ('__class__', EnumMeta),
@@ -3102,6 +3174,8 @@ class TestStdLib(unittest.TestCase):
         if failed:
             self.fail("result does not equal expected, see print above")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_inspect_classify_class_attrs(self):
         # indirectly test __objclass__
         from inspect import Attribute
@@ -3188,6 +3262,8 @@ class TestIntEnumConvert(unittest.TestCase):
                 ('test.test_enum', '__main__')[__name__=='__main__'],
                 filter=lambda x: x.startswith('CONVERT_TEST_'))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(sys.version_info >= (3, 9),
                          '_convert was removed in 3.9')
     def test_convert_raise(self):
