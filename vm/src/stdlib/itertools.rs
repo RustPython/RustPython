@@ -1399,7 +1399,7 @@ mod decl {
     }
 
     #[derive(FromArgs)]
-    struct ZiplongestArgs {
+    struct ZipLongestArgs {
         #[pyarg(named, optional)]
         fillvalue: OptionalArg<PyObjectRef>,
     }
@@ -1410,7 +1410,7 @@ mod decl {
         fn tp_new(
             cls: PyTypeRef,
             iterables: Args,
-            args: ZiplongestArgs,
+            args: ZipLongestArgs,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
             let fillvalue = args.fillvalue.unwrap_or_none(vm);
@@ -1452,6 +1452,49 @@ mod decl {
                 }
                 Ok(vm.ctx.new_tuple(result))
             }
+        }
+    }
+
+    #[pyattr]
+    #[pyclass(name = "pairwise")]
+    #[derive(Debug)]
+    struct PyItertoolsPairwise {
+        iterator: PyObjectRef,
+        old: PyRwLock<Option<PyObjectRef>>,
+    }
+
+    impl PyValue for PyItertoolsPairwise {
+        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+            Self::static_type()
+        }
+    }
+
+    #[pyimpl(with(PyIter))]
+    impl PyItertoolsPairwise {
+        #[pyslot]
+        fn tp_new(
+            cls: PyTypeRef,
+            iterable: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyRef<Self>> {
+            let iterator = get_iter(vm, iterable)?;
+
+            PyItertoolsPairwise {
+                iterator,
+                old: PyRwLock::new(None),
+            }
+            .into_ref_with_type(vm, cls)
+        }
+    }
+    impl PyIter for PyItertoolsPairwise {
+        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+            let old = match zelf.old.read().clone() {
+                None => call_next(vm, &zelf.iterator)?,
+                Some(obj) => obj,
+            };
+            let new = call_next(vm, &zelf.iterator)?;
+            *zelf.old.write() = Some(new.clone());
+            Ok(vm.ctx.new_tuple(vec![old, new]))
         }
     }
 }
