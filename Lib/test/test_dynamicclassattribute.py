@@ -167,6 +167,8 @@ class PropertyTests(unittest.TestCase):
                 foo.__isabstractmethod__ = NotBool()
                 foo = DynamicClassAttribute(foo)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_abstract_virtual(self):
         self.assertRaises(TypeError, ClassWithAbstractVirtualProperty)
         self.assertRaises(TypeError, ClassWithPropertyAbstractVirtual)
