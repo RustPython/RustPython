@@ -803,7 +803,9 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::SetupAsyncWith { end } => {
+                let enter_res = self.pop_value();
                 self.push_block(BlockType::Finally { handler: *end });
+                self.push_value(enter_res);
                 Ok(None)
             }
             bytecode::Instruction::WithCleanupStart => {

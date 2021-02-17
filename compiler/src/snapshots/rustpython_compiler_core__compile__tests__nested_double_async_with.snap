@@ -1,0 +1,76 @@
+---
+source: compiler/src/compile.rs
+expression: "compile_exec(\"\\\nfor stop_exc in (StopIteration('spam'), StopAsyncIteration('ham')):\n    with self.subTest(type=type(stop_exc)):\n        try:\n            async with woohoo():\n                raise stop_exc\n        except Exception as ex:\n            self.assertIs(ex, stop_exc)\n        else:\n            self.fail(f'{stop_exc} was suppressed')\n\")"
+---
+                 0 SetupLoop
+                 1 LoadNameAny          (0, StopIteration)
+                 2 LoadConst            ("spam")
+                 3 CallFunctionPositional (1)
+                 4 LoadNameAny          (1, StopAsyncIteration)
+                 5 LoadConst            ("ham")
+                 6 CallFunctionPositional (1)
+                 7 BuildTuple           (2, false)
+                 8 GetIter
+          >>     9 ForIter              (68)
+                10 StoreLocal           (2, stop_exc)
+                11 LoadNameAny          (3, self)
+                12 LoadAttr             (subTest)
+                13 LoadNameAny          (5, type)
+                14 LoadNameAny          (2, stop_exc)
+                15 CallFunctionPositional (1)
+                16 LoadConst            (("type"))
+                17 CallFunctionKeyword  (1)
+                18 SetupWith            (65)
+                19 Pop
+                20 SetupExcept          (40)
+                21 LoadNameAny          (6, woohoo)
+                22 CallFunctionPositional (0)
+                23 BeforeAsyncWith
+                24 GetAwaitable
+                25 LoadConst            (None)
+                26 YieldFrom
+                27 SetupAsyncWith       (33)
+                28 Pop
+                29 LoadNameAny          (2, stop_exc)
+                30 Raise                (Raise)
+                31 PopBlock
+                32 EnterFinally
+          >>    33 WithCleanupStart
+                34 GetAwaitable
+                35 LoadConst            (None)
+                36 YieldFrom
+                37 WithCleanupFinish
+                38 PopBlock
+                39 Jump                 (54)
+          >>    40 Duplicate
+                41 LoadNameAny          (7, Exception)
+                42 CompareOperation     (ExceptionMatch)
+                43 JumpIfFalse          (53)
+                44 StoreLocal           (8, ex)
+                45 LoadNameAny          (3, self)
+                46 LoadAttr             (assertIs)
+                47 LoadNameAny          (8, ex)
+                48 LoadNameAny          (2, stop_exc)
+                49 CallFunctionPositional (2)
+                50 Pop
+                51 PopException
+                52 Jump                 (63)
+          >>    53 Raise                (Reraise)
+          >>    54 LoadNameAny          (3, self)
+                55 LoadAttr             (fail)
+                56 LoadConst            ("")
+                57 LoadNameAny          (2, stop_exc)
+                58 FormatValue          (None)
+                59 LoadConst            (" was suppressed")
+                60 BuildString          (2)
+                61 CallFunctionPositional (1)
+                62 Pop
+          >>    63 PopBlock
+                64 EnterFinally
+          >>    65 WithCleanupStart
+                66 WithCleanupFinish
+                67 Jump                 (9)
+          >>    68 PopBlock
+                69 LoadConst            (None)
+                70 ReturnValue
+

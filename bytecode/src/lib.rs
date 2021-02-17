@@ -903,7 +903,13 @@ impl Instruction {
             Reverse { .. } => 0,
             GetAwaitable => 0,
             BeforeAsyncWith => 1,
-            SetupAsyncWith { .. } => 0,
+            SetupAsyncWith { .. } => {
+                if jump {
+                    -1
+                } else {
+                    0
+                }
+            }
             GetAIter => 0,
             GetANext => 1,
             EndAsyncFor => -1,
