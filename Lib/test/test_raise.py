@@ -56,8 +56,6 @@ class TestRaise(unittest.TestCase):
                 raise
         self.assertRaises(TypeError, reraise)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_finally_reraise(self):
         def reraise():
             try:
@@ -152,8 +150,6 @@ class TestRaise(unittest.TestCase):
 
 class TestCause(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testCauseSyntax(self):
         try:
             try:
@@ -173,8 +169,6 @@ class TestCause(unittest.TestCase):
         self.assertFalse(e.__suppress_context__)
         self.assertIsInstance(e.__context__, TypeError)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_invalid_cause(self):
         try:
             raise IndexError from 5
@@ -354,8 +348,6 @@ class TestContext(unittest.TestCase):
         else:
             self.fail("No exception raised")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_c_exception_raise(self):
         try:
             try:
@@ -403,8 +395,6 @@ class TestContext(unittest.TestCase):
         else:
             self.fail("No exception raised")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_cycle_broken(self):
         # Self-cycles (when re-raising a caught exception) are broken
         try:

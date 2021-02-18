@@ -53,8 +53,11 @@ enum BlockType {
     /// Active finally sequence
     FinallyHandler {
         reason: Option<UnwindReason>,
+        prev_exc: Option<PyBaseExceptionRef>,
     },
-    ExceptHandler,
+    ExceptHandler {
+        prev_exc: Option<PyBaseExceptionRef>,
+    },
 }
 
 pub type FrameRef = PyRef<Frame>;
@@ -67,7 +70,8 @@ enum UnwindReason {
     /// We are returning a value from a return statement.
     Returning { value: PyObjectRef },
 
-    /// We hit an exception, so unwind any try-except and finally blocks.
+    /// We hit an exception, so unwind any try-except and finally blocks. The exception should be
+    /// on top of the vm exception stack.
     Raising { exception: PyBaseExceptionRef },
 
     // NoWorries,
@@ -123,7 +127,7 @@ impl ExecutionResult {
             Ok(val) => Ok(ExecutionResult::Yield(val)),
             Err(err) => {
                 if err.isinstance(&vm.ctx.exceptions.stop_iteration) {
-                    iterator::stop_iter_value(vm, &err).map(ExecutionResult::Return)
+                    Ok(ExecutionResult::Return(iterator::stop_iter_value(vm, &err)))
                 } else {
                     Err(err)
                 }
@@ -280,7 +284,7 @@ impl FrameRef {
     }
 
     pub fn yield_from_target(&self) -> Option<PyObjectRef> {
-        self.with_exec(|exec| exec.yield_from_target())
+        self.with_exec(|exec| exec.yield_from_target().cloned())
     }
 
     pub fn lasti(&self) -> u32 {
@@ -317,9 +321,10 @@ impl ExecutingFrame<'_> {
     fn run(&mut self, vm: &VirtualMachine) -> PyResult<ExecutionResult> {
         flame_guard!(format!("Frame::run({})", self.code.obj_name));
         // Execute until return or exception:
+        let instrs = &self.code.instructions;
         loop {
             let idx = self.lasti.fetch_add(1, Ordering::Relaxed) as usize;
-            let instr = &self.code.instructions[idx];
+            let instr = &instrs[idx];
             let result = self.execute_instruction(instr, vm);
             match result {
                 Ok(None) => continue,
@@ -341,6 +346,8 @@ impl ExecutingFrame<'_> {
                     vm_trace!("Adding to traceback: {:?} {:?}", new_traceback, loc.row());
                     exception.set_traceback(Some(new_traceback.into_ref(vm)));
 
+                    vm.contextualize_exception(&exception);
+
                     match self.unwind_blocks(vm, UnwindReason::Raising { exception }) {
                         Ok(None) => continue,
                         Ok(Some(result)) => {
@@ -357,16 +364,18 @@ impl ExecutingFrame<'_> {
         }
     }
 
-    fn yield_from_target(&self) -> Option<PyObjectRef> {
+    fn yield_from_target(&self) -> Option<&PyObjectRef> {
         if let Some(bytecode::Instruction::YieldFrom) =
             self.code.instructions.get(self.lasti() as usize)
         {
-            Some(self.last_value())
+            Some(self.last_value_ref())
         } else {
             None
         }
     }
 
+    /// Ok(Err(e)) means that an error ocurred while calling throw() and the generator should try
+    /// sending it
     fn gen_throw(
         &mut self,
         vm: &VirtualMachine,
@@ -375,24 +384,40 @@ impl ExecutingFrame<'_> {
         exc_tb: PyObjectRef,
     ) -> PyResult<ExecutionResult> {
         if let Some(coro) = self.yield_from_target() {
-            let res = match self.builtin_coro(&coro) {
-                Some(coro) => coro.throw(exc_type, exc_val, exc_tb, vm),
-                None => vm.call_method(&coro, "throw", vec![exc_type, exc_val, exc_tb]),
+            use crate::pyobject::Either;
+            // borrow checker shenanigans - we only need to use exc_type/val/tb if the following
+            // variable is Some
+            let thrower = if let Some(coro) = self.builtin_coro(coro) {
+                Some(Either::A(coro))
+            } else if let Some(meth) = vm.get_attribute_opt(coro.clone(), "throw")? {
+                Some(Either::B(meth))
+            } else {
+                None
             };
-            res.or_else(|err| {
-                self.pop_value();
-                self.lasti.fetch_add(1, Ordering::Relaxed);
-                let val = iterator::stop_iter_value(vm, &err)?;
-                self._send(coro, val, vm)
-            })
-            .map(ExecutionResult::Yield)
-        } else {
-            let exception = exceptions::normalize(exc_type, exc_val, exc_tb, vm)?;
-            match self.unwind_blocks(vm, UnwindReason::Raising { exception }) {
-                Ok(None) => self.run(vm),
-                Ok(Some(result)) => Ok(result),
-                Err(exception) => Err(exception),
+            if let Some(thrower) = thrower {
+                let ret = match thrower {
+                    Either::A(coro) => coro.throw(exc_type, exc_val, exc_tb, vm),
+                    Either::B(meth) => vm.invoke(&meth, vec![exc_type, exc_val, exc_tb]),
+                };
+                return ret.map(ExecutionResult::Yield).or_else(|err| {
+                    self.pop_value();
+                    self.lasti.fetch_add(1, Ordering::Relaxed);
+                    if err.isinstance(&vm.ctx.exceptions.stop_iteration) {
+                        let val = iterator::stop_iter_value(vm, &err);
+                        self.push_value(val);
+                        self.run(vm)
+                    } else {
+                        let (ty, val, tb) = exceptions::split(err, vm);
+                        self.gen_throw(vm, ty, val, tb)
+                    }
+                });
             }
+        }
+        let exception = exceptions::normalize(exc_type, exc_val, exc_tb, vm)?;
+        match self.unwind_blocks(vm, UnwindReason::Raising { exception }) {
+            Ok(None) => self.run(vm),
+            Ok(Some(result)) => Ok(result),
+            Err(exception) => Err(exception),
         }
     }
 
@@ -686,7 +711,10 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::EnterFinally => {
-                self.push_block(BlockType::FinallyHandler { reason: None });
+                self.push_block(BlockType::FinallyHandler {
+                    reason: None,
+                    prev_exc: vm.current_exception(),
+                });
                 Ok(None)
             }
             bytecode::Instruction::EndFinally => {
@@ -694,7 +722,8 @@ impl ExecutingFrame<'_> {
                 // what was the reason we were in this finally clause.
                 let block = self.pop_block();
 
-                if let BlockType::FinallyHandler { reason } = block.typ {
+                if let BlockType::FinallyHandler { reason, prev_exc } = block.typ {
+                    vm.set_exception(prev_exc);
                     if let Some(reason) = reason {
                         self.unwind_blocks(vm, reason)
                     } else {
@@ -732,13 +761,13 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::WithCleanupStart => {
                 let block = self.current_block().unwrap();
                 let reason = match block.typ {
-                    BlockType::FinallyHandler { reason } => reason,
+                    BlockType::FinallyHandler { reason, .. } => reason,
                     _ => unreachable!("WithCleanupStart expects a FinallyHandler block on stack"),
                 };
-                let exc = reason.and_then(|reason| match reason {
-                    UnwindReason::Raising { exception } => Some(exception),
+                let exc = match reason {
+                    Some(UnwindReason::Raising { exception }) => Some(exception),
                     _ => None,
-                });
+                };
 
                 let exit = self.pop_value();
 
@@ -754,14 +783,16 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::WithCleanupFinish => {
                 let block = self.pop_block();
-                let reason = match block.typ {
-                    BlockType::FinallyHandler { reason } => reason,
+                let (reason, prev_exc) = match block.typ {
+                    BlockType::FinallyHandler { reason, prev_exc } => (reason, prev_exc),
                     _ => unreachable!("WithCleanupFinish expects a FinallyHandler block on stack"),
                 };
 
                 let suppress_exception = pybool::boolval(vm, self.pop_value())?;
+
+                vm.set_exception(prev_exc);
+
                 if suppress_exception {
-                    // suppress exception
                     Ok(None)
                 } else if let Some(reason) = reason {
                     self.unwind_blocks(vm, reason)
@@ -816,7 +847,7 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::EndAsyncFor => {
                 let exc = self.pop_value();
                 if exc.isinstance(&vm.ctx.exceptions.stop_async_iteration) {
-                    vm.pop_exception().expect("Should have exception in stack");
+                    vm.take_exception().expect("Should have exception in stack");
                     Ok(None)
                 } else {
                     Err(exc.downcast().unwrap())
@@ -951,8 +982,8 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::PopException {} => {
                 let block = self.pop_block();
-                if let BlockType::ExceptHandler = block.typ {
-                    vm.pop_exception().expect("Should have exception in stack");
+                if let BlockType::ExceptHandler { prev_exc } = block.typ {
+                    vm.set_exception(prev_exc);
                     Ok(None)
                 } else {
                     unreachable!("block type must be ExceptHandler here.")
@@ -1068,8 +1099,13 @@ impl ExecutingFrame<'_> {
                 },
                 BlockType::Finally { handler } => {
                     self.pop_block();
+                    let prev_exc = vm.current_exception();
+                    if let UnwindReason::Raising { exception } = &reason {
+                        vm.set_exception(Some(exception.clone()));
+                    }
                     self.push_block(BlockType::FinallyHandler {
                         reason: Some(reason),
+                        prev_exc,
                     });
                     self.jump(handler);
                     return Ok(None);
@@ -1077,27 +1113,20 @@ impl ExecutingFrame<'_> {
                 BlockType::TryExcept { handler } => {
                     self.pop_block();
                     if let UnwindReason::Raising { exception } = reason {
-                        self.push_block(BlockType::ExceptHandler {});
-                        self.push_value(exception.clone().into_object());
-                        vm.push_exception(exception);
+                        self.push_block(BlockType::ExceptHandler {
+                            prev_exc: vm.current_exception(),
+                        });
+                        vm.contextualize_exception(&exception);
+                        vm.set_exception(Some(exception.clone()));
+                        self.push_value(exception.into_object());
                         self.jump(handler);
                         return Ok(None);
                     }
                 }
-                BlockType::FinallyHandler {
-                    reason: finally_reason,
-                } => {
-                    if let Some(UnwindReason::Raising { exception }) = finally_reason {
-                        let finally_exc = exception;
-                        if let UnwindReason::Raising { exception } = &reason {
-                            exception.set_context(Some(finally_exc))
-                        }
-                    }
+                BlockType::FinallyHandler { prev_exc, .. }
+                | BlockType::ExceptHandler { prev_exc } => {
                     self.pop_block();
-                }
-                BlockType::ExceptHandler => {
-                    self.pop_block();
-                    vm.pop_exception().expect("Should have exception in stack");
+                    vm.set_exception(prev_exc);
                 }
             }
         }
@@ -1280,7 +1309,12 @@ impl ExecutingFrame<'_> {
                     None
                 } else {
                     // if the cause arg is an exception, we overwrite it
-                    Some(ExceptionCtor::try_from_object(vm, val)?.instantiate(vm)?)
+                    let ctor = ExceptionCtor::try_from_object(vm, val).map_err(|_| {
+                        vm.new_type_error(
+                            "exception causes must derive from BaseException".to_owned(),
+                        )
+                    })?;
+                    Some(ctor.instantiate(vm)?)
                 })
             }
             // if there's no cause arg, we keep the cause as is
@@ -1291,21 +1325,13 @@ impl ExecutingFrame<'_> {
                 ExceptionCtor::try_from_object(vm, self.pop_value())?.instantiate(vm)?
             }
             bytecode::RaiseKind::Reraise => vm
-                .current_exception()
+                .topmost_exception()
                 .ok_or_else(|| vm.new_runtime_error("No active exception to reraise".to_owned()))?,
         };
-        let context = match kind {
-            bytecode::RaiseKind::RaiseCause | bytecode::RaiseKind::Raise => vm.current_exception(),
-            bytecode::RaiseKind::Reraise => None, // We have already got the current exception
-        };
-        info!(
-            "Exception raised: {:?} with cause: {:?} and context: {:?}",
-            exception, cause, context
-        );
+        info!("Exception raised: {:?} with cause: {:?}", exception, cause);
         if let Some(cause) = cause {
             exception.set_cause(cause);
         }
-        exception.set_context(context);
         Err(exception)
     }
 
@@ -1317,11 +1343,14 @@ impl ExecutingFrame<'_> {
         })
     }
 
-    fn _send(&self, coro: PyObjectRef, val: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match self.builtin_coro(&coro) {
+    fn _send(&self, coro: &PyObjectRef, val: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        match self.builtin_coro(coro) {
             Some(coro) => coro.send(val, vm),
-            None if vm.is_none(&val) => iterator::call_next(vm, &coro),
-            None => vm.call_method(&coro, "send", (val,)),
+            None if vm.is_none(&val) => iterator::call_next(vm, coro),
+            None => {
+                let meth = vm.get_attribute(coro.clone(), "send")?;
+                vm.invoke(&meth, (val,))
+            }
         }
     }
 
@@ -1329,7 +1358,7 @@ impl ExecutingFrame<'_> {
         // Value send into iterator:
         let val = self.pop_value();
 
-        let coro = self.last_value();
+        let coro = self.last_value_ref();
 
         let result = self._send(coro, val, vm);
 
@@ -1682,8 +1711,13 @@ impl ExecutingFrame<'_> {
     }
 
     fn last_value(&self) -> PyObjectRef {
+        self.last_value_ref().clone()
+    }
+
+    #[inline]
+    fn last_value_ref(&self) -> &PyObjectRef {
         match &*self.state.stack {
-            [.., last] => last.clone(),
+            [.., last] => last,
             [] => panic!("tried to get top of stack but stack is empty"),
         }
     }

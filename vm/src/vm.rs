@@ -5,8 +5,7 @@
 //!
 
 use std::cell::{Cell, Ref, RefCell};
-use std::collections::HashMap;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 use crossbeam_utils::atomic::AtomicCell;
@@ -49,7 +48,7 @@ pub struct VirtualMachine {
     pub ctx: PyRc<PyContext>,
     pub frames: RefCell<Vec<FrameRef>>,
     pub wasm_id: Option<String>,
-    pub exceptions: RefCell<Vec<PyBaseExceptionRef>>,
+    exceptions: RefCell<ExceptionStack>,
     pub import_func: PyObjectRef,
     pub profile_func: RefCell<PyObjectRef>,
     pub trace_func: RefCell<PyObjectRef>,
@@ -59,6 +58,12 @@ pub struct VirtualMachine {
     pub repr_guards: RefCell<HashSet<usize>>,
     pub state: PyRc<PyGlobalState>,
     pub initialized: bool,
+}
+
+#[derive(Debug, Default)]
+struct ExceptionStack {
+    exc: Option<PyBaseExceptionRef>,
+    prev: Option<Box<ExceptionStack>>,
 }
 
 pub(crate) mod thread {
@@ -267,7 +272,7 @@ impl VirtualMachine {
             ctx: PyRc::new(ctx),
             frames: RefCell::new(vec![]),
             wasm_id: None,
-            exceptions: RefCell::new(vec![]),
+            exceptions: RefCell::default(),
             import_func,
             profile_func,
             trace_func,
@@ -422,7 +427,7 @@ impl VirtualMachine {
             ctx: self.ctx.clone(),
             frames: RefCell::new(vec![]),
             wasm_id: self.wasm_id.clone(),
-            exceptions: RefCell::new(vec![]),
+            exceptions: RefCell::default(),
             import_func: self.import_func.clone(),
             profile_func: RefCell::new(self.ctx.none()),
             trace_func: RefCell::new(self.ctx.none()),
@@ -1678,16 +1683,59 @@ impl VirtualMachine {
         }
     }
 
-    pub fn push_exception(&self, exc: PyBaseExceptionRef) {
-        self.exceptions.borrow_mut().push(exc)
+    pub(crate) fn push_exception(&self, exc: Option<PyBaseExceptionRef>) {
+        let mut excs = self.exceptions.borrow_mut();
+        let prev = std::mem::take(&mut *excs);
+        excs.prev = Some(Box::new(prev));
+        excs.exc = exc
     }
 
-    pub fn pop_exception(&self) -> Option<PyBaseExceptionRef> {
-        self.exceptions.borrow_mut().pop()
+    pub(crate) fn pop_exception(&self) -> Option<PyBaseExceptionRef> {
+        let mut excs = self.exceptions.borrow_mut();
+        let cur = std::mem::take(&mut *excs);
+        *excs = *cur.prev.expect("pop_exception() without nested exc stack");
+        cur.exc
     }
 
-    pub fn current_exception(&self) -> Option<PyBaseExceptionRef> {
-        self.exceptions.borrow().last().cloned()
+    pub(crate) fn take_exception(&self) -> Option<PyBaseExceptionRef> {
+        self.exceptions.borrow_mut().exc.take()
+    }
+
+    pub(crate) fn current_exception(&self) -> Option<PyBaseExceptionRef> {
+        self.exceptions.borrow().exc.clone()
+    }
+
+    pub(crate) fn set_exception(&self, exc: Option<PyBaseExceptionRef>) {
+        // don't be holding the refcell guard while __del__ is called
+        let prev = std::mem::replace(&mut self.exceptions.borrow_mut().exc, exc);
+        drop(prev);
+    }
+
+    pub(crate) fn contextualize_exception(&self, exception: &PyBaseExceptionRef) {
+        if let Some(context_exc) = self.topmost_exception() {
+            if !context_exc.is(exception) {
+                let mut o = context_exc.clone();
+                while let Some(context) = o.context() {
+                    if context.is(&exception) {
+                        o.set_context(None);
+                        break;
+                    }
+                    o = context;
+                }
+                exception.set_context(Some(context_exc))
+            }
+        }
+    }
+
+    pub(crate) fn topmost_exception(&self) -> Option<PyBaseExceptionRef> {
+        let excs = self.exceptions.borrow();
+        let mut cur = &*excs;
+        loop {
+            if let Some(exc) = &cur.exc {
+                return Some(exc.clone());
+            }
+            cur = cur.prev.as_deref()?;
+        }
     }
 
     pub fn bool_eq(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult<bool> {

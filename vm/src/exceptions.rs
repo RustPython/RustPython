@@ -105,7 +105,9 @@ impl PyBaseException {
 
     #[pyproperty(name = "__cause__", setter)]
     pub fn set_cause(&self, cause: Option<PyBaseExceptionRef>) {
-        *self.cause.write() = cause;
+        let mut c = self.cause.write();
+        self.set_suppress_context(true);
+        *c = cause;
     }
 
     #[pyproperty(name = "__context__")]

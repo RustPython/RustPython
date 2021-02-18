@@ -229,7 +229,7 @@ fn sys_intern(s: PyRefExact<PyStr>, vm: &VirtualMachine) -> PyStrRef {
 }
 
 fn sys_exc_info(vm: &VirtualMachine) -> (PyObjectRef, PyObjectRef, PyObjectRef) {
-    match vm.current_exception() {
+    match vm.topmost_exception() {
         Some(exception) => exceptions::split(exception, vm),
         None => (vm.ctx.none(), vm.ctx.none(), vm.ctx.none()),
     }

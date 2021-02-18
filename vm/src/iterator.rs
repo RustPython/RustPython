@@ -101,10 +101,9 @@ pub fn stop_iter_with_value(val: PyObjectRef, vm: &VirtualMachine) -> PyBaseExce
     vm.new_exception(stop_iteration_type, vec![val])
 }
 
-pub fn stop_iter_value(vm: &VirtualMachine, exc: &PyBaseExceptionRef) -> PyResult {
+pub fn stop_iter_value(vm: &VirtualMachine, exc: &PyBaseExceptionRef) -> PyObjectRef {
     let args = exc.args();
-    let val = vm.unwrap_or_none(args.borrow_value().first().cloned());
-    Ok(val)
+    vm.unwrap_or_none(args.borrow_value().first().cloned())
 }
 
 pub fn length_hint(vm: &VirtualMachine, iter: PyObjectRef) -> PyResult<Option<usize>> {

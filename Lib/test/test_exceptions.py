@@ -524,8 +524,6 @@ class ExceptionTests(unittest.TestCase):
         self.assertIsNone(e.__context__)
         self.assertIsNone(e.__cause__)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testChainingDescriptors(self):
         try:
             raise Exception()
