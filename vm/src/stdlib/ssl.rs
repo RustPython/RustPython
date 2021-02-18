@@ -687,6 +687,15 @@ impl PySslSocket {
     }
 
     #[pymethod]
+    fn cipher(&self) -> Option<CipherTuple> {
+        self.stream
+            .read()
+            .ssl()
+            .current_cipher()
+            .map(cipher_to_tuple)
+    }
+
+    #[pymethod]
     fn do_handshake(&self, vm: &VirtualMachine) -> PyResult<()> {
         let mut stream = self.stream.write();
         let timeout = stream.get_ref().timeout.load();
@@ -805,6 +814,12 @@ fn convert_ssl_error(
         _ => (ssl_error(vm), "A failure in the SSL library occurred"),
     };
     vm.new_exception_msg(cls, msg.to_owned())
+}
+
+type CipherTuple = (&'static str, &'static str, i32);
+
+fn cipher_to_tuple(cipher: &ssl::SslCipherRef) -> CipherTuple {
+    (cipher.name(), cipher.version(), cipher.bits().secret)
 }
 
 fn cert_to_py(vm: &VirtualMachine, cert: &X509Ref, binary: bool) -> PyResult {
