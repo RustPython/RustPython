@@ -191,6 +191,11 @@ impl PyRLock {
         Ok(())
     }
 
+    #[pymethod]
+    fn _is_owned(&self) -> bool {
+        self.mu.is_owned_by_current_thread()
+    }
+
     #[pymethod(magic)]
     fn exit(&self, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         self.release(vm)
