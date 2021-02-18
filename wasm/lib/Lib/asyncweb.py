@@ -1,6 +1,5 @@
 from _js import Promise
-from collections.abc import Coroutine, Awaitable
-from abc import ABC, abstractmethod
+from collections.abc import Coroutine
 
 try:
     import browser
@@ -61,9 +60,11 @@ def main(async_func):
 async def _main_wrapper(coro):
     try:
         await coro
-    except:
-        import traceback, sys
+    except:  # noqa: E722
+        import traceback
+        import sys
 
+        # TODO: sys.stderr on wasm
         traceback.print_exc(file=sys.stdout)
 
 
@@ -198,7 +199,7 @@ if browser:
     _settimeout = browser.window.get_prop("setTimeout")
 
     def timeout(ms):
-        prom = asyncweb.CallbackPromise()
+        prom = CallbackPromise()
 
         @browser.jsclosure_once
         def cb(this):

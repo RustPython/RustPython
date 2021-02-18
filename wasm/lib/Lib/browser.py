@@ -1,13 +1,43 @@
-from _browser import *
+from _browser import (
+    fetch,
+    request_animation_frame,
+    cancel_animation_frame,
+    Document,
+    Element,
+    load_module,
+)
 
 from _js import JSValue, Promise
 from _window import window
+
+__all__ = [
+    "jsstr",
+    "jsclosure",
+    "jsclosure_once",
+    "jsfloat",
+    "NULL",
+    "UNDEFINED",
+    "alert",
+    "confirm",
+    "prompt",
+    "fetch",
+    "request_animation_frame",
+    "cancel_animation_frame",
+    "Document",
+    "Element",
+    "load_module",
+    "JSValue",
+    "Promise",
+]
 
 
 jsstr = window.new_from_str
 jsclosure = window.new_closure
 jsclosure_once = window.new_closure_once
 _jsfloat = window.new_from_float
+
+UNDEFINED = window.undefined()
+NULL = window.null()
 
 
 def jsfloat(n):
@@ -41,4 +71,6 @@ def prompt(msg, default_val=None):
     if default_val is not None and type(default_val) != str:
         raise TypeError("default_val must be a string")
 
-    return _prompt.call(*(jsstr(arg) for arg in [msg, default_val] if arg)).as_str()
+    return _prompt.call(
+        jsstr(msg), jsstr(default_val) if default_val else UNDEFINED
+    ).as_str()

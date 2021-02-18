@@ -1,4 +1,6 @@
 # taken from https://bitbucket.org/pypa/distlib/src/master/distlib/util.py
+# flake8: noqa
+# fmt: off
 
 from types import SimpleNamespace as Container
 import re

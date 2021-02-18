@@ -3,7 +3,8 @@ import zipfile
 import asyncweb
 import io
 import re
-from urllib.parse import urlparse, unquote
+import posixpath
+from urllib.parse import urlparse
 import _frozen_importlib as _bootstrap
 import _microdistlib
 
@@ -74,7 +75,7 @@ async def _load_info_pypi(pkg):
     try:
         dl = next(dl for dl in ver_downloads if dl["packagetype"] == "bdist_wheel")
     except StopIteration:
-        raise ValueError(f"no wheel available for package {Name!r} {ver}")
+        raise ValueError(f"no wheel available for package {name!r} {ver}")
     return (
         name,
         dl["filename"],
@@ -124,11 +125,11 @@ class ZipFinder:
 
     @classmethod
     def _get_source(cls, spec):
-        origin = spec.origin
-        if not origin or not origin.startswith("zip:"):
-            raise ImportError(f"{module.__spec__.name!r} is not a zip module")
+        origin = spec.origin and remove_prefix(spec.origin, "zip:")
+        if not origin:
+            raise ImportError(f"{spec.name!r} is not a zip module")
 
-        zipname, slash, path = origin[len("zip:") :].partition("/")
+        zipname, slash, path = origin.partition("/")
         return cls._packages[zipname].read(path).decode()
 
     @classmethod
@@ -139,6 +140,13 @@ class ZipFinder:
             compile, source, spec.origin, "exec", dont_inherit=True
         )
         _bootstrap._call_with_frames_removed(exec, code, module.__dict__)
+
+
+def remove_prefix(s, prefix):
+    if s.startswith(prefix):
+        return s[len(prefix) :]  # noqa: E203
+    else:
+        return None
 
 
 _zip_searchorder = (
