@@ -244,10 +244,10 @@ impl PySocket {
     }
 
     #[pymethod]
-    fn _accept(&self, vm: &VirtualMachine) -> PyResult<(RawSocket, AddrTuple)> {
+    fn _accept(&self, vm: &VirtualMachine) -> PyResult<(RawSocket, PyObjectRef)> {
         let (sock, addr) = self.sock_op(vm, SelectKind::Read, || self.sock().accept())?;
         let fd = into_sock_fileno(sock);
-        Ok((fd, get_addr_tuple(addr)))
+        Ok((fd, get_addr_tuple(addr, vm)))
     }
 
     #[pymethod]
@@ -287,14 +287,14 @@ impl PySocket {
         bufsize: usize,
         flags: OptionalArg<i32>,
         vm: &VirtualMachine,
-    ) -> PyResult<(Vec<u8>, AddrTuple)> {
+    ) -> PyResult<(Vec<u8>, PyObjectRef)> {
         let flags = flags.unwrap_or(0);
         let mut buffer = vec![0u8; bufsize];
         let (n, addr) = self.sock_op(vm, SelectKind::Read, || {
             self.sock().recv_from_with_flags(&mut buffer, flags)
         })?;
         buffer.truncate(n);
-        Ok((buffer, get_addr_tuple(addr)))
+        Ok((buffer, get_addr_tuple(addr, vm)))
     }
 
     #[pymethod]
@@ -375,22 +375,22 @@ impl PySocket {
     }
 
     #[pymethod]
-    fn getsockname(&self, vm: &VirtualMachine) -> PyResult<AddrTuple> {
+    fn getsockname(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let addr = self
             .sock()
             .local_addr()
             .map_err(|err| convert_sock_error(vm, err))?;
 
-        Ok(get_addr_tuple(addr))
+        Ok(get_addr_tuple(addr, vm))
     }
     #[pymethod]
-    fn getpeername(&self, vm: &VirtualMachine) -> PyResult<AddrTuple> {
+    fn getpeername(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let addr = self
             .sock()
             .peer_addr()
             .map_err(|err| convert_sock_error(vm, err))?;
 
-        Ok(get_addr_tuple(addr))
+        Ok(get_addr_tuple(addr, vm))
     }
 
     #[pymethod]
@@ -575,7 +575,8 @@ impl ToSocketAddrs for Address {
 impl TryFromObject for Address {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let tuple = PyTupleRef::try_from_object(vm, obj)?;
-        if tuple.borrow_value().len() != 2 {
+        // TODO: parse the tuple based on the family of the socket; extract all the info for inet6
+        if tuple.borrow_value().len() < 2 {
             Err(vm.new_type_error("Address tuple should have only 2 values".to_owned()))
         } else {
             let host = PyStrRef::try_from_object(vm, tuple.borrow_value()[0].clone())?;
@@ -590,16 +591,19 @@ impl TryFromObject for Address {
     }
 }
 
-type AddrTuple = (String, u16);
-
-fn get_addr_tuple<A: Into<socket2::SockAddr>>(addr: A) -> AddrTuple {
+fn get_addr_tuple<A: Into<socket2::SockAddr>>(addr: A, vm: &VirtualMachine) -> PyObjectRef {
     let addr = addr.into();
-    if let Some(addr) = addr.as_inet() {
-        (addr.ip().to_string(), addr.port())
-    } else if let Some(addr) = addr.as_inet6() {
-        (addr.ip().to_string(), addr.port())
-    } else {
-        (String::new(), 0)
+    match addr.as_std() {
+        Some(SocketAddr::V4(addr)) => (addr.ip().to_string(), addr.port()).into_pyobject(vm),
+        Some(SocketAddr::V6(addr)) => (
+            addr.ip().to_string(),
+            addr.port(),
+            addr.flowinfo(),
+            addr.scope_id(),
+        )
+            .into_pyobject(vm),
+        // TODO: support AF_UNIX et al
+        None => (String::new(), 0).into_pyobject(vm),
     }
 }
 
@@ -783,7 +787,7 @@ fn _socket_getaddrinfo(opts: GAIOptions, vm: &VirtualMachine) -> PyResult {
                     vm.ctx.new_int(ai.socktype),
                     vm.ctx.new_int(ai.protocol),
                     ai.canonname.into_pyobject(vm),
-                    get_addr_tuple(ai.sockaddr).into_pyobject(vm),
+                    get_addr_tuple(ai.sockaddr, vm),
                 ])
             })
         })
