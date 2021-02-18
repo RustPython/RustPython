@@ -94,17 +94,24 @@ impl PyModule {
 
 impl SlotGetattro for PyModule {
     fn getattro(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        vm.generic_getattribute_opt(zelf.as_object().clone(), name.clone(), None)?
-            .ok_or_else(|| {
-                let module_name = if let Some(name) = Self::name(zelf, vm) {
-                    format!(" '{}'", name)
-                } else {
-                    "".to_owned()
-                };
-                vm.new_attribute_error(
-                    format!("module{} has no attribute '{}'", module_name, name,),
-                )
-            })
+        if let Some(attr) =
+            vm.generic_getattribute_opt(zelf.as_object().clone(), name.clone(), None)?
+        {
+            return Ok(attr);
+        }
+        if let Some(getattr) = zelf
+            .as_object()
+            .dict()
+            .and_then(|d| d.get_item("__getattr__", vm).ok())
+        {
+            return vm.invoke(&getattr, (name,));
+        }
+        let module_name = if let Some(name) = Self::name(zelf, vm) {
+            format!(" '{}'", name)
+        } else {
+            "".to_owned()
+        };
+        Err(vm.new_attribute_error(format!("module{} has no attribute '{}'", module_name, name)))
     }
 }
 
