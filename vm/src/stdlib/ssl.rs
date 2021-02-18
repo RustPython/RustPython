@@ -42,6 +42,7 @@ mod sys {
         pub fn X509_get_version(x: *const X509) -> c_long;
         pub fn SSLv3_method() -> *const SSL_METHOD;
         pub fn TLSv1_method() -> *const SSL_METHOD;
+        pub fn COMP_get_type(meth: *const COMP_METHOD) -> i32;
     }
 }
 
@@ -693,6 +694,28 @@ impl PySslSocket {
             .ssl()
             .current_cipher()
             .map(cipher_to_tuple)
+    }
+
+    #[pymethod]
+    fn compression(&self) -> Option<&'static str> {
+        #[cfg(osslconf = "OPENSSL_NO_COMP")]
+        {
+            None
+        }
+        #[cfg(not(osslconf = "OPENSSL_NO_COMP"))]
+        {
+            let stream = self.stream.read();
+            let comp_method = unsafe { sys::SSL_get_current_compression(stream.ssl().as_ptr()) };
+            if comp_method.is_null() {
+                return None;
+            }
+            let typ = unsafe { sys::COMP_get_type(comp_method) };
+            let nid = Nid::from_raw(typ);
+            if nid == Nid::UNDEF {
+                return None;
+            }
+            nid.short_name().ok()
+        }
     }
 
     #[pymethod]

@@ -49,6 +49,11 @@ fn main() {
             println!("cargo:rustc-cfg=ossl111");
         }
     }
+    if let Ok(v) = env::var("DEP_OPENSSL_CONF") {
+        for conf in v.split(',') {
+            println!("cargo:rustc-cfg=osslconf=\"{}\"", conf);
+        }
+    }
 }
 
 fn git_hash() -> String {
