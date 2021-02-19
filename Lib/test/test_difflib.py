@@ -248,6 +248,10 @@ class TestSFpatches(unittest.TestCase):
         with open(findfile('test_difflib_expect.html')) as fp:
             self.assertEqual(actual, fp.read())
 
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_html_diff = unittest.expectedFailure(test_html_diff)
+
     def test_recursion_limit(self):
         # Check if the problem described in patch #1413711 exists.
         limit = sys.getrecursionlimit()
