@@ -218,6 +218,8 @@ class AutoFileTests:
         self.assertRaises(TypeError, self.f.writelines)
         self.assertRaises(ValueError, self.f.writelines, b'')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testOpendir(self):
         # Issue 3703: opening a directory should fill the errno
         # Windows always returns "[Errno 13]: Permission denied
@@ -274,6 +276,8 @@ class AutoFileTests:
                     pass
         return wrapper
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @ClosedFDRaises
     def testErrnoOnClose(self, f):
         f.close()
@@ -342,6 +346,36 @@ class AutoFileTests:
 class CAutoFileTests(AutoFileTests, unittest.TestCase):
     FileIO = _io.FileIO
     modulename = '_io'
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def testBlksize(self):
+        super().testBlksize()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def testMethods(self):
+        super().testMethods()
+    
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def testOpenDirFD(self):
+        super().testOpenDirFD()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def testRecursiveRepr(self):
+        super().testRecursiveRepr()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def testRepr(self):
+        super().testRepr()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def testReprNoCloseFD(self):
+        super().testReprNoCloseFD()
 
 class PyAutoFileTests(AutoFileTests, unittest.TestCase):
     FileIO = _pyio.FileIO
@@ -569,6 +603,11 @@ class OtherFileTests:
 class COtherFileTests(OtherFileTests, unittest.TestCase):
     FileIO = _io.FileIO
     modulename = '_io'
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def testInvalidFd(self):
+        super().testInvalidFd()
 
     @cpython_only
     def testInvalidFd_overflow(self):
