@@ -1174,6 +1174,10 @@ class ConfigParserTestCaseExtendedInterpolation(BasicTestCase, unittest.TestCase
     default_section = 'common'
     strict = True
 
+    @unittest.skip("TODO: RUSTPYTHON, suspected to make CI hang")
+    def test_read_returns_file_list_with_bytestring_path(self):
+        super().test_read_returns_file_list_with_bytestring_path()
+
     def fromstring(self, string, defaults=None, optionxform=None):
         cf = self.newconfig(defaults)
         if optionxform:
