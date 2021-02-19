@@ -520,6 +520,7 @@ boolean {0[0]} NO
             cf.get(self.default_section, "Foo"), "Bar",
             "could not locate option, expecting case-insensitive defaults")
 
+    @unittest.skipIf(os.name == "nt", "TODO: RUSTPYTHON, universal newlines")
     def test_parse_errors(self):
         cf = self.newconfig()
         self.parse_error(cf, configparser.ParsingError,
