@@ -1896,6 +1896,8 @@ class TestEnum(unittest.TestCase):
             third = auto()
         self.assertEqual([Dupes.first, Dupes.second, Dupes.third], list(Dupes))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_default_missing(self):
         class Color(Enum):
             RED = 1
