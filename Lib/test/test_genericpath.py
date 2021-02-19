@@ -311,6 +311,8 @@ class TestGenericTest(GenericTest, unittest.TestCase):
     # and is only meant to be inherited by others.
     pathmodule = genericpath
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_invalid_paths(self):
         for attr in GenericTest.common_attributes:
             # os.path.commonprefix doesn't raise ValueError
