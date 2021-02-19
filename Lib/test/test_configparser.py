@@ -548,6 +548,10 @@ boolean {0[0]} NO
                 e = self.parse_error(cf, error, f)
             self.assertEqual(e.args, expected)
 
+    # TODO: RUSTPYTHON
+    if os.name == "nt":
+        test_parse_errors = unittest.expectedFailure(test_parse_errors)
+
     def parse_error(self, cf, exc, src):
         if hasattr(src, 'readline'):
             sio = src
