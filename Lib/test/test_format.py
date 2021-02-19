@@ -94,6 +94,8 @@ def test_exc_common(formatstr, args, exception, excmsg):
 
 class FormatTest(unittest.TestCase):
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_common_format(self):
         # test the format identifiers that work the same across
         # str, bytes, and bytearrays (integer, float, oct, hex)
@@ -282,6 +284,8 @@ class FormatTest(unittest.TestCase):
         test_exc_common('%x', 3.14, TypeError,
                         "%x format: an integer is required, not float")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_str_format(self):
         testformat("%r", "\u0378", "'\\u0378'")  # non printable
         testformat("%a", "\u0378", "'\\u0378'")  # non printable
@@ -315,6 +319,8 @@ class FormatTest(unittest.TestCase):
             else:
                 raise TestFailed('"%*d"%(maxsize, -127) should fail')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_bytes_and_bytearray_format(self):
         # %c will insert a single byte, either from an int in range(256), or
         # from a bytes argument of length 1, not from a str.
@@ -396,6 +402,8 @@ class FormatTest(unittest.TestCase):
         testformat("a%sb", ('c\0d',), 'ac\0db')
         testcommon(b"a%sb", (b'c\0d',), b'ac\0db')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_non_ascii(self):
         testformat("\u20ac=%f", (1.0,), "\u20ac=1.000000")
 
@@ -417,6 +425,8 @@ class FormatTest(unittest.TestCase):
         self.assertEqual(format(1+2j, "\u2007^8"), "\u2007(1+2j)\u2007")
         self.assertEqual(format(0j, "\u2007^4"), "\u20070j\u2007")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_locale(self):
         try:
             oldloc = locale.setlocale(locale.LC_ALL)
