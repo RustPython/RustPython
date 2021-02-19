@@ -33,6 +33,8 @@ class OtherFloatSubclass(float):
 
 class GeneralFloatCases(unittest.TestCase):
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_float(self):
         self.assertEqual(float(3.14), 3.14)
         self.assertEqual(float(314), 314.0)
@@ -64,6 +66,8 @@ class GeneralFloatCases(unittest.TestCase):
         # See bpo-34087
         self.assertRaises(ValueError, float, '\u3053\u3093\u306b\u3061\u306f')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_underscores(self):
         for lit in VALID_UNDERSCORE_LITERALS:
             if not any(ch in lit for ch in 'jJxXoObB'):
@@ -85,6 +89,8 @@ class GeneralFloatCases(unittest.TestCase):
         # Check that we handle bytes values correctly.
         self.assertRaises(ValueError, float, b'0_.\xff9')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_non_numeric_input_types(self):
         # Test possible non-numeric types for the argument x, including
         # subclasses of the explicitly documented accepted types.
@@ -114,6 +120,8 @@ class GeneralFloatCases(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "could not convert"):
                     float(f(b'A' * 0x10))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_float_memoryview(self):
         self.assertEqual(float(memoryview(b'12.3')[1:4]), 2.3)
         self.assertEqual(float(memoryview(b'12.3\x00')[1:4]), 2.3)
@@ -121,6 +129,8 @@ class GeneralFloatCases(unittest.TestCase):
         self.assertEqual(float(memoryview(b'12.3A')[1:4]), 2.3)
         self.assertEqual(float(memoryview(b'12.34')[1:4]), 2.3)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_error_message(self):
         def check(s):
             with self.assertRaises(ValueError, msg='float(%r)' % (s,)) as cm:
@@ -171,6 +181,8 @@ class GeneralFloatCases(unittest.TestCase):
         self.assertEqual(float("  25.e-1  "), 2.5)
         self.assertAlmostEqual(float("  .25e-1  "), .025)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_floatconversion(self):
         # Make sure that calls to __float__() work properly
         class Foo1(object):
@@ -312,6 +324,8 @@ class GeneralFloatCases(unittest.TestCase):
         # distinguishes -0.0 and 0.0.
         self.assertEqual((a, copysign(1.0, a)), (b, copysign(1.0, b)))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @support.requires_IEEE_754
     def test_float_mod(self):
         # Check behaviour of % operator for IEEE 754 special cases.
@@ -332,6 +346,8 @@ class GeneralFloatCases(unittest.TestCase):
         self.assertEqualAndEqualSign(mod(1e-100, -1.0), -1.0)
         self.assertEqualAndEqualSign(mod(1.0, -1.0), -0.0)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @support.requires_IEEE_754
     def test_float_pow(self):
         # test builtin pow and ** operator for IEEE 754 special cases.
@@ -635,6 +651,8 @@ class IEEEFormatTestCase(unittest.TestCase):
                           ('<f', LE_FLOAT_NAN)]:
             struct.unpack(fmt, data)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @support.requires_IEEE_754
     def test_serialized_float_rounding(self):
         from _testcapi import FLT_MAX
@@ -696,6 +714,8 @@ class FormatTestCase(unittest.TestCase):
         self.assertEqual(format(INF, 'f'), 'inf')
         self.assertEqual(format(INF, 'F'), 'INF')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @support.requires_IEEE_754
     def test_format_testfile(self):
         with open(format_testfile) as testfile:
@@ -711,6 +731,8 @@ class FormatTestCase(unittest.TestCase):
                 self.assertEqual(fmt % float(arg), rhs)
                 self.assertEqual(fmt % -float(arg), '-' + rhs)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_issue5864(self):
         self.assertEqual(format(123.456, '.4'), '123.5')
         self.assertEqual(format(1234.56, '.4'), '1.235e+03')
@@ -810,6 +832,8 @@ class RoundTestCase(unittest.TestCase):
         self.assertRaises(TypeError, round, NAN, "ceci n'est pas un integer")
         self.assertRaises(TypeError, round, -0.0, 1j)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_large_n(self):
         for n in [324, 325, 400, 2**31-1, 2**31, 2**32, 2**100]:
             self.assertEqual(round(123.456, n), 123.456)
@@ -822,6 +846,8 @@ class RoundTestCase(unittest.TestCase):
         self.assertEqual(round(1e150, 309), 1e150)
         self.assertEqual(round(1.4e-315, 315), 1e-315)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_small_n(self):
         for n in [-308, -309, -400, 1-2**31, -2**31, -2**31-1, -2**100]:
             self.assertEqual(round(123.456, n), 0.0)
@@ -829,10 +855,14 @@ class RoundTestCase(unittest.TestCase):
             self.assertEqual(round(1e300, n), 0.0)
             self.assertEqual(round(1e-320, n), 0.0)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_overflow(self):
         self.assertRaises(OverflowError, round, 1.6e308, -308)
         self.assertRaises(OverflowError, round, -1.7e308, -308)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(getattr(sys, 'float_repr_style', '') == 'short',
                          "applies only when using short float repr style")
     def test_previous_round_bugs(self):
@@ -851,6 +881,8 @@ class RoundTestCase(unittest.TestCase):
         self.assertEqual(round(85.0, -1), 80.0)
         self.assertEqual(round(95.0, -1), 100.0)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(getattr(sys, 'float_repr_style', '') == 'short',
                          "applies only when using short float repr style")
     def test_matches_float_format(self):
@@ -970,6 +1002,8 @@ class InfNanTest(unittest.TestCase):
         self.assertEqual(str(1e300 * 1e300), "inf")
         self.assertEqual(str(-1e300 * 1e300), "-inf")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_nan_from_str(self):
         self.assertTrue(isnan(float("nan")))
         self.assertTrue(isnan(float("+nan")))
@@ -999,6 +1033,8 @@ class InfNanTest(unittest.TestCase):
         self.assertRaises(ValueError, float, "+-NaN")
         self.assertRaises(ValueError, float, "--nAn")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_nan_as_str(self):
         self.assertEqual(repr(1e300 * 1e300 * 0), "nan")
         self.assertEqual(repr(-1e300 * 1e300 * 0), "nan")
@@ -1010,6 +1046,8 @@ class InfNanTest(unittest.TestCase):
         self.assertEqual(copysign(1.0, float('inf')), 1.0)
         self.assertEqual(copysign(1.0, float('-inf')), -1.0)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(getattr(sys, 'float_repr_style', '') == 'short',
                          "applies only when using short float repr style")
     def test_nan_signs(self):
@@ -1133,6 +1171,8 @@ class HexFloatTestCase(unittest.TestCase):
                     self.identical(got, expected)
 
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_from_hex(self):
         MIN = self.MIN;
         MAX = self.MAX;
@@ -1439,6 +1479,8 @@ class HexFloatTestCase(unittest.TestCase):
             else:
                 self.identical(x, fromHex(toHex(x)))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_subclass(self):
         class F(float):
             def __new__(cls, value):
