@@ -325,6 +325,11 @@ class OtherFileTests:
 class COtherFileTests(OtherFileTests, unittest.TestCase):
     open = io.open
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def testSetBufferSize(self):
+        super().testSetBufferSize()
+
 class PyOtherFileTests(OtherFileTests, unittest.TestCase):
     open = staticmethod(pyio.open)
 
