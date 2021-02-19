@@ -2950,8 +2950,6 @@ class TestIntFlag(unittest.TestCase):
         self.assertEqual(Color.ALL.value, 7)
         self.assertEqual(str(Color.BLUE), 'blue')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @support.reap_threads
     def test_unique_composite(self):
         # override __eq__ to be identity only
@@ -2989,6 +2987,10 @@ class TestIntFlag(unittest.TestCase):
                 failed,
                 'at least one thread failed while creating composite members')
         self.assertEqual(256, len(seen), 'too many composite members created')
+
+    # TODO: RUSTPYTHON
+    if sys.platform != "win32":
+        test_unique_composite = unittest.expectedFailure(test_unique_composite)
 
 
 class TestEmptyAndNonLatinStrings(unittest.TestCase):
