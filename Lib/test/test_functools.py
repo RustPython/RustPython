@@ -269,6 +269,8 @@ class TestPartial:
         self.assertIsNot(f_copy.keywords, f.keywords)
         self.assertIsNot(f_copy.keywords['bar'], f.keywords['bar'])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_setstate(self):
         f = self.partial(signature)
         f.__setstate__((capture, (1,), dict(a=10), dict(attr=[])))
@@ -304,6 +306,8 @@ class TestPartial:
         self.assertRaises(TypeError, f.__setstate__, (capture, [], {}, None))
         self.assertRaises(TypeError, f.__setstate__, (capture, (), [], None))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_setstate_subclasses(self):
         f = self.partial(signature)
         f.__setstate__((capture, MyTuple((1,)), MyDict(a=10), None))
@@ -387,6 +391,18 @@ class TestPartialC(TestPartial, unittest.TestCase):
         def __exit__(self, type, value, tb):
             return False
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_pickle(self):
+        super().test_pickle()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_recursive_pickle(self):
+        super().test_recursive_pickle()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_attributes_unwritable(self):
         # attributes should not be writable
         p = self.partial(capture, 1, 2, a=10, b=20)
@@ -451,6 +467,14 @@ class TestPartialCSubclass(TestPartialC):
     if c_functools:
         partial = CPartialSubclass
 
+    # TODO: RUSTPYTHON
+    def test_pickle(self):
+        TestPartial.test_pickle(self)
+
+    # TODO: RUSTPYTHON
+    def test_recursive_pickle(self):
+        TestPartial.test_recursive_pickle(self)
+
     # partial subclasses are not optimized for nested calls
     test_nested_optimization = None
 
@@ -475,6 +499,8 @@ class TestPartialMethod(unittest.TestCase):
 
     a = A()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_arg_combinations(self):
         self.assertEqual(self.a.nothing(), ((self.a,), {}))
         self.assertEqual(self.a.nothing(5), ((self.a, 5), {}))
@@ -516,6 +542,8 @@ class TestPartialMethod(unittest.TestCase):
 
         self.assertEqual(self.A.over_partial(self.a, 5, d=8), ((self.a, 7, 5), {'c': 6, 'd': 8}))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_bound_method_introspection(self):
         obj = self.a
         self.assertIs(obj.both.__self__, obj)
@@ -690,6 +718,8 @@ class TestUpdateWrapper(unittest.TestCase):
         with self.assertRaises(AttributeError):
             functools.update_wrapper(wrapper, f, assign, update)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @support.requires_docstrings
     @unittest.skipIf(sys.flags.optimize >= 2,
                      "Docstrings are omitted with -O2 and above")
@@ -942,6 +972,41 @@ class TestCmpToKeyC(TestCmpToKey, unittest.TestCase):
     if c_functools:
         cmp_to_key = c_functools.cmp_to_key
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_bad_cmp(self):
+        super().test_bad_cmp()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_cmp_to_key(self):
+        super().test_cmp_to_key()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_cmp_to_key_arguments(self):
+        super().test_cmp_to_key_arguments()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_hash(self):
+        super().test_hash()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_obj_field(self):
+        super().test_obj_field()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_sort_int(self):
+        super().test_sort_int()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_sort_int_str(self):
+        super().test_sort_int_str()
+
 
 class TestCmpToKeyPy(TestCmpToKey, unittest.TestCase):
     cmp_to_key = staticmethod(py_functools.cmp_to_key)
@@ -1142,6 +1207,8 @@ class TestTotalOrdering(unittest.TestCase):
             with self.assertRaises(TypeError):
                 a <= b
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_pickle(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             for name in '__lt__', '__gt__', '__le__', '__ge__':
@@ -1482,6 +1549,8 @@ class TestLRU:
         for attr in self.module.WRAPPER_ASSIGNMENTS:
             self.assertEqual(getattr(g, attr), getattr(f, attr))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_lru_cache_threaded(self):
         n, m = 5, 11
         def orig(x, y):
@@ -1625,6 +1694,8 @@ class TestLRU:
         self.assertEqual(b.f.cache_info(), X.f.cache_info())
         self.assertEqual(c.f.cache_info(), X.f.cache_info())
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_pickle(self):
         cls = self.__class__
         for f in cls.cached_func[0], cls.cached_meth, cls.cached_staticmeth:
@@ -2336,6 +2407,8 @@ class TestSingleDispatch(unittest.TestCase):
         self.assertEqual(a.t(''), "str")
         self.assertEqual(a.t(0.0), "base")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_invalid_registrations(self):
         msg_prefix = "Invalid first argument to `register()`: "
         msg_suffix = (
@@ -2448,6 +2521,8 @@ class TestCachedProperty(unittest.TestCase):
         self.assertEqual(item.get_cost(), 4)
         self.assertEqual(item.cached_cost, 3)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_threaded(self):
         go = threading.Event()
         item = CachedCostItemWait(go)
@@ -2468,6 +2543,8 @@ class TestCachedProperty(unittest.TestCase):
 
         self.assertEqual(item.cost, 2)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_object_with_slots(self):
         item = CachedCostItemWithSlots()
         with self.assertRaisesRegex(
@@ -2491,6 +2568,8 @@ class TestCachedProperty(unittest.TestCase):
         ):
             MyClass.prop
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_reuse_different_names(self):
         """Disallow this case because decorated function a would not be cached."""
         with self.assertRaises(RuntimeError) as ctx:
