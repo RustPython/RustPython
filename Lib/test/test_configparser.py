@@ -742,8 +742,7 @@ boolean {0[0]} NO
         parsed_files = cf.read([])
         self.assertEqual(parsed_files, [])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skip("TODO: RUSTPYTHON, suspected to make CI hang")
     def test_read_returns_file_list_with_bytestring_path(self):
         if self.delimiters[0] != '=':
             self.skipTest('incompatible format')
@@ -1173,10 +1172,6 @@ class ConfigParserTestCaseExtendedInterpolation(BasicTestCase, unittest.TestCase
     interpolation = configparser.ExtendedInterpolation()
     default_section = 'common'
     strict = True
-
-    @unittest.skip("TODO: RUSTPYTHON, suspected to make CI hang")
-    def test_read_returns_file_list_with_bytestring_path(self):
-        super().test_read_returns_file_list_with_bytestring_path()
 
     def fromstring(self, string, defaults=None, optionxform=None):
         cf = self.newconfig(defaults)
