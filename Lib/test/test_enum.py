@@ -1910,8 +1910,6 @@ class TestEnum(unittest.TestCase):
         else:
             raise Exception('Exception not raised.')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_missing(self):
         class Color(Enum):
             red = 1
