@@ -184,3 +184,5 @@ assert json_dump({'a': 'b'}) == json_dump(Dict({'a': 'b'}))
 
 i = 7**500
 assert json.dumps(i) == str(i)
+
+assert json.decoder.scanstring('✨x"', 1) == ('x', 3)
