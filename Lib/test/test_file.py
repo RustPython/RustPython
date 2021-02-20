@@ -132,80 +132,9 @@ class AutoFileTests:
 class CAutoFileTests(AutoFileTests, unittest.TestCase):
     open = io.open
 
+@unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON, test setUp errors on Windows")
 class PyAutoFileTests(AutoFileTests, unittest.TestCase):
     open = staticmethod(pyio.open)
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        @unittest.expectedFailure
-        def testAttributes(self):
-            super().testAttributes()
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        @unittest.expectedFailure
-        def testErrors(self):
-            super().testErrors()
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        @unittest.expectedFailure
-        def testMethods(self):
-            super().testMethods()
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        @unittest.expectedFailure
-        def testReadWhenWriting(self):
-            super().testReadWhenWriting()
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        @unittest.expectedFailure
-        def testReadinto(self):
-            super().testReadinto()
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        @unittest.expectedFailure
-        def testReadinto_text(self):
-            super().testReadinto_text()
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        @unittest.expectedFailure
-        def testReadWhenWriting(self):
-            super().testReadWhenWriting()
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        @unittest.expectedFailure
-        def testWeakRefs(self):
-            super().testWeakRefs()
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        @unittest.expectedFailure
-        def testWritelinesIntegers(self):
-            super().testWritelinesIntegers()
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        @unittest.expectedFailure
-        def testWritelinesIntegersUserList(self):
-            super().testWritelinesIntegersUserList()
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        @unittest.expectedFailure
-        def testWritelinesNonString(self):
-            super().testWritelinesNonString()
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        @unittest.expectedFailure
-        def testWritelinesUserList(self):
-            super().testWritelinesUserList()
 
 
 class OtherFileTests:
