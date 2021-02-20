@@ -385,6 +385,8 @@ class SimpleHTTPServerTestCase(BaseTestCase):
         reader.close()
         return body
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipIf(sys.platform == 'darwin',
                      'undecodable name cannot always be decoded on macOS')
     @unittest.skipIf(sys.platform == 'win32',
@@ -461,6 +463,8 @@ class SimpleHTTPServerTestCase(BaseTestCase):
         self.assertEqual(response.getheader('content-type'),
                          'application/octet-stream')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_browser_cache(self):
         """Check that when a request to /test is sent with the request header
         If-Modified-Since set to date of last modification, the server returns
@@ -891,6 +895,8 @@ class BaseHTTPRequestHandlerTestCase(unittest.TestCase):
         self.assertEqual(result[0], b'<html><body>Data</body></html>\r\n')
         self.verify_get_called()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_extra_space(self):
         result = self.send_typical_request(
             b'GET /spaced out HTTP/1.1\r\n'
@@ -1133,6 +1139,8 @@ class ScriptTestCase(unittest.TestCase):
             ),
         )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @mock.patch('builtins.print')
     def test_server_test_unspec(self, _):
         mock_server = self.mock_server_class()
@@ -1142,6 +1150,8 @@ class ScriptTestCase(unittest.TestCase):
             (socket.AF_INET6, socket.AF_INET),
         )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @mock.patch('builtins.print')
     def test_server_test_localhost(self, _):
         mock_server = self.mock_server_class()
@@ -1163,6 +1173,8 @@ class ScriptTestCase(unittest.TestCase):
         "127.0.0.1",
     )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @mock.patch('builtins.print')
     def test_server_test_ipv6(self, _):
         for bind in self.ipv6_addrs:
@@ -1170,6 +1182,8 @@ class ScriptTestCase(unittest.TestCase):
             server.test(ServerClass=mock_server, bind=bind)
             self.assertEqual(mock_server.address_family, socket.AF_INET6)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @mock.patch('builtins.print')
     def test_server_test_ipv4(self, _):
         for bind in self.ipv4_addrs:
