@@ -1,5 +1,6 @@
 use std::fmt;
-use std::sync::atomic::{AtomicU32, Ordering};
+#[cfg(feature = "threading")]
+use std::sync::atomic;
 
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -89,7 +90,15 @@ struct FrameState {
     stack: BoxVec<PyObjectRef>,
     /// Block frames, for controlling loops and exceptions
     blocks: Vec<Block>,
+    /// index of last instruction ran
+    #[cfg(feature = "threading")]
+    lasti: u32,
 }
+
+#[cfg(feature = "threading")]
+type Lasti = atomic::AtomicU32;
+#[cfg(not(feature = "threading"))]
+type Lasti = std::cell::Cell<u32>;
 
 #[pyclass(module = false, name = "frame")]
 pub struct Frame {
@@ -101,8 +110,10 @@ pub struct Frame {
     pub globals: PyDictRef,
     pub builtins: PyDictRef,
 
+    // on feature=threading, this is a duplicate of FrameState.lasti, but it's faster to do an
+    // atomic store than it is to do a fetch_add, for every instruction executed
     /// index of last instruction ran
-    pub lasti: AtomicU32,
+    pub lasti: Lasti,
     /// tracer function for this frame (usually is None)
     pub trace: PyMutex<PyObjectRef>,
     state: PyMutex<FrameState>,
@@ -175,6 +186,8 @@ impl Frame {
         let state = FrameState {
             stack: BoxVec::new(code.max_stacksize as usize),
             blocks: Vec::new(),
+            #[cfg(feature = "threading")]
+            lasti: 0,
         };
 
         Frame {
@@ -184,7 +197,7 @@ impl Frame {
             globals: scope.globals,
             builtins,
             code,
-            lasti: AtomicU32::new(0),
+            lasti: Lasti::new(0),
             state: PyMutex::new(state),
             trace: PyMutex::new(vm.ctx.none()),
         }
@@ -280,7 +293,7 @@ impl FrameRef {
     }
 
     pub fn current_location(&self) -> bytecode::Location {
-        self.code.locations[self.lasti.load(Ordering::Relaxed) as usize - 1]
+        self.code.locations[self.lasti() as usize - 1]
     }
 
     pub fn yield_from_target(&self) -> Option<PyObjectRef> {
@@ -288,7 +301,14 @@ impl FrameRef {
     }
 
     pub fn lasti(&self) -> u32 {
-        self.lasti.load(Ordering::Relaxed)
+        #[cfg(feature = "threading")]
+        {
+            self.lasti.load(atomic::Ordering::Relaxed)
+        }
+        #[cfg(not(feature = "threading"))]
+        {
+            self.lasti.get()
+        }
     }
 }
 
@@ -302,7 +322,7 @@ struct ExecutingFrame<'a> {
     globals: &'a PyDictRef,
     builtins: &'a PyDictRef,
     object: &'a FrameRef,
-    lasti: &'a AtomicU32,
+    lasti: &'a Lasti,
     state: &'a mut FrameState,
 }
 
@@ -311,19 +331,47 @@ impl fmt::Debug for ExecutingFrame<'_> {
         f.debug_struct("ExecutingFrame")
             .field("code", self.code)
             // .field("scope", self.scope)
-            .field("lasti", self.lasti)
             .field("state", self.state)
             .finish()
     }
 }
 
 impl ExecutingFrame<'_> {
+    #[inline(always)]
+    fn update_lasti(&mut self, f: impl FnOnce(&mut u32)) {
+        #[cfg(feature = "threading")]
+        {
+            f(&mut self.state.lasti);
+            self.lasti
+                .store(self.state.lasti, atomic::Ordering::Relaxed);
+        }
+        #[cfg(not(feature = "threading"))]
+        {
+            let mut lasti = self.lasti.get();
+            f(&mut lasti);
+            self.lasti.set(lasti);
+        }
+    }
+
+    #[inline(always)]
+    fn lasti(&self) -> u32 {
+        #[cfg(feature = "threading")]
+        {
+            self.state.lasti
+        }
+        #[cfg(not(feature = "threading"))]
+        {
+            self.lasti.get()
+        }
+    }
+
     fn run(&mut self, vm: &VirtualMachine) -> PyResult<ExecutionResult> {
         flame_guard!(format!("Frame::run({})", self.code.obj_name));
         // Execute until return or exception:
         let instrs = &self.code.instructions;
         loop {
-            let idx = self.lasti.fetch_add(1, Ordering::Relaxed) as usize;
+            let idx = self.lasti() as usize;
+            self.update_lasti(|i| *i += 1);
             let instr = &instrs[idx];
             let result = self.execute_instruction(instr, vm);
             match result {
@@ -401,7 +449,7 @@ impl ExecutingFrame<'_> {
                 };
                 return ret.map(ExecutionResult::Yield).or_else(|err| {
                     self.pop_value();
-                    self.lasti.fetch_add(1, Ordering::Relaxed);
+                    self.update_lasti(|i| *i += 1);
                     if err.isinstance(&vm.ctx.exceptions.stop_iteration) {
                         let val = iterator::stop_iter_value(vm, &err);
                         self.push_value(val);
@@ -1367,7 +1415,7 @@ impl ExecutingFrame<'_> {
         match result {
             ExecutionResult::Yield(value) => {
                 // Set back program counter:
-                self.lasti.fetch_sub(1, Ordering::Relaxed);
+                self.update_lasti(|i| *i -= 1);
                 Ok(Some(ExecutionResult::Yield(value)))
             }
             ExecutionResult::Return(value) => {
@@ -1411,7 +1459,7 @@ impl ExecutingFrame<'_> {
     fn jump(&mut self, label: bytecode::Label) {
         let target_pc = label.0;
         vm_trace!("jump from {:?} to {:?}", self.lasti(), target_pc);
-        self.lasti.store(target_pc, Ordering::Relaxed);
+        self.update_lasti(|i| *i = target_pc);
     }
 
     /// The top of stack contains the iterator, lets push it forward
@@ -1663,13 +1711,6 @@ impl ExecutingFrame<'_> {
         let parent = self.pop_value();
         vm.del_attr(&parent, attr_name)?;
         Ok(None)
-    }
-
-    fn lasti(&self) -> u32 {
-        // it's okay to make this Relaxed, because we know that we only
-        // mutate lasti if the mutex is held, and any other thread that
-        // wants to guarantee the value of this will use a Lock anyway
-        self.lasti.load(Ordering::Relaxed)
     }
 
     fn push_block(&mut self, typ: BlockType) {
