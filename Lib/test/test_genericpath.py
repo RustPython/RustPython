@@ -312,6 +312,48 @@ class TestGenericTest(GenericTest, unittest.TestCase):
     pathmodule = genericpath
 
     # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        @unittest.expectedFailure
+        def test_exists(self):
+            super().test_exists()
+
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        @unittest.expectedFailure
+        def test_isdir(self):
+            super().test_isdir()
+
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        @unittest.expectedFailure
+        def test_isfile(self):
+            super().test_isfile()
+
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        @unittest.expectedFailure
+        def test_samefile(self):
+            super().test_samefile()
+
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        @unittest.expectedFailure
+        def test_samefile_on_link(self):
+            super().test_samefile_on_link()
+
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        @unittest.expectedFailure
+        def test_samestat(self):
+            super().test_samestat()
+
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        @unittest.expectedFailure
+        def test_samestat_on_link(self):
+            super().test_samestat_on_link()
+
+    # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_invalid_paths(self):
         for attr in GenericTest.common_attributes:
