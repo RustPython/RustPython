@@ -2518,6 +2518,7 @@ class TestFlag(unittest.TestCase):
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
+    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON, universal newlines")
     @support.reap_threads
     def test_unique_composite(self):
         # override __eq__ to be identity only
