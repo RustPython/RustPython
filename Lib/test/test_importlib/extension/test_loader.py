@@ -22,7 +22,8 @@ class LoaderTests(abc.LoaderTests):
     def load_module(self, fullname):
         return self.loader.load_module(fullname)
 
-    @unittest.skip("TODO: RUSTPYTHON, AttributeError: 'NoneType' object has no attribute 'rpartition'")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_load_module_API(self):
         # Test the default argument for load_module().
         self.loader.load_module()
@@ -59,7 +60,8 @@ class LoaderTests(abc.LoaderTests):
     # No extension module in a package available for testing.
     test_lacking_parent = None
 
-    @unittest.skip("TODO: RUSTPYTHON, AttributeError: 'NoneType' object has no attribute 'rpartition'")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_module_reuse(self):
         with util.uncache(util.EXTENSIONS.name):
             module1 = self.load_module(util.EXTENSIONS.name)
@@ -75,7 +77,8 @@ class LoaderTests(abc.LoaderTests):
             self.load_module(name)
         self.assertEqual(cm.exception.name, name)
 
-    @unittest.skip("TODO: RUSTPYTHON, AttributeError: 'NoneType' object has no attribute 'rpartition'")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_is_package(self):
         self.assertFalse(self.loader.is_package(util.EXTENSIONS.name))
         for suffix in self.machinery.EXTENSION_SUFFIXES:
