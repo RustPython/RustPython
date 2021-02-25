@@ -365,7 +365,8 @@ class CommonTest(unittest.TestCase):
 
         self.assertRaises(BadExc, a.count, BadCmp())
 
-    @unittest.skip("TODO: RUSTPYTHON, TypeError: Expected at most 2 arguments (3 given)")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_index(self):
         u = self.type2test([0, 1])
         self.assertEqual(u.index(0), 0)

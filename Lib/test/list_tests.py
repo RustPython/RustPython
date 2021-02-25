@@ -370,6 +370,8 @@ class CommonTest(seq_tests.CommonTest):
             # verify that original order and values are retained.
             self.assertIs(x, y)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_index(self):
         super().test_index()
         a = self.type2test([-2, -1, 0, 0, 1, 2])
