@@ -34,7 +34,8 @@ class ExecModuleTests(abc.LoaderTests):
         self.assertEqual(output, 'Hello world!\n')
         self.assertTrue(hasattr(module, '__spec__'))
 
-    @unittest.skip("TODO: RUSTPYTHON, ImportError: '__phello__' is not a frozen module")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_package(self):
         name = '__phello__'
         module, output = self.exec_module(name)
@@ -47,7 +48,8 @@ class ExecModuleTests(abc.LoaderTests):
                                  expected=value))
         self.assertEqual(output, 'Hello world!\n')
 
-    @unittest.skip("TODO: RUSTPYTHON, ImportError: '__phello__.spam' is not a frozen module")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_lacking_parent(self):
         name = '__phello__.spam'
         with util.uncache('__phello__'):
@@ -107,7 +109,8 @@ class LoaderTests(abc.LoaderTests):
             self.assertEqual(stdout.getvalue(), 'Hello world!\n')
             self.assertFalse(hasattr(module, '__file__'))
 
-    @unittest.skip("TODO: RUSTPYTHON, ImportError: '__phello__' is not a frozen module")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_package(self):
         with util.uncache('__phello__'),  captured_stdout() as stdout:
             with warnings.catch_warnings():
@@ -126,7 +129,8 @@ class LoaderTests(abc.LoaderTests):
             self.assertEqual(stdout.getvalue(), 'Hello world!\n')
             self.assertFalse(hasattr(module, '__file__'))
 
-    @unittest.skip("TODO: RUSTPYTHON, ImportError: '__phello__.spam' is not a frozen module")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_lacking_parent(self):
         with util.uncache('__phello__', '__phello__.spam'), \
              captured_stdout() as stdout:
@@ -204,7 +208,8 @@ class InspectLoaderTests:
         result = self.machinery.FrozenImporter.get_source('__hello__')
         self.assertIsNone(result)
 
-    @unittest.skip("TODO: RUSTPYTHON, ImportError: '__phello__' is not a frozen module")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_is_package(self):
         # Should be able to tell what is a package.
         test_for = (('__hello__', False), ('__phello__', True),
