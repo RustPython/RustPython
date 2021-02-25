@@ -61,7 +61,8 @@ class ImportlibUseCache(UseCache, unittest.TestCase):
 
     # __import__ inconsistent between loaders and built-in import when it comes
     #   to when to use the module in sys.modules and when not to.
-    @unittest.skip("TODO: RUSTPYTHON, TypeError: unexpected payload for __call__")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_using_cache_after_loader(self):
         # [from cache on return]
         with self.create_mock('module') as mock:
@@ -70,7 +71,8 @@ class ImportlibUseCache(UseCache, unittest.TestCase):
                 self.assertEqual(id(module), id(sys.modules['module']))
 
     # See test_using_cache_after_loader() for reasoning.
-    @unittest.skip("TODO: RUSTPYTHON, TypeError: unexpected payload for __call__")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_using_cache_for_assigning_to_attribute(self):
         # [from cache to attribute]
         with self.create_mock('pkg.__init__', 'pkg.module') as importer:
@@ -81,7 +83,8 @@ class ImportlibUseCache(UseCache, unittest.TestCase):
                                  id(sys.modules['pkg.module']))
 
     # See test_using_cache_after_loader() for reasoning.
-    @unittest.skip("TODO: RUSTPYTHON, TypeError: unexpected payload for __call__")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_using_cache_for_fromlist(self):
         # [from cache for fromlist]
         with self.create_mock('pkg.__init__', 'pkg.module') as importer:
