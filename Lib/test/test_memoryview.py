@@ -220,7 +220,6 @@ class AbstractMemoryTests:
             m = None
             self.assertEqual(sys.getrefcount(b), oldrefcount)
 
-    @unittest.skip("TODO: RUSTPYTHON, NameError: name 'gc' is not defined")
     def test_gc(self):
         for tp in self._types:
             if not isinstance(tp, type):
@@ -473,6 +472,11 @@ class BaseMemorySliceSliceTests:
 class BytesMemoryviewTest(unittest.TestCase,
     BaseMemoryviewTests, BaseBytesMemoryTests):
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_gc(self):
+        super().test_gc()
+
     def test_constructor(self):
         for tp in self._types:
             ob = tp(self._source)
@@ -497,6 +501,10 @@ class ArrayMemoryviewTest(unittest.TestCase,
 
 class BytesMemorySliceTest(unittest.TestCase,
     BaseMemorySliceTests, BaseBytesMemoryTests):
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_gc(self):
+        super().test_gc()
     pass
 
 class ArrayMemorySliceTest(unittest.TestCase,
@@ -505,6 +513,10 @@ class ArrayMemorySliceTest(unittest.TestCase,
 
 class BytesMemorySliceSliceTest(unittest.TestCase,
     BaseMemorySliceSliceTests, BaseBytesMemoryTests):
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_gc(self):
+        super().test_gc()
     pass
 
 class ArrayMemorySliceSliceTest(unittest.TestCase,
