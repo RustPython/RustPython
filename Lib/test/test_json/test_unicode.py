@@ -55,7 +55,8 @@ class TestUnicode:
         self.assertRaises(TypeError, self.dumps, b"hi")
         self.assertRaises(TypeError, self.dumps, [b"hi"])
 
-    @unittest.skip("TODO: RUSTPYTHON, AttributeError: module 'codecs' has no attribute 'utf_32_be_encode'")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_bytes_decode(self):
         for encoding, bom in [
                 ('utf-8', codecs.BOM_UTF8),
