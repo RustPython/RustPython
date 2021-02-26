@@ -133,6 +133,8 @@ class PyCompileTestsBase:
         finally:
             os.chmod(self.directory, mode.st_mode)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_bad_coding(self):
         bad_coding = os.path.join(os.path.dirname(__file__), 'bad_coding2.py')
         with support.captured_stderr():
