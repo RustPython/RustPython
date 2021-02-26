@@ -271,8 +271,35 @@ impl PyList {
     }
 
     #[pymethod]
-    fn index(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-        for (index, element) in self.borrow_value().clone().iter().enumerate() {
+    fn index(
+        &self,
+        needle: PyObjectRef,
+        start: OptionalArg<isize>,
+        stop: OptionalArg<isize>,
+        vm: &VirtualMachine,
+    ) -> PyResult<usize> {
+        let mut start = start.into_option().unwrap_or(0);
+        if start < 0 {
+            start += self.borrow_value().len() as isize;
+            if start < 0 {
+                start = 0;
+            }
+        }
+        let mut stop = stop.into_option().unwrap_or(isize::MAX);
+        if stop < 0 {
+            stop += self.borrow_value().len() as isize;
+            if stop < 0 {
+                stop = 0;
+            }
+        }
+        for (index, element) in self
+            .borrow_value()
+            .clone()
+            .iter()
+            .enumerate()
+            .take(stop as usize)
+            .skip(start as usize)
+        {
             if vm.identical_or_equal(element, &needle)? {
                 return Ok(index);
             }
