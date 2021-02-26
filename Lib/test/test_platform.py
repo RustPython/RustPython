@@ -254,6 +254,10 @@ class PlatformTest(unittest.TestCase):
 
 
     # TODO: RUSTPYTHON
+    if sys.platform == "darwin":
+        test_mac_ver = unittest.expectedFailure(test_mac_ver)
+
+    # TODO: RUSTPYTHON
     @unittest.expectedFailure
     @unittest.skipUnless(sys.platform == 'darwin', "OSX only test")
     def test_mac_ver_with_fork(self):
