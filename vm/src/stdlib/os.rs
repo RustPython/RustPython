@@ -309,7 +309,7 @@ mod _os {
         O_APPEND, O_CREAT, O_EXCL, O_RDONLY, O_RDWR, O_TRUNC, O_WRONLY, SEEK_CUR, SEEK_END,
         SEEK_SET,
     };
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(not(any(windows, target_os = "wasi")))]
     #[pyattr]
     use libc::{PRIO_PGRP, PRIO_PROCESS, PRIO_USER};
     #[cfg(any(target_os = "dragonfly", target_os = "freebsd", target_os = "linux"))]
