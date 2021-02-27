@@ -122,7 +122,7 @@ impl PyValue for PyCoroutineWrapper {
     }
 }
 
-#[pyimpl]
+#[pyimpl(with(PyIter))]
 impl PyCoroutineWrapper {
     #[pymethod]
     fn send(&self, val: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -138,6 +138,12 @@ impl PyCoroutineWrapper {
         vm: &VirtualMachine,
     ) -> PyResult {
         self.coro.throw(exc_type, exc_val, exc_tb, vm)
+    }
+}
+
+impl PyIter for PyCoroutineWrapper {
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        zelf.send(vm.ctx.none(), vm)
     }
 }
 

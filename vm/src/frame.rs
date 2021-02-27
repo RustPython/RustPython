@@ -518,7 +518,11 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::ImportNameless => self.import(vm, None),
             bytecode::Instruction::ImportStar => self.import_star(vm),
-            bytecode::Instruction::ImportFrom { idx } => self.import_from(vm, *idx),
+            bytecode::Instruction::ImportFrom { idx } => {
+                let obj = self.import_from(vm, *idx)?;
+                self.push_value(obj);
+                Ok(None)
+            }
             bytecode::Instruction::LoadFast(idx) => {
                 let idx = *idx as usize;
                 let x = self.fastlocals.lock()[idx].clone().ok_or_else(|| {
@@ -803,7 +807,9 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::SetupAsyncWith { end } => {
+                let enter_res = self.pop_value();
                 self.push_block(BlockType::Finally { handler: *end });
+                self.push_value(enter_res);
                 Ok(None)
             }
             bytecode::Instruction::WithCleanupStart => {
@@ -1084,15 +1090,22 @@ impl ExecutingFrame<'_> {
     }
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
-    fn import_from(&mut self, vm: &VirtualMachine, idx: bytecode::NameIdx) -> FrameResult {
+    fn import_from(&mut self, vm: &VirtualMachine, idx: bytecode::NameIdx) -> PyResult {
         let module = self.last_value();
         let name = &self.code.names[idx as usize];
+        let err = || vm.new_import_error(format!("cannot import name '{}'", name), name.clone());
         // Load attribute, and transform any error into import error.
-        let obj = vm.get_attribute(module, name.clone()).map_err(|_| {
-            vm.new_import_error(format!("cannot import name '{}'", name), name.clone())
-        })?;
-        self.push_value(obj);
-        Ok(None)
+        if let Some(obj) = vm.get_attribute_opt(module.clone(), name.clone())? {
+            return Ok(obj);
+        }
+        // fallback to importing '{module.__name__}.{name}' from sys.modules
+        let mod_name = vm.get_attribute(module, "__name__").map_err(|_| err())?;
+        let mod_name = mod_name.downcast::<PyStr>().map_err(|_| err())?;
+        let full_mod_name = format!("{}.{}", mod_name, name);
+        let sys_modules = vm
+            .get_attribute(vm.sys_module.clone(), "modules")
+            .map_err(|_| err())?;
+        sys_modules.get_item(full_mod_name, vm).map_err(|_| err())
     }
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]

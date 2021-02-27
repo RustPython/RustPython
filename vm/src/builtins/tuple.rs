@@ -350,6 +350,15 @@ impl<T: TransmuteFromObject> TryFromObject for PyTupleTyped<T> {
     }
 }
 
+impl<T: TransmuteFromObject> Clone for PyTupleTyped<T> {
+    fn clone(&self) -> Self {
+        Self {
+            tuple: self.tuple.clone(),
+            _marker: PhantomData,
+        }
+    }
+}
+
 impl<'a, T: TransmuteFromObject + 'a> BorrowValue<'a> for PyTupleTyped<T> {
     type Borrowed = &'a [T];
     #[inline]

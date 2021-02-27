@@ -136,12 +136,12 @@ pub fn scanstring<'a>(
         chunks.push(chunk);
     };
     let unterminated_err = || DecodeError::new("Unterminated string starting at", end - 1);
-    let mut chunk_start = end;
     let mut chars = s.char_indices().enumerate().skip(end).peekable();
-    while let Some((char_i, (i, c))) = chars.next() {
+    let (_, (mut chunk_start, _)) = chars.peek().ok_or_else(unterminated_err)?;
+    while let Some((char_i, (byte_i, c))) = chars.next() {
         match c {
             '"' => {
-                push_chunk(StrOrChar::Str(&s[chunk_start..i]));
+                push_chunk(StrOrChar::Str(&s[chunk_start..byte_i]));
                 let mut out = String::with_capacity(output_len);
                 for x in chunks {
                     match x {
@@ -152,7 +152,7 @@ pub fn scanstring<'a>(
                 return Ok((out, char_i + 1));
             }
             '\\' => {
-                push_chunk(StrOrChar::Str(&s[chunk_start..i]));
+                push_chunk(StrOrChar::Str(&s[chunk_start..byte_i]));
                 let (_, (_, c)) = chars.next().ok_or_else(unterminated_err)?;
                 let esc = match c {
                     '"' => "\"",
@@ -166,7 +166,7 @@ pub fn scanstring<'a>(
                     'u' => {
                         let surrogate_err = || DecodeError::new("unpaired surrogate", char_i);
                         let mut uni = decode_unicode(&mut chars, char_i)?;
-                        chunk_start = char_i + 6;
+                        chunk_start = byte_i + 6;
                         if (0xd800..=0xdbff).contains(&uni) {
                             // uni is a surrogate -- try to find its pair
                             if let Some(&(pos2, (_, '\\'))) = chars.peek() {
@@ -202,7 +202,7 @@ pub fn scanstring<'a>(
                         ))
                     }
                 };
-                chunk_start = i + 2;
+                chunk_start = byte_i + 2;
                 push_chunk(StrOrChar::Str(esc));
             }
             '\x00'..='\x1f' if strict => {

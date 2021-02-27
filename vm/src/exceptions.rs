@@ -480,17 +480,21 @@ pub struct ExceptionZoo {
     pub resource_warning: PyTypeRef,
 }
 
+pub fn exception_slots() -> crate::slots::PyTypeSlots {
+    let mut slots = PyBaseException::make_slots();
+    // make_slots produces it with a tp_name of BaseException, which is usually wrong
+    slots.name.get_mut().take();
+    slots
+}
+
+pub fn create_exception_type(name: &str, base: &PyTypeRef) -> PyTypeRef {
+    create_type_with_slots(name, PyType::static_type(), base, exception_slots())
+}
+
 impl ExceptionZoo {
     pub(crate) fn init() -> Self {
         let base_exception_type = PyBaseException::init_bare_type().clone();
-        let create_exception_type = |name: &str, base: &PyTypeRef| {
-            create_type_with_slots(
-                name,
-                PyType::static_type(),
-                base,
-                PyBaseException::make_slots(),
-            )
-        };
+
         // Sorted By Hierarchy then alphabetized.
         let system_exit = create_exception_type("SystemExit", &base_exception_type);
         let keyboard_interrupt = create_exception_type("KeyboardInterrupt", &base_exception_type);

@@ -1101,8 +1101,7 @@ checksum = "8dd5a6d5999d9907cda8ed67bbd137d3af8085216c2ac62de5be860bd41f304a"
 [[package]]
 name = "lock_api"
 version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd96ffd135b2fd7b973ac026d28085defbe8983df057ced3eb4f2130b0831312"
+source = "git+https://github.com/coolreader18/parking_lot?branch=remutex-is_owned#391cf555e94c05450cea2e88b42c95c6631ab163"
 dependencies = [
  "scopeguard",
 ]

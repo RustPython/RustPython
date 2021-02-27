@@ -273,6 +273,7 @@ mod decl {
                 Some(args.max_length)
             };
             let data = args.data.borrow_value();
+            let data = &*data;
 
             let mut d = self.decompress.lock();
             let orig_in = d.total_in();
@@ -339,7 +340,7 @@ mod decl {
     #[derive(FromArgs)]
     struct DecompressArgs {
         #[pyarg(positional)]
-        data: PyBytesRef,
+        data: PyBytesLike,
         #[pyarg(any, default = "0")]
         max_length: usize,
     }

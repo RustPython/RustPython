@@ -18,7 +18,7 @@ use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
 use crate::function::{FuncArgs, OptionalArg};
 use crate::pyobject::{
     BorrowValue, Either, IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
-    StaticType, TryFromObject,
+    StaticType, TryFromObject, TypeProtocol,
 };
 use crate::VirtualMachine;
 
@@ -34,7 +34,13 @@ mod c {
     #[cfg(target_os = "redox")]
     pub const AI_PASSIVE: c_int = 0x01;
     #[cfg(target_os = "redox")]
+    pub const AI_NUMERICHOST: c_int = 0x0004;
+    #[cfg(target_os = "redox")]
     pub const AI_ALL: c_int = 0x10;
+    #[cfg(target_os = "redox")]
+    pub const AI_ADDRCONFIG: c_int = 0x0020;
+    #[cfg(target_os = "redox")]
+    pub const AI_NUMERICSERV: c_int = 0x0400;
     // https://gitlab.redox-os.org/redox-os/relibc/-/blob/master/src/header/sys_socket/constants.rs
     #[cfg(target_os = "redox")]
     pub const SO_TYPE: c_int = 3;
@@ -185,9 +191,68 @@ impl PySocket {
         }
     }
 
+    fn extract_address(
+        &self,
+        addr: PyObjectRef,
+        caller: &str,
+        vm: &VirtualMachine,
+    ) -> PyResult<socket2::SockAddr> {
+        let family = self.family.load();
+        match family {
+            c::AF_INET => {
+                let addr = Address::try_from_object(vm, addr)?;
+                let addr4 = get_addr(vm, addr, |sa| match sa {
+                    SocketAddr::V4(v4) => Some(v4),
+                    _ => None,
+                })?;
+                Ok(addr4.into())
+            }
+            c::AF_INET6 => {
+                let tuple: PyTupleRef = addr.downcast().map_err(|obj| {
+                    vm.new_type_error(format!(
+                        "{}(): AF_INET6 address must be tuple, not {}",
+                        caller,
+                        obj.class().name
+                    ))
+                })?;
+                let tuple = tuple.borrow_value();
+                match tuple.len() {
+                    2 | 3 | 4 => {}
+                    _ => {
+                        return Err(vm.new_type_error(
+                            "AF_INET6 address must be a tuple (host, port[, flowinfo[, scopeid]])"
+                                .to_owned(),
+                        ))
+                    }
+                }
+                let addr = Address::from_tuple(tuple, vm)?;
+                let flowinfo = tuple
+                    .get(2)
+                    .map(|obj| u32::try_from_object(vm, obj.clone()))
+                    .transpose()?;
+                let scopeid = tuple
+                    .get(3)
+                    .map(|obj| u32::try_from_object(vm, obj.clone()))
+                    .transpose()?;
+                let mut addr6 = get_addr(vm, addr, |sa| match sa {
+                    SocketAddr::V6(v6) => Some(v6),
+                    _ => None,
+                })?;
+                if let Some(fi) = flowinfo {
+                    addr6.set_flowinfo(fi)
+                }
+                if let Some(si) = scopeid {
+                    addr6.set_scope_id(si)
+                }
+                Ok(addr6.into())
+            }
+            _ => Err(vm.new_os_error(format!("{}(): bad family", caller))),
+        }
+    }
+
     #[pymethod]
-    fn connect(&self, address: Address, vm: &VirtualMachine) -> PyResult<()> {
-        let sock_addr = get_addr(vm, address, Some(self.family.load()))?;
+    fn connect(&self, address: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let sock_addr = self.extract_address(address, "connect", vm)?;
 
         let err = match self.sock().connect(&sock_addr) {
             Ok(()) => return Ok(()),
@@ -221,8 +286,8 @@ impl PySocket {
     }
 
     #[pymethod]
-    fn bind(&self, address: Address, vm: &VirtualMachine) -> PyResult<()> {
-        let sock_addr = get_addr(vm, address, Some(self.family.load()))?;
+    fn bind(&self, address: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let sock_addr = self.extract_address(address, "bind", vm)?;
         self.sock()
             .bind(&sock_addr)
             .map_err(|err| convert_sock_error(vm, err))
@@ -238,10 +303,10 @@ impl PySocket {
     }
 
     #[pymethod]
-    fn _accept(&self, vm: &VirtualMachine) -> PyResult<(RawSocket, AddrTuple)> {
+    fn _accept(&self, vm: &VirtualMachine) -> PyResult<(RawSocket, PyObjectRef)> {
         let (sock, addr) = self.sock_op(vm, SelectKind::Read, || self.sock().accept())?;
         let fd = into_sock_fileno(sock);
-        Ok((fd, get_addr_tuple(addr)))
+        Ok((fd, get_addr_tuple(addr, vm)))
     }
 
     #[pymethod]
@@ -281,14 +346,14 @@ impl PySocket {
         bufsize: usize,
         flags: OptionalArg<i32>,
         vm: &VirtualMachine,
-    ) -> PyResult<(Vec<u8>, AddrTuple)> {
+    ) -> PyResult<(Vec<u8>, PyObjectRef)> {
         let flags = flags.unwrap_or(0);
         let mut buffer = vec![0u8; bufsize];
         let (n, addr) = self.sock_op(vm, SelectKind::Read, || {
             self.sock().recv_from_with_flags(&mut buffer, flags)
         })?;
         buffer.truncate(n);
-        Ok((buffer, get_addr_tuple(addr)))
+        Ok((buffer, get_addr_tuple(addr, vm)))
     }
 
     #[pymethod]
@@ -343,12 +408,12 @@ impl PySocket {
     fn sendto(
         &self,
         bytes: PyBytesLike,
-        address: Address,
+        address: PyObjectRef,
         flags: OptionalArg<i32>,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
         let flags = flags.unwrap_or(0);
-        let addr = get_addr(vm, address, Some(self.family.load()))?;
+        let addr = self.extract_address(address, "sendto", vm)?;
         self.sock_op(vm, SelectKind::Write, || {
             bytes.with_ref(|b| self.sock().send_to_with_flags(b, &addr, flags))
         })
@@ -369,22 +434,22 @@ impl PySocket {
     }
 
     #[pymethod]
-    fn getsockname(&self, vm: &VirtualMachine) -> PyResult<AddrTuple> {
+    fn getsockname(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let addr = self
             .sock()
             .local_addr()
             .map_err(|err| convert_sock_error(vm, err))?;
 
-        Ok(get_addr_tuple(addr))
+        Ok(get_addr_tuple(addr, vm))
     }
     #[pymethod]
-    fn getpeername(&self, vm: &VirtualMachine) -> PyResult<AddrTuple> {
+    fn getpeername(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let addr = self
             .sock()
             .peer_addr()
             .map_err(|err| convert_sock_error(vm, err))?;
 
-        Ok(get_addr_tuple(addr))
+        Ok(get_addr_tuple(addr, vm))
     }
 
     #[pymethod]
@@ -572,28 +637,37 @@ impl TryFromObject for Address {
         if tuple.borrow_value().len() != 2 {
             Err(vm.new_type_error("Address tuple should have only 2 values".to_owned()))
         } else {
-            let host = PyStrRef::try_from_object(vm, tuple.borrow_value()[0].clone())?;
-            let host = if host.borrow_value().is_empty() {
-                PyStr::from("0.0.0.0").into_ref(vm)
-            } else {
-                host
-            };
-            let port = u16::try_from_object(vm, tuple.borrow_value()[1].clone())?;
-            Ok(Address { host, port })
+            Self::from_tuple(tuple.borrow_value(), vm)
         }
     }
 }
 
-type AddrTuple = (String, u16);
+impl Address {
+    fn from_tuple(tuple: &[PyObjectRef], vm: &VirtualMachine) -> PyResult<Self> {
+        let host = PyStrRef::try_from_object(vm, tuple[0].clone())?;
+        let host = if host.borrow_value().is_empty() {
+            PyStr::from("0.0.0.0").into_ref(vm)
+        } else {
+            host
+        };
+        let port = u16::try_from_object(vm, tuple[1].clone())?;
+        Ok(Address { host, port })
+    }
+}
 
-fn get_addr_tuple<A: Into<socket2::SockAddr>>(addr: A) -> AddrTuple {
+fn get_addr_tuple<A: Into<socket2::SockAddr>>(addr: A, vm: &VirtualMachine) -> PyObjectRef {
     let addr = addr.into();
-    if let Some(addr) = addr.as_inet() {
-        (addr.ip().to_string(), addr.port())
-    } else if let Some(addr) = addr.as_inet6() {
-        (addr.ip().to_string(), addr.port())
-    } else {
-        (String::new(), 0)
+    match addr.as_std() {
+        Some(SocketAddr::V4(addr)) => (addr.ip().to_string(), addr.port()).into_pyobject(vm),
+        Some(SocketAddr::V6(addr)) => (
+            addr.ip().to_string(),
+            addr.port(),
+            addr.flowinfo(),
+            addr.scope_id(),
+        )
+            .into_pyobject(vm),
+        // TODO: support AF_UNIX et al
+        None => (String::new(), 0).into_pyobject(vm),
     }
 }
 
@@ -777,7 +851,7 @@ fn _socket_getaddrinfo(opts: GAIOptions, vm: &VirtualMachine) -> PyResult {
                     vm.ctx.new_int(ai.socktype),
                     vm.ctx.new_int(ai.protocol),
                     ai.canonname.into_pyobject(vm),
-                    get_addr_tuple(ai.sockaddr).into_pyobject(vm),
+                    get_addr_tuple(ai.sockaddr, vm),
                 ])
             })
         })
@@ -880,11 +954,8 @@ fn _socket_getnameinfo(
     flags: i32,
     vm: &VirtualMachine,
 ) -> PyResult<(String, String)> {
-    let addr = get_addr(vm, address, None)?;
-    let nameinfo = addr
-        .as_std()
-        .and_then(|addr| dns_lookup::getnameinfo(&addr, flags).ok());
-    nameinfo.ok_or_else(|| {
+    let addr = get_addr(vm, address, Some)?;
+    dns_lookup::getnameinfo(&addr, flags).map_err(|_| {
         let error_type = GAI_ERROR.get().unwrap().clone();
         vm.new_exception_msg(
             error_type,
@@ -893,39 +964,22 @@ fn _socket_getnameinfo(
     })
 }
 
-fn get_addr(
+fn get_addr<R>(
     vm: &VirtualMachine,
     addr: impl ToSocketAddrs,
-    domain: Option<i32>,
-) -> PyResult<socket2::SockAddr> {
-    let sock_addr = match addr.to_socket_addrs() {
-        Ok(mut sock_addrs) => match domain {
-            None => sock_addrs.next(),
-            Some(dom) => {
-                if dom == i32::from(Domain::ipv4()) {
-                    sock_addrs.find(|a| a.is_ipv4())
-                } else if dom == i32::from(Domain::ipv6()) {
-                    sock_addrs.find(|a| a.is_ipv6())
-                } else {
-                    sock_addrs.next()
-                }
-            }
-        },
-        Err(e) => {
-            let error_type = GAI_ERROR.get().unwrap().clone();
-            return Err(vm.new_exception_msg(error_type, e.to_string()));
-        }
-    };
-    match sock_addr {
-        Some(sock_addr) => Ok(sock_addr.into()),
-        None => {
-            let error_type = GAI_ERROR.get().unwrap().clone();
-            Err(vm.new_exception_msg(
-                error_type,
-                "nodename nor servname provided, or not known".to_owned(),
-            ))
-        }
-    }
+    filter: impl FnMut(SocketAddr) -> Option<R>,
+) -> PyResult<R> {
+    let mut sock_addrs = addr.to_socket_addrs().map_err(|e| {
+        let error_type = GAI_ERROR.get().unwrap().clone();
+        vm.new_exception_msg(error_type, e.to_string())
+    })?;
+    sock_addrs.find_map(filter).ok_or_else(|| {
+        let error_type = GAI_ERROR.get().unwrap().clone();
+        vm.new_exception_msg(
+            error_type,
+            "nodename nor servname provided, or not known".to_owned(),
+        )
+    })
 }
 
 fn sock_fileno(sock: &Socket) -> RawSocket {
@@ -1072,8 +1126,11 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "SO_OOBINLINE" => ctx.new_int(c::SO_OOBINLINE),
         "SO_ERROR" => ctx.new_int(c::SO_ERROR),
         "TCP_NODELAY" => ctx.new_int(c::TCP_NODELAY),
-        "AI_ALL" => ctx.new_int(c::AI_ALL),
         "AI_PASSIVE" => ctx.new_int(c::AI_PASSIVE),
+        "AI_NUMERICHOST" => ctx.new_int(c::AI_NUMERICHOST),
+        "AI_ALL" => ctx.new_int(c::AI_ALL),
+        "AI_ADDRCONFIG" => ctx.new_int(c::AI_ADDRCONFIG),
+        "AI_NUMERICSERV" => ctx.new_int(c::AI_NUMERICSERV),
         "NI_NAMEREQD" => ctx.new_int(c::NI_NAMEREQD),
         "NI_NOFQDN" => ctx.new_int(c::NI_NOFQDN),
         "NI_NUMERICHOST" => ctx.new_int(c::NI_NUMERICHOST),

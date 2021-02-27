@@ -69,4 +69,4 @@ opt-level = 3
 [patch.crates-io]
 # REDOX START, Uncommment when you want to compile/check with redoxer
 # REDOX END
-
+lock_api = { git = "https://github.com/coolreader18/parking_lot", branch = "remutex-is_owned" }

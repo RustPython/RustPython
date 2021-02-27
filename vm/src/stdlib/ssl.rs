@@ -3,13 +3,12 @@ use super::socket::PySocketRef;
 use crate::builtins::{pytype, weakref::PyWeak, PyStrRef, PyTypeRef};
 use crate::byteslike::{PyBytesLike, PyRwBytesLike};
 use crate::common::lock::{PyRwLock, PyRwLockWriteGuard};
-use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
+use crate::exceptions::{create_exception_type, IntoPyException, PyBaseExceptionRef};
 use crate::function::OptionalArg;
 use crate::pyobject::{
     BorrowValue, Either, IntoPyObject, ItemProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef,
     PyResult, PyValue, StaticType,
 };
-use crate::types::create_simple_type;
 use crate::VirtualMachine;
 
 use crossbeam_utils::atomic::AtomicCell;
@@ -43,6 +42,7 @@ mod sys {
         pub fn X509_get_version(x: *const X509) -> c_long;
         pub fn SSLv3_method() -> *const SSL_METHOD;
         pub fn TLSv1_method() -> *const SSL_METHOD;
+        pub fn COMP_get_type(meth: *const COMP_METHOD) -> i32;
     }
 }
 
@@ -688,6 +688,37 @@ impl PySslSocket {
     }
 
     #[pymethod]
+    fn cipher(&self) -> Option<CipherTuple> {
+        self.stream
+            .read()
+            .ssl()
+            .current_cipher()
+            .map(cipher_to_tuple)
+    }
+
+    #[pymethod]
+    fn compression(&self) -> Option<&'static str> {
+        #[cfg(osslconf = "OPENSSL_NO_COMP")]
+        {
+            None
+        }
+        #[cfg(not(osslconf = "OPENSSL_NO_COMP"))]
+        {
+            let stream = self.stream.read();
+            let comp_method = unsafe { sys::SSL_get_current_compression(stream.ssl().as_ptr()) };
+            if comp_method.is_null() {
+                return None;
+            }
+            let typ = unsafe { sys::COMP_get_type(comp_method) };
+            let nid = Nid::from_raw(typ);
+            if nid == Nid::UNDEF {
+                return None;
+            }
+            nid.short_name().ok()
+        }
+    }
+
+    #[pymethod]
     fn do_handshake(&self, vm: &VirtualMachine) -> PyResult<()> {
         let mut stream = self.stream.write();
         let timeout = stream.get_ref().timeout.load();
@@ -808,6 +839,12 @@ fn convert_ssl_error(
     vm.new_exception_msg(cls, msg.to_owned())
 }
 
+type CipherTuple = (&'static str, &'static str, i32);
+
+fn cipher_to_tuple(cipher: &ssl::SslCipherRef) -> CipherTuple {
+    (cipher.name(), cipher.version(), cipher.bits().secret)
+}
+
 fn cert_to_py(vm: &VirtualMachine, cert: &X509Ref, binary: bool) -> PyResult {
     if binary {
         cert.to_der()
@@ -914,7 +951,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     let ctx = &vm.ctx;
 
-    let ssl_error = create_simple_type("SSLError", &vm.ctx.exceptions.os_error);
+    let ssl_error = create_exception_type("SSLError", &vm.ctx.exceptions.os_error);
 
     let ssl_cert_verification_error = pytype::new(
         ctx.types.type_type.clone(),
@@ -922,14 +959,14 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         ssl_error.clone(),
         vec![ssl_error.clone(), ctx.exceptions.value_error.clone()],
         Default::default(),
-        Default::default(),
+        crate::exceptions::exception_slots(),
     )
     .unwrap();
-    let ssl_zero_return_error = create_simple_type("SSLZeroReturnError", &ssl_error);
-    let ssl_want_read_error = create_simple_type("SSLWantReadError", &ssl_error);
-    let ssl_want_write_error = create_simple_type("SSLWantWriteError", &ssl_error);
-    let ssl_syscall_error = create_simple_type("SSLSyscallError", &ssl_error);
-    let ssl_eof_error = create_simple_type("SSLEOFError", &ssl_error);
+    let ssl_zero_return_error = create_exception_type("SSLZeroReturnError", &ssl_error);
+    let ssl_want_read_error = create_exception_type("SSLWantReadError", &ssl_error);
+    let ssl_want_write_error = create_exception_type("SSLWantWriteError", &ssl_error);
+    let ssl_syscall_error = create_exception_type("SSLSyscallError", &ssl_error);
+    let ssl_eof_error = create_exception_type("SSLEOFError", &ssl_error);
 
     let module = py_module!(vm, "_ssl", {
         "_SSLContext" => PySslContext::make_class(ctx),
