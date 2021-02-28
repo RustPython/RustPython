@@ -1341,7 +1341,8 @@ class UnicodeTest(string_tests.CommonTest,
         with self.assertRaises(ValueError):
             result = format(2.34, format_string)
 
-    @unittest.skip("TODO: RUSTPYTHON, IndexError: tuple index out of range")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_format_huge_item_number(self):
         format_string = "{{{}:.6f}}".format(sys.maxsize + 1)
         with self.assertRaises(ValueError):

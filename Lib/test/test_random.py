@@ -20,8 +20,6 @@ class TestBasicOps:
         """Helper function to make a list of random numbers"""
         return [self.gen.random() for i in range(n)]
 
-    @unittest.skip("TODO: RUSTPYTHON, MersenneTwister_TestBasicOps errors: "
-        "AttributeError: 'super' object has no attribute 'getstate'")
     def test_autoseed(self):
         self.gen.seed()
         state1 = self.gen.getstate()
@@ -40,8 +38,6 @@ class TestBasicOps:
         self.gen.setstate(state)    # should regenerate the same sequence
         self.assertEqual(randseq, self.randomlist(N))
 
-    @unittest.skip("TODO: RUSTPYTHON, MersenneTwister_TestBasicOps errors: "
-        "TypeError: Expected type 'int', not 'float'")
     def test_seedargs(self):
         # Seed value with a negative hash.
         class MySeed(object):
@@ -106,7 +102,6 @@ class TestBasicOps:
         shuffle(seq, mock_random)
         mock_random.assert_called_with()
 
-    @unittest.skip("TODO: RUSTPYTHON, MersenneTwister_TestBasicOps hangs?")
     def test_choice(self):
         choice = self.gen.choice
         with self.assertRaises(IndexError):
@@ -259,8 +254,6 @@ class TestBasicOps:
             self.assertEqual(x1, x2)
             self.assertEqual(y1, y2)
 
-    @unittest.skip("TODO: RUSTPYTHON, MersenneTwister_TestBasicOps errors: "
-        "TypeError: Missing 1 required positional arguments: self")
     def test_pickling(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             state = pickle.dumps(self.gen, proto)
@@ -269,7 +262,8 @@ class TestBasicOps:
             restoredseq = [newgen.random() for i in range(10)]
             self.assertEqual(origseq, restoredseq)
 
-    @unittest.skip("TODO: RUSTPYTHON, FileNotFoundError: No such file or directory (os error 2)")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_bug_1727780(self):
         # verify that version-2-pickles can be loaded
         # fine, whether they are created on 32-bit or 64-bit
@@ -282,7 +276,6 @@ class TestBasicOps:
                 r = pickle.load(f)
             self.assertEqual(int(r.random()*1000), value)
 
-    @unittest.skip("TODO: RUSTPYTHON, MersenneTwister_TestBasicOps fails")
     def test_bug_9025(self):
         # Had problem with an uneven distribution in int(n*random())
         # Verify the fix by checking that distributions fall within expectations.
@@ -319,7 +312,6 @@ class SystemRandom_TestBasicOps(TestBasicOps, unittest.TestCase):
         self.gen.seed(100)
         self.assertEqual(self.gen.gauss_next, None)
 
-    @unittest.skip("TODO: RUSTPYTHON, TypeError: Missing 1 required positional arguments: self")
     def test_pickling(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             self.assertRaises(NotImplementedError, pickle.dumps, self.gen, proto)
@@ -420,6 +412,35 @@ class SystemRandom_TestBasicOps(TestBasicOps, unittest.TestCase):
 class MersenneTwister_TestBasicOps(TestBasicOps, unittest.TestCase):
     gen = random.Random()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_autoseed(self):
+        super().test_autoseed()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_seedargs(self):
+        super().test_seedargs()
+
+    @unittest.skip("TODO: RUSTPYTHON, hangs?")
+    def test_choice(self):
+        super().test_choice()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_pickling(self):
+        super().test_pickling()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_bug_9025(self):
+        super().test_bug_9025()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_seed_when_randomness_source_not_found(self):
+        super().test_seed_when_randomness_source_not_found()
+
     def test_guaranteed_stable(self):
         # These sequences are guaranteed to stay the same across versions of python
         self.gen.seed(3456147, version=1)
@@ -490,7 +511,8 @@ class MersenneTwister_TestBasicOps(TestBasicOps, unittest.TestCase):
     def test_setstate_first_arg(self):
         self.assertRaises(ValueError, self.gen.setstate, (1, None, None))
 
-    @unittest.skip("TODO: RUSTPYTHON, AttributeError: 'super' object has no attribute 'getstate'")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_setstate_middle_arg(self):
         start_state = self.gen.getstate()
         # Wrong type, s/b tuple
@@ -676,7 +698,8 @@ class MersenneTwister_TestBasicOps(TestBasicOps, unittest.TestCase):
             self.assertEqual(k, numbits)        # note the stronger assertion
             self.assertTrue(2**k > n > 2**(k-1))   # note the stronger assertion
 
-    @unittest.skip("TODO: RUSTPYTHON, AttributeError: 'Random' object has no attribute '_randbelow_without_getrandbits'")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_randbelow_without_getrandbits(self):
         # Random._randbelow() can only use random() when the built-in one
         # has been overridden but no new getrandbits() method was supplied.
@@ -775,7 +798,8 @@ def gamma(z, sqrt2pi=(2.0*pi)**0.5):
     ])
 
 class TestDistributions(unittest.TestCase):
-    @unittest.skip("TODO: RUSTPYTHON, ValueError: math domain error")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_zeroinputs(self):
         # Verify that distributions can handle a series of zero inputs'
         g = random.Random()
@@ -901,7 +925,8 @@ class TestDistributions(unittest.TestCase):
         returned_value = random.gammavariate(1.0, 3.14)
         self.assertAlmostEqual(returned_value, 1.877208182372648)
 
-    @unittest.skip("TODO: RUSTPYTHON, StopIteration")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.mock.patch('random.Random.random')
     def test_gammavariate_alpha_equal_one_equals_expovariate(self, random_mock):
 
@@ -992,7 +1017,8 @@ class TestDistributions(unittest.TestCase):
 
 
 class TestRandomSubclassing(unittest.TestCase):
-    @unittest.skip("TODO: RUSTPYTHON, TypeError: Unexpected keyword argument newarg")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_random_subclass_with_kwargs(self):
         # SF bug #1486663 -- this used to erroneously raise a TypeError
         class Subclass(random.Random):

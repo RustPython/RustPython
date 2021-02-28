@@ -471,7 +471,6 @@ class BaseTest:
                 nb_warnings += 1
         self.assertEqual(len(r), nb_warnings)
 
-    @unittest.skip("TODO: RUSTPYTHON, OverflowError: Python int too large to convert to Rust i8")
     def test_tofrombytes(self):
         a = array.array(self.typecode, 2*self.example)
         b = array.array(self.typecode)
@@ -1131,7 +1130,6 @@ class StringTest(BaseTest):
         a = array.array(self.typecode, self.example)
         self.assertRaises(TypeError, a.__setitem__, 0, self.example[:2])
 
-@unittest.skip("TODO: RUSTPYTHON, ValueError: bad typecode")
 class UnicodeTest(StringTest, unittest.TestCase):
     typecode = 'u'
     example = '\x01\u263a\x00\ufeff'
@@ -1140,6 +1138,173 @@ class UnicodeTest(StringTest, unittest.TestCase):
     outside = str('\x33')
     minitemsize = 2
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_add(self):
+        super().test_add()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_buffer(self):
+        super().test_buffer()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_buffer_info(self):
+        super().test_buffer_info()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_byteswap(self):
+        super().test_byteswap()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_cmp(self):
+        super().test_cmp()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_constructor(self):
+        super().test_constructor()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_constructor_with_iterable_argument(self):
+        super().test_constructor_with_iterable_argument()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_copy(self):
+        super().test_copy()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_count(self):
+        super().test_count()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_coveritertraverse(self):
+        super().test_coveritertraverse()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_deepcopy(self):
+        super().test_deepcopy()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_delitem(self):
+        super().test_delitem()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_exhausted_iterator(self):
+        super().test_exhausted_iterator()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_extend(self):
+        super().test_extend()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_extended_getslice(self):
+        super().test_extended_getslice()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_extended_set_del_slice(self):
+        super().test_extended_set_del_slice()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_fromarray(self):
+        super().test_fromarray()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_getitem(self):
+        super().test_getitem()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_getslice(self):
+        super().test_getslice()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_iadd(self):
+        super().test_iadd()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_imul(self):
+        super().test_imul()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_index(self):
+        super().test_index()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_insert(self):
+        super().test_insert()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_len(self):
+        super().test_len()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_mul(self):
+        super().test_mul()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_pop(self):
+        super().test_pop()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_remove(self):
+        super().test_remove()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_repr(self):
+        super().test_repr()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_reverse(self):
+        super().test_reverse()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_setslice(self):
+        super().test_setslice()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_str(self):
+        super().test_str()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_tofrombytes(self):
+        super().test_tofrombytes()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_tofromlist(self):
+        super().test_tofromlist()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_unicode(self):
         self.assertRaises(TypeError, array.array, 'b', 'foo')
 
@@ -1160,6 +1325,8 @@ class UnicodeTest(StringTest, unittest.TestCase):
 
         self.assertRaises(TypeError, a.fromunicode)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_issue17223(self):
         # this used to crash
         if sizeof_wchar == 4:
@@ -1345,6 +1512,11 @@ class ByteTest(SignedNumberTest, unittest.TestCase):
     typecode = 'b'
     minitemsize = 1
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_tofrombytes(self):
+        super().test_tofrombytes()
+
 class UnsignedByteTest(UnsignedNumberTest, unittest.TestCase):
     typecode = 'B'
     minitemsize = 1
@@ -1353,33 +1525,73 @@ class ShortTest(SignedNumberTest, unittest.TestCase):
     typecode = 'h'
     minitemsize = 2
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_tofrombytes(self):
+        super().test_tofrombytes()
+
 class UnsignedShortTest(UnsignedNumberTest, unittest.TestCase):
     typecode = 'H'
     minitemsize = 2
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_tofrombytes(self):
+        super().test_tofrombytes()
 
 class IntTest(SignedNumberTest, unittest.TestCase):
     typecode = 'i'
     minitemsize = 2
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_tofrombytes(self):
+        super().test_tofrombytes()
+
 class UnsignedIntTest(UnsignedNumberTest, unittest.TestCase):
     typecode = 'I'
     minitemsize = 2
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_tofrombytes(self):
+        super().test_tofrombytes()
 
 class LongTest(SignedNumberTest, unittest.TestCase):
     typecode = 'l'
     minitemsize = 4
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_tofrombytes(self):
+        super().test_tofrombytes()
+
 class UnsignedLongTest(UnsignedNumberTest, unittest.TestCase):
     typecode = 'L'
     minitemsize = 4
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_tofrombytes(self):
+        super().test_tofrombytes()
 
 class LongLongTest(SignedNumberTest, unittest.TestCase):
     typecode = 'q'
     minitemsize = 8
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_tofrombytes(self):
+        super().test_tofrombytes()
+
 class UnsignedLongLongTest(UnsignedNumberTest, unittest.TestCase):
     typecode = 'Q'
     minitemsize = 8
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_tofrombytes(self):
+        super().test_tofrombytes()
 
 class FPTest(NumberTest):
     example = [-42.0, 0, 42, 1e5, -1e10]
@@ -1420,9 +1632,19 @@ class FloatTest(FPTest, unittest.TestCase):
     typecode = 'f'
     minitemsize = 4
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_tofrombytes(self):
+        super().test_tofrombytes()
+
 class DoubleTest(FPTest, unittest.TestCase):
     typecode = 'd'
     minitemsize = 8
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_tofrombytes(self):
+        super().test_tofrombytes()
 
     @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'capacity overflow'")
     def test_alloc_overflow(self):

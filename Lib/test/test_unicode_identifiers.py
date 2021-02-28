@@ -2,7 +2,8 @@ import unittest
 
 class PEP3131Test(unittest.TestCase):
 
-    @unittest.skip("TODO: RUSTPYTHON, AttributeError: type object 'T' has no attribute 'μ'")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_valid(self):
         class T:
             ä = 1
@@ -20,7 +21,8 @@ class PEP3131Test(unittest.TestCase):
         𝔘𝔫𝔦𝔠𝔬𝔡𝔢 = 1
         self.assertIn("Unicode", dir())
 
-    @unittest.skip("TODO: RUSTPYTHON, ImportError: cannot import name 'badsyntax_3131'")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_invalid(self):
         try:
             from test import badsyntax_3131

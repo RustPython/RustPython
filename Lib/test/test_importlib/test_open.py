@@ -28,14 +28,16 @@ class OpenTests:
             result = fp.read()
             self.assertEqual(result, 'Hello, UTF-8 world!\n')
 
-    @unittest.skip("TODO: RUSTPYTHON, UnicodeDecodeError: cannot decode byte at index: 0")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_open_text_given_encoding(self):
         with resources.open_text(
                 self.data, 'utf-16.file', 'utf-16', 'strict') as fp:
             result = fp.read()
         self.assertEqual(result, 'Hello, UTF-16 world!\n')
 
-    @unittest.skip("TODO: RUSTPYTHON, UnicodeDecodeError: cannot decode byte at index: 0")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_open_text_with_errors(self):
         # Raises UnicodeError without the 'errors' argument.
         with resources.open_text(

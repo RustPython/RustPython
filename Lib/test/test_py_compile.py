@@ -107,12 +107,15 @@ class PyCompileTestsBase:
         self.assertTrue(os.path.exists(self.pyc_path))
         self.assertFalse(os.path.exists(self.cache_path))
 
-    @unittest.skip("TODO: RUSTPYTHON, macOS FileNotFoundError: (2, 'No such file or directory (os error 2)')")
     def test_relative_path(self):
         py_compile.compile(os.path.relpath(self.source_path),
                            os.path.relpath(self.pyc_path))
         self.assertTrue(os.path.exists(self.pyc_path))
         self.assertFalse(os.path.exists(self.cache_path))
+
+    # TODO: RUSTPYTHON
+    if sys.platform == "darwin":
+        test_relative_path = unittest.expectedFailure(test_relative_path)
 
     @unittest.skipIf(hasattr(os, 'geteuid') and os.geteuid() == 0,
                      'non-root user required')
@@ -130,7 +133,8 @@ class PyCompileTestsBase:
         finally:
             os.chmod(self.directory, mode.st_mode)
 
-    @unittest.skip("TODO: RUSTPYTHON, FileNotFoundError: No such file or directory (os error 2)")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_bad_coding(self):
         bad_coding = os.path.join(os.path.dirname(__file__), 'bad_coding2.py')
         with support.captured_stderr():
@@ -176,7 +180,8 @@ class PyCompileTestsBase:
         # Specifying optimized bytecode should lead to a path reflecting that.
         self.assertIn('opt-2', py_compile.compile(self.source_path, optimize=2))
 
-    @unittest.skip("TODO: RUSTPYTHON, TypeError: object of type 'NoneType' has no len()")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_invalidation_mode(self):
         py_compile.compile(
             self.source_path,
@@ -196,11 +201,44 @@ class PyCompileTestsBase:
         self.assertEqual(flags, 0b1)
 
 
-@unittest.skip("TODO: RUSTPYTHON, TypeError: object of type 'NoneType' has no len()")
 class PyCompileTestsWithSourceEpoch(PyCompileTestsBase,
                                     unittest.TestCase,
                                     metaclass=SourceDateEpochTestMeta,
                                     source_date_epoch=True):
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_absolute_path(self):
+        super().test_absolute_path()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_cache_path(self):
+        super().test_cache_path()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_cwd(self):
+        super().test_cwd()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_double_dot_no_clobber(self):
+        super().test_double_dot_no_clobber()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_optimization_path(self):
+        super().test_optimization_path()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_relative_path(self):
+        super().test_relative_path()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_source_date_epoch(self):
+        super().test_source_date_epoch()
     pass
 
 
