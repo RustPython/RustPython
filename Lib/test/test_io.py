@@ -626,8 +626,6 @@ class IOTest(unittest.TestCase):
             else:
                 self.fail("1/0 didn't raise an exception")
 
-    # TODO: RUSTPYTHON
-    # @unittest.expectedFailure
     # issue 5008
     def test_append_mode_tell(self):
         with self.open(support.TESTFN, "wb") as f:
