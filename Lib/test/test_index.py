@@ -22,6 +22,8 @@ class BaseTestCase(unittest.TestCase):
         self.assertEqual(operator.index(self.o), -2)
         self.assertEqual(operator.index(self.n), 2)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_slice(self):
         self.o.ind = 1
         self.n.ind = 2
@@ -47,6 +49,8 @@ class BaseTestCase(unittest.TestCase):
         self.assertEqual(r[TrapInt(5):TrapInt(10)], r[5:10])
         self.assertEqual(slice(TrapInt()).indices(0), (0,0,1))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_error(self):
         self.o.ind = 'dumb'
         self.n.ind = 'bad'
@@ -55,6 +59,8 @@ class BaseTestCase(unittest.TestCase):
         self.assertRaises(TypeError, slice(self.o).indices, 0)
         self.assertRaises(TypeError, slice(self.n).indices, 0)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_int_subclass_with_index(self):
         # __index__ should be used when computing indices, even for int
         # subclasses.  See issue #17576.
@@ -71,6 +77,8 @@ class BaseTestCase(unittest.TestCase):
         self.assertIs(type(direct_index), int)
         #self.assertIs(type(operator_index), int)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_index_returns_int_subclass(self):
         class BadInt:
             def __index__(self):
@@ -99,6 +107,8 @@ class SeqTestCase:
         self.o2 = newstyle()
         self.n2 = newstyle()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_index(self):
         self.o.ind = -2
         self.n.ind = 2
@@ -128,6 +138,8 @@ class SeqTestCase:
         self.assertEqual(self.seq[self.n2:], self.seq)
         self.assertEqual(self.seq[:self.n2], self.seq[0:0])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_repeat(self):
         self.o.ind = 3
         self.n.ind = 2
@@ -136,6 +148,8 @@ class SeqTestCase:
         self.assertEqual(self.o * self.seq, self.seq * 3)
         self.assertEqual(self.n * self.seq, self.seq * 2)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_wrappers(self):
         self.o.ind = 4
         self.n.ind = 5
@@ -163,6 +177,8 @@ class SeqTestCase:
 class ListTestCase(SeqTestCase, unittest.TestCase):
     seq = [0,10,20,30,40,50]
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_setdelitem(self):
         self.o.ind = -2
         self.n.ind = 2
@@ -179,6 +195,8 @@ class ListTestCase(SeqTestCase, unittest.TestCase):
         lst.__delitem__(self.n)
         self.assertEqual(lst, [5, 6, 8, 9, 10, 11])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_inplace_repeat(self):
         self.o.ind = 2
         self.n.ind = 3
@@ -235,6 +253,8 @@ class NewSeqTestCase(SeqTestCase, unittest.TestCase):
 
 class RangeTestCase(unittest.TestCase):
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_range(self):
         n = newstyle()
         n.ind = 5
