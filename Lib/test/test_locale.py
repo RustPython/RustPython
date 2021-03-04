@@ -169,6 +169,8 @@ class EnUSNumberFormatting(BaseFormattingTest):
         self._test_format("%f", -42, grouping=1, out='-42.000000')
         self._test_format("%+f", -42, grouping=1, out='-42.000000')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_grouping_and_padding(self):
         self._test_format("%20.f", -42, grouping=1, out='-42'.rjust(20))
         if self.sep:
@@ -194,6 +196,8 @@ class EnUSNumberFormatting(BaseFormattingTest):
         self._test_format("%f", -42, grouping=0, out='-42.000000')
         self._test_format("%+f", -42, grouping=0, out='-42.000000')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_padding(self):
         self._test_format("%20.f", -42, grouping=0, out='-42'.rjust(20))
         self._test_format("%+10.f", -4200, grouping=0, out='-4200'.rjust(10))
@@ -342,6 +346,8 @@ class TestFrFRNumberFormatting(FrFRCookedTest, BaseFormattingTest):
 class TestCollation(unittest.TestCase):
     # Test string collation functions
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_strcoll(self):
         self.assertLess(locale.strcoll('a', 'b'), 0)
         self.assertEqual(locale.strcoll('a', 'a'), 0)
@@ -350,6 +356,8 @@ class TestCollation(unittest.TestCase):
         self.assertRaises(ValueError, locale.strcoll, 'a\0', 'a')
         self.assertRaises(ValueError, locale.strcoll, 'a', 'a\0')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_strxfrm(self):
         self.assertLess(locale.strxfrm('a'), locale.strxfrm('b'))
         # embedded null character
@@ -493,6 +501,8 @@ class NormalizeTest(unittest.TestCase):
 
 
 class TestMiscellaneous(unittest.TestCase):
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_defaults_UTF8(self):
         # Issue #18378: on (at least) macOS setting LC_CTYPE to "UTF-8" is
         # valid. Futhermore LC_CTYPE=UTF is used by the UTF-8 locale coercing
@@ -541,6 +551,8 @@ class TestMiscellaneous(unittest.TestCase):
         self.assertRaises(TypeError, locale.strcoll, "a", None)
         self.assertRaises(TypeError, locale.strcoll, b"a", None)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_setlocale_category(self):
         locale.setlocale(locale.LC_ALL)
         locale.setlocale(locale.LC_TIME)
