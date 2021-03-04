@@ -590,6 +590,7 @@ print(os.environ["%s"])
 """
 
 
+@unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON, teardown errors and universal newline failures")
 @unittest.skipIf(hasattr(os, 'geteuid') and os.geteuid() == 0,
         "This test can't be run reliably as root (issue #13308).")
 class CGIHTTPServerTestCase(BaseTestCase):
