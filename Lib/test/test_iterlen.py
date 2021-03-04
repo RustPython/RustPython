@@ -86,15 +86,30 @@ class TestXrange(TestInvariantWithoutMutations, unittest.TestCase):
     def setUp(self):
         self.it = iter(range(n))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_invariant(self):
+        super().test_invariant()
+
 class TestXrangeCustomReversed(TestInvariantWithoutMutations, unittest.TestCase):
 
     def setUp(self):
         self.it = reversed(range(n))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_invariant(self):
+        super().test_invariant()
+
 class TestTuple(TestInvariantWithoutMutations, unittest.TestCase):
 
     def setUp(self):
         self.it = iter(tuple(range(n)))
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_invariant(self):
+        super().test_invariant()
 
 ## ------- Types that should not be mutated during iteration -------
 
@@ -105,12 +120,32 @@ class TestDeque(TestTemporarilyImmutable, unittest.TestCase):
         self.it = iter(d)
         self.mutate = d.pop
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_immutable_during_iteration(self):
+        super().test_immutable_during_iteration()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_invariant(self):
+        super().test_invariant()
+
 class TestDequeReversed(TestTemporarilyImmutable, unittest.TestCase):
 
     def setUp(self):
         d = deque(range(n))
         self.it = reversed(d)
         self.mutate = d.pop
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_immutable_during_iteration(self):
+        super().test_immutable_during_iteration()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_invariant(self):
+        super().test_invariant()
 
 class TestDictKeys(TestTemporarilyImmutable, unittest.TestCase):
 
@@ -119,12 +154,22 @@ class TestDictKeys(TestTemporarilyImmutable, unittest.TestCase):
         self.it = iter(d)
         self.mutate = d.popitem
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_immutable_during_iteration(self):
+        super().test_immutable_during_iteration()
+
 class TestDictItems(TestTemporarilyImmutable, unittest.TestCase):
 
     def setUp(self):
         d = dict.fromkeys(range(n))
         self.it = iter(d.items())
         self.mutate = d.popitem
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_immutable_during_iteration(self):
+        super().test_immutable_during_iteration()
 
 class TestDictValues(TestTemporarilyImmutable, unittest.TestCase):
 
@@ -133,12 +178,27 @@ class TestDictValues(TestTemporarilyImmutable, unittest.TestCase):
         self.it = iter(d.values())
         self.mutate = d.popitem
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_immutable_during_iteration(self):
+        super().test_immutable_during_iteration()
+
 class TestSet(TestTemporarilyImmutable, unittest.TestCase):
 
     def setUp(self):
         d = set(range(n))
         self.it = iter(d)
         self.mutate = d.pop
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_immutable_during_iteration(self):
+        super().test_immutable_during_iteration()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_invariant(self):
+        super().test_invariant()
 
 ## ------- Types that can mutate during iteration -------
 
@@ -147,6 +207,13 @@ class TestList(TestInvariantWithoutMutations, unittest.TestCase):
     def setUp(self):
         self.it = iter(range(n))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_invariant(self):
+        super().test_invariant()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_mutation(self):
         d = list(range(n))
         it = iter(d)
@@ -167,6 +234,13 @@ class TestListReversed(TestInvariantWithoutMutations, unittest.TestCase):
     def setUp(self):
         self.it = reversed(range(n))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_invariant(self):
+        super().test_invariant()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_mutation(self):
         d = list(range(n))
         it = reversed(d)
@@ -210,6 +284,8 @@ class NoneLengthHint(object):
 
 class TestLengthHintExceptions(unittest.TestCase):
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_issue1242657(self):
         self.assertRaises(RuntimeError, list, BadLen())
         self.assertRaises(RuntimeError, list, BadLengthHint())
