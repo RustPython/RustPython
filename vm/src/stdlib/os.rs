@@ -332,6 +332,13 @@ mod _os {
         rust_file(fileno);
     }
 
+    #[pyfunction]
+    fn closerange(fd_low: i64, fd_high: i64) {
+        for fileno in fd_low..fd_high {
+            close(fileno);
+        }
+    }
+
     #[cfg(any(unix, windows, target_os = "wasi"))]
     #[pyfunction]
     pub(crate) fn open(
