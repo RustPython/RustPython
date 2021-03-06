@@ -2677,13 +2677,31 @@ impl Compiler {
 
             loop_labels.push((loop_block, after_block));
 
-            self.switch_to_block(loop_block);
-            emit!(
-                self,
-                Instruction::ForIter {
+            if generator.is_async {
+                let check_asynciter_block = self.new_block();
+
+                self.emit(Instruction::GetAIter);
+                self.switch_to_block(loop_block);
+                self.emit(Instruction::SetupExcept {
+                    handler: check_asynciter_block,
+                });
+                self.emit(Instruction::GetANext);
+                self.emit_constant(ConstantData::None);
+                self.emit(Instruction::YieldFrom);
+                self.compile_store(&generator.target)?;
+                self.emit(Instruction::PopBlock);
+
+            } else {
+                // Get iterator / turn item into an iterator
+                self.emit(Instruction::GetIter);
+
+                self.switch_to_block(loop_block);
+                self.emit(Instruction::ForIter {
                     target: after_block,
-                }
-            );
+                });
+
+                self.compile_store(&generator.target)?;
+            }
 
             self.compile_store(&generator.target)?;
 
