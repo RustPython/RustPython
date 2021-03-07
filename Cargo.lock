@@ -750,6 +750,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e88a8acf291dafb59c2d96e8f59828f3838bb1a70398823ade51a84de6a6deed"
 
 [[package]]
+name = "filepath"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0dd50318458226958db06f173610f54f01d26f0a9ccfa3d38bd60f70bc9939ff"
+dependencies = [
+ "libc",
+ "winapi",
+]
+
+[[package]]
 name = "fixedbitset"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1101,7 +1111,7 @@ checksum = "8dd5a6d5999d9907cda8ed67bbd137d3af8085216c2ac62de5be860bd41f304a"
 [[package]]
 name = "lock_api"
 version = "0.4.2"
-source = "git+https://github.com/coolreader18/parking_lot?branch=remutex-is_owned#391cf555e94c05450cea2e88b42c95c6631ab163"
+source = "git+https://github.com/Amanieu/parking_lot#2b3032f95d4aa5b1ccdf41b937c60603f569763c"
 dependencies = [
  "scopeguard",
 ]
@@ -1986,6 +1996,7 @@ dependencies = [
  "digest",
  "dns-lookup",
  "exitcode",
+ "filepath",
  "flame",
  "flamer",
  "flate2",

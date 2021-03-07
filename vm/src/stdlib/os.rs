@@ -7,6 +7,7 @@ use std::time::{Duration, SystemTime};
 use std::{env, fs};
 
 use crossbeam_utils::atomic::AtomicCell;
+use filepath::FilePath;
 use num_bigint::BigInt;
 
 use super::errno::errors;
@@ -157,16 +158,24 @@ impl TryFromObject for PyPathLike {
     }
 }
 
-fn make_path<'a>(
-    vm: &VirtualMachine,
-    path: &'a PyPathLike,
-    dir_fd: &DirFd,
-) -> PyResult<&'a ffi::OsStr> {
-    if dir_fd.0.is_some() {
-        Err(vm.new_os_error("dir_fd not supported yet".to_owned()))
-    } else {
-        Ok(path.path.as_os_str())
+fn make_path(vm: &VirtualMachine, path: &PyPathLike, dir_fd: &DirFd) -> PyResult<ffi::OsString> {
+    let path = path.path.to_path_buf();
+    if dir_fd.0.is_none() | path.is_absolute() {
+        return Ok(path.into_os_string());
     }
+
+    if cfg!(target_os = "wasi") {
+        return Err(vm.new_os_error("dir_fd not supported on wasi yet".to_owned()));
+    }
+
+    let dir_path = match rust_file(dir_fd.0.unwrap().into()).path() {
+        Ok(dir_path) => dir_path,
+        Err(_) => {
+            return Err(vm.new_os_error(format!("Cannot determine path of dir_fd: {:?}", dir_fd.0)));
+        }
+    };
+    let p: PathBuf = vec![dir_path, path].iter().collect();
+    Ok(p.into_os_string())
 }
 
 impl IntoPyException for io::Error {
@@ -349,7 +358,7 @@ mod _os {
         vm: &VirtualMachine,
     ) -> PyResult<i64> {
         let fname = make_path(vm, &name, &dir_fd)?;
-        if osstr_contains_nul(fname) {
+        if osstr_contains_nul(&fname) {
             return Err(vm.new_value_error("embedded null character".to_owned()));
         }
 
@@ -504,14 +513,14 @@ mod _os {
     fn remove(path: PyPathLike, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult<()> {
         let path = make_path(vm, &path, &dir_fd)?;
         let is_junction = cfg!(windows)
-            && fs::symlink_metadata(path).map_or(false, |meta| {
+            && fs::symlink_metadata(&path).map_or(false, |meta| {
                 let ty = meta.file_type();
                 ty.is_dir() && ty.is_symlink()
             });
         let res = if is_junction {
-            fs::remove_dir(path)
+            fs::remove_dir(&path)
         } else {
-            fs::remove_file(path)
+            fs::remove_file(&path)
         };
         res.map_err(|err| err.into_pyexception(vm))
     }
@@ -1219,7 +1228,7 @@ mod _os {
     pub(super) fn support_funcs(vm: &VirtualMachine) -> Vec<SupportFunc> {
         let mut supports = super::platform::support_funcs(vm);
         supports.extend(vec![
-            SupportFunc::new(vm, "open", open, None, Some(false), None),
+            SupportFunc::new(vm, "open", open, None, Some(true), None),
             SupportFunc::new(
                 vm,
                 "access",
@@ -1795,10 +1804,10 @@ mod posix {
         let path = make_path(vm, &path, &dir_fd)?;
         let body = move || {
             use std::os::unix::fs::PermissionsExt;
-            let meta = fs_metadata(path, follow_symlinks.0)?;
+            let meta = fs_metadata(&path, follow_symlinks.0)?;
             let mut permissions = meta.permissions();
             permissions.set_mode(mode);
-            fs::set_permissions(path, permissions)
+            fs::set_permissions(&path, permissions)
         };
         body().map_err(|err| err.into_pyexception(vm))
     }
@@ -2696,14 +2705,14 @@ mod nt {
         const S_IWRITE: u32 = 128;
         let path = make_path(vm, &path, &dir_fd)?;
         let metadata = if follow_symlinks.0 {
-            fs::metadata(path)
+            fs::metadata(&path)
         } else {
-            fs::symlink_metadata(path)
+            fs::symlink_metadata(&path)
         };
         let meta = metadata.map_err(|err| err.into_pyexception(vm))?;
         let mut permissions = meta.permissions();
         permissions.set_readonly(mode & S_IWRITE != 0);
-        fs::set_permissions(path, permissions).map_err(|err| err.into_pyexception(vm))
+        fs::set_permissions(&path, permissions).map_err(|err| err.into_pyexception(vm))
     }
 
     // cwait is available on MSVC only (according to CPython)
