@@ -629,7 +629,7 @@ fn subtype_get_dict(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     // TODO: obj.class().as_pyref() need to be supported
     let cls = obj.clone_class();
     let ret = match find_base_dict_descr(&cls, vm) {
-        Some(descr) => vm.call_get_descriptor(descr, obj).unwrap_or_else(|| {
+        Some(descr) => vm.call_get_descriptor(descr, obj).unwrap_or_else(|_| {
             Err(vm.new_type_error(format!(
                 "this __dict__ descriptor does not support '{}' objects",
                 cls.name

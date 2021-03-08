@@ -26,6 +26,11 @@ where
     }
 }
 
+macro_rules! count {
+    () => (0usize);
+    ( $x:tt $($xs:tt)* ) => (1usize + count!($($xs)*));
+}
+
 // A tuple of values that each implement `IntoPyObject` represents a sequence of
 // arguments that can be bound and passed to a built-in function.
 macro_rules! into_func_args_from_tuple {
@@ -37,7 +42,9 @@ macro_rules! into_func_args_from_tuple {
             #[inline]
             fn into_args(self, vm: &VirtualMachine) -> FuncArgs {
                 let ($($n,)*) = self;
-                vec![$($n.into_pyobject(vm),)*].into()
+                let mut result = Vec::with_capacity(count!($($n,)*) + 1);
+                $(result.push($n.into_pyobject(vm), );)*
+                result.into()
             }
         }
     };

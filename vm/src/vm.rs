@@ -944,19 +944,25 @@ impl VirtualMachine {
         descr: PyObjectRef,
         obj: Option<PyObjectRef>,
         cls: Option<PyObjectRef>,
-    ) -> Option<PyResult> {
+    ) -> Result<PyResult, PyObjectRef> {
         let descr_get = descr.class().mro_find_map(|cls| cls.slots.descr_get.load());
-        descr_get.map(|descr_get| descr_get(descr, obj, cls, self))
+        match descr_get {
+            Some(descr_get) => Ok(descr_get(descr, obj, cls, self)),
+            None => Err(descr),
+        }
     }
 
-    pub fn call_get_descriptor(&self, descr: PyObjectRef, obj: PyObjectRef) -> Option<PyResult> {
+    pub fn call_get_descriptor(
+        &self,
+        descr: PyObjectRef,
+        obj: PyObjectRef,
+    ) -> Result<PyResult, PyObjectRef> {
         let cls = obj.clone_class().into_object();
         self.call_get_descriptor_specific(descr, Some(obj), Some(cls))
     }
 
     pub fn call_if_get_descriptor(&self, attr: PyObjectRef, obj: PyObjectRef) -> PyResult {
-        self.call_get_descriptor(attr.clone(), obj)
-            .unwrap_or(Ok(attr))
+        self.call_get_descriptor(attr, obj).unwrap_or_else(Ok)
     }
 
     pub fn call_method<T>(&self, obj: &PyObjectRef, method_name: &str, args: T) -> PyResult
@@ -1257,7 +1263,7 @@ impl VirtualMachine {
 
         if let Some(ref attr) = cls_attr {
             if attr.class().has_attr("__set__") {
-                if let Some(r) = self.call_get_descriptor(attr.clone(), obj.clone()) {
+                if let Ok(r) = self.call_get_descriptor(attr.clone(), obj.clone()) {
                     return r.map(Some);
                 }
             }
