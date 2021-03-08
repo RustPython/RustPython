@@ -791,6 +791,8 @@ mod _os {
             {
                 #[cfg(target_os = "android")]
                 use std::os::android::fs::MetadataExt;
+                #[cfg(target_os = "freebsd")]
+                use std::os::freebsd::fs::MetadataExt;
                 #[cfg(target_os = "linux")]
                 use std::os::linux::fs::MetadataExt;
                 #[cfg(target_os = "macos")]
@@ -1375,11 +1377,14 @@ mod posix {
     pub(super) use std::os::unix::fs::OpenOptionsExt;
     use std::os::unix::io::RawFd;
 
+    #[cfg(not(any(target_os = "redox", target_os = "freebsd")))]
+    #[pyattr]
+    use libc::O_DSYNC;
     #[pyattr]
     use libc::{O_CLOEXEC, O_NONBLOCK, WNOHANG};
     #[cfg(not(target_os = "redox"))]
     #[pyattr]
-    use libc::{O_DSYNC, O_NDELAY, O_NOCTTY};
+    use libc::{O_NDELAY, O_NOCTTY};
 
     #[pyattr]
     const EX_OK: i8 = exitcode::OK as i8;
@@ -1506,7 +1511,7 @@ mod posix {
         }
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
     fn getgroups() -> nix::Result<Vec<Gid>> {
         use libc::{c_int, gid_t};
         use std::ptr;
@@ -1525,7 +1530,7 @@ mod posix {
         })
     }
 
-    #[cfg(any(target_os = "linux", target_os = "android", target_os = "openbsd"))]
+    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "redox")))]
     use nix::unistd::getgroups;
 
     #[cfg(target_os = "redox")]
@@ -2007,26 +2012,9 @@ mod posix {
         }
     }
 
-    #[cfg(any(target_os = "linux", target_os = "android", target_os = "openbsd"))]
-    type ModeT = u32;
-
-    #[cfg(target_os = "redox")]
-    type ModeT = i32;
-
-    #[cfg(target_os = "macos")]
-    type ModeT = u16;
-
-    #[cfg(any(
-        target_os = "macos",
-        target_os = "linux",
-        target_os = "openbsd",
-        target_os = "redox",
-        target_os = "android",
-    ))]
     #[pyfunction]
-    fn umask(mask: ModeT, _vm: &VirtualMachine) -> PyResult<ModeT> {
-        let ret_mask = unsafe { libc::umask(mask) };
-        Ok(ret_mask)
+    fn umask(mask: libc::mode_t) -> libc::mode_t {
+        unsafe { libc::umask(mask) }
     }
 
     #[pyattr]
@@ -2069,12 +2057,7 @@ mod posix {
     }
 
     // cfg from nix
-    #[cfg(any(
-        target_os = "android",
-        target_os = "freebsd",
-        target_os = "linux",
-        target_os = "openbsd"
-    ))]
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "openbsd"))]
     #[pyfunction]
     fn getresuid(vm: &VirtualMachine) -> PyResult<(u32, u32, u32)> {
         let mut ruid = 0;
@@ -2089,12 +2072,7 @@ mod posix {
     }
 
     // cfg from nix
-    #[cfg(any(
-        target_os = "android",
-        target_os = "freebsd",
-        target_os = "linux",
-        target_os = "openbsd"
-    ))]
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "openbsd"))]
     #[pyfunction]
     fn getresgid(vm: &VirtualMachine) -> PyResult<(u32, u32, u32)> {
         let mut rgid = 0;
@@ -2126,12 +2104,7 @@ mod posix {
     }
 
     // cfg from nix
-    #[cfg(any(
-        target_os = "android",
-        target_os = "freebsd",
-        target_os = "linux",
-        target_os = "openbsd"
-    ))]
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "openbsd"))]
     #[pyfunction]
     fn setregid(rgid: u32, egid: u32, vm: &VirtualMachine) -> PyResult<()> {
         let ret = unsafe { libc::setregid(rgid, egid) };
@@ -2157,12 +2130,7 @@ mod posix {
     }
 
     // cfg from nix
-    #[cfg(any(
-        target_os = "android",
-        target_os = "freebsd",
-        target_os = "linux",
-        target_os = "openbsd"
-    ))]
+    #[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "redox")))]
     #[pyfunction]
     fn setgroups(group_ids: PyIterable<u32>, vm: &VirtualMachine) -> PyResult<()> {
         let gids = group_ids
@@ -2540,10 +2508,21 @@ mod posix {
             type PriorityWhichType = libc::c_int;
         }
     }
+    cfg_if::cfg_if! {
+        if #[cfg(target_os = "freebsd")] {
+            type PriorityWhoType = i32;
+        } else {
+            type PriorityWhoType = u32;
+        }
+    }
 
     #[cfg(not(target_os = "windows"))]
     #[pyfunction]
-    fn getpriority(which: PriorityWhichType, who: u32, vm: &VirtualMachine) -> PyResult {
+    fn getpriority(
+        which: PriorityWhichType,
+        who: PriorityWhoType,
+        vm: &VirtualMachine,
+    ) -> PyResult {
         Errno::clear();
         let retval = unsafe { libc::getpriority(which, who) };
         if errno() != 0 {
@@ -2557,7 +2536,7 @@ mod posix {
     #[pyfunction]
     fn setpriority(
         which: PriorityWhichType,
-        who: u32,
+        who: PriorityWhoType,
         priority: i32,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
