@@ -8,6 +8,7 @@ use std::fmt;
 use std::marker::PhantomData;
 use std::mem::ManuallyDrop;
 use std::ops::Deref;
+use std::ptr::drop_in_place;
 
 // so, PyObjectRef is basically equivalent to `PyRc<PyObject<dyn PyObjectPayload>>`, except it's
 // only one pointer in width rather than 2. We do that by manually creating a vtable, and putting
@@ -46,41 +47,40 @@ use std::ops::Deref;
 struct Erased;
 
 struct PyObjVTable {
-    drop: unsafe fn(*mut PyInner<Erased>),
-    debug: unsafe fn(*const PyInner<Erased>, &mut fmt::Formatter) -> fmt::Result,
+    drop_rc: unsafe fn(&mut PyRc<PyObject<Erased>>),
+    drop_weak: unsafe fn(&mut PyWeak<PyObject<Erased>>),
+    debug: unsafe fn(*const PyObject<Erased>, &mut fmt::Formatter) -> fmt::Result,
 }
-unsafe fn drop_obj<T: PyObjectPayload>(x: *mut PyInner<Erased>) {
-    std::ptr::drop_in_place(x as *mut PyInner<T>)
+
+unsafe fn drop_rc_obj<T: PyObjectPayload>(x: &mut PyRc<PyObject<Erased>>) {
+    let to_drop: &mut PyRc<PyObject<T>> = &mut *(x as *mut _ as *mut PyRc<PyObject<T>>);
+    drop_in_place(to_drop);
 }
+
+unsafe fn drop_weak_obj<T: PyObjectPayload>(x: &mut PyWeak<PyObject<Erased>>) {
+    let to_drop: &mut PyWeak<PyObject<T>> = &mut *(x as *mut _ as *mut PyWeak<PyObject<T>>);
+    drop_in_place(to_drop);
+}
+
 unsafe fn debug_obj<T: PyObjectPayload>(
-    x: *const PyInner<Erased>,
+    x: *const PyObject<Erased>,
     f: &mut fmt::Formatter,
 ) -> fmt::Result {
-    let x = &*x.cast::<PyInner<T>>();
+    let x = &*x.cast::<PyObject<T>>();
     fmt::Debug::fmt(x, f)
 }
+
 impl PyObjVTable {
     pub fn of<T: PyObjectPayload>() -> &'static Self {
         &PyObjVTable {
-            drop: drop_obj::<T>,
+            drop_rc: drop_rc_obj::<T>,
+            drop_weak: drop_weak_obj::<T>,
             debug: debug_obj::<T>,
         }
     }
 }
 
-#[repr(C)]
-struct PyInner<T> {
-    // TODO: move typeid into vtable once TypeId::of is const
-    typeid: TypeId,
-    vtable: &'static PyObjVTable,
-
-    typ: PyRwLock<PyTypeRef>,          // __class__ member
-    dict: Option<PyRwLock<PyDictRef>>, // __dict__ member
-
-    payload: T,
-}
-
-impl<T: fmt::Debug> fmt::Debug for PyInner<T> {
+impl<T: fmt::Debug> fmt::Debug for PyObject<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "[PyObj {:?}]", &self.payload)
     }
@@ -89,33 +89,38 @@ impl<T: fmt::Debug> fmt::Debug for PyInner<T> {
 /// This is an actual python object. It consists of a `typ` which is the
 /// python class, and carries some rust payload optionally. This rust
 /// payload can be a rust float or rust int in case of float and int objects.
-#[repr(transparent)]
-pub struct PyObject<T> {
-    inner: ManuallyDrop<PyInner<T>>,
+#[repr(C)]
+pub struct PyObject<T: 'static> {
+    vtable: &'static PyObjVTable,
+    // TODO: move typeid into vtable once TypeId::of is const
+    typeid: TypeId,
+
+    // __class__ member
+    typ: PyRwLock<PyTypeRef>,
+    // __dict__ member
+    dict: Option<PyRwLock<PyDictRef>>,
+
+    payload: T,
 }
 
 impl<T: PyObjectPayload> PyObject<T> {
     #[allow(clippy::new_ret_no_self)]
     pub fn new(payload: T, typ: PyTypeRef, dict: Option<PyDictRef>) -> PyObjectRef {
-        let inner = PyInner {
-            typeid: TypeId::of::<T>(),
+        PyObjectRef::new(PyObject {
             vtable: PyObjVTable::of::<T>(),
+            typeid: TypeId::of::<T>(),
             typ: PyRwLock::new(typ),
             dict: dict.map(PyRwLock::new),
             payload,
-        };
-        PyObjectRef::new(PyObject {
-            inner: ManuallyDrop::new(inner),
         })
     }
 }
 
-impl<T> Drop for PyObject<T> {
+impl<T: 'static> Drop for PyObject<T> {
     fn drop(&mut self) {
-        let erased = &mut *self.inner as *mut _ as *mut PyInner<Erased>;
-        // SAFETY: the vtable contains functions that accept payload types that always match up
-        // with the payload of the object
-        unsafe { (self.inner.vtable.drop)(erased) }
+        if TypeId::of::<T>() == TypeId::of::<Erased>() {
+            panic!("Dropped an Erased which should never happen")
+        }
     }
 }
 
@@ -125,69 +130,58 @@ impl<T> Drop for PyObject<T> {
 /// method to create a new reference and increment the amount of references
 /// to the python object by 1.
 #[derive(Clone)]
-#[repr(transparent)]
 pub struct PyObjectRef {
-    rc: PyRc<PyObject<Erased>>,
+    rc: ManuallyDrop<PyRc<PyObject<Erased>>>,
 }
 
 #[derive(Clone)]
-#[repr(transparent)]
 pub struct PyObjectWeak {
-    weak: PyWeak<PyObject<Erased>>,
+    weak: ManuallyDrop<PyWeak<PyObject<Erased>>>,
+    vtable: &'static PyObjVTable,
 }
 
-/// A marker type that just references a raw python object. Don't use directly, pass as a pointer
-/// back to [`PyObjectRef::from_raw`]
-pub enum RawPyObject {}
-
 impl PyObjectRef {
-    pub fn into_raw(this: Self) -> *const RawPyObject {
-        let ptr = PyRc::as_ptr(&this.rc);
-        std::mem::forget(this);
-        ptr.cast()
-    }
-
     /// # Safety
-    /// The raw pointer must have been previously returned from a call to
-    /// [`PyObjectRef::into_raw`]. The user is responsible for ensuring that the inner data is not
-    /// dropped more than once due to mishandling the reference count by calling this function
-    /// too many times.
-    pub unsafe fn from_raw(ptr: *const RawPyObject) -> Self {
+    /// The raw pointer must have been obtained from a call to `PyRc::into_raw`,
+    /// and the allocation for this pointer must still be active.
+    unsafe fn from_inner<T: PyObjectPayload>(rc: *const PyObject<T>) -> Self {
+        let rc = PyRc::from_raw(rc as *const PyObject<Erased>);
         Self {
-            rc: PyRc::from_raw(ptr.cast()),
+            rc: ManuallyDrop::new(rc),
         }
     }
 
     fn new<T: PyObjectPayload>(value: PyObject<T>) -> Self {
-        let inner = PyRc::into_raw(PyRc::new(value));
-        let rc = unsafe { PyRc::from_raw(inner as *const PyObject<Erased>) };
-        Self { rc }
+        unsafe { Self::from_inner(PyRc::into_raw(PyRc::new(value))) }
     }
 
+    /// Gets the number of strong (`PyRef` or `PyObjectRef`) pointers to this allocation.
     pub fn strong_count(this: &Self) -> usize {
         PyRc::strong_count(&this.rc)
     }
 
+    /// Gets the number of strong (`PyWeakRef` or `PyObjectWeak`) pointers to this allocation.
     pub fn weak_count(this: &Self) -> usize {
         PyRc::weak_count(&this.rc)
     }
 
+    /// Creates a new ['PyObjectWeak'] pointer to this allocation.
     pub fn downgrade(this: &Self) -> PyObjectWeak {
         PyObjectWeak {
-            weak: PyRc::downgrade(&this.rc),
+            weak: ManuallyDrop::new(PyRc::downgrade(&this.rc)),
+            vtable: this.rc.vtable,
         }
     }
 
     pub fn payload_is<T: PyObjectPayload>(&self) -> bool {
-        self.rc.inner.typeid == TypeId::of::<T>()
+        self.rc.typeid == TypeId::of::<T>()
     }
 
     pub fn payload<T: PyObjectPayload>(&self) -> Option<&T> {
         if self.payload_is::<T>() {
-            // we cast to a PyInner<T> first because we don't know T's exact offset because of
-            // varying alignment, but once we get a PyInner<T> the compiler can get it for us
-            let inner =
-                unsafe { &*(&*self.rc.inner as *const PyInner<Erased> as *const PyInner<T>) };
+            // we cast to a PyObject<T> first because we don't know T's exact offset because of
+            // varying alignment, but once we get a PyObject<T> the compiler can get it for us
+            let inner = unsafe { &*(PyRc::as_ptr(&self.rc) as *const PyObject<T>) };
             Some(&inner.payload)
         } else {
             None
@@ -217,7 +211,7 @@ impl PyObjectRef {
     }
 
     pub(crate) fn class_lock(&self) -> &PyRwLock<PyTypeRef> {
-        &self.rc.inner.typ
+        &self.rc.typ
     }
 
     // ideally we'd be able to define these in pyobject.rs, but method visibility rules are weird
@@ -256,12 +250,13 @@ impl PyObjectRef {
     }
 
     pub fn dict(&self) -> Option<PyDictRef> {
-        self.rc.inner.dict.as_ref().map(|mu| mu.read().clone())
+        self.rc.dict.as_ref().map(|mu| mu.read().clone())
     }
+
     /// Set the dict field. Returns `Err(dict)` if this object does not have a dict field
     /// in the first place.
     pub fn set_dict(&self, dict: PyDictRef) -> Result<(), PyDictRef> {
-        match self.rc.inner.dict {
+        match self.rc.dict {
             Some(ref mu) => {
                 *mu.write() = dict;
                 Ok(())
@@ -291,7 +286,9 @@ impl IdProtocol for PyObjectRef {
 
 impl PyObjectWeak {
     pub fn upgrade(&self) -> Option<PyObjectRef> {
-        self.weak.upgrade().map(|rc| PyObjectRef { rc })
+        self.weak.upgrade().map(|rc| PyObjectRef {
+            rc: ManuallyDrop::new(rc),
+        })
     }
 }
 
@@ -301,17 +298,17 @@ impl Drop for PyObjectRef {
 
         // PyObjectRef will drop the value when its count goes to 0
         if PyRc::strong_count(&self.rc) != 1 {
+            unsafe { (self.rc.vtable.drop_rc)(&mut self.rc) }
+
             return;
         }
 
-        // CPython-compatible drop implementation
-        let zelf = self.clone();
         if let Some(del_slot) = self.class().mro_find_map(|cls| cls.slots.del.load()) {
-            crate::vm::thread::with_vm(&zelf, |vm| {
-                if let Err(e) = del_slot(&zelf, vm) {
+            crate::vm::thread::with_vm(self, |vm| {
+                if let Err(e) = del_slot(self, vm) {
                     // exception in del will be ignored but printed
                     print!("Exception ignored in: ",);
-                    let del_method = zelf.get_class_attr("__del__").unwrap();
+                    let del_method = self.get_class_attr("__del__").unwrap();
                     let repr = vm.to_repr(&del_method);
                     match repr {
                         Ok(v) => println!("{}", v.to_string()),
@@ -331,6 +328,13 @@ impl Drop for PyObjectRef {
 
         // __del__ might have resurrected the object at this point, but that's fine,
         // inner.strong_count would be >1 now and it'll maybe get dropped the next time
+        unsafe { (self.rc.vtable.drop_rc)(&mut self.rc) }
+    }
+}
+
+impl Drop for PyObjectWeak {
+    fn drop(&mut self) {
+        unsafe { (self.vtable.drop_weak)(&mut self.weak) }
     }
 }
 
@@ -338,7 +342,7 @@ impl fmt::Debug for PyObjectRef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // SAFETY: the vtable contains functions that accept payload types that always match up
         // with the payload of the object
-        unsafe { (self.rc.inner.vtable.debug)(&*self.rc.inner, f) }
+        unsafe { (self.rc.vtable.debug)(PyRc::as_ptr(&self.rc), f) }
     }
 }
 
@@ -420,8 +424,8 @@ where
 
     fn deref(&self) -> &T {
         // SAFETY: per the invariant on `self.obj`, the payload of the pyobject is always T, so it
-        // can always be cast to a PyInner<T>
-        let obj = unsafe { &*(&*self.obj.rc.inner as *const PyInner<Erased> as *const PyInner<T>) };
+        // can always be cast to a PyObject<T>
+        let obj = unsafe { &*(PyRc::as_ptr(&self.obj.rc) as *const PyObject<T>) };
         &obj.payload
     }
 }
@@ -476,13 +480,6 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef) {
     // to produce this circular dependency, we need an unsafe block.
     // (and yes, this will never get dropped. TODO?)
     let (type_type, object_type) = {
-        type UninitRef<T> = PyRwLock<PyRc<MaybeUninit<PyInner<T>>>>;
-
-        // We cast between these 2 types, so make sure (at compile time) that there's no change in
-        // layout when we wrap PyInner<PyTypeObj> in MaybeUninit<>
-        static_assertions::assert_eq_size!(MaybeUninit<PyInner<PyType>>, PyInner<PyType>);
-        static_assertions::assert_eq_align!(MaybeUninit<PyInner<PyType>>, PyInner<PyType>);
-
         let type_payload = PyType {
             name: PyTypeRef::NAME.to_owned(),
             base: None,
@@ -502,44 +499,58 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef) {
             slots: object::PyBaseObject::make_slots(),
         };
         let type_type = PyRc::new(partially_init!(
-            PyInner::<PyType> {
-                typeid: TypeId::of::<PyType>(),
+            PyObject::<PyType> {
                 vtable: PyObjVTable::of::<PyType>(),
+                typeid: TypeId::of::<PyType>(),
                 dict: None,
                 payload: type_payload,
             },
             Uninit { typ }
         ));
         let object_type = PyRc::new(partially_init!(
-            PyInner::<PyType> {
-                typeid: TypeId::of::<PyType>(),
+            PyObject::<PyType> {
                 vtable: PyObjVTable::of::<PyType>(),
+                typeid: TypeId::of::<PyType>(),
                 dict: None,
                 payload: object_payload,
             },
             Uninit { typ },
         ));
 
-        let object_type_ptr = PyRc::into_raw(object_type) as *mut MaybeUninit<PyInner<PyType>>
-            as *mut PyInner<PyType>;
-        let type_type_ptr = PyRc::into_raw(type_type.clone()) as *mut MaybeUninit<PyInner<PyType>>
-            as *mut PyInner<PyType>;
+        fn into_raw_init_mut(arc: PyRc<MaybeUninit<PyObject<PyType>>>) -> *mut PyObject<PyType> {
+            PyRc::into_raw(arc) as *mut PyObject<PyType>
+        }
 
         unsafe {
+            // We only write to these behind a raw pointer or store them as raw pointers,
+            // so transmuting the MaybeUninit<T> to T is sound in all cases.
+            // The layout stability is guaranteed by the standard library, and we take care
+            // not to pass a pointer to an owning function without incrementing the ref count.
+            let object_type_ptr = into_raw_init_mut(object_type);
+            let type_type_ptr = into_raw_init_mut(type_type.clone());
+
+            // We write the type field of `object_type`, as `PyObjectRef` only stores raw pointers,
+            // passing the casted MaybeUninit<T> to `PyObjectRef::from_inner` is safe.
             ptr::write(
-                &mut (*object_type_ptr).typ as *mut PyRwLock<PyTypeRef> as *mut UninitRef<PyType>,
-                PyRwLock::new(type_type.clone()),
+                &mut (*object_type_ptr).typ as *mut PyRwLock<PyTypeRef>
+                    as *mut PyRwLock<PyObjectRef>,
+                PyRwLock::new(PyObjectRef::from_inner(into_raw_init_mut(
+                    type_type.clone(),
+                ))),
             );
+            // Ditto.
             ptr::write(
-                &mut (*type_type_ptr).typ as *mut PyRwLock<PyTypeRef> as *mut UninitRef<PyType>,
-                PyRwLock::new(type_type),
+                &mut (*type_type_ptr).typ as *mut PyRwLock<PyTypeRef> as *mut PyRwLock<PyObjectRef>,
+                PyRwLock::new(PyObjectRef::from_inner(into_raw_init_mut(type_type))),
             );
 
-            let type_type =
-                PyTypeRef::from_obj_unchecked(PyObjectRef::from_raw(type_type_ptr.cast()));
+            // Both structs are initialized now, so we can cast away the MaybeUninit for real
+            // PyRc::assume_init is unstable, so we reuse the initial pointers.
             let object_type =
-                PyTypeRef::from_obj_unchecked(PyObjectRef::from_raw(object_type_ptr.cast()));
+                PyTypeRef::from_obj_unchecked(PyObjectRef::from_inner(object_type_ptr));
+            let type_type = PyTypeRef::from_obj_unchecked(PyObjectRef::from_inner(type_type_ptr));
 
+            // This is equivalent to `PyRc::get_mut`, and is safe because nothing else can be dereferencing these pointers
             (*type_type_ptr).payload.mro = vec![object_type.clone()];
             (*type_type_ptr).payload.bases = vec![object_type.clone()];
             (*type_type_ptr).payload.base = Some(object_type.clone());
@@ -559,8 +570,12 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::builtins::PyFloat;
+
     #[test]
     fn miri_test_type_initialization() {
-        let _ = init_type_hierarchy();
+        let a = init_type_hierarchy();
+        let b = PyObject::new(PyFloat::from(5.0), a.0, None);
+        drop(b)
     }
 }
