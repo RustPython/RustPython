@@ -11,7 +11,7 @@ use num_bigint::BigInt;
 use num_complex::Complex64;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
-use std::fmt;
+use std::{fmt, hash};
 
 /// Sourcecode location.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -103,7 +103,7 @@ impl ConstantBag for BasicBag {
 
 /// Primary container of a single code object. Each python function has
 /// a codeobject. Also a module has a codeobject.
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct CodeObject<C: Constant = ConstantData> {
     pub instructions: Box<[Instruction]>,
     pub locations: Box<[Location]>,
@@ -400,8 +400,9 @@ bitflags! {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ConstantData {
+    Tuple { elements: Vec<ConstantData> },
     Integer { value: BigInt },
     Float { value: f64 },
     Complex { value: Complex64 },
@@ -409,9 +410,54 @@ pub enum ConstantData {
     Str { value: String },
     Bytes { value: Vec<u8> },
     Code { code: Box<CodeObject> },
-    Tuple { elements: Vec<ConstantData> },
     None,
     Ellipsis,
+}
+
+impl PartialEq for ConstantData {
+    fn eq(&self, other: &Self) -> bool {
+        use ConstantData::*;
+        match (self, other) {
+            (Integer { value: a }, Integer { value: b }) => a == b,
+            // we want to compare floats *by actual value* - if we have the *exact same* float
+            // already in a constant cache, we want to use that
+            (Float { value: a }, Float { value: b }) => a.to_bits() == b.to_bits(),
+            (Complex { value: a }, Complex { value: b }) => {
+                a.re.to_bits() == b.re.to_bits() && a.im.to_bits() == b.im.to_bits()
+            }
+            (Boolean { value: a }, Boolean { value: b }) => a == b,
+            (Str { value: a }, Str { value: b }) => a == b,
+            (Bytes { value: a }, Bytes { value: b }) => a == b,
+            (Code { code: a }, Code { code: b }) => std::ptr::eq(a.as_ref(), b.as_ref()),
+            (Tuple { elements: a }, Tuple { elements: b }) => a == b,
+            (None, None) => true,
+            (Ellipsis, Ellipsis) => true,
+            _ => false,
+        }
+    }
+}
+impl Eq for ConstantData {}
+
+impl hash::Hash for ConstantData {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        use ConstantData::*;
+        std::mem::discriminant(self).hash(state);
+        match self {
+            Integer { value } => value.hash(state),
+            Float { value } => value.to_bits().hash(state),
+            Complex { value } => {
+                value.re.to_bits().hash(state);
+                value.im.to_bits().hash(state);
+            }
+            Boolean { value } => value.hash(state),
+            Str { value } => value.hash(state),
+            Bytes { value } => value.hash(state),
+            Code { code } => std::ptr::hash(code.as_ref(), state),
+            Tuple { elements } => elements.hash(state),
+            None => {}
+            Ellipsis => {}
+        }
+    }
 }
 
 pub enum BorrowedConstant<'a, C: Constant> {

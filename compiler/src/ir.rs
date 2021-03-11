@@ -37,7 +37,7 @@ pub struct CodeInfo {
 
     pub blocks: Vec<Block>,
     pub current_block: BlockIdx,
-    pub constants: Vec<ConstantData>,
+    pub constants: IndexSet<ConstantData>,
     pub name_cache: IndexSet<String>,
     pub varname_cache: IndexSet<String>,
     pub cellvar_cache: IndexSet<String>,
@@ -104,7 +104,7 @@ impl CodeInfo {
             max_stacksize,
             instructions: instructions.into_boxed_slice(),
             locations: locations.into_boxed_slice(),
-            constants: constants.into(),
+            constants: constants.into_iter().collect(),
             names: name_cache.into_iter().collect(),
             varnames: varname_cache.into_iter().collect(),
             cellvars: cellvar_cache.into_iter().collect(),
