@@ -1259,15 +1259,23 @@ impl VirtualMachine {
         dict: Option<PyDictRef>,
     ) -> PyResult<Option<PyObjectRef>> {
         let name = name_str.borrow_value();
-        let cls_attr = obj.class().get_attr(name);
-
-        if let Some(ref attr) = cls_attr {
-            if attr.class().has_attr("__set__") {
-                if let Ok(r) = self.call_get_descriptor(attr.clone(), obj.clone()) {
-                    return r.map(Some);
+        let obj_cls = obj.class();
+        let cls_attr = match obj_cls.get_attr(name) {
+            Some(descr) => {
+                let descr_cls = descr.class();
+                let descr_get = descr_cls.mro_find_map(|cls| cls.slots.descr_get.load());
+                if let Some(descr_get) = descr_get {
+                    if descr_cls.has_attr("__set__") {
+                        drop(descr_cls);
+                        let cls = PyLease::into_pyref(obj_cls).into_object();
+                        return descr_get(descr, Some(obj), Some(cls), self).map(Some);
+                    }
                 }
+                drop(descr_cls);
+                Some((descr, descr_get))
             }
-        }
+            None => None,
+        };
 
         let dict = dict.or_else(|| obj.dict());
 
@@ -1279,9 +1287,16 @@ impl VirtualMachine {
 
         if let Some(obj_attr) = attr {
             Ok(Some(obj_attr))
-        } else if let Some(attr) = cls_attr {
-            self.call_if_get_descriptor(attr, obj).map(Some)
-        } else if let Some(getter) = obj.clone_class().get_attr("__getattr__") {
+        } else if let Some((attr, descr_get)) = cls_attr {
+            match descr_get {
+                Some(descr_get) => {
+                    let cls = PyLease::into_pyref(obj_cls).into_object();
+                    descr_get(attr, Some(obj), Some(cls), self).map(Some)
+                }
+                None => Ok(Some(attr)),
+            }
+        } else if let Some(getter) = obj_cls.get_attr("__getattr__") {
+            drop(obj_cls);
             self.invoke(&getter, (obj, name_str)).map(Some)
         } else {
             Ok(None)
