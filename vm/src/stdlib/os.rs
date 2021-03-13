@@ -165,18 +165,20 @@ fn make_path(vm: &VirtualMachine, path: &PyPathLike, dir_fd: &DirFd) -> PyResult
         return Ok(path.into_os_string());
     }
 
-    if cfg!(target_os = "wasi") {
-        return Err(vm.new_os_error("dir_fd not supported on wasi yet".to_owned()));
-    }
-
-    let dir_path = match rust_file(dir_fd.0.unwrap().into()).path() {
-        Ok(dir_path) => dir_path,
-        Err(_) => {
-            return Err(vm.new_os_error(format!("Cannot determine path of dir_fd: {:?}", dir_fd.0)));
+    cfg_if::cfg_if! {
+        if #[cfg(target_os = "wasi")] {
+            return Err(vm.new_os_error("dir_fd not supported on wasi yet".to_owned()));
+        } else {
+            let dir_path = match rust_file(dir_fd.0.unwrap().into()).path() {
+                Ok(dir_path) => dir_path,
+                Err(_) => {
+                    return Err(vm.new_os_error(format!("Cannot determine path of dir_fd: {:?}", dir_fd.0)));
+                }
+            };
+            let p: PathBuf = vec![dir_path, path].iter().collect();
+            Ok(p.into_os_string())
         }
-    };
-    let p: PathBuf = vec![dir_path, path].iter().collect();
-    Ok(p.into_os_string())
+    }
 }
 
 impl IntoPyException for io::Error {
