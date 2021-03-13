@@ -84,7 +84,6 @@ atty = "0.2"
 static_assertions = "1.1"
 half = "1.6"
 memchr = "2"
-filepath = "0.1.1"
 
 # RustPython crates implementing functionality based on CPython
 mt19937 = "2.0"
@@ -124,6 +123,7 @@ openssl = { version = "0.10.32", features = ["vendored"], optional = true }
 openssl-sys = { version = "0.9", optional = true }
 openssl-probe = { version = "0.1", optional = true }
 which = "4.0"
+filepath = "0.1.1"
 
 [target.'cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))'.dependencies]
 num_cpus = "1"

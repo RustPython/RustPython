@@ -7,6 +7,7 @@ use std::time::{Duration, SystemTime};
 use std::{env, fs};
 
 use crossbeam_utils::atomic::AtomicCell;
+#[cfg(not(target_os = "wasi"))]
 use filepath::FilePath;
 use num_bigint::BigInt;
 
