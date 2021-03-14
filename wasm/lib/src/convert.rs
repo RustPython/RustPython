@@ -137,7 +137,7 @@ pub fn py_to_js(vm: &VirtualMachine, py_obj: PyObjectRef) -> JsValue {
     // the browser module might not be injected
     if vm.try_class("_js", "Promise").is_ok() {
         if let Some(py_prom) = py_obj.payload::<js_module::PyPromise>() {
-            return py_prom.value().into();
+            return py_prom.as_js(vm).into();
         }
     }
 

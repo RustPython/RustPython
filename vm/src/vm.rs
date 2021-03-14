@@ -86,7 +86,7 @@ pub(crate) mod thread {
         })
     }
 
-    pub fn with_vm<F, R>(obj: &PyObjectRef, f: F) -> R
+    pub fn with_vm<F, R>(obj: &PyObjectRef, f: F) -> Option<R>
     where
         F: Fn(&VirtualMachine) -> R,
     {
@@ -101,14 +101,12 @@ pub(crate) mod thread {
                     debug_assert!(vm_owns_obj(x));
                     x
                 }
-                Err(mut others) => others
-                    .find(|x| vm_owns_obj(*x))
-                    .unwrap_or_else(|| panic!("can't get a vm for {:?}; none on stack", obj)),
+                Err(mut others) => others.find(|x| vm_owns_obj(*x))?,
             };
             // SAFETY: all references in VM_STACK should be valid, and should not be changed or moved
             // at least until this function returns and the stack unwinds to an enter_vm() call
             let vm = unsafe { intp.as_ref() };
-            f(vm)
+            Some(f(vm))
         })
     }
 }

@@ -3,7 +3,10 @@ Path operations common to more than one OS
 Do not use directly.  The OS specific modules import the appropriate
 functions from this module themselves.
 """
-import os
+try:
+    import os
+except ImportError:
+    import _dummy_os as os
 import stat
 
 __all__ = ['commonprefix', 'exists', 'getatime', 'getctime', 'getmtime',

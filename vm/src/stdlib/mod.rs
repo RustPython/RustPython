@@ -42,6 +42,7 @@ mod tokenize;
 mod unicodedata;
 mod warnings;
 mod weakref;
+mod zlib;
 
 #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
 #[macro_use]
@@ -67,8 +68,6 @@ mod ssl;
 mod winapi;
 #[cfg(windows)]
 mod winreg;
-#[cfg(not(any(target_arch = "wasm32", target_os = "redox")))]
-mod zlib;
 
 pub type StdlibInitFunc = Box<py_dyn_fn!(dyn Fn(&VirtualMachine) -> PyObjectRef)>;
 
@@ -103,6 +102,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc, ahash::RandomState>
         "_imp".to_owned() => Box::new(imp::make_module),
         "unicodedata".to_owned() => Box::new(unicodedata::make_module),
         "_warnings".to_owned() => Box::new(warnings::make_module),
+        "zlib".to_owned() => Box::new(zlib::make_module),
         crate::sysmodule::sysconfigdata_name() => Box::new(sysconfigdata::make_module),
     };
 
@@ -144,8 +144,6 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc, ahash::RandomState>
         modules.insert("_ssl".to_owned(), Box::new(ssl::make_module));
         #[cfg(feature = "threading")]
         modules.insert("_thread".to_owned(), Box::new(thread::make_module));
-        #[cfg(not(target_os = "redox"))]
-        modules.insert("zlib".to_owned(), Box::new(zlib::make_module));
         modules.insert(
             "faulthandler".to_owned(),
             Box::new(faulthandler::make_module),
