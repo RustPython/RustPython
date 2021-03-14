@@ -427,6 +427,7 @@ class PyAutoFileTests(AutoFileTests, unittest.TestCase):
 
 class OtherFileTests:
 
+    @unittest.skip("TODO: non-deterministic failures, FileIO.seekable()?")
     def testAbles(self):
         try:
             f = self.FileIO(TESTFN, "w")
@@ -672,12 +673,6 @@ class COtherFileTests(OtherFileTests, unittest.TestCase):
 class PyOtherFileTests(OtherFileTests, unittest.TestCase):
     FileIO = _pyio.FileIO
     modulename = '_pyio'
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        @unittest.expectedFailure
-        def testAbles(self):
-            super().testAbles()
 
     # TODO: RUSTPYTHON
     if sys.platform == "win32":

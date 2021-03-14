@@ -131,40 +131,34 @@ impl PyBaseObject {
         Self::cmp(&zelf, &other, PyComparisonOp::Gt, vm)
     }
 
-    #[pymethod(magic)]
-    pub(crate) fn setattr(
+    #[pymethod]
+    fn __setattr__(
         obj: PyObjectRef,
         attr_name: PyStrRef,
         value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        setattr(&obj, attr_name, Some(value), vm)
+    }
+
+    #[pymethod]
+    fn __delattr__(obj: PyObjectRef, attr_name: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
+        setattr(&obj, attr_name, None, vm)
+    }
+
+    #[pyslot]
+    fn tp_setattro(
+        obj: &PyObjectRef,
+        attr_name: PyStrRef,
+        value: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         setattr(obj, attr_name, value, vm)
     }
 
     #[pymethod(magic)]
-    fn delattr(obj: PyObjectRef, attr_name: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-        if let Some(attr) = obj.get_class_attr(attr_name.borrow_value()) {
-            let descr_set = attr.class().mro_find_map(|cls| cls.slots.descr_set.load());
-            if let Some(descriptor) = descr_set {
-                return descriptor(attr, obj, None, vm);
-            }
-        }
-
-        if let Some(dict) = obj.dict() {
-            dict.del_item(attr_name.borrow_value(), vm)?;
-            Ok(())
-        } else {
-            Err(vm.new_attribute_error(format!(
-                "'{}' object has no attribute '{}'",
-                obj.class().name,
-                attr_name.borrow_value()
-            )))
-        }
-    }
-
-    #[pymethod(magic)]
-    fn str(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        vm.call_method(&zelf, "__repr__", ())
+    fn str(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        vm.to_repr(&zelf)
     }
 
     #[pymethod(magic)]
@@ -285,9 +279,9 @@ pub fn object_set_dict(obj: PyObjectRef, dict: PyDictRef, vm: &VirtualMachine) -
 
 #[cfg_attr(feature = "flame-it", flame)]
 pub(crate) fn setattr(
-    obj: PyObjectRef,
+    obj: &PyObjectRef,
     attr_name: PyStrRef,
-    value: PyObjectRef,
+    value: Option<PyObjectRef>,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     vm_trace!("object.__setattr__({:?}, {}, {:?})", obj, attr_name, value);
@@ -295,12 +289,16 @@ pub(crate) fn setattr(
     if let Some(attr) = obj.get_class_attr(attr_name.borrow_value()) {
         let descr_set = attr.class().mro_find_map(|cls| cls.slots.descr_set.load());
         if let Some(descriptor) = descr_set {
-            return descriptor(attr, obj, Some(value), vm);
+            return descriptor(attr, obj.clone(), value, vm);
         }
     }
 
     if let Some(dict) = obj.dict() {
-        dict.set_item(attr_name.borrow_value(), value, vm)?;
+        if let Some(value) = value {
+            dict.set_item(attr_name, value, vm)?;
+        } else {
+            dict.del_item(attr_name, vm)?;
+        }
         Ok(())
     } else {
         Err(vm.new_attribute_error(format!(

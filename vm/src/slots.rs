@@ -57,6 +57,8 @@ pub(crate) type CmpFunc = fn(
     &VirtualMachine,
 ) -> PyResult<Either<PyObjectRef, PyComparisonValue>>;
 pub(crate) type GetattroFunc = fn(PyObjectRef, PyStrRef, &VirtualMachine) -> PyResult;
+pub(crate) type SetattroFunc =
+    fn(&PyObjectRef, PyStrRef, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>;
 pub(crate) type BufferFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<Box<dyn Buffer>>;
 pub(crate) type IterFunc = fn(PyObjectRef, &VirtualMachine) -> PyResult;
 pub(crate) type IterNextFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult;
@@ -73,6 +75,7 @@ pub struct PyTypeSlots {
     pub hash: AtomicCell<Option<HashFunc>>,
     pub cmp: AtomicCell<Option<CmpFunc>>,
     pub getattro: AtomicCell<Option<GetattroFunc>>,
+    pub setattro: AtomicCell<Option<SetattroFunc>>,
     pub buffer: Option<BufferFunc>,
     pub iter: AtomicCell<Option<IterFunc>>,
     pub iternext: AtomicCell<Option<IterNextFunc>>,
@@ -413,6 +416,46 @@ pub trait SlotGetattro: PyValue {
         Self::getattro(zelf, name, vm)
     }
 }
+
+#[pyimpl]
+pub trait SlotSetattro: PyValue {
+    #[pyslot]
+    fn tp_setattro(
+        obj: &PyObjectRef,
+        name: PyStrRef,
+        value: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        if let Some(zelf) = obj.downcast_ref::<Self>() {
+            Self::setattro(zelf, name, value, vm)
+        } else {
+            Err(vm.new_type_error("unexpected payload for __setattr__".to_owned()))
+        }
+    }
+
+    fn setattro(
+        zelf: &PyRef<Self>,
+        name: PyStrRef,
+        value: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()>;
+
+    #[pymethod]
+    fn __setattr__(
+        zelf: PyRef<Self>,
+        name: PyStrRef,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        Self::setattro(&zelf, name, Some(value), vm)
+    }
+
+    #[pymethod]
+    fn __delattr__(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
+        Self::setattro(&zelf, name, None, vm)
+    }
+}
+
 #[pyimpl]
 pub trait BufferProtocol: PyValue {
     #[pyslot]

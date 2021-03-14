@@ -13,7 +13,7 @@ mod decl {
     use crate::builtins::code::PyCodeRef;
     use crate::builtins::dict::PyDictRef;
     use crate::builtins::function::{PyCellRef, PyFunctionRef};
-    use crate::builtins::int::{self, PyIntRef};
+    use crate::builtins::int::PyIntRef;
     use crate::builtins::iter::{PyCallableIterator, PySequenceIterator};
     use crate::builtins::list::{PyList, SortOptions};
     use crate::builtins::pybool::IntoPyBool;
@@ -37,7 +37,7 @@ mod decl {
     use crate::slots::PyComparisonOp;
     use crate::vm::VirtualMachine;
     use crate::{py_io, sysmodule};
-    use num_traits::{Signed, ToPrimitive, Zero};
+    use num_traits::{Signed, Zero};
 
     #[pyfunction]
     fn abs(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -197,7 +197,10 @@ mod decl {
     #[pyfunction]
     fn dir(obj: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<PyList> {
         let seq = match obj {
-            OptionalArg::Present(obj) => vm.call_method(&obj, "__dir__", ())?,
+            OptionalArg::Present(obj) => vm
+                .get_special_method(obj, "__dir__")?
+                .map_err(|_obj| vm.new_type_error("object does not provide __dir__".to_owned()))?
+                .invoke((), vm)?,
             OptionalArg::Missing => vm.call_method(vm.current_locals()?.as_object(), "keys", ())?,
         };
         let sorted = sorted(seq, Default::default(), vm)?;
@@ -717,8 +720,7 @@ mod decl {
             vm.get_method_or_type_error(obj.clone(), "__getitem__", || {
                 "argument to reversed() must be a sequence".to_owned()
             })?;
-            let len = vm.call_method(&obj, "__len__", ())?;
-            let len = int::get_value(&len).to_isize().unwrap();
+            let len = vm.obj_len(&obj)? as isize;
             let obj_iterator = PySequenceIterator::new_reversed(obj, len);
             Ok(obj_iterator.into_object(vm))
         }
@@ -734,17 +736,24 @@ mod decl {
 
     #[pyfunction]
     fn round(RoundArgs { number, ndigits }: RoundArgs, vm: &VirtualMachine) -> PyResult {
-        let rounded = match ndigits.flatten() {
+        let meth = vm
+            .get_special_method(number, "__round__")?
+            .map_err(|number| {
+                vm.new_type_error(format!(
+                    "type {} doesn't define __round__",
+                    number.class().name
+                ))
+            })?;
+        match ndigits.flatten() {
             Some(obj) => {
                 let ndigits = vm.to_index(&obj)?;
-                vm.call_method(&number, "__round__", (ndigits,))?
+                meth.invoke((ndigits,), vm)
             }
             None => {
                 // without a parameter, the result type is coerced to int
-                vm.call_method(&number, "__round__", ())?
+                meth.invoke((), vm)
             }
-        };
-        Ok(rounded)
+        }
     }
 
     #[pyfunction]

@@ -6,7 +6,8 @@ use crossbeam_utils::atomic::AtomicCell;
 
 use super::pytype::PyTypeRef;
 use crate::pyobject::{
-    PyCallable, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    ItemProtocol, PyCallable, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    TypeProtocol,
 };
 use crate::slots::PyIter;
 use crate::vm::VirtualMachine;
@@ -61,7 +62,7 @@ impl PyIter for PySequenceIterator {
         let step: isize = if zelf.reversed { -1 } else { 1 };
         let pos = zelf.position.fetch_add(step);
         if pos >= 0 {
-            match vm.call_method(&zelf.obj, "__getitem__", (pos,)) {
+            match zelf.obj.get_item(pos, vm) {
                 Err(ref e) if e.isinstance(&vm.ctx.exceptions.index_error) => {
                     Err(vm.new_stop_iteration())
                 }

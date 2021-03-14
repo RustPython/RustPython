@@ -792,7 +792,7 @@ impl ExecutingFrame<'_> {
                 let exit = vm.get_attribute(context_manager.clone(), "__exit__")?;
                 self.push_value(exit);
                 // Call enter:
-                let enter_res = vm.call_method(&context_manager, "__enter__", ())?;
+                let enter_res = vm.call_special_method(context_manager, "__enter__", ())?;
                 self.push_block(BlockType::Finally { handler: *end });
                 self.push_value(enter_res);
                 Ok(None)
@@ -801,7 +801,7 @@ impl ExecutingFrame<'_> {
                 let mgr = self.pop_value();
                 let aexit = vm.get_attribute(mgr.clone(), "__aexit__")?;
                 self.push_value(aexit);
-                let aenter_res = vm.call_method(&mgr, "__aenter__", ())?;
+                let aenter_res = vm.call_special_method(mgr, "__aenter__", ())?;
                 self.push_value(aenter_res);
 
                 Ok(None)
@@ -883,17 +883,17 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::GetAIter => {
                 let aiterable = self.pop_value();
-                let aiter = vm.call_method(&aiterable, "__aiter__", ())?;
+                let aiter = vm.call_special_method(aiterable, "__aiter__", ())?;
                 self.push_value(aiter);
                 Ok(None)
             }
             bytecode::Instruction::GetANext => {
                 let aiter = self.last_value();
-                let awaitable = vm.call_method(&aiter, "__anext__", ())?;
+                let awaitable = vm.call_special_method(aiter, "__anext__", ())?;
                 let awaitable = if awaitable.payload_is::<PyCoroutine>() {
                     awaitable
                 } else {
-                    vm.call_method(&awaitable, "__await__", ())?
+                    vm.call_special_method(awaitable, "__await__", ())?
                 };
                 self.push_value(awaitable);
                 Ok(None)
@@ -1030,7 +1030,7 @@ impl ExecutingFrame<'_> {
                 };
 
                 let spec = self.pop_value();
-                let formatted = vm.call_method(&value, "__format__", (spec,))?;
+                let formatted = vm.call_special_method(value, "__format__", (spec,))?;
                 self.push_value(formatted);
                 Ok(None)
             }
@@ -1630,9 +1630,33 @@ impl ExecutingFrame<'_> {
     fn execute_unop(&mut self, vm: &VirtualMachine, op: &bytecode::UnaryOperator) -> FrameResult {
         let a = self.pop_value();
         let value = match *op {
-            bytecode::UnaryOperator::Minus => vm.call_method(&a, "__neg__", ())?,
-            bytecode::UnaryOperator::Plus => vm.call_method(&a, "__pos__", ())?,
-            bytecode::UnaryOperator::Invert => vm.call_method(&a, "__invert__", ())?,
+            bytecode::UnaryOperator::Minus => vm
+                .get_special_method(a, "__neg__")?
+                .map_err(|a| {
+                    vm.new_type_error(format!(
+                        "bad operand type for unary -: '{}'",
+                        a.class().name
+                    ))
+                })?
+                .invoke((), vm)?,
+            bytecode::UnaryOperator::Plus => vm
+                .get_special_method(a, "__pos__")?
+                .map_err(|a| {
+                    vm.new_type_error(format!(
+                        "bad operand type for unary +: '{}'",
+                        a.class().name
+                    ))
+                })?
+                .invoke((), vm)?,
+            bytecode::UnaryOperator::Invert => vm
+                .get_special_method(a, "__invert__")?
+                .map_err(|a| {
+                    vm.new_type_error(format!(
+                        "bad operand type for unary ~: '{}'",
+                        a.class().name
+                    ))
+                })?
+                .invoke((), vm)?,
             bytecode::UnaryOperator::Not => {
                 let value = pybool::boolval(vm, a)?;
                 vm.ctx.new_bool(!value)

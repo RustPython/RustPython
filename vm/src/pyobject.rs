@@ -643,15 +643,38 @@ where
     T: IntoPyObject,
 {
     fn get_item(&self, key: T, vm: &VirtualMachine) -> PyResult {
-        vm.call_method(self, "__getitem__", (key,))
+        vm.get_special_method(self.clone(), "__getitem__")?
+            .map_err(|obj| {
+                vm.new_type_error(format!(
+                    "'{}' object is not subscriptable",
+                    obj.class().name
+                ))
+            })?
+            .invoke((key,), vm)
     }
 
     fn set_item(&self, key: T, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        vm.call_method(self, "__setitem__", (key, value)).map(drop)
+        vm.get_special_method(self.clone(), "__setitem__")?
+            .map_err(|obj| {
+                vm.new_type_error(format!(
+                    "'{}' does not support item assignment",
+                    obj.class().name
+                ))
+            })?
+            .invoke((key, value), vm)?;
+        Ok(())
     }
 
     fn del_item(&self, key: T, vm: &VirtualMachine) -> PyResult<()> {
-        vm.call_method(self, "__delitem__", (key,)).map(drop)
+        vm.get_special_method(self.clone(), "__delitem__")?
+            .map_err(|obj| {
+                vm.new_type_error(format!(
+                    "'{}' does not support item deletion",
+                    obj.class().name
+                ))
+            })?
+            .invoke((key,), vm)?;
+        Ok(())
     }
 }
 
@@ -1281,7 +1304,10 @@ impl PyMethod {
                 } else {
                     let descr_get = descr_cls.mro_find_map(|cls| cls.slots.descr_get.load());
                     if let Some(descr_get) = descr_get {
-                        if descr_cls.has_attr("__set__") {
+                        if descr_cls
+                            .mro_find_map(|cls| cls.slots.descr_set.load())
+                            .is_some()
+                        {
                             drop(descr_cls);
                             let cls = PyLease::into_pyref(cls).into_object();
                             return descr_get(descr, Some(obj), Some(cls), vm).map(Self::Attribute);
@@ -1320,11 +1346,40 @@ impl PyMethod {
             drop(cls);
             vm.invoke(&getter, (obj, name)).map(Self::Attribute)
         } else {
-            Err(vm.new_attribute_error(format!(
-                "'{}' object has not attribute '{}'",
-                cls.name, name
-            )))
+            Err(vm
+                .new_attribute_error(format!("'{}' object has no attribute '{}'", cls.name, name)))
         }
+    }
+
+    pub(crate) fn get_special(
+        obj: PyObjectRef,
+        name: &str,
+        vm: &VirtualMachine,
+    ) -> PyResult<Result<Self, PyObjectRef>> {
+        let obj_cls = obj.class();
+        let func = match obj_cls.get_attr(name) {
+            Some(f) => f,
+            None => {
+                drop(obj_cls);
+                return Ok(Err(obj));
+            }
+        };
+        let meth = if func
+            .class()
+            .slots
+            .flags
+            .has_feature(PyTpFlags::METHOD_DESCR)
+        {
+            drop(obj_cls);
+            Self::Function { target: obj, func }
+        } else {
+            let obj_cls = PyLease::into_pyref(obj_cls).into_object();
+            let attr = vm
+                .call_get_descriptor_specific(func, Some(obj), Some(obj_cls))
+                .unwrap_or_else(Ok)?;
+            Self::Attribute(attr)
+        };
+        Ok(Ok(meth))
     }
 
     pub fn invoke(self, args: impl IntoFuncArgs, vm: &VirtualMachine) -> PyResult {

@@ -817,7 +817,7 @@ impl VirtualMachine {
         if obj.class().is(&self.ctx.types.str_type) {
             Ok(obj.clone().downcast().unwrap())
         } else {
-            let s = self.call_method(&obj, "__str__", ())?;
+            let s = self.call_special_method(obj.clone(), "__str__", ())?;
             PyStrRef::try_from_object(self, s)
         }
     }
@@ -828,8 +828,8 @@ impl VirtualMachine {
     }
 
     pub fn to_repr(&self, obj: &PyObjectRef) -> PyResult<PyStrRef> {
-        let repr = self.call_method(obj, "__repr__", ())?;
-        TryFromObject::try_from_object(self, repr)
+        let repr = self.call_special_method(obj.clone(), "__repr__", ())?;
+        PyStrRef::try_from_object(self, repr)
     }
 
     pub fn to_index_opt(&self, obj: PyObjectRef) -> Option<PyResult<PyIntRef>> {
@@ -927,7 +927,11 @@ impl VirtualMachine {
         if obj.class().is(cls) {
             Ok(true)
         } else {
-            let ret = self.call_method(cls.as_object(), "__instancecheck__", (obj.clone(),))?;
+            let ret = self.call_special_method(
+                cls.as_object().clone(),
+                "__instancecheck__",
+                (obj.clone(),),
+            )?;
             pybool::boolval(self, ret)
         }
     }
@@ -935,7 +939,11 @@ impl VirtualMachine {
     /// Determines if `subclass` is a subclass of `cls`, either directly, indirectly or virtually
     /// via the __subclasscheck__ magic method.
     pub fn issubclass(&self, subclass: &PyTypeRef, cls: &PyTypeRef) -> PyResult<bool> {
-        let ret = self.call_method(cls.as_object(), "__subclasscheck__", (subclass.clone(),))?;
+        let ret = self.call_special_method(
+            cls.as_object().clone(),
+            "__subclasscheck__",
+            (subclass.clone(),),
+        )?;
         pybool::boolval(self, ret)
     }
 
@@ -973,6 +981,26 @@ impl VirtualMachine {
         flame_guard!(format!("call_method({:?})", method_name));
 
         PyMethod::get(obj.clone(), PyStr::from(method_name).into_ref(self), self)?
+            .invoke(args, self)
+    }
+
+    #[inline]
+    pub(crate) fn get_special_method(
+        &self,
+        obj: PyObjectRef,
+        method: &str,
+    ) -> PyResult<Result<PyMethod, PyObjectRef>> {
+        PyMethod::get_special(obj, method, self)
+    }
+
+    pub(crate) fn call_special_method(
+        &self,
+        obj: PyObjectRef,
+        method: &str,
+        args: impl IntoFuncArgs,
+    ) -> PyResult {
+        self.get_special_method(obj, method)?
+            .map_err(|_obj| self.new_attribute_error(method.to_owned()))?
             .invoke(args, self)
     }
 
@@ -1145,18 +1173,42 @@ impl VirtualMachine {
         }
     }
 
-    pub fn set_attr<K, V>(&self, obj: &PyObjectRef, attr_name: K, attr_value: V) -> PyResult
+    pub fn call_set_attr(
+        &self,
+        obj: &PyObjectRef,
+        attr_name: PyStrRef,
+        attr_value: Option<PyObjectRef>,
+    ) -> PyResult<()> {
+        let setattro = {
+            let cls = obj.class();
+            cls.mro_find_map(|cls| cls.slots.setattro.load())
+                .ok_or_else(|| {
+                    let assign = attr_value.is_some();
+                    let has_getattr = cls.mro_find_map(|cls| cls.slots.getattro.load()).is_some();
+                    self.new_type_error(format!(
+                        "'{}' object has {} attributes ({} {})",
+                        cls.name,
+                        if has_getattr { "only read-only" } else { "no" },
+                        if assign { "assign to" } else { "del" },
+                        attr_name
+                    ))
+                })?
+        };
+        setattro(obj, attr_name, attr_value, self)
+    }
+
+    pub fn set_attr<K, V>(&self, obj: &PyObjectRef, attr_name: K, attr_value: V) -> PyResult<()>
     where
         K: TryIntoRef<PyStr>,
         V: Into<PyObjectRef>,
     {
         let attr_name = attr_name.try_into_ref(self)?;
-        self.call_method(obj, "__setattr__", (attr_name, attr_value.into()))
+        self.call_set_attr(obj, attr_name, Some(attr_value.into()))
     }
 
-    pub fn del_attr(&self, obj: &PyObjectRef, attr_name: PyObjectRef) -> PyResult<()> {
-        self.call_method(&obj, "__delattr__", (attr_name,))?;
-        Ok(())
+    pub fn del_attr(&self, obj: &PyObjectRef, attr_name: impl TryIntoRef<PyStr>) -> PyResult<()> {
+        let attr_name = attr_name.try_into_ref(self)?;
+        self.call_set_attr(obj, attr_name, None)
     }
 
     // get_method should be used for internal access to magic methods (by-passing
@@ -1693,11 +1745,9 @@ impl VirtualMachine {
     }
 
     pub fn _membership(&self, haystack: PyObjectRef, needle: PyObjectRef) -> PyResult {
-        if let Some(method_or_err) = self.get_method(haystack.clone(), "__contains__") {
-            let method = method_or_err?;
-            self.invoke(&method, vec![needle])
-        } else {
-            self._membership_iter_search(haystack, needle)
+        match PyMethod::get_special(haystack, "__contains__", self)? {
+            Ok(method) => method.invoke((needle,), self),
+            Err(haystack) => self._membership_iter_search(haystack, needle),
         }
     }
 
@@ -1812,7 +1862,7 @@ impl VirtualMachine {
         attr_value: impl Into<PyObjectRef>,
     ) -> PyResult<()> {
         let val = attr_value.into();
-        object::setattr(module.clone(), attr_name.try_into_ref(self)?, val, self)
+        object::setattr(module, attr_name.try_into_ref(self)?, Some(val), self)
     }
 }
 
