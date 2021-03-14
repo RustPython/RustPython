@@ -219,7 +219,7 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: &PyObjectRef) {
         "SIGSYS" => ctx.new_int(libc::SIGSYS as u8),
     });
 
-    #[cfg(not(any(target_os = "macos", target_os = "openbsd")))]
+    #[cfg(not(any(target_os = "macos", target_os = "openbsd", target_os = "freebsd")))]
     {
         extend_module!(vm, module, {
             "SIGPWR" => ctx.new_int(libc::SIGPWR as u8),

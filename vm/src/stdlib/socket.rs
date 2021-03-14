@@ -1126,15 +1126,19 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "SO_OOBINLINE" => ctx.new_int(c::SO_OOBINLINE),
         "SO_ERROR" => ctx.new_int(c::SO_ERROR),
         "TCP_NODELAY" => ctx.new_int(c::TCP_NODELAY),
+        "NI_NAMEREQD" => ctx.new_int(c::NI_NAMEREQD),
+        "NI_NOFQDN" => ctx.new_int(c::NI_NOFQDN),
+        "NI_NUMERICHOST" => ctx.new_int(c::NI_NUMERICHOST),
+        "NI_NUMERICSERV" => ctx.new_int(c::NI_NUMERICSERV),
+    });
+
+    #[cfg(not(target_os = "freebsd"))]
+    extend_module!(vm, module, {
         "AI_PASSIVE" => ctx.new_int(c::AI_PASSIVE),
         "AI_NUMERICHOST" => ctx.new_int(c::AI_NUMERICHOST),
         "AI_ALL" => ctx.new_int(c::AI_ALL),
         "AI_ADDRCONFIG" => ctx.new_int(c::AI_ADDRCONFIG),
         "AI_NUMERICSERV" => ctx.new_int(c::AI_NUMERICSERV),
-        "NI_NAMEREQD" => ctx.new_int(c::NI_NAMEREQD),
-        "NI_NOFQDN" => ctx.new_int(c::NI_NOFQDN),
-        "NI_NUMERICHOST" => ctx.new_int(c::NI_NUMERICHOST),
-        "NI_NUMERICSERV" => ctx.new_int(c::NI_NUMERICSERV),
     });
 
     #[cfg(not(windows))]

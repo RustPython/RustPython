@@ -88,7 +88,14 @@ const ERROR_CODES: &[(&str, i32)] = &[
     e!(ENODEV),
     e!(EHOSTUNREACH),
     e!(cfg(not(windows)), ENOMSG),
-    e!(cfg(not(any(target_os = "openbsd", windows))), ENODATA),
+    e!(
+        cfg(not(any(
+            target_os = "openbsd",
+            target_os = "freebsd",
+            windows
+        ))),
+        ENODATA
+    ),
     e!(cfg(not(windows)), ENOTBLK),
     e!(ENOSYS),
     e!(EPIPE),
@@ -142,7 +149,14 @@ const ERROR_CODES: &[(&str, i32)] = &[
     e!(ENOENT),
     e!(EEXIST),
     e!(EDQUOT),
-    e!(cfg(not(any(target_os = "openbsd", windows))), ENOSTR),
+    e!(
+        cfg(not(any(
+            target_os = "openbsd",
+            target_os = "freebsd",
+            windows
+        ))),
+        ENOSTR
+    ),
     e!(EFAULT),
     e!(EFBIG),
     e!(ENOTCONN),
@@ -151,7 +165,14 @@ const ERROR_CODES: &[(&str, i32)] = &[
     e!(ECONNABORTED),
     e!(ENETUNREACH),
     e!(ESTALE),
-    e!(cfg(not(any(target_os = "openbsd", windows))), ENOSR),
+    e!(
+        cfg(not(any(
+            target_os = "openbsd",
+            target_os = "freebsd",
+            windows
+        ))),
+        ENOSR
+    ),
     e!(ENOMEM),
     e!(ENOTSOCK),
     e!(EMLINK),
@@ -162,7 +183,14 @@ const ERROR_CODES: &[(&str, i32)] = &[
     e!(ENAMETOOLONG),
     e!(ENOTTY),
     e!(ESOCKTNOSUPPORT),
-    e!(cfg(not(any(target_os = "openbsd", windows))), ETIME),
+    e!(
+        cfg(not(any(
+            target_os = "openbsd",
+            target_os = "freebsd",
+            windows
+        ))),
+        ETIME
+    ),
     e!(ETOOMANYREFS),
     e!(EMFILE),
     e!(cfg(not(windows)), ETXTBSY),
