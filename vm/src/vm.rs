@@ -1228,8 +1228,8 @@ impl VirtualMachine {
         }
     }
 
-    /// May return exception, if `__get__` descriptor raises one
-    pub fn get_method(&self, obj: PyObjectRef, method_name: &str) -> Option<PyResult> {
+    // TODO: remove + transfer over to get_special_method
+    pub(crate) fn get_method(&self, obj: PyObjectRef, method_name: &str) -> Option<PyResult> {
         let method = obj.get_class_attr(method_name)?;
         Some(self.call_if_get_descriptor(method, obj))
     }
@@ -1698,25 +1698,30 @@ impl VirtualMachine {
     }
 
     pub fn obj_len_opt(&self, obj: &PyObjectRef) -> Option<PyResult<usize>> {
-        self.get_method(obj.clone(), "__len__").map(|len| {
-            let len = self.invoke(&len?, ())?;
-            let len = len
-                .payload_if_subclass::<PyInt>(self)
-                .ok_or_else(|| {
-                    self.new_type_error(format!(
-                        "'{}' object cannot be interpreted as an integer",
-                        len.class().name
-                    ))
-                })?
-                .borrow_value();
-            if len.is_negative() {
-                return Err(self.new_value_error("__len__() should return >= 0".to_owned()));
-            }
-            let len = len.to_isize().ok_or_else(|| {
-                self.new_overflow_error("cannot fit 'int' into an index-sized integer".to_owned())
-            })?;
-            Ok(len as usize)
-        })
+        self.get_special_method(obj.clone(), "__len__")
+            .map(Result::ok)
+            .transpose()
+            .map(|meth| {
+                let len = meth?.invoke((), self)?;
+                let len = len
+                    .payload_if_subclass::<PyInt>(self)
+                    .ok_or_else(|| {
+                        self.new_type_error(format!(
+                            "'{}' object cannot be interpreted as an integer",
+                            len.class().name
+                        ))
+                    })?
+                    .borrow_value();
+                if len.is_negative() {
+                    return Err(self.new_value_error("__len__() should return >= 0".to_owned()));
+                }
+                let len = len.to_isize().ok_or_else(|| {
+                    self.new_overflow_error(
+                        "cannot fit 'int' into an index-sized integer".to_owned(),
+                    )
+                })?;
+                Ok(len as usize)
+            })
     }
 
     pub fn obj_len(&self, obj: &PyObjectRef) -> PyResult<usize> {
