@@ -157,7 +157,7 @@ impl Compiler {
 
             blocks: vec![ir::Block::default()],
             current_block: bytecode::Label(0),
-            constants: Vec::new(),
+            constants: IndexSet::default(),
             name_cache: IndexSet::default(),
             varname_cache: IndexSet::default(),
             cellvar_cache: IndexSet::default(),
@@ -235,7 +235,7 @@ impl Compiler {
 
             blocks: vec![ir::Block::default()],
             current_block: bytecode::Label(0),
-            constants: Vec::new(),
+            constants: IndexSet::default(),
             name_cache: IndexSet::default(),
             varname_cache: IndexSet::default(),
             cellvar_cache,
@@ -2377,8 +2377,7 @@ impl Compiler {
 
     fn emit_constant(&mut self, constant: ConstantData) {
         let info = self.current_codeinfo();
-        let idx = info.constants.len() as u32;
-        info.constants.push(constant);
+        let idx = info.constants.insert_full(constant).0 as u32;
         self.emit(Instruction::LoadConst { idx })
     }
 
