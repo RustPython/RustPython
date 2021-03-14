@@ -29,8 +29,8 @@ use crate::frame::{ExecutionResult, Frame, FrameRef};
 use crate::function::{FuncArgs, IntoFuncArgs};
 use crate::pyobject::{
     BorrowValue, Either, IdProtocol, IntoPyObject, ItemProtocol, PyArithmaticValue, PyContext,
-    PyObject, PyObjectRef, PyRef, PyRefExact, PyResult, PyValue, TryFromObject, TryIntoRef,
-    TypeProtocol,
+    PyLease, PyMethod, PyObject, PyObjectRef, PyRef, PyRefExact, PyResult, PyValue, TryFromObject,
+    TryIntoRef, TypeProtocol,
 };
 use crate::scope::Scope;
 use crate::slots::PyComparisonOp;
@@ -965,21 +965,15 @@ impl VirtualMachine {
         self.call_get_descriptor(attr, obj).unwrap_or_else(Ok)
     }
 
+    #[inline]
     pub fn call_method<T>(&self, obj: &PyObjectRef, method_name: &str, args: T) -> PyResult
     where
         T: IntoFuncArgs,
     {
         flame_guard!(format!("call_method({:?})", method_name));
 
-        // This is only used in the vm for magic methods, which use a greatly simplified attribute lookup.
-        match obj.get_class_attr(method_name) {
-            Some(func) => {
-                vm_trace!("vm.call_method {:?} {:?} -> {:?}", obj, method_name, func);
-                let wrapped = self.call_if_get_descriptor(func, obj.clone())?;
-                self.invoke(&wrapped, args)
-            }
-            None => Err(self.new_type_error(format!("Unsupported method: {}", method_name))),
-        }
+        PyMethod::get(obj.clone(), PyStr::from(method_name).into_ref(self), self)?
+            .invoke(args, self)
     }
 
     fn _invoke(&self, callable: &PyObjectRef, args: FuncArgs) -> PyResult {
