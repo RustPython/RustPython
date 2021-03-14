@@ -259,7 +259,7 @@ mod _io {
     }
 
     fn check_readable(file: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        if pybool::boolval(vm, call_method(vm, file, "readable", ())?)? {
+        if pybool::boolval(vm, vm.call_method(file, "readable", ())?)? {
             Ok(())
         } else {
             Err(new_unsupported_operation(
@@ -270,7 +270,7 @@ mod _io {
     }
 
     fn check_writable(file: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        if pybool::boolval(vm, call_method(vm, file, "writable", ())?)? {
+        if pybool::boolval(vm, vm.call_method(file, "writable", ())?)? {
             Ok(())
         } else {
             Err(new_unsupported_operation(
@@ -281,7 +281,7 @@ mod _io {
     }
 
     fn check_seekable(file: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        if pybool::boolval(vm, call_method(vm, file, "seekable", ())?)? {
+        if pybool::boolval(vm, vm.call_method(file, "seekable", ())?)? {
             Ok(())
         } else {
             Err(new_unsupported_operation(
@@ -308,7 +308,7 @@ mod _io {
         }
         #[pymethod]
         fn tell(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            call_method(vm, &zelf, "seek", (0, 1))
+            vm.call_method(&zelf, "seek", (0, 1))
         }
         #[pymethod]
         fn truncate(zelf: PyObjectRef, _pos: OptionalArg, vm: &VirtualMachine) -> PyResult {
@@ -328,7 +328,7 @@ mod _io {
 
         #[pyslot]
         fn tp_del(instance: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            let _ = call_method(vm, instance, "close", ());
+            let _ = vm.call_method(instance, "close", ());
             Ok(())
         }
 
@@ -339,7 +339,7 @@ mod _io {
 
         #[pymethod(magic)]
         fn exit(instance: PyObjectRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-            call_method(vm, &instance, "close", ())?;
+            vm.call_method(&instance, "close", ())?;
             Ok(())
         }
 
@@ -428,7 +428,7 @@ mod _io {
         ) -> PyResult<()> {
             check_closed(&instance, vm)?;
             for line in lines.iter(vm)? {
-                call_method(vm, &instance, "write", (line?,))?;
+                vm.call_method(&instance, "write", (line?,))?;
             }
             Ok(())
         }
@@ -461,7 +461,7 @@ mod _io {
         }
         #[pyslot]
         fn tp_iternext(instance: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            let line = call_method(vm, &instance, "readline", ())?;
+            let line = vm.call_method(&instance, "readline", ())?;
             if !pybool::boolval(vm, line.clone())? {
                 Err(vm.new_stop_iteration())
             } else {
@@ -476,7 +476,7 @@ mod _io {
 
     pub(super) fn iobase_close(file: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if !file_closed(file, vm)? {
-            let res = call_method(vm, file, "flush", ());
+            let res = vm.call_method(file, "flush", ());
             vm.set_attr(file, "__closed", vm.ctx.new_bool(true))?;
             res?;
         }
@@ -496,7 +496,7 @@ mod _io {
                 let b = PyByteArray::from(vec![0; size]).into_ref(vm);
                 let n = <Option<usize>>::try_from_object(
                     vm,
-                    call_method(vm, &instance, "readinto", (b.clone(),))?,
+                    vm.call_method(&instance, "readinto", (b.clone(),))?,
                 )?;
                 Ok(n.map(|n| {
                     let bytes = &mut b.borrow_value_mut().elements;
@@ -505,7 +505,7 @@ mod _io {
                 })
                 .into_pyobject(vm))
             } else {
-                call_method(vm, &instance, "readall", ())
+                vm.call_method(&instance, "readall", ())
             }
         }
 
@@ -514,7 +514,7 @@ mod _io {
             let mut chunks = Vec::new();
             let mut total_len = 0;
             loop {
-                let data = call_method(vm, &instance, "read", (DEFAULT_BUFFER_SIZE,))?;
+                let data = vm.call_method(&instance, "read", (DEFAULT_BUFFER_SIZE,))?;
                 let data = <Option<PyBytesRef>>::try_from_object(vm, data)?;
                 match data {
                     None => {
@@ -562,7 +562,7 @@ mod _io {
         ) -> PyResult<usize> {
             let b = PyRwBytesLike::new(vm, &bufobj)?;
             let l = b.len();
-            let data = call_method(vm, &zelf, method, (l,))?;
+            let data = vm.call_method(&zelf, method, (l,))?;
             if data.is(&bufobj) {
                 return Ok(l);
             }
@@ -732,7 +732,7 @@ mod _io {
         }
 
         fn raw_seek(&mut self, pos: Offset, whence: i32, vm: &VirtualMachine) -> PyResult<Offset> {
-            let ret = call_method(vm, self.check_init(vm)?, "seek", (pos, whence))?;
+            let ret = vm.call_method(self.check_init(vm)?, "seek", (pos, whence))?;
             let offset = get_offset(ret, vm)?;
             if offset < 0 {
                 return Err(
@@ -777,7 +777,7 @@ mod _io {
         }
 
         fn raw_tell(&mut self, vm: &VirtualMachine) -> PyResult<Offset> {
-            let ret = call_method(vm, self.check_init(vm)?, "tell", ())?;
+            let ret = vm.call_method(self.check_init(vm)?, "tell", ())?;
             let offset = get_offset(ret, vm)?;
             if offset < 0 {
                 return Err(
@@ -809,7 +809,7 @@ mod _io {
                     .into_pyobject(vm);
 
                 // TODO: loop if write() raises an interrupt
-                call_method(vm, self.raw.as_ref().unwrap(), "write", (memobj,))?
+                vm.call_method(self.raw.as_ref().unwrap(), "write", (memobj,))?
             } else {
                 let options = BufferOptions {
                     len,
@@ -827,7 +827,7 @@ mod _io {
                         .into_ref(vm);
 
                 // TODO: loop if write() raises an interrupt
-                let res = call_method(vm, self.raw.as_ref().unwrap(), "write", (memobj.clone(),));
+                let res = vm.call_method(self.raw.as_ref().unwrap(), "write", (memobj.clone(),));
 
                 memobj.released.store(true);
                 self.buffer = std::mem::take(&mut writebuf.data.lock());
@@ -1064,12 +1064,8 @@ mod _io {
                     .into_ref(vm);
 
                     // TODO: loop if readinto() raises an interrupt
-                    let res = call_method(
-                        vm,
-                        self.raw.as_ref().unwrap(),
-                        "readinto",
-                        (memobj.clone(),),
-                    );
+                    let res =
+                        vm.call_method(self.raw.as_ref().unwrap(), "readinto", (memobj.clone(),));
 
                     memobj.released.store(true);
                     std::mem::swap(v, &mut readbuf.data.lock());
@@ -1080,7 +1076,7 @@ mod _io {
                     let memobj =
                         PyMemoryView::from_buffer_range(vm.ctx.none(), buf, buf_range, vm)?;
                     // TODO: loop if readinto() raises an interrupt
-                    call_method(vm, self.raw.as_ref().unwrap(), "readinto", (memobj,))?
+                    vm.call_method(self.raw.as_ref().unwrap(), "readinto", (memobj,))?
                 }
             };
 
@@ -1135,7 +1131,7 @@ mod _io {
 
             let mut read_size = 0;
             loop {
-                let read_data = call_method(vm, self.raw.as_ref().unwrap(), "read", ())?;
+                let read_data = vm.call_method(self.raw.as_ref().unwrap(), "read", ())?;
                 let read_data = <Option<PyBytesRef>>::try_from_object(vm, read_data)?;
 
                 match read_data {
@@ -1388,13 +1384,13 @@ mod _io {
             if data.writable() {
                 data.flush_rewind(vm)?;
             }
-            let res = call_method(vm, data.raw.as_ref().unwrap(), "truncate", (pos,))?;
+            let res = vm.call_method(data.raw.as_ref().unwrap(), "truncate", (pos,))?;
             let _ = data.raw_tell(vm);
             Ok(res)
         }
         #[pymethod]
         fn detach(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-            call_method(vm, zelf.as_object(), "flush", ())?;
+            vm.call_method(zelf.as_object(), "flush", ())?;
             let mut data = zelf.lock(vm)?;
             data.flags.insert(BufferedFlags::DETACHED);
             data.raw
@@ -1403,7 +1399,7 @@ mod _io {
         }
         #[pymethod]
         fn seekable(&self, vm: &VirtualMachine) -> PyResult {
-            call_method(vm, self.lock(vm)?.check_init(vm)?, "seekable", ())
+            vm.call_method(self.lock(vm)?.check_init(vm)?, "seekable", ())
         }
         #[pyproperty]
         fn raw(&self, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
@@ -1423,11 +1419,11 @@ mod _io {
         }
         #[pymethod]
         fn fileno(&self, vm: &VirtualMachine) -> PyResult {
-            call_method(vm, self.lock(vm)?.check_init(vm)?, "fileno", ())
+            vm.call_method(self.lock(vm)?.check_init(vm)?, "fileno", ())
         }
         #[pymethod]
         fn isatty(&self, vm: &VirtualMachine) -> PyResult {
-            call_method(vm, self.lock(vm)?.check_init(vm)?, "isatty", ())
+            vm.call_method(self.lock(vm)?.check_init(vm)?, "isatty", ())
         }
 
         #[pymethod(magic)]
@@ -1464,7 +1460,7 @@ mod _io {
                 return Ok(vm.ctx.none());
             }
             let flush_res = data.flush(vm);
-            let close_res = call_method(vm, data.raw.as_ref().unwrap(), "close", ());
+            let close_res = vm.call_method(data.raw.as_ref().unwrap(), "close", ());
             exceptions::chain(flush_res, close_res)
         }
 
@@ -1477,10 +1473,10 @@ mod _io {
                     return Ok(vm.ctx.none());
                 }
             }
-            let flush_res = call_method(vm, zelf.as_object(), "flush", ()).map(drop);
+            let flush_res = vm.call_method(zelf.as_object(), "flush", ()).map(drop);
             let data = zelf.lock(vm)?;
             let raw = data.raw.as_ref().unwrap();
-            let close_res = call_method(vm, raw, "close", ());
+            let close_res = vm.call_method(raw, "close", ());
             exceptions::chain(flush_res, close_res)
         }
 
@@ -1498,19 +1494,6 @@ mod _io {
         fn reduce(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error(format!("cannot pickle '{}' object", zelf.class().name)))
         }
-    }
-
-    // vm.call_method() only calls class attributes
-    // TODO: have this be the implementation of vm.call_method() once the current implementation isn't needed
-    // anymore because of slots
-    pub fn call_method(
-        vm: &VirtualMachine,
-        obj: &PyObjectRef,
-        name: impl crate::pyobject::TryIntoRef<PyStr>,
-        args: impl crate::function::IntoFuncArgs,
-    ) -> PyResult {
-        let meth = vm.get_attribute(obj.clone(), name)?;
-        vm.invoke(&meth, args)
     }
 
     #[pyimpl]
@@ -1921,13 +1904,13 @@ mod _io {
                     "can't do nonzero end-relative seeks".to_owned(),
                 ));
             }
-            call_method(vm, &buffer, "seek", (offset, how))
+            vm.call_method(&buffer, "seek", (offset, how))
         }
 
         #[pymethod]
         fn tell(&self, vm: &VirtualMachine) -> PyResult {
             let buffer = self.lock(vm)?.buffer.clone();
-            call_method(vm, &buffer, "tell", ())
+            vm.call_method(&buffer, "tell", ())
         }
 
         #[pyproperty]
@@ -1947,7 +1930,7 @@ mod _io {
         #[pymethod]
         fn fileno(&self, vm: &VirtualMachine) -> PyResult {
             let buffer = self.lock(vm)?.buffer.clone();
-            call_method(vm, &buffer, "fileno", ())
+            vm.call_method(&buffer, "fileno", ())
         }
 
         #[pymethod]
@@ -1955,7 +1938,7 @@ mod _io {
             let buffer = self.lock(vm)?.buffer.clone();
             check_readable(&buffer, vm)?;
 
-            let bytes = call_method(vm, &buffer, "read", (size.flatten(),))?;
+            let bytes = vm.call_method(&buffer, "read", (size.flatten(),))?;
             let bytes = PyBytesLike::try_from_object(vm, bytes)?;
             //format bytes into string
             let rust_string = String::from_utf8(bytes.to_cow().into_owned()).map_err(|e| {
@@ -1976,9 +1959,9 @@ mod _io {
 
             let bytes = obj.borrow_value().as_bytes();
 
-            let len = call_method(vm, &buffer, "write", (bytes.to_owned(),));
+            let len = vm.call_method(&buffer, "write", (bytes.to_owned(),));
             if obj.borrow_value().contains('\n') {
-                let _ = call_method(vm, &buffer, "flush", ());
+                let _ = vm.call_method(&buffer, "flush", ());
             }
             let len = usize::try_from_object(vm, len?)?;
 
@@ -1994,14 +1977,14 @@ mod _io {
         fn flush(&self, vm: &VirtualMachine) -> PyResult {
             let buffer = self.lock(vm)?.buffer.clone();
             check_closed(&buffer, vm)?;
-            call_method(vm, &buffer, "flush", ())
+            vm.call_method(&buffer, "flush", ())
         }
 
         #[pymethod]
         fn isatty(&self, vm: &VirtualMachine) -> PyResult {
             let buffer = self.lock(vm)?.buffer.clone();
             check_closed(&buffer, vm)?;
-            call_method(vm, &buffer, "isatty", ())
+            vm.call_method(&buffer, "isatty", ())
         }
 
         #[pymethod]
@@ -2013,7 +1996,7 @@ mod _io {
             let buffer = self.lock(vm)?.buffer.clone();
             check_readable(&buffer, vm)?;
 
-            let bytes = call_method(vm, &buffer, "readline", (size.flatten(),))?;
+            let bytes = vm.call_method(&buffer, "readline", (size.flatten(),))?;
             let bytes = PyBytesLike::try_from_object(vm, bytes)?;
             //format bytes into string
             let rust_string = String::from_utf8(bytes.borrow_value().to_vec()).map_err(|e| {
@@ -2028,7 +2011,7 @@ mod _io {
         #[pymethod]
         fn close(&self, vm: &VirtualMachine) -> PyResult {
             let buffer = self.lock(vm)?.buffer.clone();
-            call_method(vm, &buffer, "close", ())
+            vm.call_method(&buffer, "close", ())
         }
         #[pyproperty]
         fn closed(&self, vm: &VirtualMachine) -> PyResult {
