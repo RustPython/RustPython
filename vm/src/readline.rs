@@ -68,29 +68,20 @@ mod rustyline_readline {
     pub trait Helper: rustyline::Helper {}
     impl<T: rustyline::Helper> Helper for T {}
 
+    /// Readline: the REPL
     pub struct Readline<H: Helper> {
         repl: rustyline::Editor<H>,
     }
 
     impl<H: Helper> Readline<H> {
         pub fn new(helper: H) -> Self {
-            use rustyline::{At, Cmd, CompletionType, Config, Editor, KeyPress, Movement, Word};
+            use rustyline::*;
             let mut repl = Editor::with_config(
                 Config::builder()
                     .completion_type(CompletionType::List)
                     .tab_stop(8)
+                    .bracketed_paste(false) // multi-line paste
                     .build(),
-            );
-            // Parse multiple lines correctly
-            repl.bind_sequence(KeyPress::BracketedPasteStart, Cmd::Noop);
-
-            repl.bind_sequence(
-                KeyPress::ControlLeft,
-                Cmd::Move(Movement::BackwardWord(1, Word::Vi)),
-            );
-            repl.bind_sequence(
-                KeyPress::ControlRight,
-                Cmd::Move(Movement::ForwardWord(1, At::AfterEnd, Word::Vi)),
             );
             repl.set_helper(Some(helper));
             Readline { repl }
@@ -131,6 +122,48 @@ mod rustyline_readline {
             }
         }
     }
+
+    #[cfg(test)]
+    mod test_rusty_readline {
+        use super::*;
+        use rustyline::{completion::Completer, highlight::Highlighter,
+                        validate::Validator, Context, hint::Hinter};
+        use rustyline::error::ReadlineError;
+        use crate::readline::ReadlineResult::Line;
+
+        struct HelperShim {
+
+        }
+        impl rustyline::Helper for HelperShim {}
+        impl Highlighter for HelperShim {}
+        impl Validator for HelperShim {}
+        impl Completer for HelperShim {
+            type Candidate = String;
+
+            fn complete(
+                &self,
+                line: &str,
+                pos: usize,
+                _ctx: &Context,
+            ) -> rustyline::Result<(usize, Vec<String>)> {
+                Err(ReadlineError::Interrupted)
+            }
+        }
+        impl Hinter for HelperShim {
+            type Hint = String;
+        }
+        // impl Helper for ShellHelper<'_> {}
+        #[test]
+        fn test_multi_read_line() {
+
+            let mut repl = Readline::new(HelperShim { });
+            if let Line(line) = repl.readline("print('hello')\nprint('hello2')\n") {
+                assert_eq!(line, "print('hello')");
+            }
+
+        }
+
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -159,3 +192,4 @@ impl<H: Helper> Readline<H> {
         self.0.readline(prompt)
     }
 }
+
