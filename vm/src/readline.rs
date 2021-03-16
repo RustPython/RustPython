@@ -81,6 +81,9 @@ mod rustyline_readline {
                     .tab_stop(8)
                     .build(),
             );
+            // Parse multiple lines correctly
+            repl.bind_sequence(KeyPress::BracketedPasteStart, Cmd::Noop);
+
             repl.bind_sequence(
                 KeyPress::ControlLeft,
                 Cmd::Move(Movement::BackwardWord(1, Word::Vi)),
