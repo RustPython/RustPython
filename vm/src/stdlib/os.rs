@@ -159,10 +159,14 @@ impl TryFromObject for PyPathLike {
     }
 }
 
-fn make_path(vm: &VirtualMachine, path: &PyPathLike, dir_fd: &DirFd) -> PyResult<ffi::OsString> {
-    let path = path.path.to_path_buf();
+fn make_path<'a>(
+    vm: &VirtualMachine,
+    path: &'a PyPathLike,
+    dir_fd: &DirFd,
+) -> PyResult<std::borrow::Cow<'a, ffi::OsStr>> {
+    let path = &path.path;
     if dir_fd.0.is_none() | path.is_absolute() {
-        return Ok(path.into_os_string());
+        return Ok(std::borrow::Cow::Borrowed(path.as_os_str().into()));
     }
 
     cfg_if::cfg_if! {
@@ -175,8 +179,8 @@ fn make_path(vm: &VirtualMachine, path: &PyPathLike, dir_fd: &DirFd) -> PyResult
                     return Err(vm.new_os_error(format!("Cannot determine path of dir_fd: {:?}", dir_fd.0)));
                 }
             };
-            let p: PathBuf = vec![dir_path, path].iter().collect();
-            Ok(p.into_os_string())
+            let p: PathBuf = vec![dir_path, path.to_path_buf()].iter().collect();
+            Ok(p.into_os_string().into())
         }
     }
 }
