@@ -123,7 +123,6 @@ openssl = { version = "0.10.32", features = ["vendored"], optional = true }
 openssl-sys = { version = "0.9", optional = true }
 openssl-probe = { version = "0.1", optional = true }
 which = "4.0"
-filepath = "0.1.1"
 
 [target.'cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))'.dependencies]
 num_cpus = "1"
@@ -147,6 +146,9 @@ features = [
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"
+
+[target.'cfg(any(target_os = "linux", target_os = "macos", windows))'.dependencies]
+filepath = "0.1.1"
 
 [build-dependencies]
 itertools = "0.9"

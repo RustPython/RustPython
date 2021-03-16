@@ -7,7 +7,7 @@ use std::time::{Duration, SystemTime};
 use std::{env, fs};
 
 use crossbeam_utils::atomic::AtomicCell;
-#[cfg(not(target_os = "wasi"))]
+#[cfg(any(target_os = "linux", target_os = "macos", windows))]
 use filepath::FilePath;
 use num_bigint::BigInt;
 
@@ -165,14 +165,12 @@ fn make_path<'a>(
     dir_fd: &DirFd,
 ) -> PyResult<std::borrow::Cow<'a, ffi::OsStr>> {
     let path = &path.path;
-    if dir_fd.0.is_none() | path.is_absolute() {
-        return Ok(std::borrow::Cow::Borrowed(path.as_os_str().into()));
+    if dir_fd.0.is_none() || path.is_absolute() {
+        return Ok(path.as_os_str().into());
     }
 
     cfg_if::cfg_if! {
-        if #[cfg(target_os = "wasi")] {
-            return Err(vm.new_os_error("dir_fd not supported on wasi yet".to_owned()));
-        } else {
+        if #[cfg(any(target_os = "linux", target_os = "macos", windows))] {
             let dir_path = match rust_file(dir_fd.0.unwrap().into()).path() {
                 Ok(dir_path) => dir_path,
                 Err(_) => {
@@ -181,6 +179,8 @@ fn make_path<'a>(
             };
             let p: PathBuf = vec![dir_path, path.to_path_buf()].iter().collect();
             Ok(p.into_os_string().into())
+        } else {
+            return Err(vm.new_os_error("dir_fd not supported on wasi yet".to_owned()));
         }
     }
 }
