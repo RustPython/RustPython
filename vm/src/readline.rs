@@ -125,11 +125,13 @@ mod rustyline_readline {
 
     #[cfg(test)]
     mod test_rusty_readline {
-        use super::{Readline};
-        use rustyline::{completion::Completer, highlight::Highlighter,
-                        validate::Validator, Context, hint::Hinter};
-        use rustyline::error::ReadlineError;
+        use super::Readline;
         use crate::readline::ReadlineResult::Line;
+        use rustyline::error::ReadlineError;
+        use rustyline::{
+            completion::Completer, highlight::Highlighter, hint::Hinter, validate::Validator,
+            Context,
+        };
         struct HelperShim {}
         impl rustyline::Helper for HelperShim {}
         impl Highlighter for HelperShim {}
@@ -149,9 +151,10 @@ mod rustyline_readline {
         impl Hinter for HelperShim {
             type Hint = String;
         }
-        #[test] #[ignore]
+        #[test]
+        #[ignore]
         fn test_multi_read_line() {
-            let mut repl = Readline::new(HelperShim { });
+            let mut repl = Readline::new(HelperShim {});
             if let Line(line) = repl.readline("print('hello')\nprint('hello2')\n") {
                 assert_eq!(line, "print('hello')");
             }
@@ -185,4 +188,3 @@ impl<H: Helper> Readline<H> {
         self.0.readline(prompt)
     }
 }
-
