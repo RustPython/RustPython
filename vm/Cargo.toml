@@ -122,7 +122,7 @@ uname = "0.1.1"
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 gethostname = "0.2.0"
 socket2 = "0.3.19"
-rustyline = "6.0"
+rustyline = "8.0"
 openssl = { version = "0.10.32", features = ["vendored"], optional = true }
 openssl-sys = { version = "0.9", optional = true }
 openssl-probe = { version = "0.1", optional = true }
