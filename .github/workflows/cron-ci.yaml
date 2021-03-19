@@ -97,13 +97,13 @@ jobs:
         with:
           command: build
           args: --release --verbose
-      - name: collect what is left data
+      - name: Collect what is left data
         run: |
           chmod +x ./whats_left.sh
           ./whats_left.sh > whats_left.temp
         env:
           RUSTPYTHONPATH: ${{ github.workspace }}/Lib
-      - name: upload data to the website
+      - name: Upload data to the website
         env:
           SSHKEY: ${{ secrets.ACTIONS_TESTS_DATA_DEPLOY_KEY }}
           GITHUB_ACTOR: ${{ github.actor }}
@@ -116,7 +116,6 @@ jobs:
           cd website
           [ -f ./_data/whats_left.temp ] && cp ./_data/whats_left.temp ./_data/whats_left_lastrun.temp
           cp ../whats_left.temp ./_data/whats_left.temp
-          git add ./_data/whats_left_lastrun.temp
-          git add ./_data/whats_left.temp
-          git -c user.name="Github Actions" -c user.email="actions@github.com" commit -m "Update regression test results" --author="$GITHUB_ACTOR"
+          git add -A
+          git -c user.name="Github Actions" -c user.email="actions@github.com" commit -m "Update what is left results" --author="$GITHUB_ACTOR"
           git push
