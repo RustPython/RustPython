@@ -130,10 +130,7 @@ mod rustyline_readline {
                         validate::Validator, Context, hint::Hinter};
         use rustyline::error::ReadlineError;
         use crate::readline::ReadlineResult::Line;
-
-        struct HelperShim {
-
-        }
+        struct HelperShim {}
         impl rustyline::Helper for HelperShim {}
         impl Highlighter for HelperShim {}
         impl Validator for HelperShim {}
@@ -152,16 +149,13 @@ mod rustyline_readline {
         impl Hinter for HelperShim {
             type Hint = String;
         }
-        #[test]
+        #[test] #[ignore]
         fn test_multi_read_line() {
-
             let mut repl = Readline::new(HelperShim { });
             if let Line(line) = repl.readline("print('hello')\nprint('hello2')\n") {
                 assert_eq!(line, "print('hello')");
             }
-
         }
-
     }
 }
 
