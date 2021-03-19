@@ -125,7 +125,7 @@ mod rustyline_readline {
 
     #[cfg(test)]
     mod test_rusty_readline {
-        use super::*;
+        use super::{Readline};
         use rustyline::{completion::Completer, highlight::Highlighter,
                         validate::Validator, Context, hint::Hinter};
         use rustyline::error::ReadlineError;
@@ -142,8 +142,8 @@ mod rustyline_readline {
 
             fn complete(
                 &self,
-                line: &str,
-                pos: usize,
+                _line: &str,
+                _pos: usize,
                 _ctx: &Context,
             ) -> rustyline::Result<(usize, Vec<String>)> {
                 Err(ReadlineError::Interrupted)
@@ -152,7 +152,6 @@ mod rustyline_readline {
         impl Hinter for HelperShim {
             type Hint = String;
         }
-        // impl Helper for ShellHelper<'_> {}
         #[test]
         fn test_multi_read_line() {
 
