@@ -7,8 +7,7 @@ use rustpython_parser::parser::parse_program;
 use rustpython_vm::pyobject::PyResult;
 use rustpython_vm::Interpreter;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use std::{fs, io};
+use std::path::Path;
 
 fn bench_cpython_code(b: &mut Bencher, source: &str) {
     let gil = cpython::Python::acquire_gil();
@@ -50,30 +49,48 @@ pub fn benchmark_file_execution(
     });
 }
 
-pub fn benchmark_file_parsing(group: &mut BenchmarkGroup<WallTime>, name: &str, contents: &String) {
+pub fn benchmark_file_parsing(group: &mut BenchmarkGroup<WallTime>, name: &str, contents: &str) {
     group.throughput(Throughput::Bytes(contents.len() as u64));
     group.bench_function(BenchmarkId::new("rustpython", name), |b| {
         b.iter(|| parse_program(contents).unwrap())
     });
     group.bench_function(BenchmarkId::new("cpython", name), |b| {
         let gil = cpython::Python::acquire_gil();
-        let python = gil.python();
+        let py = gil.python();
 
-        let globals = None;
-        let locals = cpython::PyDict::new(python);
+        let code = std::ffi::CString::new(contents).unwrap();
+        let fname = cpython::PyString::new(py, name);
 
-        locals.set_item(python, "SOURCE_CODE", &contents).unwrap();
-
-        let code = "compile(SOURCE_CODE, mode=\"exec\", filename=\"minidom.py\")";
-        b.iter(|| {
-            let res: cpython::PyResult<cpython::PyObject> =
-                python.eval(code, globals, Some(&locals));
-            if let Err(e) = res {
-                e.print(python);
-                panic!("Error compiling source")
-            }
-        })
+        b.iter(|| parse_program_cpython(py, &code, &fname))
     });
+}
+
+fn parse_program_cpython(
+    py: cpython::Python<'_>,
+    code: &std::ffi::CStr,
+    fname: &cpython::PyString,
+) {
+    extern "C" {
+        fn PyArena_New() -> *mut python3_sys::PyArena;
+        fn PyArena_Free(arena: *mut python3_sys::PyArena);
+    }
+    use cpython::PythonObject;
+    let fname = fname.as_object();
+    unsafe {
+        let arena = PyArena_New();
+        assert!(!arena.is_null());
+        let ret = python3_sys::PyParser_ASTFromStringObject(
+            code.as_ptr() as _,
+            fname.as_ptr(),
+            python3_sys::Py_file_input,
+            std::ptr::null_mut(),
+            arena,
+        );
+        if ret.is_null() {
+            cpython::PyErr::fetch(py).print(py);
+        }
+        PyArena_Free(arena);
+    }
 }
 
 pub fn benchmark_pystone(group: &mut BenchmarkGroup<WallTime>, contents: String) {
@@ -94,31 +111,27 @@ pub fn benchmark_pystone(group: &mut BenchmarkGroup<WallTime>, contents: String)
 
 pub fn criterion_benchmark(c: &mut Criterion) {
     let benchmark_dir = Path::new("./benches/benchmarks/");
-    let dirs: Vec<fs::DirEntry> = benchmark_dir
+    let mut benches = benchmark_dir
         .read_dir()
         .unwrap()
-        .collect::<io::Result<_>>()
-        .unwrap();
-    let paths: Vec<PathBuf> = dirs.iter().map(|p| p.path()).collect();
-
-    let mut name_to_contents: HashMap<String, String> = paths
-        .into_iter()
-        .map(|p| {
-            let name = p.file_name().unwrap().to_os_string();
-            let contents = fs::read_to_string(p).unwrap();
-            (name.into_string().unwrap(), contents)
+        .map(|entry| {
+            let path = entry.unwrap().path();
+            (
+                path.file_name().unwrap().to_str().unwrap().to_owned(),
+                std::fs::read_to_string(path).unwrap(),
+            )
         })
-        .collect();
+        .collect::<HashMap<_, _>>();
 
     // Benchmark parsing
     let mut parse_group = c.benchmark_group("parse_to_ast");
-    for (name, contents) in name_to_contents.iter() {
+    for (name, contents) in &benches {
         benchmark_file_parsing(&mut parse_group, name, contents);
     }
     parse_group.finish();
 
     // Benchmark PyStone
-    if let Some(pystone_contents) = name_to_contents.remove("pystone.py") {
+    if let Some(pystone_contents) = benches.remove("pystone.py") {
         let mut pystone_group = c.benchmark_group("pystone");
         benchmark_pystone(&mut pystone_group, pystone_contents);
         pystone_group.finish();
@@ -126,7 +139,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
 
     // Benchmark execution
     let mut execution_group = c.benchmark_group("execution");
-    for (name, contents) in name_to_contents.iter() {
+    for (name, contents) in &benches {
         benchmark_file_execution(&mut execution_group, name, contents);
     }
     execution_group.finish();
