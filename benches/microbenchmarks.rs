@@ -20,8 +20,8 @@ fn bench_cpython_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchma
     let gil = cpython::Python::acquire_gil();
     let py = gil.python();
 
-    let bench_func = |(globals, locals)| {
-        let res = py.run(&bench.code, Some(&globals), Some(&locals));
+    let bench_func = |(code, globals, locals)| {
+        let res = cpy_run_code(py, &code, &globals, &locals);
         if let Err(e) = res {
             e.print(py);
             panic!("Error running microbenchmark")
@@ -40,7 +40,10 @@ fn bench_cpython_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchma
             e.print(py);
             panic!("Error running microbenchmark setup code")
         }
-        (globals, locals)
+        let code = std::ffi::CString::new(&*bench.code).unwrap();
+        let name = std::ffi::CString::new(&*bench.name).unwrap();
+        let code = cpy_compile_code(py, &code, &name).unwrap();
+        (code, globals, locals)
     };
 
     if bench.iterate {
@@ -58,6 +61,42 @@ fn bench_cpython_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchma
         group.bench_function(BenchmarkId::new("cpython", &bench.name), move |b| {
             b.iter_batched(|| bench_setup(None), bench_func, BatchSize::PerIteration);
         });
+    }
+}
+
+unsafe fn cpy_res(
+    py: cpython::Python<'_>,
+    x: *mut python3_sys::PyObject,
+) -> cpython::PyResult<cpython::PyObject> {
+    cpython::PyObject::from_owned_ptr_opt(py, x).ok_or_else(|| cpython::PyErr::fetch(py))
+}
+
+fn cpy_compile_code(
+    py: cpython::Python<'_>,
+    s: &std::ffi::CStr,
+    fname: &std::ffi::CStr,
+) -> cpython::PyResult<cpython::PyObject> {
+    unsafe {
+        let res =
+            python3_sys::Py_CompileString(s.as_ptr(), fname.as_ptr(), python3_sys::Py_file_input);
+        cpy_res(py, res)
+    }
+}
+
+fn cpy_run_code(
+    py: cpython::Python<'_>,
+    code: &cpython::PyObject,
+    locals: &cpython::PyDict,
+    globals: &cpython::PyDict,
+) -> cpython::PyResult<cpython::PyObject> {
+    use cpython::PythonObject;
+    unsafe {
+        let res = python3_sys::PyEval_EvalCode(
+            code.as_ptr(),
+            locals.as_object().as_ptr(),
+            globals.as_object().as_ptr(),
+        );
+        cpy_res(py, res)
     }
 }
 
