@@ -1,4 +1,3 @@
-use cpython::Python;
 use criterion::measurement::WallTime;
 use criterion::{
     criterion_group, criterion_main, BatchSize, BenchmarkGroup, BenchmarkId, Criterion, Throughput,
@@ -19,31 +18,29 @@ pub struct MicroBenchmark {
 
 fn bench_cpython_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchmark) {
     let gil = cpython::Python::acquire_gil();
-    let python = gil.python();
+    let py = gil.python();
 
-    let bench_func = |(python, code): (Python, String)| {
-        let res: cpython::PyResult<()> = python.run(&code, None, None);
+    let bench_func = |(globals, locals)| {
+        let res = py.run(&bench.code, Some(&globals), Some(&locals));
         if let Err(e) = res {
-            e.print(python);
+            e.print(py);
             panic!("Error running microbenchmark")
         }
     };
 
     let bench_setup = |iterations| {
-        let code = if let Some(idx) = iterations {
-            // We can't easily modify the locals when running cPython. So we just add the
-            // loop iterations at the top of the code...
-            format!("ITERATIONS = {}\n{}", idx, bench.code)
-        } else {
-            (&bench.code).to_string()
-        };
+        let globals = cpython::PyDict::new(py);
+        let locals = cpython::PyDict::new(py);
+        if let Some(idx) = iterations {
+            globals.set_item(py, "ITERATIONS", idx).unwrap();
+        }
 
-        let res: cpython::PyResult<()> = python.run(&bench.setup, None, None);
+        let res = py.run(&bench.setup, Some(&globals), Some(&locals));
         if let Err(e) = res {
-            e.print(python);
+            e.print(py);
             panic!("Error running microbenchmark setup code")
         }
-        (python, code)
+        (globals, locals)
     };
 
     if bench.iterate {
