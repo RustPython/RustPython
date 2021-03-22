@@ -45,6 +45,7 @@ rustyline = "6.0"
 
 [dev-dependencies]
 cpython = "0.5.0"
+python3-sys = "0.5.0"
 criterion = "0.3"
 
 [[bench]]

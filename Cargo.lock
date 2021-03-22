@@ -1845,6 +1845,7 @@ dependencies = [
  "libc",
  "log",
  "num-traits",
+ "python3-sys",
  "rustpython-compiler",
  "rustpython-parser",
  "rustpython-pylib",
