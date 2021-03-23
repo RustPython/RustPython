@@ -270,7 +270,7 @@ mod hashlib {
         }
 
         fn input(&mut self, data: &[u8]) {
-            self.inner.input(data);
+            self.inner.update(data);
         }
 
         fn digest_size(&self) -> usize {
@@ -279,7 +279,7 @@ mod hashlib {
 
         fn get_digest(&self) -> Vec<u8> {
             let cloned = self.inner.box_clone();
-            cloned.result().to_vec()
+            cloned.finalize().into_vec()
         }
     }
 }

@@ -10,16 +10,16 @@ edition = "2018"
 autotests = false
 
 [dependencies]
-cranelift = "0.69.0"
-cranelift-module = "0.69.0"
-cranelift-jit = "0.69.0"
+cranelift = "0.72.0"
+cranelift-module = "0.72.0"
+cranelift-jit = "0.72.0"
 num-traits = "0.2"
 libffi = "1.0"
 rustpython-bytecode = { path = "../bytecode", version = "0.1.2" }
 thiserror = "1.0"
 
 [dev-dependencies]
-approx = "0.3.2"
+approx = "0.4.0"
 rustpython-derive = { path = "../derive", version = "0.1.2" }
 
 [[test]]

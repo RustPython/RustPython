@@ -264,7 +264,7 @@ impl PyMemoryView {
     #[pymethod]
     fn release(&self) {
         // avoid double release
-        if !self.released.compare_and_swap(false, true) && self.exports.load() == 0 {
+        if self.released.compare_exchange(false, true).is_ok() && self.exports.load() == 0 {
             self.buffer.release();
         }
     }

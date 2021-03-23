@@ -5,6 +5,7 @@ use nix::unistd::sethostname;
 use socket2::{Domain, Protocol, Socket, Type as SocketType};
 use std::convert::TryFrom;
 use std::io;
+use std::mem::MaybeUninit;
 use std::net::{Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, ToSocketAddrs};
 use std::time::{Duration, Instant};
 
@@ -317,12 +318,12 @@ impl PySocket {
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
         let flags = flags.unwrap_or(0);
-        let mut buffer = vec![0u8; bufsize];
+        let mut buffer = Vec::with_capacity(bufsize);
         let sock = self.sock();
         let n = self.sock_op(vm, SelectKind::Read, || {
-            sock.recv_with_flags(&mut buffer, flags)
+            sock.recv_with_flags(spare_capacity_mut(&mut buffer), flags)
         })?;
-        buffer.truncate(n);
+        unsafe { buffer.set_len(n) };
         Ok(buffer)
     }
 
@@ -336,7 +337,7 @@ impl PySocket {
         let flags = flags.unwrap_or(0);
         let sock = self.sock();
         self.sock_op(vm, SelectKind::Read, || {
-            buf.with_ref(|buf| sock.recv_with_flags(buf, flags))
+            buf.with_ref(|buf| sock.recv_with_flags(slice_as_uninit(buf), flags))
         })
     }
 
@@ -348,11 +349,12 @@ impl PySocket {
         vm: &VirtualMachine,
     ) -> PyResult<(Vec<u8>, PyObjectRef)> {
         let flags = flags.unwrap_or(0);
-        let mut buffer = vec![0u8; bufsize];
+        let mut buffer = Vec::with_capacity(bufsize);
         let (n, addr) = self.sock_op(vm, SelectKind::Read, || {
-            self.sock().recv_from_with_flags(&mut buffer, flags)
+            self.sock()
+                .recv_from_with_flags(spare_capacity_mut(&mut buffer), flags)
         })?;
-        buffer.truncate(n);
+        unsafe { buffer.set_len(n) };
         Ok((buffer, get_addr_tuple(addr, vm)))
     }
 
@@ -657,7 +659,7 @@ impl Address {
 
 fn get_addr_tuple<A: Into<socket2::SockAddr>>(addr: A, vm: &VirtualMachine) -> PyObjectRef {
     let addr = addr.into();
-    match addr.as_std() {
+    match addr.as_socket() {
         Some(SocketAddr::V4(addr)) => (addr.ip().to_string(), addr.port()).into_pyobject(vm),
         Some(SocketAddr::V6(addr)) => (
             addr.ip().to_string(),
@@ -714,6 +716,17 @@ fn _socket_getservbyname(
     }
     let port = unsafe { (*serv).s_port };
     Ok(vm.ctx.new_int(u16::from_be(port as u16)))
+}
+
+// TODO: use `Vec::spare_capacity_mut` once stable.
+fn spare_capacity_mut<T>(v: &mut Vec<T>) -> &mut [MaybeUninit<T>] {
+    let (len, cap) = (v.len(), v.capacity());
+    unsafe {
+        std::slice::from_raw_parts_mut(v.as_mut_ptr().add(len) as *mut MaybeUninit<T>, cap - len)
+    }
+}
+fn slice_as_uninit<T>(v: &mut [T]) -> &mut [MaybeUninit<T>] {
+    unsafe { &mut *(v as *mut [T] as *mut [MaybeUninit<T>]) }
 }
 
 #[derive(Copy, Clone)]

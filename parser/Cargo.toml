@@ -15,13 +15,13 @@ lalrpop = "0.19"
 rustpython-ast = { path = "../ast" }
 lalrpop-util = "0.19.1"
 log = "0.4.1"
-num-bigint = "0.3"
+num-bigint = "0.4.0"
 num-traits = "0.2"
 unic-emoji-char = "0.9"
 unic-ucd-ident  = "0.9"
 unicode_names2 = "0.4"
 phf = { version = "0.8", features = ["macros"] }
-ahash = "0.6"
+ahash = "0.7.2"
 
 [dev-dependencies]
 insta = "1.5"
