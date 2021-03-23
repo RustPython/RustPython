@@ -1,7 +1,8 @@
 use num_bigint::{BigInt, ToBigInt};
 use num_complex::Complex64;
 use num_rational::Ratio;
-use num_traits::{pow, ToPrimitive, Zero};
+use num_traits::{pow, Signed, ToPrimitive, Zero};
+use std::f64;
 
 use super::bytes::PyBytes;
 use super::int::{self, PyInt, PyIntRef};
@@ -394,9 +395,9 @@ impl PyFloat {
         let ndigits = ndigits.flatten();
         let value = if let Some(ndigits) = ndigits {
             let ndigits = ndigits.borrow_value();
-            if ndigits.is_zero() {
+            let float = if ndigits.is_zero() {
                 let fract = self.value.fract();
-                let value = if (fract.abs() - 0.5).abs() < std::f64::EPSILON {
+                if (fract.abs() - 0.5).abs() < f64::EPSILON {
                     if self.value.trunc() % 2.0 == 0.0 {
                         self.value - fract
                     } else {
@@ -404,36 +405,37 @@ impl PyFloat {
                     }
                 } else {
                     self.value.round()
-                };
-                vm.ctx.new_float(value)
-            } else {
-                let ndigits = match ndigits {
-                    ndigits if *ndigits > i32::max_value().to_bigint().unwrap() => i32::max_value(),
-                    ndigits if *ndigits < i32::min_value().to_bigint().unwrap() => i32::min_value(),
-                    _ => ndigits.to_i32().unwrap(),
-                };
-                if (self.value > 1e+16_f64 && ndigits >= 0i32)
-                    || (ndigits + self.value.log10().floor() as i32 > 16i32)
-                {
-                    return Ok(vm.ctx.new_float(self.value));
                 }
-                if ndigits >= 0i32 {
-                    vm.ctx.new_float(
-                        (self.value * pow(10.0, ndigits as usize)).round()
-                            / pow(10.0, ndigits as usize),
-                    )
+            } else {
+                let ndigits = match ndigits.to_isize() {
+                    Some(n) => n,
+                    None if ndigits.is_positive() => isize::MAX,
+                    None => isize::MIN,
+                };
+                const NDIGITS_MAX: isize = ((f64::MANTISSA_DIGITS as i32 - f64::MIN_EXP) as f64
+                    * f64::consts::LOG10_2) as isize;
+                const NDIGITS_MIN: isize =
+                    -(((f64::MAX_EXP + 1) as f64 * f64::consts::LOG10_2) as isize);
+                if ndigits > NDIGITS_MAX {
+                    self.value
+                } else if ndigits > NDIGITS_MIN {
+                    0.0f64.copysign(self.value)
+                } else if ndigits >= 0 {
+                    (self.value * pow(10.0, ndigits as usize)).round() / pow(10.0, ndigits as usize)
                 } else {
                     let result = (self.value / pow(10.0, (-ndigits) as usize)).round()
                         * pow(10.0, (-ndigits) as usize);
                     if result.is_nan() {
-                        return Ok(vm.ctx.new_float(0.0));
+                        0.0
+                    } else {
+                        result
                     }
-                    vm.ctx.new_float(result)
                 }
-            }
+            };
+            vm.ctx.new_float(float)
         } else {
             let fract = self.value.fract();
-            let value = if (fract.abs() - 0.5).abs() < std::f64::EPSILON {
+            let value = if (fract.abs() - 0.5).abs() < f64::EPSILON {
                 if self.value.trunc() % 2.0 == 0.0 {
                     self.value - fract
                 } else {
