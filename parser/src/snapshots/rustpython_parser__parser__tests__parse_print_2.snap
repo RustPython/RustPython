@@ -1,6 +1,7 @@
 ---
 source: parser/src/parser.rs
 expression: parse_ast
+
 ---
 [
     Located {
@@ -50,14 +51,7 @@ expression: parse_ast
                             custom: (),
                             node: Constant {
                                 value: Int(
-                                    BigInt {
-                                        sign: Plus,
-                                        data: BigUint {
-                                            data: [
-                                                2,
-                                            ],
-                                        },
-                                    },
+                                    2,
                                 ),
                                 kind: None,
                             },

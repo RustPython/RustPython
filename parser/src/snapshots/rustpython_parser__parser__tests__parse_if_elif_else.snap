@@ -1,6 +1,7 @@
 ---
 source: parser/src/parser.rs
 expression: parse_ast
+
 ---
 [
     Located {
@@ -18,14 +19,7 @@ expression: parse_ast
                 custom: (),
                 node: Constant {
                     value: Int(
-                        BigInt {
-                            sign: Plus,
-                            data: BigUint {
-                                data: [
-                                    1,
-                                ],
-                            },
-                        },
+                        1,
                     ),
                     kind: None,
                 },
@@ -46,14 +40,7 @@ expression: parse_ast
                             custom: (),
                             node: Constant {
                                 value: Int(
-                                    BigInt {
-                                        sign: Plus,
-                                        data: BigUint {
-                                            data: [
-                                                10,
-                                            ],
-                                        },
-                                    },
+                                    10,
                                 ),
                                 kind: None,
                             },
@@ -77,14 +64,7 @@ expression: parse_ast
                             custom: (),
                             node: Constant {
                                 value: Int(
-                                    BigInt {
-                                        sign: Plus,
-                                        data: BigUint {
-                                            data: [
-                                                2,
-                                            ],
-                                        },
-                                    },
+                                    2,
                                 ),
                                 kind: None,
                             },
@@ -105,14 +85,7 @@ expression: parse_ast
                                         custom: (),
                                         node: Constant {
                                             value: Int(
-                                                BigInt {
-                                                    sign: Plus,
-                                                    data: BigUint {
-                                                        data: [
-                                                            20,
-                                                        ],
-                                                    },
-                                                },
+                                                20,
                                             ),
                                             kind: None,
                                         },
@@ -136,14 +109,7 @@ expression: parse_ast
                                         custom: (),
                                         node: Constant {
                                             value: Int(
-                                                BigInt {
-                                                    sign: Plus,
-                                                    data: BigUint {
-                                                        data: [
-                                                            30,
-                                                        ],
-                                                    },
-                                                },
+                                                30,
                                             ),
                                             kind: None,
                                         },

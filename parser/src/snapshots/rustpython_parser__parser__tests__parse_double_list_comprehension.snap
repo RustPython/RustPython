@@ -1,6 +1,7 @@
 ---
 source: parser/src/parser.rs
 expression: parse_ast
+
 ---
 Located {
     location: Location {
@@ -124,14 +125,7 @@ Located {
                                     custom: (),
                                     node: Constant {
                                         value: Int(
-                                            BigInt {
-                                                sign: Plus,
-                                                data: BigUint {
-                                                    data: [
-                                                        5,
-                                                    ],
-                                                },
-                                            },
+                                            5,
                                         ),
                                         kind: None,
                                     },
@@ -169,14 +163,7 @@ Located {
                                     custom: (),
                                     node: Constant {
                                         value: Int(
-                                            BigInt {
-                                                sign: Plus,
-                                                data: BigUint {
-                                                    data: [
-                                                        10,
-                                                    ],
-                                                },
-                                            },
+                                            10,
                                         ),
                                         kind: None,
                                     },
