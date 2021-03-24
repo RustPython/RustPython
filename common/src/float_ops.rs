@@ -1,5 +1,6 @@
 use num_bigint::{BigInt, ToBigInt};
 use num_traits::{Float, Signed, ToPrimitive, Zero};
+use std::f64;
 
 pub fn ufrexp(value: f64) -> (f64, i32) {
     if 0.0 == value {
@@ -364,6 +365,69 @@ pub fn ulp(x: f64) -> f64 {
     } else {
         x2 - x
     }
+}
+
+pub fn round_float_digits(x: f64, ndigits: i32) -> Option<f64> {
+    let float = if ndigits.is_zero() {
+        let fract = x.fract();
+        if (fract.abs() - 0.5).abs() < f64::EPSILON {
+            if x.trunc() % 2.0 == 0.0 {
+                x - fract
+            } else {
+                x + fract
+            }
+        } else {
+            x.round()
+        }
+    } else {
+        const NDIGITS_MAX: i32 =
+            ((f64::MANTISSA_DIGITS as i32 - f64::MIN_EXP) as f64 * f64::consts::LOG10_2) as i32;
+        const NDIGITS_MIN: i32 = -(((f64::MAX_EXP + 1) as f64 * f64::consts::LOG10_2) as i32);
+        if ndigits > NDIGITS_MAX {
+            x
+        } else if ndigits < NDIGITS_MIN {
+            0.0f64.copysign(x)
+        } else {
+            let (y, pow1, pow2) = if ndigits >= 0 {
+                // according to cpython: pow1 and pow2 are each safe from overflow, but
+                //                       pow1*pow2 ~= pow(10.0, ndigits) might overflow
+                let (pow1, pow2) = if ndigits > 22 {
+                    (10.0.powf((ndigits - 22) as f64), 1e22)
+                } else {
+                    (10.0.powf(ndigits as f64), 1.0)
+                };
+                let y = (x * pow1) * pow2;
+                if !y.is_finite() {
+                    return Some(x);
+                }
+                (y, pow1, Some(pow2))
+            } else {
+                let pow1 = 10.0.powf((-ndigits) as f64);
+                (x / pow1, pow1, None)
+            };
+            let z = y.round();
+            #[allow(clippy::float_cmp)]
+            let z = if (y - z).abs() == 0.5 {
+                2.0 * (y / 2.0).round()
+            } else {
+                z
+            };
+            let z = if let Some(pow2) = pow2 {
+                // ndigits >= 0
+                (z / pow2) / pow1
+            } else {
+                z * pow1
+            };
+
+            if !z.is_finite() {
+                // overflow
+                return None;
+            }
+
+            z
+        }
+    };
+    Some(float)
 }
 
 #[test]
