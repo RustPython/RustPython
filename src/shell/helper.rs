@@ -163,8 +163,9 @@ cfg_if::cfg_if! {
                     .unwrap_or_else(|| (line.len(), vec!["\t".to_owned()])))
             }
         }
-
-        impl Hinter for ShellHelper<'_> {}
+        impl Hinter for ShellHelper<'_> {
+                type Hint = String;
+        }
         impl Highlighter for ShellHelper<'_> {}
         impl Validator for ShellHelper<'_> {}
         impl Helper for ShellHelper<'_> {}

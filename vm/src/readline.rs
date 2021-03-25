@@ -68,26 +68,20 @@ mod rustyline_readline {
     pub trait Helper: rustyline::Helper {}
     impl<T: rustyline::Helper> Helper for T {}
 
+    /// Readline: the REPL
     pub struct Readline<H: Helper> {
         repl: rustyline::Editor<H>,
     }
 
     impl<H: Helper> Readline<H> {
         pub fn new(helper: H) -> Self {
-            use rustyline::{At, Cmd, CompletionType, Config, Editor, KeyPress, Movement, Word};
+            use rustyline::*;
             let mut repl = Editor::with_config(
                 Config::builder()
                     .completion_type(CompletionType::List)
                     .tab_stop(8)
+                    .bracketed_paste(false) // multi-line paste
                     .build(),
-            );
-            repl.bind_sequence(
-                KeyPress::ControlLeft,
-                Cmd::Move(Movement::BackwardWord(1, Word::Vi)),
-            );
-            repl.bind_sequence(
-                KeyPress::ControlRight,
-                Cmd::Move(Movement::ForwardWord(1, At::AfterEnd, Word::Vi)),
             );
             repl.set_helper(Some(helper));
             Readline { repl }
