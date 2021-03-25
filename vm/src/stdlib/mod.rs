@@ -48,6 +48,8 @@ mod zlib;
 #[macro_use]
 mod os;
 
+#[cfg(not(any(target_arch = "wasm32")))]
+mod bz2;
 #[cfg(not(target_arch = "wasm32"))]
 mod faulthandler;
 #[cfg(windows)]
@@ -144,6 +146,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc, ahash::RandomState>
         modules.insert("_ssl".to_owned(), Box::new(ssl::make_module));
         #[cfg(feature = "threading")]
         modules.insert("_thread".to_owned(), Box::new(thread::make_module));
+        modules.insert("_bz2".to_owned(), Box::new(bz2::make_module));
         modules.insert(
             "faulthandler".to_owned(),
             Box::new(faulthandler::make_module),

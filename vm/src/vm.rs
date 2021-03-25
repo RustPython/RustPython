@@ -672,6 +672,11 @@ impl VirtualMachine {
         self.new_exception_msg(buffer_error, msg)
     }
 
+    pub fn new_eof_error(&self, msg: String) -> PyBaseExceptionRef {
+        let eof_error = self.ctx.exceptions.eof_error.clone();
+        self.new_exception_msg(eof_error, msg)
+    }
+
     pub fn new_key_error(&self, obj: PyObjectRef) -> PyBaseExceptionRef {
         let key_error = self.ctx.exceptions.key_error.clone();
         self.new_exception(key_error, vec![obj])
