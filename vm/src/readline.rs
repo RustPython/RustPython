@@ -122,44 +122,6 @@ mod rustyline_readline {
             }
         }
     }
-
-    #[cfg(test)]
-    mod test_rusty_readline {
-        use super::Readline;
-        use crate::readline::ReadlineResult::Line;
-        use rustyline::error::ReadlineError;
-        use rustyline::{
-            completion::Completer, highlight::Highlighter, hint::Hinter, validate::Validator,
-            Context,
-        };
-        struct HelperShim {}
-        impl rustyline::Helper for HelperShim {}
-        impl Highlighter for HelperShim {}
-        impl Validator for HelperShim {}
-        impl Completer for HelperShim {
-            type Candidate = String;
-
-            fn complete(
-                &self,
-                _line: &str,
-                _pos: usize,
-                _ctx: &Context,
-            ) -> rustyline::Result<(usize, Vec<String>)> {
-                Err(ReadlineError::Interrupted)
-            }
-        }
-        impl Hinter for HelperShim {
-            type Hint = String;
-        }
-        #[test]
-        #[ignore]
-        fn test_multi_read_line() {
-            let mut repl = Readline::new(HelperShim {});
-            if let Line(line) = repl.readline("print('hello')\nprint('hello2')\n") {
-                assert_eq!(line, "print('hello')");
-            }
-        }
-    }
 }
 
 #[cfg(target_arch = "wasm32")]
