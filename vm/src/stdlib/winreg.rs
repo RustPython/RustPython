@@ -240,7 +240,7 @@ fn reg_to_py(value: RegValue, vm: &VirtualMachine) -> PyResult {
             };
             i.map(|i| vm.ctx.new_int(i))
         }};
-    };
+    }
     let bytes_to_wide = |b: &[u8]| -> Option<&[u16]> {
         if b.len() % 2 == 0 {
             Some(unsafe { std::slice::from_raw_parts(b.as_ptr().cast(), b.len() / 2) })

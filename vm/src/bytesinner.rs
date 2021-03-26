@@ -1013,7 +1013,7 @@ impl<'s> AnyStr<'s> for [u8] {
     {
         let mut splited = Vec::new();
         let mut count = maxsplit;
-        let mut haystack = &self[..];
+        let mut haystack = self;
         while let Some(offset) = haystack.find_byteset(ASCII_WHITESPACES) {
             if offset != 0 {
                 if count == 0 {
@@ -1036,7 +1036,7 @@ impl<'s> AnyStr<'s> for [u8] {
     {
         let mut splited = Vec::new();
         let mut count = maxsplit;
-        let mut haystack = &self[..];
+        let mut haystack = self;
         while let Some(offset) = haystack.rfind_byteset(ASCII_WHITESPACES) {
             if offset + 1 != haystack.len() {
                 if count == 0 {
@@ -1185,7 +1185,7 @@ pub fn bytes_from_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Vec
     }
 
     if let Ok(elements) = vm.map_iterable_object(obj, |x| value_from_object(vm, &x)) {
-        return Ok(elements?);
+        return elements;
     }
 
     Err(vm.new_type_error(

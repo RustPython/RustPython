@@ -1189,7 +1189,7 @@ where
 
                 if self.chr0.is_none() {
                     return Err(LexicalError {
-                        error: LexicalErrorType::EOF,
+                        error: LexicalErrorType::Eof,
                         location: self.get_pos(),
                     });
                 }
