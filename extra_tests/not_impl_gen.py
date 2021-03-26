@@ -7,11 +7,13 @@
 # cpymods - a dictionary mapping module names to their contents
 # libdir - the location of RustPython's Lib/ directory.
 
-import re
+import inspect
+import io
 import os
+import re
 import sys
 import warnings
-import inspect
+from contextlib import redirect_stdout
 from pydoc import ModuleScanner
 
 
@@ -138,7 +140,10 @@ def scan_modules():
 
 
 def dir_of_mod_or_error(module_name):
-    with warnings.catch_warnings():
+    # Importing modules causes ('Constant String', 2, None, 4) and
+    # "Hello world!" to be printed to stdout.
+    f = io.StringIO()
+    with warnings.catch_warnings(), redirect_stdout(f):
         # ignore warnings caused by importing deprecated modules
         warnings.filterwarnings("ignore", category=DeprecationWarning)
         try:
@@ -197,11 +202,14 @@ cpymods = {}
 libdir = ""
 # This function holds the source code that will be run under RustPython
 def compare():
-    import re
+    import inspect
+    import io
     import os
+    import re
     import sys
     import warnings
-    import inspect
+    from contextlib import redirect_stdout
+
     import platform
 
     def method_incompatability_reason(typ, method_name, real_method_value):
