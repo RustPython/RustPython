@@ -26,13 +26,13 @@ ssl = ["rustpython-vm/ssl"]
 
 [dependencies]
 log = "0.4"
-env_logger = "0.7"
+env_logger = "0.8.3"
 clap = "2.33"
 rustpython-compiler = { path = "compiler/porcelain", version = "0.1.1" }
 rustpython-parser = { path = "parser", version = "0.1.1" }
 rustpython-vm = { path = "vm", version = "0.1.1", default-features = false, features = ["compile-parse"] }
 pylib = { package = "rustpython-pylib", path = "vm/pylib-crate", version = "0.1.0", default-features = false, optional = true }
-dirs = { package = "dirs-next", version = "1.0" }
+dirs = { package = "dirs-next", version = "2.0.0" }
 num-traits = "0.2.8"
 cfg-if = "1.0"
 libc = "0.2"

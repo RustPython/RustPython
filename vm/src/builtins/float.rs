@@ -1,7 +1,7 @@
 use num_bigint::{BigInt, ToBigInt};
 use num_complex::Complex64;
 use num_rational::Ratio;
-use num_traits::{pow, ToPrimitive, Zero};
+use num_traits::{Signed, ToPrimitive, Zero};
 
 use super::bytes::PyBytes;
 use super::int::{self, PyInt, PyIntRef};
@@ -394,46 +394,17 @@ impl PyFloat {
         let ndigits = ndigits.flatten();
         let value = if let Some(ndigits) = ndigits {
             let ndigits = ndigits.borrow_value();
-            if ndigits.is_zero() {
-                let fract = self.value.fract();
-                let value = if (fract.abs() - 0.5).abs() < std::f64::EPSILON {
-                    if self.value.trunc() % 2.0 == 0.0 {
-                        self.value - fract
-                    } else {
-                        self.value + fract
-                    }
-                } else {
-                    self.value.round()
-                };
-                vm.ctx.new_float(value)
-            } else {
-                let ndigits = match ndigits {
-                    ndigits if *ndigits > i32::max_value().to_bigint().unwrap() => i32::max_value(),
-                    ndigits if *ndigits < i32::min_value().to_bigint().unwrap() => i32::min_value(),
-                    _ => ndigits.to_i32().unwrap(),
-                };
-                if (self.value > 1e+16_f64 && ndigits >= 0i32)
-                    || (ndigits + self.value.log10().floor() as i32 > 16i32)
-                {
-                    return Ok(vm.ctx.new_float(self.value));
-                }
-                if ndigits >= 0i32 {
-                    vm.ctx.new_float(
-                        (self.value * pow(10.0, ndigits as usize)).round()
-                            / pow(10.0, ndigits as usize),
-                    )
-                } else {
-                    let result = (self.value / pow(10.0, (-ndigits) as usize)).round()
-                        * pow(10.0, (-ndigits) as usize);
-                    if result.is_nan() {
-                        return Ok(vm.ctx.new_float(0.0));
-                    }
-                    vm.ctx.new_float(result)
-                }
-            }
+            let ndigits = match ndigits.to_i32() {
+                Some(n) => n,
+                None if ndigits.is_positive() => i32::MAX,
+                None => i32::MIN,
+            };
+            let float = float_ops::round_float_digits(self.value, ndigits)
+                .ok_or_else(|| vm.new_overflow_error("overflow ocurred during round".to_owned()))?;
+            vm.ctx.new_float(float)
         } else {
             let fract = self.value.fract();
-            let value = if (fract.abs() - 0.5).abs() < std::f64::EPSILON {
+            let value = if (fract.abs() - 0.5).abs() < f64::EPSILON {
                 if self.value.trunc() % 2.0 == 0.0 {
                     self.value - fract
                 } else {

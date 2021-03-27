@@ -832,8 +832,6 @@ class RoundTestCase(unittest.TestCase):
         self.assertRaises(TypeError, round, NAN, "ceci n'est pas un integer")
         self.assertRaises(TypeError, round, -0.0, 1j)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_large_n(self):
         for n in [324, 325, 400, 2**31-1, 2**31, 2**32, 2**100]:
             self.assertEqual(round(123.456, n), 123.456)
@@ -846,8 +844,6 @@ class RoundTestCase(unittest.TestCase):
         self.assertEqual(round(1e150, 309), 1e150)
         self.assertEqual(round(1.4e-315, 315), 1e-315)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_small_n(self):
         for n in [-308, -309, -400, 1-2**31, -2**31, -2**31-1, -2**100]:
             self.assertEqual(round(123.456, n), 0.0)
@@ -855,8 +851,6 @@ class RoundTestCase(unittest.TestCase):
             self.assertEqual(round(1e300, n), 0.0)
             self.assertEqual(round(1e-320, n), 0.0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_overflow(self):
         self.assertRaises(OverflowError, round, 1.6e308, -308)
         self.assertRaises(OverflowError, round, -1.7e308, -308)

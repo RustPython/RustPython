@@ -26,18 +26,18 @@ ssl = ["openssl", "openssl-sys", "openssl-probe"]
 
 [dependencies]
 # Crypto:
-digest = "0.8.1"
-md-5 = "0.8"
-sha-1 = "0.8"
-sha2 = "0.8"
-sha3 = "0.8"
-blake2 = "0.8"
+digest = "0.9.0"
+md-5 = "0.9.1"
+sha-1 = "0.9.4"
+sha2 = "0.9.3"
+sha3 = "0.9.1"
+blake2 = "0.9.1"
 
-num-complex = { version = "0.3", features = ["serde"] }
-num-bigint = { version = "0.3", features = ["serde"] }
+num-complex = { version = "0.4.0", features = ["serde"] }
+num-bigint = { version = "0.4.0", features = ["serde"] }
 num-traits = "0.2.8"
 num-integer = "0.1.41"
-num-rational = "0.3"
+num-rational = "0.4.0"
 num-iter = "0.1.39"
 rand = "0.8"
 rand_core = "0.6"
@@ -54,22 +54,22 @@ rustpython-pylib = { path = "pylib-crate", optional = true, version = "0.1.0" }
 serde = { version = "1.0.66", features = ["derive"] }
 serde_json = "1.0"
 regex = "1"
-rustc_version_runtime = "0.1.*"
+rustc_version_runtime = "0.2.0"
 puruspe = "0.1"
 caseless = "0.2.1"
 chrono = { version = "0.4", features = ["wasmbind"] }
 lexical-core = "0.7"
-itertools = "0.9"
+itertools = "0.10.0"
 hex = "0.4.0"
 hexf-parse = "0.1.0"
 indexmap = "1.0.2"
-ahash = "0.6"
+ahash = "0.7.2"
 crc = "^1.0.0"
 bitflags = "1.2.1"
 libc = "0.2"
-nix = "0.19"
+nix = "0.20.0"
 csv-core = "0.1"
-paste = "0.1"
+paste = "1.0.5"
 base64 = "0.13"
 is-macro = "0.1"
 result-like = "^0.3"
@@ -121,7 +121,7 @@ uname = "0.1.1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 gethostname = "0.2.0"
-socket2 = "0.3.19"
+socket2 = "0.4.0"
 rustyline = "8.0"
 openssl = { version = "0.10.32", features = ["vendored"], optional = true }
 openssl-sys = { version = "0.9", optional = true }
@@ -135,7 +135,7 @@ num_cpus = "1"
 dns-lookup = "1.0"
 
 [target.'cfg(windows)'.dependencies]
-winreg = "0.7"
+winreg = "0.8.0"
 schannel = "0.1"
 
 [target.'cfg(windows)'.dependencies.winapi]
@@ -153,4 +153,4 @@ wasm-bindgen = "0.2"
 filepath = "0.1.1"
 
 [build-dependencies]
-itertools = "0.9"
+itertools = "0.10.0"

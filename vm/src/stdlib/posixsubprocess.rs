@@ -34,6 +34,7 @@ use nix::{errno::Errno, fcntl, unistd};
 use std::convert::Infallible as Never;
 use std::ffi::{CStr, CString};
 use std::io::{self, prelude::*};
+use std::os::unix::io::AsRawFd;
 
 use super::os;
 use crate::pyobject::{PyObjectRef, PyResult, PySequence, TryFromObject};
@@ -175,9 +176,10 @@ fn close_fds(above: i32, keep: &[i32]) -> nix::Result<()> {
         fcntl::OFlag::O_RDONLY | fcntl::OFlag::O_DIRECTORY,
         nix::sys::stat::Mode::empty(),
     )?;
+    let dirfd = dir.as_raw_fd();
     for e in dir.iter() {
         if let Some(fd) = pos_int_from_ascii(e?.file_name()) {
-            if fd > above && !keep.contains(&fd) {
+            if fd != dirfd && fd > above && !keep.contains(&fd) {
                 unistd::close(fd)?
             }
         }

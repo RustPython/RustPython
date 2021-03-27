@@ -1,6 +1,7 @@
 ---
 source: parser/src/parser.rs
 expression: parse_program(&source).unwrap()
+
 ---
 [
     Located {
@@ -62,14 +63,7 @@ expression: parse_program(&source).unwrap()
                             custom: (),
                             node: Constant {
                                 value: Int(
-                                    BigInt {
-                                        sign: Plus,
-                                        data: BigUint {
-                                            data: [
-                                                4,
-                                            ],
-                                        },
-                                    },
+                                    4,
                                 ),
                                 kind: None,
                             },
@@ -82,14 +76,7 @@ expression: parse_program(&source).unwrap()
                             custom: (),
                             node: Constant {
                                 value: Int(
-                                    BigInt {
-                                        sign: Plus,
-                                        data: BigUint {
-                                            data: [
-                                                5,
-                                            ],
-                                        },
-                                    },
+                                    5,
                                 ),
                                 kind: None,
                             },
