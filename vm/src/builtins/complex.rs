@@ -241,7 +241,7 @@ impl PyComplex {
         if mod_val.flatten().is_some() {
             Err(vm.new_value_error("complex modulo not allowed".to_owned()))
         } else {
-            self.op(other, |a, b| Ok(inner_pow(a, b, vm)?), vm)
+            self.op(other, |a, b| inner_pow(a, b, vm), vm)
         }
     }
 
@@ -251,7 +251,7 @@ impl PyComplex {
         other: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyArithmaticValue<Complex64>> {
-        self.op(other, |a, b| Ok(inner_pow(b, a, vm)?), vm)
+        self.op(other, |a, b| inner_pow(b, a, vm), vm)
     }
 
     #[pymethod(name = "__bool__")]

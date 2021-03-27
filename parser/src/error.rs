@@ -29,7 +29,7 @@ pub enum LexicalErrorType {
     UnrecognizedToken { tok: char },
     FStringError(FStringErrorType),
     LineContinuationError,
-    EOF,
+    Eof,
     OtherError(String),
 }
 
@@ -64,7 +64,7 @@ impl fmt::Display for LexicalErrorType {
             LexicalErrorType::LineContinuationError => {
                 write!(f, "unexpected character after line continuation character")
             }
-            LexicalErrorType::EOF => write!(f, "unexpected EOF while parsing"),
+            LexicalErrorType::Eof => write!(f, "unexpected EOF while parsing"),
             LexicalErrorType::OtherError(msg) => write!(f, "{}", msg),
         }
     }
@@ -129,7 +129,7 @@ pub struct ParseError {
 #[derive(Debug, PartialEq)]
 pub enum ParseErrorType {
     /// Parser encountered an unexpected end of input
-    EOF,
+    Eof,
     /// Parser encountered an extra token
     ExtraToken(Tok),
     /// Parser encountered an invalid token
@@ -146,7 +146,7 @@ impl From<LalrpopError<Location, Tok, LexicalError>> for ParseError {
         match err {
             // TODO: Are there cases where this isn't an EOF?
             LalrpopError::InvalidToken { location } => ParseError {
-                error: ParseErrorType::EOF,
+                error: ParseErrorType::Eof,
                 location,
             },
             LalrpopError::ExtraToken { token } => ParseError {
@@ -171,7 +171,7 @@ impl From<LalrpopError<Location, Tok, LexicalError>> for ParseError {
                 }
             }
             LalrpopError::UnrecognizedEOF { location, .. } => ParseError {
-                error: ParseErrorType::EOF,
+                error: ParseErrorType::Eof,
                 location,
             },
         }
@@ -187,7 +187,7 @@ impl fmt::Display for ParseError {
 impl fmt::Display for ParseErrorType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            ParseErrorType::EOF => write!(f, "Got unexpected EOF"),
+            ParseErrorType::Eof => write!(f, "Got unexpected EOF"),
             ParseErrorType::ExtraToken(ref tok) => write!(f, "Got extraneous token: {:?}", tok),
             ParseErrorType::InvalidToken => write!(f, "Got invalid token"),
             ParseErrorType::UnrecognizedToken(ref tok, ref expected) => {

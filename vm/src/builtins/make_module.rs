@@ -382,13 +382,13 @@ mod decl {
             let mut readline = Readline::new(());
             match readline.readline(prompt) {
                 ReadlineResult::Line(s) => Ok(vm.ctx.new_str(s)),
-                ReadlineResult::EOF => {
+                ReadlineResult::Eof => {
                     Err(vm.new_exception_empty(vm.ctx.exceptions.eof_error.clone()))
                 }
                 ReadlineResult::Interrupt => {
                     Err(vm.new_exception_empty(vm.ctx.exceptions.keyboard_interrupt.clone()))
                 }
-                ReadlineResult::IO(e) => Err(vm.new_os_error(e.to_string())),
+                ReadlineResult::Io(e) => Err(vm.new_os_error(e.to_string())),
                 ReadlineResult::EncodingError => {
                     Err(vm.new_unicode_decode_error("Error decoding readline input".to_owned()))
                 }

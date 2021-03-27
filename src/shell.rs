@@ -23,11 +23,11 @@ fn shell_exec(vm: &VirtualMachine, source: &str, scope: Scope) -> ShellExecResul
             Err(err) => ShellExecResult::PyErr(err),
         },
         Err(CompileError {
-            error: CompileErrorType::Parse(ParseErrorType::Lexical(LexicalErrorType::EOF)),
+            error: CompileErrorType::Parse(ParseErrorType::Lexical(LexicalErrorType::Eof)),
             ..
-        }) => ShellExecResult::Continue,
-        Err(CompileError {
-            error: CompileErrorType::Parse(ParseErrorType::EOF),
+        })
+        | Err(CompileError {
+            error: CompileErrorType::Parse(ParseErrorType::Eof),
             ..
         }) => ShellExecResult::Continue,
         Err(err) => ShellExecResult::PyErr(vm.new_syntax_error(&err)),
@@ -108,7 +108,7 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
                     vm.new_exception_empty(vm.ctx.exceptions.keyboard_interrupt.clone());
                 Err(keyboard_interrupt)
             }
-            ReadlineResult::EOF => {
+            ReadlineResult::Eof => {
                 break;
             }
             ReadlineResult::EncodingError => {
@@ -119,7 +119,7 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
                 eprintln!("Readline error: {:?}", err);
                 break;
             }
-            ReadlineResult::IO(err) => {
+            ReadlineResult::Io(err) => {
                 eprintln!("IO error: {:?}", err);
                 break;
             }

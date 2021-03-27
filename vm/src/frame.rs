@@ -1653,7 +1653,7 @@ impl ExecutingFrame<'_> {
         haystack: PyObjectRef,
     ) -> PyResult<bool> {
         let found = vm._membership(haystack, needle)?;
-        Ok(pybool::boolval(vm, found)?)
+        pybool::boolval(vm, found)
     }
 
     fn _not_in(

@@ -6,9 +6,9 @@ type OtherResult<T> = Result<T, OtherError>;
 
 pub enum ReadlineResult {
     Line(String),
-    EOF,
+    Eof,
     Interrupt,
-    IO(std::io::Error),
+    Io(std::io::Error),
     EncodingError,
     Other(OtherError),
 }
@@ -45,16 +45,16 @@ mod basic_readline {
             use std::io::prelude::*;
             print!("{}", prompt);
             if let Err(e) = io::stdout().flush() {
-                return ReadlineResult::IO(e);
+                return ReadlineResult::Io(e);
             }
 
             match io::stdin().lock().lines().next() {
                 Some(Ok(line)) => ReadlineResult::Line(line),
-                None => ReadlineResult::EOF,
+                None => ReadlineResult::Eof,
                 Some(Err(e)) => match e.kind() {
                     io::ErrorKind::Interrupted => ReadlineResult::Interrupt,
                     io::ErrorKind::InvalidData => ReadlineResult::EncodingError,
-                    _ => ReadlineResult::IO(e),
+                    _ => ReadlineResult::Io(e),
                 },
             }
         }
@@ -112,8 +112,8 @@ mod rustyline_readline {
             match self.repl.readline(prompt) {
                 Ok(line) => ReadlineResult::Line(line),
                 Err(ReadlineError::Interrupted) => ReadlineResult::Interrupt,
-                Err(ReadlineError::Eof) => ReadlineResult::EOF,
-                Err(ReadlineError::Io(e)) => ReadlineResult::IO(e),
+                Err(ReadlineError::Eof) => ReadlineResult::Eof,
+                Err(ReadlineError::Io(e)) => ReadlineResult::Io(e),
                 #[cfg(unix)]
                 Err(ReadlineError::Utf8Error) => ReadlineResult::EncodingError,
                 #[cfg(windows)]
