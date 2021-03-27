@@ -39,23 +39,36 @@ The entry points are as follows:
 - Compiler: `compile_top`, located in `compiler/src/compiler.rs:90`.
 - VM: `run_code_obj`, located in `vm/src/rm.rs:459`.
 
-## Notable Directories
+## Modules
 
 ### Bytecode
 
-python bytecode representation in rust structures
+This module (single file at moment) holds the representation of bytecode for RustPython
+For instance, the following function
+```python
+def f(x):
+    return x + 1
+```
+Is compiled to
+```rust
+
+```
 
 ### Compiler
 
-python compilation to bytecode
+Python compilation to bytecode. The interface is exposed through the porcelain crate with `compile` and `compile_symtable`, while the inner workings are defined in compiler/src/compile.rs, which is mostly an adaptation of the CPython implementation.
 
 ### Derive
 
-Rust language extensions and macros specific to rustpython
+Rust language extensions and macros specific to rustpython. Here we can find the definition of `PyModule` and `PyClass` along with usefule macros like `py_compile!`
 
 ### Parser
 
-python lexing, parsing, and AST
+All the functionality required for parsing python sourcecode to an abstract syntax tree (AST)
+1. Lexical Analysis
+2. Parsing
+
+As Python heavily relies on whitespace and indentation to organize code, the crate used for parsing, [LALRPOP](https://github.com/lalrpop/lalrpop), the raw source code is first preprocessed by a lexer which makes sure that `Indent` and `Dedent` tokens occur at the correct locations. Then, the parser recursively generates an AST for the code which can be processed by the compiler.
 
 ### Lib
 
@@ -78,9 +91,6 @@ Python VM
 
 The RustPython executable is implemented here
 
-### docs
-
-Non-existent
 
 ### py_code_object
 
