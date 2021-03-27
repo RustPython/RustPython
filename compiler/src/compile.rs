@@ -28,6 +28,28 @@ enum NameUsage {
     Delete,
 }
 
+enum CallType {
+    Positional { nargs: u32 },
+    Keyword { nargs: u32 },
+    Ex { has_kwargs: bool },
+}
+impl CallType {
+    fn normal_call(self) -> Instruction {
+        match self {
+            CallType::Positional { nargs } => Instruction::CallFunctionPositional { nargs },
+            CallType::Keyword { nargs } => Instruction::CallFunctionKeyword { nargs },
+            CallType::Ex { has_kwargs } => Instruction::CallFunctionEx { has_kwargs },
+        }
+    }
+    fn method_call(self) -> Instruction {
+        match self {
+            CallType::Positional { nargs } => Instruction::CallMethodPositional { nargs },
+            CallType::Keyword { nargs } => Instruction::CallMethodKeyword { nargs },
+            CallType::Ex { has_kwargs } => Instruction::CallMethodEx { has_kwargs },
+        }
+    }
+}
+
 /// Main structure holding the state of compilation.
 struct Compiler {
     code_stack: Vec<CodeInfo>,
@@ -667,14 +689,13 @@ impl Compiler {
                     self.switch_to_block(after_block);
                 }
             }
-            Break => match self.ctx.loop_data {
-                Some((_, end)) => {
-                    self.emit(Instruction::Break { target: end });
+            Break => {
+                if self.ctx.loop_data.is_some() {
+                    self.emit(Instruction::Break);
+                } else {
+                    return Err(self.error_loc(CompileErrorType::InvalidBreak, statement.location));
                 }
-                None => {
-                    return Err(self.error_loc(CompileErrorType::InvalidBreak, statement.location))
-                }
-            },
+            }
             Continue => match self.ctx.loop_data {
                 Some((start, _)) => {
                     self.emit(Instruction::Continue { target: start });
@@ -1242,7 +1263,8 @@ impl Compiler {
             value: qualified_name,
         });
 
-        self.compile_call(2, bases, keywords)?;
+        let call = self.compile_call_inner(2, bases, keywords)?;
+        self.emit(call.normal_call());
 
         self.apply_decorators(decorator_list);
 
@@ -1271,7 +1293,9 @@ impl Compiler {
         let else_block = self.new_block();
         let after_block = self.new_block();
 
-        self.emit(Instruction::SetupLoop);
+        self.emit(Instruction::SetupLoop {
+            break_target: after_block,
+        });
         self.switch_to_block(while_block);
 
         self.compile_jump_if(test, false, else_block)?;
@@ -1360,7 +1384,9 @@ impl Compiler {
         let else_block = self.new_block();
         let after_block = self.new_block();
 
-        self.emit(Instruction::SetupLoop);
+        self.emit(Instruction::SetupLoop {
+            break_target: after_block,
+        });
 
         // The thing iterated:
         self.compile_expression(iter)?;
@@ -1794,10 +1820,7 @@ impl Compiler {
                 func,
                 args,
                 keywords,
-            } => {
-                self.compile_expression(func)?;
-                self.compile_call(0, args, keywords)?;
-            }
+            } => self.compile_call(func, args, keywords)?,
             BoolOp { op, values } => self.compile_bool_op(op, values)?,
             BinOp { left, op, right } => {
                 self.compile_expression(left)?;
@@ -2103,17 +2126,41 @@ impl Compiler {
 
     fn compile_call(
         &mut self,
-        additional_positional: u32,
+        func: &ast::Expr,
         args: &[ast::Expr],
         keywords: &[ast::Keyword],
     ) -> CompileResult<()> {
+        let method = if let ast::ExprKind::Attribute { value, attr, .. } = &func.node {
+            self.compile_expression(value)?;
+            let idx = self.name(attr);
+            self.emit(Instruction::LoadMethod { idx });
+            true
+        } else {
+            self.compile_expression(func)?;
+            false
+        };
+        let call = self.compile_call_inner(0, args, keywords)?;
+        self.emit(if method {
+            call.method_call()
+        } else {
+            call.normal_call()
+        });
+        Ok(())
+    }
+
+    fn compile_call_inner(
+        &mut self,
+        additional_positional: u32,
+        args: &[ast::Expr],
+        keywords: &[ast::Keyword],
+    ) -> CompileResult<CallType> {
         let count = (args.len() + keywords.len()) as u32 + additional_positional;
 
         // Normal arguments:
         let (size, unpack) = self.gather_elements(additional_positional, args)?;
         let has_double_star = keywords.iter().any(|k| k.node.arg.is_none());
 
-        if unpack || has_double_star {
+        let call = if unpack || has_double_star {
             // Create a tuple with positional args:
             self.emit(Instruction::BuildTuple { size, unpack });
 
@@ -2122,7 +2169,7 @@ impl Compiler {
             if has_kwargs {
                 self.compile_keywords(keywords)?;
             }
-            self.emit(Instruction::CallFunctionEx { has_kwargs });
+            CallType::Ex { has_kwargs }
         } else if !keywords.is_empty() {
             let mut kwarg_names = vec![];
             for keyword in keywords {
@@ -2140,12 +2187,12 @@ impl Compiler {
             self.emit_constant(ConstantData::Tuple {
                 elements: kwarg_names,
             });
-            self.emit(Instruction::CallFunctionKeyword { nargs: count });
+            CallType::Keyword { nargs: count }
         } else {
-            self.emit(Instruction::CallFunctionPositional { nargs: count });
-        }
+            CallType::Positional { nargs: count }
+        };
 
-        Ok(())
+        Ok(call)
     }
 
     // Given a vector of expr / star expr generate code which gives either
@@ -2262,8 +2309,13 @@ impl Compiler {
                 unimplemented!("async for comprehensions");
             }
 
+            let loop_block = self.new_block();
+            let after_block = self.new_block();
+
             // Setup for loop:
-            self.emit(Instruction::SetupLoop);
+            self.emit(Instruction::SetupLoop {
+                break_target: after_block,
+            });
 
             if loop_labels.is_empty() {
                 // Load iterator onto stack (passed as first argument):
@@ -2276,8 +2328,6 @@ impl Compiler {
                 self.emit(Instruction::GetIter);
             }
 
-            let loop_block = self.new_block();
-            let after_block = self.new_block();
             loop_labels.push((loop_block, after_block));
 
             self.switch_to_block(loop_block);

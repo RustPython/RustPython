@@ -15,6 +15,7 @@ bitflags! {
     pub struct PyTpFlags: u64 {
         const HEAPTYPE = 1 << 9;
         const BASETYPE = 1 << 10;
+        const METHOD_DESCR = 1 << 17;
         const HAS_DICT = 1 << 40;
 
         #[cfg(debug_assertions)]
@@ -46,6 +47,8 @@ pub(crate) type GenericMethod = fn(&PyObjectRef, FuncArgs, &VirtualMachine) -> P
 pub(crate) type DelFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<()>;
 pub(crate) type DescrGetFunc =
     fn(PyObjectRef, Option<PyObjectRef>, Option<PyObjectRef>, &VirtualMachine) -> PyResult;
+pub(crate) type DescrSetFunc =
+    fn(PyObjectRef, PyObjectRef, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>;
 pub(crate) type HashFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<PyHash>;
 pub(crate) type CmpFunc = fn(
     &PyObjectRef,
@@ -54,6 +57,8 @@ pub(crate) type CmpFunc = fn(
     &VirtualMachine,
 ) -> PyResult<Either<PyObjectRef, PyComparisonValue>>;
 pub(crate) type GetattroFunc = fn(PyObjectRef, PyStrRef, &VirtualMachine) -> PyResult;
+pub(crate) type SetattroFunc =
+    fn(&PyObjectRef, PyStrRef, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>;
 pub(crate) type BufferFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<Box<dyn Buffer>>;
 pub(crate) type IterFunc = fn(PyObjectRef, &VirtualMachine) -> PyResult;
 pub(crate) type IterNextFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult;
@@ -66,9 +71,11 @@ pub struct PyTypeSlots {
     pub del: AtomicCell<Option<DelFunc>>,
     pub call: AtomicCell<Option<GenericMethod>>,
     pub descr_get: AtomicCell<Option<DescrGetFunc>>,
+    pub descr_set: AtomicCell<Option<DescrSetFunc>>,
     pub hash: AtomicCell<Option<HashFunc>>,
     pub cmp: AtomicCell<Option<CmpFunc>>,
     pub getattro: AtomicCell<Option<GetattroFunc>>,
+    pub setattro: AtomicCell<Option<SetattroFunc>>,
     pub buffer: Option<BufferFunc>,
     pub iter: AtomicCell<Option<IterFunc>>,
     pub iternext: AtomicCell<Option<IterNextFunc>>,
@@ -409,6 +416,46 @@ pub trait SlotGetattro: PyValue {
         Self::getattro(zelf, name, vm)
     }
 }
+
+#[pyimpl]
+pub trait SlotSetattro: PyValue {
+    #[pyslot]
+    fn tp_setattro(
+        obj: &PyObjectRef,
+        name: PyStrRef,
+        value: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        if let Some(zelf) = obj.downcast_ref::<Self>() {
+            Self::setattro(zelf, name, value, vm)
+        } else {
+            Err(vm.new_type_error("unexpected payload for __setattr__".to_owned()))
+        }
+    }
+
+    fn setattro(
+        zelf: &PyRef<Self>,
+        name: PyStrRef,
+        value: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()>;
+
+    #[pymethod]
+    fn __setattr__(
+        zelf: PyRef<Self>,
+        name: PyStrRef,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        Self::setattro(&zelf, name, Some(value), vm)
+    }
+
+    #[pymethod]
+    fn __delattr__(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
+        Self::setattro(&zelf, name, None, vm)
+    }
+}
+
 #[pyimpl]
 pub trait BufferProtocol: PyValue {
     #[pyslot]

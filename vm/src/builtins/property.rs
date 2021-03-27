@@ -6,7 +6,7 @@ use crate::common::lock::PyRwLock;
 use super::pytype::PyTypeRef;
 use crate::function::FuncArgs;
 use crate::pyobject::{
-    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::slots::SlotDescriptor;
 use crate::vm::VirtualMachine;
@@ -111,21 +111,29 @@ impl PyProperty {
 
     // Descriptor methods
 
-    #[pymethod(name = "__set__")]
-    fn set(&self, obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(ref setter) = self.setter.read().as_ref() {
-            vm.invoke(setter, vec![obj, value])
-        } else {
-            Err(vm.new_attribute_error("can't set attribute".to_owned()))
-        }
-    }
-
-    #[pymethod(name = "__delete__")]
-    fn delete(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(ref deleter) = self.deleter.read().as_ref() {
-            vm.invoke(deleter, (obj,))
-        } else {
-            Err(vm.new_attribute_error("can't delete attribute".to_owned()))
+    #[pyslot]
+    fn descr_set(
+        zelf: PyObjectRef,
+        obj: PyObjectRef,
+        value: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let zelf = PyRef::<Self>::try_from_object(vm, zelf)?;
+        match value {
+            Some(value) => {
+                if let Some(ref setter) = zelf.setter.read().as_ref() {
+                    vm.invoke(setter, vec![obj, value]).map(drop)
+                } else {
+                    Err(vm.new_attribute_error("can't set attribute".to_owned()))
+                }
+            }
+            None => {
+                if let Some(ref deleter) = zelf.deleter.read().as_ref() {
+                    vm.invoke(deleter, (obj,)).map(drop)
+                } else {
+                    Err(vm.new_attribute_error("can't delete attribute".to_owned()))
+                }
+            }
         }
     }
 

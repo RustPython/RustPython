@@ -380,13 +380,16 @@ impl CFormatSpec {
                         };
                         Ok(self.format_bytes(bytes))
                     } else {
-                        let bytes = vm.call_method(&obj, "__bytes__", ())
-                            .map_err(|_| {
+                        let bytes = vm
+                            .get_special_method(obj, "__bytes__")?
+                            .map_err(|obj| {
                                 vm.new_type_error(format!(
-                                    "%b requires a bytes-like object, or an object that implements __bytes__, not '{}'",
+                                    "%b requires a bytes-like object, or an object that \
+                                     implements __bytes__, not '{}'",
                                     obj.class().name
                                 ))
-                            })?;
+                            })?
+                            .invoke((), vm)?;
                         let bytes = PyBytes::try_from_object(vm, bytes)?;
                         Ok(self.format_bytes(bytes.borrow_value()))
                     }

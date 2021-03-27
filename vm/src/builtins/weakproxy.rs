@@ -1,7 +1,9 @@
 use super::pytype::PyTypeRef;
 use super::weakref::PyWeak;
+use super::PyStrRef;
 use crate::function::OptionalArg;
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::slots::SlotSetattro;
 use crate::vm::VirtualMachine;
 
 #[pyclass(module = false, name = "weakproxy")]
@@ -16,7 +18,7 @@ impl PyValue for PyWeakProxy {
     }
 }
 
-#[pyimpl]
+#[pyimpl(with(SlotSetattro))]
 impl PyWeakProxy {
     // TODO: callbacks
     #[pyslot]
@@ -45,11 +47,17 @@ impl PyWeakProxy {
             )),
         }
     }
+}
 
-    #[pymethod(name = "__setattr__")]
-    fn setattr(&self, attr_name: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match self.weak.upgrade() {
-            Some(obj) => vm.set_attr(&obj, attr_name, value),
+impl SlotSetattro for PyWeakProxy {
+    fn setattro(
+        zelf: &PyRef<Self>,
+        attr_name: PyStrRef,
+        value: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        match zelf.weak.upgrade() {
+            Some(obj) => vm.call_set_attr(&obj, attr_name, value),
             None => Err(vm.new_exception_msg(
                 vm.ctx.exceptions.reference_error.clone(),
                 "weakly-referenced object no longer exists".to_owned(),

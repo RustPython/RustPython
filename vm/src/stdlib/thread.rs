@@ -9,7 +9,7 @@ use crate::pyobject::{
     BorrowValue, Either, IdProtocol, ItemProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef,
     PyResult, PyValue, StaticType, TypeProtocol,
 };
-use crate::slots::SlotGetattro;
+use crate::slots::{SlotGetattro, SlotSetattro};
 use crate::vm::VirtualMachine;
 
 use parking_lot::{
@@ -304,7 +304,7 @@ impl PyValue for PyLocal {
     }
 }
 
-#[pyimpl(with(SlotGetattro), flags(BASETYPE))]
+#[pyimpl(with(SlotGetattro, SlotSetattro), flags(BASETYPE))]
 impl PyLocal {
     fn ldict(&self, vm: &VirtualMachine) -> PyDictRef {
         self.data.get_or(|| vm.ctx.new_dict()).clone()
@@ -316,37 +316,6 @@ impl PyLocal {
             data: ThreadLocal::new(),
         }
         .into_ref_with_type(vm, cls)
-    }
-
-    #[pymethod(magic)]
-    fn setattr(
-        zelf: PyRef<Self>,
-        attr: PyStrRef,
-        value: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        if attr.borrow_value() == "__dict__" {
-            Err(vm.new_attribute_error(format!(
-                "{} attribute '__dict__' is read-only",
-                zelf.as_object()
-            )))
-        } else {
-            zelf.ldict(vm).set_item(attr.into_object(), value, vm)?;
-            Ok(())
-        }
-    }
-
-    #[pymethod(magic)]
-    fn delattr(zelf: PyRef<Self>, attr: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-        if attr.borrow_value() == "__dict__" {
-            Err(vm.new_attribute_error(format!(
-                "{} attribute '__dict__' is read-only",
-                zelf.as_object()
-            )))
-        } else {
-            zelf.ldict(vm).del_item(attr.into_object(), vm)?;
-            Ok(())
-        }
     }
 }
 
@@ -361,6 +330,30 @@ impl SlotGetattro for PyLocal {
                 .ok_or_else(|| {
                     vm.new_attribute_error(format!("{} has no attribute '{}'", zelf, attr))
                 })
+        }
+    }
+}
+
+impl SlotSetattro for PyLocal {
+    fn setattro(
+        zelf: &PyRef<Self>,
+        attr: PyStrRef,
+        value: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        if attr.borrow_value() == "__dict__" {
+            Err(vm.new_attribute_error(format!(
+                "{} attribute '__dict__' is read-only",
+                zelf.as_object()
+            )))
+        } else {
+            let dict = zelf.ldict(vm);
+            if let Some(value) = value {
+                dict.set_item(attr, value, vm)?;
+            } else {
+                dict.del_item(attr, vm)?;
+            }
+            Ok(())
         }
     }
 }

@@ -26,8 +26,8 @@ use crate::exceptions::{self, ExceptionCtor, PyBaseExceptionRef};
 use crate::function::FuncArgs;
 use crate::iterator;
 use crate::pyobject::{
-    BorrowValue, IdProtocol, ItemProtocol, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol,
+    BorrowValue, IdProtocol, ItemProtocol, PyMethod, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol,
 };
 use crate::scope::Scope;
 use crate::slots::PyComparisonOp;
@@ -43,7 +43,9 @@ struct Block {
 
 #[derive(Clone, Debug)]
 enum BlockType {
-    Loop,
+    Loop {
+        break_target: bytecode::Label,
+    },
     TryExcept {
         handler: bytecode::Label,
     },
@@ -77,7 +79,7 @@ enum UnwindReason {
 
     // NoWorries,
     /// We are unwinding blocks, since we hit break
-    Break { target: bytecode::Label },
+    Break,
 
     /// We are unwinding blocks since we hit a continue statements.
     Continue { target: bytecode::Label },
@@ -750,8 +752,10 @@ impl ExecutingFrame<'_> {
                 }
                 Ok(None)
             }
-            bytecode::Instruction::SetupLoop => {
-                self.push_block(BlockType::Loop);
+            bytecode::Instruction::SetupLoop { break_target } => {
+                self.push_block(BlockType::Loop {
+                    break_target: *break_target,
+                });
                 Ok(None)
             }
             bytecode::Instruction::SetupExcept { handler } => {
@@ -792,7 +796,7 @@ impl ExecutingFrame<'_> {
                 let exit = vm.get_attribute(context_manager.clone(), "__exit__")?;
                 self.push_value(exit);
                 // Call enter:
-                let enter_res = vm.call_method(&context_manager, "__enter__", ())?;
+                let enter_res = vm.call_special_method(context_manager, "__enter__", ())?;
                 self.push_block(BlockType::Finally { handler: *end });
                 self.push_value(enter_res);
                 Ok(None)
@@ -801,7 +805,7 @@ impl ExecutingFrame<'_> {
                 let mgr = self.pop_value();
                 let aexit = vm.get_attribute(mgr.clone(), "__aexit__")?;
                 self.push_value(aexit);
-                let aenter_res = vm.call_method(&mgr, "__aenter__", ())?;
+                let aenter_res = vm.call_special_method(mgr, "__aenter__", ())?;
                 self.push_value(aenter_res);
 
                 Ok(None)
@@ -883,17 +887,17 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::GetAIter => {
                 let aiterable = self.pop_value();
-                let aiter = vm.call_method(&aiterable, "__aiter__", ())?;
+                let aiter = vm.call_special_method(aiterable, "__aiter__", ())?;
                 self.push_value(aiter);
                 Ok(None)
             }
             bytecode::Instruction::GetANext => {
                 let aiter = self.last_value();
-                let awaitable = vm.call_method(&aiter, "__anext__", ())?;
+                let awaitable = vm.call_special_method(aiter, "__anext__", ())?;
                 let awaitable = if awaitable.payload_is::<PyCoroutine>() {
                     awaitable
                 } else {
-                    vm.call_method(&awaitable, "__await__", ())?
+                    vm.call_special_method(awaitable, "__await__", ())?
                 };
                 self.push_value(awaitable);
                 Ok(None)
@@ -910,13 +914,43 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::ForIter { target } => self.execute_for_iter(vm, *target),
             bytecode::Instruction::MakeFunction(flags) => self.execute_make_function(vm, *flags),
             bytecode::Instruction::CallFunctionPositional { nargs } => {
-                self.execute_call_function_positional(vm, *nargs)
+                let args = self.collect_positional_args(*nargs);
+                self.execute_call(args, vm)
             }
             bytecode::Instruction::CallFunctionKeyword { nargs } => {
-                self.execute_call_function_keyword(vm, *nargs)
+                let args = self.collect_keyword_args(*nargs);
+                self.execute_call(args, vm)
             }
             bytecode::Instruction::CallFunctionEx { has_kwargs } => {
-                self.execute_call_function_ex(vm, *has_kwargs)
+                let args = self.collect_ex_args(vm, *has_kwargs)?;
+                self.execute_call(args, vm)
+            }
+            bytecode::Instruction::LoadMethod { idx } => {
+                let obj = self.pop_value();
+                let method_name = self.code.names[*idx as usize].clone();
+                let method = PyMethod::get(obj, method_name, vm)?;
+                let (target, is_method, func) = match method {
+                    PyMethod::Function { target, func } => (target, true, func),
+                    PyMethod::Attribute(val) => (vm.ctx.none(), false, val),
+                };
+                // TODO: figure out a better way to communicate PyMethod::Attribute - CPython uses
+                // target==NULL, maybe we could use a sentinel value or something?
+                self.push_value(target);
+                self.push_value(vm.ctx.new_bool(is_method));
+                self.push_value(func);
+                Ok(None)
+            }
+            bytecode::Instruction::CallMethodPositional { nargs } => {
+                let args = self.collect_positional_args(*nargs);
+                self.execute_method_call(args, vm)
+            }
+            bytecode::Instruction::CallMethodKeyword { nargs } => {
+                let args = self.collect_keyword_args(*nargs);
+                self.execute_method_call(args, vm)
+            }
+            bytecode::Instruction::CallMethodEx { has_kwargs } => {
+                let args = self.collect_ex_args(vm, *has_kwargs)?;
+                self.execute_method_call(args, vm)
             }
             bytecode::Instruction::Jump { target } => {
                 self.jump(*target);
@@ -964,9 +998,7 @@ impl ExecutingFrame<'_> {
 
             bytecode::Instruction::Raise { kind } => self.execute_raise(vm, *kind),
 
-            bytecode::Instruction::Break { target } => {
-                self.unwind_blocks(vm, UnwindReason::Break { target: *target })
-            }
+            bytecode::Instruction::Break => self.unwind_blocks(vm, UnwindReason::Break),
             bytecode::Instruction::Continue { target } => {
                 self.unwind_blocks(vm, UnwindReason::Continue { target: *target })
             }
@@ -1030,7 +1062,7 @@ impl ExecutingFrame<'_> {
                 };
 
                 let spec = self.pop_value();
-                let formatted = vm.call_method(&value, "__format__", (spec,))?;
+                let formatted = vm.call_special_method(value, "__format__", (spec,))?;
                 self.push_value(formatted);
                 Ok(None)
             }
@@ -1144,10 +1176,10 @@ impl ExecutingFrame<'_> {
         // First unwind all existing blocks on the block stack:
         while let Some(block) = self.current_block() {
             match block.typ {
-                BlockType::Loop => match reason {
-                    UnwindReason::Break { target } => {
+                BlockType::Loop { break_target } => match reason {
+                    UnwindReason::Break => {
                         self.pop_block();
-                        self.jump(target);
+                        self.jump(break_target);
                         return Ok(None);
                     }
                     UnwindReason::Continue { target } => {
@@ -1303,19 +1335,14 @@ impl ExecutingFrame<'_> {
         Ok(None)
     }
 
-    fn execute_call_function_positional(&mut self, vm: &VirtualMachine, nargs: u32) -> FrameResult {
-        let args = FuncArgs {
+    fn collect_positional_args(&mut self, nargs: u32) -> FuncArgs {
+        FuncArgs {
             args: self.pop_multiple(nargs as usize).collect(),
             kwargs: IndexMap::new(),
-        };
-
-        let func_ref = self.pop_value();
-        let value = vm.invoke(&func_ref, args)?;
-        self.push_value(value);
-        Ok(None)
+        }
     }
 
-    fn execute_call_function_keyword(&mut self, vm: &VirtualMachine, nargs: u32) -> FrameResult {
+    fn collect_keyword_args(&mut self, nargs: u32) -> FuncArgs {
         let kwarg_names = self
             .pop_value()
             .downcast::<PyTuple>()
@@ -1326,15 +1353,10 @@ impl ExecutingFrame<'_> {
             .borrow_value()
             .iter()
             .map(|pyobj| pystr::clone_value(pyobj));
-        let args = FuncArgs::with_kwargs_names(args, kwarg_names);
-
-        let func_ref = self.pop_value();
-        let value = vm.invoke(&func_ref, args)?;
-        self.push_value(value);
-        Ok(None)
+        FuncArgs::with_kwargs_names(args, kwarg_names)
     }
 
-    fn execute_call_function_ex(&mut self, vm: &VirtualMachine, has_kwargs: bool) -> FrameResult {
+    fn collect_ex_args(&mut self, vm: &VirtualMachine, has_kwargs: bool) -> PyResult<FuncArgs> {
         let kwargs = if has_kwargs {
             let kw_dict: PyDictRef = self.pop_value().downcast().map_err(|_| {
                 // TODO: check collections.abc.Mapping
@@ -1353,10 +1375,29 @@ impl ExecutingFrame<'_> {
         };
         let args = self.pop_value();
         let args = vm.extract_elements(&args)?;
-        let args = FuncArgs { args, kwargs };
+        Ok(FuncArgs { args, kwargs })
+    }
 
+    #[inline]
+    fn execute_call(&mut self, args: FuncArgs, vm: &VirtualMachine) -> FrameResult {
         let func_ref = self.pop_value();
         let value = vm.invoke(&func_ref, args)?;
+        self.push_value(value);
+        Ok(None)
+    }
+
+    #[inline]
+    fn execute_method_call(&mut self, args: FuncArgs, vm: &VirtualMachine) -> FrameResult {
+        let func = self.pop_value();
+        let is_method = self.pop_value().is(&vm.ctx.true_value);
+        let target = self.pop_value();
+        let method = if is_method {
+            PyMethod::Function { target, func }
+        } else {
+            drop(target); // should be None
+            PyMethod::Attribute(func)
+        };
+        let value = method.invoke(args, vm)?;
         self.push_value(value);
         Ok(None)
     }
@@ -1630,9 +1671,33 @@ impl ExecutingFrame<'_> {
     fn execute_unop(&mut self, vm: &VirtualMachine, op: &bytecode::UnaryOperator) -> FrameResult {
         let a = self.pop_value();
         let value = match *op {
-            bytecode::UnaryOperator::Minus => vm.call_method(&a, "__neg__", ())?,
-            bytecode::UnaryOperator::Plus => vm.call_method(&a, "__pos__", ())?,
-            bytecode::UnaryOperator::Invert => vm.call_method(&a, "__invert__", ())?,
+            bytecode::UnaryOperator::Minus => vm
+                .get_special_method(a, "__neg__")?
+                .map_err(|a| {
+                    vm.new_type_error(format!(
+                        "bad operand type for unary -: '{}'",
+                        a.class().name
+                    ))
+                })?
+                .invoke((), vm)?,
+            bytecode::UnaryOperator::Plus => vm
+                .get_special_method(a, "__pos__")?
+                .map_err(|a| {
+                    vm.new_type_error(format!(
+                        "bad operand type for unary +: '{}'",
+                        a.class().name
+                    ))
+                })?
+                .invoke((), vm)?,
+            bytecode::UnaryOperator::Invert => vm
+                .get_special_method(a, "__invert__")?
+                .map_err(|a| {
+                    vm.new_type_error(format!(
+                        "bad operand type for unary ~: '{}'",
+                        a.class().name
+                    ))
+                })?
+                .invoke((), vm)?,
             bytecode::UnaryOperator::Not => {
                 let value = pybool::boolval(vm, a)?;
                 vm.ctx.new_bool(!value)
@@ -1747,6 +1812,7 @@ impl ExecutingFrame<'_> {
         match self.state.stack.try_push(obj) {
             Ok(()) => {}
             Err(_e) => {
+                dbg!(self);
                 panic!("tried to push value onto stack but overflowed max_stacksize")
             }
         }

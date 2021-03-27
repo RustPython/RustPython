@@ -302,7 +302,7 @@ impl PyValue for PyFunction {
     }
 }
 
-#[pyimpl(with(SlotDescriptor, Callable), flags(HAS_DICT))]
+#[pyimpl(with(SlotDescriptor, Callable), flags(HAS_DICT, METHOD_DESCR))]
 impl PyFunction {
     #[pyproperty(magic)]
     fn code(&self) -> PyCodeRef {

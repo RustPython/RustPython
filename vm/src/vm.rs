@@ -29,8 +29,8 @@ use crate::frame::{ExecutionResult, Frame, FrameRef};
 use crate::function::{FuncArgs, IntoFuncArgs};
 use crate::pyobject::{
     BorrowValue, Either, IdProtocol, IntoPyObject, ItemProtocol, PyArithmaticValue, PyContext,
-    PyObject, PyObjectRef, PyRef, PyRefExact, PyResult, PyValue, TryFromObject, TryIntoRef,
-    TypeProtocol,
+    PyLease, PyMethod, PyObject, PyObjectRef, PyRef, PyRefExact, PyResult, PyValue, TryFromObject,
+    TryIntoRef, TypeProtocol,
 };
 use crate::scope::Scope;
 use crate::slots::PyComparisonOp;
@@ -815,7 +815,7 @@ impl VirtualMachine {
         if obj.class().is(&self.ctx.types.str_type) {
             Ok(obj.clone().downcast().unwrap())
         } else {
-            let s = self.call_method(&obj, "__str__", ())?;
+            let s = self.call_special_method(obj.clone(), "__str__", ())?;
             PyStrRef::try_from_object(self, s)
         }
     }
@@ -826,8 +826,8 @@ impl VirtualMachine {
     }
 
     pub fn to_repr(&self, obj: &PyObjectRef) -> PyResult<PyStrRef> {
-        let repr = self.call_method(obj, "__repr__", ())?;
-        TryFromObject::try_from_object(self, repr)
+        let repr = self.call_special_method(obj.clone(), "__repr__", ())?;
+        PyStrRef::try_from_object(self, repr)
     }
 
     pub fn to_index_opt(&self, obj: PyObjectRef) -> Option<PyResult<PyIntRef>> {
@@ -925,7 +925,11 @@ impl VirtualMachine {
         if obj.class().is(cls) {
             Ok(true)
         } else {
-            let ret = self.call_method(cls.as_object(), "__instancecheck__", (obj.clone(),))?;
+            let ret = self.call_special_method(
+                cls.as_object().clone(),
+                "__instancecheck__",
+                (obj.clone(),),
+            )?;
             pybool::boolval(self, ret)
         }
     }
@@ -933,7 +937,11 @@ impl VirtualMachine {
     /// Determines if `subclass` is a subclass of `cls`, either directly, indirectly or virtually
     /// via the __subclasscheck__ magic method.
     pub fn issubclass(&self, subclass: &PyTypeRef, cls: &PyTypeRef) -> PyResult<bool> {
-        let ret = self.call_method(cls.as_object(), "__subclasscheck__", (subclass.clone(),))?;
+        let ret = self.call_special_method(
+            cls.as_object().clone(),
+            "__subclasscheck__",
+            (subclass.clone(),),
+        )?;
         pybool::boolval(self, ret)
     }
 
@@ -963,21 +971,35 @@ impl VirtualMachine {
         self.call_get_descriptor(attr, obj).unwrap_or_else(Ok)
     }
 
+    #[inline]
     pub fn call_method<T>(&self, obj: &PyObjectRef, method_name: &str, args: T) -> PyResult
     where
         T: IntoFuncArgs,
     {
         flame_guard!(format!("call_method({:?})", method_name));
 
-        // This is only used in the vm for magic methods, which use a greatly simplified attribute lookup.
-        match obj.get_class_attr(method_name) {
-            Some(func) => {
-                vm_trace!("vm.call_method {:?} {:?} -> {:?}", obj, method_name, func);
-                let wrapped = self.call_if_get_descriptor(func, obj.clone())?;
-                self.invoke(&wrapped, args)
-            }
-            None => Err(self.new_type_error(format!("Unsupported method: {}", method_name))),
-        }
+        PyMethod::get(obj.clone(), PyStr::from(method_name).into_ref(self), self)?
+            .invoke(args, self)
+    }
+
+    #[inline]
+    pub(crate) fn get_special_method(
+        &self,
+        obj: PyObjectRef,
+        method: &str,
+    ) -> PyResult<Result<PyMethod, PyObjectRef>> {
+        PyMethod::get_special(obj, method, self)
+    }
+
+    pub(crate) fn call_special_method(
+        &self,
+        obj: PyObjectRef,
+        method: &str,
+        args: impl IntoFuncArgs,
+    ) -> PyResult {
+        self.get_special_method(obj, method)?
+            .map_err(|_obj| self.new_attribute_error(method.to_owned()))?
+            .invoke(args, self)
     }
 
     fn _invoke(&self, callable: &PyObjectRef, args: FuncArgs) -> PyResult {
@@ -1149,18 +1171,42 @@ impl VirtualMachine {
         }
     }
 
-    pub fn set_attr<K, V>(&self, obj: &PyObjectRef, attr_name: K, attr_value: V) -> PyResult
+    pub fn call_set_attr(
+        &self,
+        obj: &PyObjectRef,
+        attr_name: PyStrRef,
+        attr_value: Option<PyObjectRef>,
+    ) -> PyResult<()> {
+        let setattro = {
+            let cls = obj.class();
+            cls.mro_find_map(|cls| cls.slots.setattro.load())
+                .ok_or_else(|| {
+                    let assign = attr_value.is_some();
+                    let has_getattr = cls.mro_find_map(|cls| cls.slots.getattro.load()).is_some();
+                    self.new_type_error(format!(
+                        "'{}' object has {} attributes ({} {})",
+                        cls.name,
+                        if has_getattr { "only read-only" } else { "no" },
+                        if assign { "assign to" } else { "del" },
+                        attr_name
+                    ))
+                })?
+        };
+        setattro(obj, attr_name, attr_value, self)
+    }
+
+    pub fn set_attr<K, V>(&self, obj: &PyObjectRef, attr_name: K, attr_value: V) -> PyResult<()>
     where
         K: TryIntoRef<PyStr>,
         V: Into<PyObjectRef>,
     {
         let attr_name = attr_name.try_into_ref(self)?;
-        self.call_method(obj, "__setattr__", (attr_name, attr_value.into()))
+        self.call_set_attr(obj, attr_name, Some(attr_value.into()))
     }
 
-    pub fn del_attr(&self, obj: &PyObjectRef, attr_name: PyObjectRef) -> PyResult<()> {
-        self.call_method(&obj, "__delattr__", (attr_name,))?;
-        Ok(())
+    pub fn del_attr(&self, obj: &PyObjectRef, attr_name: impl TryIntoRef<PyStr>) -> PyResult<()> {
+        let attr_name = attr_name.try_into_ref(self)?;
+        self.call_set_attr(obj, attr_name, None)
     }
 
     // get_method should be used for internal access to magic methods (by-passing
@@ -1180,8 +1226,8 @@ impl VirtualMachine {
         }
     }
 
-    /// May return exception, if `__get__` descriptor raises one
-    pub fn get_method(&self, obj: PyObjectRef, method_name: &str) -> Option<PyResult> {
+    // TODO: remove + transfer over to get_special_method
+    pub(crate) fn get_method(&self, obj: PyObjectRef, method_name: &str) -> Option<PyResult> {
         let method = obj.get_class_attr(method_name)?;
         Some(self.call_if_get_descriptor(method, obj))
     }
@@ -1257,15 +1303,26 @@ impl VirtualMachine {
         dict: Option<PyDictRef>,
     ) -> PyResult<Option<PyObjectRef>> {
         let name = name_str.borrow_value();
-        let cls_attr = obj.class().get_attr(name);
-
-        if let Some(ref attr) = cls_attr {
-            if attr.class().has_attr("__set__") {
-                if let Ok(r) = self.call_get_descriptor(attr.clone(), obj.clone()) {
-                    return r.map(Some);
+        let obj_cls = obj.class();
+        let cls_attr = match obj_cls.get_attr(name) {
+            Some(descr) => {
+                let descr_cls = descr.class();
+                let descr_get = descr_cls.mro_find_map(|cls| cls.slots.descr_get.load());
+                if let Some(descr_get) = descr_get {
+                    if descr_cls
+                        .mro_find_map(|cls| cls.slots.descr_set.load())
+                        .is_some()
+                    {
+                        drop(descr_cls);
+                        let cls = PyLease::into_pyref(obj_cls).into_object();
+                        return descr_get(descr, Some(obj), Some(cls), self).map(Some);
+                    }
                 }
+                drop(descr_cls);
+                Some((descr, descr_get))
             }
-        }
+            None => None,
+        };
 
         let dict = dict.or_else(|| obj.dict());
 
@@ -1277,9 +1334,16 @@ impl VirtualMachine {
 
         if let Some(obj_attr) = attr {
             Ok(Some(obj_attr))
-        } else if let Some(attr) = cls_attr {
-            self.call_if_get_descriptor(attr, obj).map(Some)
-        } else if let Some(getter) = obj.clone_class().get_attr("__getattr__") {
+        } else if let Some((attr, descr_get)) = cls_attr {
+            match descr_get {
+                Some(descr_get) => {
+                    let cls = PyLease::into_pyref(obj_cls).into_object();
+                    descr_get(attr, Some(obj), Some(cls), self).map(Some)
+                }
+                None => Ok(Some(attr)),
+            }
+        } else if let Some(getter) = obj_cls.get_attr("__getattr__") {
+            drop(obj_cls);
             self.invoke(&getter, (obj, name_str)).map(Some)
         } else {
             Ok(None)
@@ -1632,25 +1696,30 @@ impl VirtualMachine {
     }
 
     pub fn obj_len_opt(&self, obj: &PyObjectRef) -> Option<PyResult<usize>> {
-        self.get_method(obj.clone(), "__len__").map(|len| {
-            let len = self.invoke(&len?, ())?;
-            let len = len
-                .payload_if_subclass::<PyInt>(self)
-                .ok_or_else(|| {
-                    self.new_type_error(format!(
-                        "'{}' object cannot be interpreted as an integer",
-                        len.class().name
-                    ))
-                })?
-                .borrow_value();
-            if len.is_negative() {
-                return Err(self.new_value_error("__len__() should return >= 0".to_owned()));
-            }
-            let len = len.to_isize().ok_or_else(|| {
-                self.new_overflow_error("cannot fit 'int' into an index-sized integer".to_owned())
-            })?;
-            Ok(len as usize)
-        })
+        self.get_special_method(obj.clone(), "__len__")
+            .map(Result::ok)
+            .transpose()
+            .map(|meth| {
+                let len = meth?.invoke((), self)?;
+                let len = len
+                    .payload_if_subclass::<PyInt>(self)
+                    .ok_or_else(|| {
+                        self.new_type_error(format!(
+                            "'{}' object cannot be interpreted as an integer",
+                            len.class().name
+                        ))
+                    })?
+                    .borrow_value();
+                if len.is_negative() {
+                    return Err(self.new_value_error("__len__() should return >= 0".to_owned()));
+                }
+                let len = len.to_isize().ok_or_else(|| {
+                    self.new_overflow_error(
+                        "cannot fit 'int' into an index-sized integer".to_owned(),
+                    )
+                })?;
+                Ok(len as usize)
+            })
     }
 
     pub fn obj_len(&self, obj: &PyObjectRef) -> PyResult<usize> {
@@ -1679,11 +1748,9 @@ impl VirtualMachine {
     }
 
     pub fn _membership(&self, haystack: PyObjectRef, needle: PyObjectRef) -> PyResult {
-        if let Some(method_or_err) = self.get_method(haystack.clone(), "__contains__") {
-            let method = method_or_err?;
-            self.invoke(&method, vec![needle])
-        } else {
-            self._membership_iter_search(haystack, needle)
+        match PyMethod::get_special(haystack, "__contains__", self)? {
+            Ok(method) => method.invoke((needle,), self),
+            Err(haystack) => self._membership_iter_search(haystack, needle),
         }
     }
 
@@ -1798,7 +1865,7 @@ impl VirtualMachine {
         attr_value: impl Into<PyObjectRef>,
     ) -> PyResult<()> {
         let val = attr_value.into();
-        object::setattr(module.clone(), attr_name.try_into_ref(self)?, val, self)
+        object::setattr(module, attr_name.try_into_ref(self)?, Some(val), self)
     }
 }
 

@@ -137,7 +137,7 @@ impl PyValue for PyBuiltinMethod {
 
 impl fmt::Debug for PyBuiltinMethod {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "method descriptor")
+        write!(f, "method descriptor for '{}'", self.value.name)
     }
 }
 
@@ -172,7 +172,7 @@ impl Callable for PyBuiltinMethod {
     }
 }
 
-#[pyimpl(with(SlotDescriptor, Callable))]
+#[pyimpl(with(SlotDescriptor, Callable), flags(METHOD_DESCR))]
 impl PyBuiltinMethod {
     #[pyproperty(magic)]
     fn name(&self) -> PyStrRef {

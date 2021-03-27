@@ -21,7 +21,7 @@ use crate::pyobject::{
     BorrowValue, Either, IdProtocol, PyAttributes, PyClassImpl, PyContext, PyLease, PyObjectRef,
     PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
-use crate::slots::{self, Callable, PyTpFlags, PyTypeSlots, SlotGetattro};
+use crate::slots::{self, Callable, PyTpFlags, PyTypeSlots, SlotGetattro, SlotSetattro};
 use crate::vm::VirtualMachine;
 use itertools::Itertools;
 use std::ops::Deref;
@@ -145,7 +145,6 @@ impl PyType {
     }
 
     pub(crate) fn update_slot(&self, name: &str, add: bool) {
-        // self is the resolved class in get_class_magic
         macro_rules! update_slot {
             ($name:ident, $func:expr) => {{
                 self.slots.$name.store(if add { Some($func) } else { None });
@@ -153,24 +152,28 @@ impl PyType {
         }
         match name {
             "__call__" => {
-                let func: slots::GenericMethod = |zelf, args, vm| {
-                    let magic = get_class_magic(&zelf, "__call__");
-                    let magic = vm.call_if_get_descriptor(magic, zelf.clone())?;
-                    vm.invoke(&magic, args)
-                } as _;
+                let func: slots::GenericMethod =
+                    |zelf, args, vm| vm.call_special_method(zelf.clone(), "__call__", args);
                 update_slot!(call, func);
             }
             "__get__" => {
-                let func: slots::DescrGetFunc = |zelf, obj, cls, vm| {
-                    let magic = get_class_magic(&zelf, "__get__");
-                    vm.invoke(&magic, (zelf, obj, cls))
-                } as _;
+                let func: slots::DescrGetFunc =
+                    |zelf, obj, cls, vm| vm.call_special_method(zelf, "__get__", (obj, cls));
                 update_slot!(descr_get, func);
+            }
+            "__set__" | "__delete__" => {
+                let func: slots::DescrSetFunc = |zelf, obj, value, vm| {
+                    match value {
+                        Some(val) => vm.call_special_method(zelf, "__set__", (obj, val)),
+                        None => vm.call_special_method(zelf, "__delete__", (obj,)),
+                    }
+                    .map(drop)
+                };
+                update_slot!(descr_set, func);
             }
             "__hash__" => {
                 let func: slots::HashFunc = |zelf, vm| {
-                    let magic = get_class_magic(&zelf, "__hash__");
-                    let hash_obj = vm.invoke(&magic, vec![zelf.clone()])?;
+                    let hash_obj = vm.call_special_method(zelf.clone(), "__hash__", ())?;
                     match hash_obj.payload_if_subclass::<PyInt>(vm) {
                         Some(py_int) => {
                             Ok(rustpython_common::hash::hash_bigint(py_int.borrow_value()))
@@ -183,40 +186,44 @@ impl PyType {
             }
             "__del__" => {
                 let func: slots::DelFunc = |zelf, vm| {
-                    let magic = get_class_magic(&zelf, "__del__");
-                    let _ = vm.invoke(&magic, vec![zelf.clone()])?;
+                    vm.call_special_method(zelf.clone(), "__del__", ())?;
                     Ok(())
                 } as _;
                 update_slot!(del, func);
             }
             "__eq__" | "__ne__" | "__le__" | "__lt__" | "__ge__" | "__gt__" => {
                 let func: slots::CmpFunc = |zelf, other, op, vm| {
-                    // TODO: differentiate between op types; get_class_magic would panic
-                    let magic = get_class_magic(&zelf, op.method_name());
-                    vm.invoke(&magic, vec![zelf.clone(), other.clone()])
+                    vm.call_special_method(zelf.clone(), op.method_name(), (other.clone(),))
                         .map(Either::A)
                 } as _;
                 update_slot!(cmp, func);
             }
             "__getattribute__" => {
-                let func: slots::GetattroFunc = |zelf, name, vm| {
-                    let magic = get_class_magic(&zelf, "__getattribute__");
-                    vm.invoke(&magic, (zelf, name))
-                };
+                let func: slots::GetattroFunc =
+                    |zelf, name, vm| vm.call_special_method(zelf, "__getattribute__", (name,));
                 update_slot!(getattro, func);
             }
-            "__iter__" => {
-                let func: slots::IterFunc = |zelf, vm| {
-                    let magic = get_class_magic(&zelf, "__iter__");
-                    vm.invoke(&magic, (zelf,))
+            "__setattr__" => {
+                let func: slots::SetattroFunc = |zelf, name, value, vm| {
+                    match value {
+                        Some(value) => {
+                            vm.call_special_method(zelf.clone(), "__setattr__", (name, value))?;
+                        }
+                        None => {
+                            vm.call_special_method(zelf.clone(), "__delattr__", (name,))?;
+                        }
+                    };
+                    Ok(())
                 };
+                update_slot!(setattro, func);
+            }
+            "__iter__" => {
+                let func: slots::IterFunc = |zelf, vm| vm.call_special_method(zelf, "__iter__", ());
                 update_slot!(iter, func);
             }
             "__next__" => {
-                let func: slots::IterNextFunc = |zelf, vm| {
-                    let magic = get_class_magic(zelf, "__next__");
-                    vm.invoke(&magic, (zelf.clone(),))
-                };
+                let func: slots::IterNextFunc =
+                    |zelf, vm| vm.call_special_method(zelf.clone(), "__next__", ());
                 update_slot!(iternext, func);
             }
             _ => {}
@@ -238,17 +245,7 @@ impl PyTypeRef {
     }
 }
 
-#[inline]
-fn get_class_magic(zelf: &PyObjectRef, name: &str) -> PyObjectRef {
-    zelf.get_class_attr(name).unwrap()
-
-    // TODO: we already looked up the matching class but lost the information here
-    // let cls = zelf.class();
-    // let attrs = cls.attributes.read();
-    // attrs.get(name).unwrap().clone()
-}
-
-#[pyimpl(with(SlotGetattro, Callable), flags(BASETYPE))]
+#[pyimpl(with(SlotGetattro, SlotSetattro, Callable), flags(BASETYPE))]
 impl PyType {
     #[pyproperty(name = "__mro__")]
     fn get_mro(zelf: PyRef<Self>) -> PyTuple {
@@ -337,50 +334,6 @@ impl PyType {
         vm: &VirtualMachine,
     ) -> PyDictRef {
         vm.ctx.new_dict()
-    }
-
-    #[pymethod(magic)]
-    fn setattr(
-        zelf: PyRef<Self>,
-        attr_name: PyStrRef,
-        value: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        if let Some(attr) = zelf.get_class_attr(attr_name.borrow_value()) {
-            if let Some(ref descriptor) = attr.get_class_attr("__set__") {
-                vm.invoke(descriptor, (attr, zelf, value))?;
-                return Ok(());
-            }
-        }
-        let attr_name = attr_name.borrow_value();
-        let mut attributes = zelf.attributes.write();
-        attributes.insert(attr_name.to_owned(), value);
-        if attr_name.starts_with("__") && attr_name.ends_with("__") {
-            zelf.update_slot(attr_name, true);
-        }
-        Ok(())
-    }
-
-    #[pymethod(magic)]
-    fn delattr(zelf: PyRef<Self>, attr_name: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-        if let Some(attr) = zelf.get_class_attr(attr_name.borrow_value()) {
-            if let Some(ref descriptor) = attr.get_class_attr("__delete__") {
-                return vm.invoke(descriptor, (attr, zelf)).map(|_| ());
-            }
-        }
-
-        let mut attributes = zelf.attributes.write();
-        if attributes.remove(attr_name.borrow_value()).is_none() {
-            return Err(vm.new_exception(
-                vm.ctx.exceptions.attribute_error.clone(),
-                vec![attr_name.into_object()],
-            ));
-        };
-        let attr_name = attr_name.borrow_value();
-        if attr_name.starts_with("__") && attr_name.ends_with("__") {
-            zelf.update_slot(attr_name, false);
-        }
-        Ok(())
     }
 
     #[pymethod(magic)]
@@ -494,7 +447,7 @@ impl PyType {
         )
         .map_err(|e| vm.new_type_error(e))?;
 
-        vm.ctx.add_tp_new_wrapper(&typ);
+        vm.ctx.add_slot_wrappers(&typ);
 
         // avoid deadlock
         let attributes = typ
@@ -558,10 +511,11 @@ impl SlotGetattro for PyType {
 
         if let Some(ref attr) = mcl_attr {
             let attr_class = attr.class();
-            if attr_class.has_attr("__set__") {
-                if let Some(ref descr_get) =
-                    attr_class.mro_find_map(|cls| cls.slots.descr_get.load())
-                {
+            if attr_class
+                .mro_find_map(|cls| cls.slots.descr_set.load())
+                .is_some()
+            {
+                if let Some(descr_get) = attr_class.mro_find_map(|cls| cls.slots.descr_get.load()) {
                     let mcl = PyLease::into_pyref(mcl).into_object();
                     return descr_get(attr.clone(), Some(zelf.into_object()), Some(mcl), vm);
                 }
@@ -590,6 +544,41 @@ impl SlotGetattro for PyType {
                 zelf, name
             )))
         }
+    }
+}
+
+impl SlotSetattro for PyType {
+    fn setattro(
+        zelf: &PyRef<Self>,
+        attr_name: PyStrRef,
+        value: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        if let Some(attr) = zelf.get_class_attr(attr_name.borrow_value()) {
+            let descr_set = attr.class().mro_find_map(|cls| cls.slots.descr_set.load());
+            if let Some(descriptor) = descr_set {
+                return descriptor(attr, zelf.clone().into_object(), value, vm);
+            }
+        }
+        let assign = value.is_some();
+
+        let mut attributes = zelf.attributes.write();
+        if let Some(value) = value {
+            attributes.insert(attr_name.borrow_value().to_owned(), value);
+        } else {
+            let prev_value = attributes.remove(attr_name.borrow_value());
+            if prev_value.is_none() {
+                return Err(vm.new_exception(
+                    vm.ctx.exceptions.attribute_error.clone(),
+                    vec![attr_name.into_object()],
+                ));
+            }
+        }
+        let attr_name = attr_name.borrow_value();
+        if attr_name.starts_with("__") && attr_name.ends_with("__") {
+            zelf.update_slot(attr_name, assign);
+        }
+        Ok(())
     }
 }
 
@@ -644,19 +633,22 @@ fn subtype_set_dict(obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -
     let cls = obj.clone_class();
     match find_base_dict_descr(&cls, vm) {
         Some(descr) => {
-            descr
-                .get_class_attr("__set__")
-                .map(|set| vm.invoke(&set, vec![descr, obj, value]))
-                .unwrap_or_else(|| {
-                    Err(vm.new_type_error(format!(
+            let descr_set = descr
+                .class()
+                .mro_find_map(|cls| cls.slots.descr_set.load())
+                .ok_or_else(|| {
+                    vm.new_type_error(format!(
                         "this __dict__ descriptor does not support '{}' objects",
                         cls.name
-                    )))
+                    ))
                 })?;
+            descr_set(descr, obj, Some(value), vm)
         }
-        None => object::object_set_dict(obj, PyDictRef::try_from_object(vm, value)?, vm)?,
+        None => {
+            object::object_set_dict(obj, PyDictRef::try_from_object(vm, value)?, vm)?;
+            Ok(())
+        }
     }
-    Ok(())
 }
 
 /*

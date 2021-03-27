@@ -359,7 +359,7 @@ impl PyContext {
         PyObject::new(object::PyBaseObject, class, dict)
     }
 
-    pub fn add_tp_new_wrapper(&self, ty: &PyTypeRef) {
+    pub fn add_slot_wrappers(&self, ty: &PyTypeRef) {
         if !ty.attributes.read().contains_key("__new__") {
             let new_wrapper =
                 self.new_bound_method(self.tp_new_wrapper.clone(), ty.clone().into_object());
@@ -643,15 +643,38 @@ where
     T: IntoPyObject,
 {
     fn get_item(&self, key: T, vm: &VirtualMachine) -> PyResult {
-        vm.call_method(self, "__getitem__", (key,))
+        vm.get_special_method(self.clone(), "__getitem__")?
+            .map_err(|obj| {
+                vm.new_type_error(format!(
+                    "'{}' object is not subscriptable",
+                    obj.class().name
+                ))
+            })?
+            .invoke((key,), vm)
     }
 
     fn set_item(&self, key: T, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        vm.call_method(self, "__setitem__", (key, value)).map(drop)
+        vm.get_special_method(self.clone(), "__setitem__")?
+            .map_err(|obj| {
+                vm.new_type_error(format!(
+                    "'{}' does not support item assignment",
+                    obj.class().name
+                ))
+            })?
+            .invoke((key, value), vm)?;
+        Ok(())
     }
 
     fn del_item(&self, key: T, vm: &VirtualMachine) -> PyResult<()> {
-        vm.call_method(self, "__delitem__", (key,)).map(drop)
+        vm.get_special_method(self.clone(), "__delitem__")?
+            .map_err(|obj| {
+                vm.new_type_error(format!(
+                    "'{}' does not support item deletion",
+                    obj.class().name
+                ))
+            })?
+            .invoke((key,), vm)?;
+        Ok(())
     }
 }
 
@@ -1075,7 +1098,7 @@ pub trait PyClassImpl: PyClassDef {
             );
         }
         Self::impl_extend_class(ctx, class);
-        ctx.add_tp_new_wrapper(&class);
+        ctx.add_slot_wrappers(&class);
         if let Some(doc) = Self::DOC {
             class.set_str_attr("__doc__", ctx.new_str(doc));
         }
@@ -1250,4 +1273,130 @@ pub fn hash_iter_unordered<'a, I: IntoIterator<Item = &'a PyObjectRef>>(
     vm: &VirtualMachine,
 ) -> PyResult<rustpython_common::hash::PyHash> {
     rustpython_common::hash::hash_iter_unordered(iter, |obj| vm._hash(obj))
+}
+
+#[derive(Debug)]
+pub enum PyMethod {
+    Function {
+        target: PyObjectRef,
+        func: PyObjectRef,
+    },
+    Attribute(PyObjectRef),
+}
+
+impl PyMethod {
+    pub fn get(obj: PyObjectRef, name: pystr::PyStrRef, vm: &VirtualMachine) -> PyResult<Self> {
+        let cls = obj.class();
+        let getattro = cls.mro_find_map(|cls| cls.slots.getattro.load()).unwrap();
+        if getattro as usize != object::PyBaseObject::getattro as usize {
+            drop(cls);
+            return getattro(obj, name, vm).map(Self::Attribute);
+        }
+
+        let mut is_method = false;
+
+        let cls_attr = match cls.get_attr(name.borrow_value()) {
+            Some(descr) => {
+                let descr_cls = descr.class();
+                let descr_get = if descr_cls.slots.flags.has_feature(PyTpFlags::METHOD_DESCR) {
+                    is_method = true;
+                    None
+                } else {
+                    let descr_get = descr_cls.mro_find_map(|cls| cls.slots.descr_get.load());
+                    if let Some(descr_get) = descr_get {
+                        if descr_cls
+                            .mro_find_map(|cls| cls.slots.descr_set.load())
+                            .is_some()
+                        {
+                            drop(descr_cls);
+                            let cls = PyLease::into_pyref(cls).into_object();
+                            return descr_get(descr, Some(obj), Some(cls), vm).map(Self::Attribute);
+                        }
+                    }
+                    descr_get
+                };
+                drop(descr_cls);
+                Some((descr, descr_get))
+            }
+            None => None,
+        };
+
+        if let Some(dict) = obj.dict() {
+            if let Some(attr) = dict.get_item_option(name.clone(), vm)? {
+                return Ok(Self::Attribute(attr));
+            }
+        }
+
+        if let Some((attr, descr_get)) = cls_attr {
+            match descr_get {
+                None if is_method => {
+                    drop(cls);
+                    Ok(Self::Function {
+                        target: obj,
+                        func: attr,
+                    })
+                }
+                Some(descr_get) => {
+                    let cls = PyLease::into_pyref(cls).into_object();
+                    descr_get(attr, Some(obj), Some(cls), vm).map(Self::Attribute)
+                }
+                None => Ok(Self::Attribute(attr)),
+            }
+        } else if let Some(getter) = cls.get_attr("__getattr__") {
+            drop(cls);
+            vm.invoke(&getter, (obj, name)).map(Self::Attribute)
+        } else {
+            Err(vm
+                .new_attribute_error(format!("'{}' object has no attribute '{}'", cls.name, name)))
+        }
+    }
+
+    pub(crate) fn get_special(
+        obj: PyObjectRef,
+        name: &str,
+        vm: &VirtualMachine,
+    ) -> PyResult<Result<Self, PyObjectRef>> {
+        let obj_cls = obj.class();
+        let func = match obj_cls.get_attr(name) {
+            Some(f) => f,
+            None => {
+                drop(obj_cls);
+                return Ok(Err(obj));
+            }
+        };
+        let meth = if func
+            .class()
+            .slots
+            .flags
+            .has_feature(PyTpFlags::METHOD_DESCR)
+        {
+            drop(obj_cls);
+            Self::Function { target: obj, func }
+        } else {
+            let obj_cls = PyLease::into_pyref(obj_cls).into_object();
+            let attr = vm
+                .call_get_descriptor_specific(func, Some(obj), Some(obj_cls))
+                .unwrap_or_else(Ok)?;
+            Self::Attribute(attr)
+        };
+        Ok(Ok(meth))
+    }
+
+    pub fn invoke(self, args: impl IntoFuncArgs, vm: &VirtualMachine) -> PyResult {
+        let (func, args) = match self {
+            PyMethod::Function { target, func } => (func, args.into_method_args(target, vm)),
+            PyMethod::Attribute(func) => (func, args.into_args(vm)),
+        };
+        vm.invoke(&func, args)
+    }
+
+    pub fn invoke_ref(&self, args: impl IntoFuncArgs, vm: &VirtualMachine) -> PyResult {
+        let (func, args) = match self {
+            PyMethod::Function { target, func } => {
+                (func, args.into_method_args(target.clone(), vm))
+            }
+            PyMethod::Attribute(func) => (func, args.into_args(vm)),
+        };
+        vm.invoke(func, args)
+    }
 }

@@ -360,12 +360,17 @@ impl fmt::Debug for PyObjectWeak {
 /// A `PyRef<T>` can be directly returned from a built-in function to handle
 /// situations (such as when implementing in-place methods such as `__iadd__`)
 /// where a reference to the same object must be returned.
-#[derive(Debug)]
 #[repr(transparent)]
 pub struct PyRef<T: PyObjectPayload> {
     // invariant: this obj must always have payload of type T
     obj: PyObjectRef,
     _payload: PhantomData<PyRc<T>>,
+}
+
+impl<T: PyObjectPayload> fmt::Debug for PyRef<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.obj.fmt(f)
+    }
 }
 
 impl<T: PyObjectPayload> Clone for PyRef<T> {

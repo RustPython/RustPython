@@ -13,8 +13,13 @@ use result_like::impl_option_like;
 use std::marker::PhantomData;
 use std::ops::RangeInclusive;
 
-pub trait IntoFuncArgs {
+pub trait IntoFuncArgs: Sized {
     fn into_args(self, vm: &VirtualMachine) -> FuncArgs;
+    fn into_method_args(self, obj: PyObjectRef, vm: &VirtualMachine) -> FuncArgs {
+        let mut args = self.into_args(vm);
+        args.prepend_arg(obj);
+        args
+    }
 }
 
 impl<T> IntoFuncArgs for T
@@ -24,11 +29,6 @@ where
     fn into_args(self, _vm: &VirtualMachine) -> FuncArgs {
         self.into()
     }
-}
-
-macro_rules! count {
-    () => (0usize);
-    ( $x:tt $($xs:tt)* ) => (1usize + count!($($xs)*));
 }
 
 // A tuple of values that each implement `IntoPyObject` represents a sequence of
@@ -42,9 +42,13 @@ macro_rules! into_func_args_from_tuple {
             #[inline]
             fn into_args(self, vm: &VirtualMachine) -> FuncArgs {
                 let ($($n,)*) = self;
-                let mut result = Vec::with_capacity(count!($($n,)*) + 1);
-                $(result.push($n.into_pyobject(vm), );)*
-                result.into()
+                vec![$($n.into_pyobject(vm),)*].into()
+            }
+
+            #[inline]
+            fn into_method_args(self, obj: PyObjectRef, vm: &VirtualMachine) -> FuncArgs {
+                let ($($n,)*) = self;
+                vec![obj, $($n.into_pyobject(vm),)*].into()
             }
         }
     };

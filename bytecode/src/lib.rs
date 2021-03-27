@@ -247,9 +247,7 @@ pub enum Instruction {
     Continue {
         target: Label,
     },
-    Break {
-        target: Label,
-    },
+    Break,
     Jump {
         target: Label,
     },
@@ -281,6 +279,18 @@ pub enum Instruction {
     CallFunctionEx {
         has_kwargs: bool,
     },
+    LoadMethod {
+        idx: NameIdx,
+    },
+    CallMethodPositional {
+        nargs: u32,
+    },
+    CallMethodKeyword {
+        nargs: u32,
+    },
+    CallMethodEx {
+        has_kwargs: bool,
+    },
     ForIter {
         target: Label,
     },
@@ -288,7 +298,9 @@ pub enum Instruction {
     YieldValue,
     YieldFrom,
     SetupAnnotation,
-    SetupLoop,
+    SetupLoop {
+        break_target: Label,
+    },
 
     /// Setup a finally handler, which will be called whenever one of this events occurs:
     /// - the block is popped
@@ -824,7 +836,7 @@ impl Instruction {
             | SetupExcept { handler: l }
             | SetupWith { end: l }
             | SetupAsyncWith { end: l }
-            | Break { target: l }
+            | SetupLoop { break_target: l }
             | Continue { target: l } => Some(l),
             _ => None,
         }
@@ -844,7 +856,7 @@ impl Instruction {
             | SetupExcept { handler: l }
             | SetupWith { end: l }
             | SetupAsyncWith { end: l }
-            | Break { target: l }
+            | SetupLoop { break_target: l }
             | Continue { target: l } => Some(l),
             _ => None,
         }
@@ -853,7 +865,7 @@ impl Instruction {
     pub fn unconditional_branch(&self) -> bool {
         matches!(
             self,
-            Jump { .. } | Continue { .. } | Break { .. } | ReturnValue | Raise { .. }
+            Jump { .. } | Continue { .. } | Break | ReturnValue | Raise { .. }
         )
     }
 
@@ -880,7 +892,7 @@ impl Instruction {
             Duplicate => 1,
             GetIter => 0,
             Continue { .. } => 0,
-            Break { .. } => 0,
+            Break => 0,
             Jump { .. } => 0,
             JumpIfTrue { .. } | JumpIfFalse { .. } => -1,
             JumpIfTrueOrPop { .. } | JumpIfFalseOrPop { .. } => {
@@ -897,9 +909,13 @@ impl Instruction {
                     - flags.contains(MakeFunctionFlags::DEFAULTS) as i32
                     + 1
             }
-            CallFunctionPositional { nargs } => -1 - (*nargs as i32) + 1,
-            CallFunctionKeyword { nargs } => -2 - (*nargs as i32) + 1,
-            CallFunctionEx { has_kwargs } => -2 - *has_kwargs as i32 + 1,
+            CallFunctionPositional { nargs } => -(*nargs as i32) - 1 + 1,
+            CallMethodPositional { nargs } => -(*nargs as i32) - 3 + 1,
+            CallFunctionKeyword { nargs } => -1 - (*nargs as i32) - 1 + 1,
+            CallMethodKeyword { nargs } => -1 - (*nargs as i32) - 3 + 1,
+            CallFunctionEx { has_kwargs } => -1 - (*has_kwargs as i32) - 1 + 1,
+            CallMethodEx { has_kwargs } => -1 - (*has_kwargs as i32) - 3 + 1,
+            LoadMethod { .. } => -1 + 3,
             ForIter { .. } => {
                 if jump {
                     -1
@@ -910,7 +926,11 @@ impl Instruction {
             ReturnValue => -1,
             YieldValue => 0,
             YieldFrom => -1,
-            SetupAnnotation | SetupLoop | SetupFinally { .. } | EnterFinally | EndFinally => 0,
+            SetupAnnotation
+            | SetupLoop { .. }
+            | SetupFinally { .. }
+            | EnterFinally
+            | EndFinally => 0,
             SetupExcept { .. } => {
                 if jump {
                     1
@@ -1056,7 +1076,7 @@ impl Instruction {
             Duplicate => w!(Duplicate),
             GetIter => w!(GetIter),
             Continue { target } => w!(Continue, target),
-            Break { target } => w!(Break, target),
+            Break => w!(Break),
             Jump { target } => w!(Jump, target),
             JumpIfTrue { target } => w!(JumpIfTrue, target),
             JumpIfFalse { target } => w!(JumpIfFalse, target),
@@ -1066,12 +1086,16 @@ impl Instruction {
             CallFunctionPositional { nargs } => w!(CallFunctionPositional, nargs),
             CallFunctionKeyword { nargs } => w!(CallFunctionKeyword, nargs),
             CallFunctionEx { has_kwargs } => w!(CallFunctionEx, has_kwargs),
+            LoadMethod { idx } => w!(LoadMethod, name(*idx)),
+            CallMethodPositional { nargs } => w!(CallMethodPositional, nargs),
+            CallMethodKeyword { nargs } => w!(CallMethodKeyword, nargs),
+            CallMethodEx { has_kwargs } => w!(CallMethodEx, has_kwargs),
             ForIter { target } => w!(ForIter, target),
             ReturnValue => w!(ReturnValue),
             YieldValue => w!(YieldValue),
             YieldFrom => w!(YieldFrom),
             SetupAnnotation => w!(SetupAnnotation),
-            SetupLoop => w!(SetupLoop),
+            SetupLoop { break_target } => w!(SetupLoop, break_target),
             SetupExcept { handler } => w!(SetupExcept, handler),
             SetupFinally { handler } => w!(SetupFinally, handler),
             EnterFinally => w!(EnterFinally),

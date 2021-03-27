@@ -109,8 +109,6 @@ class FailureTestCase(unittest.TestCase):
             with foo: pass
         self.assertRaises(NameError, fooNotDeclared)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testEnterAttributeError1(self):
         class LacksEnter(object):
             def __exit__(self, type, value, traceback):
