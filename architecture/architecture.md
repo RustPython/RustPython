@@ -60,7 +60,7 @@ Python compilation to bytecode. The interface is exposed through the porcelain c
 
 ### Derive
 
-Rust language extensions and macros specific to rustpython. Here we can find the definition of `PyModule` and `PyClass` along with usefule macros like `py_compile!`
+Rust language extensions and macros specific to rustpython. Here we can find the definition of `PyModule` and `PyClass` along with useful macros like `py_compile!`
 
 ### Parser
 
