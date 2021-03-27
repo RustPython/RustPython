@@ -63,7 +63,7 @@ into_func_args_from_tuple!((v1, T1), (v2, T2), (v3, T3), (v4, T4), (v5, T5));
 pub struct FuncArgs {
     pub args: Vec<PyObjectRef>,
     // sorted map, according to https://www.python.org/dev/peps/pep-0468/
-    pub kwargs: IndexMap<String, PyObjectRef>,
+    pub kwargs: Option<IndexMap<String, PyObjectRef>>,
 }
 
 /// Conversion from vector of python objects to function arguments.
@@ -74,7 +74,7 @@ where
     fn from(args: A) -> Self {
         FuncArgs {
             args: args.into().into_vec(),
-            kwargs: IndexMap::new(),
+            kwargs: None,
         }
     }
 }
@@ -83,7 +83,7 @@ impl From<KwArgs> for FuncArgs {
     fn from(kwargs: KwArgs) -> Self {
         FuncArgs {
             args: Vec::new(),
-            kwargs: kwargs.0,
+            kwargs: Some(kwargs.0),
         }
     }
 }
@@ -95,14 +95,16 @@ impl FromArgs for FuncArgs {
 }
 
 impl FuncArgs {
-    pub fn new<A, K>(args: A, kwargs: K) -> Self
+    pub fn new<A, K>(args: A, kwargs: Option<K>) -> Self
     where
         A: Into<Args>,
         K: Into<KwArgs>,
     {
         let Args(args) = args.into();
-        let KwArgs(kwargs) = kwargs.into();
-        Self { args, kwargs }
+        Self {
+            args,
+            kwargs: kwargs.map(|kw| kw.into().0),
+        }
     }
 
     pub fn with_kwargs_names<A, KW>(mut args: A, kwarg_names: KW) -> Self
@@ -121,7 +123,7 @@ impl FuncArgs {
 
         FuncArgs {
             args: posargs,
-            kwargs,
+            kwargs: Some(kwargs),
         }
     }
 
@@ -134,15 +136,22 @@ impl FuncArgs {
         self.args.remove(0)
     }
 
-    pub fn get_kwarg(&self, key: &str, default: PyObjectRef) -> PyObjectRef {
-        self.kwargs
-            .get(key)
-            .cloned()
-            .unwrap_or_else(|| default.clone())
+    pub fn kwargs_or_create(&mut self) -> &mut IndexMap<String, PyObjectRef> {
+        if self.kwargs.is_none() {
+            self.kwargs = Some(IndexMap::new());
+        }
+        self.kwargs.as_mut().unwrap_or_else(|| unsafe {
+            // safety: guaranteed to exist by upper `.is_none()` check
+            std::hint::unreachable_unchecked()
+        })
+    }
+
+    pub fn get_kwarg(&self, key: &str) -> Option<&PyObjectRef> {
+        self.kwargs.as_ref().and_then(|kw| kw.get(key))
     }
 
     pub fn get_optional_kwarg(&self, key: &str) -> Option<PyObjectRef> {
-        self.kwargs.get(key).cloned()
+        self.get_kwarg(key).cloned()
     }
 
     pub fn get_optional_kwarg_with_type(
@@ -168,6 +177,10 @@ impl FuncArgs {
         }
     }
 
+    pub fn pop_kwarg(&mut self, name: &str) -> Option<PyObjectRef> {
+        self.kwargs.as_mut().and_then(|kw| kw.remove(name))
+    }
+
     pub fn take_positional(&mut self) -> Option<PyObjectRef> {
         if self.args.is_empty() {
             None
@@ -181,11 +194,13 @@ impl FuncArgs {
     }
 
     pub fn take_keyword(&mut self, name: &str) -> Option<PyObjectRef> {
-        self.kwargs.swap_remove(name)
+        self.kwargs.as_mut().and_then(|kw| kw.swap_remove(name))
     }
 
-    pub fn remaining_keywords(&mut self) -> impl Iterator<Item = (String, PyObjectRef)> + '_ {
-        self.kwargs.drain(..)
+    pub fn remaining_keywords(
+        &mut self,
+    ) -> Option<impl Iterator<Item = (String, PyObjectRef)> + '_> {
+        self.kwargs.as_mut().map(|kw| kw.drain(..))
     }
 
     /// Binds these arguments to their respective values.
@@ -215,8 +230,12 @@ impl FuncArgs {
     }
 
     pub fn check_kwargs_empty(&self, vm: &VirtualMachine) -> Option<PyBaseExceptionRef> {
-        if let Some(k) = self.kwargs.keys().next() {
-            Some(vm.new_type_error(format!("Unexpected keyword argument {}", k)))
+        if let Some(func_kwargs) = &self.kwargs {
+            if let Some(k) = func_kwargs.keys().next() {
+                Some(vm.new_type_error(format!("Unexpected keyword argument {}", k)))
+            } else {
+                None
+            }
         } else {
             None
         }
@@ -349,8 +368,10 @@ where
 {
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
         let mut kwargs = IndexMap::new();
-        for (name, value) in args.remaining_keywords() {
-            kwargs.insert(name, T::try_from_object(vm, value)?);
+        if let Some(func_kwargs) = args.remaining_keywords() {
+            for (name, value) in func_kwargs {
+                kwargs.insert(name, T::try_from_object(vm, value)?);
+            }
         }
         Ok(KwArgs(kwargs))
     }

@@ -110,10 +110,10 @@ pub fn py_to_js(vm: &VirtualMachine, py_obj: PyObjectRef) -> JsValue {
                     };
                     let mut py_func_args = FuncArgs::from(args);
                     if let Some(ref kwargs) = kwargs {
+                        let py_func_kwargs = py_func_args.kwargs_or_create();
                         for pair in object_entries(kwargs) {
                             let (key, val) = pair?;
-                            py_func_args
-                                .kwargs
+                            py_func_kwargs
                                 .insert(js_sys::JsString::from(key).into(), js_to_py(vm, val));
                         }
                     }
@@ -222,9 +222,11 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
             func.name(),
             move |args: FuncArgs, vm: &VirtualMachine| -> PyResult {
                 let this = Object::new();
-                for (k, v) in args.kwargs {
-                    Reflect::set(&this, &k.into(), &py_to_js(vm, v))
-                        .expect("property to be settable");
+                if let Some(kwargs) = args.kwargs {
+                    for (k, v) in kwargs {
+                        Reflect::set(&this, &k.into(), &py_to_js(vm, v))
+                            .expect("property to be settable");
+                    }
                 }
                 let js_args = args
                     .args

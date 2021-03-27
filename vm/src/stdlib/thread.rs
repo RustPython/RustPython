@@ -230,9 +230,8 @@ fn _thread_start_new_thread(
     let args = FuncArgs::new(
         args.borrow_value().to_owned(),
         kwargs
-            .map_or_else(Default::default, |k| k.to_attributes())
-            .into_iter()
-            .collect::<KwArgs>(),
+            .into_option()
+            .map(|k| k.to_attributes().into_iter().collect::<KwArgs>()),
     );
     let mut thread_builder = thread::Builder::new();
     let stacksize = vm.state.stacksize.load();

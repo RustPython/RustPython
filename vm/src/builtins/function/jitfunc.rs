@@ -150,22 +150,25 @@ pub(crate) fn get_jit_args<'a>(
     }
 
     // Handle keyword arguments
-    for (name, value) in &func_args.kwargs {
-        let arg_pos =
-            |args: &[PyStrRef], name: &str| args.iter().position(|arg| arg.borrow_value() == name);
-        if let Some(arg_idx) = arg_pos(arg_names.args, name) {
-            if jit_args.is_set(arg_idx) {
-                return Err(ArgsError::ArgPassedMultipleTimes);
+    if let Some(func_kwargs) = &func_args.kwargs {
+        for (name, value) in func_kwargs {
+            let arg_pos = |args: &[PyStrRef], name: &str| {
+                args.iter().position(|arg| arg.borrow_value() == name)
+            };
+            if let Some(arg_idx) = arg_pos(arg_names.args, name) {
+                if jit_args.is_set(arg_idx) {
+                    return Err(ArgsError::ArgPassedMultipleTimes);
+                }
+                jit_args.set(arg_idx, get_jit_value(vm, &value)?)?;
+            } else if let Some(kwarg_idx) = arg_pos(arg_names.kwonlyargs, name) {
+                let arg_idx = kwarg_idx + func.code.arg_count;
+                if jit_args.is_set(arg_idx) {
+                    return Err(ArgsError::ArgPassedMultipleTimes);
+                }
+                jit_args.set(arg_idx, get_jit_value(vm, &value)?)?;
+            } else {
+                return Err(ArgsError::NotAKeywordArg);
             }
-            jit_args.set(arg_idx, get_jit_value(vm, &value)?)?;
-        } else if let Some(kwarg_idx) = arg_pos(arg_names.kwonlyargs, name) {
-            let arg_idx = kwarg_idx + func.code.arg_count;
-            if jit_args.is_set(arg_idx) {
-                return Err(ArgsError::ArgPassedMultipleTimes);
-            }
-            jit_args.set(arg_idx, get_jit_value(vm, &value)?)?;
-        } else {
-            return Err(ArgsError::NotAKeywordArg);
         }
     }
 

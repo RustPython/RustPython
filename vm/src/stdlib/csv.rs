@@ -29,7 +29,7 @@ struct FormatOptions {
 
 impl FromArgs for FormatOptions {
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
-        let delimiter = if let Some(delimiter) = args.kwargs.remove("delimiter") {
+        let delimiter = if let Some(delimiter) = args.pop_kwarg("delimiter") {
             PyStrRef::try_from_object(vm, delimiter)?
                 .borrow_value()
                 .bytes()
@@ -42,7 +42,7 @@ impl FromArgs for FormatOptions {
             b','
         };
 
-        let quotechar = if let Some(quotechar) = args.kwargs.remove("quotechar") {
+        let quotechar = if let Some(quotechar) = args.pop_kwarg("quotechar") {
             PyStrRef::try_from_object(vm, quotechar)?
                 .borrow_value()
                 .bytes()

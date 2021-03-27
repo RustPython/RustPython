@@ -408,7 +408,10 @@ impl PyType {
         vm_trace!("type.__new__ {:?}", args);
 
         let is_type_type = metatype.is(&vm.ctx.types.type_type);
-        if is_type_type && args.args.len() == 1 && args.kwargs.is_empty() {
+        if is_type_type
+            && args.args.len() == 1
+            && args.kwargs.as_ref().map_or(true, |kw| kw.is_empty())
+        {
             return Ok(args.args[0].clone_class().into_object());
         }
 
@@ -598,7 +601,10 @@ impl Callable for PyType {
         vm_trace!("type_call: {:?}", zelf);
         let obj = call_tp_new(zelf.clone(), zelf.clone(), args.clone(), vm)?;
 
-        if (zelf.is(&vm.ctx.types.type_type) && args.kwargs.is_empty()) || !obj.isinstance(&zelf) {
+        if (zelf.is(&vm.ctx.types.type_type)
+            && args.kwargs.as_ref().map_or(true, |kw| kw.is_empty()))
+            || !obj.isinstance(&zelf)
+        {
             return Ok(obj);
         }
 

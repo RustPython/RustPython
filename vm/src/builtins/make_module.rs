@@ -857,7 +857,7 @@ mod decl {
         let prepare = vm.get_attribute(metaclass.clone().into_object(), "__prepare__")?;
         let namespace = vm.invoke(
             &prepare,
-            FuncArgs::new(vec![name_obj.clone(), bases.clone()], kwargs.clone()),
+            FuncArgs::new(vec![name_obj.clone(), bases.clone()], Some(kwargs.clone())),
         )?;
 
         let namespace = PyDictRef::try_from_object(vm, namespace)?;
@@ -867,7 +867,7 @@ mod decl {
 
         let class = vm.invoke(
             metaclass.as_object(),
-            FuncArgs::new(vec![name_obj, bases, namespace.into_object()], kwargs),
+            FuncArgs::new(vec![name_obj, bases, namespace.into_object()], Some(kwargs)),
         )?;
 
         if let Some(ref classcell) = classcell {

@@ -716,12 +716,12 @@ fn import_error_init(exc_self: PyObjectRef, args: FuncArgs, vm: &VirtualMachine)
     vm.set_attr(
         &exc_self,
         "name",
-        vm.unwrap_or_none(args.kwargs.get("name").cloned()),
+        vm.unwrap_or_none(args.get_kwarg("name").cloned()),
     )?;
     vm.set_attr(
         &exc_self,
         "path",
-        vm.unwrap_or_none(args.kwargs.get("path").cloned()),
+        vm.unwrap_or_none(args.get_kwarg("path").cloned()),
     )?;
     Ok(())
 }

@@ -133,24 +133,27 @@ impl PyFunction {
 
         let mut posonly_passed_as_kwarg = Vec::new();
         // Handle keyword arguments
-        for (name, value) in func_args.kwargs {
-            // Check if we have a parameter with this name:
-            if let Some(pos) = argpos(code.posonlyarg_count..total_args, &name) {
-                let slot = &mut fastlocals[pos];
-                if slot.is_some() {
+        if let Some(func_kwargs) = func_args.kwargs {
+            for (name, value) in func_kwargs {
+                // Check if we have a parameter with this name:
+                if let Some(pos) = argpos(code.posonlyarg_count..total_args, &name) {
+                    let slot = &mut fastlocals[pos];
+                    if slot.is_some() {
+                        return Err(vm.new_type_error(format!(
+                            "Got multiple values for argument '{}'",
+                            name
+                        )));
+                    }
+                    *slot = Some(value);
+                } else if argpos(0..code.posonlyarg_count, &name).is_some() {
+                    posonly_passed_as_kwarg.push(name);
+                } else if let Some(kwargs) = kwargs.as_ref() {
+                    kwargs.set_item(name, value, vm)?;
+                } else {
                     return Err(
-                        vm.new_type_error(format!("Got multiple values for argument '{}'", name))
+                        vm.new_type_error(format!("got an unexpected keyword argument '{}'", name))
                     );
                 }
-                *slot = Some(value);
-            } else if argpos(0..code.posonlyarg_count, &name).is_some() {
-                posonly_passed_as_kwarg.push(name);
-            } else if let Some(kwargs) = kwargs.as_ref() {
-                kwargs.set_item(name, value, vm)?;
-            } else {
-                return Err(
-                    vm.new_type_error(format!("got an unexpected keyword argument '{}'", name))
-                );
             }
         }
         if !posonly_passed_as_kwarg.is_empty() {

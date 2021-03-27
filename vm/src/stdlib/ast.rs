@@ -65,17 +65,19 @@ impl AstNode {
         for (name, arg) in fields.iter().zip(args.args) {
             vm.set_attr(&zelf, name.clone(), arg)?;
         }
-        for (key, value) in args.kwargs {
-            if let Some(pos) = fields.iter().position(|f| f.borrow_value() == key) {
-                if pos < numargs {
-                    return Err(vm.new_type_error(format!(
-                        "{} got multiple values for argument '{}'",
-                        zelf.class().name,
-                        key
-                    )));
+        if let Some(func_kwargs) = args.kwargs {
+            for (key, value) in func_kwargs {
+                if let Some(pos) = fields.iter().position(|f| f.borrow_value() == key) {
+                    if pos < numargs {
+                        return Err(vm.new_type_error(format!(
+                            "{} got multiple values for argument '{}'",
+                            zelf.class().name,
+                            key
+                        )));
+                    }
                 }
+                vm.set_attr(&zelf, key, value)?;
             }
-            vm.set_attr(&zelf, key, value)?;
         }
         Ok(())
     }

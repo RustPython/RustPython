@@ -1306,7 +1306,7 @@ impl ExecutingFrame<'_> {
     fn execute_call_function_positional(&mut self, vm: &VirtualMachine, nargs: u32) -> FrameResult {
         let args = FuncArgs {
             args: self.pop_multiple(nargs as usize).collect(),
-            kwargs: IndexMap::new(),
+            kwargs: None,
         };
 
         let func_ref = self.pop_value();
@@ -1347,9 +1347,9 @@ impl ExecutingFrame<'_> {
                     .ok_or_else(|| vm.new_type_error("keywords must be strings".to_owned()))?;
                 kwargs.insert(key.borrow_value().to_owned(), value);
             }
-            kwargs
+            Some(kwargs)
         } else {
-            IndexMap::new()
+            None
         };
         let args = self.pop_value();
         let args = vm.extract_elements(&args)?;
