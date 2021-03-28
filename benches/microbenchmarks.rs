@@ -1,4 +1,3 @@
-use cpython::Python;
 use criterion::measurement::WallTime;
 use criterion::{
     criterion_group, criterion_main, BatchSize, BenchmarkGroup, BenchmarkId, Criterion, Throughput,
@@ -19,31 +18,32 @@ pub struct MicroBenchmark {
 
 fn bench_cpython_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchmark) {
     let gil = cpython::Python::acquire_gil();
-    let python = gil.python();
+    let py = gil.python();
 
-    let bench_func = |(python, code): (Python, String)| {
-        let res: cpython::PyResult<()> = python.run(&code, None, None);
+    let bench_func = |(code, globals, locals)| {
+        let res = cpy_run_code(py, &code, &globals, &locals);
         if let Err(e) = res {
-            e.print(python);
+            e.print(py);
             panic!("Error running microbenchmark")
         }
     };
 
     let bench_setup = |iterations| {
-        let code = if let Some(idx) = iterations {
-            // We can't easily modify the locals when running cPython. So we just add the
-            // loop iterations at the top of the code...
-            format!("ITERATIONS = {}\n{}", idx, bench.code)
-        } else {
-            (&bench.code).to_string()
-        };
+        let globals = cpython::PyDict::new(py);
+        let locals = cpython::PyDict::new(py);
+        if let Some(idx) = iterations {
+            globals.set_item(py, "ITERATIONS", idx).unwrap();
+        }
 
-        let res: cpython::PyResult<()> = python.run(&bench.setup, None, None);
+        let res = py.run(&bench.setup, Some(&globals), Some(&locals));
         if let Err(e) = res {
-            e.print(python);
+            e.print(py);
             panic!("Error running microbenchmark setup code")
         }
-        (python, code)
+        let code = std::ffi::CString::new(&*bench.code).unwrap();
+        let name = std::ffi::CString::new(&*bench.name).unwrap();
+        let code = cpy_compile_code(py, &code, &name).unwrap();
+        (code, globals, locals)
     };
 
     if bench.iterate {
@@ -61,6 +61,42 @@ fn bench_cpython_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchma
         group.bench_function(BenchmarkId::new("cpython", &bench.name), move |b| {
             b.iter_batched(|| bench_setup(None), bench_func, BatchSize::PerIteration);
         });
+    }
+}
+
+unsafe fn cpy_res(
+    py: cpython::Python<'_>,
+    x: *mut python3_sys::PyObject,
+) -> cpython::PyResult<cpython::PyObject> {
+    cpython::PyObject::from_owned_ptr_opt(py, x).ok_or_else(|| cpython::PyErr::fetch(py))
+}
+
+fn cpy_compile_code(
+    py: cpython::Python<'_>,
+    s: &std::ffi::CStr,
+    fname: &std::ffi::CStr,
+) -> cpython::PyResult<cpython::PyObject> {
+    unsafe {
+        let res =
+            python3_sys::Py_CompileString(s.as_ptr(), fname.as_ptr(), python3_sys::Py_file_input);
+        cpy_res(py, res)
+    }
+}
+
+fn cpy_run_code(
+    py: cpython::Python<'_>,
+    code: &cpython::PyObject,
+    locals: &cpython::PyDict,
+    globals: &cpython::PyDict,
+) -> cpython::PyResult<cpython::PyObject> {
+    use cpython::PythonObject;
+    unsafe {
+        let res = python3_sys::PyEval_EvalCode(
+            code.as_ptr(),
+            locals.as_object().as_ptr(),
+            globals.as_object().as_ptr(),
+        );
+        cpy_res(py, res)
     }
 }
 
