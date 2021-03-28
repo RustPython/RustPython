@@ -41,18 +41,20 @@ The entry points are as follows:
 
 ## Modules
 
+Here we give a brief overview of each module and its function. For more details for the separate crates please take a look at their respective READMEs.
+
 ### Bytecode
 
 This module (single file at moment) holds the representation of bytecode for RustPython
-For instance, the following function
+<!-- For instance, the following function
 ```python
 def f(x):
     return x + 1
 ```
 Is compiled to
 ```rust
-
-```
+// Not sure what this should be yet
+``` -->
 
 ### Compiler
 
@@ -72,34 +74,42 @@ As Python heavily relies on whitespace and indentation to organize code, the cra
 
 ### Lib
 
-python side of standard libary
+Python side of the standard libary, copied over (with care) from CPython sourcecode.
 
 ### Lib/test
 
-CPython test suite
+
+CPython test suite, which can be used to compare with CPython in terms of functionality and performance.
+Many of these files have been modified to fit with the current state of RustPython (when they were added), with one of three ways:
+
+- The test has been commented out completely if the parser could not create a valid code object (Syntax Error)
+- A test has been marked as `unittest.skip("TODO: RustPython")` if it led to a crash of RustPython
+- A test has been marked as `unittest.expectedFailure` with `TODO: RustPython` left on top if the test can run but failed
+
+Note: This is a recommended route to starting with contributing. To get started please take a look [this blog post](https://rustpython.github.io/guideline/2020/04/04/how-to-contribute-by-cpython-unittest.html).
+
 
 ### VM
 
 Python VM
 
 - builtins: all the builtin functions
-- compile: from AST to bytecode?
 - obj: Builtin types
 - stdlib: the parts of the standard library implemented in rust
 
 ### src
 
-The RustPython executable is implemented here
+The RustPython executable is implemented here, which is the interface through which users come in contact with library.
+Some things to note:
 
+- The CLI is defined in `src/lib.rs@run`
+- The interface and helper for the REPL are defined in this package, but the actual REPL can be found in `vm/rustyline.rs`
 
-### py_code_object
-
-CPython bytecode → rustpython bytecode
 
 ### WASM
 
-crate for WebAssembly build
+Crate for WebAssembly build, which compiles the RustPython package to a format that can be run on any modern browser.
 
 ### extra_tests
 
-extra integration tests
+Integration ans snippet tests for the entire project.
