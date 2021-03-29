@@ -143,8 +143,8 @@ pub struct CodeObject<C: Constant = ConstantData> {
     pub cell2arg: Option<Box<[isize]>>,
     pub constants: Box<[C]>,
     #[serde(bound(
-    deserialize = "C::Name: serde::Deserialize<'de>",
-    serialize = "C::Name: serde::Serialize"
+        deserialize = "C::Name: serde::Deserialize<'de>",
+        serialize = "C::Name: serde::Serialize"
     ))]
     pub names: Box<[C::Name]>,
     pub varnames: Box<[C::Name]>,
@@ -515,7 +515,7 @@ pub enum BorrowedConstant<'a, C: Constant> {
     Ellipsis,
 }
 
-type BorrowedTupleIter<'a, C> = Box<dyn Iterator<Item=BorrowedConstant<'a, C>> + 'a>;
+type BorrowedTupleIter<'a, C> = Box<dyn Iterator<Item = BorrowedConstant<'a, C>> + 'a>;
 
 impl<C: Constant> BorrowedConstant<'_, C> {
     // takes `self` because we need to consume the iterator
@@ -1233,8 +1233,8 @@ impl<C: Constant> fmt::Debug for CodeObject<C> {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct FrozenModule<C: Constant = ConstantData> {
     #[serde(bound(
-    deserialize = "C: serde::Deserialize<'de>, C::Name: serde::Deserialize<'de>",
-    serialize = "C: serde::Serialize, C::Name: serde::Serialize"
+        deserialize = "C: serde::Deserialize<'de>, C::Name: serde::Deserialize<'de>",
+        serialize = "C: serde::Serialize, C::Name: serde::Serialize"
     ))]
     pub code: CodeObject<C>,
     pub package: bool,
@@ -1286,9 +1286,9 @@ pub mod frozen_lib {
 
     /// Encode the given iterator of frozen modules into a compressed vector of bytes
     pub fn encode_lib<'a, I>(lib: I) -> Vec<u8>
-        where
-            I: IntoIterator<Item=(&'a str, &'a FrozenModule)>,
-            I::IntoIter: ExactSizeIterator + Clone,
+    where
+        I: IntoIterator<Item = (&'a str, &'a FrozenModule)>,
+        I::IntoIter: ExactSizeIterator + Clone,
     {
         let iter = lib.into_iter();
         let data = options().serialize(&SerializeLib { iter }).unwrap();
@@ -1300,12 +1300,12 @@ pub mod frozen_lib {
     }
 
     impl<'a, I> Serialize for SerializeLib<I>
-        where
-            I: ExactSizeIterator<Item=(&'a str, &'a FrozenModule)> + Clone,
+    where
+        I: ExactSizeIterator<Item = (&'a str, &'a FrozenModule)> + Clone,
     {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-            where
-                S: serde::Serializer,
+        where
+            S: serde::Serializer,
         {
             serializer.collect_seq(self.iter.clone())
         }
@@ -1346,8 +1346,8 @@ pub mod frozen_lib {
 
     impl<'storage> bincode::BincodeRead<'storage> for VecReader {
         fn forward_read_str<V>(&mut self, length: usize, visitor: V) -> bincode::Result<V::Value>
-            where
-                V: serde::de::Visitor<'storage>,
+        where
+            V: serde::de::Visitor<'storage>,
         {
             let bytes = self.get_byte_slice(length)?;
             match ::std::str::from_utf8(bytes) {
@@ -1363,8 +1363,8 @@ pub mod frozen_lib {
         }
 
         fn forward_read_bytes<V>(&mut self, length: usize, visitor: V) -> bincode::Result<V::Value>
-            where
-                V: serde::de::Visitor<'storage>,
+        where
+            V: serde::de::Visitor<'storage>,
         {
             visitor.visit_bytes(self.get_byte_slice(length)?)
         }
