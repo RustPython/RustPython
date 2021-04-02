@@ -1,3 +1,5 @@
+#![allow(clippy::upper_case_acronyms)]
+
 pub mod browser_module;
 pub mod convert;
 pub mod js_module;
