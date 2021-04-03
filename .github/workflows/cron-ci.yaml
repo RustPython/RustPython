@@ -1,6 +1,7 @@
 on:
   schedule:
     - cron: '0 0 * * 6'
+  workflow_dispatch:
 
 jobs:
   redox:
@@ -125,19 +126,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@master
+      - run: cargo install cargo-criterion
       - name: collect execution benchmark data
-        run: cargo bench --bench execution
+        run: cargo criterion --bench execution
       - name: collect microbenchmarks data
-        run: cargo bench --bench microbenchmarks
+        run: cargo criterion --bench microbenchmarks
       - name: restructure generated files
         run: |
-          cd ./target/criterion
+          cd ./target/criterion/reports
           find -type d -name cpython | xargs rm -rf
           find -type d -name rustpython | xargs rm -rf
-          find -maxdepth 2 -type d -name report | xargs rm -rf
+          find -mindepth 2 -maxdepth 2 -name violin.svg | xargs rm -rf
           find -type f -not -name violin.svg | xargs rm -rf
-          for file in $(find -type f -name violin.svg); do mv $file $(echo $file | sed -E "s_\./([^/]+)/([^/]+)/report/violin\.svg_./\1/\2.svg_"); done
+          for file in $(find -type f -name violin.svg); do mv $file $(echo $file | sed -E "s_\./([^/]+)/([^/]+)/violin\.svg_./\1/\2.svg_"); done
           find -mindepth 2 -maxdepth 2 -type d | xargs rm -rf
+          cd ..
+          mv reports/* .
+          rmdir reports
       - name: upload benchmark data to the website
         env:
           SSHKEY: ${{ secrets.ACTIONS_TESTS_DATA_DEPLOY_KEY }}
