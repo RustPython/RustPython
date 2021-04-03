@@ -2532,7 +2532,7 @@ mod posix {
         }
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(not(any(windows, target_os = "redox")))]
     #[pyfunction]
     fn getpriority(
         which: PriorityWhichType,
@@ -2548,7 +2548,7 @@ mod posix {
         }
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(not(any(windows, target_os = "redox")))]
     #[pyfunction]
     fn setpriority(
         which: PriorityWhichType,
