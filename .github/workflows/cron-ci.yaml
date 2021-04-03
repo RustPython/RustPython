@@ -3,6 +3,8 @@ on:
     - cron: '0 0 * * 6'
   workflow_dispatch:
 
+name: Periodic checks/tasks
+
 jobs:
   redox:
     name: Check compilation on Redox
@@ -127,6 +129,8 @@ jobs:
     steps:
       - uses: actions/checkout@master
       - run: cargo install cargo-criterion
+      - name: build benchmarks
+        run: cargo build --release --benches
       - name: collect execution benchmark data
         run: cargo criterion --bench execution
       - name: collect microbenchmarks data
