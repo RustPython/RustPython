@@ -1,9 +1,7 @@
-// above for the macro
-#[macro_use]
-pub mod map_ast;
-
 mod ast_gen;
 mod constant;
+#[cfg(feature = "fold")]
+mod fold_helpers;
 mod impls;
 mod location;
 
