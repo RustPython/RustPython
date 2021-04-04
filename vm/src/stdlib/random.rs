@@ -109,7 +109,7 @@ mod _random {
         fn getrandbits(&self, k: usize) -> BigInt {
             let mut rng = self.rng.lock();
             let mut k = k;
-            let mut gen_u32 = |k| rng.next_u32() >> (32 - k) as u32;
+            let mut gen_u32 = |k| rng.next_u32() >> 32usize.wrapping_sub(k) as u32;
 
             if k <= 32 {
                 return gen_u32(k).into();

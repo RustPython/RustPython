@@ -70,5 +70,5 @@ opt-level = 3
 
 [patch.crates-io]
 # REDOX START, Uncommment when you want to compile/check with redoxer
+# rustyline = { git = "https://github.com/kkawakam/rustyline" }
 # REDOX END
-lock_api = { git = "https://github.com/Amanieu/parking_lot" }
