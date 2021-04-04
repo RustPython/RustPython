@@ -900,7 +900,7 @@ mod _os {
     #[pyfunction]
     fn stat(
         file: Either<PyPathLike, i64>,
-        dir_fd: super::DirFd,
+        dir_fd: DirFd,
         follow_symlinks: FollowSymlinks,
         vm: &VirtualMachine,
     ) -> PyResult {
@@ -1259,8 +1259,8 @@ mod _os {
             SupportFunc::new(vm, "replace", rename, Some(false), Some(false), None), // TODO: Fix replace
             SupportFunc::new(vm, "rmdir", rmdir, Some(false), Some(false), None),
             SupportFunc::new(vm, "scandir", scandir, Some(false), None, None),
-            SupportFunc::new(vm, "stat", stat, Some(false), Some(false), Some(false)),
-            SupportFunc::new(vm, "fstat", stat, Some(false), Some(false), Some(false)),
+            SupportFunc::new(vm, "stat", stat, Some(true), Some(true), Some(true)),
+            SupportFunc::new(vm, "fstat", stat, Some(true), Some(true), Some(true)),
             SupportFunc::new(vm, "symlink", platform::symlink, None, Some(false), None),
             // truncate Some None None
             SupportFunc::new(vm, "unlink", remove, Some(false), Some(false), None),
