@@ -555,8 +555,30 @@ mod _os {
     }
 
     #[pyfunction]
-    fn listdir(path: PyPathLike, vm: &VirtualMachine) -> PyResult {
-        let dir_iter = fs::read_dir(&path.path).map_err(|err| err.into_pyexception(vm))?;
+    fn listdir(path: Either<PyPathLike, i64>, vm: &VirtualMachine) -> PyResult {
+        let path = match path {
+            Either::A(path) => path,
+            Either::B(fno) => {
+                cfg_if::cfg_if! {
+                    if #[cfg(any(target_os = "linux", target_os = "macos", windows))] {
+                        let file = rust_file(fno);
+                        match file.path() {
+                            Ok(path) => PyPathLike::new_str(path.to_string_lossy().to_string()),
+                            Err(_) => {
+                                return Err(vm.new_os_error(format!(
+                                    "Cannot determine path of fno: {:?}",
+                                    fno
+                                )));
+                            }
+                        }
+                    } else {
+                        return Err(vm.new_os_error("dir_fd not supported on wasi yet".to_owned()));
+                    }
+                }
+            }
+        };
+
+        let dir_iter = fs::read_dir(&path).map_err(|err| err.into_pyexception(vm))?;
         let res: PyResult<Vec<PyObjectRef>> = dir_iter
             .map(|entry| match entry {
                 Ok(entry_path) => path.mode.process_path(entry_path.file_name(), vm),
@@ -1248,7 +1270,7 @@ mod _os {
             ),
             SupportFunc::new(vm, "chdir", chdir, Some(false), None, None),
             // chflags Some, None Some
-            SupportFunc::new(vm, "listdir", listdir, Some(false), None, None),
+            SupportFunc::new(vm, "listdir", listdir, Some(true), None, None),
             SupportFunc::new(vm, "mkdir", mkdir, Some(false), Some(false), None),
             // mkfifo Some Some None
             // mknod Some Some None
