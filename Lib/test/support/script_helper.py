@@ -44,7 +44,7 @@ def interpreter_requires_environment():
         # Try running an interpreter with -E to see if it works or not.
         try:
             subprocess.check_call([sys.executable, '-E',
-                                   '-c', 'import sys; sys.exit(0)'])
+                                   '-c', 'import os, sys; sys.exit(0)'])
         except subprocess.CalledProcessError:
             __cached_interp_requires_environment = True
         else:
