@@ -7,7 +7,7 @@ use rustpython_vm::pyobject::ItemProtocol;
 use rustpython_vm::pyobject::PyResult;
 use rustpython_vm::{InitParameter, Interpreter, PySettings};
 use std::path::{Path, PathBuf};
-use std::{fs, io};
+use std::{ffi, fs, io};
 
 pub struct MicroBenchmark {
     name: String,
@@ -20,8 +20,16 @@ fn bench_cpython_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchma
     let gil = cpython::Python::acquire_gil();
     let py = gil.python();
 
-    let bench_func = |(code, globals, locals)| {
-        let res = cpy_run_code(py, &code, &globals, &locals);
+    let setup_code = ffi::CString::new(&*bench.setup).unwrap();
+    let setup_name = ffi::CString::new(format!("{}_setup", bench.name)).unwrap();
+    let setup_code = cpy_compile_code(py, &setup_code, &setup_name).unwrap();
+
+    let code = ffi::CString::new(&*bench.code).unwrap();
+    let name = ffi::CString::new(&*bench.name).unwrap();
+    let code = cpy_compile_code(py, &code, &name).unwrap();
+
+    let bench_func = |(globals, locals): &mut (cpython::PyDict, cpython::PyDict)| {
+        let res = cpy_run_code(py, &code, globals, locals);
         if let Err(e) = res {
             e.print(py);
             panic!("Error running microbenchmark")
@@ -30,36 +38,36 @@ fn bench_cpython_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchma
 
     let bench_setup = |iterations| {
         let globals = cpython::PyDict::new(py);
+        // setup the __builtins__ attribute - no other way to do this (other than manually) as far
+        // as I can tell
+        let _ = py.run("", Some(&globals), None);
         let locals = cpython::PyDict::new(py);
         if let Some(idx) = iterations {
             globals.set_item(py, "ITERATIONS", idx).unwrap();
         }
 
-        let res = py.run(&bench.setup, Some(&globals), Some(&locals));
+        let res = cpy_run_code(py, &setup_code, &globals, &locals);
         if let Err(e) = res {
             e.print(py);
             panic!("Error running microbenchmark setup code")
         }
-        let code = std::ffi::CString::new(&*bench.code).unwrap();
-        let name = std::ffi::CString::new(&*bench.name).unwrap();
-        let code = cpy_compile_code(py, &code, &name).unwrap();
-        (code, globals, locals)
+        (globals, locals)
     };
 
     if bench.iterate {
         for idx in (100..=1_000).step_by(200) {
             group.throughput(Throughput::Elements(idx as u64));
             group.bench_with_input(BenchmarkId::new("cpython", &bench.name), &idx, |b, idx| {
-                b.iter_batched(
+                b.iter_batched_ref(
                     || bench_setup(Some(*idx)),
                     bench_func,
-                    BatchSize::PerIteration,
+                    BatchSize::LargeInput,
                 );
             });
         }
     } else {
         group.bench_function(BenchmarkId::new("cpython", &bench.name), move |b| {
-            b.iter_batched(|| bench_setup(None), bench_func, BatchSize::PerIteration);
+            b.iter_batched_ref(|| bench_setup(None), bench_func, BatchSize::LargeInput);
         });
     }
 }
@@ -73,8 +81,8 @@ unsafe fn cpy_res(
 
 fn cpy_compile_code(
     py: cpython::Python<'_>,
-    s: &std::ffi::CStr,
-    fname: &std::ffi::CStr,
+    s: &ffi::CStr,
+    fname: &ffi::CStr,
 ) -> cpython::PyResult<cpython::PyObject> {
     unsafe {
         let res =
@@ -114,8 +122,8 @@ fn bench_rustpy_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchmar
             .compile(&bench.code, Mode::Exec, bench.name.to_owned())
             .expect("Error compiling bench code");
 
-        let bench_func = |(scope, bench_code)| {
-            let res: PyResult = vm.run_code_obj(bench_code, scope);
+        let bench_func = |scope| {
+            let res: PyResult = vm.run_code_obj(bench_code.clone(), scope);
             vm.unwrap_pyresult(res);
         };
 
@@ -129,7 +137,7 @@ fn bench_rustpy_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchmar
             }
             let setup_result = vm.run_code_obj(setup_code.clone(), scope.clone());
             vm.unwrap_pyresult(setup_result);
-            (scope, bench_code.clone())
+            scope
         };
 
         if bench.iterate {
@@ -142,14 +150,14 @@ fn bench_rustpy_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchmar
                         b.iter_batched(
                             || bench_setup(Some(*idx)),
                             bench_func,
-                            BatchSize::PerIteration,
+                            BatchSize::LargeInput,
                         );
                     },
                 );
             }
         } else {
             group.bench_function(BenchmarkId::new("rustpython", &bench.name), move |b| {
-                b.iter_batched(|| bench_setup(None), bench_func, BatchSize::PerIteration);
+                b.iter_batched(|| bench_setup(None), bench_func, BatchSize::LargeInput);
             });
         }
     })
