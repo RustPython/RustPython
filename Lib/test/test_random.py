@@ -422,10 +422,6 @@ class MersenneTwister_TestBasicOps(TestBasicOps, unittest.TestCase):
     def test_seedargs(self):
         super().test_seedargs()
 
-    @unittest.skip("TODO: RUSTPYTHON, hangs?")
-    def test_choice(self):
-        super().test_choice()
-
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_pickling(self):

@@ -106,13 +106,19 @@ mod _random {
         }
 
         #[pymethod]
-        fn getrandbits(&self, k: usize) -> BigInt {
+        fn getrandbits(&self, k: usize, vm: &VirtualMachine) -> PyResult<BigInt> {
+            if k <= 0 {
+                return Err(
+                    vm.new_value_error("number of bits must be greater than zero".to_owned())
+                );
+            }
+
             let mut rng = self.rng.lock();
             let mut k = k;
-            let mut gen_u32 = |k| rng.next_u32() >> 32usize.wrapping_sub(k) as u32;
+            let mut gen_u32 = |k| rng.next_u32().wrapping_shr(32usize.wrapping_sub(k) as u32);
 
             if k <= 32 {
-                return gen_u32(k).into();
+                return Ok(gen_u32(k).into());
             }
 
             let words = (k - 1) / 8 + 1;
@@ -123,10 +129,10 @@ mod _random {
             let it = it.rev();
             for word in it {
                 *word = gen_u32(k);
-                k -= 32;
+                k = k.wrapping_sub(32);
             }
 
-            BigInt::from_slice(Sign::NoSign, &wordarray)
+            Ok(BigInt::from_slice(Sign::NoSign, &wordarray))
         }
     }
 }
