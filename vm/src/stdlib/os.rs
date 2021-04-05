@@ -170,7 +170,7 @@ fn path_from_fd(raw_fd: i64) -> Result<PathBuf, String> {
             };
             Ok(path)
         } else {
-            Err(vm.new_os_error("fd not supported on wasi yet".to_owned()));
+            Err("fd not supported on wasi yet");
         }
     }
 }
