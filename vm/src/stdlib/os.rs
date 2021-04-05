@@ -162,15 +162,17 @@ impl TryFromObject for PyPathLike {
 fn path_from_fd(raw_fd: i64) -> Result<PathBuf, String> {
     cfg_if::cfg_if! {
         if #[cfg(any(target_os = "linux", target_os = "macos", windows))] {
-            let path = match rust_file(raw_fd).path() {
+            let file = rust_file(raw_fd);
+            let path = match file.path() {
                 Ok(path) => path,
-                Err(_) => {
-                    return Err(format!("Cannot determine path of fd: {:?}", raw_fd));
+                Err(e) => {
+                    return Err(format!("{:?} Cannot determine path of fd: {:?}", e, raw_fd));
                 }
             };
+            raw_file_number(file);  // Do not consume `raw_fd`
             Ok(path)
         } else {
-            Err("fd not supported on wasi yet");
+            Err("fd not supported on wasi yet".to_owned());
         }
     }
 }
