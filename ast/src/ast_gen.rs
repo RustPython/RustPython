@@ -477,7 +477,7 @@ pub mod fold {
             self,
             folder: &mut F,
         ) -> Result<Self::Mapped, F::Error> {
-            fold_mod(folder, self)
+            folder.fold_mod(self)
         }
     }
     pub fn fold_mod<U, F: Fold<U> + ?Sized>(
@@ -507,7 +507,7 @@ pub mod fold {
             self,
             folder: &mut F,
         ) -> Result<Self::Mapped, F::Error> {
-            fold_stmt(folder, self)
+            folder.fold_stmt(self)
         }
     }
     pub fn fold_stmt<U, F: Fold<U> + ?Sized>(
@@ -694,7 +694,7 @@ pub mod fold {
             self,
             folder: &mut F,
         ) -> Result<Self::Mapped, F::Error> {
-            fold_expr(folder, self)
+            folder.fold_expr(self)
         }
     }
     pub fn fold_expr<U, F: Fold<U> + ?Sized>(
@@ -838,7 +838,7 @@ pub mod fold {
             self,
             folder: &mut F,
         ) -> Result<Self::Mapped, F::Error> {
-            fold_expr_context(folder, self)
+            folder.fold_expr_context(self)
         }
     }
     pub fn fold_expr_context<U, F: Fold<U> + ?Sized>(
@@ -857,7 +857,7 @@ pub mod fold {
             self,
             folder: &mut F,
         ) -> Result<Self::Mapped, F::Error> {
-            fold_boolop(folder, self)
+            folder.fold_boolop(self)
         }
     }
     pub fn fold_boolop<U, F: Fold<U> + ?Sized>(
@@ -875,7 +875,7 @@ pub mod fold {
             self,
             folder: &mut F,
         ) -> Result<Self::Mapped, F::Error> {
-            fold_operator(folder, self)
+            folder.fold_operator(self)
         }
     }
     pub fn fold_operator<U, F: Fold<U> + ?Sized>(
@@ -904,7 +904,7 @@ pub mod fold {
             self,
             folder: &mut F,
         ) -> Result<Self::Mapped, F::Error> {
-            fold_unaryop(folder, self)
+            folder.fold_unaryop(self)
         }
     }
     pub fn fold_unaryop<U, F: Fold<U> + ?Sized>(
@@ -924,7 +924,7 @@ pub mod fold {
             self,
             folder: &mut F,
         ) -> Result<Self::Mapped, F::Error> {
-            fold_cmpop(folder, self)
+            folder.fold_cmpop(self)
         }
     }
     pub fn fold_cmpop<U, F: Fold<U> + ?Sized>(
@@ -950,7 +950,7 @@ pub mod fold {
             self,
             folder: &mut F,
         ) -> Result<Self::Mapped, F::Error> {
-            fold_comprehension(folder, self)
+            folder.fold_comprehension(self)
         }
     }
     pub fn fold_comprehension<U, F: Fold<U> + ?Sized>(
@@ -976,7 +976,7 @@ pub mod fold {
             self,
             folder: &mut F,
         ) -> Result<Self::Mapped, F::Error> {
-            fold_excepthandler(folder, self)
+            folder.fold_excepthandler(self)
         }
     }
     pub fn fold_excepthandler<U, F: Fold<U> + ?Sized>(
@@ -999,7 +999,7 @@ pub mod fold {
             self,
             folder: &mut F,
         ) -> Result<Self::Mapped, F::Error> {
-            fold_arguments(folder, self)
+            folder.fold_arguments(self)
         }
     }
     pub fn fold_arguments<U, F: Fold<U> + ?Sized>(
@@ -1031,7 +1031,7 @@ pub mod fold {
             self,
             folder: &mut F,
         ) -> Result<Self::Mapped, F::Error> {
-            fold_arg(folder, self)
+            folder.fold_arg(self)
         }
     }
     pub fn fold_arg<U, F: Fold<U> + ?Sized>(
@@ -1057,7 +1057,7 @@ pub mod fold {
             self,
             folder: &mut F,
         ) -> Result<Self::Mapped, F::Error> {
-            fold_keyword(folder, self)
+            folder.fold_keyword(self)
         }
     }
     pub fn fold_keyword<U, F: Fold<U> + ?Sized>(
@@ -1078,7 +1078,7 @@ pub mod fold {
             self,
             folder: &mut F,
         ) -> Result<Self::Mapped, F::Error> {
-            fold_alias(folder, self)
+            folder.fold_alias(self)
         }
     }
     pub fn fold_alias<U, F: Fold<U> + ?Sized>(
@@ -1097,7 +1097,7 @@ pub mod fold {
             self,
             folder: &mut F,
         ) -> Result<Self::Mapped, F::Error> {
-            fold_withitem(folder, self)
+            folder.fold_withitem(self)
         }
     }
     pub fn fold_withitem<U, F: Fold<U> + ?Sized>(
@@ -1119,7 +1119,7 @@ pub mod fold {
             self,
             folder: &mut F,
         ) -> Result<Self::Mapped, F::Error> {
-            fold_type_ignore(folder, self)
+            folder.fold_type_ignore(self)
         }
     }
     pub fn fold_type_ignore<U, F: Fold<U> + ?Sized>(

@@ -292,7 +292,7 @@ class FoldImplVisitor(TypeInfoEmitVisitor):
         self.emit(f"impl<T, U> Foldable<T, U> for {enumname}{apply_t} {{", depth)
         self.emit(f"type Mapped = {enumname}{apply_u};", depth + 1)
         self.emit("fn fold<F: Fold<T, TargetU = U> + ?Sized>(self, folder: &mut F) -> Result<Self::Mapped, F::Error> {", depth + 1)
-        self.emit(f"fold_{name}(folder, self)", depth + 2)
+        self.emit(f"folder.fold_{name}(self)", depth + 2)
         self.emit("}", depth + 1)
         self.emit("}", depth)
 
@@ -320,7 +320,7 @@ class FoldImplVisitor(TypeInfoEmitVisitor):
         self.emit(f"impl<T, U> Foldable<T, U> for {structname}{apply_t} {{", depth)
         self.emit(f"type Mapped = {structname}{apply_u};", depth + 1)
         self.emit("fn fold<F: Fold<T, TargetU = U> + ?Sized>(self, folder: &mut F) -> Result<Self::Mapped, F::Error> {", depth + 1)
-        self.emit(f"fold_{name}(folder, self)", depth + 2)
+        self.emit(f"folder.fold_{name}(self)", depth + 2)
         self.emit("}", depth + 1)
         self.emit("}", depth)
 

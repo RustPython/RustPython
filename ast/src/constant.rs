@@ -151,9 +151,34 @@ mod tests {
                     Located {
                         location,
                         custom,
-                        node: ExprKind::Constant {
-                            value: BigInt::from(3).into(),
-                            kind: None,
+                        node: ExprKind::Tuple {
+                            ctx: ExprContext::Load,
+                            elts: vec![
+                                Located {
+                                    location,
+                                    custom,
+                                    node: ExprKind::Constant {
+                                        value: BigInt::from(3).into(),
+                                        kind: None,
+                                    },
+                                },
+                                Located {
+                                    location,
+                                    custom,
+                                    node: ExprKind::Constant {
+                                        value: BigInt::from(4).into(),
+                                        kind: None,
+                                    },
+                                },
+                                Located {
+                                    location,
+                                    custom,
+                                    node: ExprKind::Constant {
+                                        value: BigInt::from(5).into(),
+                                        kind: None,
+                                    },
+                                },
+                            ],
                         },
                     },
                 ],
@@ -171,7 +196,11 @@ mod tests {
                     value: Constant::Tuple(vec![
                         BigInt::from(1).into(),
                         BigInt::from(2).into(),
-                        BigInt::from(3).into()
+                        Constant::Tuple(vec![
+                            BigInt::from(3).into(),
+                            BigInt::from(4).into(),
+                            BigInt::from(5).into(),
+                        ])
                     ]),
                     kind: None
                 },
