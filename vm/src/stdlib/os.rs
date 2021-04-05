@@ -159,6 +159,22 @@ impl TryFromObject for PyPathLike {
     }
 }
 
+fn path_from_fd(raw_fd: i64) -> Result<PathBuf, String> {
+    cfg_if::cfg_if! {
+        if #[cfg(any(target_os = "linux", target_os = "macos", windows))] {
+            let path = match rust_file(raw_fd).path() {
+                Ok(path) => path,
+                Err(_) => {
+                    return Err(format!("Cannot determine path of fd: {:?}", raw_fd));
+                }
+            };
+            Ok(path)
+        } else {
+            Err(vm.new_os_error("fd not supported on wasi yet".to_owned()));
+        }
+    }
+}
+
 fn make_path<'a>(
     vm: &VirtualMachine,
     path: &'a PyPathLike,
@@ -168,21 +184,14 @@ fn make_path<'a>(
     if dir_fd.0.is_none() || path.is_absolute() {
         return Ok(path.as_os_str().into());
     }
-
-    cfg_if::cfg_if! {
-        if #[cfg(any(target_os = "linux", target_os = "macos", windows))] {
-            let dir_path = match rust_file(dir_fd.0.unwrap().into()).path() {
-                Ok(dir_path) => dir_path,
-                Err(_) => {
-                    return Err(vm.new_os_error(format!("Cannot determine path of dir_fd: {:?}", dir_fd.0)));
-                }
-            };
-            let p: PathBuf = vec![dir_path, path.to_path_buf()].iter().collect();
-            Ok(p.into_os_string().into())
-        } else {
-            return Err(vm.new_os_error("dir_fd not supported on wasi yet".to_owned()));
+    let dir_path = match path_from_fd(dir_fd.0.unwrap().into()) {
+        Ok(path) => path,
+        Err(e) => {
+            return Err(vm.new_os_error(e));
         }
-    }
+    };
+    let p: PathBuf = vec![dir_path, path.to_path_buf()].iter().collect();
+    Ok(p.into_os_string().into())
 }
 
 impl IntoPyException for io::Error {
@@ -558,26 +567,13 @@ mod _os {
     fn listdir(path: Either<PyPathLike, i64>, vm: &VirtualMachine) -> PyResult {
         let path = match path {
             Either::A(path) => path,
-            Either::B(fno) => {
-                cfg_if::cfg_if! {
-                    if #[cfg(any(target_os = "linux", target_os = "macos", windows))] {
-                        let file = rust_file(fno);
-                        match file.path() {
-                            Ok(path) => PyPathLike::new_str(path.to_string_lossy().to_string()),
-                            Err(_) => {
-                                return Err(vm.new_os_error(format!(
-                                    "Cannot determine path of fno: {:?}",
-                                    fno
-                                )));
-                            }
-                        }
-                    } else {
-                        return Err(vm.new_os_error("dir_fd not supported on wasi yet".to_owned()));
-                    }
+            Either::B(fno) => match path_from_fd(fno) {
+                Ok(path) => PyPathLike::new_str(path.to_string_lossy().to_string()),
+                Err(e) => {
+                    return Err(vm.new_os_error(e));
                 }
-            }
+            },
         };
-
         let dir_iter = fs::read_dir(&path).map_err(|err| err.into_pyexception(vm))?;
         let res: PyResult<Vec<PyObjectRef>> = dir_iter
             .map(|entry| match entry {
