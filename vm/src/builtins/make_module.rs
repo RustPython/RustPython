@@ -157,7 +157,8 @@ mod decl {
                 // TODO: compile::compile should probably get bytes
                 let source = match &source {
                     Either::A(string) => string.borrow_value(),
-                    Either::B(bytes) => std::str::from_utf8(bytes).unwrap(),
+                    Either::B(bytes) => std::str::from_utf8(bytes)
+                        .map_err(|e| vm.new_unicode_decode_error(e.to_string()))?,
                 };
 
                 let flags = args

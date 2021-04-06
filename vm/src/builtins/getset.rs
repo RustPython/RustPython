@@ -336,6 +336,19 @@ impl PyGetSet {
             }
         }
     }
+    #[pymethod]
+    fn __set__(
+        zelf: PyObjectRef,
+        obj: PyObjectRef,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        Self::descr_set(zelf, obj, Some(value), vm)
+    }
+    #[pymethod]
+    fn __delete__(zelf: PyObjectRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        Self::descr_set(zelf, obj, None, vm)
+    }
 
     #[pyproperty(magic)]
     fn name(&self) -> String {
