@@ -211,17 +211,20 @@ pub enum RaiseKind {
 pub type NameIdx = u32;
 
 /// A Single bytecode instruction.
+/// For details on the instructions that do not have documentation here,
+/// see the [dis library](https://docs.python.org/3/library/dis.html#python-bytecode-instructions)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Instruction {
-    /// Importing by name
     ImportName {
         idx: NameIdx,
     },
-    /// Importing without name
+    /// Importing without name.
+    /// *This is not present in the dis library*
     ImportNameless,
     /// Import *
     ImportStar,
-    /// from ... import ...
+    /// Loads all symbols not starting with `'_' directly from the module TOS to the local namespace.
+    /// The module is popped after loading all names. This opcode implements `from module import *`.
     ImportFrom {
         idx: NameIdx,
     },
@@ -267,6 +270,7 @@ pub enum Instruction {
     CompareOperation {
         op: ComparisonOperator,
     },
+    /// Removes the top-of-stack (TOS) item.
     Pop,
     Rotate {
         amount: u32,
