@@ -1787,6 +1787,8 @@ mod _io {
         errors: Option<PyStrRef>,
         #[pyarg(any, default)]
         newline: Option<PyStrRef>,
+        #[pyarg(any, default = "false")]
+        line_buffering: bool,
     }
 
     impl TextIOWrapperArgs {
@@ -1813,6 +1815,8 @@ mod _io {
         errors: PyStrRef,
         // TODO: respect newline
         newline: Option<PyStrRef>,
+        // TODO: respect line_buffering
+        line_buffering: bool,
     }
     #[pyattr]
     #[pyclass(name = "TextIOWrapper", base = "_TextIOBase")]
@@ -1872,6 +1876,7 @@ mod _io {
                 encoding,
                 errors,
                 newline: args.newline,
+                line_buffering: args.line_buffering,
             });
 
             Ok(())
