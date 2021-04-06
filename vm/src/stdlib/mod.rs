@@ -37,8 +37,6 @@ mod sysconfigdata;
 #[cfg(feature = "threading")]
 mod thread;
 mod time_module;
-#[cfg(feature = "rustpython-parser")]
-mod tokenize;
 mod unicodedata;
 mod warnings;
 mod weakref;
@@ -118,7 +116,6 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc, ahash::RandomState>
     #[cfg(feature = "rustpython-parser")]
     {
         modules.insert("keyword".to_owned(), Box::new(keyword::make_module));
-        modules.insert("tokenize".to_owned(), Box::new(tokenize::make_module));
     }
 
     // Insert compiler related modules:
