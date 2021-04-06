@@ -314,8 +314,12 @@ mod _io {
         fn truncate(zelf: PyObjectRef, _pos: OptionalArg, vm: &VirtualMachine) -> PyResult {
             _unsupported(vm, &zelf, "truncate")
         }
-        #[pyattr]
+        #[pymethod]
+        fn fileno(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            _unsupported(vm, &zelf, "truncate")
+        }
 
+        #[pyattr]
         fn __closed(ctx: &PyContext) -> PyObjectRef {
             ctx.new_bool(false)
         }
