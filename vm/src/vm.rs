@@ -89,8 +89,8 @@ pub(crate) mod thread {
     }
 
     pub fn with_vm<F, R>(obj: &PyObjectRef, f: F) -> Option<R>
-        where
-            F: Fn(&VirtualMachine) -> R,
+    where
+        F: Fn(&VirtualMachine) -> R,
     {
         let vm_owns_obj = |intp: NonNull<VirtualMachine>| {
             // SAFETY: all references in VM_STACK should be valid
@@ -317,36 +317,36 @@ impl VirtualMachine {
 
         let mut inner_init = || -> PyResult<()> {
             #[cfg(not(target_arch = "wasm32"))]
-                import::import_builtin(self, "_signal")?;
+            import::import_builtin(self, "_signal")?;
 
             #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
-                {
-                    // this isn't fully compatible with CPython; it imports "io" and sets
-                    // builtins.open to io.OpenWrapper, but this is easier, since it doesn't
-                    // require the Python stdlib to be present
-                    let io = import::import_builtin(self, "_io")?;
-                    let set_stdio = |name, fd, mode: &str| {
-                        let stdio = crate::stdlib::io::open(
-                            self.ctx.new_int(fd),
-                            Some(mode),
-                            Default::default(),
-                            self,
-                        )?;
-                        self.set_attr(
-                            &self.sys_module,
-                            format!("__{}__", name), // e.g. __stdin__
-                            stdio.clone(),
-                        )?;
-                        self.set_attr(&self.sys_module, name, stdio)?;
-                        Ok(())
-                    };
-                    set_stdio("stdin", 0, "r")?;
-                    set_stdio("stdout", 1, "w")?;
-                    set_stdio("stderr", 2, "w")?;
+            {
+                // this isn't fully compatible with CPython; it imports "io" and sets
+                // builtins.open to io.OpenWrapper, but this is easier, since it doesn't
+                // require the Python stdlib to be present
+                let io = import::import_builtin(self, "_io")?;
+                let set_stdio = |name, fd, mode: &str| {
+                    let stdio = crate::stdlib::io::open(
+                        self.ctx.new_int(fd),
+                        Some(mode),
+                        Default::default(),
+                        self,
+                    )?;
+                    self.set_attr(
+                        &self.sys_module,
+                        format!("__{}__", name), // e.g. __stdin__
+                        stdio.clone(),
+                    )?;
+                    self.set_attr(&self.sys_module, name, stdio)?;
+                    Ok(())
+                };
+                set_stdio("stdin", 0, "r")?;
+                set_stdio("stdout", 1, "w")?;
+                set_stdio("stderr", 2, "w")?;
 
-                    let io_open = self.get_attribute(io, "open")?;
-                    self.set_attr(&self.builtins, "open", io_open)?;
-                }
+                let io_open = self.get_attribute(io, "open")?;
+                self.set_attr(&self.builtins, "open", io_open)?;
+            }
 
             import::init_importlib(self, initialize_parameter)?;
 
@@ -369,8 +369,8 @@ impl VirtualMachine {
 
     /// Can only be used in the initialization closure passed to [`Interpreter::new_with_init`]
     pub fn add_frozen<I>(&mut self, frozen: I)
-        where
-            I: IntoIterator<Item=(String, bytecode::FrozenModule)>,
+    where
+        I: IntoIterator<Item = (String, bytecode::FrozenModule)>,
     {
         let frozen = frozen::map_frozen(self, frozen).collect::<Vec<_>>();
         let state = PyRc::get_mut(&mut self.state)
@@ -388,10 +388,10 @@ impl VirtualMachine {
     /// not in the context of any vm.
     #[cfg(feature = "threading")]
     pub fn start_thread<F, R>(&self, f: F) -> std::thread::JoinHandle<R>
-        where
-            F: FnOnce(&VirtualMachine) -> R,
-            F: Send + 'static,
-            R: Send + 'static,
+    where
+        F: FnOnce(&VirtualMachine) -> R,
+        F: Send + 'static,
+        R: Send + 'static,
     {
         let thread = self.new_thread();
         std::thread::spawn(|| thread.run(f))
@@ -725,13 +725,13 @@ impl VirtualMachine {
             "text",
             error.statement.clone().into_pyobject(self),
         )
-            .unwrap();
+        .unwrap();
         self.set_attr(
             syntax_error.as_object(),
             "filename",
             self.ctx.new_str(error.source_path.clone()),
         )
-            .unwrap();
+        .unwrap();
         syntax_error
     }
 
@@ -760,29 +760,29 @@ impl VirtualMachine {
     // TODO: #[track_caller] when stabilized
     fn _py_panic_failed(&self, exc: PyBaseExceptionRef, msg: &str) -> ! {
         #[cfg(not(all(target_arch = "wasm32", not(target_os = "wasi"))))]
-            {
-                let show_backtrace = std::env::var_os("RUST_BACKTRACE").map_or(false, |v| &v != "0");
-                let after = if show_backtrace {
-                    exceptions::print_exception(self, exc);
-                    "exception backtrace above"
-                } else {
-                    "run with RUST_BACKTRACE=1 to see Python backtrace"
-                };
-                panic!("{}; {}", msg, after)
-            }
+        {
+            let show_backtrace = std::env::var_os("RUST_BACKTRACE").map_or(false, |v| &v != "0");
+            let after = if show_backtrace {
+                exceptions::print_exception(self, exc);
+                "exception backtrace above"
+            } else {
+                "run with RUST_BACKTRACE=1 to see Python backtrace"
+            };
+            panic!("{}; {}", msg, after)
+        }
         #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
-            {
-                use wasm_bindgen::prelude::*;
-                #[wasm_bindgen]
-                extern "C" {
-                    #[wasm_bindgen(js_namespace = console)]
-                    fn error(s: &str);
-                }
-                let mut s = Vec::<u8>::new();
-                exceptions::write_exception(&mut s, self, &exc).unwrap();
-                error(std::str::from_utf8(&s).unwrap());
-                panic!("{}; exception backtrace above", msg)
+        {
+            use wasm_bindgen::prelude::*;
+            #[wasm_bindgen]
+            extern "C" {
+                #[wasm_bindgen(js_namespace = console)]
+                fn error(s: &str);
             }
+            let mut s = Vec::<u8>::new();
+            exceptions::write_exception(&mut s, self, &exc).unwrap();
+            error(std::str::from_utf8(&s).unwrap());
+            panic!("{}; exception backtrace above", msg)
+        }
     }
     pub fn unwrap_pyresult<T>(&self, result: PyResult<T>) -> T {
         result.unwrap_or_else(|exc| {
@@ -876,8 +876,8 @@ impl VirtualMachine {
         let weird = module.borrow_value().contains('.')
             || level != 0
             || from_list
-            .as_ref()
-            .map_or(false, |x| !x.borrow_value().is_empty());
+                .as_ref()
+                .map_or(false, |x| !x.borrow_value().is_empty());
 
         let cached_module = if weird {
             None
@@ -927,7 +927,7 @@ impl VirtualMachine {
         if obj.class().is(cls) {
             Ok(true)
         } else {
-            let ret = self.call_method(cls.as_object(), "__instancecheck__", (obj.clone(), ))?;
+            let ret = self.call_method(cls.as_object(), "__instancecheck__", (obj.clone(),))?;
             pybool::boolval(self, ret)
         }
     }
@@ -935,7 +935,7 @@ impl VirtualMachine {
     /// Determines if `subclass` is a subclass of `cls`, either directly, indirectly or virtually
     /// via the __subclasscheck__ magic method.
     pub fn issubclass(&self, subclass: &PyTypeRef, cls: &PyTypeRef) -> PyResult<bool> {
-        let ret = self.call_method(cls.as_object(), "__subclasscheck__", (subclass.clone(), ))?;
+        let ret = self.call_method(cls.as_object(), "__subclasscheck__", (subclass.clone(),))?;
         pybool::boolval(self, ret)
     }
 
@@ -966,8 +966,8 @@ impl VirtualMachine {
     }
 
     pub fn call_method<T>(&self, obj: &PyObjectRef, method_name: &str, args: T) -> PyResult
-        where
-            T: IntoFuncArgs,
+    where
+        T: IntoFuncArgs,
     {
         flame_guard!(format!("call_method({:?})", method_name));
 
@@ -1001,8 +1001,8 @@ impl VirtualMachine {
 
     #[inline]
     pub fn invoke<T>(&self, func_ref: &PyObjectRef, args: T) -> PyResult
-        where
-            T: IntoFuncArgs,
+    where
+        T: IntoFuncArgs,
     {
         self._invoke(func_ref, args.into_args(self))
     }
@@ -1051,8 +1051,8 @@ impl VirtualMachine {
     }
 
     pub fn extract_elements_func<T, F>(&self, value: &PyObjectRef, func: F) -> PyResult<Vec<T>>
-        where
-            F: Fn(PyObjectRef) -> PyResult<T>,
+    where
+        F: Fn(PyObjectRef) -> PyResult<T>,
     {
         // Extract elements from item, if possible:
         let cls = value.class();
@@ -1087,8 +1087,8 @@ impl VirtualMachine {
         obj: &PyObjectRef,
         mut f: F,
     ) -> PyResult<PyResult<Vec<R>>>
-        where
-            F: FnMut(PyObjectRef) -> PyResult<R>,
+    where
+        F: FnMut(PyObjectRef) -> PyResult<R>,
     {
         match_class!(match obj {
             ref l @ PyList => {
@@ -1124,8 +1124,8 @@ impl VirtualMachine {
     // get_attribute should be used for full attribute access (usually from user code).
     #[cfg_attr(feature = "flame-it", flame("VirtualMachine"))]
     pub fn get_attribute<T>(&self, obj: PyObjectRef, attr_name: T) -> PyResult
-        where
-            T: TryIntoRef<PyStr>,
+    where
+        T: TryIntoRef<PyStr>,
     {
         let attr_name = attr_name.try_into_ref(self)?;
         vm_trace!("vm.__getattribute__: {:?} {:?}", obj, attr_name);
@@ -1141,8 +1141,8 @@ impl VirtualMachine {
         obj: PyObjectRef,
         attr_name: T,
     ) -> PyResult<Option<PyObjectRef>>
-        where
-            T: TryIntoRef<PyStr>,
+    where
+        T: TryIntoRef<PyStr>,
     {
         match self.get_attribute(obj, attr_name) {
             Ok(attr) => Ok(Some(attr)),
@@ -1152,16 +1152,16 @@ impl VirtualMachine {
     }
 
     pub fn set_attr<K, V>(&self, obj: &PyObjectRef, attr_name: K, attr_value: V) -> PyResult
-        where
-            K: TryIntoRef<PyStr>,
-            V: Into<PyObjectRef>,
+    where
+        K: TryIntoRef<PyStr>,
+        V: Into<PyObjectRef>,
     {
         let attr_name = attr_name.try_into_ref(self)?;
         self.call_method(obj, "__setattr__", (attr_name, attr_value.into()))
     }
 
     pub fn del_attr(&self, obj: &PyObjectRef, attr_name: PyObjectRef) -> PyResult<()> {
-        self.call_method(&obj, "__delattr__", (attr_name, ))?;
+        self.call_method(&obj, "__delattr__", (attr_name,))?;
         Ok(())
     }
 
@@ -1173,8 +1173,8 @@ impl VirtualMachine {
         method_name: &str,
         err_msg: F,
     ) -> PyResult
-        where
-            F: FnOnce() -> String,
+    where
+        F: FnOnce() -> String,
     {
         match obj.get_class_attr(method_name) {
             Some(method) => self.call_if_get_descriptor(method, obj),
@@ -1199,12 +1199,12 @@ impl VirtualMachine {
         method: &str,
         unsupported: F,
     ) -> PyResult
-        where
-            F: Fn(&VirtualMachine, &PyObjectRef, &PyObjectRef) -> PyResult,
+    where
+        F: Fn(&VirtualMachine, &PyObjectRef, &PyObjectRef) -> PyResult,
     {
         if let Some(method_or_err) = self.get_method(obj.clone(), method) {
             let method = method_or_err?;
-            let result = self.invoke(&method, (arg.clone(), ))?;
+            let result = self.invoke(&method, (arg.clone(),))?;
             if let PyArithmaticValue::Implemented(x) = PyArithmaticValue::from_object(self, result)
             {
                 return Ok(x);
@@ -1299,13 +1299,13 @@ impl VirtualMachine {
     /// platforms where signals are not supported.
     pub fn check_signals(&self) -> PyResult<()> {
         #[cfg(not(target_arch = "wasm32"))]
-            {
-                crate::stdlib::signal::check_signals(self)
-            }
+        {
+            crate::stdlib::signal::check_signals(self)
+        }
         #[cfg(target_arch = "wasm32")]
-            {
-                Ok(())
-            }
+        {
+            Ok(())
+        }
     }
 
     /// Returns a basic CompileOpts instance with options accurate to the vm. Used
@@ -1880,8 +1880,8 @@ impl Interpreter {
     }
 
     pub fn new_with_init<F>(settings: PySettings, init: F) -> Self
-        where
-            F: FnOnce(&mut VirtualMachine) -> InitParameter,
+    where
+        F: FnOnce(&mut VirtualMachine) -> InitParameter,
     {
         let mut vm = VirtualMachine::new(settings);
         let init = init(&mut vm);
@@ -1890,8 +1890,8 @@ impl Interpreter {
     }
 
     pub fn enter<F, R>(&self, f: F) -> R
-        where
-            F: FnOnce(&VirtualMachine) -> R,
+    where
+        F: FnOnce(&VirtualMachine) -> R,
     {
         thread::enter_vm(&self.vm, || f(&self.vm))
     }
@@ -1931,8 +1931,8 @@ impl PyThread {
     /// as `PyObjectRef`'s `Drop` implementation tries to run the `__del__` destructor of a
     /// Python object but finds that it's not in the context of any vm.
     pub fn make_spawn_func<F, R>(self, f: F) -> impl FnOnce() -> R
-        where
-            F: FnOnce(&VirtualMachine) -> R,
+    where
+        F: FnOnce(&VirtualMachine) -> R,
     {
         move || self.run(f)
     }
@@ -1946,8 +1946,8 @@ impl PyThread {
     /// the current thread will panic as `PyObjectRef`'s `Drop` implementation tries to run the `__del__`
     /// destructor of a python object but finds that it's not in the context of any vm.
     pub fn run<F, R>(self, f: F) -> R
-        where
-            F: FnOnce(&VirtualMachine) -> R,
+    where
+        F: FnOnce(&VirtualMachine) -> R,
     {
         let vm = &self.thread_vm;
         thread::enter_vm(vm, || f(vm))
