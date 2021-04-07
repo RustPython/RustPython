@@ -564,6 +564,32 @@ impl PySslContext {
             SslServerOrClient::Client
         };
 
+        if let Some(hostname) = &args.server_hostname {
+            let hostname = hostname.borrow_value();
+            if hostname.is_empty() || hostname.starts_with('.') {
+                return Err(vm.new_value_error(
+                    "server_hostname cannot be an empty string or start with a leading dot."
+                        .to_owned(),
+                ));
+            }
+            let ip = hostname.parse::<std::net::IpAddr>();
+            if ip.is_err() {
+                ssl.set_hostname(hostname)
+                    .map_err(|e| convert_openssl_error(vm, e))?;
+            }
+            if zelf.check_hostname.load() {
+                if let Ok(ip) = ip {
+                    ssl.param_mut()
+                        .set_ip(ip)
+                        .map_err(|e| convert_openssl_error(vm, e))?;
+                } else {
+                    ssl.param_mut()
+                        .set_host(hostname)
+                        .map_err(|e| convert_openssl_error(vm, e))?;
+                }
+            }
+        }
+
         let stream = ssl::SslStream::new(ssl, args.sock.clone())
             .map_err(|e| convert_openssl_error(vm, e))?;
 
