@@ -169,8 +169,10 @@ pub(crate) fn get_jit_args<'a>(
         }
     }
 
+    let (defaults, kwdefaults) = func.defaults_and_kwdefaults.lock().clone();
+
     // fill in positional defaults
-    if let Some(defaults) = &func.defaults {
+    if let Some(defaults) = defaults {
         let defaults = defaults.borrow_value();
         for (i, default) in defaults.iter().enumerate() {
             let arg_idx = i + func.code.arg_count - defaults.len();
@@ -181,7 +183,7 @@ pub(crate) fn get_jit_args<'a>(
     }
 
     // fill in keyword only defaults
-    if let Some(kw_only_defaults) = &func.kw_only_defaults {
+    if let Some(kw_only_defaults) = kwdefaults {
         for (i, name) in arg_names.kwonlyargs.iter().enumerate() {
             let arg_idx = i + func.code.arg_count;
             if !jit_args.is_set(arg_idx) {

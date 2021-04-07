@@ -53,7 +53,7 @@ except TypeError:
 
 # For Jython, the following two types are identical
 GetSetDescriptorType = type(FunctionType.__code__)
-# MemberDescriptorType = type(FunctionType.__globals__)
+MemberDescriptorType = type(FunctionType.__globals__)
 
 del sys, _f, _g, _C  # Not for export
 

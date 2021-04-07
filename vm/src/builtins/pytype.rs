@@ -536,8 +536,6 @@ impl SlotGetattro for PyType {
         } else if let Some(attr) = mcl_attr {
             drop(mcl);
             vm.call_if_get_descriptor(attr, zelf.into_object())
-        } else if let Some(ref getter) = zelf.get_attr("__getattr__") {
-            vm.invoke(getter, (PyLease::into_pyref(mcl), name_str))
         } else {
             Err(vm.new_attribute_error(format!(
                 "type object '{}' has no attribute '{}'",
