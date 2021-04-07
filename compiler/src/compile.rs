@@ -1391,22 +1391,18 @@ impl Compiler {
         // The thing iterated:
         self.compile_expression(iter)?;
 
-        let check_asynciter_block = if is_async {
-            let check_asynciter_block = self.new_block();
-
+        if is_async {
             self.emit(Instruction::GetAIter);
 
             self.switch_to_block(for_block);
             self.emit(Instruction::SetupExcept {
-                handler: check_asynciter_block,
+                handler: else_block,
             });
             self.emit(Instruction::GetANext);
             self.emit_constant(ConstantData::None);
             self.emit(Instruction::YieldFrom);
             self.compile_store(target)?;
             self.emit(Instruction::PopBlock);
-
-            Some(check_asynciter_block)
         } else {
             // Retrieve Iterator
             self.emit(Instruction::GetIter);
@@ -1416,7 +1412,6 @@ impl Compiler {
 
             // Start of loop iteration, set targets:
             self.compile_store(target)?;
-            None
         };
 
         let was_in_loop = self.ctx.loop_data;
@@ -1425,12 +1420,10 @@ impl Compiler {
         self.ctx.loop_data = was_in_loop;
         self.emit(Instruction::Jump { target: for_block });
 
-        if let Some(check_asynciter_block) = check_asynciter_block {
-            self.switch_to_block(check_asynciter_block);
+        self.switch_to_block(else_block);
+        if is_async {
             self.emit(Instruction::EndAsyncFor);
         }
-
-        self.switch_to_block(else_block);
         self.emit(Instruction::PopBlock);
         self.compile_statements(orelse)?;
 
