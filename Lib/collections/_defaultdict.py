@@ -10,9 +10,11 @@ class defaultdict(dict):
 
     def __missing__(self, key):
         if self.default_factory:
-            return self.default_factory()
+            val = self.default_factory()
         else:
             raise KeyError(key)
+        self[key] = val
+        return val
 
     def __repr__(self):
         return f"defaultdict({self.default_factory}, {dict.__repr__(self)})"
