@@ -3958,8 +3958,9 @@ class TestScandir(unittest.TestCase):
             self.assertIs(type(entry.name), bytes)
             self.assertIs(type(entry.path), bytes)
 
-    @unittest.skipUnless(os.listdir in os.supports_fd,
-                         'fd support for listdir required for this test.')
+    # TODO: RUSTPYTHON (scandir needs to have supports_fd)
+    @unittest.skipUnless(os.scandir in os.supports_fd,
+                         'fd support for scandir required for this test.')
     def test_fd(self):
         self.assertIn(os.scandir, os.supports_fd)
         self.create_file('file.txt')

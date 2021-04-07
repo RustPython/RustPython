@@ -159,6 +159,24 @@ impl TryFromObject for PyPathLike {
     }
 }
 
+fn path_from_fd(raw_fd: i64) -> Result<PathBuf, String> {
+    cfg_if::cfg_if! {
+        if #[cfg(any(target_os = "linux", target_os = "macos", windows))] {
+            let file = rust_file(raw_fd);
+            let path = match file.path() {
+                Ok(path) => path,
+                Err(e) => {
+                    return Err(format!("{:?} Cannot determine path of fd: {:?}", e, raw_fd));
+                }
+            };
+            raw_file_number(file);  // Do not consume `raw_fd`
+            Ok(path)
+        } else {
+            Err("fd not supported on wasi yet".to_owned());
+        }
+    }
+}
+
 fn make_path<'a>(
     vm: &VirtualMachine,
     path: &'a PyPathLike,
@@ -168,21 +186,14 @@ fn make_path<'a>(
     if dir_fd.0.is_none() || path.is_absolute() {
         return Ok(path.as_os_str().into());
     }
-
-    cfg_if::cfg_if! {
-        if #[cfg(any(target_os = "linux", target_os = "macos", windows))] {
-            let dir_path = match rust_file(dir_fd.0.unwrap().into()).path() {
-                Ok(dir_path) => dir_path,
-                Err(_) => {
-                    return Err(vm.new_os_error(format!("Cannot determine path of dir_fd: {:?}", dir_fd.0)));
-                }
-            };
-            let p: PathBuf = vec![dir_path, path.to_path_buf()].iter().collect();
-            Ok(p.into_os_string().into())
-        } else {
-            return Err(vm.new_os_error("dir_fd not supported on wasi yet".to_owned()));
+    let dir_path = match path_from_fd(dir_fd.0.unwrap().into()) {
+        Ok(path) => path,
+        Err(e) => {
+            return Err(vm.new_os_error(e));
         }
-    }
+    };
+    let p: PathBuf = vec![dir_path, path.to_path_buf()].iter().collect();
+    Ok(p.into_os_string().into())
 }
 
 impl IntoPyException for io::Error {
@@ -555,8 +566,17 @@ mod _os {
     }
 
     #[pyfunction]
-    fn listdir(path: PyPathLike, vm: &VirtualMachine) -> PyResult {
-        let dir_iter = fs::read_dir(&path.path).map_err(|err| err.into_pyexception(vm))?;
+    fn listdir(path: Either<PyPathLike, i64>, vm: &VirtualMachine) -> PyResult {
+        let path = match path {
+            Either::A(path) => path,
+            Either::B(fno) => match path_from_fd(fno) {
+                Ok(path) => PyPathLike::new_str(path.to_string_lossy().to_string()),
+                Err(e) => {
+                    return Err(vm.new_os_error(e));
+                }
+            },
+        };
+        let dir_iter = fs::read_dir(&path).map_err(|err| err.into_pyexception(vm))?;
         let res: PyResult<Vec<PyObjectRef>> = dir_iter
             .map(|entry| match entry {
                 Ok(entry_path) => path.mode.process_path(entry_path.file_name(), vm),
@@ -900,7 +920,7 @@ mod _os {
     #[pyfunction]
     fn stat(
         file: Either<PyPathLike, i64>,
-        dir_fd: super::DirFd,
+        dir_fd: DirFd,
         follow_symlinks: FollowSymlinks,
         vm: &VirtualMachine,
     ) -> PyResult {
@@ -1248,7 +1268,7 @@ mod _os {
             ),
             SupportFunc::new(vm, "chdir", chdir, Some(false), None, None),
             // chflags Some, None Some
-            SupportFunc::new(vm, "listdir", listdir, Some(false), None, None),
+            SupportFunc::new(vm, "listdir", listdir, Some(true), None, None),
             SupportFunc::new(vm, "mkdir", mkdir, Some(false), Some(false), None),
             // mkfifo Some Some None
             // mknod Some Some None
@@ -1259,8 +1279,8 @@ mod _os {
             SupportFunc::new(vm, "replace", rename, Some(false), Some(false), None), // TODO: Fix replace
             SupportFunc::new(vm, "rmdir", rmdir, Some(false), Some(false), None),
             SupportFunc::new(vm, "scandir", scandir, Some(false), None, None),
-            SupportFunc::new(vm, "stat", stat, Some(false), Some(false), Some(false)),
-            SupportFunc::new(vm, "fstat", stat, Some(false), Some(false), Some(false)),
+            SupportFunc::new(vm, "stat", stat, Some(true), Some(true), Some(true)),
+            SupportFunc::new(vm, "fstat", stat, Some(true), Some(true), Some(true)),
             SupportFunc::new(vm, "symlink", platform::symlink, None, Some(false), None),
             // truncate Some None None
             SupportFunc::new(vm, "unlink", remove, Some(false), Some(false), None),
