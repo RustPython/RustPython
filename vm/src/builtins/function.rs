@@ -449,9 +449,20 @@ impl PyBoundMethod {
 
     #[pymethod(magic)]
     fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
+        let funcname = if let Some(qname) =
+            vm.get_attribute_opt(self.function.clone(), "__qualname__")?
+        {
+            Some(qname)
+        } else if let Some(name) = vm.get_attribute_opt(self.function.clone(), "__qualname__")? {
+            Some(name)
+        } else {
+            None
+        };
+        let funcname: Option<PyStrRef> = funcname.and_then(|o| o.downcast().ok());
         Ok(format!(
-            "<bound method of {}>",
-            vm.to_repr(&self.object)?.borrow_value()
+            "<bound method {} of {}>",
+            funcname.as_ref().map_or("?", |s| s.borrow_value()),
+            vm.to_repr(&self.object)?.borrow_value(),
         ))
     }
 

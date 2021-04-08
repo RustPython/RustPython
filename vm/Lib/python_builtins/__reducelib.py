@@ -63,7 +63,7 @@ def reduce_2(obj):
         state = getstate()
 
     listitems = iter(obj) if isinstance(obj, list) else None
-    dictitems = obj.iteritems() if isinstance(obj, dict) else None
+    dictitems = iter(obj.items()) if isinstance(obj, dict) else None
 
     newobj = copyreg.__newobj__
 
