@@ -1,4 +1,4 @@
-use crate::pyobject::{ItemProtocol, PyObjectRef};
+use crate::pyobject::{IntoPyObject, ItemProtocol, PyObjectRef};
 use crate::VirtualMachine;
 
 use crate::sysmodule::MULTIARCH;
@@ -7,13 +7,15 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let vars = vm.ctx.new_dict();
     macro_rules! hashmap {
         ($($key:literal => $value:expr),*$(,)?) => {{
-            $(vars.set_item($key, vm.ctx.new_str($value), vm).unwrap();)*
+            $(vars.set_item($key, $value.into_pyobject(vm), vm).unwrap();)*
         }};
     }
     hashmap! {
         // fake shared module extension
         "EXT_SUFFIX" => format!(".rustpython-{}", MULTIARCH),
         "MULTIARCH" => MULTIARCH,
+        // enough for tests to stop expecting urandom() to fail after restricting file resources
+        "HAVE_GETRANDOM" => 1,
     }
     include!(concat!(env!("OUT_DIR"), "/env_vars.rs"));
 

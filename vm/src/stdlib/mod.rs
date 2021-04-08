@@ -56,6 +56,8 @@ mod multiprocessing;
 mod posixsubprocess;
 #[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
 mod pwd;
+#[cfg(unix)]
+mod resource;
 #[cfg(not(target_arch = "wasm32"))]
 mod select;
 #[cfg(not(target_arch = "wasm32"))]
@@ -164,6 +166,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc, ahash::RandomState>
             "_posixsubprocess".to_owned(),
             Box::new(posixsubprocess::make_module),
         );
+        modules.insert("resource".to_owned(), Box::new(resource::make_module));
     }
 
     // Windows-only
