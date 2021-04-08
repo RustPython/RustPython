@@ -5,12 +5,12 @@ use crate::sysmodule::MULTIARCH;
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let vars = vm.ctx.new_dict();
-    macro_rules! hashmap {
+    macro_rules! sysvars {
         ($($key:literal => $value:expr),*$(,)?) => {{
             $(vars.set_item($key, $value.into_pyobject(vm), vm).unwrap();)*
         }};
     }
-    hashmap! {
+    sysvars! {
         // fake shared module extension
         "EXT_SUFFIX" => format!(".rustpython-{}", MULTIARCH),
         "MULTIARCH" => MULTIARCH,

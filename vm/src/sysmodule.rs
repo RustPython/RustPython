@@ -630,12 +630,16 @@ setprofile() -- set the global profiling function
 setrecursionlimit() -- set the max recursion depth for the interpreter
 settrace() -- set the global debug tracing function
 ";
-    let mut module_names: Vec<String> = vm.state.stdlib_inits.keys().cloned().collect();
-    module_names.push("sys".to_owned());
-    module_names.push("builtins".to_owned());
+    let mut module_names: Vec<_> = vm.state.stdlib_inits.keys().cloned().collect();
+    module_names.push("sys".into());
+    module_names.push("builtins".into());
     module_names.sort();
-    let builtin_module_names =
-        ctx.new_tuple(module_names.into_iter().map(|n| ctx.new_str(n)).collect());
+    let builtin_module_names = ctx.new_tuple(
+        module_names
+            .into_iter()
+            .map(|n| ctx.new_str(n.into_owned()))
+            .collect(),
+    );
     let modules = ctx.new_dict();
 
     let prefix = option_env!("RUSTPYTHON_PREFIX").unwrap_or("/usr/local");
