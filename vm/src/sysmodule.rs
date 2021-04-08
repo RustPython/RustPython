@@ -319,7 +319,7 @@ fn sys_getwindowsversion(vm: &VirtualMachine) -> PyResult<crate::builtins::tuple
         sp.into_string()
             .map_err(|_| vm.new_os_error("service pack is not ASCII".to_owned()))?
     };
-    WindowsVersion {
+    Ok(WindowsVersion {
         major: version.dwMajorVersion,
         minor: version.dwMinorVersion,
         build: version.dwBuildNumber,
@@ -335,7 +335,7 @@ fn sys_getwindowsversion(vm: &VirtualMachine) -> PyResult<crate::builtins::tuple
             version.dwBuildNumber,
         ), // TODO Provide accurate version, like CPython impl
     }
-    .into_struct_sequence(vm)
+    .into_struct_sequence(vm))
 }
 
 pub fn get_stdin(vm: &VirtualMachine) -> PyResult {
@@ -497,23 +497,19 @@ pub(crate) fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: Py
     let ctx = &vm.ctx;
 
     let _flags_type = SysFlags::make_class(ctx);
-    let flags = SysFlags::from_settings(&vm.state.settings)
-        .into_struct_sequence(vm)
-        .unwrap();
+    let flags = SysFlags::from_settings(&vm.state.settings).into_struct_sequence(vm);
 
     let _version_info_type = version::VersionInfo::make_class(ctx);
-    let version_info = version::VersionInfo::VERSION
-        .into_struct_sequence(vm)
-        .unwrap();
+    let version_info = version::VersionInfo::VERSION.into_struct_sequence(vm);
 
     let _hash_info_type = PyHashInfo::make_class(ctx);
-    let hash_info = PyHashInfo::INFO.into_struct_sequence(vm).unwrap();
+    let hash_info = PyHashInfo::INFO.into_struct_sequence(vm);
 
     let _float_info_type = PyFloatInfo::make_class(ctx);
-    let float_info = PyFloatInfo::INFO.into_struct_sequence(vm).unwrap();
+    let float_info = PyFloatInfo::INFO.into_struct_sequence(vm);
 
     let _int_info_type = PyIntInfo::make_class(ctx);
-    let int_info = PyIntInfo::INFO.into_struct_sequence(vm).unwrap();
+    let int_info = PyIntInfo::INFO.into_struct_sequence(vm);
 
     // TODO Add crate version to this namespace
     let implementation = py_namespace!(vm, {

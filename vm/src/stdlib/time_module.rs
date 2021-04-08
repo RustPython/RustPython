@@ -9,7 +9,6 @@ use chrono::{Datelike, Timelike};
 
 use crate::builtins::pystr::PyStrRef;
 use crate::builtins::pytype::PyTypeRef;
-use crate::builtins::tuple::PyTupleRef;
 use crate::function::OptionalArg;
 use crate::pyobject::{
     BorrowValue, Either, PyClassImpl, PyObjectRef, PyResult, PyStructSequence, TryFromObject,
@@ -90,23 +89,23 @@ fn pyobj_to_naive_date_time(
 }
 
 /// https://docs.python.org/3/library/time.html?highlight=gmtime#time.gmtime
-fn time_gmtime(secs: OptionalArg<Either<f64, i64>>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+fn time_gmtime(secs: OptionalArg<Either<f64, i64>>, vm: &VirtualMachine) -> PyResult<PyStructTime> {
     let default = chrono::offset::Utc::now().naive_utc();
     let instant = match secs {
         OptionalArg::Present(secs) => pyobj_to_naive_date_time(secs, vm)?,
         OptionalArg::Missing => default,
     };
-    Ok(PyStructTime::new(vm, instant, 0).into_obj(vm))
+    Ok(PyStructTime::new(vm, instant, 0))
 }
 
 fn time_localtime(
     secs: OptionalArg<Either<f64, i64>>,
     vm: &VirtualMachine,
-) -> PyResult<PyObjectRef> {
+) -> PyResult<PyStructTime> {
     let instant = optional_or_localtime(secs, vm)?;
     // TODO: isdst flag must be valid value here
     // https://docs.python.org/3/library/time.html#time.localtime
-    Ok(PyStructTime::new(vm, instant, -1).into_obj(vm))
+    Ok(PyStructTime::new(vm, instant, -1))
 }
 
 fn time_mktime(t: PyStructTime, vm: &VirtualMachine) -> PyResult {
@@ -154,14 +153,18 @@ fn time_strftime(format: PyStrRef, t: OptionalArg<PyStructTime>, vm: &VirtualMac
     Ok(vm.ctx.new_str(formatted_time))
 }
 
-fn time_strptime(string: PyStrRef, format: OptionalArg<PyStrRef>, vm: &VirtualMachine) -> PyResult {
+fn time_strptime(
+    string: PyStrRef,
+    format: OptionalArg<PyStrRef>,
+    vm: &VirtualMachine,
+) -> PyResult<PyStructTime> {
     let format = match format {
         OptionalArg::Present(ref format) => format.borrow_value(),
         OptionalArg::Missing => "%a %b %H:%M:%S %Y",
     };
     let instant = NaiveDateTime::parse_from_str(string.borrow_value(), format)
         .map_err(|e| vm.new_value_error(format!("Parse error: {:?}", e)))?;
-    Ok(PyStructTime::new(vm, instant, -1).into_obj(vm))
+    Ok(PyStructTime::new(vm, instant, -1))
 }
 
 #[pyclass(module = "time", name = "struct_time")]
@@ -217,14 +220,10 @@ impl PyStructTime {
         Ok(dt)
     }
 
-    fn into_obj(self, vm: &VirtualMachine) -> PyObjectRef {
-        self.into_struct_sequence(vm).unwrap().into_object()
-    }
-
     #[pyslot]
-    fn tp_new(_cls: PyTypeRef, seq: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+    fn tp_new(_cls: PyTypeRef, seq: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
         // cls is ignorable because this is not a basetype
-        Self::try_from_object(vm, seq)?.into_struct_sequence(vm)
+        Self::try_from_object(vm, seq)
     }
 }
 

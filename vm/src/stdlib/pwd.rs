@@ -1,7 +1,9 @@
 use crate::builtins::int::PyIntRef;
 use crate::builtins::pystr::PyStrRef;
 use crate::exceptions::IntoPyException;
-use crate::pyobject::{BorrowValue, PyClassImpl, PyObjectRef, PyResult, PyStructSequence};
+use crate::pyobject::{
+    BorrowValue, IntoPyObject, PyClassImpl, PyObjectRef, PyResult, PyStructSequence,
+};
 use crate::vm::VirtualMachine;
 use std::convert::TryFrom;
 use std::ptr::NonNull;
@@ -46,9 +48,9 @@ impl From<User> for Passwd {
     }
 }
 
-fn pwd_getpwnam(name: PyStrRef, vm: &VirtualMachine) -> PyResult {
+fn pwd_getpwnam(name: PyStrRef, vm: &VirtualMachine) -> PyResult<Passwd> {
     match User::from_name(name.borrow_value()).map_err(|err| err.into_pyexception(vm))? {
-        Some(user) => Ok(Passwd::from(user).into_struct_sequence(vm)?.into_object()),
+        Some(user) => Ok(Passwd::from(user)),
         None => {
             let name_repr = vm.to_repr(name.as_object())?;
             let message = vm
@@ -59,14 +61,14 @@ fn pwd_getpwnam(name: PyStrRef, vm: &VirtualMachine) -> PyResult {
     }
 }
 
-fn pwd_getpwuid(uid: PyIntRef, vm: &VirtualMachine) -> PyResult {
+fn pwd_getpwuid(uid: PyIntRef, vm: &VirtualMachine) -> PyResult<Passwd> {
     let uid_t = libc::uid_t::try_from(uid.borrow_value()).map(unistd::Uid::from_raw);
     let user = match uid_t {
         Ok(uid) => User::from_uid(uid).map_err(|err| err.into_pyexception(vm))?,
         Err(_) => None,
     };
     match user {
-        Some(user) => Ok(Passwd::from(user).into_struct_sequence(vm)?.into_object()),
+        Some(user) => Ok(Passwd::from(user)),
         None => {
             let message = vm
                 .ctx
@@ -86,7 +88,7 @@ fn pwd_getpwall(vm: &VirtualMachine) -> PyResult {
     unsafe { libc::setpwent() };
     while let Some(ptr) = NonNull::new(unsafe { libc::getpwent() }) {
         let user = User::from(unsafe { ptr.as_ref() });
-        let passwd = Passwd::from(user).into_struct_sequence(vm)?.into_object();
+        let passwd = Passwd::from(user).into_pyobject(vm);
         list.push(passwd);
     }
     unsafe { libc::endpwent() };

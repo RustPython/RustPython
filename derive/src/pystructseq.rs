@@ -39,6 +39,11 @@ pub(crate) fn impl_pystruct_sequence(
                 ::rustpython_vm::builtins::tuple::PyTuple::_new(items.into_boxed_slice())
             }
         }
+        impl ::rustpython_vm::pyobject::IntoPyObject for #ty {
+            fn into_pyobject(self, vm: &::rustpython_vm::VirtualMachine) -> ::rustpython_vm::pyobject::PyObjectRef {
+                ::rustpython_vm::pyobject::PyStructSequence::into_struct_sequence(self, vm).into_object()
+            }
+        }
     };
     Ok(ret)
 }
