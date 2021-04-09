@@ -476,13 +476,6 @@ mod _os {
     }
 
     #[pyfunction]
-    fn error(message: OptionalArg<PyStrRef>, vm: &VirtualMachine) -> PyResult {
-        let msg = message.map_or("".to_owned(), |msg| msg.borrow_value().to_owned());
-
-        Err(vm.new_os_error(msg))
-    }
-
-    #[pyfunction]
     fn fsync(fd: i64, vm: &VirtualMachine) -> PyResult<()> {
         let file = rust_file(fd);
         file.sync_all().map_err(|err| err.into_pyexception(vm))?;
@@ -1414,6 +1407,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "supports_fd" => supports_fd.into_object(),
         "supports_dir_fd" => supports_dir_fd.into_object(),
         "supports_follow_symlinks" => supports_follow_symlinks.into_object(),
+        "error" => vm.ctx.exceptions.os_error.clone(),
     });
 
     module
