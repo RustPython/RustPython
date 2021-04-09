@@ -49,6 +49,8 @@ mod os;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod faulthandler;
+#[cfg(any(unix, target_os = "wasi"))]
+mod fcntl;
 #[cfg(windows)]
 mod msvcrt;
 #[cfg(not(target_arch = "wasm32"))]
@@ -57,7 +59,8 @@ mod multiprocessing;
 mod posixsubprocess;
 #[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
 mod pwd;
-#[cfg(unix)]
+// libc is missing constants on redox
+#[cfg(all(unix, not(target_os = "redox")))]
 mod resource;
 #[cfg(not(target_arch = "wasm32"))]
 mod select;
@@ -143,6 +146,10 @@ pub fn get_module_inits() -> StdlibMap {
         {
             os::MODULE_NAME => os::make_module,
         }
+        #[cfg(any(unix, target_os = "wasi"))]
+        {
+            "fcntl" => fcntl::make_module,
+        }
         // disable some modules on WASM
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -168,11 +175,11 @@ pub fn get_module_inits() -> StdlibMap {
         #[cfg(all(unix, not(target_os = "redox")))]
         {
             "termios" => termios::make_module,
+            "resource" => resource::make_module,
         }
         #[cfg(unix)]
         {
             "_posixsubprocess" => posixsubprocess::make_module,
-            "resource" => resource::make_module,
         }
         // Windows-only
         #[cfg(windows)]
