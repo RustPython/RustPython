@@ -11,7 +11,7 @@ mod _random {
     use crate::pyobject::{BorrowValue, PyObjectRef, PyRef, PyResult, PyValue, StaticType};
     use crate::VirtualMachine;
     use num_bigint::{BigInt, Sign};
-    use num_traits::Signed;
+    use num_traits::{Signed, Zero};
     use rand::{rngs::StdRng, RngCore, SeedableRng};
 
     #[derive(Debug)]
@@ -106,27 +106,45 @@ mod _random {
         }
 
         #[pymethod]
-        fn getrandbits(&self, k: usize) -> BigInt {
+        fn getrandbits(&self, k: usize, vm: &VirtualMachine) -> PyResult<BigInt> {
+            if k == 0 {
+                return Err(
+                    vm.new_value_error("number of bits must be greater than zero".to_owned())
+                );
+            }
+
             let mut rng = self.rng.lock();
             let mut k = k;
-            let mut gen_u32 = |k| rng.next_u32() >> 32usize.wrapping_sub(k) as u32;
+            let mut gen_u32 = |k| {
+                let r = rng.next_u32();
+                if k < 32 {
+                    r >> (32 - k)
+                } else {
+                    r
+                }
+            };
 
             if k <= 32 {
-                return gen_u32(k).into();
+                return Ok(gen_u32(k).into());
             }
 
-            let words = (k - 1) / 8 + 1;
-            let mut wordarray = vec![0u32; words];
+            let words = (k - 1) / 32 + 1;
+            let wordarray = (0..words)
+                .map(|_| {
+                    let word = gen_u32(k);
+                    k = k.wrapping_sub(32);
+                    word
+                })
+                .collect::<Vec<_>>();
 
-            let it = wordarray.iter_mut();
-            #[cfg(target_endian = "big")]
-            let it = it.rev();
-            for word in it {
-                *word = gen_u32(k);
-                k -= 32;
-            }
-
-            BigInt::from_slice(Sign::NoSign, &wordarray)
+            let uint = num_bigint::BigUint::new(wordarray);
+            // very unlikely but might as well check
+            let sign = if uint.is_zero() {
+                Sign::NoSign
+            } else {
+                Sign::Plus
+            };
+            Ok(BigInt::from_biguint(sign, uint))
         }
     }
 }

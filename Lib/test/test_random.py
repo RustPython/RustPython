@@ -422,19 +422,10 @@ class MersenneTwister_TestBasicOps(TestBasicOps, unittest.TestCase):
     def test_seedargs(self):
         super().test_seedargs()
 
-    @unittest.skip("TODO: RUSTPYTHON, hangs?")
-    def test_choice(self):
-        super().test_choice()
-
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_pickling(self):
         super().test_pickling()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_bug_9025(self):
-        super().test_bug_9025()
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
@@ -613,8 +604,6 @@ class MersenneTwister_TestBasicOps(TestBasicOps, unittest.TestCase):
             cum |= int(self.gen.random() * span)
         self.assertEqual(cum, span-1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bigrand(self):
         # The randrange routine should build-up the required number of bits
         # in stages so that all bit positions are active.
@@ -665,8 +654,6 @@ class MersenneTwister_TestBasicOps(TestBasicOps, unittest.TestCase):
         self.assertRaises(ValueError, self.gen.getrandbits, 0)
         self.assertRaises(ValueError, self.gen.getrandbits, -1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_randrange_uses_getrandbits(self):
         # Verify use of getrandbits by randrange
         # Use same seed as in the cross-platform repeatability test

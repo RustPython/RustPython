@@ -1201,9 +1201,9 @@ dependencies = [
 
 [[package]]
 name = "mt19937"
-version = "2.0.0"
+version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3e6dd1b4462edbfbc0c4ad4c3205d94623bb94b4819aa0888936988d38834158"
+checksum = "12ca7f22ed370d5991a9caec16a83187e865bc8a532f889670337d5a5689e3a1"
 dependencies = [
  "rand_core 0.6.2",
 ]
