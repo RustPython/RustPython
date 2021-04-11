@@ -23,8 +23,8 @@ use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhas
 use crate::utils::Either;
 use crate::vm::{ReprGuard, VirtualMachine};
 use crate::{
-    PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
+    PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef,
+    PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 
 /// Built-in mutable sequence.
@@ -172,7 +172,7 @@ impl PyList {
 
     #[pymethod(name = "__getitem__")]
     fn getitem(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let result = match zelf.borrow_vec().get_item(vm, needle, "list")? {
+        let result = match zelf.borrow_vec().get_item(vm, needle, Self::NAME)? {
             Either::A(obj) => obj,
             Either::B(vec) => vm.ctx.new_list(vec),
         };
@@ -182,11 +182,11 @@ impl PyList {
     #[pymethod(name = "__setitem__")]
     fn setitem(
         &self,
-        subscript: SequenceIndex,
+        needle: PyObjectRef,
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        match subscript {
+        match SequenceIndex::try_from_object_for(vm, needle, Self::NAME)? {
             SequenceIndex::Int(index) => self.setindex(index, value, vm),
             SequenceIndex::Slice(slice) => {
                 if let Ok(sec) = PyIterable::try_from_object(vm, value) {

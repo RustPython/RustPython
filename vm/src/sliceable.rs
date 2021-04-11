@@ -336,7 +336,7 @@ pub enum SequenceIndex {
 }
 
 impl SequenceIndex {
-    fn try_from_object_for(
+    pub fn try_from_object_for(
         vm: &VirtualMachine,
         obj: PyObjectRef,
         owner_type: &'static str,
