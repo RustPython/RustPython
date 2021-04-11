@@ -208,6 +208,22 @@ impl<T: Clone> PySliceableSequenceMut for Vec<T> {
     }
 }
 
+pub trait PySliceableSequenceOwner {
+    fn owner_type() -> &'static str;
+}
+
+#[macro_export]
+macro_rules! py_class_sequence_owner {
+    ($type:ident) => {
+        impl crate::sliceable::PySliceableSequenceOwner for $type {
+            fn owner_type() -> &'static str {
+                use crate::pyobject::PyClassDef;
+                $type::NAME
+            }
+        }
+    };
+}
+
 pub trait PySliceableSequence {
     type Item;
     type Sliced;
@@ -263,17 +279,16 @@ pub trait PySliceableSequence {
         }
     }
 
-    fn get_item(
+    fn get_item<T: PySliceableSequenceOwner>(
         &self,
         vm: &VirtualMachine,
         needle: PyObjectRef,
-        owner_type: &'static str,
     ) -> PyResult<Either<Self::Item, Self::Sliced>> {
-        let needle = SequenceIndex::try_from_object_for(vm, needle, owner_type)?;
+        let needle = SequenceIndex::try_from_object_for::<T>(vm, needle)?;
         match needle {
             SequenceIndex::Int(value) => {
                 let pos_index = self.wrap_index(value).ok_or_else(|| {
-                    vm.new_index_error(format!("{} index out of range", owner_type))
+                    vm.new_index_error(format!("{} index out of range", T::owner_type()))
                 })?;
                 Ok(Either::A(self.do_get(pos_index)))
             }
@@ -335,11 +350,10 @@ pub enum SequenceIndex {
 }
 
 impl SequenceIndex {
-    fn try_from_object_for(
-        vm: &VirtualMachine,
-        obj: PyObjectRef,
-        owner_type: &'static str,
-    ) -> PyResult<Self> {
+    pub fn try_from_object_for<T>(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self>
+    where
+        T: PySliceableSequenceOwner,
+    {
         match_class!(match obj {
             i @ PyInt => i
                 .borrow_value()
@@ -350,16 +364,23 @@ impl SequenceIndex {
             s @ PySlice => Ok(SequenceIndex::Slice(s)),
             obj => Err(vm.new_type_error(format!(
                 "{} indices must be integers or slices, not {}",
-                owner_type,
+                T::owner_type(),
                 obj.class().name,
             ))),
         })
     }
 }
 
+struct SequenceOwner {}
+impl PySliceableSequenceOwner for SequenceOwner {
+    fn owner_type() -> &'static str {
+        "sequence"
+    }
+}
+
 impl TryFromObject for SequenceIndex {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        Self::try_from_object_for(vm, obj, "sequence")
+        Self::try_from_object_for::<SequenceOwner>(vm, obj)
     }
 }
 

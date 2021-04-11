@@ -9,6 +9,7 @@ use super::pytype::PyTypeRef;
 use super::slice::PySliceRef;
 use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::function::OptionalArg;
+use crate::py_class_sequence_owner;
 use crate::pyobject::{
     BorrowValue, Either, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef,
     PyResult, PyValue, TryFromObject, TypeProtocol,
@@ -27,6 +28,8 @@ use crate::vm::{ReprGuard, VirtualMachine};
 pub struct PyList {
     elements: PyRwLock<Vec<PyObjectRef>>,
 }
+
+py_class_sequence_owner!(PyList);
 
 impl fmt::Debug for PyList {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -168,7 +171,7 @@ impl PyList {
 
     #[pymethod(name = "__getitem__")]
     fn getitem(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let result = match zelf.borrow_value().get_item(vm, needle, "list")? {
+        let result = match zelf.borrow_value().get_item::<Self>(vm, needle)? {
             Either::A(obj) => obj,
             Either::B(vec) => vm.ctx.new_list(vec),
         };
@@ -178,11 +181,11 @@ impl PyList {
     #[pymethod(name = "__setitem__")]
     fn setitem(
         &self,
-        subscript: SequenceIndex,
+        needle: PyObjectRef,
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        match subscript {
+        match SequenceIndex::try_from_object_for::<Self>(vm, needle)? {
             SequenceIndex::Int(index) => self.setindex(index, value, vm),
             SequenceIndex::Slice(slice) => {
                 if let Ok(sec) = PyIterable::try_from_object(vm, value) {

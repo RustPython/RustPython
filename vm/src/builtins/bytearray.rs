@@ -16,6 +16,7 @@ use crate::byteslike::PyBytesLike;
 use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
 use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::function::{OptionalArg, OptionalOption};
+use crate::py_class_sequence_owner;
 use crate::pyobject::{
     BorrowValue, Either, IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext,
     PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
@@ -46,6 +47,8 @@ pub struct PyByteArray {
     inner: PyRwLock<PyBytesInner>,
     exports: AtomicCell<usize>,
 }
+
+py_class_sequence_owner!(PyByteArray);
 
 pub type PyByteArrayRef = PyRef<PyByteArray>;
 
@@ -143,11 +146,11 @@ impl PyByteArray {
     #[pymethod(magic)]
     fn setitem(
         zelf: PyRef<Self>,
-        needle: SequenceIndex,
+        needle: PyObjectRef,
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        match needle {
+        match SequenceIndex::try_from_object_for::<Self>(vm, needle)? {
             SequenceIndex::Int(i) => {
                 let value = value_from_object(vm, &value)?;
                 let elements = &mut zelf.borrow_value_mut().elements;
@@ -187,7 +190,7 @@ impl PyByteArray {
 
     #[pymethod(magic)]
     fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.borrow_value().getitem("bytearray", needle, vm)
+        self.borrow_value().getitem::<Self>(needle, vm)
     }
 
     #[pymethod(magic)]

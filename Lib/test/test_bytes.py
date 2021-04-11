@@ -1122,8 +1122,6 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         with self.assertRaisesRegex(TypeError, msg):
             b['a']
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_setitem_error(self):
         b = bytearray(b'python')
         msg = "bytearray indices must be integers or slices"

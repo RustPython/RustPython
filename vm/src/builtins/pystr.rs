@@ -25,7 +25,7 @@ use crate::pyobject::{
     PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TryIntoRef,
     TypeProtocol,
 };
-use crate::sliceable::PySliceableSequence;
+use crate::sliceable::{PySliceableSequence, PySliceableSequenceOwner};
 use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter};
 use crate::VirtualMachine;
 use rustpython_common::hash;
@@ -46,6 +46,12 @@ pub struct PyStr {
     value: Box<str>,
     hash: AtomicCell<Option<hash::PyHash>>,
     len: AtomicCell<Option<usize>>,
+}
+
+impl PySliceableSequenceOwner for PyStr {
+    fn owner_type() -> &'static str {
+        "string"
+    }
 }
 
 impl<'a> BorrowValue<'a> for PyStr {
@@ -264,7 +270,7 @@ impl PyStr {
 
     #[pymethod(name = "__getitem__")]
     fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let s = match self.get_item(vm, needle, "string")? {
+        let s = match self.get_item::<Self>(vm, needle)? {
             Either::A(ch) => ch.to_string(),
             Either::B(s) => s,
         };
