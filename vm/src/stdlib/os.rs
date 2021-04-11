@@ -101,9 +101,9 @@ pub struct PyPathLike {
 }
 
 impl PyPathLike {
-    pub fn new_str(path: String) -> Self {
+    pub fn new_str(path: impl Into<PathBuf>) -> Self {
         Self {
-            path: PathBuf::from(path),
+            path: path.into(),
             mode: OutputMode::String,
         }
     }
@@ -159,20 +159,15 @@ impl TryFromObject for PyPathLike {
     }
 }
 
-fn path_from_fd(raw_fd: i64) -> Result<PathBuf, String> {
+fn path_from_fd(raw_fd: i64, vm: &VirtualMachine) -> PyResult<PathBuf> {
     cfg_if::cfg_if! {
         if #[cfg(any(target_os = "linux", target_os = "macos", windows))] {
             let file = rust_file(raw_fd);
-            let path = match file.path() {
-                Ok(path) => path,
-                Err(e) => {
-                    return Err(format!("{:?} Cannot determine path of fd: {:?}", e, raw_fd));
-                }
-            };
+            let res = file.path().map_err(|e| e.into_pyexception(vm));
             raw_file_number(file);  // Do not consume `raw_fd`
-            Ok(path)
+            res
         } else {
-            Err("fd not supported on wasi yet".to_owned());
+            Err(vm.new_not_implemented_error("dir_fd unavailable on this platform".to_owned()))
         }
     }
 }
@@ -186,12 +181,7 @@ fn make_path<'a>(
     if dir_fd.0.is_none() || path.is_absolute() {
         return Ok(path.as_os_str().into());
     }
-    let dir_path = match path_from_fd(dir_fd.0.unwrap().into()) {
-        Ok(path) => path,
-        Err(e) => {
-            return Err(vm.new_os_error(e));
-        }
-    };
+    let dir_path = path_from_fd(dir_fd.0.unwrap().into(), vm)?;
     let p: PathBuf = vec![dir_path, path.to_path_buf()].iter().collect();
     Ok(p.into_os_string().into())
 }
@@ -569,12 +559,7 @@ mod _os {
     fn listdir(path: Either<PyPathLike, i64>, vm: &VirtualMachine) -> PyResult {
         let path = match path {
             Either::A(path) => path,
-            Either::B(fno) => match path_from_fd(fno) {
-                Ok(path) => PyPathLike::new_str(path.to_string_lossy().to_string()),
-                Err(e) => {
-                    return Err(vm.new_os_error(e));
-                }
-            },
+            Either::B(fno) => PyPathLike::new_str(path_from_fd(fno, vm)?),
         };
         let dir_iter = fs::read_dir(&path).map_err(|err| err.into_pyexception(vm))?;
         let res: PyResult<Vec<PyObjectRef>> = dir_iter
@@ -770,7 +755,7 @@ mod _os {
     fn scandir(path: OptionalArg<PyPathLike>, vm: &VirtualMachine) -> PyResult {
         let path = match path {
             OptionalArg::Present(path) => path,
-            OptionalArg::Missing => PyPathLike::new_str(".".to_owned()),
+            OptionalArg::Missing => PyPathLike::new_str("."),
         };
 
         let entries = fs::read_dir(path.path).map_err(|err| err.into_pyexception(vm))?;
