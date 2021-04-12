@@ -209,17 +209,14 @@ impl<T: Clone> PySliceableSequenceMut for Vec<T> {
 }
 
 pub trait PySliceableSequenceOwner {
-    fn owner_type() -> &'static str;
+    const OWNER_TYPE: &'static str;
 }
 
 #[macro_export]
 macro_rules! py_class_sequence_owner {
     ($type:ident) => {
         impl crate::sliceable::PySliceableSequenceOwner for $type {
-            fn owner_type() -> &'static str {
-                use crate::pyobject::PyClassDef;
-                $type::NAME
-            }
+            const OWNER_TYPE = ($type as crate::pyobject::PyClassDef)::NAME;
         }
     };
 }
@@ -364,7 +361,7 @@ impl SequenceIndex {
             s @ PySlice => Ok(SequenceIndex::Slice(s)),
             obj => Err(vm.new_type_error(format!(
                 "{} indices must be integers or slices, not {}",
-                T::owner_type(),
+                T::OWNER_TYPE,
                 obj.class().name,
             ))),
         })
@@ -373,9 +370,7 @@ impl SequenceIndex {
 
 struct SequenceOwner {}
 impl PySliceableSequenceOwner for SequenceOwner {
-    fn owner_type() -> &'static str {
-        "sequence"
-    }
+    const OWNER_TYPE = "sequence";
 }
 
 impl TryFromObject for SequenceIndex {

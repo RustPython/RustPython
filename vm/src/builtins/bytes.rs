@@ -45,9 +45,7 @@ pub struct PyBytes {
 }
 
 impl PySliceableSequenceOwner for PyBytes {
-    fn owner_type() -> &'static str {
-        "byte"
-    }
+    const OWNER_TYPE = "byte";
 }
 
 pub type PyBytesRef = PyRef<PyBytes>;
