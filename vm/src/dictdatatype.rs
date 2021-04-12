@@ -557,10 +557,13 @@ impl<T: Clone> Dict<T> {
         let removed = if entry_index == inner.used {
             inner.entries.pop().unwrap()
         } else {
-            let last_index = inner.entries.last().unwrap().index;
-            let removed = inner.entries.remove(entry_index);
-            inner.indices[last_index] = IndexEntry::FREE;
-            removed
+            let entries_rem = entry_index + 1;
+            let entries_len = inner.entries.len();
+            for move_entry_idx in entries_rem..entries_len {
+                let index_index = inner.entries[move_entry_idx].index;
+                inner.indices[index_index] = move_entry_idx as i64 - 1;
+            }
+            inner.entries.remove(entry_index)
         };
         Ok(Some(removed))
     }
