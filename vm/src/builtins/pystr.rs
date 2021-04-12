@@ -49,7 +49,7 @@ pub struct PyStr {
 }
 
 impl PySliceableSequenceOwner for PyStr {
-    const OWNER_TYPE = "string";
+    const OWNER_TYPE: &'static str = "string";
 }
 
 impl<'a> BorrowValue<'a> for PyStr {

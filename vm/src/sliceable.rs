@@ -216,7 +216,7 @@ pub trait PySliceableSequenceOwner {
 macro_rules! py_class_sequence_owner {
     ($type:ident) => {
         impl crate::sliceable::PySliceableSequenceOwner for $type {
-            const OWNER_TYPE = ($type as crate::pyobject::PyClassDef)::NAME;
+            const OWNER_TYPE: &'static str = <$type as crate::pyobject::PyClassDef>::NAME;
         }
     };
 }
@@ -285,7 +285,7 @@ pub trait PySliceableSequence {
         match needle {
             SequenceIndex::Int(value) => {
                 let pos_index = self.wrap_index(value).ok_or_else(|| {
-                    vm.new_index_error(format!("{} index out of range", T::owner_type()))
+                    vm.new_index_error(format!("{} index out of range", T::OWNER_TYPE))
                 })?;
                 Ok(Either::A(self.do_get(pos_index)))
             }
@@ -370,7 +370,7 @@ impl SequenceIndex {
 
 struct SequenceOwner {}
 impl PySliceableSequenceOwner for SequenceOwner {
-    const OWNER_TYPE = "sequence";
+    const OWNER_TYPE: &'static str = "sequence";
 }
 
 impl TryFromObject for SequenceIndex {
