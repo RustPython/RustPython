@@ -1013,7 +1013,6 @@ from test import mapping_tests
 #         self._test_environ_iteration(os.environ.values())
 
 
-@unittest.skip("TODO: RUSTPYTHON, 3rd arg to symlink")
 class WalkTests(unittest.TestCase):
     """Tests for os.walk()."""
 
@@ -1306,6 +1305,26 @@ class BytesFwalkTests(FwalkTests):
             yield (root, dirs, files, topfd)
             bdirs[:] = list(map(os.fsencode, dirs))
             bfiles[:] = list(map(os.fsencode, files))
+
+    # TODO: RUSTPYTHON (TypeError: Can't mix strings and bytes in path components)
+    @unittest.expectedFailure
+    def test_compare_to_walk(self):
+        super().test_compare_to_walk()
+
+    # TODO: RUSTPYTHON (TypeError: Can't mix strings and bytes in path components)
+    @unittest.expectedFailure
+    def test_dir_fd(self):
+        super().test_dir_fd()
+
+    # TODO: RUSTPYTHON (TypeError: Can't mix strings and bytes in path components)
+    @unittest.expectedFailure
+    def test_yields_correct_dir_fd(self):
+        super().test_yields_correct_dir_fd()
+
+    # TODO: RUSTPYTHON (TypeError: Can't mix strings and bytes in path components)
+    @unittest.expectedFailure
+    def test_walk_bottom_up(self):
+        super().test_walk_bottom_up()
 
 
 class MakedirTests(unittest.TestCase):

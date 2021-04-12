@@ -250,7 +250,7 @@ pub fn errno_err(vm: &VirtualMachine) -> PyBaseExceptionRef {
 #[allow(dead_code)]
 #[derive(FromArgs, Default)]
 pub struct TargetIsDirectory {
-    #[pyarg(named, default = "false")]
+    #[pyarg(any, default = "false")]
     target_is_directory: bool,
 }
 
