@@ -558,8 +558,8 @@ impl<T: Clone> Dict<T> {
             inner.entries.pop().unwrap()
         } else {
             let last_index = inner.entries.last().unwrap().index;
-            let removed = inner.entries.swap_remove(entry_index);
-            inner.indices[last_index] = entry_index as i64;
+            let removed = inner.entries.remove(entry_index);
+            inner.indices[last_index] = IndexEntry::FREE;
             removed
         };
         Ok(Some(removed))
