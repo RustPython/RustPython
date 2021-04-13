@@ -220,7 +220,7 @@ if __name__ == "__main__":
         f.write(f"""\
 #[derive(num_enum::TryFromPrimitive, Debug)]
 #[repr({int_t})]
-#[allow(non_camel_case_types)]
+#[allow(non_camel_case_types, clippy::upper_case_acronyms)]
 pub enum {typ} {{
 """)
         for item in items:
