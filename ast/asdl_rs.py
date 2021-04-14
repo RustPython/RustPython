@@ -154,12 +154,22 @@ def rust_field(field_name):
     else:
         return field_name
 
-class StructVisitor(EmitVisitor):
-    """Visitor to generate typedefs for AST."""
-
+class TypeInfoEmitVisitor(EmitVisitor):
     def __init__(self, file, typeinfo):
         self.typeinfo = typeinfo
         super().__init__(file)
+
+    def has_userdata(self, typ):
+        return self.typeinfo[typ].has_userdata
+
+    def get_generics(self, typ, *generics):
+        if self.has_userdata(typ):
+            return [f"<{g}>" for g in generics]
+        else:
+            return ["" for g in generics]
+
+class StructVisitor(TypeInfoEmitVisitor):
+    """Visitor to generate typedefs for AST."""
 
     def visitModule(self, mod):
         for dfn in mod.dfns:
@@ -188,7 +198,7 @@ class StructVisitor(EmitVisitor):
 
     def sum_with_constructors(self, sum, name, depth):
         typeinfo = self.typeinfo[name]
-        generics, generics_applied = self.get_generics(name)
+        generics, generics_applied = self.get_generics(name, "U = ()", "U")
         enumname = rustname = get_rust_type(name)
         # all the attributes right now are for location, so if it has attrs we
         # can just wrap it in Located<>
@@ -229,7 +239,7 @@ class StructVisitor(EmitVisitor):
 
     def visitProduct(self, product, name, depth):
         typeinfo = self.typeinfo[name]
-        generics, generics_applied = self.get_generics(name)
+        generics, generics_applied = self.get_generics(name, "U = ()", "U")
         dataname = rustname = get_rust_type(name)
         if product.attributes:
             dataname = rustname + "Data"
@@ -243,71 +253,86 @@ class StructVisitor(EmitVisitor):
             self.emit(f"pub type {rustname}<U = ()> = Located<{dataname}{generics_applied}, U>;", depth);
         self.emit("", depth)
 
-    def get_generics(self, typ):
-        if self.typeinfo[typ].has_userdata:
-            return "<U = ()>", "<U>"
-        else:
-            return "", ""
 
-class MapAstImplVisitor(EmitVisitor):
-    def __init__(self, file, typeinfo):
-        self.typeinfo = typeinfo
-        super().__init__(file)
-
-    def get_generics(self, typ):
-        if self.typeinfo[typ].has_userdata:
-            return "<T>", "<U>"
-        else:
-            return "", ""
-
-    def visitModule(self, mod):
+class FoldTraitDefVisitor(TypeInfoEmitVisitor):
+    def visitModule(self, mod, depth):
+        self.emit("pub trait Fold<U> {", depth)
+        self.emit("type TargetU;", depth + 1)
+        self.emit("type Error;", depth + 1)
+        self.emit("fn map_user(&mut self, user: U) -> Result<Self::TargetU, Self::Error>;", depth + 2)
         for dfn in mod.dfns:
-            self.visit(dfn)
+            self.visit(dfn, depth + 2)
+        self.emit("}", depth)
+
+    def visitType(self, type, depth):
+        name = type.name
+        apply_u, apply_target_u = self.get_generics(name, "U", "Self::TargetU")
+        enumname = get_rust_type(name)
+        self.emit(f"fn fold_{name}(&mut self, node: {enumname}{apply_u}) -> Result<{enumname}{apply_target_u}, Self::Error> {{", depth)
+        self.emit(f"fold_{name}(self, node)", depth + 1)
+        self.emit("}", depth)
+
+
+class FoldImplVisitor(TypeInfoEmitVisitor):
+    def visitModule(self, mod, depth):
+        self.emit("fn fold_located<U, F: Fold<U> + ?Sized, T, MT>(folder: &mut F, node: Located<T, U>, f: impl FnOnce(&mut F, T) -> Result<MT, F::Error>) -> Result<Located<MT, F::TargetU>, F::Error> {", depth)
+        self.emit("Ok(Located { custom: folder.map_user(node.custom)?, location: node.location, node: f(folder, node.node)? })", depth + 1)
+        self.emit("}", depth)
+        for dfn in mod.dfns:
+            self.visit(dfn, depth)
 
     def visitType(self, type, depth=0):
         self.visit(type.value, type.name, depth)
 
     def visitSum(self, sum, name, depth):
-        apply_t, apply_u = self.get_generics(name)
+        apply_t, apply_u, apply_target_u = self.get_generics(name, "T", "U", "F::TargetU")
         enumname = get_rust_type(name)
-        if sum.attributes:
-            enumname += "Kind"
+        is_located = bool(sum.attributes)
 
-        if not apply_t:
-            self.emit(f"no_user!({enumname});", depth)
-            return
-
-
-        self.emit(f"impl<T, U> MapAst<T, U> for {enumname}{apply_t} {{", depth)
+        self.emit(f"impl<T, U> Foldable<T, U> for {enumname}{apply_t} {{", depth)
         self.emit(f"type Mapped = {enumname}{apply_u};", depth + 1)
-        self.emit("fn try_map_ast<E, F: FnMut(T) -> Result<U, E>>(self, f: &mut F) -> Result<Self::Mapped, E> {", depth + 1)
-        self.emit("match self {", depth + 2)
-        for cons in sum.types:
-            fields_pattern = self.make_pattern(cons.fields)
-            self.emit(f"{enumname}::{cons.name} {{ {fields_pattern} }} => {{", depth + 3)
-            self.gen_construction(f"{enumname}::{cons.name}", cons.fields, depth + 4)
-            self.emit("}", depth + 3)
-        self.emit("}", depth + 2)
+        self.emit("fn fold<F: Fold<T, TargetU = U> + ?Sized>(self, folder: &mut F) -> Result<Self::Mapped, F::Error> {", depth + 1)
+        self.emit(f"folder.fold_{name}(self)", depth + 2)
         self.emit("}", depth + 1)
         self.emit("}", depth)
 
-    def visitProduct(self, product, name, depth):
-        apply_t, apply_u = self.get_generics(name)
-        structname = get_rust_type(name)
-        if product.attributes:
-            structname += "Data"
-
-        if not apply_t:
-            self.emit(f"no_user!({structname});", depth)
-            return
-
-        self.emit(f"impl<T, U> MapAst<T, U> for {structname}{apply_t} {{", depth)
-        self.emit(f"type Mapped = {structname}{apply_u};", depth + 1)
-        self.emit("fn try_map_ast<E, F: FnMut(T) -> Result<U, E>>(self, f: &mut F) -> Result<Self::Mapped, E> {", depth + 1)
-        fields_pattern = self.make_pattern(product.fields)
-        self.emit(f"let {structname} {{ {fields_pattern} }} = self;", depth + 2)
-        self.gen_construction(structname, product.fields, depth + 2)
+        self.emit(f"pub fn fold_{name}<U, F: Fold<U> + ?Sized>(#[allow(unused)] folder: &mut F, node: {enumname}{apply_u}) -> Result<{enumname}{apply_target_u}, F::Error> {{", depth)
+        if is_located:
+            self.emit("fold_located(folder, node, |folder, node| {", depth)
+            enumname += "Kind"
+        self.emit("match node {", depth + 1)
+        for cons in sum.types:
+            fields_pattern = self.make_pattern(cons.fields)
+            self.emit(f"{enumname}::{cons.name} {{ {fields_pattern} }} => {{", depth + 2)
+            self.gen_construction(f"{enumname}::{cons.name}", cons.fields, depth + 3)
+            self.emit("}", depth + 2)
         self.emit("}", depth + 1)
+        if is_located:
+            self.emit("})", depth)
+        self.emit("}", depth)
+
+
+    def visitProduct(self, product, name, depth):
+        apply_t, apply_u, apply_target_u = self.get_generics(name, "T", "U", "F::TargetU")
+        structname = get_rust_type(name)
+        is_located = bool(product.attributes)
+
+        self.emit(f"impl<T, U> Foldable<T, U> for {structname}{apply_t} {{", depth)
+        self.emit(f"type Mapped = {structname}{apply_u};", depth + 1)
+        self.emit("fn fold<F: Fold<T, TargetU = U> + ?Sized>(self, folder: &mut F) -> Result<Self::Mapped, F::Error> {", depth + 1)
+        self.emit(f"folder.fold_{name}(self)", depth + 2)
+        self.emit("}", depth + 1)
+        self.emit("}", depth)
+
+        self.emit(f"pub fn fold_{name}<U, F: Fold<U> + ?Sized>(#[allow(unused)] folder: &mut F, node: {structname}{apply_u}) -> Result<{structname}{apply_target_u}, F::Error> {{", depth)
+        if is_located:
+            self.emit("fold_located(folder, node, |folder, node| {", depth)
+            structname += "Data"
+        fields_pattern = self.make_pattern(product.fields)
+        self.emit(f"let {structname} {{ {fields_pattern} }} = node;", depth + 1)
+        self.gen_construction(structname, product.fields, depth + 1)
+        if is_located:
+            self.emit("})", depth)
         self.emit("}", depth)
 
     def make_pattern(self, fields):
@@ -317,8 +342,20 @@ class MapAstImplVisitor(EmitVisitor):
         self.emit(f"Ok({cons_path} {{", depth)
         for field in fields:
             name = rust_field(field.name)
-            self.emit(f"{name}: {name}.try_map_ast(f)?,", depth + 1)
+            self.emit(f"{name}: Foldable::fold({name}, folder)?,", depth + 1)
         self.emit("})", depth)
+
+
+class FoldModuleVisitor(TypeInfoEmitVisitor):
+    def visitModule(self, mod):
+        depth = 0
+        self.emit('#[cfg(feature = "fold")]', depth)
+        self.emit("pub mod fold {", depth)
+        self.emit("use super::*;", depth + 1)
+        self.emit("use crate::fold_helpers::Foldable;", depth + 1)
+        FoldTraitDefVisitor(self.file, self.typeinfo).visit(mod, depth + 1)
+        FoldImplVisitor(self.file, self.typeinfo).visit(mod, depth + 1)
+        self.emit("}", depth)
 
 
 class ClassDefVisitor(EmitVisitor):
@@ -508,7 +545,6 @@ class ChainOfVisitors:
 def write_ast_def(mod, typeinfo, f):
     f.write('pub use crate::location::Location;\n')
     f.write('pub use crate::constant::*;\n')
-    f.write('use crate::map_ast::MapAst;\n')
     f.write('\n')
     f.write('type Ident = String;\n')
     f.write('\n')
@@ -527,7 +563,7 @@ def write_ast_def(mod, typeinfo, f):
     f.write('\n')
 
     c = ChainOfVisitors(StructVisitor(f, typeinfo),
-                        MapAstImplVisitor(f, typeinfo))
+                        FoldModuleVisitor(f, typeinfo))
     c.visit(mod)
 
 

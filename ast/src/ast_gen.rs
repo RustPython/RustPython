@@ -2,7 +2,6 @@
 
 pub use crate::constant::*;
 pub use crate::location::Location;
-use crate::map_ast::MapAst;
 
 type Ident = String;
 
@@ -389,31 +388,133 @@ pub enum TypeIgnore {
     TypeIgnore { lineno: usize, tag: String },
 }
 
-impl<T, U> MapAst<T, U> for Mod<T> {
-    type Mapped = Mod<U>;
-    fn try_map_ast<E, F: FnMut(T) -> Result<U, E>>(self, f: &mut F) -> Result<Self::Mapped, E> {
-        match self {
+#[cfg(feature = "fold")]
+pub mod fold {
+    use super::*;
+    use crate::fold_helpers::Foldable;
+    pub trait Fold<U> {
+        type TargetU;
+        type Error;
+        fn map_user(&mut self, user: U) -> Result<Self::TargetU, Self::Error>;
+        fn fold_mod(&mut self, node: Mod<U>) -> Result<Mod<Self::TargetU>, Self::Error> {
+            fold_mod(self, node)
+        }
+        fn fold_stmt(&mut self, node: Stmt<U>) -> Result<Stmt<Self::TargetU>, Self::Error> {
+            fold_stmt(self, node)
+        }
+        fn fold_expr(&mut self, node: Expr<U>) -> Result<Expr<Self::TargetU>, Self::Error> {
+            fold_expr(self, node)
+        }
+        fn fold_expr_context(&mut self, node: ExprContext) -> Result<ExprContext, Self::Error> {
+            fold_expr_context(self, node)
+        }
+        fn fold_boolop(&mut self, node: Boolop) -> Result<Boolop, Self::Error> {
+            fold_boolop(self, node)
+        }
+        fn fold_operator(&mut self, node: Operator) -> Result<Operator, Self::Error> {
+            fold_operator(self, node)
+        }
+        fn fold_unaryop(&mut self, node: Unaryop) -> Result<Unaryop, Self::Error> {
+            fold_unaryop(self, node)
+        }
+        fn fold_cmpop(&mut self, node: Cmpop) -> Result<Cmpop, Self::Error> {
+            fold_cmpop(self, node)
+        }
+        fn fold_comprehension(
+            &mut self,
+            node: Comprehension<U>,
+        ) -> Result<Comprehension<Self::TargetU>, Self::Error> {
+            fold_comprehension(self, node)
+        }
+        fn fold_excepthandler(
+            &mut self,
+            node: Excepthandler<U>,
+        ) -> Result<Excepthandler<Self::TargetU>, Self::Error> {
+            fold_excepthandler(self, node)
+        }
+        fn fold_arguments(
+            &mut self,
+            node: Arguments<U>,
+        ) -> Result<Arguments<Self::TargetU>, Self::Error> {
+            fold_arguments(self, node)
+        }
+        fn fold_arg(&mut self, node: Arg<U>) -> Result<Arg<Self::TargetU>, Self::Error> {
+            fold_arg(self, node)
+        }
+        fn fold_keyword(
+            &mut self,
+            node: Keyword<U>,
+        ) -> Result<Keyword<Self::TargetU>, Self::Error> {
+            fold_keyword(self, node)
+        }
+        fn fold_alias(&mut self, node: Alias) -> Result<Alias, Self::Error> {
+            fold_alias(self, node)
+        }
+        fn fold_withitem(
+            &mut self,
+            node: Withitem<U>,
+        ) -> Result<Withitem<Self::TargetU>, Self::Error> {
+            fold_withitem(self, node)
+        }
+        fn fold_type_ignore(&mut self, node: TypeIgnore) -> Result<TypeIgnore, Self::Error> {
+            fold_type_ignore(self, node)
+        }
+    }
+    fn fold_located<U, F: Fold<U> + ?Sized, T, MT>(
+        folder: &mut F,
+        node: Located<T, U>,
+        f: impl FnOnce(&mut F, T) -> Result<MT, F::Error>,
+    ) -> Result<Located<MT, F::TargetU>, F::Error> {
+        Ok(Located {
+            custom: folder.map_user(node.custom)?,
+            location: node.location,
+            node: f(folder, node.node)?,
+        })
+    }
+    impl<T, U> Foldable<T, U> for Mod<T> {
+        type Mapped = Mod<U>;
+        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
+            self,
+            folder: &mut F,
+        ) -> Result<Self::Mapped, F::Error> {
+            folder.fold_mod(self)
+        }
+    }
+    pub fn fold_mod<U, F: Fold<U> + ?Sized>(
+        #[allow(unused)] folder: &mut F,
+        node: Mod<U>,
+    ) -> Result<Mod<F::TargetU>, F::Error> {
+        match node {
             Mod::Module { body, type_ignores } => Ok(Mod::Module {
-                body: body.try_map_ast(f)?,
-                type_ignores: type_ignores.try_map_ast(f)?,
+                body: Foldable::fold(body, folder)?,
+                type_ignores: Foldable::fold(type_ignores, folder)?,
             }),
             Mod::Interactive { body } => Ok(Mod::Interactive {
-                body: body.try_map_ast(f)?,
+                body: Foldable::fold(body, folder)?,
             }),
             Mod::Expression { body } => Ok(Mod::Expression {
-                body: body.try_map_ast(f)?,
+                body: Foldable::fold(body, folder)?,
             }),
             Mod::FunctionType { argtypes, returns } => Ok(Mod::FunctionType {
-                argtypes: argtypes.try_map_ast(f)?,
-                returns: returns.try_map_ast(f)?,
+                argtypes: Foldable::fold(argtypes, folder)?,
+                returns: Foldable::fold(returns, folder)?,
             }),
         }
     }
-}
-impl<T, U> MapAst<T, U> for StmtKind<T> {
-    type Mapped = StmtKind<U>;
-    fn try_map_ast<E, F: FnMut(T) -> Result<U, E>>(self, f: &mut F) -> Result<Self::Mapped, E> {
-        match self {
+    impl<T, U> Foldable<T, U> for Stmt<T> {
+        type Mapped = Stmt<U>;
+        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
+            self,
+            folder: &mut F,
+        ) -> Result<Self::Mapped, F::Error> {
+            folder.fold_stmt(self)
+        }
+    }
+    pub fn fold_stmt<U, F: Fold<U> + ?Sized>(
+        #[allow(unused)] folder: &mut F,
+        node: Stmt<U>,
+    ) -> Result<Stmt<F::TargetU>, F::Error> {
+        fold_located(folder, node, |folder, node| match node {
             StmtKind::FunctionDef {
                 name,
                 args,
@@ -422,12 +523,12 @@ impl<T, U> MapAst<T, U> for StmtKind<T> {
                 returns,
                 type_comment,
             } => Ok(StmtKind::FunctionDef {
-                name: name.try_map_ast(f)?,
-                args: args.try_map_ast(f)?,
-                body: body.try_map_ast(f)?,
-                decorator_list: decorator_list.try_map_ast(f)?,
-                returns: returns.try_map_ast(f)?,
-                type_comment: type_comment.try_map_ast(f)?,
+                name: Foldable::fold(name, folder)?,
+                args: Foldable::fold(args, folder)?,
+                body: Foldable::fold(body, folder)?,
+                decorator_list: Foldable::fold(decorator_list, folder)?,
+                returns: Foldable::fold(returns, folder)?,
+                type_comment: Foldable::fold(type_comment, folder)?,
             }),
             StmtKind::AsyncFunctionDef {
                 name,
@@ -437,12 +538,12 @@ impl<T, U> MapAst<T, U> for StmtKind<T> {
                 returns,
                 type_comment,
             } => Ok(StmtKind::AsyncFunctionDef {
-                name: name.try_map_ast(f)?,
-                args: args.try_map_ast(f)?,
-                body: body.try_map_ast(f)?,
-                decorator_list: decorator_list.try_map_ast(f)?,
-                returns: returns.try_map_ast(f)?,
-                type_comment: type_comment.try_map_ast(f)?,
+                name: Foldable::fold(name, folder)?,
+                args: Foldable::fold(args, folder)?,
+                body: Foldable::fold(body, folder)?,
+                decorator_list: Foldable::fold(decorator_list, folder)?,
+                returns: Foldable::fold(returns, folder)?,
+                type_comment: Foldable::fold(type_comment, folder)?,
             }),
             StmtKind::ClassDef {
                 name,
@@ -451,31 +552,31 @@ impl<T, U> MapAst<T, U> for StmtKind<T> {
                 body,
                 decorator_list,
             } => Ok(StmtKind::ClassDef {
-                name: name.try_map_ast(f)?,
-                bases: bases.try_map_ast(f)?,
-                keywords: keywords.try_map_ast(f)?,
-                body: body.try_map_ast(f)?,
-                decorator_list: decorator_list.try_map_ast(f)?,
+                name: Foldable::fold(name, folder)?,
+                bases: Foldable::fold(bases, folder)?,
+                keywords: Foldable::fold(keywords, folder)?,
+                body: Foldable::fold(body, folder)?,
+                decorator_list: Foldable::fold(decorator_list, folder)?,
             }),
             StmtKind::Return { value } => Ok(StmtKind::Return {
-                value: value.try_map_ast(f)?,
+                value: Foldable::fold(value, folder)?,
             }),
             StmtKind::Delete { targets } => Ok(StmtKind::Delete {
-                targets: targets.try_map_ast(f)?,
+                targets: Foldable::fold(targets, folder)?,
             }),
             StmtKind::Assign {
                 targets,
                 value,
                 type_comment,
             } => Ok(StmtKind::Assign {
-                targets: targets.try_map_ast(f)?,
-                value: value.try_map_ast(f)?,
-                type_comment: type_comment.try_map_ast(f)?,
+                targets: Foldable::fold(targets, folder)?,
+                value: Foldable::fold(value, folder)?,
+                type_comment: Foldable::fold(type_comment, folder)?,
             }),
             StmtKind::AugAssign { target, op, value } => Ok(StmtKind::AugAssign {
-                target: target.try_map_ast(f)?,
-                op: op.try_map_ast(f)?,
-                value: value.try_map_ast(f)?,
+                target: Foldable::fold(target, folder)?,
+                op: Foldable::fold(op, folder)?,
+                value: Foldable::fold(value, folder)?,
             }),
             StmtKind::AnnAssign {
                 target,
@@ -483,10 +584,10 @@ impl<T, U> MapAst<T, U> for StmtKind<T> {
                 value,
                 simple,
             } => Ok(StmtKind::AnnAssign {
-                target: target.try_map_ast(f)?,
-                annotation: annotation.try_map_ast(f)?,
-                value: value.try_map_ast(f)?,
-                simple: simple.try_map_ast(f)?,
+                target: Foldable::fold(target, folder)?,
+                annotation: Foldable::fold(annotation, folder)?,
+                value: Foldable::fold(value, folder)?,
+                simple: Foldable::fold(simple, folder)?,
             }),
             StmtKind::For {
                 target,
@@ -495,11 +596,11 @@ impl<T, U> MapAst<T, U> for StmtKind<T> {
                 orelse,
                 type_comment,
             } => Ok(StmtKind::For {
-                target: target.try_map_ast(f)?,
-                iter: iter.try_map_ast(f)?,
-                body: body.try_map_ast(f)?,
-                orelse: orelse.try_map_ast(f)?,
-                type_comment: type_comment.try_map_ast(f)?,
+                target: Foldable::fold(target, folder)?,
+                iter: Foldable::fold(iter, folder)?,
+                body: Foldable::fold(body, folder)?,
+                orelse: Foldable::fold(orelse, folder)?,
+                type_comment: Foldable::fold(type_comment, folder)?,
             }),
             StmtKind::AsyncFor {
                 target,
@@ -508,43 +609,43 @@ impl<T, U> MapAst<T, U> for StmtKind<T> {
                 orelse,
                 type_comment,
             } => Ok(StmtKind::AsyncFor {
-                target: target.try_map_ast(f)?,
-                iter: iter.try_map_ast(f)?,
-                body: body.try_map_ast(f)?,
-                orelse: orelse.try_map_ast(f)?,
-                type_comment: type_comment.try_map_ast(f)?,
+                target: Foldable::fold(target, folder)?,
+                iter: Foldable::fold(iter, folder)?,
+                body: Foldable::fold(body, folder)?,
+                orelse: Foldable::fold(orelse, folder)?,
+                type_comment: Foldable::fold(type_comment, folder)?,
             }),
             StmtKind::While { test, body, orelse } => Ok(StmtKind::While {
-                test: test.try_map_ast(f)?,
-                body: body.try_map_ast(f)?,
-                orelse: orelse.try_map_ast(f)?,
+                test: Foldable::fold(test, folder)?,
+                body: Foldable::fold(body, folder)?,
+                orelse: Foldable::fold(orelse, folder)?,
             }),
             StmtKind::If { test, body, orelse } => Ok(StmtKind::If {
-                test: test.try_map_ast(f)?,
-                body: body.try_map_ast(f)?,
-                orelse: orelse.try_map_ast(f)?,
+                test: Foldable::fold(test, folder)?,
+                body: Foldable::fold(body, folder)?,
+                orelse: Foldable::fold(orelse, folder)?,
             }),
             StmtKind::With {
                 items,
                 body,
                 type_comment,
             } => Ok(StmtKind::With {
-                items: items.try_map_ast(f)?,
-                body: body.try_map_ast(f)?,
-                type_comment: type_comment.try_map_ast(f)?,
+                items: Foldable::fold(items, folder)?,
+                body: Foldable::fold(body, folder)?,
+                type_comment: Foldable::fold(type_comment, folder)?,
             }),
             StmtKind::AsyncWith {
                 items,
                 body,
                 type_comment,
             } => Ok(StmtKind::AsyncWith {
-                items: items.try_map_ast(f)?,
-                body: body.try_map_ast(f)?,
-                type_comment: type_comment.try_map_ast(f)?,
+                items: Foldable::fold(items, folder)?,
+                body: Foldable::fold(body, folder)?,
+                type_comment: Foldable::fold(type_comment, folder)?,
             }),
             StmtKind::Raise { exc, cause } => Ok(StmtKind::Raise {
-                exc: exc.try_map_ast(f)?,
-                cause: cause.try_map_ast(f)?,
+                exc: Foldable::fold(exc, folder)?,
+                cause: Foldable::fold(cause, folder)?,
             }),
             StmtKind::Try {
                 body,
@@ -552,216 +653,359 @@ impl<T, U> MapAst<T, U> for StmtKind<T> {
                 orelse,
                 finalbody,
             } => Ok(StmtKind::Try {
-                body: body.try_map_ast(f)?,
-                handlers: handlers.try_map_ast(f)?,
-                orelse: orelse.try_map_ast(f)?,
-                finalbody: finalbody.try_map_ast(f)?,
+                body: Foldable::fold(body, folder)?,
+                handlers: Foldable::fold(handlers, folder)?,
+                orelse: Foldable::fold(orelse, folder)?,
+                finalbody: Foldable::fold(finalbody, folder)?,
             }),
             StmtKind::Assert { test, msg } => Ok(StmtKind::Assert {
-                test: test.try_map_ast(f)?,
-                msg: msg.try_map_ast(f)?,
+                test: Foldable::fold(test, folder)?,
+                msg: Foldable::fold(msg, folder)?,
             }),
             StmtKind::Import { names } => Ok(StmtKind::Import {
-                names: names.try_map_ast(f)?,
+                names: Foldable::fold(names, folder)?,
             }),
             StmtKind::ImportFrom {
                 module,
                 names,
                 level,
             } => Ok(StmtKind::ImportFrom {
-                module: module.try_map_ast(f)?,
-                names: names.try_map_ast(f)?,
-                level: level.try_map_ast(f)?,
+                module: Foldable::fold(module, folder)?,
+                names: Foldable::fold(names, folder)?,
+                level: Foldable::fold(level, folder)?,
             }),
             StmtKind::Global { names } => Ok(StmtKind::Global {
-                names: names.try_map_ast(f)?,
+                names: Foldable::fold(names, folder)?,
             }),
             StmtKind::Nonlocal { names } => Ok(StmtKind::Nonlocal {
-                names: names.try_map_ast(f)?,
+                names: Foldable::fold(names, folder)?,
             }),
             StmtKind::Expr { value } => Ok(StmtKind::Expr {
-                value: value.try_map_ast(f)?,
+                value: Foldable::fold(value, folder)?,
             }),
             StmtKind::Pass {} => Ok(StmtKind::Pass {}),
             StmtKind::Break {} => Ok(StmtKind::Break {}),
             StmtKind::Continue {} => Ok(StmtKind::Continue {}),
+        })
+    }
+    impl<T, U> Foldable<T, U> for Expr<T> {
+        type Mapped = Expr<U>;
+        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
+            self,
+            folder: &mut F,
+        ) -> Result<Self::Mapped, F::Error> {
+            folder.fold_expr(self)
         }
     }
-}
-impl<T, U> MapAst<T, U> for ExprKind<T> {
-    type Mapped = ExprKind<U>;
-    fn try_map_ast<E, F: FnMut(T) -> Result<U, E>>(self, f: &mut F) -> Result<Self::Mapped, E> {
-        match self {
+    pub fn fold_expr<U, F: Fold<U> + ?Sized>(
+        #[allow(unused)] folder: &mut F,
+        node: Expr<U>,
+    ) -> Result<Expr<F::TargetU>, F::Error> {
+        fold_located(folder, node, |folder, node| match node {
             ExprKind::BoolOp { op, values } => Ok(ExprKind::BoolOp {
-                op: op.try_map_ast(f)?,
-                values: values.try_map_ast(f)?,
+                op: Foldable::fold(op, folder)?,
+                values: Foldable::fold(values, folder)?,
             }),
             ExprKind::NamedExpr { target, value } => Ok(ExprKind::NamedExpr {
-                target: target.try_map_ast(f)?,
-                value: value.try_map_ast(f)?,
+                target: Foldable::fold(target, folder)?,
+                value: Foldable::fold(value, folder)?,
             }),
             ExprKind::BinOp { left, op, right } => Ok(ExprKind::BinOp {
-                left: left.try_map_ast(f)?,
-                op: op.try_map_ast(f)?,
-                right: right.try_map_ast(f)?,
+                left: Foldable::fold(left, folder)?,
+                op: Foldable::fold(op, folder)?,
+                right: Foldable::fold(right, folder)?,
             }),
             ExprKind::UnaryOp { op, operand } => Ok(ExprKind::UnaryOp {
-                op: op.try_map_ast(f)?,
-                operand: operand.try_map_ast(f)?,
+                op: Foldable::fold(op, folder)?,
+                operand: Foldable::fold(operand, folder)?,
             }),
             ExprKind::Lambda { args, body } => Ok(ExprKind::Lambda {
-                args: args.try_map_ast(f)?,
-                body: body.try_map_ast(f)?,
+                args: Foldable::fold(args, folder)?,
+                body: Foldable::fold(body, folder)?,
             }),
             ExprKind::IfExp { test, body, orelse } => Ok(ExprKind::IfExp {
-                test: test.try_map_ast(f)?,
-                body: body.try_map_ast(f)?,
-                orelse: orelse.try_map_ast(f)?,
+                test: Foldable::fold(test, folder)?,
+                body: Foldable::fold(body, folder)?,
+                orelse: Foldable::fold(orelse, folder)?,
             }),
             ExprKind::Dict { keys, values } => Ok(ExprKind::Dict {
-                keys: keys.try_map_ast(f)?,
-                values: values.try_map_ast(f)?,
+                keys: Foldable::fold(keys, folder)?,
+                values: Foldable::fold(values, folder)?,
             }),
             ExprKind::Set { elts } => Ok(ExprKind::Set {
-                elts: elts.try_map_ast(f)?,
+                elts: Foldable::fold(elts, folder)?,
             }),
             ExprKind::ListComp { elt, generators } => Ok(ExprKind::ListComp {
-                elt: elt.try_map_ast(f)?,
-                generators: generators.try_map_ast(f)?,
+                elt: Foldable::fold(elt, folder)?,
+                generators: Foldable::fold(generators, folder)?,
             }),
             ExprKind::SetComp { elt, generators } => Ok(ExprKind::SetComp {
-                elt: elt.try_map_ast(f)?,
-                generators: generators.try_map_ast(f)?,
+                elt: Foldable::fold(elt, folder)?,
+                generators: Foldable::fold(generators, folder)?,
             }),
             ExprKind::DictComp {
                 key,
                 value,
                 generators,
             } => Ok(ExprKind::DictComp {
-                key: key.try_map_ast(f)?,
-                value: value.try_map_ast(f)?,
-                generators: generators.try_map_ast(f)?,
+                key: Foldable::fold(key, folder)?,
+                value: Foldable::fold(value, folder)?,
+                generators: Foldable::fold(generators, folder)?,
             }),
             ExprKind::GeneratorExp { elt, generators } => Ok(ExprKind::GeneratorExp {
-                elt: elt.try_map_ast(f)?,
-                generators: generators.try_map_ast(f)?,
+                elt: Foldable::fold(elt, folder)?,
+                generators: Foldable::fold(generators, folder)?,
             }),
             ExprKind::Await { value } => Ok(ExprKind::Await {
-                value: value.try_map_ast(f)?,
+                value: Foldable::fold(value, folder)?,
             }),
             ExprKind::Yield { value } => Ok(ExprKind::Yield {
-                value: value.try_map_ast(f)?,
+                value: Foldable::fold(value, folder)?,
             }),
             ExprKind::YieldFrom { value } => Ok(ExprKind::YieldFrom {
-                value: value.try_map_ast(f)?,
+                value: Foldable::fold(value, folder)?,
             }),
             ExprKind::Compare {
                 left,
                 ops,
                 comparators,
             } => Ok(ExprKind::Compare {
-                left: left.try_map_ast(f)?,
-                ops: ops.try_map_ast(f)?,
-                comparators: comparators.try_map_ast(f)?,
+                left: Foldable::fold(left, folder)?,
+                ops: Foldable::fold(ops, folder)?,
+                comparators: Foldable::fold(comparators, folder)?,
             }),
             ExprKind::Call {
                 func,
                 args,
                 keywords,
             } => Ok(ExprKind::Call {
-                func: func.try_map_ast(f)?,
-                args: args.try_map_ast(f)?,
-                keywords: keywords.try_map_ast(f)?,
+                func: Foldable::fold(func, folder)?,
+                args: Foldable::fold(args, folder)?,
+                keywords: Foldable::fold(keywords, folder)?,
             }),
             ExprKind::FormattedValue {
                 value,
                 conversion,
                 format_spec,
             } => Ok(ExprKind::FormattedValue {
-                value: value.try_map_ast(f)?,
-                conversion: conversion.try_map_ast(f)?,
-                format_spec: format_spec.try_map_ast(f)?,
+                value: Foldable::fold(value, folder)?,
+                conversion: Foldable::fold(conversion, folder)?,
+                format_spec: Foldable::fold(format_spec, folder)?,
             }),
             ExprKind::JoinedStr { values } => Ok(ExprKind::JoinedStr {
-                values: values.try_map_ast(f)?,
+                values: Foldable::fold(values, folder)?,
             }),
             ExprKind::Constant { value, kind } => Ok(ExprKind::Constant {
-                value: value.try_map_ast(f)?,
-                kind: kind.try_map_ast(f)?,
+                value: Foldable::fold(value, folder)?,
+                kind: Foldable::fold(kind, folder)?,
             }),
             ExprKind::Attribute { value, attr, ctx } => Ok(ExprKind::Attribute {
-                value: value.try_map_ast(f)?,
-                attr: attr.try_map_ast(f)?,
-                ctx: ctx.try_map_ast(f)?,
+                value: Foldable::fold(value, folder)?,
+                attr: Foldable::fold(attr, folder)?,
+                ctx: Foldable::fold(ctx, folder)?,
             }),
             ExprKind::Subscript { value, slice, ctx } => Ok(ExprKind::Subscript {
-                value: value.try_map_ast(f)?,
-                slice: slice.try_map_ast(f)?,
-                ctx: ctx.try_map_ast(f)?,
+                value: Foldable::fold(value, folder)?,
+                slice: Foldable::fold(slice, folder)?,
+                ctx: Foldable::fold(ctx, folder)?,
             }),
             ExprKind::Starred { value, ctx } => Ok(ExprKind::Starred {
-                value: value.try_map_ast(f)?,
-                ctx: ctx.try_map_ast(f)?,
+                value: Foldable::fold(value, folder)?,
+                ctx: Foldable::fold(ctx, folder)?,
             }),
             ExprKind::Name { id, ctx } => Ok(ExprKind::Name {
-                id: id.try_map_ast(f)?,
-                ctx: ctx.try_map_ast(f)?,
+                id: Foldable::fold(id, folder)?,
+                ctx: Foldable::fold(ctx, folder)?,
             }),
             ExprKind::List { elts, ctx } => Ok(ExprKind::List {
-                elts: elts.try_map_ast(f)?,
-                ctx: ctx.try_map_ast(f)?,
+                elts: Foldable::fold(elts, folder)?,
+                ctx: Foldable::fold(ctx, folder)?,
             }),
             ExprKind::Tuple { elts, ctx } => Ok(ExprKind::Tuple {
-                elts: elts.try_map_ast(f)?,
-                ctx: ctx.try_map_ast(f)?,
+                elts: Foldable::fold(elts, folder)?,
+                ctx: Foldable::fold(ctx, folder)?,
             }),
             ExprKind::Slice { lower, upper, step } => Ok(ExprKind::Slice {
-                lower: lower.try_map_ast(f)?,
-                upper: upper.try_map_ast(f)?,
-                step: step.try_map_ast(f)?,
+                lower: Foldable::fold(lower, folder)?,
+                upper: Foldable::fold(upper, folder)?,
+                step: Foldable::fold(step, folder)?,
             }),
+        })
+    }
+    impl<T, U> Foldable<T, U> for ExprContext {
+        type Mapped = ExprContext;
+        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
+            self,
+            folder: &mut F,
+        ) -> Result<Self::Mapped, F::Error> {
+            folder.fold_expr_context(self)
         }
     }
-}
-no_user!(ExprContext);
-no_user!(Boolop);
-no_user!(Operator);
-no_user!(Unaryop);
-no_user!(Cmpop);
-impl<T, U> MapAst<T, U> for Comprehension<T> {
-    type Mapped = Comprehension<U>;
-    fn try_map_ast<E, F: FnMut(T) -> Result<U, E>>(self, f: &mut F) -> Result<Self::Mapped, E> {
+    pub fn fold_expr_context<U, F: Fold<U> + ?Sized>(
+        #[allow(unused)] folder: &mut F,
+        node: ExprContext,
+    ) -> Result<ExprContext, F::Error> {
+        match node {
+            ExprContext::Load {} => Ok(ExprContext::Load {}),
+            ExprContext::Store {} => Ok(ExprContext::Store {}),
+            ExprContext::Del {} => Ok(ExprContext::Del {}),
+        }
+    }
+    impl<T, U> Foldable<T, U> for Boolop {
+        type Mapped = Boolop;
+        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
+            self,
+            folder: &mut F,
+        ) -> Result<Self::Mapped, F::Error> {
+            folder.fold_boolop(self)
+        }
+    }
+    pub fn fold_boolop<U, F: Fold<U> + ?Sized>(
+        #[allow(unused)] folder: &mut F,
+        node: Boolop,
+    ) -> Result<Boolop, F::Error> {
+        match node {
+            Boolop::And {} => Ok(Boolop::And {}),
+            Boolop::Or {} => Ok(Boolop::Or {}),
+        }
+    }
+    impl<T, U> Foldable<T, U> for Operator {
+        type Mapped = Operator;
+        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
+            self,
+            folder: &mut F,
+        ) -> Result<Self::Mapped, F::Error> {
+            folder.fold_operator(self)
+        }
+    }
+    pub fn fold_operator<U, F: Fold<U> + ?Sized>(
+        #[allow(unused)] folder: &mut F,
+        node: Operator,
+    ) -> Result<Operator, F::Error> {
+        match node {
+            Operator::Add {} => Ok(Operator::Add {}),
+            Operator::Sub {} => Ok(Operator::Sub {}),
+            Operator::Mult {} => Ok(Operator::Mult {}),
+            Operator::MatMult {} => Ok(Operator::MatMult {}),
+            Operator::Div {} => Ok(Operator::Div {}),
+            Operator::Mod {} => Ok(Operator::Mod {}),
+            Operator::Pow {} => Ok(Operator::Pow {}),
+            Operator::LShift {} => Ok(Operator::LShift {}),
+            Operator::RShift {} => Ok(Operator::RShift {}),
+            Operator::BitOr {} => Ok(Operator::BitOr {}),
+            Operator::BitXor {} => Ok(Operator::BitXor {}),
+            Operator::BitAnd {} => Ok(Operator::BitAnd {}),
+            Operator::FloorDiv {} => Ok(Operator::FloorDiv {}),
+        }
+    }
+    impl<T, U> Foldable<T, U> for Unaryop {
+        type Mapped = Unaryop;
+        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
+            self,
+            folder: &mut F,
+        ) -> Result<Self::Mapped, F::Error> {
+            folder.fold_unaryop(self)
+        }
+    }
+    pub fn fold_unaryop<U, F: Fold<U> + ?Sized>(
+        #[allow(unused)] folder: &mut F,
+        node: Unaryop,
+    ) -> Result<Unaryop, F::Error> {
+        match node {
+            Unaryop::Invert {} => Ok(Unaryop::Invert {}),
+            Unaryop::Not {} => Ok(Unaryop::Not {}),
+            Unaryop::UAdd {} => Ok(Unaryop::UAdd {}),
+            Unaryop::USub {} => Ok(Unaryop::USub {}),
+        }
+    }
+    impl<T, U> Foldable<T, U> for Cmpop {
+        type Mapped = Cmpop;
+        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
+            self,
+            folder: &mut F,
+        ) -> Result<Self::Mapped, F::Error> {
+            folder.fold_cmpop(self)
+        }
+    }
+    pub fn fold_cmpop<U, F: Fold<U> + ?Sized>(
+        #[allow(unused)] folder: &mut F,
+        node: Cmpop,
+    ) -> Result<Cmpop, F::Error> {
+        match node {
+            Cmpop::Eq {} => Ok(Cmpop::Eq {}),
+            Cmpop::NotEq {} => Ok(Cmpop::NotEq {}),
+            Cmpop::Lt {} => Ok(Cmpop::Lt {}),
+            Cmpop::LtE {} => Ok(Cmpop::LtE {}),
+            Cmpop::Gt {} => Ok(Cmpop::Gt {}),
+            Cmpop::GtE {} => Ok(Cmpop::GtE {}),
+            Cmpop::Is {} => Ok(Cmpop::Is {}),
+            Cmpop::IsNot {} => Ok(Cmpop::IsNot {}),
+            Cmpop::In {} => Ok(Cmpop::In {}),
+            Cmpop::NotIn {} => Ok(Cmpop::NotIn {}),
+        }
+    }
+    impl<T, U> Foldable<T, U> for Comprehension<T> {
+        type Mapped = Comprehension<U>;
+        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
+            self,
+            folder: &mut F,
+        ) -> Result<Self::Mapped, F::Error> {
+            folder.fold_comprehension(self)
+        }
+    }
+    pub fn fold_comprehension<U, F: Fold<U> + ?Sized>(
+        #[allow(unused)] folder: &mut F,
+        node: Comprehension<U>,
+    ) -> Result<Comprehension<F::TargetU>, F::Error> {
         let Comprehension {
             target,
             iter,
             ifs,
             is_async,
-        } = self;
+        } = node;
         Ok(Comprehension {
-            target: target.try_map_ast(f)?,
-            iter: iter.try_map_ast(f)?,
-            ifs: ifs.try_map_ast(f)?,
-            is_async: is_async.try_map_ast(f)?,
+            target: Foldable::fold(target, folder)?,
+            iter: Foldable::fold(iter, folder)?,
+            ifs: Foldable::fold(ifs, folder)?,
+            is_async: Foldable::fold(is_async, folder)?,
         })
     }
-}
-impl<T, U> MapAst<T, U> for ExcepthandlerKind<T> {
-    type Mapped = ExcepthandlerKind<U>;
-    fn try_map_ast<E, F: FnMut(T) -> Result<U, E>>(self, f: &mut F) -> Result<Self::Mapped, E> {
-        match self {
-            ExcepthandlerKind::ExceptHandler { type_, name, body } => {
-                Ok(ExcepthandlerKind::ExceptHandler {
-                    type_: type_.try_map_ast(f)?,
-                    name: name.try_map_ast(f)?,
-                    body: body.try_map_ast(f)?,
-                })
-            }
+    impl<T, U> Foldable<T, U> for Excepthandler<T> {
+        type Mapped = Excepthandler<U>;
+        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
+            self,
+            folder: &mut F,
+        ) -> Result<Self::Mapped, F::Error> {
+            folder.fold_excepthandler(self)
         }
     }
-}
-impl<T, U> MapAst<T, U> for Arguments<T> {
-    type Mapped = Arguments<U>;
-    fn try_map_ast<E, F: FnMut(T) -> Result<U, E>>(self, f: &mut F) -> Result<Self::Mapped, E> {
+    pub fn fold_excepthandler<U, F: Fold<U> + ?Sized>(
+        #[allow(unused)] folder: &mut F,
+        node: Excepthandler<U>,
+    ) -> Result<Excepthandler<F::TargetU>, F::Error> {
+        fold_located(folder, node, |folder, node| match node {
+            ExcepthandlerKind::ExceptHandler { type_, name, body } => {
+                Ok(ExcepthandlerKind::ExceptHandler {
+                    type_: Foldable::fold(type_, folder)?,
+                    name: Foldable::fold(name, folder)?,
+                    body: Foldable::fold(body, folder)?,
+                })
+            }
+        })
+    }
+    impl<T, U> Foldable<T, U> for Arguments<T> {
+        type Mapped = Arguments<U>;
+        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
+            self,
+            folder: &mut F,
+        ) -> Result<Self::Mapped, F::Error> {
+            folder.fold_arguments(self)
+        }
+    }
+    pub fn fold_arguments<U, F: Fold<U> + ?Sized>(
+        #[allow(unused)] folder: &mut F,
+        node: Arguments<U>,
+    ) -> Result<Arguments<F::TargetU>, F::Error> {
         let Arguments {
             posonlyargs,
             args,
@@ -770,55 +1014,123 @@ impl<T, U> MapAst<T, U> for Arguments<T> {
             kw_defaults,
             kwarg,
             defaults,
-        } = self;
+        } = node;
         Ok(Arguments {
-            posonlyargs: posonlyargs.try_map_ast(f)?,
-            args: args.try_map_ast(f)?,
-            vararg: vararg.try_map_ast(f)?,
-            kwonlyargs: kwonlyargs.try_map_ast(f)?,
-            kw_defaults: kw_defaults.try_map_ast(f)?,
-            kwarg: kwarg.try_map_ast(f)?,
-            defaults: defaults.try_map_ast(f)?,
+            posonlyargs: Foldable::fold(posonlyargs, folder)?,
+            args: Foldable::fold(args, folder)?,
+            vararg: Foldable::fold(vararg, folder)?,
+            kwonlyargs: Foldable::fold(kwonlyargs, folder)?,
+            kw_defaults: Foldable::fold(kw_defaults, folder)?,
+            kwarg: Foldable::fold(kwarg, folder)?,
+            defaults: Foldable::fold(defaults, folder)?,
         })
     }
-}
-impl<T, U> MapAst<T, U> for ArgData<T> {
-    type Mapped = ArgData<U>;
-    fn try_map_ast<E, F: FnMut(T) -> Result<U, E>>(self, f: &mut F) -> Result<Self::Mapped, E> {
-        let ArgData {
-            arg,
-            annotation,
-            type_comment,
-        } = self;
-        Ok(ArgData {
-            arg: arg.try_map_ast(f)?,
-            annotation: annotation.try_map_ast(f)?,
-            type_comment: type_comment.try_map_ast(f)?,
+    impl<T, U> Foldable<T, U> for Arg<T> {
+        type Mapped = Arg<U>;
+        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
+            self,
+            folder: &mut F,
+        ) -> Result<Self::Mapped, F::Error> {
+            folder.fold_arg(self)
+        }
+    }
+    pub fn fold_arg<U, F: Fold<U> + ?Sized>(
+        #[allow(unused)] folder: &mut F,
+        node: Arg<U>,
+    ) -> Result<Arg<F::TargetU>, F::Error> {
+        fold_located(folder, node, |folder, node| {
+            let ArgData {
+                arg,
+                annotation,
+                type_comment,
+            } = node;
+            Ok(ArgData {
+                arg: Foldable::fold(arg, folder)?,
+                annotation: Foldable::fold(annotation, folder)?,
+                type_comment: Foldable::fold(type_comment, folder)?,
+            })
         })
     }
-}
-impl<T, U> MapAst<T, U> for KeywordData<T> {
-    type Mapped = KeywordData<U>;
-    fn try_map_ast<E, F: FnMut(T) -> Result<U, E>>(self, f: &mut F) -> Result<Self::Mapped, E> {
-        let KeywordData { arg, value } = self;
-        Ok(KeywordData {
-            arg: arg.try_map_ast(f)?,
-            value: value.try_map_ast(f)?,
+    impl<T, U> Foldable<T, U> for Keyword<T> {
+        type Mapped = Keyword<U>;
+        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
+            self,
+            folder: &mut F,
+        ) -> Result<Self::Mapped, F::Error> {
+            folder.fold_keyword(self)
+        }
+    }
+    pub fn fold_keyword<U, F: Fold<U> + ?Sized>(
+        #[allow(unused)] folder: &mut F,
+        node: Keyword<U>,
+    ) -> Result<Keyword<F::TargetU>, F::Error> {
+        fold_located(folder, node, |folder, node| {
+            let KeywordData { arg, value } = node;
+            Ok(KeywordData {
+                arg: Foldable::fold(arg, folder)?,
+                value: Foldable::fold(value, folder)?,
+            })
         })
     }
-}
-no_user!(Alias);
-impl<T, U> MapAst<T, U> for Withitem<T> {
-    type Mapped = Withitem<U>;
-    fn try_map_ast<E, F: FnMut(T) -> Result<U, E>>(self, f: &mut F) -> Result<Self::Mapped, E> {
+    impl<T, U> Foldable<T, U> for Alias {
+        type Mapped = Alias;
+        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
+            self,
+            folder: &mut F,
+        ) -> Result<Self::Mapped, F::Error> {
+            folder.fold_alias(self)
+        }
+    }
+    pub fn fold_alias<U, F: Fold<U> + ?Sized>(
+        #[allow(unused)] folder: &mut F,
+        node: Alias,
+    ) -> Result<Alias, F::Error> {
+        let Alias { name, asname } = node;
+        Ok(Alias {
+            name: Foldable::fold(name, folder)?,
+            asname: Foldable::fold(asname, folder)?,
+        })
+    }
+    impl<T, U> Foldable<T, U> for Withitem<T> {
+        type Mapped = Withitem<U>;
+        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
+            self,
+            folder: &mut F,
+        ) -> Result<Self::Mapped, F::Error> {
+            folder.fold_withitem(self)
+        }
+    }
+    pub fn fold_withitem<U, F: Fold<U> + ?Sized>(
+        #[allow(unused)] folder: &mut F,
+        node: Withitem<U>,
+    ) -> Result<Withitem<F::TargetU>, F::Error> {
         let Withitem {
             context_expr,
             optional_vars,
-        } = self;
+        } = node;
         Ok(Withitem {
-            context_expr: context_expr.try_map_ast(f)?,
-            optional_vars: optional_vars.try_map_ast(f)?,
+            context_expr: Foldable::fold(context_expr, folder)?,
+            optional_vars: Foldable::fold(optional_vars, folder)?,
         })
     }
+    impl<T, U> Foldable<T, U> for TypeIgnore {
+        type Mapped = TypeIgnore;
+        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
+            self,
+            folder: &mut F,
+        ) -> Result<Self::Mapped, F::Error> {
+            folder.fold_type_ignore(self)
+        }
+    }
+    pub fn fold_type_ignore<U, F: Fold<U> + ?Sized>(
+        #[allow(unused)] folder: &mut F,
+        node: TypeIgnore,
+    ) -> Result<TypeIgnore, F::Error> {
+        match node {
+            TypeIgnore::TypeIgnore { lineno, tag } => Ok(TypeIgnore::TypeIgnore {
+                lineno: Foldable::fold(lineno, folder)?,
+                tag: Foldable::fold(tag, folder)?,
+            }),
+        }
+    }
 }
-no_user!(TypeIgnore);
