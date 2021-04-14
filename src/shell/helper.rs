@@ -58,16 +58,16 @@ impl<'vm> ShellHelper<'vm> {
     fn get_available_completions<'w>(
         &self,
         words: &'w [String],
-    ) -> Option<(&'w str, Box<dyn Iterator<Item = PyResult<PyStrRef>> + 'vm>)> {
+    ) -> Option<(&'w str, impl Iterator<Item = PyResult<PyStrRef>> + 'vm)> {
         // the very first word and then all the ones after the dot
         let (first, rest) = words.split_first().unwrap();
 
         let str_iter_method = |obj, name| {
-            let iter = self.vm.call_method(obj, name, ())?;
+            let iter = self.vm.call_special_method(obj, name, ())?;
             PyIterable::<PyStrRef>::try_from_object(self.vm, iter)?.iter(self.vm)
         };
 
-        if let Some((last, parents)) = rest.split_last() {
+        let (word_start, iter1, iter2) = if let Some((last, parents)) = rest.split_last() {
             // we need to get an attribute based off of the dir() of an object
 
             // last: the last word, could be empty if it ends with a dot
@@ -82,16 +82,17 @@ impl<'vm> ShellHelper<'vm> {
                 current = self.vm.get_attribute(current.clone(), attr.as_str()).ok()?;
             }
 
-            let current_iter = str_iter_method(&current, "__dir__").ok()?;
+            let current_iter = str_iter_method(current, "__dir__").ok()?;
 
-            Some((&last, Box::new(current_iter) as _))
+            (last, current_iter, None)
         } else {
             // we need to get a variable based off of globals/builtins
 
-            let globals = str_iter_method(self.globals.as_object(), "keys").ok()?;
-            let builtins = str_iter_method(&self.vm.builtins, "__dir__").ok()?;
-            Some((&first, Box::new(Iterator::chain(globals, builtins)) as _))
-        }
+            let globals = str_iter_method(self.globals.as_object().clone(), "keys").ok()?;
+            let builtins = str_iter_method(self.vm.builtins.clone(), "__dir__").ok()?;
+            (first, globals, Some(builtins))
+        };
+        Some((word_start, iter1.chain(iter2.into_iter().flatten())))
     }
 
     fn complete_opt(&self, line: &str) -> Option<(usize, Vec<String>)> {

@@ -35,7 +35,7 @@ pub use int::{PyInt, PyIntRef};
 pub(crate) mod iter;
 pub use iter::*;
 pub(crate) mod list;
-pub use list::PyList;
+pub use list::{PyList, PyListRef};
 pub(crate) mod map;
 pub use map::PyMap;
 pub(crate) mod mappingproxy;

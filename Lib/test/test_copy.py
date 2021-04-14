@@ -714,8 +714,6 @@ class TestCopy(unittest.TestCase):
         self.assertEqual(x.foo, y.foo)
         self.assertIsNot(x.foo, y.foo)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_deepcopy_dict_subclass(self):
         class C(dict):
             def __init__(self, d=None):

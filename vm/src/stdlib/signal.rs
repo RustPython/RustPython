@@ -164,6 +164,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "SIGINT" => ctx.new_int(libc::SIGINT as u8),
         "SIGSEGV" => ctx.new_int(libc::SIGSEGV as u8),
         "SIGTERM" => ctx.new_int(libc::SIGTERM as u8),
+        "NSIG" => ctx.new_int(NSIG),
         "default_int_handler" => int_handler.clone(),
     });
     extend_module_platform_specific(vm, &module);

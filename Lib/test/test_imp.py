@@ -103,8 +103,6 @@ class ImportTests(unittest.TestCase):
             self.assertEqual(fp.readline(),
                              '"""Tokenization help for Python programs.\n')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_issue3594(self):
         temp_mod_name = 'test_imp_helper'
         sys.path.insert(0, '.')
@@ -119,8 +117,6 @@ class ImportTests(unittest.TestCase):
             support.unlink(temp_mod_name + '.py')
             support.unlink(temp_mod_name + '.pyc')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_issue5604(self):
         # Test cannot cover imp.load_compiled function.
         # Martin von Loewis note what shared library cannot have non-ascii
@@ -215,8 +211,6 @@ class ImportTests(unittest.TestCase):
         self.assertRaises(SyntaxError,
                           imp.find_module, "badsyntax_pep3120", [path])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_load_from_source(self):
         # Verify that the imp module can correctly load and find .py files
         # XXX (ncoghlan): It would be nice to use support.CleanImport

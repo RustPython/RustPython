@@ -2091,6 +2091,7 @@ dependencies = [
  "socket2",
  "sre-engine",
  "static_assertions",
+ "termios",
  "thiserror",
  "thread_local",
  "timsort",
@@ -2426,6 +2427,15 @@ checksum = "86ca8ced750734db02076f44132d802af0b33b09942331f4459dde8636fd2406"
 dependencies = [
  "libc",
  "winapi",
+]
+
+[[package]]
+name = "termios"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "411c5bf740737c7918b8b1fe232dca4dc9f8e754b8ad5e20966814001ed0ac6b"
+dependencies = [
+ "libc",
 ]
 
 [[package]]

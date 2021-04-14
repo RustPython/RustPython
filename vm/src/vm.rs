@@ -991,7 +991,9 @@ impl VirtualMachine {
         PyMethod::get_special(obj, method, self)
     }
 
-    pub(crate) fn call_special_method(
+    /// NOT PUBLIC API
+    #[doc(hidden)]
+    pub fn call_special_method(
         &self,
         obj: PyObjectRef,
         method: &str,

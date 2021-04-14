@@ -37,8 +37,6 @@ mod sysconfigdata;
 #[cfg(feature = "threading")]
 mod thread;
 mod time_module;
-#[cfg(feature = "rustpython-parser")]
-mod tokenize;
 mod unicodedata;
 mod warnings;
 mod weakref;
@@ -64,6 +62,8 @@ mod select;
 pub mod signal;
 #[cfg(all(not(target_arch = "wasm32"), feature = "ssl"))]
 mod ssl;
+#[cfg(all(unix, not(target_os = "redox")))]
+mod termios;
 #[cfg(windows)]
 mod winapi;
 #[cfg(windows)]
@@ -118,7 +118,6 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc, ahash::RandomState>
     #[cfg(feature = "rustpython-parser")]
     {
         modules.insert("keyword".to_owned(), Box::new(keyword::make_module));
-        modules.insert("tokenize".to_owned(), Box::new(tokenize::make_module));
     }
 
     // Insert compiler related modules:
@@ -155,6 +154,9 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc, ahash::RandomState>
     {
         modules.insert("pwd".to_owned(), Box::new(pwd::make_module));
     }
+
+    #[cfg(all(unix, not(target_os = "redox")))]
+    modules.insert("termios".to_owned(), Box::new(termios::make_module));
 
     #[cfg(unix)]
     {

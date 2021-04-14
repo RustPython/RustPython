@@ -67,8 +67,6 @@ class CallSignature:
             return fxn(*args, **kwargs)
         return log, wrapper
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_no_path(self):
         # [no path]
         mod_name = 'top_level'
@@ -84,8 +82,6 @@ class CallSignature:
                 self.assertEqual(args[0], mod_name)
                 self.assertIsNone(args[1])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_with_path(self):
         # [path set]
         pkg_name = 'pkg'

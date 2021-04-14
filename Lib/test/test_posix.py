@@ -1769,8 +1769,6 @@ class _PosixSpawnMixin:
 
         support.wait_process(pid, exitcode=-signal.SIGUSR1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_setsigdef_wrong_type(self):
         with self.assertRaises(TypeError):
             self.spawn_func(sys.executable,

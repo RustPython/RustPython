@@ -786,8 +786,8 @@ impl ExecutingFrame<'_> {
                         Ok(None)
                     }
                 } else {
-                    unreachable!(
-                        "Block type must be finally handler when reaching EndFinally instruction!"
+                    self.fatal(
+                        "Block type must be finally handler when reaching EndFinally instruction!",
                     );
                 }
             }
@@ -820,7 +820,7 @@ impl ExecutingFrame<'_> {
                 let block = self.current_block().unwrap();
                 let reason = match block.typ {
                     BlockType::FinallyHandler { reason, .. } => reason,
-                    _ => unreachable!("WithCleanupStart expects a FinallyHandler block on stack"),
+                    _ => self.fatal("WithCleanupStart expects a FinallyHandler block on stack"),
                 };
                 let exc = match reason {
                     Some(UnwindReason::Raising { exception }) => Some(exception),
@@ -843,7 +843,7 @@ impl ExecutingFrame<'_> {
                 let block = self.pop_block();
                 let (reason, prev_exc) = match block.typ {
                     BlockType::FinallyHandler { reason, prev_exc } => (reason, prev_exc),
-                    _ => unreachable!("WithCleanupFinish expects a FinallyHandler block on stack"),
+                    _ => self.fatal("WithCleanupFinish expects a FinallyHandler block on stack"),
                 };
 
                 let suppress_exception = pybool::boolval(vm, self.pop_value())?;
@@ -904,6 +904,7 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::EndAsyncFor => {
                 let exc = self.pop_value();
+                self.pop_value(); // async iterator we were calling __anext__ on
                 if exc.isinstance(&vm.ctx.exceptions.stop_async_iteration) {
                     vm.take_exception().expect("Should have exception in stack");
                     Ok(None)
@@ -1072,7 +1073,7 @@ impl ExecutingFrame<'_> {
                     vm.set_exception(prev_exc);
                     Ok(None)
                 } else {
-                    unreachable!("block type must be ExceptHandler here.")
+                    self.fatal("block type must be ExceptHandler here.")
                 }
             }
             bytecode::Instruction::Reverse { amount } => {
@@ -1229,7 +1230,7 @@ impl ExecutingFrame<'_> {
             UnwindReason::Raising { exception } => Err(exception),
             UnwindReason::Returning { value } => Ok(Some(ExecutionResult::Return(value))),
             UnwindReason::Break { .. } | UnwindReason::Continue { .. } => {
-                unreachable!("break or continue must occur within a loop block.")
+                self.fatal("break or continue must occur within a loop block.")
             } // UnwindReason::NoWorries => Ok(None),
         }
     }
@@ -1237,7 +1238,7 @@ impl ExecutingFrame<'_> {
     fn execute_rotate(&mut self, amount: u32) -> FrameResult {
         // Shuffles top of stack amount down
         if amount < 2 {
-            panic!("Can only rotate two or more values");
+            self.fatal("Can only rotate two or more values");
         }
 
         let mut values = Vec::new();
@@ -1811,17 +1812,14 @@ impl ExecutingFrame<'_> {
     fn push_value(&mut self, obj: PyObjectRef) {
         match self.state.stack.try_push(obj) {
             Ok(()) => {}
-            Err(_e) => {
-                dbg!(self);
-                panic!("tried to push value onto stack but overflowed max_stacksize")
-            }
+            Err(_e) => self.fatal("tried to push value onto stack but overflowed max_stacksize"),
         }
     }
 
     fn pop_value(&mut self) -> PyObjectRef {
         match self.state.stack.pop() {
             Some(x) => x,
-            None => panic!("tried to pop value but there was nothing on the stack"),
+            None => self.fatal("tried to pop value but there was nothing on the stack"),
         }
     }
 
@@ -1838,12 +1836,21 @@ impl ExecutingFrame<'_> {
     fn last_value_ref(&self) -> &PyObjectRef {
         match &*self.state.stack {
             [.., last] => last,
-            [] => panic!("tried to get top of stack but stack is empty"),
+            [] => self.fatal("tried to get top of stack but stack is empty"),
         }
     }
 
     fn nth_value(&self, depth: u32) -> PyObjectRef {
         self.state.stack[self.state.stack.len() - depth as usize - 1].clone()
+    }
+
+    // redox still has an old nightly, and edition 2021 won't be out for a while
+    #[allow(non_fmt_panic)]
+    #[cold]
+    #[inline(never)]
+    fn fatal(&self, msg: &'static str) -> ! {
+        dbg!(self);
+        panic!(msg)
     }
 }
 

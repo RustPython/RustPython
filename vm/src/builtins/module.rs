@@ -1,7 +1,7 @@
 use super::dict::PyDictRef;
 use super::pystr::{PyStr, PyStrRef};
 use super::pytype::PyTypeRef;
-use crate::function::{FuncArgs, OptionalOption};
+use crate::function::FuncArgs;
 use crate::pyobject::{
     BorrowValue, IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
     PyValue,
@@ -43,6 +43,14 @@ pub fn init_module_dict(
         .expect("Failed to set __spec__ on module");
 }
 
+#[derive(FromArgs)]
+struct ModuleInitArgs {
+    #[pyarg(any)]
+    name: PyStrRef,
+    #[pyarg(any, default)]
+    doc: Option<PyStrRef>,
+}
+
 #[pyimpl(with(SlotGetattro), flags(BASETYPE, HAS_DICT))]
 impl PyModule {
     #[pyslot]
@@ -51,7 +59,7 @@ impl PyModule {
     }
 
     #[pymethod(magic)]
-    fn init(zelf: PyRef<Self>, name: PyStrRef, doc: OptionalOption<PyStrRef>, vm: &VirtualMachine) {
+    fn init(zelf: PyRef<Self>, args: ModuleInitArgs, vm: &VirtualMachine) {
         debug_assert!(crate::pyobject::TypeProtocol::class(zelf.as_object())
             .slots
             .flags
@@ -59,8 +67,8 @@ impl PyModule {
         init_module_dict(
             vm,
             &zelf.as_object().dict().unwrap(),
-            name.into_object(),
-            doc.flatten().into_pyobject(vm),
+            args.name.into_object(),
+            args.doc.into_pyobject(vm),
         );
     }
 

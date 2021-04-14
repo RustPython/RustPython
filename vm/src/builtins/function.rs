@@ -38,8 +38,7 @@ pub struct PyFunction {
     jitted_code: OnceCell<CompiledCode>,
     globals: PyDictRef,
     closure: Option<PyTupleTyped<PyCellRef>>,
-    defaults: Option<PyTupleRef>,
-    kw_only_defaults: Option<PyDictRef>,
+    defaults_and_kwdefaults: PyMutex<(Option<PyTupleRef>, Option<PyDictRef>)>,
     name: PyMutex<PyStrRef>,
 }
 
@@ -58,8 +57,7 @@ impl PyFunction {
             jitted_code: OnceCell::new(),
             globals,
             closure,
-            defaults,
-            kw_only_defaults,
+            defaults_and_kwdefaults: PyMutex::new((defaults, kw_only_defaults)),
             name,
         }
     }
@@ -161,10 +159,20 @@ impl PyFunction {
             )));
         }
 
+        let mut defaults_and_kwdefaults = None;
+        // can't be a closure cause it returns a reference to a captured variable :/
+        macro_rules! get_defaults {
+            () => {{
+                defaults_and_kwdefaults
+                    .get_or_insert_with(|| self.defaults_and_kwdefaults.lock().clone())
+            }};
+        }
+
         // Add missing positional arguments, if we have fewer positional arguments than the
         // function definition calls for
         if nargs < nexpected_args {
-            let ndefs = self.defaults.as_ref().map_or(0, |d| d.borrow_value().len());
+            let defaults = get_defaults!().0.as_ref().map(|tup| tup.borrow_value());
+            let ndefs = defaults.map_or(0, |d| d.len());
 
             let nrequired = code.arg_count - ndefs;
 
@@ -184,9 +192,7 @@ impl PyFunction {
                 )));
             }
 
-            if let Some(defaults) = &self.defaults {
-                let defaults = defaults.borrow_value();
-
+            if let Some(defaults) = defaults {
                 let n = std::cmp::min(nargs, nexpected_args);
                 let i = n.saturating_sub(nrequired);
 
@@ -212,10 +218,8 @@ impl PyFunction {
                 .take(code.kwonlyarg_count)
             {
                 if slot.is_none() {
-                    if let Some(kw_only_defaults) = &self.kw_only_defaults {
-                        if let Some(default) =
-                            kw_only_defaults.get_item_option(kwarg.clone(), vm)?
-                        {
+                    if let Some(defaults) = &get_defaults!().1 {
+                        if let Some(default) = defaults.get_item_option(kwarg.clone(), vm)? {
                             *slot = Some(default);
                             continue;
                         }
@@ -311,12 +315,20 @@ impl PyFunction {
 
     #[pyproperty(magic)]
     fn defaults(&self) -> Option<PyTupleRef> {
-        self.defaults.clone()
+        self.defaults_and_kwdefaults.lock().0.clone()
+    }
+    #[pyproperty(magic, setter)]
+    fn set_defaults(&self, defaults: Option<PyTupleRef>) {
+        self.defaults_and_kwdefaults.lock().0 = defaults
     }
 
     #[pyproperty(magic)]
     fn kwdefaults(&self) -> Option<PyDictRef> {
-        self.kw_only_defaults.clone()
+        self.defaults_and_kwdefaults.lock().1.clone()
+    }
+    #[pyproperty(magic, setter)]
+    fn set_kwdefaults(&self, kwdefaults: Option<PyDictRef>) {
+        self.defaults_and_kwdefaults.lock().1 = kwdefaults
     }
 
     #[pyproperty(magic)]
@@ -425,11 +437,32 @@ impl PyBoundMethod {
         PyBoundMethod { object, function }
     }
 
+    #[pyslot]
+    fn tp_new(
+        cls: PyTypeRef,
+        function: PyObjectRef,
+        object: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<Self>> {
+        PyBoundMethod::new(object, function).into_ref_with_type(vm, cls)
+    }
+
     #[pymethod(magic)]
     fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
+        let funcname = if let Some(qname) =
+            vm.get_attribute_opt(self.function.clone(), "__qualname__")?
+        {
+            Some(qname)
+        } else if let Some(name) = vm.get_attribute_opt(self.function.clone(), "__qualname__")? {
+            Some(name)
+        } else {
+            None
+        };
+        let funcname: Option<PyStrRef> = funcname.and_then(|o| o.downcast().ok());
         Ok(format!(
-            "<bound method of {}>",
-            vm.to_repr(&self.object)?.borrow_value()
+            "<bound method {} of {}>",
+            funcname.as_ref().map_or("?", |s| s.borrow_value()),
+            vm.to_repr(&self.object)?.borrow_value(),
         ))
     }
 

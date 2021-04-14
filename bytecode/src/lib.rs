@@ -978,7 +978,7 @@ impl Instruction {
             }
             GetAIter => 0,
             GetANext => 1,
-            EndAsyncFor => -1,
+            EndAsyncFor => -2,
         }
     }
 
