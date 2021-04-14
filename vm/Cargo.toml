@@ -93,7 +93,7 @@ libz-sys = { version = "1.0", optional = true }
 
 # RustPython crates implementing functionality based on CPython
 mt19937 = "2.0"
-sre-engine = { git = "https://github.com/RustPython/sre-engine" }
+sre-engine = "0.1.0"
 # to work on sre-engine locally
 # sre-engine = { path = "../../sre-engine" }
 
