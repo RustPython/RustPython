@@ -52,7 +52,7 @@ use rustpython_vm::{
     match_class,
     pyobject::{BorrowValue, ItemProtocol, PyResult, TypeProtocol},
     scope::Scope,
-    sysmodule, util, InitParameter, Interpreter, PySettings, VirtualMachine,
+    sysmodule, InitParameter, Interpreter, PySettings, VirtualMachine,
 };
 
 use std::convert::TryInto;
@@ -121,18 +121,18 @@ where
             Ok(()) => 0,
             Err(err) if err.isinstance(&vm.ctx.exceptions.system_exit) => {
                 let args = err.args();
-                match args.borrow_value().len() {
-                    0 => 0,
-                    1 => match_class!(match args.borrow_value()[0].clone() {
-                        i @ PyInt => {
+                match args.borrow_value() {
+                    [] => 0,
+                    [arg] => match_class!(match arg {
+                        ref i @ PyInt => {
                             use num_traits::cast::ToPrimitive;
                             i.borrow_value().to_i32().unwrap_or(0)
                         }
                         arg => {
-                            if vm.is_none(&arg) {
+                            if vm.is_none(arg) {
                                 0
                             } else {
-                                if let Ok(s) = vm.to_str(&arg) {
+                                if let Ok(s) = vm.to_str(arg) {
                                     eprintln!("{}", s);
                                 }
                                 1
@@ -206,6 +206,16 @@ fn parse_arguments<'a>(app: App<'a, '_>) -> ArgMatches<'a> {
                 .value_name("module, args")
                 .min_values(1)
                 .help("run library module as script"),
+        )
+        .arg(
+            Arg::with_name("install_pip")
+                .long("install-pip")
+                .takes_value(true)
+                .allow_hyphen_values(true)
+                .multiple(true)
+                .value_name("get-pip args")
+                .min_values(0)
+                .help("install the pip package manager for rustpython"),
         )
         .arg(
             Arg::with_name("optimize")
@@ -414,6 +424,10 @@ fn create_settings(matches: &ArgMatches) -> PySettings {
         std::iter::once("PLACEHOLDER".to_owned())
             .chain(module.skip(1).map(ToOwned::to_owned))
             .collect()
+    } else if let Some(get_pip_args) = matches.values_of("install_pip") {
+        std::iter::once("get-pip.py".to_owned())
+            .chain(get_pip_args.map(ToOwned::to_owned))
+            .collect()
     } else if let Some(cmd) = matches.values_of("c") {
         std::iter::once("-c".to_owned())
             .chain(cmd.skip(1).map(ToOwned::to_owned))
@@ -530,6 +544,27 @@ fn run_rustpython(vm: &VirtualMachine, matches: &ArgMatches) -> PyResult<()> {
         run_command(&vm, scope, command.to_owned())?;
     } else if let Some(module) = matches.value_of("m") {
         run_module(&vm, module)?;
+    } else if matches.is_present("install_pip") {
+        let get_getpip = rustpython_vm::py_compile!(
+            source = r#"\
+__import__("io").TextIOWrapper(
+    __import__("urllib.request").request.urlopen("https://bootstrap.pypa.io/get-pip.py")
+).read()
+"#,
+            mode = "eval"
+        );
+        eprintln!("downloading get-pip.py...");
+        let getpip_code = vm.run_code_obj(vm.new_code_object(get_getpip), scope.clone())?;
+        let getpip_code: rustpython_vm::builtins::PyStrRef = getpip_code
+            .downcast()
+            .expect("TextIOWrapper.read() should return str");
+        eprintln!("running get-pip.py...");
+        _run_string(
+            vm,
+            scope,
+            getpip_code.borrow_value(),
+            "get-pip.py".to_owned(),
+        )?;
     } else if let Some(filename) = matches.value_of("script") {
         run_script(&vm, scope.clone(), filename)?;
         if matches.is_present("inspect") {
@@ -573,34 +608,24 @@ fn run_module(vm: &VirtualMachine, module: &str) -> PyResult<()> {
 
 fn run_script(vm: &VirtualMachine, scope: Scope, script_file: &str) -> PyResult<()> {
     debug!("Running file {}", script_file);
-    // Parse an ast from it:
-    let file_path = PathBuf::from(script_file);
-    let file_path = if file_path.is_file() {
-        file_path
-    } else if file_path.is_dir() {
-        let main_file_path = file_path.join("__main__.py");
-        if main_file_path.is_file() {
-            main_file_path
-        } else {
-            error!(
-                "can't find '__main__' module in '{}'",
-                file_path.to_str().unwrap()
-            );
+    let mut file_path = PathBuf::from(script_file);
+    let file_meta = file_path.metadata().unwrap_or_else(|e| {
+        error!("can't open file '{}': {}", file_path.display(), e);
+        process::exit(1);
+    });
+    if file_meta.is_dir() {
+        file_path.push("__main__.py");
+        if !file_path.is_file() {
+            error!("can't find '__main__' module in '{}'", file_path.display());
             process::exit(1);
         }
-    } else {
-        error!(
-            "can't open file '{}': No such file or directory",
-            file_path.to_str().unwrap()
-        );
-        process::exit(1);
-    };
+    }
 
     let dir = file_path.parent().unwrap().to_str().unwrap().to_owned();
     let sys_path = vm.get_attribute(vm.sys_module.clone(), "path").unwrap();
     vm.call_method(&sys_path, "insert", (0, dir))?;
 
-    match util::read_file(&file_path) {
+    match std::fs::read_to_string(&file_path) {
         Ok(source) => {
             _run_string(vm, scope, &source, file_path.to_str().unwrap().to_owned())?;
         }
