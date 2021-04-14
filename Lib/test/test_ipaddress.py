@@ -98,8 +98,6 @@ class CommonTestMixin:
 
 class CommonTestMixin_v4(CommonTestMixin):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_leading_zeros(self):
         self.assertInstancesEqual("000.000.000.000", "0.0.0.0")
         self.assertInstancesEqual("192.168.000.001", "192.168.0.1")
@@ -471,8 +469,6 @@ class NetmaskTestMixin_v4(CommonTestMixin_v4):
         assertBadNetmask("1.1.1.1", "pudding")
         assertBadNetmask("1.1.1.1", "::")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_netmask_in_tuple_errors(self):
         def assertBadNetmask(addr, netmask):
             msg = "%r is not a valid netmask" % netmask
@@ -490,17 +486,10 @@ class NetmaskTestMixin_v4(CommonTestMixin_v4):
 class InterfaceTestCase_v4(BaseTestCase, NetmaskTestMixin_v4):
     factory = ipaddress.IPv4Interface
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_no_mask(self):
-        super().test_no_mask()
-
 
 class NetworkTestCase_v4(BaseTestCase, NetmaskTestMixin_v4):
     factory = ipaddress.IPv4Network
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_subnet_of(self):
         # containee left of container
         self.assertFalse(
@@ -519,8 +508,6 @@ class NetworkTestCase_v4(BaseTestCase, NetmaskTestMixin_v4):
             self.factory('10.0.1.0/24').subnet_of(
                 self.factory('10.0.0.0/30')))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_supernet_of(self):
         # containee left of container
         self.assertFalse(
@@ -539,8 +526,6 @@ class NetworkTestCase_v4(BaseTestCase, NetmaskTestMixin_v4):
             self.factory('10.0.0.0/24').supernet_of(
                 self.factory('10.0.0.0/30')))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_subnet_of_mixed_types(self):
         with self.assertRaises(TypeError):
             ipaddress.IPv4Network('10.0.0.0/30').supernet_of(
@@ -614,8 +599,6 @@ class NetmaskTestMixin_v6(CommonTestMixin_v6):
         assertBadNetmask("::1", "pudding")
         assertBadNetmask("::", "::")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_netmask_in_tuple_errors(self):
         def assertBadNetmask(addr, netmask):
             msg = "%r is not a valid netmask" % netmask
@@ -633,17 +616,10 @@ class NetmaskTestMixin_v6(CommonTestMixin_v6):
 class InterfaceTestCase_v6(BaseTestCase, NetmaskTestMixin_v6):
     factory = ipaddress.IPv6Interface
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_no_mask(self):
-        super().test_no_mask()
-
 
 class NetworkTestCase_v6(BaseTestCase, NetmaskTestMixin_v6):
     factory = ipaddress.IPv6Network
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_subnet_of(self):
         # containee left of container
         self.assertFalse(
@@ -662,8 +638,6 @@ class NetworkTestCase_v6(BaseTestCase, NetmaskTestMixin_v6):
             self.factory('2000:aaa::/48').subnet_of(
                 self.factory('2000:aaa::/56')))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_supernet_of(self):
         # containee left of container
         self.assertFalse(
@@ -2014,8 +1988,6 @@ class IpaddrUnitTest(unittest.TestCase):
         self.assertEqual(self.ipv6_interface.with_hostmask,
                          '2001:658:22a:cafe:200::1/::ffff:ffff:ffff:ffff')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testNetworkElementCaching(self):
         # V4 - make sure we're empty
         self.assertNotIn('broadcast_address', self.ipv4_network.__dict__)
@@ -2084,16 +2056,12 @@ class IpaddrUnitTest(unittest.TestCase):
         self.assertFalse(bad_addr.sixtofour)
 
     # issue41004 Hash collisions in IPv4Interface and IPv6Interface
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testV4HashIsNotConstant(self):
         ipv4_address1 = ipaddress.IPv4Interface("1.2.3.4")
         ipv4_address2 = ipaddress.IPv4Interface("2.3.4.5")
         self.assertNotEqual(ipv4_address1.__hash__(), ipv4_address2.__hash__())
 
     # issue41004 Hash collisions in IPv4Interface and IPv6Interface
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testV6HashIsNotConstant(self):
         ipv6_address1 = ipaddress.IPv6Interface("2001:658:22a:cafe:200:0:0:1")
         ipv6_address2 = ipaddress.IPv6Interface("2001:658:22a:cafe:200:0:0:2")
