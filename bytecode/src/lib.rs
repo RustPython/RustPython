@@ -14,7 +14,6 @@ use std::collections::BTreeSet;
 use std::{fmt, hash};
 
 /// Sourcecode location.
-/// TODO start, end, middle?
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Location {
     row: usize,
@@ -44,8 +43,6 @@ impl Location {
     }
 }
 
-/// A Constant object is
-/// TODO unclear
 pub trait Constant: Sized {
     type Name: AsRef<str>;
 
@@ -56,8 +53,6 @@ pub trait Constant: Sized {
         self.borrow_constant().into_data()
     }
     /// Map this Constant to a Bag's constant
-    ///
-    /// TODO Unclear.
     fn map_constant<Bag: ConstantBag>(self, bag: &Bag) -> Bag::Constant {
         bag.make_constant(self.into_data())
     }
@@ -588,7 +583,6 @@ pub enum ComparisonOperator {
     Is,
     IsNot,
     /// two exceptions that match?
-    /// TODO clarify
     ExceptionMatch,
 }
 
@@ -635,7 +629,6 @@ pub enum BlockType {
 */
 
 /// Argument structure
-/// TODO is this for parameters or arguments?
 pub struct Arguments<'a, N: AsRef<str>> {
     pub posonlyargs: &'a [N],
     pub args: &'a [N],
@@ -664,10 +657,6 @@ impl<N: AsRef<str>> fmt::Debug for Arguments<'_, N> {
 impl<C: Constant> CodeObject<C> {
     /// Get all arguments of the code object
     /// like inspect.getargs
-    /// # Examples
-    ///
-    /// TODO I'm not sure what is the best way to construct a CodeObject
-    ///
     pub fn arg_names(&self) -> Arguments<C::Name> {
         let nargs = self.arg_count;
         let nkwargs = self.kwonlyarg_count;
@@ -753,7 +742,6 @@ impl<C: Constant> CodeObject<C> {
     }
 
     /// Map this CodeObject to one that holds a Bag::Constant
-    /// TODO add example
     pub fn map_bag<Bag: ConstantBag>(self, bag: &Bag) -> CodeObject<Bag::Constant> {
         let map_names = |names: Box<[C::Name]>| {
             names
@@ -789,7 +777,6 @@ impl<C: Constant> CodeObject<C> {
     }
 
     /// Same as `map_bag` but clones `self`
-    /// TODO add example
     pub fn map_clone_bag<Bag: ConstantBag>(&self, bag: &Bag) -> CodeObject<Bag::Constant> {
         let map_names = |names: &[C::Name]| {
             names
@@ -942,8 +929,6 @@ impl Instruction {
     }
 
     /// What effect this instruction has on the stack
-    ///
-    /// TODO what exactly do the numbers represent?
     ///
     /// # Examples
     ///
@@ -1229,7 +1214,6 @@ impl<C: Constant> fmt::Debug for CodeObject<C> {
 }
 
 /// A frozen module. Holds a code object and whether it is part of a package
-/// TODO example
 #[derive(Serialize, Deserialize, Debug)]
 pub struct FrozenModule<C: Constant = ConstantData> {
     #[serde(bound(
