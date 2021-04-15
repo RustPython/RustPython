@@ -172,7 +172,7 @@ fn generate_field((i, field): (usize, &Field)) -> Result<TokenStream2, Diagnosti
                 ::rustpython_vm::function::ArgumentError::TooFewArgs
             },
             ParameterKind::KeywordOnly => quote! {
-                ::rustpython_vm::function::ArgumentError::RequiredKeywordArgument(#pyname)
+                ::rustpython_vm::function::ArgumentError::RequiredKeywordArgument(#pyname.to_owned())
             },
             ParameterKind::Flatten => unreachable!(),
         };

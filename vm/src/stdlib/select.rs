@@ -3,10 +3,7 @@ use crate::vm::VirtualMachine;
 use std::io;
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
-    #[cfg(windows)]
-    {
-        let _ = unsafe { winapi::um::winsock2::WSAStartup(0x0101, &mut std::mem::zeroed()) };
-    }
+    super::socket::init_winsock();
 
     decl::make_module(vm)
 }
