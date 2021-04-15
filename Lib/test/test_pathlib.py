@@ -1331,8 +1331,6 @@ class _BasePathTest(object):
         p = P(P('').absolute().anchor) / '~'
         self.assertEqual(p.expanduser(), p)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exists(self):
         P = self.cls
         p = P(BASE)
@@ -1742,8 +1740,6 @@ class _BasePathTest(object):
             p.mkdir()
         self.assertEqual(cm.exception.errno, errno.EEXIST)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_mkdir_parents(self):
         # Creating a chain of directories.
         p = self.cls(BASE, 'newdirB', 'newdirC')
@@ -1891,8 +1887,6 @@ class _BasePathTest(object):
         self.assertTrue(link.is_dir())
         self.assertTrue(list(link.iterdir()))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_is_dir(self):
         P = self.cls(BASE)
         self.assertTrue((P / 'dirA').is_dir())
@@ -1906,8 +1900,6 @@ class _BasePathTest(object):
         self.assertIs((P / 'dirA\udfff').is_dir(), False)
         self.assertIs((P / 'dirA\x00').is_dir(), False)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_is_file(self):
         P = self.cls(BASE)
         self.assertTrue((P / 'fileA').is_file())
@@ -1922,8 +1914,6 @@ class _BasePathTest(object):
         self.assertIs((P / 'fileA\x00').is_file(), False)
 
     @only_posix
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_is_mount(self):
         P = self.cls(BASE)
         R = self.cls('/')  # TODO: Work out Windows.
@@ -1937,8 +1927,6 @@ class _BasePathTest(object):
         self.assertIs(self.cls('/\udfff').is_mount(), False)
         self.assertIs(self.cls('/\x00').is_mount(), False)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_is_symlink(self):
         P = self.cls(BASE)
         self.assertFalse((P / 'fileA').is_symlink())
@@ -1955,8 +1943,6 @@ class _BasePathTest(object):
             self.assertIs((P / 'linkA\udfff').is_file(), False)
             self.assertIs((P / 'linkA\x00').is_file(), False)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_is_fifo_false(self):
         P = self.cls(BASE)
         self.assertFalse((P / 'fileA').is_fifo())
@@ -1967,8 +1953,6 @@ class _BasePathTest(object):
         self.assertIs((P / 'fileA\x00').is_fifo(), False)
 
     @unittest.skipUnless(hasattr(os, "mkfifo"), "os.mkfifo() required")
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_is_fifo_true(self):
         P = self.cls(BASE, 'myfifo')
         try:
@@ -1981,8 +1965,6 @@ class _BasePathTest(object):
         self.assertIs(self.cls(BASE, 'myfifo\udfff').is_fifo(), False)
         self.assertIs(self.cls(BASE, 'myfifo\x00').is_fifo(), False)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_is_socket_false(self):
         P = self.cls(BASE)
         self.assertFalse((P / 'fileA').is_socket())
@@ -1993,8 +1975,6 @@ class _BasePathTest(object):
         self.assertIs((P / 'fileA\x00').is_socket(), False)
 
     @unittest.skipUnless(hasattr(socket, "AF_UNIX"), "Unix sockets required")
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_is_socket_true(self):
         P = self.cls(BASE, 'mysock')
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -2011,8 +1991,6 @@ class _BasePathTest(object):
         self.assertIs(self.cls(BASE, 'mysock\udfff').is_socket(), False)
         self.assertIs(self.cls(BASE, 'mysock\x00').is_socket(), False)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_is_block_device_false(self):
         P = self.cls(BASE)
         self.assertFalse((P / 'fileA').is_block_device())
@@ -2022,8 +2000,6 @@ class _BasePathTest(object):
         self.assertIs((P / 'fileA\udfff').is_block_device(), False)
         self.assertIs((P / 'fileA\x00').is_block_device(), False)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_is_char_device_false(self):
         P = self.cls(BASE)
         self.assertFalse((P / 'fileA').is_char_device())
@@ -2033,8 +2009,6 @@ class _BasePathTest(object):
         self.assertIs((P / 'fileA\udfff').is_char_device(), False)
         self.assertIs((P / 'fileA\x00').is_char_device(), False)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_is_char_device_true(self):
         # Under Unix, /dev/null should generally be a char device.
         P = self.cls('/dev/null')
@@ -2159,8 +2133,6 @@ class PosixPathTest(_BasePathTest, unittest.TestCase):
         st = os.stat(join('other_new_file'))
         self.assertEqual(stat.S_IMODE(st.st_mode), 0o644)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_touch_mode(self):
         old_mask = os.umask(0)
         self.addCleanup(os.umask, old_mask)

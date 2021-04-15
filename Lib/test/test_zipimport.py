@@ -717,8 +717,6 @@ class BadFileZipImportTestCase(unittest.TestCase):
         support.create_empty_file(TESTMOD)
         self.assertZipFailure(TESTMOD)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testFileUnreadable(self):
         support.unlink(TESTMOD)
         fd = os.open(TESTMOD, os.O_CREAT, 000)

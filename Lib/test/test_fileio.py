@@ -277,8 +277,6 @@ class AutoFileTests:
                     pass
         return wrapper
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @ClosedFDRaises
     def testErrnoOnClose(self, f):
         f.close()
@@ -633,6 +631,7 @@ class OtherFileTests:
             self.assertRaises(ValueError, self.FileIO, "/some/invalid/name", "rt")
             self.assertEqual(w.warnings, [])
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def testUnclosedFDOnException(self):
         class MyException(Exception): pass
         class MyFileIO(self.FileIO):
