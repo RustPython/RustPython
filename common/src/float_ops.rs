@@ -1,7 +1,6 @@
 use num_bigint::{BigInt, ToBigInt};
 use num_traits::{Float, Signed, ToPrimitive, Zero};
 
-///
 pub fn ufrexp(value: f64) -> (f64, i32) {
     if 0.0 == value {
         (0.0, 0i32)
