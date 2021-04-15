@@ -79,8 +79,6 @@ class CommonTestMixin:
         with self.assertAddressError(re.escape(repr("1.0"))):
             self.factory(1.0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_not_an_index_issue15559(self):
         # Implementing __index__ makes for a very nasty interaction with the
         # bytes constructor. Thus, we disallow implicit use as an integer
