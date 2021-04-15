@@ -70,7 +70,6 @@ pub mod slots;
 pub mod stdlib;
 pub mod sysmodule;
 pub mod types;
-pub mod util;
 mod version;
 mod vm;
 
