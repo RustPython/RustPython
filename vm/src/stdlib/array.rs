@@ -1,10 +1,11 @@
-use crate::builtins::bytes::PyBytesRef;
 use crate::builtins::float::IntoPyFloat;
-use crate::builtins::list::PyList;
+use crate::builtins::list::{PyList, PyListRef};
 use crate::builtins::memory::{Buffer, BufferOptions, ResizeGuard};
 use crate::builtins::pystr::PyStrRef;
 use crate::builtins::pytype::PyTypeRef;
 use crate::builtins::slice::PySliceRef;
+use crate::builtins::{PyByteArray, PyBytes};
+use crate::byteslike::{try_bytes_like, PyBytesLike};
 use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
 use crate::common::lock::{
     PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyRwLock, PyRwLockReadGuard,
@@ -500,7 +501,7 @@ impl PyArray {
     fn tp_new(
         cls: PyTypeRef,
         spec: PyStrRef,
-        init: OptionalArg<PyIterable>,
+        init: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyArrayRef> {
         let spec = spec.borrow_value().chars().exactly_one().map_err(|_| {
@@ -508,13 +509,29 @@ impl PyArray {
         })?;
         let mut array =
             ArrayContentType::from_char(spec).map_err(|err| vm.new_value_error(err.to_string()))?;
-        // TODO: support buffer protocol
+
         if let OptionalArg::Present(init) = init {
-            for obj in init.iter(vm)? {
-                array.push(obj?, vm)?;
+            if let Some(init) = init.payload::<PyArray>() {
+                if array.typecode() == init.borrow_value().typecode() {
+                    array.iadd(&*init.borrow_value(), vm)?;
+                } else {
+                    for obj in init.borrow_value().iter(vm) {
+                        array.push(obj, vm)?
+                    }
+                }
+            } else if init.payload_is::<PyBytes>() || init.payload_is::<PyByteArray>() {
+                try_bytes_like(vm, &init, |x| array.frombytes(x))?;
+            } else if let Ok(iter) = PyIterable::try_from_object(vm, init.clone()) {
+                for obj in iter.iter(vm)? {
+                    array.push(obj?, vm)?;
+                }
+            } else {
+                try_bytes_like(vm, &init, |x| array.frombytes(x))?;
             }
         }
-        Self::from(array).into_ref_with_type(vm, cls)
+
+        let zelf = Self::from(array).into_ref_with_type(vm, cls)?;
+        Ok(zelf)
     }
 
     #[pyproperty]
@@ -567,7 +584,7 @@ impl PyArray {
     }
 
     #[pymethod]
-    fn frombytes(zelf: PyRef<Self>, b: PyBytesRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn frombytes(zelf: PyRef<Self>, b: PyBytesLike, vm: &VirtualMachine) -> PyResult<()> {
         let b = b.borrow_value();
         let itemsize = zelf.borrow_value().itemsize();
         if b.len() % itemsize != 0 {
@@ -631,12 +648,8 @@ impl PyArray {
     }
 
     #[pymethod]
-    fn fromlist(zelf: PyRef<Self>, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        if let Some(list) = obj.payload::<PyList>() {
-            zelf.try_resizable(vm)?.fromlist(list, vm)
-        } else {
-            Err(vm.new_type_error("arg must be list".to_owned()))
-        }
+    fn fromlist(zelf: PyRef<Self>, list: PyListRef, vm: &VirtualMachine) -> PyResult<()> {
+        zelf.try_resizable(vm)?.fromlist(&list, vm)
     }
 
     #[pymethod]

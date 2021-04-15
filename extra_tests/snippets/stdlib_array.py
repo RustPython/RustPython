@@ -79,3 +79,11 @@ def test_different_type_cmp():
     assert c > a
 
 test_different_type_cmp()
+
+def test_array_frombytes():
+    a = array('b', [-1, -2])
+    b = bytearray(a.tobytes())
+    c = array('b', b)
+    assert a == c
+
+test_array_frombytes()
