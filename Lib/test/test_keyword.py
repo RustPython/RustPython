@@ -31,8 +31,6 @@ class Test_iskeyword(unittest.TestCase):
         self.assertIn("async", keyword.kwlist)
         self.assertIn("await", keyword.kwlist)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_keywords_are_sorted(self):
         self.assertListEqual(sorted(keyword.kwlist), keyword.kwlist)
 
