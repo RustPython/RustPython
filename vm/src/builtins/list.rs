@@ -15,7 +15,9 @@ use crate::pyobject::{
     PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::sequence::{self, SimpleSeq};
-use crate::sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex};
+use crate::sliceable::{
+    PySliceableSequence, PySliceableSequenceMut, PySliceableSequenceOwner, SequenceIndex,
+};
 use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable};
 use crate::vm::{ReprGuard, VirtualMachine};
 
@@ -171,7 +173,7 @@ impl PyList {
 
     #[pymethod(name = "__getitem__")]
     fn getitem(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let result = match zelf.borrow_value().get_item::<Self>(vm, needle)? {
+        let result = match zelf.borrow_value().get_item(Self::OWNER_TYPE, vm, needle)? {
             Either::A(obj) => obj,
             Either::B(vec) => vm.ctx.new_list(vec),
         };
@@ -185,7 +187,7 @@ impl PyList {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        match SequenceIndex::try_from_object_for::<Self>(vm, needle)? {
+        match SequenceIndex::try_from_object_for(Self::OWNER_TYPE, vm, needle)? {
             SequenceIndex::Int(index) => self.setindex(index, value, vm),
             SequenceIndex::Slice(slice) => {
                 if let Ok(sec) = PyIterable::try_from_object(vm, value) {

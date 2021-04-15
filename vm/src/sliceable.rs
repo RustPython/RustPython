@@ -276,16 +276,17 @@ pub trait PySliceableSequence {
         }
     }
 
-    fn get_item<T: PySliceableSequenceOwner>(
+    fn get_item(
         &self,
+        owner_type: &'static str,
         vm: &VirtualMachine,
         needle: PyObjectRef,
     ) -> PyResult<Either<Self::Item, Self::Sliced>> {
-        let needle = SequenceIndex::try_from_object_for::<T>(vm, needle)?;
+        let needle = SequenceIndex::try_from_object_for(owner_type, vm, needle)?;
         match needle {
             SequenceIndex::Int(value) => {
                 let pos_index = self.wrap_index(value).ok_or_else(|| {
-                    vm.new_index_error(format!("{} index out of range", T::OWNER_TYPE))
+                    vm.new_index_error(format!("{} index out of range", owner_type))
                 })?;
                 Ok(Either::A(self.do_get(pos_index)))
             }
@@ -347,10 +348,11 @@ pub enum SequenceIndex {
 }
 
 impl SequenceIndex {
-    pub fn try_from_object_for<T>(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self>
-    where
-        T: PySliceableSequenceOwner,
-    {
+    pub fn try_from_object_for(
+        owner_type: &'static str,
+        vm: &VirtualMachine,
+        obj: PyObjectRef,
+    ) -> PyResult<Self> {
         match_class!(match obj {
             i @ PyInt => i
                 .borrow_value()
@@ -361,21 +363,16 @@ impl SequenceIndex {
             s @ PySlice => Ok(SequenceIndex::Slice(s)),
             obj => Err(vm.new_type_error(format!(
                 "{} indices must be integers or slices, not {}",
-                T::OWNER_TYPE,
+                owner_type,
                 obj.class().name,
             ))),
         })
     }
 }
 
-struct SequenceOwner {}
-impl PySliceableSequenceOwner for SequenceOwner {
-    const OWNER_TYPE: &'static str = "sequence";
-}
-
 impl TryFromObject for SequenceIndex {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        Self::try_from_object_for::<SequenceOwner>(vm, obj)
+        Self::try_from_object_for("sequence", vm, obj)
     }
 }
 

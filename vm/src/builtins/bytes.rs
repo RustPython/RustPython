@@ -143,7 +143,7 @@ impl PyBytes {
 
     #[pymethod(name = "__getitem__")]
     fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.inner.getitem::<Self>(needle, vm)
+        self.inner.getitem(Self::OWNER_TYPE, needle, vm)
     }
 
     #[pymethod(name = "isalnum")]

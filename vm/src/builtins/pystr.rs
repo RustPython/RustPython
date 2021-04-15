@@ -268,7 +268,7 @@ impl PyStr {
 
     #[pymethod(name = "__getitem__")]
     fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let s = match self.get_item::<Self>(vm, needle)? {
+        let s = match self.get_item(Self::OWNER_TYPE, vm, needle)? {
             Either::A(ch) => ch.to_string(),
             Either::B(s) => s,
         };

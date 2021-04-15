@@ -17,7 +17,7 @@ use crate::pyobject::{
     BorrowValue, Either, IdProtocol, PyComparisonValue, PyIterable, PyObjectRef, PyResult, PyValue,
     TryFromObject, TypeProtocol,
 };
-use crate::sliceable::{PySliceableSequence, PySliceableSequenceOwner};
+use crate::sliceable::PySliceableSequence;
 use crate::slots::PyComparisonOp;
 use crate::vm::VirtualMachine;
 use rustpython_common::hash;
@@ -284,12 +284,13 @@ impl PyBytesInner {
         })
     }
 
-    pub fn getitem<T: PySliceableSequenceOwner>(
+    pub fn getitem(
         &self,
+        owner_type: &'static str,
         needle: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let obj = match self.elements.get_item::<T>(vm, needle)? {
+        let obj = match self.elements.get_item(owner_type, vm, needle)? {
             Either::A(byte) => vm.new_pyobj(byte),
             Either::B(bytes) => vm.ctx.new_bytes(bytes),
         };

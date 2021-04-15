@@ -12,7 +12,7 @@ use crate::pyobject::{
     TryFromObject, TypeProtocol,
 };
 use crate::sequence::{self, SimpleSeq};
-use crate::sliceable::PySliceableSequence;
+use crate::sliceable::{PySliceableSequence, PySliceableSequenceOwner};
 use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter};
 use crate::vm::{ReprGuard, VirtualMachine};
 
@@ -176,7 +176,11 @@ impl PyTuple {
 
     #[pymethod(name = "__getitem__")]
     fn getitem(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let result = match zelf.elements.as_ref().get_item::<Self>(vm, needle)? {
+        let result = match zelf
+            .elements
+            .as_ref()
+            .get_item(Self::OWNER_TYPE, vm, needle)?
+        {
             Either::A(obj) => obj,
             Either::B(vec) => vm.ctx.new_tuple(vec),
         };
