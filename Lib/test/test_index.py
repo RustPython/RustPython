@@ -49,8 +49,6 @@ class BaseTestCase(unittest.TestCase):
         self.assertEqual(r[TrapInt(5):TrapInt(10)], r[5:10])
         self.assertEqual(slice(TrapInt()).indices(0), (0,0,1))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_error(self):
         self.o.ind = 'dumb'
         self.n.ind = 'bad'
@@ -59,8 +57,6 @@ class BaseTestCase(unittest.TestCase):
         self.assertRaises(TypeError, slice(self.o).indices, 0)
         self.assertRaises(TypeError, slice(self.n).indices, 0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_int_subclass_with_index(self):
         # __index__ should be used when computing indices, even for int
         # subclasses.  See issue #17576.
