@@ -1228,6 +1228,22 @@ mod _os {
         Ok(())
     }
 
+    #[cfg(unix)]
+    #[pyfunction]
+    fn getloadavg(vm: &VirtualMachine) -> PyResult<(f64, f64, f64)> {
+        let mut loadavg = [0f64; 3];
+
+        // Safety: loadavg is on stack and only write by `getloadavg` and are freed
+        // after this function ends.
+        unsafe {
+            if libc::getloadavg(&mut loadavg[0] as *mut f64, 3) != 3 {
+                return Err(vm.new_os_error("Load averages are unobtainable".to_string()));
+            }
+        }
+
+        Ok((loadavg[0], loadavg[1], loadavg[2]))
+    }
+
     #[pyattr]
     #[pyclass(module = "os", name = "terminal_size")]
     #[derive(PyStructSequence)]
