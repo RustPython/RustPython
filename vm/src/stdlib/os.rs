@@ -1,20 +1,18 @@
 use std::ffi;
-use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::{self, ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 use std::{env, fs};
 
+use crate::crt_fd::Fd;
 use crossbeam_utils::atomic::AtomicCell;
-#[cfg(any(target_os = "linux", target_os = "macos", windows))]
-use filepath::FilePath;
 use num_bigint::BigInt;
 
 use super::errno::errors;
 use crate::builtins::bytes::{PyBytes, PyBytesRef};
 use crate::builtins::dict::PyDictRef;
-use crate::builtins::int::{self, PyIntRef};
+use crate::builtins::int;
 use crate::builtins::pystr::{PyStr, PyStrRef};
 use crate::builtins::pytype::PyTypeRef;
 use crate::builtins::set::PySet;
@@ -22,13 +20,18 @@ use crate::builtins::tuple::{PyTuple, PyTupleRef};
 use crate::byteslike::PyBytesLike;
 use crate::common::lock::PyRwLock;
 use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
-use crate::function::{ArgumentError, FromArgs, FuncArgs, IntoPyNativeFunc, OptionalArg};
+use crate::function::{ArgumentError, FromArgs, FuncArgs, OptionalArg};
 use crate::pyobject::{
     BorrowValue, Either, IntoPyObject, ItemProtocol, PyObjectRef, PyRef, PyResult,
     PyStructSequence, PyValue, StaticType, TryFromObject, TypeProtocol,
 };
 use crate::slots::PyIter;
 use crate::vm::VirtualMachine;
+
+#[cfg(unix)]
+use std::os::unix::ffi as ffi_ext;
+#[cfg(target_os = "wasi")]
+use std::os::wasi::ffi as ffi_ext;
 
 // this is basically what CPython has for Py_off_t; windows uses long long
 // for offsets, other platforms just use off_t
@@ -56,14 +59,9 @@ impl OutputMode {
             match mode {
                 OutputMode::String => path_as_string(path).map(|s| vm.ctx.new_str(s)),
                 OutputMode::Bytes => {
-                    #[cfg(unix)]
+                    #[cfg(any(unix, target_os = "wasi"))]
                     {
-                        use std::os::unix::ffi::OsStringExt;
-                        Ok(vm.ctx.new_bytes(path.into_os_string().into_vec()))
-                    }
-                    #[cfg(target_os = "wasi")]
-                    {
-                        use std::os::wasi::ffi::OsStringExt;
+                        use ffi_ext::OsStringExt;
                         Ok(vm.ctx.new_bytes(path.into_os_string().into_vec()))
                     }
                     #[cfg(windows)]
@@ -74,24 +72,6 @@ impl OutputMode {
             }
         }
         inner(self, path.into(), vm)
-    }
-}
-
-fn osstr_contains_nul(s: &ffi::OsStr) -> bool {
-    #[cfg(unix)]
-    {
-        use std::os::unix::ffi::OsStrExt;
-        s.as_bytes().contains(&b'\0')
-    }
-    #[cfg(target_os = "wasi")]
-    {
-        use std::os::wasi::ffi::OsStrExt;
-        s.as_bytes().contains(&b'\0')
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::ffi::OsStrExt;
-        s.encode_wide().any(|c| c == 0)
     }
 }
 
@@ -106,6 +86,24 @@ impl PyPathLike {
             path: path.into(),
             mode: OutputMode::String,
         }
+    }
+
+    #[cfg(any(unix, target_os = "wasi"))]
+    pub fn into_bytes(self) -> Vec<u8> {
+        use ffi_ext::OsStringExt;
+        self.path.into_os_string().into_vec()
+    }
+
+    #[cfg(any(unix, target_os = "wasi"))]
+    pub fn into_cstring(self, vm: &VirtualMachine) -> PyResult<ffi::CString> {
+        ffi::CString::new(self.into_bytes())
+            .map_err(|_| vm.new_value_error("embedded null character".to_owned()))
+    }
+
+    #[cfg(windows)]
+    pub fn to_widecstring(&self, vm: &VirtualMachine) -> PyResult<widestring::WideCString> {
+        widestring::WideCString::from_os_str(&self.path)
+            .map_err(|_| vm.new_value_error("embedded null character".to_owned()))
     }
 }
 
@@ -157,33 +155,6 @@ impl TryFromObject for PyPathLike {
             ))
         })
     }
-}
-
-fn path_from_fd(raw_fd: i64, vm: &VirtualMachine) -> PyResult<PathBuf> {
-    cfg_if::cfg_if! {
-        if #[cfg(any(target_os = "linux", target_os = "macos", windows))] {
-            let file = rust_file(raw_fd);
-            let res = file.path().map_err(|e| e.into_pyexception(vm));
-            raw_file_number(file);  // Do not consume `raw_fd`
-            res
-        } else {
-            Err(vm.new_not_implemented_error("dir_fd unavailable on this platform".to_owned()))
-        }
-    }
-}
-
-fn make_path<'a>(
-    vm: &VirtualMachine,
-    path: &'a PyPathLike,
-    dir_fd: &DirFd,
-) -> PyResult<std::borrow::Cow<'a, ffi::OsStr>> {
-    let path = &path.path;
-    if dir_fd.0.is_none() || path.is_absolute() {
-        return Ok(path.as_os_str().into());
-    }
-    let dir_path = path_from_fd(dir_fd.0.unwrap().into(), vm)?;
-    let p: PathBuf = vec![dir_path, path.to_path_buf()].iter().collect();
-    Ok(p.into_os_string().into())
 }
 
 impl IntoPyException for io::Error {
@@ -254,15 +225,54 @@ pub struct TargetIsDirectory {
     target_is_directory: bool,
 }
 
-// TODO: we can have a const AVAIL: bool const generic argument once min_const_generics to mimic
-// CPython's dir_fd_unavailable
-#[derive(Default)]
-pub struct DirFd(Option<i32>);
+cfg_if::cfg_if! {
+    if #[cfg(all(any(unix, target_os = "wasi"), not(target_os = "redox")))] {
+        use libc::AT_FDCWD;
+    } else {
+        const AT_FDCWD: i32 = -100;
+    }
+}
+const DEFAULT_DIR_FD: Fd = Fd(AT_FDCWD);
 
-impl FromArgs for DirFd {
+// XXX: AVAILABLE should be a bool, but we can't yet have it as a bool and just cast it to usize
+#[derive(Copy, Clone)]
+pub struct DirFd<const AVAILABLE: usize>([Fd; AVAILABLE]);
+
+impl<const AVAILABLE: usize> Default for DirFd<AVAILABLE> {
+    fn default() -> Self {
+        Self([DEFAULT_DIR_FD; AVAILABLE])
+    }
+}
+
+// not used on all platforms
+#[allow(unused)]
+impl DirFd<1> {
+    #[inline(always)]
+    fn fd_opt(&self) -> Option<Fd> {
+        self.get_opt().map(Fd)
+    }
+
+    #[inline]
+    fn get_opt(&self) -> Option<i32> {
+        let fd = self.fd();
+        if fd == DEFAULT_DIR_FD {
+            None
+        } else {
+            Some(fd.0)
+        }
+    }
+
+    #[inline(always)]
+    fn fd(&self) -> Fd {
+        self.0[0]
+    }
+}
+
+impl<const AVAILABLE: usize> FromArgs for DirFd<AVAILABLE> {
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
         let fd = match args.take_keyword("dir_fd") {
-            Some(o) if vm.is_none(&o) => None,
+            Some(o) if vm.is_none(&o) => DEFAULT_DIR_FD,
+            None => DEFAULT_DIR_FD,
             Some(o) => {
                 let fd = vm.to_index_opt(o.clone()).unwrap_or_else(|| {
                     Err(vm.new_type_error(format!(
@@ -271,11 +281,15 @@ impl FromArgs for DirFd {
                     )))
                 })?;
                 let fd = int::try_to_primitive(fd.borrow_value(), vm)?;
-                Some(fd)
+                Fd(fd)
             }
-            None => None,
         };
-        Ok(Self(fd))
+        if AVAILABLE == 0 && fd != DEFAULT_DIR_FD {
+            return Err(vm
+                .new_not_implemented_error("dir_fd unavailable on this platform".to_owned())
+                .into());
+        }
+        Ok(Self([fd; AVAILABLE]))
     }
 }
 
@@ -292,23 +306,25 @@ fn bytes_as_osstr<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a ffi::OsS
         .map_err(|_| vm.new_value_error("Can't convert bytes to str for env function".to_owned()))
 }
 
+#[cfg(all(windows, target_env = "msvc"))]
 #[macro_export]
 macro_rules! suppress_iph {
     ($e:expr) => {{
-        #[cfg(all(windows, target_env = "msvc"))]
-        {
-            let old = $crate::stdlib::os::_set_thread_local_invalid_parameter_handler(
-                $crate::stdlib::os::silent_iph_handler,
-            );
-            let ret = $e;
-            $crate::stdlib::os::_set_thread_local_invalid_parameter_handler(old);
-            ret
-        }
-        #[cfg(not(all(windows, target_env = "msvc")))]
-        {
-            $e
-        }
+        let old = $crate::stdlib::os::_set_thread_local_invalid_parameter_handler(
+            $crate::stdlib::os::silent_iph_handler,
+        );
+        let ret = $e;
+        $crate::stdlib::os::_set_thread_local_invalid_parameter_handler(old);
+        ret
     }};
+}
+
+#[cfg(not(all(windows, target_env = "msvc")))]
+#[macro_export]
+macro_rules! suppress_iph {
+    ($e:expr) => {
+        $e
+    };
 }
 
 #[allow(dead_code)]
@@ -318,7 +334,6 @@ fn os_unimpl<T>(func: &str, vm: &VirtualMachine) -> PyResult<T> {
 
 #[pymodule(name = "os")]
 mod _os {
-    use super::OpenFlags;
     use super::*;
 
     #[pyattr]
@@ -342,17 +357,14 @@ mod _os {
     pub(super) const X_OK: u8 = 1;
 
     #[pyfunction]
-    fn close(fileno: i64) {
-        //The File type automatically closes when it goes out of scope.
-        //To enable us to close these file descriptors (and hence prevent leaks)
-        //we seek to create the relevant File and simply let it pass out of scope!
-        rust_file(fileno);
+    fn close(fileno: i32, vm: &VirtualMachine) -> PyResult<()> {
+        Fd(fileno).close().map_err(|e| e.into_pyexception(vm))
     }
 
     #[pyfunction]
-    fn closerange(fd_low: i64, fd_high: i64) {
+    fn closerange(fd_low: i32, fd_high: i32) {
         for fileno in fd_low..fd_high {
-            close(fileno);
+            let _ = Fd(fileno).close();
         }
     }
 
@@ -362,82 +374,57 @@ mod _os {
         #[pyarg(any)]
         path: PyPathLike,
         #[pyarg(any)]
-        flags: OpenFlags,
+        flags: i32,
         #[pyarg(any, default)]
-        mode: Option<PyIntRef>,
+        mode: Option<i32>,
         #[pyarg(flatten)]
-        dir_fd: DirFd,
+        dir_fd: DirFd<{ OPEN_DIR_FD as usize }>,
     }
 
     #[cfg(any(unix, windows, target_os = "wasi"))]
+    const OPEN_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
+
     #[pyfunction]
-    fn open(args: OpenArgs, vm: &VirtualMachine) -> PyResult<i64> {
+    fn open(args: OpenArgs, vm: &VirtualMachine) -> PyResult<i32> {
         os_open(args.path, args.flags, args.mode, args.dir_fd, vm)
     }
 
     #[cfg(any(unix, windows, target_os = "wasi"))]
     pub(crate) fn os_open(
         name: PyPathLike,
-        flags: OpenFlags,
-        _mode: Option<PyIntRef>,
-        dir_fd: DirFd,
+        flags: i32,
+        mode: Option<i32>,
+        dir_fd: DirFd<{ OPEN_DIR_FD as usize }>,
         vm: &VirtualMachine,
-    ) -> PyResult<i64> {
-        let fname = make_path(vm, &name, &dir_fd)?;
-        if osstr_contains_nul(&fname) {
-            return Err(vm.new_value_error("embedded null character".to_owned()));
-        }
-
-        let mut options = OpenOptions::new();
-
-        macro_rules! bit_contains {
-            ($c:expr) => {
-                flags & $c as OpenFlags == $c as OpenFlags
-            };
-        }
-
-        if bit_contains!(libc::O_WRONLY) {
-            options.write(true);
-        } else if bit_contains!(libc::O_RDWR) {
-            options.read(true).write(true);
-        } else if bit_contains!(libc::O_RDONLY) {
-            options.read(true);
-        }
-
-        if bit_contains!(libc::O_APPEND) {
-            options.append(true);
-        }
-
-        if bit_contains!(libc::O_CREAT) {
-            if bit_contains!(libc::O_EXCL) {
-                options.create_new(true);
-            } else {
-                options.create(true);
-            }
-        }
-
+    ) -> PyResult<i32> {
+        let mode = mode.unwrap_or(0o777);
         #[cfg(windows)]
-        let flags = flags & !(libc::O_WRONLY as u32);
-
-        #[cfg(not(target_os = "wasi"))]
-        {
-            use platform::OpenOptionsExt;
-            options.custom_flags(flags);
-        }
-        let handle = options
-            .open(fname)
-            .map_err(|err| err.into_pyexception(vm))?;
-
-        Ok(raw_file_number(handle))
+        let fd = {
+            let [] = dir_fd.0;
+            let name = name.to_widecstring(vm)?;
+            let flags = flags | libc::O_NOINHERIT;
+            Fd::wopen(&name, flags, mode)
+        };
+        #[cfg(not(windows))]
+        let fd = {
+            let name = name.into_cstring(vm)?;
+            #[cfg(not(target_os = "wasi"))]
+            let flags = flags | libc::O_CLOEXEC;
+            #[cfg(not(target_os = "redox"))]
+            if let Some(dir_fd) = dir_fd.fd_opt() {
+                dir_fd.openat(&name, flags, mode)
+            } else {
+                Fd::open(&name, flags, mode)
+            }
+            #[cfg(target_os = "redox")]
+            {
+                Fd::open(&name, flags, mode)
+            }
+        };
+        fd.map(|fd| fd.0).map_err(|e| e.into_pyexception(vm))
     }
 
-    #[cfg(not(any(unix, windows, target_os = "wasi")))]
-    #[pyfunction]
-    pub(crate) fn open(vm: &VirtualMachine, args: FuncArgs) -> PyResult {
-        Err(vm.new_os_error("os.open not implemented on this platform".to_owned()))
-    }
-
-    #[cfg(any(target_os = "linux"))]
+    #[cfg(target_os = "linux")]
     #[pyfunction]
     fn sendfile(out_fd: i32, in_fd: i32, offset: i64, count: u64, vm: &VirtualMachine) -> PyResult {
         let mut file_offset = offset;
@@ -448,7 +435,7 @@ mod _os {
         Ok(vm.ctx.new_int(res as u64))
     }
 
-    #[cfg(any(target_os = "macos"))]
+    #[cfg(target_os = "macos")]
     #[pyfunction]
     #[allow(clippy::too_many_arguments)]
     fn sendfile(
@@ -494,43 +481,36 @@ mod _os {
     }
 
     #[pyfunction]
-    fn fsync(fd: i64, vm: &VirtualMachine) -> PyResult<()> {
-        let file = rust_file(fd);
-        file.sync_all().map_err(|err| err.into_pyexception(vm))?;
-        // Avoid closing the fd
-        raw_file_number(file);
-        Ok(())
+    fn fsync(fd: i32, vm: &VirtualMachine) -> PyResult<()> {
+        Fd(fd).fsync().map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
-    fn read(fd: i64, n: usize, vm: &VirtualMachine) -> PyResult {
+    fn read(fd: i32, n: usize, vm: &VirtualMachine) -> PyResult {
         let mut buffer = vec![0u8; n];
-        let mut file = rust_file(fd);
+        let mut file = Fd(fd);
         let n = file
             .read(&mut buffer)
             .map_err(|err| err.into_pyexception(vm))?;
         buffer.truncate(n);
 
-        // Avoid closing the fd
-        raw_file_number(file);
         Ok(vm.ctx.new_bytes(buffer))
     }
 
     #[pyfunction]
-    fn write(fd: i64, data: PyBytesLike, vm: &VirtualMachine) -> PyResult {
-        let mut file = rust_file(fd);
+    fn write(fd: i32, data: PyBytesLike, vm: &VirtualMachine) -> PyResult {
+        let mut file = Fd(fd);
         let written = data
             .with_ref(|b| file.write(b))
             .map_err(|err| err.into_pyexception(vm))?;
 
-        // Avoid closing the fd
-        raw_file_number(file);
         Ok(vm.ctx.new_int(written))
     }
 
     #[pyfunction]
-    fn remove(path: PyPathLike, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult<()> {
-        let path = make_path(vm, &path, &dir_fd)?;
+    #[pyfunction(name = "unlink")]
+    fn remove(path: PyPathLike, dir_fd: DirFd<0>, vm: &VirtualMachine) -> PyResult<()> {
+        let [] = dir_fd.0;
         let is_junction = cfg!(windows)
             && fs::symlink_metadata(&path).map_or(false, |meta| {
                 let ty = meta.file_type();
@@ -544,15 +524,47 @@ mod _os {
         res.map_err(|err| err.into_pyexception(vm))
     }
 
+    const MKDIR_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
+
     #[pyfunction]
     fn mkdir(
         path: PyPathLike,
-        _mode: OptionalArg<PyIntRef>,
-        dir_fd: DirFd,
+        mode: OptionalArg<i32>,
+        dir_fd: DirFd<{ MKDIR_DIR_FD as usize }>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let path = make_path(vm, &path, &dir_fd)?;
-        fs::create_dir(path).map_err(|err| err.into_pyexception(vm))
+        let mode = mode.unwrap_or(0o777);
+        #[cfg(windows)]
+        {
+            let [] = dir_fd.0;
+            let _ = mode;
+            let wide = path.to_widecstring(vm)?;
+            let res = unsafe {
+                winapi::um::fileapi::CreateDirectoryW(wide.as_ptr(), std::ptr::null_mut())
+            };
+            if res == 0 {
+                Err(errno_err(vm))
+            } else {
+                Ok(())
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            let path = path.into_cstring(vm)?;
+            #[cfg(not(target_os = "redox"))]
+            if let Some(fd) = dir_fd.get_opt() {
+                let res = unsafe { libc::mkdirat(fd, path.as_ptr(), mode as _) };
+                let res = if res < 0 { Err(errno_err(vm)) } else { Ok(()) };
+                return res;
+            }
+            let res = unsafe { libc::mkdir(path.as_ptr(), mode as _) };
+            if res < 0 {
+                Err(errno_err(vm))
+            } else {
+                Ok(())
+            }
+        }
+        // fs::create_dir(path).map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
@@ -561,25 +573,60 @@ mod _os {
     }
 
     #[pyfunction]
-    fn rmdir(path: PyPathLike, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult<()> {
-        let path = make_path(vm, &path, &dir_fd)?;
+    fn rmdir(path: PyPathLike, dir_fd: DirFd<0>, vm: &VirtualMachine) -> PyResult<()> {
+        let [] = dir_fd.0;
         fs::remove_dir(path).map_err(|err| err.into_pyexception(vm))
     }
 
+    const LISTDIR_FD: bool = cfg!(all(unix, not(target_os = "redox")));
+
     #[pyfunction]
-    fn listdir(path: Either<PyPathLike, i64>, vm: &VirtualMachine) -> PyResult {
-        let path = match path {
-            Either::A(path) => path,
-            Either::B(fno) => PyPathLike::new_str(path_from_fd(fno, vm)?),
+    fn listdir(path: Either<PyPathLike, i32>, vm: &VirtualMachine) -> PyResult {
+        let list = match path {
+            Either::A(path) => {
+                let dir_iter = fs::read_dir(&path).map_err(|err| err.into_pyexception(vm))?;
+                dir_iter
+                    .map(|entry| match entry {
+                        Ok(entry_path) => path.mode.process_path(entry_path.file_name(), vm),
+                        Err(err) => Err(err.into_pyexception(vm)),
+                    })
+                    .collect::<PyResult<_>>()?
+            }
+            Either::B(fno) => {
+                #[cfg(not(all(unix, not(target_os = "redox"))))]
+                {
+                    let _ = fno;
+                    return Err(vm.new_not_implemented_error(
+                        "can't pass fd to listdir on this platform".to_owned(),
+                    ));
+                }
+                #[cfg(all(unix, not(target_os = "redox")))]
+                {
+                    use ffi_ext::OsStrExt;
+                    let new_fd = nix::unistd::dup(fno).map_err(|e| e.into_pyexception(vm))?;
+                    let mut dir =
+                        nix::dir::Dir::from_fd(new_fd).map_err(|e| e.into_pyexception(vm))?;
+                    dir.iter()
+                        .filter_map(|entry| {
+                            entry
+                                .map_err(|e| e.into_pyexception(vm))
+                                .and_then(|entry| {
+                                    let fname = entry.file_name().to_bytes();
+                                    Ok(match fname {
+                                        b"." | b".." => None,
+                                        _ => Some(
+                                            OutputMode::String
+                                                .process_path(ffi::OsStr::from_bytes(fname), vm)?,
+                                        ),
+                                    })
+                                })
+                                .transpose()
+                        })
+                        .collect::<PyResult<_>>()?
+                }
+            }
         };
-        let dir_iter = fs::read_dir(&path).map_err(|err| err.into_pyexception(vm))?;
-        let res: PyResult<Vec<PyObjectRef>> = dir_iter
-            .map(|entry| match entry {
-                Ok(entry_path) => path.mode.process_path(entry_path.file_name(), vm),
-                Err(err) => Err(err.into_pyexception(vm)),
-            })
-            .collect();
-        Ok(vm.ctx.new_list(res?))
+        Ok(vm.ctx.new_list(list))
     }
 
     #[pyfunction]
@@ -611,9 +658,9 @@ mod _os {
     }
 
     #[pyfunction]
-    fn readlink(path: PyPathLike, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult {
+    fn readlink(path: PyPathLike, dir_fd: DirFd<0>, vm: &VirtualMachine) -> PyResult {
         let mode = path.mode;
-        let path = make_path(vm, &path, &dir_fd)?;
+        let [] = dir_fd.0;
         let path = fs::read_link(path).map_err(|err| err.into_pyexception(vm))?;
         mode.process_path(path, vm)
     }
@@ -685,7 +732,7 @@ mod _os {
         #[pymethod]
         fn stat(
             &self,
-            dir_fd: DirFd,
+            dir_fd: DirFd<{ STAT_DIR_FD as usize }>,
             follow_symlinks: FollowSymlinks,
             vm: &VirtualMachine,
         ) -> PyResult {
@@ -783,13 +830,13 @@ mod _os {
     #[pyclass(module = "os", name = "stat_result")]
     #[derive(Debug, PyStructSequence)]
     struct StatResult {
-        pub st_mode: u32,
-        pub st_ino: u64,
-        pub st_dev: u64,
-        pub st_nlink: u64,
-        pub st_uid: u32,
-        pub st_gid: u32,
-        pub st_size: u64,
+        pub st_mode: BigInt,
+        pub st_ino: BigInt,
+        pub st_dev: BigInt,
+        pub st_nlink: BigInt,
+        pub st_uid: BigInt,
+        pub st_gid: BigInt,
+        pub st_size: BigInt,
         // TODO: unnamed structsequence fields
         pub __st_atime_int: BigInt,
         pub __st_mtime_int: BigInt,
@@ -804,134 +851,186 @@ mod _os {
 
     #[pyimpl(with(PyStructSequence))]
     impl StatResult {
-        fn from_metadata(meta: fs::Metadata) -> io::Result<Self> {
-            let (st_mode, st_ino, st_dev, st_nlink, st_uid, st_gid, ctime);
-            #[cfg(windows)]
+        fn from_stat(stat: &StatStruct) -> Self {
+            let (atime, mtime, ctime);
+            #[cfg(any(unix, windows))]
             {
-                ctime = meta.created()?;
-                st_ino = 0; // TODO: Not implemented in std::os::windows::fs::MetadataExt.
-                st_dev = 0; // TODO: Not implemented in std::os::windows::fs::MetadataExt.
-                st_nlink = 0; // TODO: Not implemented in std::os::windows::fs::MetadataExt.
-                st_uid = 0; // 0 on windows
-                st_gid = 0; // 0 on windows
-            }
-            #[cfg(unix)]
-            {
-                #[cfg(target_os = "android")]
-                use std::os::android::fs::MetadataExt;
-                #[cfg(target_os = "freebsd")]
-                use std::os::freebsd::fs::MetadataExt;
-                #[cfg(target_os = "linux")]
-                use std::os::linux::fs::MetadataExt;
-                #[cfg(target_os = "macos")]
-                use std::os::macos::fs::MetadataExt;
-                #[cfg(target_os = "openbsd")]
-                use std::os::openbsd::fs::MetadataExt;
-                #[cfg(target_os = "redox")]
-                use std::os::redox::fs::MetadataExt;
-
-                // TODO: figure out a better way to do this, SystemTime is just a wrapper over timespec
-                ctime = {
-                    let (ctime, ctime_ns) = (meta.st_ctime(), meta.st_ctime_nsec());
-                    let dur = std::time::Duration::new(ctime.abs() as _, ctime_ns as _);
-                    if ctime < 0 {
-                        SystemTime::UNIX_EPOCH - dur
-                    } else {
-                        SystemTime::UNIX_EPOCH + dur
-                    }
-                };
-                st_mode = meta.st_mode();
-                st_ino = meta.st_ino();
-                st_dev = meta.st_dev();
-                st_nlink = meta.st_nlink();
-                st_uid = meta.st_uid();
-                st_gid = meta.st_gid();
+                atime = (stat.st_atime, stat.st_atime_nsec);
+                mtime = (stat.st_mtime, stat.st_mtime_nsec);
+                ctime = (stat.st_ctime, stat.st_ctime_nsec);
             }
             #[cfg(target_os = "wasi")]
             {
-                // XXX: currently meta.created() returns filestat_t.ctim, which is changetime. That
-                // might change in the future and meta.created() might return an error
-                ctime = meta.created()?;
-
-                // TODO: wasi::MetadataExt once stable
-                // use std::os::wasi::fs::MetadataExt;
-                // st_ino = meta.ino();
-                // st_dev = meta.dev();
-                // st_nlink = meta.nlink();
-                st_ino = 0;
-                st_dev = 0;
-                st_nlink = 0;
-
-                st_uid = 0;
-                st_gid = 0;
-            }
-            #[cfg(not(unix))]
-            {
-                // Based on CPython fileutils.c' attributes_to_mode
-                st_mode = {
-                    const S_IFDIR: u32 = 0o040000;
-                    const S_IFREG: u32 = 0o100000;
-                    let mut m: u32 = 0;
-                    if meta.is_dir() {
-                        m |= S_IFDIR | 0o111; /* IFEXEC for user,group,other */
-                    } else {
-                        m |= S_IFREG;
-                    }
-                    if meta.permissions().readonly() {
-                        m |= 0o444;
-                    } else {
-                        m |= 0o666;
-                    }
-                    m
-                };
+                atime = (stat.st_atim.tv_sec, stat.st_atim.tv_nsec);
+                mtime = (stat.st_mtim.tv_sec, stat.st_mtim.tv_nsec);
+                ctime = (stat.st_ctim.tv_sec, stat.st_ctim.tv_nsec);
             }
 
-            let accessed = meta.accessed()?;
-            let modified = meta.modified()?;
-            Ok(StatResult {
-                st_mode,
-                st_ino,
-                st_dev,
-                st_nlink,
-                st_uid,
-                st_gid,
-                st_size: meta.len(),
-                __st_atime_int: int_seconds_epoch(accessed),
-                __st_mtime_int: int_seconds_epoch(modified),
-                __st_ctime_int: int_seconds_epoch(ctime),
-                st_atime: to_seconds_from_unix_epoch(accessed),
-                st_mtime: to_seconds_from_unix_epoch(modified),
-                st_ctime: to_seconds_from_unix_epoch(ctime),
-                st_atime_ns: to_nanoseconds_epoch(accessed),
-                st_mtime_ns: to_nanoseconds_epoch(modified),
-                st_ctime_ns: to_nanoseconds_epoch(ctime),
-            })
+            const NANOS_PER_SEC: u32 = 1_000_000_000;
+            let to_f64 = |(s, ns)| (s as f64) + (ns as f64) / (NANOS_PER_SEC as f64);
+            let to_ns = |(s, ns)| s as i128 * NANOS_PER_SEC as i128 + ns as i128;
+            StatResult {
+                st_mode: stat.st_mode.into(),
+                st_ino: stat.st_ino.into(),
+                st_dev: stat.st_dev.into(),
+                st_nlink: stat.st_nlink.into(),
+                st_uid: stat.st_uid.into(),
+                st_gid: stat.st_gid.into(),
+                st_size: stat.st_size.into(),
+                __st_atime_int: atime.0.into(),
+                __st_mtime_int: mtime.0.into(),
+                __st_ctime_int: ctime.0.into(),
+                st_atime: to_f64(atime),
+                st_mtime: to_f64(mtime),
+                st_ctime: to_f64(ctime),
+                st_atime_ns: to_ns(atime).into(),
+                st_mtime_ns: to_ns(mtime).into(),
+                st_ctime_ns: to_ns(ctime).into(),
+            }
+        }
+    }
+
+    #[cfg(not(windows))]
+    use libc::stat as StatStruct;
+
+    #[cfg(windows)]
+    struct StatStruct {
+        st_dev: libc::c_ulong,
+        st_ino: u64,
+        st_mode: libc::c_ushort,
+        st_nlink: i32,
+        st_uid: i32,
+        st_gid: i32,
+        st_size: u64,
+        st_atime: libc::time_t,
+        st_atime_nsec: i32,
+        st_mtime: libc::time_t,
+        st_mtime_nsec: i32,
+        st_ctime: libc::time_t,
+        st_ctime_nsec: i32,
+    }
+
+    #[cfg(windows)]
+    fn meta_to_stat(meta: &fs::Metadata) -> io::Result<StatStruct> {
+        let st_mode = {
+            // Based on CPython fileutils.c' attributes_to_mode
+            let mut m = 0;
+            if meta.is_dir() {
+                m |= libc::S_IFDIR | 0o111; /* IFEXEC for user,group,other */
+            } else {
+                m |= libc::S_IFREG;
+            }
+            if meta.permissions().readonly() {
+                m |= 0o444;
+            } else {
+                m |= 0o666;
+            }
+            m as _
+        };
+        let (atime, mtime, ctime) = (meta.accessed()?, meta.modified()?, meta.created()?);
+        let sec = |systime: SystemTime| match systime.duration_since(SystemTime::UNIX_EPOCH) {
+            Ok(d) => d.as_secs() as libc::time_t,
+            Err(e) => -(e.duration().as_secs() as libc::time_t),
+        };
+        let nsec = |systime: SystemTime| match systime.duration_since(SystemTime::UNIX_EPOCH) {
+            Ok(d) => d.subsec_nanos() as i32,
+            Err(e) => -(e.duration().subsec_nanos() as i32),
+        };
+        Ok(StatStruct {
+            st_dev: 0,
+            st_ino: 0,
+            st_mode,
+            st_nlink: 0,
+            st_uid: 0,
+            st_gid: 0,
+            st_size: meta.len(),
+            st_atime: sec(atime),
+            st_mtime: sec(mtime),
+            st_ctime: sec(ctime),
+            st_atime_nsec: nsec(atime),
+            st_mtime_nsec: nsec(mtime),
+            st_ctime_nsec: nsec(ctime),
+        })
+    }
+
+    const STAT_DIR_FD: bool = cfg!(not(windows));
+
+    fn stat_inner(
+        file: Either<PyPathLike, i32>,
+        dir_fd: DirFd<{ STAT_DIR_FD as usize }>,
+        follow_symlinks: FollowSymlinks,
+    ) -> io::Result<Option<StatStruct>> {
+        #[cfg(windows)]
+        {
+            // TODO: replicate CPython's win32_xstat
+            let [] = dir_fd.0;
+            let meta = match file {
+                Either::A(path) => fs_metadata(&path, follow_symlinks.0)?,
+                Either::B(fno) => Fd(fno).as_rust_file()?.metadata()?,
+            };
+            meta_to_stat(&meta).map(Some)
+        }
+        #[cfg(not(windows))]
+        {
+            let mut stat = std::mem::MaybeUninit::uninit();
+            let ret = match file {
+                Either::A(path) => {
+                    use ffi_ext::OsStrExt;
+                    let path = path.as_ref().as_os_str().as_bytes();
+                    let path = match ffi::CString::new(path) {
+                        Ok(x) => x,
+                        Err(_) => return Ok(None),
+                    };
+                    let flags = if follow_symlinks.0 {
+                        None
+                    } else {
+                        #[cfg(not(target_os = "redox"))]
+                        {
+                            Some(libc::AT_SYMLINK_NOFOLLOW)
+                        }
+                        #[cfg(target_os = "redox")]
+                        {
+                            // TODO: does redox support NOFOLLOW?
+                            None
+                        }
+                    };
+                    let dir_fd = dir_fd.fd();
+                    if flags.is_some() || dir_fd != DEFAULT_DIR_FD {
+                        let flags = flags.unwrap_or(0);
+                        unsafe { libc::fstatat(dir_fd.0, path.as_ptr(), stat.as_mut_ptr(), flags) }
+                    } else {
+                        unsafe { libc::stat(path.as_ptr(), stat.as_mut_ptr()) }
+                    }
+                }
+                Either::B(fd) => unsafe { libc::fstat(fd, stat.as_mut_ptr()) },
+            };
+            if ret < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(Some(unsafe { stat.assume_init() }))
         }
     }
 
     #[pyfunction]
+    #[pyfunction(name = "fstat")]
     fn stat(
-        file: Either<PyPathLike, i64>,
-        dir_fd: DirFd,
+        file: Either<PyPathLike, i32>,
+        dir_fd: DirFd<{ STAT_DIR_FD as usize }>,
         follow_symlinks: FollowSymlinks,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let meta = match file {
-            Either::A(path) => fs_metadata(make_path(vm, &path, &dir_fd)?, follow_symlinks.0),
-            Either::B(fno) => {
-                let file = rust_file(fno);
-                let res = file.metadata();
-                raw_file_number(file);
-                res
-            }
-        };
-        meta.and_then(StatResult::from_metadata)
-            .map(|stat| stat.into_pyobject(vm))
-            .map_err(|err| err.into_pyexception(vm))
+        let stat = stat_inner(file, dir_fd, follow_symlinks)
+            .map_err(|e| e.into_pyexception(vm))?
+            .ok_or_else(|| vm.new_value_error("embedded null character".to_owned()))?;
+        Ok(StatResult::from_stat(&stat).into_pyobject(vm))
     }
 
     #[pyfunction]
-    fn lstat(file: Either<PyPathLike, i64>, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult {
+    fn lstat(
+        file: Either<PyPathLike, i32>,
+        dir_fd: DirFd<{ STAT_DIR_FD as usize }>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
         stat(file, dir_fd, FollowSymlinks(false), vm)
     }
 
@@ -968,6 +1067,7 @@ mod _os {
     }
 
     #[pyfunction]
+    #[pyfunction(name = "replace")]
     fn rename(src: PyPathLike, dst: PyPathLike, vm: &VirtualMachine) -> PyResult<()> {
         fs::rename(src.path, dst.path).map_err(|err| err.into_pyexception(vm))
     }
@@ -1018,12 +1118,12 @@ mod _os {
         let res = unsafe { suppress_iph!(libc::lseek(fd, position, how)) };
         #[cfg(windows)]
         let res = unsafe {
-            use std::os::windows::io::RawHandle;
             use winapi::um::{fileapi, winnt};
+            let handle = Fd(fd).to_raw_handle().map_err(|e| e.into_pyexception(vm))?;
             let mut li = winnt::LARGE_INTEGER::default();
             *li.QuadPart_mut() = position;
             let ret = fileapi::SetFilePointer(
-                fd as RawHandle,
+                handle,
                 li.u().LowPart as _,
                 &mut li.u_mut().HighPart,
                 how as _,
@@ -1047,7 +1147,8 @@ mod _os {
         fs::hard_link(src.path, dst.path).map_err(|err| err.into_pyexception(vm))
     }
 
-    #[cfg(not(target_os = "wasi"))]
+    const UTIME_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
+
     #[derive(FromArgs)]
     struct UtimeArgs {
         #[pyarg(any)]
@@ -1057,12 +1158,11 @@ mod _os {
         #[pyarg(named, default)]
         ns: Option<PyTupleRef>,
         #[pyarg(flatten)]
-        dir_fd: DirFd,
+        dir_fd: DirFd<{ UTIME_DIR_FD as usize }>,
         #[pyarg(flatten)]
         follow_symlinks: FollowSymlinks,
     }
 
-    #[cfg(not(target_os = "wasi"))]
     #[pyfunction]
     fn utime(args: UtimeArgs, vm: &VirtualMachine) -> PyResult<()> {
         let parse_tup = |tup: &PyTuple| -> Option<(PyObjectRef, PyObjectRef)> {
@@ -1121,49 +1221,56 @@ mod _os {
                 ))
             }
         };
-        utime_impl(
-            args.path.as_ref(),
-            acc,
-            modif,
-            args.dir_fd,
-            args.follow_symlinks,
-            vm,
-        )
+        utime_impl(args.path, acc, modif, args.dir_fd, args.follow_symlinks, vm)
     }
 
-    #[cfg(not(target_os = "wasi"))]
     fn utime_impl(
-        path: &Path,
+        path: PyPathLike,
         acc: Duration,
         modif: Duration,
-        _dir_fd: DirFd,
+        dir_fd: DirFd<{ UTIME_DIR_FD as usize }>,
         _follow_symlinks: FollowSymlinks,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        #[cfg(unix)]
+        #[cfg(any(target_os = "wasi", unix))]
         {
             #[cfg(not(target_os = "redox"))]
             {
-                nix::sys::stat::utimensat(
-                    _dir_fd.0,
-                    path,
-                    &acc.into(),
-                    &modif.into(),
-                    if _follow_symlinks.0 {
-                        nix::sys::stat::UtimensatFlags::FollowSymlink
-                    } else {
-                        nix::sys::stat::UtimensatFlags::NoFollowSymlink
-                    },
-                )
-                .map_err(|err| err.into_pyexception(vm))
+                let path = path.into_cstring(vm)?;
+
+                let ts = |d: Duration| libc::timespec {
+                    tv_sec: d.as_secs() as _,
+                    tv_nsec: d.subsec_nanos() as _,
+                };
+                let times = [ts(acc), ts(modif)];
+
+                let ret = unsafe {
+                    libc::utimensat(
+                        dir_fd.fd().0,
+                        path.as_ptr(),
+                        times.as_ptr(),
+                        if _follow_symlinks.0 {
+                            0
+                        } else {
+                            libc::AT_SYMLINK_NOFOLLOW
+                        },
+                    )
+                };
+                if ret < 0 {
+                    Err(errno_err(vm))
+                } else {
+                    Ok(())
+                }
             }
             #[cfg(target_os = "redox")]
             {
+                let [] = dir_fd.0;
+
                 let tv = |d: Duration| libc::timeval {
                     tv_sec: d.as_secs() as _,
                     tv_usec: d.as_micros() as _,
                 };
-                nix::sys::stat::utimes(path, &tv(acc).into(), &tv(modif).into())
+                nix::sys::stat::utimes(path.as_ref(), &tv(acc).into(), &tv(modif).into())
                     .map_err(|err| err.into_pyexception(vm))
             }
         }
@@ -1173,6 +1280,8 @@ mod _os {
             use std::os::windows::prelude::*;
             use winapi::shared::minwindef::{DWORD, FILETIME};
             use winapi::um::fileapi::SetFileTime;
+
+            let [] = dir_fd.0;
 
             let ft = |d: Duration| {
                 let intervals =
@@ -1257,17 +1366,13 @@ mod _os {
     }
 
     #[pyfunction]
-    pub fn ftruncate(fd: i64, length: Offset, vm: &VirtualMachine) -> PyResult<()> {
-        let f = rust_file(fd);
-        f.set_len(length as u64)
-            .map_err(|e| e.into_pyexception(vm))?;
-        raw_file_number(f);
-        Ok(())
+    pub fn ftruncate(fd: i32, length: i64, vm: &VirtualMachine) -> PyResult<()> {
+        Fd(fd).ftruncate(length).map_err(|e| e.into_pyexception(vm))
     }
 
     #[pyfunction]
     fn truncate(path: PyObjectRef, length: Offset, vm: &VirtualMachine) -> PyResult<()> {
-        if let Ok(fd) = i64::try_from_object(vm, path.clone()) {
+        if let Ok(fd) = i32::try_from_object(vm, path.clone()) {
             return ftruncate(fd, length, vm);
         }
         let path = PyPathLike::try_from_object(vm, path)?;
@@ -1309,43 +1414,38 @@ mod _os {
     #[pyimpl(with(PyStructSequence))]
     impl PyTerminalSize {}
 
-    pub(super) fn support_funcs(vm: &VirtualMachine) -> Vec<SupportFunc> {
-        let mut supports = super::platform::support_funcs(vm);
+    pub(super) fn support_funcs() -> Vec<SupportFunc> {
+        let mut supports = super::platform::support_funcs();
         supports.extend(vec![
-            SupportFunc::new(vm, "open", open, None, Some(true), None),
-            SupportFunc::new(
-                vm,
-                "access",
-                platform::access,
-                Some(false),
-                Some(false),
-                None,
-            ),
-            SupportFunc::new(vm, "chdir", chdir, Some(false), None, None),
+            SupportFunc::new("open", Some(false), Some(OPEN_DIR_FD), Some(false)),
+            SupportFunc::new("access", Some(false), Some(false), None),
+            SupportFunc::new("chdir", None, Some(false), Some(false)),
             // chflags Some, None Some
-            SupportFunc::new(vm, "listdir", listdir, Some(true), None, None),
-            SupportFunc::new(vm, "mkdir", mkdir, Some(false), Some(false), None),
+            SupportFunc::new("listdir", Some(LISTDIR_FD), Some(false), Some(false)),
+            SupportFunc::new("mkdir", Some(false), Some(MKDIR_DIR_FD), Some(false)),
             // mkfifo Some Some None
             // mknod Some Some None
             // pathconf Some None None
-            SupportFunc::new(vm, "readlink", readlink, Some(false), Some(false), None),
-            SupportFunc::new(vm, "remove", remove, Some(false), Some(false), None),
-            SupportFunc::new(vm, "rename", rename, Some(false), Some(false), None),
-            SupportFunc::new(vm, "replace", rename, Some(false), Some(false), None), // TODO: Fix replace
-            SupportFunc::new(vm, "rmdir", rmdir, Some(false), Some(false), None),
-            SupportFunc::new(vm, "scandir", scandir, Some(false), None, None),
-            SupportFunc::new(vm, "stat", stat, Some(true), Some(true), Some(true)),
-            SupportFunc::new(vm, "fstat", stat, Some(true), Some(true), Some(true)),
-            SupportFunc::new(vm, "symlink", platform::symlink, None, Some(false), None),
-            // truncate Some None None
-            SupportFunc::new(vm, "unlink", remove, Some(false), Some(false), None),
-            #[cfg(not(target_os = "wasi"))]
+            SupportFunc::new("readlink", Some(false), None, Some(false)),
+            SupportFunc::new("remove", Some(false), None, Some(false)),
+            SupportFunc::new("unlink", Some(false), None, Some(false)),
+            SupportFunc::new("rename", Some(false), None, Some(false)),
+            SupportFunc::new("replace", Some(false), None, Some(false)), // TODO: Fix replace
+            SupportFunc::new("rmdir", Some(false), None, Some(false)),
+            SupportFunc::new("scandir", None, Some(false), Some(false)),
+            SupportFunc::new("stat", Some(true), Some(STAT_DIR_FD), Some(true)),
+            SupportFunc::new("fstat", Some(true), Some(STAT_DIR_FD), Some(true)),
             SupportFunc::new(
-                vm,
-                "utime",
-                utime,
+                "symlink",
                 Some(false),
-                Some(cfg!(all(unix, not(target_os = "redox")))),
+                Some(platform::SYMLINK_DIR_FD),
+                Some(false),
+            ),
+            SupportFunc::new("truncate", Some(true), Some(false), Some(false)),
+            SupportFunc::new(
+                "utime",
+                Some(false),
+                Some(UTIME_DIR_FD),
                 Some(cfg!(all(unix, not(target_os = "redox")))),
             ),
         ]);
@@ -1356,33 +1456,23 @@ pub(crate) use _os::{ftruncate, isatty, lseek};
 
 struct SupportFunc {
     name: &'static str,
-    func_obj: PyObjectRef,
+    // realistically, each of these is just a bool of "is this function in the supports_* set".
+    // However, None marks that the function maybe _should_ support fd/dir_fd/follow_symlinks, but
+    // we haven't implemented it yet.
     fd: Option<bool>,
     dir_fd: Option<bool>,
     follow_symlinks: Option<bool>,
 }
 
 impl<'a> SupportFunc {
-    fn new<F, FKind>(
-        vm: &VirtualMachine,
+    fn new(
         name: &'static str,
-        func: F,
         fd: Option<bool>,
         dir_fd: Option<bool>,
         follow_symlinks: Option<bool>,
-    ) -> Self
-    where
-        F: IntoPyNativeFunc<FKind>,
-    {
-        let ctx = &vm.ctx;
-        let func_obj = ctx
-            .make_funcdef(name, func)
-            .into_function()
-            .with_module(ctx.new_str(MODULE_NAME))
-            .build(ctx);
+    ) -> Self {
         Self {
             name,
-            func_obj,
             fd,
             dir_fd,
             follow_symlinks,
@@ -1395,31 +1485,21 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     _os::extend_module(&vm, &module);
 
-    let support_funcs = _os::support_funcs(vm);
+    let support_funcs = _os::support_funcs();
     let supports_fd = PySet::default().into_ref(vm);
     let supports_dir_fd = PySet::default().into_ref(vm);
     let supports_follow_symlinks = PySet::default().into_ref(vm);
     for support in support_funcs {
+        let func_obj = vm.get_attribute(module.clone(), support.name).unwrap();
         if support.fd.unwrap_or(false) {
-            supports_fd
-                .clone()
-                .add(support.func_obj.clone(), vm)
-                .unwrap();
+            supports_fd.clone().add(func_obj.clone(), vm).unwrap();
         }
         if support.dir_fd.unwrap_or(false) {
-            supports_dir_fd
-                .clone()
-                .add(support.func_obj.clone(), vm)
-                .unwrap();
+            supports_dir_fd.clone().add(func_obj.clone(), vm).unwrap();
         }
         if support.follow_symlinks.unwrap_or(false) {
-            supports_follow_symlinks
-                .clone()
-                .add(support.func_obj.clone(), vm)
-                .unwrap();
+            supports_follow_symlinks.clone().add(func_obj, vm).unwrap();
         }
-        vm.set_attr(&module, support.name, support.func_obj)
-            .unwrap();
     }
 
     extend_module!(vm, module, {
@@ -1433,27 +1513,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 }
 pub(crate) use _os::os_open as open;
 
-fn to_seconds_from_unix_epoch(sys_time: SystemTime) -> f64 {
-    match sys_time.duration_since(SystemTime::UNIX_EPOCH) {
-        Ok(duration) => duration.as_secs_f64(),
-        Err(err) => -err.duration().as_secs_f64(),
-    }
-}
-
-fn to_nanoseconds_epoch(sys_time: SystemTime) -> BigInt {
-    match sys_time.duration_since(SystemTime::UNIX_EPOCH) {
-        Ok(duration) => BigInt::from(duration.as_nanos()),
-        Err(err) => -BigInt::from(err.duration().as_nanos()),
-    }
-}
-
-fn int_seconds_epoch(sys_time: SystemTime) -> BigInt {
-    match sys_time.duration_since(SystemTime::UNIX_EPOCH) {
-        Ok(duration) => BigInt::from(duration.as_secs()),
-        Err(err) => -BigInt::from(err.duration().as_secs()),
-    }
-}
-
 #[cfg(unix)]
 #[pymodule]
 mod posix {
@@ -1466,7 +1525,6 @@ mod posix {
     use nix::errno::{errno, Errno};
     use nix::unistd::{self, Gid, Pid, Uid};
     use std::convert::TryFrom;
-    pub(super) use std::os::unix::fs::OpenOptionsExt;
     use std::os::unix::io::RawFd;
 
     #[cfg(not(any(target_os = "redox", target_os = "freebsd")))]
@@ -1525,8 +1583,6 @@ mod posix {
     #[pyattr]
     const _COPYFILE_DATA: u32 = 1 << 3;
 
-    pub(crate) type OpenFlags = i32;
-
     // Flags for os_access
     bitflags! {
         pub struct AccessFlags: u8{
@@ -1535,25 +1591,6 @@ mod posix {
             const W_OK = super::_os::W_OK;
             const X_OK = super::_os::X_OK;
         }
-    }
-
-    impl PyPathLike {
-        pub fn into_bytes(self) -> Vec<u8> {
-            use std::os::unix::ffi::OsStringExt;
-            self.path.into_os_string().into_vec()
-        }
-    }
-
-    pub(crate) fn raw_file_number(handle: File) -> i64 {
-        use std::os::unix::io::IntoRawFd;
-
-        i64::from(handle.into_raw_fd())
-    }
-
-    pub(crate) fn rust_file(raw_fileno: i64) -> File {
-        use std::os::unix::io::FromRawFd;
-
-        unsafe { File::from_raw_fd(raw_fileno as i32) }
     }
 
     pub(super) fn convert_nix_errno(vm: &VirtualMachine, errno: Errno) -> PyTypeRef {
@@ -1689,17 +1726,32 @@ mod posix {
         environ
     }
 
+    pub(super) const SYMLINK_DIR_FD: bool = cfg!(not(target_os = "redox"));
+
     #[pyfunction]
     pub(super) fn symlink(
         src: PyPathLike,
         dst: PyPathLike,
         _target_is_directory: TargetIsDirectory,
-        dir_fd: DirFd,
+        dir_fd: DirFd<{ SYMLINK_DIR_FD as usize }>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        use std::os::unix::fs as unix_fs;
-        let dst = make_path(vm, &dst, &dir_fd)?;
-        unix_fs::symlink(src.path, dst).map_err(|err| err.into_pyexception(vm))
+        let src = src.into_cstring(vm)?;
+        let dst = dst.into_cstring(vm)?;
+        #[cfg(not(target_os = "redox"))]
+        {
+            nix::unistd::symlinkat(&*src, dir_fd.get_opt(), &*dst)
+                .map_err(|err| err.into_pyexception(vm))
+        }
+        #[cfg(target_os = "redox")]
+        {
+            let res = unsafe { libc::symlink(src.as_ptr(), dst.as_ptr()) };
+            if res < 0 {
+                Err(errno_err(vm))
+            } else {
+                Ok(())
+            }
+        }
     }
 
     #[cfg(not(target_os = "redox"))]
@@ -1713,15 +1765,12 @@ mod posix {
     #[pyfunction]
     fn chown(
         path: Either<PyPathLike, i64>,
-        uid: PyIntRef,
-        gid: PyIntRef,
-        dir_fd: DirFd,
+        uid: isize,
+        gid: isize,
+        dir_fd: DirFd<1>,
         follow_symlinks: FollowSymlinks,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let uid = isize::try_from_object(&vm, uid.as_object().clone())?;
-        let gid = isize::try_from_object(&vm, gid.as_object().clone())?;
-
         let uid = if uid >= 0 {
             Some(nix::unistd::Uid::from_raw(uid as u32))
         } else if uid == -1 {
@@ -1744,13 +1793,14 @@ mod posix {
             nix::unistd::FchownatFlags::NoFollowSymlink
         };
 
+        let dir_fd = dir_fd.get_opt();
         match path {
-            Either::A(p) => nix::unistd::fchownat(dir_fd.0, p.path.as_os_str(), uid, gid, flag),
+            Either::A(p) => nix::unistd::fchownat(dir_fd, p.path.as_os_str(), uid, gid, flag),
             Either::B(fd) => {
                 let path = fs::read_link(format!("/proc/self/fd/{}", fd)).map_err(|_| {
                     vm.new_os_error(String::from("Cannot find path for specified fd"))
                 })?;
-                nix::unistd::fchownat(dir_fd.0, &path, uid, gid, flag)
+                nix::unistd::fchownat(dir_fd, &path, uid, gid, flag)
             }
         }
         .map_err(|err| err.into_pyexception(vm))
@@ -1758,12 +1808,12 @@ mod posix {
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn lchown(path: PyPathLike, uid: PyIntRef, gid: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn lchown(path: PyPathLike, uid: isize, gid: isize, vm: &VirtualMachine) -> PyResult<()> {
         chown(
             Either::A(path),
             uid,
             gid,
-            DirFd(None),
+            DirFd::default(),
             FollowSymlinks(false),
             vm,
         )
@@ -1771,12 +1821,12 @@ mod posix {
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn fchown(fd: i64, uid: PyIntRef, gid: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn fchown(fd: i64, uid: isize, gid: isize, vm: &VirtualMachine) -> PyResult<()> {
         chown(
             Either::B(fd),
             uid,
             gid,
-            DirFd(None),
+            DirFd::default(),
             FollowSymlinks(true),
             vm,
         )
@@ -1884,12 +1934,12 @@ mod posix {
     #[pyfunction]
     fn chmod(
         path: PyPathLike,
-        dir_fd: DirFd,
+        dir_fd: DirFd<0>,
         mode: u32,
         follow_symlinks: FollowSymlinks,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let path = make_path(vm, &path, &dir_fd)?;
+        let [] = dir_fd.0;
         let body = move || {
             use std::os::unix::fs::PermissionsExt;
             let meta = fs_metadata(&path, follow_symlinks.0)?;
@@ -2528,19 +2578,41 @@ mod posix {
         })
     }
 
-    pub(super) fn support_funcs(vm: &VirtualMachine) -> Vec<SupportFunc> {
+    #[derive(FromArgs)]
+    struct Dup2Args {
+        #[pyarg(positional)]
+        fd: i32,
+        #[pyarg(positional)]
+        fd2: i32,
+        #[pyarg(any, default = "true")]
+        inheritable: bool,
+    }
+
+    #[pyfunction]
+    fn dup2(args: Dup2Args, vm: &VirtualMachine) -> PyResult<i32> {
+        let fd = nix::unistd::dup2(args.fd, args.fd2).map_err(|e| e.into_pyexception(vm))?;
+        if !args.inheritable {
+            raw_set_inheritable(fd, false).map_err(|e| {
+                let _ = nix::unistd::close(fd);
+                e.into_pyexception(vm)
+            })?
+        }
+        Ok(fd)
+    }
+
+    pub(super) fn support_funcs() -> Vec<SupportFunc> {
         vec![
-            SupportFunc::new(vm, "chmod", chmod, Some(false), Some(false), Some(false)),
+            SupportFunc::new("chmod", Some(false), Some(false), Some(false)),
             #[cfg(not(target_os = "redox"))]
-            SupportFunc::new(vm, "chroot", chroot, Some(false), None, None),
+            SupportFunc::new("chroot", Some(false), None, None),
             #[cfg(not(target_os = "redox"))]
-            SupportFunc::new(vm, "chown", chown, Some(true), Some(true), Some(true)),
+            SupportFunc::new("chown", Some(true), Some(true), Some(true)),
             #[cfg(not(target_os = "redox"))]
-            SupportFunc::new(vm, "lchown", lchown, None, None, None),
+            SupportFunc::new("lchown", None, None, None),
             #[cfg(not(target_os = "redox"))]
-            SupportFunc::new(vm, "fchown", fchown, Some(true), None, Some(true)),
-            SupportFunc::new(vm, "umask", umask, Some(false), Some(false), Some(false)),
-            SupportFunc::new(vm, "execv", execv, None, None, None),
+            SupportFunc::new("fchown", Some(true), None, Some(true)),
+            SupportFunc::new("umask", Some(false), Some(false), Some(false)),
+            SupportFunc::new("execv", None, None, None),
         ]
     }
 
@@ -2645,97 +2717,62 @@ pub(crate) use posix::raw_set_inheritable;
 mod nt {
     use super::*;
     use crate::builtins::list::PyListRef;
-    pub(super) use std::os::windows::fs::OpenOptionsExt;
-    use std::os::windows::io::RawHandle;
     #[cfg(target_env = "msvc")]
     use winapi::vc::vcruntime::intptr_t;
 
     #[pyattr]
     use libc::O_BINARY;
 
-    pub(crate) type OpenFlags = u32;
-
-    pub fn raw_file_number(handle: File) -> i64 {
-        use std::os::windows::io::IntoRawHandle;
-
-        handle.into_raw_handle() as i64
-    }
-
-    pub fn rust_file(raw_fileno: i64) -> File {
-        use std::os::windows::io::{AsRawHandle, FromRawHandle};
-
-        let raw_fileno = match raw_fileno {
-            0 => io::stdin().as_raw_handle(),
-            1 => io::stdout().as_raw_handle(),
-            2 => io::stderr().as_raw_handle(),
-            fno => fno as RawHandle,
-        };
-
-        //This seems to work as expected but further testing is required.
-        unsafe { File::from_raw_handle(raw_fileno) }
-    }
-
-    impl PyPathLike {
-        pub fn wide(&self) -> Vec<u16> {
-            use std::os::windows::ffi::OsStrExt;
-            self.path
-                .as_os_str()
-                .encode_wide()
-                .chain(std::iter::once(0))
-                .collect()
-        }
-    }
-
     #[pyfunction]
-    pub(super) fn access(path: PyPathLike, mode: u8) -> bool {
+    pub(super) fn access(path: PyPathLike, mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
         use winapi::um::{fileapi, winnt};
-        let attr = unsafe { fileapi::GetFileAttributesW(path.wide().as_ptr()) };
-        attr != fileapi::INVALID_FILE_ATTRIBUTES
+        let attr = unsafe { fileapi::GetFileAttributesW(path.to_widecstring(vm)?.as_ptr()) };
+        Ok(attr != fileapi::INVALID_FILE_ATTRIBUTES
             && (mode & 2 == 0
                 || attr & winnt::FILE_ATTRIBUTE_READONLY == 0
-                || attr & winnt::FILE_ATTRIBUTE_DIRECTORY != 0)
+                || attr & winnt::FILE_ATTRIBUTE_DIRECTORY != 0))
     }
+
+    pub const SYMLINK_DIR_FD: bool = false;
 
     #[pyfunction]
     pub(super) fn symlink(
         src: PyPathLike,
         dst: PyPathLike,
-        _target_is_directory: TargetIsDirectory,
-        _dir_fd: DirFd,
+        target_is_directory: TargetIsDirectory,
+        _dir_fd: DirFd<0>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let body = move || {
-            use std::os::windows::fs as win_fs;
-            let meta = fs::metadata(src.path.clone())?;
-            if meta.is_file() {
-                win_fs::symlink_file(src.path, dst.path)
-            } else if meta.is_dir() {
-                win_fs::symlink_dir(src.path, dst.path)
-            } else {
-                panic!("Unknown file type");
-            }
+        use std::os::windows::fs as win_fs;
+        let dir = target_is_directory.target_is_directory
+            || dst
+                .path
+                .parent()
+                .and_then(|dst_parent| dst_parent.join(&src).symlink_metadata().ok())
+                .map_or(false, |meta| meta.is_dir());
+        let res = if dir {
+            win_fs::symlink_dir(src.path, dst.path)
+        } else {
+            win_fs::symlink_file(src.path, dst.path)
         };
-        body().map_err(|err| err.into_pyexception(vm))
+        res.map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
-    fn set_inheritable(fd: i64, inheritable: bool, vm: &VirtualMachine) -> PyResult<()> {
-        #[cfg(windows)]
-        {
-            use winapi::um::{handleapi, winbase};
-            let fd = fd as RawHandle;
-            let flags = if inheritable {
-                winbase::HANDLE_FLAG_INHERIT
-            } else {
-                0
-            };
-            let ret =
-                unsafe { handleapi::SetHandleInformation(fd, winbase::HANDLE_FLAG_INHERIT, flags) };
-            if ret == 0 {
-                Err(errno_err(vm))
-            } else {
-                Ok(())
-            }
+    fn set_inheritable(fd: i32, inheritable: bool, vm: &VirtualMachine) -> PyResult<()> {
+        use winapi::um::{handleapi, winbase};
+        let handle = Fd(fd).to_raw_handle().map_err(|e| e.into_pyexception(vm))?;
+        let flags = if inheritable {
+            winbase::HANDLE_FLAG_INHERIT
+        } else {
+            0
+        };
+        let ret =
+            unsafe { handleapi::SetHandleInformation(handle, winbase::HANDLE_FLAG_INHERIT, flags) };
+        if ret == 0 {
+            Err(errno_err(vm))
+        } else {
+            Ok(())
         }
     }
 
@@ -2754,13 +2791,13 @@ mod nt {
     #[pyfunction]
     fn chmod(
         path: PyPathLike,
-        dir_fd: DirFd,
+        dir_fd: DirFd<0>,
         mode: u32,
         follow_symlinks: FollowSymlinks,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         const S_IWRITE: u32 = 128;
-        let path = make_path(vm, &path, &dir_fd)?;
+        let [] = dir_fd.0;
         let metadata = if follow_symlinks.0 {
             fs::metadata(&path)
         } else {
@@ -2934,7 +2971,7 @@ mod nt {
         }
     }
 
-    pub(super) fn support_funcs(_vm: &VirtualMachine) -> Vec<SupportFunc> {
+    pub(super) fn support_funcs() -> Vec<SupportFunc> {
         Vec::new()
     }
 }
@@ -2948,41 +2985,19 @@ pub use nt::{_set_thread_local_invalid_parameter_handler, silent_iph_handler};
 mod minor {
     use super::*;
 
-    #[cfg(target_os = "wasi")]
-    pub(crate) type OpenFlags = u16;
-
-    #[cfg(target_os = "wasi")]
-    pub(crate) fn raw_file_number(handle: File) -> i64 {
-        // This should be safe, since the wasi api is pretty well defined, but once
-        // `wasi_ext` gets stabilized we should use that instead.
-        unsafe { std::mem::transmute::<_, u32>(handle).into() }
-    }
-    #[cfg(not(target_os = "wasi"))]
-    pub(crate) fn raw_file_number(_handle: File) -> i64 {
-        unimplemented!();
-    }
-
-    #[cfg(target_os = "wasi")]
-    pub(crate) fn rust_file(raw_fileno: i64) -> File {
-        unsafe { std::mem::transmute(raw_fileno as u32) }
-    }
-
-    #[cfg(not(target_os = "wasi"))]
-    pub(crate) fn rust_file(_raw_fileno: i64) -> File {
-        unimplemented!();
-    }
-
     #[pyfunction]
     pub(super) fn access(_path: PyStrRef, _mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
         os_unimpl("os.access", vm)
     }
+
+    pub const SYMLINK_DIR_FD: bool = false;
 
     #[pyfunction]
     pub(super) fn symlink(
         _src: PyPathLike,
         _dst: PyPathLike,
         _target_is_directory: TargetIsDirectory,
-        _dir_fd: DirFd,
+        _dir_fd: DirFd<0>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         os_unimpl("os.symlink", vm)
@@ -2993,11 +3008,11 @@ mod minor {
         vm.ctx.new_dict()
     }
 
-    pub(super) fn support_funcs(_vm: &VirtualMachine) -> Vec<SupportFunc> {
+    pub(super) fn support_funcs() -> Vec<SupportFunc> {
         Vec::new()
     }
 }
 #[cfg(not(any(unix, windows)))]
 use minor as platform;
 
-pub(crate) use platform::{raw_file_number, rust_file, OpenFlags, MODULE_NAME};
+pub(crate) use platform::MODULE_NAME;

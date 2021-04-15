@@ -1468,8 +1468,6 @@ class PosixTester(unittest.TestCase):
             else:
                 self.fail("No valid path_error2() test for os." + name)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_path_with_null_character(self):
         fn = support.TESTFN
         fn_with_NUL = fn + '\0'
@@ -1488,8 +1486,6 @@ class PosixTester(unittest.TestCase):
         open(fn, 'wb').close()
         self.assertRaises(ValueError, os.stat, fn_with_NUL)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_path_with_null_byte(self):
         fn = os.fsencode(support.TESTFN)
         fn_with_NUL = fn + b'\0'

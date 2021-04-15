@@ -735,16 +735,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "de853764b47027c2e862a995c34978ffa63c1501f2e15f987ba11bd4f9bba193"
 
 [[package]]
-name = "filepath"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0dd50318458226958db06f173610f54f01d26f0a9ccfa3d38bd60f70bc9939ff"
-dependencies = [
- "libc",
- "winapi",
-]
-
-[[package]]
 name = "fixedbitset"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2013,7 +2003,6 @@ dependencies = [
  "digest",
  "dns-lookup",
  "exitcode",
- "filepath",
  "flame",
  "flamer",
  "flate2",
@@ -2084,6 +2073,7 @@ dependencies = [
  "unicode_names2",
  "wasm-bindgen",
  "which",
+ "widestring",
  "winapi",
  "winreg",
 ]
@@ -2848,6 +2838,12 @@ dependencies = [
  "libc",
  "thiserror",
 ]
+
+[[package]]
+name = "widestring"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c168940144dd21fd8046987c16a46a33d5fc84eec29ef9dcddc2ac9e31526b7c"
 
 [[package]]
 name = "winapi"

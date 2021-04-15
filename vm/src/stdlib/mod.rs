@@ -45,7 +45,7 @@ mod zlib;
 
 #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
 #[macro_use]
-mod os;
+pub(crate) mod os;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod faulthandler;
