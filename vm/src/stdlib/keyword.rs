@@ -3,6 +3,7 @@ pub(crate) use decl::make_module;
 
 #[pymodule(name = "keyword")]
 mod decl {
+    use itertools::Itertools;
     use rustpython_parser::lexer;
 
     use crate::builtins::pystr::PyStrRef;
@@ -19,6 +20,7 @@ mod decl {
         vm.ctx.new_list(
             lexer::KEYWORDS
                 .keys()
+                .sorted()
                 .map(|k| vm.ctx.new_str(k.to_owned()))
                 .collect(),
         )
