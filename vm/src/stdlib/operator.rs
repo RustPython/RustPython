@@ -1,3 +1,4 @@
+use crate::builtins::int::PyIntRef;
 use crate::builtins::pystr::PyStrRef;
 use crate::byteslike::PyBytesLike;
 use crate::common::cmp;
@@ -43,10 +44,15 @@ fn _operator_compare_digest(
     Ok(res)
 }
 
+fn _operator_index(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyIntRef> {
+    vm.to_index(&obj)
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
     py_module!(vm, "_operator", {
         "length_hint" => named_function!(ctx, _operator, length_hint),
         "_compare_digest" => named_function!(ctx, _operator, compare_digest),
+        "index" => named_function!(ctx, _operator, index),
     })
 }
