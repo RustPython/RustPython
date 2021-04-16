@@ -25,6 +25,8 @@ class HashTest(unittest.TestCase):
         self.check_equal_hash(False, 0)
         self.check_equal_hash(True, 1)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_integers(self):
         # check that equal values hash equal
 
