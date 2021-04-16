@@ -95,6 +95,8 @@ class TestNtpath(NtpathTestCase):
         tester('ntpath.splitext("xx\\foo.bar.ext")', ('xx\\foo.bar', '.ext'))
         tester('ntpath.splitext("c:a/b\\c.d")', ('c:a/b\\c', '.d'))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_splitdrive(self):
         tester('ntpath.splitdrive("c:\\foo\\bar")',
                ('c:', '\\foo\\bar'))
@@ -254,6 +256,8 @@ class TestNtpath(NtpathTestCase):
         tester("ntpath.realpath('\\'.join(['..'] * 50))",
                ntpath.splitdrive(expected)[0] + '\\')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @support.skip_unless_symlink
     @unittest.skipUnless(HAVE_GETFINALPATHNAME, 'need _getfinalpathname')
     def test_realpath_basic(self):
@@ -267,6 +271,8 @@ class TestNtpath(NtpathTestCase):
         self.assertPathEqual(ntpath.realpath(os.fsencode(ABSTFN + "1")),
                          os.fsencode(ABSTFN))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @support.skip_unless_symlink
     @unittest.skipUnless(HAVE_GETFINALPATHNAME, 'need _getfinalpathname')
     def test_realpath_relative(self):
@@ -278,6 +284,8 @@ class TestNtpath(NtpathTestCase):
         os.symlink(ABSTFN, ntpath.relpath(ABSTFN + "1"))
         self.assertPathEqual(ntpath.realpath(ABSTFN + "1"), ABSTFN)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @support.skip_unless_symlink
     @unittest.skipUnless(HAVE_GETFINALPATHNAME, 'need _getfinalpathname')
     def test_realpath_broken_symlinks(self):
@@ -335,6 +343,8 @@ class TestNtpath(NtpathTestCase):
             self.assertPathEqual(ntpath.realpath(b"broken5"),
                                  os.fsencode(ABSTFN + r"\missing"))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @support.skip_unless_symlink
     @unittest.skipUnless(HAVE_GETFINALPATHNAME, 'need _getfinalpathname')
     def test_realpath_symlink_loops(self):
@@ -381,6 +391,8 @@ class TestNtpath(NtpathTestCase):
         # Test using relative path as well.
         self.assertPathEqual(ntpath.realpath(ntpath.basename(ABSTFN)), ABSTFN)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @support.skip_unless_symlink
     @unittest.skipUnless(HAVE_GETFINALPATHNAME, 'need _getfinalpathname')
     def test_realpath_symlink_prefix(self):
@@ -415,6 +427,8 @@ class TestNtpath(NtpathTestCase):
         self.assertPathEqual(ntpath.realpath("\\\\?\\" + ABSTFN + "3.link"),
                              "\\\\?\\" + ABSTFN + "3.")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(HAVE_GETFINALPATHNAME, 'need _getfinalpathname')
     def test_realpath_nul(self):
         tester("ntpath.realpath('NUL')", r'\\.\NUL')
@@ -474,6 +488,8 @@ class TestNtpath(NtpathTestCase):
             tester('ntpath.expandvars("\'%foo%\'%bar")', "\'%foo%\'%bar")
             tester('ntpath.expandvars("bar\'%foo%")', "bar\'%foo%")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(support.FS_NONASCII, 'need support.FS_NONASCII')
     def test_expandvars_nonascii(self):
         def check(value, expected):
@@ -718,6 +734,16 @@ class TestNtpath(NtpathTestCase):
 class NtCommonTest(test_genericpath.CommonTest, unittest.TestCase):
     pathmodule = ntpath
     attributes = ['relpath']
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_expandvars_nonascii(self):
+        super().test_expandvars_nonascii()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_nonascii_abspath(self):
+        super().test_nonascii_abspath()
 
 
 class PathLikeTests(NtpathTestCase):
