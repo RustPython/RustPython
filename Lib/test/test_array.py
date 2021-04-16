@@ -1072,8 +1072,6 @@ class BaseTest:
         # SF bug #1486663 -- this used to erroneously raise a TypeError
         ArraySubclassWithKwargs('b', newarg=1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_create_from_bytes(self):
         # XXX This test probably needs to be moved in a subclass or
         # generalized to use self.typecode.
@@ -1512,11 +1510,6 @@ class ByteTest(SignedNumberTest, unittest.TestCase):
     typecode = 'b'
     minitemsize = 1
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_tofrombytes(self):
-        super().test_tofrombytes()
-
 class UnsignedByteTest(UnsignedNumberTest, unittest.TestCase):
     typecode = 'B'
     minitemsize = 1
@@ -1525,73 +1518,33 @@ class ShortTest(SignedNumberTest, unittest.TestCase):
     typecode = 'h'
     minitemsize = 2
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_tofrombytes(self):
-        super().test_tofrombytes()
-
 class UnsignedShortTest(UnsignedNumberTest, unittest.TestCase):
     typecode = 'H'
     minitemsize = 2
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_tofrombytes(self):
-        super().test_tofrombytes()
 
 class IntTest(SignedNumberTest, unittest.TestCase):
     typecode = 'i'
     minitemsize = 2
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_tofrombytes(self):
-        super().test_tofrombytes()
-
 class UnsignedIntTest(UnsignedNumberTest, unittest.TestCase):
     typecode = 'I'
     minitemsize = 2
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_tofrombytes(self):
-        super().test_tofrombytes()
 
 class LongTest(SignedNumberTest, unittest.TestCase):
     typecode = 'l'
     minitemsize = 4
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_tofrombytes(self):
-        super().test_tofrombytes()
-
 class UnsignedLongTest(UnsignedNumberTest, unittest.TestCase):
     typecode = 'L'
     minitemsize = 4
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_tofrombytes(self):
-        super().test_tofrombytes()
 
 class LongLongTest(SignedNumberTest, unittest.TestCase):
     typecode = 'q'
     minitemsize = 8
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_tofrombytes(self):
-        super().test_tofrombytes()
-
 class UnsignedLongLongTest(UnsignedNumberTest, unittest.TestCase):
     typecode = 'Q'
     minitemsize = 8
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_tofrombytes(self):
-        super().test_tofrombytes()
 
 class FPTest(NumberTest):
     example = [-42.0, 0, 42, 1e5, -1e10]
@@ -1632,19 +1585,9 @@ class FloatTest(FPTest, unittest.TestCase):
     typecode = 'f'
     minitemsize = 4
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_tofrombytes(self):
-        super().test_tofrombytes()
-
 class DoubleTest(FPTest, unittest.TestCase):
     typecode = 'd'
     minitemsize = 8
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_tofrombytes(self):
-        super().test_tofrombytes()
 
     @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'capacity overflow'")
     def test_alloc_overflow(self):

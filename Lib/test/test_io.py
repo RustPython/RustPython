@@ -637,8 +637,6 @@ class IOTest(unittest.TestCase):
         with self.open(support.TESTFN, "a") as f:
             self.assertGreater(f.tell(), 0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_destructor(self):
         record = []
         class MyFileIO(self.FileIO):
@@ -1036,8 +1034,12 @@ class CIOTest(IOTest):
         del obj
         support.gc_collect()
         self.assertIsNone(wr(), wr)
+    
+    # TODO: RUSTPYTHON, AssertionError: filter ('', ResourceWarning) did not catch any warning
+    @unittest.expectedFailure
+    def test_destructor(self):
+        super().test_destructor(self)
 
-@unittest.skip("TODO: RUSTPYTHON, pyio version depends on memoryview.cast()")
 class PyIOTest(IOTest):
     pass
 
@@ -1361,8 +1363,6 @@ class BufferedReaderTest(unittest.TestCase, CommonBufferedTests):
         self.assertEqual(b[:6], b"fghjkl")
         self.assertEqual(rawio._reads, 4)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_readinto_array(self):
         buffer_size = 60
         data = b"a" * 26
@@ -1384,8 +1384,6 @@ class BufferedReaderTest(unittest.TestCase, CommonBufferedTests):
         self.assertEqual(bm[:n], data[:n])
         self.assertEqual(bm[n:], b'x' * (len(bm[n:])))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_readinto1_array(self):
         buffer_size = 60
         data = b"a" * 26
@@ -1604,7 +1602,6 @@ class CBufferedReaderTest(BufferedReaderTest, SizeofTest):
             self.tp(io.BytesIO(), 1024, 1024, 1024)
 
 
-@unittest.skip("TODO: RUSTPYTHON, pyio version depends on memoryview.cast()")
 class PyBufferedReaderTest(BufferedReaderTest):
     tp = pyio.BufferedReader
 
@@ -1958,7 +1955,6 @@ class CBufferedWriterTest(BufferedWriterTest, SizeofTest):
             self.tp(io.BytesIO(), 1024, 1024, 1024)
 
 
-@unittest.skip("TODO: RUSTPYTHON, pyio version depends on memoryview.cast()")
 class PyBufferedWriterTest(BufferedWriterTest):
     tp = pyio.BufferedWriter
 
@@ -2175,7 +2171,6 @@ class BufferedRWPairTest(unittest.TestCase):
 class CBufferedRWPairTest(BufferedRWPairTest):
     tp = io.BufferedRWPair
 
-@unittest.skip("TODO: RUSTPYTHON, pyio version depends on memoryview.cast()")
 class PyBufferedRWPairTest(BufferedRWPairTest):
     tp = pyio.BufferedRWPair
 
@@ -2439,7 +2434,7 @@ class CBufferedRandomTest(BufferedRandomTest, SizeofTest):
             self.tp(io.BytesIO(), 1024, 1024, 1024)
 
 
-@unittest.skip("TODO: RUSTPYTHON, pyio version depends on memoryview.cast()")
+@unittest.skip("TODO: RUSTPYTHON, BufferError: Existing exports of data: object cannot be re-sized")
 class PyBufferedRandomTest(BufferedRandomTest):
     tp = pyio.BufferedRandom
 
@@ -4466,7 +4461,6 @@ class CMiscIOTest(MiscIOTest):
         self.check_daemon_threads_shutdown_deadlock('stderr')
 
 
-@unittest.skip("TODO: RUSTPYTHON, pyio version depends on memoryview.cast()")
 class PyMiscIOTest(MiscIOTest):
     io = pyio
 
