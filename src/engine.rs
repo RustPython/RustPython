@@ -292,6 +292,14 @@ trait MatchContextDrive {
         let this = !self.at_end() && word_checker(self.peek_char());
         this != that
     }
+    fn at_non_boundary<F: FnMut(u32) -> bool>(&self, mut word_checker: F) -> bool {
+        if self.at_beginning() && self.at_end() {
+            return false;
+        }
+        let that = !self.at_beginning() && word_checker(self.back_peek_char());
+        let this = !self.at_end() && word_checker(self.peek_char());
+        this == that
+    }
     fn back_peek_char(&self) -> u32 {
         self.state().string.back_peek(self.ctx().string_offset)
     }
@@ -738,14 +746,14 @@ fn at(drive: &StackDrive, atcode: SreAtCode) -> bool {
         SreAtCode::BEGINNING | SreAtCode::BEGINNING_STRING => drive.at_beginning(),
         SreAtCode::BEGINNING_LINE => drive.at_beginning() || is_linebreak(drive.back_peek_char()),
         SreAtCode::BOUNDARY => drive.at_boundary(is_word),
-        SreAtCode::NON_BOUNDARY => !drive.at_boundary(is_word),
+        SreAtCode::NON_BOUNDARY => drive.at_non_boundary(is_word),
         SreAtCode::END => (drive.remaining_chars() == 1 && drive.at_linebreak()) || drive.at_end(),
         SreAtCode::END_LINE => drive.at_linebreak() || drive.at_end(),
         SreAtCode::END_STRING => drive.at_end(),
         SreAtCode::LOC_BOUNDARY => drive.at_boundary(is_loc_word),
-        SreAtCode::LOC_NON_BOUNDARY => !drive.at_boundary(is_loc_word),
+        SreAtCode::LOC_NON_BOUNDARY => drive.at_non_boundary(is_loc_word),
         SreAtCode::UNI_BOUNDARY => drive.at_boundary(is_uni_word),
-        SreAtCode::UNI_NON_BOUNDARY => !drive.at_boundary(is_uni_word),
+        SreAtCode::UNI_NON_BOUNDARY => drive.at_non_boundary(is_uni_word),
     }
 }
 
