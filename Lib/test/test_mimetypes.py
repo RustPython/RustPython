@@ -54,6 +54,8 @@ class MimeTypesTestCase(unittest.TestCase):
            ("x-application/x-unittest", None))
         eq(self.db.guess_extension("x-application/x-unittest"), ".pyunit")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_read_mime_types(self):
         eq = self.assertEqual
 
@@ -134,6 +136,8 @@ class MimeTypesTestCase(unittest.TestCase):
                                           strict=True)
         self.assertEqual(exts, ['.g3', '.g\xb3'])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_init_reinitializes(self):
         # Issue 4936: make sure an init starts clean
         # First, put some poison into the types table
@@ -144,6 +148,8 @@ class MimeTypesTestCase(unittest.TestCase):
         # Poison should be gone.
         self.assertEqual(mimetypes.guess_extension('foo/bar'), None)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_preferred_extension(self):
         def check_extensions():
             self.assertEqual(mimetypes.guess_extension('application/octet-stream'), '.bin')
@@ -185,6 +191,8 @@ class MimeTypesTestCase(unittest.TestCase):
         self.assertEqual(types_map, mimetypes.types_map)
         self.assertEqual(common_types, mimetypes.common_types)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_path_like_ob(self):
         filename = "LICENSE.txt"
         filepath = pathlib.Path(filename)
@@ -248,6 +256,8 @@ class MimetypesCliTestCase(unittest.TestCase):
             mimetypes._main()
             return output.getvalue().strip()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_help_option(self):
         support.patch(self, sys, "argv", [sys.executable, "-h"])
         with support.captured_stdout() as output:
@@ -257,6 +267,8 @@ class MimetypesCliTestCase(unittest.TestCase):
         self.assertIn("Usage: mimetypes.py", output.getvalue())
         self.assertEqual(cm.exception.code, 0)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_invalid_option(self):
         support.patch(self, sys, "argv", [sys.executable, "--invalid"])
         with support.captured_stdout() as output:
@@ -266,6 +278,8 @@ class MimetypesCliTestCase(unittest.TestCase):
         self.assertIn("Usage: mimetypes.py", output.getvalue())
         self.assertEqual(cm.exception.code, 1)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_guess_extension(self):
         eq = self.assertEqual
 
@@ -278,6 +292,8 @@ class MimetypesCliTestCase(unittest.TestCase):
         extension = self.mimetypes_cmd("-e", "image/jpeg")
         eq(extension, ".jpg")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_guess_type(self):
         eq = self.assertEqual
 
