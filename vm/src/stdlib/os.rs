@@ -121,50 +121,57 @@ impl AsRef<Path> for PyPathLike {
     }
 }
 
+fn fspath(obj: PyObjectRef, check_for_nul: bool, vm: &VirtualMachine) -> PyResult<PyPathLike> {
+    let check_nul = |b: &[u8]| {
+        if !check_for_nul || memchr::memchr(b'\0', b).is_none() {
+            Ok(())
+        } else {
+            Err(vm.new_value_error("embedded null character".to_owned()))
+        }
+    };
+    let match1 = |obj: &PyObjectRef| {
+        let pathlike = match_class!(match obj {
+            ref s @ PyStr => {
+                let s = s.borrow_value();
+                check_nul(s.as_bytes())?;
+                PyPathLike {
+                    path: s.into(),
+                    mode: OutputMode::String,
+                }
+            }
+            ref b @ PyBytes => {
+                check_nul(&b)?;
+                PyPathLike {
+                    path: bytes_as_osstr(&b, vm)?.to_os_string().into(),
+                    mode: OutputMode::Bytes,
+                }
+            }
+            _ => return Ok(None),
+        });
+        Ok(Some(pathlike))
+    };
+    if let Some(pathlike) = match1(&obj)? {
+        return Ok(pathlike);
+    }
+    let method = vm.get_method_or_type_error(obj.clone(), "__fspath__", || {
+        format!(
+            "expected str, bytes or os.PathLike object, not '{}'",
+            obj.class().name
+        )
+    })?;
+    let result = vm.invoke(&method, ())?;
+    match1(&result)?.ok_or_else(|| {
+        vm.new_type_error(format!(
+            "expected {}.__fspath__() to return str or bytes, not '{}'",
+            obj.class().name,
+            result.class().name,
+        ))
+    })
+}
+
 impl TryFromObject for PyPathLike {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        let check_nul = |b: &[u8]| match memchr::memchr(b'\0', b) {
-            None => Ok(()),
-            Some(_) => Err(vm.new_value_error("embedded null character".to_owned())),
-        };
-        let match1 = |obj: &PyObjectRef| {
-            let pathlike = match_class!(match obj {
-                ref s @ PyStr => {
-                    let s = s.borrow_value();
-                    check_nul(s.as_bytes())?;
-                    PyPathLike {
-                        path: s.into(),
-                        mode: OutputMode::String,
-                    }
-                }
-                ref b @ PyBytes => {
-                    check_nul(&b)?;
-                    PyPathLike {
-                        path: bytes_as_osstr(&b, vm)?.to_os_string().into(),
-                        mode: OutputMode::Bytes,
-                    }
-                }
-                _ => return Ok(None),
-            });
-            Ok(Some(pathlike))
-        };
-        if let Some(pathlike) = match1(&obj)? {
-            return Ok(pathlike);
-        }
-        let method = vm.get_method_or_type_error(obj.clone(), "__fspath__", || {
-            format!(
-                "expected str, bytes or os.PathLike object, not '{}'",
-                obj.class().name
-            )
-        })?;
-        let result = vm.invoke(&method, ())?;
-        match1(&result)?.ok_or_else(|| {
-            vm.new_type_error(format!(
-                "expected {}.__fspath__() to return str or bytes, not '{}'",
-                obj.class().name,
-                result.class().name,
-            ))
-        })
+        fspath(obj, true, vm)
     }
 }
 
@@ -1103,7 +1110,8 @@ mod _os {
     }
 
     #[pyfunction]
-    fn fspath(path: PyPathLike, vm: &VirtualMachine) -> PyResult {
+    fn fspath(path: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let path = super::fspath(path, false, vm)?;
         path.mode.process_path(path.path, vm)
     }
 

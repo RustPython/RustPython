@@ -1652,6 +1652,7 @@ class PersistenceTest(TestCase):
         self.assertEqual(conn.connections, 2)
 
 
+@unittest.skip("TODO: RUSTPYTHON")
 class HTTPSTest(TestCase):
 
     def setUp(self):
