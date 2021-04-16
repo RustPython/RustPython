@@ -2335,9 +2335,9 @@ dependencies = [
 
 [[package]]
 name = "sre-engine"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "405ac93b72ef1cc68dbbe9e990f6e8067856dae41f58b60fd6bd55d216c1fa6c"
+checksum = "4953873f7ab71f618648bc796ade9b85ea593d837e535941d28fb8269777c265"
 dependencies = [
  "bitflags",
  "num_enum",
