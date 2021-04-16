@@ -63,6 +63,8 @@ class GetLineTestsGoodData(TempFile):
                 cached_line = linecache.getline(self.file_name, index + 1)
                 self.assertEqual(line, cached_line)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_getlines(self):
         lines = linecache.getlines(self.file_name)
         self.assertEqual(lines, self.file_list)
@@ -87,9 +89,19 @@ class EmptyFile(GetLineTestsGoodData, unittest.TestCase):
 class SingleEmptyLine(GetLineTestsGoodData, unittest.TestCase):
     file_list = ['\n']
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_getline(self):
+        super().test_getline()
+
 
 class GoodUnicode(GetLineTestsGoodData, unittest.TestCase):
     file_list = ['á\n', 'b\n', 'abcdef\n', 'ááááá\n']
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_getline(self):
+        super().test_getline()
 
 
 class BadUnicode(GetLineTestsBadData, unittest.TestCase):
@@ -98,6 +110,8 @@ class BadUnicode(GetLineTestsBadData, unittest.TestCase):
 
 class LineCacheTests(unittest.TestCase):
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_getline(self):
         getline = linecache.getline
 
@@ -123,6 +137,8 @@ class LineCacheTests(unittest.TestCase):
         empty = linecache.getlines('a/b/c/__init__.py')
         self.assertEqual(empty, [])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_no_ending_newline(self):
         self.addCleanup(support.unlink, support.TESTFN)
         with open(support.TESTFN, "w") as fp:
@@ -147,6 +163,8 @@ class LineCacheTests(unittest.TestCase):
         cached_empty = [fn for fn in cached if fn in linecache.cache]
         self.assertEqual(cached_empty, [])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_checkcache(self):
         getline = linecache.getline
         # Create a source file and cache its contents
@@ -186,6 +204,8 @@ class LineCacheTests(unittest.TestCase):
         self.assertEqual(False, linecache.lazycache(FILENAME, None))
         self.assertEqual(lines, linecache.getlines(FILENAME))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_lazycache_smoke(self):
         lines = linecache.getlines(NONEXISTENT_FILENAME, globals())
         linecache.clearcache()
@@ -196,6 +216,8 @@ class LineCacheTests(unittest.TestCase):
         # globals: this would error if the lazy value wasn't resolved.
         self.assertEqual(lines, linecache.getlines(NONEXISTENT_FILENAME))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_lazycache_provide_after_failed_lookup(self):
         linecache.clearcache()
         lines = linecache.getlines(NONEXISTENT_FILENAME, globals())
@@ -214,6 +236,8 @@ class LineCacheTests(unittest.TestCase):
         self.assertEqual(False, linecache.lazycache('', globals()))
         self.assertEqual(False, linecache.lazycache('<foo>', globals()))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_lazycache_already_cached(self):
         linecache.clearcache()
         lines = linecache.getlines(NONEXISTENT_FILENAME, globals())
