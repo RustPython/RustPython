@@ -7,6 +7,7 @@ repository = "https://github.com/RustPython/sre-engine"
 license = "MIT"
 edition = "2018"
 keywords = ["regex"]
+include = ["LICENSE", "src/**/*.rs"]
 
 [dependencies]
 num_enum = "0.5"
