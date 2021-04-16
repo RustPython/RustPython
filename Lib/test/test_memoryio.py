@@ -724,6 +724,73 @@ class CBytesIOTest(PyBytesIOTest):
     ioclass = io.BytesIO
     UnsupportedOperation = io.UnsupportedOperation
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_bytes_array(self):
+        super().test_bytes_array()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_flags(self):
+        super().test_flags()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_getbuffer(self):
+        super().test_getbuffer()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_init(self):
+        super().test_init()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_issue5449(self):
+        super().test_issue5449()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_pickling(self):
+        super().test_pickling()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_read(self):
+        super().test_read()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_readline(self):
+        super().test_readline()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_relative_seek(self):
+        super().test_relative_seek()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_seek(self):
+        super().test_seek()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_subclassing(self):
+        super().test_subclassing()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_truncate(self):
+        super().test_truncate()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_write(self):
+        super().test_write()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_getstate(self):
         memio = self.ioclass()
         state = memio.__getstate__()
@@ -735,6 +802,8 @@ class CBytesIOTest(PyBytesIOTest):
         memio.close()
         self.assertRaises(ValueError, memio.__getstate__)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_setstate(self):
         # This checks whether __setstate__ does proper input validation.
         memio = self.ioclass()
@@ -811,8 +880,95 @@ class CStringIOTest(PyStringIOTest):
     ioclass = io.StringIO
     UnsupportedOperation = io.UnsupportedOperation
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_detach(self):
+        super().test_detach()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_flags(self):
+        super().test_flags()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_init(self):
+        super().test_init()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_issue5265(self):
+        super().test_issue5265()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_newline_argument(self):
+        super().test_newline_argument()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_newline_cr(self):
+        super().test_newline_cr()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_newline_crlf(self):
+        super().test_newline_crlf()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_newline_empty(self):
+        super().test_newline_empty()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_newline_none(self):
+        super().test_newline_none()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_newlines_property(self):
+        super().test_newlines_property()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_pickling(self):
+        super().test_pickling()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_read(self):
+        super().test_read()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_readline(self):
+        super().test_readline()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_relative_seek(self):
+        super().test_relative_seek()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_seek(self):
+        super().test_seek()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_textio_properties(self):
+        super().test_textio_properties()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_truncate(self):
+        super().test_truncate()
+
     # XXX: For the Python version of io.StringIO, this is highly
     # dependent on the encoding used for the underlying buffer.
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_widechar(self):
         buf = self.buftype("\U0002030a\U00020347")
         memio = self.ioclass(buf)
@@ -825,6 +981,8 @@ class CStringIOTest(PyStringIOTest):
         self.assertEqual(memio.tell(), len(buf) * 2)
         self.assertEqual(memio.getvalue(), buf + buf)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_getstate(self):
         memio = self.ioclass()
         state = memio.__getstate__()
@@ -837,6 +995,8 @@ class CStringIOTest(PyStringIOTest):
         memio.close()
         self.assertRaises(ValueError, memio.__getstate__)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_setstate(self):
         # This checks whether __setstate__ does proper input validation.
         memio = self.ioclass()
@@ -857,6 +1017,61 @@ class CStringIOTest(PyStringIOTest):
 
 class CStringIOPickleTest(PyStringIOPickleTest):
     UnsupportedOperation = io.UnsupportedOperation
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_issue5265(self):
+        super().test_issue5265()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_newline_argument(self):
+        super().test_newline_argument()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_newline_cr(self):
+        super().test_newline_cr()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_newline_crlf(self):
+        super().test_newline_crlf()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_newline_default(self):
+        super().test_newline_default()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_newline_empty(self):
+        super().test_newline_empty()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_newline_lf(self):
+        super().test_newline_lf()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_newline_none(self):
+        super().test_newline_none()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_newlines_property(self):
+        super().test_newlines_property()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_relative_seek(self):
+        super().test_relative_seek()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_textio_properties(self):
+        super().test_textio_properties()
 
     class ioclass(io.StringIO):
         def __new__(cls, *args, **kwargs):
