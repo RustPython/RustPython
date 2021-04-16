@@ -434,6 +434,8 @@ class OrderedDictTests:
         od.move_to_end('c')
         self.assertEqual(list(od), list('bac'))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_sizeof(self):
         OrderedDict = self.OrderedDict
         # Wimpy test: Just verify the reported size is larger than a regular dict
@@ -637,6 +639,8 @@ class OrderedDictTests:
         dict.update(od, [('spam', 1)])
         self.assertNotIn('NULL', repr(od))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_reference_loop(self):
         # Issue 25935
         OrderedDict = self.OrderedDict
@@ -648,6 +652,8 @@ class OrderedDictTests:
         gc.collect()
         self.assertIsNone(r())
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_free_after_iterating(self):
         support.check_free_after_iterating(self, iter, self.OrderedDict)
         support.check_free_after_iterating(self, lambda d: iter(d.keys()), self.OrderedDict)
@@ -690,6 +696,10 @@ for method in (
     setattr(CPythonBuiltinDictTests, method, getattr(OrderedDictTests, method))
 del method
 
+# TODO: RUSTPYTHON
+import functools
+setattr(CPythonBuiltinDictTests, "test_delitem", functools.partialmethod(OrderedDictTests.test_delitem))
+CPythonBuiltinDictTests.test_delitem = unittest.expectedFailure(CPythonBuiltinDictTests.test_delitem)
 
 @unittest.skipUnless(c_coll, 'requires the C version of the collections module')
 class CPythonOrderedDictTests(OrderedDictTests, unittest.TestCase):
@@ -730,6 +740,8 @@ class CPythonOrderedDictTests(OrderedDictTests, unittest.TestCase):
         check(iter(od.items()), itersize)
         check(iter(od.values()), itersize)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_key_change_during_iteration(self):
         OrderedDict = self.OrderedDict
 
@@ -747,6 +759,8 @@ class CPythonOrderedDictTests(OrderedDictTests, unittest.TestCase):
                 del od['c']
         self.assertEqual(list(od), list('bdeaf'))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_iterators_pickling(self):
         OrderedDict = self.OrderedDict
         pairs = [('c', 1), ('b', 2), ('a', 3), ('d', 4), ('e', 5), ('f', 6)]
@@ -786,6 +800,15 @@ class CPythonOrderedDictTests(OrderedDictTests, unittest.TestCase):
 
 
 class PurePythonOrderedDictSubclassTests(PurePythonOrderedDictTests):
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_copying(self):
+        super().test_copying()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_pickle_recursive(self):
+        super().test_pickle_recursive()
 
     module = py_coll
     class OrderedDict(py_coll.OrderedDict):
@@ -793,6 +816,15 @@ class PurePythonOrderedDictSubclassTests(PurePythonOrderedDictTests):
 
 
 class CPythonOrderedDictSubclassTests(CPythonOrderedDictTests):
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_copying(self):
+        super().test_copying()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_pickle_recursive(self):
+        super().test_pickle_recursive()
 
     module = c_coll
     class OrderedDict(c_coll.OrderedDict):
