@@ -2888,6 +2888,8 @@ mod fileio {
 
             zelf.fd.store(fd);
             zelf.closefd.store(args.closefd);
+            #[cfg(windows)]
+            crate::stdlib::msvcrt::setmode_binary(fd);
             vm.set_attr(zelf.as_object(), "name", name)?;
             Ok(())
         }

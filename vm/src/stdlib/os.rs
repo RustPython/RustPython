@@ -123,16 +123,27 @@ impl AsRef<Path> for PyPathLike {
 
 impl TryFromObject for PyPathLike {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        let check_nul = |b: &[u8]| match memchr::memchr(b'\0', b) {
+            None => Ok(()),
+            Some(_) => Err(vm.new_value_error("embedded null character".to_owned())),
+        };
         let match1 = |obj: &PyObjectRef| {
             let pathlike = match_class!(match obj {
-                ref l @ PyStr => PyPathLike {
-                    path: l.borrow_value().into(),
-                    mode: OutputMode::String,
-                },
-                ref i @ PyBytes => PyPathLike {
-                    path: bytes_as_osstr(&i, vm)?.to_os_string().into(),
-                    mode: OutputMode::Bytes,
-                },
+                ref s @ PyStr => {
+                    let s = s.borrow_value();
+                    check_nul(s.as_bytes())?;
+                    PyPathLike {
+                        path: s.into(),
+                        mode: OutputMode::String,
+                    }
+                }
+                ref b @ PyBytes => {
+                    check_nul(&b)?;
+                    PyPathLike {
+                        path: bytes_as_osstr(&b, vm)?.to_os_string().into(),
+                        mode: OutputMode::Bytes,
+                    }
+                }
                 _ => return Ok(None),
             });
             Ok(Some(pathlike))
@@ -154,6 +165,20 @@ impl TryFromObject for PyPathLike {
                 result.class().name,
             ))
         })
+    }
+}
+
+enum PathOrFd {
+    Path(PyPathLike),
+    Fd(i32),
+}
+
+impl TryFromObject for PathOrFd {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        match obj.downcast::<int::PyInt>() {
+            Ok(int) => int::try_to_primitive(int.borrow_value(), vm).map(Self::Fd),
+            Err(obj) => PyPathLike::try_from_object(vm, obj).map(Self::Path),
+        }
     }
 }
 
@@ -215,7 +240,23 @@ impl IntoPyException for nix::Error {
 /// Convert the error stored in the `errno` variable into an Exception
 #[inline]
 pub fn errno_err(vm: &VirtualMachine) -> PyBaseExceptionRef {
-    io::Error::last_os_error().into_pyexception(vm)
+    errno().into_pyexception(vm)
+}
+
+pub fn errno() -> io::Error {
+    cfg_if::cfg_if! {
+        if #[cfg(windows)] {
+            let err = io::Error::last_os_error();
+            // FIXME: probably not ideal, we need a bigger dichotomy between GetLastError and errno
+            if err.raw_os_error() == Some(0) {
+                io::Error::from_raw_os_error(super::msvcrt::get_errno())
+            } else {
+                err
+            }
+        } else {
+            io::Error::last_os_error()
+        }
+    }
 }
 
 #[allow(dead_code)]
@@ -303,7 +344,7 @@ use posix::bytes_as_osstr;
 fn bytes_as_osstr<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a ffi::OsStr> {
     std::str::from_utf8(b)
         .map(|s| s.as_ref())
-        .map_err(|_| vm.new_value_error("Can't convert bytes to str for env function".to_owned()))
+        .map_err(|_| vm.new_unicode_decode_error("can't decode path for utf-8".to_owned()))
 }
 
 #[cfg(all(windows, target_env = "msvc"))]
@@ -581,9 +622,9 @@ mod _os {
     const LISTDIR_FD: bool = cfg!(all(unix, not(target_os = "redox")));
 
     #[pyfunction]
-    fn listdir(path: Either<PyPathLike, i32>, vm: &VirtualMachine) -> PyResult {
+    fn listdir(path: PathOrFd, vm: &VirtualMachine) -> PyResult {
         let list = match path {
-            Either::A(path) => {
+            PathOrFd::Path(path) => {
                 let dir_iter = fs::read_dir(&path).map_err(|err| err.into_pyexception(vm))?;
                 dir_iter
                     .map(|entry| match entry {
@@ -592,7 +633,7 @@ mod _os {
                     })
                     .collect::<PyResult<_>>()?
             }
-            Either::B(fno) => {
+            PathOrFd::Fd(fno) => {
                 #[cfg(not(all(unix, not(target_os = "redox"))))]
                 {
                     let _ = fno;
@@ -737,7 +778,7 @@ mod _os {
             vm: &VirtualMachine,
         ) -> PyResult {
             stat(
-                Either::A(PyPathLike {
+                PathOrFd::Path(PyPathLike {
                     path: self.entry.path(),
                     mode: OutputMode::String,
                 }),
@@ -956,7 +997,7 @@ mod _os {
     const STAT_DIR_FD: bool = cfg!(not(windows));
 
     fn stat_inner(
-        file: Either<PyPathLike, i32>,
+        file: PathOrFd,
         dir_fd: DirFd<{ STAT_DIR_FD as usize }>,
         follow_symlinks: FollowSymlinks,
     ) -> io::Result<Option<StatStruct>> {
@@ -965,8 +1006,8 @@ mod _os {
             // TODO: replicate CPython's win32_xstat
             let [] = dir_fd.0;
             let meta = match file {
-                Either::A(path) => fs_metadata(&path, follow_symlinks.0)?,
-                Either::B(fno) => Fd(fno).as_rust_file()?.metadata()?,
+                PathOrFd::Path(path) => fs_metadata(&path, follow_symlinks.0)?,
+                PathOrFd::Fd(fno) => Fd(fno).as_rust_file()?.metadata()?,
             };
             meta_to_stat(&meta).map(Some)
         }
@@ -974,7 +1015,7 @@ mod _os {
         {
             let mut stat = std::mem::MaybeUninit::uninit();
             let ret = match file {
-                Either::A(path) => {
+                PathOrFd::Path(path) => {
                     use ffi_ext::OsStrExt;
                     let path = path.as_ref().as_os_str().as_bytes();
                     let path = match ffi::CString::new(path) {
@@ -1002,7 +1043,7 @@ mod _os {
                         unsafe { libc::stat(path.as_ptr(), stat.as_mut_ptr()) }
                     }
                 }
-                Either::B(fd) => unsafe { libc::fstat(fd, stat.as_mut_ptr()) },
+                PathOrFd::Fd(fd) => unsafe { libc::fstat(fd, stat.as_mut_ptr()) },
             };
             if ret < 0 {
                 return Err(io::Error::last_os_error());
@@ -1014,7 +1055,7 @@ mod _os {
     #[pyfunction]
     #[pyfunction(name = "fstat")]
     fn stat(
-        file: Either<PyPathLike, i32>,
+        file: PathOrFd,
         dir_fd: DirFd<{ STAT_DIR_FD as usize }>,
         follow_symlinks: FollowSymlinks,
         vm: &VirtualMachine,
@@ -1027,7 +1068,7 @@ mod _os {
 
     #[pyfunction]
     fn lstat(
-        file: Either<PyPathLike, i32>,
+        file: PathOrFd,
         dir_fd: DirFd<{ STAT_DIR_FD as usize }>,
         vm: &VirtualMachine,
     ) -> PyResult {
@@ -1764,7 +1805,7 @@ mod posix {
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn chown(
-        path: Either<PyPathLike, i64>,
+        path: PathOrFd,
         uid: isize,
         gid: isize,
         dir_fd: DirFd<1>,
@@ -1795,13 +1836,8 @@ mod posix {
 
         let dir_fd = dir_fd.get_opt();
         match path {
-            Either::A(p) => nix::unistd::fchownat(dir_fd, p.path.as_os_str(), uid, gid, flag),
-            Either::B(fd) => {
-                let path = fs::read_link(format!("/proc/self/fd/{}", fd)).map_err(|_| {
-                    vm.new_os_error(String::from("Cannot find path for specified fd"))
-                })?;
-                nix::unistd::fchownat(dir_fd, &path, uid, gid, flag)
-            }
+            PathOrFd::Path(p) => nix::unistd::fchownat(dir_fd, p.path.as_os_str(), uid, gid, flag),
+            PathOrFd::Fd(fd) => nix::unistd::fchown(fd, uid, gid),
         }
         .map_err(|err| err.into_pyexception(vm))
     }
@@ -1810,7 +1846,7 @@ mod posix {
     #[pyfunction]
     fn lchown(path: PyPathLike, uid: isize, gid: isize, vm: &VirtualMachine) -> PyResult<()> {
         chown(
-            Either::A(path),
+            PathOrFd::Path(path),
             uid,
             gid,
             DirFd::default(),
@@ -1821,9 +1857,9 @@ mod posix {
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn fchown(fd: i64, uid: isize, gid: isize, vm: &VirtualMachine) -> PyResult<()> {
+    fn fchown(fd: i32, uid: isize, gid: isize, vm: &VirtualMachine) -> PyResult<()> {
         chown(
-            Either::B(fd),
+            PathOrFd::Fd(fd),
             uid,
             gid,
             DirFd::default(),
@@ -2805,7 +2841,7 @@ mod nt {
         };
         let meta = metadata.map_err(|err| err.into_pyexception(vm))?;
         let mut permissions = meta.permissions();
-        permissions.set_readonly(mode & S_IWRITE != 0);
+        permissions.set_readonly(mode & S_IWRITE == 0);
         fs::set_permissions(&path, permissions).map_err(|err| err.into_pyexception(vm))
     }
 
@@ -2813,7 +2849,6 @@ mod nt {
     #[cfg(target_env = "msvc")]
     extern "C" {
         fn _cwait(termstat: *mut i32, procHandle: intptr_t, action: i32) -> intptr_t;
-        fn _get_errno(pValue: *mut i32) -> i32;
     }
 
     #[cfg(target_env = "msvc")]

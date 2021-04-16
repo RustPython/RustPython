@@ -7,6 +7,22 @@ use crate::VirtualMachine;
 use itertools::Itertools;
 use winapi::shared::minwindef::UINT;
 use winapi::um::errhandlingapi::SetErrorMode;
+use winapi::um::handleapi::INVALID_HANDLE_VALUE;
+use winapi::um::winnt::HANDLE;
+
+pub fn setmode_binary(fd: i32) {
+    unsafe { suppress_iph!(_setmode(fd, libc::O_BINARY)) };
+}
+
+pub fn get_errno() -> i32 {
+    let mut e = 0;
+    unsafe { suppress_iph!(_get_errno(&mut e)) };
+    e
+}
+
+extern "C" {
+    fn _get_errno(pValue: *mut i32) -> i32;
+}
 
 extern "C" {
     fn _getch() -> i32;
@@ -63,11 +79,21 @@ fn msvcrt_setmode(fd: i32, flags: i32, vm: &VirtualMachine) -> PyResult<i32> {
 
 extern "C" {
     fn _open_osfhandle(osfhandle: isize, flags: i32) -> i32;
+    fn _get_osfhandle(fd: i32) -> libc::intptr_t;
 }
 
 fn msvcrt_open_osfhandle(handle: isize, flags: i32, vm: &VirtualMachine) -> PyResult<i32> {
     let ret = unsafe { suppress_iph!(_open_osfhandle(handle, flags)) };
     if ret == -1 {
+        Err(errno_err(vm))
+    } else {
+        Ok(ret)
+    }
+}
+
+fn msvcrt_get_osfhandle(fd: i32, vm: &VirtualMachine) -> PyResult<isize> {
+    let ret = unsafe { suppress_iph!(_get_osfhandle(fd)) };
+    if ret as HANDLE == INVALID_HANDLE_VALUE {
         Err(errno_err(vm))
     } else {
         Ok(ret)
@@ -94,6 +120,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "putwch" => named_function!(ctx, msvcrt, putwch),
         "setmode" => named_function!(ctx, msvcrt, setmode),
         "open_osfhandle" => named_function!(ctx, msvcrt, open_osfhandle),
+        "get_osfhandle" => named_function!(ctx, msvcrt, get_osfhandle),
         "SetErrorMode" => named_function!(ctx, msvcrt, seterrormode),
         "SEM_FAILCRITICALERRORS" => ctx.new_int(SEM_FAILCRITICALERRORS),
         "SEM_NOALIGNMENTFAULTEXCEPT" => ctx.new_int(SEM_NOALIGNMENTFAULTEXCEPT),

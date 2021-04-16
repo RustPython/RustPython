@@ -1,6 +1,7 @@
 //! A module implementing an io type backed by the C runtime's file descriptors, i.e. what's
 //! returned from libc::open, even on windows.
 
+use crate::suppress_iph;
 use std::{cmp, ffi, fs, io, mem};
 
 #[cfg(windows)]
@@ -16,7 +17,7 @@ use libc::{fsync, ftruncate};
 #[inline]
 fn cvt<T, I: num_traits::PrimInt>(ret: I, f: impl FnOnce(I) -> T) -> io::Result<T> {
     if ret < I::zero() {
-        Err(io::Error::last_os_error())
+        Err(crate::stdlib::os::errno())
     } else {
         Ok(f(ret))
     }
@@ -39,7 +40,10 @@ impl Fd {
 
     #[cfg(windows)]
     pub fn wopen(path: &widestring::WideCStr, flags: i32, mode: i32) -> io::Result<Self> {
-        cvt(unsafe { libc::wopen(path.as_ptr(), flags, mode) }, Fd)
+        cvt(
+            unsafe { suppress_iph!(libc::wopen(path.as_ptr(), flags, mode)) },
+            Fd,
+        )
     }
 
     #[cfg(all(any(unix, target_os = "wasi"), not(target_os = "redox")))]
@@ -51,15 +55,15 @@ impl Fd {
     }
 
     pub fn fsync(&self) -> io::Result<()> {
-        cvt(unsafe { fsync(self.0) }, drop)
+        cvt(unsafe { suppress_iph!(fsync(self.0)) }, drop)
     }
 
     pub fn close(&self) -> io::Result<()> {
-        cvt(unsafe { libc::close(self.0) }, drop)
+        cvt(unsafe { suppress_iph!(libc::close(self.0)) }, drop)
     }
 
     pub fn ftruncate(&self, len: i64) -> io::Result<()> {
-        cvt(unsafe { ftruncate(self.0, len) }, drop)
+        cvt(unsafe { suppress_iph!(ftruncate(self.0, len)) }, drop)
     }
 
     /// NOTE: it's not recommended to use ManuallyDrop::into_inner() to drop the file - it won't
@@ -101,7 +105,7 @@ impl Fd {
         extern "C" {
             fn _get_osfhandle(fd: i32) -> libc::intptr_t;
         }
-        let handle = unsafe { crate::suppress_iph!(_get_osfhandle(self.0)) } as HANDLE;
+        let handle = unsafe { suppress_iph!(_get_osfhandle(self.0)) } as HANDLE;
         if handle == INVALID_HANDLE_VALUE {
             Err(io::Error::last_os_error())
         } else {
@@ -114,7 +118,7 @@ impl io::Write for &Fd {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let count = cmp::min(buf.len(), MAX_RW);
         cvt(
-            unsafe { libc::write(self.0, buf.as_ptr() as _, count as _) },
+            unsafe { suppress_iph!(libc::write(self.0, buf.as_ptr() as _, count as _)) },
             |i| i as usize,
         )
     }
@@ -141,7 +145,7 @@ impl io::Read for &Fd {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let count = cmp::min(buf.len(), MAX_RW);
         cvt(
-            unsafe { libc::read(self.0, buf.as_mut_ptr() as _, count as _) },
+            unsafe { suppress_iph!(libc::read(self.0, buf.as_mut_ptr() as _, count as _)) },
             |i| i as usize,
         )
     }
