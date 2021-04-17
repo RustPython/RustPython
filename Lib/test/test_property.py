@@ -100,24 +100,32 @@ class PropertyTests(unittest.TestCase):
         self.assertRaises(PropertySet, setattr, sub, "spam", None)
         self.assertRaises(PropertyDel, delattr, sub, "spam")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipIf(sys.flags.optimize >= 2,
                      "Docstrings are omitted with -O2 and above")
     def test_property_decorator_subclass_doc(self):
         sub = SubClass()
         self.assertEqual(sub.__class__.spam.__doc__, "SubClass.getter")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipIf(sys.flags.optimize >= 2,
                      "Docstrings are omitted with -O2 and above")
     def test_property_decorator_baseclass_doc(self):
         base = BaseClass()
         self.assertEqual(base.__class__.spam.__doc__, "BaseClass.getter")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_property_decorator_doc(self):
         base = PropertyDocBase()
         sub = PropertyDocSub()
         self.assertEqual(base.__class__.spam.__doc__, "spam spam spam")
         self.assertEqual(sub.__class__.spam.__doc__, "spam spam spam")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipIf(sys.flags.optimize >= 2,
                      "Docstrings are omitted with -O2 and above")
     def test_property_getter_doc_override(self):
@@ -128,6 +136,8 @@ class PropertyTests(unittest.TestCase):
         self.assertEqual(newgetter.spam, 8)
         self.assertEqual(newgetter.__class__.spam.__doc__, "new docstring")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_property___isabstractmethod__descriptor(self):
         for val in (True, False, [], [1], '', '1'):
             class C(object):
@@ -159,6 +169,8 @@ class PropertyTests(unittest.TestCase):
         p.__doc__ = 'extended'
         self.assertEqual(p.__doc__, 'extended')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipIf(sys.flags.optimize >= 2,
                      "Docstrings are omitted with -O2 and above")
     def test_property_decorator_doc_writable(self):
@@ -194,6 +206,8 @@ class PropertySubSlots(property):
 
 class PropertySubclassTests(unittest.TestCase):
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_slots_docstring_copy_exception(self):
         try:
             class Foo(object):
@@ -206,6 +220,8 @@ class PropertySubclassTests(unittest.TestCase):
         else:
             raise Exception("AttributeError not raised")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipIf(sys.flags.optimize >= 2,
                      "Docstrings are omitted with -O2 and above")
     def test_docstring_copy(self):
@@ -218,6 +234,8 @@ class PropertySubclassTests(unittest.TestCase):
             Foo.spam.__doc__,
             "spam wrapped in property subclass")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipIf(sys.flags.optimize >= 2,
                      "Docstrings are omitted with -O2 and above")
     def test_property_setter_copies_getter_docstring(self):
@@ -251,6 +269,8 @@ class PropertySubclassTests(unittest.TestCase):
             FooSub.spam.__doc__,
             "spam wrapped in property subclass")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipIf(sys.flags.optimize >= 2,
                      "Docstrings are omitted with -O2 and above")
     def test_property_new_getter_new_docstring(self):
