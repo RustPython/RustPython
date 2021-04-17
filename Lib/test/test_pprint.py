@@ -76,6 +76,8 @@ class QueryTestCase(unittest.TestCase):
         self.b = list(range(200))
         self.a[-12] = self.b
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_init(self):
         pp = pprint.PrettyPrinter()
         pp = pprint.PrettyPrinter(indent=4, width=40, depth=5,
@@ -154,6 +156,8 @@ class QueryTestCase(unittest.TestCase):
             self.assertFalse(pp.isreadable(unreadable),
                              "expected not isreadable for %r" % (unreadable,))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_same_as_repr(self):
         # Simple objects, small containers and classes that overwrite __repr__
         # For those the result should be the same as repr().
@@ -238,6 +242,8 @@ class QueryTestCase(unittest.TestCase):
         'third': 3}]"""
         self.assertEqual(pprint.pformat(o, indent=4, width=41), expected)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_width(self):
         expected = """\
 [[[[[[1, 2, 3],
@@ -294,6 +300,8 @@ class QueryTestCase(unittest.TestCase):
         self.assertEqual(pprint.pformat({"xy\tab\n": (3,), 5: [[]], (): {}}),
             r"{5: [[]], 'xy\tab\n': (3,), (): {}}")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_sort_dict(self):
         d = dict.fromkeys('cba')
         self.assertEqual(pprint.pformat(d, sort_dicts=False), "{'c': None, 'b': None, 'a': None}")
@@ -319,6 +327,8 @@ OrderedDict([('the', 0),
              ('lazy', 7),
              ('dog', 8)])""")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_mapping_proxy(self):
         words = 'the quick brown fox jumped over a lazy dog'.split()
         d = dict(zip(words, itertools.count()))
@@ -354,6 +364,8 @@ mappingproxy(OrderedDict([('the', 0),
  others.should.not.be: like.this}"""
         self.assertEqual(DottedPrettyPrinter().pformat(o), exp)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_set_reprs(self):
         self.assertEqual(pprint.pformat(set()), 'set()')
         self.assertEqual(pprint.pformat(set(range(3))), '{0, 1, 2}')
@@ -649,6 +661,8 @@ frozenset2({0,
         self.assertEqual(pprint.pformat(dict.fromkeys(keys, 0)),
                          '{%r: 0, %r: 0}' % tuple(sorted(keys, key=id)))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_sort_orderable_and_unorderable_values(self):
         # Issue 22721:  sorted pprints is not stable
         a = Unorderable()
