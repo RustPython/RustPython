@@ -144,11 +144,15 @@ class ReprTests(unittest.TestCase):
         self.assertTrue(s.endswith(">"))
         self.assertIn(s.find("..."), [12, 13])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_lambda(self):
         r = repr(lambda x: x)
         self.assertTrue(r.startswith("<function ReprTests.test_lambda.<locals>.<lambda"), r)
         # XXX anonymous functions?  see func_repr
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_builtin_function(self):
         eq = self.assertEqual
         # Functions
@@ -180,6 +184,8 @@ class ReprTests(unittest.TestCase):
         eq(r([[[[[[{}]]]]]]), "[[[[[[{}]]]]]]")
         eq(r([[[[[[[{}]]]]]]]), "[[[[[[[...]]]]]]]")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_cell(self):
         def get_cell():
             x = 42
@@ -191,6 +197,8 @@ class ReprTests(unittest.TestCase):
                                   r'int object at 0x[0-9A-Fa-f]+>')
         self.assertRegex(r(x), r'<cell at 0x.*\.\.\..*>')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_descriptors(self):
         eq = self.assertEqual
         # method descriptors
@@ -312,6 +320,8 @@ class bar:
         # Module name may be prefixed with "test.", depending on how run.
         self.assertEqual(repr(bar.bar), "<class '%s.bar'>" % bar.__name__)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_instance(self):
         self._check_path_limitations('baz')
         write_file(os.path.join(self.subpkgname, 'baz.py'), '''\
@@ -324,6 +334,8 @@ class baz:
         self.assertTrue(repr(ibaz).startswith(
             "<%s.baz object at 0x" % baz.__name__))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_method(self):
         self._check_path_limitations('qux')
         eq = self.assertEqual
