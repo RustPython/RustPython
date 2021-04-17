@@ -621,6 +621,11 @@ class PosixCommonTest(test_genericpath.CommonTest, unittest.TestCase):
     pathmodule = posixpath
     attributes = ['relpath', 'samefile', 'sameopenfile', 'samestat']
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_nonascii_abspath(self):
+        super().test_nonascii_abspath()
+
 
 class PathLikeTests(unittest.TestCase):
 
