@@ -54,6 +54,8 @@ class TestTranforms(BytecodeTestCase):
         # aren't very many tests of lnotab), if peepholer wasn't scheduled
         # to be replaced anyway.
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_unot(self):
         # UNARY_NOT POP_JUMP_IF_FALSE  -->  POP_JUMP_IF_TRUE'
         def unot(x):
@@ -64,6 +66,8 @@ class TestTranforms(BytecodeTestCase):
         self.assertInBytecode(unot, 'POP_JUMP_IF_TRUE')
         self.check_lnotab(unot)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_elim_inversion_of_is_or_in(self):
         for line, cmp_op in (
             ('not a is b', 'is not',),
@@ -75,6 +79,8 @@ class TestTranforms(BytecodeTestCase):
             self.assertInBytecode(code, 'COMPARE_OP', cmp_op)
             self.check_lnotab(code)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_global_as_constant(self):
         # LOAD_GLOBAL None/True/False  -->  LOAD_CONST None/True/False
         def f():
@@ -101,6 +107,8 @@ class TestTranforms(BytecodeTestCase):
         self.assertInBytecode(f, 'LOAD_CONST', None)
         self.check_lnotab(f)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_while_one(self):
         # Skip over:  LOAD_CONST trueconst  POP_JUMP_IF_FALSE xx
         def f():
@@ -113,6 +121,8 @@ class TestTranforms(BytecodeTestCase):
             self.assertInBytecode(f, elem)
         self.check_lnotab(f)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_pack_unpack(self):
         for line, elem in (
             ('a, = a,', 'LOAD_CONST',),
@@ -125,6 +135,8 @@ class TestTranforms(BytecodeTestCase):
             self.assertNotInBytecode(code, 'UNPACK_TUPLE')
             self.check_lnotab(code)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_folding_of_tuples_of_constants(self):
         for line, elem in (
             ('a = 1,2,3', (1, 2, 3)),
@@ -165,6 +177,8 @@ class TestTranforms(BytecodeTestCase):
             ],)
         self.check_lnotab(crater)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_folding_of_lists_of_constants(self):
         for line, elem in (
             # in/not in constants with BUILD_LIST should be folded to a tuple:
@@ -178,6 +192,8 @@ class TestTranforms(BytecodeTestCase):
             self.assertNotInBytecode(code, 'BUILD_LIST')
             self.check_lnotab(code)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_folding_of_sets_of_constants(self):
         for line, elem in (
             # in/not in constants with BUILD_SET should be folded to a frozenset:
@@ -208,6 +224,8 @@ class TestTranforms(BytecodeTestCase):
         self.check_lnotab(g)
 
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_folding_of_binops_on_constants(self):
         for line, elem in (
             ('a = 2+3+4', 9),                   # chained fold
@@ -252,6 +270,8 @@ class TestTranforms(BytecodeTestCase):
         self.assertNotIn(2**1000, code.co_consts)
         self.check_lnotab(code)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_binary_subscr_on_unicode(self):
         # valid code get optimized
         code = compile('"foo"[0]', '', 'single')
@@ -275,6 +295,8 @@ class TestTranforms(BytecodeTestCase):
         self.assertInBytecode(code, 'BINARY_SUBSCR')
         self.check_lnotab(code)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_folding_of_unaryops_on_constants(self):
         for line, elem in (
             ('-0.5', -0.5),                     # unary negative
@@ -308,6 +330,8 @@ class TestTranforms(BytecodeTestCase):
             self.assertInBytecode(code, opname)
             self.check_lnotab(code)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_elim_extra_return(self):
         # RETURN LOAD_CONST None RETURN  -->  RETURN
         def f(x):
@@ -318,6 +342,8 @@ class TestTranforms(BytecodeTestCase):
         self.assertEqual(len(returns), 1)
         self.check_lnotab(f)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_elim_jump_to_return(self):
         # JUMP_FORWARD to RETURN -->  RETURN
         def f(cond, true_value, false_value):
@@ -332,6 +358,8 @@ class TestTranforms(BytecodeTestCase):
         self.assertEqual(len(returns), 2)
         self.check_lnotab(f)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_elim_jump_to_uncond_jump(self):
         # POP_JUMP_IF_FALSE to JUMP_FORWARD --> POP_JUMP_IF_FALSE to non-jump
         def f():
@@ -345,6 +373,8 @@ class TestTranforms(BytecodeTestCase):
         self.check_jump_targets(f)
         self.check_lnotab(f)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_elim_jump_to_uncond_jump2(self):
         # POP_JUMP_IF_FALSE to JUMP_ABSOLUTE --> POP_JUMP_IF_FALSE to non-jump
         def f():
@@ -356,6 +386,8 @@ class TestTranforms(BytecodeTestCase):
         self.check_jump_targets(f)
         self.check_lnotab(f)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_elim_jump_to_uncond_jump3(self):
         # Intentionally use two-line expressions to test issue37213.
         # JUMP_IF_FALSE_OR_POP to JUMP_IF_FALSE_OR_POP --> JUMP_IF_FALSE_OR_POP to non-jump
@@ -391,6 +423,8 @@ class TestTranforms(BytecodeTestCase):
         self.assertInBytecode(f, 'JUMP_IF_FALSE_OR_POP')
         self.assertInBytecode(f, 'POP_JUMP_IF_TRUE')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_elim_jump_after_return1(self):
         # Eliminate dead code: jumps immediately after returns can't be reached
         def f(cond1, cond2):
@@ -409,6 +443,8 @@ class TestTranforms(BytecodeTestCase):
         self.assertLessEqual(len(returns), 6)
         self.check_lnotab(f)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_elim_jump_after_return2(self):
         # Eliminate dead code: jumps immediately after returns can't be reached
         def f(cond1, cond2):
@@ -424,6 +460,8 @@ class TestTranforms(BytecodeTestCase):
         self.assertLessEqual(len(returns), 2)
         self.check_lnotab(f)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_make_function_doesnt_bail(self):
         def f():
             def g()->1+1:
@@ -432,6 +470,8 @@ class TestTranforms(BytecodeTestCase):
         self.assertNotInBytecode(f, 'BINARY_ADD')
         self.check_lnotab(f)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_constant_folding(self):
         # Issue #11244: aggressive constant folding.
         exprs = [
@@ -453,12 +493,16 @@ class TestTranforms(BytecodeTestCase):
                 self.assertFalse(instr.opname.startswith('BUILD_'))
             self.check_lnotab(code)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_in_literal_list(self):
         def containtest():
             return x in [a, b]
         self.assertEqual(count_instr_recursively(containtest, 'BUILD_LIST'), 0)
         self.check_lnotab(containtest)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_iterate_literal_list(self):
         def forloop():
             for x in [a, b]:
@@ -466,6 +510,8 @@ class TestTranforms(BytecodeTestCase):
         self.assertEqual(count_instr_recursively(forloop, 'BUILD_LIST'), 0)
         self.check_lnotab(forloop)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_condition_with_binop_with_bools(self):
         def f():
             if True or False:
@@ -474,6 +520,8 @@ class TestTranforms(BytecodeTestCase):
         self.assertEqual(f(), 1)
         self.check_lnotab(f)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_if_with_if_expression(self):  # XXX does this belong in 3.8?
         # Check bpo-37289
         def f(x):
@@ -483,6 +531,8 @@ class TestTranforms(BytecodeTestCase):
         self.assertTrue(f(True))
         self.check_lnotab(f)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_trailing_nops(self):
         # Check the lnotab of a function that even after trivial
         # optimization has trailing nops, which the lnotab adjustment has to
