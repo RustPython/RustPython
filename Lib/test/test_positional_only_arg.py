@@ -27,6 +27,8 @@ class PositionalOnlyTestCase(unittest.TestCase):
         with self.assertRaisesRegex(SyntaxError, regex):
             compile(codestr + "\n", "<test>", "single")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_invalid_syntax_errors(self):
         check_syntax_error(self, "def f(a, b = 5, /, c): pass", "non-default argument follows default argument")
         check_syntax_error(self, "def f(a = 5, b, /, c): pass", "non-default argument follows default argument")
@@ -48,6 +50,8 @@ class PositionalOnlyTestCase(unittest.TestCase):
         check_syntax_error(self, "def f(a, /, c, /, d, *, e): pass")
         check_syntax_error(self, "def f(a, *, c, /, d, e): pass")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_invalid_syntax_errors_async(self):
         check_syntax_error(self, "async def f(a, b = 5, /, c): pass", "non-default argument follows default argument")
         check_syntax_error(self, "async def f(a = 5, b, /, c): pass", "non-default argument follows default argument")
@@ -141,6 +145,8 @@ class PositionalOnlyTestCase(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, expected):
             f(a=1, b=2)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_positional_only_and_arg_invalid_calls(self):
         def f(a, b, /, c):
             pass
@@ -153,6 +159,8 @@ class PositionalOnlyTestCase(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, r"f\(\) takes 3 positional arguments but 4 were given"):
             f(1, 2, 3, 4)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_positional_only_and_optional_arg_invalid_calls(self):
         def f(a, b, /, c=3):
             pass
@@ -164,6 +172,8 @@ class PositionalOnlyTestCase(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, r"f\(\) takes from 2 to 3 positional arguments but 4 were given"):
             f(1, 2, 3, 4)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_positional_only_and_kwonlyargs_invalid_calls(self):
         def f(a, b, /, c, *, d, e):
             pass
@@ -184,6 +194,8 @@ class PositionalOnlyTestCase(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, r"f\(\) got an unexpected keyword argument 'f'"):
             f(1, 2, 3, d=1, e=4, f=56)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_positional_only_invalid_calls(self):
         def f(a, b, /):
             pass
@@ -195,6 +207,8 @@ class PositionalOnlyTestCase(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, r"f\(\) takes 2 positional arguments but 3 were given"):
             f(1, 2, 3)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_positional_only_with_optional_invalid_calls(self):
         def f(a, b=2, /):
             pass
@@ -235,6 +249,8 @@ class PositionalOnlyTestCase(unittest.TestCase):
         x = lambda a, b, /, : a + b
         self.assertEqual(x(1, 2), 3)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_invalid_syntax_lambda(self):
         check_syntax_error(self, "lambda a, b = 5, /, c: None", "non-default argument follows default argument")
         check_syntax_error(self, "lambda a = 5, b, /, c: None", "non-default argument follows default argument")
@@ -272,11 +288,15 @@ class PositionalOnlyTestCase(unittest.TestCase):
                 return __a
         self.assertEqual(X().f(), 42)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_module_function(self):
         with self.assertRaisesRegex(TypeError, r"f\(\) missing 2 required positional arguments: 'a' and 'b'"):
             global_pos_only_f()
 
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_closures(self):
         def f(x,y):
             def g(x2,/,y2):
@@ -307,6 +327,8 @@ class PositionalOnlyTestCase(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, r"g\(\) takes 2 positional arguments but 3 were given"):
             f(1,2)(3,4,5)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_same_keyword_as_positional_with_kwargs(self):
         def f(something,/,**kwargs):
             return (something, kwargs)
@@ -318,6 +340,8 @@ class PositionalOnlyTestCase(unittest.TestCase):
 
         self.assertEqual(f(42), (42, {}))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_mangling(self):
         class X:
             def f(self, __a=42, /):
@@ -420,6 +444,8 @@ class PositionalOnlyTestCase(unittest.TestCase):
     def test_annotations(self):
         assert global_inner_has_pos_only().__annotations__ == {'x': int}
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_annotations_constant_fold(self):
         def g():
             def f(x: not (int is int), /): ...
