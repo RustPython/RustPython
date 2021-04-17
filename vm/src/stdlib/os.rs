@@ -1211,7 +1211,7 @@ mod _os {
         offset_dst: Option<Offset>,
     }
 
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     #[pyfunction]
     fn copy_file_range(args: CopyFileRangeArgs, vm: &VirtualMachine) -> PyResult<usize> {
         let p_offset_src = args.offset_src.as_ref().map_or_else(std::ptr::null, |x| x);
