@@ -176,6 +176,8 @@ class PkgutilTests(unittest.TestCase):
                 continue
             del sys.modules[pkg]
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_walk_packages_raises_on_string_or_bytes_input(self):
 
         str_input = 'test_dir'
