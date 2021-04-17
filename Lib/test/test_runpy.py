@@ -656,6 +656,8 @@ class RunPathTestCase(unittest.TestCase, CodeExecutionMixin):
             self._check_script(script_name, "<run_path>", script_name,
                                script_name, expect_spec=False)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_basic_script_with_path_object(self):
         with temp_dir() as script_dir:
             mod_name = 'script'
@@ -672,6 +674,8 @@ class RunPathTestCase(unittest.TestCase, CodeExecutionMixin):
             self._check_script(script_name, "<run_path>", script_name,
                                script_name, expect_spec=False)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_script_compiled(self):
         with temp_dir() as script_dir:
             mod_name = 'script'
@@ -786,9 +790,13 @@ class TestExit(unittest.TestCase):
         self.assertTrue(proc.stderr.endswith("\nKeyboardInterrupt\n"))
         self.assertEqual(proc.returncode, self.EXPECTED_CODE)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_pymain_run_file(self):
         self.assertSigInt([sys.executable, self.ham])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_pymain_run_file_runpy_run_module(self):
         tmp = self.ham.parent
         run_module = tmp / "run_module.py"
@@ -802,6 +810,8 @@ class TestExit(unittest.TestCase):
         )
         self.assertSigInt([sys.executable, run_module], cwd=tmp)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_pymain_run_file_runpy_run_module_as_main(self):
         tmp = self.ham.parent
         run_module_as_main = tmp / "run_module_as_main.py"
@@ -815,18 +825,26 @@ class TestExit(unittest.TestCase):
         )
         self.assertSigInt([sys.executable, run_module_as_main], cwd=tmp)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_pymain_run_command_run_module(self):
         self.assertSigInt(
             [sys.executable, "-c", "import runpy; runpy.run_module('ham')"],
             cwd=self.ham.parent,
         )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_pymain_run_command(self):
         self.assertSigInt([sys.executable, "-c", "import ham"], cwd=self.ham.parent)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_pymain_run_stdin(self):
         self.assertSigInt([sys.executable], input="import ham", cwd=self.ham.parent)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_pymain_run_module(self):
         ham = self.ham
         self.assertSigInt([sys.executable, "-m", ham.stem], cwd=ham.parent)
