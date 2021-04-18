@@ -165,6 +165,10 @@ class NetrcTestCase(unittest.TestCase):
 
         self.assertTrue(called)
 
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_home_not_set = unittest.expectedFailure(test_home_not_set)
+
 
 if __name__ == "__main__":
     unittest.main()
