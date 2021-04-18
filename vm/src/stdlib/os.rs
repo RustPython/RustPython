@@ -1195,6 +1195,52 @@ mod _os {
         }
     }
 
+    #[cfg(target_os = "linux")]
+    #[derive(FromArgs)]
+    struct CopyFileRangeArgs {
+        #[pyarg(positional)]
+        src: i32,
+        #[pyarg(positional)]
+        dst: i32,
+        #[pyarg(positional)]
+        count: i64,
+        #[pyarg(any, default)]
+        offset_src: Option<Offset>,
+        #[pyarg(any, default)]
+        offset_dst: Option<Offset>,
+    }
+
+    #[cfg(target_os = "linux")]
+    #[pyfunction]
+    fn copy_file_range(args: CopyFileRangeArgs, vm: &VirtualMachine) -> PyResult<usize> {
+        use std::convert::{TryFrom, TryInto};
+        let p_offset_src = args.offset_src.as_ref().map_or_else(std::ptr::null, |x| x);
+        let p_offset_dst = args.offset_dst.as_ref().map_or_else(std::ptr::null, |x| x);
+        let count: usize = args
+            .count
+            .try_into()
+            .map_err(|_| vm.new_value_error("count should >= 0".to_string()))?;
+
+        // The flags argument is provided to allow
+        // for future extensions and currently must be to 0.
+        let flags = 0u32;
+
+        // Safety: p_offset_src and p_offset_dst is a unique pointer for offset_src and offset_dst respectively,
+        // and will only be freed after this function ends.
+        let ret = unsafe {
+            libc::copy_file_range(
+                args.src,
+                p_offset_src as *mut i64,
+                args.dst,
+                p_offset_dst as *mut i64,
+                count,
+                flags,
+            )
+        };
+
+        usize::try_from(ret).map_err(|_| errno_err(vm))
+    }
+
     #[pyfunction]
     fn strerror(e: i32) -> String {
         unsafe { ffi::CStr::from_ptr(libc::strerror(e)) }
