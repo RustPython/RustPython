@@ -129,7 +129,7 @@ make cool projects:
 
 - [pyckitup](https://github.com/pickitup247/pyckitup): a game engine written in
   rust.
-- [Robot Rumble](github.com/robot-rumble/logic/): an arena-based AI competition platform
+- [Robot Rumble](https://github.com/robot-rumble/logic/): an arena-based AI competition platform
 
 ## Goals
 
