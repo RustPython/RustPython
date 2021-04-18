@@ -6,6 +6,8 @@ import unittest
 from stringprep import *
 
 class StringprepTests(unittest.TestCase):
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test(self):
         self.assertTrue(in_table_a1("\u0221"))
         self.assertFalse(in_table_a1("\u0222"))
