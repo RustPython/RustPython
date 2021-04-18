@@ -75,6 +75,8 @@ class StructSeqTest(unittest.TestCase):
         self.assertTrue(t1 >= t2)
         self.assertTrue(not (t1 != t2))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_fields(self):
         t = time.gmtime()
         self.assertEqual(len(t), t.n_sequence_fields)
