@@ -138,6 +138,7 @@ class NetrcTestCase(unittest.TestCase):
         self.assertRaises(FileNotFoundError, netrc.netrc,
                           file='unlikely_netrc')
 
+    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON, permission error from remnant directory")
     def test_home_not_set(self):
         fake_home = support.TESTFN
         os.mkdir(fake_home)
@@ -164,10 +165,6 @@ class NetrcTestCase(unittest.TestCase):
             self.assertEqual(login, 'bar')
 
         self.assertTrue(called)
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_home_not_set = unittest.expectedFailure(test_home_not_set)
 
 
 if __name__ == "__main__":
