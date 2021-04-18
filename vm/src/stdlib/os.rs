@@ -1,5 +1,3 @@
-use std::convert::TryFrom;
-use std::convert::TryInto;
 use std::ffi;
 use std::fs::File;
 use std::fs::OpenOptions;
@@ -1197,6 +1195,7 @@ mod _os {
         }
     }
 
+    #[cfg(target_os = "linux")]
     #[derive(FromArgs)]
     struct CopyFileRangeArgs {
         #[pyarg(positional)]
@@ -1214,12 +1213,13 @@ mod _os {
     #[cfg(target_os = "linux")]
     #[pyfunction]
     fn copy_file_range(args: CopyFileRangeArgs, vm: &VirtualMachine) -> PyResult<usize> {
+        use std::convert::{TryFrom, TryInto};
         let p_offset_src = args.offset_src.as_ref().map_or_else(std::ptr::null, |x| x);
         let p_offset_dst = args.offset_dst.as_ref().map_or_else(std::ptr::null, |x| x);
         let count: usize = args
             .count
             .try_into()
-            .map_err(|_| vm.new_value_error("count should > 0".to_string()))?;
+            .map_err(|_| vm.new_value_error("count should >= 0".to_string()))?;
 
         // The flags argument is provided to allow
         // for future extensions and currently must be to 0.
@@ -1238,7 +1238,7 @@ mod _os {
             )
         };
 
-        usize::try_from(ret).map_err(|_| vm.new_os_error("Fail to copy_file_range".to_string()))
+        usize::try_from(ret).map_err(|_| errno_err(vm))
     }
 
     #[pyfunction]
