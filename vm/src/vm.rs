@@ -42,6 +42,8 @@ use crate::{builtins, bytecode, frozen, import, iterator, stdlib, sysmodule};
 
 /// Top level container of a python virtual machine. In theory you could
 /// create more instances of this struct and have them operate fully isolated.
+///
+/// To construct this, please refer to the [`Interpreter`](Interpreter)
 pub struct VirtualMachine {
     pub builtins: PyObjectRef,
     pub sys_module: PyObjectRef,
@@ -1873,15 +1875,23 @@ impl VirtualMachine {
 
 mod sealed {
     use super::*;
+
     pub trait SealedInternable {}
+
     impl SealedInternable for String {}
+
     impl SealedInternable for &str {}
+
     impl SealedInternable for PyRefExact<PyStr> {}
 }
+
 /// A sealed marker trait for `DictKey` types that always become an exact instance of `str`
 pub trait Internable: sealed::SealedInternable + crate::dictdatatype::DictKey {}
+
 impl Internable for String {}
+
 impl Internable for &str {}
+
 impl Internable for PyRefExact<PyStr> {}
 
 pub struct ReprGuard<'vm> {
@@ -1917,6 +1927,22 @@ pub struct Interpreter {
     vm: VirtualMachine,
 }
 
+/// The general interface for the VM
+///
+/// # Examples
+/// Runs a simple embedded hello world program.
+/// ```
+/// use rustpython_vm::Interpreter;
+/// use rustpython_vm::compile::Mode;
+/// Interpreter::default().enter(|vm| {
+///     let scope = vm.new_scope_with_builtins();
+///     let code_obj = vm.compile(r#"print("Hello World!")"#,
+///             Mode::Exec,
+///             "<embedded>".to_owned(),
+///     ).map_err(|err| vm.new_syntax_error(&err)).unwrap();
+///     vm.run_code_obj(code_obj, scope).unwrap();
+/// });
+/// ```
 impl Interpreter {
     pub fn new(settings: PySettings, init: InitParameter) -> Self {
         Self::new_with_init(settings, |_| init)

@@ -21,14 +21,23 @@ pub struct Location {
 }
 
 impl Location {
+    /// Creates a new Location object at the given row and column.
+    ///
+    /// # Example
+    /// ```
+    /// use rustpython_bytecode::Location;
+    /// let loc = Location::new(10, 10);
+    /// ```
     pub fn new(row: usize, column: usize) -> Self {
         Location { row, column }
     }
 
+    /// Current row
     pub fn row(&self) -> usize {
         self.row
     }
 
+    /// Current column
     pub fn column(&self) -> usize {
         self.column
     }
@@ -36,13 +45,19 @@ impl Location {
 
 pub trait Constant: Sized {
     type Name: AsRef<str>;
+
+    /// Tranforms the given Constant to a BorrowedConstant
     fn borrow_constant(&self) -> BorrowedConstant<Self>;
+    /// Get the data this Constant holds.
     fn into_data(self) -> ConstantData {
         self.borrow_constant().into_data()
     }
+    /// Map this Constant to a Bag's constant
     fn map_constant<Bag: ConstantBag>(self, bag: &Bag) -> Bag::Constant {
         bag.make_constant(self.into_data())
     }
+
+    /// Maps the name for the given Bag.
     fn map_name<Bag: ConstantBag>(
         name: Self::Name,
         bag: &Bag,
@@ -50,6 +65,7 @@ pub trait Constant: Sized {
         bag.make_name_ref(name.as_ref())
     }
 }
+
 impl Constant for ConstantData {
     type Name = String;
     fn borrow_constant(&self) -> BorrowedConstant<Self> {
@@ -77,6 +93,7 @@ impl Constant for ConstantData {
     }
 }
 
+/// A Constant Bag
 pub trait ConstantBag: Sized {
     type Constant: Constant;
     fn make_constant(&self, constant: ConstantData) -> Self::Constant;
@@ -91,6 +108,7 @@ pub trait ConstantBag: Sized {
 
 #[derive(Clone)]
 pub struct BasicBag;
+
 impl ConstantBag for BasicBag {
     type Constant = ConstantData;
     fn make_constant(&self, constant: ConstantData) -> Self::Constant {
@@ -108,13 +126,15 @@ pub struct CodeObject<C: Constant = ConstantData> {
     pub instructions: Box<[Instruction]>,
     pub locations: Box<[Location]>,
     pub flags: CodeFlags,
-    pub posonlyarg_count: usize, // Number of positional-only arguments
+    pub posonlyarg_count: usize,
+    // Number of positional-only arguments
     pub arg_count: usize,
     pub kwonlyarg_count: usize,
     pub source_path: C::Name,
     pub first_line_number: usize,
     pub max_stacksize: u32,
-    pub obj_name: C::Name, // Name of the object that created this code object
+    pub obj_name: C::Name,
+    // Name of the object that created this code object
     pub cell2arg: Option<Box<[isize]>>,
     pub constants: Box<[C]>,
     #[serde(bound(
@@ -157,6 +177,7 @@ impl CodeFlags {
 // XXX: if you add a new instruction that stores a Label, make sure to add it in
 // Instruction::label_arg{,_mut}
 pub struct Label(pub u32);
+
 impl fmt::Display for Label {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.0.fmt(f)
@@ -176,6 +197,7 @@ pub enum ConversionFlag {
     Repr,
 }
 
+/// The kind of Raise that occurred.
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum RaiseKind {
     Reraise,
@@ -188,11 +210,15 @@ pub type NameIdx = u32;
 /// A Single bytecode instruction.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Instruction {
+    /// Importing by name
     ImportName {
         idx: NameIdx,
     },
+    /// Importing without name
     ImportNameless,
+    /// Import *
     ImportStar,
+    /// from ... import ...
     ImportFrom {
         idx: NameIdx,
     },
@@ -412,6 +438,15 @@ bitflags! {
     }
 }
 
+/// A Constant (which usually encapsulates data within it)
+///
+/// # Examples
+/// ```
+/// use rustpython_bytecode::ConstantData;
+/// let a = ConstantData::Float {value: 120f64};
+/// let b = ConstantData::Boolean {value: false};
+/// assert_ne!(a, b);
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ConstantData {
     Tuple { elements: Vec<ConstantData> },
@@ -448,6 +483,7 @@ impl PartialEq for ConstantData {
         }
     }
 }
+
 impl Eq for ConstantData {}
 
 impl hash::Hash for ConstantData {
@@ -472,6 +508,7 @@ impl hash::Hash for ConstantData {
     }
 }
 
+/// A borrowed Constant
 pub enum BorrowedConstant<'a, C: Constant> {
     Integer { value: &'a BigInt },
     Float { value: f64 },
@@ -484,7 +521,9 @@ pub enum BorrowedConstant<'a, C: Constant> {
     None,
     Ellipsis,
 }
+
 type BorrowedTupleIter<'a, C> = Box<dyn Iterator<Item = BorrowedConstant<'a, C>> + 'a>;
+
 impl<C: Constant> BorrowedConstant<'_, C> {
     // takes `self` because we need to consume the iterator
     pub fn fmt_display(self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -542,6 +581,7 @@ impl<C: Constant> BorrowedConstant<'_, C> {
     }
 }
 
+/// The possible comparison operators
 #[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ComparisonOperator {
     Greater,
@@ -554,9 +594,18 @@ pub enum ComparisonOperator {
     NotIn,
     Is,
     IsNot,
+    /// two exceptions that match?
     ExceptionMatch,
 }
 
+/// The possible Binary operators
+/// # Examples
+///
+/// ```
+/// use rustpython_bytecode::Instruction::BinaryOperation;
+/// use rustpython_bytecode::BinaryOperator::Add;
+/// let op = BinaryOperation {op: Add};
+/// ```
 #[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 pub enum BinaryOperator {
     Power,
@@ -574,6 +623,7 @@ pub enum BinaryOperator {
     Or,
 }
 
+/// The possible unary operators
 #[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 pub enum UnaryOperator {
     Not,
@@ -590,6 +640,7 @@ pub enum BlockType {
 }
 */
 
+/// Argument structure
 pub struct Arguments<'a, N: AsRef<str>> {
     pub posonlyargs: &'a [N],
     pub args: &'a [N],
@@ -616,7 +667,8 @@ impl<N: AsRef<str>> fmt::Debug for Arguments<'_, N> {
 }
 
 impl<C: Constant> CodeObject<C> {
-    // like inspect.getargs
+    /// Get all arguments of the code object
+    /// like inspect.getargs
     pub fn arg_names(&self) -> Arguments<C::Name> {
         let nargs = self.arg_count;
         let nkwargs = self.kwonlyarg_count;
@@ -647,6 +699,7 @@ impl<C: Constant> CodeObject<C> {
         }
     }
 
+    /// Return the labels targeted by the instructions of this CodeObject
     pub fn label_targets(&self) -> BTreeSet<Label> {
         let mut label_targets = BTreeSet::new();
         for instruction in &*self.instructions {
@@ -689,6 +742,7 @@ impl<C: Constant> CodeObject<C> {
         Ok(())
     }
 
+    /// Recursively display this CodeObject
     pub fn display_expand_codeobjects(&self) -> impl fmt::Display + '_ {
         struct Display<'a, C: Constant>(&'a CodeObject<C>);
         impl<C: Constant> fmt::Display for Display<'_, C> {
@@ -699,6 +753,7 @@ impl<C: Constant> CodeObject<C> {
         Display(self)
     }
 
+    /// Map this CodeObject to one that holds a Bag::Constant
     pub fn map_bag<Bag: ConstantBag>(self, bag: &Bag) -> CodeObject<Bag::Constant> {
         let map_names = |names: Box<[C::Name]>| {
             names
@@ -733,6 +788,7 @@ impl<C: Constant> CodeObject<C> {
         }
     }
 
+    /// Same as `map_bag` but clones `self`
     pub fn map_clone_bag<Bag: ConstantBag>(&self, bag: &Bag) -> CodeObject<Bag::Constant> {
         let map_names = |names: &[C::Name]| {
             names
@@ -766,12 +822,16 @@ impl<C: Constant> CodeObject<C> {
     }
 }
 
+/// Error that occurs during code deserialization
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum CodeDeserializeError {
+    /// Unexpected End Of File
     Eof,
+    /// Invalid Bytecode
     Other,
 }
+
 impl fmt::Display for CodeDeserializeError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -780,6 +840,7 @@ impl fmt::Display for CodeDeserializeError {
         }
     }
 }
+
 impl std::error::Error for CodeDeserializeError {}
 
 impl CodeObject<ConstantData> {
@@ -862,6 +923,16 @@ impl Instruction {
         }
     }
 
+    /// Whether this is an unconditional branching
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rustpython_bytecode::{Instruction, Label};
+    /// let label = Label(0xF);
+    /// let jump_inst = Instruction::Jump {target: label};
+    /// assert!(jump_inst.unconditional_branch())
+    /// ```
     pub fn unconditional_branch(&self) -> bool {
         matches!(
             self,
@@ -869,6 +940,18 @@ impl Instruction {
         )
     }
 
+    /// What effect this instruction has on the stack
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rustpython_bytecode::{Instruction, Label, UnaryOperator};
+    /// let jump_instruction = Instruction::Jump {target: Label(0xF)};
+    /// let invert_instruction = Instruction::UnaryOperation {op: UnaryOperator::Invert};
+    /// assert_eq!(jump_instruction.stack_effect(true), 0);
+    /// assert_eq!(invert_instruction.stack_effect(false), 0);
+    /// ```
+    ///
     pub fn stack_effect(&self, jump: bool) -> i32 {
         match self {
             ImportName { .. } | ImportNameless => -1,
@@ -1154,6 +1237,7 @@ impl<C: Constant> fmt::Debug for CodeObject<C> {
     }
 }
 
+/// A frozen module. Holds a code object and whether it is part of a package
 #[derive(Serialize, Deserialize, Debug)]
 pub struct FrozenModule<C: Constant = ConstantData> {
     #[serde(bound(
@@ -1170,6 +1254,7 @@ pub mod frozen_lib {
     use std::convert::TryInto;
     use std::io;
 
+    /// Decode a library to a iterable of frozen modules
     pub fn decode_lib(bytes: &[u8]) -> FrozenModulesIter {
         let data = lz4_flex::decompress_size_prepended(bytes).unwrap();
         let r = VecReader { data, pos: 0 };
@@ -1207,6 +1292,7 @@ pub mod frozen_lib {
 
     impl ExactSizeIterator for FrozenModulesIter {}
 
+    /// Encode the given iterator of frozen modules into a compressed vector of bytes
     pub fn encode_lib<'a, I>(lib: I) -> Vec<u8>
     where
         I: IntoIterator<Item = (&'a str, &'a FrozenModule)>,

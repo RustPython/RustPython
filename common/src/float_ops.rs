@@ -13,6 +13,22 @@ pub fn ufrexp(value: f64) -> (f64, i32) {
     }
 }
 
+/// Equate an integer to a float.
+///
+/// Returns true if and only if, when converted to each others types, both are equal.
+///
+/// # Examples
+///
+/// ```
+/// use num_bigint::BigInt;
+/// use rustpython_common::float_ops::eq_int;
+/// let a = 1.0f64;
+/// let b = BigInt::from(1);
+/// let c = 2.0f64;
+/// assert!(eq_int(a, &b));
+/// assert!(!eq_int(c, &b));
+/// ```
+///
 pub fn eq_int(value: f64, other: &BigInt) -> bool {
     if let (Some(self_int), Some(other_float)) = (value.to_bigint(), other.to_f64()) {
         value == other_float && self_int == *other
