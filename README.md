@@ -129,8 +129,7 @@ make cool projects:
 
 - [pyckitup](https://github.com/pickitup247/pyckitup): a game engine written in
   rust.
-- [codingworkshops.org](https://github.com/chicode/codingworkshops): a site
-  where you can learn how to code.
+- [Robot Rumble](https://github.com/robot-rumble/logic/): an arena-based AI competition platform
 
 ## Goals
 
