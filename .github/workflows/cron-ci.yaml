@@ -33,7 +33,7 @@ jobs:
           args: --verbose
         env:
           CARGO_INCREMENTAL: '0'
-          RUSTFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Zpanic_abort_tests' # -Cpanic=abort
+          RUSTC_WRAPPER: './scripts/codecoverage-rustc-wrapper.sh'
       - uses: actions/setup-python@v1
         with:
           python-version: 3.8
@@ -48,9 +48,10 @@ jobs:
         run: pipenv run pytest -v
         working-directory: ./extra_tests
         env:
+          RUSTPYTHON_TESTS_NOBUILD: 'true'
           RUSTPYTHON_DEBUG: 'true'
       - name: run cpython tests
-        run: cargo run -- -m test -v
+        run: target/debug/rustpython -m test -v
         env:
           RUSTPYTHONPATH: ${{ github.workspace }}/Lib
       - uses: actions-rs/grcov@v0.1

@@ -25,6 +25,8 @@ from test.support import HOST, HOSTv6
 import sys
 if sys.platform == 'win32':
     raise unittest.SkipTest("test_ftplib not working on windows")
+if getattr(sys, '_rustpython_debugbuild', False):
+    raise unittest.SkipTest("something's weird on debug builds")
 
 TIMEOUT = 3
 # the dummy data returned by server over the data channel when

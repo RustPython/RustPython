@@ -1274,7 +1274,7 @@ mod _os {
         Ok(())
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, not(any(target_os = "redox", target_os = "android"))))]
     #[pyfunction]
     fn getloadavg(vm: &VirtualMachine) -> PyResult<(f64, f64, f64)> {
         let mut loadavg = [0f64; 3];

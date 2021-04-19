@@ -708,6 +708,7 @@ settrace() -- set the global debug tracing function
       "float_repr_style" => ctx.new_str("short"),
       "_xoptions" => xopts,
       "warnoptions" => warnopts,
+      "_rustpython_debugbuild" => ctx.new_bool(cfg!(debug_assertions)),
     });
 
     #[cfg(windows)]

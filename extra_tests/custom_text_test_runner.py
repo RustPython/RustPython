@@ -370,7 +370,7 @@ class CustomTextTestResult(result.TestResult):
             self.stream.writeln("SKIPPED {0!r}".format(reason))
         self.stream.flush()
         self.results['suites'][self.suite_map[self.suite]]['cases'][self.current_case_number]['result'] = 'skipped'
-        self.results['suites'][self.suite_map[self.suite]]['cases'][self.current_case_number]['note'] = getattr(getattr(test, test._testMethodName), "__unittest_skip_why__", reason)
+        self.results['suites'][self.suite_map[self.suite]]['cases'][self.current_case_number]['note'] = reason
         self.num_skipped += 1
 
     def addExpectedFailure(self, test, err):
