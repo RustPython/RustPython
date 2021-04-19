@@ -405,6 +405,51 @@ mod _sre {
             )
         }
 
+        #[pymethod(magic)]
+        fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
+            let flag_names = [
+                ("re.TEMPLATE", SreFlag::TEMPLATE),
+                ("re.IGNORECASE", SreFlag::IGNORECASE),
+                ("re.LOCALE", SreFlag::LOCALE),
+                ("re.MULTILINE", SreFlag::MULTILINE),
+                ("re.DOTALL", SreFlag::DOTALL),
+                ("re.UNICODE", SreFlag::UNICODE),
+                ("re.VERBOSE", SreFlag::VERBOSE),
+                ("re.DEBUG", SreFlag::DEBUG),
+                ("re.ASCII", SreFlag::ASCII),
+            ];
+
+            /* Omit re.UNICODE for valid string patterns. */
+            let mut flags = self.flags;
+            if !self.isbytes
+                && (flags & (SreFlag::LOCALE | SreFlag::UNICODE | SreFlag::ASCII))
+                    == SreFlag::UNICODE
+            {
+                flags &= !SreFlag::UNICODE;
+            }
+
+            let flags = flag_names
+                .iter()
+                .filter(|(_, flag)| flags.contains(*flag))
+                .map(|(name, _)| name)
+                .join("|");
+
+            let pattern = vm.to_repr(&self.pattern)?;
+            let truncated: String;
+            let s = if pattern.char_len() > 200 {
+                truncated = pattern.borrow_value().chars().take(200).collect();
+                &truncated
+            } else {
+                pattern.borrow_value()
+            };
+
+            if flags.is_empty() {
+                Ok(format!("re.compile({})", s))
+            } else {
+                Ok(format!("re.compile({}, {})", s, flags))
+            }
+        }
+
         #[pyproperty]
         fn flags(&self) -> u16 {
             self.flags.bits()
