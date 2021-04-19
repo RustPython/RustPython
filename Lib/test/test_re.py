@@ -2137,27 +2137,19 @@ class PatternReprTests(unittest.TestCase):
     def check_flags(self, pattern, flags, expected):
         self.assertEqual(repr(re.compile(pattern, flags)), expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_without_flags(self):
         self.check('random pattern',
                    "re.compile('random pattern')")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_single_flag(self):
         self.check_flags('random pattern', re.IGNORECASE,
             "re.compile('random pattern', re.IGNORECASE)")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_multiple_flags(self):
         self.check_flags('random pattern', re.I|re.S|re.X,
             "re.compile('random pattern', "
             "re.IGNORECASE|re.DOTALL|re.VERBOSE)")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_unicode_flag(self):
         self.check_flags('random pattern', re.U,
                          "re.compile('random pattern')")
@@ -2165,8 +2157,6 @@ class PatternReprTests(unittest.TestCase):
                          "re.compile('random pattern', "
                          "re.IGNORECASE|re.DOTALL)")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_inline_flags(self):
         self.check('(?i)pattern',
                    "re.compile('(?i)pattern', re.IGNORECASE)")
@@ -2179,22 +2169,16 @@ class PatternReprTests(unittest.TestCase):
         self.check_flags('random pattern', 0x123000|re.I,
             "re.compile('random pattern', re.IGNORECASE|0x123000)")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bytes(self):
         self.check(b'bytes pattern',
                    "re.compile(b'bytes pattern')")
         self.check_flags(b'bytes pattern', re.A,
                          "re.compile(b'bytes pattern', re.ASCII)")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_locale(self):
         self.check_flags(b'bytes pattern', re.L,
                          "re.compile(b'bytes pattern', re.LOCALE)")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_quotes(self):
         self.check('random "double quoted" pattern',
             '''re.compile('random "double quoted" pattern')''')
@@ -2203,8 +2187,6 @@ class PatternReprTests(unittest.TestCase):
         self.check('''both 'single' and "double" quotes''',
             '''re.compile('both \\'single\\' and "double" quotes')''')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_long_pattern(self):
         pattern = 'Very %spattern' % ('long ' * 1000)
         r = repr(re.compile(pattern))
