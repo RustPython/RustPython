@@ -1802,8 +1802,6 @@ class ReTests(unittest.TestCase):
         )
         self.assertRegex(repr(second), pattern)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_zerowidth(self):
         # Issues 852532, 1647489, 3262, 25054.
         self.assertEqual(re.split(r"\b", "a::bc"), ['', 'a', '::', 'bc', ''])
