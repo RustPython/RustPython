@@ -23,8 +23,9 @@ pub struct State<'a> {
     repeat_stack: Vec<RepeatContext>,
     pub string_position: usize,
     popped_context: Option<MatchContext>,
-    pub has_matched: Option<bool>,
+    pub has_matched: bool,
     pub match_all: bool,
+    pub must_advance: bool,
 }
 
 impl<'a> State<'a> {
@@ -50,8 +51,9 @@ impl<'a> State<'a> {
             marks: Vec::new(),
             string_position: start,
             popped_context: None,
-            has_matched: None,
+            has_matched: false,
             match_all: false,
+            must_advance: false,
         }
     }
 
@@ -63,7 +65,7 @@ impl<'a> State<'a> {
         self.marks.clear();
         self.string_position = self.start;
         self.popped_context = None;
-        self.has_matched = None;
+        self.has_matched = false;
     }
 
     fn set_mark(&mut self, mark_nr: usize, position: usize) {
@@ -100,17 +102,7 @@ impl<'a> State<'a> {
         self.marks_stack.pop();
     }
 
-    pub fn pymatch(mut self) -> Self {
-        let ctx = MatchContext {
-            string_position: self.start,
-            string_offset: self.string.offset(0, self.start),
-            code_position: 0,
-            has_matched: None,
-            toplevel: true,
-        };
-        self.context_stack.push(ctx);
-
-        let mut dispatcher = OpcodeDispatcher::new();
+    fn _match(mut self, dispatcher: &mut OpcodeDispatcher) -> Self {
         let mut has_matched = None;
 
         loop {
@@ -127,21 +119,58 @@ impl<'a> State<'a> {
             }
         }
 
-        self.has_matched = has_matched;
+        self.has_matched = has_matched == Some(true);
         self
+    }
+
+    pub fn pymatch(mut self) -> Self {
+        let ctx = MatchContext {
+            string_position: self.start,
+            string_offset: self.string.offset(0, self.start),
+            code_position: 0,
+            has_matched: None,
+            toplevel: true,
+        };
+        self.context_stack.push(ctx);
+
+        let mut dispatcher = OpcodeDispatcher::new();
+
+        self._match(&mut dispatcher)
     }
 
     pub fn search(mut self) -> Self {
         // TODO: optimize by op info and skip prefix
-        while self.start <= self.end {
-            self.match_all = false;
-            self = self.pymatch();
 
-            if self.has_matched == Some(true) {
-                return self;
-            }
+        if self.start > self.end {
+            return self;
+        }
+
+        let mut dispatcher = OpcodeDispatcher::new();
+
+        let ctx = MatchContext {
+            string_position: self.start,
+            string_offset: self.string.offset(0, self.start),
+            code_position: 0,
+            has_matched: None,
+            toplevel: true,
+        };
+        self.context_stack.push(ctx);
+        self = self._match(&mut dispatcher);
+
+        self.must_advance = false;
+        while !self.has_matched && self.start < self.end {
             self.start += 1;
             self.reset();
+            dispatcher.clear();
+            let ctx = MatchContext {
+                string_position: self.start,
+                string_offset: self.string.offset(0, self.start),
+                code_position: 0,
+                has_matched: None,
+                toplevel: false,
+            };
+            self.context_stack.push(ctx);
+            self = self._match(&mut dispatcher);
         }
 
         self
@@ -310,6 +339,18 @@ trait MatchContextDrive {
             .string
             .back_offset(self.ctx().string_offset, skip_count);
     }
+    fn can_success(&self) -> bool {
+        if !self.ctx().toplevel {
+            return true;
+        }
+        if self.state().match_all && !self.at_end() {
+            return false;
+        }
+        if self.state().must_advance && self.ctx().string_position == self.state().start {
+            return false;
+        }
+        true
+    }
 }
 
 struct StackDrive<'a> {
@@ -429,6 +470,9 @@ impl OpcodeDispatcher {
             executing_contexts: HashMap::new(),
         }
     }
+    fn clear(&mut self) {
+        self.executing_contexts.clear();
+    }
     // Returns True if the current context matches, False if it doesn't and
     // None if matching is not finished, ie must be resumed after child
     // contexts have been matched.
@@ -470,11 +514,9 @@ impl OpcodeDispatcher {
                 drive.ctx_mut().has_matched = Some(false);
             }),
             SreOpcode::SUCCESS => once(|drive| {
-                if drive.ctx().toplevel && drive.state.match_all && !drive.at_end() {
-                    drive.ctx_mut().has_matched = Some(false);
-                } else {
+                drive.ctx_mut().has_matched = Some(drive.can_success());
+                if drive.ctx().has_matched == Some(true) {
                     drive.state.string_position = drive.ctx().string_position;
-                    drive.ctx_mut().has_matched = Some(true);
                 }
             }),
             SreOpcode::ANY => once(|drive| {
@@ -1152,9 +1194,7 @@ impl OpcodeExecutor for OpMinRepeatOne {
                 };
 
                 let next_code = drive.peek_code(drive.peek_code(1) as usize + 1);
-                if next_code == SreOpcode::SUCCESS as u32
-                    && !(drive.ctx().toplevel && drive.state.match_all && !drive.at_end())
-                {
+                if next_code == SreOpcode::SUCCESS as u32 && drive.can_success() {
                     // tail is empty.  we're finished
                     drive.state.string_position = drive.ctx().string_position;
                     drive.ctx_mut().has_matched = Some(true);
@@ -1455,8 +1495,7 @@ impl OpcodeExecutor for OpRepeatOne {
                 }
 
                 let next_code = drive.peek_code(drive.peek_code(1) as usize + 1);
-                if next_code == SreOpcode::SUCCESS as u32 && drive.at_end() && !drive.ctx().toplevel
-                {
+                if next_code == SreOpcode::SUCCESS as u32 && drive.can_success() {
                     // tail is empty.  we're finished
                     drive.state.string_position = drive.ctx().string_position;
                     drive.ctx_mut().has_matched = Some(true);
