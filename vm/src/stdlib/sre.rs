@@ -201,13 +201,9 @@ mod _sre {
                 vm,
                 |mut state| {
                     state = state.pymatch();
-                    if state.has_matched != Some(true) {
-                        Ok(None)
-                    } else {
-                        Ok(Some(
-                            Match::new(&state, zelf.clone(), string_args.string).into_ref(vm),
-                        ))
-                    }
+                    Ok(state
+                        .has_matched
+                        .then(|| Match::new(&state, zelf.clone(), string_args.string).into_ref(vm)))
                 },
             )
         }
@@ -226,13 +222,9 @@ mod _sre {
                 |mut state| {
                     state.match_all = true;
                     state = state.pymatch();
-                    if state.has_matched != Some(true) {
-                        Ok(None)
-                    } else {
-                        Ok(Some(
-                            Match::new(&state, zelf.clone(), string_args.string).into_ref(vm),
-                        ))
-                    }
+                    Ok(state
+                        .has_matched
+                        .then(|| Match::new(&state, zelf.clone(), string_args.string).into_ref(vm)))
                 },
             )
         }
@@ -250,14 +242,9 @@ mod _sre {
                 vm,
                 |mut state| {
                     state = state.search();
-
-                    if state.has_matched != Some(true) {
-                        Ok(None)
-                    } else {
-                        Ok(Some(
-                            Match::new(&state, zelf.clone(), string_args.string).into_ref(vm),
-                        ))
-                    }
+                    Ok(state
+                        .has_matched
+                        .then(|| Match::new(&state, zelf.clone(), string_args.string).into_ref(vm)))
                 },
             )
         }
@@ -276,11 +263,8 @@ mod _sre {
                 |mut state| {
                     let mut matchlist: Vec<PyObjectRef> = Vec::new();
                     while state.start <= state.end {
-                        state.reset();
-
                         state = state.search();
-
-                        if state.has_matched != Some(true) {
+                        if !state.has_matched {
                             break;
                         }
 
@@ -296,11 +280,9 @@ mod _sre {
 
                         matchlist.push(item);
 
-                        if state.string_position == state.start {
-                            state.start += 1;
-                        } else {
-                            state.start = state.string_position;
-                        }
+                        state.must_advance = state.string_position == state.start;
+                        state.start = state.string_position;
+                        state.reset();
                     }
                     Ok(PyList::from(matchlist).into_ref(vm))
                 },
@@ -317,7 +299,8 @@ mod _sre {
                 pattern: zelf,
                 string: string_args.string,
                 start: AtomicCell::new(string_args.pos),
-                end: AtomicCell::new(string_args.endpos),
+                end: string_args.endpos,
+                must_advance: AtomicCell::new(false),
             }
             .into_ref(vm);
             let search = vm.get_method(scanner.into_object(), "search").unwrap()?;
@@ -336,7 +319,8 @@ mod _sre {
                 pattern: zelf,
                 string: string_args.string,
                 start: AtomicCell::new(string_args.pos),
-                end: AtomicCell::new(string_args.endpos),
+                end: string_args.endpos,
+                must_advance: AtomicCell::new(false),
             }
             .into_ref(vm)
         }
@@ -367,10 +351,8 @@ mod _sre {
                     let mut n = 0;
                     let mut last = 0;
                     while split_args.maxsplit == 0 || n < split_args.maxsplit {
-                        state.reset();
                         state = state.search();
-
-                        if state.has_matched != Some(true) {
+                        if !state.has_matched {
                             break;
                         }
 
@@ -388,13 +370,10 @@ mod _sre {
                         }
 
                         n += 1;
+                        state.must_advance = state.string_position == state.start;
                         last = state.string_position;
-
-                        if state.start == state.string_position {
-                            state.start += 1;
-                        } else {
-                            state.start = state.string_position;
-                        }
+                        state.start = state.string_position;
+                        state.reset();
                     }
 
                     // get segment following last match (even if empty)
@@ -503,10 +482,8 @@ mod _sre {
                 let mut n = 0;
                 let mut last_pos = 0;
                 while count == 0 || n < count {
-                    state.reset();
                     state = state.search();
-
-                    if state.has_matched != Some(true) {
+                    if !state.has_matched {
                         break;
                     }
 
@@ -515,25 +492,20 @@ mod _sre {
                         sublist.push(slice_drive(&state.string, last_pos, state.start, vm));
                     }
 
-                    if !(last_pos == state.start && last_pos == state.string_position && n > 1) {
-                        // the above ignores empty matches on latest position
-                        if is_callable {
-                            let m = Match::new(&state, zelf.clone(), string.clone());
-                            let ret = vm.invoke(&filter, (m.into_ref(vm),))?;
-                            sublist.push(ret);
-                        } else {
-                            sublist.push(filter.clone());
-                        }
-
-                        last_pos = state.string_position;
-                        n += 1;
-                    }
-
-                    if state.string_position == state.start {
-                        state.start += 1;
+                    if is_callable {
+                        let m = Match::new(&state, zelf.clone(), string.clone());
+                        let ret = vm.invoke(&filter, (m.into_ref(vm),))?;
+                        sublist.push(ret);
                     } else {
-                        state.start = state.string_position;
+                        sublist.push(filter.clone());
                     }
+
+                    last_pos = state.string_position;
+                    n += 1;
+
+                    state.must_advance = state.string_position == state.start;
+                    state.start = state.string_position;
+                    state.reset();
                 }
 
                 /* get segment following last match */
@@ -809,7 +781,8 @@ mod _sre {
         pattern: PyRef<Pattern>,
         string: PyObjectRef,
         start: AtomicCell<usize>,
-        end: AtomicCell<usize>,
+        end: usize,
+        must_advance: AtomicCell<bool>,
     }
     impl PyValue for SreScanner {
         fn class(_vm: &VirtualMachine) -> &PyTypeRef {
@@ -829,56 +802,44 @@ mod _sre {
             self.pattern.with_state(
                 self.string.clone(),
                 self.start.load(),
-                self.end.load(),
+                self.end,
                 vm,
                 |mut state| {
+                    state.must_advance = self.must_advance.load();
                     state = state.pymatch();
 
-                    if state.has_matched != Some(true) {
-                        Ok(None)
-                    } else {
-                        if state.start == state.string_position {
-                            self.start.store(state.string_position + 1);
-                        } else {
-                            self.start.store(state.string_position);
-                        }
-                        Ok(Some(
-                            Match::new(&state, self.pattern.clone(), self.string.clone())
-                                .into_ref(vm),
-                        ))
-                    }
+                    self.must_advance
+                        .store(state.start == state.string_position);
+                    self.start.store(state.string_position);
+
+                    Ok(state.has_matched.then(|| {
+                        Match::new(&state, self.pattern.clone(), self.string.clone()).into_ref(vm)
+                    }))
                 },
             )
         }
 
         #[pymethod]
         fn search(&self, vm: &VirtualMachine) -> PyResult<Option<PyRef<Match>>> {
-            if self.start.load() > self.end.load() {
+            if self.start.load() > self.end {
                 return Ok(None);
             }
             self.pattern.with_state(
                 self.string.clone(),
                 self.start.load(),
-                self.end.load(),
+                self.end,
                 vm,
                 |mut state| {
-                    state.reset();
+                    state.must_advance = self.must_advance.load();
                     state = state.search();
-                    self.end.store(state.end);
 
-                    if state.has_matched == Some(true) {
-                        if state.start == state.string_position {
-                            self.start.store(state.string_position + 1);
-                        } else {
-                            self.start.store(state.string_position);
-                        }
-                        Ok(Some(
-                            Match::new(&state, self.pattern.clone(), self.string.clone())
-                                .into_ref(vm),
-                        ))
-                    } else {
-                        Ok(None)
-                    }
+                    self.must_advance
+                        .store(state.string_position == state.start);
+                    self.start.store(state.string_position);
+
+                    Ok(state.has_matched.then(|| {
+                        Match::new(&state, self.pattern.clone(), self.string.clone()).into_ref(vm)
+                    }))
                 },
             )
         }
