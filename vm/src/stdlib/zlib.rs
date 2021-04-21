@@ -480,11 +480,6 @@ mod decl {
     const CHUNKSIZE: usize = u32::MAX as usize;
 
     impl CompressInner {
-        fn save_unconsumed_input(&mut self, data: &[u8], cur_in: usize) {
-            let leftover = &data[cur_in..];
-            self.unconsumed.extend_from_slice(leftover);
-        }
-
         fn compress(&mut self, data: &[u8], vm: &VirtualMachine) -> PyResult<Vec<u8>> {
             let orig_in = self.compress.total_in() as usize;
             let mut cur_in = 0;
@@ -498,7 +493,7 @@ mod decl {
                         .compress
                         .compress_vec(&chunk[cur_in..], &mut buf, FlushCompress::None)
                         .map_err(|_| {
-                            self.save_unconsumed_input(data, cur_in);
+                            self.unconsumed.extend_from_slice(&data[cur_in..]);
                             new_zlib_error("error while compressing", vm)
                         })?;
                     cur_in = (self.compress.total_in() as usize) - orig_in;
@@ -509,7 +504,7 @@ mod decl {
                     }
                 }
             }
-            self.save_unconsumed_input(data, cur_in);
+            self.unconsumed.extend_from_slice(&data[cur_in..]);
 
             buf.shrink_to_fit();
             Ok(buf)
