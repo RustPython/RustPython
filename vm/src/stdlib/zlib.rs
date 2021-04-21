@@ -246,7 +246,10 @@ mod decl {
                 if stream_end {
                     Ok(buf)
                 } else {
-                    Err(new_zlib_error("incomplete or truncated stream", vm))
+                    Err(new_zlib_error(
+                        "Error -5 while decompressing data: incomplete or truncated stream",
+                        vm,
+                    ))
                 }
             })
         })
@@ -477,34 +480,31 @@ mod decl {
     const CHUNKSIZE: usize = u32::MAX as usize;
 
     impl CompressInner {
-        fn save_unconsumed_input(&mut self, data: &[u8], orig_in: u64) {
-            let leftover = &data[(self.compress.total_in() - orig_in) as usize..];
-            self.unconsumed.extend_from_slice(leftover);
-        }
-
         fn compress(&mut self, data: &[u8], vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-            let orig_in = self.compress.total_in();
+            let orig_in = self.compress.total_in() as usize;
+            let mut cur_in = 0;
             let unconsumed = std::mem::take(&mut self.unconsumed);
             let mut buf = Vec::new();
 
             'outer: for chunk in unconsumed.chunks(CHUNKSIZE).chain(data.chunks(CHUNKSIZE)) {
-                loop {
+                while cur_in < chunk.len() {
                     buf.reserve(DEF_BUF_SIZE);
                     let status = self
                         .compress
-                        .compress_vec(chunk, &mut buf, FlushCompress::None)
+                        .compress_vec(&chunk[cur_in..], &mut buf, FlushCompress::None)
                         .map_err(|_| {
-                            self.save_unconsumed_input(data, orig_in);
+                            self.unconsumed.extend_from_slice(&data[cur_in..]);
                             new_zlib_error("error while compressing", vm)
                         })?;
+                    cur_in = (self.compress.total_in() as usize) - orig_in;
                     match status {
-                        _ if buf.len() == buf.capacity() => continue,
+                        Status::Ok => continue,
                         Status::StreamEnd => break 'outer,
                         _ => break,
                     }
                 }
             }
-            self.save_unconsumed_input(data, orig_in);
+            self.unconsumed.extend_from_slice(&data[cur_in..]);
 
             buf.shrink_to_fit();
             Ok(buf)
