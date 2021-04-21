@@ -147,9 +147,11 @@ impl<'a> State<'a> {
 
         let mut dispatcher = OpcodeDispatcher::new();
 
+        let mut start_offset = self.string.offset(0, self.start);
+
         let ctx = MatchContext {
             string_position: self.start,
-            string_offset: self.string.offset(0, self.start),
+            string_offset: start_offset,
             code_position: 0,
             has_matched: None,
             toplevel: true,
@@ -160,11 +162,12 @@ impl<'a> State<'a> {
         self.must_advance = false;
         while !self.has_matched && self.start < self.end {
             self.start += 1;
+            start_offset = self.string.offset(start_offset, 1);
             self.reset();
             dispatcher.clear();
             let ctx = MatchContext {
                 string_position: self.start,
-                string_offset: self.string.offset(0, self.start),
+                string_offset: start_offset,
                 code_position: 0,
                 has_matched: None,
                 toplevel: false,
