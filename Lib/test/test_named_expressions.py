@@ -4,121 +4,130 @@ GLOBAL_VAR = None
 
 class NamedExpressionInvalidTest(unittest.TestCase):
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure # wrong error message
     def test_named_expression_invalid_01(self):
         code = """x := 0"""
 
-        #with self.assertRaisesRegex(SyntaxError, "invalid syntax"): # TODO RustPython
-        with self.assertRaises(SyntaxError):
+        with self.assertRaisesRegex(SyntaxError, "invalid syntax"):
             exec(code, {}, {})
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure # wrong error message
     def test_named_expression_invalid_02(self):
         code = """x = y := 0"""
 
-        #with self.assertRaisesRegex(SyntaxError, "invalid syntax"): # TODO RustPython
-        with self.assertRaises(SyntaxError):
+        with self.assertRaisesRegex(SyntaxError, "invalid syntax"):
             exec(code, {}, {})
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure # wrong error message
     def test_named_expression_invalid_03(self):
         code = """y := f(x)"""
 
-        #with self.assertRaisesRegex(SyntaxError, "invalid syntax"): # TODO RustPython
-        with self.assertRaises(SyntaxError):
-
+        with self.assertRaisesRegex(SyntaxError, "invalid syntax"):
             exec(code, {}, {})
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure # wrong error message
     def test_named_expression_invalid_04(self):
         code = """y0 = y1 := f(x)"""
 
-        #with self.assertRaisesRegex(SyntaxError, "invalid syntax"): # TODO RustPython
-        with self.assertRaises(SyntaxError):
+        with self.assertRaisesRegex(SyntaxError, "invalid syntax"):
             exec(code, {}, {})
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure # wrong error message
     def test_named_expression_invalid_06(self):
         code = """((a, b) := (1, 2))"""
 
-        #with self.assertRaisesRegex(SyntaxError, "cannot use assignment expressions with tuple"): # TODO RustPython
-        with self.assertRaises(SyntaxError):
+        with self.assertRaisesRegex(SyntaxError, "cannot use assignment expressions with tuple"):
             exec(code, {}, {})
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure # wrong error message
     def test_named_expression_invalid_07(self):
         code = """def spam(a = b := 42): pass"""
 
-        #with self.assertRaisesRegex(SyntaxError, "invalid syntax"): # TODO RustPython
-        with self.assertRaises(SyntaxError):
+        with self.assertRaisesRegex(SyntaxError, "invalid syntax"):
             exec(code, {}, {})
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure # wrong error message
     def test_named_expression_invalid_08(self):
         code = """def spam(a: b := 42 = 5): pass"""
 
-        #with self.assertRaisesRegex(SyntaxError, "invalid syntax"): # TODO RustPython
-        with self.assertRaises(SyntaxError):
+        with self.assertRaisesRegex(SyntaxError, "invalid syntax"):
             exec(code, {}, {})
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure # wrong error message
     def test_named_expression_invalid_09(self):
         code = """spam(a=b := 'c')"""
-        
-        #with self.assertRaisesRegex(SyntaxError, "invalid syntax"):  # TODO RustPython
-        with self.assertRaises(SyntaxError):
+
+        with self.assertRaisesRegex(SyntaxError, "invalid syntax"):
             exec(code, {}, {})
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure # wrong error message
     def test_named_expression_invalid_10(self):
         code = """spam(x = y := f(x))"""
 
-        #with self.assertRaisesRegex(SyntaxError, "invalid syntax"): # TODO RustPython
-        with self.assertRaises(SyntaxError):
+        with self.assertRaisesRegex(SyntaxError, "invalid syntax"):
             exec(code, {}, {})
 
     def test_named_expression_invalid_11(self):
         code = """spam(a=1, b := 2)"""
 
-        #with self.assertRaisesRegex(SyntaxError,
-        #    "positional argument follows keyword argument"): # TODO RustPython
-        with self.assertRaises(SyntaxError):
+        with self.assertRaisesRegex(SyntaxError,
+            "positional argument follows keyword argument"):
             exec(code, {}, {})
 
     def test_named_expression_invalid_12(self):
         code = """spam(a=1, (b := 2))"""
 
-        #with self.assertRaisesRegex(SyntaxError,
-        #    "positional argument follows keyword argument"): # TODO RustPython
-        with self.assertRaises(SyntaxError):
+        with self.assertRaisesRegex(SyntaxError,
+            "positional argument follows keyword argument"):
             exec(code, {}, {})
 
     def test_named_expression_invalid_13(self):
         code = """spam(a=1, (b := 2))"""
 
-        #with self.assertRaisesRegex(SyntaxError,
-        #    "positional argument follows keyword argument"): # TODO RustPython
-        with self.assertRaises(SyntaxError):
+        with self.assertRaisesRegex(SyntaxError,
+            "positional argument follows keyword argument"):
             exec(code, {}, {})
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure # wrong error message
     def test_named_expression_invalid_14(self):
         code = """(x := lambda: y := 1)"""
 
-        #with self.assertRaisesRegex(SyntaxError, "invalid syntax"): # TODO RustPython
-        with self.assertRaises(SyntaxError):
+        with self.assertRaisesRegex(SyntaxError, "invalid syntax"):
             exec(code, {}, {})
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure # wrong error message
     def test_named_expression_invalid_15(self):
         code = """(lambda: x := 1)"""
 
-        #with self.assertRaisesRegex(SyntaxError,
-        #    "cannot use assignment expressions with lambda"): # TODO RustPython
-        with self.assertRaises(SyntaxError):
+        with self.assertRaisesRegex(SyntaxError,
+            "cannot use assignment expressions with lambda"):
             exec(code, {}, {})
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure # wrong error message
     def test_named_expression_invalid_16(self):
         code = "[i + 1 for i in i := [1,2]]"
 
-        #with self.assertRaisesRegex(SyntaxError, "invalid syntax"): # TODO RustPython
-        with self.assertRaises(SyntaxError):
+        with self.assertRaisesRegex(SyntaxError, "invalid syntax"):
             exec(code, {}, {})
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure # wrong error message
     def test_named_expression_invalid_17(self):
         code = "[i := 0, j := 1 for i, j in [(1, 2), (3, 4)]]"
 
-        #with self.assertRaisesRegex(SyntaxError, "invalid syntax"): # TODO RustPython
-        with self.assertRaises(SyntaxError):
+        with self.assertRaisesRegex(SyntaxError, "invalid syntax"):
             exec(code, {}, {})
 
     def test_named_expression_invalid_in_class_body(self):
@@ -126,11 +135,12 @@ class NamedExpressionInvalidTest(unittest.TestCase):
             [(42, 1 + ((( j := i )))) for i in range(5)]
         """
 
-        #with self.assertRaisesRegex(SyntaxError,
-        #    "assignment expression within a comprehension cannot be used in a class body"): # TODO RustPython
-        with self.assertRaises(SyntaxError):
+        with self.assertRaisesRegex(SyntaxError,
+            "assignment expression within a comprehension cannot be used in a class body"):
             exec(code, {}, {})
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure # wrong error message
     def test_named_expression_invalid_rebinding_comprehension_iteration_variable(self):
         cases = [
             ("Local reuse", 'i', "[i := 0 for i in range(5)]"),
@@ -143,28 +153,26 @@ class NamedExpressionInvalidTest(unittest.TestCase):
                 "[(i, j) for i in range(5) for j in range(5) if True or (i:=10)]"),
         ]
         for case, target, code in cases:
-            #msg = f"assignment expression cannot rebind comprehension iteration variable '{target}'"
+            msg = f"assignment expression cannot rebind comprehension iteration variable '{target}'"
             with self.subTest(case=case):
-                #with self.assertRaisesRegex(SyntaxError, msg): #TODO RustPython
-                with self.assertRaises(SyntaxError):
+                with self.assertRaisesRegex(SyntaxError, msg):
                     exec(code, {}, {})
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure # wrong error message
     def test_named_expression_invalid_rebinding_comprehension_inner_loop(self):
         cases = [
             ("Inner reuse", 'j', "[i for i in range(5) if (j := 0) for j in range(5)]"),
             ("Inner unpacking reuse", 'j', "[i for i in range(5) if (j := 0) for j, k in [(0, 1)]]"),
         ]
         for case, target, code in cases:
-            #msg = f"comprehension inner loop cannot rebind assignment expression target '{target}'"
+            msg = f"comprehension inner loop cannot rebind assignment expression target '{target}'"
             with self.subTest(case=case):
-                #with self.assertRaisesRegex(SyntaxError, msg): # TODO RustPython
-                with self.assertRaises(SyntaxError):
+                with self.assertRaisesRegex(SyntaxError, msg):
                     exec(code, {}) # Module scope
-                #with self.assertRaisesRegex(SyntaxError, msg): # TODO RustPython
-                with self.assertRaises(SyntaxError):
+                with self.assertRaisesRegex(SyntaxError, msg):
                     exec(code, {}, {}) # Class scope
-                #with self.assertRaisesRegex(SyntaxError, msg): # TODO RustPython
-                with self.assertRaises(SyntaxError):
+                with self.assertRaisesRegex(SyntaxError, msg):
                     exec(f"lambda: {code}", {}) # Function scope
 
     def test_named_expression_invalid_comprehension_iterable_expression(self):
@@ -179,17 +187,14 @@ class NamedExpressionInvalidTest(unittest.TestCase):
             ("Nested comprehension condition", "[i for i in [j for j in range(5) if (j := True)]]"),
             ("Nested comprehension body", "[i for i in [(j := True) for j in range(5)]]"),
         ]
-        #msg = "assignment expression cannot be used in a comprehension iterable expression"
+        msg = "assignment expression cannot be used in a comprehension iterable expression"
         for case, code in cases:
             with self.subTest(case=case):
-                #with self.assertRaisesRegex(SyntaxError, msg): # TODO RustPython
-                with self.assertRaises(SyntaxError):
+                with self.assertRaisesRegex(SyntaxError, msg):
                     exec(code, {}) # Module scope
-                #with self.assertRaisesRegex(SyntaxError, msg): # TODO RustPython
-                with self.assertRaises(SyntaxError):
+                with self.assertRaisesRegex(SyntaxError, msg):
                     exec(code, {}, {}) # Class scope
-                #with self.assertRaisesRegex(SyntaxError, msg): # TODO RustPython
-                with self.assertRaises(SyntaxError):
+                with self.assertRaisesRegex(SyntaxError, msg):
                     exec(f"lambda: {code}", {}) # Function scope
 
 
