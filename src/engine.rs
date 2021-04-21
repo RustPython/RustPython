@@ -916,7 +916,7 @@ fn charset(set: &[u32], ch: u32) -> bool {
 }
 
 /* General case */
-fn count(drive: &mut StackDrive, maxcount: usize) -> usize {
+fn general_count(drive: &mut StackDrive, maxcount: usize) -> usize {
     let mut count = 0;
     let maxcount = std::cmp::min(maxcount, drive.remaining_chars());
 
@@ -937,18 +937,11 @@ fn count(drive: &mut StackDrive, maxcount: usize) -> usize {
     count
 }
 
-/* TODO: check literal cases should improve the perfermance
-
-fn _count(stack_drive: &StackDrive, maxcount: usize) -> usize {
+fn count(stack_drive: &mut StackDrive, maxcount: usize) -> usize {
     let mut drive = WrapDrive::drive(*stack_drive.ctx(), stack_drive);
     let maxcount = std::cmp::min(maxcount, drive.remaining_chars());
     let end = drive.ctx().string_position + maxcount;
-    let opcode = match SreOpcode::try_from(drive.peek_code(1)) {
-        Ok(code) => code,
-        Err(_) => {
-            panic!("FIXME:COUNT1");
-        }
-    };
+    let opcode = SreOpcode::try_from(drive.peek_code(0)).unwrap();
 
     match opcode {
         SreOpcode::ANY => {
@@ -960,7 +953,6 @@ fn _count(stack_drive: &StackDrive, maxcount: usize) -> usize {
             drive.skip_char(maxcount);
         }
         SreOpcode::IN => {
-            // TODO: pattern[2 or 1..]?
             while !drive.ctx().string_position < end
                 && charset(&drive.pattern()[2..], drive.peek_char())
             {
@@ -992,7 +984,7 @@ fn _count(stack_drive: &StackDrive, maxcount: usize) -> usize {
             general_count_literal(&mut drive, end, |code, c| code != lower_unicode(c) as u32);
         }
         _ => {
-            todo!("repeated single character pattern?");
+            return general_count(stack_drive, maxcount);
         }
     }
 
@@ -1005,11 +997,6 @@ fn general_count_literal<F: FnMut(u32, u32) -> bool>(drive: &mut WrapDrive, end:
         drive.skip_char(1);
     }
 }
-
-fn eq_loc_ignore(code: u32, ch: u32) -> bool {
-    code == ch || code == lower_locate(ch) || code == upper_locate(ch)
-}
-*/
 
 fn is_word(ch: u32) -> bool {
     ch == '_' as u32
@@ -1028,7 +1015,7 @@ fn is_digit(ch: u32) -> bool {
         .unwrap_or(false)
 }
 fn is_loc_alnum(ch: u32) -> bool {
-    // TODO: check with cpython
+    // FIXME: Ignore the locales
     u8::try_from(ch)
         .map(|x| x.is_ascii_alphanumeric())
         .unwrap_or(false)
@@ -1045,13 +1032,11 @@ pub fn lower_ascii(ch: u32) -> u32 {
         .unwrap_or(ch)
 }
 fn lower_locate(ch: u32) -> u32 {
-    // TODO: check with cpython
-    // https://doc.rust-lang.org/std/primitive.char.html#method.to_lowercase
+    // FIXME: Ignore the locales
     lower_ascii(ch)
 }
 fn upper_locate(ch: u32) -> u32 {
-    // TODO: check with cpython
-    // https://doc.rust-lang.org/std/primitive.char.html#method.to_uppercase
+    // FIXME: Ignore the locales
     u8::try_from(ch)
         .map(|x| x.to_ascii_uppercase() as u32)
         .unwrap_or(ch)
