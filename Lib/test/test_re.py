@@ -2225,8 +2225,6 @@ class ImplementationTest(unittest.TestCase):
 
 class ExternalTests(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_re_benchmarks(self):
         're_tests benchmarks'
         from test.re_tests import benchmarks
@@ -2242,8 +2240,6 @@ class ExternalTests(unittest.TestCase):
                 self.assertTrue(p.match(s2, 10000, 10000 + len(s)))
                 self.assertTrue(p.fullmatch(s2, 10000, 10000 + len(s)))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_re_tests(self):
         're_tests test suite'
         from test.re_tests import tests, SUCCEED, FAIL, SYNTAX_ERROR
