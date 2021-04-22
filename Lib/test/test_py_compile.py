@@ -114,7 +114,8 @@ class PyCompileTestsBase:
         self.assertFalse(os.path.exists(self.cache_path))
 
     # TODO: RUSTPYTHON
-    if sys.platform == "darwin":
+    import platform
+    if sys.platform == "darwin" and int(platform.release().split(".")[0]) < 20:
         test_relative_path = unittest.expectedFailure(test_relative_path)
 
     @unittest.skipIf(hasattr(os, 'geteuid') and os.geteuid() == 0,
