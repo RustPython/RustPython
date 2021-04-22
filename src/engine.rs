@@ -147,9 +147,11 @@ impl<'a> State<'a> {
 
         let mut dispatcher = OpcodeDispatcher::new();
 
+        let mut start_offset = self.string.offset(0, self.start);
+
         let ctx = MatchContext {
             string_position: self.start,
-            string_offset: self.string.offset(0, self.start),
+            string_offset: start_offset,
             code_position: 0,
             has_matched: None,
             toplevel: true,
@@ -160,11 +162,12 @@ impl<'a> State<'a> {
         self.must_advance = false;
         while !self.has_matched && self.start < self.end {
             self.start += 1;
+            start_offset = self.string.offset(start_offset, 1);
             self.reset();
             dispatcher.clear();
             let ctx = MatchContext {
                 string_position: self.start,
-                string_offset: self.string.offset(0, self.start),
+                string_offset: start_offset,
                 code_position: 0,
                 has_matched: None,
                 toplevel: false,
@@ -416,20 +419,6 @@ trait OpcodeExecutor {
     fn next(&mut self, drive: &mut StackDrive) -> Option<()>;
 }
 
-struct OpOnce<F> {
-    f: Option<F>,
-}
-impl<F: FnOnce(&mut StackDrive)> OpcodeExecutor for OpOnce<F> {
-    fn next(&mut self, drive: &mut StackDrive) -> Option<()> {
-        let f = self.f.take()?;
-        f(drive);
-        None
-    }
-}
-fn once<F: FnOnce(&mut StackDrive)>(f: F) -> Box<OpOnce<F>> {
-    Box::new(OpOnce { f: Some(f) })
-}
-
 struct OpTwice<F1, F2> {
     f1: Option<F1>,
     f2: Option<F2>,
@@ -496,48 +485,58 @@ impl OpcodeDispatcher {
     // Dispatches a context on a given opcode. Returns True if the context
     // is done matching, False if it must be resumed when next encountered.
     fn dispatch(&mut self, opcode: SreOpcode, drive: &mut StackDrive) -> bool {
-        let mut executor = match self.executing_contexts.remove_entry(&drive.id()) {
-            Some((_, executor)) => executor,
-            None => self.dispatch_table(opcode),
-        };
-        if let Some(()) = executor.next(drive) {
-            self.executing_contexts.insert(drive.id(), executor);
-            false
-        } else {
-            true
+        let executor = self
+            .executing_contexts
+            .remove_entry(&drive.id())
+            .map(|(_, x)| x)
+            .or_else(|| self.dispatch_table(opcode, drive));
+        if let Some(mut executor) = executor {
+            if let Some(()) = executor.next(drive) {
+                self.executing_contexts.insert(drive.id(), executor);
+                return false;
+            }
         }
+        true
     }
 
-    fn dispatch_table(&mut self, opcode: SreOpcode) -> Box<dyn OpcodeExecutor> {
+    fn dispatch_table(
+        &mut self,
+        opcode: SreOpcode,
+        drive: &mut StackDrive,
+    ) -> Option<Box<dyn OpcodeExecutor>> {
         match opcode {
-            SreOpcode::FAILURE => once(|drive| {
+            SreOpcode::FAILURE => {
                 drive.ctx_mut().has_matched = Some(false);
-            }),
-            SreOpcode::SUCCESS => once(|drive| {
+                None
+            }
+            SreOpcode::SUCCESS => {
                 drive.ctx_mut().has_matched = Some(drive.can_success());
                 if drive.ctx().has_matched == Some(true) {
                     drive.state.string_position = drive.ctx().string_position;
                 }
-            }),
-            SreOpcode::ANY => once(|drive| {
+                None
+            }
+            SreOpcode::ANY => {
                 if drive.at_end() || drive.at_linebreak() {
                     drive.ctx_mut().has_matched = Some(false);
                 } else {
                     drive.skip_code(1);
                     drive.skip_char(1);
                 }
-            }),
-            SreOpcode::ANY_ALL => once(|drive| {
+                None
+            }
+            SreOpcode::ANY_ALL => {
                 if drive.at_end() {
                     drive.ctx_mut().has_matched = Some(false);
                 } else {
                     drive.skip_code(1);
                     drive.skip_char(1);
                 }
-            }),
+                None
+            }
             /* assert subpattern */
             /* <ASSERT> <skip> <back> <pattern> */
-            SreOpcode::ASSERT => twice(
+            SreOpcode::ASSERT => Some(twice(
                 |drive| {
                     let back = drive.peek_code(2) as usize;
                     let passed = drive.ctx().string_position;
@@ -568,8 +567,8 @@ impl OpcodeDispatcher {
                         drive.ctx_mut().has_matched = Some(false);
                     }
                 },
-            ),
-            SreOpcode::ASSERT_NOT => twice(
+            )),
+            SreOpcode::ASSERT_NOT => Some(twice(
                 |drive| {
                     let back = drive.peek_code(2) as usize;
                     let passed = drive.ctx().string_position;
@@ -600,17 +599,18 @@ impl OpcodeDispatcher {
                         drive.skip_code(drive.peek_code(1) as usize + 1);
                     }
                 },
-            ),
-            SreOpcode::AT => once(|drive| {
+            )),
+            SreOpcode::AT => {
                 let atcode = SreAtCode::try_from(drive.peek_code(1)).unwrap();
                 if !at(drive, atcode) {
                     drive.ctx_mut().has_matched = Some(false);
                 } else {
                     drive.skip_code(2);
                 }
-            }),
-            SreOpcode::BRANCH => Box::new(OpBranch::default()),
-            SreOpcode::CATEGORY => once(|drive| {
+                None
+            }
+            SreOpcode::BRANCH => Some(Box::new(OpBranch::default())),
+            SreOpcode::CATEGORY => {
                 let catcode = SreCatCode::try_from(drive.peek_code(1)).unwrap();
                 if drive.at_end() || !category(catcode, drive.peek_char()) {
                     drive.ctx_mut().has_matched = Some(false);
@@ -618,53 +618,68 @@ impl OpcodeDispatcher {
                     drive.skip_code(2);
                     drive.skip_char(1);
                 }
-            }),
-            SreOpcode::IN => once(|drive| {
+                None
+            }
+            SreOpcode::IN => {
                 general_op_in(drive, |set, c| charset(set, c));
-            }),
-            SreOpcode::IN_IGNORE => once(|drive| {
+                None
+            }
+            SreOpcode::IN_IGNORE => {
                 general_op_in(drive, |set, c| charset(set, lower_ascii(c)));
-            }),
-            SreOpcode::IN_UNI_IGNORE => once(|drive| {
+                None
+            }
+            SreOpcode::IN_UNI_IGNORE => {
                 general_op_in(drive, |set, c| charset(set, lower_unicode(c)));
-            }),
-            SreOpcode::IN_LOC_IGNORE => once(|drive| {
+                None
+            }
+            SreOpcode::IN_LOC_IGNORE => {
                 general_op_in(drive, |set, c| charset_loc_ignore(set, c));
-            }),
-            SreOpcode::INFO | SreOpcode::JUMP => once(|drive| {
+                None
+            }
+            SreOpcode::INFO | SreOpcode::JUMP => {
                 drive.skip_code(drive.peek_code(1) as usize + 1);
-            }),
-            SreOpcode::LITERAL => once(|drive| {
+                None
+            }
+            SreOpcode::LITERAL => {
                 general_op_literal(drive, |code, c| code == c);
-            }),
-            SreOpcode::NOT_LITERAL => once(|drive| {
+                None
+            }
+            SreOpcode::NOT_LITERAL => {
                 general_op_literal(drive, |code, c| code != c);
-            }),
-            SreOpcode::LITERAL_IGNORE => once(|drive| {
+                None
+            }
+            SreOpcode::LITERAL_IGNORE => {
                 general_op_literal(drive, |code, c| code == lower_ascii(c));
-            }),
-            SreOpcode::NOT_LITERAL_IGNORE => once(|drive| {
+                None
+            }
+            SreOpcode::NOT_LITERAL_IGNORE => {
                 general_op_literal(drive, |code, c| code != lower_ascii(c));
-            }),
-            SreOpcode::LITERAL_UNI_IGNORE => once(|drive| {
+                None
+            }
+            SreOpcode::LITERAL_UNI_IGNORE => {
                 general_op_literal(drive, |code, c| code == lower_unicode(c));
-            }),
-            SreOpcode::NOT_LITERAL_UNI_IGNORE => once(|drive| {
+                None
+            }
+            SreOpcode::NOT_LITERAL_UNI_IGNORE => {
                 general_op_literal(drive, |code, c| code != lower_unicode(c));
-            }),
-            SreOpcode::LITERAL_LOC_IGNORE => once(|drive| {
+                None
+            }
+            SreOpcode::LITERAL_LOC_IGNORE => {
                 general_op_literal(drive, char_loc_ignore);
-            }),
-            SreOpcode::NOT_LITERAL_LOC_IGNORE => once(|drive| {
+                None
+            }
+            SreOpcode::NOT_LITERAL_LOC_IGNORE => {
                 general_op_literal(drive, |code, c| !char_loc_ignore(code, c));
-            }),
-            SreOpcode::MARK => once(|drive| {
+                None
+            }
+            SreOpcode::MARK => {
                 drive
                     .state
                     .set_mark(drive.peek_code(1) as usize, drive.ctx().string_position);
                 drive.skip_code(2);
-            }),
-            SreOpcode::REPEAT => twice(
+                None
+            }
+            SreOpcode::REPEAT => Some(twice(
                 // create repeat context.  all the hard work is done by the UNTIL
                 // operator (MAX_UNTIL, MIN_UNTIL)
                 // <REPEAT> <skip> <1=min> <2=max> item <UNTIL> tail
@@ -687,20 +702,28 @@ impl OpcodeDispatcher {
                     let child_ctx = drive.state.popped_context.unwrap();
                     drive.ctx_mut().has_matched = child_ctx.has_matched;
                 },
-            ),
-            SreOpcode::MAX_UNTIL => Box::new(OpMaxUntil::default()),
-            SreOpcode::MIN_UNTIL => Box::new(OpMinUntil::default()),
-            SreOpcode::REPEAT_ONE => Box::new(OpRepeatOne::default()),
-            SreOpcode::MIN_REPEAT_ONE => Box::new(OpMinRepeatOne::default()),
-            SreOpcode::GROUPREF => once(|drive| general_op_groupref(drive, |x| x)),
-            SreOpcode::GROUPREF_IGNORE => once(|drive| general_op_groupref(drive, lower_ascii)),
+            )),
+            SreOpcode::MAX_UNTIL => Some(Box::new(OpMaxUntil::default())),
+            SreOpcode::MIN_UNTIL => Some(Box::new(OpMinUntil::default())),
+            SreOpcode::REPEAT_ONE => Some(Box::new(OpRepeatOne::default())),
+            SreOpcode::MIN_REPEAT_ONE => Some(Box::new(OpMinRepeatOne::default())),
+            SreOpcode::GROUPREF => {
+                general_op_groupref(drive, |x| x);
+                None
+            }
+            SreOpcode::GROUPREF_IGNORE => {
+                general_op_groupref(drive, lower_ascii);
+                None
+            }
             SreOpcode::GROUPREF_LOC_IGNORE => {
-                once(|drive| general_op_groupref(drive, lower_locate))
+                general_op_groupref(drive, lower_locate);
+                None
             }
             SreOpcode::GROUPREF_UNI_IGNORE => {
-                once(|drive| general_op_groupref(drive, lower_unicode))
+                general_op_groupref(drive, lower_unicode);
+                None
             }
-            SreOpcode::GROUPREF_EXISTS => once(|drive| {
+            SreOpcode::GROUPREF_EXISTS => {
                 let (group_start, group_end) = drive.state.get_marks(drive.peek_code(1) as usize);
                 match (group_start, group_end) {
                     (Some(start), Some(end)) if start <= end => {
@@ -708,7 +731,8 @@ impl OpcodeDispatcher {
                     }
                     _ => drive.skip_code(drive.peek_code(2) as usize + 1),
                 }
-            }),
+                None
+            }
             _ => {
                 // TODO python expcetion?
                 unreachable!("unexpected opcode")
