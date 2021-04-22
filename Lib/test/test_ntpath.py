@@ -741,9 +741,10 @@ class NtCommonTest(test_genericpath.CommonTest, unittest.TestCase):
         super().test_expandvars_nonascii()
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_nonascii_abspath(self):
-        super().test_nonascii_abspath()
+    if sys.platform == "linux":
+        @unittest.expectedFailure
+        def test_nonascii_abspath(self):
+            super().test_nonascii_abspath()
 
 
 class PathLikeTests(NtpathTestCase):
