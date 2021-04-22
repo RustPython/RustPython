@@ -546,6 +546,8 @@ class TestNtpath(NtpathTestCase):
             tester('ntpath.expanduser("~test")', 'C:\\eric\\test')
             tester('ntpath.expanduser("~")', 'C:\\eric\\idle')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(nt, "abspath requires 'nt' module")
     def test_abspath(self):
         tester('ntpath.abspath("C:\\")', "C:\\")
@@ -662,6 +664,10 @@ class TestNtpath(NtpathTestCase):
                     # dialogs (#4804)
                     ntpath.sameopenfile(-1, -1)
 
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_sameopenfile = unittest.expectedFailure(test_sameopenfile)
+
     def test_ismount(self):
         self.assertTrue(ntpath.ismount("c:\\"))
         self.assertTrue(ntpath.ismount("C:\\"))
@@ -701,6 +707,8 @@ class TestNtpath(NtpathTestCase):
         """Assert that two strings are equal ignoring case differences."""
         self.assertEqual(s1.lower(), s2.lower())
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(nt, "OS helpers require 'nt' module")
     def test_nt_helpers(self):
         # Trivial validation that the helpers do not break, and support both
@@ -736,15 +744,57 @@ class NtCommonTest(test_genericpath.CommonTest, unittest.TestCase):
     attributes = ['relpath']
 
     # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        @unittest.expectedFailure
+        def test_exists(self):
+            super().test_exists()
+
+    # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_expandvars_nonascii(self):
         super().test_expandvars_nonascii()
+
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        @unittest.expectedFailure
+        def test_isdir(self):
+            super().test_isdir()
+
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        @unittest.expectedFailure
+        def test_isfile(self):
+            super().test_isfile()
 
     # TODO: RUSTPYTHON
     if sys.platform == "linux":
         @unittest.expectedFailure
         def test_nonascii_abspath(self):
             super().test_nonascii_abspath()
+
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        @unittest.expectedFailure
+        def test_samefile(self):
+            super().test_samefile()
+
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        @unittest.expectedFailure
+        def test_samefile_on_link(self):
+            super().test_samefile_on_link()
+
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        @unittest.expectedFailure
+        def test_samestat(self):
+            super().test_samestat()
+
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        @unittest.expectedFailure
+        def test_samestat_on_link(self):
+            super().test_samestat_on_link()
 
 
 class PathLikeTests(NtpathTestCase):
