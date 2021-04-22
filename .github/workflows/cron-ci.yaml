@@ -27,13 +27,14 @@ jobs:
         with:
           toolchain: nightly
           override: true
+          components: llvm-tools-preview
+      - run: sudo apt-get install lcov
       - uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --verbose
+          args: --release --verbose
         env:
-          CARGO_INCREMENTAL: '0'
-          RUSTFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Zpanic_abort_tests' # -Cpanic=abort
+          RUSTC_WRAPPER: './scripts/codecoverage-rustc-wrapper.sh'
       - uses: actions/setup-python@v1
         with:
           python-version: 3.8
@@ -45,20 +46,26 @@ jobs:
       - run: pipenv install
         working-directory: ./extra_tests
       - name: run snippets
-        run: pipenv run pytest -v
+        run: LLVM_PROFILE_FILE="$PWD/snippet-%p.profraw" pipenv run pytest -v
         working-directory: ./extra_tests
         env:
-          RUSTPYTHON_DEBUG: 'true'
+          RUSTPYTHON_TESTS_NOBUILD: 'true'
       - name: run cpython tests
-        run: cargo run -- -m test -v
+        run: LLVM_PROFILE_FILE="$PWD/regrtest.profraw" target/release/rustpython -m test -v
         env:
           RUSTPYTHONPATH: ${{ github.workspace }}/Lib
-      - uses: actions-rs/grcov@v0.1
-        id: coverage
+      - name: prepare code coverage data
+        run: |
+          rusttool() {
+            local tool=$1; shift; "$(rustc --print target-libdir)/../bin/llvm-$tool" "$@"
+          }
+          rusttool profdata merge extra_tests/snippet-*.profraw regrtest.profraw --output codecov.profdata
+          rusttool cov export --instr-profile codecov.profdata target/release/rustpython --format lcov >codecov.lcov
+          lcov -r codecov.lcov '/*' -o codecov.lcov
       - name: upload to Codecov
         uses: codecov/codecov-action@v1
         with:
-          file: ${{ steps.coverage.outputs.report }}
+          file: ./codecov.lcov
 
   testdata:
     name: Collect regression test data
