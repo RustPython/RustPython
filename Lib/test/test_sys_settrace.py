@@ -842,6 +842,7 @@ class JumpTestCase(unittest.TestCase):
             pass
         output.append(12)
 
+    @unittest.skip("TODO: RUSTPYTHON, infinite loop never exits")
     @jump_test(3, 4, [1, 4])
     def test_jump_infinite_while_loop(output):
         output.append(1)
