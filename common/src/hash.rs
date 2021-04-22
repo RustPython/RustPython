@@ -130,7 +130,7 @@ pub fn hash_float(value: f64) -> PyHash {
     };
     x = ((x << e) & MODULUS) | x >> (BITS32 - e);
 
-    x as PyHash * value.signum() as PyHash
+    check_sentinel(x as PyHash * value.signum() as PyHash)
 }
 
 pub fn hash_complex(value: &Complex64) -> PyHash {
@@ -151,18 +151,27 @@ where
         // xor is commutative and hash should be independent of order
         hash ^= item_hash;
     }
-    Ok(mod_int(hash))
+    Ok(check_sentinel(mod_int(hash)))
 }
 
 pub fn hash_bigint(value: &BigInt) -> PyHash {
-    value.to_i64().map_or_else(
-        || {
-            (value % MODULUS).to_i64().unwrap_or_else(||
-            // guaranteed to be safe by mod
-            unsafe { std::hint::unreachable_unchecked() })
-        },
-        mod_int,
-    )
+    let ret = match value.to_i64() {
+        Some(i) => mod_int(i),
+        None => (value % MODULUS).to_i64().unwrap_or_else(|| unsafe {
+            // SAFETY: MODULUS < i64::MAX, so value % MODULUS is guaranteed to be in the range of i64
+            std::hint::unreachable_unchecked()
+        }),
+    };
+    check_sentinel(ret)
+}
+
+#[inline(always)]
+fn check_sentinel(x: PyHash) -> PyHash {
+    if x == -1 {
+        -2
+    } else {
+        x
+    }
 }
 
 #[inline]
