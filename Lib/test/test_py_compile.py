@@ -115,7 +115,7 @@ class PyCompileTestsBase:
 
     # TODO: RUSTPYTHON
     import platform
-    if sys.platform == "darwin" and platform.machine() != "arm64":
+    if sys.platform == "darwin" and platform.release() != "20.3.0":
         test_relative_path = unittest.expectedFailure(test_relative_path)
 
     @unittest.skipIf(hasattr(os, 'geteuid') and os.geteuid() == 0,
