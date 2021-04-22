@@ -14,7 +14,7 @@ get_crate_name() {
 
 case $(get_crate_name "$@") in
   rustpython_*|rustpython)
-    EXTRA=(-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Zpanic_abort_tests) # -Cpanic=abort
+    EXTRA=(-Zinstrument-coverage)
     ;;
 
   *) EXTRA=() ;;
