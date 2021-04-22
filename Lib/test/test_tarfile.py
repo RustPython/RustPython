@@ -231,6 +231,8 @@ class ListTest(ReadTest, unittest.TestCase):
     def setUp(self):
         self.tar = tarfile.open(self.tarname, mode=self.mode)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_list(self):
         tio = io.TextIOWrapper(io.BytesIO(), 'ascii', newline='\n')
         with support.swap_attr(sys, 'stdout', tio):
@@ -268,6 +270,8 @@ class ListTest(ReadTest, unittest.TestCase):
         self.assertNotIn(b'link to', out)
         self.assertNotIn(b'->', out)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_list_verbose(self):
         tio = io.TextIOWrapper(io.BytesIO(), 'ascii', newline='\n')
         with support.swap_attr(sys, 'stdout', tio):
@@ -292,6 +296,8 @@ class ListTest(ReadTest, unittest.TestCase):
         self.assertIn(b'pax' + (b'/123' * 125) + b'/longlink link to pax' +
                       (b'/123' * 125) + b'/longname', out)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_list_members(self):
         tio = io.TextIOWrapper(io.BytesIO(), 'ascii', newline='\n')
         def members(tar):
@@ -336,6 +342,8 @@ class CommonReadTest(ReadTest):
         finally:
             tar.close()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_non_existent_tarfile(self):
         # Test for issue11513: prevent non-existent gzipped tarfiles raising
         # multiple exceptions.
@@ -477,6 +485,8 @@ class MiscReadTestBase(CommonReadTest):
         with self.assertRaisesRegex(ValueError, 'mode must be '):
             tar = self.taropen(tmpname, '')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_fileobj_with_offset(self):
         # Skip the first member and store values from the second member
         # of the testtar.
@@ -647,6 +657,8 @@ class MiscReadTestBase(CommonReadTest):
         finally:
             support.unlink(empty)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_parallel_iteration(self):
         # Issue #16601: Restarting iteration over tarfile continued
         # from where it left off.
@@ -966,15 +978,23 @@ class GNUReadTest(LongnameTest, ReadTest, unittest.TestCase):
             s = os.stat(filename)
             self.assertLess(s.st_blocks * 512, s.st_size)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_sparse_file_old(self):
         self._test_sparse_file("gnu/sparse")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_sparse_file_00(self):
         self._test_sparse_file("gnu/sparse-0.0")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_sparse_file_01(self):
         self._test_sparse_file("gnu/sparse-0.1")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_sparse_file_10(self):
         self._test_sparse_file("gnu/sparse-1.0")
 
@@ -1302,6 +1322,8 @@ class WriteTest(WriteTestBase, unittest.TestCase):
         self.assertEqual(t.name, cmp_path or path.replace(os.sep, "/"))
 
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @support.skip_unless_symlink
     def test_extractall_symlinks(self):
         # Test if extractall works properly when tarfile contains symlinks
@@ -1438,6 +1460,8 @@ class StreamWriteTest(WriteTestBase, unittest.TestCase):
 
 
 class GzipStreamWriteTest(GzipTest, StreamWriteTest):
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_source_directory_not_leaked(self):
         """
         Ensure the source directory is not included in the tar header
@@ -1779,6 +1803,8 @@ class UnicodeTest:
     def test_iso8859_1_filename(self):
         self._test_unicode_filename("iso8859-1")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_utf7_filename(self):
         self._test_unicode_filename("utf7")
 
@@ -1859,6 +1885,11 @@ class UstarUnicodeTest(UnicodeTest, unittest.TestCase):
 
     format = tarfile.USTAR_FORMAT
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_uname_unicode(self):
+        super().test_uname_unicode()
+
     # Test whether the utf-8 encoded version of a filename exceeds the 100
     # bytes name field limit (every occurrence of '\xff' will be expanded to 2
     # bytes).
@@ -1938,6 +1969,13 @@ class GNUUnicodeTest(UnicodeTest, unittest.TestCase):
 
     format = tarfile.GNU_FORMAT
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_uname_unicode(self):
+        super().test_uname_unicode()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_bad_pax_header(self):
         # Test for issue #8633. GNU tar <= 1.23 creates raw binary fields
         # without a hdrcharset=BINARY header.
@@ -1959,6 +1997,8 @@ class PAXUnicodeTest(UnicodeTest, unittest.TestCase):
     # PAX_FORMAT ignores encoding in write mode.
     test_unicode_filename_error = None
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_binary_header(self):
         # Test a POSIX.1-2008 compatible header with a hdrcharset=BINARY field.
         for encoding, name in (
@@ -2238,12 +2278,16 @@ class CommandLineTest(unittest.TestCase):
         self.assertEqual(out, b'')
         self.assertNotEqual(err.strip(), b'')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_test_command(self):
         for tar_name in testtarnames:
             for opt in '-t', '--test':
                 out = self.tarfilecmd(opt, tar_name)
                 self.assertEqual(out, b'')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_test_command_verbose(self):
         for tar_name in testtarnames:
             for opt in '-v', '--verbose':
@@ -2270,6 +2314,8 @@ class CommandLineTest(unittest.TestCase):
                 finally:
                     support.unlink(tmpname)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_list_command(self):
         for tar_name in testtarnames:
             with support.captured_stdout() as t:
@@ -2281,6 +2327,8 @@ class CommandLineTest(unittest.TestCase):
                                       PYTHONIOENCODING='ascii')
                 self.assertEqual(out, expected)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_list_command_verbose(self):
         for tar_name in testtarnames:
             with support.captured_stdout() as t:
