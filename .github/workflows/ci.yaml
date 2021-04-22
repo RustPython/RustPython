@@ -111,7 +111,6 @@ jobs:
         name: run cpython tests (macOS lightweight)
         run:
           target/release/rustpython -m test -v -x
-            test_bytearray
             test_long
             test_unicode
             test_array
