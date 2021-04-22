@@ -45,16 +45,14 @@ jobs:
       - run: pipenv install
         working-directory: ./extra_tests
       - name: run snippets
-        run: pipenv run pytest -v
+        run: LLVM_PROFILE_FILE="$PWD/snippet-%p.profraw" pipenv run pytest -v
         working-directory: ./extra_tests
         env:
           RUSTPYTHON_TESTS_NOBUILD: 'true'
-          LLVM_PROFILE_FILE: 'snippet-%p.profraw'
       - name: run cpython tests
-        run: target/release/rustpython -m test -v
+        run: LLVM_PROFILE_FILE="$PWD/regrtest.profraw" target/release/rustpython -m test -v
         env:
           RUSTPYTHONPATH: ${{ github.workspace }}/Lib
-          LLVM_PROFILE_FILE: 'regrtest.profraw'
       - name: prepare code coverage data
         run: |
           rusttool() {
