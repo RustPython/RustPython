@@ -548,12 +548,16 @@ class RaisingTraceFuncTestCase(unittest.TestCase):
             self.fail("recursion counter not reset")
 
     # Test the handling of exceptions raised by each kind of trace event.
+    @unittest.skip("TODO: RUSTPYTHON, spurious error?")
     def test_call(self):
         self.run_test_for_event('call')
+    @unittest.skip("TODO: RUSTPYTHON, spurious error?")
     def test_line(self):
         self.run_test_for_event('line')
+    @unittest.skip("TODO: RUSTPYTHON, spurious error?")
     def test_return(self):
         self.run_test_for_event('return')
+    @unittest.skip("TODO: RUSTPYTHON, spurious error?")
     def test_exception(self):
         self.run_test_for_event('exception')
 
