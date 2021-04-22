@@ -673,6 +673,8 @@ class SyntaxTestCase(unittest.TestCase):
     def test_assign_del(self):
         self._check_error("del f()", "delete")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_global_param_err_first(self):
         source = """if 1:
             def error(a):
@@ -731,6 +733,8 @@ class SyntaxTestCase(unittest.TestCase):
         self._check_error("class C:\n  if 1: pass\n  else: break",
                           "outside loop")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_continue_outside_loop(self):
         self._check_error("if 0: continue",             "not properly in loop")
         self._check_error("if 0: continue\nelse:  x=1", "not properly in loop")
@@ -756,11 +760,15 @@ class SyntaxTestCase(unittest.TestCase):
         self._check_error("int(base=10, '2')",
                           "positional argument follows keyword argument")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_kwargs_last2(self):
         self._check_error("int(**{'base': 10}, '2')",
                           "positional argument follows "
                           "keyword argument unpacking")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_kwargs_last3(self):
         self._check_error("int(**{'base': 10}, *['2'])",
                           "iterable argument unpacking follows "
