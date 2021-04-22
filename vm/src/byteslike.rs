@@ -1,4 +1,5 @@
 use crate::builtins::memory::{try_buffer_from_object, BufferRef};
+use crate::builtins::PyStrRef;
 use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
 use crate::pyobject::{BorrowValue, PyObjectRef, PyResult, TryFromObject};
 use crate::vm::VirtualMachine;
@@ -122,5 +123,29 @@ impl<'a> BorrowValue<'a> for PyRwBytesLike {
     type Borrowed = BorrowedValueMut<'a, [u8]>;
     fn borrow_value(&'a self) -> Self::Borrowed {
         self.0.as_contiguous_mut().unwrap()
+    }
+}
+
+/// A buffer or utf8 string. Like the `s*` format code for `PyArg_Parse` in CPython.
+pub enum BufOrStr {
+    Buf(PyBytesLike),
+    Str(PyStrRef),
+}
+
+impl TryFromObject for BufOrStr {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        obj.downcast()
+            .map(Self::Str)
+            .or_else(|obj| PyBytesLike::try_from_object(vm, obj).map(Self::Buf))
+    }
+}
+
+impl<'a> BorrowValue<'a> for BufOrStr {
+    type Borrowed = BorrowedValue<'a, [u8]>;
+    fn borrow_value(&'a self) -> Self::Borrowed {
+        match self {
+            Self::Buf(b) => b.borrow_value(),
+            Self::Str(s) => s.borrow_value().as_bytes().into(),
+        }
     }
 }

@@ -23,7 +23,7 @@ fn main() {
     let mut f = std::fs::File::create(env_path).unwrap();
     write!(
         f,
-        "hashmap! {{ {} }}",
+        "sysvars! {{ {} }}",
         std::env::vars_os().format_with(", ", |(k, v), f| f(&format_args!("{:?} => {:?}", k, v)))
     )
     .unwrap();

@@ -10,6 +10,9 @@ mod termios {
     use std::convert::TryFrom;
     use termios::Termios;
 
+    // TODO: more ioctl numbers
+    #[pyattr]
+    use libc::{TIOCGWINSZ, TIOCSWINSZ};
     #[pyattr]
     use termios::{
         os::target::NCCS, B0, B110, B1200, B134, B150, B1800, B19200, B200, B2400, B300, B38400,

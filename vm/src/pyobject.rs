@@ -1139,9 +1139,10 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
 
     fn into_tuple(self, vm: &VirtualMachine) -> PyTuple;
 
-    fn into_struct_sequence(self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+    fn into_struct_sequence(self, vm: &VirtualMachine) -> PyTupleRef {
         self.into_tuple(vm)
             .into_ref_with_type(vm, Self::static_type().clone())
+            .unwrap()
     }
 
     #[pymethod(magic)]

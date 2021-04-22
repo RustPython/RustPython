@@ -1,7 +1,8 @@
+use crate::exceptions::IntoPyException;
 use crate::pyobject::{PyObjectRef, PyResult, TryFromObject};
 use crate::vm::{VirtualMachine, NSIG};
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{self, AtomicBool, Ordering};
 
 #[cfg(unix)]
 use nix::unistd::alarm as sig_alarm;
@@ -23,9 +24,37 @@ static TRIGGERS: [AtomicBool; NSIG] = [ATOMIC_FALSE; NSIG];
 
 static ANY_TRIGGERED: AtomicBool = AtomicBool::new(false);
 
+cfg_if::cfg_if! {
+    if #[cfg(windows)] {
+        use winapi::um::winsock2;
+        type WakeupFd = libc::SOCKET;
+        const INVALID_WAKEUP: WakeupFd = (-1isize) as usize;
+        static WAKEUP: atomic::AtomicUsize = atomic::AtomicUsize::new(INVALID_WAKEUP);
+        // windows doesn't use the same fds for files and sockets like windows does, so we need
+        // this to know whether to send() or write()
+        static WAKEUP_IS_SOCKET: AtomicBool = AtomicBool::new(false);
+    } else {
+        type WakeupFd = i32;
+        const INVALID_WAKEUP: WakeupFd = -1;
+        static WAKEUP: atomic::AtomicI32 = atomic::AtomicI32::new(INVALID_WAKEUP);
+    }
+}
+
 extern "C" fn run_signal(signum: i32) {
-    ANY_TRIGGERED.store(true, Ordering::Relaxed);
     TRIGGERS[signum as usize].store(true, Ordering::Relaxed);
+    ANY_TRIGGERED.store(true, Ordering::SeqCst);
+    let wakeup_fd = WAKEUP.load(Ordering::Relaxed);
+    if wakeup_fd != INVALID_WAKEUP {
+        let sigbyte = signum as u8;
+        #[cfg(windows)]
+        if WAKEUP_IS_SOCKET.load(Ordering::Relaxed) {
+            let _res =
+                unsafe { winsock2::send(wakeup_fd, &sigbyte as *const u8 as *const _, 1, 0) };
+            return;
+        }
+        let _res = unsafe { libc::write(wakeup_fd as _, &sigbyte as *const u8 as *const _, 1) };
+        // TODO: handle _res < 1, support warn_on_full_buffer
+    }
 }
 
 fn assert_in_range(signum: i32, vm: &VirtualMachine) -> PyResult<()> {
@@ -34,6 +63,11 @@ fn assert_in_range(signum: i32, vm: &VirtualMachine) -> PyResult<()> {
     } else {
         Err(vm.new_value_error("signal number out of range".to_owned()))
     }
+}
+
+#[cfg(all(unix, not(target_os = "redox")))]
+extern "C" {
+    fn siginterrupt(sig: i32, flag: i32) -> i32;
 }
 
 fn _signal_signal(
@@ -65,13 +99,8 @@ fn _signal_signal(
         return Err(vm.new_os_error("Failed to set signal".to_owned()));
     }
     #[cfg(all(unix, not(target_os = "redox")))]
-    {
-        extern "C" {
-            fn siginterrupt(sig: i32, flag: i32);
-        }
-        unsafe {
-            siginterrupt(signalnum, 1);
-        }
+    unsafe {
+        siginterrupt(signalnum, 1);
     }
 
     let old_handler = std::mem::replace(
@@ -145,6 +174,78 @@ fn _signal_default_int_handler(
     Err(vm.new_exception_empty(vm.ctx.exceptions.keyboard_interrupt.clone()))
 }
 
+#[derive(FromArgs)]
+struct SetWakeupFdArgs {
+    #[pyarg(any)]
+    fd: WakeupFd,
+    #[pyarg(named, default = "true")]
+    warn_on_full_buffer: bool,
+}
+
+fn _signal_set_wakeup_fd(args: SetWakeupFdArgs, vm: &VirtualMachine) -> PyResult<WakeupFd> {
+    // TODO: implement warn_on_full_buffer
+    let _ = args.warn_on_full_buffer;
+    let fd = args.fd;
+
+    if vm.signal_handlers.is_none() {
+        return Err(vm.new_value_error("signal only works in main thread".to_owned()));
+    }
+
+    #[cfg(windows)]
+    let is_socket = if fd != INVALID_WAKEUP {
+        super::socket::init_winsock();
+        let mut res = 0i32;
+        let mut res_size = std::mem::size_of::<i32>() as i32;
+        let res = unsafe {
+            winsock2::getsockopt(
+                fd,
+                winsock2::SOL_SOCKET,
+                winsock2::SO_ERROR,
+                &mut res as *mut i32 as *mut _,
+                &mut res_size,
+            )
+        };
+        // if getsockopt succeeded, fd is for sure a socket
+        let is_socket = res == 0;
+        if !is_socket {
+            let err = std::io::Error::last_os_error();
+            // if getsockopt failed for some other reason, throw
+            if err.raw_os_error() != Some(winsock2::WSAENOTSOCK) {
+                return Err(err.into_pyexception(vm));
+            }
+        }
+        is_socket
+    } else {
+        false
+    };
+    #[cfg(not(windows))]
+    if fd != INVALID_WAKEUP {
+        use nix::fcntl;
+        let oflags = fcntl::fcntl(fd, fcntl::F_GETFL).map_err(|e| e.into_pyexception(vm))?;
+        let nonblock = fcntl::OFlag::from_bits_truncate(oflags).contains(fcntl::OFlag::O_NONBLOCK);
+        if !nonblock {
+            return Err(vm.new_value_error(format!("the fd {} must be in non-blocking mode", fd)));
+        }
+    }
+
+    let old_fd = WAKEUP.swap(fd, Ordering::Relaxed);
+    #[cfg(windows)]
+    WAKEUP_IS_SOCKET.store(is_socket, Ordering::Relaxed);
+
+    Ok(old_fd)
+}
+
+#[cfg(all(unix, not(target_os = "redox")))]
+fn _signal_siginterrupt(signum: i32, flag: i32, vm: &VirtualMachine) -> PyResult<()> {
+    assert_in_range(signum, vm)?;
+    let res = unsafe { siginterrupt(signum, flag) };
+    if res < 0 {
+        Err(super::os::errno_err(vm))
+    } else {
+        Ok(())
+    }
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -156,6 +257,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let module = py_module!(vm, "_signal", {
         "signal" => named_function!(ctx, _signal, signal),
         "getsignal" => named_function!(ctx, _signal, getsignal),
+        "set_wakeup_fd" => named_function!(ctx, _signal, set_wakeup_fd),
         "SIG_DFL" => sig_dfl.clone(),
         "SIG_IGN" => sig_ign.clone(),
         "SIGABRT" => ctx.new_int(libc::SIGABRT as u8),
@@ -218,6 +320,11 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: &PyObjectRef) {
         "SIGWINCH" => ctx.new_int(libc::SIGWINCH as u8),
         "SIGIO" => ctx.new_int(libc::SIGIO as u8),
         "SIGSYS" => ctx.new_int(libc::SIGSYS as u8),
+    });
+
+    #[cfg(not(target_os = "redox"))]
+    extend_module!(vm, module, {
+        "siginterrupt" => named_function!(ctx, _signal, siginterrupt),
     });
 
     #[cfg(not(any(target_os = "macos", target_os = "openbsd", target_os = "freebsd")))]

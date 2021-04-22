@@ -4,6 +4,7 @@
 //!   https://github.com/ProgVal/pythonvm-rust/blob/master/src/processor/mod.rs
 //!
 
+use std::borrow::Cow;
 use std::cell::{Cell, Ref, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -115,7 +116,7 @@ pub(crate) mod thread {
 
 pub struct PyGlobalState {
     pub settings: PySettings,
-    pub stdlib_inits: HashMap<String, stdlib::StdlibInitFunc, ahash::RandomState>,
+    pub stdlib_inits: stdlib::StdlibMap,
     pub frozen: HashMap<String, code::FrozenModule, ahash::RandomState>,
     pub stacksize: AtomicCell<usize>,
     pub thread_count: AtomicCell<usize>,
@@ -361,10 +362,13 @@ impl VirtualMachine {
     }
 
     /// Can only be used in the initialization closure passed to [`Interpreter::new_with_init`]
-    pub fn add_native_module(&mut self, name: String, module: stdlib::StdlibInitFunc) {
+    pub fn add_native_module<S>(&mut self, name: S, module: stdlib::StdlibInitFunc)
+    where
+        S: Into<Cow<'static, str>>,
+    {
         let state = PyRc::get_mut(&mut self.state)
             .expect("can't add_native_module when there are multiple threads");
-        state.stdlib_inits.insert(name, module);
+        state.stdlib_inits.insert(name.into(), module);
     }
 
     /// Can only be used in the initialization closure passed to [`Interpreter::new_with_init`]

@@ -476,13 +476,6 @@ mod _os {
     }
 
     #[pyfunction]
-    fn error(message: OptionalArg<PyStrRef>, vm: &VirtualMachine) -> PyResult {
-        let msg = message.map_or("".to_owned(), |msg| msg.borrow_value().to_owned());
-
-        Err(vm.new_os_error(msg))
-    }
-
-    #[pyfunction]
     fn fsync(fd: i64, vm: &VirtualMachine) -> PyResult<()> {
         let file = rust_file(fd);
         file.sync_all().map_err(|err| err.into_pyexception(vm))?;
@@ -793,10 +786,6 @@ mod _os {
 
     #[pyimpl(with(PyStructSequence))]
     impl StatResult {
-        fn into_obj(self, vm: &VirtualMachine) -> PyObjectRef {
-            self.into_struct_sequence(vm).unwrap().into_object()
-        }
-
         fn from_metadata(meta: fs::Metadata) -> io::Result<Self> {
             let (st_mode, st_ino, st_dev, st_nlink, st_uid, st_gid, ctime);
             #[cfg(windows)]
@@ -919,7 +908,7 @@ mod _os {
             }
         };
         meta.and_then(StatResult::from_metadata)
-            .map(|stat| stat.into_obj(vm))
+            .map(|stat| stat.into_pyobject(vm))
             .map_err(|err| err.into_pyexception(vm))
     }
 
@@ -1274,7 +1263,7 @@ mod _os {
         Ok(())
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, not(any(target_os = "redox", target_os = "android"))))]
     #[pyfunction]
     fn getloadavg(vm: &VirtualMachine) -> PyResult<(f64, f64, f64)> {
         let mut loadavg = [0f64; 3];
@@ -1418,6 +1407,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "supports_fd" => supports_fd.into_object(),
         "supports_dir_fd" => supports_dir_fd.into_object(),
         "supports_follow_symlinks" => supports_follow_symlinks.into_object(),
+        "error" => vm.ctx.exceptions.os_error.clone(),
     });
 
     module
@@ -2112,14 +2102,10 @@ mod posix {
     }
 
     #[pyimpl(with(PyStructSequence))]
-    impl UnameResult {
-        fn into_obj(self, vm: &VirtualMachine) -> PyObjectRef {
-            self.into_struct_sequence(vm).unwrap().into_object()
-        }
-    }
+    impl UnameResult {}
 
     #[pyfunction]
-    fn uname(vm: &VirtualMachine) -> PyResult {
+    fn uname(vm: &VirtualMachine) -> PyResult<UnameResult> {
         let info = uname::uname().map_err(|err| err.into_pyexception(vm))?;
         Ok(UnameResult {
             sysname: info.sysname,
@@ -2127,8 +2113,7 @@ mod posix {
             release: info.release,
             version: info.version,
             machine: info.machine,
-        }
-        .into_obj(vm))
+        })
     }
 
     #[pyfunction]
@@ -2473,23 +2458,23 @@ mod posix {
     }
 
     #[pyfunction]
-    fn get_terminal_size(fd: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+    fn get_terminal_size(
+        fd: OptionalArg<i32>,
+        vm: &VirtualMachine,
+    ) -> PyResult<super::_os::PyTerminalSize> {
         let (columns, lines) = {
-            #[cfg(unix)]
-            {
-                nix::ioctl_read_bad!(winsz, libc::TIOCGWINSZ, libc::winsize);
-                let mut w = libc::winsize {
-                    ws_row: 0,
-                    ws_col: 0,
-                    ws_xpixel: 0,
-                    ws_ypixel: 0,
-                };
-                unsafe { winsz(fd.unwrap_or(libc::STDOUT_FILENO), &mut w) }
-                    .map_err(|err| err.into_pyexception(vm))?;
-                (w.ws_col.into(), w.ws_row.into())
-            }
+            nix::ioctl_read_bad!(winsz, libc::TIOCGWINSZ, libc::winsize);
+            let mut w = libc::winsize {
+                ws_row: 0,
+                ws_col: 0,
+                ws_xpixel: 0,
+                ws_ypixel: 0,
+            };
+            unsafe { winsz(fd.unwrap_or(libc::STDOUT_FILENO), &mut w) }
+                .map_err(|err| err.into_pyexception(vm))?;
+            (w.ws_col.into(), w.ws_row.into())
         };
-        super::_os::PyTerminalSize { columns, lines }.into_struct_sequence(vm)
+        Ok(super::_os::PyTerminalSize { columns, lines })
     }
 
     // from libstd:
@@ -2818,36 +2803,37 @@ mod nt {
     }
 
     #[pyfunction]
-    fn get_terminal_size(fd: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+    fn get_terminal_size(
+        fd: OptionalArg<i32>,
+        vm: &VirtualMachine,
+    ) -> PyResult<super::_os::PyTerminalSize> {
         let (columns, lines) = {
-            {
-                use winapi::um::{handleapi, processenv, winbase, wincon};
-                let stdhandle = match fd {
-                    OptionalArg::Present(0) => winbase::STD_INPUT_HANDLE,
-                    OptionalArg::Present(1) | OptionalArg::Missing => winbase::STD_OUTPUT_HANDLE,
-                    OptionalArg::Present(2) => winbase::STD_ERROR_HANDLE,
-                    _ => return Err(vm.new_value_error("bad file descriptor".to_owned())),
-                };
-                let h = unsafe { processenv::GetStdHandle(stdhandle) };
-                if h.is_null() {
-                    return Err(vm.new_os_error("handle cannot be retrieved".to_owned()));
-                }
-                if h == handleapi::INVALID_HANDLE_VALUE {
-                    return Err(errno_err(vm));
-                }
-                let mut csbi = wincon::CONSOLE_SCREEN_BUFFER_INFO::default();
-                let ret = unsafe { wincon::GetConsoleScreenBufferInfo(h, &mut csbi) };
-                if ret == 0 {
-                    return Err(errno_err(vm));
-                }
-                let w = csbi.srWindow;
-                (
-                    (w.Right - w.Left + 1) as usize,
-                    (w.Bottom - w.Top + 1) as usize,
-                )
+            use winapi::um::{handleapi, processenv, winbase, wincon};
+            let stdhandle = match fd {
+                OptionalArg::Present(0) => winbase::STD_INPUT_HANDLE,
+                OptionalArg::Present(1) | OptionalArg::Missing => winbase::STD_OUTPUT_HANDLE,
+                OptionalArg::Present(2) => winbase::STD_ERROR_HANDLE,
+                _ => return Err(vm.new_value_error("bad file descriptor".to_owned())),
+            };
+            let h = unsafe { processenv::GetStdHandle(stdhandle) };
+            if h.is_null() {
+                return Err(vm.new_os_error("handle cannot be retrieved".to_owned()));
             }
+            if h == handleapi::INVALID_HANDLE_VALUE {
+                return Err(errno_err(vm));
+            }
+            let mut csbi = wincon::CONSOLE_SCREEN_BUFFER_INFO::default();
+            let ret = unsafe { wincon::GetConsoleScreenBufferInfo(h, &mut csbi) };
+            if ret == 0 {
+                return Err(errno_err(vm));
+            }
+            let w = csbi.srWindow;
+            (
+                (w.Right - w.Left + 1) as usize,
+                (w.Bottom - w.Top + 1) as usize,
+            )
         };
-        super::_os::PyTerminalSize { columns, lines }.into_struct_sequence(vm)
+        Ok(super::_os::PyTerminalSize { columns, lines })
     }
 
     #[cfg(target_env = "msvc")]
