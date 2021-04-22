@@ -345,6 +345,8 @@ class ThreadTests(BaseTestCase):
             sys.settrace(func)
             """)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_join_nondaemon_on_shutdown(self):
         # Issue 1722344
         # Raising SystemExit skipped threading._shutdown
@@ -365,6 +367,8 @@ class ThreadTests(BaseTestCase):
             b"Woke up, sleep function is: <built-in function sleep>")
         self.assertEqual(err, b"")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_enumerate_after_join(self):
         # Try hard to trigger #1703448: a thread is still returned in
         # threading.enumerate() after it has been join()ed.
@@ -553,6 +557,8 @@ class ThreadTests(BaseTestCase):
         self.assertEqual(err, b"")
         self.assertEqual(data, "Thread-1\nTrue\nTrue\n")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @requires_type_collecting
     def test_main_thread_during_shutdown(self):
         # bpo-31516: current_thread() should still point to the main thread
@@ -782,6 +788,8 @@ class ThreadJoinOnShutdown(BaseTestCase):
         data = out.decode().replace('\r', '')
         self.assertEqual(data, "end of main\nend of thread\n")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_1_join_on_shutdown(self):
         # The usual case: on exit, wait for a non-daemon thread
         script = """if 1:
@@ -929,6 +937,8 @@ class ThreadJoinOnShutdown(BaseTestCase):
 
 class SubinterpThreadingTests(BaseTestCase):
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_threads_join(self):
         # Non-daemon threads should be joined at subinterpreter shutdown
         # (issue #18808)
@@ -959,6 +969,8 @@ class SubinterpThreadingTests(BaseTestCase):
         # The thread was joined properly.
         self.assertEqual(os.read(r, 1), b"x")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_threads_join_2(self):
         # Same as above, but a delay gets introduced after the thread's
         # Python code returned but before the thread state is deleted.
@@ -1317,6 +1329,11 @@ class PyRLockTests(lock_tests.RLockTests):
 class CRLockTests(lock_tests.RLockTests):
     locktype = staticmethod(threading._CRLock)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_release_save_unacquired(self):
+        super().test_release_save_unacquired()
+
 class EventTests(lock_tests.EventTests):
     eventtype = staticmethod(threading.Event)
 
@@ -1338,6 +1355,8 @@ class BarrierTests(lock_tests.BarrierTests):
 
 
 class MiscTestCase(unittest.TestCase):
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test__all__(self):
         extra = {"ThreadError"}
         blacklist = {'currentThread', 'activeCount'}
@@ -1346,6 +1365,8 @@ class MiscTestCase(unittest.TestCase):
 
 
 class InterruptMainTests(unittest.TestCase):
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_interrupt_main_subthread(self):
         # Calling start_new_thread with a function that executes interrupt_main
         # should raise KeyboardInterrupt upon completion.
@@ -1357,12 +1378,16 @@ class InterruptMainTests(unittest.TestCase):
             t.join()
         t.join()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_interrupt_main_mainthread(self):
         # Make sure that if interrupt_main is called in main thread that
         # KeyboardInterrupt is raised instantly.
         with self.assertRaises(KeyboardInterrupt):
             _thread.interrupt_main()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_interrupt_main_noerror(self):
         handler = signal.getsignal(signal.SIGINT)
         try:
