@@ -12,9 +12,13 @@ mod resource {
         if #[cfg(target_os = "linux")] {
             use libc::RLIMIT_NLIMITS as RLIM_NLIMITS;
         } else if #[cfg(target_os = "android")] {
-            pub const RLIM_NLIMITS: i32 = 16;
+            // TODO: this should be in libc soon
+            const RLIM_NLIMITS: i32 = 16;
         } else {
-            use libc::RLIM_NLIMITS;
+            // in bsd-ish platforms, this constant isn't abi-stable across os versions, so we just
+            // pick a high number so we don't get false positive ValueErrors and just bubble up the
+            // EINVAL that get/setrlimit return on an invalid resource
+            const RLIM_NLIMITS: i32 = 256;
         }
     }
 

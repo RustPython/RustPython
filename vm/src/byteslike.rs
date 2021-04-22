@@ -126,6 +126,7 @@ impl<'a> BorrowValue<'a> for PyRwBytesLike {
     }
 }
 
+/// A buffer or utf8 string. Like the `s*` format code for `PyArg_Parse` in CPython.
 pub enum BufOrStr {
     Buf(PyBytesLike),
     Str(PyStrRef),
