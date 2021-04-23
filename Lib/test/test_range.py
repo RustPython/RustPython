@@ -255,6 +255,8 @@ class RangeTest(unittest.TestCase):
         self.assertRaises(TypeError, range, 0.0, 0.0, 1)
         self.assertRaises(TypeError, range, 0.0, 0.0, 1.0)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_index(self):
         u = range(2)
         self.assertEqual(u.index(0), 0)
@@ -295,6 +297,8 @@ class RangeTest(unittest.TestCase):
         always_equal = AlwaysEqual()
         self.assertEqual(range(10).index(always_equal), 0)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_user_index_method(self):
         bignum = 2*sys.maxsize
         smallnum = 42
@@ -330,6 +334,8 @@ class RangeTest(unittest.TestCase):
         with self.assertRaises(TypeError):
             range(0, 10)[:IN()]
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_count(self):
         self.assertEqual(range(3).count(-1), 0)
         self.assertEqual(range(3).count(0), 1)
@@ -367,6 +373,8 @@ class RangeTest(unittest.TestCase):
                     self.assertEqual(list(pickle.loads(pickle.dumps(r, proto))),
                                      list(r))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_iterator_pickling(self):
         testcases = [(13,), (0, 11), (-22, 10), (20, 3, -1),
                      (13, 21, 3), (-2, 2, 2), (2**65, 2**65+2)]
@@ -389,6 +397,8 @@ class RangeTest(unittest.TestCase):
                 it = pickle.loads(d)
                 self.assertEqual(list(it), data[1:])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_exhausted_iterator_pickling(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             r = range(2**65, 2**65+2)
@@ -402,6 +412,8 @@ class RangeTest(unittest.TestCase):
             self.assertEqual(list(i), [])
             self.assertEqual(list(i2), [])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_large_exhausted_iterator_pickling(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             r = range(20)
@@ -422,6 +434,8 @@ class RangeTest(unittest.TestCase):
         with self.assertRaises(TypeError):
             range([], 1, -1)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_types(self):
         # Non-integer objects *equal* to any of the range's items are supposed
         # to be contained in the range.
@@ -478,6 +492,8 @@ class RangeTest(unittest.TestCase):
         self.assertNotIn(-1, r)
         self.assertNotIn(1, r)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_range_iterators(self):
         # exercise 'fast' iterators, that use a rangeiterobject internally.
         # see issue 7298
@@ -502,6 +518,8 @@ class RangeTest(unittest.TestCase):
             test_id = "reversed(range({}, {}, {}))".format(start, end, step)
             self.assert_iterators_equal(iter1, iter2, test_id, limit=100)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_range_iterators_invocation(self):
         # verify range iterators instances cannot be created by
         # calling their type
@@ -530,6 +548,8 @@ class RangeTest(unittest.TestCase):
             check(0, -1)
             check(-1, -3, -1)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_contains(self):
         r = range(10)
         self.assertIn(0, r)
@@ -564,6 +584,8 @@ class RangeTest(unittest.TestCase):
         self.assertNotIn(10, r)
         self.assertNotIn("", r)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_reverse_iteration(self):
         for r in [range(10),
                   range(0),
