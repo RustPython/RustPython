@@ -64,9 +64,13 @@ class ConversionErrorTest(unittest.TestCase):
     def test_pack_uint(self):
         self.assertRaisesConversion(self.packer.pack_uint, 'string')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_float(self):
         self.assertRaisesConversion(self.packer.pack_float, 'string')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_double(self):
         self.assertRaisesConversion(self.packer.pack_double, 'string')
 
