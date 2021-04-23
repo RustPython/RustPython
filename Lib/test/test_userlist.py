@@ -7,6 +7,14 @@ import unittest
 class UserListTest(list_tests.CommonTest):
     type2test = UserList
 
+    # TODO: RUSTPYTHON, parent method is marked but this version passes
+    def test_init(self):
+        super().test_init()
+
+    # TODO: RUSTPYTHON, parent method is marked but this version passes
+    def test_repr_deep(self):
+        super().test_repr_deep()
+
     def test_getslice(self):
         super().test_getslice()
         l = [0, 1, 2, 3, 4]
@@ -17,6 +25,8 @@ class UserListTest(list_tests.CommonTest):
             for j in range(-3, 6):
                 self.assertEqual(u[i:j], l[i:j])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_slice_type(self):
         l = [0, 1, 2, 3, 4]
         u = UserList(l)
