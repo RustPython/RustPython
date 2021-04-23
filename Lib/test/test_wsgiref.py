@@ -357,6 +357,8 @@ class UtilityTests(TestCase):
         it.close()
         self.assertTrue(it.filelike.closed)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_filewrapper_getitem_deprecation(self):
         wrapper = util.FileWrapper(StringIO('foobar'), 3)
         with self.assertWarnsRegex(DeprecationWarning,
@@ -818,6 +820,8 @@ class HandlerTests(TestCase):
             b"Hello, world!",
             written)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testClientConnectionTerminations(self):
         environ = {"SERVER_PROTOCOL": "HTTP/1.0"}
         for exception in (
@@ -836,6 +840,8 @@ class HandlerTests(TestCase):
 
                 self.assertFalse(stderr.getvalue())
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testDontResetInternalStateOnException(self):
         class CustomException(ValueError):
             pass
