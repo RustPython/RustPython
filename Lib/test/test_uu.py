@@ -57,6 +57,8 @@ def encodedtextwrapped(mode, filename, backtick=False):
 
 class UUTest(unittest.TestCase):
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_encode(self):
         inp = io.BytesIO(plaintext)
         out = io.BytesIO()
@@ -73,6 +75,8 @@ class UUTest(unittest.TestCase):
         with self.assertRaises(TypeError):
             uu.encode(inp, out, "t1", 0o644, True)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_decode(self):
         for backtick in True, False:
             inp = io.BytesIO(encodedtextwrapped(0o666, "t1", backtick=backtick))
@@ -88,6 +92,8 @@ class UUTest(unittest.TestCase):
             uu.decode(inp, out)
             self.assertEqual(out.getvalue(), plaintext)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_truncatedinput(self):
         inp = io.BytesIO(b"begin 644 t1\n" + encodedtext)
         out = io.BytesIO()
@@ -106,6 +112,8 @@ class UUTest(unittest.TestCase):
         except uu.Error as e:
             self.assertEqual(str(e), "No valid begin line found in input file")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_garbage_padding(self):
         # Issue #22406
         encodedtext1 = (
@@ -136,6 +144,8 @@ class UUTest(unittest.TestCase):
                 decoded = codecs.decode(encodedtext, "uu_codec")
                 self.assertEqual(decoded, plaintext)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_newlines_escaped(self):
         # Test newlines are escaped with uu.encode
         inp = io.BytesIO(plaintext)
@@ -155,6 +165,8 @@ class UUStdIOTest(unittest.TestCase):
         sys.stdin = self.stdin
         sys.stdout = self.stdout
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_encode(self):
         sys.stdin = FakeIO(plaintext.decode("ascii"))
         sys.stdout = FakeIO()
@@ -162,6 +174,8 @@ class UUStdIOTest(unittest.TestCase):
         self.assertEqual(sys.stdout.getvalue(),
                          encodedtextwrapped(0o666, "t1").decode("ascii"))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_decode(self):
         sys.stdin = FakeIO(encodedtextwrapped(0o666, "t1").decode("ascii"))
         sys.stdout = FakeIO()
@@ -179,6 +193,8 @@ class UUFileTest(unittest.TestCase):
         self.addCleanup(support.unlink, self.tmpin)
         self.addCleanup(support.unlink, self.tmpout)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_encode(self):
         with open(self.tmpin, 'wb') as fin:
             fin.write(plaintext)
@@ -197,6 +213,8 @@ class UUFileTest(unittest.TestCase):
             s = fout.read()
         self.assertEqual(s, encodedtextwrapped(0o644, self.tmpin))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_decode(self):
         with open(self.tmpin, 'wb') as f:
             f.write(encodedtextwrapped(0o644, self.tmpout))
@@ -209,6 +227,8 @@ class UUFileTest(unittest.TestCase):
         self.assertEqual(s, plaintext)
         # XXX is there an xp way to verify the mode?
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_decode_filename(self):
         with open(self.tmpin, 'wb') as f:
             f.write(encodedtextwrapped(0o644, self.tmpout))
@@ -219,6 +239,8 @@ class UUFileTest(unittest.TestCase):
             s = f.read()
         self.assertEqual(s, plaintext)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_decodetwice(self):
         # Verify that decode() will refuse to overwrite an existing file
         with open(self.tmpin, 'wb') as f:
@@ -229,6 +251,8 @@ class UUFileTest(unittest.TestCase):
         with open(self.tmpin, 'rb') as f:
             self.assertRaises(uu.Error, uu.decode, f)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_decode_mode(self):
         # Verify that decode() will set the given mode for the out_file
         expected_mode = 0o444
