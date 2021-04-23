@@ -243,6 +243,8 @@ class TypeCommentTests(unittest.TestCase):
     def classic_parse(self, source):
         return ast.parse(source)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_funcdef(self):
         for tree in self.parse_all(funcdef):
             self.assertEqual(tree.body[0].type_comment, "() -> int")
@@ -251,6 +253,8 @@ class TypeCommentTests(unittest.TestCase):
         self.assertEqual(tree.body[0].type_comment, None)
         self.assertEqual(tree.body[1].type_comment, None)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_asyncdef(self):
         for tree in self.parse_all(asyncdef, minver=5):
             self.assertEqual(tree.body[0].type_comment, "() -> int")
@@ -259,53 +263,75 @@ class TypeCommentTests(unittest.TestCase):
         self.assertEqual(tree.body[0].type_comment, None)
         self.assertEqual(tree.body[1].type_comment, None)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_asyncvar(self):
         for tree in self.parse_all(asyncvar, maxver=6):
             pass
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_asynccomp(self):
         for tree in self.parse_all(asynccomp, minver=6):
             pass
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_matmul(self):
         for tree in self.parse_all(matmul, minver=5):
             pass
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_fstring(self):
         for tree in self.parse_all(fstring, minver=6):
             pass
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_underscorednumber(self):
         for tree in self.parse_all(underscorednumber, minver=6):
             pass
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_redundantdef(self):
         for tree in self.parse_all(redundantdef, maxver=0,
                                 expected_regex="^Cannot have two type comments on def"):
             pass
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_nonasciidef(self):
         for tree in self.parse_all(nonasciidef):
             self.assertEqual(tree.body[0].type_comment, "() -> àçčéñt")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_forstmt(self):
         for tree in self.parse_all(forstmt):
             self.assertEqual(tree.body[0].type_comment, "int")
         tree = self.classic_parse(forstmt)
         self.assertEqual(tree.body[0].type_comment, None)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_withstmt(self):
         for tree in self.parse_all(withstmt):
             self.assertEqual(tree.body[0].type_comment, "int")
         tree = self.classic_parse(withstmt)
         self.assertEqual(tree.body[0].type_comment, None)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_vardecl(self):
         for tree in self.parse_all(vardecl):
             self.assertEqual(tree.body[0].type_comment, "int")
         tree = self.classic_parse(vardecl)
         self.assertEqual(tree.body[0].type_comment, None)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_ignores(self):
         for tree in self.parse_all(ignores):
             self.assertEqual(
@@ -321,6 +347,8 @@ class TypeCommentTests(unittest.TestCase):
         tree = self.classic_parse(ignores)
         self.assertEqual(tree.type_ignores, [])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_longargs(self):
         for tree in self.parse_all(longargs):
             for t in tree.body:
@@ -351,6 +379,8 @@ class TypeCommentTests(unittest.TestCase):
                     self.assertIsNone(arg.type_comment, "%s(%s:%r)" %
                                       (t.name, arg.arg, arg.type_comment))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_inappropriate_type_comments(self):
         """Tests for inappropriately-placed type comments.
 
@@ -375,6 +405,8 @@ class TypeCommentTests(unittest.TestCase):
         check_both_ways("pass  # type: ignorewhatever\n")
         check_both_ways("pass  # type: ignoreé\n")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_func_type_input(self):
 
         def parse_func_type_input(source):
