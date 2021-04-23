@@ -35,6 +35,8 @@ class EmptyNodeListTestCase(unittest.TestCase):
         node_list = EmptyNodeList() + NodeList()
         self.assertEqual(node_list, NodeList())
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_emptynodelist___radd__(self):
         node_list = [1,2] + EmptyNodeList()
         self.assertEqual(node_list, [1,2])
@@ -82,6 +84,8 @@ class NodeListTestCase(unittest.TestCase):
         node_list = [1, 2] + NodeList([3, 4])
         self.assertEqual(node_list, NodeList([1, 2, 3, 4]))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_nodelist_pickle_roundtrip(self):
         # Test pickling and unpickling of a NodeList.
 
