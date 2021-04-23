@@ -44,6 +44,8 @@ class UTF8ModeTests(unittest.TestCase):
                 out = self.get_output('-c', code, LC_ALL=loc)
                 self.assertEqual(out, '1')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_xoption(self):
         code = 'import sys; print(sys.flags.utf8_mode)'
 
@@ -64,6 +66,8 @@ class UTF8ModeTests(unittest.TestCase):
                                   PYTHONLEGACYWINDOWSFSENCODING='1')
             self.assertEqual(out, '0')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_env_var(self):
         code = 'import sys; print(sys.flags.utf8_mode)'
 
@@ -119,6 +123,8 @@ class UTF8ModeTests(unittest.TestCase):
                                   PYTHONLEGACYWINDOWSFSENCODING='1')
             self.assertEqual(out, 'mbcs/replace')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_stdio(self):
         code = textwrap.dedent('''
             import sys
@@ -149,6 +155,8 @@ class UTF8ModeTests(unittest.TestCase):
                           'stdout: utf-8/namereplace',
                           'stderr: utf-8/backslashreplace'])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_io(self):
         code = textwrap.dedent('''
             import sys
@@ -192,6 +200,8 @@ class UTF8ModeTests(unittest.TestCase):
         self._check_io_encoding(module,
                                 encoding="latin1", errors="namereplace")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_io_encoding(self):
         self.check_io_encoding('io')
 
@@ -208,6 +218,8 @@ class UTF8ModeTests(unittest.TestCase):
                 out = self.get_output('-X', 'utf8', '-c', code, LC_ALL=loc)
                 self.assertEqual(out, 'UTF-8 UTF-8')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipIf(MS_WINDOWS, 'test specific to Unix')
     def test_cmd_line(self):
         arg = 'h\xe9\u20ac'.encode('utf-8')
