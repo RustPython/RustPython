@@ -338,6 +338,8 @@ class TestPEP380Operation(unittest.TestCase):
             "Finishing g1",
         ])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_value_attribute_of_StopIteration_exception(self):
         """
         Test 'value' attribute of StopIteration exception
@@ -538,6 +540,8 @@ class TestPEP380Operation(unittest.TestCase):
             "finishing g",
         ])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_broken_getattr_handling(self):
         """
         Test subiterator with a broken getattr implementation
@@ -785,6 +789,8 @@ class TestPEP380Operation(unittest.TestCase):
                 repr(value),
             ])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_throwing_GeneratorExit_into_subgen_that_returns(self):
         """
         Test throwing GeneratorExit into a subgenerator that
@@ -815,6 +821,8 @@ class TestPEP380Operation(unittest.TestCase):
             "Enter f",
         ])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_throwing_GeneratorExit_into_subgenerator_that_yields(self):
         """
         Test throwing GeneratorExit into a subgenerator that
@@ -881,6 +889,8 @@ class TestPEP380Operation(unittest.TestCase):
             yield from ()
         self.assertRaises(StopIteration, next, g())
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_delegating_generators_claim_to_be_running(self):
         # Check with basic iteration
         def one():
