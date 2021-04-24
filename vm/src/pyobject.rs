@@ -390,7 +390,8 @@ where
             obj.downcast()
                 .map_err(|obj| pyref_payload_error(vm, class, obj))
         } else {
-            T::special_retrieve(vm, obj.clone()).unwrap_or(Err(pyref_type_error(vm, class, obj)))
+            T::special_retrieve(vm, obj.clone())
+                .unwrap_or_else(|| Err(pyref_type_error(vm, class, obj)))
         }
     }
 }
