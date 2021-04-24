@@ -134,8 +134,6 @@ class SeqTestCase:
         self.assertEqual(self.seq[self.n2:], self.seq)
         self.assertEqual(self.seq[:self.n2], self.seq[0:0])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_repeat(self):
         self.o.ind = 3
         self.n.ind = 2
@@ -191,8 +189,6 @@ class ListTestCase(SeqTestCase, unittest.TestCase):
         lst.__delitem__(self.n)
         self.assertEqual(lst, [5, 6, 8, 9, 10, 11])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_inplace_repeat(self):
         self.o.ind = 2
         self.n.ind = 3

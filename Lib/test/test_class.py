@@ -341,8 +341,6 @@ class ClassTests(unittest.TestCase):
                                                         slice(None, 24, None),
                                                         24, 100)))])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testUnaryOps(self):
         testme = AllTests()
 
