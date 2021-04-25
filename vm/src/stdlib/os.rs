@@ -1029,6 +1029,7 @@ mod _os {
         fs::hard_link(src.path, dst.path).map_err(|err| err.into_pyexception(vm))
     }
 
+    #[cfg(not(target_os = "wasi"))]
     #[derive(FromArgs)]
     struct UtimeArgs {
         #[pyarg(any)]
