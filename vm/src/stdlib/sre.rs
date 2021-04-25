@@ -6,6 +6,7 @@ mod _sre {
     use itertools::Itertools;
     use num_traits::ToPrimitive;
     use rustpython_common::borrow::BorrowValue;
+    use rustpython_common::hash::PyHash;
 
     use crate::builtins::list::PyListRef;
     use crate::builtins::memory::try_buffer_from_object;
@@ -15,9 +16,10 @@ mod _sre {
     };
     use crate::function::{Args, OptionalArg};
     use crate::pyobject::{
-        IntoPyObject, ItemProtocol, PyCallable, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
-        TryFromObject,
+        IntoPyObject, ItemProtocol, PyCallable, PyComparisonValue, PyObjectRef, PyRef, PyResult,
+        PyValue, StaticType, TryFromObject,
     };
+    use crate::slots::{Comparable, Hashable};
     use crate::VirtualMachine;
     use core::str;
     use sre_engine::constants::SreFlag;
@@ -139,7 +141,7 @@ mod _sre {
         }
     }
 
-    #[pyimpl]
+    #[pyimpl(with(Hashable, Comparable))]
     impl Pattern {
         fn with_str_drive<R, F: FnOnce(StrDrive) -> PyResult<R>>(
             &self,
@@ -525,6 +527,42 @@ mod _sre {
                 } else {
                     ret
                 })
+            })
+        }
+    }
+
+    impl Hashable for Pattern {
+        fn hash(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+            let hash = vm._hash(&zelf.pattern)?;
+            let (_, code, _) = unsafe { zelf.code.align_to::<u8>() };
+            let hash = hash ^ vm.state.hash_secret.hash_bytes(code);
+            let hash = hash ^ (zelf.flags.bits() as PyHash);
+            let hash = hash ^ (zelf.isbytes as i64);
+            Ok(hash)
+        }
+    }
+
+    impl Comparable for Pattern {
+        fn cmp(
+            zelf: &PyRef<Self>,
+            other: &PyObjectRef,
+            op: crate::slots::PyComparisonOp,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyComparisonValue> {
+            if let Some(res) = op.identical_optimization(zelf, other) {
+                return Ok(res.into());
+            }
+            op.eq_only(|| {
+                if let Some(other) = other.downcast_ref::<Pattern>() {
+                    Ok(PyComparisonValue::Implemented(
+                        zelf.flags == other.flags
+                            && zelf.isbytes == other.isbytes
+                            && zelf.code == other.code
+                            && vm.bool_eq(&zelf.pattern, &other.pattern)?,
+                    ))
+                } else {
+                    Ok(PyComparisonValue::NotImplemented)
+                }
             })
         }
     }

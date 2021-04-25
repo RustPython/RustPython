@@ -2033,8 +2033,6 @@ ELSE
         self.assertIn('ASCII', str(re.A))
         self.assertIn('DOTALL', str(re.S))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pattern_compare(self):
         pattern1 = re.compile('abc', re.IGNORECASE)
 
@@ -2064,8 +2062,6 @@ ELSE
         with self.assertRaises(TypeError):
             pattern1 < pattern2
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pattern_compare_bytes(self):
         pattern1 = re.compile(b'abc')
 
