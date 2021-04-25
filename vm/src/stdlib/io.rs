@@ -2878,13 +2878,7 @@ mod fileio {
                         vm.new_value_error("Cannot use closefd=False with file name".to_owned())
                     );
                 }
-                os::open(
-                    path,
-                    flags as _,
-                    OptionalArg::Missing,
-                    Default::default(),
-                    vm,
-                )?
+                os::open(path, flags as _, None, Default::default(), vm)?
             };
 
             if mode.contains(Mode::APPENDING) {

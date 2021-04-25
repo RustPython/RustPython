@@ -274,8 +274,6 @@ class FileTests(unittest.TestCase):
         with open(TESTFN2, 'r') as f:
             self.assertEqual(f.read(), "1")
 
-    # TODO: RUSTPYTHON (TypeError: Expected at least 2 arguments (0 given))
-    @unittest.expectedFailure
     def test_open_keywords(self):
         f = os.open(path=__file__, flags=os.O_RDONLY, mode=0o777,
             dir_fd=None)
