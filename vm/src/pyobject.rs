@@ -927,6 +927,7 @@ pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
         self.into_ref(vm).into_object()
     }
 
+    #[inline(always)]
     fn special_retrieve(vm: &VirtualMachine, obj: PyObjectRef) -> Option<PyResult<PyRef<Self>>> {
         let _ = vm;
         let _ = obj;

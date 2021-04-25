@@ -80,15 +80,7 @@ impl PyValue for PyInt {
     }
 
     fn special_retrieve(vm: &VirtualMachine, obj: PyObjectRef) -> Option<PyResult<PyRef<Self>>> {
-        vm.get_method(obj, "__index__").map(|index| {
-            // TODO: returning strict subclasses of int in __index__ is deprecated
-            vm.invoke(&index?, ())?.downcast().map_err(|bad| {
-                vm.new_type_error(format!(
-                    "__index__ returned non-int (type {})",
-                    bad.class().name
-                ))
-            })
-        })
+        vm.to_index_opt(obj)
     }
 }
 
