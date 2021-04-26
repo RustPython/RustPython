@@ -155,8 +155,6 @@ class SliceTest(unittest.TestCase):
             expected = range(length)[slice]
             self.assertEqual(actual, expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_indices(self):
         self.assertEqual(slice(None           ).indices(10), (0, 10,  1))
         self.assertEqual(slice(None,  None,  2).indices(10), (0, 10,  2))
