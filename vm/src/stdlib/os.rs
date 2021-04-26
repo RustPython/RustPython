@@ -357,11 +357,29 @@ mod _os {
     }
 
     #[cfg(any(unix, windows, target_os = "wasi"))]
+    #[derive(FromArgs)]
+    struct OpenArgs {
+        #[pyarg(any)]
+        path: PyPathLike,
+        #[pyarg(any)]
+        flags: OpenFlags,
+        #[pyarg(any, default)]
+        mode: Option<PyIntRef>,
+        #[pyarg(flatten)]
+        dir_fd: DirFd,
+    }
+
+    #[cfg(any(unix, windows, target_os = "wasi"))]
     #[pyfunction]
-    pub(crate) fn open(
+    fn open(args: OpenArgs, vm: &VirtualMachine) -> PyResult<i64> {
+        os_open(args.path, args.flags, args.mode, args.dir_fd, vm)
+    }
+
+    #[cfg(any(unix, windows, target_os = "wasi"))]
+    pub(crate) fn os_open(
         name: PyPathLike,
         flags: OpenFlags,
-        _mode: OptionalArg<PyIntRef>,
+        _mode: Option<PyIntRef>,
         dir_fd: DirFd,
         vm: &VirtualMachine,
     ) -> PyResult<i64> {
@@ -1413,7 +1431,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     module
 }
-pub(crate) use _os::open;
+pub(crate) use _os::os_open as open;
 
 fn to_seconds_from_unix_epoch(sys_time: SystemTime) -> f64 {
     match sys_time.duration_since(SystemTime::UNIX_EPOCH) {
