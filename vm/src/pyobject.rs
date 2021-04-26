@@ -390,7 +390,7 @@ where
             obj.downcast()
                 .map_err(|obj| pyref_payload_error(vm, class, obj))
         } else {
-            T::special_retrieve(vm, obj.clone())
+            T::special_retrieve(vm, &obj)
                 .unwrap_or_else(|| Err(pyref_type_error(vm, class, obj)))
         }
     }
@@ -928,7 +928,7 @@ pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
     }
 
     #[inline(always)]
-    fn special_retrieve(vm: &VirtualMachine, obj: PyObjectRef) -> Option<PyResult<PyRef<Self>>> {
+    fn special_retrieve(vm: &VirtualMachine, obj: &PyObjectRef) -> Option<PyResult<PyRef<Self>>> {
         let _ = vm;
         let _ = obj;
         None

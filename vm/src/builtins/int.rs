@@ -79,8 +79,8 @@ impl PyValue for PyInt {
         vm.ctx.new_int(self.value)
     }
 
-    fn special_retrieve(vm: &VirtualMachine, obj: PyObjectRef) -> Option<PyResult<PyRef<Self>>> {
-        vm.to_index_opt(obj)
+    fn special_retrieve(vm: &VirtualMachine, obj: &PyObjectRef) -> Option<PyResult<PyRef<Self>>> {
+        Some(vm.to_index(obj))
     }
 }
 
