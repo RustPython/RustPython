@@ -59,7 +59,7 @@ mod frozen;
 pub mod function;
 pub mod import;
 pub mod iterator;
-mod py_io;
+pub mod py_io;
 pub mod py_serde;
 pub mod pyobject;
 mod pyobjectrc;

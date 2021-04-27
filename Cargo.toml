@@ -9,6 +9,7 @@ license = "MIT"
 include = ["LICENSE", "Cargo.toml", "src/**/*.rs"]
 
 [workspace]
+resolver = "2"
 members = [
     ".", "ast", "bytecode", "common", "compiler", "compiler/porcelain",
     "derive", "jit", "parser", "vm", "vm/pylib-crate", "wasm/lib",
@@ -26,7 +27,7 @@ ssl = ["rustpython-vm/ssl"]
 
 [dependencies]
 log = "0.4"
-env_logger = "0.8.3"
+env_logger = { version = "0.8", default-features = false, features = ["atty", "termcolor"] }
 clap = "2.33"
 rustpython-compiler = { path = "compiler/porcelain", version = "0.1.1" }
 rustpython-parser = { path = "parser", version = "0.1.1" }

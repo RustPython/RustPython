@@ -107,11 +107,6 @@ from .decoder import JSONDecoder, JSONDecodeError
 from .encoder import JSONEncoder
 import codecs
 
-_use_serde_json = False
-def use_serde_json(x=True):
-    global _use_serde_json
-    _use_serde_json = x
-
 _default_encoder = JSONEncoder(
     skipkeys=False,
     ensure_ascii=True,
@@ -359,13 +354,6 @@ def loads(s, *, cls=None, object_hook=None, parse_float=None,
     if (cls is None and object_hook is None and
             parse_int is None and parse_float is None and
             parse_constant is None and object_pairs_hook is None and not kw):
-        if _use_serde_json:
-            try:
-                import _serde_json
-            except ImportError:
-                pass
-            else:
-                return _serde_json.decode(s)
         return _default_decoder.decode(s)
     if cls is None:
         cls = JSONDecoder

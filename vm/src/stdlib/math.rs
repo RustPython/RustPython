@@ -473,13 +473,20 @@ fn math_fsum(iter: PyIterable<IntoPyFloat>, vm: &VirtualMachine) -> PyResult<f64
 
 fn math_factorial(value: PyIntRef, vm: &VirtualMachine) -> PyResult<BigInt> {
     let value = value.borrow_value();
+    let one = BigInt::one();
     if value.is_negative() {
         return Err(vm.new_value_error("factorial() not defined for negative values".to_owned()));
-    } else if *value <= BigInt::one() {
-        return Ok(BigInt::from(1u64));
+    } else if *value <= one {
+        return Ok(one);
     }
-    let ret: BigInt = num_iter::range_inclusive(BigInt::from(1u64), value.clone()).product();
-    Ok(ret)
+    // start from 2, since we know that value > 1 and 1*2=2
+    let mut current = one + 1;
+    let mut product = BigInt::from(2u8);
+    while current < *value {
+        current += 1;
+        product *= &current;
+    }
+    Ok(product)
 }
 
 fn math_modf(x: IntoPyFloat) -> (f64, f64) {

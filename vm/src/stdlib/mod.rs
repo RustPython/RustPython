@@ -26,8 +26,8 @@ mod operator;
 mod platform;
 pub(crate) mod pystruct;
 mod random;
-mod re;
-mod serde_json;
+// TODO: maybe make this an extension module, if we ever get those
+// mod re;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod socket;
 mod sre;
@@ -114,9 +114,7 @@ pub fn get_module_inits() -> StdlibMap {
             "math" => math::make_module,
             "_operator" => operator::make_module,
             "_platform" => platform::make_module,
-            "regex_crate" => re::make_module,
             "_random" => random::make_module,
-            "_serde_json" => serde_json::make_module,
             "_sre" => sre::make_module,
             "_string" => string::make_module,
             "_struct" => pystruct::make_module,

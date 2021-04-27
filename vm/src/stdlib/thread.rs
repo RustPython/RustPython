@@ -5,12 +5,13 @@ use crate::builtins::tuple::PyTupleRef;
 /// Implementation of the _thread module
 use crate::exceptions::{self, IntoPyException};
 use crate::function::{FuncArgs, KwArgs, OptionalArg};
+use crate::py_io;
 use crate::pyobject::{
     BorrowValue, Either, IdProtocol, ItemProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef,
     PyResult, PyValue, StaticType, TypeProtocol,
 };
 use crate::slots::{SlotGetattro, SlotSetattro};
-use crate::vm::VirtualMachine;
+use crate::VirtualMachine;
 
 use parking_lot::{
     lock_api::{RawMutex as RawMutexT, RawMutexTimed, RawReentrantMutex},
@@ -255,12 +256,12 @@ fn run_thread(func: PyCallable, args: FuncArgs, vm: &VirtualMachine) {
     if let Err(exc) = func.invoke(args, vm) {
         // TODO: sys.unraisablehook
         let stderr = std::io::stderr();
-        let mut stderr = stderr.lock();
+        let mut stderr = py_io::IoWriter(stderr.lock());
         let repr = vm.to_repr(&func.into_object()).ok();
         let repr = repr
             .as_ref()
             .map_or("<object repr() failed>", |s| s.borrow_value());
-        writeln!(stderr, "Exception ignored in thread started by: {}", repr)
+        writeln!(*stderr, "Exception ignored in thread started by: {}", repr)
             .and_then(|()| exceptions::write_exception(&mut stderr, vm, &exc))
             .ok();
     }

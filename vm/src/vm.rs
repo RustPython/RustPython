@@ -782,9 +782,9 @@ impl VirtualMachine {
                 #[wasm_bindgen(js_namespace = console)]
                 fn error(s: &str);
             }
-            let mut s = Vec::<u8>::new();
+            let mut s = String::new();
             exceptions::write_exception(&mut s, self, &exc).unwrap();
-            error(std::str::from_utf8(&s).unwrap());
+            error(&s);
             panic!("{}; exception backtrace above", msg)
         }
     }
