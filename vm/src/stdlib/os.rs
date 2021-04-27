@@ -2528,6 +2528,27 @@ mod posix {
         })
     }
 
+    extern "C" {
+        fn ctermid(s: *mut libc::c_char) -> *mut libc::c_char;
+    }
+    #[pyfunction]
+    fn _ctermid(vm: &VirtualMachine) -> PyResult {
+        let returned = unsafe { ctermid(std::ptr::null_mut()) };
+        if returned.is_null() {
+            Err(errno_err(vm))
+        } else {
+            let returned = unsafe { ffi::CStr::from_ptr(returned) }.to_str().unwrap();
+            Ok(vm.ctx.new_str(returned))
+        }
+    }
+
+    #[pyfunction]
+    // fchdir is the same as os.chdir(file descriptor)
+    // also check out: https://docs.rs/libc/0.2.86/libc/fn.fchdir.html
+    fn fchchdir(path: PyPathLike, vm: &VirtualMachine) -> PyResult<()> {
+        env::set_current_dir(&path.path).map_err(|err| err.into_pyexception(vm))
+    }
+
     pub(super) fn support_funcs(vm: &VirtualMachine) -> Vec<SupportFunc> {
         vec![
             SupportFunc::new(vm, "chmod", chmod, Some(false), Some(false), Some(false)),
