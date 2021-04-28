@@ -53,9 +53,17 @@ class PopenTest(unittest.TestCase):
         with os.popen("echo hello") as f:
             self.assertEqual(f.read(), "hello\n")
 
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_contextmanager = unittest.expectedFailure(test_contextmanager)
+
     def test_iterating(self):
         with os.popen("echo hello") as f:
             self.assertEqual(list(f), ["hello\n"])
+
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_iterating = unittest.expectedFailure(test_iterating)
 
     def test_keywords(self):
         with os.popen(cmd="exit 0", mode="w", buffering=-1):
