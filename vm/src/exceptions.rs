@@ -678,12 +678,18 @@ impl ExceptionZoo {
             "__str__" => ctx.new_method("__str__", key_error_str),
         });
 
+        let errno_getter = ctx.new_readonly_getset("errno", |exc: PyBaseExceptionRef| {
+            let args = exc.args();
+            let args = args.borrow_value();
+            args.get(0).filter(|_| args.len() > 1).cloned()
+        });
+        #[cfg(windows)]
         extend_class!(ctx, &excs.os_error, {
-            "errno" => ctx.new_readonly_getset("errno", |exc: PyBaseExceptionRef| {
-                let args = exc.args();
-                let args = args.borrow_value();
-                args.get(0).filter(|_| args.len() > 1).cloned()
-            }),
+            // TODO: this isn't really accurate
+            "winerror" => errno_getter.clone(),
+        });
+        extend_class!(ctx, &excs.os_error, {
+            "errno" => errno_getter,
         });
 
         extend_class!(ctx, &excs.unicode_decode_error, {

@@ -45,14 +45,14 @@ mod zlib;
 
 #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
 #[macro_use]
-mod os;
+pub(crate) mod os;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod faulthandler;
 #[cfg(any(unix, target_os = "wasi"))]
 mod fcntl;
 #[cfg(windows)]
-mod msvcrt;
+pub(crate) mod msvcrt;
 #[cfg(not(target_arch = "wasm32"))]
 mod multiprocessing;
 #[cfg(unix)]

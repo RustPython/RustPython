@@ -2700,6 +2700,7 @@ mod fileio {
     use super::_io::*;
     use crate::builtins::{PyStr, PyStrRef, PyTypeRef};
     use crate::byteslike::{PyBytesLike, PyRwBytesLike};
+    use crate::crt_fd::Fd;
     use crate::exceptions::IntoPyException;
     use crate::function::OptionalOption;
     use crate::function::{FuncArgs, OptionalArg};
@@ -2736,7 +2737,7 @@ mod fileio {
         }
     }
 
-    fn compute_mode(mode_str: &str) -> Result<(Mode, os::OpenFlags), ModeError> {
+    fn compute_mode(mode_str: &str) -> Result<(Mode, i32), ModeError> {
         let mut flags = 0;
         let mut plus = false;
         let mut rwa = false;
@@ -2814,7 +2815,7 @@ mod fileio {
     #[pyclass(module = "io", name, base = "_RawIOBase")]
     #[derive(Debug)]
     pub(super) struct FileIO {
-        fd: AtomicCell<i64>,
+        fd: AtomicCell<i32>,
         closefd: AtomicCell<bool>,
         mode: AtomicCell<Mode>,
     }
@@ -2864,7 +2865,7 @@ mod fileio {
                 if !vm.isinstance(&fd, &vm.ctx.types.int_type)? {
                     return Err(vm.new_type_error("expected integer from opener".to_owned()));
                 }
-                let fd = i64::try_from_object(vm, fd)?;
+                let fd = i32::try_from_object(vm, fd)?;
                 if fd < 0 {
                     return Err(vm.new_os_error("Negative file descriptor".to_owned()));
                 }
@@ -2887,6 +2888,8 @@ mod fileio {
 
             zelf.fd.store(fd);
             zelf.closefd.store(args.closefd);
+            #[cfg(windows)]
+            crate::stdlib::msvcrt::setmode_binary(fd);
             vm.set_attr(zelf.as_object(), "name", name)?;
             Ok(())
         }
@@ -2902,7 +2905,7 @@ mod fileio {
         }
 
         #[pymethod]
-        fn fileno(&self, vm: &VirtualMachine) -> PyResult<i64> {
+        fn fileno(&self, vm: &VirtualMachine) -> PyResult<i32> {
             let fd = self.fd.load();
             if fd >= 0 {
                 Ok(fd)
@@ -2911,15 +2914,8 @@ mod fileio {
             }
         }
 
-        fn get_file(&self, vm: &VirtualMachine) -> PyResult<std::fs::File> {
-            let fileno = self.fileno(vm)?;
-            Ok(os::rust_file(fileno))
-        }
-
-        fn set_file(&self, f: std::fs::File) -> PyResult<()> {
-            let updated = os::raw_file_number(f);
-            self.fd.store(updated);
-            Ok(())
+        fn get_fd(&self, vm: &VirtualMachine) -> PyResult<Fd> {
+            self.fileno(vm).map(Fd)
         }
 
         #[pymethod]
@@ -2957,14 +2953,6 @@ mod fileio {
         }
 
         #[pymethod]
-        fn flush(&self, vm: &VirtualMachine) -> PyResult<()> {
-            let mut handle = self.get_file(vm)?;
-            handle.flush().map_err(|e| e.into_pyexception(vm))?;
-            self.set_file(handle)?;
-            Ok(())
-        }
-
-        #[pymethod]
         fn read(&self, read_byte: OptionalSize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
             if !self.mode.load().contains(Mode::READABLE) {
                 return Err(new_unsupported_operation(
@@ -2972,7 +2960,7 @@ mod fileio {
                     "File or stream is not readable".to_owned(),
                 ));
             }
-            let mut handle = self.get_file(vm)?;
+            let mut handle = self.get_fd(vm)?;
             let bytes = if let Some(read_byte) = read_byte.to_usize() {
                 let mut bytes = vec![0; read_byte as usize];
                 let n = handle
@@ -2987,7 +2975,6 @@ mod fileio {
                     .map_err(|err| err.into_pyexception(vm))?;
                 bytes
             };
-            self.set_file(handle)?;
 
             Ok(bytes)
         }
@@ -3001,13 +2988,11 @@ mod fileio {
                 ));
             }
 
-            let handle = self.get_file(vm)?;
+            let handle = self.get_fd(vm)?;
 
             let mut buf = obj.borrow_value();
             let mut f = handle.take(buf.len() as _);
             let ret = f.read(&mut buf).map_err(|e| e.into_pyexception(vm))?;
-
-            self.set_file(f.into_inner())?;
 
             Ok(ret)
         }
@@ -3021,13 +3006,11 @@ mod fileio {
                 ));
             }
 
-            let mut handle = self.get_file(vm)?;
+            let mut handle = self.get_fd(vm)?;
 
             let len = obj
                 .with_ref(|b| handle.write(b))
                 .map_err(|err| err.into_pyexception(vm))?;
-
-            self.set_file(handle)?;
 
             //return number of bytes written
             Ok(len)
@@ -3042,8 +3025,7 @@ mod fileio {
             }
             let fd = zelf.fd.swap(-1);
             if fd >= 0 {
-                // TODO: detect errors from file close
-                let _ = os::rust_file(fd);
+                Fd(fd).close().map_err(|e| e.into_pyexception(vm))?;
             }
             res
         }
@@ -3064,13 +3046,13 @@ mod fileio {
             let fd = self.fileno(vm)?;
             let offset = get_offset(offset, vm)?;
 
-            os::lseek(fd as _, offset, how, vm)
+            os::lseek(fd, offset, how, vm)
         }
 
         #[pymethod]
         fn tell(&self, vm: &VirtualMachine) -> PyResult<Offset> {
             let fd = self.fileno(vm)?;
-            os::lseek(fd as _, 0, libc::SEEK_CUR, vm)
+            os::lseek(fd, 0, libc::SEEK_CUR, vm)
         }
 
         #[pymethod]
@@ -3078,7 +3060,7 @@ mod fileio {
             let fd = self.fileno(vm)?;
             let len = match len.flatten() {
                 Some(l) => get_offset(l, vm)?,
-                None => os::lseek(fd as _, 0, libc::SEEK_CUR, vm)?,
+                None => os::lseek(fd, 0, libc::SEEK_CUR, vm)?,
             };
             os::ftruncate(fd, len, vm)?;
             Ok(len)
@@ -3087,7 +3069,7 @@ mod fileio {
         #[pymethod]
         fn isatty(&self, vm: &VirtualMachine) -> PyResult<bool> {
             let fd = self.fileno(vm)?;
-            Ok(os::isatty(fd as _))
+            Ok(os::isatty(fd))
         }
 
         #[pymethod(magic)]

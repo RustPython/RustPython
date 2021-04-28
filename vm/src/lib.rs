@@ -17,7 +17,7 @@
 #![allow(clippy::upper_case_acronyms)]
 #![doc(html_logo_url = "https://raw.githubusercontent.com/RustPython/RustPython/master/logo.png")]
 #![doc(html_root_url = "https://docs.rs/rustpython-vm/")]
-#![cfg_attr(target_os = "redox", feature(array_value_iter))]
+#![cfg_attr(target_os = "redox", feature(array_value_iter, const_generics))]
 
 #[cfg(feature = "flame-it")]
 #[macro_use]
@@ -49,6 +49,8 @@ mod bytesinner;
 pub mod byteslike;
 pub mod cformat;
 mod coroutine;
+#[cfg(any(unix, windows, target_os = "wasi"))]
+mod crt_fd;
 mod dictdatatype;
 #[cfg(feature = "rustpython-compiler")]
 pub mod eval;

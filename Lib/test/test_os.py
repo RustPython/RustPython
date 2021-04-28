@@ -1928,8 +1928,6 @@ class TestInvalidFD(unittest.TestCase):
     def test_fchmod(self):
         self.check(os.fchmod, 0)
 
-    # TODO: RUSTPYTHON (AttributeError: 'OSError' object has no attribute 'errno')
-    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(os, 'fchown'), 'test needs os.fchown()')
     def test_fchown(self):
         self.check(os.fchown, -1, -1)

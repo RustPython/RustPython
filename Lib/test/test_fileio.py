@@ -277,8 +277,6 @@ class AutoFileTests:
                     pass
         return wrapper
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @ClosedFDRaises
     def testErrnoOnClose(self, f):
         f.close()
@@ -356,24 +354,6 @@ class CAutoFileTests(AutoFileTests, unittest.TestCase):
     # TODO: RUSTPYTHON
     if sys.platform == "win32":
         @unittest.expectedFailure
-        def testErrnoOnClosedRead(self):
-            super().testErrnoOnClosedRead()
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        @unittest.expectedFailure
-        def testErrnoOnClosedReadall(self):
-            super().testErrnoOnClosedReadall()
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        @unittest.expectedFailure
-        def testErrnoOnClosedReadinto(self):
-            super().testErrnoOnClosedReadinto()
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        @unittest.expectedFailure
         def testErrnoOnClosedSeek(self):
             super().testErrnoOnClosedSeek()
 
@@ -388,12 +368,6 @@ class CAutoFileTests(AutoFileTests, unittest.TestCase):
         @unittest.expectedFailure
         def testErrnoOnClosedTruncate(self):
             super().testErrnoOnClosedTruncate()
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        @unittest.expectedFailure
-        def testErrnoOnClosedWrite(self):
-            super().testErrnoOnClosedWrite()
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
@@ -633,6 +607,7 @@ class OtherFileTests:
             self.assertRaises(ValueError, self.FileIO, "/some/invalid/name", "rt")
             self.assertEqual(w.warnings, [])
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def testUnclosedFDOnException(self):
         class MyException(Exception): pass
         class MyFileIO(self.FileIO):
@@ -675,54 +650,6 @@ class PyOtherFileTests(OtherFileTests, unittest.TestCase):
     FileIO = _pyio.FileIO
     modulename = '_pyio'
 
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        @unittest.expectedFailure
-        def testBytesOpen(self):
-            super().testBytesOpen()
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        @unittest.expectedFailure
-        def testInvalidFd(self):
-            super().testInvalidFd()
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        @unittest.expectedFailure
-        def testModeStrings(self):
-            super().testModeStrings()
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        @unittest.expectedFailure
-        def testTruncate(self):
-            super().testTruncate()
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        @unittest.expectedFailure
-        def testTruncateOnWindows(self):
-            super().testTruncateOnWindows()
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        @unittest.expectedFailure
-        def testUnclosedFDOnException(self):
-            super().testUnclosedFDOnException()
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        @unittest.expectedFailure
-        def testUnicodeOpen(self):
-            super().testUnicodeOpen()
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        @unittest.expectedFailure
-        def testUtf8BytesOpen(self):
-            super().testUtf8BytesOpen()
-
     def test_open_code(self):
         # Check that the default behaviour of open_code matches
         # open("rb")
@@ -734,10 +661,6 @@ class PyOtherFileTests(OtherFileTests, unittest.TestCase):
                 actual = f.read()
             self.assertEqual(expected, actual)
             self.assertNotEqual(w.warnings, [])
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_open_code = unittest.expectedFailure(test_open_code)
 
 
 def test_main():

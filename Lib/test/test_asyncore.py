@@ -425,8 +425,6 @@ class FileWrapperTest(unittest.TestCase):
             f = None
             support.gc_collect()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_close_twice(self):
         fd = os.open(support.TESTFN, os.O_RDONLY)
         f = asyncore.file_wrapper(fd)

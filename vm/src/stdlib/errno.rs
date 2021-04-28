@@ -21,12 +21,10 @@ pub mod errors {
     pub use libc::*;
     #[cfg(windows)]
     pub use winapi::shared::winerror::*;
-    #[cfg(windows)] pub const EACCES: i32 = WSAEACCES as _;
     #[cfg(windows)] pub const EADDRINUSE: i32 = WSAEADDRINUSE as _;
     #[cfg(windows)] pub const EADDRNOTAVAIL: i32 = WSAEADDRNOTAVAIL as _;
     #[cfg(windows)] pub const EAFNOSUPPORT: i32 = WSAEAFNOSUPPORT as _;
     #[cfg(windows)] pub const EALREADY: i32 = WSAEALREADY as _;
-    #[cfg(windows)] pub const EBADF: i32 = WSAEBADF as _;
     #[cfg(windows)] pub const ECANCELED: i32 = WSAECANCELLED as _;
     #[cfg(windows)] pub const ECONNABORTED: i32 = WSAECONNABORTED as _;
     #[cfg(windows)] pub const ECONNREFUSED: i32 = WSAECONNREFUSED as _;
@@ -38,8 +36,6 @@ pub mod errors {
     #[cfg(windows)] pub const EHOSTDOWN: i32 = WSAEHOSTDOWN as _;
     #[cfg(windows)] pub const EHOSTUNREACH: i32 = WSAEHOSTUNREACH as _;
     #[cfg(windows)] pub const EINPROGRESS: i32 = WSAEINPROGRESS as _;
-    #[cfg(windows)] pub const EINTR: i32 = WSAEINTR as _;
-    #[cfg(windows)] pub const EINVAL: i32 = WSAEINVAL as _;
     #[cfg(windows)] pub const EINVALIDPROCTABLE: i32 = WSAEINVALIDPROCTABLE as _;
     #[cfg(windows)] pub const EINVALIDPROVIDER: i32 = WSAEINVALIDPROVIDER as _;
     #[cfg(windows)] pub const EISCONN: i32 = WSAEISCONN as _;

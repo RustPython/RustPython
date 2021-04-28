@@ -334,30 +334,5 @@ class COtherFileTests(OtherFileTests, unittest.TestCase):
 class PyOtherFileTests(OtherFileTests, unittest.TestCase):
     open = staticmethod(pyio.open)
 
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        @unittest.expectedFailure
-        def testIteration(self):
-            super().testIteration()
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        @unittest.expectedFailure
-        def testModeStrings(self):
-            super().testModeStrings()
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        @unittest.expectedFailure
-        def testSetBufferSize(self):
-            super().testSetBufferSize()
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        @unittest.expectedFailure
-        def testTruncateOnWindows(self):
-            super().testTruncateOnWindows()
-
-
 if __name__ == '__main__':
     unittest.main()

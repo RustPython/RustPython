@@ -642,7 +642,9 @@ settrace() -- set the global debug tracing function
     );
     let modules = ctx.new_dict();
 
-    let prefix = option_env!("RUSTPYTHON_PREFIX").unwrap_or("/usr/local");
+    // TODO: the windows one doesn't really make sense
+    let default_prefix = if cfg!(windows) { "C:\\" } else { "/usr/local" };
+    let prefix = option_env!("RUSTPYTHON_PREFIX").unwrap_or(default_prefix);
     let base_prefix = option_env!("RUSTPYTHON_BASEPREFIX").unwrap_or(prefix);
     let exec_prefix = option_env!("RUSTPYTHON_EXECPREFIX").unwrap_or(prefix);
     let base_exec_prefix = option_env!("RUSTPYTHON_BASEEXECPREFIX").unwrap_or(exec_prefix);

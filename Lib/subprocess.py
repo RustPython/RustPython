@@ -808,14 +808,13 @@ class Popen(object):
         # quickly terminating child could make our fds unwrappable
         # (see #8458).
 
-        # XXX RustPython TODO: have fds for fs functions be actual CRT fds on windows, not handles
-        # if _mswindows:
-        #    if p2cwrite != -1:
-        #        p2cwrite = msvcrt.open_osfhandle(p2cwrite.Detach(), 0)
-        #    if c2pread != -1:
-        #        c2pread = msvcrt.open_osfhandle(c2pread.Detach(), 0)
-        #    if errread != -1:
-        #        errread = msvcrt.open_osfhandle(errread.Detach(), 0)
+        if _mswindows:
+           if p2cwrite != -1:
+               p2cwrite = msvcrt.open_osfhandle(p2cwrite.Detach(), 0)
+           if c2pread != -1:
+               c2pread = msvcrt.open_osfhandle(c2pread.Detach(), 0)
+           if errread != -1:
+              errread = msvcrt.open_osfhandle(errread.Detach(), 0)
 
         self.text_mode = encoding or errors or text or universal_newlines
 
@@ -1150,18 +1149,12 @@ class Popen(object):
                 p2cread, p2cwrite = _winapi.CreatePipe(None, 0)
                 p2cread, p2cwrite = Handle(p2cread), Handle(p2cwrite)
             elif stdin == DEVNULL:
-                # XXX RustPython TODO: have fds for fs functions be actual CRT fds on windows, not handles
-                # p2cread = msvcrt.get_osfhandle(self._get_devnull())
-                p2cread = self._get_devnull()
+                p2cread = msvcrt.get_osfhandle(self._get_devnull())
             elif isinstance(stdin, int):
-                # XXX RustPython TODO: have fds for fs functions be actual CRT fds on windows, not handles
-                # p2cread = msvcrt.get_osfhandle(stdin)
-                p2cread = stdin
+                p2cread = msvcrt.get_osfhandle(stdin)
             else:
                 # Assuming file-like object
-                # XXX RustPython TODO: have fds for fs functions be actual CRT fds on windows, not handles
-                # p2cread = msvcrt.get_osfhandle(stdin.fileno())
-                p2cread = stdin.fileno()
+                p2cread = msvcrt.get_osfhandle(stdin.fileno())
             # XXX RUSTPYTHON TODO: figure out why closing these old, non-inheritable
             # pipe handles is necessary for us, but not CPython
             old = p2cread
@@ -1178,18 +1171,12 @@ class Popen(object):
                 c2pread, c2pwrite = _winapi.CreatePipe(None, 0)
                 c2pread, c2pwrite = Handle(c2pread), Handle(c2pwrite)
             elif stdout == DEVNULL:
-                # XXX RustPython TODO: have fds for fs functions be actual CRT fds on windows, not handles
-                # c2pwrite = msvcrt.get_osfhandle(self._get_devnull())
-                c2pwrite = self._get_devnull()
+                c2pwrite = msvcrt.get_osfhandle(self._get_devnull())
             elif isinstance(stdout, int):
-                # XXX RustPython TODO: have fds for fs functions be actual CRT fds on windows, not handles
-                # c2pwrite = msvcrt.get_osfhandle(stdout)
-                c2pwrite = stdout
+                c2pwrite = msvcrt.get_osfhandle(stdout)
             else:
                 # Assuming file-like object
-                # XXX RustPython TODO: have fds for fs functions be actual CRT fds on windows, not handles
-                # c2pwrite = msvcrt.get_osfhandle(stdout.fileno())
-                c2pwrite = stdout.fileno()
+                c2pwrite = msvcrt.get_osfhandle(stdout.fileno())
             # XXX RUSTPYTHON TODO: figure out why closing these old, non-inheritable
             # pipe handles is necessary for us, but not CPython
             old = c2pwrite
@@ -1208,18 +1195,12 @@ class Popen(object):
             elif stderr == STDOUT:
                 errwrite = c2pwrite
             elif stderr == DEVNULL:
-                # XXX RustPython TODO: have fds for fs functions be actual CRT fds on windows, not handles
-                # errwrite = msvcrt.get_osfhandle(self._get_devnull())
-                errwrite = self._get_devnull()
+                errwrite = msvcrt.get_osfhandle(self._get_devnull())
             elif isinstance(stderr, int):
-                # XXX RustPython TODO: have fds for fs functions be actual CRT fds on windows, not handles
-                # errwrite = msvcrt.get_osfhandle(stderr)
-                errwrite = stderr
+                errwrite = msvcrt.get_osfhandle(stderr)
             else:
                 # Assuming file-like object
-                # XXX RustPython TODO: have fds for fs functions be actual CRT fds on windows, not handles
-                # errwrite = msvcrt.get_osfhandle(stderr.fileno())
-                errwrite = stderr.fileno()
+                errwrite = msvcrt.get_osfhandle(stderr.fileno())
             # XXX RUSTPYTHON TODO: figure out why closing these old, non-inheritable
             # pipe handles is necessary for us, but not CPython
             old = errwrite

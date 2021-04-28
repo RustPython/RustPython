@@ -256,8 +256,6 @@ class TestNtpath(NtpathTestCase):
         tester("ntpath.realpath('\\'.join(['..'] * 50))",
                ntpath.splitdrive(expected)[0] + '\\')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @support.skip_unless_symlink
     @unittest.skipUnless(HAVE_GETFINALPATHNAME, 'need _getfinalpathname')
     def test_realpath_basic(self):
@@ -271,8 +269,6 @@ class TestNtpath(NtpathTestCase):
         self.assertPathEqual(ntpath.realpath(os.fsencode(ABSTFN + "1")),
                          os.fsencode(ABSTFN))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @support.skip_unless_symlink
     @unittest.skipUnless(HAVE_GETFINALPATHNAME, 'need _getfinalpathname')
     def test_realpath_relative(self):
@@ -343,8 +339,7 @@ class TestNtpath(NtpathTestCase):
             self.assertPathEqual(ntpath.realpath(b"broken5"),
                                  os.fsencode(ABSTFN + r"\missing"))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skip("TODO: RUSTPYTHON, leaves behind TESTFN")
     @support.skip_unless_symlink
     @unittest.skipUnless(HAVE_GETFINALPATHNAME, 'need _getfinalpathname')
     def test_realpath_symlink_loops(self):
@@ -391,8 +386,6 @@ class TestNtpath(NtpathTestCase):
         # Test using relative path as well.
         self.assertPathEqual(ntpath.realpath(ntpath.basename(ABSTFN)), ABSTFN)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @support.skip_unless_symlink
     @unittest.skipUnless(HAVE_GETFINALPATHNAME, 'need _getfinalpathname')
     def test_realpath_symlink_prefix(self):
@@ -427,8 +420,6 @@ class TestNtpath(NtpathTestCase):
         self.assertPathEqual(ntpath.realpath("\\\\?\\" + ABSTFN + "3.link"),
                              "\\\\?\\" + ABSTFN + "3.")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipUnless(HAVE_GETFINALPATHNAME, 'need _getfinalpathname')
     def test_realpath_nul(self):
         tester("ntpath.realpath('NUL')", r'\\.\NUL')
@@ -546,8 +537,6 @@ class TestNtpath(NtpathTestCase):
             tester('ntpath.expanduser("~test")', 'C:\\eric\\test')
             tester('ntpath.expanduser("~")', 'C:\\eric\\idle')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipUnless(nt, "abspath requires 'nt' module")
     def test_abspath(self):
         tester('ntpath.abspath("C:\\")', "C:\\")
@@ -707,8 +696,6 @@ class TestNtpath(NtpathTestCase):
         """Assert that two strings are equal ignoring case differences."""
         self.assertEqual(s1.lower(), s2.lower())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipUnless(nt, "OS helpers require 'nt' module")
     def test_nt_helpers(self):
         # Trivial validation that the helpers do not break, and support both
@@ -744,27 +731,9 @@ class NtCommonTest(test_genericpath.CommonTest, unittest.TestCase):
     attributes = ['relpath']
 
     # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        @unittest.expectedFailure
-        def test_exists(self):
-            super().test_exists()
-
-    # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_expandvars_nonascii(self):
         super().test_expandvars_nonascii()
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        @unittest.expectedFailure
-        def test_isdir(self):
-            super().test_isdir()
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        @unittest.expectedFailure
-        def test_isfile(self):
-            super().test_isfile()
 
     # TODO: RUSTPYTHON
     if sys.platform == "linux":
