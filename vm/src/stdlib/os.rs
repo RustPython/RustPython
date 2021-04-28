@@ -560,10 +560,8 @@ mod _os {
     fn remove(path: PyPathLike, dir_fd: DirFd<0>, vm: &VirtualMachine) -> PyResult<()> {
         let [] = dir_fd.0;
         let is_junction = cfg!(windows)
-            && fs::symlink_metadata(&path).map_or(false, |meta| {
-                let ty = meta.file_type();
-                ty.is_dir() && ty.is_symlink()
-            });
+            && fs::metadata(&path).map_or(false, |meta| meta.file_type().is_dir())
+            && fs::symlink_metadata(&path).map_or(false, |meta| meta.file_type().is_symlink());
         let res = if is_junction {
             fs::remove_dir(&path)
         } else {
@@ -3012,6 +3010,95 @@ mod nt {
         } else {
             Ok(())
         }
+    }
+
+    #[pyfunction]
+    fn _getfinalpathname(path: PyPathLike, vm: &VirtualMachine) -> PyResult {
+        let real = path
+            .as_ref()
+            .canonicalize()
+            .map_err(|e| e.into_pyexception(vm))?;
+        path.mode.process_path(real, vm)
+    }
+
+    #[pyfunction]
+    fn _getfullpathname(path: PyPathLike, vm: &VirtualMachine) -> PyResult {
+        let wpath = path.to_widecstring(vm)?;
+        let mut buffer = vec![0u16; winapi::shared::minwindef::MAX_PATH];
+        let ret = unsafe {
+            winapi::um::fileapi::GetFullPathNameW(
+                wpath.as_ptr(),
+                buffer.len() as _,
+                buffer.as_mut_ptr(),
+                std::ptr::null_mut(),
+            )
+        };
+        if ret == 0 {
+            return Err(errno_err(vm));
+        }
+        if ret as usize > buffer.len() {
+            buffer.resize(ret as usize, 0);
+            let ret = unsafe {
+                winapi::um::fileapi::GetFullPathNameW(
+                    wpath.as_ptr(),
+                    buffer.len() as _,
+                    buffer.as_mut_ptr(),
+                    std::ptr::null_mut(),
+                )
+            };
+            if ret == 0 {
+                return Err(errno_err(vm));
+            }
+        }
+        let buffer = widestring::WideCString::from_vec_with_nul(buffer).unwrap();
+        path.mode.process_path(buffer.to_os_string(), vm)
+    }
+
+    #[pyfunction]
+    fn _getvolumepathname(path: PyPathLike, vm: &VirtualMachine) -> PyResult {
+        let wide = path.to_widecstring(vm)?;
+        let buflen = std::cmp::max(wide.len(), winapi::shared::minwindef::MAX_PATH);
+        let mut buffer = vec![0u16; buflen];
+        let ret = unsafe {
+            winapi::um::fileapi::GetVolumePathNameW(wide.as_ptr(), buffer.as_mut_ptr(), buflen as _)
+        };
+        if ret == 0 {
+            return Err(errno_err(vm));
+        }
+        let buffer = widestring::WideCString::from_vec_with_nul(buffer).unwrap();
+        path.mode.process_path(buffer.to_os_string(), vm)
+    }
+
+    #[pyfunction]
+    fn _getdiskusage(path: PyPathLike, vm: &VirtualMachine) -> PyResult<(u64, u64)> {
+        use winapi::shared::{ntdef::ULARGE_INTEGER, winerror};
+        use winapi::um::fileapi::GetDiskFreeSpaceExW;
+        let wpath = path.to_widecstring(vm)?;
+        let mut _free_to_me = ULARGE_INTEGER::default();
+        let mut total = ULARGE_INTEGER::default();
+        let mut free = ULARGE_INTEGER::default();
+        let ret =
+            unsafe { GetDiskFreeSpaceExW(wpath.as_ptr(), &mut _free_to_me, &mut total, &mut free) };
+        if ret != 0 {
+            return unsafe { Ok((*total.QuadPart(), *free.QuadPart())) };
+        }
+        let err = io::Error::last_os_error();
+        if err.raw_os_error() == Some(winerror::ERROR_DIRECTORY as i32) {
+            if let Some(parent) = path.as_ref().parent() {
+                let parent = widestring::WideCString::from_os_str(parent).unwrap();
+
+                let ret = unsafe {
+                    GetDiskFreeSpaceExW(parent.as_ptr(), &mut _free_to_me, &mut total, &mut free)
+                };
+
+                if ret == 0 {
+                    return Err(errno_err(vm));
+                } else {
+                    return unsafe { Ok((*total.QuadPart(), *free.QuadPart())) };
+                }
+            }
+        }
+        return Err(err.into_pyexception(vm));
     }
 
     pub(super) fn support_funcs() -> Vec<SupportFunc> {
