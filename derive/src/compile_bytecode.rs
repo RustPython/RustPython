@@ -31,6 +31,47 @@ static CARGO_MANIFEST_DIR: Lazy<PathBuf> = Lazy::new(|| {
     PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not present"))
 });
 
+fn is_git_symlink(path: &Path) -> bool {
+    use std::io::{BufRead, BufReader};
+    use std::process::{Command, Stdio};
+    let res = path.parent().and_then(|dir| {
+        let child = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .arg("ls-files")
+            .arg("-s")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .ok()?;
+        let git_root = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .arg("rev-parse")
+            .arg("--show-toplevel")
+            .output()
+            .ok()?
+            .stdout;
+        let git_root = Path::new(std::str::from_utf8(&git_root).unwrap().trim());
+        let stdout = BufReader::new(child.stdout.unwrap());
+        let lines = stdout
+            .lines()
+            .filter_map(|line| line.ok())
+            .filter(|line| line.starts_with("120000"));
+        let path = path.canonicalize().ok()?;
+        for line in lines {
+            let link_path = line.splitn(2, '\t').nth(1).unwrap();
+            let link_path = git_root.join(link_path).canonicalize().ok()?;
+            if link_path == path {
+                return Some(true);
+            }
+        }
+        Some(false)
+    });
+    res.unwrap_or(false)
+}
+
 enum CompilationSourceKind {
     /// Source is a File (Path)
     File(PathBuf),
@@ -115,9 +156,20 @@ impl CompilationSource {
         mode: compile::Mode,
     ) -> Result<HashMap<String, FrozenModule>, Diagnostic> {
         let mut code_map = HashMap::new();
-        let paths = fs::read_dir(&path).map_err(|err| {
-            Diagnostic::spans_error(self.span, format!("Error listing dir {:?}: {}", path, err))
-        })?;
+        let paths = fs::read_dir(path)
+            .or_else(|e| {
+                // handle git symlinks - git for windows will make it just a text file containing
+                // the target
+                if cfg!(windows) && is_git_symlink(path) {
+                    if let Ok(real_path) = fs::read_to_string(path) {
+                        return fs::read_dir(real_path.trim());
+                    }
+                }
+                Err(e)
+            })
+            .map_err(|err| {
+                Diagnostic::spans_error(self.span, format!("Error listing dir {:?}: {}", path, err))
+            })?;
         for path in paths {
             let path = path.map_err(|err| {
                 Diagnostic::spans_error(self.span, format!("Failed to list file: {}", err))
@@ -133,12 +185,6 @@ impl CompilationSource {
                     mode,
                 )?);
             } else if file_name.ends_with(".py") {
-                let source = fs::read_to_string(&path).map_err(|err| {
-                    Diagnostic::spans_error(
-                        self.span,
-                        format!("Error reading file {:?}: {}", path, err),
-                    )
-                })?;
                 let stem = path.file_stem().unwrap().to_str().unwrap();
                 let is_init = stem == "__init__";
                 let module_name = if is_init {
@@ -148,15 +194,34 @@ impl CompilationSource {
                 } else {
                     format!("{}.{}", parent, stem)
                 };
+
+                let compile_path = |src_path: &Path| {
+                    let source = fs::read_to_string(src_path).map_err(|err| {
+                        Diagnostic::spans_error(
+                            self.span,
+                            format!("Error reading file {:?}: {}", path, err),
+                        )
+                    })?;
+                    self.compile_string(&source, mode, module_name.clone(), || {
+                        path.strip_prefix(&*CARGO_MANIFEST_DIR)
+                            .ok()
+                            .unwrap_or(&path)
+                            .display()
+                    })
+                };
+                let code = compile_path(&path).or_else(|e| {
+                    if cfg!(windows) && is_git_symlink(&path) {
+                        if let Ok(real_path) = fs::read_to_string(&path) {
+                            return compile_path(real_path.trim().as_ref());
+                        }
+                    }
+                    Err(e)
+                })?;
+
                 code_map.insert(
-                    module_name.clone(),
+                    module_name,
                     FrozenModule {
-                        code: self.compile_string(&source, mode, module_name, || {
-                            path.strip_prefix(&*CARGO_MANIFEST_DIR)
-                                .ok()
-                                .unwrap_or(&path)
-                                .display()
-                        })?,
+                        code,
                         package: is_init,
                     },
                 );

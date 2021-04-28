@@ -29,9 +29,7 @@ jobs:
       - uses: actions/checkout@master
       - uses: actions-rs/toolchain@v1
       - name: Set up the Windows environment
-        run: |
-          choco install llvm
-          powershell.exe scripts/symlinks-to-hardlinks.ps1
+        run: choco install llvm
         if: runner.os == 'Windows'
       - name: Set up the Mac environment
         run: brew install autoconf automake libtool
@@ -62,9 +60,7 @@ jobs:
         with:
           python-version: 3.8
       - name: Set up the Windows environment
-        run: |
-          choco install llvm
-          powershell.exe scripts/symlinks-to-hardlinks.ps1
+        run: choco install llvm
         if: runner.os == 'Windows'
       - name: Set up the Mac environment
         run: brew install autoconf automake libtool
