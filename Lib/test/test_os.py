@@ -279,8 +279,6 @@ class FileTests(unittest.TestCase):
             dir_fd=None)
         os.close(f)
 
-    # TODO: RUSTPYTHON (TypeError: Expected at least 2 arguments (0 given))
-    @unittest.expectedFailure
     def test_symlink_keywords(self):
         symlink = support.get_attribute(os, "symlink")
         try:
