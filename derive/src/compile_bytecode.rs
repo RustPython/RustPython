@@ -35,16 +35,6 @@ fn is_git_symlink(path: &Path) -> bool {
     use std::io::{BufRead, BufReader};
     use std::process::{Command, Stdio};
     let res = path.parent().and_then(|dir| {
-        let child = Command::new("git")
-            .arg("-C")
-            .arg(dir)
-            .arg("ls-files")
-            .arg("-s")
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .ok()?;
         let git_root = Command::new("git")
             .arg("-C")
             .arg(dir)
@@ -54,6 +44,16 @@ fn is_git_symlink(path: &Path) -> bool {
             .ok()?
             .stdout;
         let git_root = Path::new(std::str::from_utf8(&git_root).unwrap().trim());
+        let child = Command::new("git")
+            .arg("-C")
+            .arg(git_root)
+            .arg("ls-files")
+            .arg("-s")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .ok()?;
         let stdout = BufReader::new(child.stdout.unwrap());
         let lines = stdout
             .lines()
@@ -161,7 +161,7 @@ impl CompilationSource {
                 // handle git symlinks - git for windows will make it just a text file containing
                 // the target
                 if cfg!(windows) && is_git_symlink(path) {
-                    if let Ok(real_path) = fs::read_to_string(path) {
+                    if let Ok(real_path) = fs::read_to_string(path.canonicalize().unwrap()) {
                         return fs::read_dir(real_path.trim());
                     }
                 }
@@ -211,8 +211,9 @@ impl CompilationSource {
                 };
                 let code = compile_path(&path).or_else(|e| {
                     if cfg!(windows) && is_git_symlink(&path) {
-                        if let Ok(real_path) = fs::read_to_string(&path) {
-                            return compile_path(real_path.trim().as_ref());
+                        if let Ok(real_path) = fs::read_to_string(path.canonicalize().unwrap()) {
+                            let joined = path.parent().unwrap().join(real_path.trim());
+                            return compile_path(&joined);
                         }
                     }
                     Err(e)
