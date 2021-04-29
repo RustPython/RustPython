@@ -172,6 +172,10 @@ class PosixPathTest(unittest.TestCase):
         self.assertIs(posixpath.islink(support.TESTFN + "\x00"), False)
         self.assertIs(posixpath.islink(os.fsencode(support.TESTFN) + b"\x00"), False)
 
+    # TODO: RUSTPYTHON
+    if os.name == "nt":
+        test_islink = unittest.expectedFailure(test_islink)
+
     def test_ismount(self):
         self.assertIs(posixpath.ismount("/"), True)
         self.assertIs(posixpath.ismount(b"/"), True)
@@ -199,6 +203,10 @@ class PosixPathTest(unittest.TestCase):
             self.assertIs(posixpath.ismount(ABSTFN), False)
         finally:
             os.unlink(ABSTFN)
+
+    # TODO: RUSTPYTHON
+    if os.name == "nt":
+        test_ismount_symlinks = unittest.expectedFailure(test_ismount_symlinks)
 
     @unittest.skipIf(posix is None, "Test requires posix module")
     def test_ismount_different_device(self):
@@ -627,6 +635,30 @@ class PosixCommonTest(test_genericpath.CommonTest, unittest.TestCase):
         @unittest.expectedFailure
         def test_nonascii_abspath(self):
             super().test_nonascii_abspath()
+
+    # TODO: RUSTPYTHON
+    if os.name == "nt":
+        @unittest.expectedFailure
+        def test_samefile(self):
+            super().test_samefile()
+
+    # TODO: RUSTPYTHON
+    if os.name == "nt":
+        @unittest.expectedFailure
+        def test_samefile_on_link(self):
+            super().test_samefile_on_link()
+
+    # TODO: RUSTPYTHON
+    if os.name == "nt":
+        @unittest.expectedFailure
+        def test_samestat(self):
+            super().test_samestat()
+
+    # TODO: RUSTPYTHON
+    if os.name == "nt":
+        @unittest.expectedFailure
+        def test_samestat_on_link(self):
+            super().test_samestat_on_link()
 
 
 class PathLikeTests(unittest.TestCase):
