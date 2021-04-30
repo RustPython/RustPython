@@ -138,6 +138,8 @@ class PtyTest(unittest.TestCase):
         # to ignore this signal.
         os.close(master_fd)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_fork(self):
         debug("calling pty.fork()")
         pid, master_fd = pty.fork()
