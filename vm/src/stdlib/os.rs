@@ -1775,19 +1775,25 @@ mod posix {
 
     pub(super) const SYMLINK_DIR_FD: bool = cfg!(not(target_os = "redox"));
 
-    #[pyfunction]
-    pub(super) fn symlink(
+    #[derive(FromArgs)]
+    pub(super) struct SimlinkArgs {
+        #[pyarg(any)]
         src: PyPathLike,
+        #[pyarg(any)]
         dst: PyPathLike,
+        #[pyarg(flatten)]
         _target_is_directory: TargetIsDirectory,
+        #[pyarg(flatten)]
         dir_fd: DirFd<{ SYMLINK_DIR_FD as usize }>,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        let src = src.into_cstring(vm)?;
-        let dst = dst.into_cstring(vm)?;
+    }
+
+    #[pyfunction]
+    pub(super) fn symlink(args: SimlinkArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let src = args.src.into_cstring(vm)?;
+        let dst = args.dst.into_cstring(vm)?;
         #[cfg(not(target_os = "redox"))]
         {
-            nix::unistd::symlinkat(&*src, dir_fd.get_opt(), &*dst)
+            nix::unistd::symlinkat(&*src, args.dir_fd.get_opt(), &*dst)
                 .map_err(|err| err.into_pyexception(vm))
         }
         #[cfg(target_os = "redox")]
@@ -2777,25 +2783,32 @@ mod nt {
 
     pub const SYMLINK_DIR_FD: bool = false;
 
-    #[pyfunction]
-    pub(super) fn symlink(
+    #[derive(FromArgs)]
+    pub(super) struct SimlinkArgs {
+        #[pyarg(any)]
         src: PyPathLike,
+        #[pyarg(any)]
         dst: PyPathLike,
+        #[pyarg(flatten)]
         target_is_directory: TargetIsDirectory,
-        _dir_fd: DirFd<0>,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
+        #[pyarg(flatten)]
+        _dir_fd: DirFd<{ SYMLINK_DIR_FD as usize }>,
+    }
+
+    #[pyfunction]
+    pub(super) fn symlink(args: SimlinkArgs, vm: &VirtualMachine) -> PyResult<()> {
         use std::os::windows::fs as win_fs;
-        let dir = target_is_directory.target_is_directory
-            || dst
+        let dir = args.target_is_directory.target_is_directory
+            || args
+                .dst
                 .path
                 .parent()
-                .and_then(|dst_parent| dst_parent.join(&src).symlink_metadata().ok())
+                .and_then(|dst_parent| dst_parent.join(&args.src).symlink_metadata().ok())
                 .map_or(false, |meta| meta.is_dir());
         let res = if dir {
-            win_fs::symlink_dir(src.path, dst.path)
+            win_fs::symlink_dir(args.src.path, args.dst.path)
         } else {
-            win_fs::symlink_file(src.path, dst.path)
+            win_fs::symlink_file(args.src.path, args.dst.path)
         };
         res.map_err(|err| err.into_pyexception(vm))
     }
@@ -3122,14 +3135,20 @@ mod minor {
 
     pub const SYMLINK_DIR_FD: bool = false;
 
-    #[pyfunction]
-    pub(super) fn symlink(
-        _src: PyPathLike,
-        _dst: PyPathLike,
+    #[derive(FromArgs)]
+    pub(super) struct SimlinkArgs {
+        #[pyarg(any)]
+        src: PyPathLike,
+        #[pyarg(any)]
+        dst: PyPathLike,
+        #[pyarg(flatten)]
         _target_is_directory: TargetIsDirectory,
-        _dir_fd: DirFd<0>,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
+        #[pyarg(flatten)]
+        _dir_fd: DirFd<{ SYMLINK_DIR_FD as usize }>,
+    }
+
+    #[pyfunction]
+    pub(super) fn symlink(args: SimkinkArgs, vm: &VirtualMachine) -> PyResult<()> {
         os_unimpl("os.symlink", vm)
     }
 
