@@ -36,14 +36,7 @@ jobs:
       - name: Set up the Mac environment
         run: brew install autoconf automake libtool
         if: runner.os == 'macOS'
-      - name: Cache cargo dependencies
-        uses: actions/cache@v2
-        with:
-          path: |
-              ~/.cargo/registry
-              ~/.cargo/git
-              target
-          key: ${{ runner.os }}-debug_opt3-${{ hashFiles('**/Cargo.lock') }}
+      - uses: Swatinem/rust-cache@v1
       - name: run rust tests
         uses: actions-rs/cargo@v1
         with:
@@ -76,14 +69,7 @@ jobs:
       - name: Set up the Mac environment
         run: brew install autoconf automake libtool
         if: runner.os == 'macOS'
-      - name: Cache cargo dependencies
-        uses: actions/cache@v2
-        with:
-          path: |
-              ~/.cargo/registry
-              ~/.cargo/git
-              target
-          key: ${{ runner.os }}-release-${{ hashFiles('**/Cargo.lock') }}
+      - uses: Swatinem/rust-cache@v1
       - name: build rustpython
         uses: actions-rs/cargo@v1
         with:
