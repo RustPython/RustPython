@@ -256,8 +256,6 @@ class MiscTest(unittest.TestCase):
         self.assertTrue(a != b)
         self.assertTrue(a < b)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exception_message(self):
         class Spam:
             pass
