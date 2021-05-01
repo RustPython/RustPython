@@ -2,7 +2,7 @@
 
 use super::constants::{SreAtCode, SreCatCode, SreFlag, SreOpcode};
 use super::MAXREPEAT;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::convert::TryFrom;
 
 const fn is_py_ascii_whitespace(b: u8) -> bool {
@@ -204,7 +204,7 @@ impl<'a> StrDrive<'a> {
                 .get(offset..)
                 .and_then(|s| s.char_indices().nth(skip).map(|x| x.0 + offset))
                 .unwrap_or_else(|| s.len()),
-            StrDrive::Bytes(b) => std::cmp::min(offset + skip, b.len()),
+            StrDrive::Bytes(_) => offset + skip,
         }
     }
 
@@ -294,8 +294,7 @@ trait MatchContextDrive {
             .state()
             .string
             .offset(self.ctx().string_offset, skip_count);
-        self.ctx_mut().string_position =
-            std::cmp::min(self.ctx().string_position + skip_count, self.state().end);
+        self.ctx_mut().string_position += skip_count;
     }
     fn skip_code(&mut self, skip_count: usize) {
         self.ctx_mut().code_position += skip_count;
@@ -451,12 +450,12 @@ where
 }
 
 struct OpcodeDispatcher {
-    executing_contexts: HashMap<usize, Box<dyn OpcodeExecutor>>,
+    executing_contexts: BTreeMap<usize, Box<dyn OpcodeExecutor>>,
 }
 impl OpcodeDispatcher {
     fn new() -> Self {
         Self {
-            executing_contexts: HashMap::new(),
+            executing_contexts: BTreeMap::new(),
         }
     }
     fn clear(&mut self) {
@@ -487,8 +486,7 @@ impl OpcodeDispatcher {
     fn dispatch(&mut self, opcode: SreOpcode, drive: &mut StackDrive) -> bool {
         let executor = self
             .executing_contexts
-            .remove_entry(&drive.id())
-            .map(|(_, x)| x)
+            .remove(&drive.id())
             .or_else(|| self.dispatch_table(opcode, drive));
         if let Some(mut executor) = executor {
             if let Some(()) = executor.next(drive) {

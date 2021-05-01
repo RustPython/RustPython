@@ -5,6 +5,7 @@ import sre_constants
 import sre_compile
 import sre_parse
 import json
+from itertools import chain
 
 m = re.search(r"const SRE_MAGIC: usize = (\d+);", open("src/constants.rs").read())
 sre_engine_magic = int(m.group(1))
@@ -38,8 +39,8 @@ def replace_compiled(m):
 {indent}#[rustfmt::skip] let {varname} = {pattern};
 {indent}// END GENERATED'''
 
-with os.scandir("tests") as d:
-    for f in d:
+with os.scandir("tests") as t, os.scandir("benches") as b:
+    for f in chain(t, b):
         path = Path(f.path)
         if path.suffix == ".rs":
             replaced = pattern_pattern.sub(replace_compiled, path.read_text())
