@@ -22,8 +22,6 @@ class BaseTestCase(unittest.TestCase):
         self.assertEqual(operator.index(self.o), -2)
         self.assertEqual(operator.index(self.n), 2)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_slice(self):
         self.o.ind = 1
         self.n.ind = 2
