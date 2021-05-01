@@ -297,8 +297,6 @@ class RangeTest(unittest.TestCase):
         always_equal = AlwaysEqual()
         self.assertEqual(range(10).index(always_equal), 0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_user_index_method(self):
         bignum = 2*sys.maxsize
         smallnum = 42

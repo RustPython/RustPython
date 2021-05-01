@@ -1464,8 +1464,6 @@ class SignedNumberTest(IntegerNumberTest):
     biggerexample = [-1, 0, 1, 43, 0x7f]
     outside = 23
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_overflow(self):
         a = array.array(self.typecode)
         lower = -1 * int(pow(2, a.itemsize * 8 - 1))
@@ -1479,8 +1477,6 @@ class UnsignedNumberTest(IntegerNumberTest):
     biggerexample = [0, 1, 17, 23, 43, 0xff]
     outside = 0xaa
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_overflow(self):
         a = array.array(self.typecode)
         lower = 0

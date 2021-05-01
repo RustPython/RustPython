@@ -754,13 +754,9 @@ class CBytesIOTest(PyBytesIOTest):
     def test_pickling(self):
         super().test_pickling()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_read(self):
         super().test_read()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_readline(self):
         super().test_readline()
 
@@ -779,8 +775,6 @@ class CBytesIOTest(PyBytesIOTest):
     def test_subclassing(self):
         super().test_subclassing()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_truncate(self):
         super().test_truncate()
 
@@ -935,13 +929,9 @@ class CStringIOTest(PyStringIOTest):
     def test_pickling(self):
         super().test_pickling()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_read(self):
         super().test_read()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_readline(self):
         super().test_readline()
 
@@ -960,8 +950,6 @@ class CStringIOTest(PyStringIOTest):
     def test_textio_properties(self):
         super().test_textio_properties()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_truncate(self):
         super().test_truncate()
 

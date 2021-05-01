@@ -212,8 +212,6 @@ class CompressTestCase(BaseCompressTestCase, unittest.TestCase):
         compressed = zlib.compress(data, 1)
         self.assertEqual(zlib.decompress(compressed, 15, size), data)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_custom_bufsize(self):
         data = HAMLET_SCENE * 10
         compressed = zlib.compress(data, 1)
@@ -429,8 +427,6 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         dco = zlib.decompressobj()
         self.assertEqual(dco.decompress(compressed, sys.maxsize), data)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_maxlen_custom(self):
         data = HAMLET_SCENE * 10
         compressed = zlib.compress(data, 1)
@@ -648,8 +644,6 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         dco.decompress(data, 1)
         self.assertEqual(dco.flush(size), input[1:])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_flush_custom_length(self):
         input = HAMLET_SCENE * 10
         data = zlib.compress(input, 1)

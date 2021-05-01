@@ -78,6 +78,10 @@ impl PyValue for PyInt {
     fn into_object(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_int(self.value)
     }
+
+    fn special_retrieve(vm: &VirtualMachine, obj: &PyObjectRef) -> Option<PyResult<PyRef<Self>>> {
+        Some(vm.to_index(obj))
+    }
 }
 
 macro_rules! impl_into_pyobject_int {
