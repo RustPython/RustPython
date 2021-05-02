@@ -95,7 +95,7 @@ jobs:
         name: run cpython tests (macOS lightweight)
         run:
           target/release/rustpython -m test -v -x
-            test_http_cookiejar
+            test_http_cookiejar test_robotparser
       - if: runner.os == 'Windows'
         name: run cpython tests (windows partial - fixme)
         run:
