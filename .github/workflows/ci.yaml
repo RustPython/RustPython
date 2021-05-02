@@ -36,14 +36,7 @@ jobs:
       - name: Set up the Mac environment
         run: brew install autoconf automake libtool
         if: runner.os == 'macOS'
-      - name: Cache cargo dependencies
-        uses: actions/cache@v2
-        with:
-          path: |
-              ~/.cargo/registry
-              ~/.cargo/git
-              target
-          key: ${{ runner.os }}-debug_opt3-${{ hashFiles('**/Cargo.lock') }}
+      - uses: Swatinem/rust-cache@v1
       - name: run rust tests
         uses: actions-rs/cargo@v1
         with:
@@ -76,16 +69,7 @@ jobs:
       - name: Set up the Mac environment
         run: brew install autoconf automake libtool
         if: runner.os == 'macOS'
-      - name: Cache cargo dependencies
-        uses: actions/cache@v2
-        # cache gets corrupted for some reason on mac
-        if: runner.os != 'macOS'
-        with:
-          path: |
-              ~/.cargo/registry
-              ~/.cargo/git
-              target
-          key: ${{ runner.os }}-release-${{ hashFiles('**/Cargo.lock') }}
+      - uses: Swatinem/rust-cache@v1
       - name: build rustpython
         uses: actions-rs/cargo@v1
         with:
@@ -111,8 +95,6 @@ jobs:
         name: run cpython tests (macOS lightweight)
         run:
           target/release/rustpython -m test -v -x
-            test_argparse test_json test_bytes test_bytearray test_long test_unicode test_array
-            test_asyncgen test_list test_complex test_json test_set test_dis test_calendar
             test_http_cookiejar
       - if: runner.os == 'Windows'
         name: run cpython tests (windows partial - fixme)
