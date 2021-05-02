@@ -628,7 +628,7 @@ impl VirtualMachine {
         op: &str,
     ) -> PyBaseExceptionRef {
         self.new_type_error(format!(
-            "Unsupported operand types for '{}': '{}' and '{}'",
+            "'{}' not supported between instances of '{}' and '{}'",
             op,
             a.class().name,
             b.class().name
