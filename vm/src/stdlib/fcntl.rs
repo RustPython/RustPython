@@ -2,7 +2,7 @@ pub(crate) use fcntl::make_module;
 
 #[pymodule]
 mod fcntl {
-    use super::super::os;
+    use super::super::{io, os};
     use crate::builtins::int;
     use crate::byteslike::{BufOrStr, PyRwBytesLike};
     use crate::function::OptionalArg;
@@ -22,7 +22,7 @@ mod fcntl {
 
     #[pyfunction]
     fn fcntl(
-        fd: i32,
+        io::Fildes(fd): io::Fildes,
         cmd: i32,
         arg: OptionalArg<Either<BufOrStr, int::PyIntRef>>,
         vm: &VirtualMachine,
