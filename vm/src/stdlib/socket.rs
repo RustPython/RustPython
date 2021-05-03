@@ -142,7 +142,20 @@ impl PySocket {
                 _ => {}
             }
             if socket_kind == -1 {
-                socket_kind = sock.domain().map_err(|e| e.into_pyexception(vm))?.into();
+                // TODO: when socket2 cuts a new release, type will be available on all os
+                // socket_kind = sock.r#type().map_err(|e| e.into_pyexception(vm))?.into();
+                let res = unsafe {
+                    c::getsockopt(
+                        sock_fileno(&sock) as _,
+                        c::SOL_SOCKET,
+                        c::SO_TYPE,
+                        &mut socket_kind as *mut libc::c_int as *mut _,
+                        &mut (std::mem::size_of::<i32>() as _),
+                    )
+                };
+                if res < 0 {
+                    return Err(super::os::errno_err(vm));
+                }
             }
             cfg_if::cfg_if! {
                 if #[cfg(any(
