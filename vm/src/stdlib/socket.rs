@@ -69,8 +69,8 @@ mod c {
     pub use winapi::shared::ws2def::*;
     pub use winapi::um::winsock2::{
         SD_BOTH as SHUT_RDWR, SD_RECEIVE as SHUT_RD, SD_SEND as SHUT_WR, SOCK_DGRAM, SOCK_RAW,
-        SOCK_RDM, SOCK_STREAM, SOL_SOCKET, SO_BROADCAST, SO_ERROR, SO_OOBINLINE, SO_REUSEADDR,
-        SO_TYPE, *,
+        SOCK_RDM, SOCK_STREAM, SOL_SOCKET, SO_BROADCAST, SO_ERROR, SO_LINGER, SO_OOBINLINE,
+        SO_REUSEADDR, SO_TYPE, *,
     };
 }
 
@@ -1558,6 +1558,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "SO_BROADCAST" => ctx.new_int(c::SO_BROADCAST),
         "SO_OOBINLINE" => ctx.new_int(c::SO_OOBINLINE),
         "SO_ERROR" => ctx.new_int(c::SO_ERROR),
+        "SO_LINGER" => ctx.new_int(c::SO_LINGER),
         "TCP_NODELAY" => ctx.new_int(c::TCP_NODELAY),
         "NI_NAMEREQD" => ctx.new_int(c::NI_NAMEREQD),
         "NI_NOFQDN" => ctx.new_int(c::NI_NOFQDN),
