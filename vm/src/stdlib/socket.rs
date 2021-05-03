@@ -30,6 +30,19 @@ type RawSocket = std::os::unix::io::RawFd;
 type RawSocket = std::os::windows::raw::SOCKET;
 
 #[cfg(unix)]
+macro_rules! errcode {
+    ($e:ident) => {
+        c::$e
+    };
+}
+#[cfg(windows)]
+macro_rules! errcode {
+    ($e:ident) => {
+        paste::paste!(c::[<WSA $e>])
+    };
+}
+
+#[cfg(unix)]
 mod c {
     pub use libc::*;
     // https://gitlab.redox-os.org/redox-os/relibc/-/blob/master/src/header/netdb/mod.rs
@@ -135,7 +148,10 @@ impl PySocket {
                 Ok(addr) if family == -1 => family = addr.family() as i32,
                 Err(e)
                     if family == -1
-                        || matches!(e.raw_os_error(), Some(libc::ENOTSOCK) | Some(libc::EBADF)) =>
+                        || matches!(
+                            e.raw_os_error(),
+                            Some(errcode!(ENOTSOCK)) | Some(errcode!(EBADF))
+                        ) =>
                 {
                     return Err(e.into_pyexception(vm))
                 }
@@ -356,7 +372,12 @@ impl PySocket {
             vm.check_signals()?;
             self.timeout.load() != 0.0
         } else {
-            self.timeout.load() > 0.0 && err.raw_os_error() == Some(libc::EINPROGRESS)
+            #[cfg(unix)]
+            use c::EINPROGRESS;
+            #[cfg(windows)]
+            use c::WSAEWOULDBLOCK as EINPROGRESS;
+
+            self.timeout.load() > 0.0 && err.raw_os_error() == Some(EINPROGRESS)
         };
 
         if wait_connect {
@@ -1303,13 +1324,13 @@ fn _socket_dup(x: RawSocket, vm: &VirtualMachine) -> PyResult<RawSocket> {
 
 fn _socket_close(x: RawSocket, vm: &VirtualMachine) -> PyResult<()> {
     #[cfg(unix)]
-    use libc::{close, ECONNRESET};
+    use libc::close;
     #[cfg(windows)]
-    use winapi::um::winsock2::{closesocket as close, WSAECONNRESET as ECONNRESET};
+    use winapi::um::winsock2::closesocket as close;
     let ret = unsafe { close(x as _) };
     if ret < 0 {
         let err = super::os::errno();
-        if err.raw_os_error() != Some(ECONNRESET) {
+        if err.raw_os_error() != Some(errcode!(ECONNRESET)) {
             return Err(err.into_pyexception(vm));
         }
     }
