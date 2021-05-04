@@ -9,11 +9,8 @@ mod resource {
     use std::{io, mem};
 
     cfg_if::cfg_if! {
-        if #[cfg(target_os = "linux")] {
-            use libc::RLIMIT_NLIMITS as RLIM_NLIMITS;
-        } else if #[cfg(target_os = "android")] {
-            // TODO: this should be in libc soon
-            const RLIM_NLIMITS: i32 = 16;
+        if #[cfg(any(target_os = "linux", target_os = "android"))] {
+            use libc::RLIM_NLIMITS;
         } else {
             // in bsd-ish platforms, this constant isn't abi-stable across os versions, so we just
             // pick a high number so we don't get false positive ValueErrors and just bubble up the

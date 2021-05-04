@@ -1759,7 +1759,7 @@ mod posix {
     #[pyattr]
     fn environ(vm: &VirtualMachine) -> PyDictRef {
         let environ = vm.ctx.new_dict();
-        use std::os::unix::ffi::OsStringExt;
+        use ffi_ext::OsStringExt;
         for (key, value) in env::vars_os() {
             environ
                 .set_item(
@@ -3136,6 +3136,7 @@ mod minor {
     pub const SYMLINK_DIR_FD: bool = false;
 
     #[derive(FromArgs)]
+    #[allow(unused)]
     pub(super) struct SimlinkArgs {
         #[pyarg(any)]
         src: PyPathLike,
@@ -3148,13 +3149,25 @@ mod minor {
     }
 
     #[pyfunction]
-    pub(super) fn symlink(args: SimkinkArgs, vm: &VirtualMachine) -> PyResult<()> {
+    pub(super) fn symlink(_args: SimlinkArgs, vm: &VirtualMachine) -> PyResult<()> {
         os_unimpl("os.symlink", vm)
     }
 
     #[pyattr]
     fn environ(vm: &VirtualMachine) -> PyDictRef {
-        vm.ctx.new_dict()
+        let environ = vm.ctx.new_dict();
+        use ffi_ext::OsStringExt;
+        for (key, value) in env::vars_os() {
+            environ
+                .set_item(
+                    vm.ctx.new_bytes(key.into_vec()),
+                    vm.ctx.new_bytes(value.into_vec()),
+                    vm,
+                )
+                .unwrap();
+        }
+
+        environ
     }
 
     pub(super) fn support_funcs() -> Vec<SupportFunc> {

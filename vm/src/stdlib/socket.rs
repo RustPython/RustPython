@@ -56,13 +56,6 @@ mod c {
     pub const AI_ADDRCONFIG: c_int = 0x0020;
     #[cfg(target_os = "redox")]
     pub const AI_NUMERICSERV: c_int = 0x0400;
-    // https://gitlab.redox-os.org/redox-os/relibc/-/blob/master/src/header/sys_socket/constants.rs
-    #[cfg(target_os = "redox")]
-    pub const SO_TYPE: c_int = 3;
-    #[cfg(target_os = "redox")]
-    pub const MSG_OOB: c_int = 1;
-    #[cfg(target_os = "redox")]
-    pub const MSG_WAITALL: c_int = 256;
 }
 #[cfg(windows)]
 mod c {
@@ -1323,16 +1316,21 @@ fn get_addr(vm: &VirtualMachine, name: &str, af: i32) -> PyResult<SocketAddr> {
 }
 
 fn sock_from_raw(fileno: RawSocket, vm: &VirtualMachine) -> PyResult<Socket> {
-    let invalid = if cfg!(windows) {
-        fileno == INVALID_SOCKET
-    } else {
-        fileno < 0
+    let invalid = {
+        cfg_if::cfg_if! {
+            if #[cfg(windows)] {
+                fileno == INVALID_SOCKET
+            } else {
+                fileno < 0
+            }
+        }
     };
     if invalid {
         return Err(vm.new_value_error("negative file descriptor".to_owned()));
     }
     Ok(unsafe { sock_from_raw_unchecked(fileno) })
 }
+/// SAFETY: fileno must not be equal to INVALID_SOCKET
 unsafe fn sock_from_raw_unchecked(fileno: RawSocket) -> Socket {
     #[cfg(unix)]
     {
@@ -1381,16 +1379,8 @@ const INVALID_SOCKET: RawSocket = {
     }
 };
 fn invalid_sock() -> Socket {
-    #[cfg(unix)]
-    {
-        use std::os::unix::io::FromRawFd;
-        unsafe { Socket::from_raw_fd(INVALID_SOCKET) }
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::io::FromRawSocket;
-        unsafe { Socket::from_raw_socket(INVALID_SOCKET) }
-    }
+    // TODO: socket2 might make Socket have a niche at -1, so this may be UB in the future
+    unsafe { sock_from_raw_unchecked(INVALID_SOCKET) }
 }
 
 fn convert_gai_error(vm: &VirtualMachine, err: dns_lookup::LookupError) -> PyBaseExceptionRef {
