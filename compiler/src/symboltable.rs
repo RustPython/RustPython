@@ -1074,10 +1074,8 @@ impl SymbolTableBuilder {
     ) -> SymbolTableResult {
         // Evaluate eventual default parameters:
         self.scan_expressions(&args.defaults, ExpressionContext::Load)?;
-        for kw_default in &args.kw_defaults {
-            if let Some(expression) = kw_default {
-                self.scan_expression(&expression, ExpressionContext::Load)?;
-            }
+        for expression in args.kw_defaults.iter().flatten() {
+            self.scan_expression(&expression, ExpressionContext::Load)?;
         }
 
         // Annotations are scanned in outer scope:

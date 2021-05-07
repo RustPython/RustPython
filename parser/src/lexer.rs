@@ -717,7 +717,7 @@ where
             }
         }
 
-        Ok(IndentationLevel { spaces, tabs })
+        Ok(IndentationLevel { tabs, spaces })
     }
 
     fn handle_indentations(&mut self) -> Result<(), LexicalError> {

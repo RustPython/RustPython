@@ -143,10 +143,10 @@ impl PyContext {
         let context = PyContext {
             true_value,
             false_value,
-            not_implemented,
             none,
             empty_tuple,
             ellipsis,
+            not_implemented,
 
             types,
             exceptions,

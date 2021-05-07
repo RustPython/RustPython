@@ -48,10 +48,8 @@ pub fn init(context: &PyContext) {
 fn to_op_complex(value: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<Complex64>> {
     let r = if let Some(complex) = value.payload_if_subclass::<PyComplex>(vm) {
         Some(complex.value)
-    } else if let Some(float) = float::to_op_float(value, vm)? {
-        Some(Complex64::new(float, 0.0))
     } else {
-        None
+        float::to_op_float(value, vm)?.map(|float| Complex64::new(float, 0.0))
     };
     Ok(r)
 }

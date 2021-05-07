@@ -911,6 +911,7 @@ fn cert_to_py(vm: &VirtualMachine, cert: &X509Ref, binary: bool) -> PyResult {
         )?;
         dict.set_item("notAfter", vm.ctx.new_str(cert.not_after().to_string()), vm)?;
 
+        #[allow(clippy::manual_map)]
         if let Some(names) = cert.subject_alt_names() {
             let san = names
                 .iter()

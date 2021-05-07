@@ -449,15 +449,12 @@ impl PyBoundMethod {
 
     #[pymethod(magic)]
     fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
-        let funcname = if let Some(qname) =
-            vm.get_attribute_opt(self.function.clone(), "__qualname__")?
-        {
-            Some(qname)
-        } else if let Some(name) = vm.get_attribute_opt(self.function.clone(), "__qualname__")? {
-            Some(name)
-        } else {
-            None
-        };
+        let funcname =
+            if let Some(qname) = vm.get_attribute_opt(self.function.clone(), "__qualname__")? {
+                Some(qname)
+            } else {
+                vm.get_attribute_opt(self.function.clone(), "__qualname__")?
+            };
         let funcname: Option<PyStrRef> = funcname.and_then(|o| o.downcast().ok());
         Ok(format!(
             "<bound method {} of {}>",
