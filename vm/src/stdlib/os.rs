@@ -2764,6 +2764,7 @@ pub(crate) use posix::raw_set_inheritable;
 #[pymodule]
 mod nt {
     use super::*;
+    #[cfg(target_env = "msvc")]
     use crate::builtins::list::PyListRef;
     #[cfg(target_env = "msvc")]
     use winapi::vc::vcruntime::intptr_t;
@@ -3120,7 +3121,7 @@ mod nt {
 }
 #[cfg(windows)]
 use nt as platform;
-#[cfg(windows)]
+#[cfg(all(windows, target_env = "msvc"))]
 pub use nt::{_set_thread_local_invalid_parameter_handler, silent_iph_handler};
 
 #[cfg(not(any(unix, windows)))]

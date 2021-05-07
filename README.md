@@ -28,8 +28,6 @@ To build RustPython locally, do the following:
 
     $ git clone https://github.com/RustPython/RustPython
     $ cd RustPython
-      # if you're on windows:
-    $ powershell scripts\symlinks-to-hardlinks.ps1
       # --release is needed (at least on windows) to prevent stack overflow
     $ cargo run --release demo.py
     Hello, RustPython!

@@ -38,7 +38,6 @@ pub fn get_module_inits() -> impl Iterator<Item = (String, bytecode::FrozenModul
     // Python modules that the vm calls into, but are not actually part of the stdlib. They could
     // in theory be implemented in Rust, but are easiest to do in Python for one reason or another.
     // Includes _importlib_bootstrap and _importlib_bootstrap_external
-    // For Windows: did you forget to run `powershell scripts\symlinks-to-hardlinks.ps1`?
     ext_modules!(iter, dir = "Lib/python_builtins/");
 
     #[cfg(not(feature = "freeze-stdlib"))]

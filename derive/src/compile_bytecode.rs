@@ -115,9 +115,18 @@ impl CompilationSource {
         mode: compile::Mode,
     ) -> Result<HashMap<String, FrozenModule>, Diagnostic> {
         let mut code_map = HashMap::new();
-        let paths = fs::read_dir(&path).map_err(|err| {
-            Diagnostic::spans_error(self.span, format!("Error listing dir {:?}: {}", path, err))
-        })?;
+        let paths = fs::read_dir(path)
+            .or_else(|e| {
+                if cfg!(windows) {
+                    if let Ok(real_path) = fs::read_to_string(path.canonicalize().unwrap()) {
+                        return fs::read_dir(real_path.trim());
+                    }
+                }
+                Err(e)
+            })
+            .map_err(|err| {
+                Diagnostic::spans_error(self.span, format!("Error listing dir {:?}: {}", path, err))
+            })?;
         for path in paths {
             let path = path.map_err(|err| {
                 Diagnostic::spans_error(self.span, format!("Failed to list file: {}", err))
@@ -133,12 +142,6 @@ impl CompilationSource {
                     mode,
                 )?);
             } else if file_name.ends_with(".py") {
-                let source = fs::read_to_string(&path).map_err(|err| {
-                    Diagnostic::spans_error(
-                        self.span,
-                        format!("Error reading file {:?}: {}", path, err),
-                    )
-                })?;
                 let stem = path.file_stem().unwrap().to_str().unwrap();
                 let is_init = stem == "__init__";
                 let module_name = if is_init {
@@ -148,15 +151,39 @@ impl CompilationSource {
                 } else {
                     format!("{}.{}", parent, stem)
                 };
+
+                let compile_path = |src_path: &Path| {
+                    let source = fs::read_to_string(src_path).map_err(|err| {
+                        Diagnostic::spans_error(
+                            self.span,
+                            format!("Error reading file {:?}: {}", path, err),
+                        )
+                    })?;
+                    self.compile_string(&source, mode, module_name.clone(), || {
+                        path.strip_prefix(&*CARGO_MANIFEST_DIR)
+                            .ok()
+                            .unwrap_or(&path)
+                            .display()
+                    })
+                };
+                let code = compile_path(&path).or_else(|e| {
+                    if cfg!(windows) {
+                        if let Ok(real_path) = fs::read_to_string(path.canonicalize().unwrap()) {
+                            let joined = path.parent().unwrap().join(real_path.trim());
+                            if joined.exists() {
+                                return compile_path(&joined);
+                            } else {
+                                return Err(e);
+                            }
+                        }
+                    }
+                    Err(e)
+                })?;
+
                 code_map.insert(
-                    module_name.clone(),
+                    module_name,
                     FrozenModule {
-                        code: self.compile_string(&source, mode, module_name, || {
-                            path.strip_prefix(&*CARGO_MANIFEST_DIR)
-                                .ok()
-                                .unwrap_or(&path)
-                                .display()
-                        })?,
+                        code,
                         package: is_init,
                     },
                 );
