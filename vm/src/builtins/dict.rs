@@ -587,7 +587,6 @@ impl Iterator for DictIter {
         self.dict
             .entries
             .next_entry(&mut self.position)
-            .map(|(key, value)| (key, value))
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
