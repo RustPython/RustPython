@@ -1,6 +1,6 @@
 // sliceobject.{h,c} in CPython
 
-use super::int::PyInt;
+use super::int::{PyInt, PyIntRef};
 use super::pytype::PyTypeRef;
 use crate::function::{FuncArgs, OptionalArg};
 use crate::pyobject::{
@@ -205,16 +205,17 @@ impl PySlice {
     }
 
     #[pymethod(name = "indices")]
-    fn indices(&self, length: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(length) = length.payload::<PyInt>() {
-            let (start, stop, step) = self.inner_indices(length.borrow_value(), vm)?;
+    fn indices(&self, length: PyIntRef, vm: &VirtualMachine) -> PyResult {
+        let length = length.borrow_value();
+        if length.is_negative() {
+            Err(vm.new_value_error("length should not be negative.".to_owned()))
+        } else {
+            let (start, stop, step) = self.inner_indices(length, vm)?;
             Ok(vm.ctx.new_tuple(vec![
                 vm.ctx.new_int(start),
                 vm.ctx.new_int(stop),
                 vm.ctx.new_int(step),
             ]))
-        } else {
-            Ok(vm.ctx.not_implemented())
         }
     }
 }
