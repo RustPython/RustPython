@@ -278,10 +278,9 @@ mod decl {
             times: OptionalArg<PyIntRef>,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
-            let times = match times.into_option() {
-                Some(int) => Some(PyRwLock::new(int.borrow_value().clone())),
-                None => None,
-            };
+            let times = times
+                .into_option()
+                .map(|int| PyRwLock::new(int.borrow_value().clone()));
 
             PyItertoolsRepeat { object, times }.into_ref_with_type(vm, cls)
         }

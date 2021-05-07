@@ -439,10 +439,8 @@ impl ExecutingFrame<'_> {
             // variable is Some
             let thrower = if let Some(coro) = self.builtin_coro(coro) {
                 Some(Either::A(coro))
-            } else if let Some(meth) = vm.get_attribute_opt(coro.clone(), "throw")? {
-                Some(Either::B(meth))
             } else {
-                None
+                vm.get_attribute_opt(coro.clone(), "throw")?.map(Either::B)
             };
             if let Some(thrower) = thrower {
                 let ret = match thrower {

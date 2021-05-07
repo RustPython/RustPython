@@ -219,11 +219,10 @@ impl FuncArgs {
     }
 
     pub fn check_kwargs_empty(&self, vm: &VirtualMachine) -> Option<PyBaseExceptionRef> {
-        if let Some(k) = self.kwargs.keys().next() {
-            Some(vm.new_type_error(format!("Unexpected keyword argument {}", k)))
-        } else {
-            None
-        }
+        self.kwargs
+            .keys()
+            .next()
+            .map(|k| vm.new_type_error(format!("Unexpected keyword argument {}", k)))
     }
 }
 

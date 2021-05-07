@@ -584,10 +584,10 @@ impl Iterator for DictIter {
     type Item = (PyObjectRef, PyObjectRef);
 
     fn next(&mut self) -> Option<Self::Item> {
-        match self.dict.entries.next_entry(&mut self.position) {
-            Some((key, value)) => Some((key, value)),
-            None => None,
-        }
+        self.dict
+            .entries
+            .next_entry(&mut self.position)
+            .map(|(key, value)| (key, value))
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
