@@ -16,7 +16,7 @@ pub fn serialize<S>(
 where
     S: serde::Serializer,
 {
-    PyObjectSerializer { vm, pyobject }.serialize(serializer)
+    PyObjectSerializer { pyobject, vm }.serialize(serializer)
 }
 
 #[inline]
@@ -39,7 +39,7 @@ pub struct PyObjectSerializer<'s> {
 
 impl<'s> PyObjectSerializer<'s> {
     pub fn new(vm: &'s VirtualMachine, pyobject: &'s PyObjectRef) -> Self {
-        PyObjectSerializer { vm, pyobject }
+        PyObjectSerializer { pyobject, vm }
     }
 
     fn clone_with_object(&self, pyobject: &'s PyObjectRef) -> PyObjectSerializer {
