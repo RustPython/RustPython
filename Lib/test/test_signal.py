@@ -38,6 +38,8 @@ class PosixTests(unittest.TestCase):
     def trivial_signal_handler(self, *args):
         pass
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_out_of_range_signal_number_raises_error(self):
         self.assertRaises(ValueError, signal.getsignal, 4242)
 
@@ -58,17 +60,23 @@ class PosixTests(unittest.TestCase):
         signal.signal(signal.SIGHUP, hup)
         self.assertEqual(signal.getsignal(signal.SIGHUP), hup)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_strsignal(self):
         self.assertIn("Interrupt", signal.strsignal(signal.SIGINT))
         self.assertIn("Terminated", signal.strsignal(signal.SIGTERM))
         self.assertIn("Hangup", signal.strsignal(signal.SIGHUP))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     # Issue 3864, unknown if this affects earlier versions of freebsd also
     def test_interprocess_signal(self):
         dirname = os.path.dirname(__file__)
         script = os.path.join(dirname, 'signalinterproctester.py')
         assert_python_ok(script)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_valid_signals(self):
         s = signal.valid_signals()
         self.assertIsInstance(s, set)
@@ -78,6 +86,8 @@ class PosixTests(unittest.TestCase):
         self.assertNotIn(signal.NSIG, s)
         self.assertLess(len(s), signal.NSIG)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(sys.executable, "sys.executable required.")
     def test_keyboard_interrupt_exit_code(self):
         """KeyboardInterrupt triggers exit via SIGINT."""
@@ -657,6 +667,8 @@ class SiginterruptTest(unittest.TestCase):
                                     % (exitcode, stdout))
                 return (exitcode == 3)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_without_siginterrupt(self):
         # If a signal handler is installed and siginterrupt is not called
         # at all, when that signal arrives, it interrupts a syscall that's in
@@ -664,6 +676,8 @@ class SiginterruptTest(unittest.TestCase):
         interrupted = self.readpipe_interrupted(None)
         self.assertTrue(interrupted)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_siginterrupt_on(self):
         # If a signal handler is installed and siginterrupt is called with
         # a true value for the second argument, when that signal arrives, it
@@ -713,6 +727,8 @@ class ItimerTest(unittest.TestCase):
         self.hndl_called = True
         signal.setitimer(signal.ITIMER_PROF, 0)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_itimer_exc(self):
         # XXX I'm assuming -1 is an invalid itimer, but maybe some platform
         # defines it ?
@@ -722,12 +738,16 @@ class ItimerTest(unittest.TestCase):
             self.assertRaises(signal.ItimerError,
                               signal.setitimer, signal.ITIMER_REAL, -1)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_itimer_real(self):
         self.itimer = signal.ITIMER_REAL
         signal.setitimer(self.itimer, 1.0)
         signal.pause()
         self.assertEqual(self.hndl_called, True)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     # Issue 3864, unknown if this affects earlier versions of freebsd also
     @unittest.skipIf(sys.platform in ('netbsd5',),
         'itimer not reliable (does not mix well with threading) on some BSDs.')
@@ -751,6 +771,8 @@ class ItimerTest(unittest.TestCase):
         # and the handler should have been called
         self.assertEqual(self.hndl_called, True)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_itimer_prof(self):
         self.itimer = signal.ITIMER_PROF
         signal.signal(signal.SIGPROF, self.sig_prof)
@@ -771,6 +793,8 @@ class ItimerTest(unittest.TestCase):
         # and the handler should have been called
         self.assertEqual(self.hndl_called, True)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_setitimer_tiny(self):
         # bpo-30807: C setitimer() takes a microsecond-resolution interval.
         # Check that float -> timeval conversion doesn't round
@@ -1244,6 +1268,8 @@ class StressTest(unittest.TestCase):
         # Python handler
         self.assertEqual(len(sigs), N, "Some signals were lost")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(signal, "SIGUSR1"),
                          "test needs SIGUSR1")
     def test_stress_modifying_handlers(self):
@@ -1305,6 +1331,8 @@ class StressTest(unittest.TestCase):
 
 class RaiseSignalTest(unittest.TestCase):
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_sigint(self):
         with self.assertRaises(KeyboardInterrupt):
             signal.raise_signal(signal.SIGINT)
@@ -1321,6 +1349,8 @@ class RaiseSignalTest(unittest.TestCase):
             else:
                 raise
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_handler(self):
         is_ok = False
         def handler(a, b):
