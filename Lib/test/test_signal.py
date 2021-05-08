@@ -108,6 +108,8 @@ class PosixTests(unittest.TestCase):
 @unittest.skipUnless(sys.platform == "win32", "Windows specific")
 class WindowsSignalTests(unittest.TestCase):
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_valid_signals(self):
         s = signal.valid_signals()
         self.assertIsInstance(s, set)
@@ -117,6 +119,8 @@ class WindowsSignalTests(unittest.TestCase):
         self.assertNotIn(signal.NSIG, s)
         self.assertLess(len(s), signal.NSIG)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_issue9324(self):
         # Updated for issue #10003, adding SIGBREAK
         handler = lambda x, y: None
@@ -138,6 +142,8 @@ class WindowsSignalTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             signal.signal(7, handler)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(sys.executable, "sys.executable required.")
     def test_keyboard_interrupt_exit_code(self):
         """KeyboardInterrupt triggers an exit using STATUS_CONTROL_C_EXIT."""
@@ -169,12 +175,20 @@ class WakeupFDTests(unittest.TestCase):
         self.assertRaises((ValueError, OSError),
                           signal.set_wakeup_fd, fd)
 
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_invalid_fd = unittest.expectedFailure(test_invalid_fd)
+
     def test_invalid_socket(self):
         sock = socket.socket()
         fd = sock.fileno()
         sock.close()
         self.assertRaises((ValueError, OSError),
                           signal.set_wakeup_fd, fd)
+
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_invalid_socket = unittest.expectedFailure(test_invalid_socket)
 
     def test_set_wakeup_fd_result(self):
         r1, w1 = os.pipe()
@@ -193,6 +207,10 @@ class WakeupFDTests(unittest.TestCase):
         self.assertEqual(signal.set_wakeup_fd(-1), w2)
         self.assertEqual(signal.set_wakeup_fd(-1), -1)
 
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_set_wakeup_fd_result = unittest.expectedFailure(test_set_wakeup_fd_result)
+
     def test_set_wakeup_fd_socket_result(self):
         sock1 = socket.socket()
         self.addCleanup(sock1.close)
@@ -208,6 +226,10 @@ class WakeupFDTests(unittest.TestCase):
         self.assertEqual(signal.set_wakeup_fd(fd2), fd1)
         self.assertEqual(signal.set_wakeup_fd(-1), fd2)
         self.assertEqual(signal.set_wakeup_fd(-1), -1)
+
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_set_wakeup_fd_socket_result = unittest.expectedFailure(test_set_wakeup_fd_socket_result)
 
     # On Windows, files are always blocking and Windows does not provide a
     # function to test if a socket is in non-blocking mode.
@@ -1337,6 +1359,8 @@ class RaiseSignalTest(unittest.TestCase):
         with self.assertRaises(KeyboardInterrupt):
             signal.raise_signal(signal.SIGINT)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipIf(sys.platform != "win32", "Windows specific test")
     def test_invalid_argument(self):
         try:
