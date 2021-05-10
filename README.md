@@ -41,12 +41,27 @@ Or use the interactive shell:
 
 You can also install and run RustPython with the following:
 
-    $ cargo install rustpython
+    $ cargo install --git https://github.com/RustPython/RustPython
     $ rustpython
     Welcome to the magnificent Rust Python interpreter
     >>>>>
 
-Or through the `conda` package manager:
+(The `rustpython-*` crates are currently yanked from crates.io due to being out
+of date and not building on newer rust versions; we hope to release a new
+version Soon™)
+
+If you'd like to make https requests, you can enable the `ssl` feature, which
+also lets you install the `pip` package manager. Note that on Windows, you may
+need to install OpenSSL, or you can enable the `ssl-vendor` feature instead,
+which compiles OpenSSL for you but requires a C compiler, perl, and `make`.
+
+Once you've installed rustpython with SSL support, you can install pip by
+running:
+
+    $ rustpython --install-pip
+
+You can also install RustPython through the `conda` package manager, though
+this isn't officially supported and may be out of date:
 
     $ conda install rustpython -c conda-forge
     $ rustpython

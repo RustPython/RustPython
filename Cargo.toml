@@ -24,6 +24,7 @@ threading = ["rustpython-vm/threading"]
 zlib = ["rustpython-vm/zlib"]
 
 ssl = ["rustpython-vm/ssl"]
+ssl-vendor = ["rustpython-vm/ssl-vendor"]
 
 [dependencies]
 log = "0.4"
