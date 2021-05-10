@@ -22,7 +22,8 @@ ast = ["rustpython-ast"]
 compiler = ["rustpython-compiler", "rustpython-compiler-core", "ast"]
 parser = ["rustpython-parser", "ast"]
 
-ssl = ["openssl", "openssl-sys", "openssl-probe", "foreign-types-shared"]
+ssl = ["openssl", "openssl-sys", "foreign-types-shared"]
+ssl-vendor = ["ssl", "openssl/vendored", "openssl-probe"]
 
 [dependencies]
 # Crypto:
@@ -119,7 +120,7 @@ uname = "0.1.1"
 gethostname = "0.2.0"
 socket2 = "0.4.0"
 rustyline = "8.0"
-openssl = { version = "0.10.32", features = ["vendored"], optional = true }
+openssl = { version = "0.10.32", optional = true }
 openssl-sys = { version = "0.9", optional = true }
 openssl-probe = { version = "0.1", optional = true }
 which = "4.0"
