@@ -1,6 +1,6 @@
 use crate::pyobject::{PyObjectRef, PyResult, TryFromObject};
 use crate::vm::VirtualMachine;
-use std::io;
+use std::{io, mem};
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     super::socket::init_winsock();
@@ -17,28 +17,34 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 mod platform {
     pub use libc::{fd_set, select, timeval, FD_ISSET, FD_SET, FD_SETSIZE, FD_ZERO};
     pub use std::os::unix::io::RawFd;
+
+    pub fn check_err(x: i32) -> bool {
+        x < 0
+    }
 }
 
 #[allow(non_snake_case)]
 #[cfg(windows)]
 mod platform {
-    pub use winapi::um::winsock2::{fd_set, select, timeval, FD_SETSIZE, SOCKET as RawFd};
 
-    // from winsock2.h: https://gist.github.com/piscisaureus/906386#file-winsock2-h-L128-L141
+    use winapi::um::winsock2;
+    pub use winsock2::{fd_set, select, timeval, FD_SETSIZE, SOCKET as RawFd};
+
+    // based off winsock2.h: https://gist.github.com/piscisaureus/906386#file-winsock2-h-L128-L141
 
     pub unsafe fn FD_SET(fd: RawFd, set: *mut fd_set) {
-        let mut i = 0;
-        for idx in 0..(*set).fd_count as usize {
-            i = idx;
-            if (*set).fd_array[i] == fd {
-                break;
+        let mut slot = std::ptr::addr_of_mut!((*set).fd_array).cast::<RawFd>();
+        let fd_count = (*set).fd_count;
+        for _ in 0..fd_count {
+            if *slot == fd {
+                return;
             }
+            slot = slot.add(1);
         }
-        if i == (*set).fd_count as usize {
-            if (*set).fd_count < FD_SETSIZE as u32 {
-                (*set).fd_array[i] = fd as _;
-                (*set).fd_count += 1;
-            }
+        // slot == &fd_array[fd_count] at this point
+        if fd_count < FD_SETSIZE as u32 {
+            *slot = fd as RawFd;
+            (*set).fd_count += 1;
         }
     }
 
@@ -49,6 +55,10 @@ mod platform {
     pub unsafe fn FD_ISSET(fd: RawFd, set: *mut fd_set) -> bool {
         use winapi::um::winsock2::__WSAFDIsSet;
         __WSAFDIsSet(fd as _, set) != 0
+    }
+
+    pub fn check_err(x: i32) -> bool {
+        x == winsock2::SOCKET_ERROR
     }
 }
 
@@ -72,8 +82,9 @@ impl TryFromObject for Selectable {
     }
 }
 
+// Keep it in a MaybeUninit, since on windows FD_ZERO doesn't actually zero the whole thing
 #[repr(transparent)]
-pub struct FdSet(platform::fd_set);
+pub struct FdSet(mem::MaybeUninit<platform::fd_set>);
 
 impl FdSet {
     pub fn new() -> FdSet {
@@ -81,29 +92,25 @@ impl FdSet {
         // interacting with it is in C, so it's safe to zero
         let mut fdset = std::mem::MaybeUninit::zeroed();
         unsafe { platform::FD_ZERO(fdset.as_mut_ptr()) };
-        FdSet(unsafe { fdset.assume_init() })
+        FdSet(fdset)
     }
 
     pub fn insert(&mut self, fd: RawFd) {
-        unsafe { platform::FD_SET(fd, &mut self.0) };
+        unsafe { platform::FD_SET(fd, self.0.as_mut_ptr()) };
     }
 
     pub fn contains(&mut self, fd: RawFd) -> bool {
-        unsafe { platform::FD_ISSET(fd, &mut self.0) }
+        unsafe { platform::FD_ISSET(fd, self.0.as_mut_ptr()) }
     }
 
     pub fn clear(&mut self) {
-        unsafe { platform::FD_ZERO(&mut self.0) };
+        unsafe { platform::FD_ZERO(self.0.as_mut_ptr()) };
     }
 
     pub fn highest(&mut self) -> Option<RawFd> {
-        for i in (0..platform::FD_SETSIZE as RawFd).rev() {
-            if self.contains(i) {
-                return Some(i);
-            }
-        }
-
-        None
+        (0..platform::FD_SETSIZE as RawFd)
+            .rev()
+            .find(|&i| self.contains(i))
     }
 }
 
@@ -121,13 +128,13 @@ pub fn select(
     let ret = unsafe {
         platform::select(
             nfds,
-            &mut readfds.0,
-            &mut writefds.0,
-            &mut errfds.0,
+            readfds.0.as_mut_ptr(),
+            writefds.0.as_mut_ptr(),
+            errfds.0.as_mut_ptr(),
             timeout,
         )
     };
-    if ret < 0 {
+    if platform::check_err(ret) {
         Err(io::Error::last_os_error())
     } else {
         Ok(ret)
