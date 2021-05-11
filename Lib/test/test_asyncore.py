@@ -723,7 +723,6 @@ class BaseTestAPI:
         self.assertFalse(server.connected)
         self.assertFalse(server.accepting)
 
-    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON, Windows-only fail")
     def test_create_socket(self):
         s = asyncore.dispatcher()
         s.create_socket(self.family)

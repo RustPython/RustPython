@@ -2765,7 +2765,6 @@ pub(crate) use posix::raw_set_inheritable;
 mod nt {
     use super::*;
     use crate::builtins::list::PyListRef;
-    #[cfg(target_env = "msvc")]
     use winapi::vc::vcruntime::intptr_t;
 
     #[pyattr]
@@ -3112,6 +3111,34 @@ mod nt {
             }
         }
         return Err(err.into_pyexception(vm));
+    }
+
+    #[pyfunction]
+    fn get_handle_inheritable(handle: intptr_t, vm: &VirtualMachine) -> PyResult<bool> {
+        let mut flags = 0;
+        if unsafe { winapi::um::handleapi::GetHandleInformation(handle as _, &mut flags) } == 0 {
+            Err(errno_err(vm))
+        } else {
+            Ok(flags & winapi::um::winbase::HANDLE_FLAG_INHERIT != 0)
+        }
+    }
+
+    #[pyfunction]
+    fn set_handle_inheritable(
+        handle: intptr_t,
+        inheritable: bool,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        use winapi::um::winbase::HANDLE_FLAG_INHERIT;
+        let flags = if inheritable { HANDLE_FLAG_INHERIT } else { 0 };
+        let res = unsafe {
+            winapi::um::handleapi::SetHandleInformation(handle as _, HANDLE_FLAG_INHERIT, flags)
+        };
+        if res == 0 {
+            Err(errno_err(vm))
+        } else {
+            Ok(())
+        }
     }
 
     pub(super) fn support_funcs() -> Vec<SupportFunc> {
