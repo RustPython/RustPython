@@ -1,6 +1,8 @@
 use std::ffi;
 use std::fs::OpenOptions;
 use std::io::{self, ErrorKind, Read, Write};
+#[cfg(unix)]
+use std::os::unix::fs::DirEntryExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 use std::{env, fs};
@@ -717,6 +719,8 @@ mod _os {
     struct DirEntry {
         entry: fs::DirEntry,
         mode: OutputMode,
+        #[cfg(not(unix))]
+        ino: AtomicCell<Option<u64>>,
     }
 
     impl PyValue for DirEntry {
@@ -793,6 +797,35 @@ mod _os {
             )
         }
 
+        #[cfg(not(unix))]
+        #[pymethod]
+        fn inode(&self, vm: &VirtualMachine) -> PyResult<u64> {
+            match self.ino.load() {
+                Some(ino) => Ok(ino),
+                None => {
+                    let stat = stat_inner(
+                        PathOrFd::Path(PyPathLike {
+                            path: self.entry.path(),
+                            mode: OutputMode::String,
+                        }),
+                        DirFd::default(),
+                        FollowSymlinks(false),
+                    )
+                    .map_err(|e| e.into_pyexception(vm))?
+                    .ok_or_else(|| vm.new_value_error("embedded null character".to_owned()))?;
+                    // Err(T) means other thread set `ino` at the mean time which is safe to ignore
+                    let _ = self.ino.compare_exchange(None, Some(stat.st_ino));
+                    Ok(stat.st_ino)
+                }
+            }
+        }
+
+        #[cfg(unix)]
+        #[pymethod]
+        fn inode(&self, _vm: &VirtualMachine) -> PyResult<u64> {
+            Ok(self.entry.ino())
+        }
+
         #[pymethod(magic)]
         fn fspath(&self, vm: &VirtualMachine) -> PyResult {
             self.path(vm)
@@ -842,6 +875,8 @@ mod _os {
                     Ok(entry) => Ok(DirEntry {
                         entry,
                         mode: zelf.mode,
+                        #[cfg(not(unix))]
+                        ino: AtomicCell::new(None),
                     }
                     .into_ref(vm)
                     .into_object()),

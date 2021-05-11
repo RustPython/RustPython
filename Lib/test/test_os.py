@@ -3785,8 +3785,6 @@ class TestScandir(unittest.TestCase):
                                entry_lstat,
                                os.name == 'nt')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_attributes(self):
         link = hasattr(os, 'link')
         symlink = support.can_symlink()
