@@ -1204,15 +1204,20 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
 impl TryFromObject for std::time::Duration {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         use std::time::Duration;
-        u64::try_from_object(vm, obj.clone())
-            .map(Duration::from_secs)
-            .or_else(|_| f64::try_from_object(vm, obj.clone()).map(Duration::from_secs_f64))
-            .map_err(|_| {
-                vm.new_type_error(format!(
-                    "expected an int or float for duration, got {}",
-                    obj.class()
-                ))
-            })
+        if let Some(float) = obj.payload::<PyFloat>() {
+            Ok(Duration::from_secs_f64(float.to_f64()))
+        } else if let Some(int) = vm.to_index_opt(obj.clone()) {
+            let sec = int?
+                .borrow_value()
+                .to_u64()
+                .ok_or_else(|| vm.new_value_error("value out of range".to_owned()))?;
+            Ok(Duration::from_secs(sec))
+        } else {
+            Err(vm.new_type_error(format!(
+                "expected an int or float for duration, got {}",
+                obj.class()
+            )))
+        }
     }
 }
 

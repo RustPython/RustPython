@@ -1759,7 +1759,7 @@ mod posix {
     #[pyattr]
     fn environ(vm: &VirtualMachine) -> PyDictRef {
         let environ = vm.ctx.new_dict();
-        use std::os::unix::ffi::OsStringExt;
+        use ffi_ext::OsStringExt;
         for (key, value) in env::vars_os() {
             environ
                 .set_item(
@@ -2766,7 +2766,6 @@ mod nt {
     use super::*;
     #[cfg(target_env = "msvc")]
     use crate::builtins::list::PyListRef;
-    #[cfg(target_env = "msvc")]
     use winapi::vc::vcruntime::intptr_t;
 
     #[pyattr]
@@ -3115,6 +3114,34 @@ mod nt {
         return Err(err.into_pyexception(vm));
     }
 
+    #[pyfunction]
+    fn get_handle_inheritable(handle: intptr_t, vm: &VirtualMachine) -> PyResult<bool> {
+        let mut flags = 0;
+        if unsafe { winapi::um::handleapi::GetHandleInformation(handle as _, &mut flags) } == 0 {
+            Err(errno_err(vm))
+        } else {
+            Ok(flags & winapi::um::winbase::HANDLE_FLAG_INHERIT != 0)
+        }
+    }
+
+    #[pyfunction]
+    fn set_handle_inheritable(
+        handle: intptr_t,
+        inheritable: bool,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        use winapi::um::winbase::HANDLE_FLAG_INHERIT;
+        let flags = if inheritable { HANDLE_FLAG_INHERIT } else { 0 };
+        let res = unsafe {
+            winapi::um::handleapi::SetHandleInformation(handle as _, HANDLE_FLAG_INHERIT, flags)
+        };
+        if res == 0 {
+            Err(errno_err(vm))
+        } else {
+            Ok(())
+        }
+    }
+
     pub(super) fn support_funcs() -> Vec<SupportFunc> {
         Vec::new()
     }
@@ -3137,6 +3164,7 @@ mod minor {
     pub const SYMLINK_DIR_FD: bool = false;
 
     #[derive(FromArgs)]
+    #[allow(unused)]
     pub(super) struct SimlinkArgs {
         #[pyarg(any)]
         src: PyPathLike,
@@ -3149,13 +3177,25 @@ mod minor {
     }
 
     #[pyfunction]
-    pub(super) fn symlink(args: SimkinkArgs, vm: &VirtualMachine) -> PyResult<()> {
+    pub(super) fn symlink(_args: SimlinkArgs, vm: &VirtualMachine) -> PyResult<()> {
         os_unimpl("os.symlink", vm)
     }
 
     #[pyattr]
     fn environ(vm: &VirtualMachine) -> PyDictRef {
-        vm.ctx.new_dict()
+        let environ = vm.ctx.new_dict();
+        use ffi_ext::OsStringExt;
+        for (key, value) in env::vars_os() {
+            environ
+                .set_item(
+                    vm.ctx.new_bytes(key.into_vec()),
+                    vm.ctx.new_bytes(value.into_vec()),
+                    vm,
+                )
+                .unwrap();
+        }
+
+        environ
     }
 
     pub(super) fn support_funcs() -> Vec<SupportFunc> {

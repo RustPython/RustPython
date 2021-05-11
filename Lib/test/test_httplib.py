@@ -1544,8 +1544,6 @@ class TimeoutTest(TestCase):
         self.serv.close()
         self.serv = None
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testTimeoutAttribute(self):
         # This will prove that the timeout gets through HTTPConnection
         # and into the socket.

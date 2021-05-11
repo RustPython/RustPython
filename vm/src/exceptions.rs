@@ -690,6 +690,7 @@ impl ExceptionZoo {
         });
         extend_class!(ctx, &excs.os_error, {
             "errno" => errno_getter,
+            "strerror" => ctx.new_readonly_getset("strerror", make_arg_getter(1)),
         });
 
         extend_class!(ctx, &excs.unicode_decode_error, {

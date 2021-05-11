@@ -8,7 +8,7 @@ cfg_if::cfg_if! {
         type Offset = i64;
     }
 }
-use crate::pyobject::PyObjectRef;
+use crate::pyobject::{BorrowValue, PyObjectRef, PyResult, TryFromObject};
 use crate::VirtualMachine;
 pub(crate) use _io::io_open as open;
 
@@ -29,6 +29,37 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     });
 
     module
+}
+
+// not used on all platforms
+#[allow(unused)]
+pub(crate) struct Fildes(pub i32);
+
+impl TryFromObject for Fildes {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        use crate::builtins::int;
+        let int = match obj.downcast::<int::PyInt>() {
+            Ok(i) => i,
+            Err(obj) => {
+                let fileno_meth = vm.get_attribute_opt(obj, "fileno")?.ok_or_else(|| {
+                    vm.new_type_error(
+                        "argument must be an int, or have a fileno() method.".to_owned(),
+                    )
+                })?;
+                vm.invoke(&fileno_meth, ())?
+                    .downcast()
+                    .map_err(|_| vm.new_type_error("fileno() returned a non-integer".to_owned()))?
+            }
+        };
+        let fd = int::try_to_primitive(int.borrow_value(), vm)?;
+        if fd < 0 {
+            return Err(vm.new_value_error(format!(
+                "file descriptor cannot be a negative integer ({})",
+                fd
+            )));
+        }
+        Ok(Fildes(fd))
+    }
 }
 
 #[pymodule]

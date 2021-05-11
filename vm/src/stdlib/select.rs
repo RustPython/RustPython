@@ -1,9 +1,14 @@
 use crate::pyobject::{PyObjectRef, PyResult, TryFromObject};
 use crate::vm::VirtualMachine;
-use std::io;
+use std::{io, mem};
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     super::socket::init_winsock();
+    #[cfg(unix)]
+    {
+        use crate::pyobject::PyClassImpl;
+        decl::poll::PyPoll::make_class(&vm.ctx);
+    }
 
     decl::make_module(vm)
 }
@@ -12,28 +17,34 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 mod platform {
     pub use libc::{fd_set, select, timeval, FD_ISSET, FD_SET, FD_SETSIZE, FD_ZERO};
     pub use std::os::unix::io::RawFd;
+
+    pub fn check_err(x: i32) -> bool {
+        x < 0
+    }
 }
 
 #[allow(non_snake_case)]
 #[cfg(windows)]
 mod platform {
-    pub use winapi::um::winsock2::{fd_set, select, timeval, FD_SETSIZE, SOCKET as RawFd};
 
-    // from winsock2.h: https://gist.github.com/piscisaureus/906386#file-winsock2-h-L128-L141
+    use winapi::um::winsock2;
+    pub use winsock2::{fd_set, select, timeval, FD_SETSIZE, SOCKET as RawFd};
+
+    // based off winsock2.h: https://gist.github.com/piscisaureus/906386#file-winsock2-h-L128-L141
 
     pub unsafe fn FD_SET(fd: RawFd, set: *mut fd_set) {
-        let mut i = 0;
-        for idx in 0..(*set).fd_count as usize {
-            i = idx;
-            if (*set).fd_array[i] == fd {
-                break;
+        let mut slot = std::ptr::addr_of_mut!((*set).fd_array).cast::<RawFd>();
+        let fd_count = (*set).fd_count;
+        for _ in 0..fd_count {
+            if *slot == fd {
+                return;
             }
+            slot = slot.add(1);
         }
-        if i == (*set).fd_count as usize {
-            if (*set).fd_count < FD_SETSIZE as u32 {
-                (*set).fd_array[i] = fd as _;
-                (*set).fd_count += 1;
-            }
+        // slot == &fd_array[fd_count] at this point
+        if fd_count < FD_SETSIZE as u32 {
+            *slot = fd as RawFd;
+            (*set).fd_count += 1;
         }
     }
 
@@ -44,6 +55,10 @@ mod platform {
     pub unsafe fn FD_ISSET(fd: RawFd, set: *mut fd_set) -> bool {
         use winapi::um::winsock2::__WSAFDIsSet;
         __WSAFDIsSet(fd as _, set) != 0
+    }
+
+    pub fn check_err(x: i32) -> bool {
+        x == winsock2::SOCKET_ERROR
     }
 }
 
@@ -67,8 +82,9 @@ impl TryFromObject for Selectable {
     }
 }
 
+// Keep it in a MaybeUninit, since on windows FD_ZERO doesn't actually zero the whole thing
 #[repr(transparent)]
-pub struct FdSet(platform::fd_set);
+pub struct FdSet(mem::MaybeUninit<platform::fd_set>);
 
 impl FdSet {
     pub fn new() -> FdSet {
@@ -76,29 +92,25 @@ impl FdSet {
         // interacting with it is in C, so it's safe to zero
         let mut fdset = std::mem::MaybeUninit::zeroed();
         unsafe { platform::FD_ZERO(fdset.as_mut_ptr()) };
-        FdSet(unsafe { fdset.assume_init() })
+        FdSet(fdset)
     }
 
     pub fn insert(&mut self, fd: RawFd) {
-        unsafe { platform::FD_SET(fd, &mut self.0) };
+        unsafe { platform::FD_SET(fd, self.0.as_mut_ptr()) };
     }
 
     pub fn contains(&mut self, fd: RawFd) -> bool {
-        unsafe { platform::FD_ISSET(fd, &mut self.0) }
+        unsafe { platform::FD_ISSET(fd, self.0.as_mut_ptr()) }
     }
 
     pub fn clear(&mut self) {
-        unsafe { platform::FD_ZERO(&mut self.0) };
+        unsafe { platform::FD_ZERO(self.0.as_mut_ptr()) };
     }
 
     pub fn highest(&mut self) -> Option<RawFd> {
-        for i in (0..platform::FD_SETSIZE as RawFd).rev() {
-            if self.contains(i) {
-                return Some(i);
-            }
-        }
-
-        None
+        (0..platform::FD_SETSIZE as RawFd)
+            .rev()
+            .find(|&i| self.contains(i))
     }
 }
 
@@ -116,13 +128,13 @@ pub fn select(
     let ret = unsafe {
         platform::select(
             nfds,
-            &mut readfds.0,
-            &mut writefds.0,
-            &mut errfds.0,
+            readfds.0.as_mut_ptr(),
+            writefds.0.as_mut_ptr(),
+            errfds.0.as_mut_ptr(),
             timeout,
         )
     };
-    if ret < 0 {
+    if platform::check_err(ret) {
         Err(io::Error::last_os_error())
     } else {
         Ok(ret)
@@ -226,5 +238,143 @@ mod decl {
         let xlist = set2list(xlist, x);
 
         Ok((rlist, wlist, xlist))
+    }
+
+    #[cfg(unix)]
+    #[pyfunction]
+    fn poll() -> poll::PyPoll {
+        poll::PyPoll::default()
+    }
+
+    #[cfg(unix)]
+    #[pyattr]
+    use libc::{POLLERR, POLLHUP, POLLIN, POLLNVAL, POLLOUT, POLLPRI};
+
+    #[cfg(unix)]
+    pub(super) mod poll {
+        use super::*;
+        use crate::builtins::{PyIntRef, PyTypeRef};
+        use crate::common::lock::PyMutex;
+        use crate::function::OptionalArg;
+        use crate::pyobject::{BorrowValue, IntoPyObject, PyValue, StaticType};
+        use libc::pollfd;
+        use num_traits::ToPrimitive;
+        use std::time;
+
+        #[pyclass(module = "select", name = "poll")]
+        #[derive(Default, Debug)]
+        pub struct PyPoll {
+            // keep sorted
+            fds: PyMutex<Vec<pollfd>>,
+        }
+
+        impl PyValue for PyPoll {
+            fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+                Self::static_type()
+            }
+        }
+
+        #[inline]
+        fn search(fds: &[pollfd], fd: i32) -> Result<usize, usize> {
+            fds.binary_search_by_key(&fd, |pfd| pfd.fd)
+        }
+
+        fn insert_fd(fds: &mut Vec<pollfd>, fd: i32, events: i16) {
+            match search(fds, fd) {
+                Ok(i) => fds[i].events = events,
+                Err(i) => fds.insert(
+                    i,
+                    pollfd {
+                        fd,
+                        events,
+                        revents: 0,
+                    },
+                ),
+            }
+        }
+
+        fn get_fd_mut(fds: &mut [pollfd], fd: i32) -> Option<&mut pollfd> {
+            search(fds, fd).ok().map(move |i| &mut fds[i])
+        }
+
+        fn remove_fd(fds: &mut Vec<pollfd>, fd: i32) -> Option<pollfd> {
+            search(fds, fd).ok().map(|i| fds.remove(i))
+        }
+
+        const DEFAULT_EVENTS: i16 = libc::POLLIN | libc::POLLPRI | libc::POLLOUT;
+
+        #[pyimpl]
+        impl PyPoll {
+            #[pymethod]
+            fn register(&self, fd: i32, eventmask: OptionalArg<u16>) {
+                insert_fd(
+                    &mut self.fds.lock(),
+                    fd,
+                    eventmask.map_or(DEFAULT_EVENTS, |e| e as i16),
+                )
+            }
+
+            #[pymethod]
+            fn modify(&self, fd: i32, eventmask: u16, vm: &VirtualMachine) -> PyResult<()> {
+                let mut fds = self.fds.lock();
+                let pfd = get_fd_mut(&mut fds, fd).ok_or_else(|| {
+                    io::Error::from_raw_os_error(libc::ENOENT).into_pyexception(vm)
+                })?;
+                pfd.events = eventmask as i16;
+                Ok(())
+            }
+
+            #[pymethod]
+            fn unregister(&self, fd: i32, vm: &VirtualMachine) -> PyResult<()> {
+                let removed = remove_fd(&mut self.fds.lock(), fd);
+                removed
+                    .map(drop)
+                    .ok_or_else(|| vm.new_key_error(vm.ctx.new_int(fd)))
+            }
+
+            #[pymethod]
+            fn poll(&self, timeout: OptionalOption<PyIntRef>, vm: &VirtualMachine) -> PyResult {
+                let mut fds = self.fds.lock();
+                let timeout_ms = match timeout.flatten() {
+                    Some(ms) => ms
+                        .borrow_value()
+                        .to_i32()
+                        .ok_or_else(|| vm.new_overflow_error("timeout is too large".to_owned()))?,
+                    None => -1,
+                };
+                let timeout_ms = if timeout_ms < 0 { -1 } else { timeout_ms };
+                let deadline = (timeout_ms >= 0)
+                    .then(|| time::Instant::now() + time::Duration::from_millis(timeout_ms as u64));
+                let mut poll_timeout = timeout_ms;
+                loop {
+                    let res = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as _, poll_timeout) };
+                    let res = if res < 0 {
+                        Err(io::Error::last_os_error())
+                    } else {
+                        Ok(())
+                    };
+                    match res {
+                        Ok(()) => break,
+                        Err(e) if e.kind() == io::ErrorKind::Interrupted => {
+                            vm.check_signals()?;
+                            if let Some(d) = deadline {
+                                match d.checked_duration_since(time::Instant::now()) {
+                                    Some(remaining) => poll_timeout = remaining.as_millis() as i32,
+                                    // we've timed out
+                                    None => break,
+                                }
+                            }
+                        }
+                        Err(e) => return Err(e.into_pyexception(vm)),
+                    }
+                }
+                let list = fds
+                    .iter()
+                    .filter(|pfd| pfd.revents != 0)
+                    .map(|pfd| (pfd.fd, pfd.revents & 0xfff).into_pyobject(vm))
+                    .collect();
+                Ok(vm.ctx.new_list(list))
+            }
+        }
     }
 }
