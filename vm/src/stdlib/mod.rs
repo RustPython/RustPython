@@ -62,6 +62,8 @@ mod pwd;
 // libc is missing constants on redox
 #[cfg(all(unix, not(target_os = "redox")))]
 mod resource;
+#[cfg(target_os = "macos")]
+mod scproxy;
 #[cfg(not(target_arch = "wasm32"))]
 mod select;
 #[cfg(not(target_arch = "wasm32"))]
@@ -185,6 +187,10 @@ pub fn get_module_inits() -> StdlibMap {
             "msvcrt" => msvcrt::make_module,
             "_winapi" => winapi::make_module,
             "winreg" => winreg::make_module,
+        }
+        #[cfg(target_os = "macos")]
+        {
+            "_scproxy" => scproxy::make_module,
         }
     }
 }
