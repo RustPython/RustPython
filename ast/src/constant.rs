@@ -59,15 +59,13 @@ impl ConversionFlag {
 
 #[cfg(feature = "constant-optimization")]
 #[derive(Default)]
-pub struct ConstantOptimizer {
-    _priv: (),
-}
+pub struct ConstantOptimizer;
 
 #[cfg(feature = "constant-optimization")]
 impl ConstantOptimizer {
     #[inline]
     pub fn new() -> Self {
-        Self { _priv: () }
+        Self
     }
 }
 

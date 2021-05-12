@@ -24,9 +24,7 @@ use itertools::Itertools;
 use std::cmp::Ordering;
 use std::{fmt, os::raw};
 
-struct ArrayTypeSpecifierError {
-    _priv: (),
-}
+struct ArrayTypeSpecifierError;
 
 impl fmt::Display for ArrayTypeSpecifierError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -49,7 +47,7 @@ macro_rules! def_array_enum {
             fn from_char(c: char) -> Result<Self, ArrayTypeSpecifierError> {
                 match c {
                     $($c => Ok(ArrayContentType::$n(Vec::new())),)*
-                    _ => Err(ArrayTypeSpecifierError { _priv: () }),
+                    _ => Err(ArrayTypeSpecifierError),
                 }
             }
 

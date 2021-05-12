@@ -12,15 +12,13 @@ impl std::str::FromStr for Mode {
             "exec" => Ok(Mode::Exec),
             "eval" => Ok(Mode::Eval),
             "single" => Ok(Mode::Single),
-            _ => Err(ModeParseError { _priv: () }),
+            _ => Err(ModeParseError),
         }
     }
 }
 
 #[derive(Debug)]
-pub struct ModeParseError {
-    _priv: (),
-}
+pub struct ModeParseError;
 
 impl std::fmt::Display for ModeParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
