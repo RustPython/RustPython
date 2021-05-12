@@ -322,6 +322,15 @@ mod _io {
         }
     }
 
+    fn check_decoded(decoded: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        decoded.downcast().map_err(|obj| {
+            vm.new_type_error(format!(
+                "decoder should return a string result, not '{}'",
+                obj.class().name
+            ))
+        })
+    }
+
     #[pyattr]
     #[pyclass(name = "_IOBase")]
     struct _IOBase;
@@ -394,6 +403,11 @@ mod _io {
         }
         #[pymethod]
         fn writable(_self: PyObjectRef) -> bool {
+            false
+        }
+
+        #[pymethod]
+        fn isatty(_self: PyObjectRef) -> bool {
             false
         }
 
@@ -1821,38 +1835,221 @@ mod _io {
         #[pyarg(any, default)]
         errors: Option<PyStrRef>,
         #[pyarg(any, default)]
-        newline: Option<PyStrRef>,
+        newline: Newlines,
         #[pyarg(any, default = "false")]
         line_buffering: bool,
+        #[pyarg(any, default = "false")]
+        write_through: bool,
     }
 
-    impl TextIOWrapperArgs {
-        fn validate_newline(&self, vm: &VirtualMachine) -> PyResult<()> {
-            if let Some(pystr) = &self.newline {
-                match pystr.borrow_value() {
-                    "" | "\n" | "\r" | "\r\n" => Ok(()),
-                    _ => Err(
-                        vm.new_value_error(format!("illegal newline value: '{}'", pystr.repr(vm)?))
-                    ),
-                }
-            } else {
-                Ok(())
-            }
+    #[derive(Debug)]
+    enum Newlines {
+        Universal,
+        Passthrough,
+        Lf,
+        Cr,
+        Crlf,
+    }
+
+    impl Default for Newlines {
+        #[inline]
+        fn default() -> Self {
+            Newlines::Universal
         }
     }
+
+    impl TryFromObject for Newlines {
+        fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+            let nl = if vm.is_none(&obj) {
+                Self::Universal
+            } else {
+                let s = obj.downcast::<PyStr>().map_err(|obj| {
+                    vm.new_type_error(format!(
+                        "newline argument must be str or None, not {}",
+                        obj.class().name
+                    ))
+                })?;
+                match s.borrow_value() {
+                    "" => Self::Passthrough,
+                    "\n" => Self::Lf,
+                    "\r" => Self::Cr,
+                    "\r\n" => Self::Crlf,
+                    _ => return Err(vm.new_value_error(format!("illegal newline value: {}", s))),
+                }
+            };
+            Ok(nl)
+        }
+    }
+
+    type EncodeFunc = fn();
 
     #[derive(Debug)]
     struct TextIOData {
         buffer: PyObjectRef,
+        encoder: Option<(PyObjectRef, Option<EncodeFunc>)>,
+        decoder: Option<PyObjectRef>,
         // TODO: respect the encoding
         encoding: PyStrRef,
         // TODO: respect errors setting
         errors: PyStrRef,
-        // TODO: respect newline
-        newline: Option<PyStrRef>,
-        // TODO: respect line_buffering
+        newline: Newlines,
         line_buffering: bool,
+        write_through: bool,
+        chunk_size: usize,
+        seekable: bool,
+        has_read1: bool,
+        // these are more "state" than configuration
+        pending: PendingWrites,
+        telling: bool,
+        snapshot: Option<(i32, PyBytesRef)>,
+        decoded_chars: Option<PyStrRef>,
+        // number of characters we've consumed from decoded_chars in codepoints
+        num_decoded_chars: usize,
+        // same as above, but in bytes
+        decoded_chars_pos: usize,
+        b2cratio: f64,
     }
+
+    #[derive(Debug, Default)]
+    struct PendingWrites {
+        num_bytes: usize,
+        data: PendingWritesData,
+    }
+
+    #[derive(Debug)]
+    enum PendingWritesData {
+        None,
+        One(PendingWrite),
+        Many(Vec<PendingWrite>),
+    }
+
+    #[derive(Debug)]
+    enum PendingWrite {
+        Str(PyStrRef),
+        // TODO: encode() str's when encoding != utf8
+        #[allow(unused)]
+        Bytes(PyBytesRef),
+    }
+
+    impl PendingWrite {
+        fn as_bytes(&self) -> &[u8] {
+            match self {
+                Self::Str(s) => s.borrow_value().as_bytes(),
+                Self::Bytes(b) => b.borrow_value(),
+            }
+        }
+    }
+
+    impl Default for PendingWritesData {
+        fn default() -> Self {
+            PendingWritesData::None
+        }
+    }
+
+    impl PendingWrites {
+        fn push(&mut self, write: PendingWrite) {
+            self.num_bytes += write.as_bytes().len();
+            self.data = match std::mem::take(&mut self.data) {
+                PendingWritesData::None => PendingWritesData::One(write),
+                PendingWritesData::One(write1) => PendingWritesData::Many(vec![write1, write]),
+                PendingWritesData::Many(mut v) => {
+                    v.push(write);
+                    PendingWritesData::Many(v)
+                }
+            }
+        }
+        fn take(&mut self, vm: &VirtualMachine) -> PyBytesRef {
+            let PendingWrites { num_bytes, data } = std::mem::take(self);
+            if let PendingWritesData::One(PendingWrite::Bytes(b)) = data {
+                return b;
+            }
+            let writes_iter = match data {
+                PendingWritesData::None => itertools::Either::Left(vec![].into_iter()),
+                PendingWritesData::One(write) => itertools::Either::Right(std::iter::once(write)),
+                PendingWritesData::Many(writes) => itertools::Either::Left(writes.into_iter()),
+            };
+            let mut buf = Vec::with_capacity(num_bytes);
+            writes_iter.for_each(|chunk| buf.extend_from_slice(chunk.as_bytes()));
+            PyBytes::from(buf).into_ref(vm)
+        }
+    }
+
+    #[derive(Default, Debug)]
+    struct TextIOCookie {
+        start_pos: Offset,
+        dec_flags: i32,
+        bytes_to_feed: i32,
+        chars_to_skip: i32,
+        need_eof: bool,
+        // chars_to_skip but utf8 bytes
+        bytes_to_skip: i32,
+    }
+
+    impl TextIOCookie {
+        const START_POS_OFF: usize = 0;
+        const DEC_FLAGS_OFF: usize = Self::START_POS_OFF + std::mem::size_of::<Offset>();
+        const BYTES_TO_FEED_OFF: usize = Self::DEC_FLAGS_OFF + 4;
+        const CHARS_TO_SKIP_OFF: usize = Self::BYTES_TO_FEED_OFF + 4;
+        const NEED_EOF_OFF: usize = Self::CHARS_TO_SKIP_OFF + 4;
+        const BYTES_TO_SKIP_OFF: usize = Self::NEED_EOF_OFF + 1;
+        const BYTE_LEN: usize = Self::BYTES_TO_SKIP_OFF + 4;
+        fn parse(cookie: &num_bigint::BigInt) -> Option<Self> {
+            use std::convert::TryInto;
+            let (_, mut buf) = cookie.to_bytes_le();
+            if buf.len() > Self::BYTE_LEN {
+                return None;
+            }
+            buf.resize(Self::BYTE_LEN, 0);
+            let buf: &[u8; Self::BYTE_LEN] = buf.as_slice().try_into().unwrap();
+            macro_rules! get_field {
+                ($t:ty, $off:ident) => {{
+                    <$t>::from_ne_bytes(
+                        buf[Self::$off..][..std::mem::size_of::<$t>()]
+                            .try_into()
+                            .unwrap(),
+                    )
+                }};
+            }
+            Some(TextIOCookie {
+                start_pos: get_field!(Offset, START_POS_OFF),
+                dec_flags: get_field!(i32, DEC_FLAGS_OFF),
+                bytes_to_feed: get_field!(i32, BYTES_TO_FEED_OFF),
+                chars_to_skip: get_field!(i32, CHARS_TO_SKIP_OFF),
+                need_eof: get_field!(u8, NEED_EOF_OFF) != 0,
+                bytes_to_skip: get_field!(i32, BYTES_TO_SKIP_OFF),
+            })
+        }
+        fn build(&self) -> num_bigint::BigInt {
+            let mut buf = [0; Self::BYTE_LEN];
+            macro_rules! set_field {
+                ($field:expr, $off:ident) => {{
+                    let field = $field;
+                    buf[Self::$off..][..std::mem::size_of_val(&field)]
+                        .copy_from_slice(&field.to_ne_bytes())
+                }};
+            }
+            set_field!(self.start_pos, START_POS_OFF);
+            set_field!(self.dec_flags, DEC_FLAGS_OFF);
+            set_field!(self.bytes_to_feed, BYTES_TO_FEED_OFF);
+            set_field!(self.chars_to_skip, CHARS_TO_SKIP_OFF);
+            set_field!(self.need_eof as u8, NEED_EOF_OFF);
+            set_field!(self.bytes_to_skip, BYTES_TO_SKIP_OFF);
+            num_bigint::BigUint::from_bytes_le(&buf).into()
+        }
+        fn set_decoder_state(&self, decoder: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            if self.start_pos == 0 && self.dec_flags == 0 {
+                vm.call_method(decoder, "reset", ())?;
+            } else {
+                vm.call_method(
+                    decoder,
+                    "setstate",
+                    ((vm.ctx.new_bytes(vec![]), self.dec_flags),),
+                )?;
+            }
+            Ok(())
+        }
+    }
+
     #[pyattr]
     #[pyclass(name = "TextIOWrapper", base = "_TextIOBase")]
     #[derive(Debug, Default)]
@@ -1888,7 +2085,6 @@ mod _io {
 
         #[pymethod(magic)]
         fn init(&self, args: TextIOWrapperArgs, vm: &VirtualMachine) -> PyResult<()> {
-            args.validate_newline(vm)?;
             let mut data = self.lock_opt(vm)?;
             *data = None;
 
@@ -1904,14 +2100,58 @@ mod _io {
                 .errors
                 .unwrap_or_else(|| PyStr::from("strict").into_ref(vm));
 
-            // let readuniversal = args.newline.map_or_else(true, |s| s.borrow_value().is_empty());
+            let buffer = args.buffer;
+
+            let has_read1 = vm.get_attribute_opt(buffer.clone(), "read1")?.is_some();
+            let seekable = pybool::boolval(vm, vm.call_method(&buffer, "seekable", ())?)?;
+
+            let codec = vm.lookup_codec(encoding.clone())?;
+
+            let encoder = if pybool::boolval(vm, vm.call_method(&buffer, "writable", ())?)? {
+                let incremental_encoder =
+                    vm.codec_get_incremental(&codec, Some(errors.clone()), true)?;
+                let encoding_name = vm.get_attribute_opt(incremental_encoder.clone(), "name")?;
+                let encodefunc = encoding_name.and_then(|name| {
+                    name.payload::<PyStr>()
+                        .and_then(|name| match name.borrow_value() {
+                            "utf-8" => Some((|| {}) as fn()),
+                            _ => None,
+                        })
+                });
+                Some((incremental_encoder, encodefunc))
+            } else {
+                None
+            };
+
+            let decoder = if pybool::boolval(vm, vm.call_method(&buffer, "readable", ())?)? {
+                let incremental_decoder =
+                    vm.codec_get_incremental(&codec, Some(errors.clone()), false)?;
+                // TODO: wrap in IncrementalNewlineDecoder if newlines == Universal | Passthrough
+                Some(incremental_decoder)
+            } else {
+                None
+            };
 
             *data = Some(TextIOData {
-                buffer: args.buffer,
+                buffer,
+                encoder,
+                decoder,
                 encoding,
                 errors,
                 newline: args.newline,
                 line_buffering: args.line_buffering,
+                write_through: args.write_through,
+                chunk_size: 8192,
+                seekable,
+                has_read1,
+
+                pending: PendingWrites::default(),
+                telling: seekable,
+                snapshot: None,
+                decoded_chars: None,
+                decoded_chars_pos: 0,
+                num_decoded_chars: 0,
+                b2cratio: 0.0,
             });
 
             Ok(())
@@ -1919,38 +2159,272 @@ mod _io {
 
         #[pymethod]
         fn seekable(&self, vm: &VirtualMachine) -> PyResult {
-            let buffer = self.lock(vm)?.buffer.clone();
-            vm.get_attribute(buffer, "seekable")
+            let textio = self.lock(vm)?;
+            vm.call_method(&textio.buffer, "seekable", ())
+        }
+        #[pymethod]
+        fn readable(&self, vm: &VirtualMachine) -> PyResult {
+            let textio = self.lock(vm)?;
+            vm.call_method(&textio.buffer, "readable", ())
+        }
+        #[pymethod]
+        fn writable(&self, vm: &VirtualMachine) -> PyResult {
+            let textio = self.lock(vm)?;
+            vm.call_method(&textio.buffer, "writable", ())
+        }
+
+        #[pyproperty(name = "_CHUNK_SIZE")]
+        fn chunksize(&self, vm: &VirtualMachine) -> PyResult<usize> {
+            Ok(self.lock(vm)?.chunk_size)
+        }
+
+        #[pyproperty(setter, name = "_CHUNK_SIZE")]
+        fn set_chunksize(&self, chunk_size: usize, vm: &VirtualMachine) -> PyResult<()> {
+            let mut textio = self.lock(vm)?;
+            textio.chunk_size = chunk_size;
+            Ok(())
         }
 
         #[pymethod]
         fn seek(
-            &self,
-            offset: PyObjectRef,
+            zelf: PyRef<Self>,
+            cookie: PyObjectRef,
             how: OptionalArg<i32>,
             vm: &VirtualMachine,
         ) -> PyResult {
-            let buffer = self.lock(vm)?.buffer.clone();
-            let offset = get_offset(offset, vm)?;
             let how = how.unwrap_or(0);
-            if how == 1 && offset != 0 {
+
+            let reset_encoder = |encoder, start_of_stream| {
+                if start_of_stream {
+                    vm.call_method(encoder, "reset", ())
+                } else {
+                    vm.call_method(encoder, "setstate", (0,))
+                }
+            };
+
+            let textio = zelf.lock(vm)?;
+
+            if !textio.seekable {
                 return Err(new_unsupported_operation(
                     vm,
-                    "can't do nonzero cur-relative seeks".to_owned(),
-                ));
-            } else if how == 2 && offset != 0 {
-                return Err(new_unsupported_operation(
-                    vm,
-                    "can't do nonzero end-relative seeks".to_owned(),
+                    "underlying stream is not seekable".to_owned(),
                 ));
             }
-            vm.call_method(&buffer, "seek", (offset, how))
+
+            let cookie = match how {
+                // SEEK_SET
+                0 => cookie,
+                // SEEK_CUR
+                1 => {
+                    if vm.bool_eq(&cookie, &vm.ctx.new_int(0))? {
+                        vm.call_method(&textio.buffer, "tell", ())?
+                    } else {
+                        return Err(new_unsupported_operation(
+                            vm,
+                            "can't do nonzero cur-relative seeks".to_owned(),
+                        ));
+                    }
+                }
+                // SEEK_END
+                2 => {
+                    if vm.bool_eq(&cookie, &vm.ctx.new_int(0))? {
+                        drop(textio);
+                        vm.call_method(zelf.as_object(), "flush", ())?;
+                        let mut textio = zelf.lock(vm)?;
+                        textio.set_decoded_chars(None);
+                        textio.snapshot = None;
+                        if let Some(decoder) = &textio.decoder {
+                            vm.call_method(decoder, "reset", ())?;
+                        }
+                        let res = vm.call_method(&textio.buffer, "seek", (0, 2))?;
+                        if let Some((encoder, _)) = &textio.encoder {
+                            let start_of_stream = vm.bool_eq(&res, &vm.ctx.new_int(0))?;
+                            reset_encoder(encoder, start_of_stream)?;
+                        }
+                        return Ok(res);
+                    } else {
+                        return Err(new_unsupported_operation(
+                            vm,
+                            "can't do nonzero end-relative seeks".to_owned(),
+                        ));
+                    }
+                }
+                _ => {
+                    return Err(vm
+                        .new_value_error(format!("invalid whence ({}, should be 0, 1 or 2)", how)))
+                }
+            };
+            use crate::slots::PyComparisonOp;
+            if vm.bool_cmp(&cookie, &vm.ctx.new_int(0), PyComparisonOp::Lt)? {
+                return Err(
+                    vm.new_value_error(format!("negative seek position {}", vm.to_repr(&cookie)?))
+                );
+            }
+            drop(textio);
+            vm.call_method(zelf.as_object(), "flush", ())?;
+            let cookie_obj = crate::builtins::PyIntRef::try_from_object(vm, cookie)?;
+            let cookie = TextIOCookie::parse(cookie_obj.borrow_value())
+                .ok_or_else(|| vm.new_value_error("invalid cookie".to_owned()))?;
+            let mut textio = zelf.lock(vm)?;
+            vm.call_method(&textio.buffer, "seek", (cookie.start_pos,))?;
+            textio.set_decoded_chars(None);
+            textio.snapshot = None;
+            if let Some(decoder) = &textio.decoder {
+                cookie.set_decoder_state(decoder, vm)?;
+            }
+            if cookie.chars_to_skip != 0 {
+                let TextIOData {
+                    ref decoder,
+                    ref buffer,
+                    ref mut snapshot,
+                    ..
+                } = *textio;
+                let decoder = decoder
+                    .as_ref()
+                    .ok_or_else(|| vm.new_value_error("invalid cookie".to_owned()))?;
+                let input_chunk = vm.call_method(buffer, "read", (cookie.bytes_to_feed,))?;
+                let input_chunk: PyBytesRef = input_chunk.downcast().map_err(|obj| {
+                    vm.new_type_error(format!(
+                        "underlying read() should have returned a bytes object, not '{}'",
+                        obj.class().name
+                    ))
+                })?;
+                *snapshot = Some((cookie.dec_flags, input_chunk.clone()));
+                let decoded = vm.call_method(decoder, "decode", (input_chunk, cookie.need_eof))?;
+                let decoded = check_decoded(decoded, vm)?;
+                let pos_is_valid = decoded
+                    .borrow_value()
+                    .is_char_boundary(cookie.bytes_to_skip as usize);
+                textio.set_decoded_chars(Some(decoded));
+                if !pos_is_valid {
+                    return Err(vm.new_os_error("can't restore logical file position".to_owned()));
+                }
+                textio.decoded_chars_pos = cookie.bytes_to_skip as usize;
+                textio.num_decoded_chars = cookie.chars_to_skip as usize;
+            } else {
+                textio.snapshot = Some((cookie.dec_flags, PyBytes::from(vec![]).into_ref(vm)))
+            }
+            if let Some((encoder, _)) = &textio.encoder {
+                let start_of_stream = cookie.start_pos == 0 && cookie.dec_flags == 0;
+                reset_encoder(encoder, start_of_stream)?;
+            }
+            Ok(cookie_obj.into_object())
         }
 
         #[pymethod]
-        fn tell(&self, vm: &VirtualMachine) -> PyResult {
-            let buffer = self.lock(vm)?.buffer.clone();
-            vm.call_method(&buffer, "tell", ())
+        fn tell(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+            let mut textio = zelf.lock(vm)?;
+            if !textio.seekable {
+                return Err(new_unsupported_operation(
+                    vm,
+                    "underlying stream is not seekable".to_owned(),
+                ));
+            }
+            if !textio.telling {
+                return Err(vm.new_os_error("telling position disabled by next() call".to_owned()));
+            }
+            textio.write_pending(vm)?;
+            drop(textio);
+            vm.call_method(zelf.as_object(), "flush", ())?;
+            let textio = zelf.lock(vm)?;
+            let pos = vm.call_method(&textio.buffer, "tell", ())?;
+            let (decoder, (dec_flags, next_input)) = match (&textio.decoder, &textio.snapshot) {
+                (Some(d), Some(s)) => (d, s),
+                _ => return Ok(pos),
+            };
+            let mut cookie = TextIOCookie::default();
+            cookie.start_pos = Offset::try_from_object(vm, pos)?;
+            cookie.start_pos -= next_input.len() as Offset;
+            cookie.dec_flags = *dec_flags;
+            if textio.decoded_chars_pos == 0 {
+                return Ok(cookie.build().into_pyobject(vm));
+            }
+            let decoder_getstate = || {
+                let state = vm.call_method(decoder, "getstate", ())?;
+                parse_decoder_state(state, vm)
+            };
+            let decoder_decode = |b: &[u8]| {
+                let decoded = vm.call_method(decoder, "decode", (vm.ctx.new_bytes(b.to_vec()),))?;
+                let decoded = check_decoded(decoded, vm)?;
+                Ok((decoded.byte_len(), decoded.char_len()))
+            };
+            let saved_state = vm.call_method(decoder, "getstate", ())?;
+            let mut chars_to_skip = textio.num_decoded_chars;
+            let mut bytes_to_skip = textio.decoded_chars_pos;
+            let mut skip_bytes = (textio.b2cratio * chars_to_skip as f64) as isize;
+            let mut skip_back = 1;
+            while skip_bytes > 0 {
+                cookie.set_decoder_state(decoder, vm)?;
+                let input = &next_input.borrow_value()[..skip_bytes as usize];
+                let (bytes_decoded, chars_decoded) = decoder_decode(input)?;
+                if chars_decoded <= chars_to_skip {
+                    let (dec_buffer, dec_flags) = decoder_getstate()?;
+                    if dec_buffer.is_empty() {
+                        cookie.dec_flags = dec_flags;
+                        chars_to_skip -= chars_decoded;
+                        bytes_to_skip -= bytes_decoded;
+                        break;
+                    }
+                    skip_bytes -= dec_buffer.len() as isize;
+                    skip_back = 1;
+                } else {
+                    skip_bytes -= skip_back;
+                    skip_back *= 2;
+                }
+            }
+            if skip_bytes <= 0 {
+                skip_bytes = 0;
+                cookie.set_decoder_state(decoder, vm)?;
+            }
+            let skip_bytes = skip_bytes as usize;
+
+            cookie.start_pos += skip_bytes as Offset;
+            cookie.chars_to_skip = chars_to_skip as i32;
+            cookie.bytes_to_skip = bytes_to_skip as i32;
+
+            if chars_to_skip != 0 {
+                let mut chars_decoded = 0;
+                let mut bytes_decoded = 0;
+                let mut input = next_input.borrow_value();
+                input = &input[skip_bytes..];
+                while !input.is_empty() {
+                    let (byte1, rest) = input.split_at(1);
+                    let (b_n, n) = decoder_decode(byte1)?;
+                    chars_decoded += n;
+                    bytes_decoded += b_n;
+                    cookie.bytes_to_feed += 1;
+                    let (dec_buffer, dec_flags) = decoder_getstate()?;
+                    if dec_buffer.is_empty() && chars_decoded < chars_to_skip {
+                        cookie.start_pos += cookie.bytes_to_feed as Offset;
+                        chars_to_skip -= chars_decoded;
+                        bytes_to_skip -= bytes_decoded;
+                        cookie.dec_flags = dec_flags;
+                        cookie.bytes_to_feed = 0;
+                        chars_decoded = 0;
+                        bytes_decoded = 0;
+                    }
+                    if chars_decoded >= chars_to_skip {
+                        break;
+                    }
+                    input = rest;
+                }
+                if input.is_empty() {
+                    let decoded =
+                        vm.call_method(decoder, "decode", (vm.ctx.new_bytes(vec![]), true))?;
+                    let decoded = check_decoded(decoded, vm)?;
+                    chars_decoded += decoded.char_len();
+                    cookie.need_eof = true;
+                    if chars_decoded < chars_to_skip {
+                        return Err(
+                            vm.new_os_error("can't reconstruct logical file position".to_owned())
+                        );
+                    }
+                }
+            }
+            vm.call_method(decoder, "setstate", (saved_state,))?;
+            cookie.chars_to_skip = chars_to_skip as i32;
+            cookie.bytes_to_skip = bytes_to_skip as i32;
+            Ok(cookie.build().into_pyobject(vm))
         }
 
         #[pyproperty]
@@ -1974,57 +2448,118 @@ mod _io {
         }
 
         #[pymethod]
-        fn read(&self, size: OptionalOption<PyObjectRef>, vm: &VirtualMachine) -> PyResult<String> {
-            let buffer = self.lock(vm)?.buffer.clone();
-            check_readable(&buffer, vm)?;
+        fn read(&self, size: OptionalSize, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+            let mut textio = self.lock(vm)?;
+            textio.check_closed(vm)?;
+            let decoder = textio
+                .decoder
+                .clone()
+                .ok_or_else(|| new_unsupported_operation(vm, "not readable".to_owned()))?;
 
-            let bytes = vm.call_method(&buffer, "read", (size.flatten(),))?;
-            let bytes = PyBytesLike::try_from_object(vm, bytes)?;
-            //format bytes into string
-            let rust_string = String::from_utf8(bytes.to_cow().into_owned()).map_err(|e| {
-                vm.new_unicode_decode_error(format!(
-                    "cannot decode byte at index: {}",
-                    e.utf8_error().valid_up_to()
-                ))
-            })?;
-            Ok(rust_string)
+            textio.write_pending(vm)?;
+
+            let s = if let Some(mut remaining) = size.to_usize() {
+                let mut chunks = Vec::new();
+                let mut chunks_bytes = 0;
+                loop {
+                    if let Some((s, char_len)) = textio.get_decoded_chars(remaining, vm) {
+                        chunks_bytes += s.byte_len();
+                        chunks.push(s);
+                        remaining = remaining.saturating_sub(char_len);
+                    }
+                    if remaining == 0 {
+                        break;
+                    }
+                    let eof = textio.read_chunk(remaining, vm)?;
+                    if eof {
+                        break;
+                    }
+                }
+                if chunks.is_empty() {
+                    PyStr::from("").into_ref(vm)
+                } else if chunks.len() == 1 {
+                    chunks.pop().unwrap()
+                } else {
+                    let mut ret = String::with_capacity(chunks_bytes);
+                    for chunk in chunks {
+                        ret.push_str(chunk.borrow_value())
+                    }
+                    PyStr::from(ret).into_ref(vm)
+                }
+            } else {
+                let bytes = vm.call_method(&textio.buffer, "read", ())?;
+                let decoded = vm.call_method(&decoder, "decode", (bytes, true))?;
+                let decoded = check_decoded(decoded, vm)?;
+                let ret = textio.take_decoded_chars(Some(decoded), vm);
+                textio.snapshot = None;
+                ret
+            };
+            Ok(s)
         }
 
         #[pymethod]
         fn write(&self, obj: PyStrRef, vm: &VirtualMachine) -> PyResult<usize> {
-            use std::str::from_utf8;
+            let mut textio = self.lock(vm)?;
+            textio.check_closed(vm)?;
 
-            let buffer = self.lock(vm)?.buffer.clone();
-            check_writable(&buffer, vm)?;
-
-            let bytes = obj.borrow_value().as_bytes();
-
-            let len = vm.call_method(&buffer, "write", (bytes.to_owned(),));
-            if obj.borrow_value().contains('\n') {
-                let _ = vm.call_method(&buffer, "flush", ());
+            if textio.encoder.is_none() {
+                return Err(new_unsupported_operation(vm, "not writable".to_owned()));
             }
-            let len = usize::try_from_object(vm, len?)?;
 
-            // returns the count of unicode code points written
-            let len = from_utf8(&bytes[..len])
-                .unwrap_or_else(|e| from_utf8(&bytes[..e.valid_up_to()]).unwrap())
-                .chars()
-                .count();
-            Ok(len)
+            let char_len = obj.char_len();
+
+            let data = obj.borrow_value();
+
+            let replace_nl = match textio.newline {
+                Newlines::Cr => Some("\r"),
+                Newlines::Crlf => Some("\r\n"),
+                _ => None,
+            };
+            let has_lf = if replace_nl.is_some() || textio.line_buffering {
+                data.contains('\n')
+            } else {
+                false
+            };
+            let flush = textio.line_buffering && (has_lf || data.contains('\r'));
+            // TODO: handle encoding, so chunk might be Bytes
+            let chunk = if let Some(replace_nl) = replace_nl {
+                if has_lf {
+                    PyStr::from(data.replace('\n', replace_nl)).into_ref(vm)
+                } else {
+                    obj
+                }
+            } else {
+                obj
+            };
+            let chunk = PendingWrite::Str(chunk);
+            if textio.pending.num_bytes + chunk.as_bytes().len() > textio.chunk_size {
+                textio.write_pending(vm)?;
+            }
+            textio.pending.push(chunk);
+            if flush || textio.write_through || textio.pending.num_bytes >= textio.chunk_size {
+                textio.write_pending(vm)?;
+            }
+            if flush {
+                let _ = vm.call_method(&textio.buffer, "flush", ());
+            }
+
+            Ok(char_len)
         }
 
         #[pymethod]
         fn flush(&self, vm: &VirtualMachine) -> PyResult {
-            let buffer = self.lock(vm)?.buffer.clone();
-            check_closed(&buffer, vm)?;
-            vm.call_method(&buffer, "flush", ())
+            let mut textio = self.lock(vm)?;
+            textio.check_closed(vm)?;
+            textio.telling = textio.seekable;
+            textio.write_pending(vm)?;
+            vm.call_method(&textio.buffer, "flush", ())
         }
 
         #[pymethod]
         fn isatty(&self, vm: &VirtualMachine) -> PyResult {
-            let buffer = self.lock(vm)?.buffer.clone();
-            check_closed(&buffer, vm)?;
-            vm.call_method(&buffer, "isatty", ())
+            let textio = self.lock(vm)?;
+            textio.check_closed(vm)?;
+            vm.call_method(&textio.buffer, "isatty", ())
         }
 
         #[pymethod]
@@ -2049,9 +2584,14 @@ mod _io {
         }
 
         #[pymethod]
-        fn close(&self, vm: &VirtualMachine) -> PyResult {
-            let buffer = self.lock(vm)?.buffer.clone();
-            vm.call_method(&buffer, "close", ())
+        fn close(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<()> {
+            let buffer = zelf.lock(vm)?.buffer.clone();
+            if file_closed(&buffer, vm)? {
+                return Ok(());
+            }
+            let flush_res = vm.call_method(zelf.as_object(), "flush", ()).map(drop);
+            let close_res = vm.call_method(&buffer, "close", ()).map(drop);
+            exceptions::chain(flush_res, close_res)
         }
         #[pyproperty]
         fn closed(&self, vm: &VirtualMachine) -> PyResult {
@@ -2069,12 +2609,162 @@ mod _io {
         }
     }
 
+    fn parse_decoder_state(state: PyObjectRef, vm: &VirtualMachine) -> PyResult<(PyBytesRef, i32)> {
+        use crate::builtins::{int, PyTuple};
+        let state_err = || vm.new_type_error("illegal decoder state".to_owned());
+        let state = state.downcast::<PyTuple>().map_err(|_| state_err())?;
+        match state.borrow_value() {
+            [buf, flags] => {
+                let buf = buf.clone().downcast::<PyBytes>().map_err(|obj| {
+                    vm.new_type_error(format!(
+                        "illegal decoder state: the first item should be a bytes object, not '{}'",
+                        obj.class().name
+                    ))
+                })?;
+                let flags = flags.payload::<int::PyInt>().ok_or_else(state_err)?;
+                let flags = int::try_to_primitive(flags.borrow_value(), vm)?;
+                Ok((buf, flags))
+            }
+            _ => Err(state_err()),
+        }
+    }
+
+    impl TextIOData {
+        fn write_pending(&mut self, vm: &VirtualMachine) -> PyResult<()> {
+            if self.pending.num_bytes == 0 {
+                return Ok(());
+            }
+            let data = self.pending.take(vm);
+            vm.call_method(&self.buffer, "write", (data,))?;
+            Ok(())
+        }
+        /// returns true on EOF
+        fn read_chunk(&mut self, size_hint: usize, vm: &VirtualMachine) -> PyResult<bool> {
+            let decoder = self
+                .decoder
+                .as_ref()
+                .ok_or_else(|| new_unsupported_operation(vm, "not readable".to_owned()))?;
+
+            let dec_state = if self.telling {
+                let state = vm.call_method(decoder, "getstate", ())?;
+                Some(parse_decoder_state(state, vm)?)
+            } else {
+                None
+            };
+
+            let method = if self.has_read1 { "read1" } else { "read" };
+            let size_hint = if size_hint > 0 {
+                (self.b2cratio.max(1.0) * size_hint as f64) as usize
+            } else {
+                size_hint
+            };
+            let chunk_size = std::cmp::max(self.chunk_size, size_hint);
+            let input_chunk = vm.call_method(&self.buffer, method, (chunk_size,))?;
+
+            let buf = PyBytesLike::new(vm, &input_chunk).map_err(|_| {
+                vm.new_type_error(format!(
+                    "underlying {}() should have returned a bytes-like object, not '{}'",
+                    method,
+                    input_chunk.class().name
+                ))
+            })?;
+            let nbytes = buf.borrow_value().len();
+            let eof = nbytes == 0;
+            let decoded = vm.call_method(decoder, "decode", (input_chunk, eof))?;
+            let decoded = check_decoded(decoded, vm)?;
+
+            let char_len = decoded.char_len();
+            self.b2cratio = if char_len > 0 {
+                nbytes as f64 / char_len as f64
+            } else {
+                0.0
+            };
+            let eof = if char_len > 0 { false } else { eof };
+            self.set_decoded_chars(Some(decoded));
+
+            if let Some((dec_buffer, dec_flags)) = dec_state {
+                // TODO: inplace append to bytes when refcount == 1
+                let mut next_input = dec_buffer.borrow_value().to_vec();
+                next_input.extend_from_slice(&*buf.borrow_value());
+                self.snapshot = Some((dec_flags, PyBytes::from(next_input).into_ref(vm)));
+            }
+
+            Ok(eof)
+        }
+
+        fn check_closed(&self, vm: &VirtualMachine) -> PyResult<()> {
+            check_closed(&self.buffer, vm)
+        }
+
+        /// returns str, str.char_len() (it might not be cached in the str yet but we calculate it
+        /// anyway in this method)
+        fn get_decoded_chars(
+            &mut self,
+            n: usize,
+            vm: &VirtualMachine,
+        ) -> Option<(PyStrRef, usize)> {
+            if n == 0 {
+                return None;
+            }
+            let decoded_chars = self.decoded_chars.as_ref()?;
+            let avail = &decoded_chars.borrow_value()[self.decoded_chars_pos..];
+            if avail.is_empty() {
+                return None;
+            }
+            let avail_chars = decoded_chars.char_len() - self.num_decoded_chars;
+            let (chars, chars_used) = if n >= avail_chars {
+                if self.decoded_chars_pos == 0 {
+                    (decoded_chars.clone(), avail_chars)
+                } else {
+                    (PyStr::from(avail).into_ref(vm), avail_chars)
+                }
+            } else {
+                let (i, _) = avail.char_indices().nth(n).unwrap();
+                (PyStr::from(&avail[..i]).into_ref(vm), n)
+            };
+            self.num_decoded_chars += chars_used;
+            self.decoded_chars_pos += chars.byte_len();
+            Some((chars, chars_used))
+        }
+        fn set_decoded_chars(&mut self, s: Option<PyStrRef>) {
+            self.decoded_chars = s;
+            self.num_decoded_chars = 0;
+            self.decoded_chars_pos = 0;
+        }
+        fn take_decoded_chars(
+            &mut self,
+            append: Option<PyStrRef>,
+            vm: &VirtualMachine,
+        ) -> PyStrRef {
+            let empty_str = || PyStr::from("").into_ref(vm);
+            let chars_pos = std::mem::replace(&mut self.decoded_chars_pos, 0);
+            self.num_decoded_chars = 0;
+            let decoded_chars = match std::mem::take(&mut self.decoded_chars) {
+                None => return append.unwrap_or_else(empty_str),
+                Some(s) if s.is_empty() => return append.unwrap_or_else(empty_str),
+                Some(s) => s,
+            };
+            let append_len = append.as_ref().map_or(0, |s| s.byte_len());
+            if append_len == 0 && chars_pos == 0 {
+                return decoded_chars;
+            }
+            // TODO: in-place editing of `str` when refcount == 1
+            let decoded_chars_unused = &decoded_chars.borrow_value()[chars_pos..];
+            let mut s = String::with_capacity(decoded_chars_unused.len() + append_len);
+            s.push_str(decoded_chars_unused);
+            if let Some(append) = append {
+                s.push_str(append.borrow_value())
+            }
+            PyStr::from(s).into_ref(vm)
+        }
+    }
+
     #[derive(FromArgs)]
     struct StringIOArgs {
         #[pyarg(any, default)]
         #[allow(dead_code)]
         // TODO: use this
-        newline: Option<PyStrRef>,
+        newline: Newlines,
     }
 
     #[pyattr]
@@ -2626,7 +3316,14 @@ mod _io {
             (file, mode.rawmode(), opts.closefd, opts.opener),
         )?;
 
-        let buffering = if opts.buffering < 0 {
+        let isatty = opts.buffering < 0 && {
+            let atty = vm.call_method(&raw, "isatty", ())?;
+            bool::try_from_object(vm, atty)?
+        };
+
+        let line_buffering = opts.buffering == 1 || isatty;
+
+        let buffering = if opts.buffering < 0 || opts.buffering == 1 {
             DEFAULT_BUFFER_SIZE
         } else {
             opts.buffering as usize
@@ -2656,7 +3353,13 @@ mod _io {
                 let tio = TextIOWrapper::static_type();
                 let wrapper = vm.invoke(
                     tio.as_object(),
-                    (buffered, opts.encoding, opts.errors, opts.newline),
+                    (
+                        buffered,
+                        opts.encoding,
+                        opts.errors,
+                        opts.newline,
+                        line_buffering,
+                    ),
                 )?;
                 vm.set_attr(&wrapper, "mode", vm.ctx.new_str(mode_string))?;
                 Ok(wrapper)
@@ -2849,6 +3552,7 @@ mod fileio {
         fd: AtomicCell<i32>,
         closefd: AtomicCell<bool>,
         mode: AtomicCell<Mode>,
+        seekable: AtomicCell<Option<bool>>,
     }
 
     type FileIORef = PyRef<FileIO>;
@@ -2879,6 +3583,7 @@ mod fileio {
                 fd: AtomicCell::new(-1),
                 closefd: AtomicCell::new(false),
                 mode: AtomicCell::new(Mode::empty()),
+                seekable: AtomicCell::new(None),
             }
             .into_ref_with_type(vm, cls)
         }
@@ -3062,8 +3767,13 @@ mod fileio {
         }
 
         #[pymethod]
-        fn seekable(&self) -> bool {
-            true
+        fn seekable(&self, vm: &VirtualMachine) -> PyResult<bool> {
+            let fd = self.fileno(vm)?;
+            Ok(self.seekable.load().unwrap_or_else(|| {
+                let seekable = os::lseek(fd, 0, libc::SEEK_CUR, vm).is_ok();
+                self.seekable.store(Some(seekable));
+                seekable
+            }))
         }
 
         #[pymethod]

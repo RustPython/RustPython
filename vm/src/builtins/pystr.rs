@@ -279,17 +279,22 @@ impl PyStr {
         })
     }
 
-    #[pymethod(name = "__len__")]
     #[inline]
-    fn len(&self) -> usize {
+    pub fn byte_len(&self) -> usize {
+        self.value.len()
+    }
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.value.is_empty()
+    }
+
+    #[pymethod(name = "__len__")]
+    pub fn char_len(&self) -> usize {
         self.len.load().unwrap_or_else(|| {
             let len = self.value.chars().count();
             self.len.store(Some(len));
             len
         })
-    }
-    pub fn char_len(&self) -> usize {
-        self.len()
     }
 
     #[pymethod(name = "__sizeof__")]
@@ -1248,7 +1253,7 @@ impl PySliceableSequence for PyStr {
     }
 
     fn len(&self) -> usize {
-        self.len()
+        self.char_len()
     }
 
     fn is_empty(&self) -> bool {

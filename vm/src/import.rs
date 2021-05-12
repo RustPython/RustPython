@@ -21,6 +21,13 @@ pub(crate) fn init_importlib(
     use crate::vm::thread::enter_vm;
     flame_guard!("init importlib");
 
+    // importlib_bootstrap needs these and it inlines checks to sys.modules before calling into
+    // import machinery, so this should bring some speedup
+    #[cfg(feature = "threading")]
+    import_builtin(vm, "_thread")?;
+    import_builtin(vm, "_warnings")?;
+    import_builtin(vm, "_weakref")?;
+
     let importlib = enter_vm(vm, || {
         let importlib = import_frozen(vm, "_frozen_importlib")?;
         let impmod = import_builtin(vm, "_imp")?;
@@ -33,10 +40,23 @@ pub(crate) fn init_importlib(
     if initialize_parameter == InitParameter::External && cfg!(feature = "rustpython-compiler") {
         enter_vm(vm, || {
             flame_guard!("install_external");
+
+            // same deal as imports above
+            #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+            import_builtin(vm, crate::stdlib::os::MODULE_NAME)?;
+            #[cfg(windows)]
+            import_builtin(vm, "winreg")?;
+            import_builtin(vm, "_io")?;
+            import_builtin(vm, "marshal")?;
+
+            // put into sys.modules now so when install_external_importers `import`s
+            // bootstrap_external, it doesn't ever call _verbose_message; we don't have sys.stderr
+            // set up yet
+            let importlib_external = import_frozen(vm, "_frozen_importlib_external")?;
+
             let install_external = vm.get_attribute(importlib, "_install_external_importers")?;
             vm.invoke(&install_external, ())?;
             // Set pyc magic number to commit hash. Should be changed when bytecode will be more stable.
-            let importlib_external = vm.import("_frozen_importlib_external", None, 0)?;
             let mut magic = get_git_revision().into_bytes();
             magic.truncate(4);
             if magic.len() != 4 {
