@@ -135,6 +135,9 @@ dns-lookup = "1.0"
 [target.'cfg(all(unix, not(target_os = "redox")))'.dependencies]
 termios = "0.3"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+system-configuration = "0.4"
+
 [target.'cfg(windows)'.dependencies]
 winreg = "0.8.0"
 schannel = "0.1"
