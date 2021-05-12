@@ -49,14 +49,10 @@ pub(crate) fn init_importlib(
             import_builtin(vm, "_io")?;
             import_builtin(vm, "marshal")?;
 
-            // put into sys.modules now so when install_external_importers `import`s
-            // bootstrap_external, it doesn't ever call _verbose_message; we don't have sys.stderr
-            // set up yet
-            let importlib_external = import_frozen(vm, "_frozen_importlib_external")?;
-
             let install_external = vm.get_attribute(importlib, "_install_external_importers")?;
             vm.invoke(&install_external, ())?;
             // Set pyc magic number to commit hash. Should be changed when bytecode will be more stable.
+            let importlib_external = vm.import("_frozen_importlib_external", None, 0)?;
             let mut magic = get_git_revision().into_bytes();
             magic.truncate(4);
             if magic.len() != 4 {
