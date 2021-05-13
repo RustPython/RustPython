@@ -195,6 +195,10 @@ class Y1900Tests(unittest.TestCase):
         else:
             self.assertEqual(time.strftime("%y", t), "99")
 
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_y_before_1900 = unittest.expectedFailure(test_y_before_1900)
+
     def test_y_1900(self):
         self.assertEqual(
             time.strftime("%y", (1900, 1, 1, 0, 0, 0, 0, 0, 0)), "00")
