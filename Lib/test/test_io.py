@@ -3010,8 +3010,6 @@ class TextIOWrapperTest(unittest.TestCase):
         self.assertEqual(f.tell(), p2)
         f.close()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_seeking(self):
         chunk_size = _default_chunk_size()
         prefix_size = chunk_size - 2
@@ -3833,18 +3831,8 @@ class CTextIOWrapperTest(TextIOWrapperTest):
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
-    def test_rawio(self):
-        super().test_rawio()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_reconfigure_write_through(self):
         super().test_reconfigure_write_through()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_illegal_decoder(self):
-        super().test_illegal_decoder()
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
@@ -3945,6 +3933,11 @@ class PyTextIOWrapperTest(TextIOWrapperTest):
     @unittest.expectedFailure
     def test_bufio_write_through(self):
         super().test_bufio_write_through()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_seeking(self):
+        super().test_seeking()
 
 
 @unittest.skip("TODO: RUSTPYTHON, incremental decoder")

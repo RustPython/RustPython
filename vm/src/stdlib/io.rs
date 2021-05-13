@@ -1842,7 +1842,7 @@ mod _io {
         write_through: bool,
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Copy, Clone)]
     enum Newlines {
         Universal,
         Passthrough,
@@ -1855,6 +1855,55 @@ mod _io {
         #[inline]
         fn default() -> Self {
             Newlines::Universal
+        }
+    }
+
+    impl Newlines {
+        /// returns position where the new line starts if found, otherwise position at which to
+        /// continue the search after more is read into the buffer
+        fn find_newline(&self, s: &str) -> Result<usize, usize> {
+            let len = s.len();
+            match self {
+                Newlines::Universal | Newlines::Lf => s.find('\n').map(|p| p + 1).ok_or(len),
+                Newlines::Passthrough => {
+                    let bytes = s.as_bytes();
+                    memchr::memchr2(b'\n', b'\r', bytes)
+                        .map(|p| {
+                            let nl_len =
+                                if bytes[p] == b'\r' && bytes.get(p + 1).copied() == Some(b'\n') {
+                                    2
+                                } else {
+                                    1
+                                };
+                            p + nl_len
+                        })
+                        .ok_or(len)
+                }
+                Newlines::Cr => s.find('\n').map(|p| p + 1).ok_or(len),
+                Newlines::Crlf => {
+                    // s[searched..] == remaining
+                    let mut searched = 0;
+                    let mut remaining = s.as_bytes();
+                    loop {
+                        match memchr::memchr(b'\r', remaining) {
+                            Some(p) => match remaining.get(p + 1) {
+                                Some(&ch_after_cr) => {
+                                    let pos_after = p + 2;
+                                    if ch_after_cr == b'\n' {
+                                        break Ok(searched + pos_after);
+                                    } else {
+                                        searched += pos_after;
+                                        remaining = &remaining[pos_after..];
+                                        continue;
+                                    }
+                                }
+                                None => break Err(searched + p),
+                            },
+                            None => break Err(len),
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -2563,24 +2612,161 @@ mod _io {
         }
 
         #[pymethod]
-        fn readline(
-            &self,
-            size: OptionalOption<PyObjectRef>,
-            vm: &VirtualMachine,
-        ) -> PyResult<String> {
-            let buffer = self.lock(vm)?.buffer.clone();
-            check_readable(&buffer, vm)?;
+        fn readline(&self, size: OptionalSize, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+            let limit = size.to_usize();
 
-            let bytes = vm.call_method(&buffer, "readline", (size.flatten(),))?;
-            let bytes = PyBytesLike::try_from_object(vm, bytes)?;
-            //format bytes into string
-            let rust_string = String::from_utf8(bytes.borrow_value().to_vec()).map_err(|e| {
-                vm.new_unicode_decode_error(format!(
-                    "cannot decode byte at index: {}",
-                    e.utf8_error().valid_up_to()
-                ))
-            })?;
-            Ok(rust_string)
+            let mut textio = self.lock(vm)?;
+            check_closed(&textio.buffer, vm)?;
+
+            textio.write_pending(vm)?;
+
+            #[derive(Clone)]
+            struct SlicedStr(PyStrRef, Range<usize>);
+            impl SlicedStr {
+                #[inline]
+                fn byte_len(&self) -> usize {
+                    self.1.len()
+                }
+                #[inline]
+                fn char_len(&self) -> usize {
+                    if self.is_full_slice() {
+                        self.0.char_len()
+                    } else {
+                        self.slice().chars().count()
+                    }
+                }
+                #[inline]
+                fn is_full_slice(&self) -> bool {
+                    self.1.len() >= self.0.byte_len()
+                }
+                #[inline]
+                fn slice(&self) -> &str {
+                    &self.0.borrow_value()[self.1.clone()]
+                }
+                #[inline]
+                fn slice_pystr(self, vm: &VirtualMachine) -> PyStrRef {
+                    if self.is_full_slice() {
+                        self.0
+                    } else {
+                        // TODO: try to use Arc::get_mut() on the str?
+                        PyStr::from(self.slice()).into_ref(vm)
+                    }
+                }
+            }
+
+            let mut start;
+            let mut endpos;
+            let mut offset_to_buffer;
+            let mut chunked = 0;
+            let mut chunked_chars = 0;
+            let mut remaining: Option<SlicedStr> = None;
+            let mut chunks = Vec::new();
+
+            let cur_line = 'outer: loop {
+                let decoded_chars = loop {
+                    match textio.decoded_chars.as_ref() {
+                        Some(s) if !s.is_empty() => break s,
+                        _ => {}
+                    }
+                    let eof = textio.read_chunk(0, vm)?;
+                    if eof {
+                        textio.set_decoded_chars(None);
+                        textio.snapshot = None;
+                        start = 0;
+                        endpos = 0;
+                        offset_to_buffer = 0;
+                        break 'outer None;
+                    }
+                };
+                let line = match remaining.take() {
+                    None => {
+                        start = textio.decoded_chars_pos;
+                        offset_to_buffer = 0;
+                        decoded_chars.clone()
+                    }
+                    Some(remaining) => {
+                        assert_eq!(textio.decoded_chars_pos, 0);
+                        offset_to_buffer = remaining.byte_len();
+                        let decoded_chars = decoded_chars.borrow_value();
+                        let line = if remaining.is_full_slice() {
+                            let mut line = remaining.0;
+                            line.concat_in_place(decoded_chars, vm);
+                            line
+                        } else {
+                            let remaining = remaining.slice();
+                            let mut s =
+                                String::with_capacity(remaining.len() + decoded_chars.len());
+                            s.push_str(remaining);
+                            s.push_str(decoded_chars);
+                            PyStr::from(s).into_ref(vm)
+                        };
+                        start = 0;
+                        line
+                    }
+                };
+                let line_from_start = &line.borrow_value()[start..];
+                let nl_res = textio.newline.find_newline(line_from_start);
+                match nl_res {
+                    Ok(p) | Err(p) => {
+                        endpos = start + p;
+                        if let Some(limit) = limit {
+                            // TODO: track char positions in variables as well as bytes
+                            let line_chars = line.borrow_value()[..endpos].chars().count();
+                            if chunked_chars + line_chars >= limit {
+                                endpos = start
+                                    + crate::common::str::char_range_end(
+                                        line_from_start,
+                                        limit - chunked_chars,
+                                    );
+                                break Some(line);
+                            }
+                        }
+                    }
+                }
+                if nl_res.is_ok() {
+                    break Some(line);
+                }
+                if endpos > start {
+                    let chunk = SlicedStr(line.clone(), start..endpos);
+                    chunked += chunk.byte_len();
+                    chunked_chars += chunk.char_len();
+                    chunks.push(chunk);
+                }
+                let line_len = line.byte_len();
+                if endpos < line_len {
+                    remaining = Some(SlicedStr(line, endpos..line_len));
+                }
+                textio.set_decoded_chars(None);
+            };
+
+            let cur_line = cur_line.map(|line| {
+                let orig_decoded_chars = &line.borrow_value()[offset_to_buffer..endpos];
+                textio.decoded_chars_pos = orig_decoded_chars.len();
+                // TODO: variables that are siblings to endpos/offset_to_buffer, measured in chars rather than bytes?
+                textio.num_decoded_chars = orig_decoded_chars.chars().count();
+                SlicedStr(line, start..endpos)
+            });
+            if let Some(remaining) = remaining {
+                // don't need to care about chunked_chars anymore
+                chunked += remaining.byte_len();
+                chunks.push(remaining);
+            }
+            let line = if !chunks.is_empty() {
+                if let Some(cur_line) = cur_line {
+                    chunked += cur_line.byte_len();
+                    chunks.push(cur_line);
+                }
+                let mut s = String::with_capacity(chunked);
+                for chunk in chunks {
+                    s.push_str(chunk.slice())
+                }
+                PyStr::from(s).into_ref(vm)
+            } else if let Some(cur_line) = cur_line {
+                cur_line.slice_pystr(vm)
+            } else {
+                PyStr::from("").into_ref(vm)
+            };
+            Ok(line)
         }
 
         #[pymethod]
@@ -2719,8 +2905,8 @@ mod _io {
                     (PyStr::from(avail).into_ref(vm), avail_chars)
                 }
             } else {
-                let (i, _) = avail.char_indices().nth(n).unwrap();
-                (PyStr::from(&avail[..i]).into_ref(vm), n)
+                let s = crate::common::str::get_chars(avail, 0..n);
+                (PyStr::from(s).into_ref(vm), n)
             };
             self.num_decoded_chars += chars_used;
             self.decoded_chars_pos += chars.byte_len();

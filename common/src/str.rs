@@ -11,6 +11,14 @@ pub fn get_chars(s: &str, range: std::ops::Range<usize>) -> &str {
     &start[..start.len() - end.len()]
 }
 
+/// FIXME: we should use this in get_chars, but it currently panics since get_chars is pretty loose
+/// about bounds in its current impl
+#[inline]
+pub fn char_range_end(s: &str, nchars: usize) -> usize {
+    let (index, c) = s.char_indices().nth(nchars).unwrap();
+    index + c.len_utf8()
+}
+
 pub fn zfill(bytes: &[u8], width: usize) -> Vec<u8> {
     if width <= bytes.len() {
         bytes.to_vec()

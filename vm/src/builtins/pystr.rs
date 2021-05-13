@@ -1068,6 +1068,19 @@ impl PyStr {
     }
 }
 
+impl PyStrRef {
+    pub fn concat_in_place(&mut self, other: &str, vm: &VirtualMachine) {
+        // TODO: call [A]Rc::get_mut on the str to try to mutate the data in place
+        if other.is_empty() {
+            return;
+        }
+        let mut s = String::with_capacity(self.byte_len() + other.len());
+        s.push_str(self.as_ref());
+        s.push_str(other);
+        *self = PyStr::from(s).into_ref(vm);
+    }
+}
+
 impl Hashable for PyStr {
     fn hash(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<hash::PyHash> {
         Ok(zelf.hash(vm))
