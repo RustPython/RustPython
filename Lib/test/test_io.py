@@ -3492,8 +3492,6 @@ class TextIOWrapperTest(unittest.TestCase):
         t = self.TextIOWrapper(self.StringIO('a'))
         self.assertRaises(TypeError, t.read)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_illegal_encoder(self):
         # Issue 31271: Calling write() while the return value of encoder's
         # encode() is invalid shouldn't cause an assertion failure.
@@ -3778,11 +3776,6 @@ class CTextIOWrapperTest(TextIOWrapperTest):
     @unittest.expectedFailure
     def test_repr(self):
         super().test_repr()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_encoding_errors_writing(self):
-        super().test_encoding_errors_writing()
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
@@ -4493,6 +4486,7 @@ class SignalsTest(unittest.TestCase):
     def test_interrupted_write_buffered(self):
         self.check_interrupted_write(b"xy", b"xy", mode="wb")
 
+    @unittest.skip("TODO: RUSTPYTHON, hangs?")
     def test_interrupted_write_text(self):
         self.check_interrupted_write("xy", b"xy", mode="w", encoding="ascii")
 
@@ -4653,10 +4647,6 @@ class PySignalsTest(SignalsTest):
     # tests are disabled.
     test_reentrant_write_buffered = None
     test_reentrant_write_text = None
-
-    @unittest.skip("TODO: RUSTPYTHON, hangs?")
-    def test_interrupted_write_text(self):
-        super().test_interrupted_write_text()
 
 
 def load_tests(*args):

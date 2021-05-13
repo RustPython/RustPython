@@ -1930,7 +1930,11 @@ mod _io {
         }
     }
 
-    type EncodeFunc = fn();
+    // TODO: implement legit fast-paths for other encodings
+    type EncodeFunc = fn(PyStrRef) -> PendingWrite;
+    fn textio_encode_utf8(s: PyStrRef) -> PendingWrite {
+        PendingWrite::Utf8(s)
+    }
 
     #[derive(Debug)]
     struct TextIOData {
@@ -1974,16 +1978,14 @@ mod _io {
 
     #[derive(Debug)]
     enum PendingWrite {
-        Str(PyStrRef),
-        // TODO: encode() str's when encoding != utf8
-        #[allow(unused)]
+        Utf8(PyStrRef),
         Bytes(PyBytesRef),
     }
 
     impl PendingWrite {
         fn as_bytes(&self) -> &[u8] {
             match self {
-                Self::Str(s) => s.borrow_value().as_bytes(),
+                Self::Utf8(s) => s.borrow_value().as_bytes(),
                 Self::Bytes(b) => b.borrow_value(),
             }
         }
@@ -2163,7 +2165,7 @@ mod _io {
                 let encodefunc = encoding_name.and_then(|name| {
                     name.payload::<PyStr>()
                         .and_then(|name| match name.borrow_value() {
-                            "utf-8" => Some((|| {}) as fn()),
+                            "utf-8" => Some(textio_encode_utf8 as EncodeFunc),
                             _ => None,
                         })
                 });
@@ -2551,9 +2553,10 @@ mod _io {
             let mut textio = self.lock(vm)?;
             textio.check_closed(vm)?;
 
-            if textio.encoder.is_none() {
-                return Err(new_unsupported_operation(vm, "not writable".to_owned()));
-            }
+            let (encoder, encodefunc) = textio
+                .encoder
+                .as_ref()
+                .ok_or_else(|| new_unsupported_operation(vm, "not writable".to_owned()))?;
 
             let char_len = obj.char_len();
 
@@ -2580,7 +2583,25 @@ mod _io {
             } else {
                 obj
             };
-            let chunk = PendingWrite::Str(chunk);
+            let chunk = if let Some(encodefunc) = *encodefunc {
+                encodefunc(chunk)
+            } else {
+                let b = vm.call_method(encoder, "encode", (chunk.clone(),))?;
+                b.downcast::<PyBytes>()
+                    .map(PendingWrite::Bytes)
+                    .or_else(|obj| {
+                        // TODO: not sure if encode() returning the str it was passed is officially
+                        // supported or just a quirk of how the CPython code is written
+                        if obj.is(&chunk) {
+                            Ok(PendingWrite::Utf8(chunk))
+                        } else {
+                            Err(vm.new_type_error(format!(
+                                "encoder should return a bytes object, not '{}'",
+                                obj.class().name
+                            )))
+                        }
+                    })?
+            };
             if textio.pending.num_bytes + chunk.as_bytes().len() > textio.chunk_size {
                 textio.write_pending(vm)?;
             }
