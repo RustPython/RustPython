@@ -28,7 +28,7 @@ use crate::pyobject::{
     PyStructSequence, PyValue, StaticType, TryFromObject, TypeProtocol,
 };
 use crate::slots::PyIter;
-use crate::vm::VirtualMachine;
+use crate::vm::{ReprGuard, VirtualMachine};
 
 #[cfg(unix)]
 use std::os::unix::ffi as ffi_ext;
@@ -829,6 +829,33 @@ mod _os {
         #[pymethod(magic)]
         fn fspath(&self, vm: &VirtualMachine) -> PyResult {
             self.path(vm)
+        }
+
+        #[pymethod(magic)]
+        fn repr(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
+            let name = match vm.get_attribute(zelf.clone(), "name") {
+                Ok(name) => Some(name),
+                Err(e)
+                    if e.isinstance(&vm.ctx.exceptions.attribute_error)
+                        || e.isinstance(&vm.ctx.exceptions.value_error) =>
+                {
+                    None
+                }
+                Err(e) => return Err(e),
+            };
+            if let Some(name) = name {
+                if let Some(_guard) = ReprGuard::enter(vm, &zelf) {
+                    let repr = vm.to_repr(&name)?;
+                    Ok(format!("<{} {}>", zelf.class(), repr))
+                } else {
+                    Err(vm.new_runtime_error(format!(
+                        "reentrant call inside {}.__repr__",
+                        zelf.class()
+                    )))
+                }
+            } else {
+                Ok(format!("<{}>", zelf.class()))
+            }
         }
     }
 
