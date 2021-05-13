@@ -228,7 +228,10 @@ impl Default for PySettings {
             isolated: false,
             dev_mode: false,
             warnopts: vec![],
-            path_list: vec![],
+            path_list: vec![
+                #[cfg(all(feature = "pylib", not(feature = "freeze-stdlib")))]
+                rustpython_pylib::LIB_PATH.to_owned(),
+            ],
             argv: vec![],
             hash_seed: None,
             stdio_unbuffered: false,
