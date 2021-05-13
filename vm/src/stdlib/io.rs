@@ -2383,10 +2383,12 @@ mod _io {
                 (Some(d), Some(s)) => (d, s),
                 _ => return Ok(pos),
             };
-            let mut cookie = TextIOCookie::default();
-            cookie.start_pos = Offset::try_from_object(vm, pos)?;
-            cookie.start_pos -= next_input.len() as Offset;
-            cookie.dec_flags = *dec_flags;
+            let pos = Offset::try_from_object(vm, pos)?;
+            let mut cookie = TextIOCookie {
+                start_pos: pos - next_input.len() as Offset,
+                dec_flags: *dec_flags,
+                ..Default::default()
+            };
             if textio.decoded_chars_pos == 0 {
                 return Ok(cookie.build().into_pyobject(vm));
             }
