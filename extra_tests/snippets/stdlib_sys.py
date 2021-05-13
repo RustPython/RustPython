@@ -39,9 +39,10 @@ def demo(x):
     if x > 0:
         demo(x - 1)
 
-sys.settrace(trc)
-demo(5)
-sys.settrace(None)
+# TODO: RUSTPYTHON, can be re-enabled when _codecs is implemented in Rust (I think)
+# sys.settrace(trc)
+# demo(5)
+# sys.settrace(None)
 
 assert sys.exc_info() == (None, None, None)
 
