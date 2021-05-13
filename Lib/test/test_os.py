@@ -3853,8 +3853,6 @@ class TestScandir(unittest.TestCase):
         finally:
             os.chdir(old_dir)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_repr(self):
         entry = self.create_file_entry()
         self.assertEqual(repr(entry), "<DirEntry 'file.txt'>")
