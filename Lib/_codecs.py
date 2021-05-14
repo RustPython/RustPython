@@ -1544,7 +1544,7 @@ def PyUnicode_EncodeCharmap(p, size, mapping='latin-1', errors='strict'):
     if mapping == 'latin-1':
         return PyUnicode_EncodeLatin1(p, size, errors)
     if (size == 0):
-        return ''
+        return b''
     inpos = 0
     res = []
     while (inpos<size):

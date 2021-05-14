@@ -748,6 +748,8 @@ class RunPathTestCase(unittest.TestCase, CodeExecutionMixin):
             msg = "recursion depth exceeded"
             self.assertRaisesRegex(RecursionError, msg, run_path, zip_name)
 
+    # TODO: RUSTPYTHON, detect encoding comments in files
+    @unittest.expectedFailure
     def test_encoding(self):
         with temp_dir() as script_dir:
             filename = os.path.join(script_dir, 'script.py')

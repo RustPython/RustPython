@@ -2734,6 +2734,7 @@ mod _io {
                         endpos = start + p;
                         if let Some(limit) = limit {
                             // TODO: track char positions in variables as well as bytes
+                            // original CPython logic: endpos = start + limit - chunked
                             let line_chars = line.borrow_value()[..endpos].chars().count();
                             if chunked_chars + line_chars >= limit {
                                 endpos = start
