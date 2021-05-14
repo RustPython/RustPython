@@ -1337,6 +1337,32 @@ mod _io {
         })
     }
 
+    pub fn repr_fileobj_name(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<PyStrRef>> {
+        let name = match vm.get_attribute(obj.clone(), "name") {
+            Ok(name) => Some(name),
+            Err(e)
+                if e.isinstance(&vm.ctx.exceptions.attribute_error)
+                    || e.isinstance(&vm.ctx.exceptions.value_error) =>
+            {
+                None
+            }
+            Err(e) => return Err(e),
+        };
+        match name {
+            Some(name) => {
+                if let Some(_guard) = ReprGuard::enter(vm, &obj) {
+                    vm.to_repr(&name).map(Some)
+                } else {
+                    Err(vm.new_runtime_error(format!(
+                        "reentrant call inside {}.__repr__",
+                        obj.class().tp_name()
+                    )))
+                }
+            }
+            None => Ok(None),
+        }
+    }
+
     #[pyimpl]
     trait BufferedMixin: PyValue {
         const READABLE: bool;
@@ -1477,29 +1503,15 @@ mod _io {
 
         #[pymethod(magic)]
         fn repr(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
-            let name = match vm.get_attribute(zelf.clone(), "name") {
-                Ok(name) => Some(name),
-                Err(e)
-                    if e.isinstance(&vm.ctx.exceptions.attribute_error)
-                        || e.isinstance(&vm.ctx.exceptions.value_error) =>
-                {
-                    None
-                }
-                Err(e) => return Err(e),
-            };
-            if let Some(name) = name {
-                if let Some(_guard) = ReprGuard::enter(vm, &zelf) {
-                    let repr = vm.to_repr(&name)?;
-                    Ok(format!("<{} name={}>", zelf.class().tp_name(), repr))
-                } else {
-                    Err(vm.new_runtime_error(format!(
-                        "reentrant call inside {}.__repr__",
-                        zelf.class().tp_name()
-                    )))
-                }
+            let name_repr = repr_fileobj_name(&zelf, vm)?;
+            let cls = zelf.class();
+            let tp_name = cls.tp_name();
+            let repr = if let Some(name_repr) = name_repr {
+                format!("<{} name={}>", tp_name, name_repr)
             } else {
-                Ok(format!("<{}>", zelf.class().tp_name()))
-            }
+                format!("<{}>", tp_name)
+            };
+            Ok(repr)
         }
 
         fn close_strict(&self, vm: &VirtualMachine) -> PyResult {
@@ -1941,9 +1953,7 @@ mod _io {
         buffer: PyObjectRef,
         encoder: Option<(PyObjectRef, Option<EncodeFunc>)>,
         decoder: Option<PyObjectRef>,
-        // TODO: respect the encoding
         encoding: PyStrRef,
-        // TODO: respect errors setting
         errors: PyStrRef,
         newline: Newlines,
         line_buffering: bool,
@@ -1951,7 +1961,7 @@ mod _io {
         chunk_size: usize,
         seekable: bool,
         has_read1: bool,
-        // these are more "state" than configuration
+        // these are more state than configuration
         pending: PendingWrites,
         telling: bool,
         snapshot: Option<(i32, PyBytesRef)>,
@@ -2575,7 +2585,6 @@ mod _io {
                 false
             };
             let flush = textio.line_buffering && (has_lf || data.contains('\r'));
-            // TODO: handle encoding, so chunk might be Bytes
             let chunk = if let Some(replace_nl) = replace_nl {
                 if has_lf {
                     PyStr::from(data.replace('\n', replace_nl)).into_ref(vm)
@@ -3896,6 +3905,26 @@ mod fileio {
             } else {
                 "wb"
             }
+        }
+
+        #[pymethod(magic)]
+        fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            let fd = zelf.fd.load();
+            if fd < 0 {
+                return Ok("<_io.FileIO [closed]>".to_owned());
+            }
+            let name_repr = repr_fileobj_name(zelf.as_object(), vm)?;
+            let mode = zelf.mode();
+            let closefd = if zelf.closefd.load() { "True" } else { "False" };
+            let repr = if let Some(name_repr) = name_repr {
+                format!(
+                    "<_io.FileIO name={} mode='{}' closefd={}>",
+                    name_repr, mode, closefd
+                )
+            } else {
+                format!("<_io.FileIO fd={} mode='{}' closefd={}>", fd, mode, closefd)
+            };
+            Ok(repr)
         }
 
         #[pymethod]
