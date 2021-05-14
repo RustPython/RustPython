@@ -122,6 +122,19 @@ impl PyBuiltinFunction {
     fn doc(&self) -> Option<PyStrRef> {
         self.value.doc.clone()
     }
+    #[pymethod(magic)]
+    fn reduce(&self) -> PyStrRef {
+        // TODO: return (getattr, (self.object, self.name)) if this is a method
+        self.name()
+    }
+    #[pymethod(magic)]
+    fn reduce_ex(&self, _ver: PyObjectRef) -> PyStrRef {
+        self.name()
+    }
+    #[pymethod(magic)]
+    fn repr(&self) -> String {
+        format!("<built-in function {}>", self.value.name)
+    }
 }
 
 #[pyclass(module = false, name = "method_descriptor")]

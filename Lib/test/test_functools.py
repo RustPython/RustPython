@@ -1208,8 +1208,6 @@ class TestTotalOrdering(unittest.TestCase):
             with self.assertRaises(TypeError):
                 a <= b
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pickle(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             for name in '__lt__', '__gt__', '__le__', '__ge__':
@@ -1695,8 +1693,6 @@ class TestLRU:
         self.assertEqual(b.f.cache_info(), X.f.cache_info())
         self.assertEqual(c.f.cache_info(), X.f.cache_info())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pickle(self):
         cls = self.__class__
         for f in cls.cached_func[0], cls.cached_meth, cls.cached_staticmeth:
