@@ -15,7 +15,7 @@ use crate::cformat::CFormatBytes;
 use crate::function::{OptionalArg, OptionalOption};
 use crate::pyobject::{
     BorrowValue, Either, IdProtocol, PyComparisonValue, PyIterable, PyObjectRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
+    TryFromObject,
 };
 use crate::sliceable::PySliceableSequence;
 use crate::slots::PyComparisonOp;
@@ -1068,16 +1068,12 @@ pub fn bytes_decode(
     vm: &VirtualMachine,
 ) -> PyResult<PyStrRef> {
     let DecodeArgs { encoding, errors } = args;
-    vm.decode(zelf, encoding.clone(), errors)?
-        .downcast::<PyStr>()
-        .map_err(|obj| {
-            vm.new_type_error(format!(
-                "'{}' decoder returned '{}' instead of 'str'; use codecs.encode() to \
-                     encode arbitrary types",
-                encoding.as_ref().map_or("utf-8", |s| s.borrow_value()),
-                obj.class().name,
-            ))
-        })
+    let encoding = encoding
+        .as_ref()
+        .map_or(crate::codecs::DEFAULT_ENCODING, |s| s.borrow_value());
+    vm.state
+        .codec_registry
+        .decode_text(zelf, encoding, errors, vm)
 }
 
 fn hex_impl_no_sep(bytes: &[u8]) -> String {

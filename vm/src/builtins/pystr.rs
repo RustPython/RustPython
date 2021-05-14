@@ -12,7 +12,7 @@ use unic_ucd_category::GeneralCategory;
 use unic_ucd_ident::{is_xid_continue, is_xid_start};
 use unicode_casing::CharExt;
 
-use super::bytes::{PyBytes, PyBytesRef};
+use super::bytes::PyBytesRef;
 use super::dict::PyDict;
 use super::int::{PyInt, PyIntRef};
 use super::pytype::PyTypeRef;
@@ -212,16 +212,12 @@ impl PyStr {
         let string: PyStrRef = match args.object {
             OptionalArg::Present(input) => {
                 if let OptionalArg::Present(enc) = args.encoding {
-                    vm.decode(input, Some(enc.clone()), args.errors.into_option())?
-                        .downcast()
-                        .map_err(|obj| {
-                            vm.new_type_error(format!(
-                                "'{}' decoder returned '{}' instead of 'str'; use codecs.encode() to \
-                                 encode arbitrary types",
-                                enc,
-                                obj.class().name,
-                            ))
-                        })?
+                    vm.state.codec_registry.decode_text(
+                        input,
+                        enc.borrow_value(),
+                        args.errors.into_option(),
+                        vm,
+                    )?
                 } else {
                     vm.to_str(&input)?
                 }
@@ -1128,16 +1124,10 @@ pub(crate) fn encode_string(
     errors: Option<PyStrRef>,
     vm: &VirtualMachine,
 ) -> PyResult<PyBytesRef> {
-    vm.encode(s.into_object(), encoding.clone(), errors)?
-        .downcast::<PyBytes>()
-        .map_err(|obj| {
-            vm.new_type_error(format!(
-                "'{}' encoder returned '{}' instead of 'bytes'; use codecs.encode() to \
-                 encode arbitrary types",
-                encoding.as_ref().map_or("utf-8", |s| s.borrow_value()),
-                obj.class().name,
-            ))
-        })
+    let encoding = encoding
+        .as_ref()
+        .map_or(crate::codecs::DEFAULT_ENCODING, |s| s.borrow_value());
+    vm.state.codec_registry.encode_text(s, encoding, errors, vm)
 }
 
 impl PyValue for PyStr {

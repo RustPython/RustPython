@@ -2,6 +2,10 @@
 # This *is* now explicitly RPython.
 # Please make sure not to break this.
 
+# XXX RUSTPYTHON: this was originally from PyPy and has been updated to run on
+#                 Python 3. It's currently in the process of being rewritten
+#                 to a native Rust module in vm/src/stdlib/codecs.rs
+
 """
 
    _codecs -- Provides access to the codec registry and the builtin
@@ -53,94 +57,7 @@ __all__ = ['register', 'lookup', 'lookup_error', 'register_error', 'encode', 'de
            'utf_16_le_encode', 'utf_16_be_encode', 'utf_16_le_decode', 'utf_16_be_decode',]
 
 import sys
-#/* --- Registry ----------------------------------------------------------- */
-codec_search_path = []
-codec_search_cache = {}
-codec_error_registry = {}
-codec_need_encodings = [True]
-
-def register( search_function ):
-    """register(search_function)
-    
-    Register a codec search function. Search functions are expected to take
-    one argument, the encoding name in all lower case letters, and return
-    a tuple of functions (encoder, decoder, stream_reader, stream_writer).
-    """
-
-    if not callable(search_function):
-        raise TypeError("argument must be callable")
-    codec_search_path.append(search_function)
-
-
-def lookup(encoding):
-    """lookup(encoding) -> (encoder, decoder, stream_reader, stream_writer)
-    Looks up a codec tuple in the Python codec registry and returns
-    a tuple of functions.
-    """
-    if not isinstance(encoding, str):
-        raise TypeError("Encoding must be a string")
-    normalized_encoding = encoding.replace(" ", "-").lower()    
-    result = codec_search_cache.get(normalized_encoding, None)
-    if not result:
-        if codec_need_encodings:
-            import encodings
-            if len(codec_search_path) == 0:
-                raise LookupError("no codec search functions registered: can't find encoding")
-            del codec_need_encodings[:]
-        for search in codec_search_path:
-            result = search(normalized_encoding)
-            if result:
-                codec_search_cache[normalized_encoding] = result 
-                return result
-        if not result:
-            raise LookupError("unknown encoding: %s" % encoding)
-    return result
-    
-
-
-def encode(v, encoding=None, errors='strict'):
-    """encode(obj, [encoding[,errors]]) -> object
-    
-    Encodes obj using the codec registered for encoding. encoding defaults
-    to the default encoding. errors may be given to set a different error
-    handling scheme. Default is 'strict' meaning that encoding errors raise
-    a ValueError. Other possible values are 'ignore', 'replace' and
-    'xmlcharrefreplace' as well as any other name registered with
-    codecs.register_error that can handle ValueErrors.
-    """
-    if encoding == None:
-        encoding = sys.getdefaultencoding()
-    if not isinstance(encoding, str):
-        raise TypeError("Encoding must be a string")
-    if not isinstance(errors, str):
-        raise TypeError("Errors must be a string")
-    codec = lookup(encoding)
-    res = codec[0](v, errors)
-    if not isinstance(res, tuple) or len(res) != 2:
-        raise TypeError("encoder must return a tuple (object, integer)")
-    return res[0]
-
-def decode(obj, encoding=None, errors='strict'):
-    """decode(obj, [encoding[,errors]]) -> object
-
-    Decodes obj using the codec registered for encoding. encoding defaults
-    to the default encoding. errors may be given to set a different error
-    handling scheme. Default is 'strict' meaning that encoding errors raise
-    a ValueError. Other possible values are 'ignore' and 'replace'
-    as well as any other name registerd with codecs.register_error that is
-    able to handle ValueErrors.
-    """
-    if encoding == None:
-        encoding = sys.getdefaultencoding()
-    if not isinstance(encoding, str):
-        raise TypeError("Encoding must be a string")
-    if not isinstance(errors, str):
-        raise TypeError("Errors must be a string")
-    codec = lookup(encoding)
-    res = codec[1](obj, errors)
-    if not isinstance(res, tuple) or len(res) != 2:
-        raise TypeError("encoder must return a tuple (object, integer)")
-    return res[0]
+from _codecs import *
 
 
 def latin_1_encode( obj, errors='strict'):
@@ -449,77 +366,6 @@ def utf_16_be_decode( data, errors='strict', byteorder=0, final = 0):
     return res, consumed
 
 
-class _PretendCFunction:
-    def __init__(self, f):
-        self.__f = f
-    def __repr__(self):
-        return repr(self.__f)
-    def __str__(self):
-        return str(self.__f)
-    def __call__(self, *args, **kwargs):
-        return self.__f(*args, **kwargs)
-
-_mod = globals()
-for exp in __all__:
-    if exp.endswith('_encode') or exp.endswith('_decode'):
-        # encodings expect most of these to be builtin functions, so we pretend they are
-        _mod[exp] = _PretendCFunction(_mod[exp])
-del _mod, exp
-
-
-def strict_errors(exc):
-    if isinstance(exc, Exception):
-        raise exc
-    else:
-        raise TypeError("codec must pass exception instance")
-    
-def ignore_errors(exc):
-    if isinstance(exc, UnicodeEncodeError):
-        return '', exc.end
-    elif isinstance(exc, (UnicodeDecodeError, UnicodeTranslateError)):
-        return '', exc.end
-    else: 
-        raise TypeError("don't know how to handle %.400s in error callback"%exc)
-
-Py_UNICODE_REPLACEMENT_CHARACTER = "\ufffd"
-
-def replace_errors(exc):
-    if isinstance(exc, UnicodeEncodeError):
-        return '?'*(exc.end-exc.start), exc.end
-    elif isinstance(exc, (UnicodeTranslateError, UnicodeDecodeError)):
-        return Py_UNICODE_REPLACEMENT_CHARACTER*(exc.end-exc.start), exc.end
-    else:
-        raise TypeError("don't know how to handle %.400s in error callback"%exc)
-
-def xmlcharrefreplace_errors(exc):
-    if isinstance(exc, UnicodeEncodeError):
-        res = []
-        for ch in exc.object[exc.start:exc.end]:
-            res += '&#'
-            res += str(ord(ch))
-            res += ';'
-        return ''.join(res), exc.end
-    else:
-        raise TypeError("don't know how to handle %.400s in error callback"%type(exc))
-    
-def backslashreplace_errors(exc):
-    if isinstance(exc, UnicodeEncodeError):
-        p = []
-        for c in exc.object[exc.start:exc.end]:
-            p += '\\'
-            oc = ord(c)
-            if (oc >= 0x00010000):
-                p += 'U'
-                p += "%.8x" % ord(c)
-            elif (oc >= 0x100):
-                p += 'u'
-                p += "%.4x" % ord(c)
-            else:
-                p += 'x'
-                p += "%.2x" % ord(c)
-        return ''.join(p), exc.end
-    else:
-        raise TypeError("don't know how to handle %.400s in error callback"%type(exc))
 
 
 #  ----------------------------------------------------------------------
@@ -553,39 +399,6 @@ utf7_special = [
 unicode_latin1 = [None]*256
 
 
-def lookup_error(errors):
-    """lookup_error(errors) -> handler
-
-    Return the error handler for the specified error handling name
-    or raise a LookupError, if no handler exists under this name.
-    """
-    
-    try:
-        err_handler = codec_error_registry[errors]
-    except KeyError:
-        raise LookupError("unknown error handler name %s"%errors)
-    return err_handler
-
-def register_error(errors, handler):
-    """register_error(errors, handler)
-
-    Register the specified error handler under the name
-    errors. handler must be a callable object, that
-    will be called with an exception instance containing
-    information about the location of the encoding/decoding
-    error and must return a (replacement, new position) tuple.
-    """
-    if callable(handler):
-        codec_error_registry[errors] = handler
-    else:
-        raise TypeError("handler must be callable")
-
-register_error("strict", strict_errors)
-register_error("ignore", ignore_errors)
-register_error("replace", replace_errors)
-register_error("xmlcharrefreplace", xmlcharrefreplace_errors)
-register_error("backslashreplace", backslashreplace_errors)
-    
 def SPECIAL(c, encodeO, encodeWS):
     c = ord(c)
     return (c>127 or utf7_special[c] == 1) or \

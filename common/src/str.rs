@@ -1,22 +1,38 @@
-pub fn get_chars(s: &str, range: std::ops::Range<usize>) -> &str {
+use std::ops::{Bound, RangeBounds};
+
+pub fn try_get_chars(s: &str, range: impl RangeBounds<usize>) -> Option<&str> {
     let mut chars = s.chars();
-    for _ in 0..range.start {
-        let _ = chars.next();
+    let start = match range.start_bound() {
+        Bound::Included(&i) => i,
+        Bound::Excluded(&i) => i + 1,
+        Bound::Unbounded => 0,
+    };
+    for _ in 0..start {
+        chars.next()?;
     }
-    let start = chars.as_str();
-    let end = char_range_end(start, range.len());
-    &start[..end]
+    let s = chars.as_str();
+    let range_len = match range.end_bound() {
+        Bound::Included(&i) => i + 1 - start,
+        Bound::Excluded(&i) => i - start,
+        Bound::Unbounded => return Some(s),
+    };
+    char_range_end(s, range_len).map(|end| &s[..end])
+}
+
+pub fn get_chars(s: &str, range: impl RangeBounds<usize>) -> &str {
+    try_get_chars(s, range).unwrap()
 }
 
 #[inline]
-pub fn char_range_end(s: &str, nchars: usize) -> usize {
-    match nchars.checked_sub(1) {
+pub fn char_range_end(s: &str, nchars: usize) -> Option<usize> {
+    let i = match nchars.checked_sub(1) {
         Some(last_char_index) => {
-            let (index, c) = s.char_indices().nth(last_char_index).unwrap();
+            let (index, c) = s.char_indices().nth(last_char_index)?;
             index + c.len_utf8()
         }
         None => 0,
-    }
+    };
+    Some(i)
 }
 
 pub fn zfill(bytes: &[u8], width: usize) -> Vec<u8> {

@@ -161,8 +161,8 @@ fn sys_getfilesystemencoding(_vm: &VirtualMachine) -> String {
     "utf-8".to_owned()
 }
 
-fn sys_getdefaultencoding(_vm: &VirtualMachine) -> String {
-    "utf-8".to_owned()
+fn sys_getdefaultencoding() -> &'static str {
+    crate::codecs::DEFAULT_ENCODING
 }
 
 #[cfg(not(windows))]
