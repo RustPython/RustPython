@@ -8,8 +8,8 @@ cfg_if::cfg_if! {
         type Offset = i64;
     }
 }
-use crate::pyobject::{BorrowValue, PyObjectRef, PyResult, TryFromObject};
 use crate::VirtualMachine;
+use crate::{BorrowValue, PyObjectRef, PyResult, TryFromObject};
 pub(crate) use _io::io_open as open;
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
@@ -88,11 +88,11 @@ mod _io {
     use crate::common::rc::PyRc;
     use crate::exceptions::{self, IntoPyException, PyBaseExceptionRef};
     use crate::function::{FuncArgs, OptionalArg, OptionalOption};
-    use crate::pyobject::{
+    use crate::vm::{ReprGuard, VirtualMachine};
+    use crate::{
         BorrowValue, Either, IdProtocol, IntoPyObject, PyContext, PyIterable, PyObjectRef, PyRef,
         PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
     };
-    use crate::vm::{ReprGuard, VirtualMachine};
 
     fn validate_whence(whence: i32) -> bool {
         let x = (0..=2).contains(&whence);
@@ -3663,11 +3663,11 @@ mod fileio {
     use crate::exceptions::IntoPyException;
     use crate::function::OptionalOption;
     use crate::function::{FuncArgs, OptionalArg};
-    use crate::pyobject::{
-        BorrowValue, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
-    };
     use crate::stdlib::os;
     use crate::vm::VirtualMachine;
+    use crate::{
+        BorrowValue, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
+    };
     use crossbeam_utils::atomic::AtomicCell;
     use std::io::{Read, Write};
 

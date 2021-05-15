@@ -13,7 +13,7 @@ use crate::builtins::int::{PyInt, PyIntRef};
 use crate::builtins::pystr::{PyStr, PyStrRef};
 use crate::builtins::pytype::PyTypeRef;
 use crate::function::{Args, OptionalArg};
-use crate::pyobject::{
+use crate::{
     BorrowValue, IntoPyObject, PyClassImpl, PyObjectRef, PyResult, PyValue, StaticType,
     TryFromObject,
 };

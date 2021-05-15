@@ -2,9 +2,9 @@ use super::pytype::PyTypeRef;
 use super::weakref::PyWeak;
 use super::PyStrRef;
 use crate::function::OptionalArg;
-use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::slots::SlotSetattro;
 use crate::vm::VirtualMachine;
+use crate::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 
 #[pyclass(module = false, name = "weakproxy")]
 #[derive(Debug)]

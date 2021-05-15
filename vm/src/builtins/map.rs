@@ -1,9 +1,9 @@
 use super::pytype::PyTypeRef;
 use crate::function::Args;
 use crate::iterator;
-use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::slots::PyIter;
 use crate::vm::VirtualMachine;
+use crate::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 
 /// map(func, *iterables) --> map object
 ///

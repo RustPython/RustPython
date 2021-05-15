@@ -1,6 +1,6 @@
 use crate::compile;
-use crate::pyobject::PyResult;
 use crate::scope::Scope;
+use crate::PyResult;
 use crate::VirtualMachine;
 
 pub fn eval(vm: &VirtualMachine, source: &str, scope: Scope, source_path: &str) -> PyResult {

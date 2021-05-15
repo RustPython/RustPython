@@ -158,7 +158,7 @@ fn generate_field((i, field): (usize, &Field)) -> Result<TokenStream2, Diagnosti
         .or(namestring)
         .ok_or_else(|| err_span!(field, "field in tuple struct must have name attribute"))?;
     let middle = quote! {
-        .map(|x| ::rustpython_vm::pyobject::TryFromObject::try_from_object(vm, x)).transpose()?
+        .map(|x| ::rustpython_vm::TryFromObject::try_from_object(vm, x)).transpose()?
     };
     let ending = if let Some(default) = attr.default {
         let default = default.unwrap_or_else(|| parse_quote!(::std::default::Default::default()));

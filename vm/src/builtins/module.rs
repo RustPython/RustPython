@@ -2,12 +2,12 @@ use super::dict::PyDictRef;
 use super::pystr::{PyStr, PyStrRef};
 use super::pytype::PyTypeRef;
 use crate::function::FuncArgs;
-use crate::pyobject::{
+use crate::slots::SlotGetattro;
+use crate::vm::VirtualMachine;
+use crate::{
     BorrowValue, IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
     PyValue,
 };
-use crate::slots::SlotGetattro;
-use crate::vm::VirtualMachine;
 
 #[pyclass(module = false, name = "module")]
 #[derive(Debug)]
@@ -60,7 +60,7 @@ impl PyModule {
 
     #[pymethod(magic)]
     fn init(zelf: PyRef<Self>, args: ModuleInitArgs, vm: &VirtualMachine) {
-        debug_assert!(crate::pyobject::TypeProtocol::class(zelf.as_object())
+        debug_assert!(crate::TypeProtocol::class(zelf.as_object())
             .slots
             .flags
             .has_feature(crate::slots::PyTpFlags::HAS_DICT));

@@ -5,10 +5,8 @@ use crate::builtins::int::{self, PyInt};
 use crate::builtins::pystr::PyStr;
 use crate::builtins::{memory::try_buffer_from_object, tuple, PyBytes};
 use crate::common::float_ops;
-use crate::pyobject::{
-    BorrowValue, ItemProtocol, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
-};
 use crate::vm::VirtualMachine;
+use crate::{BorrowValue, ItemProtocol, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
 use itertools::Itertools;
 use num_bigint::{BigInt, Sign};
 use num_traits::cast::ToPrimitive;

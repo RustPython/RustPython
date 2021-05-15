@@ -6,12 +6,12 @@ use crate::builtins::tuple::PyTupleRef;
 use crate::exceptions::{self, IntoPyException};
 use crate::function::{FuncArgs, KwArgs, OptionalArg};
 use crate::py_io;
-use crate::pyobject::{
+use crate::slots::{SlotGetattro, SlotSetattro};
+use crate::VirtualMachine;
+use crate::{
     BorrowValue, Either, IdProtocol, ItemProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef,
     PyResult, PyValue, StaticType, TypeProtocol,
 };
-use crate::slots::{SlotGetattro, SlotSetattro};
-use crate::VirtualMachine;
 
 use parking_lot::{
     lock_api::{RawMutex as RawMutexT, RawMutexTimed, RawReentrantMutex},

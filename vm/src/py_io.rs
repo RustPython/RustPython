@@ -1,8 +1,8 @@
 use crate::builtins::bytes::PyBytes;
 use crate::builtins::pystr::PyStr;
 use crate::exceptions::PyBaseExceptionRef;
-use crate::pyobject::{BorrowValue, PyObjectRef, PyResult};
 use crate::VirtualMachine;
+use crate::{BorrowValue, PyObjectRef, PyResult};
 use std::{fmt, io, ops};
 
 pub trait Write {

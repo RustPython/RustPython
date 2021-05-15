@@ -1,10 +1,8 @@
 use crate::builtins::int::PyIntRef;
 use crate::builtins::pystr::PyStrRef;
 use crate::exceptions::IntoPyException;
-use crate::pyobject::{
-    BorrowValue, IntoPyObject, PyClassImpl, PyObjectRef, PyResult, PyStructSequence,
-};
 use crate::vm::VirtualMachine;
+use crate::{BorrowValue, IntoPyObject, PyClassImpl, PyObjectRef, PyResult, PyStructSequence};
 use std::convert::TryFrom;
 use std::ptr::NonNull;
 

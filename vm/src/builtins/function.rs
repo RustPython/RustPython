@@ -13,15 +13,15 @@ use crate::bytecode;
 use crate::common::lock::PyMutex;
 use crate::frame::Frame;
 use crate::function::{FuncArgs, OptionalArg};
+use crate::scope::Scope;
+use crate::slots::{Callable, Comparable, PyComparisonOp, SlotDescriptor, SlotGetattro};
 #[cfg(feature = "jit")]
-use crate::pyobject::IntoPyObject;
-use crate::pyobject::{
+use crate::IntoPyObject;
+use crate::VirtualMachine;
+use crate::{
     BorrowValue, IdProtocol, ItemProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef,
     PyRef, PyResult, PyValue, TypeProtocol,
 };
-use crate::scope::Scope;
-use crate::slots::{Callable, Comparable, PyComparisonOp, SlotDescriptor, SlotGetattro};
-use crate::VirtualMachine;
 use itertools::Itertools;
 #[cfg(feature = "jit")]
 use rustpython_common::lock::OnceCell;

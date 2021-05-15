@@ -23,12 +23,12 @@ use crate::byteslike::PyBytesLike;
 use crate::common::lock::PyRwLock;
 use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
 use crate::function::{ArgumentError, FromArgs, FuncArgs, OptionalArg};
-use crate::pyobject::{
+use crate::slots::PyIter;
+use crate::vm::{ReprGuard, VirtualMachine};
+use crate::{
     BorrowValue, Either, IntoPyObject, ItemProtocol, PyObjectRef, PyRef, PyResult,
     PyStructSequence, PyValue, StaticType, TryFromObject, TypeProtocol,
 };
-use crate::slots::PyIter;
-use crate::vm::{ReprGuard, VirtualMachine};
 
 #[cfg(unix)]
 use std::os::unix::ffi as ffi_ext;
@@ -1662,7 +1662,7 @@ mod posix {
 
     use crate::builtins::dict::PyMapping;
     use crate::builtins::list::PyListRef;
-    use crate::pyobject::PyIterable;
+    use crate::PyIterable;
     use bitflags::bitflags;
     use nix::errno::{errno, Errno};
     use nix::unistd::{self, Gid, Pid, Uid};

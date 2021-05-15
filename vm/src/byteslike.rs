@@ -1,8 +1,8 @@
 use crate::builtins::memory::{try_buffer_from_object, BufferRef};
 use crate::builtins::PyStrRef;
 use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
-use crate::pyobject::{BorrowValue, PyObjectRef, PyResult, TryFromObject};
 use crate::vm::VirtualMachine;
+use crate::{BorrowValue, PyObjectRef, PyResult, TryFromObject};
 
 #[derive(Debug)]
 pub struct PyBytesLike(BufferRef);

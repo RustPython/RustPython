@@ -1,6 +1,6 @@
-use crate::pyobject::{PyObjectRef, PyResult};
 use crate::slots::PyComparisonOp;
 use crate::vm::VirtualMachine;
+use crate::{PyObjectRef, PyResult};
 use num_traits::cast::ToPrimitive;
 
 pub(super) type DynPyIter<'a> = Box<dyn ExactSizeIterator<Item = &'a PyObjectRef> + 'a>;

@@ -5,13 +5,13 @@ use super::float;
 use super::pystr::PyStr;
 use super::pytype::PyTypeRef;
 use crate::function::{OptionalArg, OptionalOption};
-use crate::pyobject::{
+use crate::slots::{Comparable, Hashable, PyComparisonOp};
+use crate::VirtualMachine;
+use crate::{
     BorrowValue, IdProtocol, IntoPyObject, Never,
     PyArithmaticValue::{self, *},
     PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
-use crate::slots::{Comparable, Hashable, PyComparisonOp};
-use crate::VirtualMachine;
 use rustpython_common::{float_ops, hash};
 
 /// Create a complex number from a real part and an optional imaginary part.

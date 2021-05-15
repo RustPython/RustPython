@@ -4,8 +4,8 @@ use std::ops::Range;
 
 use crate::builtins::int::PyInt;
 use crate::builtins::slice::{PySlice, PySliceRef};
-use crate::pyobject::{BorrowValue, Either, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
 use crate::vm::VirtualMachine;
+use crate::{BorrowValue, Either, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
 
 pub trait PySliceableSequenceMut {
     type Item: Clone;

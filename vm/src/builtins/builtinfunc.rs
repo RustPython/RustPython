@@ -5,11 +5,11 @@ use crate::builtins::pystr::PyStrRef;
 use crate::builtins::pytype::PyTypeRef;
 use crate::common::borrow::BorrowValue;
 use crate::function::{FuncArgs, PyNativeFunc};
-use crate::pyobject::{
-    PyClassImpl, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
-};
 use crate::slots::{Callable, SlotDescriptor};
 use crate::vm::VirtualMachine;
+use crate::{
+    PyClassImpl, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+};
 
 pub struct PyNativeFuncDef {
     pub func: PyNativeFunc,

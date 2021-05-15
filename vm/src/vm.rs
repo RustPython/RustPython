@@ -29,14 +29,14 @@ use crate::compile::{self, CompileError, CompileErrorType, CompileOpts};
 use crate::exceptions::{self, PyBaseException, PyBaseExceptionRef};
 use crate::frame::{ExecutionResult, Frame, FrameRef};
 use crate::function::{FuncArgs, IntoFuncArgs};
-use crate::pyobject::{
+use crate::scope::Scope;
+use crate::slots::PyComparisonOp;
+use crate::{builtins, bytecode, frozen, import, iterator, stdlib, sysmodule};
+use crate::{
     BorrowValue, Either, IdProtocol, IntoPyObject, ItemProtocol, PyArithmaticValue, PyContext,
     PyLease, PyMethod, PyObject, PyObjectRef, PyRef, PyRefExact, PyResult, PyValue, TryFromObject,
     TryIntoRef, TypeProtocol,
 };
-use crate::scope::Scope;
-use crate::slots::PyComparisonOp;
-use crate::{builtins, bytecode, frozen, import, iterator, stdlib, sysmodule};
 
 // use objects::ects;
 

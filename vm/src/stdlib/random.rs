@@ -8,8 +8,8 @@ mod _random {
     use crate::builtins::pytype::PyTypeRef;
     use crate::common::lock::PyMutex;
     use crate::function::OptionalOption;
-    use crate::pyobject::{BorrowValue, PyObjectRef, PyRef, PyResult, PyValue, StaticType};
     use crate::VirtualMachine;
+    use crate::{BorrowValue, PyObjectRef, PyRef, PyResult, PyValue, StaticType};
     use num_bigint::{BigInt, Sign};
     use num_traits::{Signed, Zero};
     use rand::{rngs::StdRng, RngCore, SeedableRng};

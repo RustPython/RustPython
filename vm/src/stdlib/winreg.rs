@@ -3,10 +3,10 @@ use crate::builtins::pystr::PyStrRef;
 use crate::builtins::pytype::PyTypeRef;
 use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::exceptions::IntoPyException;
-use crate::pyobject::{
+use crate::VirtualMachine;
+use crate::{
     BorrowValue, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject,
 };
-use crate::VirtualMachine;
 
 use std::convert::TryInto;
 use std::ffi::OsStr;

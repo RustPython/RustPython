@@ -5,8 +5,8 @@ mod termios {
     use crate::builtins::{int, PyBytes, PyInt, PyListRef, PyTypeRef};
     use crate::common::borrow::BorrowValue;
     use crate::exceptions::PyBaseExceptionRef;
-    use crate::pyobject::{IntoPyObject, PyObjectRef, PyResult, TryFromObject};
     use crate::VirtualMachine;
+    use crate::{IntoPyObject, PyObjectRef, PyResult, TryFromObject};
     use std::convert::TryFrom;
     use termios::Termios;
 

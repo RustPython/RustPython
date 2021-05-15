@@ -20,14 +20,14 @@ use crate::anystr::{self, adjust_indices, AnyStr, AnyStrContainer, AnyStrWrapper
 use crate::exceptions::IntoPyException;
 use crate::format::{FormatSpec, FormatString, FromTemplate};
 use crate::function::{FuncArgs, OptionalArg, OptionalOption};
-use crate::pyobject::{
+use crate::sliceable::PySliceableSequence;
+use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter};
+use crate::VirtualMachine;
+use crate::{
     BorrowValue, Either, IdProtocol, IntoPyObject, ItemProtocol, PyClassImpl, PyComparisonValue,
     PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TryIntoRef,
     TypeProtocol,
 };
-use crate::sliceable::PySliceableSequence;
-use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter};
-use crate::VirtualMachine;
 use rustpython_common::hash;
 
 /// str(object='') -> str

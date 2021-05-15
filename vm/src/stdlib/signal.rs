@@ -1,6 +1,6 @@
 use crate::exceptions::IntoPyException;
-use crate::pyobject::{PyObjectRef, PyResult, TryFromObject};
 use crate::vm::{VirtualMachine, NSIG};
+use crate::{PyObjectRef, PyResult, TryFromObject};
 
 use std::sync::atomic::{self, AtomicBool, Ordering};
 

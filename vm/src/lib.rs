@@ -67,7 +67,7 @@ pub mod import;
 pub mod iterator;
 pub mod py_io;
 pub mod py_serde;
-pub mod pyobject;
+mod pyobject;
 mod pyobjectrc;
 pub mod readline;
 pub mod scope;
@@ -80,7 +80,8 @@ pub mod types;
 mod version;
 mod vm;
 
-// pub use self::pyobject::Executor;
+// pub use self::Executor;
+pub use self::pyobject::*;
 pub use self::vm::{InitParameter, Interpreter, PySettings, VirtualMachine};
 pub use rustpython_bytecode as bytecode;
 pub use rustpython_common as common;

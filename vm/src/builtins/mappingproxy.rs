@@ -3,12 +3,12 @@ use super::pystr::PyStrRef;
 use super::pytype::PyTypeRef;
 use crate::function::OptionalArg;
 use crate::iterator;
-use crate::pyobject::{
+use crate::slots::Iterable;
+use crate::vm::VirtualMachine;
+use crate::{
     BorrowValue, IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
     PyValue, TryFromObject,
 };
-use crate::slots::Iterable;
-use crate::vm::VirtualMachine;
 
 #[pyclass(module = false, name = "mappingproxy")]
 #[derive(Debug)]

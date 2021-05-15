@@ -1,9 +1,9 @@
 use super::pybool;
 use super::pytype::PyTypeRef;
 use crate::iterator;
-use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::slots::PyIter;
 use crate::vm::VirtualMachine;
+use crate::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 
 /// filter(function or None, iterable) --> filter object
 ///

@@ -9,12 +9,12 @@ mod _json {
     use crate::exceptions::PyBaseExceptionRef;
     use crate::function::{FuncArgs, OptionalArg};
     use crate::iterator;
-    use crate::pyobject::{
+    use crate::slots::Callable;
+    use crate::VirtualMachine;
+    use crate::{
         BorrowValue, IdProtocol, IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
         TryFromObject,
     };
-    use crate::slots::Callable;
-    use crate::VirtualMachine;
 
     use num_bigint::BigInt;
     use std::str::FromStr;

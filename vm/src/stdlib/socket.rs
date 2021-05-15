@@ -18,11 +18,11 @@ use crate::byteslike::{PyBytesLike, PyRwBytesLike};
 use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
 use crate::function::{FuncArgs, OptionalArg, OptionalOption};
-use crate::pyobject::{
+use crate::VirtualMachine;
+use crate::{
     BorrowValue, Either, IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
     StaticType, TryFromObject, TypeProtocol,
 };
-use crate::VirtualMachine;
 
 #[cfg(unix)]
 type RawSocket = std::os::unix::io::RawFd;

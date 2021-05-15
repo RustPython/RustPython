@@ -6,13 +6,13 @@ use super::pytype::PyTypeRef;
 use crate::builtins::pytype::PyType;
 use crate::common::hash::PyHash;
 use crate::function::FuncArgs;
-use crate::pyobject::{
+use crate::slots::PyComparisonOp;
+use crate::vm::VirtualMachine;
+use crate::{
     BorrowValue, Either, IdProtocol, ItemProtocol, PyArithmaticValue, PyAttributes, PyClassImpl,
     PyComparisonValue, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
 };
-use crate::slots::PyComparisonOp;
-use crate::vm::VirtualMachine;
 
 /// The most base type
 #[pyclass(module = false, name = "object")]

@@ -7,11 +7,11 @@ use std::ops::Deref;
 
 use super::{PyStrRef, PyTypeRef};
 use crate::bytecode::{self, BorrowedConstant, Constant, ConstantBag};
-use crate::pyobject::{
+use crate::VirtualMachine;
+use crate::{
     BorrowValue, IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     StaticType, TypeProtocol,
 };
-use crate::VirtualMachine;
 use num_traits::Zero;
 
 #[derive(Clone)]

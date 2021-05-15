@@ -11,14 +11,14 @@ use crate::common::hash::PyHash;
 use crate::common::lock::OnceCell;
 use crate::common::rc::PyRc;
 use crate::function::{FuncArgs, OptionalArg};
-use crate::pyobject::{
-    Either, IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef,
-    PyRef, PyResult, PyThreadingConstraint, PyValue, TypeProtocol,
-};
 use crate::sliceable::{convert_slice, saturate_range, wrap_index, SequenceIndex};
 use crate::slots::{BufferProtocol, Comparable, Hashable, PyComparisonOp};
 use crate::stdlib::pystruct::_struct::FormatSpec;
 use crate::VirtualMachine;
+use crate::{
+    Either, IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef,
+    PyRef, PyResult, PyThreadingConstraint, PyValue, TypeProtocol,
+};
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
 use num_bigint::BigInt;

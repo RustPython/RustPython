@@ -11,7 +11,7 @@ macro_rules! py_module {
 macro_rules! extend_module {
     ( $vm:expr, $module:expr, { $($name:expr => $value:expr),* $(,)? }) => {{
         #[allow(unused_variables)]
-        let module: &$crate::pyobject::PyObjectRef = &$module;
+        let module: &$crate::PyObjectRef = &$module;
         $(
             $vm.__module_set_attr(&module, $name, $value).unwrap();
         )*
@@ -86,7 +86,7 @@ macro_rules! py_namespace {
 /// use rustpython_vm::match_class;
 /// use rustpython_vm::builtins::PyFloat;
 /// use rustpython_vm::builtins::PyInt;
-/// use rustpython_vm::pyobject::PyValue;
+/// use rustpython_vm::PyValue;
 ///
 /// # rustpython_vm::Interpreter::default().enter(|vm| {
 /// let obj = PyInt::from(0).into_ref(&vm).into_object();
@@ -111,7 +111,7 @@ macro_rules! py_namespace {
 /// use rustpython_vm::match_class;
 /// use rustpython_vm::builtins::PyFloat;
 /// use rustpython_vm::builtins::PyInt;
-/// use rustpython_vm::pyobject::{PyValue, BorrowValue};
+/// use rustpython_vm::{PyValue, BorrowValue};
 ///
 /// # rustpython_vm::Interpreter::default().enter(|vm| {
 /// let obj = PyInt::from(0).into_ref(&vm).into_object();
@@ -215,9 +215,9 @@ macro_rules! flame_guard {
 #[macro_export]
 macro_rules! class_or_notimplemented {
     ($t:ty, $obj:expr) => {
-        match $crate::pyobject::PyObjectRef::downcast_ref::<$t>($obj) {
+        match $crate::PyObjectRef::downcast_ref::<$t>($obj) {
             Some(pyref) => pyref,
-            None => return Ok($crate::pyobject::PyArithmaticValue::NotImplemented),
+            None => return Ok($crate::PyArithmaticValue::NotImplemented),
         }
     };
 }
@@ -226,7 +226,7 @@ macro_rules! class_or_notimplemented {
 macro_rules! named_function {
     ($ctx:expr, $module:ident, $func:ident) => {{
         #[allow(unused_variables)] // weird lint, something to do with paste probably
-        let ctx: &$crate::pyobject::PyContext = &$ctx;
+        let ctx: &$crate::PyContext = &$ctx;
         $crate::__exports::paste::expr! {
             ctx.make_funcdef(
                 stringify!($module),

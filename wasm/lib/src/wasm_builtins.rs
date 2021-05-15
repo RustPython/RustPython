@@ -7,8 +7,8 @@
 use web_sys::{self, console};
 
 use rustpython_vm::builtins::PyStrRef;
-use rustpython_vm::pyobject::{BorrowValue, PyObjectRef, PyResult};
 use rustpython_vm::VirtualMachine;
+use rustpython_vm::{BorrowValue, PyObjectRef, PyResult};
 
 pub(crate) fn window() -> web_sys::Window {
     web_sys::window().expect("Window to be available")

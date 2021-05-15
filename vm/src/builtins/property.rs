@@ -5,11 +5,11 @@ use crate::common::lock::PyRwLock;
 
 use super::pytype::PyTypeRef;
 use crate::function::FuncArgs;
-use crate::pyobject::{
-    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
-};
 use crate::slots::SlotDescriptor;
 use crate::vm::VirtualMachine;
+use crate::{
+    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+};
 
 /// Property attribute.
 ///

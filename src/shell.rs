@@ -5,9 +5,8 @@ use rustpython_vm::readline::{Readline, ReadlineResult};
 use rustpython_vm::{
     compile::{self, CompileError, CompileErrorType},
     exceptions::{print_exception, PyBaseExceptionRef},
-    pyobject::{BorrowValue, PyResult, TypeProtocol},
     scope::Scope,
-    VirtualMachine,
+    BorrowValue, PyResult, TypeProtocol, VirtualMachine,
 };
 
 enum ShellExecResult {

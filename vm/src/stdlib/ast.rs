@@ -16,11 +16,11 @@ use rustpython_compiler as compile;
 
 use crate::builtins::{self, PyStrRef, PyTypeRef};
 use crate::function::FuncArgs;
-use crate::pyobject::{
+use crate::vm::VirtualMachine;
+use crate::{
     BorrowValue, IdProtocol, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue,
     StaticType, TryFromObject, TypeProtocol,
 };
-use crate::vm::VirtualMachine;
 
 #[rustfmt::skip]
 #[allow(clippy::all)]

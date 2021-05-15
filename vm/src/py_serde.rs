@@ -4,8 +4,8 @@ use serde::de::{DeserializeSeed, Visitor};
 use serde::ser::{Serialize, SerializeMap, SerializeSeq};
 
 use crate::builtins::{dict::PyDictRef, float, int, list::PyList, pybool, pystr, tuple::PyTuple};
-use crate::pyobject::{BorrowValue, ItemProtocol, PyObjectRef, TypeProtocol};
 use crate::VirtualMachine;
+use crate::{BorrowValue, ItemProtocol, PyObjectRef, TypeProtocol};
 
 #[inline]
 pub fn serialize<S>(

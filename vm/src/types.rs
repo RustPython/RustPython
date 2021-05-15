@@ -38,8 +38,8 @@ use crate::builtins::tuple;
 use crate::builtins::weakproxy;
 use crate::builtins::weakref;
 use crate::builtins::zip;
-use crate::pyobject::{PyAttributes, PyContext, StaticType};
 use crate::slots::PyTypeSlots;
+use crate::{PyAttributes, PyContext, StaticType};
 
 /// Holder of references to builtin types.
 #[derive(Debug, Clone)]

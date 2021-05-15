@@ -7,8 +7,8 @@ mod decl {
     use crate::builtins::pystr::{PyStr, PyStrRef};
     use crate::byteslike::PyBytesLike;
     use crate::function::OptionalArg;
-    use crate::pyobject::{BorrowValue, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
     use crate::vm::VirtualMachine;
+    use crate::{BorrowValue, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
     use crc::{crc32, Hasher32};
     use itertools::Itertools;
 

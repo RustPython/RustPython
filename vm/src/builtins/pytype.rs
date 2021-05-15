@@ -17,12 +17,12 @@ use super::tuple::PyTuple;
 use super::weakref::PyWeak;
 use crate::builtins::tuple::PyTupleTyped;
 use crate::function::{FuncArgs, KwArgs};
-use crate::pyobject::{
+use crate::slots::{self, Callable, PyTpFlags, PyTypeSlots, SlotGetattro, SlotSetattro};
+use crate::vm::VirtualMachine;
+use crate::{
     BorrowValue, Either, IdProtocol, PyAttributes, PyClassImpl, PyContext, PyLease, PyObjectRef,
     PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
-use crate::slots::{self, Callable, PyTpFlags, PyTypeSlots, SlotGetattro, SlotSetattro};
-use crate::vm::VirtualMachine;
 use itertools::Itertools;
 use std::ops::Deref;
 

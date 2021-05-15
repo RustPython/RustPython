@@ -13,13 +13,13 @@ use crate::builtins::PyTypeRef;
 use crate::byteslike::try_bytes_like;
 use crate::cformat::CFormatBytes;
 use crate::function::{OptionalArg, OptionalOption};
-use crate::pyobject::{
-    BorrowValue, Either, IdProtocol, PyComparisonValue, PyIterable, PyObjectRef, PyResult, PyValue,
-    TryFromObject,
-};
 use crate::sliceable::PySliceableSequence;
 use crate::slots::PyComparisonOp;
 use crate::vm::VirtualMachine;
+use crate::{
+    BorrowValue, Either, IdProtocol, PyComparisonValue, PyIterable, PyObjectRef, PyResult, PyValue,
+    TryFromObject,
+};
 use rustpython_common::hash;
 
 #[derive(Debug, Default, Clone)]

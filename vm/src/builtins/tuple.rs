@@ -5,15 +5,15 @@ use std::marker::PhantomData;
 use super::pytype::PyTypeRef;
 use crate::common::hash::PyHash;
 use crate::function::OptionalArg;
-use crate::pyobject::{
-    self, BorrowValue, Either, IdProtocol, IntoPyObject, PyArithmaticValue, PyClassImpl,
-    PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TransmuteFromObject,
-    TryFromObject, TypeProtocol,
-};
 use crate::sequence::{self, SimpleSeq};
 use crate::sliceable::PySliceableSequence;
 use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter};
 use crate::vm::{ReprGuard, VirtualMachine};
+use crate::{
+    BorrowValue, Either, IdProtocol, IntoPyObject, PyArithmaticValue, PyClassImpl,
+    PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TransmuteFromObject,
+    TryFromObject, TypeProtocol,
+};
 
 /// tuple() -> empty tuple
 /// tuple(iterable) -> tuple initialized from iterable's items
@@ -266,7 +266,7 @@ impl PyTuple {
 
 impl Hashable for PyTuple {
     fn hash(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
-        pyobject::hash_iter(zelf.elements.iter(), vm)
+        crate::hash_iter(zelf.elements.iter(), vm)
     }
 }
 

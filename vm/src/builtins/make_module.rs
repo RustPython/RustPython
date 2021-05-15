@@ -1,8 +1,8 @@
 //! Builtin function definitions.
 //!
 //! Implements functions listed here: https://docs.python.org/3/library/builtins.html
-use crate::pyobject::PyObjectRef;
 use crate::vm::VirtualMachine;
+use crate::PyObjectRef;
 
 /// Built-in functions, exceptions, and other objects.
 ///
@@ -28,15 +28,15 @@ mod decl {
         single_or_tuple_any, Args, FuncArgs, KwArgs, OptionalArg, OptionalOption,
     };
     use crate::iterator;
-    use crate::pyobject::{
-        BorrowValue, Either, IdProtocol, ItemProtocol, PyArithmaticValue, PyCallable, PyClassImpl,
-        PyIterable, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
-    };
     use crate::readline::{Readline, ReadlineResult};
     use crate::scope::Scope;
     use crate::slots::PyComparisonOp;
     use crate::vm::VirtualMachine;
     use crate::{py_io, sysmodule};
+    use crate::{
+        BorrowValue, Either, IdProtocol, ItemProtocol, PyArithmaticValue, PyCallable, PyClassImpl,
+        PyIterable, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    };
     use num_traits::{Signed, Zero};
 
     #[pyfunction]

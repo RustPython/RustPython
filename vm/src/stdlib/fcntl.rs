@@ -6,8 +6,8 @@ mod fcntl {
     use crate::builtins::int;
     use crate::byteslike::{BufOrStr, PyRwBytesLike};
     use crate::function::OptionalArg;
-    use crate::pyobject::{BorrowValue, Either, PyResult};
     use crate::VirtualMachine;
+    use crate::{BorrowValue, Either, PyResult};
 
     #[pyattr]
     use libc::{FD_CLOEXEC, F_GETFD, F_GETFL, F_SETFD, F_SETFL};

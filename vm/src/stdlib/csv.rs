@@ -6,13 +6,13 @@ use crate::builtins::pytype::PyTypeRef;
 use crate::common::lock::PyMutex;
 use crate::function::{ArgumentError, FromArgs, FuncArgs};
 use crate::iterator;
-use crate::pyobject::{
-    BorrowValue, PyClassImpl, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
-    TryFromObject, TypeProtocol,
-};
 use crate::slots::PyIter;
 use crate::types::create_simple_type;
 use crate::VirtualMachine;
+use crate::{
+    BorrowValue, PyClassImpl, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
+    TryFromObject, TypeProtocol,
+};
 
 #[repr(i32)]
 pub enum QuoteStyle {

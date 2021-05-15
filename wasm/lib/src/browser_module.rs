@@ -6,11 +6,11 @@ use wasm_bindgen_futures::JsFuture;
 use rustpython_vm::builtins::{PyDictRef, PyStrRef, PyTypeRef};
 use rustpython_vm::function::OptionalArg;
 use rustpython_vm::import::import_file;
-use rustpython_vm::pyobject::{
+use rustpython_vm::VirtualMachine;
+use rustpython_vm::{
     BorrowValue, IntoPyObject, PyCallable, PyClassImpl, PyObject, PyObjectRef, PyResult, PyValue,
     StaticType,
 };
-use rustpython_vm::VirtualMachine;
 
 use crate::{convert, js_module::PyPromise, vm_class::weak_vm, wasm_builtins::window};
 

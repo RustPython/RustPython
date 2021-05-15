@@ -5,10 +5,8 @@
 use crate::builtins::pystr::PyStrRef;
 use crate::builtins::pytype::PyTypeRef;
 use crate::function::OptionalArg;
-use crate::pyobject::{
-    BorrowValue, PyClassImpl, PyObject, PyObjectRef, PyResult, PyValue, StaticType,
-};
 use crate::vm::VirtualMachine;
+use crate::{BorrowValue, PyClassImpl, PyObject, PyObjectRef, PyResult, PyValue, StaticType};
 
 use itertools::Itertools;
 use unic_char_property::EnumeratedCharProperty;

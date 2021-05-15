@@ -1,5 +1,5 @@
-use crate::pyobject::PyObjectRef;
 use crate::vm::VirtualMachine;
+use crate::PyObjectRef;
 use std::borrow::Cow;
 use std::collections::HashMap;
 

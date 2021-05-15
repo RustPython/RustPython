@@ -7,8 +7,8 @@ mod decl {
     use crate::builtins::pystr::PyStrRef;
     use crate::builtins::pytype::PyTypeRef;
     use crate::compile::{self, Symbol, SymbolScope, SymbolTable, SymbolTableType};
-    use crate::pyobject::{BorrowValue, PyRef, PyResult, PyValue, StaticType};
     use crate::vm::VirtualMachine;
+    use crate::{BorrowValue, PyRef, PyResult, PyValue, StaticType};
 
     /// symtable. Return top level SymbolTable.
     /// See docs: https://docs.python.org/3/library/symtable.html?highlight=symtable#symtable.symtable

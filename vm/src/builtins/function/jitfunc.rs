@@ -4,11 +4,11 @@ use crate::builtins::{float, int, pybool, PyStrRef};
 use crate::bytecode::CodeFlags;
 use crate::exceptions::PyBaseExceptionRef;
 use crate::function::FuncArgs;
-use crate::pyobject::{
+use crate::VirtualMachine;
+use crate::{
     BorrowValue, IdProtocol, IntoPyObject, ItemProtocol, PyObjectRef, PyResult, TryFromObject,
     TypeProtocol,
 };
-use crate::VirtualMachine;
 use num_traits::ToPrimitive;
 use rustpython_jit::{AbiValue, Args, CompiledCode, JitArgumentError, JitType};
 

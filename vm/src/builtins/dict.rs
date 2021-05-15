@@ -9,13 +9,13 @@ use crate::dictdatatype::{self, DictKey};
 use crate::exceptions::PyBaseExceptionRef;
 use crate::function::{FuncArgs, KwArgs, OptionalArg};
 use crate::iterator;
-use crate::pyobject::{
+use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable};
+use crate::vm::{ReprGuard, VirtualMachine};
+use crate::{
     BorrowValue, IdProtocol, IntoPyObject, ItemProtocol, PyArithmaticValue::*, PyAttributes,
     PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol,
 };
-use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable};
-use crate::vm::{ReprGuard, VirtualMachine};
 
 pub type DictContentType = dictdatatype::Dict;
 

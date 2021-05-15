@@ -13,8 +13,8 @@ use super::os::errno_err;
 use crate::builtins::dict::{PyDictRef, PyMapping};
 use crate::builtins::pystr::PyStrRef;
 use crate::function::OptionalArg;
-use crate::pyobject::{BorrowValue, PyObjectRef, PyResult, PySequence, TryFromObject};
 use crate::VirtualMachine;
+use crate::{BorrowValue, PyObjectRef, PyResult, PySequence, TryFromObject};
 
 fn GetLastError() -> u32 {
     unsafe { winapi::um::errhandlingapi::GetLastError() }

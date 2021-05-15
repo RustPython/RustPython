@@ -1,12 +1,12 @@
-use crate::pyobject::{PyObjectRef, PyResult, TryFromObject};
 use crate::vm::VirtualMachine;
+use crate::{PyObjectRef, PyResult, TryFromObject};
 use std::{io, mem};
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     super::socket::init_winsock();
     #[cfg(unix)]
     {
-        use crate::pyobject::PyClassImpl;
+        use crate::PyClassImpl;
         decl::poll::PyPoll::make_class(&vm.ctx);
     }
 
@@ -154,8 +154,8 @@ mod decl {
     use super::*;
     use crate::exceptions::IntoPyException;
     use crate::function::OptionalOption;
-    use crate::pyobject::{Either, PyObjectRef, PyResult};
     use crate::vm::VirtualMachine;
+    use crate::{Either, PyObjectRef, PyResult};
 
     #[pyfunction]
     fn select(
@@ -256,8 +256,8 @@ mod decl {
         use crate::builtins::{PyFloat, PyTypeRef};
         use crate::common::lock::PyMutex;
         use crate::function::OptionalArg;
-        use crate::pyobject::{BorrowValue, IntoPyObject, PyValue, StaticType, TypeProtocol};
         use crate::stdlib::io::Fildes;
+        use crate::{BorrowValue, IntoPyObject, PyValue, StaticType, TypeProtocol};
         use libc::pollfd;
         use num_traits::ToPrimitive;
         use std::time;

@@ -64,7 +64,7 @@ pub fn impl_pymodule(
         parse_quote! {
             pub(crate) fn extend_module(
                 vm: &::rustpython_vm::VirtualMachine,
-                module: &::rustpython_vm::pyobject::PyObjectRef,
+                module: &::rustpython_vm::PyObjectRef,
             ) {
                 #module_extend_items
             }
@@ -73,7 +73,7 @@ pub fn impl_pymodule(
             #[allow(dead_code)]
             pub(crate) fn make_module(
                 vm: &::rustpython_vm::VirtualMachine
-            ) -> ::rustpython_vm::pyobject::PyObjectRef {
+            ) -> ::rustpython_vm::PyObjectRef {
                 let module = vm.new_module(MODULE_NAME, vm.ctx.new_dict());
                 extend_module(vm, &module);
                 module
@@ -318,7 +318,7 @@ impl ModuleItem for ClassItem {
                     .optional_name()
                     .unwrap_or_else(|| class_name.clone());
                 let new_class = quote_spanned!(ident.span() =>
-                    <#ident as ::rustpython_vm::pyobject::PyClassImpl>::make_class(&vm.ctx);
+                    <#ident as ::rustpython_vm::PyClassImpl>::make_class(&vm.ctx);
                 );
                 let item = quote! {
                     let new_class = #new_class;

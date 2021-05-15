@@ -1,9 +1,7 @@
 use super::pytype::PyTypeRef;
-use crate::pyobject::{
-    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
-};
 use crate::slots::SlotDescriptor;
 use crate::vm::VirtualMachine;
+use crate::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
 
 /// classmethod(function) -> method
 ///

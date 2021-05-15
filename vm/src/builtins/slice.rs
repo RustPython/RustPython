@@ -3,12 +3,12 @@
 use super::int::{PyInt, PyIntRef};
 use super::pytype::PyTypeRef;
 use crate::function::{FuncArgs, OptionalArg};
-use crate::pyobject::{
+use crate::slots::{Comparable, Hashable, PyComparisonOp, Unhashable};
+use crate::VirtualMachine;
+use crate::{
     BorrowValue, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
     PyResult, PyValue, TryIntoRef, TypeProtocol,
 };
-use crate::slots::{Comparable, Hashable, PyComparisonOp, Unhashable};
-use crate::VirtualMachine;
 use num_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, Zero};
 

@@ -7,8 +7,8 @@ mod hashlib {
     use crate::builtins::pytype::PyTypeRef;
     use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
     use crate::function::{FuncArgs, OptionalArg};
-    use crate::pyobject::{BorrowValue, PyResult, PyValue, StaticType};
     use crate::vm::VirtualMachine;
+    use crate::{BorrowValue, PyResult, PyValue, StaticType};
     use blake2::{Blake2b, Blake2s};
     use digest::DynDigest;
     use md5::Md5;

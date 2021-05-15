@@ -2,11 +2,11 @@ use self::OptionalArg::*;
 use crate::builtins::pytype::PyTypeRef;
 use crate::builtins::tuple::PyTupleRef;
 use crate::exceptions::PyBaseExceptionRef;
-use crate::pyobject::{
+use crate::vm::VirtualMachine;
+use crate::{
     BorrowValue, IntoPyObject, IntoPyResult, PyObjectRef, PyRef, PyResult, PyThreadingConstraint,
     PyValue, TryFromObject, TypeProtocol,
 };
-use crate::vm::VirtualMachine;
 use indexmap::IndexMap;
 use itertools::Itertools;
 use result_like::impl_option_like;

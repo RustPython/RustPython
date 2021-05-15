@@ -9,10 +9,10 @@ use crate::builtins::{code, list};
 #[cfg(feature = "rustpython-compiler")]
 use crate::compile;
 use crate::exceptions::PyBaseExceptionRef;
-use crate::pyobject::{BorrowValue, ItemProtocol, PyResult, PyValue, TryFromObject, TypeProtocol};
 use crate::scope::Scope;
 use crate::version::get_git_revision;
 use crate::vm::{InitParameter, VirtualMachine};
+use crate::{BorrowValue, ItemProtocol, PyResult, PyValue, TryFromObject, TypeProtocol};
 
 pub(crate) fn init_importlib(
     vm: &mut VirtualMachine,

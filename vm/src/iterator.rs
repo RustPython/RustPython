@@ -5,8 +5,8 @@
 use crate::builtins::int::{self, PyInt};
 use crate::builtins::iter::PySequenceIterator;
 use crate::exceptions::PyBaseExceptionRef;
-use crate::pyobject::{BorrowValue, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol};
 use crate::vm::VirtualMachine;
+use crate::{BorrowValue, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol};
 use num_traits::Signed;
 
 /*

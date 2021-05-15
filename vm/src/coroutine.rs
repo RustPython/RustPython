@@ -1,8 +1,8 @@
 use crate::builtins::{PyStrRef, PyTypeRef};
 use crate::exceptions::{self, PyBaseExceptionRef};
 use crate::frame::{ExecutionResult, FrameRef};
-use crate::pyobject::{PyObjectRef, PyResult, TypeProtocol};
 use crate::VirtualMachine;
+use crate::{PyObjectRef, PyResult, TypeProtocol};
 
 use crate::common::lock::PyMutex;
 use crossbeam_utils::atomic::AtomicCell;

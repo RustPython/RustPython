@@ -7,8 +7,8 @@ mod decl {
     use crate::bytecode;
     use crate::byteslike::PyBytesLike;
     use crate::common::borrow::BorrowValue;
-    use crate::pyobject::{PyObjectRef, PyResult, TryFromObject};
     use crate::vm::VirtualMachine;
+    use crate::{PyObjectRef, PyResult, TryFromObject};
 
     #[pyfunction]
     fn dumps(co: PyCodeRef) -> PyBytes {

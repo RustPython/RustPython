@@ -7,8 +7,8 @@ mod decl {
     use rustpython_parser::lexer;
 
     use crate::builtins::pystr::PyStrRef;
-    use crate::pyobject::{BorrowValue, PyObjectRef};
     use crate::vm::VirtualMachine;
+    use crate::{BorrowValue, PyObjectRef};
 
     #[pyfunction]
     fn iskeyword(s: PyStrRef) -> bool {

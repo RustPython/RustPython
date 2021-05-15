@@ -1,12 +1,12 @@
 use super::pytype::PyTypeRef;
 use crate::common::hash::PyHash;
 use crate::function::{FuncArgs, OptionalArg};
-use crate::pyobject::{
+use crate::slots::{Callable, Comparable, Hashable, PyComparisonOp};
+use crate::vm::VirtualMachine;
+use crate::{
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyObjectWeak, PyRef, PyResult, PyValue,
     TypeProtocol,
 };
-use crate::slots::{Callable, Comparable, Hashable, PyComparisonOp};
-use crate::vm::VirtualMachine;
 
 use crossbeam_utils::atomic::AtomicCell;
 
@@ -94,7 +94,7 @@ impl Comparable for PyWeak {
         other: &PyObjectRef,
         op: PyComparisonOp,
         vm: &VirtualMachine,
-    ) -> PyResult<crate::pyobject::PyComparisonValue> {
+    ) -> PyResult<crate::PyComparisonValue> {
         op.eq_only(|| {
             let other = class_or_notimplemented!(Self, other);
             let both = zelf.upgrade().and_then(|s| other.upgrade().map(|o| (s, o)));

@@ -46,13 +46,9 @@ extern crate log;
 
 use clap::{App, AppSettings, Arg, ArgMatches};
 use rustpython_vm::{
-    builtins::PyInt,
-    compile,
-    exceptions::print_exception,
-    match_class,
-    pyobject::{BorrowValue, ItemProtocol, PyResult, TypeProtocol},
-    scope::Scope,
-    sysmodule, InitParameter, Interpreter, PySettings, VirtualMachine,
+    builtins::PyInt, compile, exceptions::print_exception, match_class, scope::Scope, sysmodule,
+    BorrowValue, InitParameter, Interpreter, ItemProtocol, PyResult, PySettings, TypeProtocol,
+    VirtualMachine,
 };
 
 use std::convert::TryInto;

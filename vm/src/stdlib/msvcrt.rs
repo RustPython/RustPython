@@ -1,8 +1,8 @@
 use super::os::errno_err;
 use crate::builtins::bytes::PyBytesRef;
 use crate::builtins::pystr::PyStrRef;
-use crate::pyobject::{BorrowValue, PyObjectRef, PyResult};
 use crate::VirtualMachine;
+use crate::{BorrowValue, PyObjectRef, PyResult};
 
 use itertools::Itertools;
 use winapi::shared::minwindef::UINT;

@@ -7,8 +7,8 @@ mod decl {
     use crate::builtins::pystr::PyStrRef;
     use crate::bytecode::CodeFlags;
     use crate::compile;
-    use crate::pyobject::{BorrowValue, ItemProtocol, PyObjectRef, PyResult, TryFromObject};
     use crate::vm::VirtualMachine;
+    use crate::{BorrowValue, ItemProtocol, PyObjectRef, PyResult, TryFromObject};
 
     #[pyfunction]
     fn dis(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {

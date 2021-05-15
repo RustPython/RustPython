@@ -12,13 +12,13 @@ use crate::common::lock::{
     PyRwLockWriteGuard,
 };
 use crate::function::OptionalArg;
-use crate::pyobject::{
-    BorrowValue, Either, IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyIterable,
-    PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
-};
 use crate::sliceable::{saturate_index, PySliceableSequence, PySliceableSequenceMut};
 use crate::slots::{BufferProtocol, Comparable, Iterable, PyComparisonOp, PyIter};
 use crate::VirtualMachine;
+use crate::{
+    BorrowValue, Either, IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyIterable,
+    PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
+};
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
 use std::cmp::Ordering;

@@ -9,12 +9,12 @@ https://github.com/python/cpython/blob/50b48572d9a90c5bb36e2bef6179548ea927a35a/
 use super::pystr::PyStrRef;
 use super::pytype::{PyType, PyTypeRef};
 use crate::function::OptionalArg;
-use crate::pyobject::{
+use crate::slots::{SlotDescriptor, SlotGetattro};
+use crate::vm::VirtualMachine;
+use crate::{
     BorrowValue, IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TypeProtocol,
 };
-use crate::slots::{SlotDescriptor, SlotGetattro};
-use crate::vm::VirtualMachine;
 
 #[pyclass(module = false, name = "super")]
 #[derive(Debug)]

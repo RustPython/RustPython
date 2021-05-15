@@ -1,6 +1,6 @@
 use rustpython_vm::builtins::{PyDictRef, PyStrRef};
-use rustpython_vm::pyobject::{BorrowValue, PyIterable, PyResult, TryFromObject};
 use rustpython_vm::VirtualMachine;
+use rustpython_vm::{BorrowValue, PyIterable, PyResult, TryFromObject};
 
 pub struct ShellHelper<'vm> {
     vm: &'vm VirtualMachine,

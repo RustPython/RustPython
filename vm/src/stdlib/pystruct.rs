@@ -9,7 +9,7 @@
  * https://docs.rs/byteorder/1.2.6/byteorder/
  */
 
-use crate::pyobject::PyObjectRef;
+use crate::PyObjectRef;
 use crate::VirtualMachine;
 
 #[pymodule]
@@ -29,12 +29,12 @@ pub(crate) mod _struct {
     use crate::byteslike::{PyBytesLike, PyRwBytesLike};
     use crate::exceptions::PyBaseExceptionRef;
     use crate::function::Args;
-    use crate::pyobject::{
+    use crate::slots::PyIter;
+    use crate::VirtualMachine;
+    use crate::{
         BorrowValue, Either, IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
         TryFromObject,
     };
-    use crate::slots::PyIter;
-    use crate::VirtualMachine;
     use half::f16;
 
     #[derive(Debug, Copy, Clone, PartialEq)]

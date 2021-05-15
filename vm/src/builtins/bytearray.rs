@@ -16,15 +16,15 @@ use crate::byteslike::PyBytesLike;
 use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
 use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::function::{OptionalArg, OptionalOption};
-use crate::pyobject::{
-    BorrowValue, Either, IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext,
-    PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
-};
 use crate::sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex};
 use crate::slots::{
     BufferProtocol, Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable,
 };
 use crate::vm::VirtualMachine;
+use crate::{
+    BorrowValue, Either, IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext,
+    PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+};
 use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;
 use std::mem::size_of;

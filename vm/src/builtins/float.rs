@@ -9,14 +9,14 @@ use super::pystr::{PyStr, PyStrRef};
 use super::pytype::PyTypeRef;
 use crate::format::FormatSpec;
 use crate::function::{OptionalArg, OptionalOption};
-use crate::pyobject::{
+use crate::slots::{Comparable, Hashable, PyComparisonOp};
+use crate::VirtualMachine;
+use crate::{
     BorrowValue, IdProtocol, IntoPyObject,
     PyArithmaticValue::{self, *},
     PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol,
 };
-use crate::slots::{Comparable, Hashable, PyComparisonOp};
-use crate::VirtualMachine;
 use rustpython_common::{float_ops, hash};
 
 /// Convert a string or number to a floating point number, if possible.

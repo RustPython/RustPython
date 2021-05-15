@@ -6,14 +6,14 @@ use crate::builtins::tuple::{PyTuple, PyTupleRef};
 use crate::common::lock::PyRwLock;
 use crate::function::FuncArgs;
 use crate::py_io::{self, Write};
-use crate::pyobject::StaticType;
-use crate::pyobject::{
+use crate::sysmodule;
+use crate::types::create_type_with_slots;
+use crate::StaticType;
+use crate::VirtualMachine;
+use crate::{
     BorrowValue, IntoPyObject, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult,
     PyValue, TryFromObject, TypeProtocol,
 };
-use crate::sysmodule;
-use crate::types::create_type_with_slots;
-use crate::VirtualMachine;
 
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;

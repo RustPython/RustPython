@@ -5,11 +5,11 @@ use crate::builtins::{PyStr, PyStrRef, PyTypeRef};
 use crate::common::hash::{PyHash, PyUHash};
 use crate::frame::FrameRef;
 use crate::function::{Args, FuncArgs, OptionalArg};
-use crate::pyobject::{
-    ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRefExact, PyResult, PyStructSequence,
-};
 use crate::vm::{PySettings, VirtualMachine};
 use crate::{builtins, exceptions, py_io, version};
+use crate::{
+    ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRefExact, PyResult, PyStructSequence,
+};
 
 /*
  * The magic sys module.

@@ -5,8 +5,8 @@ mod _warnings {
     use crate::builtins::pystr::PyStrRef;
     use crate::builtins::pytype::PyTypeRef;
     use crate::function::OptionalArg;
-    use crate::pyobject::{PyResult, TypeProtocol};
     use crate::vm::VirtualMachine;
+    use crate::{PyResult, TypeProtocol};
 
     #[derive(FromArgs)]
     struct WarnArgs {

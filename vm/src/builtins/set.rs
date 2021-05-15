@@ -7,12 +7,12 @@ use crate::common::rc::PyRc;
 use crate::dictdatatype;
 use crate::function::OptionalArg::{Missing, Present};
 use crate::function::{Args, OptionalArg};
-use crate::pyobject::{
-    self, BorrowValue, IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyIterable,
-    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
-};
 use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable};
 use crate::vm::{ReprGuard, VirtualMachine};
+use crate::{
+    BorrowValue, IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef,
+    PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+};
 use crossbeam_utils::atomic::AtomicCell;
 use std::fmt;
 
@@ -291,7 +291,7 @@ impl PySetInner {
     }
 
     fn hash(&self, vm: &VirtualMachine) -> PyResult<PyHash> {
-        pyobject::hash_iter_unordered(self.content.keys().iter(), vm)
+        crate::hash_iter_unordered(self.content.keys().iter(), vm)
     }
 }
 

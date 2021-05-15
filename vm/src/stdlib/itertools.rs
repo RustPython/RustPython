@@ -15,12 +15,12 @@ mod decl {
     use crate::common::rc::PyRc;
     use crate::function::{Args, FuncArgs, OptionalArg, OptionalOption};
     use crate::iterator::{call_next, get_all, get_iter, get_next_object};
-    use crate::pyobject::{
+    use crate::slots::PyIter;
+    use crate::vm::VirtualMachine;
+    use crate::{
         BorrowValue, IdProtocol, IntoPyObject, PyCallable, PyObjectRef, PyRef, PyResult, PyValue,
         PyWeakRef, StaticType, TypeProtocol,
     };
-    use crate::slots::PyIter;
-    use crate::vm::VirtualMachine;
 
     #[pyattr]
     #[pyclass(name = "chain")]

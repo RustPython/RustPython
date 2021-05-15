@@ -1,5 +1,5 @@
-use crate::pyobject::{ItemProtocol, PyObjectRef};
 use crate::VirtualMachine;
+use crate::{ItemProtocol, PyObjectRef};
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let errorcode = vm.ctx.new_dict();

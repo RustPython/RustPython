@@ -4,11 +4,11 @@ use num_traits::Zero;
 use super::int::PyInt;
 use super::pystr::PyStrRef;
 use crate::function::OptionalArg;
-use crate::pyobject::{
+use crate::vm::VirtualMachine;
+use crate::{
     BorrowValue, IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyResult,
     TryFromObject, TypeProtocol,
 };
-use crate::vm::VirtualMachine;
 
 impl IntoPyObject for bool {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {

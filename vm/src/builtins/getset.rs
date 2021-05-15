@@ -3,12 +3,12 @@
 */
 use super::pytype::PyTypeRef;
 use crate::function::{OwnedParam, RefParam};
-use crate::pyobject::{
+use crate::slots::SlotDescriptor;
+use crate::vm::VirtualMachine;
+use crate::{
     IntoPyResult, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyThreadingConstraint,
     PyValue, TryFromObject, TypeProtocol,
 };
-use crate::slots::SlotDescriptor;
-use crate::vm::VirtualMachine;
 
 pub type PyGetterFunc = Box<py_dyn_fn!(dyn Fn(&VirtualMachine, PyObjectRef) -> PyResult)>;
 pub type PySetterFunc =

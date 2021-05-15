@@ -15,12 +15,12 @@ mod _sre {
         PyCallableIterator, PyDictRef, PyInt, PyList, PyStr, PyStrRef, PyTypeRef,
     };
     use crate::function::{Args, OptionalArg};
-    use crate::pyobject::{
+    use crate::slots::{Comparable, Hashable};
+    use crate::VirtualMachine;
+    use crate::{
         IntoPyObject, ItemProtocol, PyCallable, PyComparisonValue, PyObjectRef, PyRef, PyResult,
         PyValue, StaticType, TryFromObject,
     };
-    use crate::slots::{Comparable, Hashable};
-    use crate::VirtualMachine;
     use core::str;
     use sre_engine::constants::SreFlag;
     use sre_engine::engine::{lower_ascii, lower_unicode, upper_unicode, State, StrDrive};

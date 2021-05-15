@@ -1,5 +1,5 @@
-use crate::pyobject::{IntoPyObject, ItemProtocol, PyObjectRef};
 use crate::VirtualMachine;
+use crate::{IntoPyObject, ItemProtocol, PyObjectRef};
 
 use crate::sysmodule::MULTIARCH;
 

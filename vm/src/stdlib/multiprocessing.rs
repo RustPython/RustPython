@@ -5,7 +5,7 @@ pub(crate) use _multiprocessing::make_module;
 mod _multiprocessing {
     use super::super::os;
     use crate::byteslike::PyBytesLike;
-    use crate::pyobject::PyResult;
+    use crate::PyResult;
     use crate::VirtualMachine;
     use winapi::um::winsock2::{self, SOCKET};
 

@@ -6,8 +6,8 @@ use super::code::PyCodeRef;
 use super::dict::PyDictRef;
 use super::pystr::PyStrRef;
 use crate::frame::{Frame, FrameRef};
-use crate::pyobject::{IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult};
 use crate::vm::VirtualMachine;
+use crate::{IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult};
 
 pub fn init(context: &PyContext) {
     FrameRef::extend_class(context, &context.types.frame_type);

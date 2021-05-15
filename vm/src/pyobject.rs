@@ -1000,7 +1000,7 @@ impl<A: IntoPyObject, B: IntoPyObject> IntoPyObject for Either<A, B> {
 /// ```
 /// use rustpython_vm::VirtualMachine;
 /// use rustpython_vm::builtins::{PyStrRef, PyIntRef};
-/// use rustpython_vm::pyobject::Either;
+/// use rustpython_vm::Either;
 ///
 /// fn do_something(arg: Either<PyIntRef, PyStrRef>, vm: &VirtualMachine) {
 ///     match arg {

@@ -3,14 +3,14 @@ use crate::builtins::code::PyCode;
 use crate::builtins::module::PyModuleRef;
 use crate::builtins::pystr::{self, PyStr, PyStrRef};
 use crate::import;
-use crate::pyobject::{BorrowValue, ItemProtocol, PyObjectRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
+use crate::{BorrowValue, ItemProtocol, PyObjectRef, PyResult, PyValue};
 
 #[cfg(feature = "threading")]
 mod lock {
-    use crate::pyobject::PyResult;
     use crate::stdlib::thread::RawRMutex;
     use crate::vm::VirtualMachine;
+    use crate::PyResult;
 
     pub(super) static IMP_LOCK: RawRMutex = RawRMutex::INIT;
 

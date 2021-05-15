@@ -7,11 +7,11 @@ use super::int::PyIntRef;
 use super::pytype::PyTypeRef;
 use crate::function::OptionalArg;
 use crate::iterator;
-use crate::pyobject::{
-    BorrowValue, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-};
 use crate::slots::PyIter;
 use crate::vm::VirtualMachine;
+use crate::{
+    BorrowValue, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+};
 
 #[pyclass(module = false, name = "enumerate")]
 #[derive(Debug)]

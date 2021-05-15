@@ -9,9 +9,9 @@ mod decl {
     use crate::common::lock::PyMutex;
     use crate::exceptions::PyBaseExceptionRef;
     use crate::function::OptionalArg;
-    use crate::pyobject::{BorrowValue, IntoPyRef, PyResult, PyValue, StaticType};
     use crate::types::create_simple_type;
     use crate::vm::VirtualMachine;
+    use crate::{BorrowValue, IntoPyRef, PyResult, PyValue, StaticType};
 
     use adler32::RollingAdler32 as Adler32;
     use crc32fast::Hasher as Crc32;

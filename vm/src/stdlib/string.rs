@@ -13,8 +13,8 @@ mod _string {
     use crate::format::{
         FieldName, FieldNamePart, FieldType, FormatPart, FormatString, FromTemplate,
     };
-    use crate::pyobject::{BorrowValue, IntoPyObject, PyObjectRef, PyResult};
     use crate::vm::VirtualMachine;
+    use crate::{BorrowValue, IntoPyObject, PyObjectRef, PyResult};
 
     fn create_format_part(
         literal: String,

@@ -9,13 +9,13 @@ use wasm_bindgen_futures::{future_to_promise, JsFuture};
 use rustpython_vm::builtins::{PyFloatRef, PyStrRef, PyTypeRef};
 use rustpython_vm::exceptions::PyBaseExceptionRef;
 use rustpython_vm::function::{Args, OptionalArg, OptionalOption};
-use rustpython_vm::pyobject::{
-    BorrowValue, IntoPyObject, PyCallable, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
-    StaticType, TryFromObject,
-};
 use rustpython_vm::slots::PyIter;
 use rustpython_vm::types::create_simple_type;
 use rustpython_vm::VirtualMachine;
+use rustpython_vm::{
+    BorrowValue, IntoPyObject, PyCallable, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
+    StaticType, TryFromObject,
+};
 
 #[wasm_bindgen(inline_js = "
 export function has_prop(target, prop) { return prop in Object(target); }

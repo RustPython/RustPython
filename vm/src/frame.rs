@@ -25,13 +25,13 @@ use crate::coroutine::Coro;
 use crate::exceptions::{self, ExceptionCtor, PyBaseExceptionRef};
 use crate::function::FuncArgs;
 use crate::iterator;
-use crate::pyobject::{
-    BorrowValue, IdProtocol, ItemProtocol, PyMethod, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
-};
 use crate::scope::Scope;
 use crate::slots::PyComparisonOp;
 use crate::vm::VirtualMachine;
+use crate::{
+    BorrowValue, IdProtocol, ItemProtocol, PyMethod, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol,
+};
 
 #[derive(Clone, Debug)]
 struct Block {
@@ -434,7 +434,7 @@ impl ExecutingFrame<'_> {
         exc_tb: PyObjectRef,
     ) -> PyResult<ExecutionResult> {
         if let Some(coro) = self.yield_from_target() {
-            use crate::pyobject::Either;
+            use crate::Either;
             // borrow checker shenanigans - we only need to use exc_type/val/tb if the following
             // variable is Some
             let thrower = if let Some(coro) = self.builtin_coro(coro) {

@@ -15,15 +15,15 @@ use crate::bytesinner::{
 };
 use crate::common::hash::PyHash;
 use crate::function::{OptionalArg, OptionalOption};
-use crate::pyobject::{
-    BorrowValue, Either, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyIterable,
-    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
-};
 use crate::slots::{BufferProtocol, Comparable, Hashable, Iterable, PyComparisonOp, PyIter};
 use crate::vm::VirtualMachine;
 use crate::{
     anystr::{self, AnyStr},
     byteslike::PyBytesLike,
+};
+use crate::{
+    BorrowValue, Either, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyIterable,
+    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 
 use crate::builtins::memory::{Buffer, BufferOptions};

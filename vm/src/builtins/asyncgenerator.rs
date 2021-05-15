@@ -5,11 +5,11 @@ use crate::coroutine::{Coro, Variant};
 use crate::exceptions::PyBaseExceptionRef;
 use crate::frame::FrameRef;
 use crate::function::OptionalArg;
-use crate::pyobject::{
-    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
-};
 use crate::slots::PyIter;
 use crate::vm::VirtualMachine;
+use crate::{
+    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+};
 
 use crossbeam_utils::atomic::AtomicCell;
 

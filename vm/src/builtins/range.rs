@@ -8,12 +8,12 @@ use super::pytype::PyTypeRef;
 use super::slice::{PySlice, PySliceRef};
 use crate::common::hash::PyHash;
 use crate::function::{FuncArgs, OptionalArg};
-use crate::pyobject::{
-    self, BorrowValue, IdProtocol, IntoPyRef, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
-    PyValue, TryFromObject, TypeProtocol,
-};
 use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter};
 use crate::vm::VirtualMachine;
+use crate::{
+    BorrowValue, IdProtocol, IntoPyRef, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
+    PyValue, TryFromObject, TypeProtocol,
+};
 
 /// range(stop) -> range object
 /// range(start, stop[, step]) -> range object
@@ -341,7 +341,7 @@ impl Hashable for PyRange {
                 zelf.step().into_object(),
             ]
         };
-        pyobject::hash_iter(elements.iter(), vm)
+        crate::hash_iter(elements.iter(), vm)
     }
 }
 
@@ -351,7 +351,7 @@ impl Comparable for PyRange {
         other: &PyObjectRef,
         op: PyComparisonOp,
         _vm: &VirtualMachine,
-    ) -> PyResult<pyobject::PyComparisonValue> {
+    ) -> PyResult<crate::PyComparisonValue> {
         op.eq_only(|| {
             if zelf.is(other) {
                 return Ok(true.into());

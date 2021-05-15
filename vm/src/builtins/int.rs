@@ -15,14 +15,14 @@ use super::pystr::{PyStr, PyStrRef};
 use super::pytype::PyTypeRef;
 use crate::format::FormatSpec;
 use crate::function::{OptionalArg, OptionalOption};
-use crate::pyobject::{
+use crate::slots::{Comparable, Hashable, PyComparisonOp};
+use crate::VirtualMachine;
+use crate::{bytesinner::PyBytesInner, byteslike::try_bytes_like};
+use crate::{
     BorrowValue, IdProtocol, IntoPyObject, IntoPyResult, PyArithmaticValue, PyClassImpl,
     PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
 };
-use crate::slots::{Comparable, Hashable, PyComparisonOp};
-use crate::VirtualMachine;
-use crate::{bytesinner::PyBytesInner, byteslike::try_bytes_like};
 use rustpython_common::hash;
 
 /// int(x=0) -> integer
