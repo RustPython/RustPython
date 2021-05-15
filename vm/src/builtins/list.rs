@@ -12,9 +12,10 @@ use crate::function::OptionalArg;
 use crate::sequence::{self, SimpleSeq};
 use crate::sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex};
 use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable};
+use crate::utils::Either;
 use crate::vm::{ReprGuard, VirtualMachine};
 use crate::{
-    BorrowValue, Either, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef,
+    BorrowValue, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef,
     PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 

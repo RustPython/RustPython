@@ -22,11 +22,11 @@ use crate::format::{FormatSpec, FormatString, FromTemplate};
 use crate::function::{FuncArgs, OptionalArg, OptionalOption};
 use crate::sliceable::PySliceableSequence;
 use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter};
+use crate::utils::Either;
 use crate::VirtualMachine;
 use crate::{
-    BorrowValue, Either, IdProtocol, IntoPyObject, ItemProtocol, PyClassImpl, PyComparisonValue,
-    PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TryIntoRef,
-    TypeProtocol,
+    BorrowValue, IdProtocol, IntoPyObject, ItemProtocol, PyClassImpl, PyComparisonValue, PyContext,
+    PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
 };
 use rustpython_common::hash;
 

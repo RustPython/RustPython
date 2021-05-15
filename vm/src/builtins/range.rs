@@ -341,7 +341,7 @@ impl Hashable for PyRange {
                 zelf.step().into_object(),
             ]
         };
-        crate::hash_iter(elements.iter(), vm)
+        crate::utils::hash_iter(elements.iter(), vm)
     }
 }
 

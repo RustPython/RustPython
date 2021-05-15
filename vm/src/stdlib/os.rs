@@ -24,10 +24,11 @@ use crate::common::lock::PyRwLock;
 use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
 use crate::function::{ArgumentError, FromArgs, FuncArgs, OptionalArg};
 use crate::slots::PyIter;
+use crate::utils::Either;
 use crate::vm::{ReprGuard, VirtualMachine};
 use crate::{
-    BorrowValue, Either, IntoPyObject, ItemProtocol, PyObjectRef, PyRef, PyResult,
-    PyStructSequence, PyValue, StaticType, TryFromObject, TypeProtocol,
+    BorrowValue, IntoPyObject, ItemProtocol, PyObjectRef, PyRef, PyResult, PyStructSequence,
+    PyValue, StaticType, TryFromObject, TypeProtocol,
 };
 
 #[cfg(unix)]

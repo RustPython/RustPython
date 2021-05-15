@@ -31,10 +31,11 @@ mod decl {
     use crate::readline::{Readline, ReadlineResult};
     use crate::scope::Scope;
     use crate::slots::PyComparisonOp;
+    use crate::utils::Either;
     use crate::vm::VirtualMachine;
     use crate::{py_io, sysmodule};
     use crate::{
-        BorrowValue, Either, IdProtocol, ItemProtocol, PyArithmaticValue, PyCallable, PyClassImpl,
+        BorrowValue, IdProtocol, ItemProtocol, PyArithmaticValue, PyCallable, PyClassImpl,
         PyIterable, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
     };
     use num_traits::{Signed, Zero};

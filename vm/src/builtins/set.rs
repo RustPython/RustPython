@@ -291,7 +291,7 @@ impl PySetInner {
     }
 
     fn hash(&self, vm: &VirtualMachine) -> PyResult<PyHash> {
-        crate::hash_iter_unordered(self.content.keys().iter(), vm)
+        crate::utils::hash_iter_unordered(self.content.keys().iter(), vm)
     }
 }
 

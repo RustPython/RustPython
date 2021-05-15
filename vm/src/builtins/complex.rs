@@ -1,5 +1,6 @@
 use num_complex::Complex64;
 use num_traits::Zero;
+use std::convert::Infallible as Never;
 
 use super::float;
 use super::pystr::PyStr;
@@ -8,7 +9,7 @@ use crate::function::{OptionalArg, OptionalOption};
 use crate::slots::{Comparable, Hashable, PyComparisonOp};
 use crate::VirtualMachine;
 use crate::{
-    BorrowValue, IdProtocol, IntoPyObject, Never,
+    BorrowValue, IdProtocol, IntoPyObject,
     PyArithmaticValue::{self, *},
     PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };

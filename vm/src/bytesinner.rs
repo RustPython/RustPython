@@ -15,9 +15,10 @@ use crate::cformat::CFormatBytes;
 use crate::function::{OptionalArg, OptionalOption};
 use crate::sliceable::PySliceableSequence;
 use crate::slots::PyComparisonOp;
+use crate::utils::Either;
 use crate::vm::VirtualMachine;
 use crate::{
-    BorrowValue, Either, IdProtocol, PyComparisonValue, PyIterable, PyObjectRef, PyResult, PyValue,
+    BorrowValue, IdProtocol, PyComparisonValue, PyIterable, PyObjectRef, PyResult, PyValue,
     TryFromObject,
 };
 use rustpython_common::hash;

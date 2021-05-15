@@ -8,22 +8,21 @@ use super::dict::PyDictRef;
 use super::int::PyIntRef;
 use super::pystr::PyStrRef;
 use super::pytype::PyTypeRef;
+use crate::anystr::{self, AnyStr};
 use crate::builtins::tuple::PyTupleRef;
 use crate::bytesinner::{
     bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
     ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
 };
+use crate::byteslike::PyBytesLike;
 use crate::common::hash::PyHash;
 use crate::function::{OptionalArg, OptionalOption};
 use crate::slots::{BufferProtocol, Comparable, Hashable, Iterable, PyComparisonOp, PyIter};
+use crate::utils::Either;
 use crate::vm::VirtualMachine;
 use crate::{
-    anystr::{self, AnyStr},
-    byteslike::PyBytesLike,
-};
-use crate::{
-    BorrowValue, Either, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyIterable,
-    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    BorrowValue, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef,
+    PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 
 use crate::builtins::memory::{Buffer, BufferOptions};

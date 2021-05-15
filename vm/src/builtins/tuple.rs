@@ -8,11 +8,12 @@ use crate::function::OptionalArg;
 use crate::sequence::{self, SimpleSeq};
 use crate::sliceable::PySliceableSequence;
 use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter};
+use crate::utils::Either;
 use crate::vm::{ReprGuard, VirtualMachine};
 use crate::{
-    BorrowValue, Either, IdProtocol, IntoPyObject, PyArithmaticValue, PyClassImpl,
-    PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TransmuteFromObject,
-    TryFromObject, TypeProtocol,
+    BorrowValue, IdProtocol, IntoPyObject, PyArithmaticValue, PyClassImpl, PyComparisonValue,
+    PyContext, PyObjectRef, PyRef, PyResult, PyValue, TransmuteFromObject, TryFromObject,
+    TypeProtocol,
 };
 
 /// tuple() -> empty tuple
@@ -266,7 +267,7 @@ impl PyTuple {
 
 impl Hashable for PyTuple {
     fn hash(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
-        crate::hash_iter(zelf.elements.iter(), vm)
+        crate::utils::hash_iter(zelf.elements.iter(), vm)
     }
 }
 

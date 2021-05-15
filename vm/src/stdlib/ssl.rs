@@ -5,10 +5,11 @@ use crate::byteslike::{PyBytesLike, PyRwBytesLike};
 use crate::common::lock::{PyRwLock, PyRwLockWriteGuard};
 use crate::exceptions::{create_exception_type, IntoPyException, PyBaseExceptionRef};
 use crate::function::OptionalArg;
+use crate::utils::Either;
 use crate::VirtualMachine;
 use crate::{
-    BorrowValue, Either, IntoPyObject, ItemProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef,
-    PyResult, PyValue, StaticType,
+    BorrowValue, IntoPyObject, ItemProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef, PyResult,
+    PyValue, StaticType,
 };
 
 use crossbeam_utils::atomic::AtomicCell;

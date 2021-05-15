@@ -88,10 +88,11 @@ mod _io {
     use crate::common::rc::PyRc;
     use crate::exceptions::{self, IntoPyException, PyBaseExceptionRef};
     use crate::function::{FuncArgs, OptionalArg, OptionalOption};
+    use crate::utils::Either;
     use crate::vm::{ReprGuard, VirtualMachine};
     use crate::{
-        BorrowValue, Either, IdProtocol, IntoPyObject, PyContext, PyIterable, PyObjectRef, PyRef,
-        PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
+        BorrowValue, IdProtocol, IntoPyObject, PyContext, PyIterable, PyObjectRef, PyRef, PyResult,
+        PyValue, StaticType, TryFromObject, TypeProtocol,
     };
 
     fn validate_whence(whence: i32) -> bool {

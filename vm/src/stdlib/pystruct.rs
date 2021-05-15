@@ -30,10 +30,10 @@ pub(crate) mod _struct {
     use crate::exceptions::PyBaseExceptionRef;
     use crate::function::Args;
     use crate::slots::PyIter;
+    use crate::utils::Either;
     use crate::VirtualMachine;
     use crate::{
-        BorrowValue, Either, IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
-        TryFromObject,
+        BorrowValue, IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject,
     };
     use half::f16;
 

@@ -14,10 +14,11 @@ use crate::common::lock::{
 use crate::function::OptionalArg;
 use crate::sliceable::{saturate_index, PySliceableSequence, PySliceableSequenceMut};
 use crate::slots::{BufferProtocol, Comparable, Iterable, PyComparisonOp, PyIter};
+use crate::utils::Either;
 use crate::VirtualMachine;
 use crate::{
-    BorrowValue, Either, IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyIterable,
-    PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
+    BorrowValue, IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyIterable, PyObjectRef,
+    PyRef, PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;

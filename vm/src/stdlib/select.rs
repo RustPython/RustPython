@@ -154,8 +154,9 @@ mod decl {
     use super::*;
     use crate::exceptions::IntoPyException;
     use crate::function::OptionalOption;
+    use crate::utils::Either;
     use crate::vm::VirtualMachine;
-    use crate::{Either, PyObjectRef, PyResult};
+    use crate::{PyObjectRef, PyResult};
 
     #[pyfunction]
     fn select(

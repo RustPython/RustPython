@@ -7,10 +7,11 @@ use crate::exceptions::{self, IntoPyException};
 use crate::function::{FuncArgs, KwArgs, OptionalArg};
 use crate::py_io;
 use crate::slots::{SlotGetattro, SlotSetattro};
+use crate::utils::Either;
 use crate::VirtualMachine;
 use crate::{
-    BorrowValue, Either, IdProtocol, ItemProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef,
-    PyResult, PyValue, StaticType, TypeProtocol,
+    BorrowValue, IdProtocol, ItemProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef, PyResult,
+    PyValue, StaticType, TypeProtocol,
 };
 
 use parking_lot::{

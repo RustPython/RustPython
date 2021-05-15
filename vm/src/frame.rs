@@ -434,7 +434,7 @@ impl ExecutingFrame<'_> {
         exc_tb: PyObjectRef,
     ) -> PyResult<ExecutionResult> {
         if let Some(coro) = self.yield_from_target() {
-            use crate::Either;
+            use crate::utils::Either;
             // borrow checker shenanigans - we only need to use exc_type/val/tb if the following
             // variable is Some
             let thrower = if let Some(coro) = self.builtin_coro(coro) {

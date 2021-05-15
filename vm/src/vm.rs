@@ -31,10 +31,11 @@ use crate::frame::{ExecutionResult, Frame, FrameRef};
 use crate::function::{FuncArgs, IntoFuncArgs};
 use crate::scope::Scope;
 use crate::slots::PyComparisonOp;
+use crate::utils::Either;
 use crate::{builtins, bytecode, frozen, import, iterator, stdlib, sysmodule};
 use crate::{
-    BorrowValue, Either, IdProtocol, IntoPyObject, ItemProtocol, PyArithmaticValue, PyContext,
-    PyLease, PyMethod, PyObject, PyObjectRef, PyRef, PyRefExact, PyResult, PyValue, TryFromObject,
+    BorrowValue, IdProtocol, IntoPyObject, ItemProtocol, PyArithmaticValue, PyContext, PyLease,
+    PyMethod, PyObject, PyObjectRef, PyRef, PyRefExact, PyResult, PyValue, TryFromObject,
     TryIntoRef, TypeProtocol,
 };
 

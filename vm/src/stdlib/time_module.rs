@@ -10,10 +10,9 @@ use chrono::{Datelike, Timelike};
 use crate::builtins::pystr::PyStrRef;
 use crate::builtins::pytype::PyTypeRef;
 use crate::function::OptionalArg;
+use crate::utils::Either;
 use crate::vm::VirtualMachine;
-use crate::{
-    BorrowValue, Either, PyClassImpl, PyObjectRef, PyResult, PyStructSequence, TryFromObject,
-};
+use crate::{BorrowValue, PyClassImpl, PyObjectRef, PyResult, PyStructSequence, TryFromObject};
 
 #[cfg(unix)]
 fn time_sleep(dur: Duration, vm: &VirtualMachine) -> PyResult<()> {

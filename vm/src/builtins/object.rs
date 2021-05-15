@@ -7,9 +7,10 @@ use crate::builtins::pytype::PyType;
 use crate::common::hash::PyHash;
 use crate::function::FuncArgs;
 use crate::slots::PyComparisonOp;
+use crate::utils::Either;
 use crate::vm::VirtualMachine;
 use crate::{
-    BorrowValue, Either, IdProtocol, ItemProtocol, PyArithmaticValue, PyAttributes, PyClassImpl,
+    BorrowValue, IdProtocol, ItemProtocol, PyArithmaticValue, PyAttributes, PyClassImpl,
     PyComparisonValue, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
 };

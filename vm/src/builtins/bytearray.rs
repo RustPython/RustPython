@@ -20,10 +20,11 @@ use crate::sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceInde
 use crate::slots::{
     BufferProtocol, Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable,
 };
+use crate::utils::Either;
 use crate::vm::VirtualMachine;
 use crate::{
-    BorrowValue, Either, IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext,
-    PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    BorrowValue, IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyIterable,
+    PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;

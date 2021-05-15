@@ -18,10 +18,11 @@ use super::weakref::PyWeak;
 use crate::builtins::tuple::PyTupleTyped;
 use crate::function::{FuncArgs, KwArgs};
 use crate::slots::{self, Callable, PyTpFlags, PyTypeSlots, SlotGetattro, SlotSetattro};
+use crate::utils::Either;
 use crate::vm::VirtualMachine;
 use crate::{
-    BorrowValue, Either, IdProtocol, PyAttributes, PyClassImpl, PyContext, PyLease, PyObjectRef,
-    PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    BorrowValue, IdProtocol, PyAttributes, PyClassImpl, PyContext, PyLease, PyObjectRef, PyRef,
+    PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use itertools::Itertools;
 use std::ops::Deref;

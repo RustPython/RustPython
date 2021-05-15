@@ -10,8 +10,9 @@ use puruspe::{erf, erfc, gamma, ln_gamma};
 use crate::builtins::float::{self, IntoPyFloat, PyFloatRef};
 use crate::builtins::int::{self, PyInt, PyIntRef};
 use crate::function::{Args, OptionalArg};
+use crate::utils::Either;
 use crate::vm::VirtualMachine;
-use crate::{BorrowValue, Either, PyIterable, PyObjectRef, PyResult, TypeProtocol};
+use crate::{BorrowValue, PyIterable, PyObjectRef, PyResult, TypeProtocol};
 use rustpython_common::float_ops;
 
 use std::cmp::Ordering;

@@ -4,8 +4,9 @@ use crate::byteslike::PyBytesLike;
 use crate::common::cmp;
 use crate::function::OptionalArg;
 use crate::iterator;
+use crate::utils::Either;
 use crate::VirtualMachine;
-use crate::{BorrowValue, Either, PyObjectRef, PyResult, TypeProtocol};
+use crate::{BorrowValue, PyObjectRef, PyResult, TypeProtocol};
 
 fn _operator_length_hint(obj: PyObjectRef, default: OptionalArg, vm: &VirtualMachine) -> PyResult {
     let default = default.unwrap_or_else(|| vm.ctx.new_int(0));
