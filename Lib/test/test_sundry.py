@@ -52,6 +52,9 @@ class TestUntestedModules(unittest.TestCase):
                 if support.verbose:
                     print("skipping tty")
 
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_untested_modules_can_be_imported = unittest.expectedFailure(test_untested_modules_can_be_imported)
 
 if __name__ == "__main__":
     unittest.main()
