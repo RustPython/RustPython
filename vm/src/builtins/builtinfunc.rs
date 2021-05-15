@@ -3,7 +3,6 @@ use std::fmt;
 use super::classmethod::PyClassMethod;
 use crate::builtins::pystr::PyStrRef;
 use crate::builtins::pytype::PyTypeRef;
-use crate::common::borrow::BorrowValue;
 use crate::function::{FuncArgs, PyNativeFunc};
 use crate::slots::{Callable, SlotDescriptor};
 use crate::vm::VirtualMachine;
@@ -70,7 +69,7 @@ impl PyValue for PyBuiltinFunction {
 
 impl fmt::Debug for PyBuiltinFunction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "builtin function {}", self.value.name.borrow_value())
+        write!(f, "builtin function {}", self.value.name.as_str())
     }
 }
 

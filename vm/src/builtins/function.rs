@@ -125,7 +125,7 @@ impl PyFunction {
                 .enumerate()
                 .skip(range.start)
                 .take(range.end - range.start)
-                .find(|(_, s)| s.borrow_value() == name)
+                .find(|(_, s)| s.as_str() == name)
                 .map(|(p, _)| p)
         };
 
@@ -424,7 +424,7 @@ impl Comparable for PyBoundMethod {
 
 impl SlotGetattro for PyBoundMethod {
     fn getattro(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(obj) = zelf.get_class_attr(name.borrow_value()) {
+        if let Some(obj) = zelf.get_class_attr(name.as_str()) {
             return vm.call_if_get_descriptor(obj, zelf.into_object());
         }
         vm.get_attribute(zelf.function.clone(), name)
@@ -458,8 +458,8 @@ impl PyBoundMethod {
         let funcname: Option<PyStrRef> = funcname.and_then(|o| o.downcast().ok());
         Ok(format!(
             "<bound method {} of {}>",
-            funcname.as_ref().map_or("?", |s| s.borrow_value()),
-            vm.to_repr(&self.object)?.borrow_value(),
+            funcname.as_ref().map_or("?", |s| s.as_str()),
+            vm.to_repr(&self.object)?.as_str(),
         ))
     }
 

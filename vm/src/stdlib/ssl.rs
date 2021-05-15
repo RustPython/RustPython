@@ -224,7 +224,7 @@ fn _ssl_rand_add(string: Either<PyStrRef, PyBytesLike>, entropy: f64) {
         }
     };
     match string {
-        Either::A(s) => f(s.borrow_value().as_bytes()),
+        Either::A(s) => f(s.as_str().as_bytes()),
         Either::B(b) => b.with_ref(f),
     }
 }
@@ -342,7 +342,7 @@ impl PySslContext {
 
     #[pymethod]
     fn set_ciphers(&self, cipherlist: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-        let ciphers = cipherlist.borrow_value();
+        let ciphers = cipherlist.as_str();
         if ciphers.contains('\0') {
             return Err(vm.new_value_error("embedded null character".to_owned()));
         }
@@ -460,10 +460,10 @@ impl PySslContext {
         if let Some(cadata) = args.cadata {
             let cert = match cadata {
                 Either::A(s) => {
-                    if !s.borrow_value().is_ascii() {
+                    if !s.as_str().is_ascii() {
                         return Err(vm.new_type_error("Must be an ascii string".to_owned()));
                     }
-                    X509::from_pem(s.borrow_value().as_bytes())
+                    X509::from_pem(s.as_str().as_bytes())
                 }
                 Either::B(b) => b.with_ref(X509::from_der),
             };
@@ -566,7 +566,7 @@ impl PySslContext {
         };
 
         if let Some(hostname) = &args.server_hostname {
-            let hostname = hostname.borrow_value();
+            let hostname = hostname.as_str();
             if hostname.is_empty() || hostname.starts_with('.') {
                 return Err(vm.new_value_error(
                     "server_hostname cannot be an empty string or start with a leading dot."

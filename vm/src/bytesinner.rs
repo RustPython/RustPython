@@ -1154,7 +1154,7 @@ pub fn bytes_to_hex(
         let b_guard;
         let sep = match &sep {
             Either::A(s) => {
-                s_guard = s.borrow_value();
+                s_guard = s.as_str();
                 s_guard.as_bytes()
             }
             Either::B(bytes) => {

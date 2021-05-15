@@ -47,7 +47,7 @@ impl From<User> for Passwd {
 }
 
 fn pwd_getpwnam(name: PyStrRef, vm: &VirtualMachine) -> PyResult<Passwd> {
-    match User::from_name(name.borrow_value()).map_err(|err| err.into_pyexception(vm))? {
+    match User::from_name(name.as_str()).map_err(|err| err.into_pyexception(vm))? {
         Some(user) => Ok(Passwd::from(user)),
         None => {
             let name_repr = vm.to_repr(name.as_object())?;

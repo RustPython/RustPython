@@ -8,11 +8,11 @@ mod decl {
 
     use crate::builtins::pystr::PyStrRef;
     use crate::vm::VirtualMachine;
-    use crate::{BorrowValue, PyObjectRef};
+    use crate::PyObjectRef;
 
     #[pyfunction]
     fn iskeyword(s: PyStrRef) -> bool {
-        lexer::KEYWORDS.contains_key(s.borrow_value())
+        lexer::KEYWORDS.contains_key(s.as_str())
     }
 
     #[pyattr]

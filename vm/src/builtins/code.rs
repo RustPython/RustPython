@@ -45,9 +45,7 @@ fn borrow_obj_constant(obj: &PyObjectRef) -> BorrowedConstant<PyConstant> {
         ref c @ super::complex::PyComplex => BorrowedConstant::Complex {
             value: c.to_complex()
         },
-        ref s @ super::pystr::PyStr => BorrowedConstant::Str {
-            value: s.borrow_value()
-        },
+        ref s @ super::pystr::PyStr => BorrowedConstant::Str { value: s.as_str() },
         ref b @ super::bytes::PyBytes => BorrowedConstant::Bytes {
             value: b.borrow_value()
         },
@@ -209,7 +207,7 @@ impl PyCodeRef {
             "<code object {} at {:#x} file {:?}, line {}>",
             code.obj_name,
             self.get_id(),
-            code.source_path.borrow_value(),
+            code.source_path.as_str(),
             code.first_line_number
         )
     }

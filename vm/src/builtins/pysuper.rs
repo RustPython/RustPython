@@ -12,8 +12,7 @@ use crate::function::OptionalArg;
 use crate::slots::{SlotDescriptor, SlotGetattro};
 use crate::vm::VirtualMachine;
 use crate::{
-    BorrowValue, IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TypeProtocol,
+    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 
 #[pyclass(module = false, name = "super")]
@@ -85,7 +84,7 @@ impl PySuper {
 
             let mut typ = None;
             for (i, var) in frame.code.freevars.iter().enumerate() {
-                if var.borrow_value() == "__class__" {
+                if var.as_str() == "__class__" {
                     let i = frame.code.cellvars.len() + i;
                     let class = frame.cells_frees[i].get().ok_or_else(|| {
                         vm.new_runtime_error("super(): empty __class__ cell".to_owned())
@@ -124,7 +123,7 @@ impl SlotGetattro for PySuper {
             .skip_while(|cls| !cls.is(&zelf.typ))
             .skip(1);
         for cls in it {
-            if let Some(descr) = cls.get_direct_attr(name.borrow_value()) {
+            if let Some(descr) = cls.get_direct_attr(name.as_str()) {
                 return vm
                     .call_get_descriptor_specific(
                         descr.clone(),

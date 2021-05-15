@@ -438,15 +438,8 @@ impl PyType {
 
         let slots = PyTypeSlots::from_flags(flags);
 
-        let typ = new(
-            metatype,
-            name.borrow_value(),
-            base,
-            bases,
-            attributes,
-            slots,
-        )
-        .map_err(|e| vm.new_type_error(e))?;
+        let typ = new(metatype, name.as_str(), base, bases, attributes, slots)
+            .map_err(|e| vm.new_type_error(e))?;
 
         vm.ctx.add_slot_wrappers(&typ);
 
@@ -504,7 +497,7 @@ impl PyType {
 
 impl SlotGetattro for PyType {
     fn getattro(zelf: PyRef<Self>, name_str: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        let name = name_str.borrow_value();
+        let name = name_str.as_str();
         vm_trace!("type.__getattribute__({:?}, {:?})", zelf, name);
         let mcl = zelf.class();
 
@@ -553,7 +546,7 @@ impl SlotSetattro for PyType {
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        if let Some(attr) = zelf.get_class_attr(attr_name.borrow_value()) {
+        if let Some(attr) = zelf.get_class_attr(attr_name.as_str()) {
             let descr_set = attr.class().mro_find_map(|cls| cls.slots.descr_set.load());
             if let Some(descriptor) = descr_set {
                 return descriptor(attr, zelf.clone().into_object(), value, vm);
@@ -563,9 +556,9 @@ impl SlotSetattro for PyType {
 
         let mut attributes = zelf.attributes.write();
         if let Some(value) = value {
-            attributes.insert(attr_name.borrow_value().to_owned(), value);
+            attributes.insert(attr_name.as_str().to_owned(), value);
         } else {
-            let prev_value = attributes.remove(attr_name.borrow_value());
+            let prev_value = attributes.remove(attr_name.as_str());
             if prev_value.is_none() {
                 return Err(vm.new_exception(
                     vm.ctx.exceptions.attribute_error.clone(),
@@ -573,7 +566,7 @@ impl SlotSetattro for PyType {
                 ));
             }
         }
-        let attr_name = attr_name.borrow_value();
+        let attr_name = attr_name.as_str();
         if attr_name.starts_with("__") && attr_name.ends_with("__") {
             zelf.update_slot(attr_name, assign);
         }

@@ -1158,7 +1158,7 @@ impl ExecutingFrame<'_> {
                 };
             for (k, v) in &dict {
                 let k = PyStrRef::try_from_object(vm, k)?;
-                if filter_pred(k.borrow_value()) {
+                if filter_pred(k.as_str()) {
                     self.locals.set_item(k, v, vm)?;
                 }
             }
@@ -1301,7 +1301,7 @@ impl ExecutingFrame<'_> {
                             let key_repr = vm.to_repr(&key)?;
                             let msg = format!(
                                 "got multiple values for keyword argument {}",
-                                key_repr.borrow_value()
+                                key_repr.as_str()
                             );
                             return Err(vm.new_type_error(msg));
                         }
@@ -1366,7 +1366,7 @@ impl ExecutingFrame<'_> {
                 let key = key
                     .payload_if_subclass::<pystr::PyStr>(vm)
                     .ok_or_else(|| vm.new_type_error("keywords must be strings".to_owned()))?;
-                kwargs.insert(key.borrow_value().to_owned(), value);
+                kwargs.insert(key.as_str().to_owned(), value);
             }
             kwargs
         } else {
@@ -1601,11 +1601,7 @@ impl ExecutingFrame<'_> {
 
         vm.set_attr(&func_obj, "__doc__", vm.ctx.none())?;
 
-        let name = qualified_name
-            .borrow_value()
-            .split('.')
-            .next_back()
-            .unwrap();
+        let name = qualified_name.as_str().split('.').next_back().unwrap();
         vm.set_attr(&func_obj, "__name__", vm.ctx.new_str(name))?;
         vm.set_attr(&func_obj, "__qualname__", qualified_name)?;
         let module = vm.unwrap_or_none(self.globals.get_item_option("__name__", vm)?);

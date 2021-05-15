@@ -1199,7 +1199,7 @@ impl PyMethod {
 
         let mut is_method = false;
 
-        let cls_attr = match cls.get_attr(name.borrow_value()) {
+        let cls_attr = match cls.get_attr(name.as_str()) {
             Some(descr) => {
                 let descr_cls = descr.class();
                 let descr_get = if descr_cls.slots.flags.has_feature(PyTpFlags::METHOD_DESCR) {

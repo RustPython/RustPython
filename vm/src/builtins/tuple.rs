@@ -148,7 +148,7 @@ impl PyTuple {
             let mut str_parts = Vec::with_capacity(zelf.elements.len());
             for elem in zelf.elements.iter() {
                 let s = vm.to_repr(elem)?;
-                str_parts.push(s.borrow_value().to_owned());
+                str_parts.push(s.as_str().to_owned());
             }
 
             if str_parts.len() == 1 {

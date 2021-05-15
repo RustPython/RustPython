@@ -1934,7 +1934,7 @@ mod _io {
                         obj.class().name
                     ))
                 })?;
-                match s.borrow_value() {
+                match s.as_str() {
                     "" => Self::Passthrough,
                     "\n" => Self::Lf,
                     "\r" => Self::Cr,
@@ -1999,7 +1999,7 @@ mod _io {
     impl PendingWrite {
         fn as_bytes(&self) -> &[u8] {
             match self {
-                Self::Utf8(s) => s.borrow_value().as_bytes(),
+                Self::Utf8(s) => s.as_str().as_bytes(),
                 Self::Bytes(b) => b.borrow_value(),
             }
         }
@@ -2181,7 +2181,7 @@ mod _io {
                 let encoding_name = vm.get_attribute_opt(incremental_encoder.clone(), "name")?;
                 let encodefunc = encoding_name.and_then(|name| {
                     name.payload::<PyStr>()
-                        .and_then(|name| match name.borrow_value() {
+                        .and_then(|name| match name.as_str() {
                             "utf-8" => Some(textio_encode_utf8 as EncodeFunc),
                             _ => None,
                         })
@@ -2361,7 +2361,7 @@ mod _io {
                 let decoded = vm.call_method(decoder, "decode", (input_chunk, cookie.need_eof))?;
                 let decoded = check_decoded(decoded, vm)?;
                 let pos_is_valid = decoded
-                    .borrow_value()
+                    .as_str()
                     .is_char_boundary(cookie.bytes_to_skip as usize);
                 textio.set_decoded_chars(Some(decoded));
                 if !pos_is_valid {
@@ -2552,7 +2552,7 @@ mod _io {
                 } else {
                     let mut ret = String::with_capacity(chunks_bytes);
                     for chunk in chunks {
-                        ret.push_str(chunk.borrow_value())
+                        ret.push_str(chunk.as_str())
                     }
                     PyStr::from(ret).into_ref(vm)
                 }
@@ -2579,7 +2579,7 @@ mod _io {
 
             let char_len = obj.char_len();
 
-            let data = obj.borrow_value();
+            let data = obj.as_str();
 
             let replace_nl = match textio.newline {
                 Newlines::Cr => Some("\r"),
@@ -2680,7 +2680,7 @@ mod _io {
                 }
                 #[inline]
                 fn slice(&self) -> &str {
-                    &self.0.borrow_value()[self.1.clone()]
+                    &self.0.as_str()[self.1.clone()]
                 }
                 #[inline]
                 fn slice_pystr(self, vm: &VirtualMachine) -> PyStrRef {
@@ -2726,7 +2726,7 @@ mod _io {
                     Some(remaining) => {
                         assert_eq!(textio.decoded_chars_pos, 0);
                         offset_to_buffer = remaining.byte_len();
-                        let decoded_chars = decoded_chars.borrow_value();
+                        let decoded_chars = decoded_chars.as_str();
                         let line = if remaining.is_full_slice() {
                             let mut line = remaining.0;
                             line.concat_in_place(decoded_chars, vm);
@@ -2743,7 +2743,7 @@ mod _io {
                         line
                     }
                 };
-                let line_from_start = &line.borrow_value()[start..];
+                let line_from_start = &line.as_str()[start..];
                 let nl_res = textio.newline.find_newline(line_from_start);
                 match nl_res {
                     Ok(p) | Err(p) => {
@@ -2751,7 +2751,7 @@ mod _io {
                         if let Some(limit) = limit {
                             // TODO: track char positions in variables as well as bytes
                             // original CPython logic: endpos = start + limit - chunked
-                            let line_chars = line.borrow_value()[..endpos].chars().count();
+                            let line_chars = line.as_str()[..endpos].chars().count();
                             if chunked_chars + line_chars >= limit {
                                 endpos = start
                                     + crate::common::str::char_range_end(
@@ -2781,7 +2781,7 @@ mod _io {
             };
 
             let cur_line = cur_line.map(|line| {
-                let orig_decoded_chars = &line.borrow_value()[offset_to_buffer..endpos];
+                let orig_decoded_chars = &line.as_str()[offset_to_buffer..endpos];
                 textio.decoded_chars_pos = orig_decoded_chars.len();
                 // TODO: variables that are siblings to endpos/offset_to_buffer, measured in chars rather than bytes?
                 textio.num_decoded_chars = orig_decoded_chars.chars().count();
@@ -2934,7 +2934,7 @@ mod _io {
                 return None;
             }
             let decoded_chars = self.decoded_chars.as_ref()?;
-            let avail = &decoded_chars.borrow_value()[self.decoded_chars_pos..];
+            let avail = &decoded_chars.as_str()[self.decoded_chars_pos..];
             if avail.is_empty() {
                 return None;
             }
@@ -2976,11 +2976,11 @@ mod _io {
                 return decoded_chars;
             }
             // TODO: in-place editing of `str` when refcount == 1
-            let decoded_chars_unused = &decoded_chars.borrow_value()[chars_pos..];
+            let decoded_chars_unused = &decoded_chars.as_str()[chars_pos..];
             let mut s = String::with_capacity(decoded_chars_unused.len() + append_len);
             s.push_str(decoded_chars_unused);
             if let Some(append) = append {
-                s.push_str(append.borrow_value())
+                s.push_str(append.as_str())
             }
             PyStr::from(s).into_ref(vm)
         }
@@ -3029,7 +3029,7 @@ mod _io {
         ) -> PyResult<StringIORef> {
             let raw_bytes = object
                 .flatten()
-                .map_or_else(Vec::new, |v| v.borrow_value().as_bytes().to_vec());
+                .map_or_else(Vec::new, |v| v.as_str().as_bytes().to_vec());
 
             StringIO {
                 buffer: PyRwLock::new(BufferedIO::new(Cursor::new(raw_bytes))),
@@ -3067,7 +3067,7 @@ mod _io {
         //write string to underlying vector
         #[pymethod]
         fn write(self, data: PyStrRef, vm: &VirtualMachine) -> PyResult {
-            let bytes = data.borrow_value().as_bytes();
+            let bytes = data.as_str().as_bytes();
 
             match self.buffer(vm)?.write(bytes) {
                 Some(value) => Ok(vm.ctx.new_int(value)),
@@ -3454,7 +3454,7 @@ mod _io {
     fn open(args: IoOpenArgs, vm: &VirtualMachine) -> PyResult {
         io_open(
             args.file,
-            args.mode.as_ref().into_option().map(|s| s.borrow_value()),
+            args.mode.as_ref().into_option().map(|s| s.as_str()),
             args.opts,
             vm,
         )
@@ -3818,7 +3818,7 @@ mod fileio {
         #[pymethod(magic)]
         fn init(zelf: PyRef<Self>, args: FileIOArgs, vm: &VirtualMachine) -> PyResult<()> {
             let mode_obj = args.mode.unwrap_or_else(|| PyStr::from("rb").into_ref(vm));
-            let mode_str = mode_obj.borrow_value();
+            let mode_str = mode_obj.as_str();
             let name = args.name;
             let (mode, flags) =
                 compute_mode(mode_str).map_err(|e| vm.new_value_error(e.error_msg(mode_str)))?;

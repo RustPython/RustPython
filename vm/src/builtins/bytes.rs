@@ -223,7 +223,7 @@ impl PyBytes {
 
     #[pymethod]
     fn fromhex(string: PyStrRef, vm: &VirtualMachine) -> PyResult<PyBytes> {
-        Ok(PyBytesInner::fromhex(string.borrow_value(), vm)?.into())
+        Ok(PyBytesInner::fromhex(string.as_str(), vm)?.into())
     }
 
     #[pymethod(name = "center")]

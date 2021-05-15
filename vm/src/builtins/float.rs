@@ -184,7 +184,7 @@ impl PyFloat {
                 if let Some(f) = try_float_opt(&val, vm)? {
                     f
                 } else if let Some(s) = val.payload_if_subclass::<PyStr>(vm) {
-                    float_ops::parse_str(s.borrow_value().trim()).ok_or_else(|| {
+                    float_ops::parse_str(s.as_str().trim()).ok_or_else(|| {
                         vm.new_value_error(format!("could not convert string to float: '{}'", s))
                     })?
                 } else if let Some(bytes) = val.payload_if_subclass::<PyBytes>(vm) {
@@ -207,7 +207,7 @@ impl PyFloat {
 
     #[pymethod(name = "__format__")]
     fn format(&self, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
-        match FormatSpec::parse(spec.borrow_value())
+        match FormatSpec::parse(spec.as_str())
             .and_then(|format_spec| format_spec.format_float(self.value))
         {
             Ok(string) => Ok(string),
@@ -470,7 +470,7 @@ impl PyFloat {
 
     #[pymethod]
     fn fromhex(repr: PyStrRef, vm: &VirtualMachine) -> PyResult<f64> {
-        float_ops::from_hex(repr.borrow_value().trim()).ok_or_else(|| {
+        float_ops::from_hex(repr.as_str().trim()).ok_or_else(|| {
             vm.new_value_error("invalid hexadecimal floating-point string".to_owned())
         })
     }

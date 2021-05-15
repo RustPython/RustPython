@@ -418,10 +418,10 @@ mod _sre {
             let pattern = vm.to_repr(&self.pattern)?;
             let truncated: String;
             let s = if pattern.char_len() > 200 {
-                truncated = pattern.borrow_value().chars().take(200).collect();
+                truncated = pattern.as_str().chars().take(200).collect();
                 &truncated
             } else {
-                pattern.borrow_value()
+                pattern.as_str()
             };
 
             if flags.is_empty() {

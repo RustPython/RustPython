@@ -88,7 +88,7 @@ impl PyBool {
 
     #[pymethod(magic)]
     fn format(obj: PyObjectRef, format_spec: PyStrRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        if format_spec.borrow_value().is_empty() {
+        if format_spec.as_str().is_empty() {
             vm.to_str(&obj)
         } else {
             Err(vm.new_type_error("unsupported format string passed to bool.__format__".to_owned()))

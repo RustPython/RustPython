@@ -9,7 +9,7 @@ use crate::function::{OptionalArg, OptionalOption};
 use crate::slots::{Comparable, Hashable, PyComparisonOp};
 use crate::VirtualMachine;
 use crate::{
-    BorrowValue, IdProtocol, IntoPyObject,
+    IdProtocol, IntoPyObject,
     PyArithmaticValue::{self, *},
     PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
@@ -283,7 +283,7 @@ impl PyComplex {
                             "complex() can't take second arg if first is a string".to_owned(),
                         ));
                     }
-                    let value = parse_str(s.borrow_value().trim()).ok_or_else(|| {
+                    let value = parse_str(s.as_str().trim()).ok_or_else(|| {
                         vm.new_value_error("complex() arg is a malformed string".to_owned())
                     })?;
                     return Self::from(value).into_ref_with_type(vm, cls);

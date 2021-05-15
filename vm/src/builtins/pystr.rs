@@ -90,7 +90,7 @@ pub type PyStrRef = PyRef<PyStr>;
 
 impl fmt::Display for PyStr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(self.borrow_value(), f)
+        fmt::Display::fmt(self.as_str(), f)
     }
 }
 
@@ -229,7 +229,7 @@ impl PyStr {
         if string.class().is(&cls) {
             Ok(string)
         } else {
-            PyStr::from(string.borrow_value()).into_ref_with_type(vm, cls)
+            PyStr::from(string.as_str()).into_ref_with_type(vm, cls)
         }
     }
 
@@ -255,7 +255,7 @@ impl PyStr {
 
     #[pymethod(name = "__contains__")]
     fn contains(&self, needle: PyStrRef) -> bool {
-        self.value.contains(needle.borrow_value())
+        self.value.contains(needle.as_str())
     }
 
     #[pymethod(name = "__getitem__")]
@@ -269,7 +269,7 @@ impl PyStr {
 
     pub(crate) fn hash(&self, vm: &VirtualMachine) -> hash::PyHash {
         self.hash.load().unwrap_or_else(|| {
-            let hash = vm.state.hash_secret.hash_str(self.borrow_value());
+            let hash = vm.state.hash_secret.hash_str(self.as_str());
             self.hash.store(Some(hash));
             hash
         })
@@ -299,7 +299,7 @@ impl PyStr {
 
     #[pymethod(name = "__sizeof__")]
     fn sizeof(&self) -> usize {
-        size_of::<Self>() + self.borrow_value().len() * size_of::<u8>()
+        size_of::<Self>() + self.as_str().len() * size_of::<u8>()
     }
 
     #[pymethod(name = "__mul__")]
@@ -368,7 +368,7 @@ impl PyStr {
         let mut repr = String::with_capacity(out_len);
         repr.push(quote);
         if unchanged {
-            repr.push_str(self.borrow_value());
+            repr.push_str(self.as_str());
         } else {
             for ch in self.value.chars() {
                 if ch == quote || ch == '\\' {
@@ -412,7 +412,7 @@ impl PyStr {
     // casefold is much more aggressive than lower
     #[pymethod]
     fn casefold(&self) -> String {
-        caseless::default_case_fold_str(self.borrow_value())
+        caseless::default_case_fold_str(self.as_str())
     }
 
     #[pymethod]
@@ -500,7 +500,7 @@ impl PyStr {
             args,
             "endswith",
             "str",
-            |s, x: &PyStrRef| s.ends_with(x.borrow_value()),
+            |s, x: &PyStrRef| s.ends_with(x.as_str()),
             vm,
         )
     }
@@ -511,7 +511,7 @@ impl PyStr {
             args,
             "startswith",
             "str",
-            |s, x: &PyStrRef| s.starts_with(x.borrow_value()),
+            |s, x: &PyStrRef| s.starts_with(x.as_str()),
             vm,
         )
     }
@@ -526,9 +526,7 @@ impl PyStr {
     #[pymethod]
     fn removeprefix(&self, pref: PyStrRef) -> String {
         self.value
-            .py_removeprefix(pref.borrow_value(), pref.value.len(), |s, p| {
-                s.starts_with(p)
-            })
+            .py_removeprefix(pref.as_str(), pref.value.len(), |s, p| s.starts_with(p))
             .to_owned()
     }
 
@@ -542,7 +540,7 @@ impl PyStr {
     #[pymethod]
     fn removesuffix(&self, suff: PyStrRef) -> String {
         self.value
-            .py_removesuffix(suff.borrow_value(), suff.value.len(), |s, p| s.ends_with(p))
+            .py_removesuffix(suff.as_str(), suff.value.len(), |s, p| s.ends_with(p))
             .to_owned()
     }
 
@@ -589,7 +587,7 @@ impl PyStr {
 
     #[pymethod]
     fn format(&self, args: FuncArgs, vm: &VirtualMachine) -> PyResult<String> {
-        match FormatString::from_str(self.borrow_value()) {
+        match FormatString::from_str(self.as_str()) {
             Ok(format_string) => format_string.format(&args, vm),
             Err(err) => Err(err.into_pyexception(vm)),
         }
@@ -601,7 +599,7 @@ impl PyStr {
     /// The substitutions are identified by braces ('{' and '}').
     #[pymethod]
     fn format_map(&self, mapping: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
-        match FormatString::from_str(self.borrow_value()) {
+        match FormatString::from_str(self.as_str()) {
             Ok(format_string) => format_string.format_map(&mapping, vm),
             Err(err) => Err(err.into_pyexception(vm)),
         }
@@ -609,8 +607,8 @@ impl PyStr {
 
     #[pymethod(name = "__format__")]
     fn format_str(&self, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
-        match FormatSpec::parse(spec.borrow_value())
-            .and_then(|format_spec| format_spec.format_string(self.borrow_value()))
+        match FormatSpec::parse(spec.as_str())
+            .and_then(|format_spec| format_spec.format_string(self.as_str()))
         {
             Ok(string) => Ok(string),
             Err(err) => Err(vm.new_value_error(err.to_string())),
@@ -673,12 +671,12 @@ impl PyStr {
             OptionalArg::Present(maxcount) if maxcount >= 0 => {
                 if maxcount == 0 || self.value.is_empty() {
                     // nothing to do; return the original bytes
-                    return String::from(self.borrow_value());
+                    return String::from(self.as_str());
                 }
                 self.value
-                    .replacen(old.borrow_value(), new.borrow_value(), maxcount as usize)
+                    .replacen(old.as_str(), new.as_str(), maxcount as usize)
             }
-            _ => self.value.replace(old.borrow_value(), new.borrow_value()),
+            _ => self.value.replace(old.as_str(), new.as_str()),
         }
     }
 
@@ -780,11 +778,9 @@ impl PyStr {
 
     #[pymethod]
     fn partition(&self, sep: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        let (front, has_mid, back) = self.value.py_partition(
-            sep.borrow_value(),
-            || self.value.splitn(2, sep.borrow_value()),
-            vm,
-        )?;
+        let (front, has_mid, back) =
+            self.value
+                .py_partition(sep.as_str(), || self.value.splitn(2, sep.as_str()), vm)?;
         Ok(vm.ctx.new_tuple(vec![
             vm.ctx.new_str(front),
             if has_mid {
@@ -798,11 +794,9 @@ impl PyStr {
 
     #[pymethod]
     fn rpartition(&self, sep: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        let (back, has_mid, front) = self.value.py_partition(
-            sep.borrow_value(),
-            || self.value.rsplitn(2, sep.borrow_value()),
-            vm,
-        )?;
+        let (back, has_mid, front) =
+            self.value
+                .py_partition(sep.as_str(), || self.value.rsplitn(2, sep.as_str()), vm)?;
         Ok(vm.ctx.new_tuple(vec![
             vm.ctx.new_str(front),
             if has_mid {
@@ -848,7 +842,7 @@ impl PyStr {
     fn count(&self, args: FindArgs) -> usize {
         let (needle, range) = args.get_value(self.len());
         self.value
-            .py_count(needle.borrow_value(), range, |h, n| h.matches(n).count())
+            .py_count(needle.as_str(), range, |h, n| h.matches(n).count())
     }
 
     #[pymethod]
@@ -874,9 +868,9 @@ impl PyStr {
             OptionalArg::Missing => Ok(' '),
         }?;
         Ok(if self.len() as isize >= width {
-            String::from(self.borrow_value())
+            String::from(self.as_str())
         } else {
-            pad(self.borrow_value(), width as usize, fillchar, self.len())
+            pad(self.as_str(), width as usize, fillchar, self.len())
         })
     }
 
@@ -961,7 +955,7 @@ impl PyStr {
             match table.get_item((c as u32).into_pyobject(vm), vm) {
                 Ok(value) => {
                     if let Some(text) = value.payload::<PyStr>() {
-                        translated.push_str(text.borrow_value());
+                        translated.push_str(text.as_str());
                     } else if let Some(bigint) = value.payload::<PyInt>() {
                         let ch = bigint
                             .borrow_value()
@@ -1098,9 +1092,7 @@ impl Comparable for PyStr {
             return Ok(res.into());
         }
         let other = class_or_notimplemented!(Self, other);
-        Ok(op
-            .eval_ord(zelf.borrow_value().cmp(other.borrow_value()))
-            .into())
+        Ok(op.eval_ord(zelf.as_str().cmp(other.as_str())).into())
     }
 }
 
@@ -1161,7 +1153,7 @@ impl IntoPyObject for &String {
 impl TryFromObject for std::ffi::CString {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let s = PyStrRef::try_from_object(vm, obj)?;
-        Self::new(s.borrow_value().to_owned())
+        Self::new(s.as_str().to_owned())
             .map_err(|_| vm.new_value_error("embedded null character".to_owned()))
     }
 }
@@ -1171,7 +1163,7 @@ impl TryFromObject for std::ffi::OsString {
         use std::str::FromStr;
 
         let s = PyStrRef::try_from_object(vm, obj)?;
-        Ok(std::ffi::OsString::from_str(s.borrow_value()).unwrap())
+        Ok(std::ffi::OsString::from_str(s.as_str()).unwrap())
     }
 }
 
@@ -1202,7 +1194,7 @@ pub fn init(ctx: &PyContext) {
 }
 
 pub(crate) fn clone_value(obj: &PyObjectRef) -> String {
-    String::from(obj.payload::<PyStr>().unwrap().borrow_value())
+    String::from(obj.payload::<PyStr>().unwrap().as_str())
 }
 
 pub(crate) fn borrow_value(obj: &PyObjectRef) -> &str {

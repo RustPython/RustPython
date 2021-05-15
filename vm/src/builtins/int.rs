@@ -601,7 +601,7 @@ impl PyInt {
 
     #[pymethod(name = "__format__")]
     fn format(&self, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
-        match FormatSpec::parse(spec.borrow_value())
+        match FormatSpec::parse(spec.as_str())
             .and_then(|format_spec| format_spec.format_int(&self.value))
         {
             Ok(string) => Ok(string),
@@ -646,7 +646,7 @@ impl PyInt {
             false
         };
 
-        let value = match (args.byteorder.borrow_value(), signed) {
+        let value = match (args.byteorder.as_str(), signed) {
             ("big", true) => BigInt::from_signed_bytes_be(&args.bytes.elements),
             ("big", false) => BigInt::from_bytes_be(Sign::Plus, &args.bytes.elements),
             ("little", true) => BigInt::from_signed_bytes_le(&args.bytes.elements),
@@ -677,7 +677,7 @@ impl PyInt {
             vm.new_overflow_error("Python int too large to convert to C ssize_t".to_owned())
         })?;
 
-        let mut origin_bytes = match (args.byteorder.borrow_value(), signed) {
+        let mut origin_bytes = match (args.byteorder.as_str(), signed) {
             ("big", true) => value.to_signed_bytes_be(),
             ("big", false) => value.to_bytes_be().1,
             ("little", true) => value.to_signed_bytes_le(),
@@ -699,7 +699,7 @@ impl PyInt {
             _ => vec![0u8; byte_len - origin_len],
         };
 
-        let bytes = match args.byteorder.borrow_value() {
+        let bytes = match args.byteorder.as_str() {
             "big" => {
                 let mut bytes = append_bytes;
                 bytes.append(&mut origin_bytes);
@@ -796,7 +796,7 @@ fn try_int_radix(obj: &PyObjectRef, base: u32, vm: &VirtualMachine) -> PyResult<
 
     let opt = match_class!(match obj.clone() {
         string @ PyStr => {
-            let s = string.borrow_value();
+            let s = string.as_str();
             bytes_to_int(s.as_bytes(), base)
         }
         bytes @ PyBytes => {
@@ -957,7 +957,7 @@ pub(crate) fn try_int(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt
 
     // test for strings and bytes
     if let Some(s) = obj.downcast_ref::<PyStr>() {
-        return try_convert(obj, s.borrow_value().as_bytes(), vm);
+        return try_convert(obj, s.as_str().as_bytes(), vm);
     }
     if let Ok(r) = try_bytes_like(vm, &obj, |x| try_convert(obj, x, vm)) {
         return r;

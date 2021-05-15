@@ -8,7 +8,7 @@ mod decl {
     use crate::bytecode::CodeFlags;
     use crate::compile;
     use crate::vm::VirtualMachine;
-    use crate::{BorrowValue, ItemProtocol, PyObjectRef, PyResult, TryFromObject};
+    use crate::{ItemProtocol, PyObjectRef, PyResult, TryFromObject};
 
     #[pyfunction]
     fn dis(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
@@ -17,13 +17,9 @@ mod decl {
             co
         } else if let Ok(co_str) = PyStrRef::try_from_object(vm, obj.clone()) {
             // String:
-            vm.compile(
-                co_str.borrow_value(),
-                compile::Mode::Exec,
-                "<dis>".to_owned(),
-            )
-            .map_err(|err| vm.new_syntax_error(&err))?
-            .into_object()
+            vm.compile(co_str.as_str(), compile::Mode::Exec, "<dis>".to_owned())
+                .map_err(|err| vm.new_syntax_error(&err))?
+                .into_object()
         } else {
             obj
         };

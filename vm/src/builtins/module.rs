@@ -5,8 +5,7 @@ use crate::function::FuncArgs;
 use crate::slots::SlotGetattro;
 use crate::vm::VirtualMachine;
 use crate::{
-    BorrowValue, IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
-    PyValue,
+    IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
 };
 
 #[pyclass(module = false, name = "module")]
@@ -79,7 +78,7 @@ impl PyModule {
             None,
         )
         .unwrap_or(None)
-        .and_then(|obj| obj.payload::<PyStr>().map(|s| s.borrow_value().to_owned()))
+        .and_then(|obj| obj.payload::<PyStr>().map(|s| s.as_str().to_owned()))
     }
 
     #[pymethod(magic)]

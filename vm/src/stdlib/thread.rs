@@ -264,7 +264,7 @@ fn run_thread(func: PyCallable, args: FuncArgs, vm: &VirtualMachine) {
             let repr = vm.to_repr(&func.into_object()).ok();
             let repr = repr
                 .as_ref()
-                .map_or("<object repr() failed>", |s| s.borrow_value());
+                .map_or("<object repr() failed>", |s| s.as_str());
             writeln!(*stderr, "Exception ignored in thread started by: {}", repr)
                 .and_then(|()| exceptions::write_exception(&mut stderr, vm, &exc))
                 .ok();
@@ -332,7 +332,7 @@ impl PyLocal {
 impl SlotGetattro for PyLocal {
     fn getattro(zelf: PyRef<Self>, attr: PyStrRef, vm: &VirtualMachine) -> PyResult {
         let ldict = zelf.ldict(vm);
-        if attr.borrow_value() == "__dict__" {
+        if attr.as_str() == "__dict__" {
             Ok(ldict.into_object())
         } else {
             let zelf = zelf.into_object();
@@ -351,7 +351,7 @@ impl SlotSetattro for PyLocal {
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        if attr.borrow_value() == "__dict__" {
+        if attr.as_str() == "__dict__" {
             Err(vm.new_attribute_error(format!(
                 "{} attribute '__dict__' is read-only",
                 zelf.as_object()

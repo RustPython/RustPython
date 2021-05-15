@@ -359,7 +359,7 @@ impl CFormatSpec {
             CFormatType::String(preconversor) => match preconversor {
                 CFormatPreconversor::Repr | CFormatPreconversor::Ascii => {
                     let s = vm.to_repr(&obj)?;
-                    let s = self.format_string(s.borrow_value().to_owned());
+                    let s = self.format_string(s.as_str().to_owned());
                     Ok(s.into_bytes())
                 }
                 CFormatPreconversor::Str | CFormatPreconversor::Bytes => {
@@ -445,7 +445,7 @@ impl CFormatSpec {
                     return Ok(self.format_char(ch).into_bytes());
                 }
                 if let Some(s) = obj.payload::<PyStr>() {
-                    if let Ok(ch) = s.borrow_value().chars().exactly_one() {
+                    if let Ok(ch) = s.as_str().chars().exactly_one() {
                         return Ok(self.format_char(ch).into_bytes());
                     }
                 }
@@ -466,7 +466,7 @@ impl CFormatSpec {
                         ));
                     }
                 };
-                Ok(self.format_string(result.borrow_value().to_owned()))
+                Ok(self.format_string(result.as_str().to_owned()))
             }
             CFormatType::Number(number_type) => match number_type {
                 CNumberType::Decimal => match_class!(match &obj {
@@ -518,7 +518,7 @@ impl CFormatSpec {
                     return Ok(self.format_char(ch));
                 }
                 if let Some(s) = obj.payload::<PyStr>() {
-                    if let Ok(ch) = s.borrow_value().chars().exactly_one() {
+                    if let Ok(ch) = s.as_str().chars().exactly_one() {
                         return Ok(self.format_char(ch));
                     }
                 }

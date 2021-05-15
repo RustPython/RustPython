@@ -6,8 +6,8 @@ use crate::iterator;
 use crate::slots::Iterable;
 use crate::vm::VirtualMachine;
 use crate::{
-    BorrowValue, IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
-    PyValue, TryFromObject,
+    IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject,
 };
 
 #[pyclass(module = false, name = "mappingproxy")]
@@ -50,7 +50,7 @@ impl PyMappingProxy {
         let opt = match &self.mapping {
             MappingProxyInner::Class(class) => {
                 let key = PyStrRef::try_from_object(vm, key)?;
-                class.get_attr(key.borrow_value())
+                class.get_attr(key.as_str())
             }
             MappingProxyInner::Dict(obj) => obj.get_item(key, vm).ok(),
         };
@@ -80,7 +80,7 @@ impl PyMappingProxy {
         match &self.mapping {
             MappingProxyInner::Class(class) => {
                 let key = PyStrRef::try_from_object(vm, key)?;
-                Ok(vm.ctx.new_bool(class.has_attr(key.borrow_value())))
+                Ok(vm.ctx.new_bool(class.has_attr(key.as_str())))
             }
             MappingProxyInner::Dict(obj) => vm._membership(obj.clone(), key),
         }

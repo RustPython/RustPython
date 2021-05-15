@@ -898,7 +898,7 @@ impl VirtualMachine {
     ) -> PyResult {
         // if the import inputs seem weird, e.g a package import or something, rather than just
         // a straight `import ident`
-        let weird = module.borrow_value().contains('.')
+        let weird = module.as_str().contains('.')
             || level != 0
             || from_list
                 .as_ref()
@@ -1331,7 +1331,7 @@ impl VirtualMachine {
         name_str: PyStrRef,
         dict: Option<PyDictRef>,
     ) -> PyResult<Option<PyObjectRef>> {
-        let name = name_str.borrow_value();
+        let name = name_str.as_str();
         let obj_cls = obj.class();
         let cls_attr = match obj_cls.get_attr(name) {
             Some(descr) => {

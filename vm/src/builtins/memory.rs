@@ -24,7 +24,6 @@ use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
 use num_bigint::BigInt;
 use num_traits::{One, Signed, ToPrimitive, Zero};
-use rustpython_common::borrow::BorrowValue;
 
 #[derive(Debug)]
 pub struct BufferRef(Box<dyn Buffer>);
@@ -722,7 +721,7 @@ impl PyMemoryView {
             ));
         }
 
-        let format_spec = Self::parse_format(format.borrow_value(), vm)?;
+        let format_spec = Self::parse_format(format.as_str(), vm)?;
         let itemsize = format_spec.size();
         let bytelen = zelf.options.len * zelf.options.itemsize;
 

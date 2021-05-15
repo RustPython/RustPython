@@ -70,7 +70,7 @@ pub fn file_readline(obj: &PyObjectRef, size: Option<usize>, vm: &VirtualMachine
     };
     let ret = match_class!(match ret {
         s @ PyStr => {
-            let sval = s.borrow_value();
+            let sval = s.as_str();
             if sval.is_empty() {
                 return Err(eof_err());
             }

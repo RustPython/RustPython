@@ -505,7 +505,7 @@ impl PyArray {
         init: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyArrayRef> {
-        let spec = spec.borrow_value().chars().exactly_one().map_err(|_| {
+        let spec = spec.as_str().chars().exactly_one().map_err(|_| {
             vm.new_type_error("array() argument 1 must be a unicode character, not str".to_owned())
         })?;
         let mut array =

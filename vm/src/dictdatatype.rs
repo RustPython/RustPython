@@ -5,9 +5,7 @@ use crate::builtins::{PyStr, PyStrRef};
 /// And: http://code.activestate.com/recipes/578375/
 use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::vm::VirtualMachine;
-use crate::{
-    BorrowValue, IdProtocol, IntoPyObject, PyObjectRef, PyRefExact, PyResult, TypeProtocol,
-};
+use crate::{IdProtocol, IntoPyObject, PyObjectRef, PyRefExact, PyResult, TypeProtocol};
 use rustpython_common::hash;
 use std::fmt;
 use std::mem::size_of;
@@ -638,7 +636,7 @@ impl DictKey for PyStrRef {
         if self.is(other_key) {
             Ok(true)
         } else if let Some(pystr) = str_exact(other_key, vm) {
-            Ok(pystr.borrow_value() == self.borrow_value())
+            Ok(pystr.as_str() == self.as_str())
         } else {
             vm.bool_eq(self.as_object(), other_key)
         }
@@ -674,7 +672,7 @@ impl DictKey for &str {
 
     fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
         if let Some(pystr) = str_exact(other_key, vm) {
-            Ok(pystr.borrow_value() == *self)
+            Ok(pystr.as_str() == *self)
         } else {
             // Fall back to PyObjectRef implementation.
             let s = vm.ctx.new_str(*self);

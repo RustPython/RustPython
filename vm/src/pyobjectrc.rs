@@ -294,8 +294,6 @@ impl PyObjectWeak {
 
 impl Drop for PyObjectRef {
     fn drop(&mut self) {
-        use crate::BorrowValue;
-
         // PyObjectRef will drop the value when its count goes to 0
         if PyRc::strong_count(&self.rc) != 1 {
             return;
@@ -320,7 +318,7 @@ impl Drop for PyObjectRef {
                     vm.invoke(&print_stack, ()).unwrap();
 
                     if let Ok(repr) = vm.to_repr(e.as_object()) {
-                        println!("{}", repr.borrow_value());
+                        println!("{}", repr.as_str());
                     }
                 }
             });

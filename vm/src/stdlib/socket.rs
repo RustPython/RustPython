@@ -319,7 +319,7 @@ impl PySocket {
                     );
                 }
                 let addr = Address::from_tuple(tuple, vm)?;
-                let mut addr4 = get_addr(vm, addr.host.borrow_value(), c::AF_INET)?;
+                let mut addr4 = get_addr(vm, addr.host.as_str(), c::AF_INET)?;
                 match &mut addr4 {
                     SocketAddr::V4(addr4) => {
                         addr4.set_port(addr.port);
@@ -347,7 +347,7 @@ impl PySocket {
                     }
                 }
                 let (addr, flowinfo, scopeid) = Address::from_tuple_ipv6(tuple, vm)?;
-                let mut addr6 = get_addr(vm, addr.host.borrow_value(), c::AF_INET6)?;
+                let mut addr6 = get_addr(vm, addr.host.as_str(), c::AF_INET6)?;
                 match &mut addr6 {
                     SocketAddr::V6(addr6) => {
                         addr6.set_port(addr.port);
@@ -822,7 +822,7 @@ struct Address {
 impl ToSocketAddrs for Address {
     type Iter = std::vec::IntoIter<SocketAddr>;
     fn to_socket_addrs(&self) -> io::Result<Self::Iter> {
-        (self.host.borrow_value(), self.port).to_socket_addrs()
+        (self.host.as_str(), self.port).to_socket_addrs()
     }
 }
 
@@ -903,12 +903,12 @@ fn _socket_gethostname(vm: &VirtualMachine) -> PyResult {
 
 #[cfg(all(unix, not(target_os = "redox")))]
 fn _socket_sethostname(hostname: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-    sethostname(hostname.borrow_value()).map_err(|err| err.into_pyexception(vm))
+    sethostname(hostname.as_str()).map_err(|err| err.into_pyexception(vm))
 }
 
 fn _socket_inet_aton(ip_string: PyStrRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
     ip_string
-        .borrow_value()
+        .as_str()
         .parse::<Ipv4Addr>()
         .map(|ip_addr| Vec::<u8>::from(ip_addr.octets()))
         .map_err(|_| vm.new_os_error("illegal IP address string passed to inet_aton".to_owned()))
@@ -927,11 +927,11 @@ fn _socket_getservbyname(
     vm: &VirtualMachine,
 ) -> PyResult {
     use std::ffi::CString;
-    let cstr_name = CString::new(servicename.borrow_value())
+    let cstr_name = CString::new(servicename.as_str())
         .map_err(|_| vm.new_value_error("embedded null character".to_owned()))?;
     let cstr_proto = protocolname
         .as_ref()
-        .map(|s| CString::new(s.borrow_value()))
+        .map(|s| CString::new(s.as_str()))
         .transpose()
         .map_err(|_| vm.new_value_error("embedded null character".to_owned()))?;
     let cstr_proto = cstr_proto
@@ -1088,10 +1088,10 @@ fn _socket_getaddrinfo(opts: GAIOptions, vm: &VirtualMachine) -> PyResult {
         flags: opts.flags,
     };
 
-    let host = opts.host.as_ref().map(|s| s.borrow_value());
+    let host = opts.host.as_ref().map(|s| s.as_str());
     let port = opts.port.as_ref().map(|p| -> std::borrow::Cow<str> {
         match p {
-            Either::A(ref s) => s.borrow_value().into(),
+            Either::A(ref s) => s.as_str().into(),
             Either::B(i) => i.to_string().into(),
         }
     });
@@ -1122,7 +1122,7 @@ fn _socket_gethostbyaddr(
     vm: &VirtualMachine,
 ) -> PyResult<(String, PyObjectRef, PyObjectRef)> {
     // TODO: figure out how to do this properly
-    let addr = get_addr(vm, addr.borrow_value(), c::AF_UNSPEC)?;
+    let addr = get_addr(vm, addr.as_str(), c::AF_UNSPEC)?;
     let (hostname, _) = dns_lookup::getnameinfo(&addr, 0).map_err(|e| convert_gai_error(vm, e))?;
     Ok((
         hostname,
@@ -1133,7 +1133,7 @@ fn _socket_gethostbyaddr(
 
 fn _socket_gethostbyname(name: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
     // TODO: convert to idna
-    let addr = get_addr(vm, name.borrow_value(), c::AF_INET)?;
+    let addr = get_addr(vm, name.as_str(), c::AF_INET)?;
     match addr {
         SocketAddr::V4(ip) => Ok(ip.ip().to_string()),
         _ => unreachable!(),
@@ -1143,14 +1143,14 @@ fn _socket_gethostbyname(name: PyStrRef, vm: &VirtualMachine) -> PyResult<String
 fn _socket_inet_pton(af_inet: i32, ip_string: PyStrRef, vm: &VirtualMachine) -> PyResult {
     match af_inet {
         c::AF_INET => ip_string
-            .borrow_value()
+            .as_str()
             .parse::<Ipv4Addr>()
             .map(|ip_addr| vm.ctx.new_bytes(ip_addr.octets().to_vec()))
             .map_err(|_| {
                 vm.new_os_error("illegal IP address string passed to inet_pton".to_owned())
             }),
         c::AF_INET6 => ip_string
-            .borrow_value()
+            .as_str()
             .parse::<Ipv6Addr>()
             .map(|ip_addr| vm.ctx.new_bytes(ip_addr.octets().to_vec()))
             .map_err(|_| {
@@ -1185,7 +1185,7 @@ fn _socket_inet_ntop(
 
 fn _socket_getprotobyname(name: PyStrRef, vm: &VirtualMachine) -> PyResult {
     use std::ffi::CString;
-    let cstr = CString::new(name.borrow_value())
+    let cstr = CString::new(name.as_str())
         .map_err(|_| vm.new_value_error("embedded null character".to_owned()))?;
     let proto = unsafe { c::getprotobyname(cstr.as_ptr()) };
     if proto.is_null() {
@@ -1213,10 +1213,9 @@ fn _socket_getnameinfo(
         protocol: 0,
     };
     let service = addr.port.to_string();
-    let mut res =
-        dns_lookup::getaddrinfo(Some(addr.host.borrow_value()), Some(&service), Some(hints))
-            .map_err(|e| convert_gai_error(vm, e))?
-            .filter_map(Result::ok);
+    let mut res = dns_lookup::getaddrinfo(Some(addr.host.as_str()), Some(&service), Some(hints))
+        .map_err(|e| convert_gai_error(vm, e))?
+        .filter_map(Result::ok);
     let mut ainfo = res.next().unwrap();
     if res.next().is_some() {
         return Err(vm.new_os_error("sockaddr resolved to multiple addresses".to_owned()));

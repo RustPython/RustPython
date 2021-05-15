@@ -193,7 +193,7 @@ impl PyBaseObject {
 
     #[pymethod(magic)]
     fn format(obj: PyObjectRef, format_spec: PyStrRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        if format_spec.borrow_value().is_empty() {
+        if format_spec.as_str().is_empty() {
             vm.to_str(&obj)
         } else {
             Err(vm.new_type_error(
@@ -287,7 +287,7 @@ pub(crate) fn setattr(
 ) -> PyResult<()> {
     vm_trace!("object.__setattr__({:?}, {}, {:?})", obj, attr_name, value);
 
-    if let Some(attr) = obj.get_class_attr(attr_name.borrow_value()) {
+    if let Some(attr) = obj.get_class_attr(attr_name.as_str()) {
         let descr_set = attr.class().mro_find_map(|cls| cls.slots.descr_set.load());
         if let Some(descriptor) = descr_set {
             return descriptor(attr, obj.clone(), value, vm);

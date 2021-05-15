@@ -6,7 +6,7 @@ use crate::function::OptionalArg;
 use crate::iterator;
 use crate::utils::Either;
 use crate::VirtualMachine;
-use crate::{BorrowValue, PyObjectRef, PyResult, TypeProtocol};
+use crate::{PyObjectRef, PyResult, TypeProtocol};
 
 fn _operator_length_hint(obj: PyObjectRef, default: OptionalArg, vm: &VirtualMachine) -> PyResult {
     let default = default.unwrap_or_else(|| vm.ctx.new_int(0));
@@ -29,12 +29,12 @@ fn _operator_compare_digest(
 ) -> PyResult<bool> {
     let res = match (a, b) {
         (Either::A(a), Either::A(b)) => {
-            if !a.borrow_value().is_ascii() || !b.borrow_value().is_ascii() {
+            if !a.as_str().is_ascii() || !b.as_str().is_ascii() {
                 return Err(vm.new_type_error(
                     "comparing strings with non-ASCII characters is not supported".to_owned(),
                 ));
             }
-            cmp::timing_safe_cmp(a.borrow_value().as_bytes(), b.borrow_value().as_bytes())
+            cmp::timing_safe_cmp(a.as_str().as_bytes(), b.as_str().as_bytes())
         }
         (Either::B(a), Either::B(b)) => a.with_ref(|a| b.with_ref(|b| cmp::timing_safe_cmp(a, b))),
         _ => {

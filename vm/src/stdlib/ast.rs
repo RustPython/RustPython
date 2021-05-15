@@ -66,7 +66,7 @@ impl AstNode {
             vm.set_attr(&zelf, name.clone(), arg)?;
         }
         for (key, value) in args.kwargs {
-            if let Some(pos) = fields.iter().position(|f| f.borrow_value() == key) {
+            if let Some(pos) = fields.iter().position(|f| f.as_str() == key) {
                 if pos < numargs {
                     return Err(vm.new_type_error(format!(
                         "{} got multiple values for argument '{}'",
@@ -171,7 +171,7 @@ impl Node for String {
     }
 
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
-        PyStrRef::try_from_object(vm, object).map(|s| s.borrow_value().to_owned())
+        PyStrRef::try_from_object(vm, object).map(|s| s.as_str().to_owned())
     }
 }
 
@@ -230,7 +230,7 @@ impl Node for ast::Constant {
                     imag: c.im,
                 }
             }
-            ref s @ builtins::pystr::PyStr => ast::Constant::Str(s.borrow_value().to_owned()),
+            ref s @ builtins::pystr::PyStr => ast::Constant::Str(s.as_str().to_owned()),
             ref b @ builtins::bytes::PyBytes => ast::Constant::Bytes(b.borrow_value().to_owned()),
             ref t @ builtins::tuple::PyTuple => {
                 ast::Constant::Tuple(

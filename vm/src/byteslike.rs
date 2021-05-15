@@ -156,7 +156,7 @@ impl BufOrStr {
     pub fn borrow_bytes(&self) -> BorrowedValue<'_, [u8]> {
         match self {
             Self::Buf(b) => b.borrow_value(),
-            Self::Str(s) => s.borrow_value().as_bytes().into(),
+            Self::Str(s) => s.as_str().as_bytes().into(),
         }
     }
 }
