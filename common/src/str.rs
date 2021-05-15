@@ -4,11 +4,19 @@ pub fn get_chars(s: &str, range: std::ops::Range<usize>) -> &str {
         let _ = chars.next();
     }
     let start = chars.as_str();
-    for _ in range {
-        let _ = chars.next();
+    let end = char_range_end(start, range.len());
+    &start[..end]
+}
+
+#[inline]
+pub fn char_range_end(s: &str, nchars: usize) -> usize {
+    match nchars.checked_sub(1) {
+        Some(last_char_index) => {
+            let (index, c) = s.char_indices().nth(last_char_index).unwrap();
+            index + c.len_utf8()
+        }
+        None => 0,
     }
-    let end = chars.as_str();
-    &start[..start.len() - end.len()]
 }
 
 pub fn zfill(bytes: &[u8], width: usize) -> Vec<u8> {

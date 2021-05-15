@@ -279,17 +279,22 @@ impl PyStr {
         })
     }
 
-    #[pymethod(name = "__len__")]
     #[inline]
-    fn len(&self) -> usize {
+    pub fn byte_len(&self) -> usize {
+        self.value.len()
+    }
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.value.is_empty()
+    }
+
+    #[pymethod(name = "__len__")]
+    pub fn char_len(&self) -> usize {
         self.len.load().unwrap_or_else(|| {
             let len = self.value.chars().count();
             self.len.store(Some(len));
             len
         })
-    }
-    pub fn char_len(&self) -> usize {
-        self.len()
     }
 
     #[pymethod(name = "__sizeof__")]
@@ -1063,6 +1068,19 @@ impl PyStr {
     }
 }
 
+impl PyStrRef {
+    pub fn concat_in_place(&mut self, other: &str, vm: &VirtualMachine) {
+        // TODO: call [A]Rc::get_mut on the str to try to mutate the data in place
+        if other.is_empty() {
+            return;
+        }
+        let mut s = String::with_capacity(self.byte_len() + other.len());
+        s.push_str(self.as_ref());
+        s.push_str(other);
+        *self = PyStr::from(s).into_ref(vm);
+    }
+}
+
 impl Hashable for PyStr {
     fn hash(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<hash::PyHash> {
         Ok(zelf.hash(vm))
@@ -1248,7 +1266,7 @@ impl PySliceableSequence for PyStr {
     }
 
     fn len(&self) -> usize {
-        self.len()
+        self.char_len()
     }
 
     fn is_empty(&self) -> bool {

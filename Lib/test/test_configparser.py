@@ -1381,8 +1381,6 @@ class ConfigParserTestCaseTrickyFile(CfgParserTestCaseClass, unittest.TestCase):
                          cf.get('tricky interpolation', 'go'))
         self.assertEqual(cf.get('more interpolation', 'lets'), 'go shopping')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_unicode_failure(self):
         tricky = support.findfile("cfgparser.3")
         cf = self.newconfig()

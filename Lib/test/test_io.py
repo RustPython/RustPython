@@ -421,8 +421,6 @@ class IOTest(unittest.TestCase):
             self.assertRaises(exc, fp.seek, 1, self.SEEK_CUR)
             self.assertRaises(exc, fp.seek, -1, self.SEEK_END)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_optional_abilities(self):
         # Test for OSError when optional APIs are not supported
         # The purpose of this test is to try fileno(), reading, writing and
@@ -1041,6 +1039,11 @@ class CIOTest(IOTest):
         super().test_destructor(self)
 
 class PyIOTest(IOTest):
+    # TODO: RUSTPYTHON, can't resize b/c of existing exports
+    @unittest.expectedFailure
+    def test_optional_abilities(self):
+        super().test_optional_abilities()
+
     pass
 
 
@@ -2681,8 +2684,6 @@ class TextIOWrapperTest(unittest.TestCase):
             except RuntimeError:
                 pass
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_line_buffering(self):
         r = self.BytesIO()
         b = self.BufferedWriter(r, 1000)
@@ -3009,8 +3010,6 @@ class TextIOWrapperTest(unittest.TestCase):
         self.assertEqual(f.tell(), p2)
         f.close()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_seeking(self):
         chunk_size = _default_chunk_size()
         prefix_size = chunk_size - 2
@@ -3028,8 +3027,6 @@ class TextIOWrapperTest(unittest.TestCase):
             self.assertEqual(f.tell(), prefix_size)
             self.assertEqual(f.readline(), u_suffix)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_seeking_too(self):
         # Regression test for a specific bug
         data = b'\xe0\xbf\xbf\n'
@@ -3088,6 +3085,8 @@ class TextIOWrapperTest(unittest.TestCase):
         finally:
             StatefulIncrementalDecoder.codecEnabled = 0
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_multibyte_seek_and_tell(self):
         f = self.open(support.TESTFN, "w", encoding="euc_jp")
         f.write("AB\n\u3046\u3048\n")
@@ -3103,6 +3102,8 @@ class TextIOWrapperTest(unittest.TestCase):
         self.assertEqual(f.tell(), p1)
         f.close()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_seek_with_encoder_state(self):
         f = self.open(support.TESTFN, "w", encoding="euc_jis_2004")
         f.write("\u00e6\u0300")
@@ -3426,8 +3427,6 @@ class TextIOWrapperTest(unittest.TestCase):
         txt.write('5')
         self.assertEqual(b''.join(raw._write_stack), b'123\n45')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bufio_write_through(self):
         # Issue #21396: write_through=True doesn't force a flush()
         # on the underlying binary buffered object.
@@ -3493,8 +3492,6 @@ class TextIOWrapperTest(unittest.TestCase):
         t = self.TextIOWrapper(self.StringIO('a'))
         self.assertRaises(TypeError, t.read)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_illegal_encoder(self):
         # Issue 31271: Calling write() while the return value of encoder's
         # encode() is invalid shouldn't cause an assertion failure.
@@ -3782,16 +3779,6 @@ class CTextIOWrapperTest(TextIOWrapperTest):
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
-    def test_encoding_errors_reading(self):
-        super().test_encoding_errors_reading()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_encoding_errors_writing(self):
-        super().test_encoding_errors_writing()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_newlines(self):
         super().test_newlines()
 
@@ -3799,16 +3786,6 @@ class CTextIOWrapperTest(TextIOWrapperTest):
     @unittest.expectedFailure
     def test_newlines_input(self):
         super().test_newlines_input()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_newlines_output(self):
-        super().test_newlines_output()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_override_destructor(self):
-        super().test_override_destructor()
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
@@ -3847,43 +3824,8 @@ class CTextIOWrapperTest(TextIOWrapperTest):
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
-    def test_issue2282(self):
-        super().test_issue2282()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_flush_error_on_close(self):
-        super().test_flush_error_on_close()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_close_error_on_close(self):
-        super().test_close_error_on_close()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_nonnormalized_close_error_on_close(self):
-        super().test_nonnormalized_close_error_on_close()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_rawio(self):
-        super().test_rawio()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_rawio_write_through(self):
-        super().test_rawio_write_through()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_reconfigure_write_through(self):
         super().test_reconfigure_write_through()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_illegal_decoder(self):
-        super().test_illegal_decoder()
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
@@ -3955,8 +3897,6 @@ class CTextIOWrapperTest(TextIOWrapperTest):
             t2.buddy = t1
         support.gc_collect()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_del__CHUNK_SIZE_SystemError(self):
         t = self.TextIOWrapper(self.BytesIO(), encoding='ascii')
         with self.assertRaises(AttributeError):
@@ -3974,13 +3914,23 @@ class PyTextIOWrapperTest(TextIOWrapperTest):
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
-    def test_seek_with_encoder_state(self):
-        super().test_seek_with_encoder_state()
+    def test_line_buffering(self):
+        super().test_line_buffering()
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
-    def test_multibyte_seek_and_tell(self):
-        super().test_multibyte_seek_and_tell()
+    def test_seeking_too(self):
+        super().test_seeking_too()
+
+    # TODO: RUSTPYTHON, can't resize b/c of existing exports
+    @unittest.expectedFailure
+    def test_bufio_write_through(self):
+        super().test_bufio_write_through()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_seeking(self):
+        super().test_seeking()
 
 
 @unittest.skip("TODO: RUSTPYTHON, incremental decoder")
@@ -4536,6 +4486,7 @@ class SignalsTest(unittest.TestCase):
     def test_interrupted_write_buffered(self):
         self.check_interrupted_write(b"xy", b"xy", mode="wb")
 
+    @unittest.skip("TODO: RUSTPYTHON, hangs?")
     def test_interrupted_write_text(self):
         self.check_interrupted_write("xy", b"xy", mode="w", encoding="ascii")
 
@@ -4696,10 +4647,6 @@ class PySignalsTest(SignalsTest):
     # tests are disabled.
     test_reentrant_write_buffered = None
     test_reentrant_write_text = None
-
-    @unittest.skip("TODO: RUSTPYTHON, hangs?")
-    def test_interrupted_write_text(self):
-        super().test_interrupted_write_text()
 
 
 def load_tests(*args):

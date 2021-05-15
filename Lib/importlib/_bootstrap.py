@@ -221,7 +221,8 @@ def _call_with_frames_removed(f, *args, **kwds):
 
 def _verbose_message(message, *args, verbosity=1):
     """Print the message to stderr if -v/PYTHONVERBOSE is turned on."""
-    if sys.flags.verbose >= verbosity:
+    # XXX RUSTPYTHON: hasattr check because we might be bootstrapping and we wouldn't have stderr yet
+    if sys.flags.verbose >= verbosity and hasattr(sys, "stderr"):
         if not message.startswith(('#', 'import ')):
             message = '# ' + message
         print(message.format(*args), file=sys.stderr)

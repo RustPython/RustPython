@@ -24,15 +24,11 @@ class ReadTests:
         result = resources.read_text(self.data, 'utf-8.file')
         self.assertEqual(result, 'Hello, UTF-8 world!\n')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_read_text_given_encoding(self):
         result = resources.read_text(
             self.data, 'utf-16.file', encoding='utf-16')
         self.assertEqual(result, 'Hello, UTF-16 world!\n')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_read_text_with_errors(self):
         # Raises UnicodeError without the 'errors' argument.
         self.assertRaises(

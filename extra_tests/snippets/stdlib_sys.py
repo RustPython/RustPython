@@ -31,17 +31,22 @@ assert sys.maxunicode == 1114111
 
 # Tracing:
 
+events = []
+
 def trc(frame, event, arg):
-    print('trace event:', frame, event, arg)
+    fn_name = frame.f_code.co_name
+    events.append((fn_name, event, arg))
+    print('trace event:', fn_name, event, arg)
 
 def demo(x):
-    print(x)
     if x > 0:
         demo(x - 1)
 
 sys.settrace(trc)
 demo(5)
 sys.settrace(None)
+
+assert ("demo", "call", None) in events
 
 assert sys.exc_info() == (None, None, None)
 

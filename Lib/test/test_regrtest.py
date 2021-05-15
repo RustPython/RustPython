@@ -557,8 +557,6 @@ class CheckActualTests(BaseTestCase):
     Check that regrtest appears to find the expected set of tests.
     """
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_finds_expected_number_of_tests(self):
         args = ['-Wd', '-E', '-bb', '-m', 'test.regrtest', '--list-tests']
         output = self.run_python(args)
@@ -609,8 +607,6 @@ class ProgramsTestCase(BaseTestCase):
         output = self.run_python(args)
         self.check_output(output)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_script_regrtest(self):
         # Lib/test/regrtest.py
         script = os.path.join(self.testdir, 'regrtest.py')
@@ -618,16 +614,12 @@ class ProgramsTestCase(BaseTestCase):
         args = [*self.python_args, script, *self.regrtest_args, *self.tests]
         self.run_tests(args)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_module_test(self):
         # -m test
         args = [*self.python_args, '-m', 'test',
                 *self.regrtest_args, *self.tests]
         self.run_tests(args)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_module_regrtest(self):
         # -m test.regrtest
         args = [*self.python_args, '-m', 'test.regrtest',
@@ -711,8 +703,6 @@ class ArgsTestCase(BaseTestCase):
         cmdargs = ['-m', 'test', '--testdir=%s' % self.tmptestdir, *testargs]
         return self.run_python(cmdargs, **kw)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_failing_test(self):
         # test a failing test
         code = textwrap.dedent("""
@@ -729,8 +719,6 @@ class ArgsTestCase(BaseTestCase):
         output = self.run_tests(*tests, exitcode=2)
         self.check_executed_tests(output, tests, failed=test_failing)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_resources(self):
         # test -u command line option
         tests = {}
@@ -760,8 +748,6 @@ class ArgsTestCase(BaseTestCase):
         self.check_executed_tests(output, test_names,
                                   skipped=test_names)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_random(self):
         # test -r and --randseed command line option
         code = textwrap.dedent("""
@@ -785,8 +771,6 @@ class ArgsTestCase(BaseTestCase):
         test_random2 = int(match.group(1))
         self.assertEqual(test_random2, test_random)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_fromfile(self):
         # test --fromfile
         tests = [self.create_test() for index in range(5)]
@@ -844,8 +828,6 @@ class ArgsTestCase(BaseTestCase):
         self.check_executed_tests(output, test, omitted=test,
                                   interrupted=True)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_slowest(self):
         # test --slowest
         tests = [self.create_test() for index in range(3)]
@@ -887,16 +869,12 @@ class ArgsTestCase(BaseTestCase):
                  r'(?: *[0-9]+ *[0-9]{1,2}% *[^ ]+ +\([^)]+\)+)+')
         self.check_line(output, regex)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_wait(self):
         # test --wait
         test = self.create_test('wait')
         output = self.run_tests("--wait", test, input='key')
         self.check_line(output, 'Press any key to continue')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_forever(self):
         # test --forever
         code = textwrap.dedent("""
@@ -966,8 +944,6 @@ class ArgsTestCase(BaseTestCase):
         """)
         self.check_leak(code, 'file descriptors')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_list_tests(self):
         # test --list-tests
         tests = [self.create_test() for i in range(5)]
@@ -975,8 +951,6 @@ class ArgsTestCase(BaseTestCase):
         self.assertEqual(output.rstrip().splitlines(),
                          tests)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_list_cases(self):
         # test --list-cases
         code = textwrap.dedent("""
@@ -1056,8 +1030,6 @@ class ArgsTestCase(BaseTestCase):
         subset = ['test_method2', 'test_method4']
         self.assertEqual(methods, subset)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_matchfile(self):
         code = textwrap.dedent("""
             import unittest
@@ -1160,8 +1132,6 @@ class ArgsTestCase(BaseTestCase):
         self.check_executed_tests(output, [testname],
                                   rerun=testname)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_no_tests_ran(self):
         code = textwrap.dedent("""
             import unittest
@@ -1175,8 +1145,6 @@ class ArgsTestCase(BaseTestCase):
         output = self.run_tests(testname, "-m", "nosuchtest", exitcode=0)
         self.check_executed_tests(output, [testname], no_test_ran=testname)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_no_tests_ran_skip(self):
         code = textwrap.dedent("""
             import unittest
@@ -1190,8 +1158,6 @@ class ArgsTestCase(BaseTestCase):
         output = self.run_tests(testname, exitcode=0)
         self.check_executed_tests(output, [testname])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_no_tests_ran_multiple_tests_nonexistent(self):
         code = textwrap.dedent("""
             import unittest
@@ -1207,8 +1173,6 @@ class ArgsTestCase(BaseTestCase):
         self.check_executed_tests(output, [testname, testname2],
                                   no_test_ran=[testname, testname2])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_no_test_ran_some_test_exist_some_not(self):
         code = textwrap.dedent("""
             import unittest

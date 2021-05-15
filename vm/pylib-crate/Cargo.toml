@@ -9,7 +9,6 @@ edition = "2018"
 include = ["Cargo.toml", "src/**/*.rs", "Lib/", "!Lib/**/test/", "!Lib/**/*.pyc"]
 
 [features]
-default = ["compiled-bytecode"]
 compiled-bytecode = ["rustpython-derive", "rustpython-bytecode"]
 
 [dependencies]

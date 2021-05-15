@@ -228,7 +228,10 @@ impl Default for PySettings {
             isolated: false,
             dev_mode: false,
             warnopts: vec![],
-            path_list: vec![],
+            path_list: vec![
+                #[cfg(all(feature = "pylib", not(feature = "freeze-stdlib")))]
+                rustpython_pylib::LIB_PATH.to_owned(),
+            ],
             argv: vec![],
             hash_seed: None,
             stdio_unbuffered: false,
@@ -320,6 +323,8 @@ impl VirtualMachine {
             #[cfg(not(target_arch = "wasm32"))]
             import::import_builtin(self, "_signal")?;
 
+            import::init_importlib(self, initialize_parameter)?;
+
             #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
             {
                 // this isn't fully compatible with CPython; it imports "io" and sets
@@ -348,8 +353,6 @@ impl VirtualMachine {
                 let io_open = self.get_attribute(io, "open")?;
                 self.set_attr(&self.builtins, "open", io_open)?;
             }
-
-            import::init_importlib(self, initialize_parameter)?;
 
             Ok(())
         };
@@ -1441,6 +1444,30 @@ impl VirtualMachine {
         errors: Option<PyStrRef>,
     ) -> PyResult {
         self.call_codec_func("encode", obj, encoding, errors)
+    }
+
+    pub(crate) fn lookup_codec(&self, encoding: PyStrRef) -> PyResult {
+        let codecsmodule = self.import("_codecs", None, 0)?;
+        let lookup = self.get_attribute(codecsmodule, "lookup")?;
+        self.invoke(&lookup, (encoding,))
+    }
+
+    pub(crate) fn codec_get_incremental(
+        &self,
+        codec: &PyObjectRef,
+        errors: Option<PyStrRef>,
+        encoder: bool,
+    ) -> PyResult {
+        let method = if encoder {
+            "incrementalencoder"
+        } else {
+            "incrementaldecoder"
+        };
+        let args = match errors {
+            Some(e) => vec![e.into_object()],
+            None => vec![],
+        };
+        self.call_method(codec, method, args)
     }
 
     pub fn _sub(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {

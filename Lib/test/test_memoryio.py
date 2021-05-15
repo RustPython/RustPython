@@ -896,11 +896,6 @@ class CStringIOTest(PyStringIOTest):
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
-    def test_newline_argument(self):
-        super().test_newline_argument()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_newline_cr(self):
         super().test_newline_cr()
 
@@ -1010,11 +1005,6 @@ class CStringIOPickleTest(PyStringIOPickleTest):
     @unittest.expectedFailure
     def test_issue5265(self):
         super().test_issue5265()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_newline_argument(self):
-        super().test_newline_argument()
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure

@@ -379,21 +379,6 @@ class CAutoFileTests(AutoFileTests, unittest.TestCase):
     def testOpenDirFD(self):
         super().testOpenDirFD()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def testRecursiveRepr(self):
-        super().testRecursiveRepr()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def testRepr(self):
-        super().testRepr()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def testReprNoCloseFD(self):
-        super().testReprNoCloseFD()
-
 @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON, test setUp errors on Windows")
 class PyAutoFileTests(AutoFileTests, unittest.TestCase):
     FileIO = _pyio.FileIO
