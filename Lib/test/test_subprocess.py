@@ -706,6 +706,7 @@ class ProcessTestCase(BaseTestCase):
         self.assertEqual(p.returncode, 0, err)
         self.assertEqual(out.rstrip(), b'test with stdout=1')
 
+    @unittest.skipIf(sys.platform != "win32", "TODO: RUSTPYTHON, takes a long time")
     def test_stdout_devnull(self):
         p = subprocess.Popen([sys.executable, "-c",
                               'for i in range(10240):'
@@ -714,6 +715,7 @@ class ProcessTestCase(BaseTestCase):
         p.wait()
         self.assertEqual(p.stdout, None)
 
+    @unittest.skipIf(sys.platform != "win32", "TODO: RUSTPYTHON, takes a long time")
     def test_stderr_devnull(self):
         p = subprocess.Popen([sys.executable, "-c",
                               'import sys\n'
