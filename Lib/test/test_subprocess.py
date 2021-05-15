@@ -920,6 +920,7 @@ class ProcessTestCase(BaseTestCase):
         self.assertEqual(stdout, None)
         self.assertEqual(stderr, None)
 
+    @unittest.skipIf(sys.platform != "win32", "TODO: RUSTPYTHON, hangs")
     def test_communicate_pipe_buf(self):
         # communicate() with writes larger than pipe_buf
         # This test will probably deadlock rather than fail, if
