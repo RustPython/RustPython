@@ -235,6 +235,16 @@ impl PySocket {
             .map_err(|e| e.into_pyexception(vm))
     }
 
+    /// returns Err(blocking)
+    pub fn get_timeout(&self) -> Result<Duration, bool> {
+        let timeout = self.timeout.load();
+        if timeout > 0.0 {
+            Ok(Duration::from_secs_f64(timeout))
+        } else {
+            Err(timeout != 0.0)
+        }
+    }
+
     fn sock_op_err<F, R>(
         &self,
         vm: &VirtualMachine,
@@ -244,13 +254,7 @@ impl PySocket {
     where
         F: FnMut() -> io::Result<R>,
     {
-        let timeout = self.timeout.load();
-        let timeout = if timeout > 0.0 {
-            Some(Duration::from_secs_f64(timeout))
-        } else {
-            None
-        };
-        self.sock_op_timeout_err(vm, select, timeout, f)
+        self.sock_op_timeout_err(vm, select, self.get_timeout().ok(), f)
     }
 
     fn sock_op_timeout_err<F, R>(
@@ -558,12 +562,7 @@ impl PySocket {
     ) -> PyResult<()> {
         let flags = flags.unwrap_or(0);
 
-        let timeout = self.timeout.load();
-        let timeout = if timeout > 0.0 {
-            Some(Duration::from_secs_f64(timeout))
-        } else {
-            None
-        };
+        let timeout = self.get_timeout().ok();
 
         let deadline = timeout.map(Deadline::new);
 
@@ -1007,14 +1006,18 @@ impl IntoPyException for IoOrPyException {
 }
 
 #[derive(Copy, Clone)]
-enum SelectKind {
+pub(super) enum SelectKind {
     Read,
     Write,
     Connect,
 }
 
 /// returns true if timed out
-fn sock_select(sock: &Socket, kind: SelectKind, interval: Option<Duration>) -> io::Result<bool> {
+pub(super) fn sock_select(
+    sock: &Socket,
+    kind: SelectKind,
+    interval: Option<Duration>,
+) -> io::Result<bool> {
     let fd = sock_fileno(sock);
     #[cfg(unix)]
     {
@@ -1343,7 +1346,7 @@ unsafe fn sock_from_raw_unchecked(fileno: RawSocket) -> Socket {
         Socket::from_raw_socket(fileno)
     }
 }
-fn sock_fileno(sock: &Socket) -> RawSocket {
+pub(super) fn sock_fileno(sock: &Socket) -> RawSocket {
     #[cfg(unix)]
     {
         use std::os::unix::io::AsRawFd;
@@ -1368,7 +1371,7 @@ fn into_sock_fileno(sock: Socket) -> RawSocket {
     }
 }
 
-const INVALID_SOCKET: RawSocket = {
+pub(super) const INVALID_SOCKET: RawSocket = {
     #[cfg(unix)]
     {
         -1
@@ -1405,7 +1408,10 @@ fn convert_gai_error(vm: &VirtualMachine, err: dns_lookup::LookupError) -> PyBas
 }
 
 fn timeout_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
-    vm.new_exception_msg(TIMEOUT_ERROR.get().unwrap().clone(), "timed out".to_owned())
+    timeout_error_msg(vm, "timed out".to_owned())
+}
+pub(super) fn timeout_error_msg(vm: &VirtualMachine, msg: String) -> PyBaseExceptionRef {
+    vm.new_exception_msg(TIMEOUT_ERROR.get().unwrap().clone(), msg)
 }
 
 fn get_ipv6_addr_str(ipv6: Ipv6Addr) -> String {
