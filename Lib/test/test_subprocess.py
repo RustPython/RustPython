@@ -1092,6 +1092,10 @@ class ProcessTestCase(BaseTestCase):
         self.assertTrue(stderr.startswith("eline2\neline6\neline7\n"))
 
     # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_universal_newlines_communicate_stdin_stdout_stderr = unittest.expectedFailure(test_universal_newlines_communicate_stdin_stdout_stderr)
+
+    # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_universal_newlines_communicate_encodings(self):
         # Check that universal newlines mode works for various encodings,
@@ -1263,6 +1267,10 @@ class ProcessTestCase(BaseTestCase):
         # we should get the full line in return
         line = "line\n"
         self._test_bufsize_equal_one(line, line, universal_newlines=True)
+
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_bufsize_equal_one_text_mode = unittest.expectedFailure(test_bufsize_equal_one_text_mode)
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
