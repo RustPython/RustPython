@@ -214,6 +214,10 @@ class ProcessTestCase(BaseTestCase):
                 input=None, text=True)
         self.assertNotIn('XX', output)
 
+    # TODO: RUSTPYTHON
+    if sys.platform != "win32":
+        test_check_output_input_none_text = unittest.expectedFailure(test_check_output_input_none_text)
+
     def test_check_output_input_none_universal_newlines(self):
         output = subprocess.check_output(
                 [sys.executable, "-c",
