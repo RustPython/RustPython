@@ -154,7 +154,7 @@ make cool projects:
 Currently along with other areas of the project, documentation is still in an
 early phase.
 
-You can read the [online documentation](https://docs.rs/rustpython-vm) for the
+You can read the [online documentation](https://rustpython.github.io/docs/) for the
 latest release.
 
 You can also generate documentation locally by running:
