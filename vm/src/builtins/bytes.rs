@@ -21,8 +21,8 @@ use crate::slots::{BufferProtocol, Comparable, Hashable, Iterable, PyComparisonO
 use crate::utils::Either;
 use crate::vm::VirtualMachine;
 use crate::{
-    BorrowValue, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef,
-    PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef,
+    PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 
 use crate::builtins::memory::{Buffer, BufferOptions};
@@ -44,7 +44,7 @@ pub struct PyBytes {
 
 pub type PyBytesRef = PyRef<PyBytes>;
 
-impl<'a> BorrowValue<'a> for PyBytes {
+impl<'a> rustpython_common::borrow::BorrowValue<'a> for PyBytes {
     type Borrowed = &'a [u8];
 
     fn borrow_value(&'a self) -> Self::Borrowed {
@@ -134,7 +134,7 @@ impl PyBytes {
 
     #[pymethod(name = "__add__")]
     fn add(&self, other: PyBytesLike, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_bytes(self.inner.add(&*other.borrow_value()))
+        vm.ctx.new_bytes(self.inner.add(&*other.borrow_buf()))
     }
 
     #[pymethod(name = "__contains__")]
@@ -512,7 +512,7 @@ struct BytesBuffer {
 
 impl Buffer for BytesBuffer {
     fn obj_bytes(&self) -> BorrowedValue<[u8]> {
-        self.bytes.borrow_value().into()
+        self.bytes.as_bytes().into()
     }
 
     fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
@@ -585,7 +585,7 @@ impl PyBytesIterator {}
 impl PyIter for PyBytesIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         let pos = zelf.position.fetch_add(1);
-        if let Some(&ret) = zelf.bytes.borrow_value().get(pos) {
+        if let Some(&ret) = zelf.bytes.as_bytes().get(pos) {
             Ok(vm.ctx.new_int(ret))
         } else {
             Err(vm.new_stop_iteration())

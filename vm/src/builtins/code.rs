@@ -47,7 +47,7 @@ fn borrow_obj_constant(obj: &PyObjectRef) -> BorrowedConstant<PyConstant> {
         },
         ref s @ super::pystr::PyStr => BorrowedConstant::Str { value: s.as_str() },
         ref b @ super::bytes::PyBytes => BorrowedConstant::Bytes {
-            value: b.borrow_value()
+            value: b.as_bytes()
         },
         ref c @ PyCode => {
             BorrowedConstant::Code { code: &c.code }

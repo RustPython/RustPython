@@ -800,11 +800,11 @@ fn try_int_radix(obj: &PyObjectRef, base: u32, vm: &VirtualMachine) -> PyResult<
             bytes_to_int(s.as_bytes(), base)
         }
         bytes @ PyBytes => {
-            let bytes = bytes.borrow_value();
+            let bytes = bytes.as_bytes();
             bytes_to_int(bytes, base)
         }
         bytearray @ PyByteArray => {
-            let inner = bytearray.borrow_value();
+            let inner = bytearray.borrow_buf();
             bytes_to_int(&inner, base)
         }
         _ => {

@@ -18,8 +18,7 @@ use crate::slots::PyComparisonOp;
 use crate::utils::Either;
 use crate::vm::VirtualMachine;
 use crate::{
-    BorrowValue, IdProtocol, PyComparisonValue, PyIterable, PyObjectRef, PyResult, PyValue,
-    TryFromObject,
+    IdProtocol, PyComparisonValue, PyIterable, PyObjectRef, PyResult, PyValue, TryFromObject,
 };
 use rustpython_common::hash;
 
@@ -61,7 +60,7 @@ impl ByteInnerNewOptions {
         let encoding = encoding
             .ok_or_else(|| vm.new_type_error("string argument without an encoding".to_owned()))?;
         let bytes = pystr::encode_string(s, Some(encoding), errors.into_option(), vm)?;
-        Ok(bytes.borrow_value().to_vec().into())
+        Ok(bytes.as_bytes().to_vec().into())
     }
 
     fn get_value_from_source(source: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
@@ -917,8 +916,8 @@ where
     F: Fn(&[u8]) -> R,
 {
     match_class!(match obj {
-        i @ PyBytes => Some(f(i.borrow_value())),
-        j @ PyByteArray => Some(f(&j.borrow_value())),
+        i @ PyBytes => Some(f(i.as_bytes())),
+        j @ PyByteArray => Some(f(&j.borrow_buf())),
         _ => None,
     })
 }
@@ -1076,7 +1075,7 @@ pub fn bytes_decode(
     let DecodeArgs { encoding, errors } = args;
     let encoding = encoding
         .as_ref()
-        .map_or(crate::codecs::DEFAULT_ENCODING, |s| s.borrow_value());
+        .map_or(crate::codecs::DEFAULT_ENCODING, |s| s.as_str());
     vm.state
         .codec_registry
         .decode_text(zelf, encoding, errors, vm)
@@ -1158,7 +1157,7 @@ pub fn bytes_to_hex(
                 s_guard.as_bytes()
             }
             Either::B(bytes) => {
-                b_guard = bytes.borrow_value();
+                b_guard = bytes.as_bytes();
                 b_guard
             }
         };

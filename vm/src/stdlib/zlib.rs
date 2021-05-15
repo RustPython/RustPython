@@ -11,7 +11,7 @@ mod decl {
     use crate::function::OptionalArg;
     use crate::types::create_simple_type;
     use crate::vm::VirtualMachine;
-    use crate::{BorrowValue, IntoPyRef, PyResult, PyValue, StaticType};
+    use crate::{IntoPyRef, PyResult, PyValue, StaticType};
 
     use adler32::RollingAdler32 as Adler32;
     use crc32fast::Hasher as Crc32;
@@ -310,7 +310,7 @@ mod decl {
             if stream_end && !leftover.is_empty() {
                 let mut unused_data = self.unused_data.lock();
                 let unused: Vec<_> = unused_data
-                    .borrow_value()
+                    .as_bytes()
                     .iter()
                     .chain(leftover)
                     .copied()
@@ -326,7 +326,7 @@ mod decl {
             } else {
                 Some(args.max_length)
             };
-            let data = args.data.borrow_value();
+            let data = args.data.borrow_buf();
             let data = &*data;
 
             let mut d = self.decompress.lock();

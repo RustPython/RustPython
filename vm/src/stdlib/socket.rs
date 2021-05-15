@@ -470,7 +470,7 @@ impl PySocket {
     ) -> PyResult<usize> {
         let flags = flags.unwrap_or(0);
         let sock = self.sock();
-        let mut buf = buf.borrow_value();
+        let mut buf = buf.borrow_buf_mut();
         let buf = &mut *buf;
         self.sock_op(vm, SelectKind::Read, || {
             sock.recv_with_flags(slice_as_uninit(buf), flags)
@@ -505,7 +505,7 @@ impl PySocket {
         flags: OptionalArg<i32>,
         vm: &VirtualMachine,
     ) -> PyResult<(usize, PyObjectRef)> {
-        let mut buf = buf.borrow_value();
+        let mut buf = buf.borrow_buf_mut();
         let buf = &mut *buf;
         let buf = match nbytes {
             OptionalArg::Present(i) => {
@@ -534,7 +534,7 @@ impl PySocket {
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
         let flags = flags.unwrap_or(0);
-        let buf = bytes.borrow_value();
+        let buf = bytes.borrow_buf();
         let buf = &*buf;
         self.sock_op(vm, SelectKind::Write, || {
             self.sock().send_with_flags(buf, flags)
@@ -554,7 +554,7 @@ impl PySocket {
 
         let deadline = timeout.map(Deadline::new);
 
-        let buf = bytes.borrow_value();
+        let buf = bytes.borrow_buf();
         let buf = &*buf;
         let mut buf_offset = 0;
         // now we have like 3 layers of interrupt loop :)
@@ -595,7 +595,7 @@ impl PySocket {
             OptionalArg::Missing => (0, arg2),
         };
         let addr = self.extract_address(address, "sendto", vm)?;
-        let buf = bytes.borrow_value();
+        let buf = bytes.borrow_buf();
         let buf = &*buf;
         self.sock_op(vm, SelectKind::Write, || {
             self.sock().send_to_with_flags(buf, &addr, flags)
@@ -915,7 +915,7 @@ fn _socket_inet_aton(ip_string: PyStrRef, vm: &VirtualMachine) -> PyResult<Vec<u
 }
 
 fn _socket_inet_ntoa(packed_ip: PyBytesLike, vm: &VirtualMachine) -> PyResult {
-    let packed_ip = packed_ip.borrow_value();
+    let packed_ip = packed_ip.borrow_buf();
     let packed_ip = <&[u8; 4]>::try_from(&*packed_ip)
         .map_err(|_| vm.new_os_error("packed IP wrong length for inet_ntoa".to_owned()))?;
     Ok(vm.ctx.new_str(Ipv4Addr::from(*packed_ip).to_string()))
@@ -1165,7 +1165,7 @@ fn _socket_inet_ntop(
     packed_ip: PyBytesLike,
     vm: &VirtualMachine,
 ) -> PyResult<String> {
-    let packed_ip = packed_ip.borrow_value();
+    let packed_ip = packed_ip.borrow_buf();
     match af_inet {
         c::AF_INET => {
             let packed_ip = <&[u8; 4]>::try_from(&*packed_ip).map_err(|_| {

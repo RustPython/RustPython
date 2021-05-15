@@ -26,8 +26,8 @@ use crate::slots::{
 use crate::utils::Either;
 use crate::vm::VirtualMachine;
 use crate::{
-    BorrowValue, IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyIterable,
-    PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef,
+    PyRef, PyResult, PyValue, TypeProtocol,
 };
 use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;
@@ -53,7 +53,7 @@ pub struct PyByteArray {
 
 pub type PyByteArrayRef = PyRef<PyByteArray>;
 
-impl<'a> BorrowValue<'a> for PyByteArray {
+impl<'a> rustpython_common::borrow::BorrowValue<'a> for PyByteArray {
     type Borrowed = PyMappedRwLockReadGuard<'a, [u8]>;
 
     fn borrow_value(&'a self) -> Self::Borrowed {
@@ -194,7 +194,7 @@ impl PyByteArray {
     fn iadd(zelf: PyRef<Self>, other: PyBytesLike, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         zelf.try_resizable(vm)?
             .elements
-            .extend(&*other.borrow_value());
+            .extend(&*other.borrow_buf());
         Ok(zelf)
     }
 

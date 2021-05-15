@@ -846,7 +846,7 @@ impl PySslSocket {
     #[pymethod]
     fn write(&self, data: PyBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
         let mut stream = self.stream.write();
-        let data = data.borrow_value();
+        let data = data.borrow_buf();
         let data = &*data;
         let timeout = SocketTimeout::get(stream.get_ref());
         let state = ssl_select(stream.get_ref(), SslNeeds::Write, &timeout);
@@ -889,7 +889,7 @@ impl PySslSocket {
     fn read(&self, n: usize, buffer: OptionalArg<PyRwBytesLike>, vm: &VirtualMachine) -> PyResult {
         let mut stream = self.stream.write();
         let mut inner_buffer = if let OptionalArg::Present(buffer) = &buffer {
-            Either::A(buffer.borrow_value())
+            Either::A(buffer.borrow_buf_mut())
         } else {
             Either::B(vec![0u8; n])
         };

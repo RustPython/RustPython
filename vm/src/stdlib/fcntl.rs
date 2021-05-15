@@ -78,7 +78,7 @@ mod fcntl {
                 let buf_len = match buf_kind {
                     Either::A(rw_arg) => {
                         let mutate_flag = mutate_flag.unwrap_or(true);
-                        let mut arg_buf = rw_arg.borrow_value();
+                        let mut arg_buf = rw_arg.borrow_buf_mut();
                         if mutate_flag {
                             let ret =
                                 unsafe { libc::ioctl(fd, request as _, arg_buf.as_mut_ptr()) };

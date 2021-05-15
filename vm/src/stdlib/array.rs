@@ -586,7 +586,7 @@ impl PyArray {
 
     #[pymethod]
     fn frombytes(zelf: PyRef<Self>, b: PyBytesLike, vm: &VirtualMachine) -> PyResult<()> {
-        let b = b.borrow_value();
+        let b = b.borrow_buf();
         let itemsize = zelf.borrow_value().itemsize();
         if b.len() % itemsize != 0 {
             return Err(vm.new_value_error("bytes length not a multiple of item size".to_owned()));

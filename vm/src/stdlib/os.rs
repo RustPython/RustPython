@@ -691,11 +691,11 @@ mod _os {
     ) -> PyResult<()> {
         let key: &ffi::OsStr = match key {
             Either::A(ref s) => s.as_str().as_ref(),
-            Either::B(ref b) => bytes_as_osstr(b.borrow_value(), vm)?,
+            Either::B(ref b) => bytes_as_osstr(b.as_bytes(), vm)?,
         };
         let value: &ffi::OsStr = match value {
             Either::A(ref s) => s.as_str().as_ref(),
-            Either::B(ref b) => bytes_as_osstr(b.borrow_value(), vm)?,
+            Either::B(ref b) => bytes_as_osstr(b.as_bytes(), vm)?,
         };
         env::set_var(key, value);
         Ok(())
@@ -705,7 +705,7 @@ mod _os {
     fn unsetenv(key: Either<PyStrRef, PyBytesRef>, vm: &VirtualMachine) -> PyResult<()> {
         let key: &ffi::OsStr = match key {
             Either::A(ref s) => s.as_str().as_ref(),
-            Either::B(ref b) => bytes_as_osstr(b.borrow_value(), vm)?,
+            Either::B(ref b) => bytes_as_osstr(b.as_bytes(), vm)?,
         };
         env::remove_var(key);
         Ok(())

@@ -12,7 +12,7 @@ use crate::function::{OptionalArg, OptionalOption};
 use crate::slots::{Comparable, Hashable, PyComparisonOp};
 use crate::VirtualMachine;
 use crate::{
-    BorrowValue, IdProtocol, IntoPyObject,
+    IdProtocol, IntoPyObject,
     PyArithmaticValue::{self, *},
     PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol,
@@ -188,7 +188,7 @@ impl PyFloat {
                         vm.new_value_error(format!("could not convert string to float: '{}'", s))
                     })?
                 } else if let Some(bytes) = val.payload_if_subclass::<PyBytes>(vm) {
-                    lexical_core::parse(bytes.borrow_value()).map_err(|_| {
+                    lexical_core::parse(bytes.as_bytes()).map_err(|_| {
                         vm.new_value_error(format!(
                             "could not convert string to float: '{}'",
                             bytes.repr()

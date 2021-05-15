@@ -2,7 +2,7 @@ use crate::builtins::memory::{try_buffer_from_object, BufferRef};
 use crate::builtins::PyStrRef;
 use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
 use crate::vm::VirtualMachine;
-use crate::{BorrowValue, PyObjectRef, PyResult, TryFromObject};
+use crate::{PyObjectRef, PyResult, TryFromObject};
 
 #[derive(Debug)]
 pub struct PyBytesLike(BufferRef);
@@ -15,19 +15,19 @@ impl PyBytesLike {
     where
         F: FnOnce(&[u8]) -> R,
     {
-        f(&*self.borrow_value())
+        f(&*self.borrow_buf())
     }
 
     pub fn len(&self) -> usize {
-        self.borrow_value().len()
+        self.borrow_buf().len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.borrow_value().is_empty()
+        self.borrow_buf().is_empty()
     }
 
     pub fn to_cow(&self) -> std::borrow::Cow<[u8]> {
-        self.borrow_value().to_vec().into()
+        self.borrow_buf().to_vec().into()
     }
 }
 
@@ -36,15 +36,15 @@ impl PyRwBytesLike {
     where
         F: FnOnce(&mut [u8]) -> R,
     {
-        f(&mut *self.borrow_value())
+        f(&mut *self.borrow_buf_mut())
     }
 
     pub fn len(&self) -> usize {
-        self.borrow_value().len()
+        self.borrow_buf_mut().len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.borrow_value().is_empty()
+        self.borrow_buf_mut().is_empty()
     }
 }
 
@@ -73,7 +73,7 @@ impl TryFromObject for PyBytesLike {
     }
 }
 
-impl<'a> BorrowValue<'a> for PyBytesLike {
+impl<'a> rustpython_common::borrow::BorrowValue<'a> for PyBytesLike {
     type Borrowed = BorrowedValue<'a, [u8]>;
     fn borrow_value(&'a self) -> Self::Borrowed {
         self.borrow_buf()
@@ -131,7 +131,7 @@ impl TryFromObject for PyRwBytesLike {
     }
 }
 
-impl<'a> BorrowValue<'a> for PyRwBytesLike {
+impl<'a> rustpython_common::borrow::BorrowValue<'a> for PyRwBytesLike {
     type Borrowed = BorrowedValueMut<'a, [u8]>;
     fn borrow_value(&'a self) -> Self::Borrowed {
         self.borrow_buf_mut()
@@ -155,13 +155,13 @@ impl TryFromObject for BufOrStr {
 impl BufOrStr {
     pub fn borrow_bytes(&self) -> BorrowedValue<'_, [u8]> {
         match self {
-            Self::Buf(b) => b.borrow_value(),
+            Self::Buf(b) => b.borrow_buf(),
             Self::Str(s) => s.as_str().as_bytes().into(),
         }
     }
 }
 
-impl<'a> BorrowValue<'a> for BufOrStr {
+impl<'a> rustpython_common::borrow::BorrowValue<'a> for BufOrStr {
     type Borrowed = BorrowedValue<'a, [u8]>;
     fn borrow_value(&'a self) -> Self::Borrowed {
         self.borrow_bytes()

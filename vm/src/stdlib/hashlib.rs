@@ -8,7 +8,7 @@ mod hashlib {
     use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
     use crate::function::{FuncArgs, OptionalArg};
     use crate::vm::VirtualMachine;
-    use crate::{BorrowValue, PyResult, PyValue, StaticType};
+    use crate::{PyResult, PyValue, StaticType};
     use blake2::{Blake2b, Blake2s};
     use digest::DynDigest;
     use md5::Md5;
@@ -72,7 +72,7 @@ mod hashlib {
 
         #[pymethod(name = "update")]
         fn update(&self, data: PyBytesRef) {
-            self.borrow_value_mut().input(data.borrow_value());
+            self.borrow_value_mut().input(data.as_bytes());
         }
 
         #[pymethod(name = "digest")]

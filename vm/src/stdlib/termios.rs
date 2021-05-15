@@ -76,11 +76,8 @@ mod termios {
                 ))
             })?;
             for (cc, x) in termios.c_cc.iter_mut().zip(cc.iter()) {
-                *cc = if let Some(c) = x
-                    .payload::<PyBytes>()
-                    .filter(|b| b.borrow_value().len() == 1)
-                {
-                    c.borrow_value()[0] as _
+                *cc = if let Some(c) = x.payload::<PyBytes>().filter(|b| b.as_bytes().len() == 1) {
+                    c.as_bytes()[0] as _
                 } else if let Some(i) = x.payload::<PyInt>() {
                     int::try_to_primitive(i.as_bigint(), vm)?
                 } else {

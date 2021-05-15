@@ -91,8 +91,8 @@ mod _io {
     use crate::utils::Either;
     use crate::vm::{ReprGuard, VirtualMachine};
     use crate::{
-        BorrowValue, IdProtocol, IntoPyObject, PyContext, PyIterable, PyObjectRef, PyRef, PyResult,
-        PyValue, StaticType, TryFromObject, TypeProtocol,
+        IdProtocol, IntoPyObject, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
+        StaticType, TryFromObject, TypeProtocol,
     };
 
     fn validate_whence(whence: i32) -> bool {
@@ -577,17 +577,17 @@ mod _io {
                         break;
                     }
                     Some(b) => {
-                        if b.borrow_value().is_empty() {
+                        if b.as_bytes().is_empty() {
                             break;
                         }
-                        total_len += b.borrow_value().len();
+                        total_len += b.as_bytes().len();
                         chunks.push(b)
                     }
                 }
             }
             let mut ret = Vec::with_capacity(total_len);
             for b in chunks {
-                ret.extend_from_slice(b.borrow_value())
+                ret.extend_from_slice(b.as_bytes())
             }
             Ok(Some(ret))
         }
@@ -619,9 +619,9 @@ mod _io {
             if data.is(&bufobj) {
                 return Ok(l);
             }
-            let mut buf = b.borrow_value();
+            let mut buf = b.borrow_buf_mut();
             let data = PyBytesLike::try_from_object(vm, data)?;
-            let data = data.borrow_value();
+            let data = data.borrow_buf();
             match buf.get_mut(..data.len()) {
                 Some(slice) => {
                     slice.copy_from_slice(&data);
@@ -912,7 +912,7 @@ mod _io {
             let avail = self.buffer.len() - self.pos as usize;
             let buf_len;
             {
-                let buf = obj.borrow_value();
+                let buf = obj.borrow_buf();
                 buf_len = buf.len();
                 if buf.len() <= avail {
                     self.buffer[self.pos as usize..][..buf.len()].copy_from_slice(&buf);
@@ -1171,7 +1171,7 @@ mod _io {
                 let res = <Option<PyBytesRef>>::try_from_object(vm, res)?;
                 let ret = if let Some(mut data) = data {
                     if let Some(bytes) = res {
-                        data.extend_from_slice(bytes.borrow_value());
+                        data.extend_from_slice(bytes.as_bytes());
                     }
                     Some(PyBytes::from(data).into_ref(vm))
                 } else {
@@ -1188,8 +1188,8 @@ mod _io {
                 let read_data = <Option<PyBytesRef>>::try_from_object(vm, read_data)?;
 
                 match read_data {
-                    Some(b) if !b.borrow_value().is_empty() => {
-                        let l = b.borrow_value().len();
+                    Some(b) if !b.as_bytes().is_empty() => {
+                        let l = b.as_bytes().len();
                         read_size += l;
                         if self.abs_pos != -1 {
                             self.abs_pos += l as Offset;
@@ -1203,7 +1203,7 @@ mod _io {
                             let mut data = data.unwrap_or_default();
                             data.reserve(read_size);
                             for bytes in &chunks {
-                                data.extend_from_slice(bytes.borrow_value())
+                                data.extend_from_slice(bytes.as_bytes())
                             }
                             Some(PyBytes::from(data).into_ref(vm))
                         };
@@ -2000,7 +2000,7 @@ mod _io {
         fn as_bytes(&self) -> &[u8] {
             match self {
                 Self::Utf8(s) => s.as_str().as_bytes(),
-                Self::Bytes(b) => b.borrow_value(),
+                Self::Bytes(b) => b.as_bytes(),
             }
         }
     }
@@ -2170,10 +2170,7 @@ mod _io {
             let has_read1 = vm.get_attribute_opt(buffer.clone(), "read1")?.is_some();
             let seekable = pybool::boolval(vm, vm.call_method(&buffer, "seekable", ())?)?;
 
-            let codec = vm
-                .state
-                .codec_registry
-                .lookup(encoding.borrow_value(), vm)?;
+            let codec = vm.state.codec_registry.lookup(encoding.as_str(), vm)?;
 
             let encoder = if pybool::boolval(vm, vm.call_method(&buffer, "writable", ())?)? {
                 let incremental_encoder =
@@ -2425,7 +2422,7 @@ mod _io {
             let mut skip_back = 1;
             while skip_bytes > 0 {
                 cookie.set_decoder_state(decoder, vm)?;
-                let input = &next_input.borrow_value()[..skip_bytes as usize];
+                let input = &next_input.as_bytes()[..skip_bytes as usize];
                 let (bytes_decoded, chars_decoded) = decoder_decode(input)?;
                 if chars_decoded <= chars_to_skip {
                     let (dec_buffer, dec_flags) = decoder_getstate()?;
@@ -2455,7 +2452,7 @@ mod _io {
             if chars_to_skip != 0 {
                 let mut chars_decoded = 0;
                 let mut bytes_decoded = 0;
-                let mut input = next_input.borrow_value();
+                let mut input = next_input.as_bytes();
                 input = &input[skip_bytes..];
                 while !input.is_empty() {
                     let (byte1, rest) = input.split_at(1);
@@ -2840,7 +2837,7 @@ mod _io {
         use crate::builtins::{int, PyTuple};
         let state_err = || vm.new_type_error("illegal decoder state".to_owned());
         let state = state.downcast::<PyTuple>().map_err(|_| state_err())?;
-        match state.borrow_value() {
+        match state.as_slice() {
             [buf, flags] => {
                 let buf = buf.clone().downcast::<PyBytes>().map_err(|obj| {
                     vm.new_type_error(format!(
@@ -2895,7 +2892,7 @@ mod _io {
                     input_chunk.class().name
                 ))
             })?;
-            let nbytes = buf.borrow_value().len();
+            let nbytes = buf.borrow_buf().len();
             let eof = nbytes == 0;
             let decoded = vm.call_method(decoder, "decode", (input_chunk, eof))?;
             let decoded = check_decoded(decoded, vm)?;
@@ -2911,8 +2908,8 @@ mod _io {
 
             if let Some((dec_buffer, dec_flags)) = dec_state {
                 // TODO: inplace append to bytes when refcount == 1
-                let mut next_input = dec_buffer.borrow_value().to_vec();
-                next_input.extend_from_slice(&*buf.borrow_value());
+                let mut next_input = dec_buffer.as_bytes().to_vec();
+                next_input.extend_from_slice(&*buf.borrow_buf());
                 self.snapshot = Some((dec_flags, PyBytes::from(next_input).into_ref(vm)));
             }
 
@@ -3171,7 +3168,7 @@ mod _io {
         ) -> PyResult<BytesIORef> {
             let raw_bytes = object
                 .flatten()
-                .map_or_else(Vec::new, |input| input.borrow_value().to_vec());
+                .map_or_else(Vec::new, |input| input.as_bytes().to_vec());
 
             BytesIO {
                 buffer: PyRwLock::new(BufferedIO::new(Cursor::new(raw_bytes))),
@@ -3230,7 +3227,7 @@ mod _io {
             let mut buf = self.buffer(vm)?;
             let ret = buf
                 .cursor
-                .read(&mut *obj.borrow_value())
+                .read(&mut *obj.borrow_buf_mut())
                 .map_err(|_| vm.new_value_error("Error readinto from Take".to_owned()))?;
 
             Ok(ret)
@@ -3667,9 +3664,7 @@ mod fileio {
     use crate::function::{FuncArgs, OptionalArg};
     use crate::stdlib::os;
     use crate::vm::VirtualMachine;
-    use crate::{
-        BorrowValue, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
-    };
+    use crate::{PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject, TypeProtocol};
     use crossbeam_utils::atomic::AtomicCell;
     use std::io::{Read, Write};
 
@@ -3973,7 +3968,7 @@ mod fileio {
 
             let handle = self.get_fd(vm)?;
 
-            let mut buf = obj.borrow_value();
+            let mut buf = obj.borrow_buf_mut();
             let mut f = handle.take(buf.len() as _);
             let ret = f.read(&mut buf).map_err(|e| e.into_pyexception(vm))?;
 

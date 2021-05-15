@@ -389,7 +389,7 @@ impl CFormatSpec {
                             })?
                             .invoke((), vm)?;
                         let bytes = PyBytes::try_from_object(vm, bytes)?;
-                        Ok(self.format_bytes(bytes.borrow_value()))
+                        Ok(self.format_bytes(bytes.as_bytes()))
                     }
                 }
             },

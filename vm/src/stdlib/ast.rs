@@ -231,7 +231,7 @@ impl Node for ast::Constant {
                 }
             }
             ref s @ builtins::pystr::PyStr => ast::Constant::Str(s.as_str().to_owned()),
-            ref b @ builtins::bytes::PyBytes => ast::Constant::Bytes(b.borrow_value().to_owned()),
+            ref b @ builtins::bytes::PyBytes => ast::Constant::Bytes(b.as_bytes().to_owned()),
             ref t @ builtins::tuple::PyTuple => {
                 ast::Constant::Tuple(
                     t.borrow_value()

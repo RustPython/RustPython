@@ -709,7 +709,7 @@ pub(crate) mod _struct {
 
     fn pack_char(vm: &VirtualMachine, arg: PyObjectRef, data: &mut [u8]) -> PyResult<()> {
         let v = PyBytesRef::try_from_object(vm, arg)?;
-        let ch = *v.borrow_value().iter().exactly_one().map_err(|_| {
+        let ch = *v.as_bytes().iter().exactly_one().map_err(|_| {
             new_struct_error(
                 vm,
                 "char format requires a bytes object of length 1".to_owned(),
@@ -894,7 +894,7 @@ pub(crate) mod _struct {
             let spec = FormatSpec::decode_and_parse(vm, &fmt)?;
             let fmt_str = match fmt {
                 Either::A(s) => s,
-                Either::B(b) => PyStr::from(std::str::from_utf8(b.borrow_value()).unwrap())
+                Either::B(b) => PyStr::from(std::str::from_utf8(b.as_bytes()).unwrap())
                     .into_ref_with_type(vm, vm.ctx.types.str_type.clone())?,
             };
             PyStruct { spec, fmt_str }.into_ref_with_type(vm, cls)

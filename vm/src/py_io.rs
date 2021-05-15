@@ -2,7 +2,7 @@ use crate::builtins::bytes::PyBytes;
 use crate::builtins::pystr::PyStr;
 use crate::exceptions::PyBaseExceptionRef;
 use crate::VirtualMachine;
-use crate::{BorrowValue, PyObjectRef, PyResult};
+use crate::{PyObjectRef, PyResult};
 use std::{fmt, io, ops};
 
 pub trait Write {
@@ -81,7 +81,7 @@ pub fn file_readline(obj: &PyObjectRef, size: Option<usize>, vm: &VirtualMachine
             }
         }
         b @ PyBytes => {
-            let buf = b.borrow_value();
+            let buf = b.as_bytes();
             if buf.is_empty() {
                 return Err(eof_err());
             }
