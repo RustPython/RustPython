@@ -48,8 +48,6 @@ jobs:
       - name: run snippets
         run: LLVM_PROFILE_FILE="$PWD/snippet-%p.profraw" pipenv run pytest -v
         working-directory: ./extra_tests
-        env:
-          RUSTPYTHON_TESTS_NOBUILD: 'true'
       - name: run cpython tests
         run: LLVM_PROFILE_FILE="$PWD/regrtest.profraw" target/release/rustpython -m test -v
         env:

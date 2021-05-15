@@ -22,10 +22,6 @@ logger = logging.getLogger("tests")
 ROOT_DIR = ".."
 TEST_ROOT = os.path.abspath(os.path.join(ROOT_DIR, "extra_tests"))
 TEST_DIRS = {_TestType.functional: os.path.join(TEST_ROOT, "snippets")}
-CPYTHON_RUNNER_DIR = os.path.abspath(os.path.join(ROOT_DIR, "py_code_object"))
-RUSTPYTHON_RUNNER_DIR = os.path.abspath(os.path.join(ROOT_DIR))
-RUSTPYTHON_LIB_DIR = os.path.abspath(os.path.join(ROOT_DIR, "Lib"))
-RUSTPYTHON_FEATURES = ["jit"]
 
 
 @contextlib.contextmanager
@@ -51,19 +47,15 @@ def run_via_cpython(filename):
     env = os.environ.copy()
     subprocess.check_call([sys.executable, filename], env=env)
 
-SKIP_BUILD = os.environ.get("RUSTPYTHON_TESTS_NOBUILD") == "true"
-RUST_DEBUG = os.environ.get("RUSTPYTHON_DEBUG") == "true"
-RUST_PROFILE = "debug" if RUST_DEBUG else "release"
+RUSTPYTHON_BINARY = os.environ.get("RUSTPYTHON") or os.path.join(ROOT_DIR, "target/release/rustpython")
+RUSTPYTHON_BINARY = os.path.abspath(RUSTPYTHON_BINARY)
 
 def run_via_rustpython(filename, test_type):
     env = os.environ.copy()
     env['RUST_LOG'] = 'info,cargo=error,jobserver=error'
     env['RUST_BACKTRACE'] = '1'
-    env['PYTHONPATH'] = RUSTPYTHON_LIB_DIR
 
-    binary = os.path.abspath(os.path.join(ROOT_DIR, "target", RUST_PROFILE, "rustpython"))
-
-    subprocess.check_call([binary, filename], env=env)
+    subprocess.check_call([RUSTPYTHON_BINARY, filename], env=env)
 
 
 def create_test_function(cls, filename, method, test_type):
@@ -136,11 +128,6 @@ class SampleTestCase(unittest.TestCase):
             cls.slices_resource_path.unlink()
 
         generate_slices(cls.slices_resource_path)
-
-        if not SKIP_BUILD:
-            # cargo stuff
-            profile_args = [] if RUST_DEBUG else ["--release"]
-            subprocess.check_call(["cargo", "build", "--features", ",".join(RUSTPYTHON_FEATURES), *profile_args])
 
     @classmethod
     def tearDownClass(cls):
