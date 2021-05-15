@@ -92,6 +92,10 @@ impl PyTuple {
         Self { elements }
     }
 
+    pub fn as_slice(&self) -> &[PyObjectRef] {
+        &self.elements
+    }
+
     #[pymethod(name = "__add__")]
     fn add(
         zelf: PyRef<Self>,

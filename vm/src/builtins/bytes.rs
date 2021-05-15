@@ -112,8 +112,19 @@ impl PyBytes {
     }
 
     #[pymethod(name = "__len__")]
-    pub(crate) fn len(&self) -> usize {
+    #[inline]
+    pub fn len(&self) -> usize {
         self.inner.len()
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    #[inline]
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.inner.elements
     }
 
     #[pymethod(name = "__sizeof__")]

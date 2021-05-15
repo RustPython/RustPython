@@ -61,6 +61,10 @@ impl PyBytesLike {
     pub fn into_buffer(self) -> BufferRef {
         self.0
     }
+
+    pub fn borrow_buf(&self) -> BorrowedValue<'_, [u8]> {
+        self.0.as_contiguous().unwrap()
+    }
 }
 
 impl TryFromObject for PyBytesLike {
@@ -72,7 +76,7 @@ impl TryFromObject for PyBytesLike {
 impl<'a> BorrowValue<'a> for PyBytesLike {
     type Borrowed = BorrowedValue<'a, [u8]>;
     fn borrow_value(&'a self) -> Self::Borrowed {
-        self.0.as_contiguous().unwrap()
+        self.borrow_buf()
     }
 }
 
@@ -115,6 +119,10 @@ impl PyRwBytesLike {
     pub fn into_buffer(self) -> BufferRef {
         self.0
     }
+
+    pub fn borrow_buf_mut(&self) -> BorrowedValueMut<'_, [u8]> {
+        self.0.as_contiguous_mut().unwrap()
+    }
 }
 
 impl TryFromObject for PyRwBytesLike {
@@ -126,7 +134,7 @@ impl TryFromObject for PyRwBytesLike {
 impl<'a> BorrowValue<'a> for PyRwBytesLike {
     type Borrowed = BorrowedValueMut<'a, [u8]>;
     fn borrow_value(&'a self) -> Self::Borrowed {
-        self.0.as_contiguous_mut().unwrap()
+        self.borrow_buf_mut()
     }
 }
 
@@ -144,12 +152,18 @@ impl TryFromObject for BufOrStr {
     }
 }
 
-impl<'a> BorrowValue<'a> for BufOrStr {
-    type Borrowed = BorrowedValue<'a, [u8]>;
-    fn borrow_value(&'a self) -> Self::Borrowed {
+impl BufOrStr {
+    pub fn borrow_bytes(&self) -> BorrowedValue<'_, [u8]> {
         match self {
             Self::Buf(b) => b.borrow_value(),
             Self::Str(s) => s.borrow_value().as_bytes().into(),
         }
+    }
+}
+
+impl<'a> BorrowValue<'a> for BufOrStr {
+    type Borrowed = BorrowedValue<'a, [u8]>;
+    fn borrow_value(&'a self) -> Self::Borrowed {
+        self.borrow_bytes()
     }
 }

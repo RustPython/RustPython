@@ -275,6 +275,10 @@ impl PyStr {
         })
     }
 
+    pub fn as_str(&self) -> &str {
+        &self.value
+    }
+
     #[inline]
     pub fn byte_len(&self) -> usize {
         self.value.len()

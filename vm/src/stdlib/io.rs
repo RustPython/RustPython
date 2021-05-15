@@ -551,8 +551,9 @@ mod _io {
                     vm.call_method(&instance, "readinto", (b.clone(),))?,
                 )?;
                 Ok(n.map(|n| {
-                    let bytes = &mut b.borrow_value_mut().elements;
+                    let mut bytes = b.borrow_buf_mut();
                     bytes.truncate(n);
+                    // FIXME: try to use Arc::unwrap on the bytearray to get at the inner buffer
                     bytes.clone()
                 })
                 .into_pyobject(vm))

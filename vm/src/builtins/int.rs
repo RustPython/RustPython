@@ -268,6 +268,10 @@ impl PyInt {
         }
     }
 
+    pub fn as_bigint(&self) -> &BigInt {
+        &self.value
+    }
+
     #[pyslot]
     fn tp_new(cls: PyTypeRef, options: IntOptions, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         let value = if let OptionalArg::Present(val) = options.val_options {
@@ -801,7 +805,7 @@ fn try_int_radix(obj: &PyObjectRef, base: u32, vm: &VirtualMachine) -> PyResult<
         }
         bytearray @ PyByteArray => {
             let inner = bytearray.borrow_value();
-            bytes_to_int(&inner.elements, base)
+            bytes_to_int(&inner, base)
         }
         _ => {
             return Err(

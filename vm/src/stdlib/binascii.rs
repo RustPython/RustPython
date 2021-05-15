@@ -45,7 +45,7 @@ mod decl {
         pub fn with_ref<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
             match self {
                 SerializedData::Bytes(b) => f(b.borrow_value()),
-                SerializedData::Buffer(b) => f(&b.borrow_value().elements),
+                SerializedData::Buffer(b) => f(&b.borrow_value()),
                 SerializedData::Ascii(a) => f(a.borrow_value().as_bytes()),
             }
         }

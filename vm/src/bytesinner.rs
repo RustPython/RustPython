@@ -230,7 +230,6 @@ impl ByteInnerTranslateOptions {
 
 pub type ByteInnerSplitOptions<'a> = anystr::SplitArgs<'a, PyBytesInner>;
 
-#[allow(clippy::len_without_is_empty)]
 impl PyBytesInner {
     pub fn repr(&self) -> String {
         let mut res = String::with_capacity(self.elements.len());
@@ -246,8 +245,14 @@ impl PyBytesInner {
         res
     }
 
+    #[inline]
     pub fn len(&self) -> usize {
         self.elements.len()
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.elements.is_empty()
     }
 
     pub fn cmp(
@@ -913,7 +918,7 @@ where
 {
     match_class!(match obj {
         i @ PyBytes => Some(f(i.borrow_value())),
-        j @ PyByteArray => Some(f(&j.borrow_value().elements)),
+        j @ PyByteArray => Some(f(&j.borrow_value())),
         _ => None,
     })
 }
