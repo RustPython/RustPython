@@ -1,6 +1,6 @@
 use crate::builtins::PyFloat;
 use crate::{
-    BorrowValue, IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
     VirtualMachine,
 };
 use num_traits::ToPrimitive;
@@ -91,7 +91,7 @@ impl TryFromObject for std::time::Duration {
             Ok(Duration::from_secs_f64(float.to_f64()))
         } else if let Some(int) = vm.to_index_opt(obj.clone()) {
             let sec = int?
-                .borrow_value()
+                .as_bigint()
                 .to_u64()
                 .ok_or_else(|| vm.new_value_error("value out of range".to_owned()))?;
             Ok(Duration::from_secs(sec))

@@ -35,8 +35,8 @@ mod decl {
     use crate::vm::VirtualMachine;
     use crate::{py_io, sysmodule};
     use crate::{
-        BorrowValue, IdProtocol, ItemProtocol, PyArithmaticValue, PyCallable, PyClassImpl,
-        PyIterable, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+        IdProtocol, ItemProtocol, PyArithmaticValue, PyCallable, PyClassImpl, PyIterable,
+        PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
     };
     use num_traits::{Signed, Zero};
 
@@ -77,7 +77,7 @@ mod decl {
 
     #[pyfunction]
     fn bin(x: PyIntRef) -> String {
-        let x = x.borrow_value();
+        let x = x.as_bigint();
         if x.is_negative() {
             format!("-0b{:b}", x.abs())
         } else {
@@ -357,7 +357,7 @@ mod decl {
 
     #[pyfunction]
     fn hex(number: PyIntRef) -> String {
-        let n = number.borrow_value();
+        let n = number.as_bigint();
         format!("{:#x}", n)
     }
 
@@ -555,7 +555,7 @@ mod decl {
 
     #[pyfunction]
     fn oct(number: PyIntRef, vm: &VirtualMachine) -> PyResult {
-        let n = number.borrow_value();
+        let n = number.as_bigint();
         let s = if n.is_negative() {
             format!("-0o{:o}", n.abs())
         } else {

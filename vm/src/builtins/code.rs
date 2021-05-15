@@ -32,7 +32,7 @@ pub struct PyConstant(pub PyObjectRef);
 fn borrow_obj_constant(obj: &PyObjectRef) -> BorrowedConstant<PyConstant> {
     match_class!(match obj {
         ref i @ super::int::PyInt => {
-            let value = i.borrow_value();
+            let value = i.as_bigint();
             if obj.class().is(super::pybool::PyBool::static_type()) {
                 BorrowedConstant::Boolean {
                     value: !value.is_zero(),

@@ -60,7 +60,7 @@ fn pwd_getpwnam(name: PyStrRef, vm: &VirtualMachine) -> PyResult<Passwd> {
 }
 
 fn pwd_getpwuid(uid: PyIntRef, vm: &VirtualMachine) -> PyResult<Passwd> {
-    let uid_t = libc::uid_t::try_from(uid.borrow_value()).map(unistd::Uid::from_raw);
+    let uid_t = libc::uid_t::try_from(uid.as_bigint()).map(unistd::Uid::from_raw);
     let user = match uid_t {
         Ok(uid) => User::from_uid(uid).map_err(|err| err.into_pyexception(vm))?,
         Err(_) => None,

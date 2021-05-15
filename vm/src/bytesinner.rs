@@ -69,7 +69,7 @@ impl ByteInnerNewOptions {
     }
 
     fn get_value_from_size(size: PyIntRef, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
-        let size = size.borrow_value().to_isize().ok_or_else(|| {
+        let size = size.as_bigint().to_isize().ok_or_else(|| {
             vm.new_overflow_error("cannot fit 'int' into an index-sized integer".to_owned())
         })?;
         let size = if size < 0 {
@@ -164,7 +164,7 @@ impl ByteInnerFindOptions {
     ) -> PyResult<(Vec<u8>, std::ops::Range<usize>)> {
         let sub = match self.sub {
             Either::A(v) => v.elements.to_vec(),
-            Either::B(int) => vec![int.borrow_value().byte_or(vm)?],
+            Either::B(int) => vec![int.as_bigint().byte_or(vm)?],
         };
         let range = anystr::adjust_indices(self.start, self.end, len);
         Ok((sub, range))
@@ -286,7 +286,7 @@ impl PyBytesInner {
     ) -> PyResult<bool> {
         Ok(match needle {
             Either::A(byte) => self.elements.contains_str(byte.elements.as_slice()),
-            Either::B(int) => self.elements.contains(&int.borrow_value().byte_or(vm)?),
+            Either::B(int) => self.elements.contains(&int.as_bigint().byte_or(vm)?),
         })
     }
 
@@ -1197,7 +1197,7 @@ pub fn bytes_from_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Vec
 
 pub fn value_from_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<u8> {
     vm.to_index(obj)?
-        .borrow_value()
+        .as_bigint()
         .to_u8()
         .ok_or_else(|| vm.new_value_error("byte must be in range(0, 256)".to_owned()))
 }

@@ -258,7 +258,7 @@ mod decl {
         use crate::common::lock::PyMutex;
         use crate::function::OptionalArg;
         use crate::stdlib::io::Fildes;
-        use crate::{BorrowValue, IntoPyObject, PyValue, StaticType, TypeProtocol};
+        use crate::{IntoPyObject, PyValue, StaticType, TypeProtocol};
         use libc::pollfd;
         use num_traits::ToPrimitive;
         use std::time;
@@ -347,7 +347,7 @@ mod decl {
                         let ms = if let Some(float) = ms.payload::<PyFloat>() {
                             float.to_f64().to_i32()
                         } else if let Some(int) = vm.to_index_opt(ms.clone()) {
-                            int?.borrow_value().to_i32()
+                            int?.as_bigint().to_i32()
                         } else {
                             return Err(vm.new_type_error(format!(
                                 "expected an int or float for duration, got {}",

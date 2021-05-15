@@ -139,7 +139,7 @@ pub fn length_hint(vm: &VirtualMachine, iter: PyObjectRef) -> PyResult<Option<us
                 result.class().name
             ))
         })?
-        .borrow_value();
+        .as_bigint();
     if result.is_negative() {
         return Err(vm.new_value_error("__length_hint__() should return >= 0".to_owned()));
     }

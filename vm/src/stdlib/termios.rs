@@ -82,7 +82,7 @@ mod termios {
                 {
                     c.borrow_value()[0] as _
                 } else if let Some(i) = x.payload::<PyInt>() {
-                    int::try_to_primitive(i.borrow_value(), vm)?
+                    int::try_to_primitive(i.as_bigint(), vm)?
                 } else {
                     return Err(vm.new_type_error(
                         "tcsetattr: elements of attributes must be characters or integers"

@@ -68,8 +68,7 @@ mod decl {
     #[pyfunction]
     fn adler32(data: PyBytesLike, begin_state: OptionalArg<PyIntRef>) -> u32 {
         data.with_ref(|data| {
-            let begin_state =
-                begin_state.map_or(1, |i| int::bigint_unsigned_mask(i.borrow_value()));
+            let begin_state = begin_state.map_or(1, |i| int::bigint_unsigned_mask(i.as_bigint()));
 
             let mut hasher = Adler32::from_value(begin_state);
             hasher.update_buffer(data);
@@ -81,8 +80,7 @@ mod decl {
     #[pyfunction]
     fn crc32(data: PyBytesLike, begin_state: OptionalArg<PyIntRef>) -> u32 {
         data.with_ref(|data| {
-            let begin_state =
-                begin_state.map_or(0, |i| int::bigint_unsigned_mask(i.borrow_value()));
+            let begin_state = begin_state.map_or(0, |i| int::bigint_unsigned_mask(i.as_bigint()));
 
             let mut hasher = Crc32::new_with_initial(begin_state);
             hasher.update(data);

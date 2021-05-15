@@ -71,7 +71,7 @@ pub fn try_float_opt(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<
         };
     }
     if let Some(r) = vm.to_index_opt(obj.clone()).transpose()? {
-        return Ok(Some(int::to_float(r.borrow_value(), vm)?));
+        return Ok(Some(int::to_float(r.as_bigint(), vm)?));
     }
     Ok(None)
 }
@@ -85,7 +85,7 @@ pub(crate) fn to_op_float(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Op
     let v = if let Some(float) = obj.payload_if_subclass::<PyFloat>(vm) {
         Some(float.value)
     } else if let Some(int) = obj.payload_if_subclass::<PyInt>(vm) {
-        Some(int::to_float(int.borrow_value(), vm)?)
+        Some(int::to_float(int.as_bigint(), vm)?)
     } else {
         None
     };
@@ -393,7 +393,7 @@ impl PyFloat {
     fn round(&self, ndigits: OptionalOption<PyIntRef>, vm: &VirtualMachine) -> PyResult {
         let ndigits = ndigits.flatten();
         let value = if let Some(ndigits) = ndigits {
-            let ndigits = ndigits.borrow_value();
+            let ndigits = ndigits.as_bigint();
             let ndigits = match ndigits.to_i32() {
                 Some(n) => n,
                 None if ndigits.is_positive() => i32::MAX,
@@ -494,7 +494,7 @@ impl Comparable for PyFloat {
                 .map_or_else(|| op == PyComparisonOp::Ne, |ord| op.eval_ord(ord))
         } else if let Some(other) = other.payload_if_subclass::<PyInt>(vm) {
             let a = zelf.to_f64();
-            let b = other.borrow_value();
+            let b = other.as_bigint();
             match op {
                 PyComparisonOp::Lt => float_ops::lt_int(a, b),
                 PyComparisonOp::Le => {

@@ -790,7 +790,7 @@ mod _sre {
                     .downcast::<PyInt>()
                     .ok()?
             };
-            let i = i.borrow_value().to_isize()?;
+            let i = i.as_bigint().to_isize()?;
             if i >= 0 && i as usize <= self.pattern.groups {
                 Some(i as usize)
             } else {

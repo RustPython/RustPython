@@ -186,7 +186,7 @@ enum PathOrFd {
 impl TryFromObject for PathOrFd {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         match obj.downcast::<int::PyInt>() {
-            Ok(int) => int::try_to_primitive(int.borrow_value(), vm).map(Self::Fd),
+            Ok(int) => int::try_to_primitive(int.as_bigint(), vm).map(Self::Fd),
             Err(obj) => PyPathLike::try_from_object(vm, obj).map(Self::Path),
         }
     }
@@ -331,7 +331,7 @@ impl<const AVAILABLE: usize> FromArgs for DirFd<AVAILABLE> {
                         o.class().name
                     )))
                 })?;
-                let fd = int::try_to_primitive(fd.borrow_value(), vm)?;
+                let fd = int::try_to_primitive(fd.as_bigint(), vm)?;
                 Fd(fd)
             }
         };
@@ -1346,8 +1346,8 @@ mod _os {
                                     divmod.class().name
                                 ))
                             })?;
-                    let secs = int::try_to_primitive(vm.to_index(&div)?.borrow_value(), vm)?;
-                    let ns = int::try_to_primitive(vm.to_index(&rem)?.borrow_value(), vm)?;
+                    let secs = int::try_to_primitive(vm.to_index(&div)?.as_bigint(), vm)?;
+                    let ns = int::try_to_primitive(vm.to_index(&rem)?.as_bigint(), vm)?;
                     Ok(Duration::new(secs, ns))
                 };
                 // TODO: do validation to make sure this doesn't.. underflow?

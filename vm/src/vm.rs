@@ -1704,7 +1704,7 @@ impl VirtualMachine {
                             len.class().name
                         ))
                     })?
-                    .borrow_value();
+                    .as_bigint();
                 if len.is_negative() {
                     return Err(self.new_value_error("__len__() should return >= 0".to_owned()));
                 }

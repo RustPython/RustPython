@@ -396,7 +396,7 @@ impl CFormatSpec {
             CFormatType::Number(number_type) => match number_type {
                 CNumberType::Decimal => match_class!(match &obj {
                     ref i @ PyInt => {
-                        Ok(self.format_number(i.borrow_value()).into_bytes())
+                        Ok(self.format_number(i.as_bigint()).into_bytes())
                     }
                     ref f @ PyFloat => {
                         Ok(self
@@ -407,7 +407,7 @@ impl CFormatSpec {
                         if let Some(method) = vm.get_method(obj.clone(), "__int__") {
                             let result = vm.invoke(&method?, ())?;
                             if let Some(i) = result.payload::<PyInt>() {
-                                return Ok(self.format_number(i.borrow_value()).into_bytes());
+                                return Ok(self.format_number(i.as_bigint()).into_bytes());
                             }
                         }
                         Err(vm.new_type_error(format!(
@@ -419,7 +419,7 @@ impl CFormatSpec {
                 }),
                 _ => {
                     if let Some(i) = obj.payload::<PyInt>() {
-                        Ok(self.format_number(i.borrow_value()).into_bytes())
+                        Ok(self.format_number(i.as_bigint()).into_bytes())
                     } else {
                         Err(vm.new_type_error(format!(
                             "%{} format: an integer is required, not {}",
@@ -436,7 +436,7 @@ impl CFormatSpec {
             CFormatType::Character => {
                 if let Some(i) = obj.payload::<PyInt>() {
                     let ch = i
-                        .borrow_value()
+                        .as_bigint()
                         .to_u32()
                         .and_then(std::char::from_u32)
                         .ok_or_else(|| {
@@ -471,7 +471,7 @@ impl CFormatSpec {
             CFormatType::Number(number_type) => match number_type {
                 CNumberType::Decimal => match_class!(match &obj {
                     ref i @ PyInt => {
-                        Ok(self.format_number(i.borrow_value()))
+                        Ok(self.format_number(i.as_bigint()))
                     }
                     ref f @ PyFloat => {
                         Ok(self.format_number(&try_bigint(f.to_f64(), vm)?))
@@ -480,7 +480,7 @@ impl CFormatSpec {
                         if let Some(method) = vm.get_method(obj.clone(), "__int__") {
                             let result = vm.invoke(&method?, ())?;
                             if let Some(i) = result.payload::<PyInt>() {
-                                return Ok(self.format_number(i.borrow_value()));
+                                return Ok(self.format_number(i.as_bigint()));
                             }
                         }
                         Err(vm.new_type_error(format!(
@@ -492,7 +492,7 @@ impl CFormatSpec {
                 }),
                 _ => {
                     if let Some(i) = obj.payload::<PyInt>() {
-                        Ok(self.format_number(i.borrow_value()))
+                        Ok(self.format_number(i.as_bigint()))
                     } else {
                         Err(vm.new_type_error(format!(
                             "%{} format: an integer is required, not {}",
@@ -509,7 +509,7 @@ impl CFormatSpec {
             CFormatType::Character => {
                 if let Some(i) = obj.payload::<PyInt>() {
                     let ch = i
-                        .borrow_value()
+                        .as_bigint()
                         .to_u32()
                         .and_then(std::char::from_u32)
                         .ok_or_else(|| {

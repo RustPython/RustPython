@@ -121,7 +121,7 @@ impl PySocket {
                 let int = vm.to_index_opt(o).unwrap_or_else(|| {
                     Err(vm.new_type_error("an integer is required".to_owned()))
                 })?;
-                Some(int::try_to_primitive::<RawSocket>(int.borrow_value(), vm)?)
+                Some(int::try_to_primitive::<RawSocket>(int.as_bigint(), vm)?)
             }
             None => None,
         };
@@ -589,7 +589,7 @@ impl PySocket {
                 let int = vm.to_index_opt(arg2).unwrap_or_else(|| {
                     Err(vm.new_type_error("an integer is required".to_owned()))
                 })?;
-                let flags = int::try_to_primitive::<i32>(int.borrow_value(), vm)?;
+                let flags = int::try_to_primitive::<i32>(int.as_bigint(), vm)?;
                 (flags, arg3)
             }
             OptionalArg::Missing => (0, arg2),

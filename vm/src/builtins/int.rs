@@ -278,7 +278,7 @@ impl PyInt {
             if let OptionalArg::Present(base) = options.base {
                 let base = vm
                     .to_index(&base)?
-                    .borrow_value()
+                    .as_bigint()
                     .to_u32()
                     .filter(|&v| v == 0 || (2..=36).contains(&v))
                     .ok_or_else(|| {
@@ -445,7 +445,7 @@ impl PyInt {
                     None => return Ok(vm.ctx.not_implemented()),
                 };
 
-                let modulus = int.borrow_value();
+                let modulus = int.as_bigint();
                 if modulus.is_zero() {
                     return Err(vm.new_value_error("pow() 3rd argument cannot be 0".to_owned()));
                 }
@@ -668,12 +668,12 @@ impl PyInt {
             false
         };
 
-        let value = self.borrow_value();
+        let value = self.as_bigint();
         if value.sign() == Sign::Minus && !signed {
             return Err(vm.new_overflow_error("can't convert negative int to unsigned".to_owned()));
         }
 
-        let byte_len = args.length.borrow_value().to_usize().ok_or_else(|| {
+        let byte_len = args.length.as_bigint().to_usize().ok_or_else(|| {
             vm.new_overflow_error("Python int too large to convert to C ssize_t".to_owned())
         })?;
 
@@ -759,7 +759,7 @@ impl Comparable for PyInt {
 
 impl Hashable for PyInt {
     fn hash(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<hash::PyHash> {
-        Ok(hash::hash_bigint(zelf.borrow_value()))
+        Ok(hash::hash_bigint(zelf.as_bigint()))
     }
 }
 
@@ -964,14 +964,14 @@ pub(crate) fn try_int(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt
     }
     // strict `int` check
     if let Some(int) = obj.payload_if_exact::<PyInt>(vm) {
-        return Ok(int.borrow_value().clone());
+        return Ok(int.as_bigint().clone());
     }
     // call __int__, then __index__, then __trunc__ (converting the __trunc__ result via  __index__ if needed)
     // TODO: using __int__ is deprecated and removed in Python 3.10
     if let Some(method) = vm.get_method(obj.clone(), "__int__") {
         let result = vm.invoke(&method?, ())?;
         return match result.payload::<PyInt>() {
-            Some(int_obj) => Ok(int_obj.borrow_value().clone()),
+            Some(int_obj) => Ok(int_obj.as_bigint().clone()),
             None => Err(vm.new_type_error(format!(
                 "__int__ returned non-int (type '{}')",
                 result.class().name
@@ -980,7 +980,7 @@ pub(crate) fn try_int(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt
     }
     // TODO: returning strict subclasses of int in __index__ is deprecated
     if let Some(r) = vm.to_index_opt(obj.clone()).transpose()? {
-        return Ok(r.borrow_value().clone());
+        return Ok(r.as_bigint().clone());
     }
     if let Some(method) = vm.get_method(obj.clone(), "__trunc__") {
         let result = vm.invoke(&method?, ())?;
@@ -992,7 +992,7 @@ pub(crate) fn try_int(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt
                     result.class().name
                 )))
             })
-            .map(|int_obj| int_obj.borrow_value().clone());
+            .map(|int_obj| int_obj.as_bigint().clone());
     }
 
     Err(vm.new_type_error(format!(

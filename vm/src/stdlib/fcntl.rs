@@ -45,7 +45,7 @@ mod fcntl {
                 }
                 return Ok(vm.ctx.new_bytes(buf[..arg_len].to_vec()));
             }
-            OptionalArg::Present(Either::B(i)) => int::bigint_unsigned_mask(i.borrow_value()),
+            OptionalArg::Present(Either::B(i)) => int::bigint_unsigned_mask(i.as_bigint()),
             OptionalArg::Missing => 0,
         };
         let ret = unsafe { libc::fcntl(fd, cmd, int as i32) };

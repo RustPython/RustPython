@@ -9,7 +9,7 @@ cfg_if::cfg_if! {
     }
 }
 use crate::VirtualMachine;
-use crate::{BorrowValue, PyObjectRef, PyResult, TryFromObject};
+use crate::{PyObjectRef, PyResult, TryFromObject};
 pub(crate) use _io::io_open as open;
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
@@ -53,7 +53,7 @@ impl TryFromObject for Fildes {
                     .map_err(|_| vm.new_type_error("fileno() returned a non-integer".to_owned()))?
             }
         };
-        let fd = int::try_to_primitive(int.borrow_value(), vm)?;
+        let fd = int::try_to_primitive(int.as_bigint(), vm)?;
         if fd < 0 {
             return Err(vm.new_value_error(format!(
                 "file descriptor cannot be a negative integer ({})",
@@ -1333,7 +1333,7 @@ mod _io {
     pub fn get_offset(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Offset> {
         use std::convert::TryInto;
         let int = vm.to_index(&obj)?;
-        int.borrow_value().try_into().map_err(|_| {
+        int.as_bigint().try_into().map_err(|_| {
             vm.new_value_error(format!(
                 "cannot fit '{}' into an offset-sized integer",
                 obj.class().name
@@ -2331,7 +2331,7 @@ mod _io {
             drop(textio);
             vm.call_method(zelf.as_object(), "flush", ())?;
             let cookie_obj = crate::builtins::PyIntRef::try_from_object(vm, cookie)?;
-            let cookie = TextIOCookie::parse(cookie_obj.borrow_value())
+            let cookie = TextIOCookie::parse(cookie_obj.as_bigint())
                 .ok_or_else(|| vm.new_value_error("invalid cookie".to_owned()))?;
             let mut textio = zelf.lock(vm)?;
             vm.call_method(&textio.buffer, "seek", (cookie.start_pos,))?;
@@ -2849,7 +2849,7 @@ mod _io {
                     ))
                 })?;
                 let flags = flags.payload::<int::PyInt>().ok_or_else(state_err)?;
-                let flags = int::try_to_primitive(flags.borrow_value(), vm)?;
+                let flags = int::try_to_primitive(flags.as_bigint(), vm)?;
                 Ok((buf, flags))
             }
             _ => Err(state_err()),
@@ -3834,7 +3834,7 @@ mod fileio {
                 }
                 fd
             } else if let Some(i) = name.payload::<crate::builtins::PyInt>() {
-                crate::builtins::int::try_to_primitive(i.borrow_value(), vm)?
+                crate::builtins::int::try_to_primitive(i.as_bigint(), vm)?
             } else {
                 let path = os::PyPathLike::try_from_object(vm, name.clone())?;
                 if !args.closefd {

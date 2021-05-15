@@ -177,7 +177,7 @@ impl PyType {
                     let hash_obj = vm.call_special_method(zelf.clone(), "__hash__", ())?;
                     match hash_obj.payload_if_subclass::<PyInt>(vm) {
                         Some(py_int) => {
-                            Ok(rustpython_common::hash::hash_bigint(py_int.borrow_value()))
+                            Ok(rustpython_common::hash::hash_bigint(py_int.as_bigint()))
                         }
                         None => Err(vm
                             .new_type_error("__hash__ method should return an integer".to_owned())),

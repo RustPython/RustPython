@@ -2,7 +2,7 @@ use crate::builtins::int::PyIntRef;
 use crate::cformat::CFormatString;
 use crate::function::{single_or_tuple_any, OptionalOption};
 use crate::vm::VirtualMachine;
-use crate::{BorrowValue, PyIterator, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
+use crate::{PyIterator, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
 use num_traits::{cast::ToPrimitive, sign::Signed};
 use std::str::FromStr;
 
@@ -66,7 +66,7 @@ impl StartsEndsWithArgs {
 }
 
 fn saturate_to_isize(py_int: PyIntRef) -> isize {
-    let big = py_int.borrow_value();
+    let big = py_int.as_bigint();
     big.to_isize().unwrap_or_else(|| {
         if big.is_negative() {
             std::isize::MIN

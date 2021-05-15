@@ -6,7 +6,7 @@ use crate::builtins::int::PyInt;
 use crate::builtins::slice::{PySlice, PySliceRef};
 use crate::utils::Either;
 use crate::VirtualMachine;
-use crate::{BorrowValue, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
+use crate::{PyObjectRef, PyResult, TryFromObject, TypeProtocol};
 
 pub trait PySliceableSequenceMut {
     type Item: Clone;
@@ -343,7 +343,7 @@ impl SequenceIndex {
     ) -> PyResult<Self> {
         match_class!(match obj {
             i @ PyInt => i
-                .borrow_value()
+                .as_bigint()
                 .to_isize()
                 .map(SequenceIndex::Int)
                 .ok_or_else(|| vm

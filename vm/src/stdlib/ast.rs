@@ -215,7 +215,7 @@ impl Node for ast::Constant {
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
         let constant = match_class!(match object {
             ref i @ builtins::int::PyInt => {
-                let value = i.borrow_value();
+                let value = i.as_bigint();
                 if object.class().is(&vm.ctx.types.bool_type) {
                     ast::Constant::Bool(!value.is_zero())
                 } else {

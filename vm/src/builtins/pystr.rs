@@ -958,7 +958,7 @@ impl PyStr {
                         translated.push_str(text.as_str());
                     } else if let Some(bigint) = value.payload::<PyInt>() {
                         let ch = bigint
-                            .borrow_value()
+                            .as_bigint()
                             .to_u32()
                             .and_then(std::char::from_u32)
                             .ok_or_else(|| {
@@ -1022,7 +1022,7 @@ impl PyStr {
                     for (key, val) in dict {
                         if let Some(num) = key.payload::<PyInt>() {
                             new_dict.set_item(
-                                num.borrow_value().to_i32().into_pyobject(vm),
+                                num.as_bigint().to_i32().into_pyobject(vm),
                                 val,
                                 vm,
                             )?;

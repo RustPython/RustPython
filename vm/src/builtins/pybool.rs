@@ -6,8 +6,8 @@ use super::pystr::PyStrRef;
 use crate::function::OptionalArg;
 use crate::vm::VirtualMachine;
 use crate::{
-    BorrowValue, IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyResult,
-    TryFromObject, TypeProtocol,
+    IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyResult, TryFromObject,
+    TypeProtocol,
 };
 
 impl IntoPyObject for bool {
@@ -59,7 +59,7 @@ pub fn boolval(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
                     ))
                 })?;
 
-                let len_val = int_obj.borrow_value();
+                let len_val = int_obj.as_bigint();
                 if len_val.sign() == Sign::Minus {
                     return Err(vm.new_value_error("__len__() should return >= 0".to_owned()));
                 }
@@ -163,7 +163,7 @@ pub(crate) fn init(context: &PyContext) {
 
 // Retrieve inner int value:
 pub(crate) fn get_value(obj: &PyObjectRef) -> bool {
-    !obj.payload::<PyInt>().unwrap().borrow_value().is_zero()
+    !obj.payload::<PyInt>().unwrap().as_bigint().is_zero()
 }
 
 fn get_py_int(obj: &PyObjectRef) -> &PyInt {
