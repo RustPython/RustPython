@@ -10,8 +10,8 @@ use crate::slots::{SlotGetattro, SlotSetattro};
 use crate::utils::Either;
 use crate::VirtualMachine;
 use crate::{
-    BorrowValue, IdProtocol, ItemProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef, PyResult,
-    PyValue, StaticType, TypeProtocol,
+    IdProtocol, ItemProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
+    StaticType, TypeProtocol,
 };
 
 use parking_lot::{
@@ -230,7 +230,7 @@ fn _thread_start_new_thread(
     vm: &VirtualMachine,
 ) -> PyResult<u64> {
     let args = FuncArgs::new(
-        args.borrow_value().to_owned(),
+        args.as_slice().to_owned(),
         kwargs
             .map_or_else(Default::default, |k| k.to_attributes())
             .into_iter()

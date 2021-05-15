@@ -9,8 +9,8 @@ use super::{PyStrRef, PyTypeRef};
 use crate::bytecode::{self, BorrowedConstant, Constant, ConstantBag};
 use crate::VirtualMachine;
 use crate::{
-    BorrowValue, IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    StaticType, TypeProtocol,
+    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
+    TypeProtocol,
 };
 use num_traits::Zero;
 
@@ -54,7 +54,7 @@ fn borrow_obj_constant(obj: &PyObjectRef) -> BorrowedConstant<PyConstant> {
         }
         ref t @ super::tuple::PyTuple => {
             BorrowedConstant::Tuple {
-                elements: Box::new(t.borrow_value().iter().map(borrow_obj_constant)),
+                elements: Box::new(t.as_slice().iter().map(borrow_obj_constant)),
             }
         }
         super::singletons::PyNone => BorrowedConstant::None,

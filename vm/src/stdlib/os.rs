@@ -27,8 +27,8 @@ use crate::slots::PyIter;
 use crate::utils::Either;
 use crate::vm::{ReprGuard, VirtualMachine};
 use crate::{
-    BorrowValue, IntoPyObject, ItemProtocol, PyObjectRef, PyRef, PyResult, PyStructSequence,
-    PyValue, StaticType, TryFromObject, TypeProtocol,
+    IntoPyObject, ItemProtocol, PyObjectRef, PyRef, PyResult, PyStructSequence, PyValue,
+    StaticType, TryFromObject, TypeProtocol,
 };
 
 #[cfg(unix)]
@@ -1309,7 +1309,7 @@ mod _os {
     #[pyfunction]
     fn utime(args: UtimeArgs, vm: &VirtualMachine) -> PyResult<()> {
         let parse_tup = |tup: &PyTuple| -> Option<(PyObjectRef, PyObjectRef)> {
-            let tup = tup.borrow_value();
+            let tup = tup.as_slice();
             if tup.len() != 2 {
                 None
             } else {
@@ -2493,7 +2493,7 @@ mod posix {
             if let Some(it) = self.file_actions {
                 for action in it.iter(vm)? {
                     let action = action?;
-                    let (id, args) = action.borrow_value().split_first().ok_or_else(|| {
+                    let (id, args) = action.as_slice().split_first().ok_or_else(|| {
                         vm.new_type_error(
                             "Each file_actions element must be a non-empty tuple".to_owned(),
                         )

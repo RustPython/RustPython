@@ -6,7 +6,7 @@ use crate::builtins::int::{self, PyInt};
 use crate::builtins::iter::PySequenceIterator;
 use crate::exceptions::PyBaseExceptionRef;
 use crate::vm::VirtualMachine;
-use crate::{BorrowValue, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol};
+use crate::{PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol};
 use num_traits::Signed;
 
 /*
@@ -103,7 +103,7 @@ pub fn stop_iter_with_value(val: PyObjectRef, vm: &VirtualMachine) -> PyBaseExce
 
 pub fn stop_iter_value(vm: &VirtualMachine, exc: &PyBaseExceptionRef) -> PyObjectRef {
     let args = exc.args();
-    vm.unwrap_or_none(args.borrow_value().first().cloned())
+    vm.unwrap_or_none(args.as_slice().first().cloned())
 }
 
 pub fn length_hint(vm: &VirtualMachine, iter: PyObjectRef) -> PyResult<Option<usize>> {

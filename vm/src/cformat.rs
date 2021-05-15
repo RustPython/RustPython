@@ -6,7 +6,7 @@ use crate::builtins::pystr::PyStr;
 use crate::builtins::{memory::try_buffer_from_object, tuple, PyBytes};
 use crate::common::float_ops;
 use crate::vm::VirtualMachine;
-use crate::{BorrowValue, ItemProtocol, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
+use crate::{ItemProtocol, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
 use itertools::Itertools;
 use num_bigint::{BigInt, Sign};
 use num_traits::cast::ToPrimitive;
@@ -662,7 +662,7 @@ impl CFormatBytes {
             return if is_mapping
                 || values_obj
                     .payload::<tuple::PyTuple>()
-                    .map_or(false, |e| e.borrow_value().is_empty())
+                    .map_or(false, |e| e.as_slice().is_empty())
             {
                 for (_, part) in &mut self.parts {
                     match part {
@@ -702,7 +702,7 @@ impl CFormatBytes {
 
         // tuple
         let values = if let Some(tup) = values_obj.payload_if_subclass::<tuple::PyTuple>(vm) {
-            tup.borrow_value()
+            tup.as_slice()
         } else {
             std::slice::from_ref(&values_obj)
         };
@@ -814,7 +814,7 @@ impl CFormatString {
             return if is_mapping
                 || values_obj
                     .payload::<tuple::PyTuple>()
-                    .map_or(false, |e| e.borrow_value().is_empty())
+                    .map_or(false, |e| e.as_slice().is_empty())
             {
                 for (_, part) in &self.parts {
                     match part {
@@ -854,7 +854,7 @@ impl CFormatString {
 
         // tuple
         let values = if let Some(tup) = values_obj.payload_if_subclass::<tuple::PyTuple>(vm) {
-            tup.borrow_value()
+            tup.as_slice()
         } else {
             std::slice::from_ref(&values_obj)
         };

@@ -171,7 +171,7 @@ impl PyFunction {
         // Add missing positional arguments, if we have fewer positional arguments than the
         // function definition calls for
         if nargs < nexpected_args {
-            let defaults = get_defaults!().0.as_ref().map(|tup| tup.borrow_value());
+            let defaults = get_defaults!().0.as_ref().map(|tup| tup.as_slice());
             let ndefs = defaults.map_or(0, |d| d.len());
 
             let nrequired = code.arg_count - ndefs;

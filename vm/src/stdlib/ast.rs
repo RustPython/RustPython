@@ -18,8 +18,8 @@ use crate::builtins::{self, PyStrRef, PyTypeRef};
 use crate::function::FuncArgs;
 use crate::vm::VirtualMachine;
 use crate::{
-    BorrowValue, IdProtocol, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue,
-    StaticType, TryFromObject, TypeProtocol,
+    IdProtocol, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue, StaticType,
+    TryFromObject, TypeProtocol,
 };
 
 #[rustfmt::skip]
@@ -234,7 +234,7 @@ impl Node for ast::Constant {
             ref b @ builtins::bytes::PyBytes => ast::Constant::Bytes(b.as_bytes().to_owned()),
             ref t @ builtins::tuple::PyTuple => {
                 ast::Constant::Tuple(
-                    t.borrow_value()
+                    t.as_slice()
                         .iter()
                         .map(|elt| Self::ast_from_object(vm, elt.clone()))
                         .collect::<Result<_, _>>()?,

@@ -29,8 +29,8 @@ use crate::scope::Scope;
 use crate::slots::PyComparisonOp;
 use crate::vm::VirtualMachine;
 use crate::{
-    BorrowValue, IdProtocol, ItemProtocol, PyMethod, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
+    IdProtocol, ItemProtocol, PyMethod, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol,
 };
 
 #[derive(Clone, Debug)]
@@ -1349,7 +1349,7 @@ impl ExecutingFrame<'_> {
         let args = self.pop_multiple(nargs as usize);
 
         let kwarg_names = kwarg_names
-            .borrow_value()
+            .as_slice()
             .iter()
             .map(|pyobj| pystr::clone_value(pyobj));
         FuncArgs::with_kwargs_names(args, kwarg_names)

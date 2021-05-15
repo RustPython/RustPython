@@ -312,7 +312,7 @@ impl PySocket {
                         obj.class().name
                     ))
                 })?;
-                let tuple = tuple.borrow_value();
+                let tuple = tuple.as_slice();
                 if tuple.len() != 2 {
                     return Err(
                         vm.new_type_error("AF_INET address must be a pair (host, post)".to_owned())
@@ -336,7 +336,7 @@ impl PySocket {
                         obj.class().name
                     ))
                 })?;
-                let tuple = tuple.borrow_value();
+                let tuple = tuple.as_slice();
                 match tuple.len() {
                     2 | 3 | 4 => {}
                     _ => {
@@ -829,10 +829,10 @@ impl ToSocketAddrs for Address {
 impl TryFromObject for Address {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let tuple = PyTupleRef::try_from_object(vm, obj)?;
-        if tuple.borrow_value().len() != 2 {
+        if tuple.as_slice().len() != 2 {
             Err(vm.new_type_error("Address tuple should have only 2 values".to_owned()))
         } else {
-            Self::from_tuple(tuple.borrow_value(), vm)
+            Self::from_tuple(tuple.as_slice(), vm)
         }
     }
 }
@@ -1200,7 +1200,7 @@ fn _socket_getnameinfo(
     flags: i32,
     vm: &VirtualMachine,
 ) -> PyResult<(String, String)> {
-    let address = address.borrow_value();
+    let address = address.as_slice();
     match address.len() {
         2 | 3 | 4 => {}
         _ => return Err(vm.new_type_error("illegal sockaddr argument".to_owned())),
