@@ -203,6 +203,8 @@ class ProcessTestCase(BaseTestCase):
                 input=None)
         self.assertNotIn(b'XX', output)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_check_output_input_none_text(self):
         output = subprocess.check_output(
                 [sys.executable, "-c",
@@ -210,6 +212,8 @@ class ProcessTestCase(BaseTestCase):
                 input=None, text=True)
         self.assertNotIn('XX', output)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_check_output_input_none_universal_newlines(self):
         output = subprocess.check_output(
                 [sys.executable, "-c",
@@ -347,6 +351,8 @@ class ProcessTestCase(BaseTestCase):
         self._assert_python([doesnotexist, "-c"],
                             executable=FakePath(sys.executable))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_executable_takes_precedence(self):
         # Check that the executable argument takes precedence over args[0].
         #
@@ -423,6 +429,8 @@ class ProcessTestCase(BaseTestCase):
         temp_dir = self._normalize_cwd(temp_dir)
         self._assert_cwd(temp_dir, sys.executable, cwd=FakePath(temp_dir))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipIf(mswindows, "pending resolution of issue #15533")
     def test_cwd_with_relative_arg(self):
         # Check that Popen looks for args[0] relative to cwd if args[0]
@@ -439,6 +447,8 @@ class ProcessTestCase(BaseTestCase):
             python_dir = self._normalize_cwd(python_dir)
             self._assert_cwd(python_dir, rel_python, cwd=python_dir)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipIf(mswindows, "pending resolution of issue #15533")
     def test_cwd_with_relative_executable(self):
         # Check that Popen looks for executable relative to cwd if executable
@@ -458,6 +468,8 @@ class ProcessTestCase(BaseTestCase):
             self._assert_cwd(python_dir, doesntexist, executable=rel_python,
                              cwd=python_dir)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_cwd_with_absolute_arg(self):
         # Check that Popen can find the executable when the cwd is wrong
         # if args[0] is an absolute path.
@@ -690,6 +702,8 @@ class ProcessTestCase(BaseTestCase):
             stdout, stderr = p.communicate()
             self.assertEqual(stdout, b"orange")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     # Windows requires at least the SYSTEMROOT environment variable to start
     # Python
     @unittest.skipIf(sys.platform == 'win32',
@@ -798,6 +812,8 @@ class ProcessTestCase(BaseTestCase):
         self.assertEqual(stdout, b"banana")
         self.assertStderrEqual(stderr, b"pineapple")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_communicate_timeout(self):
         p = subprocess.Popen([sys.executable, "-c",
                               'import sys,os,time;'
@@ -903,6 +919,8 @@ class ProcessTestCase(BaseTestCase):
         self.assertEqual(stdout, b"bananasplit")
         self.assertStderrEqual(stderr, b"")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_universal_newlines_and_text(self):
         args = [
             sys.executable, "-c",
@@ -967,6 +985,8 @@ class ProcessTestCase(BaseTestCase):
         self.assertEqual(stdout,
                          "line2\nline4\nline5\nline6\nline7\nline8")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_universal_newlines_communicate_stdin(self):
         # universal newlines through communicate(), with only stdin
         p = subprocess.Popen([sys.executable, "-c",
@@ -981,6 +1001,8 @@ class ProcessTestCase(BaseTestCase):
         (stdout, stderr) = p.communicate("line1\nline3\n")
         self.assertEqual(p.returncode, 0)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_universal_newlines_communicate_input_none(self):
         # Test communicate(input=None) with universal newlines.
         #
@@ -993,6 +1015,8 @@ class ProcessTestCase(BaseTestCase):
         p.communicate()
         self.assertEqual(p.returncode, 0)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_universal_newlines_communicate_stdin_stdout_stderr(self):
         # universal newlines through communicate(), with stdin, stdout, stderr
         p = subprocess.Popen([sys.executable, "-c",
@@ -1022,6 +1046,8 @@ class ProcessTestCase(BaseTestCase):
         # Don't use assertStderrEqual because it strips CR and LF from output.
         self.assertTrue(stderr.startswith("eline2\neline6\neline7\n"))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_universal_newlines_communicate_encodings(self):
         # Check that universal newlines mode works for various encodings,
         # in particular for encodings in the UTF-16 and UTF-32 families.
@@ -1044,6 +1070,8 @@ class ProcessTestCase(BaseTestCase):
             stdout, stderr = popen.communicate(input='')
             self.assertEqual(stdout, '1\n2\n3\n4')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_communicate_errors(self):
         for errors, expected in [
             ('ignore', ''),
@@ -1185,12 +1213,16 @@ class ProcessTestCase(BaseTestCase):
         self.assertEqual(p.returncode, 0)
         self.assertEqual(read_line, expected)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_bufsize_equal_one_text_mode(self):
         # line is flushed in text mode with bufsize=1.
         # we should get the full line in return
         line = "line\n"
         self._test_bufsize_equal_one(line, line, universal_newlines=True)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_bufsize_equal_one_binary_mode(self):
         # line is not flushed in binary mode with bufsize=1.
         # we should get empty response
@@ -1198,6 +1230,8 @@ class ProcessTestCase(BaseTestCase):
         with self.assertWarnsRegex(RuntimeWarning, 'line buffering'):
             self._test_bufsize_equal_one(line, b'', universal_newlines=False)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_leaking_fds_on_error(self):
         # see bug #5179: Popen leaks file descriptors to PIPEs if
         # the child fails to execute; this will eventually exhaust
@@ -1363,6 +1397,8 @@ class ProcessTestCase(BaseTestCase):
         self.assertFalse(os.path.exists(ofname))
         self.assertFalse(os.path.exists(efname))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_communicate_epipe(self):
         # Issue 10963: communicate() should hide EPIPE
         p = subprocess.Popen(ZERO_RETURN_CMD,
@@ -1374,6 +1410,8 @@ class ProcessTestCase(BaseTestCase):
         self.addCleanup(p.stdin.close)
         p.communicate(b"x" * 2**20)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_communicate_epipe_only_stdin(self):
         # Issue 10963: communicate() should hide EPIPE
         p = subprocess.Popen(ZERO_RETURN_CMD,
@@ -1382,6 +1420,8 @@ class ProcessTestCase(BaseTestCase):
         p.wait()
         p.communicate(b"x" * 2**20)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(signal, 'SIGUSR1'),
                          "Requires signal.SIGUSR1")
     @unittest.skipUnless(hasattr(os, 'kill'),
@@ -1425,12 +1465,16 @@ class ProcessTestCase(BaseTestCase):
         fds_after_exception = os.listdir(fd_directory)
         self.assertEqual(fds_before_popen, fds_after_exception)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipIf(mswindows, "behavior currently not supported on Windows")
     def test_file_not_found_includes_filename(self):
         with self.assertRaises(FileNotFoundError) as c:
             subprocess.call(['/opt/nonexistent_binary', 'with', 'some', 'args'])
         self.assertEqual(c.exception.filename, '/opt/nonexistent_binary')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipIf(mswindows, "behavior currently not supported on Windows")
     def test_file_not_found_with_bad_cwd(self):
         with self.assertRaises(FileNotFoundError) as c:
@@ -1633,6 +1677,8 @@ class POSIXProcessTestCase(BaseTestCase):
                       self._nonexistent_dir)
         return desired_exception
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_exception_cwd(self):
         """Test error in the child raised in the parent for a bad cwd."""
         desired_exception = self._get_chdir_exception()
@@ -1648,6 +1694,8 @@ class POSIXProcessTestCase(BaseTestCase):
         else:
             self.fail("Expected OSError: %s" % desired_exception)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_exception_bad_executable(self):
         """Test error in the child raised in the parent for a bad executable."""
         desired_exception = self._get_chdir_exception()
@@ -1663,6 +1711,8 @@ class POSIXProcessTestCase(BaseTestCase):
         else:
             self.fail("Expected OSError: %s" % desired_exception)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_exception_bad_args_0(self):
         """Test error in the child raised in the parent for a bad args[0]."""
         desired_exception = self._get_chdir_exception()
@@ -1688,6 +1738,8 @@ class POSIXProcessTestCase(BaseTestCase):
         def __del__(self):
             pass
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @mock.patch("subprocess._posixsubprocess.fork_exec")
     def test_exception_errpipe_normal(self, fork_exec):
         """Test error passing done through errpipe_write in the good case"""
@@ -1727,6 +1779,8 @@ class POSIXProcessTestCase(BaseTestCase):
 
         self.assertIn(repr(error_data), str(e.exception))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipIf(not os.path.exists('/proc/self/status'),
                      "need /proc/self/status")
     def test_restore_signals(self):
@@ -1796,6 +1850,8 @@ class POSIXProcessTestCase(BaseTestCase):
         error_string = str(err)
         self.assertIn("non-zero exit status 2.", error_string)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_preexec(self):
         # DISCLAIMER: Setting environment variables is *not* a good use
         # of a preexec_fn.  This is merely a test.
@@ -1807,6 +1863,8 @@ class POSIXProcessTestCase(BaseTestCase):
         with p:
             self.assertEqual(p.stdout.read(), b"apple")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_preexec_exception(self):
         def raise_it():
             raise ValueError("What if two swallows carried a coconut?")
@@ -1848,6 +1906,8 @@ class POSIXProcessTestCase(BaseTestCase):
                     for fd in devzero_fds:
                         os.close(fd)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipIf(not os.path.exists("/dev/zero"), "/dev/zero required.")
     def test_preexec_errpipe_does_not_double_close_pipes(self):
         """Issue16140: Don't double close pipes on preexec error."""
@@ -1862,6 +1922,8 @@ class POSIXProcessTestCase(BaseTestCase):
                         stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE, preexec_fn=raise_it)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_preexec_gc_module_failure(self):
         # This tests the code that disables garbage collection if the child
         # process will execute any Python.
@@ -1899,6 +1961,8 @@ class POSIXProcessTestCase(BaseTestCase):
             if not enabled:
                 gc.disable()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipIf(
         sys.platform == 'darwin', 'setrlimit() seems to fail on OS X')
     def test_preexec_fork_failure(self):
@@ -2309,6 +2373,8 @@ class POSIXProcessTestCase(BaseTestCase):
             for to_fds in itertools.permutations(range(3), 2):
                 self._check_swap_std_fds_with_one_closed(from_fds, to_fds)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_surrogates_error_message(self):
         def prepare():
             raise ValueError("surrogate:\uDCff")
@@ -2328,6 +2394,8 @@ class POSIXProcessTestCase(BaseTestCase):
         else:
             self.fail("Expected ValueError or subprocess.SubprocessError")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_undecodable_env(self):
         for key, value in (('test', 'abc\uDCFF'), ('test\uDCFF', '42')):
             encoded_value = value.encode("ascii", "surrogateescape")
@@ -2448,6 +2516,8 @@ class POSIXProcessTestCase(BaseTestCase):
         p1.stdout.close()
         p2.stdout.close()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_close_fds(self):
         fd_status = support.findfile("fd_status.py", subdir="subprocessdata")
 
@@ -2575,6 +2645,8 @@ class POSIXProcessTestCase(BaseTestCase):
                          msg="Some fds were left open.")
 
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     # Mac OS X Tiger (10.4) has a kernel bug: sometimes, the file
     # descriptor of a pipe closed in the parent process is valid in the
     # child process according to fstat(), but the mode of the file
@@ -2687,6 +2759,8 @@ class POSIXProcessTestCase(BaseTestCase):
                                  stderr=inout, stdin=inout)
             p.wait()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_wait_when_sigchild_ignored(self):
         # NOTE: sigchild_ignore.py may not be an effective test on all OSes.
         sigchild_ignore = support.findfile("sigchild_ignore.py",
@@ -2781,6 +2855,8 @@ class POSIXProcessTestCase(BaseTestCase):
         else:
             self.assertNotIn(ident, [id(o) for o in subprocess._active])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_close_fds_after_preexec(self):
         fd_status = support.findfile("fd_status.py", subdir="subprocessdata")
 
@@ -3385,6 +3461,8 @@ class ContextManagerTests(BaseTestCase):
             proc.communicate(b"context")
             self.assertEqual(proc.returncode, 1)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_invalid_args(self):
         with self.assertRaises(NONEXISTING_ERRORS):
             with subprocess.Popen(NONEXISTING_CMD,
