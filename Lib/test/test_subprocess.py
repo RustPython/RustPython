@@ -359,8 +359,6 @@ class ProcessTestCase(BaseTestCase):
         self._assert_python([doesnotexist, "-c"],
                             executable=FakePath(sys.executable))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_executable_takes_precedence(self):
         # Check that the executable argument takes precedence over args[0].
         #
@@ -370,6 +368,10 @@ class ProcessTestCase(BaseTestCase):
         self.assertRaises(NONEXISTING_ERRORS,
                           self._assert_python, pre_args,
                           executable=NONEXISTING_CMD[0])
+
+    # TODO: RUSTPYTHON
+    if sys.platform != "win32":
+        test_executable_takes_precedence = unittest.expectedFailure(test_executable_takes_precedence)
 
     @unittest.skipIf(mswindows, "executable argument replaces shell")
     def test_executable_replaces_shell(self):
@@ -476,8 +478,6 @@ class ProcessTestCase(BaseTestCase):
             self._assert_cwd(python_dir, doesntexist, executable=rel_python,
                              cwd=python_dir)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_cwd_with_absolute_arg(self):
         # Check that Popen can find the executable when the cwd is wrong
         # if args[0] is an absolute path.
@@ -491,6 +491,10 @@ class ProcessTestCase(BaseTestCase):
                               [rel_python], cwd=wrong_dir)
             wrong_dir = self._normalize_cwd(wrong_dir)
             self._assert_cwd(wrong_dir, abs_python, cwd=wrong_dir)
+
+    # TODO: RUSTPYTHON
+    if sys.platform != "win32":
+        test_cwd_with_absolute_arg = unittest.expectedFailure(test_cwd_with_absolute_arg)
 
     @unittest.skipIf(sys.base_prefix != sys.prefix,
                      'Test is not venv-compatible')
@@ -1274,8 +1278,6 @@ class ProcessTestCase(BaseTestCase):
         with self.assertWarnsRegex(RuntimeWarning, 'line buffering'):
             self._test_bufsize_equal_one(line, b'', universal_newlines=False)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_leaking_fds_on_error(self):
         # see bug #5179: Popen leaks file descriptors to PIPEs if
         # the child fails to execute; this will eventually exhaust
@@ -1287,6 +1289,10 @@ class ProcessTestCase(BaseTestCase):
                 subprocess.Popen(NONEXISTING_CMD,
                                  stdout=subprocess.PIPE,
                                  stderr=subprocess.PIPE)
+
+    # TODO: RUSTPYTHON
+    if sys.platform != "win32":
+        test_leaking_fds_on_error = unittest.expectedFailure(test_leaking_fds_on_error)
 
     def test_nonexisting_with_pipes(self):
         # bpo-30121: Popen with pipes must close properly pipes on error.
@@ -3547,14 +3553,16 @@ class ContextManagerTests(BaseTestCase):
             proc.communicate(b"context")
             self.assertEqual(proc.returncode, 1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_invalid_args(self):
         with self.assertRaises(NONEXISTING_ERRORS):
             with subprocess.Popen(NONEXISTING_CMD,
                                   stdout=subprocess.PIPE,
                                   stderr=subprocess.PIPE) as proc:
                 pass
+
+    # TODO: RUSTPYTHON
+    if sys.platform != "win32":
+        test_invalid_args = unittest.expectedFailure(test_invalid_args)
 
     def test_broken_pipe_cleanup(self):
         """Broken pipe error should not prevent wait() (Issue 21619)"""
