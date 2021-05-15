@@ -33,6 +33,8 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
 // not used on all platforms
 #[allow(unused)]
+#[derive(Copy, Clone)]
+#[repr(transparent)]
 pub(crate) struct Fildes(pub i32);
 
 impl TryFromObject for Fildes {

@@ -257,6 +257,7 @@ mod decl {
         use crate::common::lock::PyMutex;
         use crate::function::OptionalArg;
         use crate::pyobject::{BorrowValue, IntoPyObject, PyValue, StaticType};
+        use crate::stdlib::io::Fildes;
         use libc::pollfd;
         use num_traits::ToPrimitive;
         use std::time;
@@ -306,7 +307,7 @@ mod decl {
         #[pyimpl]
         impl PyPoll {
             #[pymethod]
-            fn register(&self, fd: i32, eventmask: OptionalArg<u16>) {
+            fn register(&self, Fildes(fd): Fildes, eventmask: OptionalArg<u16>) {
                 insert_fd(
                     &mut self.fds.lock(),
                     fd,
@@ -315,7 +316,12 @@ mod decl {
             }
 
             #[pymethod]
-            fn modify(&self, fd: i32, eventmask: u16, vm: &VirtualMachine) -> PyResult<()> {
+            fn modify(
+                &self,
+                Fildes(fd): Fildes,
+                eventmask: u16,
+                vm: &VirtualMachine,
+            ) -> PyResult<()> {
                 let mut fds = self.fds.lock();
                 let pfd = get_fd_mut(&mut fds, fd).ok_or_else(|| {
                     io::Error::from_raw_os_error(libc::ENOENT).into_pyexception(vm)
@@ -325,7 +331,7 @@ mod decl {
             }
 
             #[pymethod]
-            fn unregister(&self, fd: i32, vm: &VirtualMachine) -> PyResult<()> {
+            fn unregister(&self, Fildes(fd): Fildes, vm: &VirtualMachine) -> PyResult<()> {
                 let removed = remove_fd(&mut self.fds.lock(), fd);
                 removed
                     .map(drop)
