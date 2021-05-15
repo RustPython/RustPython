@@ -253,10 +253,11 @@ mod decl {
     #[cfg(unix)]
     pub(super) mod poll {
         use super::*;
-        use crate::builtins::{PyIntRef, PyTypeRef};
+        use crate::builtins::{PyFloat, PyTypeRef};
         use crate::common::lock::PyMutex;
         use crate::function::OptionalArg;
-        use crate::pyobject::{BorrowValue, IntoPyObject, PyValue, StaticType};
+        use crate::pyobject::{BorrowValue, IntoPyObject, PyValue, StaticType, TypeProtocol};
+        use crate::stdlib::io::Fildes;
         use libc::pollfd;
         use num_traits::ToPrimitive;
         use std::time;
@@ -306,7 +307,7 @@ mod decl {
         #[pyimpl]
         impl PyPoll {
             #[pymethod]
-            fn register(&self, fd: i32, eventmask: OptionalArg<u16>) {
+            fn register(&self, Fildes(fd): Fildes, eventmask: OptionalArg<u16>) {
                 insert_fd(
                     &mut self.fds.lock(),
                     fd,
@@ -315,7 +316,12 @@ mod decl {
             }
 
             #[pymethod]
-            fn modify(&self, fd: i32, eventmask: u16, vm: &VirtualMachine) -> PyResult<()> {
+            fn modify(
+                &self,
+                Fildes(fd): Fildes,
+                eventmask: u16,
+                vm: &VirtualMachine,
+            ) -> PyResult<()> {
                 let mut fds = self.fds.lock();
                 let pfd = get_fd_mut(&mut fds, fd).ok_or_else(|| {
                     io::Error::from_raw_os_error(libc::ENOENT).into_pyexception(vm)
@@ -325,7 +331,7 @@ mod decl {
             }
 
             #[pymethod]
-            fn unregister(&self, fd: i32, vm: &VirtualMachine) -> PyResult<()> {
+            fn unregister(&self, Fildes(fd): Fildes, vm: &VirtualMachine) -> PyResult<()> {
                 let removed = remove_fd(&mut self.fds.lock(), fd);
                 removed
                     .map(drop)
@@ -333,13 +339,22 @@ mod decl {
             }
 
             #[pymethod]
-            fn poll(&self, timeout: OptionalOption<PyIntRef>, vm: &VirtualMachine) -> PyResult {
+            fn poll(&self, timeout: OptionalOption, vm: &VirtualMachine) -> PyResult {
                 let mut fds = self.fds.lock();
                 let timeout_ms = match timeout.flatten() {
-                    Some(ms) => ms
-                        .borrow_value()
-                        .to_i32()
-                        .ok_or_else(|| vm.new_overflow_error("timeout is too large".to_owned()))?,
+                    Some(ms) => {
+                        let ms = if let Some(float) = ms.payload::<PyFloat>() {
+                            float.to_f64().to_i32()
+                        } else if let Some(int) = vm.to_index_opt(ms.clone()) {
+                            int?.borrow_value().to_i32()
+                        } else {
+                            return Err(vm.new_type_error(format!(
+                                "expected an int or float for duration, got {}",
+                                ms.class()
+                            )));
+                        };
+                        ms.ok_or_else(|| vm.new_value_error("value out of range".to_owned()))?
+                    }
                     None => -1,
                 };
                 let timeout_ms = if timeout_ms < 0 { -1 } else { timeout_ms };
