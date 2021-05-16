@@ -447,6 +447,12 @@ impl PyType {
             }
         }
 
+        if let Some(f) = attributes.get_mut("__class_getitem__") {
+            if f.class().is(&vm.ctx.types.function_type) {
+                *f = PyClassMethod::from(f.clone()).into_object(vm);
+            }
+        }
+
         if !attributes.contains_key("__dict__") {
             attributes.insert(
                 "__dict__".to_owned(),
