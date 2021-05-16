@@ -111,13 +111,13 @@ macro_rules! py_namespace {
 /// use rustpython_vm::match_class;
 /// use rustpython_vm::builtins::PyFloat;
 /// use rustpython_vm::builtins::PyInt;
-/// use rustpython_vm::{PyValue, BorrowValue};
+/// use rustpython_vm::PyValue;
 ///
 /// # rustpython_vm::Interpreter::default().enter(|vm| {
-/// let obj = PyInt::from(0).into_ref(&vm).into_object();
+/// let obj = PyInt::from(0).into_ref(vm).into_object();
 ///
 /// let int_value = match_class!(match obj {
-///     i @ PyInt => i.borrow_value().clone(),
+///     i @ PyInt => i.as_bigint().clone(),
 ///     f @ PyFloat => f.to_f64().to_bigint().unwrap(),
 ///     obj => panic!("non-numeric object {}", obj),
 /// });

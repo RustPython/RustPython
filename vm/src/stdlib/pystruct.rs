@@ -32,9 +32,7 @@ pub(crate) mod _struct {
     use crate::slots::PyIter;
     use crate::utils::Either;
     use crate::VirtualMachine;
-    use crate::{
-        BorrowValue, IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject,
-    };
+    use crate::{IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject};
     use half::f16;
 
     #[derive(Debug, Copy, Clone, PartialEq)]
@@ -462,7 +460,7 @@ pub(crate) mod _struct {
         T: PrimInt + for<'a> std::convert::TryFrom<&'a BigInt>,
     {
         match vm.to_index_opt(arg) {
-            Some(index) => try_to_primitive(index?.borrow_value(), vm),
+            Some(index) => try_to_primitive(index?.as_bigint(), vm),
             None => Err(new_struct_error(
                 vm,
                 "required argument is not an integer".to_owned(),

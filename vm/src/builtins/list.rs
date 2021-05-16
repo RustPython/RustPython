@@ -17,8 +17,8 @@ use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhas
 use crate::utils::Either;
 use crate::vm::{ReprGuard, VirtualMachine};
 use crate::{
-    BorrowValue, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef,
-    PyResult, PyValue, TryFromObject, TypeProtocol,
+    PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol,
 };
 
 /// Built-in mutable sequence.
@@ -58,7 +58,7 @@ impl PyValue for PyList {
     }
 }
 
-impl<'a> BorrowValue<'a> for PyList {
+impl<'a> rustpython_common::borrow::BorrowValue<'a> for PyList {
     type Borrowed = PyMappedRwLockReadGuard<'a, [PyObjectRef]>;
 
     fn borrow_value(&'a self) -> Self::Borrowed {
@@ -110,8 +110,8 @@ impl PyList {
     #[pymethod(name = "__add__")]
     fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(other) = other.payload_if_subclass::<PyList>(vm) {
-            let mut elements = self.borrow_value().to_vec();
-            elements.extend(other.borrow_value().iter().cloned());
+            let mut elements = self.borrow_list().to_vec();
+            elements.extend(other.borrow_list().iter().cloned());
             Ok(vm.ctx.new_list(elements))
         } else {
             Err(vm.new_type_error(format!(
@@ -135,7 +135,7 @@ impl PyList {
 
     #[pymethod(name = "__bool__")]
     fn bool(&self) -> bool {
-        !self.borrow_value().is_empty()
+        !self.borrow_list().is_empty()
     }
 
     #[pymethod]
@@ -145,12 +145,12 @@ impl PyList {
 
     #[pymethod]
     fn copy(&self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_list(self.borrow_value().to_vec())
+        vm.ctx.new_list(self.borrow_list().to_vec())
     }
 
     #[pymethod(name = "__len__")]
     fn len(&self) -> usize {
-        self.borrow_value().len()
+        self.borrow_list().len()
     }
 
     #[pymethod(name = "__sizeof__")]
@@ -165,7 +165,7 @@ impl PyList {
 
     #[pymethod(name = "__reversed__")]
     fn reversed(zelf: PyRef<Self>) -> PyListReverseIterator {
-        let final_position = zelf.borrow_value().len();
+        let final_position = zelf.borrow_list().len();
         PyListReverseIterator {
             position: AtomicCell::new(final_position as isize),
             list: zelf,
@@ -174,7 +174,7 @@ impl PyList {
 
     #[pymethod(name = "__getitem__")]
     fn getitem(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let result = match zelf.borrow_value().get_item(vm, needle, "list")? {
+        let result = match zelf.borrow_list().get_item(vm, needle, "list")? {
             Either::A(obj) => obj,
             Either::B(vec) => vm.ctx.new_list(vec),
         };
@@ -310,8 +310,7 @@ impl PyList {
                 return Ok(index);
             }
         }
-        let needle_str = vm.to_str(&needle)?;
-        Err(vm.new_value_error(format!("'{}' is not in list", needle_str.borrow_value())))
+        Err(vm.new_value_error(format!("'{}' is not in list", vm.to_str(&needle)?)))
     }
 
     #[pymethod]
@@ -344,8 +343,7 @@ impl PyList {
             // defer delete out of borrow
             Ok(self.borrow_list_mut().remove(index))
         } else {
-            let needle_str = vm.to_str(&needle)?;
-            Err(vm.new_value_error(format!("'{}' is not in list", needle_str.borrow_value())))
+            Err(vm.new_value_error(format!("'{}' is not in list", vm.to_str(&needle)?)))
         }
         .map(drop)
     }

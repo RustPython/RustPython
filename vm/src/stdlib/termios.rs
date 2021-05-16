@@ -3,7 +3,6 @@ pub(crate) use self::termios::make_module;
 #[pymodule]
 mod termios {
     use crate::builtins::{int, PyBytes, PyInt, PyListRef, PyTypeRef};
-    use crate::common::borrow::BorrowValue;
     use crate::exceptions::PyBaseExceptionRef;
     use crate::VirtualMachine;
     use crate::{IntoPyObject, PyObjectRef, PyResult, TryFromObject};
@@ -52,7 +51,7 @@ mod termios {
     #[pyfunction]
     fn tcsetattr(fd: i32, when: i32, attributes: PyListRef, vm: &VirtualMachine) -> PyResult<()> {
         let [iflag, oflag, cflag, lflag, ispeed, ospeed, cc] =
-            <&[PyObjectRef; 7]>::try_from(&*attributes.borrow_value())
+            <&[PyObjectRef; 7]>::try_from(&*attributes.borrow_list())
                 .map_err(|_| {
                     vm.new_type_error("tcsetattr, arg 3: must be 7 element list".to_owned())
                 })?
@@ -68,7 +67,7 @@ mod termios {
             .map_err(|e| termios_error(e, vm))?;
         let cc = PyListRef::try_from_object(vm, cc)?;
         {
-            let cc = cc.borrow_value();
+            let cc = cc.borrow_list();
             let cc = <&[PyObjectRef; NCCS]>::try_from(&*cc).map_err(|_| {
                 vm.new_type_error(format!(
                     "tcsetattr: attributes[6] must be {} element list",

@@ -5,7 +5,6 @@ mod _sre {
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
     use num_traits::ToPrimitive;
-    use rustpython_common::borrow::BorrowValue;
     use rustpython_common::hash::PyHash;
 
     use crate::builtins::list::PyListRef;
@@ -170,7 +169,7 @@ mod _sre {
                 s = string
                     .payload::<PyStr>()
                     .ok_or_else(|| vm.new_type_error("expected string".to_owned()))?;
-                StrDrive::Str(s.borrow_value())
+                StrDrive::Str(s.as_str())
             };
 
             f(str_drive)

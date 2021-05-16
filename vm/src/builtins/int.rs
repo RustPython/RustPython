@@ -19,9 +19,8 @@ use crate::slots::{Comparable, Hashable, PyComparisonOp};
 use crate::VirtualMachine;
 use crate::{bytesinner::PyBytesInner, byteslike::try_bytes_like};
 use crate::{
-    BorrowValue, IdProtocol, IntoPyObject, IntoPyResult, PyArithmaticValue, PyClassImpl,
-    PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol,
+    IdProtocol, IntoPyObject, IntoPyResult, PyArithmaticValue, PyClassImpl, PyComparisonValue,
+    PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use rustpython_common::hash;
 
@@ -53,7 +52,7 @@ impl fmt::Display for PyInt {
 
 pub type PyIntRef = PyRef<PyInt>;
 
-impl<'a> BorrowValue<'a> for PyInt {
+impl<'a> rustpython_common::borrow::BorrowValue<'a> for PyInt {
     type Borrowed = &'a BigInt;
 
     fn borrow_value(&'a self) -> Self::Borrowed {

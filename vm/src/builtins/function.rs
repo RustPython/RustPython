@@ -19,8 +19,8 @@ use crate::slots::{Callable, Comparable, PyComparisonOp, SlotDescriptor, SlotGet
 use crate::IntoPyObject;
 use crate::VirtualMachine;
 use crate::{
-    BorrowValue, IdProtocol, ItemProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef,
-    PyRef, PyResult, PyValue, TypeProtocol,
+    IdProtocol, ItemProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
+    PyResult, PyValue, TypeProtocol,
 };
 use itertools::Itertools;
 #[cfg(feature = "jit")]
@@ -277,7 +277,7 @@ impl PyFunction {
             code.clone(),
             Scope::new(Some(locals), self.globals.clone()),
             vm.builtins.dict().unwrap(),
-            self.closure.as_ref().map_or(&[], |c| c.borrow_value()),
+            self.closure.as_ref().map_or(&[], |c| c.as_slice()),
             vm,
         )
         .into_ref(vm);

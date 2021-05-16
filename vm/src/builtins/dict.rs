@@ -12,9 +12,9 @@ use crate::iterator;
 use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable};
 use crate::vm::{ReprGuard, VirtualMachine};
 use crate::{
-    BorrowValue, IdProtocol, IntoPyObject, ItemProtocol, PyArithmaticValue::*, PyAttributes,
-    PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
+    IdProtocol, IntoPyObject, ItemProtocol, PyArithmaticValue::*, PyAttributes, PyClassImpl,
+    PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol,
 };
 
 pub type DictContentType = dictdatatype::Dict;
@@ -205,11 +205,7 @@ impl PyDict {
             for (key, value) in zelf {
                 let key_repr = vm.to_repr(&key)?;
                 let value_repr = vm.to_repr(&value)?;
-                str_parts.push(format!(
-                    "{}: {}",
-                    key_repr.borrow_value(),
-                    value_repr.borrow_value()
-                ));
+                str_parts.push(format!("{}: {}", key_repr, value_repr));
             }
 
             format!("{{{}}}", str_parts.join(", "))
@@ -622,7 +618,7 @@ macro_rules! dict_iterator {
                     let mut str_parts = vec![];
                     for (key, value) in zelf.dict.clone() {
                         let s = vm.to_repr(&($result_fn)(vm, key, value))?;
-                        str_parts.push(s.borrow_value().to_owned());
+                        str_parts.push(s.as_str().to_owned());
                     }
                     format!("{}([{}])", $class_name, str_parts.join(", "))
                 } else {

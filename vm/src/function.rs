@@ -4,8 +4,8 @@ use crate::builtins::tuple::PyTupleRef;
 use crate::exceptions::PyBaseExceptionRef;
 use crate::vm::VirtualMachine;
 use crate::{
-    BorrowValue, IntoPyObject, IntoPyResult, PyObjectRef, PyRef, PyResult, PyThreadingConstraint,
-    PyValue, TryFromObject, TypeProtocol,
+    IntoPyObject, IntoPyResult, PyObjectRef, PyRef, PyResult, PyThreadingConstraint, PyValue,
+    TryFromObject, TypeProtocol,
 };
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -708,7 +708,7 @@ where
         Err(_) => {
             let tuple = PyTupleRef::try_from_object(vm, obj.clone())
                 .map_err(|_| vm.new_type_error((message)(&obj)))?;
-            for obj in tuple.borrow_value().iter() {
+            for obj in tuple.as_slice().iter() {
                 if single_or_tuple_any(obj.clone(), predicate, message, vm)? {
                     return Ok(true);
                 }

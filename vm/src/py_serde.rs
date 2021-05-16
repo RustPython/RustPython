@@ -5,7 +5,7 @@ use serde::ser::{Serialize, SerializeMap, SerializeSeq};
 
 use crate::builtins::{dict::PyDictRef, float, int, list::PyList, pybool, pystr, tuple::PyTuple};
 use crate::VirtualMachine;
-use crate::{BorrowValue, ItemProtocol, PyObjectRef, TypeProtocol};
+use crate::{ItemProtocol, PyObjectRef, TypeProtocol};
 
 #[inline]
 pub fn serialize<S>(
@@ -82,9 +82,9 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
                 serializer.serialize_i64(v.to_i64().ok_or_else(int_too_large)?)
             }
         } else if let Some(list) = self.pyobject.payload_if_subclass::<PyList>(self.vm) {
-            serialize_seq_elements(serializer, &list.borrow_value())
+            serialize_seq_elements(serializer, &list.borrow_list())
         } else if let Some(tuple) = self.pyobject.payload_if_subclass::<PyTuple>(self.vm) {
-            serialize_seq_elements(serializer, tuple.borrow_value())
+            serialize_seq_elements(serializer, tuple.as_slice())
         } else if self.pyobject.isinstance(&self.vm.ctx.types.dict_type) {
             let dict: PyDictRef = self.pyobject.clone().downcast().unwrap();
             let pairs: Vec<_> = dict.into_iter().collect();

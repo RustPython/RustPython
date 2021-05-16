@@ -13,8 +13,8 @@ use rustpython_vm::slots::PyIter;
 use rustpython_vm::types::create_simple_type;
 use rustpython_vm::VirtualMachine;
 use rustpython_vm::{
-    BorrowValue, IntoPyObject, PyCallable, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
-    StaticType, TryFromObject,
+    IntoPyObject, PyCallable, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
+    TryFromObject,
 };
 
 #[wasm_bindgen(inline_js = "
@@ -85,7 +85,7 @@ impl TryFromObject for JsProperty {
 impl JsProperty {
     fn into_jsvalue(self) -> JsValue {
         match self {
-            JsProperty::Str(s) => s.borrow_value().into(),
+            JsProperty::Str(s) => s.as_str().into(),
             JsProperty::Js(value) => value.value.clone(),
         }
     }
@@ -112,7 +112,7 @@ impl PyJsValue {
 
     #[pymethod]
     fn new_from_str(&self, s: PyStrRef) -> PyJsValue {
-        PyJsValue::new(s.borrow_value())
+        PyJsValue::new(s.as_str())
     }
 
     #[pymethod]

@@ -21,8 +21,8 @@ use crate::function::{FuncArgs, OptionalArg, OptionalOption};
 use crate::utils::Either;
 use crate::VirtualMachine;
 use crate::{
-    BorrowValue, IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
-    TryFromObject, TypeProtocol,
+    IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject,
+    TypeProtocol,
 };
 
 #[cfg(unix)]
@@ -299,7 +299,7 @@ impl PySocket {
             c::AF_UNIX => {
                 use std::os::unix::ffi::OsStrExt;
                 let buf = crate::byteslike::BufOrStr::try_from_object(vm, addr)?;
-                let path = buf.borrow_value();
+                let path = buf.borrow_bytes();
                 let path = std::ffi::OsStr::from_bytes(&path);
                 socket2::SockAddr::unix(path)
                     .map_err(|_| vm.new_os_error("AF_UNIX path too long".to_owned()))

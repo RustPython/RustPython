@@ -10,9 +10,8 @@ use crate::slots::PyComparisonOp;
 use crate::utils::Either;
 use crate::vm::VirtualMachine;
 use crate::{
-    BorrowValue, IdProtocol, ItemProtocol, PyArithmaticValue, PyAttributes, PyClassImpl,
-    PyComparisonValue, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol,
+    IdProtocol, ItemProtocol, PyArithmaticValue, PyAttributes, PyClassImpl, PyComparisonValue,
+    PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 
 /// The most base type
@@ -305,7 +304,7 @@ pub(crate) fn setattr(
         Err(vm.new_attribute_error(format!(
             "'{}' object has no attribute '{}'",
             obj.class().name,
-            attr_name.borrow_value()
+            attr_name,
         )))
     }
 }

@@ -21,8 +21,8 @@ use crate::slots::{self, Callable, PyTpFlags, PyTypeSlots, SlotGetattro, SlotSet
 use crate::utils::Either;
 use crate::vm::VirtualMachine;
 use crate::{
-    BorrowValue, IdProtocol, PyAttributes, PyClassImpl, PyContext, PyLease, PyObjectRef, PyRef,
-    PyResult, PyValue, TryFromObject, TypeProtocol,
+    IdProtocol, PyAttributes, PyClassImpl, PyContext, PyLease, PyObjectRef, PyRef, PyResult,
+    PyValue, TryFromObject, TypeProtocol,
 };
 use itertools::Itertools;
 use std::ops::Deref;
@@ -380,7 +380,7 @@ impl PyType {
         let (name, bases, dict, kwargs): (PyStrRef, PyTupleTyped<PyTypeRef>, PyDictRef, KwArgs) =
             args.clone().bind(vm)?;
 
-        let bases = bases.borrow_value().to_vec();
+        let bases = bases.as_slice();
         let (metatype, base, bases) = if bases.is_empty() {
             let base = vm.ctx.types.object_type.clone();
             (metatype, base.clone(), vec![base])
@@ -394,7 +394,7 @@ impl PyType {
             // }
 
             // Search the bases for the proper metatype to deal with this:
-            let winner = calculate_meta_class(metatype.clone(), &bases, vm)?;
+            let winner = calculate_meta_class(metatype.clone(), bases, vm)?;
             let metatype = if !winner.is(&metatype) {
                 #[allow(clippy::redundant_clone)] // false positive
                 if let Some(ref tp_new) = winner.clone().slots.new {
@@ -407,9 +407,9 @@ impl PyType {
                 metatype
             };
 
-            let base = best_base(&bases, vm)?;
+            let base = best_base(bases, vm)?;
 
-            (metatype, base, bases)
+            (metatype, base, bases.to_vec())
         };
 
         let mut attributes = dict.to_attributes();

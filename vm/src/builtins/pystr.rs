@@ -25,8 +25,8 @@ use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter};
 use crate::utils::Either;
 use crate::VirtualMachine;
 use crate::{
-    BorrowValue, IdProtocol, IntoPyObject, ItemProtocol, PyClassImpl, PyComparisonValue, PyContext,
-    PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
+    IdProtocol, IntoPyObject, ItemProtocol, PyClassImpl, PyComparisonValue, PyContext, PyIterable,
+    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
 };
 use rustpython_common::hash;
 
@@ -48,7 +48,7 @@ pub struct PyStr {
     len: AtomicCell<Option<usize>>,
 }
 
-impl<'a> BorrowValue<'a> for PyStr {
+impl<'a> rustpython_common::borrow::BorrowValue<'a> for PyStr {
     type Borrowed = &'a str;
 
     fn borrow_value(&'a self) -> Self::Borrowed {
@@ -89,6 +89,7 @@ impl From<String> for PyStr {
 pub type PyStrRef = PyRef<PyStr>;
 
 impl fmt::Display for PyStr {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(self.as_str(), f)
     }
@@ -214,7 +215,7 @@ impl PyStr {
                 if let OptionalArg::Present(enc) = args.encoding {
                     vm.state.codec_registry.decode_text(
                         input,
-                        enc.borrow_value(),
+                        enc.as_str(),
                         args.errors.into_option(),
                         vm,
                     )?
@@ -749,7 +750,7 @@ impl PyStr {
         F: Fn(&str, &str) -> Option<usize>,
     {
         let (sub, range) = args.get_value(self.len());
-        self.value.py_find(sub.borrow_value(), range, find)
+        self.value.py_find(sub.as_str(), range, find)
     }
 
     #[pymethod]
@@ -1122,7 +1123,7 @@ pub(crate) fn encode_string(
 ) -> PyResult<PyBytesRef> {
     let encoding = encoding
         .as_ref()
-        .map_or(crate::codecs::DEFAULT_ENCODING, |s| s.borrow_value());
+        .map_or(crate::codecs::DEFAULT_ENCODING, |s| s.as_str());
     vm.state.codec_registry.encode_text(s, encoding, errors, vm)
 }
 

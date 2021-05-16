@@ -2,7 +2,7 @@ use crate::builtins::int::PyIntRef;
 use crate::builtins::pystr::PyStrRef;
 use crate::exceptions::IntoPyException;
 use crate::vm::VirtualMachine;
-use crate::{BorrowValue, IntoPyObject, PyClassImpl, PyObjectRef, PyResult, PyStructSequence};
+use crate::{IntoPyObject, PyClassImpl, PyObjectRef, PyResult, PyStructSequence};
 use std::convert::TryFrom;
 use std::ptr::NonNull;
 
@@ -70,7 +70,7 @@ fn pwd_getpwuid(uid: PyIntRef, vm: &VirtualMachine) -> PyResult<Passwd> {
         None => {
             let message = vm
                 .ctx
-                .new_str(format!("getpwuid(): uid not found: {}", uid.borrow_value()));
+                .new_str(format!("getpwuid(): uid not found: {}", uid.as_bigint()));
             Err(vm.new_key_error(message))
         }
     }

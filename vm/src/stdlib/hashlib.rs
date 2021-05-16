@@ -45,11 +45,11 @@ mod hashlib {
             }
         }
 
-        fn borrow_value(&self) -> PyRwLockReadGuard<'_, HashWrapper> {
+        fn read(&self) -> PyRwLockReadGuard<'_, HashWrapper> {
             self.buffer.read()
         }
 
-        fn borrow_value_mut(&self) -> PyRwLockWriteGuard<'_, HashWrapper> {
+        fn write(&self) -> PyRwLockWriteGuard<'_, HashWrapper> {
             self.buffer.write()
         }
 
@@ -67,12 +67,12 @@ mod hashlib {
 
         #[pyproperty(name = "digest_size")]
         fn digest_size(&self, vm: &VirtualMachine) -> PyResult {
-            Ok(vm.ctx.new_int(self.borrow_value().digest_size()))
+            Ok(vm.ctx.new_int(self.read().digest_size()))
         }
 
         #[pymethod(name = "update")]
         fn update(&self, data: PyBytesRef) {
-            self.borrow_value_mut().input(data.as_bytes());
+            self.write().input(data.as_bytes());
         }
 
         #[pymethod(name = "digest")]
@@ -87,7 +87,7 @@ mod hashlib {
         }
 
         fn get_digest(&self) -> Vec<u8> {
-            self.borrow_value().get_digest()
+            self.read().get_digest()
         }
     }
 

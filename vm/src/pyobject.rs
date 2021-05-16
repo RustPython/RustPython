@@ -29,7 +29,6 @@ use crate::builtins::singletons::{PyNone, PyNoneRef, PyNotImplemented, PyNotImpl
 use crate::builtins::slice::PyEllipsis;
 use crate::builtins::staticmethod::PyStaticMethod;
 use crate::builtins::tuple::{PyTuple, PyTupleRef};
-pub use crate::common::borrow::BorrowValue;
 use crate::common::lock::{PyRwLock, PyRwLockReadGuard};
 use crate::common::rc::PyRc;
 use crate::common::static_cell;
@@ -1087,12 +1086,12 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
         let (body, suffix) =
             if let Some(_guard) = rustpython_vm::vm::ReprGuard::enter(vm, zelf.as_object()) {
                 if Self::FIELD_NAMES.len() == 1 {
-                    let value = zelf.borrow_value().first().unwrap();
+                    let value = zelf.as_slice().first().unwrap();
                     let formatted = format_field((value, Self::FIELD_NAMES[0]))?;
                     (formatted, ",")
                 } else {
                     let fields: PyResult<Vec<_>> = zelf
-                        .borrow_value()
+                        .as_slice()
                         .iter()
                         .zip(Self::FIELD_NAMES.iter().copied())
                         .map(format_field)
@@ -1110,7 +1109,7 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
         vm.ctx.new_tuple(vec![
             zelf.clone_class().into_object(),
             vm.ctx
-                .new_tuple(vec![vm.ctx.new_tuple(zelf.borrow_value().to_vec())]),
+                .new_tuple(vec![vm.ctx.new_tuple(zelf.as_slice().to_vec())]),
         ])
     }
 

@@ -11,8 +11,8 @@ use crate::types::create_type_with_slots;
 use crate::StaticType;
 use crate::VirtualMachine;
 use crate::{
-    BorrowValue, IntoPyObject, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult,
-    PyValue, TryFromObject, TypeProtocol,
+    IntoPyObject, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol,
 };
 
 use crossbeam_utils::atomic::AtomicCell;
@@ -242,7 +242,7 @@ fn write_traceback_entry<W: Write>(
     output: &mut W,
     tb_entry: &PyTracebackRef,
 ) -> Result<(), W::Error> {
-    let filename = tb_entry.frame.code.source_path.borrow_value();
+    let filename = tb_entry.frame.code.source_path.as_str();
     writeln!(
         output,
         r##"  File "{}", line {}, in {}"##,
@@ -756,7 +756,7 @@ fn key_error_str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyStrRef {
 fn system_exit_code(exc: PyBaseExceptionRef) -> Option<PyObjectRef> {
     exc.args.read().as_slice().first().map(|code| {
         match_class!(match code {
-            ref tup @ PyTuple => match tup.borrow_value() {
+            ref tup @ PyTuple => match tup.as_slice() {
                 [x] => x.clone(),
                 _ => code.clone(),
             },
@@ -812,7 +812,7 @@ impl serde::Serialize for SerializeException<'_> {
                 fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
                     s.collect_seq(
                         self.1
-                            .borrow_value()
+                            .as_slice()
                             .iter()
                             .map(|arg| crate::py_serde::PyObjectSerializer::new(self.0, arg)),
                     )

@@ -12,7 +12,7 @@ use crate::builtins::int::{self, PyInt, PyIntRef};
 use crate::function::{Args, OptionalArg};
 use crate::utils::Either;
 use crate::vm::VirtualMachine;
-use crate::{BorrowValue, PyIterable, PyObjectRef, PyResult, TypeProtocol};
+use crate::{PyIterable, PyObjectRef, PyResult, TypeProtocol};
 use rustpython_common::float_ops;
 
 use std::cmp::Ordering;
@@ -354,10 +354,10 @@ where
     if argvec.is_empty() {
         return default;
     } else if argvec.len() == 1 {
-        return op(argvec[0].borrow_value(), &argvec[0]);
+        return op(argvec[0].as_bigint(), &argvec[0]);
     }
 
-    let mut res = argvec[0].borrow_value().clone();
+    let mut res = argvec[0].as_bigint().clone();
     for num in argvec[1..].iter() {
         res = op(&res, &num)
     }

@@ -136,8 +136,14 @@ impl PyTuple {
     }
 
     #[pymethod(name = "__len__")]
-    pub(crate) fn len(&self) -> usize {
+    #[inline]
+    pub fn len(&self) -> usize {
         self.elements.len()
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.elements.is_empty()
     }
 
     #[pymethod(name = "__repr__")]
@@ -357,6 +363,14 @@ impl<T: TransmuteFromObject> PyTupleTyped<T> {
     #[inline]
     pub fn as_slice(&self) -> &[T] {
         unsafe { &*(self.tuple.as_slice() as *const [PyObjectRef] as *const [T]) }
+    }
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.tuple.len()
+    }
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.tuple.is_empty()
     }
 }
 

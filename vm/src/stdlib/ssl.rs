@@ -8,8 +8,8 @@ use crate::function::OptionalArg;
 use crate::utils::Either;
 use crate::VirtualMachine;
 use crate::{
-    BorrowValue, IntoPyObject, ItemProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef, PyResult,
-    PyValue, StaticType,
+    IntoPyObject, ItemProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
+    StaticType,
 };
 
 use crossbeam_utils::atomic::AtomicCell;
@@ -144,7 +144,7 @@ fn _ssl_enum_certificates(store_name: PyStrRef, vm: &VirtualMachine) -> PyResult
     let open_fns = [CertStore::open_current_user, CertStore::open_local_machine];
     let stores = open_fns
         .iter()
-        .filter_map(|open| open(store_name.borrow_value()).ok())
+        .filter_map(|open| open(store_name.as_str()).ok())
         .collect::<Vec<_>>();
     let certs = stores.iter().map(|s| s.certs()).flatten().map(|c| {
         let cert = vm.ctx.new_bytes(c.to_der().to_owned());

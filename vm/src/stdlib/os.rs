@@ -509,7 +509,7 @@ mod _os {
 
         let headers = headers
             .as_ref()
-            .map(|v| v.iter().map(|b| b.borrow_value()).collect::<Vec<_>>());
+            .map(|v| v.iter().map(|b| b.borrow_buf()).collect::<Vec<_>>());
         let headers = headers
             .as_ref()
             .map(|v| v.iter().map(|borrowed| &**borrowed).collect::<Vec<_>>());
@@ -522,7 +522,7 @@ mod _os {
 
         let trailers = trailers
             .as_ref()
-            .map(|v| v.iter().map(|b| b.borrow_value()).collect::<Vec<_>>());
+            .map(|v| v.iter().map(|b| b.borrow_buf()).collect::<Vec<_>>());
         let trailers = trailers
             .as_ref()
             .map(|v| v.iter().map(|borrowed| &**borrowed).collect::<Vec<_>>());
@@ -3089,7 +3089,7 @@ mod nt {
         use std::os::windows::prelude::*;
         use std::str::FromStr;
 
-        let path: Vec<u16> = ffi::OsString::from_str(path.borrow_value())
+        let path: Vec<u16> = ffi::OsString::from_str(path.as_str())
             .unwrap()
             .encode_wide()
             .chain(once(0u16))
