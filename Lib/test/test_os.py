@@ -3869,8 +3869,6 @@ class TestScandir(unittest.TestCase):
         self.assertEqual(fspath,
                          os.path.join(os.fsencode(self.path),bytes_filename))
 
-    # TODO: RUSTPYTHON (FileNotFoundError: No such file or directory (os error 2))
-    @unittest.expectedFailure
     def test_removed_dir(self):
         path = os.path.join(self.path, 'dir')
 
@@ -3893,8 +3891,6 @@ class TestScandir(unittest.TestCase):
             self.assertRaises(FileNotFoundError, entry.stat)
             self.assertRaises(FileNotFoundError, entry.stat, follow_symlinks=False)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_removed_file(self):
         entry = self.create_file_entry()
         os.unlink(entry.path)
@@ -3914,8 +3910,6 @@ class TestScandir(unittest.TestCase):
             self.assertRaises(FileNotFoundError, entry.stat)
             self.assertRaises(FileNotFoundError, entry.stat, follow_symlinks=False)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_broken_symlink(self):
         if not support.can_symlink():
             return self.skipTest('cannot create symbolic link')

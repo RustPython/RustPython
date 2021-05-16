@@ -751,9 +751,17 @@ mod _os {
             action: fn(fs::Metadata) -> bool,
             vm: &VirtualMachine,
         ) -> PyResult<bool> {
-            let meta = fs_metadata(self.entry.path(), follow_symlinks.0)
-                .map_err(|err| err.into_pyexception(vm))?;
-            Ok(action(meta))
+            match fs_metadata(self.entry.path(), follow_symlinks.0) {
+                Ok(meta) => Ok(action(meta)),
+                Err(e) => {
+                    // FileNotFoundError is caught and not raised
+                    if e.kind() == io::ErrorKind::NotFound {
+                        Ok(false)
+                    } else {
+                        Err(e.into_pyexception(vm))
+                    }
+                }
+            }
         }
 
         #[pymethod]

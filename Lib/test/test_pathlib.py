@@ -1408,8 +1408,6 @@ class _BasePathTest(object):
         self.assertIn(cm.exception.errno, (errno.ENOTDIR,
                                            errno.ENOENT, errno.EINVAL))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_glob_common(self):
         def _check(glob, expected):
             self.assertEqual(set(glob), { P(BASE, q) for q in expected })
@@ -1434,8 +1432,6 @@ class _BasePathTest(object):
         else:
             _check(p.glob("*/fileB"), ['dirB/fileB', 'linkB/fileB'])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_rglob_common(self):
         def _check(glob, expected):
             self.assertEqual(set(glob), { P(BASE, q) for q in expected })
