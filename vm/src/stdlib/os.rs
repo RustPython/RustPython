@@ -386,6 +386,8 @@ fn os_unimpl<T>(func: &str, vm: &VirtualMachine) -> PyResult<T> {
 mod _os {
     use super::*;
 
+    use rustpython_common::lock::OnceCell;
+
     #[pyattr]
     use libc::{
         O_APPEND, O_CREAT, O_EXCL, O_RDONLY, O_RDWR, O_TRUNC, O_WRONLY, SEEK_CUR, SEEK_END,
@@ -719,6 +721,8 @@ mod _os {
     struct DirEntry {
         entry: fs::DirEntry,
         mode: OutputMode,
+        stat: OnceCell<PyObjectRef>,
+        lstat: OnceCell<PyObjectRef>,
         #[cfg(not(unix))]
         ino: AtomicCell<Option<u64>>,
     }
@@ -786,15 +790,31 @@ mod _os {
             follow_symlinks: FollowSymlinks,
             vm: &VirtualMachine,
         ) -> PyResult {
-            stat(
-                PathOrFd::Path(PyPathLike {
-                    path: self.entry.path(),
-                    mode: OutputMode::String,
-                }),
-                dir_fd,
-                follow_symlinks,
-                vm,
-            )
+            let do_stat = |follow_symlinks| {
+                stat(
+                    PathOrFd::Path(PyPathLike {
+                        path: self.entry.path(),
+                        mode: OutputMode::String,
+                    }),
+                    dir_fd,
+                    FollowSymlinks(follow_symlinks),
+                    vm,
+                )
+            };
+            let lstat = || self.lstat.get_or_try_init(|| do_stat(false));
+            let stat = if follow_symlinks.0 {
+                // if follow_symlinks == true and we aren't a symlink, cache both stat and lstat
+                self.stat.get_or_try_init(|| {
+                    if self.is_symlink(vm)? {
+                        do_stat(true)
+                    } else {
+                        lstat().map(Clone::clone)
+                    }
+                })?
+            } else {
+                lstat()?
+            };
+            Ok(stat.clone())
         }
 
         #[cfg(not(unix))]
@@ -902,6 +922,8 @@ mod _os {
                     Ok(entry) => Ok(DirEntry {
                         entry,
                         mode: zelf.mode,
+                        lstat: OnceCell::new(),
+                        stat: OnceCell::new(),
                         #[cfg(not(unix))]
                         ino: AtomicCell::new(None),
                     }
