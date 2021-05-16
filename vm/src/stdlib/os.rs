@@ -470,6 +470,7 @@ mod _os {
             }
             #[cfg(target_os = "redox")]
             {
+                let [] = dir_fd.0;
                 Fd::open(&name, flags, mode)
             }
         };
@@ -607,6 +608,8 @@ mod _os {
                 let res = if res < 0 { Err(errno_err(vm)) } else { Ok(()) };
                 return res;
             }
+            #[cfg(target_os = "redox")]
+            let [] = dir_fd.0;
             let res = unsafe { libc::mkdir(path.as_ptr(), mode as _) };
             if res < 0 {
                 Err(errno_err(vm))
@@ -1882,6 +1885,7 @@ mod posix {
         }
         #[cfg(target_os = "redox")]
         {
+            let [] = args.dir_fd.0;
             let res = unsafe { libc::symlink(src.as_ptr(), dst.as_ptr()) };
             if res < 0 {
                 Err(errno_err(vm))
@@ -2413,6 +2417,7 @@ mod posix {
         ret.map_err(|err| err.into_pyexception(vm))
     }
 
+    #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
     fn envp_from_dict(dict: PyDictRef, vm: &VirtualMachine) -> PyResult<Vec<ffi::CString>> {
         dict.into_iter()
             .map(|(k, v)| {
@@ -2792,6 +2797,7 @@ mod posix {
         ))
     }
 
+    #[cfg(not(target_os = "redox"))]
     cfg_if::cfg_if! {
         if #[cfg(all(target_os = "linux", target_env = "gnu"))] {
             type PriorityWhichType = libc::__priority_which_t;
@@ -2799,6 +2805,7 @@ mod posix {
             type PriorityWhichType = libc::c_int;
         }
     }
+    #[cfg(not(target_os = "redox"))]
     cfg_if::cfg_if! {
         if #[cfg(target_os = "freebsd")] {
             type PriorityWhoType = i32;
@@ -2807,7 +2814,7 @@ mod posix {
         }
     }
 
-    #[cfg(not(any(windows, target_os = "redox")))]
+    #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn getpriority(
         which: PriorityWhichType,
@@ -2823,7 +2830,7 @@ mod posix {
         }
     }
 
-    #[cfg(not(any(windows, target_os = "redox")))]
+    #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn setpriority(
         which: PriorityWhichType,

@@ -43,20 +43,7 @@ macro_rules! errcode {
 }
 
 #[cfg(unix)]
-mod c {
-    pub use libc::*;
-    // https://gitlab.redox-os.org/redox-os/relibc/-/blob/master/src/header/netdb/mod.rs
-    #[cfg(target_os = "redox")]
-    pub const AI_PASSIVE: c_int = 0x01;
-    #[cfg(target_os = "redox")]
-    pub const AI_NUMERICHOST: c_int = 0x0004;
-    #[cfg(target_os = "redox")]
-    pub const AI_ALL: c_int = 0x10;
-    #[cfg(target_os = "redox")]
-    pub const AI_ADDRCONFIG: c_int = 0x0020;
-    #[cfg(target_os = "redox")]
-    pub const AI_NUMERICSERV: c_int = 0x0400;
-}
+use libc as c;
 #[cfg(windows)]
 mod c {
     pub use winapi::shared::ws2def::*;
@@ -1092,7 +1079,6 @@ struct GAIOptions {
     flags: i32,
 }
 
-#[cfg(not(target_os = "redox"))]
 fn _socket_getaddrinfo(opts: GAIOptions, vm: &VirtualMachine) -> PyResult {
     let hints = dns_lookup::AddrInfoHints {
         socktype: opts.ty,
@@ -1130,7 +1116,6 @@ fn _socket_getaddrinfo(opts: GAIOptions, vm: &VirtualMachine) -> PyResult {
     Ok(vm.ctx.new_list(list))
 }
 
-#[cfg(not(target_os = "redox"))]
 fn _socket_gethostbyaddr(
     addr: PyStrRef,
     vm: &VirtualMachine,
@@ -1145,7 +1130,6 @@ fn _socket_gethostbyaddr(
     ))
 }
 
-#[cfg(not(target_os = "redox"))]
 fn _socket_gethostbyname(name: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
     // TODO: convert to idna
     let addr = get_addr(vm, name.borrow_value(), c::AF_INET)?;
@@ -1210,7 +1194,6 @@ fn _socket_getprotobyname(name: PyStrRef, vm: &VirtualMachine) -> PyResult {
     Ok(vm.ctx.new_int(num))
 }
 
-#[cfg(not(target_os = "redox"))]
 fn _socket_getnameinfo(
     address: PyTupleRef,
     flags: i32,
@@ -1530,6 +1513,10 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "getservbyname" => named_function!(ctx, _socket, getservbyname),
         "dup" => named_function!(ctx, _socket, dup),
         "close" => named_function!(ctx, _socket, close),
+        "getaddrinfo" => named_function!(ctx, _socket, getaddrinfo),
+        "gethostbyaddr" => named_function!(ctx, _socket, gethostbyaddr),
+        "gethostbyname" => named_function!(ctx, _socket, gethostbyname),
+        "getnameinfo" => named_function!(ctx, _socket, getnameinfo),
         // constants
         "AF_UNSPEC" => ctx.new_int(0),
         "AF_INET" => ctx.new_int(c::AF_INET),
@@ -1573,10 +1560,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     #[cfg(not(target_os = "redox"))]
     extend_module!(vm, module, {
-        "getaddrinfo" => named_function!(ctx, _socket, getaddrinfo),
-        "gethostbyaddr" => named_function!(ctx, _socket, gethostbyaddr),
-        "gethostbyname" => named_function!(ctx, _socket, gethostbyname),
-        "getnameinfo" => named_function!(ctx, _socket, getnameinfo),
         "SOCK_RAW" => ctx.new_int(c::SOCK_RAW),
         "SOCK_RDM" => ctx.new_int(c::SOCK_RDM),
     });
