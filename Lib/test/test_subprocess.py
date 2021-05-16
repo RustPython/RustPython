@@ -207,8 +207,6 @@ class ProcessTestCase(BaseTestCase):
                 input=None)
         self.assertNotIn(b'XX', output)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_check_output_input_none_text(self):
         output = subprocess.check_output(
                 [sys.executable, "-c",
@@ -217,7 +215,9 @@ class ProcessTestCase(BaseTestCase):
         self.assertNotIn('XX', output)
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    if sys.platform != "win32":
+        test_check_output_input_none_text = unittest.expectedFailure(test_check_output_input_none_text)
+
     def test_check_output_input_none_universal_newlines(self):
         output = subprocess.check_output(
                 [sys.executable, "-c",
@@ -706,6 +706,7 @@ class ProcessTestCase(BaseTestCase):
         self.assertEqual(p.returncode, 0, err)
         self.assertEqual(out.rstrip(), b'test with stdout=1')
 
+    @unittest.skipIf(sys.platform != "win32", "TODO: RUSTPYTHON, takes a long time")
     def test_stdout_devnull(self):
         p = subprocess.Popen([sys.executable, "-c",
                               'for i in range(10240):'
@@ -714,6 +715,7 @@ class ProcessTestCase(BaseTestCase):
         p.wait()
         self.assertEqual(p.stdout, None)
 
+    @unittest.skipIf(sys.platform != "win32", "TODO: RUSTPYTHON, takes a long time")
     def test_stderr_devnull(self):
         p = subprocess.Popen([sys.executable, "-c",
                               'import sys\n'
@@ -920,6 +922,7 @@ class ProcessTestCase(BaseTestCase):
         self.assertEqual(stdout, None)
         self.assertEqual(stderr, None)
 
+    @unittest.skipIf(sys.platform != "win32", "TODO: RUSTPYTHON, hangs")
     def test_communicate_pipe_buf(self):
         # communicate() with writes larger than pipe_buf
         # This test will probably deadlock rather than fail, if
@@ -1033,8 +1036,6 @@ class ProcessTestCase(BaseTestCase):
     if sys.platform == "win32":
         test_universal_newlines_communicate = unittest.expectedFailure(test_universal_newlines_communicate)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_universal_newlines_communicate_stdin(self):
         # universal newlines through communicate(), with only stdin
         p = subprocess.Popen([sys.executable, "-c",
@@ -1049,8 +1050,6 @@ class ProcessTestCase(BaseTestCase):
         (stdout, stderr) = p.communicate("line1\nline3\n")
         self.assertEqual(p.returncode, 0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_universal_newlines_communicate_input_none(self):
         # Test communicate(input=None) with universal newlines.
         #
@@ -1063,8 +1062,6 @@ class ProcessTestCase(BaseTestCase):
         p.communicate()
         self.assertEqual(p.returncode, 0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_universal_newlines_communicate_stdin_stdout_stderr(self):
         # universal newlines through communicate(), with stdin, stdout, stderr
         p = subprocess.Popen([sys.executable, "-c",
@@ -1093,6 +1090,10 @@ class ProcessTestCase(BaseTestCase):
         # to stderr at exit of subprocess.
         # Don't use assertStderrEqual because it strips CR and LF from output.
         self.assertTrue(stderr.startswith("eline2\neline6\neline7\n"))
+
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_universal_newlines_communicate_stdin_stdout_stderr = unittest.expectedFailure(test_universal_newlines_communicate_stdin_stdout_stderr)
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
@@ -1261,13 +1262,15 @@ class ProcessTestCase(BaseTestCase):
         self.assertEqual(p.returncode, 0)
         self.assertEqual(read_line, expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bufsize_equal_one_text_mode(self):
         # line is flushed in text mode with bufsize=1.
         # we should get the full line in return
         line = "line\n"
         self._test_bufsize_equal_one(line, line, universal_newlines=True)
+
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_bufsize_equal_one_text_mode = unittest.expectedFailure(test_bufsize_equal_one_text_mode)
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
@@ -3260,6 +3263,8 @@ class Win32ProcessTestCase(BaseTestCase):
         with p:
             self.assertIn(b"physalis", p.stdout.read())
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_shell_encodings(self):
         # Run command through the shell (string)
         for enc in ['ansi', 'oem']:
