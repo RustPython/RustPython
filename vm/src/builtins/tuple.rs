@@ -5,13 +5,14 @@ use std::marker::PhantomData;
 use super::pytype::PyTypeRef;
 use crate::common::hash::PyHash;
 use crate::function::OptionalArg;
+use crate::py_class_sequence_owner;
 use crate::pyobject::{
     self, BorrowValue, Either, IdProtocol, IntoPyObject, PyArithmaticValue, PyClassImpl,
     PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TransmuteFromObject,
     TryFromObject, TypeProtocol,
 };
 use crate::sequence::{self, SimpleSeq};
-use crate::sliceable::PySliceableSequence;
+use crate::sliceable::{PySliceableSequence, PySliceableSequenceOwner};
 use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter};
 use crate::vm::{ReprGuard, VirtualMachine};
 
@@ -23,6 +24,8 @@ use crate::vm::{ReprGuard, VirtualMachine};
 pub struct PyTuple {
     elements: Box<[PyObjectRef]>,
 }
+
+py_class_sequence_owner!(PyTuple);
 
 impl fmt::Debug for PyTuple {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -173,7 +176,11 @@ impl PyTuple {
 
     #[pymethod(name = "__getitem__")]
     fn getitem(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let result = match zelf.elements.as_ref().get_item(vm, needle, "tuple")? {
+        let result = match zelf
+            .elements
+            .as_ref()
+            .get_item(Self::OWNER_TYPE, vm, needle)?
+        {
             Either::A(obj) => obj,
             Either::B(vec) => vm.ctx.new_tuple(vec),
         };

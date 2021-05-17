@@ -19,6 +19,7 @@ use crate::pyobject::{
     BorrowValue, Either, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyIterable,
     PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
+use crate::sliceable::PySliceableSequenceOwner;
 use crate::slots::{BufferProtocol, Comparable, Hashable, Iterable, PyComparisonOp, PyIter};
 use crate::vm::VirtualMachine;
 use crate::{
@@ -41,6 +42,10 @@ use crate::builtins::memory::{Buffer, BufferOptions};
 #[derive(Clone, Debug)]
 pub struct PyBytes {
     inner: PyBytesInner,
+}
+
+impl PySliceableSequenceOwner for PyBytes {
+    const OWNER_TYPE: &'static str = "byte";
 }
 
 pub type PyBytesRef = PyRef<PyBytes>;
@@ -138,7 +143,7 @@ impl PyBytes {
 
     #[pymethod(name = "__getitem__")]
     fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.inner.getitem("byte", needle, vm)
+        self.inner.getitem(Self::OWNER_TYPE, needle, vm)
     }
 
     #[pymethod(name = "isalnum")]
