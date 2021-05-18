@@ -72,6 +72,17 @@ impl Deref for PyBytes {
     }
 }
 
+impl AsRef<[u8]> for PyBytes {
+    fn as_ref(&self) -> &[u8] {
+        &self.inner.elements
+    }
+}
+impl AsRef<[u8]> for PyBytesRef {
+    fn as_ref(&self) -> &[u8] {
+        &self.inner.elements
+    }
+}
+
 impl PyValue for PyBytes {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.bytes_type
