@@ -111,7 +111,7 @@ impl PyBytes {
 
     #[pymethod(name = "__repr__")]
     pub(crate) fn repr(&self) -> String {
-        format!("b'{}'", self.inner.repr())
+        self.inner.repr("", "")
     }
 
     #[pymethod(name = "__len__")]

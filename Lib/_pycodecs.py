@@ -57,6 +57,7 @@ __all__ = ['register', 'lookup', 'lookup_error', 'register_error', 'encode', 'de
            'utf_16_le_encode', 'utf_16_be_encode', 'utf_16_le_decode', 'utf_16_be_decode',]
 
 import sys
+import warnings
 from _codecs import *
 
 
@@ -65,7 +66,7 @@ def latin_1_encode( obj, errors='strict'):
     """
     res = PyUnicode_EncodeLatin1(obj, len(obj), errors)
     res = bytes(res)
-    return res, len(res)
+    return res, len(obj)
 # XXX MBCS codec might involve ctypes ?
 def mbcs_decode():
     """None
@@ -75,43 +76,50 @@ def mbcs_decode():
 def readbuffer_encode( obj, errors='strict'):
     """None
     """
-    res = str(obj)
-    return res, len(res)
+    if isinstance(obj, str):
+        res = obj.encode()
+    else:
+        res = bytes(obj)
+    return res, len(obj)
 
 def escape_encode( obj, errors='strict'):
     """None
     """
-    s = repr(obj)
-    v = s[1:-1]
-    return v, len(v)
+    if not isinstance(obj, bytes):
+        raise TypeError("must be bytes")
+    s = repr(obj).encode()
+    v = s[2:-1]
+    if s[1] == ord('"'):
+        v = v.replace(b"'", b"\\'").replace(b'\\"', b'"')
+    return v, len(obj)
 
 def raw_unicode_escape_decode( data, errors='strict'):
     """None
     """
     res = PyUnicode_DecodeRawUnicodeEscape(data, len(data), errors)
     res = ''.join(res)
-    return res, len(res)
+    return res, len(data)
 
 def utf_7_decode( data, errors='strict'):
     """None
     """
     res = PyUnicode_DecodeUTF7(data, len(data), errors)
     res = ''.join(res)
-    return res, len(res)
+    return res, len(data)
 
 def unicode_escape_encode( obj, errors='strict'):
     """None
     """
     res = unicodeescape_string(obj, len(obj), 0)
-    res = bytes(res)
-    return res, len(res)
+    res = b''.join(res)
+    return res, len(obj)
 
 def latin_1_decode( data, errors='strict'):
     """None
     """
     res = PyUnicode_DecodeLatin1(data, len(data), errors)
     res = ''.join(res)
-    return res, len(res)
+    return res, len(data)
 
 def utf_16_decode( data, errors='strict', final=False):
     """None
@@ -128,7 +136,7 @@ def unicode_escape_decode( data, errors='strict'):
     """
     res = PyUnicode_DecodeUnicodeEscape(data, len(data), errors)
     res = ''.join(res)
-    return res, len(res)
+    return res, len(data)
 
 
 def ascii_decode( data, errors='strict'):
@@ -136,7 +144,7 @@ def ascii_decode( data, errors='strict'):
     """
     res = PyUnicode_DecodeASCII(data, len(data), errors)
     res = ''.join(res)
-    return res, len(res)
+    return res, len(data)
 
 def charmap_encode(obj, errors='strict', mapping='latin-1'):
     """None
@@ -144,7 +152,7 @@ def charmap_encode(obj, errors='strict', mapping='latin-1'):
 
     res = PyUnicode_EncodeCharmap(obj, len(obj), mapping, errors)
     res = bytes(res)
-    return res, len(res)
+    return res, len(obj)
 
 def charmap_build(s):
     return {ord(c): i for i, c in enumerate(s)}
@@ -223,7 +231,7 @@ def escape_decode(data, errors='strict'):
     """
     l = len(data)
     i = 0
-    res = []
+    res = bytearray()
     while i < l:
         
         if data[i] == '\\':
@@ -232,39 +240,39 @@ def escape_decode(data, errors='strict'):
                 raise ValueError("Trailing \\ in string")
             else:
                 if data[i] == '\\':
-                    res += '\\'
+                    res += b'\\'
                 elif data[i] == 'n':
-                    res += '\n'
+                    res += b'\n'
                 elif data[i] == 't':
-                    res += '\t'
+                    res += b'\t'
                 elif data[i] == 'r':
-                    res += '\r'
+                    res += b'\r'
                 elif data[i] == 'b':
-                    res += '\b'
+                    res += b'\b'
                 elif data[i] == '\'':
-                    res += '\''
+                    res += b'\''
                 elif data[i] == '\"':
-                    res += '\"'
+                    res += b'\"'
                 elif data[i] == 'f':
-                    res += '\f'
+                    res += b'\f'
                 elif data[i] == 'a':
-                    res += '\a'
+                    res += b'\a'
                 elif data[i] == 'v':
-                    res += '\v'
+                    res += b'\v'
                 elif '0' <= data[i] <= '9':
                     # emulate a strange wrap-around behavior of CPython:
                     # \400 is the same as \000 because 0400 == 256
                     octal = data[i:i+3]
-                    res += chr(int(octal, 8) & 0xFF)
+                    res.append(int(octal, 8) & 0xFF)
                     i += 2
                 elif data[i] == 'x':
                     hexa = data[i+1:i+3]
-                    res += chr(int(hexa, 16))
+                    res.append(int(hexa, 16))
                     i += 2
         else:
-            res += data[i]
+            res.append(data[i])
         i += 1
-    res = ''.join(res)    
+    res = bytes(res)
     return res, len(res)
 
 def charmap_decode( data, errors='strict', mapping=None):
@@ -272,15 +280,15 @@ def charmap_decode( data, errors='strict', mapping=None):
     """
     res = PyUnicode_DecodeCharmap(data, len(data), mapping, errors)
     res = ''.join(res)
-    return res, len(res)
+    return res, len(data)
 
 
 def utf_7_encode( obj, errors='strict'):
     """None
     """
     res = PyUnicode_EncodeUTF7(obj, len(obj), 0, 0, errors)
-    res = bytes(res)
-    return res, len(res)
+    res = b''.join(res)
+    return res, len(obj)
 
 def mbcs_encode( obj, errors='strict'):
     """None
@@ -298,35 +306,35 @@ def ascii_encode( obj, errors='strict'):
     """
     res = PyUnicode_EncodeASCII(obj, len(obj), errors)
     res = bytes(res)
-    return res, len(res)
+    return res, len(obj)
 
 def utf_16_encode( obj, errors='strict'):
     """None
     """
     res = PyUnicode_EncodeUTF16(obj, len(obj), errors, 'native')
     res = bytes(res)
-    return res, len(res)
+    return res, len(obj)
 
 def raw_unicode_escape_encode( obj, errors='strict'):
     """None
     """
     res = PyUnicode_EncodeRawUnicodeEscape(obj, len(obj))
     res = bytes(res)
-    return res, len(res)
+    return res, len(obj)
 
 def utf_16_le_encode( obj, errors='strict'):
     """None
     """
     res = PyUnicode_EncodeUTF16(obj, len(obj), errors, 'little')
     res = bytes(res)
-    return res, len(res)
+    return res, len(obj)
 
 def utf_16_be_encode( obj, errors='strict'):
     """None
     """
     res = PyUnicode_EncodeUTF16(obj, len(obj), errors, 'big')
     res = bytes(res)
-    return res, len(res)
+    return res, len(obj)
 
 def utf_16_le_decode( data, errors='strict', byteorder=0, final = 0):
     """None
@@ -388,17 +396,17 @@ def SPECIAL(c, encodeO, encodeWS):
             (encodeWS and (utf7_special[(c)] == 2)) or \
             (encodeO and (utf7_special[(c)] == 3))
 def B64(n):
-    return ("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"[(n) & 0x3f])
+    return bytes([b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"[(n) & 0x3f]])
 def B64CHAR(c):
-    return (c.isalnum() or (c) == '+' or (c) == '/')
+    return (c.isalnum() or (c) == b'+' or (c) == b'/')
 def UB64(c):
-    if (c) == '+' :
+    if (c) == b'+' :
         return 62 
-    elif (c) == '/':
+    elif (c) == b'/':
         return 63 
-    elif (c) >= 'a':
+    elif (c) >= b'a':
         return ord(c) - 71 
-    elif (c) >= 'A':
+    elif (c) >= b'A':
         return ord(c) - 65 
     else: 
         return ord(c) + 4
@@ -423,13 +431,13 @@ def PyUnicode_DecodeUTF7(s, size, errors):
     exc = None
 
     if (size == 0):
-        return str('')
+        return ''
     i = 0
     while i < size:
         
-        ch = s[i]
+        ch = bytes([s[i]])
         if (inShift):
-            if ((ch == '-') or not B64CHAR(ch)):
+            if ((ch == b'-') or not B64CHAR(ch)):
                 inShift = 0
                 i += 1
                 
@@ -447,11 +455,11 @@ def PyUnicode_DecodeUTF7(s, size, errors):
                         surrogate = 1
                         msg = "code pairs are not supported"
                         out, x = unicode_call_errorhandler(errors, 'utf-7', msg, s, i-1, i)
-                        p += out
+                        p.append(out)
                         bitsleft = 0
                         break
                     else:
-                        p +=  chr(outCh )
+                        p.append(chr(outCh ))
                         #p += out
                 if (bitsleft >= 6):
 ##                    /* The shift sequence has a partial character in it. If
@@ -467,7 +475,7 @@ def PyUnicode_DecodeUTF7(s, size, errors):
 ##                /* On x86, a << b == a << (b%32) so make sure that bitsleft != 0 */
 ##                if (bitsleft and (charsleft << (sizeof(charsleft) * 8 - bitsleft))):
 ##                    raise UnicodeDecodeError, "non-zero padding bits in shift sequence"
-                if (ch == '-') :
+                if (ch == b'-') :
                     if ((i < size) and (s[i] == '-')) :
                         p +=  '-'
                         inShift = 1
@@ -476,18 +484,18 @@ def PyUnicode_DecodeUTF7(s, size, errors):
                     raise  UnicodeDecodeError("unexpected special character")
                         
                 else:  
-                    p +=  ch 
+                    p.append(chr(ord(ch)))
             else:
                 charsleft = (charsleft << 6) | UB64(ch)
                 bitsleft += 6
                 i += 1
 ##                /* p, charsleft, bitsleft, surrogate = */ DECODE(p, charsleft, bitsleft, surrogate);
-        elif ( ch == '+' ):
+        elif ( ch == b'+' ):
             startinpos = i
             i += 1
             if (i<size and s[i] == '-'):
                 i += 1
-                p +=  '+'
+                p.append(b'+')
             else:
                 inShift = 1
                 bitsleft = 0
@@ -496,7 +504,7 @@ def PyUnicode_DecodeUTF7(s, size, errors):
             i += 1
             raise UnicodeDecodeError("unexpected special character")
         else:
-            p +=  ch 
+            p.append(chr(ord(ch)))
             i += 1
 
     if (inShift) :
@@ -517,33 +525,32 @@ def PyUnicode_EncodeUTF7(s, size, encodeSetO, encodeWhiteSpace, errors):
     for ch in s:
         if (not inShift) :
             if (ch == '+'):
-                out +=  '+'
-                out +=  '-'
+                out.append(b'+-')
             elif (SPECIAL(ch, encodeSetO, encodeWhiteSpace)):
                 charsleft = ord(ch)
                 bitsleft = 16
-                out += '+'
+                out.append(b'+')
                 p, bitsleft = ENCODE( charsleft, bitsleft)
-                out += p
+                out.append(p)
                 inShift = bitsleft > 0
             else:
-                out += chr(ord(ch))
+                out.append(bytes([ord(ch)]))
         else:
             if (not SPECIAL(ch, encodeSetO, encodeWhiteSpace)):
-                out += B64((charsleft) << (6-bitsleft))
+                out.append(B64((charsleft) << (6-bitsleft)))
                 charsleft = 0
                 bitsleft = 0
 ##                /* Characters not in the BASE64 set implicitly unshift the sequence
 ##                   so no '-' is required, except if the character is itself a '-' */
                 if (B64CHAR(ch) or ch == '-'):
-                    out += '-'
+                    out.append(b'-')
                 inShift = False
-                out += chr(ord(ch))
+                out.append(bytes([ord(ch)]))
             else:
                 bitsleft += 16
                 charsleft = (((charsleft) << 16) | ord(ch))
                 p, bitsleft =  ENCODE(charsleft, bitsleft)
-                out += p
+                out.append(p)
 ##                /* If the next character is special then we dont' need to terminate
 ##                   the shift sequence. If the next character is not a BASE64 character
 ##                   or '-' then the shift sequence will be terminated implicitly and we
@@ -556,18 +563,18 @@ def PyUnicode_EncodeUTF7(s, size, encodeSetO, encodeWhiteSpace, errors):
                         if (SPECIAL(ch2, encodeSetO, encodeWhiteSpace)):
                             pass
                         elif (B64CHAR(ch2) or ch2 == '-'):
-                            out +=  '-'
+                            out.append(b'-')
                             inShift = False
                         else:
                             inShift = False
                     else:
-                        out +=  '-'
+                        out.append(b'-')
                         inShift = False
         i += 1
             
     if (bitsleft):
-        out += B64(charsleft << (6-bitsleft) ) 
-        out +=  '-'
+        out.append(B64(charsleft << (6-bitsleft) ) )
+        out.append(b'-')
 
     return out
 
@@ -577,27 +584,23 @@ def unicodeescape_string(s, size, quotes):
 
     p = []
     if (quotes) :
-        p += 'u'
         if (s.find('\'') != -1 and s.find('"') == -1):
-            p += '"' 
+            p.append(b'"')
         else:
-            p += '\''
+            p.append(b'\'')
     pos = 0
     while (pos < size):
         ch = s[pos]
         #/* Escape quotes */
         if (quotes and (ch == p[1] or ch == '\\')):
-            p += '\\'
-            p += chr(ord(ch))
+            p.append(b'\\%c' % ord(ch))
             pos += 1
             continue
 
 #ifdef Py_UNICODE_WIDE
         #/* Map 21-bit characters to '\U00xxxxxx' */
         elif (ord(ch) >= 0x10000):
-            p += '\\'
-            p += 'U'
-            p += '%08x' % ord(ch)
+            p.append(b'\\U%08x' % ord(ch))
             pos += 1
             continue        
 #endif
@@ -608,9 +611,7 @@ def unicodeescape_string(s, size, quotes):
             
             if (ord(ch2) >= 0xDC00 and ord(ch2) <= 0xDFFF):
                 ucs = (((ord(ch) & 0x03FF) << 10) | (ord(ch2) & 0x03FF)) + 0x00010000
-                p += '\\'
-                p += 'U'
-                p += '%08x' % ucs
+                p.append(b'\\U%08x' % ucs)
                 pos += 1
                 continue
            
@@ -619,34 +620,30 @@ def unicodeescape_string(s, size, quotes):
             
         #/* Map 16-bit characters to '\uxxxx' */
         if (ord(ch) >= 256):
-            p += '\\'
-            p += 'u'
-            p += '%04x' % ord(ch)
+            p.append(b'\\u%04x' % ord(ch))
             
         #/* Map special whitespace to '\t', \n', '\r' */
         elif (ch == '\t'):
-            p += '\\'
-            p += 't'
+            p.append(b'\\t')
         
         elif (ch == '\n'):
-            p += '\\'
-            p += 'n'
+            p.append(b'\\n')
 
         elif (ch == '\r'):
-            p += '\\'
-            p += 'r'
+            p.append(b'\\r')
+
+        elif (ch == '\\'):
+            p.append(b'\\\\')
 
         #/* Map non-printable US ASCII to '\xhh' */
-        elif (ch < ' ' or ch >= 0x7F) :
-            p += '\\'
-            p += 'x'
-            p += '%02x' % ord(ch)
+        elif (ch < ' ' or ch >= chr(0x7F)) :
+            p.append(b'\\x%02x' % ord(ch))
         #/* Copy everything else as-is */
         else:
-            p += chr(ord(ch))
+            p.append(bytes([ord(ch)]))
         pos += 1
     if (quotes):
-        p += p[1]
+        p.append(p[0])
     return p
 
 def PyUnicode_DecodeASCII(s, size, errors):
@@ -914,44 +911,40 @@ def PyUnicode_EncodeLatin1(p, size, errors):
     res = unicode_encode_ucs1(p, size, errors, 256)
     return res
 
-hexdigits = [hex(i)[-1] for i in range(16)]+[hex(i)[-1].upper() for i in range(10, 16)]
+hexdigits = [ord(hex(i)[-1]) for i in range(16)]+[ord(hex(i)[-1].upper()) for i in range(10, 16)]
+
+def hex_number_end(s, pos, digits):
+    target_end = pos + digits
+    while pos < target_end and pos < len(s) and s[pos] in hexdigits: 
+        pos += 1
+    return pos
 
 def hexescape(s, pos, digits, message, errors):
-    chr = 0
+    ch = 0
     p = []
-    if (pos+digits>len(s)):
-        message = "end of string in escape sequence"
-        x = unicode_call_errorhandler(errors, "unicodeescape", message, s, pos-2, len(s))
-        p += x[0]
+    number_end = hex_number_end(s, pos, digits)
+    if number_end - pos != digits:
+        x = unicode_call_errorhandler(errors, "unicodeescape", message, s, pos-2, number_end)
+        p.append(x[0])
         pos = x[1]
     else:
-        try:
-            chr = int(s[pos:pos+digits], 16)
-        except ValueError:
-            endinpos = pos
-            while s[endinpos] in hexdigits: 
-                endinpos += 1
-            x = unicode_call_errorhandler(errors, "unicodeescape", message, s, pos-2,
-                        endinpos+1)
-            p += x[0]
-            pos = x[1]
-        #/* when we get here, chr is a 32-bit unicode character */
+        ch = int(s[pos:pos+digits], 16)
+        #/* when we get here, ch is a 32-bit unicode character */
+        if ch <= sys.maxunicode:
+            p.append(chr(ch))
+            pos += digits
+
+        elif (ch <= 0x10ffff):
+            ch -= 0x10000
+            p.append(chr(0xD800 + (ch >> 10)))
+            p.append(chr(0xDC00 +  (ch & 0x03FF)))
+            pos += digits
         else:
-            if chr <= sys.maxunicode:
-                p += chr(chr)
-                pos += digits
-            
-            elif (chr <= 0x10ffff):
-                chr -= 0x10000
-                p += chr(0xD800 + (chr >> 10))
-                p += chr(0xDC00 +  (chr & 0x03FF))
-                pos += digits
-            else:
-                message = "illegal Unicode character"
-                x = unicode_call_errorhandler(errors, "unicodeescape", message, s, pos-2,
-                        pos+1)
-                p += x[0]
-                pos = x[1]
+            message = "illegal Unicode character"
+            x = unicode_call_errorhandler(errors, "unicodeescape", message, s, pos-2,
+                    pos+digits)
+            p.append(x[0])
+            pos = x[1]
     res = p
     return res, pos
 
@@ -960,12 +953,17 @@ def PyUnicode_DecodeUnicodeEscape(s, size, errors):
     if (size == 0):
         return ''
     
+    if isinstance(s, str):
+        s = s.encode()
+
+    found_invalid_escape = False
+
     p = []
     pos = 0
     while (pos < size): 
 ##        /* Non-escape characters are interpreted as Unicode ordinals */
         if (chr(s[pos]) != '\\') :
-            p += chr(s[pos])
+            p.append(chr(s[pos]))
             pos += 1
             continue
 ##        /* \ - Escapes */
@@ -977,7 +975,8 @@ def PyUnicode_DecodeUnicodeEscape(s, size, errors):
             ch = chr(s[pos])
             pos += 1
     ##        /* \x escapes */
-            if ch == '\\'  : p += '\\'
+            if   ch == '\n': pass
+            elif ch == '\\': p += '\\'
             elif ch == '\'': p += '\''
             elif ch == '\"': p += '\"' 
             elif ch == 'b' : p += '\b' 
@@ -985,21 +984,21 @@ def PyUnicode_DecodeUnicodeEscape(s, size, errors):
             elif ch == 't' : p += '\t' 
             elif ch == 'n' : p += '\n'
             elif ch == 'r' : p += '\r' 
-            elif ch == 'v': p += '\013' #break; /* VT */
-            elif ch == 'a': p += '\007' # break; /* BEL, not classic C */
+            elif ch == 'v' : p += '\013' #break; /* VT */
+            elif ch == 'a' : p += '\007' # break; /* BEL, not classic C */
             elif '0' <= ch <= '7':
                 x = ord(ch) - ord('0')
                 if pos < size:
-                    ch = s[pos]
+                    ch = chr(s[pos])
                     if '0' <= ch <= '7':
                         pos += 1
                         x = (x<<3) + ord(ch) - ord('0')
                         if pos < size:
-                            ch = s[pos]
+                            ch = chr(s[pos])
                             if '0' <= ch <= '7':
                                 pos += 1
                                 x = (x<<3) + ord(ch) - ord('0')
-                p += chr(x)
+                p.append(chr(x))
     ##        /* hex escapes */
     ##        /* \xXX */
             elif ch == 'x':
@@ -1048,29 +1047,30 @@ def PyUnicode_DecodeUnicodeEscape(s, size, errors):
                             x = unicode_call_errorhandler(errors, "unicodeescape", message, s, pos-1, look+1)
                         else:
                             x = chr_codec, look + 1 
-                        p += x[0]
+                        p.append(x[0])
                         pos = x[1]
                     else:        
                         x = unicode_call_errorhandler(errors, "unicodeescape", message, s, pos-1, look+1)
                 else:        
                     x = unicode_call_errorhandler(errors, "unicodeescape", message, s, pos-1, look+1)
             else:
-                p += '\\'
-                p += ch
+                if not found_invalid_escape:
+                    found_invalid_escape = True
+                    warnings.warn("invalid escape sequence '\\%c'" % ch, DeprecationWarning, 2)
+                p.append('\\')
+                p.append(ch)
     return p
 
 def PyUnicode_EncodeRawUnicodeEscape(s, size):
     
     if (size == 0):
-        return ''
+        return b''
 
     p = bytearray()
     for ch in s:
 #       /* Map 32-bit characters to '\Uxxxxxxxx' */
         if (ord(ch) >= 0x10000):
-            p += '\\'
-            p += 'U'
-            p += '%08x' % (ord(ch))
+            p += b'\\U%08x' % ord(ch)
         elif (ord(ch) >= 256) :
 #       /* Map 16-bit characters to '\uxxxx' */
             p += b'\\u%04x' % (ord(ch))
@@ -1163,13 +1163,17 @@ def PyUnicode_DecodeRawUnicodeEscape(s, size, errors):
 
     if (size == 0):
         return ''
+
+    if isinstance(s, str):
+        s = s.encode()
+
     pos = 0
     p = []
     while (pos < len(s)):
-        ch = s[pos]
+        ch = chr(s[pos])
     #/* Non-escape characters are interpreted as Unicode ordinals */
-        if (ch != ord('\\')):
-            p.append(chr(ch))
+        if (ch != '\\'):
+            p.append(ch)
             pos += 1
             continue        
         startinpos = pos
@@ -1182,8 +1186,9 @@ def PyUnicode_DecodeRawUnicodeEscape(s, size, errors):
             p.append(chr(s[pos]))
             pos += 1
     
+        if (pos >= size):
+            break
         if (((pos - bs) & 1) == 0 or
-            pos >= size or
             (s[pos] != ord('u') and s[pos] != ord('U'))) :
             p.append(chr(s[pos]))
             pos += 1
@@ -1197,22 +1202,21 @@ def PyUnicode_DecodeRawUnicodeEscape(s, size, errors):
         pos += 1
 
         #/* \uXXXX with 4 hex digits, \Uxxxxxxxx with 8 */
-        x = 0
-        try:
-            x = int(s[pos:pos+count], 16)
-        except ValueError:
+        number_end = hex_number_end(s, pos, count)
+        if number_end - pos != count:
             res = unicode_call_errorhandler(
                     errors, "rawunicodeescape", "truncated \\uXXXX",
-                    s, size, pos, pos+count)
+                    s, pos-2, number_end)
             p.append(res[0])
             pos = res[1]
         else:
+            x = int(s[pos:pos+count], 16)
     #ifndef Py_UNICODE_WIDE
             if sys.maxunicode > 0xffff:
                 if (x > sys.maxunicode):
                     res = unicode_call_errorhandler(
                         errors, "rawunicodeescape", "\\Uxxxxxxxx out of range",
-                        s, size, pos, pos+1)
+                        s, pos-2, pos+count)
                     pos = res[1]
                     p.append(res[0])
                 else:
@@ -1222,7 +1226,7 @@ def PyUnicode_DecodeRawUnicodeEscape(s, size, errors):
                 if (x > 0x10000):
                     res = unicode_call_errorhandler(
                         errors, "rawunicodeescape", "\\Uxxxxxxxx out of range",
-                        s, size, pos, pos+1)
+                        s, pos-2, pos+count)
                     pos = res[1]
                     p.append(res[0])
 

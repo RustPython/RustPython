@@ -230,17 +230,61 @@ impl ByteInnerTranslateOptions {
 pub type ByteInnerSplitOptions<'a> = anystr::SplitArgs<'a, PyBytesInner>;
 
 impl PyBytesInner {
-    pub fn repr(&self) -> String {
-        let mut res = String::with_capacity(self.elements.len());
-        for i in self.elements.iter() {
-            match i {
-                9 => res.push_str("\\t"),
-                10 => res.push_str("\\n"),
-                13 => res.push_str("\\r"),
-                32..=126 => res.push(*(i) as char),
-                _ => res.push_str(&format!("\\x{:02x}", i)),
+    pub fn repr(&self, prefix: &str, suffix: &str) -> String {
+        use std::fmt::Write;
+
+        let mut out_len = 0usize;
+        let mut squote = 0;
+        let mut dquote = 0;
+
+        for &ch in self.elements.iter() {
+            let incr = match ch {
+                b'\'' => {
+                    squote += 1;
+                    1
+                }
+                b'"' => {
+                    dquote += 1;
+                    1
+                }
+                b'\\' | b'\t' | b'\r' | b'\n' => 2,
+                0x20..=0x7e => 1,
+                _ => 4, // \xHH
+            };
+            // TODO: OverflowError
+            out_len = out_len.checked_add(incr).unwrap();
+        }
+
+        let (quote, num_escaped_quotes) = anystr::choose_quotes_for_repr(squote, dquote);
+        // we'll be adding backslashes in front of the existing inner quotes
+        out_len += num_escaped_quotes;
+
+        // 3 is for b prefix + outer quotes
+        out_len += 3 + prefix.len() + suffix.len();
+
+        let mut res = String::with_capacity(out_len);
+        res.push_str(prefix);
+        res.push('b');
+        res.push(quote);
+        for &ch in self.elements.iter() {
+            match ch {
+                b'\t' => res.push_str("\\t"),
+                b'\n' => res.push_str("\\n"),
+                b'\r' => res.push_str("\\r"),
+                // printable ascii range
+                0x20..=0x7e => {
+                    let ch = ch as char;
+                    if ch == quote || ch == '\\' {
+                        res.push('\\');
+                    }
+                    res.push(ch);
+                }
+                _ => write!(res, "\\x{:02x}", ch).unwrap(),
             }
         }
+        res.push(quote);
+        res.push_str(suffix);
+
         res
     }
 

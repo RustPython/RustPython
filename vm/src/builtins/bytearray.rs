@@ -121,7 +121,7 @@ impl PyByteArray {
 
     #[pymethod(name = "__repr__")]
     fn repr(&self) -> String {
-        format!("bytearray(b'{}')", self.inner().repr())
+        self.inner().repr("bytearray(", ")")
     }
 
     #[pymethod(name = "__len__")]

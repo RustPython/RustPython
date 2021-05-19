@@ -4,6 +4,7 @@ use std::ops::Range;
 
 use crate::builtins::{pybool, PyBytesRef, PyStr, PyStrRef, PyTuple, PyTupleRef};
 use crate::common::lock::PyRwLock;
+use crate::exceptions::PyBaseExceptionRef;
 use crate::VirtualMachine;
 use crate::{IntoPyObject, PyContext, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol};
 
@@ -327,6 +328,23 @@ fn extract_unicode_error_range(err: &PyObjectRef, vm: &VirtualMachine) -> PyResu
     Ok(Range { start, end })
 }
 
+#[inline]
+fn is_decode_err(err: &PyObjectRef, vm: &VirtualMachine) -> bool {
+    err.isinstance(&vm.ctx.exceptions.unicode_decode_error)
+}
+#[inline]
+fn is_encode_ish_err(err: &PyObjectRef, vm: &VirtualMachine) -> bool {
+    err.isinstance(&vm.ctx.exceptions.unicode_encode_error)
+        || err.isinstance(&vm.ctx.exceptions.unicode_translate_error)
+}
+
+fn bad_err_type(err: PyObjectRef, vm: &VirtualMachine) -> PyBaseExceptionRef {
+    vm.new_type_error(format!(
+        "don't know how to handle {} in error callback",
+        err.class().name
+    ))
+}
+
 fn strict_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     let err = err
         .downcast()
@@ -335,33 +353,26 @@ fn strict_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 }
 
 fn ignore_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(PyObjectRef, usize)> {
-    if err.isinstance(&vm.ctx.exceptions.unicode_encode_error)
-        || err.isinstance(&vm.ctx.exceptions.unicode_decode_error)
-        || err.isinstance(&vm.ctx.exceptions.unicode_translate_error)
-    {
+    if is_encode_ish_err(&err, vm) || is_decode_err(&err, vm) {
         let range = extract_unicode_error_range(&err, vm)?;
         Ok((vm.ctx.new_str(""), range.end))
     } else {
-        Err(vm.new_type_error(format!(
-            "don't know how to handle {} in error callback",
-            err.class().name
-        )))
+        Err(bad_err_type(err, vm))
     }
 }
 
 fn replace_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(String, usize)> {
+    // char::REPLACEMENT_CHARACTER as a str
+    let replacement_char = "\u{FFFD}";
     let replace = if err.isinstance(&vm.ctx.exceptions.unicode_encode_error) {
         "?"
-    } else if err.isinstance(&vm.ctx.exceptions.unicode_decode_error)
-        || err.isinstance(&vm.ctx.exceptions.unicode_translate_error)
-    {
-        // char::REPLACEMENT_CHARACTER
-        "\u{FFFD}"
+    } else if err.isinstance(&vm.ctx.exceptions.unicode_decode_error) {
+        let range = extract_unicode_error_range(&err, vm)?;
+        return Ok((replacement_char.to_owned(), range.end));
+    } else if err.isinstance(&vm.ctx.exceptions.unicode_translate_error) {
+        replacement_char
     } else {
-        return Err(vm.new_type_error(format!(
-            "don't know how to handle {} in error callback",
-            err.class().name
-        )));
+        return Err(bad_err_type(err, vm));
     };
     let range = extract_unicode_error_range(&err, vm)?;
     let replace = replace.repeat(range.end - range.start);
@@ -369,11 +380,8 @@ fn replace_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(String, us
 }
 
 fn xmlcharrefreplace_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(String, usize)> {
-    if !err.isinstance(&vm.ctx.exceptions.unicode_encode_error) {
-        return Err(vm.new_type_error(format!(
-            "don't know how to handle {} in error callback",
-            err.class().name
-        )));
+    if !is_encode_ish_err(&err, vm) {
+        return Err(bad_err_type(err, vm));
     }
     let range = extract_unicode_error_range(&err, vm)?;
     let s = PyStrRef::try_from_object(vm, vm.get_attribute(err, "object")?)?;
@@ -389,11 +397,17 @@ fn xmlcharrefreplace_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(
 }
 
 fn backslashreplace_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(String, usize)> {
-    if !err.isinstance(&vm.ctx.exceptions.unicode_encode_error) {
-        return Err(vm.new_type_error(format!(
-            "don't know how to handle {} in error callback",
-            err.class().name
-        )));
+    if is_decode_err(&err, vm) {
+        let range = extract_unicode_error_range(&err, vm)?;
+        let b = PyBytesRef::try_from_object(vm, vm.get_attribute(err, "object")?)?;
+        let mut replace = String::with_capacity(4 * range.len());
+        for &c in &b[range.clone()] {
+            use std::fmt::Write;
+            write!(replace, "\\x{:02x}", c).unwrap();
+        }
+        return Ok((replace, range.end));
+    } else if !is_encode_ish_err(&err, vm) {
+        return Err(bad_err_type(err, vm));
     }
     let range = extract_unicode_error_range(&err, vm)?;
     let s = PyStrRef::try_from_object(vm, vm.get_attribute(err, "object")?)?;

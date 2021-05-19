@@ -9,7 +9,7 @@ mod _codecs {
     use crate::codecs;
     use crate::common::encodings::{self, utf8};
     use crate::exceptions::PyBaseExceptionRef;
-    use crate::function::{FuncArgs, OptionalArg, OptionalOption};
+    use crate::function::{FuncArgs, OptionalArg};
     use crate::VirtualMachine;
     use crate::{IdProtocol, PyObjectRef, PyResult, TryFromObject};
 
@@ -26,36 +26,36 @@ mod _codecs {
             .map(|codec| codec.into_tuple().into_object())
     }
 
-    #[pyfunction]
-    fn encode(
+    #[derive(FromArgs)]
+    struct CodeArgs {
+        #[pyarg(any)]
         obj: PyObjectRef,
-        encoding: OptionalOption<PyStrRef>,
-        errors: OptionalOption<PyStrRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
-        let encoding = encoding.flatten();
-        let encoding = encoding
-            .as_ref()
-            .map_or(codecs::DEFAULT_ENCODING, |s| s.as_str());
-        vm.state
-            .codec_registry
-            .encode(obj, encoding, errors.flatten(), vm)
+        #[pyarg(any, optional)]
+        encoding: Option<PyStrRef>,
+        #[pyarg(any, optional)]
+        errors: Option<PyStrRef>,
     }
 
     #[pyfunction]
-    fn decode(
-        obj: PyObjectRef,
-        encoding: OptionalOption<PyStrRef>,
-        errors: OptionalOption<PyStrRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
-        let encoding = encoding.flatten();
-        let encoding = encoding
+    fn encode(args: CodeArgs, vm: &VirtualMachine) -> PyResult {
+        let encoding = args
+            .encoding
             .as_ref()
             .map_or(codecs::DEFAULT_ENCODING, |s| s.as_str());
         vm.state
             .codec_registry
-            .decode(obj, encoding, errors.flatten(), vm)
+            .encode(args.obj, encoding, args.errors, vm)
+    }
+
+    #[pyfunction]
+    fn decode(args: CodeArgs, vm: &VirtualMachine) -> PyResult {
+        let encoding = args
+            .encoding
+            .as_ref()
+            .map_or(codecs::DEFAULT_ENCODING, |s| s.as_str());
+        vm.state
+            .codec_registry
+            .decode(args.obj, encoding, args.errors, vm)
     }
 
     #[pyfunction]

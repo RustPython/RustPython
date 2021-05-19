@@ -9,9 +9,6 @@
  * https://docs.rs/byteorder/1.2.6/byteorder/
  */
 
-use crate::PyObjectRef;
-use crate::VirtualMachine;
-
 #[pymodule]
 pub(crate) mod _struct {
     use crossbeam_utils::atomic::AtomicCell;
@@ -956,32 +953,27 @@ pub(crate) mod _struct {
     #[pyfunction]
     fn _clearcache() {}
 
-    rustpython_common::static_cell! {
-        pub(crate) static STRUCT_ERROR: PyTypeRef;
+    #[pyattr(name = "error")]
+    fn struct_error(vm: &VirtualMachine) -> PyTypeRef {
+        rustpython_common::static_cell! {
+            static STRUCT_ERROR: PyTypeRef;
+        }
+        STRUCT_ERROR
+            .get_or_init(|| {
+                vm.ctx.new_class(
+                    "struct.error",
+                    &vm.ctx.exceptions.exception_type,
+                    Default::default(),
+                )
+            })
+            .clone()
     }
 
     fn new_struct_error(vm: &VirtualMachine, msg: String) -> PyBaseExceptionRef {
-        let class = STRUCT_ERROR.get().unwrap();
-        vm.new_exception_msg(class.clone(), msg)
+        // can't just STRUCT_ERROR.get().unwrap() cause this could be called before from buffer
+        // machinery, independent of whether _struct was ever imported
+        vm.new_exception_msg(struct_error(vm), msg)
     }
 }
 
-pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
-    let ctx = &vm.ctx;
-
-    let struct_error = _struct::STRUCT_ERROR
-        .get_or_init(|| {
-            ctx.new_class(
-                "struct.error",
-                &ctx.exceptions.exception_type,
-                Default::default(),
-            )
-        })
-        .clone();
-
-    let module = _struct::make_module(vm);
-    extend_module!(vm, module, {
-        "error" => struct_error,
-    });
-    module
-}
+pub(crate) use _struct::make_module;
