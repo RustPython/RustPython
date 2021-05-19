@@ -3,7 +3,7 @@ use num_traits::sign::Signed;
 use serde::de::{DeserializeSeed, Visitor};
 use serde::ser::{Serialize, SerializeMap, SerializeSeq};
 
-use crate::builtins::{dict::PyDictRef, float, int, list::PyList, pybool, pystr, tuple::PyTuple};
+use crate::builtins::{dict::PyDictRef, float, int, list::PyList, pybool, tuple::PyTuple, PyStr};
 use crate::VirtualMachine;
 use crate::{ItemProtocol, PyObjectRef, TypeProtocol};
 
@@ -63,8 +63,8 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
                 }
                 seq.end()
             };
-        if self.pyobject.isinstance(&self.vm.ctx.types.str_type) {
-            serializer.serialize_str(pystr::borrow_value(&self.pyobject))
+        if let Some(s) = self.pyobject.payload::<PyStr>() {
+            serializer.serialize_str(s.as_ref())
         } else if self.pyobject.isinstance(&self.vm.ctx.types.float_type) {
             serializer.serialize_f64(float::get_value(self.pyobject))
         } else if self.pyobject.isinstance(&self.vm.ctx.types.bool_type) {

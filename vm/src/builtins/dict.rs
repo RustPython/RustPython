@@ -2,7 +2,7 @@ use crossbeam_utils::atomic::AtomicCell;
 use std::fmt;
 use std::mem::size_of;
 
-use super::pystr;
+use super::pystr::PyStrRef;
 use super::pytype::PyTypeRef;
 use super::set::PySet;
 use crate::dictdatatype::{self, DictKey};
@@ -448,8 +448,8 @@ impl PyDictRef {
     pub fn to_attributes(self) -> PyAttributes {
         let mut attrs = PyAttributes::default();
         for (key, value) in self {
-            let key = pystr::clone_value(&key);
-            attrs.insert(key, value);
+            let key: PyStrRef = key.downcast().expect("dict has non-string keys");
+            attrs.insert(key.as_ref().to_owned(), value);
         }
         attrs
     }

@@ -230,8 +230,8 @@ impl PyStr {
 
     #[pymethod(name = "__add__")]
     fn add(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if other.isinstance(&vm.ctx.types.str_type) {
-            Ok(vm.ctx.new_str(zelf.value.py_add(borrow_value(&other))))
+        if let Some(other) = other.payload::<PyStr>() {
+            Ok(vm.ctx.new_str(zelf.value.py_add(other.as_ref())))
         } else if let Some(radd) = vm.get_method(other.clone(), "__radd__") {
             // hack to get around not distinguishing number add from seq concat
             vm.invoke(&radd?, (zelf,))
@@ -1206,14 +1206,6 @@ pub fn init(ctx: &PyContext) {
 
     PyStrIterator::extend_class(ctx, &ctx.types.str_iterator_type);
     PyStrReverseIterator::extend_class(ctx, &ctx.types.str_reverseiterator_type);
-}
-
-pub(crate) fn clone_value(obj: &PyObjectRef) -> String {
-    String::from(obj.payload::<PyStr>().unwrap().as_str())
-}
-
-pub(crate) fn borrow_value(obj: &PyObjectRef) -> &str {
-    &obj.payload::<PyStr>().unwrap().value
 }
 
 impl PySliceableSequence for PyStr {

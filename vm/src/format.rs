@@ -1,4 +1,4 @@
-use crate::builtins::{self, pystr};
+use crate::builtins::{self, PyStrRef};
 use crate::common::float_ops;
 use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
 use crate::function::FuncArgs;
@@ -796,7 +796,8 @@ impl FormatString {
     ) -> PyResult<String> {
         let mut final_string = String::new();
         for part in &self.format_parts {
-            let result_string: String = match part {
+            let pystr;
+            let result_string: &str = match part {
                 FormatPart::Field {
                     field_name,
                     preconversion_spec,
@@ -825,13 +826,12 @@ impl FormatString {
                         FormatString::from_str(&format_spec).map_err(|e| e.into_pyexception(vm))?;
                     let format_spec = nested_format.format_internal(vm, field_func)?;
 
-                    let value =
-                        call_object_format(vm, argument, *preconversion_spec, &format_spec)?;
-                    pystr::clone_value(&value)
+                    pystr = call_object_format(vm, argument, *preconversion_spec, &format_spec)?;
+                    pystr.as_ref()
                 }
-                FormatPart::Literal(literal) => literal.clone(),
+                FormatPart::Literal(literal) => literal,
             };
-            final_string.push_str(&result_string);
+            final_string.push_str(result_string);
         }
         Ok(final_string)
     }
@@ -889,7 +889,7 @@ fn call_object_format(
     argument: PyObjectRef,
     preconversion_spec: Option<char>,
     format_spec: &str,
-) -> PyResult {
+) -> PyResult<PyStrRef> {
     let argument = match preconversion_spec.and_then(FormatPreconversor::from_char) {
         Some(FormatPreconversor::Str) => vm.to_str(&argument)?.into_object(),
         Some(FormatPreconversor::Repr) => vm.to_repr(&argument)?.into_object(),
@@ -898,13 +898,12 @@ fn call_object_format(
         None => argument,
     };
     let result = vm.call_special_method(argument, "__format__", (format_spec,))?;
-    if !result.isinstance(&vm.ctx.types.str_type) {
-        return Err(vm.new_type_error(format!(
+    result.downcast().map_err(|result| {
+        vm.new_type_error(format!(
             "__format__ must return a str, not {}",
             &result.class().name
-        )));
-    }
-    Ok(result)
+        ))
+    })
 }
 
 pub(crate) trait FromTemplate<'a>: Sized {
