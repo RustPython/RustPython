@@ -989,7 +989,9 @@ def _allow_reckless_class_cheks():
     issubclass() on the whole MRO of a user class, which may contain protocols.
     """
     try:
-        return sys._getframe(3).f_globals['__name__'] in ['abc', 'functools']
+        # XXX RUSTPYTHON: added _py_abc; I think CPython was fine because abc called
+        # directly into the _abc builtin module, which wasn't in the frame stack
+        return sys._getframe(3).f_globals['__name__'] in ['abc', 'functools', '_py_abc']
     except (AttributeError, ValueError):  # For platforms without _getframe().
         return True
 
