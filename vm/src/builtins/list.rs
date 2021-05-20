@@ -59,11 +59,11 @@ impl PyValue for PyList {
 }
 
 impl PyList {
-    pub fn borrow_list(&self) -> PyMappedRwLockReadGuard<'_, [PyObjectRef]> {
+    pub fn borrow_vec(&self) -> PyMappedRwLockReadGuard<'_, [PyObjectRef]> {
         PyRwLockReadGuard::map(self.elements.read(), |v| &**v)
     }
 
-    pub fn borrow_list_mut(&self) -> PyRwLockWriteGuard<'_, Vec<PyObjectRef>> {
+    pub fn borrow_vec_mut(&self) -> PyRwLockWriteGuard<'_, Vec<PyObjectRef>> {
         self.elements.write()
     }
 }
@@ -82,19 +82,19 @@ pub type PyListRef = PyRef<PyList>;
 impl PyList {
     #[pymethod]
     pub(crate) fn append(&self, x: PyObjectRef) {
-        self.borrow_list_mut().push(x);
+        self.borrow_vec_mut().push(x);
     }
 
     #[pymethod]
     fn extend(&self, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let mut new_elements = vm.extract_elements(&x)?;
-        self.borrow_list_mut().append(&mut new_elements);
+        self.borrow_vec_mut().append(&mut new_elements);
         Ok(())
     }
 
     #[pymethod]
     pub(crate) fn insert(&self, position: isize, element: PyObjectRef) {
-        let mut elements = self.borrow_list_mut();
+        let mut elements = self.borrow_vec_mut();
         let position = elements.saturate_index(position);
         elements.insert(position, element);
     }
@@ -102,8 +102,8 @@ impl PyList {
     #[pymethod(name = "__add__")]
     fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(other) = other.payload_if_subclass::<PyList>(vm) {
-            let mut elements = self.borrow_list().to_vec();
-            elements.extend(other.borrow_list().iter().cloned());
+            let mut elements = self.borrow_vec().to_vec();
+            elements.extend(other.borrow_vec().iter().cloned());
             Ok(vm.ctx.new_list(elements))
         } else {
             Err(vm.new_type_error(format!(
@@ -118,7 +118,7 @@ impl PyList {
     fn iadd(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if let Ok(new_elements) = vm.extract_elements(&other) {
             let mut e = new_elements;
-            zelf.borrow_list_mut().append(&mut e);
+            zelf.borrow_vec_mut().append(&mut e);
             zelf.into_object()
         } else {
             vm.ctx.not_implemented()
@@ -127,22 +127,22 @@ impl PyList {
 
     #[pymethod(name = "__bool__")]
     fn bool(&self) -> bool {
-        !self.borrow_list().is_empty()
+        !self.borrow_vec().is_empty()
     }
 
     #[pymethod]
     fn clear(&self) {
-        let _removed = std::mem::replace(self.borrow_list_mut().deref_mut(), Vec::new());
+        let _removed = std::mem::replace(self.borrow_vec_mut().deref_mut(), Vec::new());
     }
 
     #[pymethod]
     fn copy(&self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_list(self.borrow_list().to_vec())
+        vm.ctx.new_list(self.borrow_vec().to_vec())
     }
 
     #[pymethod(name = "__len__")]
     fn len(&self) -> usize {
-        self.borrow_list().len()
+        self.borrow_vec().len()
     }
 
     #[pymethod(name = "__sizeof__")]
@@ -152,12 +152,12 @@ impl PyList {
 
     #[pymethod]
     fn reverse(&self) {
-        self.borrow_list_mut().reverse();
+        self.borrow_vec_mut().reverse();
     }
 
     #[pymethod(name = "__reversed__")]
     fn reversed(zelf: PyRef<Self>) -> PyListReverseIterator {
-        let final_position = zelf.borrow_list().len();
+        let final_position = zelf.borrow_vec().len();
         PyListReverseIterator {
             position: AtomicCell::new(final_position as isize),
             list: zelf,
@@ -166,7 +166,7 @@ impl PyList {
 
     #[pymethod(name = "__getitem__")]
     fn getitem(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let result = match zelf.borrow_list().get_item(vm, needle, "list")? {
+        let result = match zelf.borrow_vec().get_item(vm, needle, "list")? {
             Either::A(obj) => obj,
             Either::B(vec) => vm.ctx.new_list(vec),
         };
@@ -192,7 +192,7 @@ impl PyList {
     }
 
     fn setindex(&self, index: isize, mut value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let mut elements = self.borrow_list_mut();
+        let mut elements = self.borrow_vec_mut();
         if let Some(pos_index) = elements.wrap_index(index) {
             std::mem::swap(&mut elements[pos_index], &mut value);
             Ok(())
@@ -204,14 +204,14 @@ impl PyList {
     fn setslice(&self, slice: PySliceRef, sec: PyIterable, vm: &VirtualMachine) -> PyResult<()> {
         let items: Result<Vec<PyObjectRef>, _> = sec.iter(vm)?.collect();
         let items = items?;
-        let mut elements = self.borrow_list_mut();
+        let mut elements = self.borrow_vec_mut();
         elements.set_slice_items(vm, &slice, items.as_slice())
     }
 
     #[pymethod(name = "__repr__")]
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
         let s = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-            let elements = zelf.borrow_list().to_vec();
+            let elements = zelf.borrow_vec().to_vec();
             let mut str_parts = Vec::with_capacity(elements.len());
             for elem in elements.iter() {
                 let s = vm.to_repr(elem)?;
@@ -226,7 +226,7 @@ impl PyList {
 
     #[pymethod(name = "__mul__")]
     fn mul(&self, counter: isize, vm: &VirtualMachine) -> PyObjectRef {
-        let new_elements = sequence::seq_mul(&self.borrow_list(), counter)
+        let new_elements = sequence::seq_mul(&self.borrow_vec(), counter)
             .cloned()
             .collect();
         vm.ctx.new_list(new_elements)
@@ -239,7 +239,7 @@ impl PyList {
 
     #[pymethod(name = "__imul__")]
     fn imul(zelf: PyRef<Self>, counter: isize) -> PyRef<Self> {
-        let mut elements = zelf.borrow_list_mut();
+        let mut elements = zelf.borrow_vec_mut();
         let mut new_elements: Vec<PyObjectRef> =
             sequence::seq_mul(&*elements, counter).cloned().collect();
         std::mem::swap(elements.deref_mut(), &mut new_elements);
@@ -249,7 +249,7 @@ impl PyList {
     #[pymethod]
     fn count(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         let mut count: usize = 0;
-        for element in self.borrow_list().to_vec().iter() {
+        for element in self.borrow_vec().to_vec().iter() {
             if vm.identical_or_equal(element, &needle)? {
                 count += 1;
             }
@@ -259,7 +259,7 @@ impl PyList {
 
     #[pymethod(name = "__contains__")]
     fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        for element in self.borrow_list().to_vec().iter() {
+        for element in self.borrow_vec().to_vec().iter() {
             if vm.identical_or_equal(element, &needle)? {
                 return Ok(true);
             }
@@ -278,20 +278,20 @@ impl PyList {
     ) -> PyResult<usize> {
         let mut start = start.into_option().unwrap_or(0);
         if start < 0 {
-            start += self.borrow_list().len() as isize;
+            start += self.borrow_vec().len() as isize;
             if start < 0 {
                 start = 0;
             }
         }
         let mut stop = stop.into_option().unwrap_or(isize::MAX);
         if stop < 0 {
-            stop += self.borrow_list().len() as isize;
+            stop += self.borrow_vec().len() as isize;
             if stop < 0 {
                 stop = 0;
             }
         }
         for (index, element) in self
-            .borrow_list()
+            .borrow_vec()
             .to_vec()
             .iter()
             .enumerate()
@@ -308,7 +308,7 @@ impl PyList {
     #[pymethod]
     fn pop(&self, i: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult {
         let mut i = i.into_option().unwrap_or(-1);
-        let mut elements = self.borrow_list_mut();
+        let mut elements = self.borrow_vec_mut();
         if i < 0 {
             i += elements.len() as isize;
         }
@@ -324,7 +324,7 @@ impl PyList {
     #[pymethod]
     fn remove(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let mut ri: Option<usize> = None;
-        for (index, element) in self.borrow_list().to_vec().iter().enumerate() {
+        for (index, element) in self.borrow_vec().to_vec().iter().enumerate() {
             if vm.identical_or_equal(element, &needle)? {
                 ri = Some(index);
                 break;
@@ -333,7 +333,7 @@ impl PyList {
 
         if let Some(index) = ri {
             // defer delete out of borrow
-            Ok(self.borrow_list_mut().remove(index))
+            Ok(self.borrow_vec_mut().remove(index))
         } else {
             Err(vm.new_value_error(format!("'{}' is not in list", vm.to_str(&needle)?)))
         }
@@ -350,7 +350,7 @@ impl PyList {
 
     fn delindex(&self, index: isize, vm: &VirtualMachine) -> PyResult<()> {
         let removed = {
-            let mut elements = self.borrow_list_mut();
+            let mut elements = self.borrow_vec_mut();
             if let Some(pos_index) = elements.wrap_index(index) {
                 // defer delete out of borrow
                 Ok(elements.remove(pos_index))
@@ -362,7 +362,7 @@ impl PyList {
     }
 
     fn delslice(&self, slice: PySliceRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.borrow_list_mut().delete_slice(vm, &slice)
+        self.borrow_vec_mut().delete_slice(vm, &slice)
     }
 
     #[pymethod]
@@ -370,9 +370,9 @@ impl PyList {
         // replace list contents with [] for duration of sort.
         // this prevents keyfunc from messing with the list and makes it easy to
         // check if it tries to append elements to it.
-        let mut elements = std::mem::take(self.borrow_list_mut().deref_mut());
+        let mut elements = std::mem::take(self.borrow_vec_mut().deref_mut());
         let res = do_sort(vm, &mut elements, options.key, options.reverse);
-        std::mem::swap(self.borrow_list_mut().deref_mut(), &mut elements);
+        std::mem::swap(self.borrow_vec_mut().deref_mut(), &mut elements);
         res?;
 
         if !elements.is_empty() {
@@ -419,8 +419,8 @@ impl Comparable for PyList {
             return Ok(res.into());
         }
         let other = class_or_notimplemented!(Self, other);
-        let a = zelf.borrow_list();
-        let b = other.borrow_list();
+        let a = zelf.borrow_vec();
+        let b = other.borrow_vec();
         sequence::cmp(vm, a.boxed_iter(), b.boxed_iter(), op).map(PyComparisonValue::Implemented)
     }
 }
@@ -471,7 +471,7 @@ impl PyValue for PyListIterator {
 impl PyListIterator {
     #[pymethod(name = "__length_hint__")]
     fn length_hint(&self) -> usize {
-        let list = self.list.borrow_list();
+        let list = self.list.borrow_vec();
         let pos = self.position.load();
         list.len().saturating_sub(pos)
     }
@@ -479,7 +479,7 @@ impl PyListIterator {
 
 impl PyIter for PyListIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        let list = zelf.list.borrow_list();
+        let list = zelf.list.borrow_vec();
         let pos = zelf.position.fetch_add(1);
         if let Some(obj) = list.get(pos) {
             Ok(obj.clone())
@@ -512,7 +512,7 @@ impl PyListReverseIterator {
 
 impl PyIter for PyListReverseIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        let list = zelf.list.borrow_list();
+        let list = zelf.list.borrow_vec();
         let pos = zelf.position.fetch_sub(1);
         if pos > 0 {
             if let Some(ret) = list.get(pos as usize - 1) {

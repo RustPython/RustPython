@@ -1110,7 +1110,7 @@ impl VirtualMachine {
             value
                 .payload::<PyList>()
                 .unwrap()
-                .borrow_list()
+                .borrow_vec()
                 .iter()
                 .map(|obj| func(obj.clone()))
                 .collect()
@@ -1135,10 +1135,10 @@ impl VirtualMachine {
         match_class!(match obj {
             ref l @ PyList => {
                 let mut i: usize = 0;
-                let mut results = Vec::with_capacity(l.borrow_list().len());
+                let mut results = Vec::with_capacity(l.borrow_vec().len());
                 loop {
                     let elem = {
-                        let elements = &*l.borrow_list();
+                        let elements = &*l.borrow_vec();
                         if i >= elements.len() {
                             results.shrink_to_fit();
                             return Ok(Ok(results));

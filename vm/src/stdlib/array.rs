@@ -156,7 +156,7 @@ macro_rules! def_array_enum {
                     $(ArrayContentType::$n(v) => {
                         // convert list before modify self
                         let mut list: Vec<$t> = list
-                            .borrow_list()
+                            .borrow_vec()
                             .iter()
                             .cloned()
                             .map(|value| <$t>::try_into_from_object(vm, value))
