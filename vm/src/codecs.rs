@@ -4,10 +4,8 @@ use std::ops::Range;
 
 use crate::builtins::{pybool, PyBytesRef, PyStr, PyStrRef, PyTuple, PyTupleRef};
 use crate::common::lock::PyRwLock;
-use crate::pyobject::{
-    IntoPyObject, PyContext, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
-};
 use crate::VirtualMachine;
+use crate::{IntoPyObject, PyContext, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol};
 
 pub struct CodecsRegistry {
     inner: PyRwLock<RegistryInner>,

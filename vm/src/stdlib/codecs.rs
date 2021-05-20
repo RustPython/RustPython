@@ -5,8 +5,8 @@ mod _codecs {
     use crate::builtins::PyStrRef;
     use crate::codecs;
     use crate::function::{FuncArgs, OptionalArg, OptionalOption};
-    use crate::pyobject::{PyObjectRef, PyResult};
     use crate::VirtualMachine;
+    use crate::{PyObjectRef, PyResult};
 
     #[pyfunction]
     fn register(search_function: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
