@@ -2155,7 +2155,7 @@ mod _io {
                 Some(enc) => enc,
                 None => {
                     // TODO: try os.device_encoding(fileno) and then locale.getpreferredencoding()
-                    PyStr::from("utf-8").into_ref(vm)
+                    PyStr::from(crate::codecs::DEFAULT_ENCODING).into_ref(vm)
                 }
             };
 
@@ -2168,11 +2168,14 @@ mod _io {
             let has_read1 = vm.get_attribute_opt(buffer.clone(), "read1")?.is_some();
             let seekable = pybool::boolval(vm, vm.call_method(&buffer, "seekable", ())?)?;
 
-            let codec = vm.lookup_codec(encoding.clone())?;
+            let codec = vm
+                .state
+                .codec_registry
+                .lookup(encoding.borrow_value(), vm)?;
 
             let encoder = if pybool::boolval(vm, vm.call_method(&buffer, "writable", ())?)? {
                 let incremental_encoder =
-                    vm.codec_get_incremental(&codec, Some(errors.clone()), true)?;
+                    codec.get_incremental_encoder(Some(errors.clone()), vm)?;
                 let encoding_name = vm.get_attribute_opt(incremental_encoder.clone(), "name")?;
                 let encodefunc = encoding_name.and_then(|name| {
                     name.payload::<PyStr>()
@@ -2188,7 +2191,7 @@ mod _io {
 
             let decoder = if pybool::boolval(vm, vm.call_method(&buffer, "readable", ())?)? {
                 let incremental_decoder =
-                    vm.codec_get_incremental(&codec, Some(errors.clone()), false)?;
+                    codec.get_incremental_decoder(Some(errors.clone()), vm)?;
                 // TODO: wrap in IncrementalNewlineDecoder if newlines == Universal | Passthrough
                 Some(incremental_decoder)
             } else {
@@ -2752,7 +2755,8 @@ mod _io {
                                     + crate::common::str::char_range_end(
                                         line_from_start,
                                         limit - chunked_chars,
-                                    );
+                                    )
+                                    .unwrap();
                                 break Some(line);
                             }
                         }

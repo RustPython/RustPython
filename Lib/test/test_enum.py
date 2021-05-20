@@ -780,8 +780,6 @@ class TestEnum(unittest.TestCase):
             raise Theory
         self.assertEqual(Theory.__qualname__, 'spanish_inquisition')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_class_nested_enum_and_pickle_protocol_four(self):
         # would normally just have this directly in the class namespace
         class NestedEnum(Enum):
@@ -1490,8 +1488,6 @@ class TestEnum(unittest.TestCase):
         test_pickle_exception(self.assertRaises, TypeError, NEI.x)
         test_pickle_exception(self.assertRaises, PicklingError, NEI)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_subclasses_without_direct_pickle_support_using_name(self):
         class NamedInt(int):
             __qualname__ = 'NamedInt'

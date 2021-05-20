@@ -22,6 +22,7 @@ use crate::builtins::pybool;
 use crate::builtins::pystr::{PyStr, PyStrRef};
 use crate::builtins::pytype::PyTypeRef;
 use crate::builtins::tuple::{PyTuple, PyTupleTyped};
+use crate::codecs::CodecsRegistry;
 use crate::common::{hash::HashSecret, lock::PyMutex, rc::PyRc};
 #[cfg(feature = "rustpython-compiler")]
 use crate::compile::{self, CompileError, CompileErrorType, CompileOpts};
@@ -122,6 +123,7 @@ pub struct PyGlobalState {
     pub thread_count: AtomicCell<usize>,
     pub hash_secret: HashSecret,
     pub atexit_funcs: PyMutex<Vec<(PyObjectRef, FuncArgs)>>,
+    pub codec_registry: CodecsRegistry,
 }
 
 pub const NSIG: usize = 64;
@@ -270,6 +272,8 @@ impl VirtualMachine {
             None => rand::random(),
         };
 
+        let codec_registry = CodecsRegistry::new(&ctx);
+
         let mut vm = VirtualMachine {
             builtins,
             sys_module: sysmod,
@@ -292,6 +296,7 @@ impl VirtualMachine {
                 thread_count: AtomicCell::new(0),
                 hash_secret,
                 atexit_funcs: PyMutex::default(),
+                codec_registry,
             }),
             initialized: false,
         };
@@ -324,6 +329,18 @@ impl VirtualMachine {
             import::import_builtin(self, "_signal")?;
 
             import::init_importlib(self, initialize_parameter)?;
+
+            // set up the encodings search function
+            self.import("encodings", None, 0).map_err(|import_err| {
+                let err = self.new_runtime_error(
+                    "Could not import encodings. Is your RUSTPYTHONPATH set? If you don't have \
+                     access to a consistent external environment (e.g. if you're embedding \
+                     rustpython in another application), try enabling the freeze-stdlib feature"
+                        .to_owned(),
+                );
+                err.set_cause(Some(import_err));
+                err
+            })?;
 
             #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
             {
@@ -1410,64 +1427,6 @@ impl VirtualMachine {
     ) -> Result<PyCodeRef, CompileError> {
         compile::compile(source, mode, source_path, opts)
             .map(|code| PyCode::new(self.map_codeobj(code)).into_ref(self))
-    }
-
-    fn call_codec_func(
-        &self,
-        func: &str,
-        obj: PyObjectRef,
-        encoding: Option<PyStrRef>,
-        errors: Option<PyStrRef>,
-    ) -> PyResult {
-        let codecsmodule = self.import("_codecs", None, 0)?;
-        let func = self.get_attribute(codecsmodule, func)?;
-        let mut args = vec![obj, encoding.into_pyobject(self)];
-        if let Some(errors) = errors {
-            args.push(errors.into_object());
-        }
-        self.invoke(&func, args)
-    }
-
-    pub fn decode(
-        &self,
-        obj: PyObjectRef,
-        encoding: Option<PyStrRef>,
-        errors: Option<PyStrRef>,
-    ) -> PyResult {
-        self.call_codec_func("decode", obj, encoding, errors)
-    }
-
-    pub fn encode(
-        &self,
-        obj: PyObjectRef,
-        encoding: Option<PyStrRef>,
-        errors: Option<PyStrRef>,
-    ) -> PyResult {
-        self.call_codec_func("encode", obj, encoding, errors)
-    }
-
-    pub(crate) fn lookup_codec(&self, encoding: PyStrRef) -> PyResult {
-        let codecsmodule = self.import("_codecs", None, 0)?;
-        let lookup = self.get_attribute(codecsmodule, "lookup")?;
-        self.invoke(&lookup, (encoding,))
-    }
-
-    pub(crate) fn codec_get_incremental(
-        &self,
-        codec: &PyObjectRef,
-        errors: Option<PyStrRef>,
-        encoder: bool,
-    ) -> PyResult {
-        let method = if encoder {
-            "incrementalencoder"
-        } else {
-            "incrementaldecoder"
-        };
-        let args = match errors {
-            Some(e) => vec![e.into_object()],
-            None => vec![],
-        };
-        self.call_method(codec, method, args)
     }
 
     pub fn _sub(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {

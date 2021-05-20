@@ -800,32 +800,12 @@ class CPythonOrderedDictTests(OrderedDictTests, unittest.TestCase):
 
 
 class PurePythonOrderedDictSubclassTests(PurePythonOrderedDictTests):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_copying(self):
-        super().test_copying()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_pickle_recursive(self):
-        super().test_pickle_recursive()
-
     module = py_coll
     class OrderedDict(py_coll.OrderedDict):
         pass
 
 
 class CPythonOrderedDictSubclassTests(CPythonOrderedDictTests):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_copying(self):
-        super().test_copying()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_pickle_recursive(self):
-        super().test_pickle_recursive()
-
     module = c_coll
     class OrderedDict(c_coll.OrderedDict):
         pass
