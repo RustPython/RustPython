@@ -311,23 +311,19 @@ impl CodecsRegistry {
 }
 
 fn normalize_encoding_name(encoding: &str) -> Cow<'_, str> {
-    let mut chars = encoding.char_indices();
-    for (i, c) in &mut chars {
-        if c == ' ' || c.is_ascii_uppercase() {
-            let mut out = String::with_capacity(encoding.len());
-            out.push_str(&encoding[..i]);
-            out.push(c);
-            for (_, c) in chars {
-                let c = match c {
-                    ' ' => '-',
-                    c => c.to_ascii_lowercase(),
-                };
-                out.push(c as char)
+    if let Some(i) = encoding.find(|c: char| c == ' ' || c.is_ascii_uppercase()) {
+        let mut out = encoding.as_bytes().to_owned();
+        for byte in &mut out[i..] {
+            if *byte == b' ' {
+                *byte = b'-';
+            } else {
+                byte.make_ascii_lowercase();
             }
-            return out.into();
         }
+        String::from_utf8(out).unwrap().into()
+    } else {
+        encoding.into()
     }
-    encoding.into()
 }
 
 // TODO: exceptions with custom payloads
