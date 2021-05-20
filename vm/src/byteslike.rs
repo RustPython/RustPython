@@ -1,8 +1,8 @@
 use crate::builtins::memory::{try_buffer_from_object, BufferRef};
 use crate::builtins::PyStrRef;
 use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
-use crate::pyobject::{BorrowValue, PyObjectRef, PyResult, TryFromObject};
 use crate::vm::VirtualMachine;
+use crate::{PyObjectRef, PyResult, TryFromObject};
 
 #[derive(Debug)]
 pub struct PyBytesLike(BufferRef);
@@ -15,19 +15,19 @@ impl PyBytesLike {
     where
         F: FnOnce(&[u8]) -> R,
     {
-        f(&*self.borrow_value())
+        f(&*self.borrow_buf())
     }
 
     pub fn len(&self) -> usize {
-        self.borrow_value().len()
+        self.borrow_buf().len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.borrow_value().is_empty()
+        self.borrow_buf().is_empty()
     }
 
     pub fn to_cow(&self) -> std::borrow::Cow<[u8]> {
-        self.borrow_value().to_vec().into()
+        self.borrow_buf().to_vec().into()
     }
 }
 
@@ -36,15 +36,15 @@ impl PyRwBytesLike {
     where
         F: FnOnce(&mut [u8]) -> R,
     {
-        f(&mut *self.borrow_value())
+        f(&mut *self.borrow_buf_mut())
     }
 
     pub fn len(&self) -> usize {
-        self.borrow_value().len()
+        self.borrow_buf_mut().len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.borrow_value().is_empty()
+        self.borrow_buf_mut().is_empty()
     }
 }
 
@@ -61,18 +61,15 @@ impl PyBytesLike {
     pub fn into_buffer(self) -> BufferRef {
         self.0
     }
+
+    pub fn borrow_buf(&self) -> BorrowedValue<'_, [u8]> {
+        self.0.as_contiguous().unwrap()
+    }
 }
 
 impl TryFromObject for PyBytesLike {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         Self::new(vm, &obj)
-    }
-}
-
-impl<'a> BorrowValue<'a> for PyBytesLike {
-    type Borrowed = BorrowedValue<'a, [u8]>;
-    fn borrow_value(&'a self) -> Self::Borrowed {
-        self.0.as_contiguous().unwrap()
     }
 }
 
@@ -115,18 +112,15 @@ impl PyRwBytesLike {
     pub fn into_buffer(self) -> BufferRef {
         self.0
     }
+
+    pub fn borrow_buf_mut(&self) -> BorrowedValueMut<'_, [u8]> {
+        self.0.as_contiguous_mut().unwrap()
+    }
 }
 
 impl TryFromObject for PyRwBytesLike {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         Self::new(vm, &obj)
-    }
-}
-
-impl<'a> BorrowValue<'a> for PyRwBytesLike {
-    type Borrowed = BorrowedValueMut<'a, [u8]>;
-    fn borrow_value(&'a self) -> Self::Borrowed {
-        self.0.as_contiguous_mut().unwrap()
     }
 }
 
@@ -144,12 +138,11 @@ impl TryFromObject for BufOrStr {
     }
 }
 
-impl<'a> BorrowValue<'a> for BufOrStr {
-    type Borrowed = BorrowedValue<'a, [u8]>;
-    fn borrow_value(&'a self) -> Self::Borrowed {
+impl BufOrStr {
+    pub fn borrow_bytes(&self) -> BorrowedValue<'_, [u8]> {
         match self {
-            Self::Buf(b) => b.borrow_value(),
-            Self::Str(s) => s.borrow_value().as_bytes().into(),
+            Self::Buf(b) => b.borrow_buf(),
+            Self::Str(s) => s.as_str().as_bytes().into(),
         }
     }
 }

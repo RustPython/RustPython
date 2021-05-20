@@ -9,12 +9,11 @@ mod _json {
     use crate::exceptions::PyBaseExceptionRef;
     use crate::function::{FuncArgs, OptionalArg};
     use crate::iterator;
-    use crate::pyobject::{
-        BorrowValue, IdProtocol, IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
-        TryFromObject,
-    };
     use crate::slots::Callable;
     use crate::VirtualMachine;
+    use crate::{
+        IdProtocol, IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject,
+    };
 
     use num_bigint::BigInt;
     use std::str::FromStr;
@@ -196,7 +195,7 @@ mod _json {
                 return Err(vm.new_value_error("idx cannot be negative".to_owned()));
             }
             let idx = idx as usize;
-            let mut chars = pystr.borrow_value().chars();
+            let mut chars = pystr.as_str().chars();
             if idx > 0 {
                 chars
                     .nth(idx - 1)
@@ -230,12 +229,12 @@ mod _json {
 
     #[pyfunction]
     fn encode_basestring(s: PyStrRef) -> String {
-        encode_string(s.borrow_value(), false)
+        encode_string(s.as_str(), false)
     }
 
     #[pyfunction]
     fn encode_basestring_ascii(s: PyStrRef) -> String {
-        encode_string(s.borrow_value(), true)
+        encode_string(s.as_str(), true)
     }
 
     fn py_decode_error(
@@ -260,7 +259,7 @@ mod _json {
         strict: OptionalArg<bool>,
         vm: &VirtualMachine,
     ) -> PyResult<(String, usize)> {
-        machinery::scanstring(s.borrow_value(), end, strict.unwrap_or(true))
+        machinery::scanstring(s.as_str(), end, strict.unwrap_or(true))
             .map_err(|e| py_decode_error(e, s, vm))
     }
 }

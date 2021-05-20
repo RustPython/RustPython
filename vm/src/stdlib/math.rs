@@ -10,8 +10,9 @@ use puruspe::{erf, erfc, gamma, ln_gamma};
 use crate::builtins::float::{self, IntoPyFloat, PyFloatRef};
 use crate::builtins::int::{self, PyInt, PyIntRef};
 use crate::function::{Args, OptionalArg};
-use crate::pyobject::{BorrowValue, Either, PyIterable, PyObjectRef, PyResult, TypeProtocol};
+use crate::utils::Either;
 use crate::vm::VirtualMachine;
+use crate::{PyIterable, PyObjectRef, PyResult, TypeProtocol};
 use rustpython_common::float_ops;
 
 use std::cmp::Ordering;
@@ -131,7 +132,7 @@ fn math_sqrt(value: IntoPyFloat, vm: &VirtualMachine) -> PyResult<f64> {
 
 fn math_isqrt(x: PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt> {
     let index = vm.to_index(&x)?;
-    let value = index.borrow_value();
+    let value = index.as_bigint();
 
     if value.is_negative() {
         return Err(vm.new_value_error("isqrt() argument must be nonnegative".to_owned()));
@@ -339,9 +340,9 @@ fn math_ldexp(
 ) -> PyResult<f64> {
     let value = match value {
         Either::A(f) => f.to_f64(),
-        Either::B(z) => int::to_float(z.borrow_value(), vm)?,
+        Either::B(z) => int::to_float(z.as_bigint(), vm)?,
     };
-    Ok(value * (2_f64).powf(int::to_float(i.borrow_value(), vm)?))
+    Ok(value * (2_f64).powf(int::to_float(i.as_bigint(), vm)?))
 }
 
 fn math_perf_arb_len_int_op<F>(args: Args<PyIntRef>, op: F, default: BigInt) -> BigInt
@@ -353,10 +354,10 @@ where
     if argvec.is_empty() {
         return default;
     } else if argvec.len() == 1 {
-        return op(argvec[0].borrow_value(), &argvec[0]);
+        return op(argvec[0].as_bigint(), &argvec[0]);
     }
 
-    let mut res = argvec[0].borrow_value().clone();
+    let mut res = argvec[0].as_bigint().clone();
     for num in argvec[1..].iter() {
         res = op(&res, &num)
     }
@@ -365,12 +366,12 @@ where
 
 fn math_gcd(args: Args<PyIntRef>) -> BigInt {
     use num_integer::Integer;
-    math_perf_arb_len_int_op(args, |x, y| x.gcd(y.borrow_value()), BigInt::zero())
+    math_perf_arb_len_int_op(args, |x, y| x.gcd(y.as_bigint()), BigInt::zero())
 }
 
 fn math_lcm(args: Args<PyIntRef>) -> BigInt {
     use num_integer::Integer;
-    math_perf_arb_len_int_op(args, |x, y| x.lcm(y.borrow_value()), BigInt::one())
+    math_perf_arb_len_int_op(args, |x, y| x.lcm(y.as_bigint()), BigInt::one())
 }
 
 fn math_fsum(iter: PyIterable<IntoPyFloat>, vm: &VirtualMachine) -> PyResult<f64> {
@@ -472,7 +473,7 @@ fn math_fsum(iter: PyIterable<IntoPyFloat>, vm: &VirtualMachine) -> PyResult<f64
 }
 
 fn math_factorial(value: PyIntRef, vm: &VirtualMachine) -> PyResult<BigInt> {
-    let value = value.borrow_value();
+    let value = value.as_bigint();
     let one = BigInt::one();
     if value.is_negative() {
         return Err(vm.new_value_error("factorial() not defined for negative values".to_owned()));

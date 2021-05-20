@@ -1,10 +1,8 @@
 use crate::builtins::int::PyIntRef;
 use crate::builtins::pystr::PyStrRef;
 use crate::exceptions::IntoPyException;
-use crate::pyobject::{
-    BorrowValue, IntoPyObject, PyClassImpl, PyObjectRef, PyResult, PyStructSequence,
-};
 use crate::vm::VirtualMachine;
+use crate::{IntoPyObject, PyClassImpl, PyObjectRef, PyResult, PyStructSequence};
 use std::convert::TryFrom;
 use std::ptr::NonNull;
 
@@ -49,7 +47,7 @@ impl From<User> for Passwd {
 }
 
 fn pwd_getpwnam(name: PyStrRef, vm: &VirtualMachine) -> PyResult<Passwd> {
-    match User::from_name(name.borrow_value()).map_err(|err| err.into_pyexception(vm))? {
+    match User::from_name(name.as_str()).map_err(|err| err.into_pyexception(vm))? {
         Some(user) => Ok(Passwd::from(user)),
         None => {
             let name_repr = vm.to_repr(name.as_object())?;
@@ -62,7 +60,7 @@ fn pwd_getpwnam(name: PyStrRef, vm: &VirtualMachine) -> PyResult<Passwd> {
 }
 
 fn pwd_getpwuid(uid: PyIntRef, vm: &VirtualMachine) -> PyResult<Passwd> {
-    let uid_t = libc::uid_t::try_from(uid.borrow_value()).map(unistd::Uid::from_raw);
+    let uid_t = libc::uid_t::try_from(uid.as_bigint()).map(unistd::Uid::from_raw);
     let user = match uid_t {
         Ok(uid) => User::from_uid(uid).map_err(|err| err.into_pyexception(vm))?,
         Err(_) => None,
@@ -72,7 +70,7 @@ fn pwd_getpwuid(uid: PyIntRef, vm: &VirtualMachine) -> PyResult<Passwd> {
         None => {
             let message = vm
                 .ctx
-                .new_str(format!("getpwuid(): uid not found: {}", uid.borrow_value()));
+                .new_str(format!("getpwuid(): uid not found: {}", uid.as_bigint()));
             Err(vm.new_key_error(message))
         }
     }

@@ -7,8 +7,8 @@ mod decl {
     use crate::builtins::pystr::{PyStr, PyStrRef};
     use crate::byteslike::PyBytesLike;
     use crate::function::OptionalArg;
-    use crate::pyobject::{BorrowValue, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
     use crate::vm::VirtualMachine;
+    use crate::{PyObjectRef, PyResult, TryFromObject, TypeProtocol};
     use crc::{crc32, Hasher32};
     use itertools::Itertools;
 
@@ -24,7 +24,7 @@ mod decl {
                 b @ PyBytes => Ok(SerializedData::Bytes(b)),
                 b @ PyByteArray => Ok(SerializedData::Buffer(b)),
                 a @ PyStr => {
-                    if a.borrow_value().is_ascii() {
+                    if a.as_str().is_ascii() {
                         Ok(SerializedData::Ascii(a))
                     } else {
                         Err(vm.new_value_error(
@@ -44,9 +44,9 @@ mod decl {
         #[inline]
         pub fn with_ref<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
             match self {
-                SerializedData::Bytes(b) => f(b.borrow_value()),
-                SerializedData::Buffer(b) => f(&b.borrow_value().elements),
-                SerializedData::Ascii(a) => f(a.borrow_value().as_bytes()),
+                SerializedData::Bytes(b) => f(b.as_bytes()),
+                SerializedData::Buffer(b) => f(&b.borrow_buf()),
+                SerializedData::Ascii(a) => f(a.as_str().as_bytes()),
             }
         }
     }

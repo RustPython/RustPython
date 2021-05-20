@@ -6,12 +6,13 @@ use crate::builtins::tuple::PyTupleRef;
 use crate::exceptions::{self, IntoPyException};
 use crate::function::{FuncArgs, KwArgs, OptionalArg};
 use crate::py_io;
-use crate::pyobject::{
-    BorrowValue, Either, IdProtocol, ItemProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef,
-    PyResult, PyValue, StaticType, TypeProtocol,
-};
 use crate::slots::{SlotGetattro, SlotSetattro};
+use crate::utils::Either;
 use crate::VirtualMachine;
+use crate::{
+    IdProtocol, ItemProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
+    StaticType, TypeProtocol,
+};
 
 use parking_lot::{
     lock_api::{RawMutex as RawMutexT, RawMutexTimed, RawReentrantMutex},
@@ -229,7 +230,7 @@ fn _thread_start_new_thread(
     vm: &VirtualMachine,
 ) -> PyResult<u64> {
     let args = FuncArgs::new(
-        args.borrow_value().to_owned(),
+        args.as_slice().to_owned(),
         kwargs
             .map_or_else(Default::default, |k| k.to_attributes())
             .into_iter()
@@ -263,7 +264,7 @@ fn run_thread(func: PyCallable, args: FuncArgs, vm: &VirtualMachine) {
             let repr = vm.to_repr(&func.into_object()).ok();
             let repr = repr
                 .as_ref()
-                .map_or("<object repr() failed>", |s| s.borrow_value());
+                .map_or("<object repr() failed>", |s| s.as_str());
             writeln!(*stderr, "Exception ignored in thread started by: {}", repr)
                 .and_then(|()| exceptions::write_exception(&mut stderr, vm, &exc))
                 .ok();
@@ -331,7 +332,7 @@ impl PyLocal {
 impl SlotGetattro for PyLocal {
     fn getattro(zelf: PyRef<Self>, attr: PyStrRef, vm: &VirtualMachine) -> PyResult {
         let ldict = zelf.ldict(vm);
-        if attr.borrow_value() == "__dict__" {
+        if attr.as_str() == "__dict__" {
             Ok(ldict.into_object())
         } else {
             let zelf = zelf.into_object();
@@ -350,7 +351,7 @@ impl SlotSetattro for PyLocal {
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        if attr.borrow_value() == "__dict__" {
+        if attr.as_str() == "__dict__" {
             Err(vm.new_attribute_error(format!(
                 "{} attribute '__dict__' is read-only",
                 zelf.as_object()

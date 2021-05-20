@@ -10,10 +10,9 @@ use chrono::{Datelike, Timelike};
 use crate::builtins::pystr::PyStrRef;
 use crate::builtins::pytype::PyTypeRef;
 use crate::function::OptionalArg;
-use crate::pyobject::{
-    BorrowValue, Either, PyClassImpl, PyObjectRef, PyResult, PyStructSequence, TryFromObject,
-};
+use crate::utils::Either;
 use crate::vm::VirtualMachine;
+use crate::{PyClassImpl, PyObjectRef, PyResult, PyStructSequence, TryFromObject};
 
 #[cfg(unix)]
 fn time_sleep(dur: Duration, vm: &VirtualMachine) -> PyResult<()> {
@@ -149,7 +148,7 @@ fn time_strftime(format: PyStrRef, t: OptionalArg<PyStructTime>, vm: &VirtualMac
         OptionalArg::Present(t) => t.to_date_time(vm)?,
         OptionalArg::Missing => default,
     };
-    let formatted_time = instant.format(format.borrow_value()).to_string();
+    let formatted_time = instant.format(format.as_str()).to_string();
     Ok(vm.ctx.new_str(formatted_time))
 }
 
@@ -159,10 +158,10 @@ fn time_strptime(
     vm: &VirtualMachine,
 ) -> PyResult<PyStructTime> {
     let format = match format {
-        OptionalArg::Present(ref format) => format.borrow_value(),
+        OptionalArg::Present(ref format) => format.as_str(),
         OptionalArg::Missing => "%a %b %H:%M:%S %Y",
     };
-    let instant = NaiveDateTime::parse_from_str(string.borrow_value(), format)
+    let instant = NaiveDateTime::parse_from_str(string.as_str(), format)
         .map_err(|e| vm.new_value_error(format!("Parse error: {:?}", e)))?;
     Ok(PyStructTime::new(vm, instant, -1))
 }

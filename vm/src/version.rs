@@ -1,7 +1,7 @@
 /* Several function to retrieve version information.
  */
 
-use crate::pyobject::PyStructSequence;
+use crate::PyStructSequence;
 use chrono::prelude::DateTime;
 use chrono::Local;
 use std::time::{Duration, UNIX_EPOCH};
@@ -49,7 +49,7 @@ impl VersionInfo {
         _cls: crate::builtins::pytype::PyTypeRef,
         _args: crate::function::FuncArgs,
         vm: &crate::VirtualMachine,
-    ) -> crate::pyobject::PyResult {
+    ) -> crate::PyResult {
         Err(vm.new_type_error("cannot create 'sys.version_info' instances".to_owned()))
     }
 }

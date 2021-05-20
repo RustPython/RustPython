@@ -6,14 +6,14 @@ use crate::builtins::tuple::{PyTuple, PyTupleRef};
 use crate::common::lock::PyRwLock;
 use crate::function::FuncArgs;
 use crate::py_io::{self, Write};
-use crate::pyobject::StaticType;
-use crate::pyobject::{
-    BorrowValue, IntoPyObject, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult,
-    PyValue, TryFromObject, TypeProtocol,
-};
 use crate::sysmodule;
 use crate::types::create_type_with_slots;
+use crate::StaticType;
 use crate::VirtualMachine;
+use crate::{
+    IntoPyObject, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol,
+};
 
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
@@ -73,7 +73,7 @@ impl PyBaseException {
     }
 
     pub fn get_arg(&self, idx: usize) -> Option<PyObjectRef> {
-        self.args.read().borrow_value().get(idx).cloned()
+        self.args.read().as_slice().get(idx).cloned()
     }
 
     #[pyproperty]
@@ -242,7 +242,7 @@ fn write_traceback_entry<W: Write>(
     output: &mut W,
     tb_entry: &PyTracebackRef,
 ) -> Result<(), W::Error> {
-    let filename = tb_entry.frame.code.source_path.borrow_value();
+    let filename = tb_entry.frame.code.source_path.as_str();
     writeln!(
         output,
         r##"  File "{}", line {}, in {}"##,
@@ -287,7 +287,7 @@ fn exception_args_as_string(
     varargs: PyTupleRef,
     str_single: bool,
 ) -> Vec<PyStrRef> {
-    let varargs = varargs.borrow_value();
+    let varargs = varargs.as_slice();
     match varargs.len() {
         0 => vec![],
         1 => {
@@ -374,8 +374,8 @@ impl ExceptionCtor {
             (Self::Class(cls), _) => {
                 let args = match_class!(match value {
                     PyNone => vec![],
-                    tup @ PyTuple => tup.borrow_value().to_vec(),
-                    exc @ PyBaseException => exc.args().borrow_value().to_vec(),
+                    tup @ PyTuple => tup.as_slice().to_vec(),
+                    exc @ PyBaseException => exc.args().as_slice().to_vec(),
                     obj => vec![obj],
                 });
                 invoke(cls, args, vm)
@@ -680,7 +680,7 @@ impl ExceptionZoo {
 
         let errno_getter = ctx.new_readonly_getset("errno", |exc: PyBaseExceptionRef| {
             let args = exc.args();
-            let args = args.borrow_value();
+            let args = args.as_slice();
             args.get(0).filter(|_| args.len() > 1).cloned()
         });
         #[cfg(windows)]
@@ -743,7 +743,7 @@ fn make_arg_getter(idx: usize) -> impl Fn(PyBaseExceptionRef) -> Option<PyObject
 
 fn key_error_str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyStrRef {
     let args = exc.args();
-    if args.borrow_value().len() == 1 {
+    if args.as_slice().len() == 1 {
         exception_args_as_string(vm, args, false)
             .into_iter()
             .exactly_one()
@@ -754,9 +754,9 @@ fn key_error_str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyStrRef {
 }
 
 fn system_exit_code(exc: PyBaseExceptionRef) -> Option<PyObjectRef> {
-    exc.args.read().borrow_value().first().map(|code| {
+    exc.args.read().as_slice().first().map(|code| {
         match_class!(match code {
-            ref tup @ PyTuple => match tup.borrow_value() {
+            ref tup @ PyTuple => match tup.as_slice() {
                 [x] => x.clone(),
                 _ => code.clone(),
             },
@@ -812,7 +812,7 @@ impl serde::Serialize for SerializeException<'_> {
                 fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
                     s.collect_seq(
                         self.1
-                            .borrow_value()
+                            .as_slice()
                             .iter()
                             .map(|arg| crate::py_serde::PyObjectSerializer::new(self.0, arg)),
                     )

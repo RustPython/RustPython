@@ -4,11 +4,10 @@ use crate::builtins::{float, int, pybool, PyStrRef};
 use crate::bytecode::CodeFlags;
 use crate::exceptions::PyBaseExceptionRef;
 use crate::function::FuncArgs;
-use crate::pyobject::{
-    BorrowValue, IdProtocol, IntoPyObject, ItemProtocol, PyObjectRef, PyResult, TryFromObject,
-    TypeProtocol,
-};
 use crate::VirtualMachine;
+use crate::{
+    IdProtocol, IntoPyObject, ItemProtocol, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
+};
 use num_traits::ToPrimitive;
 use rustpython_jit::{AbiValue, Args, CompiledCode, JitArgumentError, JitType};
 
@@ -95,11 +94,11 @@ pub fn get_jit_arg_types(func: &PyFunctionRef, vm: &VirtualMachine) -> PyResult<
         let mut arg_types = Vec::new();
 
         for arg in arg_names.args {
-            arg_types.push(get_jit_arg_type(&dict, arg.borrow_value(), vm)?);
+            arg_types.push(get_jit_arg_type(&dict, arg.as_str(), vm)?);
         }
 
         for arg in arg_names.kwonlyargs {
-            arg_types.push(get_jit_arg_type(&dict, arg.borrow_value(), vm)?);
+            arg_types.push(get_jit_arg_type(&dict, arg.as_str(), vm)?);
         }
 
         Ok(arg_types)
@@ -152,7 +151,7 @@ pub(crate) fn get_jit_args<'a>(
     // Handle keyword arguments
     for (name, value) in &func_args.kwargs {
         let arg_pos =
-            |args: &[PyStrRef], name: &str| args.iter().position(|arg| arg.borrow_value() == name);
+            |args: &[PyStrRef], name: &str| args.iter().position(|arg| arg.as_str() == name);
         if let Some(arg_idx) = arg_pos(arg_names.args, name) {
             if jit_args.is_set(arg_idx) {
                 return Err(ArgsError::ArgPassedMultipleTimes);
@@ -173,7 +172,7 @@ pub(crate) fn get_jit_args<'a>(
 
     // fill in positional defaults
     if let Some(defaults) = defaults {
-        let defaults = defaults.borrow_value();
+        let defaults = defaults.as_slice();
         for (i, default) in defaults.iter().enumerate() {
             let arg_idx = i + func.code.arg_count - defaults.len();
             if !jit_args.is_set(arg_idx) {

@@ -5,12 +5,12 @@
 use crossbeam_utils::atomic::AtomicCell;
 
 use super::pytype::PyTypeRef;
-use crate::pyobject::{
+use crate::slots::PyIter;
+use crate::vm::VirtualMachine;
+use crate::{
     ItemProtocol, PyCallable, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TypeProtocol,
 };
-use crate::slots::PyIter;
-use crate::vm::VirtualMachine;
 
 #[pyclass(module = false, name = "iter")]
 #[derive(Debug)]

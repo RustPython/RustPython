@@ -1,7 +1,7 @@
 use crate::builtins::pytype::PyTypeRef;
 use crate::frame::FrameRef;
-use crate::pyobject::{BorrowValue, PyClassImpl, PyContext, PyRef, PyValue};
 use crate::vm::VirtualMachine;
+use crate::{PyClassImpl, PyContext, PyRef, PyValue};
 
 #[pyclass(module = false, name = "traceback")]
 #[derive(Debug)]
@@ -67,9 +67,9 @@ impl serde::Serialize for PyTraceback {
         use serde::ser::SerializeStruct;
 
         let mut struc = s.serialize_struct("PyTraceback", 3)?;
-        struc.serialize_field("name", self.frame.code.obj_name.borrow_value())?;
+        struc.serialize_field("name", self.frame.code.obj_name.as_str())?;
         struc.serialize_field("lineno", &self.lineno)?;
-        struc.serialize_field("filename", self.frame.code.source_path.borrow_value())?;
+        struc.serialize_field("filename", self.frame.code.source_path.as_str())?;
         struc.end()
     }
 }

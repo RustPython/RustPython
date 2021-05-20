@@ -29,14 +29,15 @@ use crate::compile::{self, CompileError, CompileErrorType, CompileOpts};
 use crate::exceptions::{self, PyBaseException, PyBaseExceptionRef};
 use crate::frame::{ExecutionResult, Frame, FrameRef};
 use crate::function::{FuncArgs, IntoFuncArgs};
-use crate::pyobject::{
-    BorrowValue, Either, IdProtocol, IntoPyObject, ItemProtocol, PyArithmaticValue, PyContext,
-    PyLease, PyMethod, PyObject, PyObjectRef, PyRef, PyRefExact, PyResult, PyValue, TryFromObject,
-    TryIntoRef, TypeProtocol,
-};
 use crate::scope::Scope;
 use crate::slots::PyComparisonOp;
+use crate::utils::Either;
 use crate::{builtins, bytecode, frozen, import, iterator, stdlib, sysmodule};
+use crate::{
+    IdProtocol, IntoPyObject, ItemProtocol, PyArithmaticValue, PyContext, PyLease, PyMethod,
+    PyObject, PyObjectRef, PyRef, PyRefExact, PyResult, PyValue, TryFromObject, TryIntoRef,
+    TypeProtocol,
+};
 
 // use objects::ects;
 
@@ -846,11 +847,6 @@ impl VirtualMachine {
         }
     }
 
-    pub fn to_pystr<'a, T: Into<&'a PyObjectRef>>(&'a self, obj: T) -> PyResult<String> {
-        let py_str_obj = self.to_str(obj.into())?;
-        Ok(py_str_obj.borrow_value().to_owned())
-    }
-
     pub fn to_repr(&self, obj: &PyObjectRef) -> PyResult<PyStrRef> {
         let repr = self.call_special_method(obj.clone(), "__repr__", ())?;
         PyStrRef::try_from_object(self, repr)
@@ -897,11 +893,9 @@ impl VirtualMachine {
     ) -> PyResult {
         // if the import inputs seem weird, e.g a package import or something, rather than just
         // a straight `import ident`
-        let weird = module.borrow_value().contains('.')
+        let weird = module.as_str().contains('.')
             || level != 0
-            || from_list
-                .as_ref()
-                .map_or(false, |x| !x.borrow_value().is_empty());
+            || from_list.as_ref().map_or(false, |x| !x.is_empty());
 
         let cached_module = if weird {
             None
@@ -1108,7 +1102,7 @@ impl VirtualMachine {
             value
                 .payload::<PyTuple>()
                 .unwrap()
-                .borrow_value()
+                .as_slice()
                 .iter()
                 .map(|obj| func(obj.clone()))
                 .collect()
@@ -1116,7 +1110,7 @@ impl VirtualMachine {
             value
                 .payload::<PyList>()
                 .unwrap()
-                .borrow_value()
+                .borrow_vec()
                 .iter()
                 .map(|obj| func(obj.clone()))
                 .collect()
@@ -1141,10 +1135,10 @@ impl VirtualMachine {
         match_class!(match obj {
             ref l @ PyList => {
                 let mut i: usize = 0;
-                let mut results = Vec::with_capacity(l.borrow_value().len());
+                let mut results = Vec::with_capacity(l.borrow_vec().len());
                 loop {
                     let elem = {
-                        let elements = &*l.borrow_value();
+                        let elements = &*l.borrow_vec();
                         if i >= elements.len() {
                             results.shrink_to_fit();
                             return Ok(Ok(results));
@@ -1160,7 +1154,7 @@ impl VirtualMachine {
                     i += 1;
                 }
             }
-            ref t @ PyTuple => Ok(t.borrow_value().iter().cloned().map(f).collect()),
+            ref t @ PyTuple => Ok(t.as_slice().iter().cloned().map(f).collect()),
             // TODO: put internal iterable type
             obj => {
                 let iter = iterator::get_iter(self, obj.clone())?;
@@ -1330,7 +1324,7 @@ impl VirtualMachine {
         name_str: PyStrRef,
         dict: Option<PyDictRef>,
     ) -> PyResult<Option<PyObjectRef>> {
-        let name = name_str.borrow_value();
+        let name = name_str.as_str();
         let obj_cls = obj.class();
         let cls_attr = match obj_cls.get_attr(name) {
             Some(descr) => {
@@ -1703,7 +1697,7 @@ impl VirtualMachine {
                             len.class().name
                         ))
                     })?
-                    .borrow_value();
+                    .as_bigint();
                 if len.is_negative() {
                     return Err(self.new_value_error("__len__() should return >= 0".to_owned()));
                 }

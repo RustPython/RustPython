@@ -7,7 +7,7 @@ use rustpython_vm as vm;
 // these are needed for special memory shenanigans to let us share a variable with Python and Rust
 use std::sync::atomic::{AtomicBool, Ordering};
 // this needs to be in scope in order to insert things into scope.globals
-use vm::pyobject::ItemProtocol;
+use vm::ItemProtocol;
 
 // This has to be a macro because it uses the py_compile macro,
 // which compiles python source to optimized bytecode at compile time, so that
@@ -30,11 +30,11 @@ fn on(b: bool) {
     ON.store(b, Ordering::Relaxed);
 }
 
-fn main() -> vm::pyobject::PyResult<()> {
+fn main() -> vm::PyResult<()> {
     vm::Interpreter::default().enter(run)
 }
 
-fn run(vm: &vm::VirtualMachine) -> vm::pyobject::PyResult<()> {
+fn run(vm: &vm::VirtualMachine) -> vm::PyResult<()> {
     let mut input = String::with_capacity(50);
     let stdin = std::io::stdin();
 

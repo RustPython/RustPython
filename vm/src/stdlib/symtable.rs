@@ -7,8 +7,8 @@ mod decl {
     use crate::builtins::pystr::PyStrRef;
     use crate::builtins::pytype::PyTypeRef;
     use crate::compile::{self, Symbol, SymbolScope, SymbolTable, SymbolTableType};
-    use crate::pyobject::{BorrowValue, PyRef, PyResult, PyValue, StaticType};
     use crate::vm::VirtualMachine;
+    use crate::{PyRef, PyResult, PyValue, StaticType};
 
     /// symtable. Return top level SymbolTable.
     /// See docs: https://docs.python.org/3/library/symtable.html?highlight=symtable#symtable.symtable
@@ -20,13 +20,12 @@ mod decl {
         vm: &VirtualMachine,
     ) -> PyResult<PySymbolTableRef> {
         let mode = mode
-            .borrow_value()
+            .as_str()
             .parse::<compile::Mode>()
             .map_err(|err| vm.new_value_error(err.to_string()))?;
 
-        let symtable =
-            compile::compile_symtable(source.borrow_value(), mode, filename.borrow_value())
-                .map_err(|err| vm.new_syntax_error(&err))?;
+        let symtable = compile::compile_symtable(source.as_str(), mode, filename.as_str())
+            .map_err(|err| vm.new_syntax_error(&err))?;
 
         let py_symbol_table = to_py_symbol_table(symtable);
         Ok(py_symbol_table.into_ref(vm))
@@ -86,7 +85,7 @@ mod decl {
 
         #[pymethod(name = "lookup")]
         fn lookup(&self, name: PyStrRef, vm: &VirtualMachine) -> PyResult<PySymbolRef> {
-            let name = name.borrow_value();
+            let name = name.as_str();
             if let Some(symbol) = self.symtable.symbols.get(name) {
                 Ok(PySymbol {
                     symbol: symbol.clone(),

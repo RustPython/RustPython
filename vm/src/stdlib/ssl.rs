@@ -5,11 +5,12 @@ use crate::byteslike::{PyBytesLike, PyRwBytesLike};
 use crate::common::lock::{PyRwLock, PyRwLockWriteGuard};
 use crate::exceptions::{create_exception_type, IntoPyException, PyBaseExceptionRef};
 use crate::function::OptionalArg;
-use crate::pyobject::{
-    BorrowValue, Either, IntoPyObject, ItemProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef,
-    PyResult, PyValue, StaticType,
-};
+use crate::utils::Either;
 use crate::VirtualMachine;
+use crate::{
+    IntoPyObject, ItemProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
+    StaticType,
+};
 
 use crossbeam_utils::atomic::AtomicCell;
 use foreign_types_shared::{ForeignType, ForeignTypeRef};
@@ -143,7 +144,7 @@ fn _ssl_enum_certificates(store_name: PyStrRef, vm: &VirtualMachine) -> PyResult
     let open_fns = [CertStore::open_current_user, CertStore::open_local_machine];
     let stores = open_fns
         .iter()
-        .filter_map(|open| open(store_name.borrow_value()).ok())
+        .filter_map(|open| open(store_name.as_str()).ok())
         .collect::<Vec<_>>();
     let certs = stores.iter().map(|s| s.certs()).flatten().map(|c| {
         let cert = vm.ctx.new_bytes(c.to_der().to_owned());
@@ -223,7 +224,7 @@ fn _ssl_rand_add(string: Either<PyStrRef, PyBytesLike>, entropy: f64) {
         }
     };
     match string {
-        Either::A(s) => f(s.borrow_value().as_bytes()),
+        Either::A(s) => f(s.as_str().as_bytes()),
         Either::B(b) => b.with_ref(f),
     }
 }
@@ -341,7 +342,7 @@ impl PySslContext {
 
     #[pymethod]
     fn set_ciphers(&self, cipherlist: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-        let ciphers = cipherlist.borrow_value();
+        let ciphers = cipherlist.as_str();
         if ciphers.contains('\0') {
             return Err(vm.new_value_error("embedded null character".to_owned()));
         }
@@ -459,10 +460,10 @@ impl PySslContext {
         if let Some(cadata) = args.cadata {
             let cert = match cadata {
                 Either::A(s) => {
-                    if !s.borrow_value().is_ascii() {
+                    if !s.as_str().is_ascii() {
                         return Err(vm.new_type_error("Must be an ascii string".to_owned()));
                     }
-                    X509::from_pem(s.borrow_value().as_bytes())
+                    X509::from_pem(s.as_str().as_bytes())
                 }
                 Either::B(b) => b.with_ref(X509::from_der),
             };
@@ -565,7 +566,7 @@ impl PySslContext {
         };
 
         if let Some(hostname) = &args.server_hostname {
-            let hostname = hostname.borrow_value();
+            let hostname = hostname.as_str();
             if hostname.is_empty() || hostname.starts_with('.') {
                 return Err(vm.new_value_error(
                     "server_hostname cannot be an empty string or start with a leading dot."
@@ -845,7 +846,7 @@ impl PySslSocket {
     #[pymethod]
     fn write(&self, data: PyBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
         let mut stream = self.stream.write();
-        let data = data.borrow_value();
+        let data = data.borrow_buf();
         let data = &*data;
         let timeout = SocketTimeout::get(stream.get_ref());
         let state = ssl_select(stream.get_ref(), SslNeeds::Write, &timeout);
@@ -888,7 +889,7 @@ impl PySslSocket {
     fn read(&self, n: usize, buffer: OptionalArg<PyRwBytesLike>, vm: &VirtualMachine) -> PyResult {
         let mut stream = self.stream.write();
         let mut inner_buffer = if let OptionalArg::Present(buffer) = &buffer {
-            Either::A(buffer.borrow_value())
+            Either::A(buffer.borrow_buf_mut())
         } else {
             Either::B(vec![0u8; n])
         };

@@ -18,11 +18,12 @@ use crate::byteslike::{PyBytesLike, PyRwBytesLike};
 use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
 use crate::function::{FuncArgs, OptionalArg, OptionalOption};
-use crate::pyobject::{
-    BorrowValue, Either, IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
-    StaticType, TryFromObject, TypeProtocol,
-};
+use crate::utils::Either;
 use crate::VirtualMachine;
+use crate::{
+    IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject,
+    TypeProtocol,
+};
 
 #[cfg(unix)]
 type RawSocket = std::os::unix::io::RawFd;
@@ -120,7 +121,7 @@ impl PySocket {
                 let int = vm.to_index_opt(o).unwrap_or_else(|| {
                     Err(vm.new_type_error("an integer is required".to_owned()))
                 })?;
-                Some(int::try_to_primitive::<RawSocket>(int.borrow_value(), vm)?)
+                Some(int::try_to_primitive::<RawSocket>(int.as_bigint(), vm)?)
             }
             None => None,
         };
@@ -298,7 +299,7 @@ impl PySocket {
             c::AF_UNIX => {
                 use std::os::unix::ffi::OsStrExt;
                 let buf = crate::byteslike::BufOrStr::try_from_object(vm, addr)?;
-                let path = buf.borrow_value();
+                let path = buf.borrow_bytes();
                 let path = std::ffi::OsStr::from_bytes(&path);
                 socket2::SockAddr::unix(path)
                     .map_err(|_| vm.new_os_error("AF_UNIX path too long".to_owned()))
@@ -311,14 +312,14 @@ impl PySocket {
                         obj.class().name
                     ))
                 })?;
-                let tuple = tuple.borrow_value();
+                let tuple = tuple.as_slice();
                 if tuple.len() != 2 {
                     return Err(
                         vm.new_type_error("AF_INET address must be a pair (host, post)".to_owned())
                     );
                 }
                 let addr = Address::from_tuple(tuple, vm)?;
-                let mut addr4 = get_addr(vm, addr.host.borrow_value(), c::AF_INET)?;
+                let mut addr4 = get_addr(vm, addr.host.as_str(), c::AF_INET)?;
                 match &mut addr4 {
                     SocketAddr::V4(addr4) => {
                         addr4.set_port(addr.port);
@@ -335,7 +336,7 @@ impl PySocket {
                         obj.class().name
                     ))
                 })?;
-                let tuple = tuple.borrow_value();
+                let tuple = tuple.as_slice();
                 match tuple.len() {
                     2 | 3 | 4 => {}
                     _ => {
@@ -346,7 +347,7 @@ impl PySocket {
                     }
                 }
                 let (addr, flowinfo, scopeid) = Address::from_tuple_ipv6(tuple, vm)?;
-                let mut addr6 = get_addr(vm, addr.host.borrow_value(), c::AF_INET6)?;
+                let mut addr6 = get_addr(vm, addr.host.as_str(), c::AF_INET6)?;
                 match &mut addr6 {
                     SocketAddr::V6(addr6) => {
                         addr6.set_port(addr.port);
@@ -469,7 +470,7 @@ impl PySocket {
     ) -> PyResult<usize> {
         let flags = flags.unwrap_or(0);
         let sock = self.sock();
-        let mut buf = buf.borrow_value();
+        let mut buf = buf.borrow_buf_mut();
         let buf = &mut *buf;
         self.sock_op(vm, SelectKind::Read, || {
             sock.recv_with_flags(slice_as_uninit(buf), flags)
@@ -504,7 +505,7 @@ impl PySocket {
         flags: OptionalArg<i32>,
         vm: &VirtualMachine,
     ) -> PyResult<(usize, PyObjectRef)> {
-        let mut buf = buf.borrow_value();
+        let mut buf = buf.borrow_buf_mut();
         let buf = &mut *buf;
         let buf = match nbytes {
             OptionalArg::Present(i) => {
@@ -533,7 +534,7 @@ impl PySocket {
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
         let flags = flags.unwrap_or(0);
-        let buf = bytes.borrow_value();
+        let buf = bytes.borrow_buf();
         let buf = &*buf;
         self.sock_op(vm, SelectKind::Write, || {
             self.sock().send_with_flags(buf, flags)
@@ -553,7 +554,7 @@ impl PySocket {
 
         let deadline = timeout.map(Deadline::new);
 
-        let buf = bytes.borrow_value();
+        let buf = bytes.borrow_buf();
         let buf = &*buf;
         let mut buf_offset = 0;
         // now we have like 3 layers of interrupt loop :)
@@ -588,13 +589,13 @@ impl PySocket {
                 let int = vm.to_index_opt(arg2).unwrap_or_else(|| {
                     Err(vm.new_type_error("an integer is required".to_owned()))
                 })?;
-                let flags = int::try_to_primitive::<i32>(int.borrow_value(), vm)?;
+                let flags = int::try_to_primitive::<i32>(int.as_bigint(), vm)?;
                 (flags, arg3)
             }
             OptionalArg::Missing => (0, arg2),
         };
         let addr = self.extract_address(address, "sendto", vm)?;
-        let buf = bytes.borrow_value();
+        let buf = bytes.borrow_buf();
         let buf = &*buf;
         self.sock_op(vm, SelectKind::Write, || {
             self.sock().send_to_with_flags(buf, &addr, flags)
@@ -821,17 +822,17 @@ struct Address {
 impl ToSocketAddrs for Address {
     type Iter = std::vec::IntoIter<SocketAddr>;
     fn to_socket_addrs(&self) -> io::Result<Self::Iter> {
-        (self.host.borrow_value(), self.port).to_socket_addrs()
+        (self.host.as_str(), self.port).to_socket_addrs()
     }
 }
 
 impl TryFromObject for Address {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let tuple = PyTupleRef::try_from_object(vm, obj)?;
-        if tuple.borrow_value().len() != 2 {
+        if tuple.as_slice().len() != 2 {
             Err(vm.new_type_error("Address tuple should have only 2 values".to_owned()))
         } else {
-            Self::from_tuple(tuple.borrow_value(), vm)
+            Self::from_tuple(tuple.as_slice(), vm)
         }
     }
 }
@@ -902,19 +903,19 @@ fn _socket_gethostname(vm: &VirtualMachine) -> PyResult {
 
 #[cfg(all(unix, not(target_os = "redox")))]
 fn _socket_sethostname(hostname: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-    sethostname(hostname.borrow_value()).map_err(|err| err.into_pyexception(vm))
+    sethostname(hostname.as_str()).map_err(|err| err.into_pyexception(vm))
 }
 
 fn _socket_inet_aton(ip_string: PyStrRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
     ip_string
-        .borrow_value()
+        .as_str()
         .parse::<Ipv4Addr>()
         .map(|ip_addr| Vec::<u8>::from(ip_addr.octets()))
         .map_err(|_| vm.new_os_error("illegal IP address string passed to inet_aton".to_owned()))
 }
 
 fn _socket_inet_ntoa(packed_ip: PyBytesLike, vm: &VirtualMachine) -> PyResult {
-    let packed_ip = packed_ip.borrow_value();
+    let packed_ip = packed_ip.borrow_buf();
     let packed_ip = <&[u8; 4]>::try_from(&*packed_ip)
         .map_err(|_| vm.new_os_error("packed IP wrong length for inet_ntoa".to_owned()))?;
     Ok(vm.ctx.new_str(Ipv4Addr::from(*packed_ip).to_string()))
@@ -926,11 +927,11 @@ fn _socket_getservbyname(
     vm: &VirtualMachine,
 ) -> PyResult {
     use std::ffi::CString;
-    let cstr_name = CString::new(servicename.borrow_value())
+    let cstr_name = CString::new(servicename.as_str())
         .map_err(|_| vm.new_value_error("embedded null character".to_owned()))?;
     let cstr_proto = protocolname
         .as_ref()
-        .map(|s| CString::new(s.borrow_value()))
+        .map(|s| CString::new(s.as_str()))
         .transpose()
         .map_err(|_| vm.new_value_error("embedded null character".to_owned()))?;
     let cstr_proto = cstr_proto
@@ -1087,10 +1088,10 @@ fn _socket_getaddrinfo(opts: GAIOptions, vm: &VirtualMachine) -> PyResult {
         flags: opts.flags,
     };
 
-    let host = opts.host.as_ref().map(|s| s.borrow_value());
+    let host = opts.host.as_ref().map(|s| s.as_str());
     let port = opts.port.as_ref().map(|p| -> std::borrow::Cow<str> {
         match p {
-            Either::A(ref s) => s.borrow_value().into(),
+            Either::A(ref s) => s.as_str().into(),
             Either::B(i) => i.to_string().into(),
         }
     });
@@ -1121,7 +1122,7 @@ fn _socket_gethostbyaddr(
     vm: &VirtualMachine,
 ) -> PyResult<(String, PyObjectRef, PyObjectRef)> {
     // TODO: figure out how to do this properly
-    let addr = get_addr(vm, addr.borrow_value(), c::AF_UNSPEC)?;
+    let addr = get_addr(vm, addr.as_str(), c::AF_UNSPEC)?;
     let (hostname, _) = dns_lookup::getnameinfo(&addr, 0).map_err(|e| convert_gai_error(vm, e))?;
     Ok((
         hostname,
@@ -1132,7 +1133,7 @@ fn _socket_gethostbyaddr(
 
 fn _socket_gethostbyname(name: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
     // TODO: convert to idna
-    let addr = get_addr(vm, name.borrow_value(), c::AF_INET)?;
+    let addr = get_addr(vm, name.as_str(), c::AF_INET)?;
     match addr {
         SocketAddr::V4(ip) => Ok(ip.ip().to_string()),
         _ => unreachable!(),
@@ -1142,14 +1143,14 @@ fn _socket_gethostbyname(name: PyStrRef, vm: &VirtualMachine) -> PyResult<String
 fn _socket_inet_pton(af_inet: i32, ip_string: PyStrRef, vm: &VirtualMachine) -> PyResult {
     match af_inet {
         c::AF_INET => ip_string
-            .borrow_value()
+            .as_str()
             .parse::<Ipv4Addr>()
             .map(|ip_addr| vm.ctx.new_bytes(ip_addr.octets().to_vec()))
             .map_err(|_| {
                 vm.new_os_error("illegal IP address string passed to inet_pton".to_owned())
             }),
         c::AF_INET6 => ip_string
-            .borrow_value()
+            .as_str()
             .parse::<Ipv6Addr>()
             .map(|ip_addr| vm.ctx.new_bytes(ip_addr.octets().to_vec()))
             .map_err(|_| {
@@ -1164,7 +1165,7 @@ fn _socket_inet_ntop(
     packed_ip: PyBytesLike,
     vm: &VirtualMachine,
 ) -> PyResult<String> {
-    let packed_ip = packed_ip.borrow_value();
+    let packed_ip = packed_ip.borrow_buf();
     match af_inet {
         c::AF_INET => {
             let packed_ip = <&[u8; 4]>::try_from(&*packed_ip).map_err(|_| {
@@ -1184,7 +1185,7 @@ fn _socket_inet_ntop(
 
 fn _socket_getprotobyname(name: PyStrRef, vm: &VirtualMachine) -> PyResult {
     use std::ffi::CString;
-    let cstr = CString::new(name.borrow_value())
+    let cstr = CString::new(name.as_str())
         .map_err(|_| vm.new_value_error("embedded null character".to_owned()))?;
     let proto = unsafe { c::getprotobyname(cstr.as_ptr()) };
     if proto.is_null() {
@@ -1199,7 +1200,7 @@ fn _socket_getnameinfo(
     flags: i32,
     vm: &VirtualMachine,
 ) -> PyResult<(String, String)> {
-    let address = address.borrow_value();
+    let address = address.as_slice();
     match address.len() {
         2 | 3 | 4 => {}
         _ => return Err(vm.new_type_error("illegal sockaddr argument".to_owned())),
@@ -1212,10 +1213,9 @@ fn _socket_getnameinfo(
         protocol: 0,
     };
     let service = addr.port.to_string();
-    let mut res =
-        dns_lookup::getaddrinfo(Some(addr.host.borrow_value()), Some(&service), Some(hints))
-            .map_err(|e| convert_gai_error(vm, e))?
-            .filter_map(Result::ok);
+    let mut res = dns_lookup::getaddrinfo(Some(addr.host.as_str()), Some(&service), Some(hints))
+        .map_err(|e| convert_gai_error(vm, e))?
+        .filter_map(Result::ok);
     let mut ainfo = res.next().unwrap();
     if res.next().is_some() {
         return Err(vm.new_os_error("sockaddr resolved to multiple addresses".to_owned()));

@@ -68,11 +68,11 @@ pub(crate) fn impl_pyimpl(
             let class_extensions = &context.class_extensions;
             quote! {
                 #imp
-                impl ::rustpython_vm::pyobject::PyClassImpl for #ty {
+                impl ::rustpython_vm::PyClassImpl for #ty {
                     const TP_FLAGS: ::rustpython_vm::slots::PyTpFlags = ::rustpython_vm::slots::PyTpFlags::from_bits_truncate(#flags);
 
                     fn impl_extend_class(
-                        ctx: &::rustpython_vm::pyobject::PyContext,
+                        ctx: &::rustpython_vm::PyContext,
                         class: &::rustpython_vm::builtins::PyTypeRef,
                     ) {
                         #getset_impl
@@ -105,7 +105,7 @@ pub(crate) fn impl_pyimpl(
             let extra_methods = iter_chain![
                 parse_quote! {
                     fn __extend_py_class(
-                        ctx: &::rustpython_vm::pyobject::PyContext,
+                        ctx: &::rustpython_vm::PyContext,
                         class: &::rustpython_vm::builtins::PyTypeRef,
                     ) {
                         #getset_impl
@@ -180,14 +180,14 @@ fn generate_class_def(
     let base_class = if is_pystruct {
         quote! {
             fn static_baseclass() -> &'static ::rustpython_vm::builtins::PyTypeRef {
-                use rustpython_vm::pyobject::StaticType;
+                use rustpython_vm::StaticType;
                 rustpython_vm::builtins::PyTuple::static_type()
             }
         }
     } else if let Some(base) = base {
         quote! {
             fn static_baseclass() -> &'static ::rustpython_vm::builtins::PyTypeRef {
-                use rustpython_vm::pyobject::StaticType;
+                use rustpython_vm::StaticType;
                 #base::static_type()
             }
         }
@@ -196,14 +196,14 @@ fn generate_class_def(
     };
 
     let tokens = quote! {
-        impl ::rustpython_vm::pyobject::PyClassDef for #ident {
+        impl ::rustpython_vm::PyClassDef for #ident {
             const NAME: &'static str = #name;
             const MODULE_NAME: Option<&'static str> = #module_name;
             const TP_NAME: &'static str = #module_class_name;
             const DOC: Option<&'static str> = #doc;
         }
 
-        impl ::rustpython_vm::pyobject::StaticType for #ident {
+        impl ::rustpython_vm::StaticType for #ident {
             fn static_cell() -> &'static ::rustpython_common::static_cell::StaticCell<::rustpython_vm::builtins::PyTypeRef> {
                 ::rustpython_common::static_cell! {
                     static CELL: ::rustpython_vm::builtins::PyTypeRef;
@@ -555,7 +555,7 @@ impl ToTokens for GetSetNursery {
                     #( #cfgs )*
                     class.set_str_attr(
                         #name,
-                        ::rustpython_vm::pyobject::PyObject::new(
+                        ::rustpython_vm::PyObject::new(
                             ::rustpython_vm::builtins::PyGetSet::new(#name.into())
                                 .with_get(&Self::#getter)
                                 #setter #deleter,

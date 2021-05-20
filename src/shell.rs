@@ -5,9 +5,8 @@ use rustpython_vm::readline::{Readline, ReadlineResult};
 use rustpython_vm::{
     compile::{self, CompileError, CompileErrorType},
     exceptions::{print_exception, PyBaseExceptionRef},
-    pyobject::{BorrowValue, PyResult, TypeProtocol},
     scope::Scope,
-    VirtualMachine,
+    PyResult, TypeProtocol, VirtualMachine,
 };
 
 enum ShellExecResult {
@@ -60,7 +59,7 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
             .get_attribute(vm.sys_module.clone(), prompt_name)
             .and_then(|prompt| vm.to_str(&prompt));
         let prompt = match prompt {
-            Ok(ref s) => s.borrow_value(),
+            Ok(ref s) => s.as_str(),
             Err(_) => "",
         };
         let result = match repl.readline(prompt) {

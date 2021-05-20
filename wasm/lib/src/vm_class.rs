@@ -6,9 +6,9 @@ use js_sys::{Object, TypeError};
 use wasm_bindgen::prelude::*;
 
 use rustpython_vm::compile::{self, Mode};
-use rustpython_vm::pyobject::{ItemProtocol, PyObjectRef, PyObjectWeak, PyValue};
 use rustpython_vm::scope::Scope;
 use rustpython_vm::{InitParameter, Interpreter, PySettings, VirtualMachine};
+use rustpython_vm::{ItemProtocol, PyObjectRef, PyObjectWeak, PyValue};
 
 use crate::browser_module::setup_browser_module;
 use crate::convert::{self, PyResultExt};

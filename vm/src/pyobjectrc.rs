@@ -1,8 +1,8 @@
 use crate::builtins::{PyDictRef, PyTypeRef};
 use crate::common::lock::PyRwLock;
 use crate::common::rc::{PyRc, PyWeak};
-use crate::pyobject::{self, IdProtocol, PyObjectPayload, TypeProtocol};
 use crate::VirtualMachine;
+use crate::{IdProtocol, PyObjectPayload, TypeProtocol};
 use std::any::TypeId;
 use std::fmt;
 use std::marker::PhantomData;
@@ -226,7 +226,7 @@ impl PyObjectRef {
     ///
     /// If the downcast fails, the original ref is returned in as `Err` so
     /// another downcast can be attempted without unnecessary cloning.
-    pub fn downcast_exact<T: PyObjectPayload + pyobject::PyValue>(
+    pub fn downcast_exact<T: PyObjectPayload + crate::PyValue>(
         self,
         vm: &VirtualMachine,
     ) -> Result<PyRef<T>, Self> {
@@ -244,7 +244,7 @@ impl PyObjectRef {
     }
 
     #[inline]
-    pub fn payload_if_exact<T: PyObjectPayload + pyobject::PyValue>(
+    pub fn payload_if_exact<T: PyObjectPayload + crate::PyValue>(
         &self,
         vm: &VirtualMachine,
     ) -> Option<&T> {
@@ -271,10 +271,7 @@ impl PyObjectRef {
     }
 
     #[inline]
-    pub fn payload_if_subclass<T: pyobject::PyValue>(
-        &self,
-        vm: &crate::VirtualMachine,
-    ) -> Option<&T> {
+    pub fn payload_if_subclass<T: crate::PyValue>(&self, vm: &crate::VirtualMachine) -> Option<&T> {
         if self.class().issubclass(T::class(vm)) {
             self.payload()
         } else {
@@ -297,8 +294,6 @@ impl PyObjectWeak {
 
 impl Drop for PyObjectRef {
     fn drop(&mut self) {
-        use crate::pyobject::BorrowValue;
-
         // PyObjectRef will drop the value when its count goes to 0
         if PyRc::strong_count(&self.rc) != 1 {
             return;
@@ -323,7 +318,7 @@ impl Drop for PyObjectRef {
                     vm.invoke(&print_stack, ()).unwrap();
 
                     if let Ok(repr) = vm.to_repr(e.as_object()) {
-                        println!("{}", repr.borrow_value());
+                        println!("{}", repr.as_str());
                     }
                 }
             });
@@ -475,7 +470,7 @@ macro_rules! partially_init {
 
 pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef) {
     use crate::builtins::{object, PyType, PyWeak};
-    use crate::pyobject::{PyAttributes, PyClassDef, PyClassImpl};
+    use crate::{PyAttributes, PyClassDef, PyClassImpl};
     use std::mem::MaybeUninit;
     use std::ptr;
 

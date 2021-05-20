@@ -9,13 +9,13 @@ use wasm_bindgen_futures::{future_to_promise, JsFuture};
 use rustpython_vm::builtins::{PyFloatRef, PyStrRef, PyTypeRef};
 use rustpython_vm::exceptions::PyBaseExceptionRef;
 use rustpython_vm::function::{Args, OptionalArg, OptionalOption};
-use rustpython_vm::pyobject::{
-    BorrowValue, IntoPyObject, PyCallable, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
-    StaticType, TryFromObject,
-};
 use rustpython_vm::slots::PyIter;
 use rustpython_vm::types::create_simple_type;
 use rustpython_vm::VirtualMachine;
+use rustpython_vm::{
+    IntoPyObject, PyCallable, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
+    TryFromObject,
+};
 
 #[wasm_bindgen(inline_js = "
 export function has_prop(target, prop) { return prop in Object(target); }
@@ -85,7 +85,7 @@ impl TryFromObject for JsProperty {
 impl JsProperty {
     fn into_jsvalue(self) -> JsValue {
         match self {
-            JsProperty::Str(s) => s.borrow_value().into(),
+            JsProperty::Str(s) => s.as_str().into(),
             JsProperty::Js(value) => value.value.clone(),
         }
     }
@@ -112,7 +112,7 @@ impl PyJsValue {
 
     #[pymethod]
     fn new_from_str(&self, s: PyStrRef) -> PyJsValue {
-        PyJsValue::new(s.borrow_value())
+        PyJsValue::new(s.as_str())
     }
 
     #[pymethod]

@@ -3,10 +3,9 @@ pub(crate) use self::termios::make_module;
 #[pymodule]
 mod termios {
     use crate::builtins::{int, PyBytes, PyInt, PyListRef, PyTypeRef};
-    use crate::common::borrow::BorrowValue;
     use crate::exceptions::PyBaseExceptionRef;
-    use crate::pyobject::{IntoPyObject, PyObjectRef, PyResult, TryFromObject};
     use crate::VirtualMachine;
+    use crate::{IntoPyObject, PyObjectRef, PyResult, TryFromObject};
     use std::convert::TryFrom;
     use termios::Termios;
 
@@ -52,7 +51,7 @@ mod termios {
     #[pyfunction]
     fn tcsetattr(fd: i32, when: i32, attributes: PyListRef, vm: &VirtualMachine) -> PyResult<()> {
         let [iflag, oflag, cflag, lflag, ispeed, ospeed, cc] =
-            <&[PyObjectRef; 7]>::try_from(&**attributes.borrow_value())
+            <&[PyObjectRef; 7]>::try_from(&*attributes.borrow_vec())
                 .map_err(|_| {
                     vm.new_type_error("tcsetattr, arg 3: must be 7 element list".to_owned())
                 })?
@@ -68,21 +67,18 @@ mod termios {
             .map_err(|e| termios_error(e, vm))?;
         let cc = PyListRef::try_from_object(vm, cc)?;
         {
-            let cc = cc.borrow_value();
-            let cc = <&[PyObjectRef; NCCS]>::try_from(&**cc).map_err(|_| {
+            let cc = cc.borrow_vec();
+            let cc = <&[PyObjectRef; NCCS]>::try_from(&*cc).map_err(|_| {
                 vm.new_type_error(format!(
                     "tcsetattr: attributes[6] must be {} element list",
                     NCCS
                 ))
             })?;
             for (cc, x) in termios.c_cc.iter_mut().zip(cc.iter()) {
-                *cc = if let Some(c) = x
-                    .payload::<PyBytes>()
-                    .filter(|b| b.borrow_value().len() == 1)
-                {
-                    c.borrow_value()[0] as _
+                *cc = if let Some(c) = x.payload::<PyBytes>().filter(|b| b.as_bytes().len() == 1) {
+                    c.as_bytes()[0] as _
                 } else if let Some(i) = x.payload::<PyInt>() {
-                    int::try_to_primitive(i.borrow_value(), vm)?
+                    int::try_to_primitive(i.as_bigint(), vm)?
                 } else {
                     return Err(vm.new_type_error(
                         "tcsetattr: elements of attributes must be characters or integers"

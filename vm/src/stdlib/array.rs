@@ -12,13 +12,14 @@ use crate::common::lock::{
     PyRwLockWriteGuard,
 };
 use crate::function::OptionalArg;
-use crate::pyobject::{
-    BorrowValue, Either, IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyIterable,
-    PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
-};
 use crate::sliceable::{saturate_index, PySliceableSequence, PySliceableSequenceMut};
 use crate::slots::{BufferProtocol, Comparable, Iterable, PyComparisonOp, PyIter};
+use crate::utils::Either;
 use crate::VirtualMachine;
+use crate::{
+    IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyIterable, PyObjectRef, PyRef,
+    PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
+};
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
 use std::cmp::Ordering;
@@ -155,7 +156,7 @@ macro_rules! def_array_enum {
                     $(ArrayContentType::$n(v) => {
                         // convert list before modify self
                         let mut list: Vec<$t> = list
-                            .borrow_value()
+                            .borrow_vec()
                             .iter()
                             .cloned()
                             .map(|value| <$t>::try_into_from_object(vm, value))
@@ -489,11 +490,11 @@ impl From<ArrayContentType> for PyArray {
 
 #[pyimpl(flags(BASETYPE), with(Comparable, BufferProtocol, Iterable))]
 impl PyArray {
-    fn borrow_value(&self) -> PyRwLockReadGuard<'_, ArrayContentType> {
+    fn read(&self) -> PyRwLockReadGuard<'_, ArrayContentType> {
         self.array.read()
     }
 
-    fn borrow_value_mut(&self) -> PyRwLockWriteGuard<'_, ArrayContentType> {
+    fn write(&self) -> PyRwLockWriteGuard<'_, ArrayContentType> {
         self.array.write()
     }
 
@@ -504,7 +505,7 @@ impl PyArray {
         init: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyArrayRef> {
-        let spec = spec.borrow_value().chars().exactly_one().map_err(|_| {
+        let spec = spec.as_str().chars().exactly_one().map_err(|_| {
             vm.new_type_error("array() argument 1 must be a unicode character, not str".to_owned())
         })?;
         let mut array =
@@ -512,10 +513,10 @@ impl PyArray {
 
         if let OptionalArg::Present(init) = init {
             if let Some(init) = init.payload::<PyArray>() {
-                if array.typecode() == init.borrow_value().typecode() {
-                    array.iadd(&*init.borrow_value(), vm)?;
+                if array.typecode() == init.read().typecode() {
+                    array.iadd(&*init.read(), vm)?;
                 } else {
-                    for obj in init.borrow_value().iter(vm) {
+                    for obj in init.read().iter(vm) {
                         array.push(obj, vm)?
                     }
                 }
@@ -536,12 +537,12 @@ impl PyArray {
 
     #[pyproperty]
     fn typecode(&self) -> String {
-        self.borrow_value().typecode().to_string()
+        self.read().typecode().to_string()
     }
 
     #[pyproperty]
     fn itemsize(&self) -> usize {
-        self.borrow_value().itemsize()
+        self.read().itemsize()
     }
 
     #[pymethod]
@@ -551,13 +552,13 @@ impl PyArray {
 
     #[pymethod]
     fn buffer_info(&self) -> (usize, usize) {
-        let array = self.borrow_value();
+        let array = self.read();
         (array.addr(), array.len())
     }
 
     #[pymethod]
     fn count(&self, x: PyObjectRef, vm: &VirtualMachine) -> usize {
-        self.borrow_value().count(x, vm)
+        self.read().count(x, vm)
     }
 
     #[pymethod]
@@ -572,7 +573,7 @@ impl PyArray {
             w.imul(2);
             Ok(())
         } else if let Some(array) = obj.payload::<PyArray>() {
-            w.iadd(&*array.borrow_value(), vm)
+            w.iadd(&*array.read(), vm)
         } else {
             let iter = PyIterable::try_from_object(vm, obj)?;
             // zelf.extend_from_iterable(iter, vm)
@@ -585,8 +586,8 @@ impl PyArray {
 
     #[pymethod]
     fn frombytes(zelf: PyRef<Self>, b: PyBytesLike, vm: &VirtualMachine) -> PyResult<()> {
-        let b = b.borrow_value();
-        let itemsize = zelf.borrow_value().itemsize();
+        let b = b.borrow_buf();
+        let itemsize = zelf.read().itemsize();
         if b.len() % itemsize != 0 {
             return Err(vm.new_value_error("bytes length not a multiple of item size".to_owned()));
         }
@@ -598,12 +599,12 @@ impl PyArray {
 
     #[pymethod]
     fn byteswap(&self) {
-        self.borrow_value_mut().byteswap();
+        self.write().byteswap();
     }
 
     #[pymethod]
     fn index(&self, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-        self.borrow_value().index(x, vm)
+        self.read().index(x, vm)
     }
 
     #[pymethod]
@@ -626,20 +627,20 @@ impl PyArray {
 
     #[pymethod]
     pub(crate) fn tobytes(&self) -> Vec<u8> {
-        self.borrow_value().get_bytes().to_vec()
+        self.read().get_bytes().to_vec()
     }
 
     pub(crate) fn get_bytes(&self) -> PyMappedRwLockReadGuard<'_, [u8]> {
-        PyRwLockReadGuard::map(self.borrow_value(), |a| a.get_bytes())
+        PyRwLockReadGuard::map(self.read(), |a| a.get_bytes())
     }
 
     pub(crate) fn get_bytes_mut(&self) -> PyMappedRwLockWriteGuard<'_, [u8]> {
-        PyRwLockWriteGuard::map(self.borrow_value_mut(), |a| a.get_bytes_mut())
+        PyRwLockWriteGuard::map(self.write(), |a| a.get_bytes_mut())
     }
 
     #[pymethod]
     fn tolist(&self, vm: &VirtualMachine) -> PyResult {
-        let array = self.borrow_value();
+        let array = self.read();
         let mut v = Vec::with_capacity(array.len());
         for obj in array.iter(vm) {
             v.push(obj);
@@ -654,7 +655,7 @@ impl PyArray {
 
     #[pymethod]
     fn reverse(&self) {
-        self.borrow_value_mut().reverse()
+        self.write().reverse()
     }
 
     #[pymethod(magic)]
@@ -669,7 +670,7 @@ impl PyArray {
 
     #[pymethod(magic)]
     fn getitem(&self, needle: Either<isize, PySliceRef>, vm: &VirtualMachine) -> PyResult {
-        self.borrow_value().getitem(needle, vm)
+        self.read().getitem(needle, vm)
     }
 
     #[pymethod(magic)]
@@ -680,17 +681,17 @@ impl PyArray {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         match needle {
-            Either::A(i) => zelf.borrow_value_mut().setitem_by_idx(i, obj, vm),
+            Either::A(i) => zelf.write().setitem_by_idx(i, obj, vm),
             Either::B(slice) => {
                 let cloned;
                 let guard;
                 let items = if zelf.is(&obj) {
-                    cloned = zelf.borrow_value().clone();
+                    cloned = zelf.read().clone();
                     &cloned
                 } else {
                     match obj.payload::<PyArray>() {
                         Some(array) => {
-                            guard = array.borrow_value();
+                            guard = array.read();
                             &*guard
                         }
                         None => {
@@ -704,8 +705,7 @@ impl PyArray {
                 if let Ok(mut w) = zelf.try_resizable(vm) {
                     w.setitem_by_slice(slice, items, vm)
                 } else {
-                    zelf.borrow_value_mut()
-                        .setitem_by_slice_no_resize(slice, items, vm)
+                    zelf.write().setitem_by_slice_no_resize(slice, items, vm)
                 }
             }
         }
@@ -726,8 +726,8 @@ impl PyArray {
     #[pymethod(name = "__add__")]
     fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         if let Some(other) = other.payload::<PyArray>() {
-            self.borrow_value()
-                .add(&*other.borrow_value(), vm)
+            self.read()
+                .add(&*other.read(), vm)
                 .map(|array| PyArray::from(array).into_ref(vm))
         } else {
             Err(vm.new_type_error(format!(
@@ -743,7 +743,7 @@ impl PyArray {
             zelf.try_resizable(vm)?.imul(2);
             Ok(zelf)
         } else if let Some(other) = other.payload::<PyArray>() {
-            let result = zelf.try_resizable(vm)?.iadd(&*other.borrow_value(), vm);
+            let result = zelf.try_resizable(vm)?.iadd(&*other.read(), vm);
             result.map(|_| zelf)
         } else {
             Err(vm.new_type_error(format!(
@@ -755,7 +755,7 @@ impl PyArray {
 
     #[pymethod(name = "__mul__")]
     fn mul(&self, counter: isize, vm: &VirtualMachine) -> PyRef<Self> {
-        PyArray::from(self.borrow_value().mul(counter)).into_ref(vm)
+        PyArray::from(self.read().mul(counter)).into_ref(vm)
     }
 
     #[pymethod(name = "__rmul__")]
@@ -771,12 +771,12 @@ impl PyArray {
 
     #[pymethod(name = "__repr__")]
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        zelf.borrow_value().repr(vm)
+        zelf.read().repr(vm)
     }
 
     #[pymethod(name = "__len__")]
     pub(crate) fn len(&self) -> usize {
-        self.borrow_value().len()
+        self.read().len()
     }
 
     fn array_eq(&self, other: &Self, vm: &VirtualMachine) -> PyResult<bool> {
@@ -785,8 +785,8 @@ impl PyArray {
         if self.len() != other.len() {
             return Ok(false);
         }
-        let array_a = self.borrow_value();
-        let array_b = other.borrow_value();
+        let array_a = self.read();
+        let array_b = other.read();
 
         // fast path for same ArrayContentType type
         if let Ok(ord) = array_a.cmp(&*array_b) {
@@ -823,8 +823,8 @@ impl Comparable for PyArray {
             return Ok(x.into());
         }
 
-        let array_a = zelf.borrow_value();
-        let array_b = other.borrow_value();
+        let array_a = zelf.read();
+        let array_b = other.read();
 
         let res = match array_a.cmp(&*array_b) {
             // fast path for same ArrayContentType type
@@ -855,7 +855,7 @@ impl Comparable for PyArray {
 impl BufferProtocol for PyArray {
     fn get_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<Box<dyn Buffer>> {
         zelf.exports.fetch_add(1);
-        let array = zelf.borrow_value();
+        let array = zelf.read();
         let buf = ArrayBuffer {
             array: zelf.clone(),
             options: BufferOptions {
@@ -908,7 +908,7 @@ impl<'a> ResizeGuard<'a> for PyArray {
     type Resizable = PyRwLockWriteGuard<'a, ArrayContentType>;
 
     fn try_resizable(&'a self, vm: &VirtualMachine) -> PyResult<Self::Resizable> {
-        let w = self.borrow_value_mut();
+        let w = self.write();
         if self.exports.load() == 0 {
             Ok(w)
         } else {
@@ -937,7 +937,7 @@ impl PyArrayIter {}
 impl PyIter for PyArrayIter {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         let pos = zelf.position.fetch_add(1);
-        if let Some(item) = zelf.array.borrow_value().getitem_by_idx(pos, vm) {
+        if let Some(item) = zelf.array.read().getitem_by_idx(pos, vm) {
             Ok(item)
         } else {
             Err(vm.new_stop_iteration())

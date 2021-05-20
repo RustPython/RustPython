@@ -3,14 +3,14 @@ use crate::builtins::code::PyCode;
 use crate::builtins::module::PyModuleRef;
 use crate::builtins::pystr::{self, PyStr, PyStrRef};
 use crate::import;
-use crate::pyobject::{BorrowValue, ItemProtocol, PyObjectRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
+use crate::{ItemProtocol, PyObjectRef, PyResult, PyValue};
 
 #[cfg(feature = "threading")]
 mod lock {
-    use crate::pyobject::PyResult;
     use crate::stdlib::thread::RawRMutex;
     use crate::vm::VirtualMachine;
+    use crate::PyResult;
 
     pub(super) static IMP_LOCK: RawRMutex = RawRMutex::INIT;
 
@@ -49,11 +49,11 @@ fn _imp_extension_suffixes(vm: &VirtualMachine) -> PyResult {
 }
 
 fn _imp_is_builtin(name: PyStrRef, vm: &VirtualMachine) -> bool {
-    vm.state.stdlib_inits.contains_key(name.borrow_value())
+    vm.state.stdlib_inits.contains_key(name.as_str())
 }
 
 fn _imp_is_frozen(name: PyStrRef, vm: &VirtualMachine) -> bool {
-    vm.state.frozen.contains_key(name.borrow_value())
+    vm.state.frozen.contains_key(name.as_str())
 }
 
 fn _imp_create_builtin(spec: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -78,7 +78,7 @@ fn _imp_exec_builtin(_mod: PyModuleRef) -> i32 {
 fn _imp_get_frozen_object(name: PyStrRef, vm: &VirtualMachine) -> PyResult<PyCode> {
     vm.state
         .frozen
-        .get(name.borrow_value())
+        .get(name.as_str())
         .map(|frozen| {
             let mut frozen = frozen.code.clone();
             frozen.source_path = PyStr::from(format!("frozen {}", name)).into_ref(vm);
@@ -88,13 +88,13 @@ fn _imp_get_frozen_object(name: PyStrRef, vm: &VirtualMachine) -> PyResult<PyCod
 }
 
 fn _imp_init_frozen(name: PyStrRef, vm: &VirtualMachine) -> PyResult {
-    import::import_frozen(vm, name.borrow_value())
+    import::import_frozen(vm, name.as_str())
 }
 
 fn _imp_is_frozen_package(name: PyStrRef, vm: &VirtualMachine) -> PyResult<bool> {
     vm.state
         .frozen
-        .get(name.borrow_value())
+        .get(name.as_str())
         .map(|frozen| frozen.package)
         .ok_or_else(|| vm.new_import_error(format!("No such frozen object named {}", name), name))
 }

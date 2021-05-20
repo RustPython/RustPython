@@ -7,8 +7,8 @@ mod hashlib {
     use crate::builtins::pytype::PyTypeRef;
     use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
     use crate::function::{FuncArgs, OptionalArg};
-    use crate::pyobject::{BorrowValue, PyResult, PyValue, StaticType};
     use crate::vm::VirtualMachine;
+    use crate::{PyResult, PyValue, StaticType};
     use blake2::{Blake2b, Blake2s};
     use digest::DynDigest;
     use md5::Md5;
@@ -45,11 +45,11 @@ mod hashlib {
             }
         }
 
-        fn borrow_value(&self) -> PyRwLockReadGuard<'_, HashWrapper> {
+        fn read(&self) -> PyRwLockReadGuard<'_, HashWrapper> {
             self.buffer.read()
         }
 
-        fn borrow_value_mut(&self) -> PyRwLockWriteGuard<'_, HashWrapper> {
+        fn write(&self) -> PyRwLockWriteGuard<'_, HashWrapper> {
             self.buffer.write()
         }
 
@@ -67,12 +67,12 @@ mod hashlib {
 
         #[pyproperty(name = "digest_size")]
         fn digest_size(&self, vm: &VirtualMachine) -> PyResult {
-            Ok(vm.ctx.new_int(self.borrow_value().digest_size()))
+            Ok(vm.ctx.new_int(self.read().digest_size()))
         }
 
         #[pymethod(name = "update")]
         fn update(&self, data: PyBytesRef) {
-            self.borrow_value_mut().input(data.borrow_value());
+            self.write().input(data.as_bytes());
         }
 
         #[pymethod(name = "digest")]
@@ -87,7 +87,7 @@ mod hashlib {
         }
 
         fn get_digest(&self) -> Vec<u8> {
-            self.borrow_value().get_digest()
+            self.read().get_digest()
         }
     }
 
@@ -97,7 +97,7 @@ mod hashlib {
         data: OptionalArg<PyBytesRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyHasher> {
-        match name.borrow_value() {
+        match name.as_str() {
             "md5" => md5(data),
             "sha1" => sha1(data),
             "sha224" => sha224(data),

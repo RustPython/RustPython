@@ -4,7 +4,7 @@ pub(crate) use _posixsubprocess::make_module;
 mod _posixsubprocess {
     use super::{exec, CStrPathLike, ForkExecArgs, ProcArgs};
     use crate::exceptions::IntoPyException;
-    use crate::pyobject::PyResult;
+    use crate::PyResult;
     use crate::VirtualMachine;
 
     #[pyfunction]
@@ -37,8 +37,8 @@ use std::io::{self, prelude::*};
 use std::os::unix::io::AsRawFd;
 
 use super::os;
-use crate::pyobject::{PyObjectRef, PyResult, PySequence, TryFromObject};
 use crate::VirtualMachine;
+use crate::{PyObjectRef, PyResult, PySequence, TryFromObject};
 
 macro_rules! gen_args {
     ($($field:ident: $t:ty),*$(,)?) => {

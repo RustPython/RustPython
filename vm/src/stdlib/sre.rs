@@ -5,7 +5,6 @@ mod _sre {
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
     use num_traits::ToPrimitive;
-    use rustpython_common::borrow::BorrowValue;
     use rustpython_common::hash::PyHash;
 
     use crate::builtins::list::PyListRef;
@@ -15,12 +14,12 @@ mod _sre {
         PyCallableIterator, PyDictRef, PyInt, PyList, PyStr, PyStrRef, PyTypeRef,
     };
     use crate::function::{Args, OptionalArg};
-    use crate::pyobject::{
+    use crate::slots::{Comparable, Hashable};
+    use crate::VirtualMachine;
+    use crate::{
         IntoPyObject, ItemProtocol, PyCallable, PyComparisonValue, PyObjectRef, PyRef, PyResult,
         PyValue, StaticType, TryFromObject,
     };
-    use crate::slots::{Comparable, Hashable};
-    use crate::VirtualMachine;
     use core::str;
     use sre_engine::constants::SreFlag;
     use sre_engine::engine::{lower_ascii, lower_unicode, upper_unicode, State, StrDrive};
@@ -170,7 +169,7 @@ mod _sre {
                 s = string
                     .payload::<PyStr>()
                     .ok_or_else(|| vm.new_type_error("expected string".to_owned()))?;
-                StrDrive::Str(s.borrow_value())
+                StrDrive::Str(s.as_str())
             };
 
             f(str_drive)
@@ -418,10 +417,10 @@ mod _sre {
             let pattern = vm.to_repr(&self.pattern)?;
             let truncated: String;
             let s = if pattern.char_len() > 200 {
-                truncated = pattern.borrow_value().chars().take(200).collect();
+                truncated = pattern.as_str().chars().take(200).collect();
                 &truncated
             } else {
-                pattern.borrow_value()
+                pattern.as_str()
             };
 
             if flags.is_empty() {
@@ -790,7 +789,7 @@ mod _sre {
                     .downcast::<PyInt>()
                     .ok()?
             };
-            let i = i.borrow_value().to_isize()?;
+            let i = i.as_bigint().to_isize()?;
             if i >= 0 && i as usize <= self.pattern.groups {
                 Some(i as usize)
             } else {

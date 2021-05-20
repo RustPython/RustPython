@@ -1,7 +1,7 @@
 use super::pytype::PyTypeRef;
 use crate::function::KwArgs;
-use crate::pyobject::{PyClassImpl, PyContext, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
+use crate::{PyClassImpl, PyContext, PyRef, PyResult, PyValue};
 
 /// A simple attribute-based namespace.
 ///

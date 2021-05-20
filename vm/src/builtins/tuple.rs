@@ -5,15 +5,15 @@ use std::marker::PhantomData;
 use super::pytype::PyTypeRef;
 use crate::common::hash::PyHash;
 use crate::function::OptionalArg;
-use crate::pyobject::{
-    self, BorrowValue, Either, IdProtocol, IntoPyObject, PyArithmaticValue, PyClassImpl,
-    PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TransmuteFromObject,
-    TryFromObject, TypeProtocol,
-};
 use crate::sequence::{self, SimpleSeq};
 use crate::sliceable::PySliceableSequence;
 use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter};
+use crate::utils::Either;
 use crate::vm::{ReprGuard, VirtualMachine};
+use crate::{
+    IdProtocol, IntoPyObject, PyArithmaticValue, PyClassImpl, PyComparisonValue, PyContext,
+    PyObjectRef, PyRef, PyResult, PyValue, TransmuteFromObject, TryFromObject, TypeProtocol,
+};
 
 /// tuple() -> empty tuple
 /// tuple(iterable) -> tuple initialized from iterable's items
@@ -28,14 +28,6 @@ impl fmt::Debug for PyTuple {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // TODO: implement more informational, non-recursive Debug formatter
         f.write_str("tuple")
-    }
-}
-
-impl<'a> BorrowValue<'a> for PyTuple {
-    type Borrowed = &'a [PyObjectRef];
-
-    fn borrow_value(&'a self) -> Self::Borrowed {
-        &self.elements
     }
 }
 
@@ -91,6 +83,10 @@ impl PyTuple {
         Self { elements }
     }
 
+    pub fn as_slice(&self) -> &[PyObjectRef] {
+        &self.elements
+    }
+
     #[pymethod(name = "__add__")]
     fn add(
         zelf: PyRef<Self>,
@@ -104,12 +100,11 @@ impl PyTuple {
                 other
             } else {
                 let elements = zelf
-                    .elements
-                    .boxed_iter()
-                    .chain(other.borrow_value().boxed_iter())
+                    .as_slice()
+                    .iter()
+                    .chain(other.as_slice())
                     .cloned()
-                    .collect::<Vec<_>>()
-                    .into_boxed_slice();
+                    .collect::<Box<[_]>>();
                 Self { elements }.into_ref(vm)
             }
         });
@@ -133,8 +128,14 @@ impl PyTuple {
     }
 
     #[pymethod(name = "__len__")]
-    pub(crate) fn len(&self) -> usize {
+    #[inline]
+    pub fn len(&self) -> usize {
         self.elements.len()
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.elements.is_empty()
     }
 
     #[pymethod(name = "__repr__")]
@@ -143,7 +144,7 @@ impl PyTuple {
             let mut str_parts = Vec::with_capacity(zelf.elements.len());
             for elem in zelf.elements.iter() {
                 let s = vm.to_repr(elem)?;
-                str_parts.push(s.borrow_value().to_owned());
+                str_parts.push(s.as_str().to_owned());
             }
 
             if str_parts.len() == 1 {
@@ -190,14 +191,14 @@ impl PyTuple {
     ) -> PyResult<usize> {
         let mut start = start.into_option().unwrap_or(0);
         if start < 0 {
-            start += self.borrow_value().len() as isize;
+            start += self.as_slice().len() as isize;
             if start < 0 {
                 start = 0;
             }
         }
         let mut stop = stop.into_option().unwrap_or(isize::MAX);
         if stop < 0 {
-            stop += self.borrow_value().len() as isize;
+            stop += self.as_slice().len() as isize;
             if stop < 0 {
                 stop = 0;
             }
@@ -266,7 +267,7 @@ impl PyTuple {
 
 impl Hashable for PyTuple {
     fn hash(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
-        pyobject::hash_iter(zelf.elements.iter(), vm)
+        crate::utils::hash_iter(zelf.elements.iter(), vm)
     }
 }
 
@@ -281,8 +282,8 @@ impl Comparable for PyTuple {
             return Ok(res.into());
         }
         let other = class_or_notimplemented!(Self, other);
-        let a = zelf.borrow_value();
-        let b = other.borrow_value();
+        let a = zelf.as_slice();
+        let b = other.as_slice();
         sequence::cmp(vm, a.boxed_iter(), b.boxed_iter(), op).map(PyComparisonValue::Implemented)
     }
 }
@@ -316,7 +317,7 @@ impl PyTupleIterator {}
 impl PyIter for PyTupleIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         let pos = zelf.position.fetch_add(1);
-        if let Some(obj) = zelf.tuple.borrow_value().get(pos) {
+        if let Some(obj) = zelf.tuple.as_slice().get(pos) {
             Ok(obj.clone())
         } else {
             Err(vm.new_stop_iteration())
@@ -339,7 +340,7 @@ pub struct PyTupleTyped<T: TransmuteFromObject> {
 impl<T: TransmuteFromObject> TryFromObject for PyTupleTyped<T> {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let tuple = PyTupleRef::try_from_object(vm, obj)?;
-        for elem in tuple.borrow_value() {
+        for elem in tuple.as_slice() {
             T::check(vm, elem)?
         }
         // SAFETY: the contract of TransmuteFromObject upholds the variant on `tuple`
@@ -347,6 +348,21 @@ impl<T: TransmuteFromObject> TryFromObject for PyTupleTyped<T> {
             tuple,
             _marker: PhantomData,
         })
+    }
+}
+
+impl<T: TransmuteFromObject> PyTupleTyped<T> {
+    #[inline]
+    pub fn as_slice(&self) -> &[T] {
+        unsafe { &*(self.tuple.as_slice() as *const [PyObjectRef] as *const [T]) }
+    }
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.tuple.len()
+    }
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.tuple.is_empty()
     }
 }
 
@@ -359,17 +375,9 @@ impl<T: TransmuteFromObject> Clone for PyTupleTyped<T> {
     }
 }
 
-impl<'a, T: TransmuteFromObject + 'a> BorrowValue<'a> for PyTupleTyped<T> {
-    type Borrowed = &'a [T];
-    #[inline]
-    fn borrow_value(&'a self) -> Self::Borrowed {
-        unsafe { &*(self.tuple.borrow_value() as *const [PyObjectRef] as *const [T]) }
-    }
-}
-
 impl<T: TransmuteFromObject + fmt::Debug> fmt::Debug for PyTupleTyped<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.borrow_value().fmt(f)
+        self.as_slice().fmt(f)
     }
 }
 

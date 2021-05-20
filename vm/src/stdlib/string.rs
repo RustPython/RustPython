@@ -13,8 +13,8 @@ mod _string {
     use crate::format::{
         FieldName, FieldNamePart, FieldType, FormatPart, FormatString, FromTemplate,
     };
-    use crate::pyobject::{BorrowValue, IntoPyObject, PyObjectRef, PyResult};
     use crate::vm::VirtualMachine;
+    use crate::{IntoPyObject, PyObjectRef, PyResult};
 
     fn create_format_part(
         literal: String,
@@ -35,7 +35,7 @@ mod _string {
     #[pyfunction]
     fn formatter_parser(text: PyStrRef, vm: &VirtualMachine) -> PyResult<PyList> {
         let format_string =
-            FormatString::from_str(text.borrow_value()).map_err(|e| e.into_pyexception(vm))?;
+            FormatString::from_str(text.as_str()).map_err(|e| e.into_pyexception(vm))?;
 
         let mut result = Vec::new();
         let mut literal = String::new();
@@ -74,8 +74,7 @@ mod _string {
         text: PyStrRef,
         vm: &VirtualMachine,
     ) -> PyResult<(PyObjectRef, PyList)> {
-        let field_name =
-            FieldName::parse(text.borrow_value()).map_err(|e| e.into_pyexception(vm))?;
+        let field_name = FieldName::parse(text.as_str()).map_err(|e| e.into_pyexception(vm))?;
 
         let first = match field_name.field_type {
             FieldType::Auto => vm.ctx.new_str("".to_owned()),

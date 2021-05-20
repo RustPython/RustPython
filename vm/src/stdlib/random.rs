@@ -8,8 +8,8 @@ mod _random {
     use crate::builtins::pytype::PyTypeRef;
     use crate::common::lock::PyMutex;
     use crate::function::OptionalOption;
-    use crate::pyobject::{BorrowValue, PyObjectRef, PyRef, PyResult, PyValue, StaticType};
     use crate::VirtualMachine;
+    use crate::{PyObjectRef, PyRef, PyResult, PyValue, StaticType};
     use num_bigint::{BigInt, Sign};
     use num_traits::{Signed, Zero};
     use rand::{rngs::StdRng, RngCore, SeedableRng};
@@ -93,7 +93,7 @@ mod _random {
             let new_rng = match n.flatten() {
                 None => PyRng::default(),
                 Some(n) => {
-                    let (_, mut key) = n.borrow_value().abs().to_u32_digits();
+                    let (_, mut key) = n.as_bigint().abs().to_u32_digits();
                     if cfg!(target_endian = "big") {
                         key.reverse();
                     }

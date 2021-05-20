@@ -1,8 +1,8 @@
 use super::os::errno_err;
 use crate::builtins::bytes::PyBytesRef;
 use crate::builtins::pystr::PyStrRef;
-use crate::pyobject::{BorrowValue, PyObjectRef, PyResult};
 use crate::VirtualMachine;
+use crate::{PyObjectRef, PyResult};
 
 use itertools::Itertools;
 use winapi::shared::minwindef::UINT;
@@ -50,14 +50,14 @@ fn msvcrt_getwche() -> String {
     std::char::from_u32(c).unwrap().to_string()
 }
 fn msvcrt_putch(b: PyBytesRef, vm: &VirtualMachine) -> PyResult<()> {
-    let &c = b.borrow_value().iter().exactly_one().map_err(|_| {
+    let &c = b.as_bytes().iter().exactly_one().map_err(|_| {
         vm.new_type_error("putch() argument must be a byte string of length 1".to_owned())
     })?;
     unsafe { suppress_iph!(_putch(c.into())) };
     Ok(())
 }
 fn msvcrt_putwch(s: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-    let c = s.borrow_value().chars().exactly_one().map_err(|_| {
+    let c = s.as_str().chars().exactly_one().map_err(|_| {
         vm.new_type_error("putch() argument must be a string of length 1".to_owned())
     })?;
     unsafe { suppress_iph!(_putwch(c as u16)) };

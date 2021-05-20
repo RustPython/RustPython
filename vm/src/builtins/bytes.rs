@@ -8,22 +8,21 @@ use super::dict::PyDictRef;
 use super::int::PyIntRef;
 use super::pystr::PyStrRef;
 use super::pytype::PyTypeRef;
+use crate::anystr::{self, AnyStr};
 use crate::builtins::tuple::PyTupleRef;
 use crate::bytesinner::{
     bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
     ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
 };
+use crate::byteslike::PyBytesLike;
 use crate::common::hash::PyHash;
 use crate::function::{OptionalArg, OptionalOption};
-use crate::pyobject::{
-    BorrowValue, Either, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyIterable,
-    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
-};
 use crate::slots::{BufferProtocol, Comparable, Hashable, Iterable, PyComparisonOp, PyIter};
+use crate::utils::Either;
 use crate::vm::VirtualMachine;
 use crate::{
-    anystr::{self, AnyStr},
-    byteslike::PyBytesLike,
+    IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef,
+    PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 
 use crate::builtins::memory::{Buffer, BufferOptions};
@@ -44,14 +43,6 @@ pub struct PyBytes {
 }
 
 pub type PyBytesRef = PyRef<PyBytes>;
-
-impl<'a> BorrowValue<'a> for PyBytes {
-    type Borrowed = &'a [u8];
-
-    fn borrow_value(&'a self) -> Self::Borrowed {
-        &self.inner.elements
-    }
-}
 
 impl From<Vec<u8>> for PyBytes {
     fn from(elements: Vec<u8>) -> Self {
@@ -113,8 +104,19 @@ impl PyBytes {
     }
 
     #[pymethod(name = "__len__")]
-    pub(crate) fn len(&self) -> usize {
+    #[inline]
+    pub fn len(&self) -> usize {
         self.inner.len()
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    #[inline]
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.inner.elements
     }
 
     #[pymethod(name = "__sizeof__")]
@@ -124,7 +126,7 @@ impl PyBytes {
 
     #[pymethod(name = "__add__")]
     fn add(&self, other: PyBytesLike, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_bytes(self.inner.add(&*other.borrow_value()))
+        vm.ctx.new_bytes(self.inner.add(&*other.borrow_buf()))
     }
 
     #[pymethod(name = "__contains__")]
@@ -213,7 +215,7 @@ impl PyBytes {
 
     #[pymethod]
     fn fromhex(string: PyStrRef, vm: &VirtualMachine) -> PyResult<PyBytes> {
-        Ok(PyBytesInner::fromhex(string.borrow_value(), vm)?.into())
+        Ok(PyBytesInner::fromhex(string.as_str(), vm)?.into())
     }
 
     #[pymethod(name = "center")]
@@ -502,7 +504,7 @@ struct BytesBuffer {
 
 impl Buffer for BytesBuffer {
     fn obj_bytes(&self) -> BorrowedValue<[u8]> {
-        self.bytes.borrow_value().into()
+        self.bytes.as_bytes().into()
     }
 
     fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
@@ -575,7 +577,7 @@ impl PyBytesIterator {}
 impl PyIter for PyBytesIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         let pos = zelf.position.fetch_add(1);
-        if let Some(&ret) = zelf.bytes.borrow_value().get(pos) {
+        if let Some(&ret) = zelf.bytes.as_bytes().get(pos) {
             Ok(vm.ctx.new_int(ret))
         } else {
             Err(vm.new_stop_iteration())

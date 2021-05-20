@@ -1,10 +1,10 @@
 use rustpython_vm as vm;
 
-fn main() -> vm::pyobject::PyResult<()> {
+fn main() -> vm::PyResult<()> {
     vm::Interpreter::default().enter(run)
 }
 
-fn run(vm: &vm::VirtualMachine) -> vm::pyobject::PyResult<()> {
+fn run(vm: &vm::VirtualMachine) -> vm::PyResult<()> {
     let scope = vm.new_scope_with_builtins();
 
     // the file parameter is relevant to the directory where the crate's Cargo.toml is located, see $CARGO_MANIFEST_DIR:

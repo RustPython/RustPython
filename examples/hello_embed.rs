@@ -1,6 +1,6 @@
 use rustpython_vm as vm;
 
-fn main() -> vm::pyobject::PyResult<()> {
+fn main() -> vm::PyResult<()> {
     vm::Interpreter::default().enter(|vm| {
         let scope = vm.new_scope_with_builtins();
 

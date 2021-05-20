@@ -7,12 +7,12 @@ use crate::common::rc::PyRc;
 use crate::dictdatatype;
 use crate::function::OptionalArg::{Missing, Present};
 use crate::function::{Args, OptionalArg};
-use crate::pyobject::{
-    self, BorrowValue, IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyIterable,
-    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
-};
 use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable};
 use crate::vm::{ReprGuard, VirtualMachine};
+use crate::{
+    IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef,
+    PyResult, PyValue, TryFromObject, TypeProtocol,
+};
 use crossbeam_utils::atomic::AtomicCell;
 use std::fmt;
 
@@ -210,7 +210,7 @@ impl PySetInner {
         let mut str_parts = Vec::with_capacity(self.content.len());
         for key in self.content.keys() {
             let part = vm.to_repr(&key)?;
-            str_parts.push(part.borrow_value().to_owned());
+            str_parts.push(part.as_str().to_owned());
         }
 
         Ok(format!("{{{}}}", str_parts.join(", ")))
@@ -291,7 +291,7 @@ impl PySetInner {
     }
 
     fn hash(&self, vm: &VirtualMachine) -> PyResult<PyHash> {
-        pyobject::hash_iter_unordered(self.content.keys().iter(), vm)
+        crate::utils::hash_iter_unordered(self.content.keys().iter(), vm)
     }
 }
 

@@ -6,13 +6,13 @@ use super::pytype::PyTypeRef;
 use crate::builtins::pytype::PyType;
 use crate::common::hash::PyHash;
 use crate::function::FuncArgs;
-use crate::pyobject::{
-    BorrowValue, Either, IdProtocol, ItemProtocol, PyArithmaticValue, PyAttributes, PyClassImpl,
-    PyComparisonValue, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol,
-};
 use crate::slots::PyComparisonOp;
+use crate::utils::Either;
 use crate::vm::VirtualMachine;
+use crate::{
+    IdProtocol, ItemProtocol, PyArithmaticValue, PyAttributes, PyClassImpl, PyComparisonValue,
+    PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+};
 
 /// The most base type
 #[pyclass(module = false, name = "object")]
@@ -192,7 +192,7 @@ impl PyBaseObject {
 
     #[pymethod(magic)]
     fn format(obj: PyObjectRef, format_spec: PyStrRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        if format_spec.borrow_value().is_empty() {
+        if format_spec.as_str().is_empty() {
             vm.to_str(&obj)
         } else {
             Err(vm.new_type_error(
@@ -286,7 +286,7 @@ pub(crate) fn setattr(
 ) -> PyResult<()> {
     vm_trace!("object.__setattr__({:?}, {}, {:?})", obj, attr_name, value);
 
-    if let Some(attr) = obj.get_class_attr(attr_name.borrow_value()) {
+    if let Some(attr) = obj.get_class_attr(attr_name.as_str()) {
         let descr_set = attr.class().mro_find_map(|cls| cls.slots.descr_set.load());
         if let Some(descriptor) = descr_set {
             return descriptor(attr, obj.clone(), value, vm);
@@ -304,7 +304,7 @@ pub(crate) fn setattr(
         Err(vm.new_attribute_error(format!(
             "'{}' object has no attribute '{}'",
             obj.class().name,
-            attr_name.borrow_value()
+            attr_name,
         )))
     }
 }

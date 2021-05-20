@@ -4,7 +4,6 @@ pub(crate) use _codecs::make_module;
 mod _codecs {
     use crate::builtins::PyStrRef;
     use crate::codecs;
-    use crate::common::borrow::BorrowValue;
     use crate::function::{FuncArgs, OptionalArg, OptionalOption};
     use crate::pyobject::{PyObjectRef, PyResult};
     use crate::VirtualMachine;
@@ -18,7 +17,7 @@ mod _codecs {
     fn lookup(encoding: PyStrRef, vm: &VirtualMachine) -> PyResult {
         vm.state
             .codec_registry
-            .lookup(encoding.borrow_value(), vm)
+            .lookup(encoding.as_str(), vm)
             .map(|codec| codec.into_tuple().into_object())
     }
 
@@ -32,7 +31,7 @@ mod _codecs {
         let encoding = encoding.flatten();
         let encoding = encoding
             .as_ref()
-            .map_or(codecs::DEFAULT_ENCODING, |s| s.borrow_value());
+            .map_or(codecs::DEFAULT_ENCODING, |s| s.as_str());
         vm.state
             .codec_registry
             .encode(obj, encoding, errors.flatten(), vm)
@@ -48,7 +47,7 @@ mod _codecs {
         let encoding = encoding.flatten();
         let encoding = encoding
             .as_ref()
-            .map_or(codecs::DEFAULT_ENCODING, |s| s.borrow_value());
+            .map_or(codecs::DEFAULT_ENCODING, |s| s.as_str());
         vm.state
             .codec_registry
             .decode(obj, encoding, errors.flatten(), vm)
@@ -56,26 +55,24 @@ mod _codecs {
 
     #[pyfunction]
     fn _forget_codec(encoding: PyStrRef, vm: &VirtualMachine) {
-        vm.state.codec_registry.forget(encoding.borrow_value());
+        vm.state.codec_registry.forget(encoding.as_str());
     }
 
     #[pyfunction]
     fn register_error(name: PyStrRef, handler: PyObjectRef, vm: &VirtualMachine) {
         vm.state
             .codec_registry
-            .register_error(name.borrow_value().to_owned(), handler);
+            .register_error(name.as_str().to_owned(), handler);
     }
 
     #[pyfunction]
     fn lookup_error(name: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        vm.state
-            .codec_registry
-            .lookup_error(name.borrow_value(), vm)
+        vm.state.codec_registry.lookup_error(name.as_str(), vm)
     }
 
     #[pyfunction]
     fn utf_8_encode(s: PyStrRef, _errors: OptionalArg<PyStrRef>) -> (Vec<u8>, usize) {
-        (s.borrow_value().as_bytes().to_vec(), s.char_len())
+        (s.as_str().as_bytes().to_vec(), s.char_len())
     }
 
     // TODO: implement these codecs in Rust!

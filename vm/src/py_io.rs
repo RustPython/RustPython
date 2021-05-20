@@ -1,8 +1,8 @@
 use crate::builtins::bytes::PyBytes;
 use crate::builtins::pystr::PyStr;
 use crate::exceptions::PyBaseExceptionRef;
-use crate::pyobject::{BorrowValue, PyObjectRef, PyResult};
 use crate::VirtualMachine;
+use crate::{PyObjectRef, PyResult};
 use std::{fmt, io, ops};
 
 pub trait Write {
@@ -70,7 +70,7 @@ pub fn file_readline(obj: &PyObjectRef, size: Option<usize>, vm: &VirtualMachine
     };
     let ret = match_class!(match ret {
         s @ PyStr => {
-            let sval = s.borrow_value();
+            let sval = s.as_str();
             if sval.is_empty() {
                 return Err(eof_err());
             }
@@ -81,7 +81,7 @@ pub fn file_readline(obj: &PyObjectRef, size: Option<usize>, vm: &VirtualMachine
             }
         }
         b @ PyBytes => {
-            let buf = b.borrow_value();
+            let buf = b.as_bytes();
             if buf.is_empty() {
                 return Err(eof_err());
             }

@@ -13,13 +13,13 @@ use crate::builtins::PyTypeRef;
 use crate::byteslike::try_bytes_like;
 use crate::cformat::CFormatBytes;
 use crate::function::{OptionalArg, OptionalOption};
-use crate::pyobject::{
-    BorrowValue, Either, IdProtocol, PyComparisonValue, PyIterable, PyObjectRef, PyResult, PyValue,
-    TryFromObject,
-};
 use crate::sliceable::PySliceableSequence;
 use crate::slots::PyComparisonOp;
+use crate::utils::Either;
 use crate::vm::VirtualMachine;
+use crate::{
+    IdProtocol, PyComparisonValue, PyIterable, PyObjectRef, PyResult, PyValue, TryFromObject,
+};
 use rustpython_common::hash;
 
 #[derive(Debug, Default, Clone)]
@@ -60,7 +60,7 @@ impl ByteInnerNewOptions {
         let encoding = encoding
             .ok_or_else(|| vm.new_type_error("string argument without an encoding".to_owned()))?;
         let bytes = pystr::encode_string(s, Some(encoding), errors.into_option(), vm)?;
-        Ok(bytes.borrow_value().to_vec().into())
+        Ok(bytes.as_bytes().to_vec().into())
     }
 
     fn get_value_from_source(source: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
@@ -68,7 +68,7 @@ impl ByteInnerNewOptions {
     }
 
     fn get_value_from_size(size: PyIntRef, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
-        let size = size.borrow_value().to_isize().ok_or_else(|| {
+        let size = size.as_bigint().to_isize().ok_or_else(|| {
             vm.new_overflow_error("cannot fit 'int' into an index-sized integer".to_owned())
         })?;
         let size = if size < 0 {
@@ -163,7 +163,7 @@ impl ByteInnerFindOptions {
     ) -> PyResult<(Vec<u8>, std::ops::Range<usize>)> {
         let sub = match self.sub {
             Either::A(v) => v.elements.to_vec(),
-            Either::B(int) => vec![int.borrow_value().byte_or(vm)?],
+            Either::B(int) => vec![int.as_bigint().byte_or(vm)?],
         };
         let range = anystr::adjust_indices(self.start, self.end, len);
         Ok((sub, range))
@@ -229,7 +229,6 @@ impl ByteInnerTranslateOptions {
 
 pub type ByteInnerSplitOptions<'a> = anystr::SplitArgs<'a, PyBytesInner>;
 
-#[allow(clippy::len_without_is_empty)]
 impl PyBytesInner {
     pub fn repr(&self) -> String {
         let mut res = String::with_capacity(self.elements.len());
@@ -245,8 +244,14 @@ impl PyBytesInner {
         res
     }
 
+    #[inline]
     pub fn len(&self) -> usize {
         self.elements.len()
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.elements.is_empty()
     }
 
     pub fn cmp(
@@ -280,7 +285,7 @@ impl PyBytesInner {
     ) -> PyResult<bool> {
         Ok(match needle {
             Either::A(byte) => self.elements.contains_str(byte.elements.as_slice()),
-            Either::B(int) => self.elements.contains(&int.borrow_value().byte_or(vm)?),
+            Either::B(int) => self.elements.contains(&int.as_bigint().byte_or(vm)?),
         })
     }
 
@@ -911,8 +916,8 @@ where
     F: Fn(&[u8]) -> R,
 {
     match_class!(match obj {
-        i @ PyBytes => Some(f(i.borrow_value())),
-        j @ PyByteArray => Some(f(&j.borrow_value().elements)),
+        i @ PyBytes => Some(f(i.as_bytes())),
+        j @ PyByteArray => Some(f(&j.borrow_buf())),
         _ => None,
     })
 }
@@ -1070,7 +1075,7 @@ pub fn bytes_decode(
     let DecodeArgs { encoding, errors } = args;
     let encoding = encoding
         .as_ref()
-        .map_or(crate::codecs::DEFAULT_ENCODING, |s| s.borrow_value());
+        .map_or(crate::codecs::DEFAULT_ENCODING, |s| s.as_str());
     vm.state
         .codec_registry
         .decode_text(zelf, encoding, errors, vm)
@@ -1148,11 +1153,11 @@ pub fn bytes_to_hex(
         let b_guard;
         let sep = match &sep {
             Either::A(s) => {
-                s_guard = s.borrow_value();
+                s_guard = s.as_str();
                 s_guard.as_bytes()
             }
             Either::B(bytes) => {
-                b_guard = bytes.borrow_value();
+                b_guard = bytes.as_bytes();
                 b_guard
             }
         };
@@ -1191,7 +1196,7 @@ pub fn bytes_from_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Vec
 
 pub fn value_from_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<u8> {
     vm.to_index(obj)?
-        .borrow_value()
+        .as_bigint()
         .to_u8()
         .ok_or_else(|| vm.new_value_error("byte must be in range(0, 256)".to_owned()))
 }

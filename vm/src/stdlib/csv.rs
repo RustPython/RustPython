@@ -6,13 +6,13 @@ use crate::builtins::pytype::PyTypeRef;
 use crate::common::lock::PyMutex;
 use crate::function::{ArgumentError, FromArgs, FuncArgs};
 use crate::iterator;
-use crate::pyobject::{
-    BorrowValue, PyClassImpl, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
-    TryFromObject, TypeProtocol,
-};
 use crate::slots::PyIter;
 use crate::types::create_simple_type;
 use crate::VirtualMachine;
+use crate::{
+    PyClassImpl, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject,
+    TypeProtocol,
+};
 
 #[repr(i32)]
 pub enum QuoteStyle {
@@ -31,7 +31,7 @@ impl FromArgs for FormatOptions {
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
         let delimiter = if let Some(delimiter) = args.kwargs.remove("delimiter") {
             PyStrRef::try_from_object(vm, delimiter)?
-                .borrow_value()
+                .as_str()
                 .bytes()
                 .exactly_one()
                 .map_err(|_| {
@@ -44,7 +44,7 @@ impl FromArgs for FormatOptions {
 
         let quotechar = if let Some(quotechar) = args.kwargs.remove("quotechar") {
             PyStrRef::try_from_object(vm, quotechar)?
-                .borrow_value()
+                .as_str()
                 .bytes()
                 .exactly_one()
                 .map_err(|_| {
@@ -114,7 +114,7 @@ impl PyIter for Reader {
                 obj.class().name
             ))
         })?;
-        let input = string.borrow_value().as_bytes();
+        let input = string.as_str().as_bytes();
 
         let mut state = zelf.state.lock();
         let ReadState {
@@ -235,11 +235,11 @@ impl Writer {
             let field: PyObjectRef = field?;
             let stringified;
             let data: &[u8] = match_class!(match field {
-                ref s @ PyStr => s.borrow_value().as_bytes(),
+                ref s @ PyStr => s.as_str().as_bytes(),
                 crate::builtins::PyNone => b"",
                 ref obj => {
                     stringified = vm.to_str(obj)?;
-                    stringified.borrow_value().as_bytes()
+                    stringified.as_str().as_bytes()
                 }
             });
 

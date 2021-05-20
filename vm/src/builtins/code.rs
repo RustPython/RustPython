@@ -7,11 +7,11 @@ use std::ops::Deref;
 
 use super::{PyStrRef, PyTypeRef};
 use crate::bytecode::{self, BorrowedConstant, Constant, ConstantBag};
-use crate::pyobject::{
-    BorrowValue, IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    StaticType, TypeProtocol,
-};
 use crate::VirtualMachine;
+use crate::{
+    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
+    TypeProtocol,
+};
 use num_traits::Zero;
 
 #[derive(Clone)]
@@ -32,7 +32,7 @@ pub struct PyConstant(pub PyObjectRef);
 fn borrow_obj_constant(obj: &PyObjectRef) -> BorrowedConstant<PyConstant> {
     match_class!(match obj {
         ref i @ super::int::PyInt => {
-            let value = i.borrow_value();
+            let value = i.as_bigint();
             if obj.class().is(super::pybool::PyBool::static_type()) {
                 BorrowedConstant::Boolean {
                     value: !value.is_zero(),
@@ -45,18 +45,16 @@ fn borrow_obj_constant(obj: &PyObjectRef) -> BorrowedConstant<PyConstant> {
         ref c @ super::complex::PyComplex => BorrowedConstant::Complex {
             value: c.to_complex()
         },
-        ref s @ super::pystr::PyStr => BorrowedConstant::Str {
-            value: s.borrow_value()
-        },
+        ref s @ super::pystr::PyStr => BorrowedConstant::Str { value: s.as_str() },
         ref b @ super::bytes::PyBytes => BorrowedConstant::Bytes {
-            value: b.borrow_value()
+            value: b.as_bytes()
         },
         ref c @ PyCode => {
             BorrowedConstant::Code { code: &c.code }
         }
         ref t @ super::tuple::PyTuple => {
             BorrowedConstant::Tuple {
-                elements: Box::new(t.borrow_value().iter().map(borrow_obj_constant)),
+                elements: Box::new(t.as_slice().iter().map(borrow_obj_constant)),
             }
         }
         super::singletons::PyNone => BorrowedConstant::None,
@@ -209,7 +207,7 @@ impl PyCodeRef {
             "<code object {} at {:#x} file {:?}, line {}>",
             code.obj_name,
             self.get_id(),
-            code.source_path.borrow_value(),
+            code.source_path.as_str(),
             code.first_line_number
         )
     }

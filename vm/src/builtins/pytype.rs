@@ -17,12 +17,13 @@ use super::tuple::PyTuple;
 use super::weakref::PyWeak;
 use crate::builtins::tuple::PyTupleTyped;
 use crate::function::{FuncArgs, KwArgs};
-use crate::pyobject::{
-    BorrowValue, Either, IdProtocol, PyAttributes, PyClassImpl, PyContext, PyLease, PyObjectRef,
-    PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
-};
 use crate::slots::{self, Callable, PyTpFlags, PyTypeSlots, SlotGetattro, SlotSetattro};
+use crate::utils::Either;
 use crate::vm::VirtualMachine;
+use crate::{
+    IdProtocol, PyAttributes, PyClassImpl, PyContext, PyLease, PyObjectRef, PyRef, PyResult,
+    PyValue, TryFromObject, TypeProtocol,
+};
 use itertools::Itertools;
 use std::ops::Deref;
 
@@ -176,7 +177,7 @@ impl PyType {
                     let hash_obj = vm.call_special_method(zelf.clone(), "__hash__", ())?;
                     match hash_obj.payload_if_subclass::<PyInt>(vm) {
                         Some(py_int) => {
-                            Ok(rustpython_common::hash::hash_bigint(py_int.borrow_value()))
+                            Ok(rustpython_common::hash::hash_bigint(py_int.as_bigint()))
                         }
                         None => Err(vm
                             .new_type_error("__hash__ method should return an integer".to_owned())),
@@ -379,7 +380,7 @@ impl PyType {
         let (name, bases, dict, kwargs): (PyStrRef, PyTupleTyped<PyTypeRef>, PyDictRef, KwArgs) =
             args.clone().bind(vm)?;
 
-        let bases = bases.borrow_value().to_vec();
+        let bases = bases.as_slice();
         let (metatype, base, bases) = if bases.is_empty() {
             let base = vm.ctx.types.object_type.clone();
             (metatype, base.clone(), vec![base])
@@ -393,7 +394,7 @@ impl PyType {
             // }
 
             // Search the bases for the proper metatype to deal with this:
-            let winner = calculate_meta_class(metatype.clone(), &bases, vm)?;
+            let winner = calculate_meta_class(metatype.clone(), bases, vm)?;
             let metatype = if !winner.is(&metatype) {
                 #[allow(clippy::redundant_clone)] // false positive
                 if let Some(ref tp_new) = winner.clone().slots.new {
@@ -406,9 +407,9 @@ impl PyType {
                 metatype
             };
 
-            let base = best_base(&bases, vm)?;
+            let base = best_base(bases, vm)?;
 
-            (metatype, base, bases)
+            (metatype, base, bases.to_vec())
         };
 
         let mut attributes = dict.to_attributes();
@@ -437,15 +438,8 @@ impl PyType {
 
         let slots = PyTypeSlots::from_flags(flags);
 
-        let typ = new(
-            metatype,
-            name.borrow_value(),
-            base,
-            bases,
-            attributes,
-            slots,
-        )
-        .map_err(|e| vm.new_type_error(e))?;
+        let typ = new(metatype, name.as_str(), base, bases, attributes, slots)
+            .map_err(|e| vm.new_type_error(e))?;
 
         vm.ctx.add_slot_wrappers(&typ);
 
@@ -503,7 +497,7 @@ impl PyType {
 
 impl SlotGetattro for PyType {
     fn getattro(zelf: PyRef<Self>, name_str: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        let name = name_str.borrow_value();
+        let name = name_str.as_str();
         vm_trace!("type.__getattribute__({:?}, {:?})", zelf, name);
         let mcl = zelf.class();
 
@@ -552,7 +546,7 @@ impl SlotSetattro for PyType {
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        if let Some(attr) = zelf.get_class_attr(attr_name.borrow_value()) {
+        if let Some(attr) = zelf.get_class_attr(attr_name.as_str()) {
             let descr_set = attr.class().mro_find_map(|cls| cls.slots.descr_set.load());
             if let Some(descriptor) = descr_set {
                 return descriptor(attr, zelf.clone().into_object(), value, vm);
@@ -562,9 +556,9 @@ impl SlotSetattro for PyType {
 
         let mut attributes = zelf.attributes.write();
         if let Some(value) = value {
-            attributes.insert(attr_name.borrow_value().to_owned(), value);
+            attributes.insert(attr_name.as_str().to_owned(), value);
         } else {
-            let prev_value = attributes.remove(attr_name.borrow_value());
+            let prev_value = attributes.remove(attr_name.as_str());
             if prev_value.is_none() {
                 return Err(vm.new_exception(
                     vm.ctx.exceptions.attribute_error.clone(),
@@ -572,7 +566,7 @@ impl SlotSetattro for PyType {
                 ));
             }
         }
-        let attr_name = attr_name.borrow_value();
+        let attr_name = attr_name.as_str();
         if attr_name.starts_with("__") && attr_name.ends_with("__") {
             zelf.update_slot(attr_name, assign);
         }

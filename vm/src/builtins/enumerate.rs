@@ -7,11 +7,9 @@ use super::int::PyIntRef;
 use super::pytype::PyTypeRef;
 use crate::function::OptionalArg;
 use crate::iterator;
-use crate::pyobject::{
-    BorrowValue, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-};
 use crate::slots::PyIter;
 use crate::vm::VirtualMachine;
+use crate::{IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 
 #[pyclass(module = false, name = "enumerate")]
 #[derive(Debug)]
@@ -39,7 +37,7 @@ impl PyEnumerate {
     #[pyslot]
     fn tp_new(cls: PyTypeRef, args: EnumerateArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         let counter = match args.start {
-            OptionalArg::Present(start) => start.borrow_value().clone(),
+            OptionalArg::Present(start) => start.as_bigint().clone(),
             OptionalArg::Missing => BigInt::zero(),
         };
 

@@ -6,9 +6,8 @@ mod decl {
     use crate::builtins::code::{PyCode, PyCodeRef};
     use crate::bytecode;
     use crate::byteslike::PyBytesLike;
-    use crate::common::borrow::BorrowValue;
-    use crate::pyobject::{PyObjectRef, PyResult, TryFromObject};
     use crate::vm::VirtualMachine;
+    use crate::{PyObjectRef, PyResult, TryFromObject};
 
     #[pyfunction]
     fn dumps(co: PyCodeRef) -> PyBytes {
@@ -24,7 +23,7 @@ mod decl {
     #[pyfunction]
     fn loads(code_bytes: PyBytesLike, vm: &VirtualMachine) -> PyResult<PyCode> {
         let code =
-            bytecode::CodeObject::from_bytes(&*code_bytes.borrow_value()).map_err(|e| match e {
+            bytecode::CodeObject::from_bytes(&*code_bytes.borrow_buf()).map_err(|e| match e {
                 bytecode::CodeDeserializeError::Eof => vm.new_exception_msg(
                     vm.ctx.exceptions.eof_error.clone(),
                     "end of file while deserializing bytecode".to_owned(),

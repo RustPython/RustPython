@@ -5,13 +5,11 @@ mod _collections {
     use crate::builtins::pytype::PyTypeRef;
     use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
     use crate::function::OptionalArg;
-    use crate::pyobject::{
-        PyComparisonValue, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
-    };
     use crate::slots::{Comparable, Iterable, PyComparisonOp, PyIter};
     use crate::vm::ReprGuard;
     use crate::VirtualMachine;
     use crate::{sequence, sliceable};
+    use crate::{PyComparisonValue, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, StaticType};
     use itertools::Itertools;
     use std::collections::VecDeque;
 

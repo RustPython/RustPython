@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use std::ops::Range;
 
 use crate::builtins::{pybool, PyBytesRef, PyStr, PyStrRef, PyTuple, PyTupleRef};
-use crate::common::borrow::BorrowValue;
 use crate::common::lock::PyRwLock;
 use crate::pyobject::{
     IntoPyObject, PyContext, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
@@ -45,11 +44,11 @@ impl PyCodec {
 
     #[inline]
     pub fn get_encode_func(&self) -> &PyObjectRef {
-        &self.0.borrow_value()[0]
+        &self.0.as_slice()[0]
     }
     #[inline]
     pub fn get_decode_func(&self) -> &PyObjectRef {
-        &self.0.borrow_value()[1]
+        &self.0.as_slice()[1]
     }
 
     pub fn is_text_codec(&self, vm: &VirtualMachine) -> PyResult<bool> {
@@ -76,7 +75,7 @@ impl PyCodec {
                 vm.new_type_error("encoder must return a tuple (object, integer)".to_owned())
             })?;
         // we don't actually care about the integer
-        Ok(res.borrow_value()[0].clone())
+        Ok(res.as_slice()[0].clone())
     }
 
     pub fn decode(
@@ -98,7 +97,7 @@ impl PyCodec {
                 vm.new_type_error("decoder must return a tuple (object,integer)".to_owned())
             })?;
         // we don't actually care about the integer
-        Ok(res.borrow_value()[0].clone())
+        Ok(res.as_slice()[0].clone())
     }
 
     pub fn get_incremental_encoder(
@@ -200,7 +199,7 @@ impl CodecsRegistry {
                 // someone might have raced us to this, so use theirs
                 let codec = inner
                     .search_cache
-                    .entry(encoding.borrow_value().to_owned())
+                    .entry(encoding.as_str().to_owned())
                     .or_insert(codec);
                 return Ok(codec.clone());
             }
@@ -380,8 +379,7 @@ fn xmlcharrefreplace_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(
     }
     let range = extract_unicode_error_range(&err, vm)?;
     let s = PyStrRef::try_from_object(vm, vm.get_attribute(err, "object")?)?;
-    let s_after_start =
-        crate::common::str::try_get_chars(s.borrow_value(), range.start..).unwrap_or("");
+    let s_after_start = crate::common::str::try_get_chars(s.as_str(), range.start..).unwrap_or("");
     let num_chars = range.len();
     // capacity rough guess; assuming that the codepoints are 3 digits in decimal + the &#;
     let mut out = String::with_capacity(num_chars * 6);
@@ -401,8 +399,7 @@ fn backslashreplace_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(S
     }
     let range = extract_unicode_error_range(&err, vm)?;
     let s = PyStrRef::try_from_object(vm, vm.get_attribute(err, "object")?)?;
-    let s_after_start =
-        crate::common::str::try_get_chars(s.borrow_value(), range.start..).unwrap_or("");
+    let s_after_start = crate::common::str::try_get_chars(s.as_str(), range.start..).unwrap_or("");
     let num_chars = range.len();
     // minimum 4 output bytes per char: \xNN
     let mut out = String::with_capacity(num_chars * 4);

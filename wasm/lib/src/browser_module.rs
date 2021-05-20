@@ -6,11 +6,10 @@ use wasm_bindgen_futures::JsFuture;
 use rustpython_vm::builtins::{PyDictRef, PyStrRef, PyTypeRef};
 use rustpython_vm::function::OptionalArg;
 use rustpython_vm::import::import_file;
-use rustpython_vm::pyobject::{
-    BorrowValue, IntoPyObject, PyCallable, PyClassImpl, PyObject, PyObjectRef, PyResult, PyValue,
-    StaticType,
-};
 use rustpython_vm::VirtualMachine;
+use rustpython_vm::{
+    IntoPyObject, PyCallable, PyClassImpl, PyObject, PyObjectRef, PyResult, PyValue, StaticType,
+};
 
 use crate::{convert, js_module::PyPromise, vm_class::weak_vm, wasm_builtins::window};
 
@@ -62,14 +61,14 @@ fn browser_fetch(url: PyStrRef, args: FetchArgs, vm: &VirtualMachine) -> PyResul
     } = args;
 
     let response_format = match response_format {
-        Some(s) => FetchResponseFormat::from_str(vm, s.borrow_value())?,
+        Some(s) => FetchResponseFormat::from_str(vm, s.as_str())?,
         None => FetchResponseFormat::Text,
     };
 
     let mut opts = web_sys::RequestInit::new();
 
     match method {
-        Some(s) => opts.method(s.borrow_value()),
+        Some(s) => opts.method(s.as_str()),
         None => opts.method("GET"),
     };
 
@@ -77,7 +76,7 @@ fn browser_fetch(url: PyStrRef, args: FetchArgs, vm: &VirtualMachine) -> PyResul
         opts.body(Some(&convert::py_to_js(vm, body)));
     }
 
-    let request = web_sys::Request::new_with_str_and_init(url.borrow_value(), &opts)
+    let request = web_sys::Request::new_with_str_and_init(url.as_str(), &opts)
         .map_err(|err| convert::js_py_typeerror(vm, err))?;
 
     if let Some(headers) = headers {
@@ -85,7 +84,7 @@ fn browser_fetch(url: PyStrRef, args: FetchArgs, vm: &VirtualMachine) -> PyResul
         for (key, value) in headers {
             let key = vm.to_str(&key)?;
             let value = vm.to_str(&value)?;
-            h.set(key.borrow_value(), value.borrow_value())
+            h.set(key.as_str(), value.as_str())
                 .map_err(|err| convert::js_py_typeerror(vm, err))?;
         }
     }
@@ -93,7 +92,7 @@ fn browser_fetch(url: PyStrRef, args: FetchArgs, vm: &VirtualMachine) -> PyResul
     if let Some(content_type) = content_type {
         request
             .headers()
-            .set("Content-Type", content_type.borrow_value())
+            .set("Content-Type", content_type.as_str())
             .map_err(|err| convert::js_py_typeerror(vm, err))?;
     }
 
@@ -171,7 +170,7 @@ impl Document {
     fn query(&self, query: PyStrRef, vm: &VirtualMachine) -> PyResult {
         let elem = self
             .doc
-            .query_selector(query.borrow_value())
+            .query_selector(query.as_str())
             .map_err(|err| convert::js_py_typeerror(vm, err))?
             .map(|elem| Element { elem })
             .into_pyobject(vm);
@@ -200,7 +199,7 @@ impl Element {
         default: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyObjectRef {
-        match self.elem.get_attribute(attr.borrow_value()) {
+        match self.elem.get_attribute(attr.as_str()) {
             Some(s) => vm.ctx.new_str(s),
             None => default.unwrap_or_none(vm),
         }
@@ -209,7 +208,7 @@ impl Element {
     #[pymethod]
     fn set_attr(&self, attr: PyStrRef, value: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
         self.elem
-            .set_attribute(attr.borrow_value(), value.borrow_value())
+            .set_attribute(attr.as_str(), value.as_str())
             .map_err(|err| convert::js_py_typeerror(vm, err))
     }
 }
@@ -220,7 +219,7 @@ fn browser_load_module(module: PyStrRef, path: PyStrRef, vm: &VirtualMachine) ->
     let mut opts = web_sys::RequestInit::new();
     opts.method("GET");
 
-    let request = web_sys::Request::new_with_str_and_init(path.borrow_value(), &opts)
+    let request = web_sys::Request::new_with_str_and_init(path.as_str(), &opts)
         .map_err(|err| convert::js_py_typeerror(vm, err))?;
 
     let window = window();
@@ -237,7 +236,7 @@ fn browser_load_module(module: PyStrRef, path: PyStrRef, vm: &VirtualMachine) ->
             .expect("that the vm is valid when the promise resolves");
         stored_vm.interp.enter(move |vm| {
             let resp_text = text.as_string().unwrap();
-            let res = import_file(vm, module.borrow_value(), "WEB".to_owned(), resp_text);
+            let res = import_file(vm, module.as_str(), "WEB".to_owned(), resp_text);
             match res {
                 Ok(_) => Ok(JsValue::null()),
                 Err(err) => Err(convert::py_err_to_js_err(vm, &err)),

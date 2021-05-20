@@ -18,7 +18,6 @@
 //! mod mymod {
 //!     use rustpython_vm::builtins::PyStrRef;
 //TODO: use rustpython_vm::prelude::*;
-//!     use rustpython_vm::common::borrow::BorrowValue;
 //!
 //!     #[pyfunction]
 //!     fn do_thing(x: i32) -> i32 {
@@ -28,7 +27,7 @@
 //!     #[pyfunction]
 //!     fn other_thing(s: PyStrRef) -> (String, usize) {
 //!         let new_string = format!("hello from rust, {}!", s);
-//!         let prev_len = s.borrow_value().len();
+//!         let prev_len = s.as_str().len();
 //!         (new_string, prev_len)
 //!     }
 //! }
@@ -46,13 +45,8 @@ extern crate log;
 
 use clap::{App, AppSettings, Arg, ArgMatches};
 use rustpython_vm::{
-    builtins::PyInt,
-    compile,
-    exceptions::print_exception,
-    match_class,
-    pyobject::{BorrowValue, ItemProtocol, PyResult, TypeProtocol},
-    scope::Scope,
-    sysmodule, InitParameter, Interpreter, PySettings, VirtualMachine,
+    builtins::PyInt, compile, exceptions::print_exception, match_class, scope::Scope, sysmodule,
+    InitParameter, Interpreter, ItemProtocol, PyResult, PySettings, TypeProtocol, VirtualMachine,
 };
 
 use std::convert::TryInto;
@@ -121,12 +115,12 @@ where
             Ok(()) => 0,
             Err(err) if err.isinstance(&vm.ctx.exceptions.system_exit) => {
                 let args = err.args();
-                match args.borrow_value() {
+                match args.as_slice() {
                     [] => 0,
                     [arg] => match_class!(match arg {
                         ref i @ PyInt => {
                             use num_traits::cast::ToPrimitive;
-                            i.borrow_value().to_i32().unwrap_or(0)
+                            i.as_bigint().to_i32().unwrap_or(0)
                         }
                         arg => {
                             if vm.is_none(arg) {
@@ -559,12 +553,7 @@ __import__("io").TextIOWrapper(
             .downcast()
             .expect("TextIOWrapper.read() should return str");
         eprintln!("running get-pip.py...");
-        _run_string(
-            vm,
-            scope,
-            getpip_code.borrow_value(),
-            "get-pip.py".to_owned(),
-        )?;
+        _run_string(vm, scope, getpip_code.as_str(), "get-pip.py".to_owned())?;
     } else if let Some(filename) = matches.value_of("script") {
         run_script(&vm, scope.clone(), filename)?;
         if matches.is_present("inspect") {

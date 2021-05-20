@@ -13,15 +13,15 @@ use crate::bytecode;
 use crate::common::lock::PyMutex;
 use crate::frame::Frame;
 use crate::function::{FuncArgs, OptionalArg};
-#[cfg(feature = "jit")]
-use crate::pyobject::IntoPyObject;
-use crate::pyobject::{
-    BorrowValue, IdProtocol, ItemProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef,
-    PyRef, PyResult, PyValue, TypeProtocol,
-};
 use crate::scope::Scope;
 use crate::slots::{Callable, Comparable, PyComparisonOp, SlotDescriptor, SlotGetattro};
+#[cfg(feature = "jit")]
+use crate::IntoPyObject;
 use crate::VirtualMachine;
+use crate::{
+    IdProtocol, ItemProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
+    PyResult, PyValue, TypeProtocol,
+};
 use itertools::Itertools;
 #[cfg(feature = "jit")]
 use rustpython_common::lock::OnceCell;
@@ -125,7 +125,7 @@ impl PyFunction {
                 .enumerate()
                 .skip(range.start)
                 .take(range.end - range.start)
-                .find(|(_, s)| s.borrow_value() == name)
+                .find(|(_, s)| s.as_str() == name)
                 .map(|(p, _)| p)
         };
 
@@ -171,7 +171,7 @@ impl PyFunction {
         // Add missing positional arguments, if we have fewer positional arguments than the
         // function definition calls for
         if nargs < nexpected_args {
-            let defaults = get_defaults!().0.as_ref().map(|tup| tup.borrow_value());
+            let defaults = get_defaults!().0.as_ref().map(|tup| tup.as_slice());
             let ndefs = defaults.map_or(0, |d| d.len());
 
             let nrequired = code.arg_count - ndefs;
@@ -277,7 +277,7 @@ impl PyFunction {
             code.clone(),
             Scope::new(Some(locals), self.globals.clone()),
             vm.builtins.dict().unwrap(),
-            self.closure.as_ref().map_or(&[], |c| c.borrow_value()),
+            self.closure.as_ref().map_or(&[], |c| c.as_slice()),
             vm,
         )
         .into_ref(vm);
@@ -424,7 +424,7 @@ impl Comparable for PyBoundMethod {
 
 impl SlotGetattro for PyBoundMethod {
     fn getattro(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(obj) = zelf.get_class_attr(name.borrow_value()) {
+        if let Some(obj) = zelf.get_class_attr(name.as_str()) {
             return vm.call_if_get_descriptor(obj, zelf.into_object());
         }
         vm.get_attribute(zelf.function.clone(), name)
@@ -458,8 +458,8 @@ impl PyBoundMethod {
         let funcname: Option<PyStrRef> = funcname.and_then(|o| o.downcast().ok());
         Ok(format!(
             "<bound method {} of {}>",
-            funcname.as_ref().map_or("?", |s| s.borrow_value()),
-            vm.to_repr(&self.object)?.borrow_value(),
+            funcname.as_ref().map_or("?", |s| s.as_str()),
+            vm.to_repr(&self.object)?.as_str(),
         ))
     }
 

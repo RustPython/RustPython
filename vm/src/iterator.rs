@@ -5,8 +5,8 @@
 use crate::builtins::int::{self, PyInt};
 use crate::builtins::iter::PySequenceIterator;
 use crate::exceptions::PyBaseExceptionRef;
-use crate::pyobject::{BorrowValue, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol};
 use crate::vm::VirtualMachine;
+use crate::{PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol};
 use num_traits::Signed;
 
 /*
@@ -103,7 +103,7 @@ pub fn stop_iter_with_value(val: PyObjectRef, vm: &VirtualMachine) -> PyBaseExce
 
 pub fn stop_iter_value(vm: &VirtualMachine, exc: &PyBaseExceptionRef) -> PyObjectRef {
     let args = exc.args();
-    vm.unwrap_or_none(args.borrow_value().first().cloned())
+    vm.unwrap_or_none(args.as_slice().first().cloned())
 }
 
 pub fn length_hint(vm: &VirtualMachine, iter: PyObjectRef) -> PyResult<Option<usize>> {
@@ -139,7 +139,7 @@ pub fn length_hint(vm: &VirtualMachine, iter: PyObjectRef) -> PyResult<Option<us
                 result.class().name
             ))
         })?
-        .borrow_value();
+        .as_bigint();
     if result.is_negative() {
         return Err(vm.new_value_error("__length_hint__() should return >= 0".to_owned()));
     }

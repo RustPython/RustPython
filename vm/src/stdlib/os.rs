@@ -23,12 +23,13 @@ use crate::byteslike::PyBytesLike;
 use crate::common::lock::PyRwLock;
 use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
 use crate::function::{ArgumentError, FromArgs, FuncArgs, OptionalArg};
-use crate::pyobject::{
-    BorrowValue, Either, IntoPyObject, ItemProtocol, PyObjectRef, PyRef, PyResult,
-    PyStructSequence, PyValue, StaticType, TryFromObject, TypeProtocol,
-};
 use crate::slots::PyIter;
+use crate::utils::Either;
 use crate::vm::{ReprGuard, VirtualMachine};
+use crate::{
+    IntoPyObject, ItemProtocol, PyObjectRef, PyRef, PyResult, PyStructSequence, PyValue,
+    StaticType, TryFromObject, TypeProtocol,
+};
 
 #[cfg(unix)]
 use std::os::unix::ffi as ffi_ext;
@@ -134,7 +135,7 @@ fn fspath(obj: PyObjectRef, check_for_nul: bool, vm: &VirtualMachine) -> PyResul
     let match1 = |obj: &PyObjectRef| {
         let pathlike = match_class!(match obj {
             ref s @ PyStr => {
-                let s = s.borrow_value();
+                let s = s.as_str();
                 check_nul(s.as_bytes())?;
                 PyPathLike {
                     path: s.into(),
@@ -185,7 +186,7 @@ enum PathOrFd {
 impl TryFromObject for PathOrFd {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         match obj.downcast::<int::PyInt>() {
-            Ok(int) => int::try_to_primitive(int.borrow_value(), vm).map(Self::Fd),
+            Ok(int) => int::try_to_primitive(int.as_bigint(), vm).map(Self::Fd),
             Err(obj) => PyPathLike::try_from_object(vm, obj).map(Self::Path),
         }
     }
@@ -330,7 +331,7 @@ impl<const AVAILABLE: usize> FromArgs for DirFd<AVAILABLE> {
                         o.class().name
                     )))
                 })?;
-                let fd = int::try_to_primitive(fd.borrow_value(), vm)?;
+                let fd = int::try_to_primitive(fd.as_bigint(), vm)?;
                 Fd(fd)
             }
         };
@@ -508,7 +509,7 @@ mod _os {
 
         let headers = headers
             .as_ref()
-            .map(|v| v.iter().map(|b| b.borrow_value()).collect::<Vec<_>>());
+            .map(|v| v.iter().map(|b| b.borrow_buf()).collect::<Vec<_>>());
         let headers = headers
             .as_ref()
             .map(|v| v.iter().map(|borrowed| &**borrowed).collect::<Vec<_>>());
@@ -521,7 +522,7 @@ mod _os {
 
         let trailers = trailers
             .as_ref()
-            .map(|v| v.iter().map(|b| b.borrow_value()).collect::<Vec<_>>());
+            .map(|v| v.iter().map(|b| b.borrow_buf()).collect::<Vec<_>>());
         let trailers = trailers
             .as_ref()
             .map(|v| v.iter().map(|borrowed| &**borrowed).collect::<Vec<_>>());
@@ -622,7 +623,7 @@ mod _os {
 
     #[pyfunction]
     fn mkdirs(path: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-        fs::create_dir_all(path.borrow_value()).map_err(|err| err.into_pyexception(vm))
+        fs::create_dir_all(path.as_str()).map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
@@ -689,12 +690,12 @@ mod _os {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let key: &ffi::OsStr = match key {
-            Either::A(ref s) => s.borrow_value().as_ref(),
-            Either::B(ref b) => bytes_as_osstr(b.borrow_value(), vm)?,
+            Either::A(ref s) => s.as_str().as_ref(),
+            Either::B(ref b) => bytes_as_osstr(b.as_bytes(), vm)?,
         };
         let value: &ffi::OsStr = match value {
-            Either::A(ref s) => s.borrow_value().as_ref(),
-            Either::B(ref b) => bytes_as_osstr(b.borrow_value(), vm)?,
+            Either::A(ref s) => s.as_str().as_ref(),
+            Either::B(ref b) => bytes_as_osstr(b.as_bytes(), vm)?,
         };
         env::set_var(key, value);
         Ok(())
@@ -703,8 +704,8 @@ mod _os {
     #[pyfunction]
     fn unsetenv(key: Either<PyStrRef, PyBytesRef>, vm: &VirtualMachine) -> PyResult<()> {
         let key: &ffi::OsStr = match key {
-            Either::A(ref s) => s.borrow_value().as_ref(),
-            Either::B(ref b) => bytes_as_osstr(b.borrow_value(), vm)?,
+            Either::A(ref s) => s.as_str().as_ref(),
+            Either::B(ref b) => bytes_as_osstr(b.as_bytes(), vm)?,
         };
         env::remove_var(key);
         Ok(())
@@ -1308,7 +1309,7 @@ mod _os {
     #[pyfunction]
     fn utime(args: UtimeArgs, vm: &VirtualMachine) -> PyResult<()> {
         let parse_tup = |tup: &PyTuple| -> Option<(PyObjectRef, PyObjectRef)> {
-            let tup = tup.borrow_value();
+            let tup = tup.as_slice();
             if tup.len() != 2 {
                 None
             } else {
@@ -1345,8 +1346,8 @@ mod _os {
                                     divmod.class().name
                                 ))
                             })?;
-                    let secs = int::try_to_primitive(vm.to_index(&div)?.borrow_value(), vm)?;
-                    let ns = int::try_to_primitive(vm.to_index(&rem)?.borrow_value(), vm)?;
+                    let secs = int::try_to_primitive(vm.to_index(&div)?.as_bigint(), vm)?;
+                    let ns = int::try_to_primitive(vm.to_index(&rem)?.as_bigint(), vm)?;
                     Ok(Duration::new(secs, ns))
                 };
                 // TODO: do validation to make sure this doesn't.. underflow?
@@ -1662,7 +1663,7 @@ mod posix {
 
     use crate::builtins::dict::PyMapping;
     use crate::builtins::list::PyListRef;
-    use crate::pyobject::PyIterable;
+    use crate::PyIterable;
     use bitflags::bitflags;
     use nix::errno::{errno, Errno};
     use nix::unistd::{self, Gid, Pid, Uid};
@@ -2069,7 +2070,7 @@ mod posix {
     fn system(command: PyStrRef) -> PyResult<i32> {
         use std::ffi::CString;
 
-        let rstr = command.borrow_value();
+        let rstr = command.as_str();
         let cstr = CString::new(rstr).unwrap();
         let x = unsafe { libc::system(cstr.as_ptr()) };
         Ok(x)
@@ -2100,7 +2101,7 @@ mod posix {
         argv: Either<PyListRef, PyTupleRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let path = ffi::CString::new(path.borrow_value())
+        let path = ffi::CString::new(path.as_str())
             .map_err(|_| vm.new_value_error("embedded null character".to_owned()))?;
 
         let argv: Vec<ffi::CString> = vm.extract_elements(argv.as_object())?;
@@ -2405,7 +2406,7 @@ mod posix {
     ))]
     #[pyfunction]
     fn initgroups(user_name: PyStrRef, gid: u32, vm: &VirtualMachine) -> PyResult<()> {
-        let user = ffi::CString::new(user_name.borrow_value()).unwrap();
+        let user = ffi::CString::new(user_name.as_str()).unwrap();
         let gid = Gid::from_raw(gid);
         unistd::initgroups(&user, gid).map_err(|err| err.into_pyexception(vm))
     }
@@ -2492,7 +2493,7 @@ mod posix {
             if let Some(it) = self.file_actions {
                 for action in it.iter(vm)? {
                     let action = action?;
-                    let (id, args) = action.borrow_value().split_first().ok_or_else(|| {
+                    let (id, args) = action.as_slice().split_first().ok_or_else(|| {
                         vm.new_type_error(
                             "Each file_actions element must be a non-empty tuple".to_owned(),
                         )
@@ -2794,7 +2795,7 @@ mod posix {
     ))]
     #[pyfunction]
     fn getgrouplist(user: PyStrRef, group: u32, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        let user = ffi::CString::new(user.borrow_value()).unwrap();
+        let user = ffi::CString::new(user.as_str()).unwrap();
         let gid = Gid::from_raw(group);
         let group_ids = unistd::getgrouplist(&user, gid).map_err(|err| err.into_pyexception(vm))?;
         Ok(vm.ctx.new_list(
@@ -3088,7 +3089,7 @@ mod nt {
         use std::os::windows::prelude::*;
         use std::str::FromStr;
 
-        let path: Vec<u16> = ffi::OsString::from_str(path.borrow_value())
+        let path: Vec<u16> = ffi::OsString::from_str(path.as_str())
             .unwrap()
             .encode_wide()
             .chain(once(0u16))

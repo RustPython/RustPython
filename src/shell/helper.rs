@@ -1,6 +1,6 @@
 use rustpython_vm::builtins::{PyDictRef, PyStrRef};
-use rustpython_vm::pyobject::{BorrowValue, PyIterable, PyResult, TryFromObject};
 use rustpython_vm::VirtualMachine;
+use rustpython_vm::{PyIterable, PyResult, TryFromObject};
 
 pub struct ShellHelper<'vm> {
     vm: &'vm VirtualMachine,
@@ -104,7 +104,7 @@ impl<'vm> ShellHelper<'vm> {
             .filter(|res| {
                 res.as_ref()
                     .ok()
-                    .map_or(true, |s| s.borrow_value().starts_with(word_start))
+                    .map_or(true, |s| s.as_str().starts_with(word_start))
             })
             .collect::<Result<Vec<_>, _>>()
             .ok()?;
@@ -117,7 +117,7 @@ impl<'vm> ShellHelper<'vm> {
             let no_underscore = all_completions
                 .iter()
                 .cloned()
-                .filter(|s| !s.borrow_value().starts_with('_'))
+                .filter(|s| !s.as_str().starts_with('_'))
                 .collect::<Vec<_>>();
 
             // if there are only completions that start with a '_', give them all of the
@@ -130,13 +130,13 @@ impl<'vm> ShellHelper<'vm> {
         };
 
         // sort the completions alphabetically
-        completions.sort_by(|a, b| std::cmp::Ord::cmp(a.borrow_value(), b.borrow_value()));
+        completions.sort_by(|a, b| std::cmp::Ord::cmp(a.as_str(), b.as_str()));
 
         Some((
             startpos,
             completions
                 .into_iter()
-                .map(|s| s.borrow_value().to_owned())
+                .map(|s| s.as_str().to_owned())
                 .collect(),
         ))
     }

@@ -4,10 +4,8 @@ use crate::builtins::{PyStr, PyStrRef};
 /// And: https://www.youtube.com/watch?v=p33CVV29OG8
 /// And: http://code.activestate.com/recipes/578375/
 use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
-use crate::pyobject::{
-    BorrowValue, IdProtocol, IntoPyObject, PyObjectRef, PyRefExact, PyResult, TypeProtocol,
-};
 use crate::vm::VirtualMachine;
+use crate::{IdProtocol, IntoPyObject, PyObjectRef, PyRefExact, PyResult, TypeProtocol};
 use rustpython_common::hash;
 use std::fmt;
 use std::mem::size_of;
@@ -205,11 +203,11 @@ impl<T> DictInner<T> {
 }
 
 impl<T: Clone> Dict<T> {
-    fn borrow_value(&self) -> PyRwLockReadGuard<'_, DictInner<T>> {
+    fn read(&self) -> PyRwLockReadGuard<'_, DictInner<T>> {
         self.inner.read()
     }
 
-    fn borrow_value_mut(&self) -> PyRwLockWriteGuard<'_, DictInner<T>> {
+    fn write(&self) -> PyRwLockWriteGuard<'_, DictInner<T>> {
         self.inner.write()
     }
 
@@ -222,7 +220,7 @@ impl<T: Clone> Dict<T> {
         let _removed = loop {
             let (entry_index, index_index) = self.lookup(vm, &key, hash, None)?;
             if let IndexEntry::Index(index) = entry_index {
-                let mut inner = self.borrow_value_mut();
+                let mut inner = self.write();
                 // Update existing key
                 if let Some(entry) = inner.entries.get_mut(index) {
                     if entry.index == index_index {
@@ -237,7 +235,7 @@ impl<T: Clone> Dict<T> {
                 }
             } else {
                 // New key:
-                let mut inner = self.borrow_value_mut();
+                let mut inner = self.write();
                 inner.unchecked_push(index_index, hash, key.into_pyobject(vm), value, entry_index);
                 break None;
             }
@@ -266,7 +264,7 @@ impl<T: Clone> Dict<T> {
         let ret = loop {
             let (entry, index_index) = self.lookup(vm, key, hash, None)?;
             if let IndexEntry::Index(index) = entry {
-                let inner = self.borrow_value();
+                let inner = self.read();
                 if let Some(entry) = inner.entries.get(index) {
                     if entry.index == index_index {
                         break Some(entry.value.clone());
@@ -300,7 +298,7 @@ impl<T: Clone> Dict<T> {
 
     pub fn clear(&self) {
         let _removed = {
-            let mut inner = self.borrow_value_mut();
+            let mut inner = self.write();
             inner.indices.clear();
             inner.indices.resize(8, IndexEntry::FREE);
             inner.used = 0;
@@ -359,7 +357,7 @@ impl<T: Clone> Dict<T> {
                     // The dict was changed since we did lookup. Let's try again.
                 }
             } else {
-                let mut inner = self.borrow_value_mut();
+                let mut inner = self.write();
                 inner.unchecked_push(index_index, hash, key.clone(), value, entry);
                 break None;
             }
@@ -377,7 +375,7 @@ impl<T: Clone> Dict<T> {
             let lookup = self.lookup(vm, &key, hash, None)?;
             let (entry, index_index) = lookup;
             if let IndexEntry::Index(index) = entry {
-                let inner = self.borrow_value();
+                let inner = self.read();
                 if let Some(entry) = inner.entries.get(index) {
                     if entry.index == index_index {
                         break entry.value.clone();
@@ -390,7 +388,7 @@ impl<T: Clone> Dict<T> {
                 }
             } else {
                 let value = default();
-                let mut inner = self.borrow_value_mut();
+                let mut inner = self.write();
                 inner.unchecked_push(
                     index_index,
                     hash,
@@ -419,7 +417,7 @@ impl<T: Clone> Dict<T> {
             let lookup = self.lookup(vm, &key, hash, None)?;
             let (entry, index_index) = lookup;
             if let IndexEntry::Index(index) = entry {
-                let inner = self.borrow_value();
+                let inner = self.read();
                 if let Some(entry) = inner.entries.get(index) {
                     if entry.index == index_index {
                         break (entry.key.clone(), entry.value.clone());
@@ -433,7 +431,7 @@ impl<T: Clone> Dict<T> {
             } else {
                 let value = default();
                 let key = key.into_pyobject(vm);
-                let mut inner = self.borrow_value_mut();
+                let mut inner = self.write();
                 let ret = (key.clone(), value.clone());
                 inner.unchecked_push(index_index, hash, key, value, entry);
                 break ret;
@@ -443,7 +441,7 @@ impl<T: Clone> Dict<T> {
     }
 
     pub fn len(&self) -> usize {
-        self.borrow_value().used
+        self.read().used
     }
 
     pub fn is_empty(&self) -> bool {
@@ -451,31 +449,27 @@ impl<T: Clone> Dict<T> {
     }
 
     pub fn size(&self) -> DictSize {
-        self.borrow_value().size()
+        self.read().size()
     }
 
     pub fn next_entry(&self, position: &mut EntryIndex) -> Option<(PyObjectRef, T)> {
-        self.borrow_value().entries.get(*position).map(|entry| {
+        self.read().entries.get(*position).map(|entry| {
             *position += 1;
             (entry.key.clone(), entry.value.clone())
         })
     }
 
     pub fn len_from_entry_index(&self, position: EntryIndex) -> usize {
-        self.borrow_value().entries.len() - position
+        self.read().entries.len() - position
     }
 
     pub fn has_changed_size(&self, old: &DictSize) -> bool {
-        let current = self.borrow_value().size();
+        let current = self.read().size();
         current != *old
     }
 
     pub fn keys(&self) -> Vec<PyObjectRef> {
-        self.borrow_value()
-            .entries
-            .iter()
-            .map(|v| v.key.clone())
-            .collect()
+        self.read().entries.iter().map(|v| v.key.clone()).collect()
     }
 
     /// Lookup the index for the given key.
@@ -491,7 +485,7 @@ impl<T: Clone> Dict<T> {
         let mut freeslot = None;
         let ret = 'outer: loop {
             let (entry_key, ret) = {
-                let inner = lock.take().unwrap_or_else(|| self.borrow_value());
+                let inner = lock.take().unwrap_or_else(|| self.read());
                 let idxs = idxs.get_or_insert_with(|| {
                     GenIndexes::new(hash_value, (inner.indices.len() - 1) as i64)
                 });
@@ -545,7 +539,7 @@ impl<T: Clone> Dict<T> {
         } else {
             return Ok(None);
         };
-        let mut inner = self.borrow_value_mut();
+        let mut inner = self.write();
         if matches!(inner.entries.get(entry_index), Some(entry) if entry.index == index_index) {
             // all good
         } else {
@@ -580,7 +574,7 @@ impl<T: Clone> Dict<T> {
     }
 
     pub fn pop_back(&self) -> Option<(PyObjectRef, T)> {
-        let mut inner = self.borrow_value_mut();
+        let mut inner = self.write();
         inner.entries.pop().map(|entry| {
             inner.used -= 1;
             inner.indices[entry.index] = IndexEntry::DUMMY;
@@ -589,7 +583,7 @@ impl<T: Clone> Dict<T> {
     }
 
     pub fn sizeof(&self) -> usize {
-        let inner = self.borrow_value();
+        let inner = self.read();
         size_of::<Self>()
             + size_of::<DictInner<T>>()
             + inner.indices.len() * size_of::<i64>()
@@ -638,7 +632,7 @@ impl DictKey for PyStrRef {
         if self.is(other_key) {
             Ok(true)
         } else if let Some(pystr) = str_exact(other_key, vm) {
-            Ok(pystr.borrow_value() == self.borrow_value())
+            Ok(pystr.as_str() == self.as_str())
         } else {
             vm.bool_eq(self.as_object(), other_key)
         }
@@ -674,7 +668,7 @@ impl DictKey for &str {
 
     fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
         if let Some(pystr) = str_exact(other_key, vm) {
-            Ok(pystr.borrow_value() == *self)
+            Ok(pystr.as_str() == *self)
         } else {
             // Fall back to PyObjectRef implementation.
             let s = vm.ctx.new_str(*self);

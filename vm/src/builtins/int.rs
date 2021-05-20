@@ -15,14 +15,13 @@ use super::pystr::{PyStr, PyStrRef};
 use super::pytype::PyTypeRef;
 use crate::format::FormatSpec;
 use crate::function::{OptionalArg, OptionalOption};
-use crate::pyobject::{
-    BorrowValue, IdProtocol, IntoPyObject, IntoPyResult, PyArithmaticValue, PyClassImpl,
-    PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol,
-};
 use crate::slots::{Comparable, Hashable, PyComparisonOp};
 use crate::VirtualMachine;
 use crate::{bytesinner::PyBytesInner, byteslike::try_bytes_like};
+use crate::{
+    IdProtocol, IntoPyObject, IntoPyResult, PyArithmaticValue, PyClassImpl, PyComparisonValue,
+    PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+};
 use rustpython_common::hash;
 
 /// int(x=0) -> integer
@@ -52,14 +51,6 @@ impl fmt::Display for PyInt {
 }
 
 pub type PyIntRef = PyRef<PyInt>;
-
-impl<'a> BorrowValue<'a> for PyInt {
-    type Borrowed = &'a BigInt;
-
-    fn borrow_value(&'a self) -> Self::Borrowed {
-        &self.value
-    }
-}
 
 impl<T> From<T> for PyInt
 where
@@ -268,13 +259,17 @@ impl PyInt {
         }
     }
 
+    pub fn as_bigint(&self) -> &BigInt {
+        &self.value
+    }
+
     #[pyslot]
     fn tp_new(cls: PyTypeRef, options: IntOptions, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         let value = if let OptionalArg::Present(val) = options.val_options {
             if let OptionalArg::Present(base) = options.base {
                 let base = vm
                     .to_index(&base)?
-                    .borrow_value()
+                    .as_bigint()
                     .to_u32()
                     .filter(|&v| v == 0 || (2..=36).contains(&v))
                     .ok_or_else(|| {
@@ -441,7 +436,7 @@ impl PyInt {
                     None => return Ok(vm.ctx.not_implemented()),
                 };
 
-                let modulus = int.borrow_value();
+                let modulus = int.as_bigint();
                 if modulus.is_zero() {
                     return Err(vm.new_value_error("pow() 3rd argument cannot be 0".to_owned()));
                 }
@@ -597,7 +592,7 @@ impl PyInt {
 
     #[pymethod(name = "__format__")]
     fn format(&self, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
-        match FormatSpec::parse(spec.borrow_value())
+        match FormatSpec::parse(spec.as_str())
             .and_then(|format_spec| format_spec.format_int(&self.value))
         {
             Ok(string) => Ok(string),
@@ -642,7 +637,7 @@ impl PyInt {
             false
         };
 
-        let value = match (args.byteorder.borrow_value(), signed) {
+        let value = match (args.byteorder.as_str(), signed) {
             ("big", true) => BigInt::from_signed_bytes_be(&args.bytes.elements),
             ("big", false) => BigInt::from_bytes_be(Sign::Plus, &args.bytes.elements),
             ("little", true) => BigInt::from_signed_bytes_le(&args.bytes.elements),
@@ -664,16 +659,16 @@ impl PyInt {
             false
         };
 
-        let value = self.borrow_value();
+        let value = self.as_bigint();
         if value.sign() == Sign::Minus && !signed {
             return Err(vm.new_overflow_error("can't convert negative int to unsigned".to_owned()));
         }
 
-        let byte_len = args.length.borrow_value().to_usize().ok_or_else(|| {
+        let byte_len = args.length.as_bigint().to_usize().ok_or_else(|| {
             vm.new_overflow_error("Python int too large to convert to C ssize_t".to_owned())
         })?;
 
-        let mut origin_bytes = match (args.byteorder.borrow_value(), signed) {
+        let mut origin_bytes = match (args.byteorder.as_str(), signed) {
             ("big", true) => value.to_signed_bytes_be(),
             ("big", false) => value.to_bytes_be().1,
             ("little", true) => value.to_signed_bytes_le(),
@@ -695,7 +690,7 @@ impl PyInt {
             _ => vec![0u8; byte_len - origin_len],
         };
 
-        let bytes = match args.byteorder.borrow_value() {
+        let bytes = match args.byteorder.as_str() {
             "big" => {
                 let mut bytes = append_bytes;
                 bytes.append(&mut origin_bytes);
@@ -755,7 +750,7 @@ impl Comparable for PyInt {
 
 impl Hashable for PyInt {
     fn hash(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<hash::PyHash> {
-        Ok(hash::hash_bigint(zelf.borrow_value()))
+        Ok(hash::hash_bigint(zelf.as_bigint()))
     }
 }
 
@@ -792,16 +787,16 @@ fn try_int_radix(obj: &PyObjectRef, base: u32, vm: &VirtualMachine) -> PyResult<
 
     let opt = match_class!(match obj.clone() {
         string @ PyStr => {
-            let s = string.borrow_value();
+            let s = string.as_str();
             bytes_to_int(s.as_bytes(), base)
         }
         bytes @ PyBytes => {
-            let bytes = bytes.borrow_value();
+            let bytes = bytes.as_bytes();
             bytes_to_int(bytes, base)
         }
         bytearray @ PyByteArray => {
-            let inner = bytearray.borrow_value();
-            bytes_to_int(&inner.elements, base)
+            let inner = bytearray.borrow_buf();
+            bytes_to_int(&inner, base)
         }
         _ => {
             return Err(
@@ -953,21 +948,21 @@ pub(crate) fn try_int(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt
 
     // test for strings and bytes
     if let Some(s) = obj.downcast_ref::<PyStr>() {
-        return try_convert(obj, s.borrow_value().as_bytes(), vm);
+        return try_convert(obj, s.as_str().as_bytes(), vm);
     }
     if let Ok(r) = try_bytes_like(vm, &obj, |x| try_convert(obj, x, vm)) {
         return r;
     }
     // strict `int` check
     if let Some(int) = obj.payload_if_exact::<PyInt>(vm) {
-        return Ok(int.borrow_value().clone());
+        return Ok(int.as_bigint().clone());
     }
     // call __int__, then __index__, then __trunc__ (converting the __trunc__ result via  __index__ if needed)
     // TODO: using __int__ is deprecated and removed in Python 3.10
     if let Some(method) = vm.get_method(obj.clone(), "__int__") {
         let result = vm.invoke(&method?, ())?;
         return match result.payload::<PyInt>() {
-            Some(int_obj) => Ok(int_obj.borrow_value().clone()),
+            Some(int_obj) => Ok(int_obj.as_bigint().clone()),
             None => Err(vm.new_type_error(format!(
                 "__int__ returned non-int (type '{}')",
                 result.class().name
@@ -976,7 +971,7 @@ pub(crate) fn try_int(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt
     }
     // TODO: returning strict subclasses of int in __index__ is deprecated
     if let Some(r) = vm.to_index_opt(obj.clone()).transpose()? {
-        return Ok(r.borrow_value().clone());
+        return Ok(r.as_bigint().clone());
     }
     if let Some(method) = vm.get_method(obj.clone(), "__trunc__") {
         let result = vm.invoke(&method?, ())?;
@@ -988,7 +983,7 @@ pub(crate) fn try_int(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt
                     result.class().name
                 )))
             })
-            .map(|int_obj| int_obj.borrow_value().clone());
+            .map(|int_obj| int_obj.as_bigint().clone());
     }
 
     Err(vm.new_type_error(format!(

@@ -4,8 +4,8 @@ pub(crate) use _functools::make_module;
 mod _functools {
     use crate::function::OptionalArg;
     use crate::iterator;
-    use crate::pyobject::{PyObjectRef, PyResult, TypeProtocol};
     use crate::vm::VirtualMachine;
+    use crate::{PyObjectRef, PyResult, TypeProtocol};
 
     #[pyfunction]
     fn reduce(

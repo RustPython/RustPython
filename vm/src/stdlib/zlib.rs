@@ -9,9 +9,9 @@ mod decl {
     use crate::common::lock::PyMutex;
     use crate::exceptions::PyBaseExceptionRef;
     use crate::function::OptionalArg;
-    use crate::pyobject::{BorrowValue, IntoPyRef, PyResult, PyValue, StaticType};
     use crate::types::create_simple_type;
     use crate::vm::VirtualMachine;
+    use crate::{IntoPyRef, PyResult, PyValue, StaticType};
 
     use adler32::RollingAdler32 as Adler32;
     use crc32fast::Hasher as Crc32;
@@ -68,8 +68,7 @@ mod decl {
     #[pyfunction]
     fn adler32(data: PyBytesLike, begin_state: OptionalArg<PyIntRef>) -> u32 {
         data.with_ref(|data| {
-            let begin_state =
-                begin_state.map_or(1, |i| int::bigint_unsigned_mask(i.borrow_value()));
+            let begin_state = begin_state.map_or(1, |i| int::bigint_unsigned_mask(i.as_bigint()));
 
             let mut hasher = Adler32::from_value(begin_state);
             hasher.update_buffer(data);
@@ -81,8 +80,7 @@ mod decl {
     #[pyfunction]
     fn crc32(data: PyBytesLike, begin_state: OptionalArg<PyIntRef>) -> u32 {
         data.with_ref(|data| {
-            let begin_state =
-                begin_state.map_or(0, |i| int::bigint_unsigned_mask(i.borrow_value()));
+            let begin_state = begin_state.map_or(0, |i| int::bigint_unsigned_mask(i.as_bigint()));
 
             let mut hasher = Crc32::new_with_initial(begin_state);
             hasher.update(data);
@@ -312,7 +310,7 @@ mod decl {
             if stream_end && !leftover.is_empty() {
                 let mut unused_data = self.unused_data.lock();
                 let unused: Vec<_> = unused_data
-                    .borrow_value()
+                    .as_bytes()
                     .iter()
                     .chain(leftover)
                     .copied()
@@ -328,7 +326,7 @@ mod decl {
             } else {
                 Some(args.max_length)
             };
-            let data = args.data.borrow_value();
+            let data = args.data.borrow_buf();
             let data = &*data;
 
             let mut d = self.decompress.lock();

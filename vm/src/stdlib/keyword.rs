@@ -7,12 +7,12 @@ mod decl {
     use rustpython_parser::lexer;
 
     use crate::builtins::pystr::PyStrRef;
-    use crate::pyobject::{BorrowValue, PyObjectRef};
     use crate::vm::VirtualMachine;
+    use crate::PyObjectRef;
 
     #[pyfunction]
     fn iskeyword(s: PyStrRef) -> bool {
-        lexer::KEYWORDS.contains_key(s.borrow_value())
+        lexer::KEYWORDS.contains_key(s.as_str())
     }
 
     #[pyattr]

@@ -16,11 +16,11 @@ use rustpython_compiler as compile;
 
 use crate::builtins::{self, PyStrRef, PyTypeRef};
 use crate::function::FuncArgs;
-use crate::pyobject::{
-    BorrowValue, IdProtocol, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue,
-    StaticType, TryFromObject, TypeProtocol,
-};
 use crate::vm::VirtualMachine;
+use crate::{
+    IdProtocol, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue, StaticType,
+    TryFromObject, TypeProtocol,
+};
 
 #[rustfmt::skip]
 #[allow(clippy::all)]
@@ -66,7 +66,7 @@ impl AstNode {
             vm.set_attr(&zelf, name.clone(), arg)?;
         }
         for (key, value) in args.kwargs {
-            if let Some(pos) = fields.iter().position(|f| f.borrow_value() == key) {
+            if let Some(pos) = fields.iter().position(|f| f.as_str() == key) {
                 if pos < numargs {
                     return Err(vm.new_type_error(format!(
                         "{} got multiple values for argument '{}'",
@@ -171,7 +171,7 @@ impl Node for String {
     }
 
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
-        PyStrRef::try_from_object(vm, object).map(|s| s.borrow_value().to_owned())
+        PyStrRef::try_from_object(vm, object).map(|s| s.as_str().to_owned())
     }
 }
 
@@ -215,7 +215,7 @@ impl Node for ast::Constant {
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
         let constant = match_class!(match object {
             ref i @ builtins::int::PyInt => {
-                let value = i.borrow_value();
+                let value = i.as_bigint();
                 if object.class().is(&vm.ctx.types.bool_type) {
                     ast::Constant::Bool(!value.is_zero())
                 } else {
@@ -230,11 +230,11 @@ impl Node for ast::Constant {
                     imag: c.im,
                 }
             }
-            ref s @ builtins::pystr::PyStr => ast::Constant::Str(s.borrow_value().to_owned()),
-            ref b @ builtins::bytes::PyBytes => ast::Constant::Bytes(b.borrow_value().to_owned()),
+            ref s @ builtins::pystr::PyStr => ast::Constant::Str(s.as_str().to_owned()),
+            ref b @ builtins::bytes::PyBytes => ast::Constant::Bytes(b.as_bytes().to_owned()),
             ref t @ builtins::tuple::PyTuple => {
                 ast::Constant::Tuple(
-                    t.borrow_value()
+                    t.as_slice()
                         .iter()
                         .map(|elt| Self::ast_from_object(vm, elt.clone()))
                         .collect::<Result<_, _>>()?,

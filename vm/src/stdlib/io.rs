@@ -8,8 +8,8 @@ cfg_if::cfg_if! {
         type Offset = i64;
     }
 }
-use crate::pyobject::{BorrowValue, PyObjectRef, PyResult, TryFromObject};
 use crate::VirtualMachine;
+use crate::{PyObjectRef, PyResult, TryFromObject};
 pub(crate) use _io::io_open as open;
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
@@ -53,7 +53,7 @@ impl TryFromObject for Fildes {
                     .map_err(|_| vm.new_type_error("fileno() returned a non-integer".to_owned()))?
             }
         };
-        let fd = int::try_to_primitive(int.borrow_value(), vm)?;
+        let fd = int::try_to_primitive(int.as_bigint(), vm)?;
         if fd < 0 {
             return Err(vm.new_value_error(format!(
                 "file descriptor cannot be a negative integer ({})",
@@ -88,11 +88,12 @@ mod _io {
     use crate::common::rc::PyRc;
     use crate::exceptions::{self, IntoPyException, PyBaseExceptionRef};
     use crate::function::{FuncArgs, OptionalArg, OptionalOption};
-    use crate::pyobject::{
-        BorrowValue, Either, IdProtocol, IntoPyObject, PyContext, PyIterable, PyObjectRef, PyRef,
-        PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
-    };
+    use crate::utils::Either;
     use crate::vm::{ReprGuard, VirtualMachine};
+    use crate::{
+        IdProtocol, IntoPyObject, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
+        StaticType, TryFromObject, TypeProtocol,
+    };
 
     fn validate_whence(whence: i32) -> bool {
         let x = (0..=2).contains(&whence);
@@ -550,8 +551,9 @@ mod _io {
                     vm.call_method(&instance, "readinto", (b.clone(),))?,
                 )?;
                 Ok(n.map(|n| {
-                    let bytes = &mut b.borrow_value_mut().elements;
+                    let mut bytes = b.borrow_buf_mut();
                     bytes.truncate(n);
+                    // FIXME: try to use Arc::unwrap on the bytearray to get at the inner buffer
                     bytes.clone()
                 })
                 .into_pyobject(vm))
@@ -575,17 +577,17 @@ mod _io {
                         break;
                     }
                     Some(b) => {
-                        if b.borrow_value().is_empty() {
+                        if b.as_bytes().is_empty() {
                             break;
                         }
-                        total_len += b.borrow_value().len();
+                        total_len += b.as_bytes().len();
                         chunks.push(b)
                     }
                 }
             }
             let mut ret = Vec::with_capacity(total_len);
             for b in chunks {
-                ret.extend_from_slice(b.borrow_value())
+                ret.extend_from_slice(b.as_bytes())
             }
             Ok(Some(ret))
         }
@@ -617,9 +619,9 @@ mod _io {
             if data.is(&bufobj) {
                 return Ok(l);
             }
-            let mut buf = b.borrow_value();
+            let mut buf = b.borrow_buf_mut();
             let data = PyBytesLike::try_from_object(vm, data)?;
-            let data = data.borrow_value();
+            let data = data.borrow_buf();
             match buf.get_mut(..data.len()) {
                 Some(slice) => {
                     slice.copy_from_slice(&data);
@@ -910,7 +912,7 @@ mod _io {
             let avail = self.buffer.len() - self.pos as usize;
             let buf_len;
             {
-                let buf = obj.borrow_value();
+                let buf = obj.borrow_buf();
                 buf_len = buf.len();
                 if buf.len() <= avail {
                     self.buffer[self.pos as usize..][..buf.len()].copy_from_slice(&buf);
@@ -1169,7 +1171,7 @@ mod _io {
                 let res = <Option<PyBytesRef>>::try_from_object(vm, res)?;
                 let ret = if let Some(mut data) = data {
                     if let Some(bytes) = res {
-                        data.extend_from_slice(bytes.borrow_value());
+                        data.extend_from_slice(bytes.as_bytes());
                     }
                     Some(PyBytes::from(data).into_ref(vm))
                 } else {
@@ -1186,8 +1188,8 @@ mod _io {
                 let read_data = <Option<PyBytesRef>>::try_from_object(vm, read_data)?;
 
                 match read_data {
-                    Some(b) if !b.borrow_value().is_empty() => {
-                        let l = b.borrow_value().len();
+                    Some(b) if !b.as_bytes().is_empty() => {
+                        let l = b.as_bytes().len();
                         read_size += l;
                         if self.abs_pos != -1 {
                             self.abs_pos += l as Offset;
@@ -1201,7 +1203,7 @@ mod _io {
                             let mut data = data.unwrap_or_default();
                             data.reserve(read_size);
                             for bytes in &chunks {
-                                data.extend_from_slice(bytes.borrow_value())
+                                data.extend_from_slice(bytes.as_bytes())
                             }
                             Some(PyBytes::from(data).into_ref(vm))
                         };
@@ -1331,7 +1333,7 @@ mod _io {
     pub fn get_offset(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Offset> {
         use std::convert::TryInto;
         let int = vm.to_index(&obj)?;
-        int.borrow_value().try_into().map_err(|_| {
+        int.as_bigint().try_into().map_err(|_| {
             vm.new_value_error(format!(
                 "cannot fit '{}' into an offset-sized integer",
                 obj.class().name
@@ -1932,7 +1934,7 @@ mod _io {
                         obj.class().name
                     ))
                 })?;
-                match s.borrow_value() {
+                match s.as_str() {
                     "" => Self::Passthrough,
                     "\n" => Self::Lf,
                     "\r" => Self::Cr,
@@ -1997,8 +1999,8 @@ mod _io {
     impl PendingWrite {
         fn as_bytes(&self) -> &[u8] {
             match self {
-                Self::Utf8(s) => s.borrow_value().as_bytes(),
-                Self::Bytes(b) => b.borrow_value(),
+                Self::Utf8(s) => s.as_str().as_bytes(),
+                Self::Bytes(b) => b.as_bytes(),
             }
         }
     }
@@ -2168,10 +2170,7 @@ mod _io {
             let has_read1 = vm.get_attribute_opt(buffer.clone(), "read1")?.is_some();
             let seekable = pybool::boolval(vm, vm.call_method(&buffer, "seekable", ())?)?;
 
-            let codec = vm
-                .state
-                .codec_registry
-                .lookup(encoding.borrow_value(), vm)?;
+            let codec = vm.state.codec_registry.lookup(encoding.as_str(), vm)?;
 
             let encoder = if pybool::boolval(vm, vm.call_method(&buffer, "writable", ())?)? {
                 let incremental_encoder =
@@ -2179,7 +2178,7 @@ mod _io {
                 let encoding_name = vm.get_attribute_opt(incremental_encoder.clone(), "name")?;
                 let encodefunc = encoding_name.and_then(|name| {
                     name.payload::<PyStr>()
-                        .and_then(|name| match name.borrow_value() {
+                        .and_then(|name| match name.as_str() {
                             "utf-8" => Some(textio_encode_utf8 as EncodeFunc),
                             _ => None,
                         })
@@ -2329,7 +2328,7 @@ mod _io {
             drop(textio);
             vm.call_method(zelf.as_object(), "flush", ())?;
             let cookie_obj = crate::builtins::PyIntRef::try_from_object(vm, cookie)?;
-            let cookie = TextIOCookie::parse(cookie_obj.borrow_value())
+            let cookie = TextIOCookie::parse(cookie_obj.as_bigint())
                 .ok_or_else(|| vm.new_value_error("invalid cookie".to_owned()))?;
             let mut textio = zelf.lock(vm)?;
             vm.call_method(&textio.buffer, "seek", (cookie.start_pos,))?;
@@ -2359,7 +2358,7 @@ mod _io {
                 let decoded = vm.call_method(decoder, "decode", (input_chunk, cookie.need_eof))?;
                 let decoded = check_decoded(decoded, vm)?;
                 let pos_is_valid = decoded
-                    .borrow_value()
+                    .as_str()
                     .is_char_boundary(cookie.bytes_to_skip as usize);
                 textio.set_decoded_chars(Some(decoded));
                 if !pos_is_valid {
@@ -2423,7 +2422,7 @@ mod _io {
             let mut skip_back = 1;
             while skip_bytes > 0 {
                 cookie.set_decoder_state(decoder, vm)?;
-                let input = &next_input.borrow_value()[..skip_bytes as usize];
+                let input = &next_input.as_bytes()[..skip_bytes as usize];
                 let (bytes_decoded, chars_decoded) = decoder_decode(input)?;
                 if chars_decoded <= chars_to_skip {
                     let (dec_buffer, dec_flags) = decoder_getstate()?;
@@ -2453,7 +2452,7 @@ mod _io {
             if chars_to_skip != 0 {
                 let mut chars_decoded = 0;
                 let mut bytes_decoded = 0;
-                let mut input = next_input.borrow_value();
+                let mut input = next_input.as_bytes();
                 input = &input[skip_bytes..];
                 while !input.is_empty() {
                     let (byte1, rest) = input.split_at(1);
@@ -2550,7 +2549,7 @@ mod _io {
                 } else {
                     let mut ret = String::with_capacity(chunks_bytes);
                     for chunk in chunks {
-                        ret.push_str(chunk.borrow_value())
+                        ret.push_str(chunk.as_str())
                     }
                     PyStr::from(ret).into_ref(vm)
                 }
@@ -2577,7 +2576,7 @@ mod _io {
 
             let char_len = obj.char_len();
 
-            let data = obj.borrow_value();
+            let data = obj.as_str();
 
             let replace_nl = match textio.newline {
                 Newlines::Cr => Some("\r"),
@@ -2678,7 +2677,7 @@ mod _io {
                 }
                 #[inline]
                 fn slice(&self) -> &str {
-                    &self.0.borrow_value()[self.1.clone()]
+                    &self.0.as_str()[self.1.clone()]
                 }
                 #[inline]
                 fn slice_pystr(self, vm: &VirtualMachine) -> PyStrRef {
@@ -2724,7 +2723,7 @@ mod _io {
                     Some(remaining) => {
                         assert_eq!(textio.decoded_chars_pos, 0);
                         offset_to_buffer = remaining.byte_len();
-                        let decoded_chars = decoded_chars.borrow_value();
+                        let decoded_chars = decoded_chars.as_str();
                         let line = if remaining.is_full_slice() {
                             let mut line = remaining.0;
                             line.concat_in_place(decoded_chars, vm);
@@ -2741,7 +2740,7 @@ mod _io {
                         line
                     }
                 };
-                let line_from_start = &line.borrow_value()[start..];
+                let line_from_start = &line.as_str()[start..];
                 let nl_res = textio.newline.find_newline(line_from_start);
                 match nl_res {
                     Ok(p) | Err(p) => {
@@ -2749,7 +2748,7 @@ mod _io {
                         if let Some(limit) = limit {
                             // TODO: track char positions in variables as well as bytes
                             // original CPython logic: endpos = start + limit - chunked
-                            let line_chars = line.borrow_value()[..endpos].chars().count();
+                            let line_chars = line.as_str()[..endpos].chars().count();
                             if chunked_chars + line_chars >= limit {
                                 endpos = start
                                     + crate::common::str::char_range_end(
@@ -2779,7 +2778,7 @@ mod _io {
             };
 
             let cur_line = cur_line.map(|line| {
-                let orig_decoded_chars = &line.borrow_value()[offset_to_buffer..endpos];
+                let orig_decoded_chars = &line.as_str()[offset_to_buffer..endpos];
                 textio.decoded_chars_pos = orig_decoded_chars.len();
                 // TODO: variables that are siblings to endpos/offset_to_buffer, measured in chars rather than bytes?
                 textio.num_decoded_chars = orig_decoded_chars.chars().count();
@@ -2838,7 +2837,7 @@ mod _io {
         use crate::builtins::{int, PyTuple};
         let state_err = || vm.new_type_error("illegal decoder state".to_owned());
         let state = state.downcast::<PyTuple>().map_err(|_| state_err())?;
-        match state.borrow_value() {
+        match state.as_slice() {
             [buf, flags] => {
                 let buf = buf.clone().downcast::<PyBytes>().map_err(|obj| {
                     vm.new_type_error(format!(
@@ -2847,7 +2846,7 @@ mod _io {
                     ))
                 })?;
                 let flags = flags.payload::<int::PyInt>().ok_or_else(state_err)?;
-                let flags = int::try_to_primitive(flags.borrow_value(), vm)?;
+                let flags = int::try_to_primitive(flags.as_bigint(), vm)?;
                 Ok((buf, flags))
             }
             _ => Err(state_err()),
@@ -2893,7 +2892,7 @@ mod _io {
                     input_chunk.class().name
                 ))
             })?;
-            let nbytes = buf.borrow_value().len();
+            let nbytes = buf.borrow_buf().len();
             let eof = nbytes == 0;
             let decoded = vm.call_method(decoder, "decode", (input_chunk, eof))?;
             let decoded = check_decoded(decoded, vm)?;
@@ -2909,8 +2908,8 @@ mod _io {
 
             if let Some((dec_buffer, dec_flags)) = dec_state {
                 // TODO: inplace append to bytes when refcount == 1
-                let mut next_input = dec_buffer.borrow_value().to_vec();
-                next_input.extend_from_slice(&*buf.borrow_value());
+                let mut next_input = dec_buffer.as_bytes().to_vec();
+                next_input.extend_from_slice(&*buf.borrow_buf());
                 self.snapshot = Some((dec_flags, PyBytes::from(next_input).into_ref(vm)));
             }
 
@@ -2932,7 +2931,7 @@ mod _io {
                 return None;
             }
             let decoded_chars = self.decoded_chars.as_ref()?;
-            let avail = &decoded_chars.borrow_value()[self.decoded_chars_pos..];
+            let avail = &decoded_chars.as_str()[self.decoded_chars_pos..];
             if avail.is_empty() {
                 return None;
             }
@@ -2974,11 +2973,11 @@ mod _io {
                 return decoded_chars;
             }
             // TODO: in-place editing of `str` when refcount == 1
-            let decoded_chars_unused = &decoded_chars.borrow_value()[chars_pos..];
+            let decoded_chars_unused = &decoded_chars.as_str()[chars_pos..];
             let mut s = String::with_capacity(decoded_chars_unused.len() + append_len);
             s.push_str(decoded_chars_unused);
             if let Some(append) = append {
-                s.push_str(append.borrow_value())
+                s.push_str(append.as_str())
             }
             PyStr::from(s).into_ref(vm)
         }
@@ -3027,7 +3026,7 @@ mod _io {
         ) -> PyResult<StringIORef> {
             let raw_bytes = object
                 .flatten()
-                .map_or_else(Vec::new, |v| v.borrow_value().as_bytes().to_vec());
+                .map_or_else(Vec::new, |v| v.as_str().as_bytes().to_vec());
 
             StringIO {
                 buffer: PyRwLock::new(BufferedIO::new(Cursor::new(raw_bytes))),
@@ -3065,7 +3064,7 @@ mod _io {
         //write string to underlying vector
         #[pymethod]
         fn write(self, data: PyStrRef, vm: &VirtualMachine) -> PyResult {
-            let bytes = data.borrow_value().as_bytes();
+            let bytes = data.as_str().as_bytes();
 
             match self.buffer(vm)?.write(bytes) {
                 Some(value) => Ok(vm.ctx.new_int(value)),
@@ -3169,7 +3168,7 @@ mod _io {
         ) -> PyResult<BytesIORef> {
             let raw_bytes = object
                 .flatten()
-                .map_or_else(Vec::new, |input| input.borrow_value().to_vec());
+                .map_or_else(Vec::new, |input| input.as_bytes().to_vec());
 
             BytesIO {
                 buffer: PyRwLock::new(BufferedIO::new(Cursor::new(raw_bytes))),
@@ -3228,7 +3227,7 @@ mod _io {
             let mut buf = self.buffer(vm)?;
             let ret = buf
                 .cursor
-                .read(&mut *obj.borrow_value())
+                .read(&mut *obj.borrow_buf_mut())
                 .map_err(|_| vm.new_value_error("Error readinto from Take".to_owned()))?;
 
             Ok(ret)
@@ -3452,7 +3451,7 @@ mod _io {
     fn open(args: IoOpenArgs, vm: &VirtualMachine) -> PyResult {
         io_open(
             args.file,
-            args.mode.as_ref().into_option().map(|s| s.borrow_value()),
+            args.mode.as_ref().into_option().map(|s| s.as_str()),
             args.opts,
             vm,
         )
@@ -3663,11 +3662,9 @@ mod fileio {
     use crate::exceptions::IntoPyException;
     use crate::function::OptionalOption;
     use crate::function::{FuncArgs, OptionalArg};
-    use crate::pyobject::{
-        BorrowValue, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
-    };
     use crate::stdlib::os;
     use crate::vm::VirtualMachine;
+    use crate::{PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject, TypeProtocol};
     use crossbeam_utils::atomic::AtomicCell;
     use std::io::{Read, Write};
 
@@ -3816,7 +3813,7 @@ mod fileio {
         #[pymethod(magic)]
         fn init(zelf: PyRef<Self>, args: FileIOArgs, vm: &VirtualMachine) -> PyResult<()> {
             let mode_obj = args.mode.unwrap_or_else(|| PyStr::from("rb").into_ref(vm));
-            let mode_str = mode_obj.borrow_value();
+            let mode_str = mode_obj.as_str();
             let name = args.name;
             let (mode, flags) =
                 compute_mode(mode_str).map_err(|e| vm.new_value_error(e.error_msg(mode_str)))?;
@@ -3832,7 +3829,7 @@ mod fileio {
                 }
                 fd
             } else if let Some(i) = name.payload::<crate::builtins::PyInt>() {
-                crate::builtins::int::try_to_primitive(i.borrow_value(), vm)?
+                crate::builtins::int::try_to_primitive(i.as_bigint(), vm)?
             } else {
                 let path = os::PyPathLike::try_from_object(vm, name.clone())?;
                 if !args.closefd {
@@ -3971,7 +3968,7 @@ mod fileio {
 
             let handle = self.get_fd(vm)?;
 
-            let mut buf = obj.borrow_value();
+            let mut buf = obj.borrow_buf_mut();
             let mut f = handle.take(buf.len() as _);
             let ret = f.read(&mut buf).map_err(|e| e.into_pyexception(vm))?;
 

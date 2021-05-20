@@ -1,8 +1,8 @@
 //! Builtin function definitions.
 //!
 //! Implements functions listed here: https://docs.python.org/3/library/builtins.html
-use crate::pyobject::PyObjectRef;
 use crate::vm::VirtualMachine;
+use crate::PyObjectRef;
 
 /// Built-in functions, exceptions, and other objects.
 ///
@@ -28,15 +28,16 @@ mod decl {
         single_or_tuple_any, Args, FuncArgs, KwArgs, OptionalArg, OptionalOption,
     };
     use crate::iterator;
-    use crate::pyobject::{
-        BorrowValue, Either, IdProtocol, ItemProtocol, PyArithmaticValue, PyCallable, PyClassImpl,
-        PyIterable, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
-    };
     use crate::readline::{Readline, ReadlineResult};
     use crate::scope::Scope;
     use crate::slots::PyComparisonOp;
+    use crate::utils::Either;
     use crate::vm::VirtualMachine;
     use crate::{py_io, sysmodule};
+    use crate::{
+        IdProtocol, ItemProtocol, PyArithmaticValue, PyCallable, PyClassImpl, PyIterable,
+        PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    };
     use num_traits::{Signed, Zero};
 
     #[pyfunction]
@@ -70,13 +71,13 @@ mod decl {
     #[pyfunction]
     pub fn ascii(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
         let repr = vm.to_repr(&obj)?;
-        let ascii = to_ascii(repr.borrow_value());
+        let ascii = to_ascii(repr.as_str());
         Ok(ascii)
     }
 
     #[pyfunction]
     fn bin(x: PyIntRef) -> String {
-        let x = x.borrow_value();
+        let x = x.as_bigint();
         if x.is_negative() {
             format!("-0b{:b}", x.abs())
         } else {
@@ -127,7 +128,7 @@ mod decl {
         {
             use crate::stdlib::ast;
 
-            let mode_str = args.mode.borrow_value();
+            let mode_str = args.mode.as_str();
 
             if args.source.isinstance(&ast::AstNode::make_class(&vm.ctx)) {
                 #[cfg(not(feature = "rustpython-compiler"))]
@@ -139,7 +140,7 @@ mod decl {
                     let mode = mode_str
                         .parse::<compile::Mode>()
                         .map_err(|err| vm.new_value_error(err.to_string()))?;
-                    return ast::compile(vm, args.source, args.filename.borrow_value(), mode);
+                    return ast::compile(vm, args.source, args.filename.as_str(), mode);
                 }
             }
 
@@ -156,7 +157,7 @@ mod decl {
                 let source = Either::<PyStrRef, PyBytesRef>::try_from_object(vm, args.source)?;
                 // TODO: compile::compile should probably get bytes
                 let source = match &source {
-                    Either::A(string) => string.borrow_value(),
+                    Either::A(string) => string.as_str(),
                     Either::B(bytes) => std::str::from_utf8(bytes)
                         .map_err(|e| vm.new_unicode_decode_error(e.to_string()))?,
                 };
@@ -176,7 +177,7 @@ mod decl {
                             .parse::<compile::Mode>()
                             .map_err(|err| vm.new_value_error(err.to_string()))?;
 
-                        vm.compile(&source, mode, args.filename.borrow_value().to_owned())
+                        vm.compile(&source, mode, args.filename.as_str().to_owned())
                             .map(|o| o.into_object())
                             .map_err(|err| vm.new_syntax_error(&err))
                     }
@@ -287,7 +288,7 @@ mod decl {
         // Determine code object:
         let code_obj = match source {
             Either::A(string) => vm
-                .compile(string.borrow_value(), mode, "<string>".to_owned())
+                .compile(string.as_str(), mode, "<string>".to_owned())
                 .map_err(|err| vm.new_syntax_error(&err))?,
             Either::B(code_obj) => code_obj,
         };
@@ -356,7 +357,7 @@ mod decl {
 
     #[pyfunction]
     fn hex(number: PyIntRef) -> String {
-        let n = number.borrow_value();
+        let n = number.as_bigint();
         format!("{:#x}", n)
     }
 
@@ -382,7 +383,7 @@ mod decl {
 
         // everything is normalish, we can just rely on rustyline to use stdin/stdout
         if fd_matches(&stdin, 0) && fd_matches(&stdout, 1) && atty::is(atty::Stream::Stdin) {
-            let prompt = prompt.as_ref().map_or("", |s| s.borrow_value());
+            let prompt = prompt.as_ref().map_or("", |s| s.as_str());
             let mut readline = Readline::new(());
             match readline.readline(prompt) {
                 ReadlineResult::Line(s) => Ok(vm.ctx.new_str(s)),
@@ -554,7 +555,7 @@ mod decl {
 
     #[pyfunction]
     fn oct(number: PyIntRef, vm: &VirtualMachine) -> PyResult {
-        let n = number.borrow_value();
+        let n = number.as_bigint();
         let s = if n.is_negative() {
             format!("-0o{:o}", n.abs())
         } else {
@@ -578,7 +579,7 @@ mod decl {
                 Ok(u32::from(bytes[0]))
             }),
             Either::B(string) => {
-                let string = string.borrow_value();
+                let string = string.as_str();
                 let string_len = string.chars().count();
                 if string_len != 1 {
                     return Err(vm.new_type_error(format!(
@@ -835,11 +836,7 @@ mod decl {
         mut kwargs: KwArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let name = qualified_name
-            .borrow_value()
-            .split('.')
-            .next_back()
-            .unwrap();
+        let name = qualified_name.as_str().split('.').next_back().unwrap();
         let name_obj = vm.ctx.new_str(name);
 
         let mut metaclass = if let Some(metaclass) = kwargs.pop_kwarg("metaclass") {

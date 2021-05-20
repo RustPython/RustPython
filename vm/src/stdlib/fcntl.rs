@@ -6,7 +6,8 @@ mod fcntl {
     use crate::builtins::int;
     use crate::byteslike::{BufOrStr, PyRwBytesLike};
     use crate::function::OptionalArg;
-    use crate::pyobject::{BorrowValue, Either, PyResult};
+    use crate::utils::Either;
+    use crate::PyResult;
     use crate::VirtualMachine;
 
     #[pyattr]
@@ -32,7 +33,7 @@ mod fcntl {
                 let mut buf = [0u8; 1024];
                 let arg_len;
                 {
-                    let s = arg.borrow_value();
+                    let s = arg.borrow_bytes();
                     arg_len = s.len();
                     buf.get_mut(..arg_len)
                         .ok_or_else(|| vm.new_value_error("fcntl string arg too long".to_owned()))?
@@ -44,7 +45,7 @@ mod fcntl {
                 }
                 return Ok(vm.ctx.new_bytes(buf[..arg_len].to_vec()));
             }
-            OptionalArg::Present(Either::B(i)) => int::bigint_unsigned_mask(i.borrow_value()),
+            OptionalArg::Present(Either::B(i)) => int::bigint_unsigned_mask(i.as_bigint()),
             OptionalArg::Missing => 0,
         };
         let ret = unsafe { libc::fcntl(fd, cmd, int as i32) };
@@ -77,7 +78,7 @@ mod fcntl {
                 let buf_len = match buf_kind {
                     Either::A(rw_arg) => {
                         let mutate_flag = mutate_flag.unwrap_or(true);
-                        let mut arg_buf = rw_arg.borrow_value();
+                        let mut arg_buf = rw_arg.borrow_buf_mut();
                         if mutate_flag {
                             let ret =
                                 unsafe { libc::ioctl(fd, request as _, arg_buf.as_mut_ptr()) };
@@ -89,7 +90,7 @@ mod fcntl {
                         // treat like an immutable buffer
                         fill_buf(&arg_buf)?
                     }
-                    Either::B(ro_buf) => fill_buf(&ro_buf.borrow_value())?,
+                    Either::B(ro_buf) => fill_buf(&ro_buf.borrow_bytes())?,
                 };
                 let ret = unsafe { libc::ioctl(fd, request as _, buf.as_mut_ptr()) };
                 if ret < 0 {

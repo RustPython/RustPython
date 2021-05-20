@@ -4,8 +4,8 @@ pub(crate) use resource::make_module;
 mod resource {
     use super::super::os;
     use crate::exceptions::IntoPyException;
-    use crate::pyobject::{IntoPyObject, PyObjectRef, PyResult, PyStructSequence, TryFromObject};
     use crate::VirtualMachine;
+    use crate::{IntoPyObject, PyObjectRef, PyResult, PyStructSequence, TryFromObject};
     use std::{io, mem};
 
     cfg_if::cfg_if! {

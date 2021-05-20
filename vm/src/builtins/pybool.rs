@@ -4,11 +4,11 @@ use num_traits::Zero;
 use super::int::PyInt;
 use super::pystr::PyStrRef;
 use crate::function::OptionalArg;
-use crate::pyobject::{
-    BorrowValue, IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyResult,
-    TryFromObject, TypeProtocol,
-};
 use crate::vm::VirtualMachine;
+use crate::{
+    IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyResult, TryFromObject,
+    TypeProtocol,
+};
 
 impl IntoPyObject for bool {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
@@ -59,7 +59,7 @@ pub fn boolval(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
                     ))
                 })?;
 
-                let len_val = int_obj.borrow_value();
+                let len_val = int_obj.as_bigint();
                 if len_val.sign() == Sign::Minus {
                     return Err(vm.new_value_error("__len__() should return >= 0".to_owned()));
                 }
@@ -88,7 +88,7 @@ impl PyBool {
 
     #[pymethod(magic)]
     fn format(obj: PyObjectRef, format_spec: PyStrRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        if format_spec.borrow_value().is_empty() {
+        if format_spec.as_str().is_empty() {
             vm.to_str(&obj)
         } else {
             Err(vm.new_type_error("unsupported format string passed to bool.__format__".to_owned()))
@@ -163,7 +163,7 @@ pub(crate) fn init(context: &PyContext) {
 
 // Retrieve inner int value:
 pub(crate) fn get_value(obj: &PyObjectRef) -> bool {
-    !obj.payload::<PyInt>().unwrap().borrow_value().is_zero()
+    !obj.payload::<PyInt>().unwrap().as_bigint().is_zero()
 }
 
 fn get_py_int(obj: &PyObjectRef) -> &PyInt {

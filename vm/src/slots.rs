@@ -5,10 +5,9 @@ use crate::builtins::pystr::PyStrRef;
 use crate::common::hash::PyHash;
 use crate::common::lock::PyRwLock;
 use crate::function::{FuncArgs, OptionalArg, PyNativeFunc};
-use crate::pyobject::{
-    Either, IdProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-};
+use crate::utils::Either;
 use crate::VirtualMachine;
+use crate::{IdProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject};
 use crossbeam_utils::atomic::AtomicCell;
 
 bitflags! {

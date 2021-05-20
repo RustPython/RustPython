@@ -5,10 +5,8 @@ use crate::builtins::int::{self, PyInt};
 use crate::builtins::pystr::PyStr;
 use crate::builtins::{memory::try_buffer_from_object, tuple, PyBytes};
 use crate::common::float_ops;
-use crate::pyobject::{
-    BorrowValue, ItemProtocol, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
-};
 use crate::vm::VirtualMachine;
+use crate::{ItemProtocol, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
 use itertools::Itertools;
 use num_bigint::{BigInt, Sign};
 use num_traits::cast::ToPrimitive;
@@ -361,7 +359,7 @@ impl CFormatSpec {
             CFormatType::String(preconversor) => match preconversor {
                 CFormatPreconversor::Repr | CFormatPreconversor::Ascii => {
                     let s = vm.to_repr(&obj)?;
-                    let s = self.format_string(s.borrow_value().to_owned());
+                    let s = self.format_string(s.as_str().to_owned());
                     Ok(s.into_bytes())
                 }
                 CFormatPreconversor::Str | CFormatPreconversor::Bytes => {
@@ -391,14 +389,14 @@ impl CFormatSpec {
                             })?
                             .invoke((), vm)?;
                         let bytes = PyBytes::try_from_object(vm, bytes)?;
-                        Ok(self.format_bytes(bytes.borrow_value()))
+                        Ok(self.format_bytes(bytes.as_bytes()))
                     }
                 }
             },
             CFormatType::Number(number_type) => match number_type {
                 CNumberType::Decimal => match_class!(match &obj {
                     ref i @ PyInt => {
-                        Ok(self.format_number(i.borrow_value()).into_bytes())
+                        Ok(self.format_number(i.as_bigint()).into_bytes())
                     }
                     ref f @ PyFloat => {
                         Ok(self
@@ -409,7 +407,7 @@ impl CFormatSpec {
                         if let Some(method) = vm.get_method(obj.clone(), "__int__") {
                             let result = vm.invoke(&method?, ())?;
                             if let Some(i) = result.payload::<PyInt>() {
-                                return Ok(self.format_number(i.borrow_value()).into_bytes());
+                                return Ok(self.format_number(i.as_bigint()).into_bytes());
                             }
                         }
                         Err(vm.new_type_error(format!(
@@ -421,7 +419,7 @@ impl CFormatSpec {
                 }),
                 _ => {
                     if let Some(i) = obj.payload::<PyInt>() {
-                        Ok(self.format_number(i.borrow_value()).into_bytes())
+                        Ok(self.format_number(i.as_bigint()).into_bytes())
                     } else {
                         Err(vm.new_type_error(format!(
                             "%{} format: an integer is required, not {}",
@@ -438,7 +436,7 @@ impl CFormatSpec {
             CFormatType::Character => {
                 if let Some(i) = obj.payload::<PyInt>() {
                     let ch = i
-                        .borrow_value()
+                        .as_bigint()
                         .to_u32()
                         .and_then(std::char::from_u32)
                         .ok_or_else(|| {
@@ -447,7 +445,7 @@ impl CFormatSpec {
                     return Ok(self.format_char(ch).into_bytes());
                 }
                 if let Some(s) = obj.payload::<PyStr>() {
-                    if let Ok(ch) = s.borrow_value().chars().exactly_one() {
+                    if let Ok(ch) = s.as_str().chars().exactly_one() {
                         return Ok(self.format_char(ch).into_bytes());
                     }
                 }
@@ -468,12 +466,12 @@ impl CFormatSpec {
                         ));
                     }
                 };
-                Ok(self.format_string(result.borrow_value().to_owned()))
+                Ok(self.format_string(result.as_str().to_owned()))
             }
             CFormatType::Number(number_type) => match number_type {
                 CNumberType::Decimal => match_class!(match &obj {
                     ref i @ PyInt => {
-                        Ok(self.format_number(i.borrow_value()))
+                        Ok(self.format_number(i.as_bigint()))
                     }
                     ref f @ PyFloat => {
                         Ok(self.format_number(&try_bigint(f.to_f64(), vm)?))
@@ -482,7 +480,7 @@ impl CFormatSpec {
                         if let Some(method) = vm.get_method(obj.clone(), "__int__") {
                             let result = vm.invoke(&method?, ())?;
                             if let Some(i) = result.payload::<PyInt>() {
-                                return Ok(self.format_number(i.borrow_value()));
+                                return Ok(self.format_number(i.as_bigint()));
                             }
                         }
                         Err(vm.new_type_error(format!(
@@ -494,7 +492,7 @@ impl CFormatSpec {
                 }),
                 _ => {
                     if let Some(i) = obj.payload::<PyInt>() {
-                        Ok(self.format_number(i.borrow_value()))
+                        Ok(self.format_number(i.as_bigint()))
                     } else {
                         Err(vm.new_type_error(format!(
                             "%{} format: an integer is required, not {}",
@@ -511,7 +509,7 @@ impl CFormatSpec {
             CFormatType::Character => {
                 if let Some(i) = obj.payload::<PyInt>() {
                     let ch = i
-                        .borrow_value()
+                        .as_bigint()
                         .to_u32()
                         .and_then(std::char::from_u32)
                         .ok_or_else(|| {
@@ -520,7 +518,7 @@ impl CFormatSpec {
                     return Ok(self.format_char(ch));
                 }
                 if let Some(s) = obj.payload::<PyStr>() {
-                    if let Ok(ch) = s.borrow_value().chars().exactly_one() {
+                    if let Ok(ch) = s.as_str().chars().exactly_one() {
                         return Ok(self.format_char(ch));
                     }
                 }
@@ -664,7 +662,7 @@ impl CFormatBytes {
             return if is_mapping
                 || values_obj
                     .payload::<tuple::PyTuple>()
-                    .map_or(false, |e| e.borrow_value().is_empty())
+                    .map_or(false, |e| e.as_slice().is_empty())
             {
                 for (_, part) in &mut self.parts {
                     match part {
@@ -704,7 +702,7 @@ impl CFormatBytes {
 
         // tuple
         let values = if let Some(tup) = values_obj.payload_if_subclass::<tuple::PyTuple>(vm) {
-            tup.borrow_value()
+            tup.as_slice()
         } else {
             std::slice::from_ref(&values_obj)
         };
@@ -816,7 +814,7 @@ impl CFormatString {
             return if is_mapping
                 || values_obj
                     .payload::<tuple::PyTuple>()
-                    .map_or(false, |e| e.borrow_value().is_empty())
+                    .map_or(false, |e| e.as_slice().is_empty())
             {
                 for (_, part) in &self.parts {
                     match part {
@@ -856,7 +854,7 @@ impl CFormatString {
 
         // tuple
         let values = if let Some(tup) = values_obj.payload_if_subclass::<tuple::PyTuple>(vm) {
-            tup.borrow_value()
+            tup.as_slice()
         } else {
             std::slice::from_ref(&values_obj)
         };

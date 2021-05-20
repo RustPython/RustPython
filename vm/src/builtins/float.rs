@@ -9,14 +9,14 @@ use super::pystr::{PyStr, PyStrRef};
 use super::pytype::PyTypeRef;
 use crate::format::FormatSpec;
 use crate::function::{OptionalArg, OptionalOption};
-use crate::pyobject::{
-    BorrowValue, IdProtocol, IntoPyObject,
+use crate::slots::{Comparable, Hashable, PyComparisonOp};
+use crate::VirtualMachine;
+use crate::{
+    IdProtocol, IntoPyObject,
     PyArithmaticValue::{self, *},
     PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol,
 };
-use crate::slots::{Comparable, Hashable, PyComparisonOp};
-use crate::VirtualMachine;
 use rustpython_common::{float_ops, hash};
 
 /// Convert a string or number to a floating point number, if possible.
@@ -71,7 +71,7 @@ pub fn try_float_opt(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<
         };
     }
     if let Some(r) = vm.to_index_opt(obj.clone()).transpose()? {
-        return Ok(Some(int::to_float(r.borrow_value(), vm)?));
+        return Ok(Some(int::to_float(r.as_bigint(), vm)?));
     }
     Ok(None)
 }
@@ -85,7 +85,7 @@ pub(crate) fn to_op_float(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Op
     let v = if let Some(float) = obj.payload_if_subclass::<PyFloat>(vm) {
         Some(float.value)
     } else if let Some(int) = obj.payload_if_subclass::<PyInt>(vm) {
-        Some(int::to_float(int.borrow_value(), vm)?)
+        Some(int::to_float(int.as_bigint(), vm)?)
     } else {
         None
     };
@@ -184,11 +184,11 @@ impl PyFloat {
                 if let Some(f) = try_float_opt(&val, vm)? {
                     f
                 } else if let Some(s) = val.payload_if_subclass::<PyStr>(vm) {
-                    float_ops::parse_str(s.borrow_value().trim()).ok_or_else(|| {
+                    float_ops::parse_str(s.as_str().trim()).ok_or_else(|| {
                         vm.new_value_error(format!("could not convert string to float: '{}'", s))
                     })?
                 } else if let Some(bytes) = val.payload_if_subclass::<PyBytes>(vm) {
-                    lexical_core::parse(bytes.borrow_value()).map_err(|_| {
+                    lexical_core::parse(bytes.as_bytes()).map_err(|_| {
                         vm.new_value_error(format!(
                             "could not convert string to float: '{}'",
                             bytes.repr()
@@ -207,7 +207,7 @@ impl PyFloat {
 
     #[pymethod(name = "__format__")]
     fn format(&self, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
-        match FormatSpec::parse(spec.borrow_value())
+        match FormatSpec::parse(spec.as_str())
             .and_then(|format_spec| format_spec.format_float(self.value))
         {
             Ok(string) => Ok(string),
@@ -393,7 +393,7 @@ impl PyFloat {
     fn round(&self, ndigits: OptionalOption<PyIntRef>, vm: &VirtualMachine) -> PyResult {
         let ndigits = ndigits.flatten();
         let value = if let Some(ndigits) = ndigits {
-            let ndigits = ndigits.borrow_value();
+            let ndigits = ndigits.as_bigint();
             let ndigits = match ndigits.to_i32() {
                 Some(n) => n,
                 None if ndigits.is_positive() => i32::MAX,
@@ -470,7 +470,7 @@ impl PyFloat {
 
     #[pymethod]
     fn fromhex(repr: PyStrRef, vm: &VirtualMachine) -> PyResult<f64> {
-        float_ops::from_hex(repr.borrow_value().trim()).ok_or_else(|| {
+        float_ops::from_hex(repr.as_str().trim()).ok_or_else(|| {
             vm.new_value_error("invalid hexadecimal floating-point string".to_owned())
         })
     }
@@ -494,7 +494,7 @@ impl Comparable for PyFloat {
                 .map_or_else(|| op == PyComparisonOp::Ne, |ord| op.eval_ord(ord))
         } else if let Some(other) = other.payload_if_subclass::<PyInt>(vm) {
             let a = zelf.to_f64();
-            let b = other.borrow_value();
+            let b = other.as_bigint();
             match op {
                 PyComparisonOp::Lt => float_ops::lt_int(a, b),
                 PyComparisonOp::Le => {

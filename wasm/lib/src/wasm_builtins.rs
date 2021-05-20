@@ -7,8 +7,8 @@
 use web_sys::{self, console};
 
 use rustpython_vm::builtins::PyStrRef;
-use rustpython_vm::pyobject::{BorrowValue, PyObjectRef, PyResult};
 use rustpython_vm::VirtualMachine;
+use rustpython_vm::{PyObjectRef, PyResult};
 
 pub(crate) fn window() -> web_sys::Window {
     web_sys::window().expect("Window to be available")
@@ -27,7 +27,7 @@ pub fn make_stdout_object(
     let write_method = ctx.new_method(
         "write",
         move |_self: PyObjectRef, data: PyStrRef, vm: &VirtualMachine| -> PyResult<()> {
-            write_f(data.borrow_value(), vm)
+            write_f(data.as_str(), vm)
         },
     );
     let flush_method = ctx.new_method("flush", |_self: PyObjectRef| {});

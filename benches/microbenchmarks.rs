@@ -3,8 +3,8 @@ use criterion::{
     criterion_group, criterion_main, BatchSize, BenchmarkGroup, BenchmarkId, Criterion, Throughput,
 };
 use rustpython_compiler::Mode;
-use rustpython_vm::pyobject::ItemProtocol;
-use rustpython_vm::pyobject::PyResult;
+use rustpython_vm::ItemProtocol;
+use rustpython_vm::PyResult;
 use rustpython_vm::{InitParameter, Interpreter, PySettings};
 use std::path::{Path, PathBuf};
 use std::{ffi, fs, io};

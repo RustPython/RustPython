@@ -5,10 +5,8 @@
 use crate::builtins::pystr::PyStrRef;
 use crate::builtins::pytype::PyTypeRef;
 use crate::function::OptionalArg;
-use crate::pyobject::{
-    BorrowValue, PyClassImpl, PyObject, PyObjectRef, PyResult, PyValue, StaticType,
-};
 use crate::vm::VirtualMachine;
+use crate::{PyClassImpl, PyObject, PyObjectRef, PyResult, PyValue, StaticType};
 
 use itertools::Itertools;
 use unic_char_property::EnumeratedCharProperty;
@@ -84,13 +82,9 @@ impl PyUCD {
     }
 
     fn extract_char(&self, character: PyStrRef, vm: &VirtualMachine) -> PyResult<Option<char>> {
-        let c = character
-            .borrow_value()
-            .chars()
-            .exactly_one()
-            .map_err(|_| {
-                vm.new_type_error("argument must be an unicode character, not str".to_owned())
-            })?;
+        let c = character.as_str().chars().exactly_one().map_err(|_| {
+            vm.new_type_error("argument must be an unicode character, not str".to_owned())
+        })?;
 
         if self.check_age(c) {
             Ok(Some(c))
@@ -110,7 +104,7 @@ impl PyUCD {
 
     #[pymethod]
     fn lookup(&self, name: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
-        if let Some(character) = unicode_names2::character(name.borrow_value()) {
+        if let Some(character) = unicode_names2::character(name.as_str()) {
             if self.check_age(character) {
                 return Ok(character.to_string());
             }
@@ -151,8 +145,8 @@ impl PyUCD {
 
     #[pymethod]
     fn normalize(&self, form: PyStrRef, unistr: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
-        let text = unistr.borrow_value();
-        let normalized_text = match form.borrow_value() {
+        let text = unistr.as_str();
+        let normalized_text = match form.as_str() {
             "NFC" => text.nfc().collect::<String>(),
             "NFKC" => text.nfkc().collect::<String>(),
             "NFD" => text.nfd().collect::<String>(),
