@@ -183,11 +183,11 @@ impl CodecsRegistry {
         Ok(())
     }
 
-    pub fn lookup_opt(&self, encoding: &str, vm: &VirtualMachine) -> PyResult<Option<PyCodec>> {
+    pub fn lookup(&self, encoding: &str, vm: &VirtualMachine) -> PyResult<PyCodec> {
         let encoding = normalize_encoding_name(encoding);
         let inner = self.inner.read();
         if let Some(codec) = inner.search_cache.get(encoding.as_ref()) {
-            return Ok(Some(codec.clone()));
+            return Ok(codec.clone());
         }
         let search_path = inner.search_path.clone();
         drop(inner); // don't want to deadlock
@@ -202,15 +202,10 @@ impl CodecsRegistry {
                     .search_cache
                     .entry(encoding.borrow_value().to_owned())
                     .or_insert(codec);
-                return Ok(Some(codec.clone()));
+                return Ok(codec.clone());
             }
         }
-        Ok(None)
-    }
-
-    pub fn lookup(&self, encoding: &str, vm: &VirtualMachine) -> PyResult<PyCodec> {
-        self.lookup_opt(encoding, vm)?
-            .ok_or_else(|| vm.new_lookup_error(format!("unknown encoding: {}", encoding)))
+        Err(vm.new_lookup_error(format!("unknown encoding: {}", encoding)))
     }
 
     fn _lookup_text_encoding(
