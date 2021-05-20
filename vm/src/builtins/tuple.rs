@@ -31,14 +31,6 @@ impl fmt::Debug for PyTuple {
     }
 }
 
-impl<'a> rustpython_common::borrow::BorrowValue<'a> for PyTuple {
-    type Borrowed = &'a [PyObjectRef];
-
-    fn borrow_value(&'a self) -> Self::Borrowed {
-        &self.elements
-    }
-}
-
 impl PyValue for PyTuple {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.tuple_type
@@ -380,16 +372,6 @@ impl<T: TransmuteFromObject> Clone for PyTupleTyped<T> {
             tuple: self.tuple.clone(),
             _marker: PhantomData,
         }
-    }
-}
-
-impl<'a, T: TransmuteFromObject + 'a> rustpython_common::borrow::BorrowValue<'a>
-    for PyTupleTyped<T>
-{
-    type Borrowed = &'a [T];
-    #[inline]
-    fn borrow_value(&'a self) -> Self::Borrowed {
-        self.as_slice()
     }
 }
 

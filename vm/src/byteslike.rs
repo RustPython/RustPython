@@ -73,13 +73,6 @@ impl TryFromObject for PyBytesLike {
     }
 }
 
-impl<'a> rustpython_common::borrow::BorrowValue<'a> for PyBytesLike {
-    type Borrowed = BorrowedValue<'a, [u8]>;
-    fn borrow_value(&'a self) -> Self::Borrowed {
-        self.borrow_buf()
-    }
-}
-
 pub fn try_bytes_like<R>(
     vm: &VirtualMachine,
     obj: &PyObjectRef,
@@ -131,13 +124,6 @@ impl TryFromObject for PyRwBytesLike {
     }
 }
 
-impl<'a> rustpython_common::borrow::BorrowValue<'a> for PyRwBytesLike {
-    type Borrowed = BorrowedValueMut<'a, [u8]>;
-    fn borrow_value(&'a self) -> Self::Borrowed {
-        self.borrow_buf_mut()
-    }
-}
-
 /// A buffer or utf8 string. Like the `s*` format code for `PyArg_Parse` in CPython.
 pub enum BufOrStr {
     Buf(PyBytesLike),
@@ -158,12 +144,5 @@ impl BufOrStr {
             Self::Buf(b) => b.borrow_buf(),
             Self::Str(s) => s.as_str().as_bytes().into(),
         }
-    }
-}
-
-impl<'a> rustpython_common::borrow::BorrowValue<'a> for BufOrStr {
-    type Borrowed = BorrowedValue<'a, [u8]>;
-    fn borrow_value(&'a self) -> Self::Borrowed {
-        self.borrow_bytes()
     }
 }

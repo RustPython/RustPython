@@ -4,11 +4,6 @@ use crate::lock::{
 };
 use std::ops::{Deref, DerefMut};
 
-pub trait BorrowValue<'a> {
-    type Borrowed: 'a + Deref;
-    fn borrow_value(&'a self) -> Self::Borrowed;
-}
-
 #[derive(Debug, derive_more::From)]
 pub enum BorrowedValue<'a, T: ?Sized> {
     Ref(&'a T),

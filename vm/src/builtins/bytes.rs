@@ -44,14 +44,6 @@ pub struct PyBytes {
 
 pub type PyBytesRef = PyRef<PyBytes>;
 
-impl<'a> rustpython_common::borrow::BorrowValue<'a> for PyBytes {
-    type Borrowed = &'a [u8];
-
-    fn borrow_value(&'a self) -> Self::Borrowed {
-        &self.inner.elements
-    }
-}
-
 impl From<Vec<u8>> for PyBytes {
     fn from(elements: Vec<u8>) -> Self {
         Self {

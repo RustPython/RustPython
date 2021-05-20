@@ -48,14 +48,6 @@ pub struct PyStr {
     len: AtomicCell<Option<usize>>,
 }
 
-impl<'a> rustpython_common::borrow::BorrowValue<'a> for PyStr {
-    type Borrowed = &'a str;
-
-    fn borrow_value(&'a self) -> Self::Borrowed {
-        &self.value
-    }
-}
-
 impl AsRef<str> for PyStr {
     fn as_ref(&self) -> &str {
         &self.value

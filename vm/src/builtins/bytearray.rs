@@ -53,14 +53,6 @@ pub struct PyByteArray {
 
 pub type PyByteArrayRef = PyRef<PyByteArray>;
 
-impl<'a> rustpython_common::borrow::BorrowValue<'a> for PyByteArray {
-    type Borrowed = PyMappedRwLockReadGuard<'a, [u8]>;
-
-    fn borrow_value(&'a self) -> Self::Borrowed {
-        self.borrow_buf()
-    }
-}
-
 impl PyByteArray {
     fn from_inner(inner: PyBytesInner) -> Self {
         PyByteArray {

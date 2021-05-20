@@ -58,14 +58,6 @@ impl PyValue for PyList {
     }
 }
 
-impl<'a> rustpython_common::borrow::BorrowValue<'a> for PyList {
-    type Borrowed = PyMappedRwLockReadGuard<'a, [PyObjectRef]>;
-
-    fn borrow_value(&'a self) -> Self::Borrowed {
-        self.borrow_list()
-    }
-}
-
 impl PyList {
     pub fn borrow_list(&self) -> PyMappedRwLockReadGuard<'_, [PyObjectRef]> {
         PyRwLockReadGuard::map(self.elements.read(), |v| &**v)

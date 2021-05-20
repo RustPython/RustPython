@@ -52,14 +52,6 @@ impl fmt::Display for PyInt {
 
 pub type PyIntRef = PyRef<PyInt>;
 
-impl<'a> rustpython_common::borrow::BorrowValue<'a> for PyInt {
-    type Borrowed = &'a BigInt;
-
-    fn borrow_value(&'a self) -> Self::Borrowed {
-        &self.value
-    }
-}
-
 impl<T> From<T> for PyInt
 where
     T: Into<BigInt>,
