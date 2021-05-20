@@ -301,7 +301,13 @@ impl PyStr {
     }
     #[cold]
     fn _compute_char_len(&self) -> usize {
-        let len = self.value.chars().count();
+        // doing the check is ~10x faster for ascii, and is actually only 2% slower worst case for
+        // non-ascii; see https://github.com/RustPython/RustPython/pull/2586#issuecomment-844611532
+        let len = if self.value.is_ascii() {
+            self.value.len()
+        } else {
+            self.value.chars().count()
+        };
         // len cannot be usize::MAX, since vec.capacity() < isize::MAX
         self.char_len.store(len, atomic::Ordering::Relaxed);
         len
