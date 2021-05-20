@@ -17,7 +17,10 @@
 #![allow(clippy::upper_case_acronyms)]
 #![doc(html_logo_url = "https://raw.githubusercontent.com/RustPython/RustPython/master/logo.png")]
 #![doc(html_root_url = "https://docs.rs/rustpython-vm/")]
-#![cfg_attr(target_os = "redox", feature(array_value_iter, const_generics))]
+#![cfg_attr(
+    target_os = "redox",
+    feature(array_value_iter, const_generics, bool_to_option)
+)]
 
 #[cfg(feature = "flame-it")]
 #[macro_use]

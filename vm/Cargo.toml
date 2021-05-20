@@ -120,6 +120,7 @@ uname = "0.1.1"
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 gethostname = "0.2.0"
 socket2 = { version = "0.4.0", features = ["all"] }
+dns-lookup = "1.0"
 rustyline = "8.0"
 openssl = { version = "0.10.32", optional = true }
 openssl-sys = { version = "0.9", optional = true }
@@ -129,9 +130,6 @@ foreign-types-shared = { version = "0.1", optional = true }
 
 [target.'cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))'.dependencies]
 num_cpus = "1"
-
-[target.'cfg(not(any(target_arch = "wasm32", target_os = "redox")))'.dependencies]
-dns-lookup = "1.0"
 
 [target.'cfg(all(unix, not(target_os = "redox")))'.dependencies]
 termios = "0.3"
