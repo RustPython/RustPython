@@ -1557,6 +1557,32 @@ mod _os {
     #[pyimpl(with(PyStructSequence))]
     impl PyTerminalSize {}
 
+    #[pyattr]
+    #[pyclass(module = "os", name = "uname_result")]
+    #[derive(Debug, PyStructSequence)]
+    struct UnameResult {
+        sysname: String,
+        nodename: String,
+        release: String,
+        version: String,
+        machine: String,
+    }
+
+    #[pyimpl(with(PyStructSequence))]
+    impl UnameResult {}
+
+    #[pyfunction]
+    fn uname(vm: &VirtualMachine) -> PyResult<UnameResult> {
+        let info = uname::uname().map_err(|err| err.into_pyexception(vm))?;
+        Ok(UnameResult {
+            sysname: info.sysname,
+            nodename: info.nodename,
+            release: info.release,
+            version: info.version,
+            machine: info.machine,
+        })
+    }
+
     pub(super) fn support_funcs() -> Vec<SupportFunc> {
         let mut supports = super::platform::support_funcs();
         supports.extend(vec![
@@ -2304,31 +2330,6 @@ mod posix {
         unsafe { libc::umask(mask) }
     }
 
-    #[pyattr]
-    #[pyclass(module = "os", name = "uname_result")]
-    #[derive(Debug, PyStructSequence)]
-    struct UnameResult {
-        sysname: String,
-        nodename: String,
-        release: String,
-        version: String,
-        machine: String,
-    }
-
-    #[pyimpl(with(PyStructSequence))]
-    impl UnameResult {}
-
-    #[pyfunction]
-    fn uname(vm: &VirtualMachine) -> PyResult<UnameResult> {
-        let info = uname::uname().map_err(|err| err.into_pyexception(vm))?;
-        Ok(UnameResult {
-            sysname: info.sysname,
-            nodename: info.nodename,
-            release: info.release,
-            version: info.version,
-            machine: info.machine,
-        })
-    }
 
     #[pyfunction]
     fn sync() {
