@@ -2330,7 +2330,6 @@ mod posix {
         unsafe { libc::umask(mask) }
     }
 
-
     #[pyfunction]
     fn sync() {
         #[cfg(not(any(target_os = "redox", target_os = "android")))]
