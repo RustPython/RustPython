@@ -392,7 +392,7 @@ class TestSysConfig(unittest.TestCase):
                 self.assertTrue(suffix.endswith('x86_64-linux-gnu.so'), suffix)
 
     # TODO: RUSTPYTHON
-    @unitest.expectedFailure
+    @unittest.expectedFailure
     @unittest.skipUnless(sys.platform == 'darwin', 'OS X-specific test')
     def test_osx_ext_suffix(self):
         suffix = sysconfig.get_config_var('EXT_SUFFIX')
