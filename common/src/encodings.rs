@@ -1,5 +1,9 @@
 use std::ops::Range;
 
+pub type EncodeErrorResult<S, B, E> = Result<(EncodeReplace<S, B>, usize), E>;
+
+pub type DecodeErrorResult<S, B, E> = Result<(S, Option<B>, usize), E>;
+
 pub trait ErrorHandler {
     type Error;
     type StrBuf: AsRef<str>;
@@ -8,13 +12,13 @@ pub trait ErrorHandler {
         &self,
         byte_range: Range<usize>,
         reason: &str,
-    ) -> Result<(EncodeReplace<Self::StrBuf, Self::BytesBuf>, usize), Self::Error>;
+    ) -> EncodeErrorResult<Self::StrBuf, Self::BytesBuf, Self::Error>;
     fn handle_decode_error(
         &self,
         data: &[u8],
         byte_range: Range<usize>,
         reason: &str,
-    ) -> Result<(Self::StrBuf, Option<Self::BytesBuf>, usize), Self::Error>;
+    ) -> DecodeErrorResult<Self::StrBuf, Self::BytesBuf, Self::Error>;
     fn error_oob_restart(&self, i: usize) -> Self::Error;
 }
 pub enum EncodeReplace<S, B> {
@@ -25,6 +29,9 @@ pub enum EncodeReplace<S, B> {
 pub mod utf8 {
     use super::*;
 
+    pub const ENCODING_NAME: &str = "utf-8";
+
+    #[inline]
     pub fn encode<E: ErrorHandler>(s: &str, _errors: &E) -> Result<Vec<u8>, E::Error> {
         Ok(s.as_bytes().to_vec())
     }

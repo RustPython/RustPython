@@ -7,9 +7,9 @@ mod _codecs {
     use crate::builtins::{PyBytesRef, PyStr, PyStrRef, PyTuple};
     use crate::byteslike::PyBytesLike;
     use crate::codecs;
-    use crate::common::encodings::{self, utf8};
+    use crate::common::encodings;
     use crate::exceptions::PyBaseExceptionRef;
-    use crate::function::{FuncArgs, OptionalArg};
+    use crate::function::FuncArgs;
     use crate::VirtualMachine;
     use crate::{IdProtocol, PyObjectRef, PyResult, TryFromObject};
 
@@ -78,11 +78,12 @@ mod _codecs {
     struct ErrorsHandler<'a> {
         vm: &'a VirtualMachine,
         encoding: &'a str,
-        errors: Option<&'a PyStrRef>,
+        errors: Option<PyStrRef>,
         handler: once_cell::unsync::OnceCell<PyObjectRef>,
     }
     impl<'a> ErrorsHandler<'a> {
-        fn new(encoding: &'a str, errors: Option<&'a PyStrRef>, vm: &'a VirtualMachine) -> Self {
+        #[inline]
+        fn new(encoding: &'a str, errors: Option<PyStrRef>, vm: &'a VirtualMachine) -> Self {
             ErrorsHandler {
                 vm,
                 encoding,
@@ -90,12 +91,12 @@ mod _codecs {
                 handler: Default::default(),
             }
         }
+        #[inline]
         fn handler_func(&self) -> PyResult<&PyObjectRef> {
             let vm = self.vm;
             self.handler.get_or_try_init(|| {
-                vm.state
-                    .codec_registry
-                    .lookup_error(self.errors.map_or("strict", |s| s.as_ref()), vm)
+                let errors = self.errors.as_ref().map_or("strict", |s| s.as_str());
+                vm.state.codec_registry.lookup_error(errors, vm)
             })
         }
     }
@@ -109,8 +110,8 @@ mod _codecs {
             _byte_range: Range<usize>,
             _reason: &str,
         ) -> PyResult<(encodings::EncodeReplace<PyStrRef, PyBytesRef>, usize)> {
-            // we don't use common::encodings to encode anything yet, so this can't
-            // get called until we do
+            // we don't use common::encodings to really encode anything yet (utf8 can't error
+            // because PyStr is always utf8), so this can't get called until we do
             todo!()
         }
 
@@ -174,20 +175,67 @@ mod _codecs {
         }
     }
 
-    #[pyfunction]
-    fn utf_8_encode(s: PyStrRef, _errors: OptionalArg<PyStrRef>) -> (Vec<u8>, usize) {
-        (s.as_str().as_bytes().to_vec(), s.char_len())
+    type EncodeResult = PyResult<(Vec<u8>, usize)>;
+
+    #[derive(FromArgs)]
+    struct EncodeArgs {
+        #[pyarg(positional)]
+        s: PyStrRef,
+        #[pyarg(positional, optional)]
+        errors: Option<PyStrRef>,
+    }
+
+    impl EncodeArgs {
+        #[inline]
+        fn encode<'a, F>(self, name: &'a str, encode: F, vm: &'a VirtualMachine) -> EncodeResult
+        where
+            F: FnOnce(&str, &ErrorsHandler<'a>) -> PyResult<Vec<u8>>,
+        {
+            let errors = ErrorsHandler::new(name, self.errors, vm);
+            let encoded = encode(self.s.as_str(), &errors)?;
+            Ok((encoded, self.s.char_len()))
+        }
+    }
+
+    type DecodeResult = PyResult<(String, usize)>;
+
+    #[derive(FromArgs)]
+    struct DecodeArgs {
+        #[pyarg(positional)]
+        data: PyBytesLike,
+        #[pyarg(positional, optional)]
+        errors: Option<PyStrRef>,
+        #[pyarg(positional, default = "false")]
+        final_decode: bool,
+    }
+
+    impl DecodeArgs {
+        #[inline]
+        fn decode<'a, F>(self, name: &'a str, decode: F, vm: &'a VirtualMachine) -> DecodeResult
+        where
+            F: FnOnce(&[u8], &ErrorsHandler<'a>, bool) -> DecodeResult,
+        {
+            let data = self.data.borrow_buf();
+            let errors = ErrorsHandler::new(name, self.errors, vm);
+            decode(&data, &errors, self.final_decode)
+        }
+    }
+
+    macro_rules! do_codec {
+        ($module:ident :: $func:ident, $args: expr, $vm:expr) => {{
+            use encodings::$module as codec;
+            $args.$func(codec::ENCODING_NAME, codec::$func, $vm)
+        }};
     }
 
     #[pyfunction]
-    fn utf_8_decode(
-        data: PyBytesLike,
-        errors: OptionalArg<PyStrRef>,
-        final_decode: OptionalArg<bool>,
-        vm: &VirtualMachine,
-    ) -> PyResult<(String, usize)> {
-        let errors = ErrorsHandler::new("utf-8", errors.as_ref().into_option(), vm);
-        data.with_ref(|data| utf8::decode(data, &errors, final_decode.unwrap_or(false)))
+    fn utf_8_encode(args: EncodeArgs, vm: &VirtualMachine) -> EncodeResult {
+        do_codec!(utf8::encode, args, vm)
+    }
+
+    #[pyfunction]
+    fn utf_8_decode(args: DecodeArgs, vm: &VirtualMachine) -> DecodeResult {
+        do_codec!(utf8::decode, args, vm)
     }
 
     // TODO: implement these codecs in Rust!
