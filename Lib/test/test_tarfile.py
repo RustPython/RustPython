@@ -603,6 +603,10 @@ class MiscReadTestBase(CommonReadTest):
             tar.close()
             support.rmtree(DIR)
 
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_extractall = unittest.expectedFailure(test_extractall)
+
     def test_extract_directory(self):
         dirtype = "ustar/dirtype"
         DIR = os.path.join(TEMPDIR, "extractdir")
@@ -618,6 +622,10 @@ class MiscReadTestBase(CommonReadTest):
         finally:
             support.rmtree(DIR)
 
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_extract_directory = unittest.expectedFailure(test_extract_directory)
+
     def test_extractall_pathlike_name(self):
         DIR = pathlib.Path(TEMPDIR) / "extractall"
         with support.temp_dir(DIR), \
@@ -628,6 +636,10 @@ class MiscReadTestBase(CommonReadTest):
                 path = DIR / tarinfo.name
                 self.assertEqual(os.path.getmtime(path), tarinfo.mtime)
 
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_extractall_pathlike_name = unittest.expectedFailure(test_extractall_pathlike_name)
+
     def test_extract_pathlike_name(self):
         dirtype = "ustar/dirtype"
         DIR = pathlib.Path(TEMPDIR) / "extractall"
@@ -637,6 +649,10 @@ class MiscReadTestBase(CommonReadTest):
             tar.extract(tarinfo, path=DIR)
             extracted = DIR / dirtype
             self.assertEqual(os.path.getmtime(extracted), tarinfo.mtime)
+
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_extract_pathlike_name = unittest.expectedFailure(test_extract_pathlike_name)
 
     def test_init_close_fobj(self):
         # Issue #7341: Close the internal file object in the TarFile
@@ -1229,6 +1245,10 @@ class WriteTest(WriteTestBase, unittest.TestCase):
             support.unlink(target)
             support.unlink(link)
 
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_link_size = unittest.expectedFailure(test_link_size)
+
     @support.skip_unless_symlink
     def test_symlink_size(self):
         path = os.path.join(TEMPDIR, "symlink")
@@ -1242,6 +1262,10 @@ class WriteTest(WriteTestBase, unittest.TestCase):
                 tar.close()
         finally:
             support.unlink(path)
+
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_symlink_size = unittest.expectedFailure(test_symlink_size)
 
     def test_add_self(self):
         # Test for #1257255.
@@ -1401,6 +1425,10 @@ class WriteTest(WriteTestBase, unittest.TestCase):
             finally:
                 tar.close()
 
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_cwd = unittest.expectedFailure(test_cwd)
+
     def test_open_nonwritable_fileobj(self):
         for exctype in OSError, EOFError, RuntimeError:
             class BadFile(io.BytesIO):
@@ -1419,6 +1447,22 @@ class WriteTest(WriteTestBase, unittest.TestCase):
 
 
 class GzipWriteTest(GzipTest, WriteTest):
+    # TODO: RUSTPYTHON
+    def expectedSuccess(test_item):
+        test_item.__unittest_expecting_failure__ = False
+        return test_item
+
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        @expectedSuccess
+        def test_cwd(self):
+            super().test_cwd()
+
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        @expectedSuccess
+        def test_symlink_size(self):
+            super().test_symlink_size()
     pass
 
 
@@ -1716,6 +1760,10 @@ class HardlinkTest(unittest.TestCase):
         tarinfo = self.tar.gettarinfo(self.bar)
         self.assertEqual(tarinfo.type, tarfile.LNKTYPE,
                 "add file as hardlink failed")
+
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_add_hardlink = unittest.expectedFailure(test_add_hardlink)
 
     def test_dereference_hardlink(self):
         self.tar.dereference = True
