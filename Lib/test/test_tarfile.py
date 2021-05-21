@@ -978,25 +978,33 @@ class GNUReadTest(LongnameTest, ReadTest, unittest.TestCase):
             s = os.stat(filename)
             self.assertLess(s.st_blocks * 512, s.st_size)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_sparse_file_old(self):
         self._test_sparse_file("gnu/sparse")
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    if sys.platform == "linux":
+        test_sparse_file_old = unittest.expectedFailure(test_sparse_file_old)
+
     def test_sparse_file_00(self):
         self._test_sparse_file("gnu/sparse-0.0")
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    if sys.platform == "linux":
+        test_sparse_file_00 = unittest.expectedFailure(test_sparse_file_00)
+
     def test_sparse_file_01(self):
         self._test_sparse_file("gnu/sparse-0.1")
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    if sys.platform == "linux":
+        test_sparse_file_01 = unittest.expectedFailure(test_sparse_file_01)
+
     def test_sparse_file_10(self):
         self._test_sparse_file("gnu/sparse-1.0")
+
+    # TODO: RUSTPYTHON
+    if sys.platform == "linux":
+        test_sparse_file_10 = unittest.expectedFailure(test_sparse_file_10)
 
     @staticmethod
     def _fs_supports_holes():
@@ -1322,8 +1330,6 @@ class WriteTest(WriteTestBase, unittest.TestCase):
         self.assertEqual(t.name, cmp_path or path.replace(os.sep, "/"))
 
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @support.skip_unless_symlink
     def test_extractall_symlinks(self):
         # Test if extractall works properly when tarfile contains symlinks
@@ -1349,6 +1355,10 @@ class WriteTest(WriteTestBase, unittest.TestCase):
         finally:
             support.unlink(temparchive)
             support.rmtree(tempdir)
+
+    # TODO: RUSTPYTHON
+    if sys.platform != "win32":
+        test_extractall_symlinks = unittest.expectedFailure(test_extractall_symlinks)
 
     def test_pathnames(self):
         self._test_pathname("foo")
