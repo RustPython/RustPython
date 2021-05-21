@@ -1551,6 +1551,7 @@ class PosixGroupsTester(unittest.TestCase):
             self.assertListEqual(groups, posix.getgroups())
 
 
+@unittest.skip("TODO: RUSTPYTHON, spawn stuff")
 class _PosixSpawnMixin:
     # Program which does nothing and exits with status 0 (success)
     NOOP_PROGRAM = (sys.executable, '-I', '-S', '-c', 'pass')
@@ -1564,8 +1565,6 @@ class _PosixSpawnMixin:
         # test_close_file() to fail.
         return (sys.executable, '-I', '-S', *args)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_returns_pid(self):
         pidfile = support.TESTFN
         self.addCleanup(support.unlink, pidfile)
@@ -1580,8 +1579,6 @@ class _PosixSpawnMixin:
         with open(pidfile) as f:
             self.assertEqual(f.read(), str(pid))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_no_such_executable(self):
         no_such_executable = 'no_such_executable'
         try:
@@ -1597,8 +1594,6 @@ class _PosixSpawnMixin:
             self.assertEqual(pid2, pid)
             self.assertNotEqual(status, 0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_specify_environment(self):
         envfile = support.TESTFN
         self.addCleanup(support.unlink, envfile)
@@ -1614,8 +1609,6 @@ class _PosixSpawnMixin:
         with open(envfile) as f:
             self.assertEqual(f.read(), 'bar')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_none_file_actions(self):
         pid = self.spawn_func(
             self.NOOP_PROGRAM[0],
@@ -1625,8 +1618,6 @@ class _PosixSpawnMixin:
         )
         support.wait_process(pid, exitcode=0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_empty_file_actions(self):
         pid = self.spawn_func(
             self.NOOP_PROGRAM[0],
@@ -1636,8 +1627,6 @@ class _PosixSpawnMixin:
         )
         support.wait_process(pid, exitcode=0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_resetids_explicit_default(self):
         pid = self.spawn_func(
             sys.executable,
@@ -1647,8 +1636,6 @@ class _PosixSpawnMixin:
         )
         support.wait_process(pid, exitcode=0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_resetids(self):
         pid = self.spawn_func(
             sys.executable,
@@ -1664,8 +1651,6 @@ class _PosixSpawnMixin:
                             [sys.executable, "-c", "pass"],
                             os.environ, resetids=None)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_setpgroup(self):
         pid = self.spawn_func(
             sys.executable,
@@ -1696,8 +1681,6 @@ class _PosixSpawnMixin:
         )
         support.wait_process(pid, exitcode=0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_setsigmask_wrong_type(self):
         with self.assertRaises(TypeError):
             self.spawn_func(sys.executable,
@@ -1713,8 +1696,6 @@ class _PosixSpawnMixin:
                             os.environ, setsigmask=[signal.NSIG,
                                                     signal.NSIG+1])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_setsid(self):
         rfd, wfd = os.pipe()
         self.addCleanup(os.close, rfd)
@@ -1819,8 +1800,6 @@ class _PosixSpawnMixin:
         )
         support.wait_process(pid, exitcode=0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_multiple_file_actions(self):
         file_actions = [
             (os.POSIX_SPAWN_OPEN, 3, os.path.realpath(__file__), os.O_RDONLY, 0),
@@ -1862,8 +1841,6 @@ class _PosixSpawnMixin:
                                            3, __file__ + '\0',
                                            os.O_RDONLY, 0)])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_open_file(self):
         outfile = support.TESTFN
         self.addCleanup(support.unlink, outfile)
@@ -1884,8 +1861,6 @@ class _PosixSpawnMixin:
         with open(outfile) as f:
             self.assertEqual(f.read(), 'hello')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_close_file(self):
         closefile = support.TESTFN
         self.addCleanup(support.unlink, closefile)
@@ -1905,8 +1880,6 @@ class _PosixSpawnMixin:
         with open(closefile) as f:
             self.assertEqual(f.read(), 'is closed %d' % errno.EBADF)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_dup2(self):
         dupfile = support.TESTFN
         self.addCleanup(support.unlink, dupfile)
