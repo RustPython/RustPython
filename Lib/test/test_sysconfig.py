@@ -328,8 +328,6 @@ class TestSysConfig(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertEqual(my_platform, test_platform)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_srcdir(self):
         # See Issues #15322, #15364.
         srcdir = sysconfig.get_config_var('srcdir')
@@ -348,6 +346,10 @@ class TestSysConfig(unittest.TestCase):
             # Issue #19340: srcdir has been realpath'ed already
             makefile_dir = os.path.realpath(makefile_dir)
             self.assertEqual(makefile_dir, srcdir)
+
+    # TODO: RUSTPYTHON
+    if sys.platform != "win32":
+        test_srcdir = unittest.expectedFailure(test_srcdir)
 
     def test_srcdir_independent_of_cwd(self):
         # srcdir should be independent of the current working directory
