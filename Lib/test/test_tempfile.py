@@ -350,6 +350,8 @@ class TestBadTempdir:
                 with self.assertRaises(FileNotFoundError):
                     self.make_temp()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_non_directory(self):
         with _inside_empty_temp_dir():
             tempdir = os.path.join(tempfile.tempdir, 'file')
@@ -1021,6 +1023,8 @@ class TestSpooledTemporaryFile(BaseTestCase):
         f.write(b'x')
         self.assertTrue(f._rolled)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_writelines(self):
         # Verify writelines with a SpooledTemporaryFile
         f = self.do_create()
@@ -1039,6 +1043,8 @@ class TestSpooledTemporaryFile(BaseTestCase):
         f.write(b'x')
         self.assertTrue(f._rolled)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_sparse(self):
         # A SpooledTemporaryFile that is written late in the file will extend
         # when that occurs
@@ -1113,6 +1119,8 @@ class TestSpooledTemporaryFile(BaseTestCase):
         with self.assertRaises(AttributeError):
             f.errors
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_text_mode(self):
         # Creating a SpooledTemporaryFile with a text mode should produce
         # a file object reading and writing (Unicode) text strings.
@@ -1145,6 +1153,8 @@ class TestSpooledTemporaryFile(BaseTestCase):
         self.assertEqual(f.encoding, "utf-8")
         self.assertEqual(f.errors, "strict")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_text_newline_and_encoding(self):
         f = tempfile.SpooledTemporaryFile(mode='w+', max_size=10,
                                           newline='', encoding='utf-8',
@@ -1390,6 +1400,8 @@ class TestTemporaryDirectory(BaseTestCase):
         finally:
             os.rmdir(dir)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_del_on_shutdown(self):
         # A TemporaryDirectory may be cleaned up during shutdown
         with self.do_create() as dir:
@@ -1422,6 +1434,8 @@ class TestTemporaryDirectory(BaseTestCase):
                 self.assertNotIn("Exception ", err)
                 self.assertIn("ResourceWarning: Implicitly cleaning up", err)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_exit_on_shutdown(self):
         # Issue #22427
         with self.do_create() as dir:
@@ -1446,6 +1460,8 @@ class TestTemporaryDirectory(BaseTestCase):
             self.assertNotIn("Exception ", err)
             self.assertIn("ResourceWarning: Implicitly cleaning up", err)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_warnings_on_cleanup(self):
         # ResourceWarning will be triggered by __del__
         with self.do_create() as dir:
@@ -1475,6 +1491,8 @@ class TestTemporaryDirectory(BaseTestCase):
             self.assertEqual(name, d.name)
         self.assertFalse(os.path.exists(name))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_modes(self):
         for mode in range(8):
             mode <<= 6
