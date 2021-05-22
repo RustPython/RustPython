@@ -266,10 +266,6 @@ class TestSysConfig(unittest.TestCase):
             user_path = get_path(name, 'posix_user')
             self.assertEqual(user_path, global_path.replace(base, user, 1))
 
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_user_similar = unittest.expectedFailure(test_user_similar)
-
     def test_main(self):
         # just making sure _main() runs and returns things in the stdout
         with captured_stdout() as output:
