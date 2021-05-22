@@ -217,10 +217,10 @@ where
         let mut saw_f = false;
         loop {
             // Detect r"", f"", b"" and u""
-            if !(saw_b || saw_u || saw_f) && (self.chr0 == Some('b') || self.chr0 == Some('B')) {
+            if !(saw_b || saw_u || saw_f) && matches!(self.chr0, Some('b') | Some('B')) {
                 saw_b = true;
             } else if !(saw_b || saw_r || saw_u || saw_f)
-                && (self.chr0 == Some('u') || self.chr0 == Some('U'))
+                && matches!(self.chr0, Some('u') | Some('U'))
             {
                 saw_u = true;
             } else if !(saw_r || saw_u) && (self.chr0 == Some('r') || self.chr0 == Some('R')) {
@@ -1707,6 +1707,17 @@ mod tests {
             vec![
                 Tok::Bytes {
                     value: b"\\x1z".to_vec()
+                },
+                Tok::Newline
+            ]
+        );
+        let source = r"rb'\\'";
+        let tokens = lex_source(source);
+        assert_eq!(
+            tokens,
+            vec![
+                Tok::Bytes {
+                    value: b"\\\\".to_vec()
                 },
                 Tok::Newline
             ]

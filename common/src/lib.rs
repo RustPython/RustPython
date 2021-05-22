@@ -3,6 +3,7 @@
 pub mod borrow;
 pub mod boxvec;
 pub mod cmp;
+pub mod encodings;
 pub mod float_ops;
 pub mod hash;
 pub mod lock;

@@ -1623,8 +1623,6 @@ class AssortedBytesTest(unittest.TestCase):
     # Test various combinations of bytes and bytearray
     #
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @check_bytes_warnings
     def test_repr_str(self):
         for f in str, repr:

@@ -1728,8 +1728,6 @@ class UnicodeTest(string_tests.CommonTest,
         # * strict decoding testing for all of the
         #   UTF8_ERROR cases in PyUnicode_DecodeUTF8
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_utf8_decode_valid_sequences(self):
         sequences = [
             # single byte
@@ -1747,8 +1745,6 @@ class UnicodeTest(string_tests.CommonTest,
             self.assertEqual(seq.decode('utf-8'), res)
 
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_utf8_decode_invalid_sequences(self):
         # continuation bytes in a sequence of 2, 3, or 4 bytes
         continuation_bytes = [bytes([x]) for x in range(0x80, 0xC0)]
@@ -1796,8 +1792,6 @@ class UnicodeTest(string_tests.CommonTest,
             self.assertRaises(UnicodeDecodeError,
                               (b'\xF4'+cb+b'\xBF\xBF').decode, 'utf-8')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_issue8271(self):
         # Issue #8271: during the decoding of an invalid UTF-8 byte sequence,
         # only the start byte and the continuation byte(s) are now considered
@@ -1921,8 +1915,6 @@ class UnicodeTest(string_tests.CommonTest,
             self.assertCorrectUTF8Decoding(bytes([byte]), '\ufffd',
                                            'invalid start byte')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_unexpected_end_of_data(self):
         """
         Test that an 'unexpected end of data' error is raised when the string
@@ -1949,8 +1941,6 @@ class UnicodeTest(string_tests.CommonTest,
             self.assertCorrectUTF8Decoding(bytes.fromhex(seq), '\ufffd',
                                            'unexpected end of data')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_invalid_cb_for_2bytes_seq(self):
         """
         Test that an 'invalid continuation byte' error is raised when the
@@ -1973,8 +1963,6 @@ class UnicodeTest(string_tests.CommonTest,
             self.assertCorrectUTF8Decoding(bytes.fromhex(seq), res,
                                            'invalid continuation byte')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_invalid_cb_for_3bytes_seq(self):
         """
         Test that an 'invalid continuation byte' error is raised when the
@@ -2033,8 +2021,6 @@ class UnicodeTest(string_tests.CommonTest,
             self.assertCorrectUTF8Decoding(bytes.fromhex(seq), res,
                                            'invalid continuation byte')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_invalid_cb_for_4bytes_seq(self):
         """
         Test that an 'invalid continuation byte' error is raised when the
@@ -2286,8 +2272,6 @@ class UnicodeTest(string_tests.CommonTest,
         print('def\n', file=out)
         print('def\n', file=out)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_ucs4(self):
         x = '\U00100000'
         y = x.encode("raw-unicode-escape").decode("raw-unicode-escape")

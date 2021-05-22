@@ -329,7 +329,7 @@ impl PyStr {
                 ch if ch.is_ascii() => 1,
                 ch if char_is_printable(ch) => {
                     // max = std::cmp::max(ch, max);
-                    1
+                    ch.len_utf8()
                 }
                 ch if (ch as u32) < 0x100 => 4,   // \xHH
                 ch if (ch as u32) < 0x10000 => 6, // \uHHHH
@@ -341,22 +341,15 @@ impl PyStr {
             out_len += incr;
         }
 
-        let (quote, unchanged) = {
-            let mut quote = '\'';
-            let mut unchanged = out_len == in_len;
-            if squote > 0 {
-                unchanged = false;
-                if dquote > 0 {
-                    // Both squote and dquote present. Use squote, and escape them
-                    out_len += squote;
-                } else {
-                    quote = '"';
-                }
-            }
-            (quote, unchanged)
-        };
+        let (quote, num_escaped_quotes) = anystr::choose_quotes_for_repr(squote, dquote);
+        // we'll be adding backslashes in front of the existing inner quotes
+        out_len += num_escaped_quotes;
 
-        out_len += 2; // quotes
+        // if we don't need to escape anything we can just copy
+        let unchanged = out_len == in_len;
+
+        // start and ending quotes
+        out_len += 2;
 
         let mut repr = String::with_capacity(out_len);
         repr.push(quote);
@@ -364,36 +357,40 @@ impl PyStr {
             repr.push_str(self.as_str());
         } else {
             for ch in self.value.chars() {
-                if ch == quote || ch == '\\' {
-                    repr.push('\\');
-                    repr.push(ch);
-                } else if ch == '\n' {
-                    repr.push_str("\\n")
-                } else if ch == '\t' {
-                    repr.push_str("\\t");
-                } else if ch == '\r' {
-                    repr.push_str("\\r");
-                } else if ch < ' ' || ch as u32 == 0x7F {
-                    repr.push_str(&format!("\\x{:02x}", ch as u32));
-                } else if ch.is_ascii() {
-                    repr.push(ch);
-                } else if !char_is_printable(ch) {
-                    let code = ch as u32;
-                    let escaped = if code < 0xff {
-                        format!("\\x{:02x}", code)
-                    } else if code < 0xffff {
-                        format!("\\u{:04x}", code)
-                    } else {
-                        format!("\\U{:08x}", code)
-                    };
-                    repr.push_str(&escaped);
-                } else {
-                    repr.push(ch)
+                use std::fmt::Write;
+                match ch {
+                    '\n' => repr.push_str("\\n"),
+                    '\t' => repr.push_str("\\t"),
+                    '\r' => repr.push_str("\\r"),
+                    // these 2 branches *would* be handled below, but we shouldn't have to do a
+                    // unicodedata lookup just for ascii characters
+                    '\x20'..='\x7e' => {
+                        // printable ascii range
+                        if ch == quote || ch == '\\' {
+                            repr.push('\\');
+                        }
+                        repr.push(ch);
+                    }
+                    ch if ch.is_ascii() => {
+                        write!(repr, "\\x{:02x}", ch as u8).unwrap();
+                    }
+                    ch if char_is_printable(ch) => {
+                        repr.push(ch);
+                    }
+                    '\0'..='\u{ff}' => {
+                        write!(repr, "\\x{:02x}", ch as u32).unwrap();
+                    }
+                    '\0'..='\u{ffff}' => {
+                        write!(repr, "\\u{:04x}", ch as u32).unwrap();
+                    }
+                    _ => {
+                        write!(repr, "\\U{:08x}", ch as u32).unwrap();
+                    }
                 }
             }
         }
-
         repr.push(quote);
+
         Ok(repr)
     }
 
