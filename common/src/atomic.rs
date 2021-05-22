@@ -4,11 +4,11 @@ pub use radium::Radium;
 mod sealed {
     pub trait Sealed {}
 }
-pub trait PyAtomicInt: sealed::Sealed {
+pub trait PyAtomicScalar: sealed::Sealed {
     type Radium: Radium<Item = Self>;
 }
 
-pub type PyAtomic<T> = <T as PyAtomicInt>::Radium;
+pub type PyAtomic<T> = <T as PyAtomicScalar>::Radium;
 
 #[cfg(feature = "threading")]
 macro_rules! atomic_ty {
@@ -22,17 +22,17 @@ macro_rules! atomic_ty {
         core::cell::Cell<$i>
     };
 }
-macro_rules! impl_atomic_int {
+macro_rules! impl_atomic_scalar {
     ($(($i:ty, $atomic:ty),)*) => {
         $(
             impl sealed::Sealed for $i {}
-            impl PyAtomicInt for $i {
+            impl PyAtomicScalar for $i {
                 type Radium = atomic_ty!($i, $atomic);
             }
         )*
     };
 }
-impl_atomic_int!(
+impl_atomic_scalar!(
     (u8, AtomicU8),
     (i8, AtomicI8),
     (u16, AtomicU16),
@@ -43,4 +43,10 @@ impl_atomic_int!(
     (i64, AtomicI64),
     (usize, AtomicUsize),
     (isize, AtomicIsize),
+    (bool, AtomicBool),
 );
+
+impl<T> sealed::Sealed for *mut T {}
+impl<T> PyAtomicScalar for *mut T {
+    type Radium = atomic_ty!(*mut T, AtomicPtr<T>);
+}
