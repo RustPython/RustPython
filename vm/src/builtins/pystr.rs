@@ -4,7 +4,6 @@ use std::mem::size_of;
 use std::ops::Range;
 use std::string::ToString;
 
-use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
 use num_traits::ToPrimitive;
 use unic_ucd_bidi::BidiClass;
@@ -28,6 +27,7 @@ use crate::{
     IdProtocol, IntoPyObject, ItemProtocol, PyClassImpl, PyComparisonValue, PyContext, PyIterable,
     PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
 };
+use rustpython_common::atomic::{self, PyAtomic, Radium};
 use rustpython_common::hash;
 
 /// str(object='') -> str
@@ -44,8 +44,9 @@ use rustpython_common::hash;
 #[derive(Debug)]
 pub struct PyStr {
     value: Box<str>,
-    hash: AtomicCell<Option<hash::PyHash>>,
-    len: AtomicCell<Option<usize>>,
+    hash: PyAtomic<hash::PyHash>,
+    // uses usize::MAX as a sentinel for "uncomputed"
+    char_len: PyAtomic<usize>,
 }
 
 impl AsRef<str> for PyStr {
@@ -70,10 +71,17 @@ impl AsRef<str> for PyStrRef {
 
 impl From<String> for PyStr {
     fn from(s: String) -> PyStr {
+        s.into_boxed_str().into()
+    }
+}
+
+impl From<Box<str>> for PyStr {
+    #[inline]
+    fn from(value: Box<str>) -> PyStr {
         PyStr {
-            value: s.into_boxed_str(),
-            hash: AtomicCell::default(),
-            len: AtomicCell::default(),
+            value,
+            hash: Radium::new(hash::SENTINEL),
+            char_len: Radium::new(usize::MAX),
         }
     }
 }
@@ -105,7 +113,7 @@ impl TryIntoRef<PyStr> for &str {
 #[derive(Debug)]
 pub struct PyStrIterator {
     string: PyStrRef,
-    position: AtomicCell<usize>,
+    position: PyAtomic<usize>,
 }
 
 impl PyValue for PyStrIterator {
@@ -120,26 +128,25 @@ impl PyStrIterator {}
 impl PyIter for PyStrIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         let value = &*zelf.string.value;
-        let start = zelf.position.load();
-        if start == value.len() {
-            return Err(vm.new_stop_iteration());
-        }
-        let end = {
-            let mut end = None;
-            for i in 1..4 {
-                if value.is_char_boundary(start + i) {
-                    end = Some(start + i);
-                    break;
-                }
+        let mut start = zelf.position.load(atomic::Ordering::SeqCst);
+        loop {
+            if start == value.len() {
+                return Err(vm.new_stop_iteration());
             }
-            end.unwrap_or(start + 4)
-        };
+            let ch = value[start..]
+                .chars()
+                .next()
+                .ok_or_else(|| vm.new_stop_iteration())?;
 
-        if zelf.position.compare_exchange(start, end).is_ok() {
-            Ok(value[start..end].into_pyobject(vm))
-        } else {
-            // already taken from elsewhere
-            Self::next(zelf, vm)
+            match zelf.position.compare_exchange_weak(
+                start,
+                start + ch.len_utf8(),
+                atomic::Ordering::Release,
+                atomic::Ordering::Relaxed,
+            ) {
+                Ok(_) => break Ok(ch.into_pyobject(vm)),
+                Err(cur) => start = cur,
+            }
         }
     }
 }
@@ -148,7 +155,7 @@ impl PyIter for PyStrIterator {
 #[derive(Debug)]
 pub struct PyStrReverseIterator {
     string: PyStrRef,
-    position: AtomicCell<usize>,
+    position: PyAtomic<usize>,
 }
 
 impl PyValue for PyStrReverseIterator {
@@ -163,28 +170,23 @@ impl PyStrReverseIterator {}
 impl PyIter for PyStrReverseIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         let value = &*zelf.string.value;
-        let end = zelf.position.load();
-        if end == 0 {
-            return Err(vm.new_stop_iteration());
-        }
-        let start = {
-            let mut start = None;
-            for i in 1..4 {
-                if value.is_char_boundary(end - i) {
-                    start = Some(end - i);
-                    break;
-                }
+        let mut end = zelf.position.load(atomic::Ordering::Relaxed);
+        loop {
+            let ch = value[..end]
+                .chars()
+                .next_back()
+                .ok_or_else(|| vm.new_stop_iteration())?;
+
+            match zelf.position.compare_exchange_weak(
+                end,
+                end - ch.len_utf8(),
+                atomic::Ordering::Release,
+                atomic::Ordering::Relaxed,
+            ) {
+                Ok(_) => break Ok(ch.into_pyobject(vm)),
+                Err(cur) => end = cur,
             }
-            start.unwrap_or_else(|| end.saturating_sub(4))
-        };
-
-        let stored = zelf.position.swap(start);
-        if end != stored {
-            // already taken from elsewhere
-            return Self::next(zelf, vm);
         }
-
-        Ok(value[start..end].into_pyobject(vm))
     }
 }
 
@@ -228,8 +230,8 @@ impl PyStr {
 
     #[pymethod(name = "__add__")]
     fn add(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if other.isinstance(&vm.ctx.types.str_type) {
-            Ok(vm.ctx.new_str(zelf.value.py_add(borrow_value(&other))))
+        if let Some(other) = other.payload::<PyStr>() {
+            Ok(vm.ctx.new_str(zelf.value.py_add(other.as_ref())))
         } else if let Some(radd) = vm.get_method(other.clone(), "__radd__") {
             // hack to get around not distinguishing number add from seq concat
             vm.invoke(&radd?, (zelf,))
@@ -260,12 +262,20 @@ impl PyStr {
         Ok(vm.ctx.new_str(s))
     }
 
+    #[inline]
     pub(crate) fn hash(&self, vm: &VirtualMachine) -> hash::PyHash {
-        self.hash.load().unwrap_or_else(|| {
-            let hash = vm.state.hash_secret.hash_str(self.as_str());
-            self.hash.store(Some(hash));
-            hash
-        })
+        match self.hash.load(atomic::Ordering::Relaxed) {
+            hash::SENTINEL => self._compute_hash(vm),
+            hash => hash,
+        }
+    }
+    #[cold]
+    fn _compute_hash(&self, vm: &VirtualMachine) -> hash::PyHash {
+        let hash_val = vm.state.hash_secret.hash_str(self.as_str());
+        debug_assert_ne!(hash_val, hash::SENTINEL);
+        // like with char_len, we don't need a cmpxchg loop, since it'll always be the same value
+        self.hash.store(hash_val, atomic::Ordering::Relaxed);
+        hash_val
     }
 
     pub fn as_str(&self) -> &str {
@@ -282,12 +292,31 @@ impl PyStr {
     }
 
     #[pymethod(name = "__len__")]
+    #[inline]
     pub fn char_len(&self) -> usize {
-        self.len.load().unwrap_or_else(|| {
-            let len = self.value.chars().count();
-            self.len.store(Some(len));
-            len
-        })
+        match self.char_len.load(atomic::Ordering::Relaxed) {
+            usize::MAX => self._compute_char_len(),
+            len => len,
+        }
+    }
+    #[cold]
+    fn _compute_char_len(&self) -> usize {
+        // doing the check is ~10x faster for ascii, and is actually only 2% slower worst case for
+        // non-ascii; see https://github.com/RustPython/RustPython/pull/2586#issuecomment-844611532
+        let len = if self.value.is_ascii() {
+            self.value.len()
+        } else {
+            self.value.chars().count()
+        };
+        // len cannot be usize::MAX, since vec.capacity() < isize::MAX
+        self.char_len.store(len, atomic::Ordering::Relaxed);
+        len
+    }
+
+    #[pymethod(name = "isascii")]
+    #[inline(always)]
+    pub fn is_ascii(&self) -> bool {
+        self.char_len() == self.byte_len()
     }
 
     #[pymethod(name = "__sizeof__")]
@@ -717,11 +746,6 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn isascii(&self) -> bool {
-        self.value.is_ascii()
-    }
-
-    #[pymethod]
     fn splitlines(&self, args: anystr::SplitLinesArgs, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx
             .new_list(self.value.py_splitlines(args, |s| vm.ctx.new_str(s)))
@@ -1043,10 +1067,8 @@ impl PyStr {
 
     #[pymethod(magic)]
     fn reversed(zelf: PyRef<Self>) -> PyStrReverseIterator {
-        let end = zelf.value.len();
-
         PyStrReverseIterator {
-            position: AtomicCell::new(end),
+            position: Radium::new(zelf.byte_len()),
             string: zelf,
         }
     }
@@ -1089,7 +1111,7 @@ impl Comparable for PyStr {
 impl Iterable for PyStr {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         Ok(PyStrIterator {
-            position: AtomicCell::new(0),
+            position: Radium::new(0),
             string: zelf,
         }
         .into_object(vm))
@@ -1125,6 +1147,12 @@ impl PyValue for PyStr {
 impl IntoPyObject for String {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_str(self)
+    }
+}
+
+impl IntoPyObject for char {
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.new_str(self.to_string())
     }
 }
 
@@ -1183,58 +1211,98 @@ pub fn init(ctx: &PyContext) {
     PyStrReverseIterator::extend_class(ctx, &ctx.types.str_reverseiterator_type);
 }
 
-pub(crate) fn clone_value(obj: &PyObjectRef) -> String {
-    String::from(obj.payload::<PyStr>().unwrap().as_str())
-}
-
-pub(crate) fn borrow_value(obj: &PyObjectRef) -> &str {
-    &obj.payload::<PyStr>().unwrap().value
-}
-
 impl PySliceableSequence for PyStr {
     type Item = char;
     type Sliced = String;
 
     fn do_get(&self, index: usize) -> Self::Item {
-        self.value.chars().nth(index).unwrap()
+        if self.is_ascii() {
+            self.value.as_bytes()[index] as char
+        } else {
+            self.value.chars().nth(index).unwrap()
+        }
     }
 
     fn do_slice(&self, range: Range<usize>) -> Self::Sliced {
-        self.value
-            .chars()
-            .skip(range.start)
-            .take(range.end - range.start)
-            .collect()
+        let value = &*self.value;
+        if self.is_ascii() {
+            value[range].to_owned()
+        } else {
+            rustpython_common::str::get_chars(value, range).to_owned()
+        }
     }
 
     fn do_slice_reverse(&self, range: Range<usize>) -> Self::Sliced {
-        let count = self.len();
-        self.value
-            .chars()
-            .rev()
-            .skip(count - range.end)
-            .take(range.end - range.start)
-            .collect()
+        let value = &*self.value;
+        let char_len = self.char_len();
+        if char_len == self.byte_len() {
+            // this is an ascii string
+            let mut v = value.as_bytes()[range].to_vec();
+            v.reverse();
+            // TODO: from_utf8_unchecked?
+            String::from_utf8(v).unwrap()
+        } else {
+            let mut s = String::with_capacity(value.len());
+            s.extend(
+                value
+                    .chars()
+                    .rev()
+                    .skip(char_len - range.end)
+                    .take(range.end - range.start),
+            );
+            s
+        }
     }
 
     fn do_stepped_slice(&self, range: Range<usize>, step: usize) -> Self::Sliced {
-        self.value
-            .chars()
-            .skip(range.start)
-            .take(range.end - range.start)
-            .step_by(step)
-            .collect()
+        let value = &*self.value;
+        if self.is_ascii() {
+            let v = value.as_bytes()[range]
+                .iter()
+                .copied()
+                .step_by(step)
+                .collect();
+            // TODO: from_utf8_unchecked?
+            String::from_utf8(v).unwrap()
+        } else {
+            let mut s = String::with_capacity(2 * ((range.len() / step) + 1));
+            s.extend(
+                value
+                    .chars()
+                    .skip(range.start)
+                    .take(range.end - range.start)
+                    .step_by(step),
+            );
+            s
+        }
     }
 
     fn do_stepped_slice_reverse(&self, range: Range<usize>, step: usize) -> Self::Sliced {
-        let count = self.len();
-        self.value
-            .chars()
-            .rev()
-            .skip(count - range.end)
-            .take(range.end - range.start)
-            .step_by(step)
-            .collect()
+        let value = &*self.value;
+        let char_len = self.char_len();
+        if char_len == self.byte_len() {
+            // this is an ascii string
+            let v: Vec<u8> = value.as_bytes()[range]
+                .iter()
+                .rev()
+                .copied()
+                .step_by(step)
+                .collect();
+            // TODO: from_utf8_unchecked?
+            String::from_utf8(v).unwrap()
+        } else {
+            // not ascii, so the codepoints have to be at least 2 bytes each
+            let mut s = String::with_capacity(2 * ((range.len() / step) + 1));
+            s.extend(
+                value
+                    .chars()
+                    .rev()
+                    .skip(char_len - range.end)
+                    .take(range.end - range.start)
+                    .step_by(step),
+            );
+            s
+        }
     }
 
     fn empty() -> Self::Sliced {
@@ -1246,7 +1314,7 @@ impl PySliceableSequence for PyStr {
     }
 
     fn is_empty(&self) -> bool {
-        self.value.is_empty()
+        self.is_empty()
     }
 }
 

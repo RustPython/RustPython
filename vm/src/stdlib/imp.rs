@@ -1,10 +1,10 @@
 use crate::builtins::bytes::PyBytesRef;
 use crate::builtins::code::PyCode;
 use crate::builtins::module::PyModuleRef;
-use crate::builtins::pystr::{self, PyStr, PyStrRef};
+use crate::builtins::pystr::{PyStr, PyStrRef};
 use crate::import;
 use crate::vm::VirtualMachine;
-use crate::{ItemProtocol, PyObjectRef, PyResult, PyValue};
+use crate::{ItemProtocol, PyObjectRef, PyResult, PyValue, TryFromObject};
 
 #[cfg(feature = "threading")]
 mod lock {
@@ -58,12 +58,12 @@ fn _imp_is_frozen(name: PyStrRef, vm: &VirtualMachine) -> bool {
 
 fn _imp_create_builtin(spec: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     let sys_modules = vm.get_attribute(vm.sys_module.clone(), "modules").unwrap();
-    let spec = vm.get_attribute(spec, "name")?;
-    let name = pystr::borrow_value(&spec);
+    let name = vm.get_attribute(spec, "name")?;
+    let name = PyStrRef::try_from_object(vm, name)?;
 
-    if let Ok(module) = sys_modules.get_item(name, vm) {
+    if let Ok(module) = sys_modules.get_item(name.clone(), vm) {
         Ok(module)
-    } else if let Some(make_module_func) = vm.state.stdlib_inits.get(name) {
+    } else if let Some(make_module_func) = vm.state.stdlib_inits.get(name.as_ref()) {
         Ok(make_module_func(vm))
     } else {
         Ok(vm.ctx.none())

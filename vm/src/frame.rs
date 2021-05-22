@@ -652,7 +652,7 @@ impl ExecutingFrame<'_> {
                     .pop_multiple(*size as usize)
                     .as_slice()
                     .iter()
-                    .map(|pyobj| pystr::borrow_value(&pyobj))
+                    .map(|pyobj| pyobj.payload::<PyStr>().unwrap().as_ref())
                     .collect::<String>();
                 let str_obj = vm.ctx.new_str(s);
                 self.push_value(str_obj);
@@ -1351,7 +1351,7 @@ impl ExecutingFrame<'_> {
         let kwarg_names = kwarg_names
             .as_slice()
             .iter()
-            .map(|pyobj| pystr::clone_value(pyobj));
+            .map(|pyobj| pyobj.payload::<PyStr>().unwrap().as_ref().to_owned());
         FuncArgs::with_kwargs_names(args, kwarg_names)
     }
 

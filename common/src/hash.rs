@@ -9,6 +9,10 @@ use std::num::Wrapping;
 pub type PyHash = i64;
 pub type PyUHash = u64;
 
+/// A PyHash value used to represent a missing hash value, e.g. means "not yet computed" for
+/// `str`'s hash cache
+pub const SENTINEL: PyHash = -1;
+
 /// Prime multiplier used in string and various other hashes.
 pub const MULTIPLIER: PyHash = 1_000_003; // 0xf4243
 /// Numeric hashes are based on reduction modulo the prime 2**_BITS - 1
@@ -59,7 +63,7 @@ impl HashSecret {
     pub fn hash_value<T: Hash + ?Sized>(&self, data: &T) -> PyHash {
         let mut hasher = self.build_hasher();
         data.hash(&mut hasher);
-        mod_int(hasher.finish() as PyHash)
+        fix_sentinel(mod_int(hasher.finish() as PyHash))
     }
 
     pub fn hash_iter<'a, T: 'a, I, F, E>(&self, iter: I, hashf: F) -> Result<PyHash, E>
@@ -72,7 +76,7 @@ impl HashSecret {
             let item_hash = hashf(element)?;
             item_hash.hash(&mut hasher);
         }
-        Ok(mod_int(hasher.finish() as PyHash))
+        Ok(fix_sentinel(mod_int(hasher.finish() as PyHash)))
     }
 
     pub fn hash_bytes(&self, value: &[u8]) -> PyHash {
@@ -130,14 +134,14 @@ pub fn hash_float(value: f64) -> PyHash {
     };
     x = ((x << e) & MODULUS) | x >> (BITS32 - e);
 
-    x as PyHash * value.signum() as PyHash
+    fix_sentinel(x as PyHash * value.signum() as PyHash)
 }
 
 pub fn hash_complex(value: &Complex64) -> PyHash {
     let re_hash = hash_float(value.re);
     let im_hash = hash_float(value.im);
     let Wrapping(ret) = Wrapping(re_hash) + Wrapping(im_hash) * Wrapping(IMAG);
-    ret
+    fix_sentinel(ret)
 }
 
 pub fn hash_iter_unordered<'a, T: 'a, I, F, E>(iter: I, hashf: F) -> Result<PyHash, E>
@@ -151,18 +155,27 @@ where
         // xor is commutative and hash should be independent of order
         hash ^= item_hash;
     }
-    Ok(mod_int(hash))
+    Ok(fix_sentinel(mod_int(hash)))
 }
 
 pub fn hash_bigint(value: &BigInt) -> PyHash {
-    value.to_i64().map_or_else(
-        || {
-            (value % MODULUS).to_i64().unwrap_or_else(||
-            // guaranteed to be safe by mod
-            unsafe { std::hint::unreachable_unchecked() })
-        },
-        mod_int,
-    )
+    let ret = match value.to_i64() {
+        Some(i) => mod_int(i),
+        None => (value % MODULUS).to_i64().unwrap_or_else(|| unsafe {
+            // SAFETY: MODULUS < i64::MAX, so value % MODULUS is guaranteed to be in the range of i64
+            std::hint::unreachable_unchecked()
+        }),
+    };
+    fix_sentinel(ret)
+}
+
+#[inline(always)]
+fn fix_sentinel(x: PyHash) -> PyHash {
+    if x == SENTINEL {
+        -2
+    } else {
+        x
+    }
 }
 
 #[inline]
