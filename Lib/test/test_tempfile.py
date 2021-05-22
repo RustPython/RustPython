@@ -1023,8 +1023,6 @@ class TestSpooledTemporaryFile(BaseTestCase):
         f.write(b'x')
         self.assertTrue(f._rolled)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_writelines(self):
         # Verify writelines with a SpooledTemporaryFile
         f = self.do_create()
@@ -1043,8 +1041,6 @@ class TestSpooledTemporaryFile(BaseTestCase):
         f.write(b'x')
         self.assertTrue(f._rolled)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_sparse(self):
         # A SpooledTemporaryFile that is written late in the file will extend
         # when that occurs
