@@ -240,6 +240,10 @@ class TestSysConfig(unittest.TestCase):
             cmd = "-c", "import sysconfig; print(sysconfig.get_platform())"
             self.assertEqual(py.call_real(*cmd), py.call_link(*cmd))
 
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_symlink = unittest.expectedFailure(test_symlink)
+
     def test_user_similar(self):
         # Issue #8759: make sure the posix scheme for the users
         # is similar to the global posix_prefix one
@@ -261,6 +265,10 @@ class TestSysConfig(unittest.TestCase):
                 base = base.replace(sys.base_prefix, sys.prefix)
             user_path = get_path(name, 'posix_user')
             self.assertEqual(user_path, global_path.replace(base, user, 1))
+
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_user_similar = unittest.expectedFailure(test_user_similar)
 
     def test_main(self):
         # just making sure _main() runs and returns things in the stdout
