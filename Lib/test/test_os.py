@@ -2127,8 +2127,6 @@ class Pep383Tests(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.dir)
 
-    # TODO: RUSTPYTHON (TypeError: Expected at least 1 arguments (0 given))
-    @unittest.expectedFailure
     def test_listdir(self):
         expected = self.unicodefn
         found = set(os.listdir(self.dir))

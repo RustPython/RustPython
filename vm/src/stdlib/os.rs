@@ -635,7 +635,11 @@ mod _os {
     const LISTDIR_FD: bool = cfg!(all(unix, not(target_os = "redox")));
 
     #[pyfunction]
-    fn listdir(path: PathOrFd, vm: &VirtualMachine) -> PyResult {
+    fn listdir(path: OptionalArg<PathOrFd>, vm: &VirtualMachine) -> PyResult {
+        let path = match path {
+            OptionalArg::Present(path) => path,
+            OptionalArg::Missing => PathOrFd::Path(PyPathLike::new_str(".")),
+        };
         let list = match path {
             PathOrFd::Path(path) => {
                 let dir_iter = fs::read_dir(&path).map_err(|err| err.into_pyexception(vm))?;

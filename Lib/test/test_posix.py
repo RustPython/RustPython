@@ -811,8 +811,6 @@ class PosixTester(unittest.TestCase):
     def test_listdir(self):
         self.assertIn(support.TESTFN, posix.listdir(os.curdir))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_listdir_default(self):
         # When listdir is called without argument,
         # it's the same as listdir(os.curdir).
