@@ -2871,6 +2871,10 @@ mod nt {
     #[pyattr]
     use libc::O_BINARY;
 
+    #[pyattr]
+    // use libc::O_TEMPORARY;
+    const O_TEMPORARY: i32 = 0x40;
+
     #[pyfunction]
     pub(super) fn access(path: PyPathLike, mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
         use winapi::um::{fileapi, winnt};
