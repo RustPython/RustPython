@@ -1351,6 +1351,10 @@ class TestTemporaryDirectory(BaseTestCase):
             tempfile.TemporaryDirectory(dir=nonexistent)
         self.assertEqual(cm.exception.errno, errno.ENOENT)
 
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_mkdtemp_failure = unittest.expectedFailure(test_mkdtemp_failure)
+
     def test_explicit_cleanup(self):
         # A TemporaryDirectory is deleted when cleaned up
         dir = tempfile.mkdtemp()
