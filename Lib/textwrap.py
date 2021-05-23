@@ -76,43 +76,40 @@ class TextWrapper:
     # (after stripping out empty strings).
     word_punct = r'[\w!"\'&.,?]'
     letter = r'[^\d\W]'
-    whitespace = r'[%s]' % repr(_whitespace)[1:-1]
-    # FIXME: Be able to use line below
-    # whitespace = r'[%s]' % re.escape(_whitespace)
+    whitespace = r'[%s]' % re.escape(_whitespace)
     nowhitespace = '[^' + whitespace[1:]
-    # FIXME: Be able to use this:
-    # wordsep_re = re.compile(r'''
-    #     ( # any whitespace
-    #       %(ws)s+
-    #     | # em-dash between words
-    #       (?<=%(wp)s) -{2,} (?=\w)
-    #     | # word, possibly hyphenated
-    #       %(nws)s+? (?:
-    #         # hyphenated word
-    #           -(?: (?<=%(lt)s{2}-) | (?<=%(lt)s-%(lt)s-))
-    #           (?= %(lt)s -? %(lt)s)
-    #         | # end of word
-    #           (?=%(ws)s|\Z)
-    #         | # em-dash
-    #           (?<=%(wp)s) (?=-{2,}\w)
-    #         )
-    #     )''' % {'wp': word_punct, 'lt': letter,
-    #             'ws': whitespace, 'nws': nowhitespace},
-    #     re.VERBOSE)
+    wordsep_re = re.compile(r'''
+        ( # any whitespace
+          %(ws)s+
+        | # em-dash between words
+          (?<=%(wp)s) -{2,} (?=\w)
+        | # word, possibly hyphenated
+          %(nws)s+? (?:
+            # hyphenated word
+              -(?: (?<=%(lt)s{2}-) | (?<=%(lt)s-%(lt)s-))
+              (?= %(lt)s -? %(lt)s)
+            | # end of word
+              (?=%(ws)s|\Z)
+            | # em-dash
+              (?<=%(wp)s) (?=-{2,}\w)
+            )
+        )''' % {'wp': word_punct, 'lt': letter,
+                'ws': whitespace, 'nws': nowhitespace},
+        re.VERBOSE)
     del word_punct, letter, nowhitespace
 
     # This less funky little regex just split on recognized spaces. E.g.
     #   "Hello there -- you goof-ball, use the -b option!"
     # splits into
     #   Hello/ /there/ /--/ /you/ /goof-ball,/ /use/ /the/ /-b/ /option!/
-    wordsep_simple_re = wordsep_re = re.compile(r'(%s+)' % whitespace)
+    wordsep_simple_re = re.compile(r'(%s+)' % whitespace)
     del whitespace
 
     # XXX this is not locale- or charset-aware -- string.lowercase
     # is US-ASCII only (and therefore English-only)
     sentence_end_re = re.compile(r'[a-z]'             # lowercase letter
-                                 r'[\.!\?]'          # sentence-ending punct.
-                                 r'["\']?'           # optional end-of-quote
+                                 r'[\.\!\?]'          # sentence-ending punct.
+                                 r'[\"\']?'           # optional end-of-quote
                                  r'\Z')               # end of chunk
 
     def __init__(self,
@@ -423,9 +420,9 @@ def dedent(text):
 
     Note that tabs and spaces are both treated as whitespace, but they
     are not equal: the lines "  hello" and "\\thello" are
-    considered to have no common leading whitespace.  (This behaviour is
-    new in Python 2.5; older versions of this module incorrectly
-    expanded tabs before searching for common leading whitespace.)
+    considered to have no common leading whitespace.
+
+    Entirely blank lines are normalized to a newline character.
     """
     # Look for the longest leading string of spaces and tabs common to
     # all lines.
