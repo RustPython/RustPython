@@ -1455,6 +1455,76 @@ mod _os {
         }
     }
 
+    #[pyattr]
+    #[pyclass(module = "os", name = "times_result")]
+    #[derive(Debug, PyStructSequence)]
+    struct TimesResult {
+        pub user: f64,
+        pub system: f64,
+        pub children_user: f64,
+        pub children_system: f64,
+        pub elapsed: f64,
+    }
+
+    #[pyimpl(with(PyStructSequence))]
+    impl TimesResult {}
+
+    #[pyfunction]
+    fn times(vm: &VirtualMachine) -> PyResult {
+        #[cfg(windows)]
+        {
+            use winapi::shared::minwindef::FILETIME;
+            use winapi::um::processthreadsapi::{GetCurrentProcess, GetProcessTimes};
+
+            let mut _create = FILETIME::default();
+            let mut _exit = FILETIME::default();
+            let mut kernel = FILETIME::default();
+            let mut user = FILETIME::default();
+
+            unsafe {
+                let h_proc = GetCurrentProcess();
+                GetProcessTimes(h_proc, &mut _create, &mut _exit, &mut kernel, &mut user);
+            }
+
+            let times_result = TimesResult {
+                user: user.dwHighDateTime as f64 * 429.4967296 + user.dwLowDateTime as f64 * 1e-7,
+                system: kernel.dwHighDateTime as f64 * 429.4967296
+                    + kernel.dwLowDateTime as f64 * 1e-7,
+                children_user: 0.0,
+                children_system: 0.0,
+                elapsed: 0.0,
+            };
+
+            Ok(times_result.into_pyobject(vm))
+        }
+        #[cfg(unix)]
+        {
+            let mut t = libc::tms {
+                tms_utime: 0,
+                tms_stime: 0,
+                tms_cutime: 0,
+                tms_cstime: 0,
+            };
+
+            let tick_for_second = unsafe { libc::sysconf(libc::_SC_CLK_TCK) } as f64;
+            let c = unsafe { libc::times(&mut t as *mut _) } as i64;
+
+            if c == -1 {
+                return Err(vm.new_os_error("Fail to get times".to_string()));
+            }
+
+            let times_result = TimesResult {
+                user: t.tms_utime as f64 / tick_for_second,
+                system: t.tms_stime as f64 / tick_for_second,
+                children_user: t.tms_cutime as f64 / tick_for_second,
+                children_system: t.tms_cstime as f64 / tick_for_second,
+                elapsed: c as f64 / tick_for_second,
+            };
+
+            Ok(times_result.into_pyobject(vm))
+        }
+    }
+
     #[cfg(target_os = "linux")]
     #[derive(FromArgs)]
     struct CopyFileRangeArgs {
