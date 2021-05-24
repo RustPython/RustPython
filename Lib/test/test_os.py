@@ -3783,6 +3783,7 @@ class TestScandir(unittest.TestCase):
                                entry_lstat,
                                os.name == 'nt')
 
+    @unittest.skipIf(sys.platform == "linux", "TODO: RUSTPYTHON, flaky test")
     def test_attributes(self):
         link = hasattr(os, 'link')
         symlink = support.can_symlink()
