@@ -187,10 +187,6 @@ class ProcessTestCase(BaseTestCase):
                 stdin=tf)
         self.assertIn(b'PEAR', output)
 
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_check_output_stdin_arg = unittest.expectedFailure(test_check_output_stdin_arg)
-
     def test_check_output_input_arg(self):
         # check_output() can be called with input set to a string
         output = subprocess.check_output(
@@ -247,10 +243,6 @@ class ProcessTestCase(BaseTestCase):
             self.fail("Expected ValueError when stdin and input args supplied.")
         self.assertIn('stdin', c.exception.args[0])
         self.assertIn('input', c.exception.args[0])
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_check_output_stdin_with_input_arg = unittest.expectedFailure(test_check_output_stdin_with_input_arg)
 
     def test_check_output_timeout(self):
         # check_output() function with timeout arg
@@ -537,10 +529,6 @@ class ProcessTestCase(BaseTestCase):
         p.wait()
         self.assertEqual(p.returncode, 1)
 
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_stdin_filedes = unittest.expectedFailure(test_stdin_filedes)
-
     def test_stdin_fileobj(self):
         # stdin is set to open file object
         tf = tempfile.TemporaryFile()
@@ -552,10 +540,6 @@ class ProcessTestCase(BaseTestCase):
                          stdin=tf)
         p.wait()
         self.assertEqual(p.returncode, 1)
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_stdin_fileobj = unittest.expectedFailure(test_stdin_fileobj)
 
     def test_stdout_pipe(self):
         # stdout redirection
@@ -577,10 +561,6 @@ class ProcessTestCase(BaseTestCase):
         os.lseek(d, 0, 0)
         self.assertEqual(os.read(d, 1024), b"orange")
 
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_stdout_filedes = unittest.expectedFailure(test_stdout_filedes)
-
     def test_stdout_fileobj(self):
         # stdout is set to open file object
         tf = tempfile.TemporaryFile()
@@ -591,10 +571,6 @@ class ProcessTestCase(BaseTestCase):
         p.wait()
         tf.seek(0)
         self.assertEqual(tf.read(), b"orange")
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_stdout_fileobj = unittest.expectedFailure(test_stdout_fileobj)
 
     def test_stderr_pipe(self):
         # stderr redirection
@@ -616,10 +592,6 @@ class ProcessTestCase(BaseTestCase):
         os.lseek(d, 0, 0)
         self.assertStderrEqual(os.read(d, 1024), b"strawberry")
 
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_stderr_filedes = unittest.expectedFailure(test_stderr_filedes)
-
     def test_stderr_fileobj(self):
         # stderr is set to open file object
         tf = tempfile.TemporaryFile()
@@ -630,10 +602,6 @@ class ProcessTestCase(BaseTestCase):
         p.wait()
         tf.seek(0)
         self.assertStderrEqual(tf.read(), b"strawberry")
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_stderr_fileobj = unittest.expectedFailure(test_stderr_fileobj)
 
     def test_stderr_redirect_with_no_stdout_redirect(self):
         # test stderr=STDOUT while stdout=None (not set)
@@ -682,10 +650,6 @@ class ProcessTestCase(BaseTestCase):
         p.wait()
         tf.seek(0)
         self.assertStderrEqual(tf.read(), b"appleorange")
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_stdout_stderr_file = unittest.expectedFailure(test_stdout_stderr_file)
 
     def test_stdout_filedes_of_stdout(self):
         # stdout is set to 1 (#1531862).
@@ -1587,10 +1551,6 @@ class RunFuncTestCase(BaseTestCase):
                 stdin=tf, stdout=subprocess.PIPE)
         self.assertIn(b'PEAR', cp.stdout)
 
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_check_output_stdin_arg = unittest.expectedFailure(test_check_output_stdin_arg)
-
     def test_check_output_input_arg(self):
         # check_output() can be called with input set to a string
         cp = self.run_python(
@@ -1610,10 +1570,6 @@ class RunFuncTestCase(BaseTestCase):
                                      stdin=tf, input=b'hare')
         self.assertIn('stdin', c.exception.args[0])
         self.assertIn('input', c.exception.args[0])
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_check_output_stdin_with_input_arg = unittest.expectedFailure(test_check_output_stdin_with_input_arg)
 
     def test_check_output_timeout(self):
         with self.assertRaises(subprocess.TimeoutExpired) as c:
@@ -1685,10 +1641,6 @@ class RunFuncTestCase(BaseTestCase):
         self.assertIn('stdout', c.exception.args[0])
         self.assertIn('capture_output', c.exception.args[0])
 
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_stdout_with_capture_output_arg = unittest.expectedFailure(test_stdout_with_capture_output_arg)
-
     def test_stderr_with_capture_output_arg(self):
         # run() refuses to accept 'stderr' with 'capture_output'
         tf = tempfile.TemporaryFile()
@@ -1700,10 +1652,6 @@ class RunFuncTestCase(BaseTestCase):
                                       capture_output=True, stderr=tf)
         self.assertIn('stderr', c.exception.args[0])
         self.assertIn('capture_output', c.exception.args[0])
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_stderr_with_capture_output_arg = unittest.expectedFailure(test_stderr_with_capture_output_arg)
 
     # This test _might_ wind up a bit fragile on loaded build+test machines
     # as it depends on the timing with wide enough margins for normal situations
