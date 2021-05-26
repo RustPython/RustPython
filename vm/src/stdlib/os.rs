@@ -3223,11 +3223,7 @@ mod nt {
     use winapi::vc::vcruntime::intptr_t;
 
     #[pyattr]
-    use libc::O_BINARY;
-
-    #[pyattr]
-    // use libc::O_TEMPORARY;
-    const O_TEMPORARY: i32 = 0x40;
+    use libc::{O_BINARY, O_TEMPORARY};
 
     #[pyfunction]
     pub(super) fn access(path: PyPathLike, mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
