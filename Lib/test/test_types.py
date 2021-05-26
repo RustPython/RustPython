@@ -1231,8 +1231,6 @@ class SimpleNamespaceTests(unittest.TestCase):
         self.assertEqual(ns1.__dict__, dict(a='spam', b='ham'))
         self.assertEqual(ns2.__dict__, dict(x=1, y=2, w=3, z=4, theta=None))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_attrdel(self):
         ns1 = types.SimpleNamespace()
         ns2 = types.SimpleNamespace(x=1, y=2, w=3)
