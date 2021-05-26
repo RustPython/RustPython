@@ -4115,8 +4115,6 @@ class TestPEP519(unittest.TestCase):
 
 
 class TimesTests(unittest.TestCase):
-    # TODO: RUSTPYTHON (AttributeError: module 'os' has no attribute 'times')
-    @unittest.expectedFailure
     def test_times(self):
         times = os.times()
         self.assertIsInstance(times, os.times_result)
