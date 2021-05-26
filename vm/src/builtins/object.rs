@@ -297,7 +297,17 @@ pub(crate) fn setattr(
         if let Some(value) = value {
             dict.set_item(attr_name, value, vm)?;
         } else {
-            dict.del_item(attr_name, vm)?;
+            dict.del_item(attr_name.clone(), vm).or_else(|e| {
+                if e.isinstance(&vm.ctx.exceptions.key_error) {
+                    Err(vm.new_attribute_error(format!(
+                        "'{}' object has no attribute '{}'",
+                        obj.class().name,
+                        attr_name,
+                    )))
+                } else {
+                    Err(e)
+                }
+            })?;
         }
         Ok(())
     } else {
