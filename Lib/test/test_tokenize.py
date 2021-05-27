@@ -1294,6 +1294,7 @@ class TestDetectEncoding(TestCase):
         self.assertRaises(SyntaxError, detect_encoding, readline)
 
     # TODO: RUSTPYTHON
+    import sys
     if sys.platform == "win32":
         test_short_files = unittest.expectedFailure(test_short_files)
 
@@ -1362,6 +1363,7 @@ class TestDetectEncoding(TestCase):
         self.assertTrue(m.closed)
 
     # TODO: RUSTPYTHON
+    import sys
     if sys.platform == "win32":
         test_open_error = unittest.expectedFailure(test_open_error)
 
