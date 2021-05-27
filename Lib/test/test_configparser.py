@@ -1670,8 +1670,6 @@ class CoverageOneHundredTestCase(unittest.TestCase):
         """)
         self.assertEqual(repr(parser['section']), '<Section: section>')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_inconsistent_converters_state(self):
         parser = configparser.ConfigParser()
         import decimal
