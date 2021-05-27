@@ -4,7 +4,7 @@ from test import support
 from collections import UserList
 
 py_bisect = support.import_fresh_module('bisect', blocked=['_bisect'])
-c_bisect = support.import_fresh_module('bisect', fresh=['_bisect'])
+c_bisect = None
 
 class Range(object):
     """A trivial range()-like object that has an insert() method."""
@@ -202,6 +202,7 @@ class TestBisect:
 class TestBisectPython(TestBisect, unittest.TestCase):
     module = py_bisect
 
+@unittest.skip("TODO: RUSTPYTHON, _bisect module")
 class TestBisectC(TestBisect, unittest.TestCase):
     module = c_bisect
 
@@ -237,6 +238,7 @@ class TestInsort:
 class TestInsortPython(TestInsort, unittest.TestCase):
     module = py_bisect
 
+@unittest.skip("TODO: RUSTPYTHON, _bisect module")
 class TestInsortC(TestInsort, unittest.TestCase):
     module = c_bisect
 
@@ -292,6 +294,7 @@ class TestErrorHandling:
 class TestErrorHandlingPython(TestErrorHandling, unittest.TestCase):
     module = py_bisect
 
+@unittest.skip("TODO: RUSTPYTHON, _bisect module")
 class TestErrorHandlingC(TestErrorHandling, unittest.TestCase):
     module = c_bisect
 
@@ -319,6 +322,7 @@ class TestDocExample:
 class TestDocExamplePython(TestDocExample, unittest.TestCase):
     module = py_bisect
 
+@unittest.skip("TODO: RUSTPYTHON, _bisect module")
 class TestDocExampleC(TestDocExample, unittest.TestCase):
     module = c_bisect
 
