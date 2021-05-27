@@ -1293,6 +1293,10 @@ class TestDetectEncoding(TestCase):
         readline = self.get_readline((b'# coding: bad\n',))
         self.assertRaises(SyntaxError, detect_encoding, readline)
 
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_short_files = unittest.expectedFailure(test_short_files)
+
     def test_false_encoding(self):
         # Issue 18873: "Encoding" detected in non-comment lines
         readline = self.get_readline((b'print("#coding=fake")',))
@@ -1356,6 +1360,10 @@ class TestDetectEncoding(TestCase):
         with mock.patch('tokenize._builtin_open', return_value=m):
             self.assertRaises(SyntaxError, tokenize_open, 'foobar')
         self.assertTrue(m.closed)
+
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_open_error = unittest.expectedFailure(test_open_error)
 
 
 class TestTokenize(TestCase):
