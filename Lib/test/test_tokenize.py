@@ -57,6 +57,8 @@ class TokenizeTest(TestCase):
         self.assertEqual(tokens[-2].type, NEWLINE)
         self.assertEqual(tokens[-1].type, ENDMARKER)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_basic(self):
         self.check_tokenize("1 + 1", """\
     NUMBER     '1'           (1, 0) (1, 1)
@@ -94,6 +96,8 @@ def k(x):
             for tok in tokenize(readline):
                 pass
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_int(self):
         # Ordinary integers and binary operators
         self.check_tokenize("0xff <= 255", """\
@@ -151,6 +155,8 @@ def k(x):
     NUMBER     '1234'        (1, 14) (1, 18)
     """)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_long(self):
         # Long integers
         self.check_tokenize("x = 0", """\
@@ -175,6 +181,8 @@ def k(x):
     NUMBER     '15921590215012591' (1, 5) (1, 22)
     """)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_float(self):
         # Floating point numbers
         self.check_tokenize("x = 3.14159", """\
@@ -230,6 +238,8 @@ def k(x):
         for lit in INVALID_UNDERSCORE_LITERALS:
             self.assertNotEqual(number_token(lit), lit)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_string(self):
         # String literals
         self.check_tokenize("x = ''; y = \"\"", """\
@@ -396,6 +406,8 @@ def"', """\
     STRING     'Rf"abc\\\\\\ndef"' (1, 0) (2, 4)
     """)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_function(self):
         self.check_tokenize("def d22(a, b, c=2, d=2, *k): pass", """\
     NAME       'def'         (1, 0) (1, 3)
@@ -456,6 +468,8 @@ def"', """\
     NAME       'pass'        (1, 34) (1, 38)
     """)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_comparison(self):
         # Comparison
         self.check_tokenize("if 1 < 1 > 1 == 1 >= 5 <= 0x15 <= 0x12 != "
@@ -494,6 +508,8 @@ def"', """\
     NAME       'pass'        (1, 84) (1, 88)
     """)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_shift(self):
         # Shift
         self.check_tokenize("x = 1 << 1 >> 5", """\
@@ -506,6 +522,8 @@ def"', """\
     NUMBER     '5'           (1, 14) (1, 15)
     """)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_additive(self):
         # Additive
         self.check_tokenize("x = 1 - y + 15 - 1 + 0x124 + z + a[5]", """\
@@ -529,6 +547,8 @@ def"', """\
     OP         ']'           (1, 36) (1, 37)
     """)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_multiplicative(self):
         # Multiplicative
         self.check_tokenize("x = 1//1*1/5*12%0x12@42", """\
@@ -549,6 +569,8 @@ def"', """\
     NUMBER     '42'          (1, 21) (1, 23)
     """)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_unary(self):
         # Unary
         self.check_tokenize("~1 ^ 1 & 1 |1 ^ -1", """\
@@ -586,6 +608,8 @@ def"', """\
     NUMBER     '1'           (1, 22) (1, 23)
     """)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_selector(self):
         # Selector
         self.check_tokenize("import sys, time\nx = sys.modules['time'].time()", """\
@@ -608,6 +632,8 @@ def"', """\
     OP         ')'           (2, 29) (2, 30)
     """)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_method(self):
         # Methods
         self.check_tokenize("@staticmethod\ndef foo(x,y): pass", """\
@@ -625,6 +651,8 @@ def"', """\
     NAME       'pass'        (2, 14) (2, 18)
     """)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_tabs(self):
         # Evil tabs
         self.check_tokenize("def f():\n"
@@ -646,6 +674,8 @@ def"', """\
     DEDENT     ''            (4, 0) (4, 0)
     """)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_non_ascii_identifiers(self):
         # Non-ascii identifiers
         self.check_tokenize("Örter = 'places'\ngrün = 'green'", """\
@@ -658,6 +688,8 @@ def"', """\
     STRING     "'green'"     (2, 7) (2, 14)
     """)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_unicode(self):
         # Legacy unicode literals:
         self.check_tokenize("Örter = u'places'\ngrün = U'green'", """\
@@ -670,6 +702,8 @@ def"', """\
     STRING     "U'green'"    (2, 7) (2, 15)
     """)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_async(self):
         # Async/await extension:
         self.check_tokenize("async = 1", """\
@@ -1023,6 +1057,8 @@ class TestTokenizerAdheresToPep0263(TestCase):
         f = 'tokenize_tests-utf8-coding-cookie-and-utf8-bom-sig.txt'
         self._testFile(f)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure # "bad_coding.py" and "bad_coding2.py" make the WASM CI fail
     def test_bad_coding_cookie(self):
         self.assertRaises(SyntaxError, self._testFile, 'bad_coding.py')
         self.assertRaises(SyntaxError, self._testFile, 'bad_coding2.py')
@@ -1284,6 +1320,8 @@ class TestDetectEncoding(TestCase):
             self.assertEqual(fp.encoding, 'utf-8-sig')
             self.assertEqual(fp.mode, 'r')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_filename_in_exception(self):
         # When possible, include the file name in the exception.
         path = 'some_file_path'
@@ -1598,6 +1636,8 @@ class TestRoundtrip(TestCase):
         # Two string literals on the same line
         self.check_roundtrip("'' ''")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_random_files(self):
         # Test roundtrip on random python modules.
         # pass the '-ucpu' option to process the full directory.
