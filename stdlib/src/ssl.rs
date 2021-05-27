@@ -22,7 +22,7 @@ use openssl::{
     error::ErrorStack,
     nid::Nid,
     ssl::{self, SslContextBuilder, SslOptions, SslVerifyMode},
-    x509::{self, X509Object, X509Ref, X509},
+    x509::{self, X509Ref, X509},
 };
 use std::convert::TryFrom;
 use std::ffi::CStr;
@@ -35,7 +35,6 @@ mod sys {
     use libc::{c_char, c_double, c_int, c_long, c_void};
     pub use openssl_sys::*;
     extern "C" {
-        pub fn OBJ_txt2obj(s: *const c_char, no_name: c_int) -> *mut ASN1_OBJECT;
         pub fn OBJ_nid2obj(n: c_int) -> *mut ASN1_OBJECT;
         pub fn X509_get_default_cert_file_env() -> *const c_char;
         pub fn X509_get_default_cert_file() -> *const c_char;
@@ -45,10 +44,47 @@ mod sys {
         pub fn SSL_CTX_set_post_handshake_auth(ctx: *mut SSL_CTX, val: c_int);
         pub fn RAND_add(buf: *const c_void, num: c_int, randomness: c_double);
         pub fn RAND_pseudo_bytes(buf: *const u8, num: c_int) -> c_int;
-        pub fn X509_get_version(x: *const X509) -> c_long;
-        pub fn SSLv3_method() -> *const SSL_METHOD;
-        pub fn TLSv1_method() -> *const SSL_METHOD;
         pub fn COMP_get_type(meth: *const COMP_METHOD) -> i32;
+        pub fn d2i_X509_bio(b: *mut BIO, a: *mut *mut X509) -> *mut X509;
+    }
+    pub const ERR_LIB_ASN1: c_int = 13;
+    pub const ASN1_R_HEADER_TOO_LONG: c_int = 123;
+}
+
+mod bio {
+    //! based off rust-openssl's private `bio` module
+
+    use super::*;
+
+    use libc::c_int;
+    use std::marker::PhantomData;
+
+    pub struct MemBioSlice<'a>(*mut sys::BIO, PhantomData<&'a [u8]>);
+
+    impl<'a> Drop for MemBioSlice<'a> {
+        fn drop(&mut self) {
+            unsafe {
+                sys::BIO_free_all(self.0);
+            }
+        }
+    }
+
+    impl<'a> MemBioSlice<'a> {
+        pub fn new(buf: &'a [u8]) -> Result<MemBioSlice<'a>, ErrorStack> {
+            openssl::init();
+
+            assert!(buf.len() <= c_int::max_value() as usize);
+            let bio = unsafe { sys::BIO_new_mem_buf(buf.as_ptr() as *const _, buf.len() as c_int) };
+            if bio.is_null() {
+                return Err(ErrorStack::get());
+            }
+
+            Ok(MemBioSlice(bio, PhantomData))
+        }
+
+        pub fn as_ptr(&self) -> *mut sys::BIO {
+            self.0
+        }
     }
 }
 
@@ -277,7 +313,6 @@ impl SlotConstructor for PySslContext {
         let method = match proto {
             // SslVersion::Ssl3 => unsafe { ssl::SslMethod::from_ptr(sys::SSLv3_method()) },
             SslVersion::Tls => ssl::SslMethod::tls(),
-            SslVersion::Tls1 => unsafe { ssl::SslMethod::from_ptr(sys::TLSv1_method()) },
             // TODO: Tls1_1, Tls1_2 ?
             SslVersion::TlsClient => ssl::SslMethod::tls_client(),
             SslVersion::TlsServer => ssl::SslMethod::tls_server(),
@@ -461,22 +496,22 @@ impl PySslContext {
         }
 
         if let Some(cadata) = args.cadata {
-            let cert = match cadata {
+            let certs = match cadata {
                 Either::A(s) => {
-                    if !s.as_str().is_ascii() {
+                    if !s.is_ascii() {
                         return Err(vm.new_type_error("Must be an ascii string".to_owned()));
                     }
-                    X509::from_pem(s.as_str().as_bytes())
+                    X509::stack_from_pem(s.as_str().as_bytes())
                 }
-                Either::B(b) => b.with_ref(X509::from_der),
+                Either::B(b) => b.with_ref(x509_stack_from_der),
             };
-            let cert = cert.map_err(|e| convert_openssl_error(vm, e))?;
-            let ret = self.exec_ctx(|ctx| {
-                let store = ctx.cert_store();
-                unsafe { sys::X509_STORE_add_cert(store.as_ptr(), cert.as_ptr()) }
-            });
-            if ret <= 0 {
-                return Err(convert_openssl_error(vm, ErrorStack::get()));
+            let certs = certs.map_err(|e| convert_openssl_error(vm, e))?;
+            let mut ctx = self.builder();
+            let store = ctx.cert_store_mut();
+            for cert in certs {
+                store
+                    .add_cert(cert)
+                    .map_err(|e| convert_openssl_error(vm, e))?;
             }
         }
 
@@ -511,22 +546,17 @@ impl PySslContext {
 
     #[pymethod]
     fn get_ca_certs(&self, binary_form: OptionalArg<bool>, vm: &VirtualMachine) -> PyResult {
-        use openssl::stack::StackRef;
         let binary_form = binary_form.unwrap_or(false);
-        let certs = unsafe {
-            let stack =
-                sys::X509_STORE_get0_objects(self.exec_ctx(|ctx| ctx.cert_store().as_ptr()));
-            assert!(!stack.is_null());
-            StackRef::<X509Object>::from_ptr(stack)
-        };
-        let certs = certs
-            .iter()
-            .filter_map(|cert| {
-                let cert = cert.x509()?;
-                Some(cert_to_py(vm, cert, binary_form))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(vm.ctx.new_list(certs))
+        self.exec_ctx(|ctx| {
+            let certs = ctx
+                .cert_store()
+                .objects()
+                .iter()
+                .filter_map(|obj| obj.x509())
+                .map(|cert| cert_to_py(vm, cert, binary_form))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(vm.ctx.new_list(certs))
+        })
     }
 
     #[pymethod]
@@ -992,6 +1022,33 @@ fn convert_ssl_error(
     vm.new_exception_msg(cls, msg.to_owned())
 }
 
+fn x509_stack_from_der(der: &[u8]) -> Result<Vec<X509>, ErrorStack> {
+    unsafe {
+        openssl::init();
+        let bio = bio::MemBioSlice::new(der)?;
+
+        let mut certs = vec![];
+        loop {
+            let r = sys::d2i_X509_bio(bio.as_ptr(), std::ptr::null_mut());
+            if r.is_null() {
+                let err = sys::ERR_peek_last_error();
+                if sys::ERR_GET_LIB(err) == sys::ERR_LIB_ASN1
+                    && sys::ERR_GET_REASON(err) == sys::ASN1_R_HEADER_TOO_LONG
+                {
+                    sys::ERR_clear_error();
+                    break;
+                }
+
+                return Err(ErrorStack::get());
+            } else {
+                certs.push(X509::from_ptr(r));
+            }
+        }
+
+        Ok(certs)
+    }
+}
+
 type CipherTuple = (&'static str, &'static str, i32);
 
 fn cipher_to_tuple(cipher: &ssl::SslCipherRef) -> CipherTuple {
@@ -1019,9 +1076,7 @@ fn cert_to_py(vm: &VirtualMachine, cert: &X509Ref, binary: bool) -> PyResult {
 
         dict.set_item("subject", name_to_py(cert.subject_name())?, vm)?;
         dict.set_item("issuer", name_to_py(cert.issuer_name())?, vm)?;
-
-        let version = unsafe { sys::X509_get_version(cert.as_ptr()) };
-        dict.set_item("version", vm.ctx.new_int(version), vm)?;
+        dict.set_item("version", vm.ctx.new_int(cert.version()), vm)?;
 
         let serial_num = cert
             .serial_number()
