@@ -8,6 +8,7 @@ pub mod array;
 pub(crate) mod ast;
 mod atexit;
 mod binascii;
+mod bisect;
 mod codecs;
 mod collections;
 mod csv;
@@ -104,6 +105,7 @@ pub fn get_module_inits() -> StdlibMap {
             "array" => array::make_module,
             "atexit" => atexit::make_module,
             "binascii" => binascii::make_module,
+            "_bisect" => bisect::make_module,
             "_codecs" => codecs::make_module,
             "_collections" => collections::make_module,
             "_csv" => csv::make_module,
