@@ -1998,7 +1998,8 @@ class io:
 
 # XXX RustPython TODO: editable type.__name__
 # io.__name__ = __name__ + '.io'
-sys.modules[io.__name__] = io
+# sys.modules[io.__name__] = io
+sys.modules[__name__ + '.io'] = io
 
 Pattern = _alias(stdlib_re.Pattern, AnyStr)
 Match = _alias(stdlib_re.Match, AnyStr)
@@ -2013,4 +2014,5 @@ class re:
 
 # XXX RustPython TODO: editable type.__name__
 # re.__name__ = __name__ + '.re'
-sys.modules[re.__name__] = re
+# sys.modules[re.__name__] = re
+sys.modules[__name__ + '.re'] = re
