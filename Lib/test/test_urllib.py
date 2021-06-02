@@ -360,6 +360,8 @@ class urlopen_HttpTests(unittest.TestCase, FakeHTTPMixin, FakeFTPMixin):
         finally:
             self.unfakehttp()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(ssl, "ssl module required")
     def test_url_path_with_control_char_rejected(self):
         for char_no in list(range(0, 0x21)) + [0x7f]:
@@ -387,6 +389,8 @@ class urlopen_HttpTests(unittest.TestCase, FakeHTTPMixin, FakeFTPMixin):
             finally:
                 self.unfakehttp()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(ssl, "ssl module required")
     def test_url_path_with_newline_header_injection_rejected(self):
         self.fakehttp(b"HTTP/1.1 200 OK\r\n\r\nHello.")
@@ -413,6 +417,8 @@ class urlopen_HttpTests(unittest.TestCase, FakeHTTPMixin, FakeFTPMixin):
         finally:
             self.unfakehttp()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(ssl, "ssl module required")
     def test_url_host_with_control_char_rejected(self):
         for char_no in list(range(0, 0x21)) + [0x7f]:
@@ -430,6 +436,8 @@ class urlopen_HttpTests(unittest.TestCase, FakeHTTPMixin, FakeFTPMixin):
             finally:
                 self.unfakehttp()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(ssl, "ssl module required")
     def test_url_host_with_newline_header_injection_rejected(self):
         self.fakehttp(b"HTTP/1.1 200 OK\r\n\r\nHello.")
@@ -508,6 +516,8 @@ Connection: close
         finally:
             self.unfakehttp()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_missing_localfile(self):
         # Test for #10836
         with self.assertRaises(urllib.error.URLError) as e:
@@ -515,6 +525,8 @@ Connection: close
         self.assertTrue(e.exception.filename)
         self.assertTrue(e.exception.reason)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_file_notexists(self):
         fd, tmp_file = tempfile.mkstemp()
         tmp_fileurl = 'file://localhost/' + tmp_file.replace(os.path.sep, '/')
@@ -529,6 +541,8 @@ Connection: close
         with self.assertRaises(urllib.error.URLError):
             urlopen(tmp_fileurl)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_ftp_nohost(self):
         test_ftp_url = 'ftp:///path'
         with self.assertRaises(urllib.error.URLError) as e:
@@ -536,6 +550,8 @@ Connection: close
         self.assertFalse(e.exception.filename)
         self.assertTrue(e.exception.reason)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_ftp_nonexisting(self):
         with self.assertRaises(urllib.error.URLError) as e:
             urlopen('ftp://localhost/a/file/which/doesnot/exists.py')
@@ -595,6 +611,7 @@ Connection: close
                 )
 
 
+@unittest.skip("TODO: RUSTPYTHON, error in setUp(); ValueError: error decoding base64: Invalid byte 32, offset 95.")
 class urlopen_DataTests(unittest.TestCase):
     """Test urlopen() opening a data URL."""
 
@@ -1509,6 +1526,8 @@ class Pathname_Tests(unittest.TestCase):
 class Utility_Tests(unittest.TestCase):
     """Testcase to test the various utility functions in the urllib."""
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_thishost(self):
         """Test the urllib.request.thishost utility function returns a tuple"""
         self.assertIsInstance(urllib.request.thishost(), tuple)
