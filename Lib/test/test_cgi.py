@@ -123,6 +123,8 @@ class CgiTests(unittest.TestCase):
                     'file': [b'Testing 123.\n'], 'title': ['']}
         self.assertEqual(result, expected)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_parse_multipart_without_content_length(self):
         POSTDATA = '''--JfISa01
 Content-Disposition: form-data; name="submit-name"
@@ -198,6 +200,8 @@ Content-Length: 3
                     else:
                         self.assertEqual(fs.getvalue(key), expect_val[0])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_separator(self):
         parse_semicolon = [
             ("x=1;y=2.0", {'x': ['1'], 'y': ['2.0']}),
