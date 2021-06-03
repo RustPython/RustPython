@@ -543,8 +543,6 @@ class TestPartialMethod(unittest.TestCase):
 
         self.assertEqual(self.A.over_partial(self.a, 5, d=8), ((self.a, 7, 5), {'c': 6, 'd': 8}))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bound_method_introspection(self):
         obj = self.a
         self.assertIs(obj.both.__self__, obj)

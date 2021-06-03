@@ -1325,8 +1325,6 @@ class TestDetectEncoding(TestCase):
             self.assertEqual(fp.encoding, 'utf-8-sig')
             self.assertEqual(fp.mode, 'r')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_filename_in_exception(self):
         # When possible, include the file name in the exception.
         path = 'some_file_path'

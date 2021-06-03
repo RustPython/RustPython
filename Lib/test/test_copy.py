@@ -887,8 +887,6 @@ class TestCopy(unittest.TestCase):
         del d
         self.assertEqual(len(v), 1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_deepcopy_bound_method(self):
         class Foo(object):
             def m(self):
