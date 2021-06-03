@@ -779,7 +779,11 @@ def _parse_proxy(proxy):
             raise ValueError("proxy URL with no authority: %r" % proxy)
         # We have an authority, so for RFC 3986-compliant URLs (by ss 3.
         # and 3.3.), path is empty or starts with '/'
-        end = r_scheme.find("/", 2)
+        if '@' in r_scheme:
+            host_separator = r_scheme.find('@')
+            end = r_scheme.find("/", host_separator)
+        else:
+            end = r_scheme.find("/", 2)
         if end == -1:
             end = None
         authority = r_scheme[2:end]
@@ -947,7 +951,7 @@ class AbstractBasicAuthHandler:
     # (single quotes are a violation of the RFC, but appear in the wild)
     rx = re.compile('(?:^|,)'   # start of the string or ','
                     '[ \t]*'    # optional whitespaces
-                    '([^ \t]+)' # scheme like "Basic"
+                    '([^ \t,]+)' # scheme like "Basic"
                     '[ \t]+'    # mandatory whitespaces
                     # realm=xxx
                     # realm='xxx'
@@ -2604,6 +2608,11 @@ def _proxy_bypass_macosx_sysconf(host, proxy_settings):
                 mask = 8 * (m.group(1).count('.') + 1)
             else:
                 mask = int(mask[1:])
+
+            if mask < 0 or mask > 32:
+                # System libraries ignore invalid prefix lengths
+                continue
+
             mask = 32 - mask
 
             if (hostIP >> mask) == (base >> mask):
