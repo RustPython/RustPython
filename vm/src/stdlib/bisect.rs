@@ -12,13 +12,13 @@ mod _bisect {
 
     #[derive(FromArgs)]
     struct BisectArgs {
-        #[pyarg(any, name = "a")]
+        #[pyarg(any)]
         a: PyObjectRef,
-        #[pyarg(any, name = "x")]
+        #[pyarg(any)]
         x: PyObjectRef,
-        #[pyarg(any, optional, name = "lo")]
+        #[pyarg(any, optional)]
         lo: OptionalArg<PyObjectRef>,
-        #[pyarg(any, optional, name = "hi")]
+        #[pyarg(any, optional)]
         hi: OptionalArg<PyObjectRef>,
     }
 
@@ -26,7 +26,6 @@ mod _bisect {
     #[inline]
     fn handle_default(
         arg: OptionalArg<PyObjectRef>,
-        default: Option<isize>,
         vm: &VirtualMachine,
     ) -> PyResult<Option<isize>> {
         Ok(match arg {
@@ -35,7 +34,7 @@ mod _bisect {
                     vm.new_index_error("cannot fit 'int' into an index-sized integer".to_owned())
                 })?)
             }
-            OptionalArg::Missing => default,
+            OptionalArg::Missing => None,
         })
     }
 
@@ -55,29 +54,29 @@ mod _bisect {
     ) -> PyResult<(usize, usize)> {
         // We only deal with positives for lo, try_from can't fail.
         // Default is always a Some so we can safely unwrap.
-        let lo = handle_default(lo, Some(0), vm)?
+        let lo = handle_default(lo, vm)?
             .map(|value| {
-                if value < 0 {
-                    return Err(vm.new_value_error("lo must be non-negative".to_owned()));
-                }
-                Ok(usize::try_from(value).unwrap())
+                usize::try_from(value)
+                    .map_err(|_| vm.new_value_error("lo must be non-negative".to_owned()))
             })
-            .unwrap()?;
-        let hi = handle_default(hi, None, vm)?
-            .map(|value| {
-                if value < 0 {
-                    0
-                } else {
-                    // Can't fail.
-                    usize::try_from(value).unwrap()
-                }
-            })
+            .unwrap_or(Ok(0))?;
+        let hi = handle_default(hi, vm)?
+            .map(|value| usize::try_from(value).unwrap_or(0))
             .unwrap_or(seq_len);
         Ok((lo, hi))
     }
 
+    /// Return the index where to insert item x in list a, assuming a is sorted.
+    ///
+    /// The return value i is such that all e in a[:i] have e < x, and all e in
+    /// a[i:] have e >= x.  So if x already appears in the list, a.insert(x) will
+    /// insert just before the leftmost x already there.
+    ///
+    /// Optional args lo (default 0) and hi (default len(a)) bound the
+    /// slice of a to be searched.
     #[inline]
-    fn bisect_left_impl(
+    #[pyfunction]
+    fn bisect_left(
         BisectArgs { a, x, lo, hi }: BisectArgs,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
@@ -95,8 +94,17 @@ mod _bisect {
         Ok(lo)
     }
 
+    /// Return the index where to insert item x in list a, assuming a is sorted.
+    ///
+    /// The return value i is such that all e in a[:i] have e <= x, and all e in
+    /// a[i:] have e > x.  So if x already appears in the list, a.insert(x) will
+    /// insert just after the rightmost x already there.
+    ///
+    /// Optional args lo (default 0) and hi (default len(a)) bound the
+    /// slice of a to be searched.
     #[inline]
-    fn bisect_right_impl(
+    #[pyfunction]
+    fn bisect_right(
         BisectArgs { a, x, lo, hi }: BisectArgs,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
@@ -114,32 +122,6 @@ mod _bisect {
         Ok(lo)
     }
 
-    /// Return the index where to insert item x in list a, assuming a is sorted.
-    ///
-    /// The return value i is such that all e in a[:i] have e < x, and all e in
-    /// a[i:] have e >= x.  So if x already appears in the list, a.insert(x) will
-    /// insert just before the leftmost x already there.
-    ///
-    /// Optional args lo (default 0) and hi (default len(a)) bound the
-    /// slice of a to be searched.
-    #[pyfunction]
-    fn bisect_left(args: BisectArgs, vm: &VirtualMachine) -> PyResult<usize> {
-        bisect_left_impl(args, vm)
-    }
-
-    /// Return the index where to insert item x in list a, assuming a is sorted.
-    ///
-    /// The return value i is such that all e in a[:i] have e <= x, and all e in
-    /// a[i:] have e > x.  So if x already appears in the list, a.insert(x) will
-    /// insert just after the rightmost x already there.
-    ///
-    /// Optional args lo (default 0) and hi (default len(a)) bound the
-    /// slice of a to be searched.
-    #[pyfunction]
-    fn bisect_right(args: BisectArgs, vm: &VirtualMachine) -> PyResult<usize> {
-        bisect_right_impl(args, vm)
-    }
-
     /// Insert item x in list a, and keep it sorted assuming a is sorted.
     ///
     /// If x is already in a, insert it to the left of the leftmost x.
@@ -148,7 +130,7 @@ mod _bisect {
     /// slice of a to be searched.
     #[pyfunction]
     fn insort_left(BisectArgs { a, x, lo, hi }: BisectArgs, vm: &VirtualMachine) -> PyResult {
-        let index = bisect_left_impl(
+        let index = bisect_left(
             BisectArgs {
                 a: a.clone(),
                 x: x.clone(),
@@ -168,7 +150,7 @@ mod _bisect {
     /// slice of a to be searched
     #[pyfunction]
     fn insort_right(BisectArgs { a, x, lo, hi }: BisectArgs, vm: &VirtualMachine) -> PyResult {
-        let index = bisect_right_impl(
+        let index = bisect_right(
             BisectArgs {
                 a: a.clone(),
                 x: x.clone(),

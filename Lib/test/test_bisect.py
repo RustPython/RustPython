@@ -4,7 +4,7 @@ from test import support
 from collections import UserList
 
 py_bisect = support.import_fresh_module('bisect', blocked=['_bisect'])
-rust_bisect = support.import_fresh_module('bisect', fresh=['bisect'])
+c_bisect = support.import_fresh_module('bisect', fresh=['bisect'])
 
 class Range(object):
     """A trivial range()-like object that has an insert() method."""
@@ -202,8 +202,8 @@ class TestBisect:
 class TestBisectPython(TestBisect, unittest.TestCase):
     module = py_bisect
 
-class TestBisectRust(TestBisect, unittest.TestCase):
-    module = rust_bisect
+class TestBisectC(TestBisect, unittest.TestCase):
+    module = c_bisect
 
 #==============================================================================
 
@@ -237,8 +237,8 @@ class TestInsort:
 class TestInsortPython(TestInsort, unittest.TestCase):
     module = py_bisect
 
-class TestInsortRust(TestInsort, unittest.TestCase):
-    module = rust_bisect
+class TestInsortC(TestInsort, unittest.TestCase):
+    module = c_bisect
 
 #==============================================================================
 
@@ -292,8 +292,8 @@ class TestErrorHandling:
 class TestErrorHandlingPython(TestErrorHandling, unittest.TestCase):
     module = py_bisect
 
-class TestErrorHandlingRust(TestErrorHandling, unittest.TestCase):
-    module = rust_bisect
+class TestErrorHandlingC(TestErrorHandling, unittest.TestCase):
+    module = c_bisect
 
 #==============================================================================
 
@@ -319,8 +319,8 @@ class TestDocExample:
 class TestDocExamplePython(TestDocExample, unittest.TestCase):
     module = py_bisect
 
-class TestDocExampleRust(TestDocExample, unittest.TestCase):
-    module = rust_bisect
+class TestDocExampleC(TestDocExample, unittest.TestCase):
+    module = c_bisect
 
 #------------------------------------------------------------------------------
 
