@@ -229,11 +229,11 @@ macro_rules! named_function {
         let ctx: &$crate::PyContext = &$ctx;
         $crate::__exports::paste::expr! {
             ctx.make_funcdef(
-                stringify!($module),
+                stringify!($func),
                 [<$module _ $func>],
             )
             .into_function()
-            .with_module(ctx.new_str(stringify!($func).to_owned()))
+            .with_module(ctx.new_str(stringify!($module).to_owned()))
             .build(ctx)
         }
     }};
