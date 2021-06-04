@@ -619,6 +619,8 @@ class OpenerDirectorTests(unittest.TestCase):
         self.assertRaises(urllib.error.URLError, o.open, req)
         self.assertEqual(o.calls, [(handlers[0], "http_open", (req,), {})])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_http_error(self):
         # XXX http_error_default
         # http errors are a special case
@@ -647,6 +649,8 @@ class OpenerDirectorTests(unittest.TestCase):
             self.assertEqual((handler, method_name), got[:2])
             self.assertEqual(args, got[2])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_processors(self):
         # *_request / *_response methods get called appropriately
         o = OpenerDirector()
@@ -761,6 +765,8 @@ class HandlerTests(unittest.TestCase):
             self.assertEqual(headers.get("Content-type"), mimetype)
             self.assertEqual(int(headers["Content-length"]), len(data))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_file(self):
         import email.utils
         h = urllib.request.FileHandler()
@@ -853,6 +859,8 @@ class HandlerTests(unittest.TestCase):
                 self.assertEqual(req.type, "ftp")
             self.assertEqual(req.type == "ftp", ftp)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_http(self):
 
         h = urllib.request.AbstractHTTPHandler()
@@ -1113,6 +1121,8 @@ class HandlerTests(unittest.TestCase):
         self.assertEqual(newreq.host, 'www.python.org')
         self.assertEqual(newreq.selector, '')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_errors(self):
         h = urllib.request.HTTPErrorProcessor()
         o = h.parent = MockOpener()
@@ -1138,6 +1148,8 @@ class HandlerTests(unittest.TestCase):
         self.assertEqual(o.proto, "http")  # o.error called
         self.assertEqual(o.args, (req, r, 502, "Bad gateway", {}))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_cookies(self):
         cj = MockCookieJar()
         h = urllib.request.HTTPCookieProcessor(cj)
@@ -1264,6 +1276,8 @@ class HandlerTests(unittest.TestCase):
             MockHeaders({"location": valid_url}))
         self.assertEqual(o.req.get_full_url(), valid_url)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_cookie_redirect(self):
         # cookies shouldn't leak into redirected requests
         from http.cookiejar import CookieJar
@@ -1279,6 +1293,8 @@ class HandlerTests(unittest.TestCase):
         o.open("http://www.example.com/")
         self.assertFalse(hh.req.has_header("Cookie"))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_redirect_fragment(self):
         redirected_url = 'http://www.example.com/index.html#OK\r\n\r\n'
         hh = MockHTTPHandler(302, 'Location: ' + redirected_url)
@@ -1339,6 +1355,8 @@ class HandlerTests(unittest.TestCase):
                 request = handler.last_buf
                 self.assertTrue(request.startswith(expected), repr(request))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_proxy(self):
         u = "proxy.example.com:3128"
         for d in dict(http=u), dict(HTTP=u):
@@ -1383,6 +1401,8 @@ class HandlerTests(unittest.TestCase):
         self.assertEqual(req.host, "www.python.org")
         del os.environ['no_proxy']
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_proxy_https(self):
         o = OpenerDirector()
         ph = urllib.request.ProxyHandler(dict(https="proxy.example.com:3128"))
@@ -1470,6 +1490,8 @@ class HandlerTests(unittest.TestCase):
                                   "http://acme.example.com/protected",
                                   "http://acme.example.com/protected")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_basic_auth(self):
         realm = "realm2@example.com"
         realm2 = "realm2@example.com"
@@ -1515,6 +1537,8 @@ class HandlerTests(unittest.TestCase):
                        for challenge in challenges]
             self.check_basic_auth(headers, realm)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_proxy_basic_auth(self):
         opener = OpenerDirector()
         ph = urllib.request.ProxyHandler(dict(http="proxy.example.com:3128"))
@@ -1532,6 +1556,8 @@ class HandlerTests(unittest.TestCase):
                               "proxy.example.com:3128",
                               )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_basic_and_digest_auth_handlers(self):
         # HTTPDigestAuthHandler raised an exception if it couldn't handle a 40*
         # response (http://python.org/sf/1479302), where it should instead
@@ -1639,6 +1665,8 @@ class HandlerTests(unittest.TestCase):
         self.assertEqual(len(http_handler.requests), 1)
         self.assertFalse(http_handler.requests[0].has_header(auth_header))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_basic_prior_auth_auto_send(self):
         # Assume already authenticated if is_authenticated=True
         # for APIs like Github that don't return 401
@@ -1665,6 +1693,8 @@ class HandlerTests(unittest.TestCase):
         # expect request to be sent with auth header
         self.assertTrue(http_handler.has_auth_header)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_basic_prior_auth_send_after_first_success(self):
         # Auto send auth header after authentication is successful once
 
