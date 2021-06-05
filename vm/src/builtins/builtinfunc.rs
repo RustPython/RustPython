@@ -121,6 +121,10 @@ impl PyBuiltinFunction {
     fn doc(&self) -> Option<PyStrRef> {
         self.value.doc.clone()
     }
+    #[pyproperty(name = "__self__")]
+    fn get_self(&self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.none()
+    }
     #[pymethod(magic)]
     fn reduce(&self) -> PyStrRef {
         // TODO: return (getattr, (self.object, self.name)) if this is a method
