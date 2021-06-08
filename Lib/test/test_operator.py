@@ -516,11 +516,6 @@ class PyOperatorTestCase(OperatorTestCase, unittest.TestCase):
 class COperatorTestCase(OperatorTestCase, unittest.TestCase):
     module = c_operator
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_length_hint(self):
-        super().test_length_hint()
-
 
 class OperatorPickleTestCase:
     def copy(self, obj, proto):
