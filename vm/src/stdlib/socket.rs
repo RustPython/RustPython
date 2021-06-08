@@ -303,10 +303,53 @@ impl PySocket {
             c::AF_UNIX => {
                 use std::os::unix::ffi::OsStrExt;
                 let buf = crate::byteslike::BufOrStr::try_from_object(vm, addr)?;
-                let path = buf.borrow_bytes();
-                let path = ffi::OsStr::from_bytes(&path);
-                socket2::SockAddr::unix(path)
-                    .map_err(|_| vm.new_os_error("AF_UNIX path too long".to_owned()))
+                let path = &*buf.borrow_bytes();
+                if cfg!(any(target_os = "linux", target_os = "android")) && path.first() == Some(&0)
+                {
+                    use libc::{sa_family_t, socklen_t};
+                    use {socket2::SockAddr, std::ptr};
+                    unsafe {
+                        // based on SockAddr::unix
+                        // TODO: upstream or fix socklen check for SockAddr::unix()?
+                        SockAddr::init(|storage, len| {
+                            // Safety: `SockAddr::init` zeros the address, which is a valid
+                            // representation.
+                            let storage: &mut libc::sockaddr_un = &mut *storage.cast();
+                            let len: &mut socklen_t = &mut *len;
+
+                            let bytes = path;
+                            if bytes.len() > storage.sun_path.len() {
+                                return Err(io::Error::new(
+                                    io::ErrorKind::InvalidInput,
+                                    "path must be shorter than SUN_LEN",
+                                ));
+                            }
+
+                            storage.sun_family = libc::AF_UNIX as sa_family_t;
+                            // Safety: `bytes` and `addr.sun_path` are not overlapping and
+                            // both point to valid memory.
+                            // `SockAddr::init` zeroes the memory, so the path is already
+                            // null terminated.
+                            ptr::copy_nonoverlapping(
+                                bytes.as_ptr(),
+                                storage.sun_path.as_mut_ptr() as *mut u8,
+                                bytes.len(),
+                            );
+
+                            let base = storage as *const _ as usize;
+                            let path = &storage.sun_path as *const _ as usize;
+                            let sun_path_offset = path - base;
+                            let length = sun_path_offset + bytes.len();
+                            *len = length as socklen_t;
+
+                            Ok(())
+                        })
+                    }
+                    .map(|(_, addr)| addr)
+                } else {
+                    socket2::SockAddr::unix(ffi::OsStr::from_bytes(path))
+                }
+                .map_err(|_| vm.new_os_error("AF_UNIX path too long".to_owned()))
             }
             c::AF_INET => {
                 let tuple: PyTupleRef = addr.downcast().map_err(|obj| {
@@ -889,9 +932,23 @@ fn get_addr_tuple(addr: &socket2::SockAddr, vm: &VirtualMachine) -> PyObjectRef 
     match addr.family() as i32 {
         #[cfg(unix)]
         libc::AF_UNIX => {
+            let addr_len = addr.len() as usize;
             let unix_addr = unsafe { &*(addr.as_ptr() as *const libc::sockaddr_un) };
-            let socket_path = unsafe { ffi::CStr::from_ptr(unix_addr.sun_path.as_ptr()) };
-            vm.ctx.new_str(socket_path.to_string_lossy().into_owned())
+            let path_u8 = unsafe { &*(&unix_addr.sun_path[..] as *const [_] as *const [u8]) };
+            let sun_path_offset =
+                &unix_addr.sun_path as *const _ as usize - unix_addr as *const _ as usize;
+            if cfg!(any(target_os = "linux", target_os = "android"))
+                && addr_len > sun_path_offset
+                && unix_addr.sun_path[0] == 0
+            {
+                let abstractaddrlen = addr_len - sun_path_offset;
+                let abstractpath = &path_u8[..abstractaddrlen];
+                vm.ctx.new_bytes(abstractpath.to_vec())
+            } else {
+                let len = memchr::memchr(b'\0', path_u8).unwrap_or_else(|| path_u8.len());
+                let path = &path_u8[..len];
+                vm.ctx.new_str(String::from_utf8_lossy(path).into_owned())
+            }
         }
         // TODO: support more address families
         _ => (String::new(), 0).into_pyobject(vm),
