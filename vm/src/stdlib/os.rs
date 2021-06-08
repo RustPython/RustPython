@@ -99,14 +99,12 @@ impl PyPathLike {
 
     #[cfg(any(unix, target_os = "wasi"))]
     pub fn into_cstring(self, vm: &VirtualMachine) -> PyResult<ffi::CString> {
-        ffi::CString::new(self.into_bytes())
-            .map_err(|_| vm.new_value_error("embedded null character".to_owned()))
+        ffi::CString::new(self.into_bytes()).map_err(|err| err.into_pyexception(vm))
     }
 
     #[cfg(windows)]
     pub fn to_widecstring(&self, vm: &VirtualMachine) -> PyResult<widestring::WideCString> {
-        widestring::WideCString::from_os_str(&self.path)
-            .map_err(|_| vm.new_value_error("embedded null character".to_owned()))
+        widestring::WideCString::from_os_str(&self.path).map_err(|err| err.into_pyexception(vm))
     }
 }
 
@@ -124,38 +122,73 @@ impl AsRef<Path> for PyPathLike {
     }
 }
 
-fn fspath(obj: PyObjectRef, check_for_nul: bool, vm: &VirtualMachine) -> PyResult<PyPathLike> {
+pub enum FsPath {
+    Str(PyStrRef),
+    Bytes(PyBytesRef),
+}
+
+impl FsPath {
+    pub fn as_os_str(&self, vm: &VirtualMachine) -> PyResult<&ffi::OsStr> {
+        // TODO: FS encodings
+        match self {
+            FsPath::Str(s) => Ok(s.as_str().as_ref()),
+            FsPath::Bytes(b) => bytes_as_osstr(b.as_bytes(), vm),
+        }
+    }
+    fn to_output_mode(&self) -> OutputMode {
+        match self {
+            Self::Str(_) => OutputMode::String,
+            Self::Bytes(_) => OutputMode::Bytes,
+        }
+    }
+    pub(crate) fn as_bytes(&self) -> &[u8] {
+        // TODO: FS encodings
+        match self {
+            FsPath::Str(s) => s.as_str().as_bytes(),
+            FsPath::Bytes(b) => b.as_bytes(),
+        }
+    }
+}
+
+impl IntoPyObject for FsPath {
+    fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
+        match self {
+            Self::Str(s) => s.into_object(),
+            Self::Bytes(b) => b.into_object(),
+        }
+    }
+}
+
+pub(crate) fn fspath(
+    obj: PyObjectRef,
+    check_for_nul: bool,
+    vm: &VirtualMachine,
+) -> PyResult<FsPath> {
     let check_nul = |b: &[u8]| {
         if !check_for_nul || memchr::memchr(b'\0', b).is_none() {
             Ok(())
         } else {
-            Err(vm.new_value_error("embedded null character".to_owned()))
+            Err(crate::exceptions::cstring_error(vm))
         }
     };
-    let match1 = |obj: &PyObjectRef| {
+    let match1 = |obj: PyObjectRef| {
         let pathlike = match_class!(match obj {
-            ref s @ PyStr => {
-                let s = s.as_str();
-                check_nul(s.as_bytes())?;
-                PyPathLike {
-                    path: s.into(),
-                    mode: OutputMode::String,
-                }
+            s @ PyStr => {
+                check_nul(s.as_str().as_bytes())?;
+                FsPath::Str(s)
             }
-            ref b @ PyBytes => {
+            b @ PyBytes => {
                 check_nul(&b)?;
-                PyPathLike {
-                    path: bytes_as_osstr(&b, vm)?.to_os_string().into(),
-                    mode: OutputMode::Bytes,
-                }
+                FsPath::Bytes(b)
             }
-            _ => return Ok(None),
+            obj => return Ok(Err(obj)),
         });
-        Ok(Some(pathlike))
+        Ok(Ok(pathlike))
     };
-    if let Some(pathlike) = match1(&obj)? {
-        return Ok(pathlike);
-    }
+    let obj = match match1(obj)? {
+        Ok(pathlike) => return Ok(pathlike),
+        Err(obj) => obj,
+    };
     let method = vm.get_method_or_type_error(obj.clone(), "__fspath__", || {
         format!(
             "expected str, bytes or os.PathLike object, not '{}'",
@@ -163,7 +196,7 @@ fn fspath(obj: PyObjectRef, check_for_nul: bool, vm: &VirtualMachine) -> PyResul
         )
     })?;
     let result = vm.invoke(&method, ())?;
-    match1(&result)?.ok_or_else(|| {
+    match1(result)?.map_err(|result| {
         vm.new_type_error(format!(
             "expected {}.__fspath__() to return str or bytes, not '{}'",
             obj.class().name,
@@ -174,7 +207,11 @@ fn fspath(obj: PyObjectRef, check_for_nul: bool, vm: &VirtualMachine) -> PyResul
 
 impl TryFromObject for PyPathLike {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        fspath(obj, true, vm)
+        let path = fspath(obj, true, vm)?;
+        Ok(Self {
+            path: path.as_os_str(vm)?.to_owned().into(),
+            mode: path.to_output_mode(),
+        })
     }
 }
 
@@ -848,7 +885,7 @@ mod _os {
                         FollowSymlinks(false),
                     )
                     .map_err(|e| e.into_pyexception(vm))?
-                    .ok_or_else(|| vm.new_value_error("embedded null character".to_owned()))?;
+                    .ok_or_else(|| crate::exceptions::cstring_error(vm))?;
                     // Err(T) means other thread set `ino` at the mean time which is safe to ignore
                     let _ = self.ino.compare_exchange(None, Some(stat.st_ino));
                     Ok(stat.st_ino)
@@ -1167,7 +1204,7 @@ mod _os {
     ) -> PyResult {
         let stat = stat_inner(file, dir_fd, follow_symlinks)
             .map_err(|e| e.into_pyexception(vm))?
-            .ok_or_else(|| vm.new_value_error("embedded null character".to_owned()))?;
+            .ok_or_else(|| crate::exceptions::cstring_error(vm))?;
         Ok(StatResult::from_stat(&stat).into_pyobject(vm))
     }
 
@@ -1208,9 +1245,8 @@ mod _os {
     }
 
     #[pyfunction]
-    fn fspath(path: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let path = super::fspath(path, false, vm)?;
-        path.mode.process_path(path.path, vm)
+    fn fspath(path: PyObjectRef, vm: &VirtualMachine) -> PyResult<FsPath> {
+        super::fspath(path, false, vm)
     }
 
     #[pyfunction]
@@ -2155,11 +2191,8 @@ mod posix {
     }
 
     #[pyfunction]
-    fn system(command: PyStrRef) -> PyResult<i32> {
-        use std::ffi::CString;
-
-        let rstr = command.as_str();
-        let cstr = CString::new(rstr).unwrap();
+    fn system(command: PyStrRef, vm: &VirtualMachine) -> PyResult<i32> {
+        let cstr = command.to_cstring(vm)?;
         let x = unsafe { libc::system(cstr.as_ptr()) };
         Ok(x)
     }
@@ -2189,10 +2222,11 @@ mod posix {
         argv: Either<PyListRef, PyTupleRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let path = ffi::CString::new(path.as_str())
-            .map_err(|_| vm.new_value_error("embedded null character".to_owned()))?;
+        let path = path.to_cstring(vm)?;
 
-        let argv: Vec<ffi::CString> = vm.extract_elements(argv.as_object())?;
+        let argv = vm.extract_elements_func(argv.as_object(), |obj| {
+            PyStrRef::try_from_object(vm, obj)?.to_cstring(vm)
+        })?;
         let argv: Vec<&ffi::CStr> = argv.iter().map(|entry| entry.as_c_str()).collect();
 
         let first = argv
@@ -2216,10 +2250,11 @@ mod posix {
         env: PyDictRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let path = ffi::CString::new(path.into_bytes())
-            .map_err(|_| vm.new_value_error("embedded null character".to_owned()))?;
+        let path = path.into_cstring(vm)?;
 
-        let argv: Vec<ffi::CString> = vm.extract_elements(argv.as_object())?;
+        let argv = vm.extract_elements_func(argv.as_object(), |obj| {
+            PyStrRef::try_from_object(vm, obj)?.to_cstring(vm)
+        })?;
         let argv: Vec<&ffi::CStr> = argv.iter().map(|entry| entry.as_c_str()).collect();
 
         let first = argv
@@ -2236,16 +2271,19 @@ mod posix {
             .into_iter()
             .map(|(k, v)| -> PyResult<_> {
                 let (key, value) = (
-                    PyPathLike::try_from_object(&vm, k)?,
-                    PyPathLike::try_from_object(&vm, v)?,
+                    PyPathLike::try_from_object(&vm, k)?.into_bytes(),
+                    PyPathLike::try_from_object(&vm, v)?.into_bytes(),
                 );
 
-                if key.path.display().to_string().contains('=') {
+                if memchr::memchr(b'=', &key).is_some() {
                     return Err(vm.new_value_error("illegal environment variable name".to_owned()));
                 }
 
-                ffi::CString::new(format!("{}={}", key.path.display(), value.path.display()))
-                    .map_err(|_| vm.new_value_error("embedded null character".to_owned()))
+                let mut entry = key;
+                entry.push(b'=');
+                entry.extend_from_slice(&value);
+
+                ffi::CString::new(entry).map_err(|err| err.into_pyexception(vm))
             })
             .collect::<Result<Vec<_>, _>>()?;
 
@@ -3164,16 +3202,17 @@ mod nt {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         use std::iter::once;
-        use std::os::windows::prelude::*;
-        use std::str::FromStr;
 
-        let path: Vec<u16> = ffi::OsString::from_str(path.as_str())
-            .unwrap()
-            .encode_wide()
-            .chain(once(0u16))
-            .collect();
+        let make_widestring = |s: &str| {
+            widestring::WideCString::from_os_str(s).map_err(|err| err.into_pyexception(vm))
+        };
 
-        let argv: Vec<ffi::OsString> = vm.extract_elements(argv.as_object())?;
+        let path = make_widestring(path.as_str())?;
+
+        let argv = vm.extract_elements_func(argv.as_object(), |obj| {
+            let arg = PyStrRef::try_from_object(vm, obj)?;
+            make_widestring(arg.as_str())
+        })?;
 
         let first = argv
             .first()
@@ -3184,11 +3223,6 @@ mod nt {
                 vm.new_value_error("execv() arg 2 first element cannot be empty".to_owned())
             );
         }
-
-        let argv: Vec<Vec<u16>> = argv
-            .into_iter()
-            .map(|s| s.encode_wide().chain(once(0u16)).collect())
-            .collect();
 
         let argv_execv: Vec<*const u16> = argv
             .iter()

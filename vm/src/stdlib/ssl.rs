@@ -22,7 +22,7 @@ use openssl::{
     x509::{self, X509Object, X509Ref, X509},
 };
 use std::convert::TryFrom;
-use std::ffi::{CStr, CString};
+use std::ffi::CStr;
 use std::fmt;
 use std::time::Instant;
 
@@ -177,17 +177,15 @@ fn _ssl_enum_certificates(store_name: PyStrRef, vm: &VirtualMachine) -> PyResult
 #[derive(FromArgs)]
 struct Txt2ObjArgs {
     #[pyarg(any)]
-    txt: CString,
+    txt: PyStrRef,
     #[pyarg(any, default = "false")]
     name: bool,
 }
 fn _ssl_txt2obj(args: Txt2ObjArgs, vm: &VirtualMachine) -> PyResult<PyNid> {
-    txt2obj(&args.txt, !args.name)
+    txt2obj(&args.txt.to_cstring(vm)?, !args.name)
         .as_deref()
         .map(obj2py)
-        .ok_or_else(|| {
-            vm.new_value_error(format!("unknown object '{}'", args.txt.to_str().unwrap()))
-        })
+        .ok_or_else(|| vm.new_value_error(format!("unknown object '{}'", args.txt)))
 }
 
 fn _ssl_nid2obj(nid: libc::c_int, vm: &VirtualMachine) -> PyResult<PyNid> {
@@ -344,7 +342,7 @@ impl PySslContext {
     fn set_ciphers(&self, cipherlist: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
         let ciphers = cipherlist.as_str();
         if ciphers.contains('\0') {
-            return Err(vm.new_value_error("embedded null character".to_owned()));
+            return Err(crate::exceptions::cstring_error(vm));
         }
         self.builder().set_cipher_list(ciphers).map_err(|_| {
             vm.new_exception_msg(ssl_error(vm), "No cipher can be selected.".to_owned())
@@ -478,14 +476,16 @@ impl PySslContext {
         }
 
         if args.cafile.is_some() || args.capath.is_some() {
+            let cafile = args.cafile.map(|s| s.to_cstring(vm)).transpose()?;
+            let capath = args.capath.map(|s| s.to_cstring(vm)).transpose()?;
             let ret = unsafe {
                 let ctx = self.ctx.write();
                 sys::SSL_CTX_load_verify_locations(
                     ctx.as_ptr(),
-                    args.cafile
+                    cafile
                         .as_ref()
                         .map_or_else(std::ptr::null, |cs| cs.as_ptr()),
-                    args.capath
+                    capath
                         .as_ref()
                         .map_or_else(std::ptr::null, |cs| cs.as_ptr()),
                 )
@@ -624,9 +624,9 @@ struct WrapSocketArgs {
 #[derive(FromArgs)]
 struct LoadVerifyLocationsArgs {
     #[pyarg(any, default)]
-    cafile: Option<CString>,
+    cafile: Option<PyStrRef>,
     #[pyarg(any, default)]
-    capath: Option<CString>,
+    capath: Option<PyStrRef>,
     #[pyarg(any, default)]
     cadata: Option<Either<PyStrRef, PyBytesLike>>,
 }

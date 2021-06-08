@@ -12,6 +12,7 @@ use winapi::um::{
 use super::os::errno_err;
 use crate::builtins::dict::{PyDictRef, PyMapping};
 use crate::builtins::pystr::PyStrRef;
+use crate::exceptions::IntoPyException;
 use crate::function::OptionalArg;
 use crate::VirtualMachine;
 use crate::{PyObjectRef, PyResult, PySequence, TryFromObject};
@@ -170,14 +171,9 @@ fn _winapi_CreateProcess(
         .map_or_else(null_mut, |l| l.attrlist.as_mut_ptr() as _);
 
     let wstr = |s: PyStrRef| {
-        if s.as_str().contains('\0') {
-            Err(vm.new_value_error("embedded null character".to_owned()))
-        } else {
-            Ok(s.as_str()
-                .encode_utf16()
-                .chain(std::iter::once(0))
-                .collect::<Vec<_>>())
-        }
+        let ws = widestring::WideCString::from_str(s.as_str())
+            .map_err(|err| err.into_pyexception(vm))?;
+        Ok(ws.into_vec_with_nul())
     };
 
     let app_name = args.name.map(wstr).transpose()?;
@@ -224,25 +220,25 @@ fn _winapi_CreateProcess(
 }
 
 fn getenvironment(env: PyDictRef, vm: &VirtualMachine) -> PyResult<Vec<u16>> {
-    let mut out = vec![];
+    let mut out = widestring::WideString::new();
     for (k, v) in env {
         let k = PyStrRef::try_from_object(vm, k)?;
         let k = k.as_str();
         let v = PyStrRef::try_from_object(vm, v)?;
         let v = v.as_str();
         if k.contains('\0') || v.contains('\0') {
-            return Err(vm.new_value_error("embedded null character".to_owned()));
+            return Err(crate::exceptions::cstring_error(vm));
         }
-        if k.len() == 0 || k[1..].contains('=') {
+        if k.is_empty() || k[1..].contains('=') {
             return Err(vm.new_value_error("illegal environment variable name".to_owned()));
         }
-        out.extend(k.encode_utf16());
-        out.push(b'=' as u16);
-        out.extend(v.encode_utf16());
-        out.push(b'\0' as u16);
+        out.push_str(k);
+        out.push_str("=");
+        out.push_str(v);
+        out.push_str("\0");
     }
-    out.push(b'\0' as u16);
-    Ok(out)
+    out.push_str("\0");
+    Ok(out.into_vec())
 }
 
 struct AttrList {

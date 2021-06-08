@@ -1,8 +1,7 @@
-use std::char;
-use std::fmt;
 use std::mem::size_of;
 use std::ops::Range;
 use std::string::ToString;
+use std::{char, ffi, fmt};
 
 use itertools::Itertools;
 use num_traits::ToPrimitive;
@@ -25,7 +24,7 @@ use crate::utils::Either;
 use crate::VirtualMachine;
 use crate::{
     IdProtocol, IntoPyObject, ItemProtocol, PyClassImpl, PyComparisonValue, PyContext, PyIterable,
-    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
+    PyObjectRef, PyRef, PyResult, PyValue, TryIntoRef, TypeProtocol,
 };
 use rustpython_common::atomic::{self, PyAtomic, Radium};
 use rustpython_common::hash;
@@ -317,6 +316,10 @@ impl PyStr {
     #[inline(always)]
     pub fn is_ascii(&self) -> bool {
         self.char_len() == self.byte_len()
+    }
+
+    pub fn to_cstring(&self, vm: &VirtualMachine) -> PyResult<ffi::CString> {
+        ffi::CString::new(self.as_str()).map_err(|err| err.into_pyexception(vm))
     }
 
     #[pymethod(name = "__sizeof__")]
@@ -1165,23 +1168,6 @@ impl IntoPyObject for &str {
 impl IntoPyObject for &String {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_str(self.clone())
-    }
-}
-
-impl TryFromObject for std::ffi::CString {
-    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        let s = PyStrRef::try_from_object(vm, obj)?;
-        Self::new(s.as_str().to_owned())
-            .map_err(|_| vm.new_value_error("embedded null character".to_owned()))
-    }
-}
-
-impl TryFromObject for std::ffi::OsString {
-    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        use std::str::FromStr;
-
-        let s = PyStrRef::try_from_object(vm, obj)?;
-        Ok(std::ffi::OsString::from_str(s.as_str()).unwrap())
     }
 }
 

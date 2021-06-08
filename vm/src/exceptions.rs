@@ -832,3 +832,20 @@ impl serde::Serialize for SerializeException<'_> {
         struc.end()
     }
 }
+
+pub(crate) fn cstring_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
+    vm.new_value_error("embedded null character".to_owned())
+}
+
+impl IntoPyException for std::ffi::NulError {
+    fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        cstring_error(vm)
+    }
+}
+
+#[cfg(windows)]
+impl<C: widestring::UChar> IntoPyException for widestring::NulError<C> {
+    fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        cstring_error(vm)
+    }
+}
