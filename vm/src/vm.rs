@@ -642,6 +642,10 @@ impl VirtualMachine {
         self.new_exception_msg(name_error, msg)
     }
 
+    pub fn new_unsupported_unary_error(&self, a: &PyObjectRef, op: &str) -> PyBaseExceptionRef {
+        self.new_type_error(format!("bad operand type for {}: '{}'", op, a.class().name))
+    }
+
     pub fn new_unsupported_binop_error(
         &self,
         a: &PyObjectRef,
@@ -1609,6 +1613,30 @@ impl VirtualMachine {
                 Err(vm.new_unsupported_binop_error(a, b, "&="))
             })
         })
+    }
+
+    pub fn _abs(&self, a: &PyObjectRef) -> PyResult<PyObjectRef> {
+        self.get_special_method(a.clone(), "__abs__")?
+            .map_err(|_| self.new_unsupported_unary_error(a, "abs()"))?
+            .invoke((), self)
+    }
+
+    pub fn _pos(&self, a: &PyObjectRef) -> PyResult {
+        self.get_special_method(a.clone(), "__pos__")?
+            .map_err(|_| self.new_unsupported_unary_error(a, "unary +"))?
+            .invoke((), self)
+    }
+
+    pub fn _neg(&self, a: &PyObjectRef) -> PyResult {
+        self.get_special_method(a.clone(), "__neg__")?
+            .map_err(|_| self.new_unsupported_unary_error(a, "unary -"))?
+            .invoke((), self)
+    }
+
+    pub fn _invert(&self, a: &PyObjectRef) -> PyResult {
+        self.get_special_method(a.clone(), "__invert__")?
+            .map_err(|_| self.new_unsupported_unary_error(a, "unary ~"))?
+            .invoke((), self)
     }
 
     // Perform a comparison, raising TypeError when the requested comparison

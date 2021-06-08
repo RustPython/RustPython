@@ -1666,33 +1666,9 @@ impl ExecutingFrame<'_> {
     fn execute_unop(&mut self, vm: &VirtualMachine, op: &bytecode::UnaryOperator) -> FrameResult {
         let a = self.pop_value();
         let value = match *op {
-            bytecode::UnaryOperator::Minus => vm
-                .get_special_method(a, "__neg__")?
-                .map_err(|a| {
-                    vm.new_type_error(format!(
-                        "bad operand type for unary -: '{}'",
-                        a.class().name
-                    ))
-                })?
-                .invoke((), vm)?,
-            bytecode::UnaryOperator::Plus => vm
-                .get_special_method(a, "__pos__")?
-                .map_err(|a| {
-                    vm.new_type_error(format!(
-                        "bad operand type for unary +: '{}'",
-                        a.class().name
-                    ))
-                })?
-                .invoke((), vm)?,
-            bytecode::UnaryOperator::Invert => vm
-                .get_special_method(a, "__invert__")?
-                .map_err(|a| {
-                    vm.new_type_error(format!(
-                        "bad operand type for unary ~: '{}'",
-                        a.class().name
-                    ))
-                })?
-                .invoke((), vm)?,
+            bytecode::UnaryOperator::Minus => vm._neg(&a)?,
+            bytecode::UnaryOperator::Plus => vm._pos(&a)?,
+            bytecode::UnaryOperator::Invert => vm._invert(&a)?,
             bytecode::UnaryOperator::Not => {
                 let value = pybool::boolval(vm, a)?;
                 vm.ctx.new_bool(!value)

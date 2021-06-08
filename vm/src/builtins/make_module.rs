@@ -42,10 +42,7 @@ mod decl {
 
     #[pyfunction]
     fn abs(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let method = vm.get_method_or_type_error(x.clone(), "__abs__", || {
-            format!("bad operand type for abs(): '{}'", x.class().name)
-        })?;
-        vm.invoke(&method, ())
+        vm._abs(&x)
     }
 
     #[pyfunction]
