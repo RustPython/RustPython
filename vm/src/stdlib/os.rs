@@ -2371,6 +2371,9 @@ mod posix {
     #[pyfunction]
     fn openpty(vm: &VirtualMachine) -> PyResult {
         let r = nix::pty::openpty(None, None).map_err(|err| err.into_pyexception(vm))?;
+        for fd in &[r.master, r.slave] {
+            raw_set_inheritable(*fd, false).map_err(|e| e.into_pyexception(vm))?;
+        }
         Ok(vm
             .ctx
             .new_tuple(vec![vm.ctx.new_int(r.master), vm.ctx.new_int(r.slave)]))

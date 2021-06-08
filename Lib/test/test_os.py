@@ -3616,8 +3616,6 @@ class FDInheritanceTests(unittest.TestCase):
         self.assertEqual(os.dup2(fd, fd3, inheritable=False), fd3)
         self.assertFalse(os.get_inheritable(fd3))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(os, 'openpty'), "need os.openpty()")
     def test_openpty(self):
         master_fd, slave_fd = os.openpty()
