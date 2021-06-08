@@ -1,3 +1,4 @@
+use crate::builtins::int;
 use crate::builtins::int::PyIntRef;
 use crate::builtins::pystr::PyStrRef;
 use crate::byteslike::PyBytesLike;
@@ -7,19 +8,21 @@ use crate::iterator;
 use crate::utils::Either;
 use crate::VirtualMachine;
 use crate::{PyObjectRef, PyResult, TypeProtocol};
+use int::PyInt;
 
 fn _operator_length_hint(obj: PyObjectRef, default: OptionalArg, vm: &VirtualMachine) -> PyResult {
-    let default = default.unwrap_or_else(|| vm.ctx.new_int(0));
-    if !default.isinstance(&vm.ctx.types.int_type) {
-        return Err(vm.new_type_error(format!(
-            "'{}' type cannot be interpreted as an integer",
-            default.class().name
-        )));
-    }
-    let hint = iterator::length_hint(vm, obj)?
-        .map(|i| vm.ctx.new_int(i))
-        .unwrap_or(default);
-    Ok(hint)
+    let default: usize = default
+        .map(|v| {
+            if !v.isinstance(&vm.ctx.types.int_type) {
+                return Err(vm.new_type_error(format!(
+                    "'{}' type cannot be interpreted as an integer",
+                    v.class().name
+                )));
+            }
+            int::try_to_primitive(v.payload::<PyInt>().unwrap().as_bigint(), vm)
+        })
+        .unwrap_or(Ok(0))?;
+    iterator::length_hint(vm, obj).map(|v| vm.ctx.new_int(v.unwrap_or(default)))
 }
 
 fn _operator_compare_digest(
