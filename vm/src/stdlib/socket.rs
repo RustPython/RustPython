@@ -5,10 +5,10 @@ use nix::unistd::sethostname;
 use num_traits::ToPrimitive;
 use socket2::{Domain, Protocol, Socket, Type as SocketType};
 use std::convert::TryFrom;
-use std::io;
 use std::mem::MaybeUninit;
 use std::net::{self, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, ToSocketAddrs};
 use std::time::{Duration, Instant};
+use std::{ffi, io};
 
 use crate::builtins::int;
 use crate::builtins::pystr::PyStrRef;
@@ -47,6 +47,8 @@ macro_rules! errcode {
 use libc as c;
 #[cfg(windows)]
 mod c {
+    pub use winapi::shared::ifdef::IF_MAX_STRING_SIZE as IF_NAMESIZE;
+    pub use winapi::shared::netioapi::{if_indextoname, if_nametoindex};
     pub use winapi::shared::ws2def::*;
     pub use winapi::um::winsock2::{
         SD_BOTH as SHUT_RDWR, SD_RECEIVE as SHUT_RD, SD_SEND as SHUT_WR, SOCK_DGRAM, SOCK_RAW,
@@ -54,6 +56,8 @@ mod c {
         SO_REUSEADDR, SO_TYPE, *,
     };
 }
+#[cfg(windows)]
+use winapi::shared::netioapi;
 
 #[pyclass(module = "socket", name = "socket")]
 #[derive(Debug)]
@@ -300,7 +304,7 @@ impl PySocket {
                 use std::os::unix::ffi::OsStrExt;
                 let buf = crate::byteslike::BufOrStr::try_from_object(vm, addr)?;
                 let path = buf.borrow_bytes();
-                let path = std::ffi::OsStr::from_bytes(&path);
+                let path = ffi::OsStr::from_bytes(&path);
                 socket2::SockAddr::unix(path)
                     .map_err(|_| vm.new_os_error("AF_UNIX path too long".to_owned()))
             }
@@ -319,7 +323,7 @@ impl PySocket {
                     );
                 }
                 let addr = Address::from_tuple(tuple, vm)?;
-                let mut addr4 = get_addr(vm, addr.host.as_str(), c::AF_INET)?;
+                let mut addr4 = get_addr(vm, addr.host, c::AF_INET)?;
                 match &mut addr4 {
                     SocketAddr::V4(addr4) => {
                         addr4.set_port(addr.port);
@@ -347,7 +351,7 @@ impl PySocket {
                     }
                 }
                 let (addr, flowinfo, scopeid) = Address::from_tuple_ipv6(tuple, vm)?;
-                let mut addr6 = get_addr(vm, addr.host.as_str(), c::AF_INET6)?;
+                let mut addr6 = get_addr(vm, addr.host, c::AF_INET6)?;
                 match &mut addr6 {
                     SocketAddr::V6(addr6) => {
                         addr6.set_port(addr.port);
@@ -886,7 +890,7 @@ fn get_addr_tuple(addr: &socket2::SockAddr, vm: &VirtualMachine) -> PyObjectRef 
         #[cfg(unix)]
         libc::AF_UNIX => {
             let unix_addr = unsafe { &*(addr.as_ptr() as *const libc::sockaddr_un) };
-            let socket_path = unsafe { std::ffi::CStr::from_ptr(unix_addr.sun_path.as_ptr()) };
+            let socket_path = unsafe { ffi::CStr::from_ptr(unix_addr.sun_path.as_ptr()) };
             vm.ctx.new_str(socket_path.to_string_lossy().into_owned())
         }
         // TODO: support more address families
@@ -921,28 +925,48 @@ fn _socket_inet_ntoa(packed_ip: PyBytesLike, vm: &VirtualMachine) -> PyResult {
     Ok(vm.ctx.new_str(Ipv4Addr::from(*packed_ip).to_string()))
 }
 
+fn cstr_opt_as_ptr(x: &OptionalArg<ffi::CString>) -> *const libc::c_char {
+    x.as_ref().map_or_else(std::ptr::null, |s| s.as_ptr())
+}
+
 fn _socket_getservbyname(
     servicename: PyStrRef,
     protocolname: OptionalArg<PyStrRef>,
     vm: &VirtualMachine,
 ) -> PyResult {
-    use std::ffi::CString;
-    let cstr_name = CString::new(servicename.as_str())
-        .map_err(|_| vm.new_value_error("embedded null character".to_owned()))?;
+    let cstr_name = servicename.to_cstring(vm)?;
     let cstr_proto = protocolname
         .as_ref()
-        .map(|s| CString::new(s.as_str()))
-        .transpose()
-        .map_err(|_| vm.new_value_error("embedded null character".to_owned()))?;
-    let cstr_proto = cstr_proto
-        .as_ref()
-        .map_or_else(std::ptr::null, |s| s.as_ptr());
+        .map(|s| s.to_cstring(vm))
+        .transpose()?;
+    let cstr_proto = cstr_opt_as_ptr(&cstr_proto);
     let serv = unsafe { c::getservbyname(cstr_name.as_ptr(), cstr_proto) };
     if serv.is_null() {
         return Err(vm.new_os_error("service/proto not found".to_owned()));
     }
     let port = unsafe { (*serv).s_port };
     Ok(vm.ctx.new_int(u16::from_be(port as u16)))
+}
+
+fn _socket_getservbyport(
+    port: i32,
+    protocolname: OptionalArg<PyStrRef>,
+    vm: &VirtualMachine,
+) -> PyResult<String> {
+    let port = port
+        .to_u16()
+        .ok_or_else(|| vm.new_overflow_error("getservbyport: port must be 0-65535.".to_owned()))?;
+    let cstr_proto = protocolname
+        .as_ref()
+        .map(|s| s.to_cstring(vm))
+        .transpose()?;
+    let cstr_proto = cstr_opt_as_ptr(&cstr_proto);
+    let serv = unsafe { c::getservbyport(port.to_be() as _, cstr_proto) };
+    if serv.is_null() {
+        return Err(vm.new_os_error("port/proto not found".to_owned()));
+    }
+    let s = unsafe { ffi::CStr::from_ptr((*serv).s_name) };
+    Ok(s.to_string_lossy().into_owned())
 }
 
 // TODO: use `Vec::spare_capacity_mut` once stable.
@@ -1122,7 +1146,7 @@ fn _socket_gethostbyaddr(
     vm: &VirtualMachine,
 ) -> PyResult<(String, PyObjectRef, PyObjectRef)> {
     // TODO: figure out how to do this properly
-    let addr = get_addr(vm, addr.as_str(), c::AF_UNSPEC)?;
+    let addr = get_addr(vm, addr, c::AF_UNSPEC)?;
     let (hostname, _) = dns_lookup::getnameinfo(&addr, 0).map_err(|e| convert_gai_error(vm, e))?;
     Ok((
         hostname,
@@ -1132,8 +1156,7 @@ fn _socket_gethostbyaddr(
 }
 
 fn _socket_gethostbyname(name: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
-    // TODO: convert to idna
-    let addr = get_addr(vm, name.as_str(), c::AF_INET)?;
+    let addr = get_addr(vm, name, c::AF_INET)?;
     match addr {
         SocketAddr::V4(ip) => Ok(ip.ip().to_string()),
         _ => unreachable!(),
@@ -1184,9 +1207,7 @@ fn _socket_inet_ntop(
 }
 
 fn _socket_getprotobyname(name: PyStrRef, vm: &VirtualMachine) -> PyResult {
-    use std::ffi::CString;
-    let cstr = CString::new(name.as_str())
-        .map_err(|_| vm.new_value_error("embedded null character".to_owned()))?;
+    let cstr = name.to_cstring(vm)?;
     let proto = unsafe { c::getprotobyname(cstr.as_ptr()) };
     if proto.is_null() {
         return Err(vm.new_os_error("protocol not found".to_owned()));
@@ -1253,7 +1274,167 @@ fn _socket_socketpair(
     Ok((py_a, py_b))
 }
 
-fn get_addr(vm: &VirtualMachine, name: &str, af: i32) -> PyResult<SocketAddr> {
+#[cfg(unix)]
+type IfIndex = c::c_uint;
+#[cfg(windows)]
+type IfIndex = winapi::shared::ifdef::NET_IFINDEX;
+
+fn _socket_if_nametoindex(name: PyObjectRef, vm: &VirtualMachine) -> PyResult<IfIndex> {
+    let name = super::os::fspath(name, true, vm)?;
+    let name = ffi::CString::new(name.as_bytes()).map_err(|err| err.into_pyexception(vm))?;
+
+    let ret = unsafe { c::if_nametoindex(name.as_ptr()) };
+
+    if ret == 0 {
+        Err(vm.new_os_error("no interface with this name".to_owned()))
+    } else {
+        Ok(ret)
+    }
+}
+
+fn _socket_if_indextoname(index: IfIndex, vm: &VirtualMachine) -> PyResult<String> {
+    let mut buf = [0; c::IF_NAMESIZE + 1];
+    let ret = unsafe { c::if_indextoname(index, buf.as_mut_ptr()) };
+    if ret.is_null() {
+        Err(super::os::errno_err(vm))
+    } else {
+        let buf = unsafe { ffi::CStr::from_ptr(buf.as_ptr()) };
+        Ok(buf.to_string_lossy().into_owned())
+    }
+}
+
+#[cfg(any(
+    windows,
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "fuchsia",
+    target_os = "ios",
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "netbsd",
+    target_os = "openbsd",
+))]
+fn _socket_if_nameindex(vm: &VirtualMachine) -> PyResult {
+    #[cfg(not(windows))]
+    {
+        let list = if_nameindex()
+            .map_err(|err| err.into_pyexception(vm))?
+            .to_slice()
+            .iter()
+            .map(|iface| {
+                let tup: (u32, String) =
+                    (iface.index(), iface.name().to_string_lossy().into_owned());
+                tup.into_pyobject(vm)
+            })
+            .collect();
+
+        return Ok(vm.ctx.new_list(list));
+
+        // all the stuff below should be in nix soon, hopefully
+
+        use ffi::CStr;
+        use std::ptr::NonNull;
+
+        #[repr(transparent)]
+        struct Interface(libc::if_nameindex);
+
+        impl Interface {
+            fn index(&self) -> libc::c_uint {
+                self.0.if_index
+            }
+            fn name(&self) -> &CStr {
+                unsafe { CStr::from_ptr(self.0.if_name) }
+            }
+        }
+
+        struct Interfaces {
+            ptr: NonNull<libc::if_nameindex>,
+        }
+
+        impl Interfaces {
+            fn to_slice(&self) -> &[Interface] {
+                let ifs = self.ptr.as_ptr() as *const Interface;
+                let mut len = 0;
+                unsafe {
+                    while (*ifs.add(len)).0.if_index != 0 {
+                        len += 1
+                    }
+                    std::slice::from_raw_parts(ifs, len)
+                }
+            }
+        }
+
+        impl Drop for Interfaces {
+            fn drop(&mut self) {
+                unsafe { libc::if_freenameindex(self.ptr.as_ptr()) };
+            }
+        }
+
+        fn if_nameindex() -> nix::Result<Interfaces> {
+            unsafe {
+                let ifs = libc::if_nameindex();
+                let ptr = NonNull::new(ifs).ok_or_else(nix::Error::last)?;
+                Ok(Interfaces { ptr })
+            }
+        }
+    }
+    #[cfg(windows)]
+    {
+        use std::ptr;
+
+        let table = MibTable::get_raw().map_err(|err| err.into_pyexception(vm))?;
+        let list = table.as_slice().iter().map(|entry| {
+            let name = get_name(&entry.InterfaceLuid).map_err(|err| err.into_pyexception(vm))?;
+            let tup = (entry.InterfaceIndex, name.to_string_lossy());
+            Ok(tup.into_pyobject(vm))
+        });
+        let list = list.collect::<PyResult<_>>()?;
+        return Ok(vm.ctx.new_list(list));
+
+        fn get_name(luid: &winapi::shared::ifdef::NET_LUID) -> io::Result<widestring::WideCString> {
+            let mut buf = [0; c::IF_NAMESIZE + 1];
+            let ret =
+                unsafe { netioapi::ConvertInterfaceLuidToNameW(luid, buf.as_mut_ptr(), buf.len()) };
+            if ret == 0 {
+                Ok(widestring::WideCString::from_vec_with_nul(&buf[..]).unwrap())
+            } else {
+                Err(io::Error::from_raw_os_error(ret as i32))
+            }
+        }
+        struct MibTable {
+            ptr: ptr::NonNull<netioapi::MIB_IF_TABLE2>,
+        }
+        impl MibTable {
+            fn get_raw() -> io::Result<Self> {
+                let mut ptr = ptr::null_mut();
+                let ret = unsafe { netioapi::GetIfTable2Ex(netioapi::MibIfTableRaw, &mut ptr) };
+                if ret == 0 {
+                    let ptr = unsafe { ptr::NonNull::new_unchecked(ptr) };
+                    Ok(Self { ptr })
+                } else {
+                    Err(io::Error::from_raw_os_error(ret as i32))
+                }
+            }
+        }
+        impl MibTable {
+            fn as_slice(&self) -> &[netioapi::MIB_IF_ROW2] {
+                unsafe {
+                    let p = self.ptr.as_ptr();
+                    let ptr = ptr::addr_of!((*p).Table) as *const netioapi::MIB_IF_ROW2;
+                    std::slice::from_raw_parts(ptr, (*p).NumEntries as usize)
+                }
+            }
+        }
+        impl Drop for MibTable {
+            fn drop(&mut self) {
+                unsafe { netioapi::FreeMibTable(self.ptr.as_ptr() as *mut _) }
+            }
+        }
+    }
+}
+
+fn get_addr(vm: &VirtualMachine, pyname: PyStrRef, af: i32) -> PyResult<SocketAddr> {
+    let name = pyname.as_str();
     if name.is_empty() {
         let hints = dns_lookup::AddrInfoHints {
             address: af,
@@ -1293,6 +1474,12 @@ fn get_addr(vm: &VirtualMachine, name: &str, af: i32) -> PyResult<SocketAddr> {
         address: af,
         ..Default::default()
     };
+    let name = vm
+        .state
+        .codec_registry
+        .encode_text(pyname, "idna", None, vm)?;
+    let name = std::str::from_utf8(name.as_bytes())
+        .map_err(|_| vm.new_runtime_error("idna output is not utf8".to_owned()))?;
     let mut res = dns_lookup::getaddrinfo(Some(name), None, Some(hints))
         .map_err(|e| convert_gai_error(vm, e))?;
     res.next()
@@ -1376,7 +1563,7 @@ fn convert_gai_error(vm: &VirtualMachine, err: dns_lookup::LookupError) -> PyBas
     let strerr = {
         #[cfg(unix)]
         {
-            let s = unsafe { std::ffi::CStr::from_ptr(libc::gai_strerror(err.error_num())) };
+            let s = unsafe { ffi::CStr::from_ptr(libc::gai_strerror(err.error_num())) };
             std::str::from_utf8(s.to_bytes()).unwrap()
         }
         #[cfg(windows)]
@@ -1511,12 +1698,15 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "inet_ntop" => named_function!(ctx, _socket, inet_ntop),
         "getprotobyname" => named_function!(ctx, _socket, getprotobyname),
         "getservbyname" => named_function!(ctx, _socket, getservbyname),
+        "getservbyport" => named_function!(ctx, _socket, getservbyport),
         "dup" => named_function!(ctx, _socket, dup),
         "close" => named_function!(ctx, _socket, close),
         "getaddrinfo" => named_function!(ctx, _socket, getaddrinfo),
         "gethostbyaddr" => named_function!(ctx, _socket, gethostbyaddr),
         "gethostbyname" => named_function!(ctx, _socket, gethostbyname),
         "getnameinfo" => named_function!(ctx, _socket, getnameinfo),
+        "if_nametoindex" => named_function!(ctx, _socket, if_nametoindex),
+        "if_indextoname" => named_function!(ctx, _socket, if_indextoname),
         // constants
         "AF_UNSPEC" => ctx.new_int(0),
         "AF_INET" => ctx.new_int(c::AF_INET),
@@ -1562,6 +1752,21 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     extend_module!(vm, module, {
         "SOCK_RAW" => ctx.new_int(c::SOCK_RAW),
         "SOCK_RDM" => ctx.new_int(c::SOCK_RDM),
+    });
+
+    #[cfg(any(
+        windows,
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "fuchsia",
+        target_os = "ios",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "netbsd",
+        target_os = "openbsd",
+    ))]
+    extend_module!(vm, module, {
+        "if_nameindex" => named_function!(ctx, _socket, if_nameindex),
     });
 
     extend_module_platform_specific(vm, &module);
