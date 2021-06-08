@@ -812,6 +812,8 @@ class GeneralModuleTests(unittest.TestCase):
         else:
             self.fail('Socket proxy still exists')
 
+    # TODO: RUSTPYTHON, socket.herror
+    @unittest.expectedFailure
     def testSocketError(self):
         # Testing socket module exceptions
         msg = "Error raising socket exception (%s)."
@@ -822,6 +824,8 @@ class GeneralModuleTests(unittest.TestCase):
         with self.assertRaises(OSError, msg=msg % 'socket.gaierror'):
             raise socket.gaierror
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testSendtoErrors(self):
         # Testing that sendto doesn't mask failures. See #10169.
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -1461,7 +1465,8 @@ class GeneralModuleTests(unittest.TestCase):
                                flags=socket.AI_PASSIVE)
         self.assertEqual(a, b)
         # Issue #6697.
-        self.assertRaises(UnicodeEncodeError, socket.getaddrinfo, 'localhost', '\uD800')
+        # XXX RUSTPYTHON TODO: surrogates in str
+        # self.assertRaises(UnicodeEncodeError, socket.getaddrinfo, 'localhost', '\uD800')
 
         # Issue 17269: test workaround for OS X platform bug segfault
         if hasattr(socket, 'AI_NUMERICSERV'):
@@ -1479,6 +1484,8 @@ class GeneralModuleTests(unittest.TestCase):
 
     @unittest.skipUnless(support.is_resource_enabled('network'),
                          'network is not enabled')
+    # TODO: RUSTPYTHON, socket.gethostbyname_ex
+    @unittest.expectedFailure
     def test_idna(self):
         # Check for internet access before running test
         # (issue #12804, issue #25138).
@@ -1531,6 +1538,8 @@ class GeneralModuleTests(unittest.TestCase):
     def test_sendall_interrupted_with_timeout(self):
         self.check_sendall_interrupted(True)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_dealloc_warn(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         r = repr(sock)
@@ -4220,10 +4229,12 @@ class InterruptedSendTimeoutTest(InterruptedTimeoutBase,
             self.setAlarm(0)
 
     # Issue #12958: The following tests have problems on OS X prior to 10.7
+    @unittest.skip("TODO: RUSTPYTHON, plistlib")
     @support.requires_mac_ver(10, 7)
     def testInterruptedSendTimeout(self):
         self.checkInterruptedSend(self.serv_conn.send, b"a"*512)
 
+    @unittest.skip("TODO: RUSTPYTHON, plistlib")
     @support.requires_mac_ver(10, 7)
     def testInterruptedSendtoTimeout(self):
         # Passing an actual address here as Python's wrapper for
@@ -4233,6 +4244,7 @@ class InterruptedSendTimeoutTest(InterruptedTimeoutBase,
         self.checkInterruptedSend(self.serv_conn.sendto, b"a"*512,
                                   self.serv_addr)
 
+    @unittest.skip("TODO: RUSTPYTHON, plistlib")
     @support.requires_mac_ver(10, 7)
     @requireAttrs(socket.socket, "sendmsg")
     def testInterruptedSendmsgTimeout(self):
@@ -5023,6 +5035,8 @@ class UDPTimeoutTest(SocketUDPTest):
 
 class TestExceptions(unittest.TestCase):
 
+    # TODO: RUSTPYTHON, socket.herror
+    @unittest.expectedFailure
     def testExceptionTree(self):
         self.assertTrue(issubclass(OSError, Exception))
         self.assertTrue(issubclass(socket.herror, OSError))
@@ -5134,6 +5148,8 @@ class TestUnixDomain(unittest.TestCase):
         self.addCleanup(support.unlink, path)
         self.assertEqual(self.sock.getsockname(), path)
 
+    # TODO: RUSTPYTHON, surrogateescape
+    @unittest.expectedFailure
     def testSurrogateescapeBind(self):
         # Test binding to a valid non-ASCII pathname, with the
         # non-ASCII bytes supplied using surrogateescape encoding.
@@ -5861,6 +5877,7 @@ class SendfileUsingSendTest(ThreadedTCPSocketTest):
 
 @unittest.skipUnless(hasattr(os, "sendfile"),
                      'os.sendfile() required for this test.')
+@unittest.skip("TODO: RUSTPYTHON, fix sendfile")
 class SendfileUsingSendfileTest(SendfileUsingSendTest):
     """
     Test the sendfile() implementation of socket.sendfile().
