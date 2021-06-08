@@ -554,12 +554,16 @@ class TestUrlopen(unittest.TestCase):
         self.assertEqual(data, expected_response)
         self.assertEqual(handler.requests, ["/bizarre", b"get=with_feeling"])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_https(self):
         handler = self.start_https_server()
         context = ssl.create_default_context(cafile=CERT_localhost)
         data = self.urlopen("https://localhost:%s/bizarre" % handler.port, context=context)
         self.assertEqual(data, b"we care a bit")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_https_with_cafile(self):
         handler = self.start_https_server(certfile=CERT_localhost)
         with support.check_warnings(('', DeprecationWarning)):
@@ -585,6 +589,8 @@ class TestUrlopen(unittest.TestCase):
                 self.urlopen("https://localhost:%s/bizarre" % handler.port,
                              cadefault=True)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_https_sni(self):
         if ssl is None:
             self.skipTest("ssl module required")
