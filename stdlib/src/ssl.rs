@@ -978,19 +978,30 @@ fn ssl_error(vm: &VirtualMachine) -> PyTypeRef {
     vm.class("_ssl", "SSLError")
 }
 
+#[track_caller]
 fn convert_openssl_error(vm: &VirtualMachine, err: ErrorStack) -> PyBaseExceptionRef {
     let cls = ssl_error(vm);
     match err.errors().last() {
         Some(e) => {
+            let caller = std::panic::Location::caller();
+            let (file, line) = (caller.file(), caller.line());
+            let file = file
+                .rsplit_once(&['/', '\\'][..])
+                .map_or(file, |(_, basename)| basename);
             // TODO: map the error codes to code names, e.g. "CERTIFICATE_VERIFY_FAILED", just requires a big hashmap/dict
             let errstr = e.reason().unwrap_or("unknown error");
-            let msg = format!("{} (_ssl.c:{})", errstr, e.line());
+            let msg = if let Some(lib) = e.library() {
+                format!("[{}] {} ({}:{})", lib, errstr, file, line)
+            } else {
+                format!("{} ({}:{})", errstr, file, line)
+            };
             let reason = sys::ERR_GET_REASON(e.code());
             vm.new_exception(cls, vec![vm.ctx.new_int(reason), vm.ctx.new_utf8_str(msg)])
         }
         None => vm.new_exception_empty(cls),
     }
 }
+#[track_caller]
 fn convert_ssl_error(
     vm: &VirtualMachine,
     e: impl std::borrow::Borrow<ssl::Error>,
