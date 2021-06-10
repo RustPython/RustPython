@@ -1341,6 +1341,11 @@ class ConditionAsRLockTests(lock_tests.RLockTests):
     # Condition uses an RLock by default and exports its API.
     locktype = staticmethod(threading.Condition)
 
+    # TODO: RUSTPYTHON
+    @unittest.skip("TODO: RUSTPYTHON, flaky test")
+    def test_different_thread(self):
+        super().test_different_thread()
+
 class ConditionTests(lock_tests.ConditionTests):
     condtype = staticmethod(threading.Condition)
 
