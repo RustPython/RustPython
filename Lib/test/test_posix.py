@@ -86,7 +86,7 @@ class PosixTester(unittest.TestCase):
         for val in group_ids:
             self.assertGreaterEqual(val, 0)
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON: OverflowError: Python int too large to convert to Rust u32
     @unittest.expectedFailure
     @unittest.skipUnless(hasattr(posix, 'setresuid'),
                          'test needs posix.setresuid()')
@@ -96,7 +96,7 @@ class PosixTester(unittest.TestCase):
         # -1 means don't change that value.
         self.assertIsNone(posix.setresuid(-1, -1, -1))
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON: OverflowError: Python int too large to convert to Rust u32
     @unittest.expectedFailure
     @unittest.skipUnless(hasattr(posix, 'setresuid'),
                          'test needs posix.setresuid()')
@@ -107,7 +107,7 @@ class PosixTester(unittest.TestCase):
             new_user_ids = (current_user_ids[0]+1, -1, -1)
             self.assertRaises(OSError, posix.setresuid, *new_user_ids)
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON: OverflowError: Python int too large to convert to Rust u32
     @unittest.expectedFailure
     @unittest.skipUnless(hasattr(posix, 'setresgid'),
                          'test needs posix.setresgid()')
@@ -117,7 +117,7 @@ class PosixTester(unittest.TestCase):
         # -1 means don't change that value.
         self.assertIsNone(posix.setresgid(-1, -1, -1))
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON: OverflowError: Python int too large to convert to Rust u32
     @unittest.expectedFailure
     @unittest.skipUnless(hasattr(posix, 'setresgid'),
                          'test needs posix.setresgid()')
@@ -610,7 +610,7 @@ class PosixTester(unittest.TestCase):
                               os.O_RDONLY|os.O_EXLOCK|os.O_NONBLOCK)
             os.close(fd)
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON: AssertionError: "should be string, bytes, os.PathLike or integer, not" does not match "expected str, bytes or os.PathLike object, not 'float'"
     @unittest.expectedFailure
     @unittest.skipUnless(hasattr(posix, 'fstat'),
                          'test needs posix.fstat()')
@@ -626,7 +626,7 @@ class PosixTester(unittest.TestCase):
         finally:
             fp.close()
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON: TypeError: expected str, bytes or os.PathLike object, not 'bytearray'
     @unittest.expectedFailure
     def test_stat(self):
         self.assertTrue(posix.stat(support.TESTFN))
@@ -766,7 +766,7 @@ class PosixTester(unittest.TestCase):
             self.assertRaises(TypeError, chown_func, first_param, uid, t(gid))
             check_stat(uid, gid)
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON: AttributeError: module 'os' has no attribute 'getgroups'
     @unittest.expectedFailure
     @unittest.skipUnless(hasattr(posix, 'chown'), "test needs os.chown()")
     def test_chown(self):
@@ -778,7 +778,7 @@ class PosixTester(unittest.TestCase):
         support.create_empty_file(support.TESTFN)
         self._test_all_chown_common(posix.chown, support.TESTFN, posix.stat)
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON: AttributeError: module 'os' has no attribute 'getgroups'
     @unittest.expectedFailure
     @unittest.skipUnless(hasattr(posix, 'fchown'), "test needs os.fchown()")
     def test_fchown(self):
@@ -793,7 +793,7 @@ class PosixTester(unittest.TestCase):
         finally:
             test_file.close()
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON: AttributeError: module 'os' has no attribute 'getgroups'
     @unittest.expectedFailure
     @unittest.skipUnless(hasattr(posix, 'lchown'), "test needs os.lchown()")
     def test_lchown(self):
@@ -821,7 +821,7 @@ class PosixTester(unittest.TestCase):
         # the returned strings are of type bytes.
         self.assertIn(os.fsencode(support.TESTFN), posix.listdir(b'.'))
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON: TypeError: expected str, bytes or os.PathLike object, not 'bytearray'
     @unittest.expectedFailure
     def test_listdir_bytes_like(self):
         for cls in bytearray, memoryview:
@@ -1049,7 +1049,7 @@ class PosixTester(unittest.TestCase):
         self.assertIn(group, posix.getgrouplist(user, group))
 
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON: AttributeError: module 'posix' has no attribute 'getgroups'
     @unittest.expectedFailure
     @unittest.skipUnless(hasattr(os, 'getegid'), "test needs os.getegid()")
     def test_getgroups(self):
@@ -1410,7 +1410,7 @@ class PosixTester(unittest.TestCase):
         self.assertRaises(OverflowError, posix.sched_setaffinity, 0, [1<<128])
         self.assertRaises(OSError, posix.sched_setaffinity, -1, mask)
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON: AttributeError: module 'posix' has no attribute 'RTLD_LAZY'
     @unittest.expectedFailure
     def test_rtld_constants(self):
         # check presence of major RTLD_* constants
@@ -1446,7 +1446,7 @@ class PosixTester(unittest.TestCase):
                 # http://lists.freebsd.org/pipermail/freebsd-amd64/2012-January/014332.html
                 raise unittest.SkipTest("OSError raised!")
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON: AssertionError: "'doesnotexistfilename' -> 'noodly2'" not found in "(2, 'No such file or directory (os error 2)')"
     @unittest.expectedFailure
     def test_path_error2(self):
         """
