@@ -1946,6 +1946,58 @@ mod _io {
         }
     }
 
+    /// A length of or index into a UTF-8 string, measured in both chars and bytes
+    #[derive(Debug, Default, Copy, Clone)]
+    struct Utf8size {
+        bytes: usize,
+        chars: usize,
+    }
+    impl Utf8size {
+        fn len_pystr(s: &PyStr) -> Self {
+            Utf8size {
+                bytes: s.byte_len(),
+                chars: s.char_len(),
+            }
+        }
+
+        fn len_str(s: &str) -> Self {
+            Utf8size {
+                bytes: s.len(),
+                chars: s.chars().count(),
+            }
+        }
+    }
+    impl std::ops::Add for Utf8size {
+        type Output = Self;
+        #[inline]
+        fn add(mut self, rhs: Self) -> Self {
+            self += rhs;
+            self
+        }
+    }
+    impl std::ops::AddAssign for Utf8size {
+        #[inline]
+        fn add_assign(&mut self, rhs: Self) {
+            self.bytes += rhs.bytes;
+            self.chars += rhs.chars;
+        }
+    }
+    impl std::ops::Sub for Utf8size {
+        type Output = Self;
+        #[inline]
+        fn sub(mut self, rhs: Self) -> Self {
+            self -= rhs;
+            self
+        }
+    }
+    impl std::ops::SubAssign for Utf8size {
+        #[inline]
+        fn sub_assign(&mut self, rhs: Self) {
+            self.bytes -= rhs.bytes;
+            self.chars -= rhs.chars;
+        }
+    }
+
     // TODO: implement legit fast-paths for other encodings
     type EncodeFunc = fn(PyStrRef) -> PendingWrite;
     fn textio_encode_utf8(s: PyStrRef) -> PendingWrite {
@@ -1970,10 +2022,8 @@ mod _io {
         telling: bool,
         snapshot: Option<(i32, PyBytesRef)>,
         decoded_chars: Option<PyStrRef>,
-        // number of characters we've consumed from decoded_chars in codepoints
-        num_decoded_chars: usize,
-        // same as above, but in bytes
-        decoded_chars_pos: usize,
+        // number of characters we've consumed from decoded_chars
+        decoded_chars_used: Utf8size,
         b2cratio: f64,
     }
 
@@ -2113,6 +2163,16 @@ mod _io {
             }
             Ok(())
         }
+        fn num_to_skip(&self) -> Utf8size {
+            Utf8size {
+                bytes: self.bytes_to_skip as usize,
+                chars: self.chars_to_skip as usize,
+            }
+        }
+        fn set_num_to_skip(&mut self, num: Utf8size) {
+            self.bytes_to_skip = num.bytes as i32;
+            self.chars_to_skip = num.chars as i32;
+        }
     }
 
     #[pyattr]
@@ -2214,8 +2274,7 @@ mod _io {
                 telling: seekable,
                 snapshot: None,
                 decoded_chars: None,
-                decoded_chars_pos: 0,
-                num_decoded_chars: 0,
+                decoded_chars_used: Utf8size::default(),
                 b2cratio: 0.0,
             });
 
@@ -2364,8 +2423,7 @@ mod _io {
                 if !pos_is_valid {
                     return Err(vm.new_os_error("can't restore logical file position".to_owned()));
                 }
-                textio.decoded_chars_pos = cookie.bytes_to_skip as usize;
-                textio.num_decoded_chars = cookie.chars_to_skip as usize;
+                textio.decoded_chars_used = cookie.num_to_skip();
             } else {
                 textio.snapshot = Some((cookie.dec_flags, PyBytes::from(vec![]).into_ref(vm)))
             }
@@ -2403,7 +2461,7 @@ mod _io {
                 dec_flags: *dec_flags,
                 ..Default::default()
             };
-            if textio.decoded_chars_pos == 0 {
+            if textio.decoded_chars_used.bytes == 0 {
                 return Ok(cookie.build().into_pyobject(vm));
             }
             let decoder_getstate = || {
@@ -2413,23 +2471,21 @@ mod _io {
             let decoder_decode = |b: &[u8]| {
                 let decoded = vm.call_method(decoder, "decode", (vm.ctx.new_bytes(b.to_vec()),))?;
                 let decoded = check_decoded(decoded, vm)?;
-                Ok((decoded.byte_len(), decoded.char_len()))
+                Ok(Utf8size::len_pystr(&decoded))
             };
             let saved_state = vm.call_method(decoder, "getstate", ())?;
-            let mut chars_to_skip = textio.num_decoded_chars;
-            let mut bytes_to_skip = textio.decoded_chars_pos;
-            let mut skip_bytes = (textio.b2cratio * chars_to_skip as f64) as isize;
+            let mut num_to_skip = textio.decoded_chars_used;
+            let mut skip_bytes = (textio.b2cratio * num_to_skip.chars as f64) as isize;
             let mut skip_back = 1;
             while skip_bytes > 0 {
                 cookie.set_decoder_state(decoder, vm)?;
                 let input = &next_input.as_bytes()[..skip_bytes as usize];
-                let (bytes_decoded, chars_decoded) = decoder_decode(input)?;
-                if chars_decoded <= chars_to_skip {
+                let ndecoded = decoder_decode(input)?;
+                if ndecoded.chars <= num_to_skip.chars {
                     let (dec_buffer, dec_flags) = decoder_getstate()?;
                     if dec_buffer.is_empty() {
                         cookie.dec_flags = dec_flags;
-                        chars_to_skip -= chars_decoded;
-                        bytes_to_skip -= bytes_decoded;
+                        num_to_skip -= ndecoded;
                         break;
                     }
                     skip_bytes -= dec_buffer.len() as isize;
@@ -2446,31 +2502,26 @@ mod _io {
             let skip_bytes = skip_bytes as usize;
 
             cookie.start_pos += skip_bytes as Offset;
-            cookie.chars_to_skip = chars_to_skip as i32;
-            cookie.bytes_to_skip = bytes_to_skip as i32;
+            cookie.set_num_to_skip(num_to_skip);
 
-            if chars_to_skip != 0 {
-                let mut chars_decoded = 0;
-                let mut bytes_decoded = 0;
+            if num_to_skip.chars != 0 {
+                let mut ndecoded = Utf8size::default();
                 let mut input = next_input.as_bytes();
                 input = &input[skip_bytes..];
                 while !input.is_empty() {
                     let (byte1, rest) = input.split_at(1);
-                    let (b_n, n) = decoder_decode(byte1)?;
-                    chars_decoded += n;
-                    bytes_decoded += b_n;
+                    let n = decoder_decode(byte1)?;
+                    ndecoded += n;
                     cookie.bytes_to_feed += 1;
                     let (dec_buffer, dec_flags) = decoder_getstate()?;
-                    if dec_buffer.is_empty() && chars_decoded < chars_to_skip {
+                    if dec_buffer.is_empty() && ndecoded.chars < num_to_skip.chars {
                         cookie.start_pos += cookie.bytes_to_feed as Offset;
-                        chars_to_skip -= chars_decoded;
-                        bytes_to_skip -= bytes_decoded;
+                        num_to_skip -= ndecoded;
                         cookie.dec_flags = dec_flags;
                         cookie.bytes_to_feed = 0;
-                        chars_decoded = 0;
-                        bytes_decoded = 0;
+                        ndecoded = Utf8size::default();
                     }
-                    if chars_decoded >= chars_to_skip {
+                    if ndecoded.chars >= num_to_skip.chars {
                         break;
                     }
                     input = rest;
@@ -2479,9 +2530,9 @@ mod _io {
                     let decoded =
                         vm.call_method(decoder, "decode", (vm.ctx.new_bytes(vec![]), true))?;
                     let decoded = check_decoded(decoded, vm)?;
-                    chars_decoded += decoded.char_len();
+                    let final_decoded_chars = ndecoded.chars + decoded.char_len();
                     cookie.need_eof = true;
-                    if chars_decoded < chars_to_skip {
+                    if final_decoded_chars < num_to_skip.chars {
                         return Err(
                             vm.new_os_error("can't reconstruct logical file position".to_owned())
                         );
@@ -2489,8 +2540,7 @@ mod _io {
                 }
             }
             vm.call_method(decoder, "setstate", (saved_state,))?;
-            cookie.chars_to_skip = chars_to_skip as i32;
-            cookie.bytes_to_skip = bytes_to_skip as i32;
+            cookie.set_num_to_skip(num_to_skip);
             Ok(cookie.build().into_pyobject(vm))
         }
 
@@ -2688,13 +2738,18 @@ mod _io {
                         PyStr::from(self.slice()).into_ref(vm)
                     }
                 }
+                fn utf8_len(&self) -> Utf8size {
+                    Utf8size {
+                        bytes: self.byte_len(),
+                        chars: self.char_len(),
+                    }
+                }
             }
 
             let mut start;
             let mut endpos;
             let mut offset_to_buffer;
-            let mut chunked = 0;
-            let mut chunked_chars = 0;
+            let mut chunked = Utf8size::default();
             let mut remaining: Option<SlicedStr> = None;
             let mut chunks = Vec::new();
 
@@ -2708,21 +2763,21 @@ mod _io {
                     if eof {
                         textio.set_decoded_chars(None);
                         textio.snapshot = None;
-                        start = 0;
-                        endpos = 0;
-                        offset_to_buffer = 0;
+                        start = Utf8size::default();
+                        endpos = Utf8size::default();
+                        offset_to_buffer = Utf8size::default();
                         break 'outer None;
                     }
                 };
                 let line = match remaining.take() {
                     None => {
-                        start = textio.decoded_chars_pos;
-                        offset_to_buffer = 0;
+                        start = textio.decoded_chars_used;
+                        offset_to_buffer = Utf8size::default();
                         decoded_chars.clone()
                     }
                     Some(remaining) => {
-                        assert_eq!(textio.decoded_chars_pos, 0);
-                        offset_to_buffer = remaining.byte_len();
+                        assert_eq!(textio.decoded_chars_used.bytes, 0);
+                        offset_to_buffer = remaining.utf8_len();
                         let decoded_chars = decoded_chars.as_str();
                         let line = if remaining.is_full_slice() {
                             let mut line = remaining.0;
@@ -2736,26 +2791,27 @@ mod _io {
                             s.push_str(decoded_chars);
                             PyStr::from(s).into_ref(vm)
                         };
-                        start = 0;
+                        start = Utf8size::default();
                         line
                     }
                 };
-                let line_from_start = &line.as_str()[start..];
+                let line_from_start = &line.as_str()[start.bytes..];
                 let nl_res = textio.newline.find_newline(line_from_start);
                 match nl_res {
                     Ok(p) | Err(p) => {
-                        endpos = start + p;
+                        endpos = start + Utf8size::len_str(&line_from_start[..p]);
                         if let Some(limit) = limit {
-                            // TODO: track char positions in variables as well as bytes
                             // original CPython logic: endpos = start + limit - chunked
-                            let line_chars = line.as_str()[..endpos].chars().count();
-                            if chunked_chars + line_chars >= limit {
+                            if chunked.chars + endpos.chars >= limit {
                                 endpos = start
-                                    + crate::common::str::char_range_end(
-                                        line_from_start,
-                                        limit - chunked_chars,
-                                    )
-                                    .unwrap();
+                                    + Utf8size {
+                                        chars: limit - chunked.chars,
+                                        bytes: crate::common::str::char_range_end(
+                                            line_from_start,
+                                            limit - chunked.chars,
+                                        )
+                                        .unwrap(),
+                                    };
                                 break Some(line);
                             }
                         }
@@ -2764,28 +2820,25 @@ mod _io {
                 if nl_res.is_ok() {
                     break Some(line);
                 }
-                if endpos > start {
-                    let chunk = SlicedStr(line.clone(), start..endpos);
-                    chunked += chunk.byte_len();
-                    chunked_chars += chunk.char_len();
+                if endpos.bytes > start.bytes {
+                    let chunk = SlicedStr(line.clone(), start.bytes..endpos.bytes);
+                    chunked += chunk.utf8_len();
                     chunks.push(chunk);
                 }
                 let line_len = line.byte_len();
-                if endpos < line_len {
-                    remaining = Some(SlicedStr(line, endpos..line_len));
+                if endpos.bytes < line_len {
+                    remaining = Some(SlicedStr(line, endpos.bytes..line_len));
                 }
                 textio.set_decoded_chars(None);
             };
 
             let cur_line = cur_line.map(|line| {
-                let orig_decoded_chars = &line.as_str()[offset_to_buffer..endpos];
-                textio.decoded_chars_pos = orig_decoded_chars.len();
-                // TODO: variables that are siblings to endpos/offset_to_buffer, measured in chars rather than bytes?
-                textio.num_decoded_chars = orig_decoded_chars.chars().count();
-                SlicedStr(line, start..endpos)
+                textio.decoded_chars_used = endpos - offset_to_buffer;
+                SlicedStr(line, start.bytes..endpos.bytes)
             });
+            // don't need to care about chunked.chars anymore
+            let mut chunked = chunked.bytes;
             if let Some(remaining) = remaining {
-                // don't need to care about chunked_chars anymore
                 chunked += remaining.byte_len();
                 chunks.push(remaining);
             }
@@ -2931,13 +2984,13 @@ mod _io {
                 return None;
             }
             let decoded_chars = self.decoded_chars.as_ref()?;
-            let avail = &decoded_chars.as_str()[self.decoded_chars_pos..];
+            let avail = &decoded_chars.as_str()[self.decoded_chars_used.bytes..];
             if avail.is_empty() {
                 return None;
             }
-            let avail_chars = decoded_chars.char_len() - self.num_decoded_chars;
+            let avail_chars = decoded_chars.char_len() - self.decoded_chars_used.chars;
             let (chars, chars_used) = if n >= avail_chars {
-                if self.decoded_chars_pos == 0 {
+                if self.decoded_chars_used.bytes == 0 {
                     (decoded_chars.clone(), avail_chars)
                 } else {
                     (PyStr::from(avail).into_ref(vm), avail_chars)
@@ -2946,14 +2999,15 @@ mod _io {
                 let s = crate::common::str::get_chars(avail, 0..n);
                 (PyStr::from(s).into_ref(vm), n)
             };
-            self.num_decoded_chars += chars_used;
-            self.decoded_chars_pos += chars.byte_len();
+            self.decoded_chars_used += Utf8size {
+                bytes: chars.byte_len(),
+                chars: chars_used,
+            };
             Some((chars, chars_used))
         }
         fn set_decoded_chars(&mut self, s: Option<PyStrRef>) {
             self.decoded_chars = s;
-            self.num_decoded_chars = 0;
-            self.decoded_chars_pos = 0;
+            self.decoded_chars_used = Utf8size::default();
         }
         fn take_decoded_chars(
             &mut self,
@@ -2961,8 +3015,7 @@ mod _io {
             vm: &VirtualMachine,
         ) -> PyStrRef {
             let empty_str = || PyStr::from("").into_ref(vm);
-            let chars_pos = std::mem::replace(&mut self.decoded_chars_pos, 0);
-            self.num_decoded_chars = 0;
+            let chars_pos = std::mem::take(&mut self.decoded_chars_used).bytes;
             let decoded_chars = match std::mem::take(&mut self.decoded_chars) {
                 None => return append.unwrap_or_else(empty_str),
                 Some(s) if s.is_empty() => return append.unwrap_or_else(empty_str),
