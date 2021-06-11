@@ -453,7 +453,7 @@ impl PyBoundMethod {
             if let Some(qname) = vm.get_attribute_opt(self.function.clone(), "__qualname__")? {
                 Some(qname)
             } else {
-                vm.get_attribute_opt(self.function.clone(), "__qualname__")?
+                vm.get_attribute_opt(self.function.clone(), "__name__")?
             };
         let funcname: Option<PyStrRef> = funcname.and_then(|o| o.downcast().ok());
         Ok(format!(
