@@ -52,12 +52,28 @@ mod c {
     pub use winapi::shared::ws2def::*;
     pub use winapi::um::winsock2::{
         SD_BOTH as SHUT_RDWR, SD_RECEIVE as SHUT_RD, SD_SEND as SHUT_WR, SOCK_DGRAM, SOCK_RAW,
-        SOCK_RDM, SOCK_STREAM, SOL_SOCKET, SO_BROADCAST, SO_ERROR, SO_LINGER, SO_OOBINLINE,
-        SO_REUSEADDR, SO_TYPE, *,
+        SOCK_RDM, SOCK_SEQPACKET, SOCK_STREAM, SOL_SOCKET, SO_BROADCAST, SO_ERROR, SO_LINGER,
+        SO_OOBINLINE, SO_REUSEADDR, SO_TYPE, *,
     };
 }
 #[cfg(windows)]
 use winapi::shared::netioapi;
+
+fn get_raw_sock(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<RawSocket> {
+    #[cfg(unix)]
+    type CastFrom = libc::c_long;
+    #[cfg(windows)]
+    type CastFrom = libc::c_longlong;
+
+    // should really just be to_index() but test_socket tests the error messages explicitly
+    if obj.isinstance(&vm.ctx.types.float_type) {
+        return Err(vm.new_type_error("integer argument expected, got float".to_owned()));
+    }
+    let int = vm
+        .to_index_opt(obj)
+        .unwrap_or_else(|| Err(vm.new_type_error("an integer is required".to_owned())))?;
+    int::try_to_primitive::<CastFrom>(int.as_bigint(), vm).map(|sock| sock as RawSocket)
+}
 
 #[pyclass(module = "socket", name = "socket")]
 #[derive(Debug)]
@@ -116,19 +132,10 @@ impl PySocket {
         let mut family = family.unwrap_or(-1);
         let mut socket_kind = socket_kind.unwrap_or(-1);
         let mut proto = proto.unwrap_or(-1);
-        // should really just be to_index() but test_socket tests the error messages explicitly
-        let fileno = match fileno.flatten() {
-            Some(o) if o.isinstance(&vm.ctx.types.float_type) => {
-                return Err(vm.new_type_error("integer argument expected, got float".to_owned()))
-            }
-            Some(o) => {
-                let int = vm.to_index_opt(o).unwrap_or_else(|| {
-                    Err(vm.new_type_error("an integer is required".to_owned()))
-                })?;
-                Some(int::try_to_primitive::<RawSocket>(int.as_bigint(), vm)?)
-            }
-            None => None,
-        };
+        let fileno = fileno
+            .flatten()
+            .map(|obj| get_raw_sock(obj, vm))
+            .transpose()?;
         let sock;
         if let Some(fileno) = fileno {
             sock = sock_from_raw(fileno, vm)?;
@@ -653,7 +660,7 @@ impl PySocket {
     fn close(&self, vm: &VirtualMachine) -> PyResult<()> {
         let sock = self.detach();
         if sock != INVALID_SOCKET {
-            _socket_close(sock, vm)?;
+            close_inner(sock, vm)?;
         }
         Ok(())
     }
@@ -1684,14 +1691,21 @@ fn _socket_setdefaulttimeout(timeout: Option<Duration>) {
     DEFAULT_TIMEOUT.store(timeout.map_or(-1.0, |d| d.as_secs_f64()));
 }
 
-fn _socket_dup(x: RawSocket, vm: &VirtualMachine) -> PyResult<RawSocket> {
-    let sock = std::mem::ManuallyDrop::new(sock_from_raw(x, vm)?);
-    sock.try_clone()
-        .map(into_sock_fileno)
-        .map_err(|e| e.into_pyexception(vm))
+fn _socket_dup(x: PyObjectRef, vm: &VirtualMachine) -> PyResult<RawSocket> {
+    let sock = get_raw_sock(x, vm)?;
+    let sock = std::mem::ManuallyDrop::new(sock_from_raw(sock, vm)?);
+    let newsock = sock.try_clone().map_err(|e| e.into_pyexception(vm))?;
+    let fd = into_sock_fileno(newsock);
+    #[cfg(windows)]
+    super::os::raw_set_handle_inheritable(fd as _, false).map_err(|e| e.into_pyexception(vm))?;
+    Ok(fd)
 }
 
-fn _socket_close(x: RawSocket, vm: &VirtualMachine) -> PyResult<()> {
+fn _socket_close(x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    close_inner(get_raw_sock(x, vm)?, vm)
+}
+
+fn close_inner(x: RawSocket, vm: &VirtualMachine) -> PyResult<()> {
     #[cfg(unix)]
     use libc::close;
     #[cfg(windows)]
@@ -1809,6 +1823,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     extend_module!(vm, module, {
         "SOCK_RAW" => ctx.new_int(c::SOCK_RAW),
         "SOCK_RDM" => ctx.new_int(c::SOCK_RDM),
+        "SOCK_SEQPACKET" => ctx.new_int(c::SOCK_SEQPACKET),
     });
 
     #[cfg(any(
@@ -1831,8 +1846,20 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     module
 }
 
-#[cfg(not(unix))]
-fn extend_module_platform_specific(_vm: &VirtualMachine, _module: &PyObjectRef) {}
+#[cfg(windows)]
+fn extend_module_platform_specific(vm: &VirtualMachine, module: &PyObjectRef) {
+    let ctx = &vm.ctx;
+    extend_module!(vm, module, {
+        "IPPROTO_ICLFXBM" => ctx.new_int(c::IPPROTO_ICLFXBM),
+        "IPPROTO_ST" => ctx.new_int(c::IPPROTO_ST),
+        "IPPROTO_CBT" => ctx.new_int(c::IPPROTO_CBT),
+        "IPPROTO_IGP" => ctx.new_int(c::IPPROTO_IGP),
+        "IPPROTO_RDP" => ctx.new_int(c::IPPROTO_RDP),
+        "IPPROTO_PGM" => ctx.new_int(c::IPPROTO_PGM),
+        "IPPROTO_L2TP" => ctx.new_int(c::IPPROTO_L2TP),
+        "IPPROTO_SCTP" => ctx.new_int(c::IPPROTO_SCTP),
+    });
+}
 
 #[cfg(unix)]
 fn extend_module_platform_specific(vm: &VirtualMachine, module: &PyObjectRef) {
@@ -1847,7 +1874,6 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: &PyObjectRef) {
     #[cfg(not(target_os = "redox"))]
     extend_module!(vm, module, {
         "sethostname" => named_function!(ctx, _socket, sethostname),
-        "SOCK_SEQPACKET" => ctx.new_int(c::SOCK_SEQPACKET),
     });
 }
 

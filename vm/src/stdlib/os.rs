@@ -2124,8 +2124,8 @@ mod posix {
     }
 
     #[pyfunction]
-    fn set_inheritable(fd: i64, inheritable: bool, vm: &VirtualMachine) -> PyResult<()> {
-        raw_set_inheritable(fd as RawFd, inheritable).map_err(|err| err.into_pyexception(vm))
+    fn set_inheritable(fd: i32, inheritable: bool, vm: &VirtualMachine) -> PyResult<()> {
+        raw_set_inheritable(fd, inheritable).map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
@@ -2162,8 +2162,8 @@ mod posix {
         use nix::unistd::close;
         use nix::unistd::pipe;
         let (rfd, wfd) = pipe().map_err(|err| err.into_pyexception(vm))?;
-        set_inheritable(rfd.into(), false, vm)
-            .and_then(|_| set_inheritable(wfd.into(), false, vm))
+        set_inheritable(rfd, false, vm)
+            .and_then(|_| set_inheritable(wfd, false, vm))
             .map_err(|err| {
                 let _ = close(rfd);
                 let _ = close(wfd);
@@ -3033,18 +3033,7 @@ mod nt {
     fn set_inheritable(fd: i32, inheritable: bool, vm: &VirtualMachine) -> PyResult<()> {
         use winapi::um::{handleapi, winbase};
         let handle = Fd(fd).to_raw_handle().map_err(|e| e.into_pyexception(vm))?;
-        let flags = if inheritable {
-            winbase::HANDLE_FLAG_INHERIT
-        } else {
-            0
-        };
-        let ret =
-            unsafe { handleapi::SetHandleInformation(handle, winbase::HANDLE_FLAG_INHERIT, flags) };
-        if ret == 0 {
-            Err(errno_err(vm))
-        } else {
-            Ok(())
-        }
+        set_handle_inheritable(handle as _, inheritable, vm)
     }
 
     #[pyattr]
@@ -3336,22 +3325,29 @@ mod nt {
         }
     }
 
-    #[pyfunction]
-    fn set_handle_inheritable(
+    pub(crate) fn raw_set_handle_inheritable(
         handle: intptr_t,
         inheritable: bool,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
+    ) -> io::Result<()> {
         use winapi::um::winbase::HANDLE_FLAG_INHERIT;
         let flags = if inheritable { HANDLE_FLAG_INHERIT } else { 0 };
         let res = unsafe {
             winapi::um::handleapi::SetHandleInformation(handle as _, HANDLE_FLAG_INHERIT, flags)
         };
         if res == 0 {
-            Err(errno_err(vm))
+            Err(errno())
         } else {
             Ok(())
         }
+    }
+
+    #[pyfunction]
+    fn set_handle_inheritable(
+        handle: intptr_t,
+        inheritable: bool,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        raw_set_handle_inheritable(handle, inheritable).map_err(|e| e.into_pyexception(vm))
     }
 
     pub(super) fn support_funcs() -> Vec<SupportFunc> {
@@ -3360,6 +3356,8 @@ mod nt {
 }
 #[cfg(windows)]
 use nt as platform;
+#[cfg(windows)]
+pub(crate) use nt::raw_set_handle_inheritable;
 #[cfg(all(windows, target_env = "msvc"))]
 pub use nt::{_set_thread_local_invalid_parameter_handler, silent_iph_handler};
 

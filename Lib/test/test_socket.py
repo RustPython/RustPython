@@ -1372,6 +1372,8 @@ class GeneralModuleTests(unittest.TestCase):
                 break
 
     @unittest.skipUnless(os.name == "nt", "Windows specific")
+    # TODO: RUSTPYTHON, windows ioctls
+    @unittest.expectedFailure
     def test_sock_ioctl(self):
         self.assertTrue(hasattr(socket.socket, 'ioctl'))
         self.assertTrue(hasattr(socket, 'SIO_RCVALL'))
@@ -5517,6 +5519,7 @@ class NonblockConstantTest(unittest.TestCase):
 
 @unittest.skipUnless(os.name == "nt", "Windows specific")
 @unittest.skipUnless(multiprocessing, "need multiprocessing")
+@unittest.skip("TODO: RUSTPYTHON, socket sharing")
 class TestSocketSharing(SocketTCPTest):
     # This must be classmethod and not staticmethod or multiprocessing
     # won't be able to bootstrap it.
