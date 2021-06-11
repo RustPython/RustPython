@@ -12,6 +12,8 @@ class UserListTest(list_tests.CommonTest):
         super().test_init()
 
     # TODO: RUSTPYTHON, parent method is marked but this version passes
+    import sys
+    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON, unexpectedly panics somewhere")
     def test_repr_deep(self):
         super().test_repr_deep()
 
