@@ -3681,8 +3681,6 @@ class PathTConverterTests(unittest.TestCase):
                             'os.PathLike'):
                         fn(fd, *extra_args)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_path_t_converter_and_custom_class(self):
         msg = r'__fspath__\(\) to return str or bytes, not %s'
         with self.assertRaisesRegex(TypeError, msg % r'int'):
