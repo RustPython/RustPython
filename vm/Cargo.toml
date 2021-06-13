@@ -117,6 +117,8 @@ rustpython-common = { path = "../common" }
 [target.'cfg(unix)'.dependencies]
 exitcode = "1.1.2"
 uname = "0.1.1"
+strum = "0.21"
+strum_macros = "0.21"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 gethostname = "0.2.0"
