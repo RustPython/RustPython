@@ -3630,15 +3630,13 @@ class PathTConverterTests(unittest.TestCase):
     # function, cleanup function)
     functions = [
         ('stat', True, (), None),
-        ('lstat', False, (), None),
+        ('lstat', True, (), None),
         ('access', False, (os.F_OK,), None),
         ('chflags', False, (0,), None),
         ('lchflags', False, (0,), None),
         ('open', False, (0,), getattr(os, 'close', None)),
     ]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_path_t_converter(self):
         str_filename = support.TESTFN
         if os.name == 'nt':
