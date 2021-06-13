@@ -766,8 +766,6 @@ class PosixTester(unittest.TestCase):
             self.assertRaises(TypeError, chown_func, first_param, uid, t(gid))
             check_stat(uid, gid)
 
-    # TODO: RUSTPYTHON: AttributeError: module 'os' has no attribute 'getgroups'
-    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(posix, 'chown'), "test needs os.chown()")
     def test_chown(self):
         # raise an OSError if the file does not exist
@@ -778,8 +776,6 @@ class PosixTester(unittest.TestCase):
         support.create_empty_file(support.TESTFN)
         self._test_all_chown_common(posix.chown, support.TESTFN, posix.stat)
 
-    # TODO: RUSTPYTHON: AttributeError: module 'os' has no attribute 'getgroups'
-    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(posix, 'fchown'), "test needs os.fchown()")
     def test_fchown(self):
         os.unlink(support.TESTFN)
@@ -793,8 +789,6 @@ class PosixTester(unittest.TestCase):
         finally:
             test_file.close()
 
-    # TODO: RUSTPYTHON: AttributeError: module 'os' has no attribute 'getgroups'
-    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(posix, 'lchown'), "test needs os.lchown()")
     def test_lchown(self):
         os.unlink(support.TESTFN)
@@ -1049,8 +1043,6 @@ class PosixTester(unittest.TestCase):
         self.assertIn(group, posix.getgrouplist(user, group))
 
 
-    # TODO: RUSTPYTHON: AttributeError: module 'posix' has no attribute 'getgroups'
-    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(os, 'getegid'), "test needs os.getegid()")
     def test_getgroups(self):
         with os.popen('id -G 2>/dev/null') as idg:
