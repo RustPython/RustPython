@@ -188,19 +188,17 @@ impl PyRange {
 
         // compute the last element that is actually contained within the range
         // this is the new start
-        let remainder = ((stop - start) % step).abs();
+        let remainder = (stop - start) % step;
         let new_start = if remainder.is_zero() {
             stop - step
         } else {
             stop - &remainder
         };
-
         let new_stop: BigInt = match step.sign() {
             Sign::Plus => start - 1,
             Sign::Minus => start + 1,
             Sign::NoSign => unreachable!(),
         };
-
         let reversed = PyRange {
             start: new_start.into_pyref(vm),
             stop: new_stop.into_pyref(vm),

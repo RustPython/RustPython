@@ -582,8 +582,6 @@ class RangeTest(unittest.TestCase):
         self.assertNotIn(10, r)
         self.assertNotIn("", r)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_reverse_iteration(self):
         for r in [range(10),
                   range(0),
