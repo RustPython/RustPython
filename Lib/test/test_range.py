@@ -255,8 +255,6 @@ class RangeTest(unittest.TestCase):
         self.assertRaises(TypeError, range, 0.0, 0.0, 1)
         self.assertRaises(TypeError, range, 0.0, 0.0, 1.0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_index(self):
         u = range(2)
         self.assertEqual(u.index(0), 0)
@@ -332,8 +330,6 @@ class RangeTest(unittest.TestCase):
         with self.assertRaises(TypeError):
             range(0, 10)[:IN()]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_count(self):
         self.assertEqual(range(3).count(-1), 0)
         self.assertEqual(range(3).count(0), 1)
@@ -432,8 +428,6 @@ class RangeTest(unittest.TestCase):
         with self.assertRaises(TypeError):
             range([], 1, -1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_types(self):
         # Non-integer objects *equal* to any of the range's items are supposed
         # to be contained in the range.
@@ -490,8 +484,10 @@ class RangeTest(unittest.TestCase):
         self.assertNotIn(-1, r)
         self.assertNotIn(1, r)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    # TODO: RUSTPYTHON.
+    # NOTE: Test passes, fast iterators are required for this to not
+    #       take ~ 1m.
+    @unittest.skip
     def test_range_iterators(self):
         # exercise 'fast' iterators, that use a rangeiterobject internally.
         # see issue 7298
@@ -546,8 +542,6 @@ class RangeTest(unittest.TestCase):
             check(0, -1)
             check(-1, -3, -1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_contains(self):
         r = range(10)
         self.assertIn(0, r)
