@@ -3630,15 +3630,13 @@ class PathTConverterTests(unittest.TestCase):
     # function, cleanup function)
     functions = [
         ('stat', True, (), None),
-        ('lstat', False, (), None),
+        ('lstat', True, (), None),
         ('access', False, (os.F_OK,), None),
         ('chflags', False, (0,), None),
         ('lchflags', False, (0,), None),
         ('open', False, (0,), getattr(os, 'close', None)),
     ]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_path_t_converter(self):
         str_filename = support.TESTFN
         if os.name == 'nt':
@@ -3683,8 +3681,6 @@ class PathTConverterTests(unittest.TestCase):
                             'os.PathLike'):
                         fn(fd, *extra_args)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_path_t_converter_and_custom_class(self):
         msg = r'__fspath__\(\) to return str or bytes, not %s'
         with self.assertRaisesRegex(TypeError, msg % r'int'):

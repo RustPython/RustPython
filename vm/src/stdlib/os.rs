@@ -158,14 +158,14 @@ fn fspath(obj: PyObjectRef, check_for_nul: bool, vm: &VirtualMachine) -> PyResul
     }
     let method = vm.get_method_or_type_error(obj.clone(), "__fspath__", || {
         format!(
-            "expected str, bytes or os.PathLike object, not '{}'",
+            "expected str, bytes or os.PathLike object, not {}",
             obj.class().name
         )
     })?;
     let result = vm.invoke(&method, ())?;
     match1(&result)?.ok_or_else(|| {
         vm.new_type_error(format!(
-            "expected {}.__fspath__() to return str or bytes, not '{}'",
+            "expected {}.__fspath__() to return str or bytes, not {}",
             obj.class().name,
             result.class().name,
         ))
