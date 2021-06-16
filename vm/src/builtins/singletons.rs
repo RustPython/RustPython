@@ -61,6 +61,19 @@ impl PyValue for PyNotImplemented {
 
 #[pyimpl]
 impl PyNotImplemented {
+    #[pyslot]
+    fn tp_new(_: PyTypeRef, vm: &VirtualMachine) -> PyRef<Self> {
+        vm.ctx.not_implemented.clone()
+    }
+
+    // TODO: As per https://bugs.python.org/issue35712, using NotImplemented
+    // in boolean contexts will need to raise a DeprecationWarning in 3.9
+    // and, eventually, a TypeError.
+    #[pymethod(magic)]
+    fn bool(&self) -> bool {
+        true
+    }
+
     #[pymethod(magic)]
     fn repr(&self) -> String {
         "NotImplemented".to_owned()
