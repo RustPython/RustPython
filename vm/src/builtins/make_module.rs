@@ -819,7 +819,9 @@ mod decl {
     #[pyfunction]
     fn vars(obj: OptionalArg, vm: &VirtualMachine) -> PyResult {
         if let OptionalArg::Present(obj) = obj {
-            vm.get_attribute(obj, "__dict__")
+            vm.get_attribute(obj, "__dict__").map_err(|_| {
+                vm.new_type_error("vars() argument must have __dict__ attribute".to_owned())
+            })
         } else {
             Ok(vm.current_locals()?.into_object())
         }
