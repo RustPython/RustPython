@@ -258,10 +258,16 @@ impl PyTuple {
             vm.extract_elements(&iterable)?
         } else {
             vec![]
+        };
+        // Return empty tuple only for exact tuple types if the iterable is empty.
+        if elements.is_empty() && cls.is(&vm.ctx.types.tuple_type) {
+            Ok(vm.ctx.empty_tuple.clone())
+        } else {
+            Self {
+                elements: elements.into_boxed_slice(),
+            }
+            .into_ref_with_type(vm, cls)
         }
-        .into_boxed_slice();
-
-        Self { elements }.into_ref_with_type(vm, cls)
     }
 }
 
