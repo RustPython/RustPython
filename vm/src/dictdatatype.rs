@@ -304,7 +304,7 @@ impl<T: Clone> Dict<T> {
             inner.used = 0;
             inner.filled = 0;
             // defer dec rc
-            std::mem::replace(&mut inner.entries, Vec::new())
+            std::mem::take(&mut inner.entries)
         };
     }
 
