@@ -273,7 +273,7 @@ union UnTypedAbiValue {
 }
 
 impl UnTypedAbiValue {
-    unsafe fn to_typed(&self, ty: &JitType) -> AbiValue {
+    unsafe fn to_typed(self, ty: &JitType) -> AbiValue {
         match ty {
             JitType::Int => AbiValue::Int(self.int),
             JitType::Float => AbiValue::Float(self.float),

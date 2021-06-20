@@ -132,7 +132,7 @@ impl PyList {
 
     #[pymethod]
     fn clear(&self) {
-        let _removed = std::mem::replace(self.borrow_vec_mut().deref_mut(), Vec::new());
+        let _removed = std::mem::take(self.borrow_vec_mut().deref_mut());
     }
 
     #[pymethod]
