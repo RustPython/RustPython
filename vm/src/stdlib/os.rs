@@ -1562,7 +1562,8 @@ mod _os {
         // Safety: p_offset_src and p_offset_dst is a unique pointer for offset_src and offset_dst respectively,
         // and will only be freed after this function ends.
         let ret = unsafe {
-            libc::copy_file_range(
+            libc::syscall(
+                libc::SYS_copy_file_range,
                 args.src,
                 p_offset_src as *mut i64,
                 args.dst,
