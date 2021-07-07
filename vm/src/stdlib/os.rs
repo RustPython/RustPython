@@ -2089,7 +2089,7 @@ mod posix {
         let others_permissions = get_permissions(others_mode);
 
         let user_id = nix::unistd::getuid();
-        let groups_ids = getgroups()?;
+        let groups_ids = getgroups_impl()?;
 
         if file_owner == user_id {
             Ok(owner_permissions)
@@ -2101,7 +2101,7 @@ mod posix {
     }
 
     #[cfg(any(target_os = "macos", target_os = "ios"))]
-    fn getgroups() -> nix::Result<Vec<Gid>> {
+    fn getgroups_impl() -> nix::Result<Vec<Gid>> {
         use libc::{c_int, gid_t};
         use std::ptr;
         let ret = unsafe { libc::getgroups(0, ptr::null_mut()) };
@@ -2120,11 +2120,22 @@ mod posix {
     }
 
     #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "redox")))]
-    use nix::unistd::getgroups;
+    use nix::unistd::getgroups as getgroups_impl;
 
     #[cfg(target_os = "redox")]
-    fn getgroups() -> nix::Result<Vec<Gid>> {
+    fn getgroups_impl() -> nix::Result<Vec<Gid>> {
         Err(nix::Error::UnsupportedOperation)
+    }
+
+    #[pyfunction]
+    fn getgroups(vm: &VirtualMachine) -> PyResult {
+        let group_ids = getgroups_impl().map_err(|e| e.into_pyexception(vm))?;
+        Ok(vm.ctx.new_list(
+            group_ids
+                .into_iter()
+                .map(|gid| vm.ctx.new_int(gid.as_raw()))
+                .collect(),
+        ))
     }
 
     #[pyfunction]
