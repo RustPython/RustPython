@@ -144,6 +144,11 @@ class OperatorTestCase:
         self.assertRaises(TypeError, operator.countOf, None, None)
         self.assertEqual(operator.countOf([1, 2, 1, 3, 1, 4], 3), 1)
         self.assertEqual(operator.countOf([1, 2, 1, 3, 1, 4], 5), 0)
+        # is but not ==
+        nan = float("nan")
+        self.assertEqual(operator.countOf([nan, nan, 21], nan), 2)
+        # == but not is
+        self.assertEqual(operator.countOf([{}, 1, {}, 2], {}), 2)
 
     def test_delitem(self):
         operator = self.module
@@ -178,6 +183,9 @@ class OperatorTestCase:
         self.assertRaises(TypeError, operator.indexOf, None, None)
         self.assertEqual(operator.indexOf([4, 3, 2, 1], 3), 1)
         self.assertRaises(ValueError, operator.indexOf, [4, 3, 2, 1], 0)
+        nan = float("nan")
+        self.assertEqual(operator.indexOf([nan, nan, 21], nan), 0)
+        self.assertEqual(operator.indexOf([{}, 1, {}, 2], {}), 0)
 
     def test_invert(self):
         operator = self.module
