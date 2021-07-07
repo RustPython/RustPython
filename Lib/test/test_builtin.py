@@ -1377,8 +1377,6 @@ class BuiltinTest(unittest.TestCase):
             return {'a':2}
         __dict__ = property(fget=getDict)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_vars(self):
         self.assertEqual(set(vars()), set(dir()))
         self.assertEqual(set(vars(sys)), set(dir(sys)))
