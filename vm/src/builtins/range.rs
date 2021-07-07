@@ -11,9 +11,48 @@ use crate::function::{FuncArgs, OptionalArg};
 use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter};
 use crate::vm::VirtualMachine;
 use crate::{
-    IdProtocol, IntoPyRef, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    iterator, IdProtocol, IntoPyRef, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol,
 };
+
+// Search flag passed to iter_search
+enum SearchType {
+    Count,
+    Contains,
+    Index,
+}
+
+// Note: might be a good idea to merge with _membership_iter_search or generalize (_sequence_iter_check?)
+// and place in vm.rs for all sequences to be able to use it.
+#[inline]
+fn iter_search(
+    obj: PyObjectRef,
+    item: PyObjectRef,
+    flag: SearchType,
+    vm: &VirtualMachine,
+) -> PyResult<usize> {
+    let mut count = 0;
+    let iter = iterator::get_iter(vm, obj)?;
+    while let Some(element) = iterator::get_next_object(vm, &iter)? {
+        if vm.bool_eq(&item, &element)? {
+            match flag {
+                SearchType::Index => return Ok(count),
+                SearchType::Contains => return Ok(1),
+                SearchType::Count => count += 1,
+            }
+        }
+    }
+    match flag {
+        SearchType::Count => Ok(count),
+        SearchType::Contains => Ok(0),
+        SearchType::Index => Err(vm.new_value_error(format!(
+            "{} not in range",
+            vm.to_repr(&item)
+                .map(|v| v.as_str().to_owned())
+                .unwrap_or_else(|_| "value".to_owned())
+        ))),
+    }
+}
 
 /// range(stop) -> range object
 /// range(start, stop[, step]) -> range object
@@ -61,10 +100,7 @@ impl PyRange {
 
     #[inline]
     pub fn is_empty(&self) -> bool {
-        let start = self.start.as_bigint();
-        let stop = self.stop.as_bigint();
-        let step = self.step.as_bigint();
-        (start <= stop && step.is_negative()) || (start >= stop && step.is_positive())
+        self.length().is_zero()
     }
 
     #[inline]
@@ -183,22 +219,11 @@ impl PyRange {
     #[pymethod(name = "__reversed__")]
     fn reversed(&self, vm: &VirtualMachine) -> PyRangeIterator {
         let start = self.start.as_bigint();
-        let stop = self.stop.as_bigint();
         let step = self.step.as_bigint();
 
-        // compute the last element that is actually contained within the range
-        // this is the new start
-        let remainder = (stop - start) % step;
-        let new_start = if remainder.is_zero() {
-            stop - step
-        } else {
-            stop - &remainder
-        };
-        let new_stop: BigInt = match step.sign() {
-            Sign::Plus => start - 1,
-            Sign::Minus => start + 1,
-            Sign::NoSign => unreachable!(),
-        };
+        // Use CPython calculation for this:
+        let new_stop = start - step;
+        let new_start = &new_stop + (self.len() * step);
         let reversed = PyRange {
             start: new_start.into_pyref(vm),
             stop: new_stop.into_pyref(vm),
@@ -231,14 +256,22 @@ impl PyRange {
     }
 
     #[pymethod(name = "__contains__")]
-    fn contains(&self, needle: PyObjectRef) -> bool {
-        if let Ok(int) = needle.downcast::<PyInt>() {
+    fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> bool {
+        // Only accept ints, not subclasses.
+        if let Some(int) = needle.payload_if_exact::<PyInt>(vm) {
             match self.offset(int.as_bigint()) {
                 Some(ref offset) => offset.is_multiple_of(self.step.as_bigint()),
                 None => false,
             }
         } else {
-            false
+            iter_search(
+                self.clone().into_object(vm),
+                needle,
+                SearchType::Contains,
+                vm,
+            )
+            .unwrap_or(0)
+                != 0
         }
     }
 
@@ -254,26 +287,33 @@ impl PyRange {
 
     #[pymethod(name = "index")]
     fn index(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt> {
-        if let Ok(int) = needle.downcast::<PyInt>() {
+        if let Ok(int) = needle.clone().downcast::<PyInt>() {
             match self.index_of(int.as_bigint()) {
                 Some(idx) => Ok(idx),
                 None => Err(vm.new_value_error(format!("{} is not in range", int))),
             }
         } else {
-            Err(vm.new_value_error("sequence.index(x): x not in sequence".to_owned()))
+            // Fallback to iteration.
+            Ok(BigInt::from_bytes_be(
+                Sign::Plus,
+                &iter_search(self.clone().into_object(vm), needle, SearchType::Index, vm)?
+                    .to_be_bytes(),
+            ))
         }
     }
 
     #[pymethod(name = "count")]
-    fn count(&self, item: PyObjectRef) -> usize {
-        if let Ok(int) = item.downcast::<PyInt>() {
+    fn count(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+        if let Ok(int) = item.clone().downcast::<PyInt>() {
             if self.index_of(int.as_bigint()).is_some() {
-                1
+                Ok(1)
             } else {
-                0
+                Ok(0)
             }
         } else {
-            0
+            // Dealing with classes who might compare equal with ints in their
+            // __eq__, slow search.
+            iter_search(self.clone().into_object(vm), item, SearchType::Count, vm)
         }
     }
 
