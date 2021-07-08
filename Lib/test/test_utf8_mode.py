@@ -124,6 +124,10 @@ class UTF8ModeTests(unittest.TestCase):
             self.assertEqual(out, 'mbcs/replace')
 
     # TODO: RUSTPYTHON
+    if MS_WINDOWS:
+        test_filesystemencoding = unittest.expectedFailure(test_filesystemencoding)
+
+    # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_stdio(self):
         code = textwrap.dedent('''
