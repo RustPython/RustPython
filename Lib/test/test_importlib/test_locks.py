@@ -96,6 +96,7 @@ class DeadlockAvoidanceTests:
         self.assertGreaterEqual(nb_deadlocks, 1)
         self.assertEqual(results.count((True, True)), len(results) - nb_deadlocks)
 
+    @unittest.skip("TODO: RUSTPYTHON, flaky test")
     def test_no_deadlock(self):
         results = self.run_deadlock_avoidance_test(False)
         self.assertEqual(results.count((True, False)), 0)
