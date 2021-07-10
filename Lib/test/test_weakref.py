@@ -113,6 +113,8 @@ class ReferencesTestCase(TestBase):
         del o
         repr(wr)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_basic_callback(self):
         self.check_basic_callback(C)
         self.check_basic_callback(create_function)
@@ -130,6 +132,8 @@ class ReferencesTestCase(TestBase):
         self.check_basic_ref(create_cfunction)
         self.check_basic_callback(create_cfunction)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_multiple_callbacks(self):
         o = C()
         ref1 = weakref.ref(o, self.callback)
@@ -197,6 +201,8 @@ class ReferencesTestCase(TestBase):
         self.assertIsNone(ref(),
                      "ref2 should be dead after deleting object reference")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_ref_reuse(self):
         o = C()
         ref1 = weakref.ref(o)
@@ -219,6 +225,8 @@ class ReferencesTestCase(TestBase):
         self.assertEqual(weakref.getweakrefcount(o), 1,
                      "wrong weak ref count for object after deleting proxy")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_proxy_reuse(self):
         o = C()
         proxy1 = weakref.proxy(o)
@@ -227,6 +235,8 @@ class ReferencesTestCase(TestBase):
         self.assertIs(proxy1, proxy2,
                      "proxy object w/out callback should have been re-used")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_basic_proxy(self):
         o = C()
         self.check_proxy(o, weakref.proxy(o))
@@ -255,6 +265,8 @@ class ReferencesTestCase(TestBase):
         self.assertEqual(L3[:5], p3[:5])
         self.assertEqual(L3[2:5], p3[2:5])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_proxy_unicode(self):
         # See bug 5037
         class C(object):
@@ -266,6 +278,8 @@ class ReferencesTestCase(TestBase):
         self.assertIn("__bytes__", dir(weakref.proxy(instance)))
         self.assertEqual(bytes(weakref.proxy(instance)), b"bytes")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_proxy_index(self):
         class C:
             def __index__(self):
@@ -274,6 +288,8 @@ class ReferencesTestCase(TestBase):
         p = weakref.proxy(o)
         self.assertEqual(operator.index(p), 10)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_proxy_div(self):
         class C:
             def __floordiv__(self, other):
@@ -286,6 +302,8 @@ class ReferencesTestCase(TestBase):
         p //= 5
         self.assertEqual(p, 21)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_proxy_matmul(self):
         class C:
             def __matmul__(self, other):
@@ -309,6 +327,8 @@ class ReferencesTestCase(TestBase):
     # was not honored, and was broken in different ways for
     # PyWeakref_NewRef() and PyWeakref_NewProxy().  (Two tests.)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_shared_ref_without_callback(self):
         self.check_shared_without_callback(weakref.ref)
 
@@ -334,6 +354,8 @@ class ReferencesTestCase(TestBase):
         p2 = makeref(o)
         self.assertIs(p1, p2, "callbacks were None, NULL in the C API")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_callable_proxy(self):
         o = Callable()
         ref1 = weakref.proxy(o)
@@ -376,6 +398,8 @@ class ReferencesTestCase(TestBase):
         self.assertFalse(hasattr(o, 'foo'),
                      "object does not reflect attribute removal via proxy")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_proxy_deletion(self):
         # Test clearing of SF bug #762891
         class Foo:
@@ -387,6 +411,8 @@ class ReferencesTestCase(TestBase):
         del f[0]
         self.assertEqual(f.result, 0)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_proxy_bool(self):
         # Test clearing of SF bug #1170766
         class List(list): pass
@@ -435,6 +461,8 @@ class ReferencesTestCase(TestBase):
         self.assertEqual(weakref.getweakrefcount(1), 0,
                      "got wrong number of weak reference objects for int")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_getweakrefs(self):
         o = C()
         ref1 = weakref.ref(o, self.callback)
@@ -458,6 +486,8 @@ class ReferencesTestCase(TestBase):
         self.assertEqual(weakref.getweakrefs(1), [],
                      "list of refs does not match for int")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_newstyle_number_ops(self):
         class F(float):
             pass
@@ -652,6 +682,8 @@ class ReferencesTestCase(TestBase):
         del c1, c2, C, D
         gc.collect()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @support.requires_type_collecting
     def test_callback_in_cycle_resurrection(self):
         import gc
@@ -699,6 +731,8 @@ class ReferencesTestCase(TestBase):
         gc.collect()
         self.assertEqual(alist, [])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_callbacks_on_callback(self):
         import gc
 
@@ -737,9 +771,13 @@ class ReferencesTestCase(TestBase):
         gc.collect()
         self.assertEqual(alist, [])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_gc_during_ref_creation(self):
         self.check_gc_during_creation(weakref.ref)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_gc_during_proxy_creation(self):
         self.check_gc_during_creation(weakref.proxy)
 
@@ -780,6 +818,8 @@ class ReferencesTestCase(TestBase):
 
         w = Target()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_init(self):
         # Issue 3634
         # <weakref to class>.__init__() doesn't check errors correctly
@@ -788,6 +828,8 @@ class ReferencesTestCase(TestBase):
         # No exception should be raised here
         gc.collect()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_classes(self):
         # Check that classes are weakrefable.
         class A(object):
@@ -884,6 +926,8 @@ class ReferencesTestCase(TestBase):
         del root
         gc.collect()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_callback_attribute(self):
         x = Object(1)
         callback = lambda ref: None
@@ -893,6 +937,8 @@ class ReferencesTestCase(TestBase):
         ref2 = weakref.ref(x)
         self.assertIsNone(ref2.__callback__)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_callback_attribute_after_deletion(self):
         x = Object(1)
         ref = weakref.ref(x, self.callback)
@@ -919,6 +965,8 @@ class ReferencesTestCase(TestBase):
 
 class SubclassableWeakrefTestCase(TestBase):
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_subclass_refs(self):
         class MyRef(weakref.ref):
             def __init__(self, ob, callback=None, value=42):
@@ -936,6 +984,8 @@ class SubclassableWeakrefTestCase(TestBase):
         self.assertIsNone(mr())
         self.assertTrue(mr.called)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_subclass_refs_dont_replace_standard_refs(self):
         class MyRef(weakref.ref):
             pass
@@ -953,6 +1003,8 @@ class SubclassableWeakrefTestCase(TestBase):
         self.assertIn(r1, refs[1:])
         self.assertIn(r3, refs[1:])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_subclass_refs_dont_conflate_callbacks(self):
         class MyRef(weakref.ref):
             pass
@@ -964,6 +1016,8 @@ class SubclassableWeakrefTestCase(TestBase):
         self.assertIn(r1, refs)
         self.assertIn(r2, refs)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_subclass_refs_with_slots(self):
         class MyRef(weakref.ref):
             __slots__ = "slot1", "slot2"
@@ -1053,6 +1107,8 @@ class WeakMethodTestCase(unittest.TestCase):
         gc.collect()
         self.assertIs(r(), None)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_callback_when_object_dead(self):
         # Test callback behaviour when object dies first.
         C = self._subclass()
@@ -1069,6 +1125,8 @@ class WeakMethodTestCase(unittest.TestCase):
         gc.collect()
         self.assertEqual(calls, [r])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_callback_when_method_dead(self):
         # Test callback behaviour when method dies first.
         C = self._subclass()
@@ -1096,6 +1154,8 @@ class WeakMethodTestCase(unittest.TestCase):
         del r
         self.assertIs(wr(), None)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_equality(self):
         def _eq(a, b):
             self.assertTrue(a == b)
@@ -1178,9 +1238,13 @@ class MappingTestCase(TestBase):
         self.assertIn(n1, (0, 1))
         self.assertEqual(n2, 0)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_weak_keyed_len_cycles(self):
         self.check_len_cycles(weakref.WeakKeyDictionary, lambda k: (k, 1))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_weak_valued_len_cycles(self):
         self.check_len_cycles(weakref.WeakValueDictionary, lambda k: (1, k))
 
@@ -1208,12 +1272,18 @@ class MappingTestCase(TestBase):
             self.assertGreaterEqual(n2, 0)
             self.assertLessEqual(n2, n1)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_weak_keyed_len_race(self):
         self.check_len_race(weakref.WeakKeyDictionary, lambda k: (k, 1))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_weak_valued_len_race(self):
         self.check_len_race(weakref.WeakValueDictionary, lambda k: (1, k))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_weak_values(self):
         #
         #  This exercises d.copy(), d.items(), d[], del d[], len(d).
@@ -1243,6 +1313,8 @@ class MappingTestCase(TestBase):
         dict[2] = C()
         self.assertRaises(KeyError, dict.__getitem__, 2)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_weak_keys(self):
         #
         #  This exercises d.copy(), d.items(), d[] = v, d[], del d[],
@@ -1420,6 +1492,8 @@ class MappingTestCase(TestBase):
             self.assertEqual(len(dict), 0)
         self.assertEqual(len(dict), 0)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_weak_keys_destroy_while_iterating(self):
         # Issue #7105: iterators shouldn't crash when a key is implicitly removed
         dict, objects = self.make_weak_keyed_dict()
@@ -1446,6 +1520,8 @@ class MappingTestCase(TestBase):
         dict, objects = self.make_weak_keyed_dict()
         self.check_weak_del_and_len_while_iterating(dict, testcontext)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_weak_values_destroy_while_iterating(self):
         # Issue #7105: iterators shouldn't crash when a key is implicitly removed
         dict, objects = self.make_weak_valued_dict()
@@ -1632,6 +1708,8 @@ class MappingTestCase(TestBase):
         self.assertEqual(len(d), 1)
         self.assertEqual(list(d.items()), [('something else', o2)])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_weak_keyed_bad_delitem(self):
         d = weakref.WeakKeyDictionary()
         o = Object('1')
@@ -1646,6 +1724,8 @@ class MappingTestCase(TestBase):
         self.assertRaises(TypeError, d.__getitem__,  13)
         self.assertRaises(TypeError, d.__setitem__,  13, 13)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_weak_keyed_cascading_deletes(self):
         # SF bug 742860.  For some reason, before 2.3 __delitem__ iterated
         # over the keys via self.data.iterkeys().  If things vanished from
@@ -1841,6 +1921,8 @@ class FinalizeTestCase(unittest.TestCase):
         if sys.implementation.name != 'cpython':
             support.gc_collect()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_finalize(self):
         def add(x,y,z):
             res.append(x + y + z)
@@ -1882,6 +1964,8 @@ class FinalizeTestCase(unittest.TestCase):
         self.assertEqual(f.alive, False)
         self.assertEqual(res, [199])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_arg_errors(self):
         def fin(*args, **kwargs):
             res.append((args, kwargs))
@@ -1911,6 +1995,8 @@ class FinalizeTestCase(unittest.TestCase):
         self.assertRaises(TypeError, weakref.finalize, a)
         self.assertRaises(TypeError, weakref.finalize)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_order(self):
         a = self.A()
         res = []
@@ -1950,6 +2036,8 @@ class FinalizeTestCase(unittest.TestCase):
         expected = ['A', 'f3', 'B', 'C', 'f4', 'f2', 'f1', 'D']
         self.assertEqual(res, expected)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_all_freed(self):
         # we want a weakrefable subclass of weakref.finalize
         class MyFinalizer(weakref.finalize):
@@ -1995,6 +2083,8 @@ class FinalizeTestCase(unittest.TestCase):
         assert f3.atexit == True
         assert f4.atexit == True
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_atexit(self):
         prog = ('from test.test_weakref import FinalizeTestCase;'+
                 'FinalizeTestCase.run_in_child()')
