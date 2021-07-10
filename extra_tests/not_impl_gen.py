@@ -17,6 +17,37 @@ from contextlib import redirect_stdout
 from pydoc import ModuleScanner
 
 
+DEAD_BATTERIES = {
+    "aifc",
+    "asynchat",
+    "asyncore",
+    "audioop",
+    "binhex",
+    "cgi",
+    "cgitb",
+    "chunk",
+    "crypt",
+    "formatter",
+    "fpectl",
+    "imghdr",
+    "imp",
+    "macpath",
+    "msilib",
+    "nntplib",
+    "nis",
+    "ossaudiodev",
+    "parser",
+    "pipes",
+    "smtpd",
+    "sndhdr",
+    "spwd",
+    "sunau",
+    "telnetlib",
+    "uu",
+    "xdrlib",
+}
+
+
 sys.path = [
     path
     for path in sys.path
@@ -163,7 +194,7 @@ def gen_modules():
     # e.g. printing something or opening a webpage
     modules = {}
     for mod_name in scan_modules():
-        if mod_name in ("this", "antigravity"):
+        if mod_name in ("this", "antigravity") or mod_name in DEAD_BATTERIES:
             continue
         dir_result = dir_of_mod_or_error(mod_name)
         if isinstance(dir_result, Exception):
