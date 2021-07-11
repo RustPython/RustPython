@@ -471,8 +471,6 @@ class MathTests(unittest.TestCase):
         self.ftest('degrees(-pi/4)', math.degrees(-math.pi/4), -45.0)
         self.ftest('degrees(0)', math.degrees(0), 0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testExp(self):
         self.assertRaises(TypeError, math.exp)
         self.ftest('exp(-1)', math.exp(-1), 1/math.e)
@@ -1565,8 +1563,6 @@ class MathTests(unittest.TestCase):
     # still fails this part of the test on some platforms.  For now, we only
     # *run* test_exceptions() in verbose mode, so that this isn't normally
     # tested.
-        # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipUnless(verbose, 'requires verbose mode')
     def test_exceptions(self):
         try:
