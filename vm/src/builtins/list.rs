@@ -490,10 +490,10 @@ impl PyListIterator {
     }
 
     #[pymethod(name = "__setstate__")]
-    fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         // When we're exhausted, just return.
         if let Exhausted = self.status.load() {
-            return Ok(vm.ctx.none());
+            return Ok(());
         }
         if let Some(i) = state.payload::<PyInt>() {
             let position = std::cmp::min(
@@ -501,7 +501,7 @@ impl PyListIterator {
                 self.list.len(),
             );
             self.position.store(position);
-            Ok(vm.ctx.none())
+            Ok(())
         } else {
             Err(vm.new_type_error("an integer is required.".to_owned()))
         }
