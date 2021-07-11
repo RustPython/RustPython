@@ -553,8 +553,7 @@ macro_rules! multi_args_frozenset {
 
 #[pyimpl(flags(BASETYPE), with(Hashable, Comparable, Iterable))]
 impl PyFrozenSet {
-    // used by ssl.rs windows
-    #[allow(dead_code)]
+    // Also used by ssl.rs windows.
     pub(crate) fn from_iter(
         vm: &VirtualMachine,
         it: impl IntoIterator<Item = PyObjectRef>,
