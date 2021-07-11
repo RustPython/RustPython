@@ -17,7 +17,9 @@ from contextlib import redirect_stdout
 from pydoc import ModuleScanner
 
 
-DEAD_BATTERIES = {
+# modules suggested for deprecation by PEP 594 (www.python.org/dev/peps/pep-0594/)
+# some of these might be implemented, but they are not a priority
+PEP_594_MODULES = {
     "aifc",
     "asynchat",
     "asyncore",
@@ -194,7 +196,7 @@ def gen_modules():
     # e.g. printing something or opening a webpage
     modules = {}
     for mod_name in scan_modules():
-        if mod_name in ("this", "antigravity") or mod_name in DEAD_BATTERIES:
+        if mod_name in ("this", "antigravity") or mod_name in PEP_594_MODULES:
             continue
         dir_result = dir_of_mod_or_error(mod_name)
         if isinstance(dir_result, Exception):
