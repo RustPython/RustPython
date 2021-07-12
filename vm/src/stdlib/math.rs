@@ -20,8 +20,10 @@ use std::cmp::Ordering;
 // Helper macro:
 macro_rules! make_math_func {
     ( $fname:ident, $fun:ident ) => {
-        fn $fname(value: IntoPyFloat) -> f64 {
-            value.to_f64().$fun()
+        fn $fname(value: IntoPyFloat, vm: &VirtualMachine) -> PyResult<f64> {
+            let value = value.to_f64();
+            let result = value.$fun();
+            result_or_overflow(value, result, vm)
         }
     };
 }
@@ -32,6 +34,17 @@ macro_rules! make_math_func_bool {
             value.to_f64().$fun()
         }
     };
+}
+
+#[inline]
+fn result_or_overflow(value: f64, result: f64, vm: &VirtualMachine) -> PyResult<f64> {
+    if !result.is_finite() && value.is_finite() {
+        // CPython doesn't return `inf` when called with finite
+        // values, it raises OverflowError instead.
+        Err(vm.new_overflow_error("math range error".to_owned()))
+    } else {
+        Ok(result)
+    }
 }
 
 // Number theory functions:
@@ -342,7 +355,14 @@ fn math_ldexp(
         Either::A(f) => f.to_f64(),
         Either::B(z) => int::to_float(z.as_bigint(), vm)?,
     };
-    Ok(value * (2_f64).powf(int::to_float(i.as_bigint(), vm)?))
+
+    if value == 0_f64 || !value.is_finite() {
+        // NaNs, zeros and infinities are returned unchanged
+        Ok(value)
+    } else {
+        let result = value * (2_f64).powf(int::to_float(i.as_bigint(), vm)?);
+        result_or_overflow(value, result, vm)
+    }
 }
 
 fn math_perf_arb_len_int_op<F>(args: Args<PyIntRef>, op: F, default: BigInt) -> BigInt
