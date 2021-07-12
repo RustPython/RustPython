@@ -5,7 +5,6 @@ use super::pytype::PyTypeRef;
 use crate::common::hash::PyHash;
 use crate::common::rc::PyRc;
 use crate::dictdatatype;
-use crate::function::OptionalArg::{Missing, Present};
 use crate::function::{Args, OptionalArg};
 use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable};
 use crate::vm::{ReprGuard, VirtualMachine};
@@ -554,8 +553,7 @@ macro_rules! multi_args_frozenset {
 
 #[pyimpl(flags(BASETYPE), with(Hashable, Comparable, Iterable))]
 impl PyFrozenSet {
-    // used by ssl.rs windows
-    #[allow(dead_code)]
+    // Also used by ssl.rs windows.
     pub(crate) fn from_iter(
         vm: &VirtualMachine,
         it: impl IntoIterator<Item = PyObjectRef>,
@@ -573,23 +571,26 @@ impl PyFrozenSet {
         iterable: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        let iterable = if let Present(iterable) = iterable {
-            if cls.is(&vm.ctx.types.frozenset_type) {
-                match iterable.downcast_exact::<PyFrozenSet>(vm) {
-                    Ok(iter) => return Ok(iter),
-                    Err(iterable) => Present(PyIterable::try_from_object(vm, iterable)?),
+        let elements = if let OptionalArg::Present(iterable) = iterable {
+            let iterable = if cls.is(&vm.ctx.types.frozenset_type) {
+                match iterable.downcast_exact::<Self>(vm) {
+                    Ok(fs) => return Ok(fs),
+                    Err(iterable) => iterable,
                 }
             } else {
-                Present(PyIterable::try_from_object(vm, iterable)?)
-            }
+                iterable
+            };
+            vm.extract_elements(&iterable)?
         } else {
-            Missing
+            vec![]
         };
 
-        Self {
-            inner: PySetInner::from_arg(iterable, vm)?,
+        // Return empty fs if iterable passed is emtpy and only for exact fs types.
+        if elements.is_empty() && cls.is(&vm.ctx.types.frozenset_type) {
+            Ok(vm.ctx.empty_frozenset.clone())
+        } else {
+            Self::from_iter(vm, elements).and_then(|o| o.into_ref_with_type(vm, cls))
         }
-        .into_ref_with_type(vm, cls)
     }
 
     #[pymethod(name = "__len__")]

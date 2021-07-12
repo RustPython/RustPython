@@ -715,8 +715,6 @@ class TestFrozenSet(TestJointOps, unittest.TestCase):
         s.__init__(self.otherword)
         self.assertEqual(s, set(self.word))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_singleton_empty_frozenset(self):
         f = frozenset()
         efs = [frozenset(), frozenset([]), frozenset(()), frozenset(''),

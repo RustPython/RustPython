@@ -24,7 +24,7 @@ use crate::builtins::namespace::PyNamespace;
 use crate::builtins::object;
 use crate::builtins::pystr;
 use crate::builtins::pytype::{self, PyType, PyTypeRef};
-use crate::builtins::set;
+use crate::builtins::set::{self, PyFrozenSet};
 use crate::builtins::singletons::{PyNone, PyNoneRef, PyNotImplemented, PyNotImplementedRef};
 use crate::builtins::slice::PyEllipsis;
 use crate::builtins::staticmethod::PyStaticMethod;
@@ -89,6 +89,7 @@ pub struct PyContext {
     pub false_value: PyIntRef,
     pub none: PyNoneRef,
     pub empty_tuple: PyTupleRef,
+    pub empty_frozenset: PyRef<PyFrozenSet>,
     pub ellipsis: PyRef<PyEllipsis>,
     pub not_implemented: PyNotImplementedRef,
 
@@ -129,6 +130,8 @@ impl PyContext {
             PyTuple::_new(Vec::new().into_boxed_slice()),
             &types.tuple_type,
         );
+        let empty_frozenset =
+            PyRef::new_ref(PyFrozenSet::default(), types.frozenset_type.clone(), None);
 
         let string_cache = Dict::default();
 
@@ -144,6 +147,7 @@ impl PyContext {
             false_value,
             none,
             empty_tuple,
+            empty_frozenset,
             ellipsis,
             not_implemented,
 
