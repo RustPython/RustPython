@@ -355,8 +355,14 @@ fn math_ldexp(
         Either::A(f) => f.to_f64(),
         Either::B(z) => int::to_float(z.as_bigint(), vm)?,
     };
-    let result = value * (2_f64).powf(int::to_float(i.as_bigint(), vm)?);
-    result_or_overflow(value, result, vm)
+
+    if value == 0_f64 || !value.is_finite() {
+        // NaNs, zeros and infinities are returned unchanged
+        Ok(value)
+    } else {
+        let result = value * (2_f64).powf(int::to_float(i.as_bigint(), vm)?);
+        result_or_overflow(value, result, vm)
+    }
 }
 
 fn math_perf_arb_len_int_op<F>(args: Args<PyIntRef>, op: F, default: BigInt) -> BigInt

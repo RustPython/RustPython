@@ -1020,8 +1020,6 @@ class MathTests(unittest.TestCase):
         self.assertRaises(TypeError, lcm, 120, 0, 84.0)
         # self.assertEqual(lcm(MyIndexable(120), MyIndexable(84)), 840) # TODO: RUSTPYTHON
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testLdexp(self):
         self.assertRaises(TypeError, math.ldexp)
         self.ftest('ldexp(0,1)', math.ldexp(0,1), 0)
