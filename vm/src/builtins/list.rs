@@ -5,8 +5,14 @@ use std::ops::DerefMut;
 
 use crossbeam_utils::atomic::AtomicCell;
 
+use super::int;
+use super::iter::{
+    IterStatus,
+    IterStatus::{Active, Exhausted},
+};
 use super::pytype::PyTypeRef;
 use super::slice::PySliceRef;
+use super::PyInt;
 use crate::common::lock::{
     PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
 };
@@ -402,6 +408,7 @@ impl Iterable for PyList {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         Ok(PyListIterator {
             position: AtomicCell::new(0),
+            status: AtomicCell::new(Active),
             list: zelf,
         }
         .into_object(vm))
@@ -458,6 +465,7 @@ fn do_sort(
 #[derive(Debug)]
 pub struct PyListIterator {
     pub position: AtomicCell<usize>,
+    status: AtomicCell<IterStatus>,
     pub list: PyListRef,
 }
 
@@ -471,19 +479,61 @@ impl PyValue for PyListIterator {
 impl PyListIterator {
     #[pymethod(name = "__length_hint__")]
     fn length_hint(&self) -> usize {
-        let list = self.list.borrow_vec();
-        let pos = self.position.load();
-        list.len().saturating_sub(pos)
+        match self.status.load() {
+            Active => {
+                let list = self.list.borrow_vec();
+                let pos = self.position.load();
+                list.len().saturating_sub(pos)
+            }
+            Exhausted => 0,
+        }
+    }
+
+    #[pymethod(name = "__setstate__")]
+    fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        // When we're exhausted, just return.
+        if let Exhausted = self.status.load() {
+            return Ok(());
+        }
+        if let Some(i) = state.payload::<PyInt>() {
+            let position = std::cmp::min(
+                int::try_to_primitive(i.as_bigint(), vm).unwrap_or(0),
+                self.list.len(),
+            );
+            self.position.store(position);
+            Ok(())
+        } else {
+            Err(vm.new_type_error("an integer is required.".to_owned()))
+        }
+    }
+
+    #[pymethod(magic)]
+    fn reduce(&self, vm: &VirtualMachine) -> PyResult {
+        let iter = vm.get_attribute(vm.builtins.clone(), "iter")?;
+        Ok(match self.status.load() {
+            Exhausted => vm
+                .ctx
+                .new_tuple(vec![iter, vm.ctx.new_tuple(vec![vm.ctx.new_list(vec![])])]),
+            Active => vm.ctx.new_tuple(vec![
+                iter,
+                vm.ctx.new_tuple(vec![self.list.clone().into_object()]),
+                vm.ctx.new_int(self.position.load()),
+            ]),
+        })
     }
 }
 
 impl PyIter for PyListIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        if let Exhausted = zelf.status.load() {
+            return Err(vm.new_stop_iteration());
+        }
         let list = zelf.list.borrow_vec();
         let pos = zelf.position.fetch_add(1);
         if let Some(obj) = list.get(pos) {
             Ok(obj.clone())
         } else {
+            zelf.status.store(Exhausted);
             Err(vm.new_stop_iteration())
         }
     }

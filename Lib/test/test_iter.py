@@ -307,9 +307,6 @@ class TestCase(unittest.TestCase):
     def test_iter_big_range(self):
         self.check_for_loop(iter(range(10000)), list(range(10000)))
 
-    # Test an empty list
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_iter_empty(self):
         self.check_for_loop(iter([]), [])
 
@@ -903,8 +900,6 @@ class TestCase(unittest.TestCase):
     # This tests various things that weren't sink states in Python 2.2.1,
     # plus various things that always were fine.
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_sinkstate_list(self):
         # This used to fail
         a = list(range(5))

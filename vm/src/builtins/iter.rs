@@ -12,6 +12,15 @@ use crate::{
     TypeProtocol,
 };
 
+/// Marks status of iterator.
+#[derive(Debug, Clone, Copy)]
+pub enum IterStatus {
+    /// Iterator hasn't raised StopIteration.
+    Active,
+    /// Iterator has raised StopIteration.
+    Exhausted,
+}
+
 #[pyclass(module = false, name = "iter")]
 #[derive(Debug)]
 pub struct PySequenceIterator {
@@ -80,7 +89,7 @@ impl PyIter for PySequenceIterator {
 pub struct PyCallableIterator {
     callable: PyCallable,
     sentinel: PyObjectRef,
-    done: AtomicCell<bool>,
+    status: AtomicCell<IterStatus>,
 }
 
 impl PyValue for PyCallableIterator {
@@ -95,21 +104,19 @@ impl PyCallableIterator {
         Self {
             callable,
             sentinel,
-            done: AtomicCell::new(false),
+            status: AtomicCell::new(IterStatus::Active),
         }
     }
 }
 
 impl PyIter for PyCallableIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        if zelf.done.load() {
+        if let IterStatus::Exhausted = zelf.status.load() {
             return Err(vm.new_stop_iteration());
         }
-
         let ret = zelf.callable.invoke((), vm)?;
-
         if vm.bool_eq(&ret, &zelf.sentinel)? {
-            zelf.done.store(true);
+            zelf.status.store(IterStatus::Exhausted);
             Err(vm.new_stop_iteration())
         } else {
             Ok(ret)
