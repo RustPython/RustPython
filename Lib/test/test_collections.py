@@ -1974,8 +1974,6 @@ class TestCounter(unittest.TestCase):
         self.assertRaises(TypeError, Counter, (), ())
         self.assertRaises(TypeError, Counter.__init__)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_order_preservation(self):
         # Input order dictates items() order
         self.assertEqual(list(Counter('abracadabra').items()),

@@ -1346,8 +1346,6 @@ class DictTest(unittest.TestCase):
 
         self.assertRaises(RuntimeError, iter_and_mutate)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_reversed(self):
         d = {"a": 1, "b": 2, "foo": 0, "c": 3, "d": 4}
         del d["foo"]
