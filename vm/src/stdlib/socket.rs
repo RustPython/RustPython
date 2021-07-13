@@ -10,7 +10,7 @@ use std::mem::MaybeUninit;
 use std::net::{self, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, ToSocketAddrs};
 use std::time::{Duration, Instant};
 
-use crate::builtins::int;
+use crate::builtins::int::{self, PyIntRef};
 use crate::builtins::pystr::PyStrRef;
 use crate::builtins::pytype::PyTypeRef;
 use crate::builtins::tuple::PyTupleRef;
@@ -945,6 +945,40 @@ fn _socket_getservbyname(
     Ok(vm.ctx.new_int(u16::from_be(port as u16)))
 }
 
+
+fn _socket_getservbyport(
+    port: PyIntRef,
+    protocol: OptionalArg<PyStrRef>,
+    vm: &VirtualMachine,
+) -> PyResult {
+    use std::ffi::{CStr, CString};
+    
+    let u16_port = port.as_bigint().to_u16()
+        .ok_or_else(|| vm.new_overflow_error("getservbyport: port must be 0-65535.".to_owned()))?;
+    // tcp/ip byte order is big endian, so the port number should be converted to this notation
+    let big_endian_port = u16_port.to_be() as i32;
+
+    let cstr_proto = protocol
+        .as_ref()
+        .map(|s| CString::new(s.as_str()))
+        .transpose()
+        .map_err(|_| vm.new_value_error("embedded null character".to_owned()))?;
+    let cstr_proto = cstr_proto
+        .as_ref()
+        .map_or_else(std::ptr::null, |s| s.as_ptr());
+
+    let servent = unsafe {
+        c::getservbyport(big_endian_port, cstr_proto)
+    };
+
+    if servent.is_null() {
+        return Err(vm.new_os_error("getservbyport: port/proto not found".to_owned()));
+    }
+
+    let s_name = unsafe { CStr::from_ptr(servent.read().s_name) };
+    Ok(vm.ctx.new_str(s_name.to_str().unwrap()))
+}
+
 // TODO: use `Vec::spare_capacity_mut` once stable.
 fn spare_capacity_mut<T>(v: &mut Vec<T>) -> &mut [MaybeUninit<T>] {
     let (len, cap) = (v.len(), v.capacity());
@@ -1511,6 +1545,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "inet_ntop" => named_function!(ctx, _socket, inet_ntop),
         "getprotobyname" => named_function!(ctx, _socket, getprotobyname),
         "getservbyname" => named_function!(ctx, _socket, getservbyname),
+        "getservbyport" => named_function!(ctx, _socket, getservbyport),
         "dup" => named_function!(ctx, _socket, dup),
         "close" => named_function!(ctx, _socket, close),
         "getaddrinfo" => named_function!(ctx, _socket, getaddrinfo),
