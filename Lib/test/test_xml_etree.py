@@ -2492,8 +2492,7 @@ class BadElementTest(ElementTestCase, unittest.TestCase):
         e = ET.Element('foo')
         e.extend(L)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skip("TODO: RUSTPYTHON, hangs")
     def test_remove_with_mutating(self):
         class X(ET.Element):
             def __eq__(self, o):
@@ -2560,8 +2559,7 @@ class BadElementTest(ElementTestCase, unittest.TestCase):
         elem = b.close()
         self.assertEqual(elem[0].tail, 'ABCDEFGHIJKL')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skip("TODO: RUSTPYTHON, hangs")
     def test_subscr(self):
         # Issue #27863
         class X:
@@ -2576,8 +2574,7 @@ class BadElementTest(ElementTestCase, unittest.TestCase):
         e.append(ET.Element('child'))
         e[0:10:X()]  # shouldn't crash
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skip("TODO: RUSTPYTHON, hangs")
     def test_ass_subscr(self):
         # Issue #27863
         class X:
