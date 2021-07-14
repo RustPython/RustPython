@@ -150,7 +150,7 @@ version = "0.3"
 features = [
   "winsock2", "handleapi", "ws2def", "std", "winbase", "wincrypt", "fileapi", "processenv",
   "namedpipeapi", "winnt", "processthreadsapi", "errhandlingapi", "winuser", "synchapi", "wincon",
-  "impl-default", "vcruntime"
+  "impl-default", "vcruntime", "ifdef", "netioapi"
 ]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
