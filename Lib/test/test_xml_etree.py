@@ -121,8 +121,6 @@ class ModuleTest(unittest.TestCase):
         from xml.etree import ElementInclude
         from xml.etree import ElementPath
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_all(self):
         names = ("xml.etree.ElementTree", "_elementtree")
         support.check__all__(self, ET, names, blacklist=("HTML_EMPTY",))
@@ -185,8 +183,6 @@ class ElementTreeTest(unittest.TestCase):
     def serialize_check(self, elem, expected):
         self.assertEqual(serialize(elem), expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_interface(self):
         # Test element tree interface.
 
@@ -275,8 +271,6 @@ class ElementTreeTest(unittest.TestCase):
         self.assertEqual(ET.XML, ET.fromstring)
         self.assertEqual(ET.PI, ET.ProcessingInstruction)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_set_attribute(self):
         element = ET.Element('tag')
 
@@ -461,8 +455,6 @@ class ElementTreeTest(unittest.TestCase):
         self.assertEqual(ET.tostring(elem),
                 b'<test a="&#10;" b="&#10;" c="&#09;&#10;&#10; " d="&#10;&#10;" />')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_makeelement(self):
         # Test makeelement handling.
 
@@ -670,8 +662,6 @@ class ElementTreeTest(unittest.TestCase):
                     'junk after document element: line 1, column 12')
             del cm, it
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_writefile(self):
         elem = ET.Element("tag")
         elem.text = "text"
@@ -1128,8 +1118,6 @@ class ElementTreeTest(unittest.TestCase):
             '  </ns0:section>\n'
             '</ns0:body>')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_qname(self):
         # Test QName handling.
 
@@ -1205,8 +1193,6 @@ class ElementTreeTest(unittest.TestCase):
                 ' "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">'
                 '<html>text</html>')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_xpath_tokenizer(self):
         # Test the XPath tokenizer.
         from xml.etree import ElementPath
@@ -1298,8 +1284,6 @@ class ElementTreeTest(unittest.TestCase):
                                        method='html')
                 self.assertEqual(serialized, expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_dump_attribute_order(self):
         # See BPO 34160
         e = ET.Element('cirriculum', status='public', company='example')
@@ -1308,8 +1292,6 @@ class ElementTreeTest(unittest.TestCase):
         self.assertEqual(stdout.getvalue(),
                          '<cirriculum status="public" company="example" />\n')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_tree_write_attribute_order(self):
         # See BPO 34160
         root = ET.Element('cirriculum', status='public', company='example')
@@ -1824,8 +1806,6 @@ class XIncludeTest(unittest.TestCase):
 
 class BugsTest(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bug_xmltoolkit21(self):
         # marshaller gives obscure errors for non-string values
 
@@ -1962,8 +1942,6 @@ class BugsTest(unittest.TestCase):
         self.assertEqual(t.find('.//paragraph').text,
             'A new cultivar of Begonia plant named \u2018BCT9801BEG\u2019.')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipIf(sys.gettrace(), "Skips under coverage.")
     def test_bug_xmltoolkit63(self):
         # Check reference leak.
@@ -2008,8 +1986,6 @@ class BugsTest(unittest.TestCase):
         parser.feed("<element>some text</element>")
         self.assertEqual(parser.close().tag, 'element')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bug_200709_default_namespace(self):
         e = ET.Element("{default}elem")
         s = ET.SubElement(e, "{default}elem")
@@ -2050,8 +2026,6 @@ class BugsTest(unittest.TestCase):
         self.assertEqual(ET.tostring(e),
             b'<dc:title xmlns:dc="http://purl.org/dc/elements/1.1/" />')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bug_200709_element_comment(self):
         # Not sure if this can be fixed, really (since the serializer needs
         # ET.Comment, not cET.comment).
@@ -2064,8 +2038,6 @@ class BugsTest(unittest.TestCase):
         a.append(ET.PI('foo'))
         self.assertEqual(a[0].tag, ET.PI)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bug_200709_element_insert(self):
         a = ET.Element('a')
         b = ET.SubElement(a, 'b')
@@ -2076,8 +2048,6 @@ class BugsTest(unittest.TestCase):
         a.insert(-1, d)
         self.assertEqual(summarize_list(a), ['d', 'b', 'd', 'c'])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bug_200709_iter_comment(self):
         a = ET.Element('a')
         b = ET.SubElement(a, 'b')
@@ -2088,8 +2058,6 @@ class BugsTest(unittest.TestCase):
     # --------------------------------------------------------------------
     # reported on bugs.python.org
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bug_1534630(self):
         bob = ET.TreeBuilder()
         e = bob.data("data")
@@ -2129,8 +2097,6 @@ class BugsTest(unittest.TestCase):
         elem[:] = newelem[:]
         self.assertEqual(summarize_list(elem), ['tag', 'tag', 'section'])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_issue10777(self):
         # Registering a namespace twice caused a "dictionary changed size during
         # iteration" bug.
@@ -2138,8 +2104,6 @@ class BugsTest(unittest.TestCase):
         ET.register_namespace('test10777', 'http://myuri/')
         ET.register_namespace('test10777', 'http://myuri/')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_lost_text(self):
         # Issue #25902: Borrowed text can disappear
         class Text:
@@ -2155,8 +2119,6 @@ class BugsTest(unittest.TestCase):
         self.assertIsInstance(e.text, str)
         self.assertEqual(e.text, 'changed')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_lost_tail(self):
         # Issue #25902: Borrowed tail can disappear
         class Text:
@@ -2236,8 +2198,6 @@ class BugsTest(unittest.TestCase):
 
 class BasicElementTest(ElementTestCase, unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test___init__(self):
         tag = "foo"
         attrib = { "zix": "wyp" }
@@ -2265,8 +2225,6 @@ class BasicElementTest(ElementTestCase, unittest.TestCase):
         self.assertIsNot(element_foo.attrib, attrib)
         self.assertNotEqual(element_foo.attrib, attrib)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test___copy__(self):
         element_foo = ET.Element("foo", { "zix": "wyp" })
         element_foo.append(ET.Element("bar", { "baz": "qix" }))
@@ -2291,8 +2249,6 @@ class BasicElementTest(ElementTestCase, unittest.TestCase):
         # attrib is a copy
         self.assertEqual(element_foo2.attrib, element_foo.attrib)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test___deepcopy__(self):
         element_foo = ET.Element("foo", { "zix": "wyp" })
         element_foo.append(ET.Element("bar", { "baz": "qix" }))
@@ -2323,8 +2279,6 @@ class BasicElementTest(ElementTestCase, unittest.TestCase):
         self.assertIsNot(element_foo2.attrib, element_foo.attrib)
         self.assertNotEqual(element_foo2.attrib, element_foo.attrib)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_augmentation_type_errors(self):
         e = ET.Element('joe')
         self.assertRaises(TypeError, e.append, 'b')
@@ -2404,15 +2358,11 @@ class BasicElementTest(ElementTestCase, unittest.TestCase):
         self.assertEqual(flag, True)
         self.assertEqual(wref(), None)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_get_keyword_args(self):
         e1 = ET.Element('foo' , x=1, y=2, z=3)
         self.assertEqual(e1.get('x', default=7), 1)
         self.assertEqual(e1.get('w', default=7), 7)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pickle(self):
         # issue #16076: the C implementation wasn't pickleable.
         for proto in range(2, pickle.HIGHEST_PROTOCOL + 1):
@@ -2450,8 +2400,6 @@ class BasicElementTest(ElementTestCase, unittest.TestCase):
 
 
 class BadElementTest(ElementTestCase, unittest.TestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_extend_mutable_list(self):
         class X:
             @property
@@ -2471,8 +2419,6 @@ class BadElementTest(ElementTestCase, unittest.TestCase):
         e = ET.Element('foo')
         e.extend(L)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_extend_mutable_list2(self):
         class X:
             @property
@@ -2506,8 +2452,6 @@ class BadElementTest(ElementTestCase, unittest.TestCase):
         e.extend([ET.Element('bar')])
         self.assertRaises(ValueError, e.remove, X('baz'))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_recursive_repr(self):
         # Issue #25455
         e = ET.Element('foo')
@@ -2515,8 +2459,6 @@ class BadElementTest(ElementTestCase, unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 repr(e)  # Should not crash
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_element_get_text(self):
         # Issue #27863
         class X(str):
@@ -2536,8 +2478,6 @@ class BadElementTest(ElementTestCase, unittest.TestCase):
         elem = b.close()
         self.assertEqual(elem.text, 'ABCDEFGHIJKL')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_element_get_tail(self):
         # Issue #27863
         class X(str):
@@ -2588,8 +2528,6 @@ class BadElementTest(ElementTestCase, unittest.TestCase):
 
         e[0:10:X()] = []  # shouldn't crash
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_treebuilder_start(self):
         # Issue #27863
         def element_factory(x, y):
@@ -2602,8 +2540,6 @@ class BadElementTest(ElementTestCase, unittest.TestCase):
         del b
         gc_collect()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_treebuilder_end(self):
         # Issue #27863
         def element_factory(x, y):
@@ -2644,15 +2580,11 @@ class BadElementPathTest(ElementTestCase, unittest.TestCase):
         ElementPath._cache = self.path_cache
         super().tearDown()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_find_with_mutating(self):
         e = ET.Element('foo')
         e.extend([ET.Element('bar')])
         e.find(MutatingElementPath(e, 'x'))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_find_with_error(self):
         e = ET.Element('foo')
         e.extend([ET.Element('bar')])
@@ -2661,15 +2593,11 @@ class BadElementPathTest(ElementTestCase, unittest.TestCase):
         except ZeroDivisionError:
             pass
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_findtext_with_mutating(self):
         e = ET.Element('foo')
         e.extend([ET.Element('bar')])
         e.findtext(MutatingElementPath(e, 'x'))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_findtext_with_error(self):
         e = ET.Element('foo')
         e.extend([ET.Element('bar')])
@@ -2678,15 +2606,11 @@ class BadElementPathTest(ElementTestCase, unittest.TestCase):
         except ZeroDivisionError:
             pass
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_findall_with_mutating(self):
         e = ET.Element('foo')
         e.extend([ET.Element('bar')])
         e.findall(MutatingElementPath(e, 'x'))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_findall_with_error(self):
         e = ET.Element('foo')
         e.extend([ET.Element('bar')])
@@ -2697,8 +2621,6 @@ class BadElementPathTest(ElementTestCase, unittest.TestCase):
 
 
 class ElementTreeTypeTest(unittest.TestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_istype(self):
         self.assertIsInstance(ET.ParseError, type)
         self.assertIsInstance(ET.QName, type)
@@ -2707,8 +2629,6 @@ class ElementTreeTypeTest(unittest.TestCase):
         self.assertIsInstance(ET.TreeBuilder, type)
         self.assertIsInstance(ET.XMLParser, type)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_Element_subclass_trivial(self):
         class MyElement(ET.Element):
             pass
@@ -2722,8 +2642,6 @@ class ElementTreeTypeTest(unittest.TestCase):
         mye.text = "joe"
         self.assertEqual(mye.text, "joe")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_Element_subclass_constructor(self):
         class MyElement(ET.Element):
             def __init__(self, tag, attrib={}, **extra):
@@ -2734,8 +2652,6 @@ class ElementTreeTypeTest(unittest.TestCase):
         self.assertEqual(sorted(mye.items()),
             [('a', 1), ('b', 2), ('c', 3), ('d', 4)])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_Element_subclass_new_method(self):
         class MyElement(ET.Element):
             def newmethod(self):
@@ -2744,8 +2660,6 @@ class ElementTreeTypeTest(unittest.TestCase):
         mye = MyElement('joe')
         self.assertEqual(mye.newmethod(), 'joe')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_Element_subclass_find(self):
         class MyElement(ET.Element):
             pass
@@ -3025,8 +2939,6 @@ class ElementIterTest(unittest.TestCase):
         doc = ET.XML("<root>a&amp;<sub>b&amp;</sub>c&amp;</root>")
         self.assertEqual(''.join(doc.itertext()), 'a&b&c&')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_corners(self):
         # single root, no subelements
         a = ET.Element('a')
@@ -3124,8 +3036,6 @@ class ElementIterTest(unittest.TestCase):
         with self.assertRaises(TypeError):
             copy.copy(it)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pickle(self):
         a = ET.Element('a')
         it = a.iter()
@@ -3177,8 +3087,6 @@ class TreeBuilderTest(unittest.TestCase):
         parser.feed(self.sample1)
         self.assertIsNone(parser.close())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_treebuilder_comment(self):
         b = ET.TreeBuilder()
         self.assertEqual(b.comment('ctext').tag, ET.Comment)
@@ -3191,8 +3099,6 @@ class TreeBuilderTest(unittest.TestCase):
         b = ET.TreeBuilder(comment_factory=len)
         self.assertEqual(b.comment('ctext'), len('ctext'))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_treebuilder_pi(self):
         b = ET.TreeBuilder()
         self.assertEqual(b.pi('target', None).tag, ET.PI)
@@ -3532,8 +3438,6 @@ class ElementSlicingTest(unittest.TestCase):
             ET.SubElement(e, 'a%s' % i)
         return e
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_getslice_single_index(self):
         e = self._make_elem_with_children(10)
 
@@ -3543,8 +3447,6 @@ class ElementSlicingTest(unittest.TestCase):
         self.assertRaises(IndexError, lambda: e[12])
         self.assertRaises(IndexError, lambda: e[-12])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_getslice_range(self):
         e = self._make_elem_with_children(6)
 
@@ -3555,8 +3457,6 @@ class ElementSlicingTest(unittest.TestCase):
         self.assertEqual(self._elem_tags(e[3:-1]), ['a3', 'a4'])
         self.assertEqual(self._elem_tags(e[:2]), ['a0', 'a1'])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_getslice_steps(self):
         e = self._make_elem_with_children(10)
 
@@ -3567,8 +3467,6 @@ class ElementSlicingTest(unittest.TestCase):
         self.assertEqual(self._elem_tags(e[3::sys.maxsize]), ['a3'])
         self.assertEqual(self._elem_tags(e[3::sys.maxsize<<64]), ['a3'])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_getslice_negative_steps(self):
         e = self._make_elem_with_children(4)
 
@@ -3578,8 +3476,6 @@ class ElementSlicingTest(unittest.TestCase):
         self.assertEqual(self._elem_tags(e[3::-sys.maxsize-1]), ['a3'])
         self.assertEqual(self._elem_tags(e[3::-sys.maxsize<<64]), ['a3'])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_delslice(self):
         e = self._make_elem_with_children(4)
         del e[0:2]
@@ -3605,8 +3501,6 @@ class ElementSlicingTest(unittest.TestCase):
         del e[::2]
         self.assertEqual(self._subelem_tags(e), ['a1'])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_setslice_single_index(self):
         e = self._make_elem_with_children(4)
         e[1] = ET.Element('b')
@@ -3621,8 +3515,6 @@ class ElementSlicingTest(unittest.TestCase):
             e[-5] = ET.Element('d')
         self.assertEqual(self._subelem_tags(e), ['a0', 'b', 'c', 'a3'])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_setslice_range(self):
         e = self._make_elem_with_children(4)
         e[1:3] = [ET.Element('b%s' % i) for i in range(2)]
@@ -3636,8 +3528,6 @@ class ElementSlicingTest(unittest.TestCase):
         e[1:3] = [ET.Element('b%s' % i) for i in range(3)]
         self.assertEqual(self._subelem_tags(e), ['a0', 'b0', 'b1', 'b2', 'a3'])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_setslice_steps(self):
         e = self._make_elem_with_children(6)
         e[1:5:2] = [ET.Element('b%s' % i) for i in range(2)]
@@ -3658,8 +3548,6 @@ class ElementSlicingTest(unittest.TestCase):
         e[1::sys.maxsize<<64] = [ET.Element('c')]
         self.assertEqual(self._subelem_tags(e), ['a0', 'c', 'a2', 'a3'])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_setslice_negative_steps(self):
         e = self._make_elem_with_children(4)
         e[2:0:-1] = [ET.Element('b%s' % i) for i in range(2)]
@@ -3925,8 +3813,6 @@ class IOTest(unittest.TestCase):
 
 
 class ParseErrorTest(unittest.TestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_subclass(self):
         self.assertIsInstance(ET.ParseError(), SyntaxError)
 
