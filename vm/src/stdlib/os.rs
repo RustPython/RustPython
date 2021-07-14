@@ -1511,6 +1511,7 @@ mod _os {
     #[pyimpl(with(PyStructSequence))]
     impl TimesResult {}
 
+    #[cfg(any(unix, windows))]
     #[pyfunction]
     fn times(vm: &VirtualMachine) -> PyResult {
         #[cfg(windows)]
@@ -1687,22 +1688,22 @@ mod _os {
     #[pyimpl(with(PyStructSequence))]
     impl UnameResult {}
 
-    enum NameOrVal {
-        Name(String),
-        Val(i32),
-    }
+    #[cfg(unix)]
+    struct ConfName(i32);
 
-    impl TryFromObject for NameOrVal {
+    #[cfg(unix)]
+    impl TryFromObject for ConfName {
         fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-            match obj.downcast::<int::PyInt>() {
-                Ok(int) => int::try_to_primitive(int.as_bigint(), vm).map(Self::Val),
+            let i = match obj.downcast::<int::PyInt>() {
+                Ok(int) => int::try_to_primitive(int.as_bigint(), vm),
                 Err(obj) => {
-                    let cstring = std::ffi::CString::try_from_object(vm, obj)?;
-                    cstring.into_string().map(Self::Name).map_err(|e| {
-                        vm.new_os_error(format!("error while parsing string: {:?}", e))
-                    })
+                    let s = PyStrRef::try_from_object(vm, obj)?;
+                    PathconfVar::from_str(s.as_str()).map_err(|_| {
+                        vm.new_value_error("unrecognized configuration name".to_string())
+                    })? as i32
                 }
-            }
+            };
+            Ok(Self(i))
         }
     }
 
@@ -1876,15 +1877,13 @@ mod _os {
 
     #[cfg(unix)]
     #[pyfunction]
-    fn pathconf(path: PathOrFd, name: NameOrVal, vm: &VirtualMachine) -> PyResult<Option<i64>> {
+    fn pathconf(
+        path: PathOrFd,
+        ConfName(name): ConfName,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<i64>> {
         use nix::errno::{self, Errno};
         use std::str::FromStr;
-        let name = match name {
-            NameOrVal::Name(s) => PathconfVar::from_str(&s)
-                .map_err(|_| vm.new_value_error("unrecognized configuration name".to_string()))?
-                as i32,
-            NameOrVal::Val(v) => v,
-        };
 
         Errno::clear();
         let raw = match path {
@@ -1909,7 +1908,7 @@ mod _os {
 
     #[cfg(unix)]
     #[pyfunction]
-    fn fpathconf(fd: i32, name: NameOrVal, vm: &VirtualMachine) -> PyResult<Option<i64>> {
+    fn fpathconf(fd: i32, name: ConfName, vm: &VirtualMachine) -> PyResult<Option<i64>> {
         pathconf(PathOrFd::Fd(fd), name, vm)
     }
 
