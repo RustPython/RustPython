@@ -945,15 +945,16 @@ fn _socket_getservbyname(
     Ok(vm.ctx.new_int(u16::from_be(port as u16)))
 }
 
-
 fn _socket_getservbyport(
     port: PyIntRef,
     protocol: OptionalArg<PyStrRef>,
     vm: &VirtualMachine,
 ) -> PyResult {
     use std::ffi::{CStr, CString};
-    
-    let u16_port = port.as_bigint().to_u16()
+
+    let u16_port = port
+        .as_bigint()
+        .to_u16()
         .ok_or_else(|| vm.new_overflow_error("getservbyport: port must be 0-65535.".to_owned()))?;
     // tcp/ip byte order is big endian, so the port number should be converted to this notation
     let big_endian_port = u16_port.to_be() as i32;
@@ -967,10 +968,7 @@ fn _socket_getservbyport(
         .as_ref()
         .map_or_else(std::ptr::null, |s| s.as_ptr());
 
-    let servent = unsafe {
-        c::getservbyport(big_endian_port, cstr_proto)
-    };
-
+    let servent = unsafe { c::getservbyport(big_endian_port, cstr_proto) };
     if servent.is_null() {
         return Err(vm.new_os_error("getservbyport: port/proto not found".to_owned()));
     }
