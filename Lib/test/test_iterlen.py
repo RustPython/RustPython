@@ -106,8 +106,6 @@ class TestTuple(TestInvariantWithoutMutations, unittest.TestCase):
     def setUp(self):
         self.it = iter(tuple(range(n)))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_invariant(self):
         super().test_invariant()
 
