@@ -10,11 +10,23 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let module = _pyexpat::make_module(vm);
 
     extend_module!(vm, module, {
-        "errors" => _errors::make_module(vm),
-        "model" => _model::make_module(vm)
+         "errors" => _errors::make_module(vm),
+         "model" => _model::make_module(vm),
     });
 
     module
+}
+
+macro_rules! create_property {
+    ($ctx: expr, $attributes: expr, $name: expr, $element: ident) => {
+        let attr = $ctx.new_getset(
+            $name,
+            move |this: &PyExpatLikeXmlParser| this.$element.read().clone(),
+            move |this: &PyExpatLikeXmlParser, func: PyObjectRef| *this.$element.write() = func,
+        );
+
+        $attributes.insert($name.to_owned(), attr);
+    };
 }
 
 #[pymodule(name = "pyexpat")]
@@ -24,8 +36,8 @@ mod _pyexpat {
     use crate::function::{IntoFuncArgs, OptionalArg};
     use crate::pyobject::StaticType;
     use crate::{
-        IntoPyObject, IntoPyRef, ItemProtocol, PyObjectRef, PyRef, PyResult, PyValue,
-        TryFromObject, VirtualMachine,
+        ItemProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+        VirtualMachine,
     };
 
     use rustpython_common::lock::PyRwLock;
@@ -36,7 +48,7 @@ mod _pyexpat {
     #[pyattr]
     #[pyclass(name = "xmlparser", module = false)]
     #[derive(Debug)]
-    struct PyExpatLikeXmlParser {
+    pub struct PyExpatLikeXmlParser {
         start_element: MutableObject,
         end_element: MutableObject,
         character_data: MutableObject,
@@ -70,48 +82,14 @@ mod _pyexpat {
             .into_ref(vm))
         }
 
-        #[pyproperty(name = "StartElementHandler")]
-        fn start_element_handler(&self) -> PyObjectRef {
-            self.start_element.read().clone()
-        }
+        #[extend_class]
+        fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
+            let mut attributes = class.attributes.write();
 
-        #[pyproperty(setter, name = "StartElementHandler")]
-        fn set_start_element_handler(&self, func: PyObjectRef) {
-            let mut handler = self.start_element.write();
-            *handler = func;
-        }
-
-        #[pyproperty(name = "EndElementHandler")]
-        fn end_element_handler(&self) -> PyObjectRef {
-            self.end_element.read().clone()
-        }
-
-        #[pyproperty(setter, name = "EndElementHandler")]
-        fn set_end_element_handler(&self, func: PyObjectRef) {
-            let mut handler = self.end_element.write();
-            *handler = func;
-        }
-
-        #[pyproperty(name = "CharacterDataHandler")]
-        fn character_data_handler(&self) -> PyObjectRef {
-            self.character_data.read().clone()
-        }
-
-        #[pyproperty(setter, name = "CharacterDataHandler")]
-        fn set_character_data_handler(&self, func: PyObjectRef) {
-            let mut handler = self.character_data.write();
-            *handler = func;
-        }
-
-        #[pyproperty(name = "EntityDeclHandler")]
-        fn entity_decl(&self) -> PyObjectRef {
-            self.entity_decl.read().clone()
-        }
-
-        #[pyproperty(setter, name = "EntityDeclHandler")]
-        fn set_decl_handler(&self, func: PyObjectRef) {
-            let mut handler = self.entity_decl.write();
-            *handler = func;
+            create_property!(ctx, attributes, "StartElementHandler", start_element);
+            create_property!(ctx, attributes, "EndElementHandler", end_element);
+            create_property!(ctx, attributes, "CharacterDataHandler", character_data);
+            create_property!(ctx, attributes, "EntityDeclHandler", entity_decl);
         }
 
         fn create_config(&self) -> xml::ParserConfig {
