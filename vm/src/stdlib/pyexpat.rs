@@ -53,6 +53,7 @@ mod _pyexpat {
         end_element: MutableObject,
         character_data: MutableObject,
         entity_decl: MutableObject,
+        buffer_text: MutableObject,
     }
     type PyExpatLikeXmlParserRef = PyRef<PyExpatLikeXmlParser>;
 
@@ -78,6 +79,7 @@ mod _pyexpat {
                 end_element: MutableObject::new(vm.ctx.none()),
                 character_data: MutableObject::new(vm.ctx.none()),
                 entity_decl: MutableObject::new(vm.ctx.none()),
+                buffer_text: MutableObject::new(vm.ctx.new_bool(false)),
             }
             .into_ref(vm))
         }
@@ -90,6 +92,7 @@ mod _pyexpat {
             create_property!(ctx, attributes, "EndElementHandler", end_element);
             create_property!(ctx, attributes, "CharacterDataHandler", character_data);
             create_property!(ctx, attributes, "EntityDeclHandler", entity_decl);
+            create_property!(ctx, attributes, "buffer_text", buffer_text);
         }
 
         fn create_config(&self) -> xml::ParserConfig {
