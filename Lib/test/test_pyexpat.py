@@ -51,8 +51,6 @@ class SetAttributeTest(unittest.TestCase):
             self.parser.specified_attributes = x
             self.assertIs(self.parser.specified_attributes, bool(x))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_invalid_attributes(self):
         with self.assertRaises(AttributeError):
             self.parser.returns_unicode = 1
@@ -317,8 +315,6 @@ class NamespaceSeparatorTest(unittest.TestCase):
             self.assertEqual(str(e),
                 'namespace_separator must be at most one character, omitted, or None')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_zero_length(self):
         # ParserCreate() needs to accept a namespace_separator of zero length
         # to satisfy the requirements of RDF applications that are required
@@ -405,8 +401,6 @@ class BufferTextTest(unittest.TestCase):
         for name in handlers:
             setattr(self.parser, name, getattr(self, name))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_default_to_disabled(self):
         parser = expat.ParserCreate()
         self.assertFalse(parser.buffer_text)
@@ -555,8 +549,6 @@ class PositionTest(unittest.TestCase):
 
 class sf1296433Test(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_parse_only_xml_data(self):
         # http://python.org/sf/1296433
         #
