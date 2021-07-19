@@ -147,7 +147,8 @@ def isenabled(*args, **kwargs):  # unknown args #
 
     Returns true if automatic garbage collection is enabled.
     """
-    raise NotImplementedError()
+    # TODO: RUSTPYTHON
+    return False
 
 
 def set_debug(*args, **kwargs):  # unknown args #
