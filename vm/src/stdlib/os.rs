@@ -1696,12 +1696,7 @@ mod _os {
         fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
             match obj.downcast::<int::PyInt>() {
                 Ok(int) => int::try_to_primitive(int.as_bigint(), vm).map(Self::Val),
-                Err(obj) => {
-                    let cstring = std::ffi::CString::try_from_object(vm, obj)?;
-                    cstring.into_string().map(Self::Name).map_err(|e| {
-                        vm.new_os_error(format!("error while parsing string: {:?}", e))
-                    })
-                }
+                Err(obj) => PyStrRef::try_from_object(vm, obj).map(|o| Self::Name(o.to_string())),
             }
         }
     }
