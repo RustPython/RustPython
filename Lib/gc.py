@@ -57,7 +57,8 @@ def disable(*args, **kwargs):  # unknown args #
 
     Disable automatic garbage collection.
     """
-    raise NotImplementedError()
+    # TODO: RUSTPYTHON
+    pass
 
 
 def enable(*args, **kwargs):  # unknown args #
@@ -66,7 +67,8 @@ def enable(*args, **kwargs):  # unknown args #
 
     Enable automatic garbage collection.
     """
-    raise NotImplementedError()
+    # TODO: RUSTPYTHON
+    pass
 
 
 def get_count(*args, **kwargs):  # unknown args #
