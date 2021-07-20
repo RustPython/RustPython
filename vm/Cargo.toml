@@ -34,6 +34,7 @@ sha-1 = "0.9.4"
 sha2 = "0.9.3"
 sha3 = "0.9.1"
 blake2 = "0.9.1"
+xml-rs = "0.8"
 
 num-complex = { version = "0.4.0", features = ["serde"] }
 num-bigint = { version = "0.4.0", features = ["serde"] }

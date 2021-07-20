@@ -26,6 +26,7 @@ mod marshal;
 mod math;
 mod operator;
 mod platform;
+mod pyexpat;
 pub(crate) mod pystruct;
 mod random;
 // TODO: maybe make this an extension module, if we ever get those
@@ -119,6 +120,7 @@ pub fn get_module_inits() -> StdlibMap {
             "marshal" => marshal::make_module,
             "math" => math::make_module,
             "_operator" => operator::make_module,
+            "pyexpat" => pyexpat::make_module,
             "_platform" => platform::make_module,
             "_random" => random::make_module,
             "_sre" => sre::make_module,

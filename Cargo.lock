@@ -2112,6 +2112,7 @@ dependencies = [
  "widestring",
  "winapi",
  "winreg",
+ "xml-rs",
 ]
 
 [[package]]
@@ -2959,6 +2960,12 @@ checksum = "d107f8c6e916235c4c01cabb3e8acf7bea8ef6a63ca2e7fa0527c049badfc48c"
 dependencies = [
  "winapi",
 ]
+
+[[package]]
+name = "xml-rs"
+version = "0.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b07db065a5cf61a7e4ba64f29e67db906fb1787316516c4e6e5ff0fea1efcd8a"
 
 [[package]]
 name = "yaml-rust"

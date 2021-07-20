@@ -248,14 +248,10 @@ class PlatformTest(unittest.TestCase):
             self.assertEqual(res[1], ('', '', ''))
 
             if sys.byteorder == 'little':
-                self.assertIn(res[2], ('i386', 'x86_64'))
+                self.assertIn(res[2], ('i386', 'x86_64', 'arm64'))
             else:
                 self.assertEqual(res[2], 'PowerPC')
 
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "darwin":
-        test_mac_ver = unittest.expectedFailure(test_mac_ver)
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure

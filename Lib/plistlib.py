@@ -62,8 +62,7 @@ import os
 import re
 import struct
 from warnings import warn
-# XXX RUSTPYTHON TODO: pyexpat
-# from xml.parsers.expat import ParserCreate
+from xml.parsers.expat import ParserCreate
 
 
 PlistFormat = enum.Enum('PlistFormat', 'FMT_XML FMT_BINARY', module=__name__)
