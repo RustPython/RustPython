@@ -311,8 +311,6 @@ class TestCase(unittest.TestCase):
         self.check_for_loop(iter([]), [])
 
     # Test a tuple
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_iter_tuple(self):
         self.check_for_loop(iter((0,1,2,3,4,5,6,7,8,9)), list(range(10)))
 

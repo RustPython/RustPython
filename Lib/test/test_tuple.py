@@ -345,8 +345,6 @@ class TupleTest(seq_tests.CommonTest):
         check(10)       # check our checking code
         check(1000000)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_iterator_pickle(self):
         # Userlist iterators don't support pickling yet since
         # they are based on generators.
