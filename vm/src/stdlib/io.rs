@@ -8,6 +8,9 @@ cfg_if::cfg_if! {
         type Offset = i64;
     }
 }
+
+#[cfg(unix)]
+use crate::stdlib::os::{errno_err, PathOrFd};
 use crate::VirtualMachine;
 use crate::{PyObjectRef, PyResult, TryFromObject};
 pub(crate) use _io::io_open as open;
@@ -3569,6 +3572,12 @@ mod _io {
             if let Some(msg) = msg {
                 return Err(vm.new_value_error(msg.to_owned()));
             }
+        }
+
+        // check file descriptor validity
+        #[cfg(unix)]
+        if let Ok(PathOrFd::Fd(fd)) = PathOrFd::try_from_object(vm, file.clone()) {
+            nix::fcntl::fcntl(fd, nix::fcntl::F_GETFD).map_err(|_| errno_err(vm))?;
         }
 
         // Construct a FileIO (subclass of RawIOBase)

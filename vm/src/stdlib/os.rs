@@ -217,7 +217,7 @@ impl TryFromObject for PyPathLike {
     }
 }
 
-enum PathOrFd {
+pub(crate) enum PathOrFd {
     Path(PyPathLike),
     Fd(i32),
 }
