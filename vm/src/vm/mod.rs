@@ -87,6 +87,9 @@ pub struct PyGlobalState {
     pub hash_secret: HashSecret,
     pub atexit_funcs: PyMutex<Vec<(PyObjectRef, FuncArgs)>>,
     pub codec_registry: CodecsRegistry,
+    pub fork_before: PyMutex<Vec<PyObjectRef>>,
+    pub fork_after_parent: PyMutex<Vec<PyObjectRef>>,
+    pub fork_after_child: PyMutex<Vec<PyObjectRef>>,
     pub finalizing: AtomicBool,
 }
 
@@ -160,6 +163,9 @@ impl VirtualMachine {
                 hash_secret,
                 atexit_funcs: PyMutex::default(),
                 codec_registry,
+                fork_before: PyMutex::default(),
+                fork_after_parent: PyMutex::default(),
+                fork_after_child: PyMutex::default(),
                 finalizing: AtomicBool::new(false),
             }),
             initialized: false,

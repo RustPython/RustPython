@@ -1,7 +1,9 @@
 use crate::{
     builtins::{PyStr, PyStrRef},
     common::borrow::{BorrowedValue, BorrowedValueMut},
+    convert::ToPyException,
     protocol::PyBuffer,
+    utils::ToCString,
     PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject, VirtualMachine,
 };
 
@@ -131,6 +133,12 @@ impl TryFromObject for ArgStrOrBytesLike {
         obj.downcast()
             .map(Self::Str)
             .or_else(|obj| ArgBytesLike::try_from_object(vm, obj).map(Self::Buf))
+    }
+}
+
+impl ToCString for ArgStrOrBytesLike {
+    fn to_cstring(&self, vm: &VirtualMachine) -> PyResult<std::ffi::CString> {
+        std::ffi::CString::new(self.borrow_bytes().to_vec()).map_err(|err| err.to_pyexception(vm))
     }
 }
 

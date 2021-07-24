@@ -31,7 +31,8 @@ pub mod module {
     use crate::{
         builtins::{PyDictRef, PyInt, PyIntRef, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
         convert::{IntoPyException, ToPyObject, TryFromObject},
-        function::{Either, OptionalArg},
+        function::{ArgStrOrBytesLike, Either, FromArgs, OptionalArg},
+        protocol::PyMapping,
         stdlib::os::{
             errno_err, DirFd, FollowSymlinks, PathOrFd, PyPathLike, SupportFunc, TargetIsDirectory,
             _os, fs_metadata, IOErrorBuilder,
@@ -41,6 +42,7 @@ pub mod module {
         AsObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     };
     use bitflags::bitflags;
+    use fork::{fork, Fork};
     use nix::{
         fcntl,
         unistd::{self, Gid, Pid, Uid},
@@ -209,6 +211,76 @@ pub mod module {
             Ok(group_permissions)
         } else {
             Ok(others_permissions)
+        }
+    }
+
+    #[pyfunction]
+    fn _exit(status: i32) -> PyResult {
+        std::process::exit(status);
+    }
+
+    #[derive(FromArgs)]
+    struct RegisterAtForkArgs {
+        #[pyarg(named, optional)]
+        before: OptionalArg<PyObjectRef>,
+        #[pyarg(named, optional)]
+        after_in_parent: OptionalArg<PyObjectRef>,
+        #[pyarg(named, optional)]
+        after_in_child: OptionalArg<PyObjectRef>,
+    }
+
+    #[pyfunction]
+    fn register_at_fork(args: RegisterAtForkArgs, vm: &VirtualMachine) -> PyResult<()> {
+        for (arg, list) in &mut [
+            (args.before, vm.state.fork_before.lock()),
+            (args.after_in_parent, vm.state.fork_after_parent.lock()),
+            (args.after_in_child, vm.state.fork_after_child.lock()),
+        ] {
+            if let OptionalArg::Present(arg) = arg {
+                if !vm.is_callable(arg) {
+                    return Err(vm.new_type_error("argument must be callable".to_owned()));
+                }
+
+                list.push(arg.clone());
+            }
+        }
+
+        Ok(())
+    }
+
+    fn _before_fork(vm: &VirtualMachine) {
+        // Functions registered for execution before forking are called in reverse order.
+        for func in vm.state.fork_before.lock().drain(..).rev() {
+            vm.invoke(&func, ()).ok();
+        }
+    }
+
+    fn _after_fork_child(vm: &VirtualMachine) {
+        for func in vm.state.fork_after_child.lock().drain(..) {
+            vm.invoke(&func, ()).ok();
+        }
+    }
+
+    fn _after_fork_parent(vm: &VirtualMachine) {
+        for func in vm.state.fork_after_parent.lock().drain(..) {
+            vm.invoke(&func, ()).ok();
+        }
+    }
+
+    #[cfg(unix)]
+    #[pyfunction(name = "fork")]
+    fn fork_impl(vm: &VirtualMachine) -> PyResult<i32> {
+        _before_fork(vm);
+        match fork() {
+            Ok(Fork::Parent(child_pid)) => {
+                _after_fork_parent(vm);
+                Ok(child_pid)
+            }
+            Ok(Fork::Child) => {
+                _after_fork_child(vm);
+                Ok(0)
+            }
+            Err(err) => nix::errno::Errno::result(err).map_err(|e| e.into_pyexception(vm)),
         }
     }
 
@@ -868,13 +940,14 @@ pub mod module {
     fn execve(
         path: PyPathLike,
         argv: Either<PyListRef, PyTupleRef>,
-        env: PyDictRef,
+        env: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
+        let env = PyMapping::new(&env, vm);
         let path = path.into_cstring(vm)?;
 
         let argv = vm.extract_elements_with(argv.as_ref(), |obj| {
-            PyStrRef::try_from_object(vm, obj)?.to_cstring(vm)
+            ArgStrOrBytesLike::try_from_object(vm, obj)?.to_cstring(vm)
         })?;
         let argv: Vec<&CStr> = argv.iter().map(|entry| entry.as_c_str()).collect();
 
@@ -889,6 +962,7 @@ pub mod module {
         }
 
         let env = env
+            .into_dict()
             .into_iter()
             .map(|(k, v)| -> PyResult<_> {
                 let (key, value) = (

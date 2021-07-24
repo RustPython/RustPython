@@ -254,8 +254,6 @@ class PlatformTest(unittest.TestCase):
                 self.assertEqual(res[2], 'PowerPC')
 
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipUnless(sys.platform == 'darwin', "OSX only test")
     def test_mac_ver_with_fork(self):
         # Issue7895: platform.mac_ver() crashes when using fork without exec

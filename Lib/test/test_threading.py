@@ -473,6 +473,7 @@ class ThreadTests(BaseTestCase):
         self.assertEqual(out, b'')
         self.assertEqual(err, b'')
 
+    @unittest.skip("TODO: RUSTPYTHON, requires sys.getswitchinterval")
     @unittest.skipUnless(hasattr(os, 'fork'), "needs os.fork()")
     def test_is_alive_after_fork(self):
         # Try hard to trigger #18418: is_alive() could sometimes be True on
@@ -802,6 +803,7 @@ class ThreadJoinOnShutdown(BaseTestCase):
             """
         self._run_and_join(script)
 
+    @unittest.skip("TODO: RUSTPYTHON")
     @unittest.skipUnless(hasattr(os, 'fork'), "needs os.fork()")
     @unittest.skipIf(sys.platform in platforms_to_skip, "due to known OS bug")
     def test_2_join_in_forked_process(self):
@@ -885,6 +887,7 @@ class ThreadJoinOnShutdown(BaseTestCase):
         rc, out, err = assert_python_ok('-c', script)
         self.assertFalse(err)
 
+    @unittest.skipIf(sys.platform == "linux", "TODO: RUSTPYTHON, deadlock (?) on linux")
     @unittest.skipUnless(hasattr(os, 'fork'), "needs os.fork()")
     @unittest.skipIf(sys.platform in platforms_to_skip, "due to known OS bug")
     def test_reinit_tls_after_fork(self):
@@ -909,6 +912,7 @@ class ThreadJoinOnShutdown(BaseTestCase):
         for t in threads:
             t.join()
 
+    @unittest.skip("TODO: RUSTPYTHON, requires sys._current_frames")
     @unittest.skipUnless(hasattr(os, 'fork'), "needs os.fork()")
     def test_clear_threads_states_after_fork(self):
         # Issue #17094: check that threads states are cleared after fork()

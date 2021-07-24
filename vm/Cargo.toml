@@ -97,6 +97,7 @@ exitcode = "1.1.2"
 uname = "0.1.1"
 strum = "0.24.0"
 strum_macros = "0.24.0"
+fork = "0.1.18"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rustyline = "9"

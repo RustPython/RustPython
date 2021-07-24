@@ -2976,8 +2976,6 @@ class PidTests(unittest.TestCase):
         self.assertEqual(os.waitstatus_to_exitcode(status), exitcode)
         self.assertEqual(pid2, pid)
 
-    # TODO: RUSTPYTHON (AttributeError: module 'os' has no attribute 'spawnv')
-    @unittest.expectedFailure
     def test_waitpid(self):
         self.check_waitpid(code='pass', exitcode=0)
 
