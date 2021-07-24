@@ -1722,8 +1722,6 @@ class AssortedBytesTest(unittest.TestCase):
             self.assertEqual(f(b"'"), '''b"'"''') # '''
             self.assertEqual(f(b"'\""), r"""b'\'"'""") # '
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @check_bytes_warnings
     def test_format(self):
         for b in b'abc', bytearray(b'abc'):
