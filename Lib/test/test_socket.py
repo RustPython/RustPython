@@ -5880,7 +5880,6 @@ class SendfileUsingSendTest(ThreadedTCPSocketTest):
 
 @unittest.skipUnless(hasattr(os, "sendfile"),
                      'os.sendfile() required for this test.')
-@unittest.skip("TODO: RUSTPYTHON, fix sendfile")
 class SendfileUsingSendfileTest(SendfileUsingSendTest):
     """
     Test the sendfile() implementation of socket.sendfile().
