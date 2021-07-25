@@ -135,7 +135,7 @@ an Abstract Syntax Tree (AST):
   - The Parser relies on `LALRPOP`, a Rust parser generator framework. The
     LALRPOP definition of Python's grammar is in `parser/src/python.lalrpop`.
   - More information on parsers and a tutorial can be found in the 
-    [LALRPOP book](https://lalrpop.github.io/lalrpop/README.html).
+    [LALRPOP book](https://lalrpop.github.io/lalrpop/).
 - AST: `ast/` implements in Rust the Python types and expressions
   represented by the AST nodes.
 
