@@ -201,6 +201,7 @@ impl PySetInner {
 
         PySetIterator {
             dict: PyRc::clone(&self.content),
+            elements: self.content.keys(),
             size_info: AtomicCell::new(set_size),
         }
     }
@@ -763,6 +764,7 @@ struct SetSizeInfo {
 #[pyclass(module = false, name = "set_iterator")]
 pub(crate) struct PySetIterator {
     dict: PyRc<SetContentType>,
+    elements: Vec<PyObjectRef>,
     size_info: AtomicCell<SetSizeInfo>,
 }
 
@@ -796,8 +798,10 @@ impl PyIter for PySetIterator {
         if let Some(set_size) = size_info.size {
             if set_size == zelf.dict.len() {
                 let index = size_info.position;
-                let keys = zelf.dict.keys();
-                let item = keys.get(index).ok_or_else(|| vm.new_stop_iteration())?;
+                let item = zelf
+                    .elements
+                    .get(index)
+                    .ok_or_else(|| vm.new_stop_iteration())?;
                 size_info.position += 1;
                 zelf.size_info.store(size_info);
                 return Ok(item.clone());
