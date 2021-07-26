@@ -1169,8 +1169,6 @@ class TestBasicOps(unittest.TestCase):
         p.__setstate__((0, 0, 0x1000))  # will access tuple element 1 if not clamped
         self.assertRaises(StopIteration, next, p)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_repeat(self):
         self.assertEqual(list(repeat(object='a', times=3)), ['a', 'a', 'a'])
         self.assertEqual(lzip(range(3),repeat('a')),
@@ -1197,8 +1195,6 @@ class TestBasicOps(unittest.TestCase):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             self.pickletest(proto, repeat(object='a', times=10))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_repeat_with_negative_times(self):
         self.assertEqual(repr(repeat('a', -1)), "repeat('a', 0)")
         self.assertEqual(repr(repeat('a', -2)), "repeat('a', 0)")
@@ -2181,15 +2177,11 @@ class TestVariousIteratorArgs(unittest.TestCase):
 
 class LengthTransparency(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_repeat(self):
         self.assertEqual(operator.length_hint(repeat(None, 50)), 50)
         self.assertEqual(operator.length_hint(repeat(None, 0)), 0)
         self.assertEqual(operator.length_hint(repeat(None), 12), 12)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_repeat_with_negative_times(self):
         self.assertEqual(operator.length_hint(repeat(None, -1)), 0)
         self.assertEqual(operator.length_hint(repeat(None, -2)), 0)

@@ -260,7 +260,7 @@ mod decl {
     #[derive(Debug)]
     struct PyItertoolsRepeat {
         object: PyObjectRef,
-        times: Option<PyRwLock<BigInt>>,
+        times: Option<PyRwLock<usize>>,
     }
 
     impl PyValue for PyItertoolsRepeat {
@@ -269,40 +269,81 @@ mod decl {
         }
     }
 
-    #[pyimpl(with(PyIter))]
+    #[derive(FromArgs)]
+    struct PyRepeatNewArgs {
+        #[pyarg(any)]
+        object: PyObjectRef,
+        #[pyarg(any, optional)]
+        times: OptionalArg<PyIntRef>,
+    }
+
+    #[pyimpl(with(PyIter), flags(BASETYPE))]
     impl PyItertoolsRepeat {
         #[pyslot]
         fn tp_new(
             cls: PyTypeRef,
-            object: PyObjectRef,
-            times: OptionalArg<PyIntRef>,
+            PyRepeatNewArgs { object, times }: PyRepeatNewArgs,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
-            let times = times
-                .into_option()
-                .map(|int| PyRwLock::new(int.as_bigint().clone()));
-
+            let times = match times.into_option() {
+                Some(int) => {
+                    let val = int.as_bigint();
+                    if *val > BigInt::from(isize::MAX) {
+                        return Err(vm.new_overflow_error("Cannot fit in isize.".to_owned()));
+                    }
+                    // times always >= 0.
+                    Some(PyRwLock::new(val.to_usize().unwrap_or(0)))
+                }
+                None => None,
+            };
             PyItertoolsRepeat { object, times }.into_ref_with_type(vm, cls)
         }
 
         #[pymethod(name = "__length_hint__")]
-        fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
+        fn length_hint(&self, vm: &VirtualMachine) -> PyResult {
             match self.times {
-                Some(ref times) => vm.ctx.new_int(times.read().clone()),
-                None => vm.ctx.new_int(0),
+                Some(ref times) => Ok(vm.ctx.new_int(*times.read())),
+                // Return TypeError, length_hint picks this up and returns the default.
+                None => Err(vm.new_type_error("length of unsized object.".to_owned())),
             }
         }
+
+        #[pymethod(magic)]
+        fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+            let cls = zelf.clone_class().into_pyobject(vm);
+            Ok(match zelf.times {
+                Some(ref times) => vm.ctx.new_tuple(vec![
+                    cls,
+                    vm.ctx.new_tuple(vec![
+                        zelf.object.clone(),
+                        vm.ctx.new_int(*times.read()).into_pyobject(vm),
+                    ]),
+                ]),
+                None => vm
+                    .ctx
+                    .new_tuple(vec![cls, vm.ctx.new_tuple(vec![zelf.object.clone()])]),
+            })
+        }
+
+        #[pymethod(magic)]
+        fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
+            let mut fmt = format!("{}", vm.to_repr(&self.object)?);
+            if let Some(ref times) = self.times {
+                fmt.push_str(&format!(", {}", times.read()));
+            }
+            Ok(format!("repeat({})", fmt))
+        }
     }
+
     impl PyIter for PyItertoolsRepeat {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             if let Some(ref times) = zelf.times {
                 let mut times = times.write();
-                if !times.is_positive() {
+                if *times == 0 {
                     return Err(vm.new_stop_iteration());
                 }
                 *times -= 1;
             }
-
             Ok(zelf.object.clone())
         }
     }
