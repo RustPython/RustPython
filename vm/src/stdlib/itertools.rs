@@ -5,7 +5,6 @@ mod decl {
     use crossbeam_utils::atomic::AtomicCell;
     use num_bigint::BigInt;
     use num_traits::{One, Signed, ToPrimitive, Zero};
-    use std::convert::TryFrom;
     use std::fmt;
 
     use crate::builtins::int::{self, PyInt, PyIntRef};
@@ -685,13 +684,17 @@ mod decl {
 
     // Restrict obj to ints with value 0 <= val <= sys.maxsize (isize::MAX).
     // On failure (out of range, non-int object) a ValueError is raised.
-    fn pyobject_to_opt_usize(obj: PyObjectRef, name: &str, vm: &VirtualMachine) -> PyResult<usize> {
+    fn pyobject_to_opt_usize(
+        obj: PyObjectRef,
+        name: &'static str,
+        vm: &VirtualMachine,
+    ) -> PyResult<usize> {
         let is_int = obj.isinstance(&vm.ctx.types.int_type);
         if is_int {
             let value = int::get_value(&obj).to_usize();
             if let Some(value) = value {
                 // Only succeeds for values for which 0 <= value <= isize::MAX
-                if value <= usize::try_from(isize::MAX).unwrap() {
+                if value <= isize::MAX as usize {
                     return Ok(value);
                 }
             }
