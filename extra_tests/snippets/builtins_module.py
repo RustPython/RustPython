@@ -5,6 +5,10 @@ assert '__builtins__' in globals()
 with assert_raises(AttributeError):
     __builtins__.__builtins__
 
+assert __builtins__.__name__ == "builtins"
+import builtins
+assert builtins.__name__ == "builtins"
+
 __builtins__.x = 'new'
 assert x == 'new'  # noqa: F821
 

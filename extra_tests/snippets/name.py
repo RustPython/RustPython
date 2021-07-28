@@ -7,7 +7,3 @@ from import_name import import_func
 import_func()
 
 assert __name__ == "__main__"
-
-assert __builtins__.__name__ == "builtins"
-import builtins
-assert builtins.__name__ == "builtins"
