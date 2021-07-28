@@ -894,8 +894,6 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
     let debug_mode: bool = vm.state.settings.optimize == 0;
     extend_module!(vm, module, {
         "__debug__" => ctx.new_bool(debug_mode),
-        //set __name__ fixes: https://github.com/RustPython/RustPython/issues/146
-        "__name__" => ctx.new_str(String::from("__main__")),
 
         "bool" => ctx.types.bool_type.clone(),
         "bytearray" => ctx.types.bytearray_type.clone(),
