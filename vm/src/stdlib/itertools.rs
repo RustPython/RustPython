@@ -682,13 +682,28 @@ mod decl {
         }
     }
 
-    fn pyobject_to_opt_usize(obj: PyObjectRef, vm: &VirtualMachine) -> Option<usize> {
+    // Restrict obj to ints with value 0 <= val <= sys.maxsize (isize::MAX).
+    // On failure (out of range, non-int object) a ValueError is raised.
+    fn pyobject_to_opt_usize(
+        obj: PyObjectRef,
+        name: &'static str,
+        vm: &VirtualMachine,
+    ) -> PyResult<usize> {
         let is_int = obj.isinstance(&vm.ctx.types.int_type);
         if is_int {
-            int::get_value(&obj).to_usize()
-        } else {
-            None
+            let value = int::get_value(&obj).to_usize();
+            if let Some(value) = value {
+                // Only succeeds for values for which 0 <= value <= isize::MAX
+                if value <= isize::MAX as usize {
+                    return Ok(value);
+                }
+            }
         }
+        // We don't have an int or value was < 0 or > maxsize (isize::MAX)
+        return Err(vm.new_value_error(format!(
+            "{} argument for islice() must be None or an integer: 0 <= x <= sys.maxsize.",
+            name
+        )));
     }
 
     #[pyimpl(with(PyIter))]
@@ -702,38 +717,34 @@ mod decl {
                         args.args.len()
                     )));
                 }
-
                 2 => {
                     let (iter, stop): (PyObjectRef, PyObjectRef) = args.bind(vm)?;
-
                     (iter, 0usize, stop, 1usize)
                 }
                 _ => {
-                    let (iter, start, stop, step): (
-                        PyObjectRef,
-                        PyObjectRef,
-                        PyObjectRef,
-                        PyObjectRef,
-                    ) = args.bind(vm)?;
+                    let (iter, start, stop, step) = if args.args.len() == 3 {
+                        let (iter, start, stop): (PyObjectRef, PyObjectRef, PyObjectRef) =
+                            args.bind(vm)?;
+                        (iter, start, stop, 1usize)
+                    } else {
+                        let (iter, start, stop, step): (
+                            PyObjectRef,
+                            PyObjectRef,
+                            PyObjectRef,
+                            PyObjectRef,
+                        ) = args.bind(vm)?;
 
+                        let step = if !vm.is_none(&step) {
+                            pyobject_to_opt_usize(step, "Step", &vm)?
+                        } else {
+                            1usize
+                        };
+                        (iter, start, stop, step)
+                    };
                     let start = if !vm.is_none(&start) {
-                        pyobject_to_opt_usize(start, &vm).ok_or_else(|| {
-                        vm.new_value_error(
-                            "Indices for islice() must be None or an integer: 0 <= x <= sys.maxsize.".to_owned(),
-                        )
-                    })?
+                        pyobject_to_opt_usize(start, "Start", &vm)?
                     } else {
                         0usize
-                    };
-
-                    let step = if !vm.is_none(&step) {
-                        pyobject_to_opt_usize(step, &vm).ok_or_else(|| {
-                            vm.new_value_error(
-                                "Step for islice() must be a positive integer or None.".to_owned(),
-                            )
-                        })?
-                    } else {
-                        1usize
                     };
 
                     (iter, start, stop, step)
@@ -741,12 +752,7 @@ mod decl {
             };
 
             let stop = if !vm.is_none(&stop) {
-                Some(pyobject_to_opt_usize(stop, &vm).ok_or_else(|| {
-                    vm.new_value_error(
-                    "Stop argument for islice() must be None or an integer: 0 <= x <= sys.maxsize."
-                        .to_owned(),
-                )
-                })?)
+                Some(pyobject_to_opt_usize(stop, "Stop", &vm)?)
             } else {
                 None
             };
@@ -763,6 +769,7 @@ mod decl {
             .into_ref_with_type(vm, cls)
         }
     }
+
     impl PyIter for PyItertoolsIslice {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             while zelf.cur.load() < zelf.next.load() {

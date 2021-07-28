@@ -1746,8 +1746,6 @@ class TestExamples(unittest.TestCase):
     def test_map(self):
         self.assertEqual(list(map(pow, (2,3,10), (5,2,3))), [32, 9, 1000])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_islice(self):
         self.assertEqual(list(islice('ABCDEFG', 2)), list('AB'))
         self.assertEqual(list(islice('ABCDEFG', 2, 4)), list('CD'))
@@ -2650,9 +2648,7 @@ def test_main(verbose=None):
             counts[i] = sys.gettotalrefcount()
         print(counts)
 
-    # TODO: RUSTPYTHON this hangs or is very slow
-    # doctest the examples in the library reference
-    # support.run_doctest(sys.modules[__name__], verbose)
+    support.run_doctest(sys.modules[__name__], verbose)
 
 if __name__ == "__main__":
     test_main(verbose=True)
