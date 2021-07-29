@@ -23,3 +23,11 @@ assert B.__qualname__ == 'BB'
 # https://github.com/RustPython/RustPython/issues/2310
 import builtins
 assert builtins.iter.__class__.__module__ == 'builtins'
+assert builtins.iter.__class__.__qualname__ == 'builtin_function_or_method'
+
+try:
+    builtins.iter.__class__.__docs__
+except AttributeError:
+    assert True
+else:
+    assert False, 'Attribute error was not raised'

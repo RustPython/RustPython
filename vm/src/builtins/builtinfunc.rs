@@ -55,7 +55,7 @@ impl PyNativeFuncDef {
     }
 }
 
-#[pyclass(name = "builtin_function_or_method", module = "builtins")]
+#[pyclass(name = "builtin_function_or_method", module = false)]
 pub struct PyBuiltinFunction {
     value: PyNativeFuncDef,
     module: Option<PyObjectRef>,
@@ -137,6 +137,11 @@ impl PyBuiltinFunction {
     #[pymethod(magic)]
     fn repr(&self) -> String {
         format!("<built-in function {}>", self.value.name)
+    }
+
+    #[extend_class]
+    fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
+        class.set_str_attr("__module__", ctx.new_str("builtins"));
     }
 }
 
