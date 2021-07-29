@@ -25,9 +25,7 @@ import builtins
 assert builtins.iter.__class__.__module__ == 'builtins'
 assert builtins.iter.__class__.__qualname__ == 'builtin_function_or_method'
 
-try:
-    builtins.iter.__class__.__docs__
-except AttributeError:
-    assert True
-else:
-    assert False, 'Attribute error was not raised'
+assert iter.__class__.__module__ == 'builtins'
+assert iter.__class__.__qualname__ == 'builtin_function_or_method'
+assert type(iter).__module__ == 'builtins'
+assert type(iter).__qualname__ == 'builtin_function_or_method'

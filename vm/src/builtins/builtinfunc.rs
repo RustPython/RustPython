@@ -138,11 +138,6 @@ impl PyBuiltinFunction {
     fn repr(&self) -> String {
         format!("<built-in function {}>", self.value.name)
     }
-
-    #[extend_class]
-    fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("__module__", ctx.new_str("builtins"));
-    }
 }
 
 #[pyclass(module = false, name = "method_descriptor")]
@@ -207,5 +202,10 @@ impl PyBuiltinMethod {
 
 pub fn init(context: &PyContext) {
     PyBuiltinFunction::extend_class(context, &context.types.builtin_function_or_method_type);
+    extend_class!(context, &context.types.builtin_function_or_method_type, {
+        "__qualname__" => context.new_str("builtin_function_or_method"),
+        "__module__" => context.new_str("builtins"),
+    });
+
     PyBuiltinMethod::extend_class(context, &context.types.method_descriptor_type);
 }
