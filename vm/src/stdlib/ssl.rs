@@ -700,7 +700,7 @@ fn socket_needs(
         ssl::ErrorCode::WANT_WRITE => Some(SslNeeds::Write),
         _ => None,
     };
-    let state = needs.map_or(SelectRet::Ok, |needs| ssl_select(sock, needs, &timeout));
+    let state = needs.map_or(SelectRet::Ok, |needs| ssl_select(sock, needs, timeout));
     (needs, state)
 }
 
