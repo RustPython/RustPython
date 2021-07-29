@@ -55,7 +55,7 @@ impl PyNativeFuncDef {
     }
 }
 
-#[pyclass(name = "builtin_function_or_method", module = false)]
+#[pyclass(name = "builtin_function_or_method", module = "builtins")]
 pub struct PyBuiltinFunction {
     value: PyNativeFuncDef,
     module: Option<PyObjectRef>,
