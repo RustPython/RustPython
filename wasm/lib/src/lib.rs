@@ -27,7 +27,7 @@ pub fn panic_hook(info: &panic::PanicInfo) {
             None => return,
         };
         let _ = Reflect::set(&window, &"__RUSTPYTHON_ERROR_MSG".into(), &msg.into());
-        let error = RuntimeError::new(&msg);
+        let error = RuntimeError::new(msg);
         let _ = Reflect::set(&window, &"__RUSTPYTHON_ERROR".into(), &error);
         let stack = match Reflect::get(&error, &"stack".into()) {
             Ok(stack) => stack,

@@ -218,7 +218,7 @@ impl PyJsValue {
             .and_then(|proto| proto.value.dyn_ref::<js_sys::Function>());
         let js_args = args.iter().map(|x| x.as_ref()).collect::<Array>();
         let constructed_result = if let Some(proto) = proto {
-            Reflect::construct_with_new_target(ctor, &js_args, &proto)
+            Reflect::construct_with_new_target(ctor, &js_args, proto)
         } else {
             Reflect::construct(ctor, &js_args)
         };

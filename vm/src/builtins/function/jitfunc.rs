@@ -111,14 +111,14 @@ fn get_jit_value(vm: &VirtualMachine, obj: &PyObjectRef) -> Result<AbiValue, Arg
     // This does exact type checks as subclasses of int/float can't be passed to jitted functions
     let cls = obj.class();
     if cls.is(&vm.ctx.types.int_type) {
-        int::get_value(&obj)
+        int::get_value(obj)
             .to_i64()
             .map(AbiValue::Int)
             .ok_or(ArgsError::IntOverflow)
     } else if cls.is(&vm.ctx.types.float_type) {
-        Ok(AbiValue::Float(float::get_value(&obj)))
+        Ok(AbiValue::Float(float::get_value(obj)))
     } else if cls.is(&vm.ctx.types.bool_type) {
-        Ok(AbiValue::Bool(pybool::get_value(&obj)))
+        Ok(AbiValue::Bool(pybool::get_value(obj)))
     } else {
         Err(ArgsError::NonJitType)
     }
@@ -156,13 +156,13 @@ pub(crate) fn get_jit_args<'a>(
             if jit_args.is_set(arg_idx) {
                 return Err(ArgsError::ArgPassedMultipleTimes);
             }
-            jit_args.set(arg_idx, get_jit_value(vm, &value)?)?;
+            jit_args.set(arg_idx, get_jit_value(vm, value)?)?;
         } else if let Some(kwarg_idx) = arg_pos(arg_names.kwonlyargs, name) {
             let arg_idx = kwarg_idx + func.code.arg_count;
             if jit_args.is_set(arg_idx) {
                 return Err(ArgsError::ArgPassedMultipleTimes);
             }
-            jit_args.set(arg_idx, get_jit_value(vm, &value)?)?;
+            jit_args.set(arg_idx, get_jit_value(vm, value)?)?;
         } else {
             return Err(ArgsError::NotAKeywordArg);
         }
