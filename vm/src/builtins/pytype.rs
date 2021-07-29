@@ -493,6 +493,12 @@ impl PyType {
             "Setting __dict__ attribute on a type isn't yet implemented".to_owned(),
         ))
     }
+
+    #[extend_class]
+    fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
+        class.set_str_attr("__module__", ctx.new_str("builtins"));
+        class.set_str_attr("__qualname__", ctx.new_str("type"));
+    }
 }
 
 impl SlotGetattro for PyType {
