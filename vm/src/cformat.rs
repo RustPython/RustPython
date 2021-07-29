@@ -563,7 +563,7 @@ fn try_update_quantity_from_tuple<'a, I: Iterator<Item = &'a PyObjectRef>>(
                 if !width_obj.isinstance(&vm.ctx.types.int_type) {
                     Err(vm.new_type_error("* wants int".to_owned()))
                 } else {
-                    let i = int::get_value(&width_obj);
+                    let i = int::get_value(width_obj);
                     let i = int::try_to_primitive::<isize>(i, vm)? as usize;
                     *q = Some(CFormatQuantity::Amount(i));
                     Ok(())
@@ -818,7 +818,7 @@ impl CFormatString {
             {
                 for (_, part) in &self.parts {
                     match part {
-                        CFormatPart::Literal(literal) => result.push_str(&literal),
+                        CFormatPart::Literal(literal) => result.push_str(literal),
                         CFormatPart::Spec(_) => unreachable!(),
                     }
                 }
@@ -835,7 +835,7 @@ impl CFormatString {
             return if is_mapping {
                 for (_, part) in &self.parts {
                     match part {
-                        CFormatPart::Literal(literal) => result.push_str(&literal),
+                        CFormatPart::Literal(literal) => result.push_str(literal),
                         CFormatPart::Spec(spec) => {
                             let value = match &spec.mapping_key {
                                 Some(key) => values_obj.get_item(key, vm)?,
@@ -862,7 +862,7 @@ impl CFormatString {
 
         for (_, part) in &mut self.parts {
             match part {
-                CFormatPart::Literal(literal) => result.push_str(&literal),
+                CFormatPart::Literal(literal) => result.push_str(literal),
                 CFormatPart::Spec(spec) => {
                     try_update_quantity_from_tuple(vm, &mut value_iter, &mut spec.min_field_width)?;
                     try_update_quantity_from_tuple(vm, &mut value_iter, &mut spec.precision)?;

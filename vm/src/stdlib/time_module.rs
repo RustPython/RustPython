@@ -133,13 +133,13 @@ fn time_asctime(t: OptionalArg<PyStructTime>, vm: &VirtualMachine) -> PyResult {
         OptionalArg::Present(t) => t.to_date_time(vm)?,
         OptionalArg::Missing => default,
     };
-    let formatted_time = instant.format(&CFMT).to_string();
+    let formatted_time = instant.format(CFMT).to_string();
     Ok(vm.ctx.new_str(formatted_time))
 }
 
 fn time_ctime(secs: OptionalArg<Either<f64, i64>>, vm: &VirtualMachine) -> PyResult<String> {
     let instant = optional_or_localtime(secs, vm)?;
-    Ok(instant.format(&CFMT).to_string())
+    Ok(instant.format(CFMT).to_string())
 }
 
 fn time_strftime(format: PyStrRef, t: OptionalArg<PyStructTime>, vm: &VirtualMachine) -> PyResult {

@@ -248,7 +248,7 @@ fn _thread_start_new_thread(
         )
         .map(|handle| {
             vm.state.thread_count.fetch_add(1);
-            thread_to_id(&handle.thread())
+            thread_to_id(handle.thread())
         })
         .map_err(|err| err.into_pyexception(vm))
 }

@@ -142,7 +142,7 @@ where
                 }
             }
             Err(err) => {
-                print_exception(&vm, err);
+                print_exception(vm, err);
                 1
             }
         };
@@ -535,9 +535,9 @@ fn run_rustpython(vm: &VirtualMachine, matches: &ArgMatches) -> PyResult<()> {
 
     // Figure out if a -c option was given:
     if let Some(command) = matches.value_of("c") {
-        run_command(&vm, scope, command.to_owned())?;
+        run_command(vm, scope, command.to_owned())?;
     } else if let Some(module) = matches.value_of("m") {
-        run_module(&vm, module)?;
+        run_module(vm, module)?;
     } else if matches.is_present("install_pip") {
         let get_getpip = rustpython_vm::py_compile!(
             source = r#"\
@@ -555,16 +555,16 @@ __import__("io").TextIOWrapper(
         eprintln!("running get-pip.py...");
         _run_string(vm, scope, getpip_code.as_str(), "get-pip.py".to_owned())?;
     } else if let Some(filename) = matches.value_of("script") {
-        run_script(&vm, scope.clone(), filename)?;
+        run_script(vm, scope.clone(), filename)?;
         if matches.is_present("inspect") {
-            shell::run_shell(&vm, scope)?;
+            shell::run_shell(vm, scope)?;
         }
     } else {
         println!(
             "Welcome to the magnificent Rust Python {} interpreter \u{1f631} \u{1f596}",
             crate_version!()
         );
-        shell::run_shell(&vm, scope)?;
+        shell::run_shell(vm, scope)?;
     }
 
     Ok(())

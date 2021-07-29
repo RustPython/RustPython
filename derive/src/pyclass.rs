@@ -28,7 +28,7 @@ fn extract_items_into_context<'a, Item>(
 {
     for item in items {
         let r = item.try_split_attr_mut(|attrs, item| {
-            let (pyitems, cfgs) = attrs_to_content_items(&attrs, new_impl_item::<Item>)?;
+            let (pyitems, cfgs) = attrs_to_content_items(attrs, new_impl_item::<Item>)?;
             for pyitem in pyitems.iter().rev() {
                 let r = pyitem.gen_impl_item(ImplItemArgs::<Item> {
                     item,
@@ -227,7 +227,7 @@ pub(crate) fn impl_pyclass(
     let class_name = class_meta.class_name()?;
     let module_name = class_meta.module()?;
     let base = class_meta.base()?;
-    let class_def = generate_class_def(&ident, &class_name, module_name.as_deref(), base, &attrs)?;
+    let class_def = generate_class_def(ident, &class_name, module_name.as_deref(), base, attrs)?;
 
     let ret = quote! {
         #item
@@ -424,7 +424,7 @@ where
         };
         let (py_name, tokens) = if args.item.is_function_or_method() || args.item.is_const() {
             let ident = args.item.get_ident().unwrap();
-            let py_name = get_py_name(&attr, &ident)?;
+            let py_name = get_py_name(&attr, ident)?;
 
             let value = if args.item.is_const() {
                 // TODO: ctx.new_value

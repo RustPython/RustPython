@@ -240,7 +240,7 @@ impl PyList {
 
     #[pymethod(name = "__rmul__")]
     fn rmul(&self, counter: isize, vm: &VirtualMachine) -> PyObjectRef {
-        self.mul(counter, &vm)
+        self.mul(counter, vm)
     }
 
     #[pymethod(name = "__imul__")]

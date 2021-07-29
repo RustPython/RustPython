@@ -123,5 +123,5 @@ impl SlotGetattro for PyModule {
 }
 
 pub(crate) fn init(context: &PyContext) {
-    PyModule::extend_class(&context, &context.types.module_type);
+    PyModule::extend_class(context, &context.types.module_type);
 }

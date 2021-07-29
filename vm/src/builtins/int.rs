@@ -177,7 +177,7 @@ fn inner_floordiv(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult
     if int2.is_zero() {
         Err(vm.new_zero_division_error("integer division by zero".to_owned()))
     } else {
-        Ok(vm.ctx.new_int(int1.div_floor(&int2)))
+        Ok(vm.ctx.new_int(int1.div_floor(int2)))
     }
 }
 
@@ -364,12 +364,12 @@ impl PyInt {
 
     #[pymethod(name = "__floordiv__")]
     fn floordiv(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.general_op(other, |a, b| inner_floordiv(a, b, &vm), vm)
+        self.general_op(other, |a, b| inner_floordiv(a, b, vm), vm)
     }
 
     #[pymethod(name = "__rfloordiv__")]
     fn rfloordiv(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.general_op(other, |a, b| inner_floordiv(b, a, &vm), vm)
+        self.general_op(other, |a, b| inner_floordiv(b, a, vm), vm)
     }
 
     #[pymethod(name = "__lshift__")]
@@ -906,7 +906,7 @@ fn bytes_to_int(lit: &[u8], mut base: u32) -> Option<BigInt> {
     Some(if lit.is_empty() {
         BigInt::zero()
     } else {
-        let uint = BigUint::parse_bytes(&lit, base)?;
+        let uint = BigUint::parse_bytes(lit, base)?;
         BigInt::from_biguint(sign.unwrap_or(Sign::Plus), uint)
     })
 }
@@ -950,7 +950,7 @@ pub(crate) fn try_int(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt
     if let Some(s) = obj.downcast_ref::<PyStr>() {
         return try_convert(obj, s.as_str().as_bytes(), vm);
     }
-    if let Ok(r) = try_bytes_like(vm, &obj, |x| try_convert(obj, x, vm)) {
+    if let Ok(r) = try_bytes_like(vm, obj, |x| try_convert(obj, x, vm)) {
         return r;
     }
     // strict `int` check

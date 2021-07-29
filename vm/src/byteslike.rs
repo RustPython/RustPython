@@ -50,7 +50,7 @@ impl PyRwBytesLike {
 
 impl PyBytesLike {
     pub fn new(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Self> {
-        let buffer = try_buffer_from_object(vm, &obj)?;
+        let buffer = try_buffer_from_object(vm, obj)?;
         if buffer.get_options().contiguous {
             Ok(Self(buffer))
         } else {
@@ -98,7 +98,7 @@ pub fn try_rw_bytes_like<R>(
 
 impl PyRwBytesLike {
     pub fn new(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Self> {
-        let buffer = try_buffer_from_object(vm, &obj)?;
+        let buffer = try_buffer_from_object(vm, obj)?;
         let options = buffer.get_options();
         if !options.contiguous {
             Err(vm.new_type_error("non-contiguous buffer is not a bytes-like object".to_owned()))

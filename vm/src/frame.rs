@@ -218,7 +218,7 @@ impl FrameRef {
             globals: &self.globals,
             builtins: &self.builtins,
             lasti: &self.lasti,
-            object: &self,
+            object: self,
             state: &mut state,
         };
         f(exec)

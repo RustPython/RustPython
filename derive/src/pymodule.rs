@@ -39,7 +39,7 @@ pub fn impl_pymodule(
     // collect to context
     for item in items.iter_mut() {
         let r = item.try_split_attr_mut(|attrs, item| {
-            let (pyitems, cfgs) = attrs_to_module_items(&attrs, new_module_item)?;
+            let (pyitems, cfgs) = attrs_to_module_items(attrs, new_module_item)?;
             for pyitem in pyitems.iter().rev() {
                 let r = pyitem.gen_module_item(ModuleItemArgs {
                     item,
@@ -283,7 +283,7 @@ impl ModuleItem for FunctionItem {
 
 impl ModuleItem for ClassItem {
     fn gen_module_item(&self, args: ModuleItemArgs<'_>) -> Result<()> {
-        let (ident, _) = pyclass_ident_and_attrs(&args.item)?;
+        let (ident, _) = pyclass_ident_and_attrs(args.item)?;
         let (module_name, class_name) = {
             let class_attr = &mut args.attrs[self.inner.index];
             if self.pyattrs.is_empty() {
@@ -350,7 +350,7 @@ impl ModuleItem for AttributeItem {
         let (py_name, tokens) = match args.item {
             Item::Fn(syn::ItemFn { sig, .. }) => {
                 let ident = &sig.ident;
-                let py_name = get_py_name(&attr, &ident)?;
+                let py_name = get_py_name(&attr, ident)?;
                 (
                     py_name.clone(),
                     quote! {
@@ -359,7 +359,7 @@ impl ModuleItem for AttributeItem {
                 )
             }
             Item::Const(syn::ItemConst { ident, .. }) => {
-                let py_name = get_py_name(&attr, &ident)?;
+                let py_name = get_py_name(&attr, ident)?;
                 (
                     py_name.clone(),
                     quote! {

@@ -348,7 +348,7 @@ impl Compiler {
                     self.emit(Instruction::PrintExpr);
                 }
             } else {
-                self.compile_statement(&statement)?;
+                self.compile_statement(statement)?;
             }
         }
 
@@ -470,7 +470,7 @@ impl Compiler {
             // we do this here because `from __future__` still executes that `from` statement at runtime,
             // we still need to compile the ImportFrom down below
             ImportFrom { module, names, .. } if module.as_deref() == Some("__future__") => {
-                self.compile_future_features(&names)?
+                self.compile_future_features(names)?
             }
             // if we find any other statement, stop accepting future statements
             _ => self.done_with_future_stmts = true,
@@ -1068,7 +1068,7 @@ impl Compiler {
                 self.emit_constant(ConstantData::Str {
                     value: self.mangle(&arg.node.arg).into_owned(),
                 });
-                self.compile_expression(&annotation)?;
+                self.compile_expression(annotation)?;
                 num_annotations += 1;
             }
         }
@@ -1159,7 +1159,7 @@ impl Compiler {
                     orelse,
                     finalbody,
                     ..
-                } => self.find_ann(&body) || self.find_ann(orelse) || self.find_ann(finalbody),
+                } => self.find_ann(body) || self.find_ann(orelse) || self.find_ann(finalbody),
                 _ => false,
             };
             if res {

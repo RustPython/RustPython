@@ -167,7 +167,7 @@ pub(crate) fn get_value(obj: &PyObjectRef) -> bool {
 }
 
 fn get_py_int(obj: &PyObjectRef) -> &PyInt {
-    &obj.payload::<PyInt>().unwrap()
+    obj.payload::<PyInt>().unwrap()
 }
 
 #[derive(Debug, Default, Copy, Clone, PartialEq)]

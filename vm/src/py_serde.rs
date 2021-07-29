@@ -90,10 +90,10 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
             let pairs: Vec<_> = dict.into_iter().collect();
             let mut map = serializer.serialize_map(Some(pairs.len()))?;
             for (key, e) in pairs.iter() {
-                map.serialize_entry(&self.clone_with_object(key), &self.clone_with_object(&e))?;
+                map.serialize_entry(&self.clone_with_object(key), &self.clone_with_object(e))?;
             }
             map.end()
-        } else if self.vm.is_none(&self.pyobject) {
+        } else if self.vm.is_none(self.pyobject) {
             serializer.serialize_none()
         } else {
             Err(serde::ser::Error::custom(format!(

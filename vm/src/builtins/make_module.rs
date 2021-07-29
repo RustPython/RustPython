@@ -174,7 +174,7 @@ mod decl {
                             .parse::<compile::Mode>()
                             .map_err(|err| vm.new_value_error(err.to_string()))?;
 
-                        vm.compile(&source, mode, args.filename.as_str().to_owned())
+                        vm.compile(source, mode, args.filename.as_str().to_owned())
                             .map(|o| o.into_object())
                             .map_err(|err| vm.new_syntax_error(&err))
                     }
@@ -182,7 +182,7 @@ mod decl {
                     let mode = mode_str
                         .parse::<parser::Mode>()
                         .map_err(|err| vm.new_value_error(err.to_string()))?;
-                    ast::parse(&vm, &source, mode)
+                    ast::parse(vm, source, mode)
                 }
             }
         }

@@ -138,7 +138,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 continue;
             }
 
-            self.add_instruction(&instruction, &bytecode.constants)?;
+            self.add_instruction(instruction, &bytecode.constants)?;
         }
 
         Ok(())

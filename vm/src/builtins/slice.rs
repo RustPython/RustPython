@@ -37,7 +37,7 @@ impl PySlice {
 
     fn start_ref<'a>(&'a self, vm: &'a VirtualMachine) -> &'a PyObjectRef {
         match &self.start {
-            Some(v) => &v,
+            Some(v) => v,
             None => vm.ctx.none.as_object(),
         }
     }
@@ -54,7 +54,7 @@ impl PySlice {
 
     fn step_ref<'a>(&'a self, vm: &'a VirtualMachine) -> &'a PyObjectRef {
         match &self.step {
-            Some(v) => &v,
+            Some(v) => v,
             None => vm.ctx.none.as_object(),
         }
     }

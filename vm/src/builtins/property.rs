@@ -81,7 +81,7 @@ impl SlotDescriptor for PyProperty {
         if vm.is_none(&obj) {
             Ok(zelf.into_object())
         } else if let Some(getter) = zelf.getter.read().as_ref() {
-            vm.invoke(&getter, (obj,))
+            vm.invoke(getter, (obj,))
         } else {
             Err(vm.new_attribute_error("unreadable attribute".to_string()))
         }
@@ -121,14 +121,14 @@ impl PyProperty {
         let zelf = PyRef::<Self>::try_from_object(vm, zelf)?;
         match value {
             Some(value) => {
-                if let Some(ref setter) = zelf.setter.read().as_ref() {
+                if let Some(setter) = zelf.setter.read().as_ref() {
                     vm.invoke(setter, vec![obj, value]).map(drop)
                 } else {
                     Err(vm.new_attribute_error("can't set attribute".to_owned()))
                 }
             }
             None => {
-                if let Some(ref deleter) = zelf.deleter.read().as_ref() {
+                if let Some(deleter) = zelf.deleter.read().as_ref() {
                     vm.invoke(deleter, (obj,)).map(drop)
                 } else {
                     Err(vm.new_attribute_error("can't delete attribute".to_owned()))

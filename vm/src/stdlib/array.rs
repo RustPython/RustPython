@@ -760,7 +760,7 @@ impl PyArray {
 
     #[pymethod(name = "__rmul__")]
     fn rmul(&self, counter: isize, vm: &VirtualMachine) -> PyRef<Self> {
-        self.mul(counter, &vm)
+        self.mul(counter, vm)
     }
 
     #[pymethod(name = "__imul__")]
@@ -818,7 +818,7 @@ impl Comparable for PyArray {
         let other = class_or_notimplemented!(Self, other);
 
         if let PyComparisonValue::Implemented(x) =
-            op.eq_only(|| Ok(zelf.array_eq(&other, vm)?.into()))?
+            op.eq_only(|| Ok(zelf.array_eq(other, vm)?.into()))?
         {
             return Ok(x.into());
         }

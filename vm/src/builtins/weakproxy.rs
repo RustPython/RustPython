@@ -67,5 +67,5 @@ impl SlotSetattro for PyWeakProxy {
 }
 
 pub fn init(context: &PyContext) {
-    PyWeakProxy::extend_class(&context, &context.types.weakproxy_type);
+    PyWeakProxy::extend_class(context, &context.types.weakproxy_type);
 }

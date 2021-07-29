@@ -37,10 +37,10 @@ impl<T: ?Sized> Deref for BorrowedValue<'_, T> {
     fn deref(&self) -> &T {
         match self {
             Self::Ref(r) => r,
-            Self::MuLock(m) => &m,
-            Self::MappedMuLock(m) => &m,
-            Self::ReadLock(r) => &r,
-            Self::MappedReadLock(m) => &m,
+            Self::MuLock(m) => m,
+            Self::MappedMuLock(m) => m,
+            Self::ReadLock(r) => r,
+            Self::MappedReadLock(m) => m,
         }
     }
 }
@@ -76,10 +76,10 @@ impl<T: ?Sized> Deref for BorrowedValueMut<'_, T> {
     fn deref(&self) -> &T {
         match self {
             Self::RefMut(r) => r,
-            Self::MuLock(m) => &m,
-            Self::MappedMuLock(m) => &m,
-            Self::WriteLock(w) => &w,
-            Self::MappedWriteLock(w) => &w,
+            Self::MuLock(m) => m,
+            Self::MappedMuLock(m) => m,
+            Self::WriteLock(w) => w,
+            Self::MappedWriteLock(w) => w,
         }
     }
 }

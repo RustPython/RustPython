@@ -1034,7 +1034,7 @@ pub trait PyClassImpl: PyClassDef {
             );
         }
         Self::impl_extend_class(ctx, class);
-        ctx.add_slot_wrappers(&class);
+        ctx.add_slot_wrappers(class);
         if let Some(doc) = Self::DOC {
             class.set_str_attr("__doc__", ctx.new_str(doc));
         }

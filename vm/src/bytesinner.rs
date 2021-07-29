@@ -594,7 +594,7 @@ impl PyBytesInner {
         };
 
         for i in self.elements.iter() {
-            if !delete.contains(&i) {
+            if !delete.contains(i) {
                 res.push(table[*i as usize]);
             }
         }
