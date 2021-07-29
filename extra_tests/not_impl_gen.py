@@ -187,7 +187,10 @@ def dir_of_mod_or_error(module_name):
     result = {}
     for item_name in item_names:
         item = getattr(module, item_name)
-        result[item_name] = extra_info(item)
+        item_mod = inspect.getmodule(item)
+        # don't repeat items imported from other modules
+        if item_mod is module or item_mod is None:
+            result[item_name] = extra_info(item)
     return result
 
 
