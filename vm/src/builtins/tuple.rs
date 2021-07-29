@@ -19,8 +19,9 @@ use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter};
 use crate::utils::Either;
 use crate::vm::{ReprGuard, VirtualMachine};
 use crate::{
-    IdProtocol, IntoPyObject, PyArithmaticValue, PyClassImpl, PyComparisonValue, PyContext,
-    PyObjectRef, PyRef, PyResult, PyValue, TransmuteFromObject, TryFromObject, TypeProtocol,
+    IdProtocol, IntoPyObject, PyArithmaticValue, PyClassDef, PyClassImpl, PyComparisonValue,
+    PyContext, PyObjectRef, PyRef, PyResult, PyValue, TransmuteFromObject, TryFromObject,
+    TypeProtocol,
 };
 
 /// tuple() -> empty tuple
@@ -182,7 +183,7 @@ impl PyTuple {
 
     #[pymethod(name = "__getitem__")]
     fn getitem(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let result = match zelf.elements.as_ref().get_item(vm, needle, "tuple")? {
+        let result = match zelf.elements.as_ref().get_item(vm, needle, Self::NAME)? {
             Either::A(obj) => obj,
             Either::B(vec) => vm.ctx.new_tuple(vec),
         };

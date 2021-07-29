@@ -26,8 +26,8 @@ use crate::slots::{
 use crate::utils::Either;
 use crate::vm::VirtualMachine;
 use crate::{
-    IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef,
-    PyRef, PyResult, PyValue, TypeProtocol,
+    IdProtocol, IntoPyObject, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyIterable,
+    PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;
@@ -151,11 +151,11 @@ impl PyByteArray {
     #[pymethod(magic)]
     fn setitem(
         zelf: PyRef<Self>,
-        needle: SequenceIndex,
+        needle: PyObjectRef,
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        match needle {
+        match SequenceIndex::try_from_object_for(vm, needle, Self::NAME)? {
             SequenceIndex::Int(i) => {
                 let value = value_from_object(vm, &value)?;
                 let mut elements = zelf.borrow_buf_mut();
@@ -192,7 +192,7 @@ impl PyByteArray {
 
     #[pymethod(magic)]
     fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.inner().getitem("bytearray", needle, vm)
+        self.inner().getitem(Self::NAME, needle, vm)
     }
 
     #[pymethod(magic)]

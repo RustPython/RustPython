@@ -23,8 +23,8 @@ use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter};
 use crate::utils::Either;
 use crate::VirtualMachine;
 use crate::{
-    IdProtocol, IntoPyObject, ItemProtocol, PyClassImpl, PyComparisonValue, PyContext, PyIterable,
-    PyObjectRef, PyRef, PyResult, PyValue, TryIntoRef, TypeProtocol,
+    IdProtocol, IntoPyObject, ItemProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext,
+    PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryIntoRef, TypeProtocol,
 };
 use rustpython_common::atomic::{self, PyAtomic, Radium};
 use rustpython_common::hash;
@@ -254,7 +254,7 @@ impl PyStr {
 
     #[pymethod(name = "__getitem__")]
     fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let s = match self.get_item(vm, needle, "string")? {
+        let s = match self.get_item(vm, needle, Self::NAME)? {
             Either::A(ch) => ch.to_string(),
             Either::B(s) => s,
         };
