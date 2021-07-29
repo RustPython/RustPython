@@ -501,7 +501,8 @@ impl<T> Drop for Drain<'_, T> {
     fn drop(&mut self) {
         // len is currently 0 so panicking while dropping will not cause a double drop.
 
-        // exhaust self first
+        // exhaust self first, clippy warning here is seemingly a fluke.
+        #[allow(clippy::while_let_on_iterator)]
         while let Some(_) = self.next() {}
 
         if self.tail_len > 0 {
