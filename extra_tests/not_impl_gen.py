@@ -172,7 +172,7 @@ def scan_modules():
     return list(modules.keys())
 
 
-def dir_of_mod_or_error(module_name):
+def dir_of_mod_or_error(module_name, keep_other=True):
     # Importing modules causes ('Constant String', 2, None, 4) and
     # "Hello world!" to be printed to stdout.
     f = io.StringIO()
@@ -189,7 +189,7 @@ def dir_of_mod_or_error(module_name):
         item = getattr(module, item_name)
         item_mod = inspect.getmodule(item)
         # don't repeat items imported from other modules
-        if item_mod is module or item_mod is None:
+        if keep_other or item_mod is module or item_mod is None:
             result[item_name] = extra_info(item)
     return result
 
@@ -201,7 +201,8 @@ def gen_modules():
     for mod_name in scan_modules():
         if mod_name in ("this", "antigravity") or mod_name in PEP_594_MODULES:
             continue
-        dir_result = dir_of_mod_or_error(mod_name)
+        # when generating CPython list, ignore items defined by other modules
+        dir_result = dir_of_mod_or_error(mod_name, keep_other=False)
         if isinstance(dir_result, Exception):
             print(
                 f"!!! {mod_name} skipped because {type(dir_result).__name__}: {str(dir_result)}",
