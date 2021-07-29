@@ -350,7 +350,7 @@ impl Comparable for PyComplex {
             let result = if let Some(other) = other.payload_if_subclass::<PyComplex>(vm) {
                 zelf.value == other.value
             } else {
-                match float::to_op_float(&other, vm) {
+                match float::to_op_float(other, vm) {
                     Ok(Some(other)) => zelf.value == other.into(),
                     Err(_) => false,
                     Ok(None) => return Ok(PyComparisonValue::NotImplemented),

@@ -16,10 +16,10 @@ use crate::{
 
 #[repr(i32)]
 pub enum QuoteStyle {
-    QuoteMinimal,
-    QuoteAll,
-    QuoteNonnumeric,
-    QuoteNone,
+    Minimal = 0,
+    All = 1,
+    Nonnumeric = 2,
+    None = 3,
 }
 
 struct FormatOptions {
@@ -317,9 +317,9 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "writer" => named_function!(ctx, _csv, writer),
         "Error"  => error,
         // constants
-        "QUOTE_MINIMAL" => ctx.new_int(QuoteStyle::QuoteMinimal as i32),
-        "QUOTE_ALL" => ctx.new_int(QuoteStyle::QuoteAll as i32),
-        "QUOTE_NONNUMERIC" => ctx.new_int(QuoteStyle::QuoteNonnumeric as i32),
-        "QUOTE_NONE" => ctx.new_int(QuoteStyle::QuoteNone as i32),
+        "QUOTE_MINIMAL" => ctx.new_int(QuoteStyle::Minimal as i32),
+        "QUOTE_ALL" => ctx.new_int(QuoteStyle::All as i32),
+        "QUOTE_NONNUMERIC" => ctx.new_int(QuoteStyle::Nonnumeric as i32),
+        "QUOTE_NONE" => ctx.new_int(QuoteStyle::None as i32),
     })
 }

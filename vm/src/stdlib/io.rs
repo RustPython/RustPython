@@ -516,7 +516,7 @@ mod _io {
         }
         #[pyslot]
         fn tp_iternext(instance: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            let line = vm.call_method(&instance, "readline", ())?;
+            let line = vm.call_method(instance, "readline", ())?;
             if !pybool::boolval(vm, line.clone())? {
                 Err(vm.new_stop_iteration())
             } else {
@@ -1357,7 +1357,7 @@ mod _io {
         };
         match name {
             Some(name) => {
-                if let Some(_guard) = ReprGuard::enter(vm, &obj) {
+                if let Some(_guard) = ReprGuard::enter(vm, obj) {
                     vm.to_repr(&name).map(Some)
                 } else {
                     Err(vm.new_runtime_error(format!(

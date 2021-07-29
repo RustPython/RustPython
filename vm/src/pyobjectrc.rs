@@ -554,7 +554,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef) {
     object_type
         .subclasses
         .write()
-        .push(PyWeak::downgrade(&type_type.as_object()));
+        .push(PyWeak::downgrade(type_type.as_object()));
 
     (type_type, object_type)
 }

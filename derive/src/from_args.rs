@@ -81,7 +81,7 @@ impl ArgAttribute {
         }
         match arg {
             NestedMeta::Meta(Meta::Path(path)) => {
-                if path_eq(&path, "default") || path_eq(&path, "optional") {
+                if path_eq(path, "default") || path_eq(path, "optional") {
                     if self.default.is_none() {
                         self.default = Some(None);
                     }

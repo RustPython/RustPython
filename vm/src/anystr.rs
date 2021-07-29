@@ -247,7 +247,7 @@ pub trait AnyStr<'s>: 's {
     {
         if range.is_normal() {
             let start = range.start;
-            let index = find(self.get_chars(range), &needle)?;
+            let index = find(self.get_chars(range), needle)?;
             Some(start + index)
         } else {
             None
@@ -260,7 +260,7 @@ pub trait AnyStr<'s>: 's {
         F: Fn(&Self, &Self) -> usize,
     {
         if range.is_normal() {
-            count(self.get_chars(range), &needle)
+            count(self.get_chars(range), needle)
         } else {
             0
         }
@@ -336,10 +336,10 @@ pub trait AnyStr<'s>: 's {
         FC: Fn(&Self, &Self) -> bool,
     {
         //if self.py_starts_with(prefix) {
-        if is_prefix(&self, prefix) {
+        if is_prefix(self, prefix) {
             self.get_bytes(prefix_len..self.bytes_len())
         } else {
-            &self
+            self
         }
     }
 
@@ -347,10 +347,10 @@ pub trait AnyStr<'s>: 's {
     where
         FC: Fn(&Self, &Self) -> bool,
     {
-        if is_suffix(&self, suffix) {
+        if is_suffix(self, suffix) {
             self.get_bytes(0..self.bytes_len() - suffix_len)
         } else {
-            &self
+            self
         }
     }
 

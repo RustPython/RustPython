@@ -135,7 +135,7 @@ fn parse_align(text: &str) -> (Option<FormatAlign>, &str) {
     let mut chars = text.chars();
     let maybe_align = chars.next().and_then(FormatAlign::from_char);
     if maybe_align.is_some() {
-        (maybe_align, &chars.as_str())
+        (maybe_align, chars.as_str())
     } else {
         (None, text)
     }
@@ -202,7 +202,7 @@ fn parse_precision(text: &str) -> Result<(Option<usize>, &str), &'static str> {
     let mut chars = text.chars();
     Ok(match chars.next() {
         Some('.') => {
-            let (size, remaining) = parse_number(&chars.as_str())?;
+            let (size, remaining) = parse_number(chars.as_str())?;
             if size.is_some() {
                 (size, remaining)
             } else {
@@ -823,7 +823,7 @@ impl FormatString {
                     }
 
                     let nested_format =
-                        FormatString::from_str(&format_spec).map_err(|e| e.into_pyexception(vm))?;
+                        FormatString::from_str(format_spec).map_err(|e| e.into_pyexception(vm))?;
                     let format_spec = nested_format.format_internal(vm, field_func)?;
 
                     pystr = call_object_format(vm, argument, *preconversion_spec, &format_spec)?;
@@ -879,7 +879,7 @@ impl FormatString {
             FieldType::Auto | FieldType::Index(_) => {
                 Err(vm.new_value_error("Format string contains positional fields".to_owned()))
             }
-            FieldType::Keyword(keyword) => dict.get_item(keyword, &vm),
+            FieldType::Keyword(keyword) => dict.get_item(keyword, vm),
         })
     }
 }

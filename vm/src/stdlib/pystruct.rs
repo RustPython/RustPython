@@ -218,7 +218,7 @@ pub(crate) mod _struct {
         ) -> PyResult<FormatSpec> {
             let decoded_fmt = match fmt {
                 Either::A(string) => string.as_str(),
-                Either::B(bytes) if bytes.is_ascii() => std::str::from_utf8(&bytes).unwrap(),
+                Either::B(bytes) if bytes.is_ascii() => std::str::from_utf8(bytes).unwrap(),
                 _ => {
                     return Err(vm.new_unicode_decode_error(
                         "Struct format must be a ascii string".to_owned(),

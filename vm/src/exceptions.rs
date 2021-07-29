@@ -824,7 +824,7 @@ impl serde::Serialize for SerializeException<'_> {
 
         let rendered = {
             let mut rendered = String::new();
-            write_exception(&mut rendered, self.vm, &self.exc).map_err(S::Error::custom)?;
+            write_exception(&mut rendered, self.vm, self.exc).map_err(S::Error::custom)?;
             rendered
         };
         struc.serialize_field("rendered", &rendered)?;

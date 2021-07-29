@@ -640,7 +640,7 @@ mod decl {
             let old_key = {
                 let mut state = zelf.groupby.state.lock();
 
-                if !state.is_current(&zelf) {
+                if !state.is_current(zelf) {
                     return Err(vm.new_stop_iteration());
                 }
 
@@ -735,14 +735,14 @@ mod decl {
                         ) = args.bind(vm)?;
 
                         let step = if !vm.is_none(&step) {
-                            pyobject_to_opt_usize(step, "Step", &vm)?
+                            pyobject_to_opt_usize(step, "Step", vm)?
                         } else {
                             1usize
                         };
                         (iter, start, stop, step)
                     };
                     let start = if !vm.is_none(&start) {
-                        pyobject_to_opt_usize(start, "Start", &vm)?
+                        pyobject_to_opt_usize(start, "Start", vm)?
                     } else {
                         0usize
                     };
@@ -752,7 +752,7 @@ mod decl {
             };
 
             let stop = if !vm.is_none(&stop) {
-                Some(pyobject_to_opt_usize(stop, "Stop", &vm)?)
+                Some(pyobject_to_opt_usize(stop, "Stop", vm)?)
             } else {
                 None
             };

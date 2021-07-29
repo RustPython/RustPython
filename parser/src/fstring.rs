@@ -197,7 +197,7 @@ impl<'a> FStringParser<'a> {
                 }
                 '"' | '\'' => {
                     expression.push(ch);
-                    while let Some(next) = self.chars.next() {
+                    for next in &mut self.chars {
                         expression.push(next);
                         if next == ch {
                             break;

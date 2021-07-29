@@ -94,7 +94,7 @@ impl PyType {
         if let Some(r) = f(self) {
             Some(r)
         } else {
-            self.mro.iter().find_map(|cls| f(&cls))
+            self.mro.iter().find_map(|cls| f(cls))
         }
     }
 
@@ -579,7 +579,7 @@ impl Callable for PyType {
         vm_trace!("type_call: {:?}", zelf);
         let obj = call_tp_new(zelf.clone(), zelf.clone(), args.clone(), vm)?;
 
-        if (zelf.is(&vm.ctx.types.type_type) && args.kwargs.is_empty()) || !obj.isinstance(&zelf) {
+        if (zelf.is(&vm.ctx.types.type_type) && args.kwargs.is_empty()) || !obj.isinstance(zelf) {
             return Ok(obj);
         }
 

@@ -311,7 +311,7 @@ fn math_trunc(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 fn math_ceil(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     let result_or_err = try_magic_method("__ceil__", vm, &value);
     if result_or_err.is_err() {
-        if let Ok(Some(v)) = float::try_float_opt(&value, &vm) {
+        if let Ok(Some(v)) = float::try_float_opt(&value, vm) {
             let v = float::try_bigint(v.ceil(), vm)?;
             return Ok(vm.ctx.new_int(v));
         }
@@ -328,7 +328,7 @@ fn math_ceil(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 fn math_floor(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     let result_or_err = try_magic_method("__floor__", vm, &value);
     if result_or_err.is_err() {
-        if let Ok(Some(v)) = float::try_float_opt(&value, &vm) {
+        if let Ok(Some(v)) = float::try_float_opt(&value, vm) {
             let v = float::try_bigint(v.floor(), vm)?;
             return Ok(vm.ctx.new_int(v));
         }
@@ -379,7 +379,7 @@ where
 
     let mut res = argvec[0].as_bigint().clone();
     for num in argvec[1..].iter() {
-        res = op(&res, &num)
+        res = op(&res, num)
     }
     res
 }

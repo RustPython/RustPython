@@ -1978,7 +1978,7 @@ impl<'a> SupportFunc {
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let module = platform::make_module(vm);
 
-    _os::extend_module(&vm, &module);
+    _os::extend_module(vm, &module);
 
     let support_funcs = _os::support_funcs();
     let supports_fd = PySet::default().into_ref(vm);
@@ -2510,8 +2510,8 @@ mod posix {
             .into_iter()
             .map(|(k, v)| -> PyResult<_> {
                 let (key, value) = (
-                    PyPathLike::try_from_object(&vm, k)?.into_bytes(),
-                    PyPathLike::try_from_object(&vm, v)?.into_bytes(),
+                    PyPathLike::try_from_object(vm, k)?.into_bytes(),
+                    PyPathLike::try_from_object(vm, v)?.into_bytes(),
                 );
 
                 if memchr::memchr(b'=', &key).is_some() {
