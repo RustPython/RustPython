@@ -321,6 +321,8 @@ class BaseBytesTest:
         # Default encoding is utf-8
         self.assertEqual(self.type2test(b'\xe2\x98\x83').decode(), '\u2603')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_check_encoding_errors(self):
         # bpo-37388: bytes(str) and bytes.encode() must check encoding
         # and errors arguments in dev mode
