@@ -307,10 +307,12 @@ impl PyType {
             .get("__qualname__")
             .cloned()
             // We need to exclude this method from going into recursion:
-            .and_then(|found| if found.isinstance(&vm.ctx.types.getset_type) {
-                None
-            } else {
-                Some(found)
+            .and_then(|found| {
+                if found.isinstance(&vm.ctx.types.getset_type) {
+                    None
+                } else {
+                    Some(found)
+                }
             })
             .unwrap_or_else(|| vm.ctx.new_str(self.name.clone()))
     }
@@ -323,10 +325,12 @@ impl PyType {
             .get("__module__")
             .cloned()
             // We need to exclude this method from going into recursion:
-            .and_then(|found| if found.isinstance(&vm.ctx.types.getset_type) {
-                None
-            } else {
-                Some(found)
+            .and_then(|found| {
+                if found.isinstance(&vm.ctx.types.getset_type) {
+                    None
+                } else {
+                    Some(found)
+                }
             })
             .unwrap_or_else(|| vm.ctx.new_str("builtins"))
     }
