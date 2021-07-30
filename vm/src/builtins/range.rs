@@ -1,7 +1,7 @@
 use crossbeam_utils::atomic::AtomicCell;
 use num_bigint::{BigInt, Sign};
 use num_integer::Integer;
-use num_traits::{One, Signed, Zero};
+use num_traits::{One, Signed, ToPrimitive, Zero};
 
 use super::int::{PyInt, PyIntRef};
 use super::pytype::PyTypeRef;
@@ -171,10 +171,9 @@ impl PyRange {
 
 pub fn init(context: &PyContext) {
     PyRange::extend_class(context, &context.types.range_type);
+    PyLongRangeIterator::extend_class(context, &context.types.longrange_iterator_type);
     PyRangeIterator::extend_class(context, &context.types.range_iterator_type);
 }
-
-type PyRangeRef = PyRef<PyRange>;
 
 #[pyimpl(with(Hashable, Comparable, Iterable))]
 impl PyRange {
@@ -217,7 +216,7 @@ impl PyRange {
     }
 
     #[pymethod(name = "__reversed__")]
-    fn reversed(&self) -> PyRangeIterator {
+    fn reversed(&self, vm: &VirtualMachine) -> PyResult {
         let start = self.start.as_bigint();
         let step = self.step.as_bigint();
 
@@ -227,12 +226,29 @@ impl PyRange {
         let start = &new_stop + length.clone() * step;
         let step = -step;
 
-        PyRangeIterator {
-            index: AtomicCell::new(0),
-            start,
-            step,
-            length,
-        }
+        Ok(
+            if let (Some(start), Some(step), Some(_)) =
+                (start.to_isize(), step.to_isize(), new_stop.to_isize())
+            {
+                PyRangeIterator {
+                    index: AtomicCell::new(0),
+                    start,
+                    step,
+                    // Cannot fail. If start, stop and step all successfully convert to isize, then result of zelf.len will
+                    // always fit in a usize.
+                    length: length.to_usize().unwrap_or(0),
+                }
+                .into_object(vm)
+            } else {
+                PyLongRangeIterator {
+                    index: AtomicCell::new(0),
+                    start,
+                    step,
+                    length,
+                }
+                .into_object(vm)
+            },
+        )
     }
 
     #[pymethod(name = "__len__")]
@@ -417,31 +433,78 @@ impl Iterable for PyRange {
             zelf.step.as_bigint(),
             zelf.len(),
         );
-        Ok(PyRangeIterator {
-            index: AtomicCell::new(0),
-            start: start.clone(),
-            step: step.clone(),
-            length,
+        if let (Some(start), Some(step), Some(_)) =
+            (start.to_isize(), step.to_isize(), stop.to_isize())
+        {
+            Ok(PyRangeIterator {
+                index: AtomicCell::new(0),
+                start,
+                step,
+                // Cannot fail. If start, stop and step all successfully convert to isize, then result of zelf.len will
+                // always fit in a usize.
+                length: length.to_usize().unwrap_or(0),
+            }
+            .into_object(vm))
+        } else {
+            Ok(PyLongRangeIterator {
+                index: AtomicCell::new(0),
+                start: start.clone(),
+                step: step.clone(),
+                length,
+            }
+            .into_object(vm))
         }
-        .into_object(vm))
     }
 }
 
 // Semantically, this is the same as the previous representation.
 //
-// Unfortunately, since AtomicCell requires a Copy type, no BigInt implementations can 
+// Unfortunately, since AtomicCell requires a Copy type, no BigInt implementations can
 // generally be used. As such, usize::MAX is the upper bound on number of elements (length)
 // the range can contain in RustPython.
 //
 // This doesn't preclude the range from containing large values, since start and step
 // can be BigInts, we can store any arbitrary range of values.
-#[pyclass(module = false, name = "range_iterator")]
+#[pyclass(module = false, name = "longrange_iterator")]
 #[derive(Debug)]
-pub struct PyRangeIterator {
+pub struct PyLongRangeIterator {
     index: AtomicCell<usize>,
     start: BigInt,
     step: BigInt,
     length: BigInt,
+}
+
+impl PyValue for PyLongRangeIterator {
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.longrange_iterator_type
+    }
+}
+
+#[pyimpl(with(PyIter))]
+impl PyLongRangeIterator {}
+
+impl PyIter for PyLongRangeIterator {
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        let index = BigInt::from(zelf.index.fetch_add(1));
+        if index < zelf.length {
+            Ok(vm
+                .ctx
+                .new_int(zelf.start.clone() + index * zelf.step.clone()))
+        } else {
+            Err(vm.new_stop_iteration())
+        }
+    }
+}
+
+// When start, stop, step are isizes, we can use a faster more compact representation
+// that only operates using isizes to track values.
+#[pyclass(module = false, name = "range_iterator")]
+#[derive(Debug)]
+pub struct PyRangeIterator {
+    index: AtomicCell<usize>,
+    start: isize,
+    step: isize,
+    length: usize,
 }
 
 impl PyValue for PyRangeIterator {
@@ -455,11 +518,10 @@ impl PyRangeIterator {}
 
 impl PyIter for PyRangeIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        let index = BigInt::from(zelf.index.fetch_add(1));
-        if index < zelf.length {
+        if zelf.index.load() < zelf.length {
             Ok(vm
                 .ctx
-                .new_int(zelf.start.clone() + index * zelf.step.clone()))
+                .new_int(zelf.start + (zelf.index.fetch_add(1) as isize) * zelf.step))
         } else {
             Err(vm.new_stop_iteration())
         }
