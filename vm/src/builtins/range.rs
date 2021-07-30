@@ -217,22 +217,21 @@ impl PyRange {
     }
 
     #[pymethod(name = "__reversed__")]
-    fn reversed(&self, vm: &VirtualMachine) -> PyRangeIterator {
+    fn reversed(&self) -> PyRangeIterator {
         let start = self.start.as_bigint();
         let step = self.step.as_bigint();
 
         // Use CPython calculation for this:
+        let length = self.len();
         let new_stop = start - step;
-        let new_start = &new_stop + (self.len() * step);
-        let reversed = PyRange {
-            start: new_start.into_pyref(vm),
-            stop: new_stop.into_pyref(vm),
-            step: (-step).into_pyref(vm),
-        };
+        let start = &new_stop + length.clone() * step;
+        let step = -step;
 
         PyRangeIterator {
-            position: AtomicCell::new(0),
-            range: reversed.into_ref(vm),
+            index: AtomicCell::new(0),
+            start,
+            step,
+            length,
         }
     }
 
@@ -412,19 +411,37 @@ impl Comparable for PyRange {
 
 impl Iterable for PyRange {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        let (start, stop, step, length) = (
+            zelf.start.as_bigint(),
+            zelf.stop.as_bigint(),
+            zelf.step.as_bigint(),
+            zelf.len(),
+        );
         Ok(PyRangeIterator {
-            position: AtomicCell::new(0),
-            range: zelf,
+            index: AtomicCell::new(0),
+            start: start.clone(),
+            step: step.clone(),
+            length,
         }
         .into_object(vm))
     }
 }
 
+// Semantically, this is the same as the previous representation.
+//
+// Unfortunately, since AtomicCell requires a Copy type, no BigInt implementations can 
+// generally be used. As such, usize::MAX is the upper bound on number of elements (length)
+// the range can contain in RustPython.
+//
+// This doesn't preclude the range from containing large values, since start and step
+// can be BigInts, we can store any arbitrary range of values.
 #[pyclass(module = false, name = "range_iterator")]
 #[derive(Debug)]
 pub struct PyRangeIterator {
-    position: AtomicCell<usize>,
-    range: PyRangeRef,
+    index: AtomicCell<usize>,
+    start: BigInt,
+    step: BigInt,
+    length: BigInt,
 }
 
 impl PyValue for PyRangeIterator {
@@ -438,9 +455,11 @@ impl PyRangeIterator {}
 
 impl PyIter for PyRangeIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        let position = BigInt::from(zelf.position.fetch_add(1));
-        if let Some(int) = zelf.range.get(&position) {
-            Ok(vm.ctx.new_int(int))
+        let index = BigInt::from(zelf.index.fetch_add(1));
+        if index < zelf.length {
+            Ok(vm
+                .ctx
+                .new_int(zelf.start.clone() + index * zelf.step.clone()))
         } else {
             Err(vm.new_stop_iteration())
         }
