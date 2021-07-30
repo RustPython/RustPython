@@ -2,6 +2,8 @@ assert type.__module__ == 'builtins'
 assert type.__qualname__ == 'type'
 assert type.__name__ == 'type'
 assert isinstance(type.__doc__, str)
+assert object.__qualname__ == 'object'
+assert int.__qualname__ == 'int'
 
 
 class A(type):
@@ -13,10 +15,23 @@ class B(type):
     __qualname__ = 'BB'
 
 
+class C:
+    pass
+
+
+class D:
+    __module__ = 'd'
+    __qualname__ = 'DD'
+
+
 assert A.__module__ == '__main__'
 assert A.__qualname__ == 'A'
 assert B.__module__ == 'b'
 assert B.__qualname__ == 'BB'
+assert C.__module__ == '__main__'
+assert C.__qualname__ == 'C'
+assert D.__module__ == 'd'
+assert D.__qualname__ == 'DD'
 
 
 # Regression to

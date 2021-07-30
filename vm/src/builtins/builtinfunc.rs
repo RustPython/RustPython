@@ -202,10 +202,5 @@ impl PyBuiltinMethod {
 
 pub fn init(context: &PyContext) {
     PyBuiltinFunction::extend_class(context, &context.types.builtin_function_or_method_type);
-    extend_class!(context, &context.types.builtin_function_or_method_type, {
-        "__qualname__" => context.new_str("builtin_function_or_method"),
-        "__module__" => context.new_str("builtins"),
-    });
-
     PyBuiltinMethod::extend_class(context, &context.types.method_descriptor_type);
 }
