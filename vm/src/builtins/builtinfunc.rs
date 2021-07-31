@@ -40,10 +40,7 @@ impl PyNativeFuncDef {
     }
     pub fn build_method(self, ctx: &PyContext, class: PyTypeRef) -> PyObjectRef {
         PyObject::new(
-            PyBuiltinMethod {
-                value: self,
-                class,
-            },
+            PyBuiltinMethod { value: self, class },
             ctx.types.method_descriptor_type.clone(),
             None,
         )
