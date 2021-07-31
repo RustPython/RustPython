@@ -323,8 +323,8 @@ where
                 |doc| quote!(.with_doc(#doc.to_owned(), ctx)),
             );
             let build_func = match self.method_type.as_str() {
-                "method" => quote!(.build_method(ctx, class)),
-                "classmethod" => quote!(.build_classmethod(ctx, class)),
+                "method" => quote!(.build_method(ctx, class.clone())),
+                "classmethod" => quote!(.build_classmethod(ctx, class.clone())),
                 other => unreachable!(
                     "Only 'method' and 'classmethod' are supported, got {}",
                     other

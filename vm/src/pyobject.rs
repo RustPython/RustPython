@@ -300,7 +300,7 @@ impl PyContext {
         &self,
         name: impl Into<String>,
         f: F,
-        class: &PyTypeRef,
+        class: PyTypeRef,
     ) -> PyObjectRef
     where
         F: IntoPyNativeFunc<FKind>,
@@ -312,7 +312,7 @@ impl PyContext {
         &self,
         name: impl Into<String>,
         f: F,
-        class: &PyTypeRef,
+        class: PyTypeRef,
     ) -> PyObjectRef
     where
         F: IntoPyNativeFunc<FKind>,
@@ -323,7 +323,7 @@ impl PyContext {
         &self,
         name: impl Into<String>,
         f: F,
-        class: &PyTypeRef,
+        class: PyTypeRef,
     ) -> PyObjectRef
     where
         F: IntoPyNativeFunc<FKind>,

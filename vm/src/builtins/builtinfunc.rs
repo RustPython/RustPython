@@ -38,17 +38,17 @@ impl PyNativeFuncDef {
     pub fn build_function(self, ctx: &PyContext) -> PyObjectRef {
         self.into_function().build(ctx)
     }
-    pub fn build_method(self, ctx: &PyContext, class: &PyTypeRef) -> PyObjectRef {
+    pub fn build_method(self, ctx: &PyContext, class: PyTypeRef) -> PyObjectRef {
         PyObject::new(
             PyBuiltinMethod {
                 value: self,
-                class: class.clone(),
+                class: class,
             },
             ctx.types.method_descriptor_type.clone(),
             None,
         )
     }
-    pub fn build_classmethod(self, ctx: &PyContext, class: &PyTypeRef) -> PyObjectRef {
+    pub fn build_classmethod(self, ctx: &PyContext, class: PyTypeRef) -> PyObjectRef {
         // TODO: classmethod_descriptor
         PyObject::new(
             PyClassMethod::from(self.build_method(ctx, class)),
