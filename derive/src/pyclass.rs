@@ -323,9 +323,12 @@ where
                 |doc| quote!(.with_doc(#doc.to_owned(), ctx)),
             );
             let build_func = match self.method_type.as_str() {
-                "method" => quote!(.into_method().with_dtype(class.clone()).build(ctx)),
-                "classmethod" => quote!(.build_classmethod(ctx)),
-                other => unreachable!("Only two methods and classmethods are supported, got {}", other),
+                "method" => quote!(.build_method(ctx, class)),
+                "classmethod" => quote!(.build_classmethod(ctx, class)),
+                other => unreachable!(
+                    "Only two methods and classmethods are supported, got {}",
+                    other
+                ),
             };
             quote! {
                 class.set_str_attr(

@@ -49,15 +49,30 @@ assert type(iter).__qualname__ == 'builtin_function_or_method'
 # Regression to
 # https://github.com/RustPython/RustPython/issues/2767
 
+# Marked as `#[pymethod]`:
 assert str.replace.__qualname__ == 'str.replace'
 assert str().replace.__qualname__ == 'str.replace'
 assert int.to_bytes.__qualname__ == 'int.to_bytes'
 assert int().to_bytes.__qualname__ == 'int.to_bytes'
 
+# Marked as `#[pyclassmethod]`:
+assert dict.fromkeys.__qualname__ == 'dict.fromkeys'
+assert object.__init_subclass__.__qualname__ == 'object.__init_subclass__'
 
+# Dynamic with `#[extend_class]`:
+assert bytearray.maketrans.__qualname__ == 'bytearray.maketrans'
+
+
+# Third-party:
 class MyTypeWithMethod:
     def method(self):
         pass
 
+    @classmethod
+    def clsmethod(cls):
+        pass
+
 assert MyTypeWithMethod.method.__qualname__ == 'MyTypeWithMethod.method'
 assert MyTypeWithMethod().method.__qualname__ == 'MyTypeWithMethod.method'
+assert MyTypeWithMethod.clsmethod.__qualname__ == 'MyTypeWithMethod.clsmethod'
+assert MyTypeWithMethod().clsmethod.__qualname__ == 'MyTypeWithMethod.clsmethod'

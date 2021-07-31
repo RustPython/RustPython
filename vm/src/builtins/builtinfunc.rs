@@ -41,13 +41,13 @@ impl PyNativeFuncDef {
     pub fn build_function(self, ctx: &PyContext) -> PyObjectRef {
         self.into_function().build(ctx)
     }
-    pub fn build_method(self, ctx: &PyContext) -> PyObjectRef {
-        self.into_method().build(ctx)
+    pub fn build_method(self, ctx: &PyContext, dtype: &PyTypeRef) -> PyObjectRef {
+        self.into_method().with_dtype(dtype.clone()).build(ctx)
     }
-    pub fn build_classmethod(self, ctx: &PyContext) -> PyObjectRef {
+    pub fn build_classmethod(self, ctx: &PyContext, dtype: &PyTypeRef) -> PyObjectRef {
         // TODO: classmethod_descriptor
         PyObject::new(
-            PyClassMethod::from(self.build_method(ctx)),
+            PyClassMethod::from(self.build_method(ctx, dtype)),
             ctx.types.classmethod_type.clone(),
             None,
         )
@@ -140,6 +140,8 @@ impl PyBuiltinFunction {
 }
 
 // PyMethodDescrObject in
+// https://github.com/python/cpython/blob/main/Include/descrobject.h
+// and
 // https://github.com/python/cpython/blob/main/Objects/descrobject.c
 #[pyclass(module = false, name = "method_descriptor")]
 pub struct PyBuiltinMethod {
@@ -149,6 +151,7 @@ pub struct PyBuiltinMethod {
 
 impl PyBuiltinMethod {
     pub fn with_dtype(mut self, dtype: PyTypeRef) -> Self {
+        // Warning: do not use it direcly, use `build_method` instead.
         self.dtype = Some(dtype);
         self
     }
@@ -211,7 +214,9 @@ impl PyBuiltinMethod {
     fn qualname(&self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_str(format!(
             "{}.{}",
-            // We can unwrap safely, because all methods have `dtype` set:
+            // We can unwrap safely, because all methods have `dtype` set
+            // during `#[pymethod]` macro expansion
+            // or when dynamically created with `build_method()`:
             self.dtype.as_ref().unwrap().tp_name(),
             &self.value.name,
         ))
