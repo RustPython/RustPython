@@ -3270,7 +3270,6 @@ mod nt {
 
     #[pyfunction]
     fn set_inheritable(fd: i32, inheritable: bool, vm: &VirtualMachine) -> PyResult<()> {
-        use winapi::um::{handleapi, winbase};
         let handle = Fd(fd).to_raw_handle().map_err(|e| e.into_pyexception(vm))?;
         set_handle_inheritable(handle as _, inheritable, vm)
     }

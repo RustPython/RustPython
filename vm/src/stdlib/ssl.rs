@@ -663,7 +663,10 @@ enum SelectRet {
     Ok,
 }
 fn ssl_select(sock: &socket::PySocket, needs: SslNeeds, timeout: &SocketTimeout) -> SelectRet {
-    let sock = sock.sock();
+    let sock = match sock.sock_opt() {
+        Some(s) => s,
+        None => return SelectRet::Closed,
+    };
     let timeout = match &timeout.deadline {
         Ok(deadline) => match deadline.checked_duration_since(Instant::now()) {
             Some(timeout) => timeout,
@@ -672,9 +675,6 @@ fn ssl_select(sock: &socket::PySocket, needs: SslNeeds, timeout: &SocketTimeout)
         Err(true) => return SelectRet::IsBlocking,
         Err(false) => return SelectRet::Nonblocking,
     };
-    if socket::sock_fileno(&sock) == socket::INVALID_SOCKET {
-        return SelectRet::Closed;
-    }
     let res = socket::sock_select(
         &sock,
         match needs {
