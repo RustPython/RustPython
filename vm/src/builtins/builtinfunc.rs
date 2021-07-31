@@ -35,19 +35,23 @@ impl PyNativeFuncDef {
     pub fn into_function(self) -> PyBuiltinFunction {
         self.into()
     }
-    pub fn into_method(self) -> PyBuiltinMethod {
-        self.into()
-    }
     pub fn build_function(self, ctx: &PyContext) -> PyObjectRef {
         self.into_function().build(ctx)
     }
-    pub fn build_method(self, ctx: &PyContext, dtype: &PyTypeRef) -> PyObjectRef {
-        self.into_method().with_dtype(dtype.clone()).build(ctx)
+    pub fn build_method(self, ctx: &PyContext, mmtype: &PyTypeRef) -> PyObjectRef {
+        PyObject::new(
+            PyBuiltinMethod {
+                value: self,
+                mmtype: mmtype.clone(),
+            },
+            ctx.types.method_descriptor_type.clone(),
+            None,
+        )
     }
-    pub fn build_classmethod(self, ctx: &PyContext, dtype: &PyTypeRef) -> PyObjectRef {
+    pub fn build_classmethod(self, ctx: &PyContext, mmtype: &PyTypeRef) -> PyObjectRef {
         // TODO: classmethod_descriptor
         PyObject::new(
-            PyClassMethod::from(self.build_method(ctx, dtype)),
+            PyClassMethod::from(self.build_method(ctx, mmtype)),
             ctx.types.classmethod_type.clone(),
             None,
         )
@@ -139,26 +143,12 @@ impl PyBuiltinFunction {
     }
 }
 
-// PyMethodDescrObject in
-// https://github.com/python/cpython/blob/main/Include/descrobject.h
-// and
-// https://github.com/python/cpython/blob/main/Objects/descrobject.c
+// PyCMethodObject in
+// https://github.com/python/cpython/blob/main/Include/cpython/methodobject.h
 #[pyclass(module = false, name = "method_descriptor")]
 pub struct PyBuiltinMethod {
     value: PyNativeFuncDef,
-    dtype: Option<PyTypeRef>,
-}
-
-impl PyBuiltinMethod {
-    pub fn with_dtype(mut self, dtype: PyTypeRef) -> Self {
-        // Warning: do not use it direcly, use `build_method` instead.
-        self.dtype = Some(dtype);
-        self
-    }
-
-    pub fn build(self, ctx: &PyContext) -> PyObjectRef {
-        PyObject::new(self, ctx.types.method_descriptor_type.clone(), None)
-    }
+    mmtype: PyTypeRef,
 }
 
 impl PyValue for PyBuiltinMethod {
@@ -170,12 +160,6 @@ impl PyValue for PyBuiltinMethod {
 impl fmt::Debug for PyBuiltinMethod {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "method descriptor for '{}'", self.value.name)
-    }
-}
-
-impl From<PyNativeFuncDef> for PyBuiltinMethod {
-    fn from(value: PyNativeFuncDef) -> Self {
-        Self { value, dtype: None }
     }
 }
 
@@ -212,14 +196,8 @@ impl PyBuiltinMethod {
     }
     #[pyproperty(magic)]
     fn qualname(&self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_str(format!(
-            "{}.{}",
-            // We can unwrap safely, because all methods have `dtype` set
-            // during `#[pymethod]` macro expansion
-            // or when dynamically created with `build_method()`:
-            self.dtype.as_ref().unwrap().tp_name(),
-            &self.value.name,
-        ))
+        vm.ctx
+            .new_str(format!("{}.{}", self.mmtype.tp_name(), &self.value.name))
     }
     #[pyproperty(magic)]
     fn doc(&self) -> Option<PyStrRef> {
