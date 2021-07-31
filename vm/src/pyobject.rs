@@ -300,36 +300,36 @@ impl PyContext {
         &self,
         name: impl Into<String>,
         f: F,
-        mmtype: &PyTypeRef,
+        class: &PyTypeRef,
     ) -> PyObjectRef
     where
         F: IntoPyNativeFunc<FKind>,
     {
-        self.make_funcdef(name, f).build_method(self, mmtype)
+        self.make_funcdef(name, f).build_method(self, class)
     }
 
     pub fn new_classmethod<F, FKind>(
         &self,
         name: impl Into<String>,
         f: F,
-        mmtype: &PyTypeRef,
+        class: &PyTypeRef,
     ) -> PyObjectRef
     where
         F: IntoPyNativeFunc<FKind>,
     {
-        self.make_funcdef(name, f).build_classmethod(self, mmtype)
+        self.make_funcdef(name, f).build_classmethod(self, class)
     }
     pub fn new_staticmethod<F, FKind>(
         &self,
         name: impl Into<String>,
         f: F,
-        mmtype: &PyTypeRef,
+        class: &PyTypeRef,
     ) -> PyObjectRef
     where
         F: IntoPyNativeFunc<FKind>,
     {
         PyObject::new(
-            PyStaticMethod::from(self.new_method(name, f, mmtype)),
+            PyStaticMethod::from(self.new_method(name, f, class)),
             self.types.staticmethod_type.clone(),
             None,
         )

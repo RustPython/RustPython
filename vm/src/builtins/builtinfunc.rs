@@ -38,20 +38,20 @@ impl PyNativeFuncDef {
     pub fn build_function(self, ctx: &PyContext) -> PyObjectRef {
         self.into_function().build(ctx)
     }
-    pub fn build_method(self, ctx: &PyContext, mmtype: &PyTypeRef) -> PyObjectRef {
+    pub fn build_method(self, ctx: &PyContext, class: &PyTypeRef) -> PyObjectRef {
         PyObject::new(
             PyBuiltinMethod {
                 value: self,
-                mmtype: mmtype.clone(),
+                class: class.clone(),
             },
             ctx.types.method_descriptor_type.clone(),
             None,
         )
     }
-    pub fn build_classmethod(self, ctx: &PyContext, mmtype: &PyTypeRef) -> PyObjectRef {
+    pub fn build_classmethod(self, ctx: &PyContext, class: &PyTypeRef) -> PyObjectRef {
         // TODO: classmethod_descriptor
         PyObject::new(
-            PyClassMethod::from(self.build_method(ctx, mmtype)),
+            PyClassMethod::from(self.build_method(ctx, class)),
             ctx.types.classmethod_type.clone(),
             None,
         )
@@ -148,7 +148,7 @@ impl PyBuiltinFunction {
 #[pyclass(module = false, name = "method_descriptor")]
 pub struct PyBuiltinMethod {
     value: PyNativeFuncDef,
-    mmtype: PyTypeRef,
+    class: PyTypeRef,
 }
 
 impl PyValue for PyBuiltinMethod {
@@ -197,7 +197,7 @@ impl PyBuiltinMethod {
     #[pyproperty(magic)]
     fn qualname(&self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx
-            .new_str(format!("{}.{}", self.mmtype.name, &self.value.name))
+            .new_str(format!("{}.{}", self.class.name, &self.value.name))
     }
     #[pyproperty(magic)]
     fn doc(&self) -> Option<PyStrRef> {
