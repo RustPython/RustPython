@@ -72,6 +72,10 @@ class MyTypeWithMethod:
     def clsmethod(cls):
         pass
 
+    @staticmethod
+    def stmethod():
+        pass
+
     class N:
         def m(self):
             pass
@@ -80,12 +84,20 @@ class MyTypeWithMethod:
         def c(cls):
             pass
 
+        @staticmethod
+        def s():
+            pass
+
 assert MyTypeWithMethod.method.__qualname__ == 'MyTypeWithMethod.method'
 assert MyTypeWithMethod().method.__qualname__ == 'MyTypeWithMethod.method'
 assert MyTypeWithMethod.clsmethod.__qualname__ == 'MyTypeWithMethod.clsmethod'
 assert MyTypeWithMethod().clsmethod.__qualname__ == 'MyTypeWithMethod.clsmethod'
+assert MyTypeWithMethod.stmethod.__qualname__ == 'MyTypeWithMethod.stmethod'
+assert MyTypeWithMethod().stmethod.__qualname__ == 'MyTypeWithMethod.stmethod'
 
 assert MyTypeWithMethod.N.m.__qualname__ == 'MyTypeWithMethod.N.m'
 assert MyTypeWithMethod().N.m.__qualname__ == 'MyTypeWithMethod.N.m'
 assert MyTypeWithMethod.N.c.__qualname__ == 'MyTypeWithMethod.N.c'
 assert MyTypeWithMethod().N.m.__qualname__ == 'MyTypeWithMethod.N.m'
+assert MyTypeWithMethod.N.s.__qualname__ == 'MyTypeWithMethod.N.s'
+assert MyTypeWithMethod().N.s.__qualname__ == 'MyTypeWithMethod.N.s'
