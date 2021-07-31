@@ -326,7 +326,7 @@ where
                 "method" => quote!(.build_method(ctx, class)),
                 "classmethod" => quote!(.build_classmethod(ctx, class)),
                 other => unreachable!(
-                    "Only two methods and classmethods are supported, got {}",
+                    "Only 'method' and 'classmethod' are supported, got {}",
                     other
                 ),
             };

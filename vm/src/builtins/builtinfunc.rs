@@ -197,7 +197,7 @@ impl PyBuiltinMethod {
     #[pyproperty(magic)]
     fn qualname(&self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx
-            .new_str(format!("{}.{}", self.mmtype.tp_name(), &self.value.name))
+            .new_str(format!("{}.{}", self.mmtype.name, &self.value.name))
     }
     #[pyproperty(magic)]
     fn doc(&self) -> Option<PyStrRef> {
