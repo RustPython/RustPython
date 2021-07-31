@@ -484,10 +484,6 @@ class RangeTest(unittest.TestCase):
         self.assertNotIn(-1, r)
         self.assertNotIn(1, r)
 
-    # TODO: RUSTPYTHON.
-    # NOTE: Test passes, fast iterators are required for this to not
-    #       take ~ 1m.
-    @unittest.skip
     def test_range_iterators(self):
         # exercise 'fast' iterators, that use a rangeiterobject internally.
         # see issue 7298
