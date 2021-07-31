@@ -42,7 +42,7 @@ impl PyNativeFuncDef {
         PyObject::new(
             PyBuiltinMethod {
                 value: self,
-                class: class,
+                class,
             },
             ctx.types.method_descriptor_type.clone(),
             None,
