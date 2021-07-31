@@ -4,7 +4,19 @@ use crate::lock::{
 };
 use std::ops::{Deref, DerefMut};
 
-#[derive(Debug, derive_more::From)]
+macro_rules! impl_from {
+    ($lt:lifetime, $gen:ident, $t:ty, $($var:ident($from:ty),)*) => {
+        $(
+            impl<$lt, $gen: ?Sized> From<$from> for $t {
+                fn from(t: $from) -> Self {
+                    Self::$var(t)
+                }
+            }
+        )*
+    };
+}
+
+#[derive(Debug)]
 pub enum BorrowedValue<'a, T: ?Sized> {
     Ref(&'a T),
     MuLock(PyMutexGuard<'a, T>),
@@ -12,6 +24,13 @@ pub enum BorrowedValue<'a, T: ?Sized> {
     ReadLock(PyRwLockReadGuard<'a, T>),
     MappedReadLock(PyMappedRwLockReadGuard<'a, T>),
 }
+impl_from!('a, T, BorrowedValue<'a, T>,
+    Ref(&'a T),
+    MuLock(PyMutexGuard<'a, T>),
+    MappedMuLock(PyImmutableMappedMutexGuard<'a, T>),
+    ReadLock(PyRwLockReadGuard<'a, T>),
+    MappedReadLock(PyMappedRwLockReadGuard<'a, T>),
+);
 
 impl<'a, T: ?Sized> BorrowedValue<'a, T> {
     pub fn map<U: ?Sized, F>(s: Self, f: F) -> BorrowedValue<'a, U>
@@ -45,7 +64,7 @@ impl<T: ?Sized> Deref for BorrowedValue<'_, T> {
     }
 }
 
-#[derive(Debug, derive_more::From)]
+#[derive(Debug)]
 pub enum BorrowedValueMut<'a, T: ?Sized> {
     RefMut(&'a mut T),
     MuLock(PyMutexGuard<'a, T>),
@@ -53,6 +72,13 @@ pub enum BorrowedValueMut<'a, T: ?Sized> {
     WriteLock(PyRwLockWriteGuard<'a, T>),
     MappedWriteLock(PyMappedRwLockWriteGuard<'a, T>),
 }
+impl_from!('a, T, BorrowedValueMut<'a, T>,
+    RefMut(&'a mut T),
+    MuLock(PyMutexGuard<'a, T>),
+    MappedMuLock(PyMappedMutexGuard<'a, T>),
+    WriteLock(PyRwLockWriteGuard<'a, T>),
+    MappedWriteLock(PyMappedRwLockWriteGuard<'a, T>),
+);
 
 impl<'a, T: ?Sized> BorrowedValueMut<'a, T> {
     pub fn map<U: ?Sized, F>(s: Self, f: F) -> BorrowedValueMut<'a, U>
