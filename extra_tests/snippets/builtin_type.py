@@ -44,3 +44,20 @@ assert iter.__class__.__module__ == 'builtins'
 assert iter.__class__.__qualname__ == 'builtin_function_or_method'
 assert type(iter).__module__ == 'builtins'
 assert type(iter).__qualname__ == 'builtin_function_or_method'
+
+
+# Regression to
+# https://github.com/RustPython/RustPython/issues/2767
+
+assert str.replace.__qualname__ == 'str.replace'
+assert str().replace.__qualname__ == 'str.replace'
+assert int.to_bytes.__qualname__ == 'int.to_bytes'
+assert int().to_bytes.__qualname__ == 'int.to_bytes'
+
+
+class MyTypeWithMethod:
+    def method(self):
+        pass
+
+assert MyTypeWithMethod.method.__qualname__ == 'MyTypeWithMethod.method'
+assert MyTypeWithMethod().method.__qualname__ == 'MyTypeWithMethod.method'

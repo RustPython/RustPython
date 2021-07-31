@@ -35,15 +35,14 @@ impl PyNativeFuncDef {
     pub fn into_function(self) -> PyBuiltinFunction {
         self.into()
     }
+    pub fn into_method(self) -> PyBuiltinMethod {
+        self.into()
+    }
     pub fn build_function(self, ctx: &PyContext) -> PyObjectRef {
         self.into_function().build(ctx)
     }
     pub fn build_method(self, ctx: &PyContext) -> PyObjectRef {
-        PyObject::new(
-            PyBuiltinMethod::from(self),
-            ctx.types.method_descriptor_type.clone(),
-            None,
-        )
+        self.into_method().build(ctx)
     }
     pub fn build_classmethod(self, ctx: &PyContext) -> PyObjectRef {
         // TODO: classmethod_descriptor
@@ -140,9 +139,23 @@ impl PyBuiltinFunction {
     }
 }
 
+// PyMethodDescrObject in
+// https://github.com/python/cpython/blob/main/Objects/descrobject.c
 #[pyclass(module = false, name = "method_descriptor")]
 pub struct PyBuiltinMethod {
     value: PyNativeFuncDef,
+    dtype: Option<PyTypeRef>,
+}
+
+impl PyBuiltinMethod {
+    pub fn with_dtype(mut self, dtype: PyTypeRef) -> Self {
+        self.dtype = Some(dtype);
+        self
+    }
+
+    pub fn build(self, ctx: &PyContext) -> PyObjectRef {
+        PyObject::new(self, ctx.types.method_descriptor_type.clone(), None)
+    }
 }
 
 impl PyValue for PyBuiltinMethod {
@@ -159,7 +172,7 @@ impl fmt::Debug for PyBuiltinMethod {
 
 impl From<PyNativeFuncDef> for PyBuiltinMethod {
     fn from(value: PyNativeFuncDef) -> Self {
-        Self { value }
+        Self { value, dtype: None }
     }
 }
 
@@ -193,6 +206,15 @@ impl PyBuiltinMethod {
     #[pyproperty(magic)]
     fn name(&self) -> PyStrRef {
         self.value.name.clone()
+    }
+    #[pyproperty(magic)]
+    fn qualname(&self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.new_str(format!(
+            "{}.{}",
+            // We can unwrap safely, because all methods have `dtype` set:
+            self.dtype.as_ref().unwrap().tp_name(),
+            &self.value.name,
+        ))
     }
     #[pyproperty(magic)]
     fn doc(&self) -> Option<PyStrRef> {
