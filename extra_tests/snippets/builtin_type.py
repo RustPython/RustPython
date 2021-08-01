@@ -101,3 +101,11 @@ assert MyTypeWithMethod.N.c.__qualname__ == 'MyTypeWithMethod.N.c'
 assert MyTypeWithMethod().N.c.__qualname__ == 'MyTypeWithMethod.N.c'
 assert MyTypeWithMethod.N.s.__qualname__ == 'MyTypeWithMethod.N.s'
 assert MyTypeWithMethod().N.s.__qualname__ == 'MyTypeWithMethod.N.s'
+
+
+# Regresesion to
+# https://github.com/RustPython/RustPython/issues/2775
+
+assert repr(str.replace) == "<method 'replace' of 'str' objects>"
+assert repr(str.replace) == str(str.replace)
+assert repr(int.to_bytes) == "<method 'to_bytes' of 'int' objects>"

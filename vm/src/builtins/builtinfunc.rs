@@ -140,8 +140,10 @@ impl PyBuiltinFunction {
     }
 }
 
-// PyCMethodObject in
-// https://github.com/python/cpython/blob/main/Include/cpython/methodobject.h
+// PyMethodDescrObject in
+// https://github.com/python/cpython/blob/main/Include/descrobject.h
+// and
+// https://github.com/python/cpython/blob/main/Objects/descrobject.c
 #[pyclass(module = false, name = "method_descriptor")]
 pub struct PyBuiltinMethod {
     value: PyNativeFuncDef,
@@ -199,6 +201,13 @@ impl PyBuiltinMethod {
     #[pyproperty(magic)]
     fn doc(&self) -> Option<PyStrRef> {
         self.value.doc.clone()
+    }
+    #[pymethod(magic)]
+    fn repr(&self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.new_str(format!(
+            "<method '{}' of '{}' objects>",
+            &self.value.name, self.class.name
+        ))
     }
 }
 
