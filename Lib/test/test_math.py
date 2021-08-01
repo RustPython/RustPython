@@ -299,7 +299,8 @@ class MathTests(unittest.TestCase):
         self.ftest('atan(-inf)', math.atan(NINF), -math.pi/2)
         self.assertTrue(math.isnan(math.atan(NAN)))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure 
     def testAtanh(self):
         self.assertRaises(TypeError, math.atan)
         self.ftest('atanh(0)', math.atanh(0), 0)
@@ -405,8 +406,7 @@ class MathTests(unittest.TestCase):
         self.assertRaises(TypeError, math.ceil, t)
         self.assertRaises(TypeError, math.ceil, t, 0)
 
-    # TODO: RUSTPYTHON
-    # @requires_IEEE_754
+    @requires_IEEE_754
     def testCopysign(self):
         self.assertEqual(math.copysign(1, 42), 1.0)
         self.assertEqual(math.copysign(0., 42), 0.0)
@@ -1080,45 +1080,48 @@ class MathTests(unittest.TestCase):
         self.assertEqual(math.log1p(INF), INF)
 
     # TODO: RUSTPYTHON
-    # @requires_IEEE_754
-    # def testLog2(self):
-    #     self.assertRaises(TypeError, math.log2)
+    @unittest.expectedFailure
+    @requires_IEEE_754
+    def testLog2(self):
+        self.assertRaises(TypeError, math.log2)
 
-    #     # Check some integer values
-    #     self.assertEqual(math.log2(1), 0.0)
-    #     self.assertEqual(math.log2(2), 1.0)
-    #     self.assertEqual(math.log2(4), 2.0)
+        # Check some integer values
+        self.assertEqual(math.log2(1), 0.0)
+        self.assertEqual(math.log2(2), 1.0)
+        self.assertEqual(math.log2(4), 2.0)
 
-    #     # Large integer values
-    #     self.assertEqual(math.log2(2**1023), 1023.0)
-    #     self.assertEqual(math.log2(2**1024), 1024.0)
-    #     self.assertEqual(math.log2(2**2000), 2000.0)
+        # Large integer values
+        self.assertEqual(math.log2(2**1023), 1023.0)
+        self.assertEqual(math.log2(2**1024), 1024.0)
+        self.assertEqual(math.log2(2**2000), 2000.0)
 
-    #     self.assertRaises(ValueError, math.log2, -1.5)
-    #     self.assertRaises(ValueError, math.log2, NINF)
-    #     self.assertTrue(math.isnan(math.log2(NAN)))
+        self.assertRaises(ValueError, math.log2, -1.5)
+        self.assertRaises(ValueError, math.log2, NINF)
+        self.assertTrue(math.isnan(math.log2(NAN)))
 
     # TODO: RUSTPYTHON
-    # @requires_IEEE_754
-    # # log2() is not accurate enough on Mac OS X Tiger (10.4)
-    # @support.requires_mac_ver(10, 5)
-    # def testLog2Exact(self):
-    #     # Check that we get exact equality for log2 of powers of 2.
-    #     actual = [math.log2(math.ldexp(1.0, n)) for n in range(-1074, 1024)]
-    #     expected = [float(n) for n in range(-1074, 1024)]
-    #     self.assertEqual(actual, expected)
+    @requires_IEEE_754
+    # log2() is not accurate enough on Mac OS X Tiger (10.4)
+    @support.requires_mac_ver(10, 5)
+    def testLog2Exact(self):
+        # Check that we get exact equality for log2 of powers of 2.
+        actual = [math.log2(math.ldexp(1.0, n)) for n in range(-1074, 1024)]
+        expected = [float(n) for n in range(-1074, 1024)]
+        self.assertEqual(actual, expected)
 
-    # def testLog10(self):
-    #     self.assertRaises(TypeError, math.log10)
-    #     self.ftest('log10(0.1)', math.log10(0.1), -1)
-    #     self.ftest('log10(1)', math.log10(1), 0)
-    #     self.ftest('log10(10)', math.log10(10), 1)
-    #     self.ftest('log10(10**1000)', math.log10(10**1000), 1000.0)
-    #     self.assertRaises(ValueError, math.log10, -1.5)
-    #     self.assertRaises(ValueError, math.log10, -10**1000)
-    #     self.assertRaises(ValueError, math.log10, NINF)
-    #     self.assertEqual(math.log(INF), INF)
-    #     self.assertTrue(math.isnan(math.log10(NAN)))
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def testLog10(self):
+        self.assertRaises(TypeError, math.log10)
+        self.ftest('log10(0.1)', math.log10(0.1), -1)
+        self.ftest('log10(1)', math.log10(1), 0)
+        self.ftest('log10(10)', math.log10(10), 1)
+        self.ftest('log10(10**1000)', math.log10(10**1000), 1000.0)
+        self.assertRaises(ValueError, math.log10, -1.5)
+        self.assertRaises(ValueError, math.log10, -10**1000)
+        self.assertRaises(ValueError, math.log10, NINF)
+        self.assertEqual(math.log(INF), INF)
+        self.assertTrue(math.isnan(math.log10(NAN)))
 
     def testModf(self):
         self.assertRaises(TypeError, math.modf)
@@ -1298,134 +1301,135 @@ class MathTests(unittest.TestCase):
         self.ftest('radians(0)', math.radians(0), 0)
 
     # TODO: RUSTPYTHON
-    # @requires_IEEE_754
-    # def testRemainder(self):
-    #     from fractions import Fraction
+    @unittest.expectedFailure
+    @requires_IEEE_754
+    def testRemainder(self):
+        from fractions import Fraction
 
-    #     def validate_spec(x, y, r):
-    #         """
-    #         Check that r matches remainder(x, y) according to the IEEE 754
-    #         specification. Assumes that x, y and r are finite and y is nonzero.
-    #         """
-    #         fx, fy, fr = Fraction(x), Fraction(y), Fraction(r)
-    #         # r should not exceed y/2 in absolute value
-    #         self.assertLessEqual(abs(fr), abs(fy/2))
-    #         # x - r should be an exact integer multiple of y
-    #         n = (fx - fr) / fy
-    #         self.assertEqual(n, int(n))
-    #         if abs(fr) == abs(fy/2):
-    #             # If |r| == |y/2|, n should be even.
-    #             self.assertEqual(n/2, int(n/2))
+        def validate_spec(x, y, r):
+            """
+            Check that r matches remainder(x, y) according to the IEEE 754
+            specification. Assumes that x, y and r are finite and y is nonzero.
+            """
+            fx, fy, fr = Fraction(x), Fraction(y), Fraction(r)
+            # r should not exceed y/2 in absolute value
+            self.assertLessEqual(abs(fr), abs(fy/2))
+            # x - r should be an exact integer multiple of y
+            n = (fx - fr) / fy
+            self.assertEqual(n, int(n))
+            if abs(fr) == abs(fy/2):
+                # If |r| == |y/2|, n should be even.
+                self.assertEqual(n/2, int(n/2))
 
-    #     # triples (x, y, remainder(x, y)) in hexadecimal form.
-    #     testcases = [
-    #         # Remainders modulo 1, showing the ties-to-even behaviour.
-    #         '-4.0 1 -0.0',
-    #         '-3.8 1  0.8',
-    #         '-3.0 1 -0.0',
-    #         '-2.8 1 -0.8',
-    #         '-2.0 1 -0.0',
-    #         '-1.8 1  0.8',
-    #         '-1.0 1 -0.0',
-    #         '-0.8 1 -0.8',
-    #         '-0.0 1 -0.0',
-    #         ' 0.0 1  0.0',
-    #         ' 0.8 1  0.8',
-    #         ' 1.0 1  0.0',
-    #         ' 1.8 1 -0.8',
-    #         ' 2.0 1  0.0',
-    #         ' 2.8 1  0.8',
-    #         ' 3.0 1  0.0',
-    #         ' 3.8 1 -0.8',
-    #         ' 4.0 1  0.0',
+        # triples (x, y, remainder(x, y)) in hexadecimal form.
+        testcases = [
+            # Remainders modulo 1, showing the ties-to-even behaviour.
+            '-4.0 1 -0.0',
+            '-3.8 1  0.8',
+            '-3.0 1 -0.0',
+            '-2.8 1 -0.8',
+            '-2.0 1 -0.0',
+            '-1.8 1  0.8',
+            '-1.0 1 -0.0',
+            '-0.8 1 -0.8',
+            '-0.0 1 -0.0',
+            ' 0.0 1  0.0',
+            ' 0.8 1  0.8',
+            ' 1.0 1  0.0',
+            ' 1.8 1 -0.8',
+            ' 2.0 1  0.0',
+            ' 2.8 1  0.8',
+            ' 3.0 1  0.0',
+            ' 3.8 1 -0.8',
+            ' 4.0 1  0.0',
 
-    #         # Reductions modulo 2*pi
-    #         '0x0.0p+0 0x1.921fb54442d18p+2 0x0.0p+0',
-    #         '0x1.921fb54442d18p+0 0x1.921fb54442d18p+2  0x1.921fb54442d18p+0',
-    #         '0x1.921fb54442d17p+1 0x1.921fb54442d18p+2  0x1.921fb54442d17p+1',
-    #         '0x1.921fb54442d18p+1 0x1.921fb54442d18p+2  0x1.921fb54442d18p+1',
-    #         '0x1.921fb54442d19p+1 0x1.921fb54442d18p+2 -0x1.921fb54442d17p+1',
-    #         '0x1.921fb54442d17p+2 0x1.921fb54442d18p+2 -0x0.0000000000001p+2',
-    #         '0x1.921fb54442d18p+2 0x1.921fb54442d18p+2  0x0p0',
-    #         '0x1.921fb54442d19p+2 0x1.921fb54442d18p+2  0x0.0000000000001p+2',
-    #         '0x1.2d97c7f3321d1p+3 0x1.921fb54442d18p+2  0x1.921fb54442d14p+1',
-    #         '0x1.2d97c7f3321d2p+3 0x1.921fb54442d18p+2 -0x1.921fb54442d18p+1',
-    #         '0x1.2d97c7f3321d3p+3 0x1.921fb54442d18p+2 -0x1.921fb54442d14p+1',
-    #         '0x1.921fb54442d17p+3 0x1.921fb54442d18p+2 -0x0.0000000000001p+3',
-    #         '0x1.921fb54442d18p+3 0x1.921fb54442d18p+2  0x0p0',
-    #         '0x1.921fb54442d19p+3 0x1.921fb54442d18p+2  0x0.0000000000001p+3',
-    #         '0x1.f6a7a2955385dp+3 0x1.921fb54442d18p+2  0x1.921fb54442d14p+1',
-    #         '0x1.f6a7a2955385ep+3 0x1.921fb54442d18p+2  0x1.921fb54442d18p+1',
-    #         '0x1.f6a7a2955385fp+3 0x1.921fb54442d18p+2 -0x1.921fb54442d14p+1',
-    #         '0x1.1475cc9eedf00p+5 0x1.921fb54442d18p+2  0x1.921fb54442d10p+1',
-    #         '0x1.1475cc9eedf01p+5 0x1.921fb54442d18p+2 -0x1.921fb54442d10p+1',
+            # Reductions modulo 2*pi
+            '0x0.0p+0 0x1.921fb54442d18p+2 0x0.0p+0',
+            '0x1.921fb54442d18p+0 0x1.921fb54442d18p+2  0x1.921fb54442d18p+0',
+            '0x1.921fb54442d17p+1 0x1.921fb54442d18p+2  0x1.921fb54442d17p+1',
+            '0x1.921fb54442d18p+1 0x1.921fb54442d18p+2  0x1.921fb54442d18p+1',
+            '0x1.921fb54442d19p+1 0x1.921fb54442d18p+2 -0x1.921fb54442d17p+1',
+            '0x1.921fb54442d17p+2 0x1.921fb54442d18p+2 -0x0.0000000000001p+2',
+            '0x1.921fb54442d18p+2 0x1.921fb54442d18p+2  0x0p0',
+            '0x1.921fb54442d19p+2 0x1.921fb54442d18p+2  0x0.0000000000001p+2',
+            '0x1.2d97c7f3321d1p+3 0x1.921fb54442d18p+2  0x1.921fb54442d14p+1',
+            '0x1.2d97c7f3321d2p+3 0x1.921fb54442d18p+2 -0x1.921fb54442d18p+1',
+            '0x1.2d97c7f3321d3p+3 0x1.921fb54442d18p+2 -0x1.921fb54442d14p+1',
+            '0x1.921fb54442d17p+3 0x1.921fb54442d18p+2 -0x0.0000000000001p+3',
+            '0x1.921fb54442d18p+3 0x1.921fb54442d18p+2  0x0p0',
+            '0x1.921fb54442d19p+3 0x1.921fb54442d18p+2  0x0.0000000000001p+3',
+            '0x1.f6a7a2955385dp+3 0x1.921fb54442d18p+2  0x1.921fb54442d14p+1',
+            '0x1.f6a7a2955385ep+3 0x1.921fb54442d18p+2  0x1.921fb54442d18p+1',
+            '0x1.f6a7a2955385fp+3 0x1.921fb54442d18p+2 -0x1.921fb54442d14p+1',
+            '0x1.1475cc9eedf00p+5 0x1.921fb54442d18p+2  0x1.921fb54442d10p+1',
+            '0x1.1475cc9eedf01p+5 0x1.921fb54442d18p+2 -0x1.921fb54442d10p+1',
 
-    #         # Symmetry with respect to signs.
-    #         ' 1  0.c  0.4',
-    #         '-1  0.c -0.4',
-    #         ' 1 -0.c  0.4',
-    #         '-1 -0.c -0.4',
-    #         ' 1.4  0.c -0.4',
-    #         '-1.4  0.c  0.4',
-    #         ' 1.4 -0.c -0.4',
-    #         '-1.4 -0.c  0.4',
+            # Symmetry with respect to signs.
+            ' 1  0.c  0.4',
+            '-1  0.c -0.4',
+            ' 1 -0.c  0.4',
+            '-1 -0.c -0.4',
+            ' 1.4  0.c -0.4',
+            '-1.4  0.c  0.4',
+            ' 1.4 -0.c -0.4',
+            '-1.4 -0.c  0.4',
 
-    #         # Huge modulus, to check that the underlying algorithm doesn't
-    #         # rely on 2.0 * modulus being representable.
-    #         '0x1.dp+1023 0x1.4p+1023  0x0.9p+1023',
-    #         '0x1.ep+1023 0x1.4p+1023 -0x0.ap+1023',
-    #         '0x1.fp+1023 0x1.4p+1023 -0x0.9p+1023',
-    #     ]
+            # Huge modulus, to check that the underlying algorithm doesn't
+            # rely on 2.0 * modulus being representable.
+            '0x1.dp+1023 0x1.4p+1023  0x0.9p+1023',
+            '0x1.ep+1023 0x1.4p+1023 -0x0.ap+1023',
+            '0x1.fp+1023 0x1.4p+1023 -0x0.9p+1023',
+        ]
 
-    #     for case in testcases:
-    #         with self.subTest(case=case):
-    #             x_hex, y_hex, expected_hex = case.split()
-    #             x = float.fromhex(x_hex)
-    #             y = float.fromhex(y_hex)
-    #             expected = float.fromhex(expected_hex)
-    #             validate_spec(x, y, expected)
-    #             actual = math.remainder(x, y)
-    #             # Cheap way of checking that the floats are
-    #             # as identical as we need them to be.
-    #             self.assertEqual(actual.hex(), expected.hex())
+        for case in testcases:
+            with self.subTest(case=case):
+                x_hex, y_hex, expected_hex = case.split()
+                x = float.fromhex(x_hex)
+                y = float.fromhex(y_hex)
+                expected = float.fromhex(expected_hex)
+                validate_spec(x, y, expected)
+                actual = math.remainder(x, y)
+                # Cheap way of checking that the floats are
+                # as identical as we need them to be.
+                self.assertEqual(actual.hex(), expected.hex())
 
-    #     # Test tiny subnormal modulus: there's potential for
-    #     # getting the implementation wrong here (for example,
-    #     # by assuming that modulus/2 is exactly representable).
-    #     tiny = float.fromhex('1p-1074')  # min +ve subnormal
-    #     for n in range(-25, 25):
-    #         if n == 0:
-    #             continue
-    #         y = n * tiny
-    #         for m in range(100):
-    #             x = m * tiny
-    #             actual = math.remainder(x, y)
-    #             validate_spec(x, y, actual)
-    #             actual = math.remainder(-x, y)
-    #             validate_spec(-x, y, actual)
+        # Test tiny subnormal modulus: there's potential for
+        # getting the implementation wrong here (for example,
+        # by assuming that modulus/2 is exactly representable).
+        tiny = float.fromhex('1p-1074')  # min +ve subnormal
+        for n in range(-25, 25):
+            if n == 0:
+                continue
+            y = n * tiny
+            for m in range(100):
+                x = m * tiny
+                actual = math.remainder(x, y)
+                validate_spec(x, y, actual)
+                actual = math.remainder(-x, y)
+                validate_spec(-x, y, actual)
 
-    #     # Special values.
-    #     # NaNs should propagate as usual.
-    #     for value in [NAN, 0.0, -0.0, 2.0, -2.3, NINF, INF]:
-    #         self.assertIsNaN(math.remainder(NAN, value))
-    #         self.assertIsNaN(math.remainder(value, NAN))
+        # Special values.
+        # NaNs should propagate as usual.
+        for value in [NAN, 0.0, -0.0, 2.0, -2.3, NINF, INF]:
+            self.assertIsNaN(math.remainder(NAN, value))
+            self.assertIsNaN(math.remainder(value, NAN))
 
-    #     # remainder(x, inf) is x, for non-nan non-infinite x.
-    #     for value in [-2.3, -0.0, 0.0, 2.3]:
-    #         self.assertEqual(math.remainder(value, INF), value)
-    #         self.assertEqual(math.remainder(value, NINF), value)
+        # remainder(x, inf) is x, for non-nan non-infinite x.
+        for value in [-2.3, -0.0, 0.0, 2.3]:
+            self.assertEqual(math.remainder(value, INF), value)
+            self.assertEqual(math.remainder(value, NINF), value)
 
-    #     # remainder(x, 0) and remainder(infinity, x) for non-NaN x are invalid
-    #     # operations according to IEEE 754-2008 7.2(f), and should raise.
-    #     for value in [NINF, -2.3, -0.0, 0.0, 2.3, INF]:
-    #         with self.assertRaises(ValueError):
-    #             math.remainder(INF, value)
-    #         with self.assertRaises(ValueError):
-    #             math.remainder(NINF, value)
-    #         with self.assertRaises(ValueError):
-    #             math.remainder(value, 0.0)
-    #         with self.assertRaises(ValueError):
-    #             math.remainder(value, -0.0)
+        # remainder(x, 0) and remainder(infinity, x) for non-NaN x are invalid
+        # operations according to IEEE 754-2008 7.2(f), and should raise.
+        for value in [NINF, -2.3, -0.0, 0.0, 2.3, INF]:
+            with self.assertRaises(ValueError):
+                math.remainder(INF, value)
+            with self.assertRaises(ValueError):
+                math.remainder(NINF, value)
+            with self.assertRaises(ValueError):
+                math.remainder(value, 0.0)
+            with self.assertRaises(ValueError):
+                math.remainder(value, -0.0)
 
     def testSin(self):
         self.assertRaises(TypeError, math.sin)
@@ -1482,12 +1486,12 @@ class MathTests(unittest.TestCase):
         self.assertTrue(math.isnan(math.tanh(NAN)))
 
     # TODO: RUSTPYTHON
-    # @requires_IEEE_754
-    # def testTanhSign(self):
-    #     # check that tanh(-0.) == -0. on IEEE 754 systems
-    #     self.assertEqual(math.tanh(-0.), -0.)
-    #     self.assertEqual(math.copysign(1., math.tanh(-0.)),
-    #                      math.copysign(1., -0.))
+    @requires_IEEE_754
+    def testTanhSign(self):
+        # check that tanh(-0.) == -0. on IEEE 754 systems
+        self.assertEqual(math.tanh(-0.), -0.)
+        self.assertEqual(math.copysign(1., math.tanh(-0.)),
+                         math.copysign(1., -0.))
 
     def test_trunc(self):
         self.assertEqual(math.trunc(1), 1)
@@ -1545,9 +1549,9 @@ class MathTests(unittest.TestCase):
         self.assertFalse(math.isinf(1.))
 
     # TODO: RUSTPYTHON
-    # @requires_IEEE_754
-    # def test_nan_constant(self):
-    #     self.assertTrue(math.isnan(math.nan))
+    @requires_IEEE_754
+    def test_nan_constant(self):
+        self.assertTrue(math.isnan(math.nan))
 
     @requires_IEEE_754
     def test_inf_constant(self):
@@ -1594,130 +1598,133 @@ class MathTests(unittest.TestCase):
             self.fail("sqrt(-1) didn't raise ValueError")
 
     # TODO: RUSTPYTHON
-    # @requires_IEEE_754
-    # def test_testfile(self):
-    #     # Some tests need to be skipped on ancient OS X versions.
-    #     # See issue #27953.
-    #     SKIP_ON_TIGER = {'tan0064'}
+    @unittest.expectedFailure
+    @requires_IEEE_754
+    def test_testfile(self):
+        # Some tests need to be skipped on ancient OS X versions.
+        # See issue #27953.
+        SKIP_ON_TIGER = {'tan0064'}
 
-    #     osx_version = None
-    #     if sys.platform == 'darwin':
-    #         version_txt = platform.mac_ver()[0]
-    #         try:
-    #             osx_version = tuple(map(int, version_txt.split('.')))
-    #         except ValueError:
-    #             pass
+        osx_version = None
+        if sys.platform == 'darwin':
+            version_txt = platform.mac_ver()[0]
+            try:
+                osx_version = tuple(map(int, version_txt.split('.')))
+            except ValueError:
+                pass
 
-    #     fail_fmt = "{}: {}({!r}): {}"
+        fail_fmt = "{}: {}({!r}): {}"
 
-    #     failures = []
-    #     for id, fn, ar, ai, er, ei, flags in parse_testfile(test_file):
-    #         # Skip if either the input or result is complex
-    #         if ai != 0.0 or ei != 0.0:
-    #             continue
-    #         if fn in ['rect', 'polar']:
-    #             # no real versions of rect, polar
-    #             continue
-    #         # Skip certain tests on OS X 10.4.
-    #         if osx_version is not None and osx_version < (10, 5):
-    #             if id in SKIP_ON_TIGER:
-    #                 continue
+        failures = []
+        for id, fn, ar, ai, er, ei, flags in parse_testfile(test_file):
+            # Skip if either the input or result is complex
+            if ai != 0.0 or ei != 0.0:
+                continue
+            if fn in ['rect', 'polar']:
+                # no real versions of rect, polar
+                continue
+            # Skip certain tests on OS X 10.4.
+            if osx_version is not None and osx_version < (10, 5):
+                if id in SKIP_ON_TIGER:
+                    continue
 
-    #         func = getattr(math, fn)
+            func = getattr(math, fn)
 
-    #         if 'invalid' in flags or 'divide-by-zero' in flags:
-    #             er = 'ValueError'
-    #         elif 'overflow' in flags:
-    #             er = 'OverflowError'
+            if 'invalid' in flags or 'divide-by-zero' in flags:
+                er = 'ValueError'
+            elif 'overflow' in flags:
+                er = 'OverflowError'
 
-    #         try:
-    #             result = func(ar)
-    #         except ValueError:
-    #             result = 'ValueError'
-    #         except OverflowError:
-    #             result = 'OverflowError'
+            try:
+                result = func(ar)
+            except ValueError:
+                result = 'ValueError'
+            except OverflowError:
+                result = 'OverflowError'
 
-    #         # Default tolerances
-    #         ulp_tol, abs_tol = 5, 0.0
+            # Default tolerances
+            ulp_tol, abs_tol = 5, 0.0
 
-    #         failure = result_check(er, result, ulp_tol, abs_tol)
-    #         if failure is None:
-    #             continue
+            failure = result_check(er, result, ulp_tol, abs_tol)
+            if failure is None:
+                continue
 
-    #         msg = fail_fmt.format(id, fn, ar, failure)
-    #         failures.append(msg)
+            msg = fail_fmt.format(id, fn, ar, failure)
+            failures.append(msg)
 
-    #     if failures:
-    #         self.fail('Failures in test_testfile:\n  ' +
-    #                   '\n  '.join(failures))
+        if failures:
+            self.fail('Failures in test_testfile:\n  ' +
+                      '\n  '.join(failures))
 
     # TODO: RUSTPYTHON
-    # @requires_IEEE_754
-    # def test_mtestfile(self):
-    #     fail_fmt = "{}: {}({!r}): {}"
+    # Currently hangs. Function never finishes.
+    @unittest.skip
+    @requires_IEEE_754
+    def test_mtestfile(self):
+        fail_fmt = "{}: {}({!r}): {}"
 
-    #     failures = []
-    #     for id, fn, arg, expected, flags in parse_mtestfile(math_testcases):
-    #         func = getattr(math, fn)
+        failures = []
+        for id, fn, arg, expected, flags in parse_mtestfile(math_testcases):
+            func = getattr(math, fn)
 
-    #         if 'invalid' in flags or 'divide-by-zero' in flags:
-    #             expected = 'ValueError'
-    #         elif 'overflow' in flags:
-    #             expected = 'OverflowError'
+            if 'invalid' in flags or 'divide-by-zero' in flags:
+                expected = 'ValueError'
+            elif 'overflow' in flags:
+                expected = 'OverflowError'
 
-    #         try:
-    #             got = func(arg)
-    #         except ValueError:
-    #             got = 'ValueError'
-    #         except OverflowError:
-    #             got = 'OverflowError'
+            try:
+                got = func(arg)
+            except ValueError:
+                got = 'ValueError'
+            except OverflowError:
+                got = 'OverflowError'
 
-    #         # Default tolerances
-    #         ulp_tol, abs_tol = 5, 0.0
+            # Default tolerances
+            ulp_tol, abs_tol = 5, 0.0
 
-    #         # Exceptions to the defaults
-    #         if fn == 'gamma':
-    #             # Experimental results on one platform gave
-    #             # an accuracy of <= 10 ulps across the entire float
-    #             # domain. We weaken that to require 20 ulp accuracy.
-    #             ulp_tol = 20
+            # Exceptions to the defaults
+            if fn == 'gamma':
+                # Experimental results on one platform gave
+                # an accuracy of <= 10 ulps across the entire float
+                # domain. We weaken that to require 20 ulp accuracy.
+                ulp_tol = 20
 
-    #         elif fn == 'lgamma':
-    #             # we use a weaker accuracy test for lgamma;
-    #             # lgamma only achieves an absolute error of
-    #             # a few multiples of the machine accuracy, in
-    #             # general.
-    #             abs_tol = 1e-15
+            elif fn == 'lgamma':
+                # we use a weaker accuracy test for lgamma;
+                # lgamma only achieves an absolute error of
+                # a few multiples of the machine accuracy, in
+                # general.
+                abs_tol = 1e-15
 
-    #         elif fn == 'erfc' and arg >= 0.0:
-    #             # erfc has less-than-ideal accuracy for large
-    #             # arguments (x ~ 25 or so), mainly due to the
-    #             # error involved in computing exp(-x*x).
-    #             #
-    #             # Observed between CPython and mpmath at 25 dp:
-    #             #       x <  0 : err <= 2 ulp
-    #             #  0 <= x <  1 : err <= 10 ulp
-    #             #  1 <= x < 10 : err <= 100 ulp
-    #             # 10 <= x < 20 : err <= 300 ulp
-    #             # 20 <= x      : < 600 ulp
-    #             #
-    #             if arg < 1.0:
-    #                 ulp_tol = 10
-    #             elif arg < 10.0:
-    #                 ulp_tol = 100
-    #             else:
-    #                 ulp_tol = 1000
+            elif fn == 'erfc' and arg >= 0.0:
+                # erfc has less-than-ideal accuracy for large
+                # arguments (x ~ 25 or so), mainly due to the
+                # error involved in computing exp(-x*x).
+                #
+                # Observed between CPython and mpmath at 25 dp:
+                #       x <  0 : err <= 2 ulp
+                #  0 <= x <  1 : err <= 10 ulp
+                #  1 <= x < 10 : err <= 100 ulp
+                # 10 <= x < 20 : err <= 300 ulp
+                # 20 <= x      : < 600 ulp
+                #
+                if arg < 1.0:
+                    ulp_tol = 10
+                elif arg < 10.0:
+                    ulp_tol = 100
+                else:
+                    ulp_tol = 1000
 
-    #         failure = result_check(expected, got, ulp_tol, abs_tol)
-    #         if failure is None:
-    #             continue
+            failure = result_check(expected, got, ulp_tol, abs_tol)
+            if failure is None:
+                continue
 
-    #         msg = fail_fmt.format(id, fn, arg, failure)
-    #         failures.append(msg)
+            msg = fail_fmt.format(id, fn, arg, failure)
+            failures.append(msg)
 
-    #     if failures:
-    #         self.fail('Failures in test_mtestfile:\n  ' +
-    #                   '\n  '.join(failures))
+        if failures:
+            self.fail('Failures in test_mtestfile:\n  ' +
+                      '\n  '.join(failures))
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
