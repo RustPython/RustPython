@@ -194,20 +194,19 @@ impl PyBuiltinMethod {
         self.value.name.clone()
     }
     #[pyproperty(magic)]
-    fn qualname(&self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx
-            .new_str(format!("{}.{}", self.class.name, &self.value.name))
+    fn qualname(&self) -> String {
+        format!("{}.{}", self.class.name, &self.value.name)
     }
     #[pyproperty(magic)]
     fn doc(&self) -> Option<PyStrRef> {
         self.value.doc.clone()
     }
     #[pymethod(magic)]
-    fn repr(&self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_str(format!(
+    fn repr(&self) -> String {
+        format!(
             "<method '{}' of '{}' objects>",
             &self.value.name, self.class.name
-        ))
+        )
     }
 }
 
