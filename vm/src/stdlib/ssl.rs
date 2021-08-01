@@ -37,6 +37,7 @@ mod sys {
         pub fn X509_get_default_cert_file() -> *const c_char;
         pub fn X509_get_default_cert_dir_env() -> *const c_char;
         pub fn X509_get_default_cert_dir() -> *const c_char;
+        #[cfg(ossl111)]
         pub fn SSL_CTX_set_post_handshake_auth(ctx: *mut SSL_CTX, val: c_int);
         pub fn RAND_add(buf: *const c_void, num: c_int, randomness: c_double);
         pub fn RAND_pseudo_bytes(buf: *const u8, num: c_int) -> c_int;
@@ -324,7 +325,10 @@ impl PySslContext {
         let mode = ssl::SslMode::ACCEPT_MOVING_WRITE_BUFFER | ssl::SslMode::AUTO_RETRY;
         builder.set_mode(mode);
 
-        unsafe { sys::SSL_CTX_set_post_handshake_auth(builder.as_ptr(), 0) };
+        #[cfg(ossl111)]
+        unsafe {
+            sys::SSL_CTX_set_post_handshake_auth(builder.as_ptr(), 0);
+        }
 
         builder
             .set_session_id_context(b"Python")
@@ -659,7 +663,10 @@ enum SelectRet {
     Ok,
 }
 fn ssl_select(sock: &socket::PySocket, needs: SslNeeds, timeout: &SocketTimeout) -> SelectRet {
-    let sock = sock.sock();
+    let sock = match sock.sock_opt() {
+        Some(s) => s,
+        None => return SelectRet::Closed,
+    };
     let timeout = match &timeout.deadline {
         Ok(deadline) => match deadline.checked_duration_since(Instant::now()) {
             Some(timeout) => timeout,
@@ -668,9 +675,6 @@ fn ssl_select(sock: &socket::PySocket, needs: SslNeeds, timeout: &SocketTimeout)
         Err(true) => return SelectRet::IsBlocking,
         Err(false) => return SelectRet::Nonblocking,
     };
-    if socket::sock_fileno(&sock) == socket::INVALID_SOCKET {
-        return SelectRet::Closed;
-    }
     let res = socket::sock_select(
         &sock,
         match needs {
@@ -1161,7 +1165,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "OP_NO_SSLv2" => ctx.new_int(sys::SSL_OP_NO_SSLv2),
         "OP_NO_SSLv3" => ctx.new_int(sys::SSL_OP_NO_SSLv3),
         "OP_NO_TLSv1" => ctx.new_int(sys::SSL_OP_NO_TLSv1),
-        "OP_NO_TLSv1_3" => ctx.new_int(sys::SSL_OP_NO_TLSv1_3),
         "OP_CIPHER_SERVER_PREFERENCE" => ctx.new_int(sys::SSL_OP_CIPHER_SERVER_PREFERENCE),
         "OP_SINGLE_DH_USE" => ctx.new_int(sys::SSL_OP_SINGLE_DH_USE),
         "OP_NO_TICKET" => ctx.new_int(sys::SSL_OP_NO_TICKET),
@@ -1207,6 +1210,11 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "OP_NO_COMPRESSION" => ctx.new_int(sys::SSL_OP_NO_COMPRESSION),
         "OP_NO_TLSv1_1" => ctx.new_int(sys::SSL_OP_NO_TLSv1_1),
         "OP_NO_TLSv1_2" => ctx.new_int(sys::SSL_OP_NO_TLSv1_2),
+    });
+
+    #[cfg(ossl111)]
+    extend_module!(vm, module, {
+        "OP_NO_TLSv1_3" => ctx.new_int(sys::SSL_OP_NO_TLSv1_3),
     });
 
     extend_module_platform_specific(&module, vm);

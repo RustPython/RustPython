@@ -54,7 +54,6 @@ rustpython-bytecode = { path = "../bytecode", version = "0.1.2" }
 rustpython-jit = { path = "../jit", optional = true, version = "0.1.2" }
 rustpython-pylib = { path = "pylib-crate", optional = true, version = "0.1.0" }
 serde = { version = "1.0.66", features = ["derive"] }
-rustc_version_runtime = "0.2.0"
 puruspe = "0.1"
 caseless = "0.2.1"
 chrono = { version = "0.4", features = ["wasmbind"] }
@@ -66,7 +65,7 @@ indexmap = "1.0.2"
 ahash = "0.7.2"
 crc = "^1.0.0"
 bitflags = "1.2.1"
-libc = "0.2.94"
+libc = "0.2.95"
 nix = "0.20.0"
 csv-core = "0.1"
 paste = "1.0.5"
@@ -125,7 +124,7 @@ strum_macros = "0.21"
 gethostname = "0.2.0"
 socket2 = { version = "0.4.0", features = ["all"] }
 dns-lookup = "1.0"
-rustyline = "8.0"
+rustyline = "8.1"
 openssl = { version = "0.10.32", optional = true }
 openssl-sys = { version = "0.9", optional = true }
 openssl-probe = { version = "0.1", optional = true }
@@ -159,3 +158,4 @@ wasm-bindgen = "0.2"
 
 [build-dependencies]
 itertools = "0.10.0"
+rustc_version = "0.4"

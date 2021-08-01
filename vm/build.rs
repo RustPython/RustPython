@@ -12,6 +12,10 @@ fn main() {
     );
     println!("cargo:rustc-env=RUSTPYTHON_GIT_TAG={}", git_tag());
     println!("cargo:rustc-env=RUSTPYTHON_GIT_BRANCH={}", git_branch());
+    println!(
+        "cargo:rustc-env=RUSTC_VERSION={}",
+        rustc_version::version().unwrap()
+    );
 
     println!(
         "cargo:rustc-env=RUSTPYTHON_TARGET_TRIPLE={}",

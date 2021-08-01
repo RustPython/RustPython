@@ -1,6 +1,3 @@
-# REDOX START, TODO: shouldn't be necessary once redox bumps toolchain version
-# cargo-features = ['resolver']
-# REDOX END
 [package]
 name = "rustpython"
 version = "0.1.2"
@@ -46,11 +43,11 @@ flame = { version = "0.2", optional = true }
 flamescope = { version = "0.1", optional = true }
 
 [target.'cfg(not(target_os = "wasi"))'.dependencies]
-rustyline = "8.0"
+rustyline = "8.1"
 
 [dev-dependencies]
-cpython = "0.5.0"
-python3-sys = "0.5.0"
+cpython = "0.6"
+python3-sys = "0.6"
 criterion = "0.3"
 
 [[bench]]
@@ -75,7 +72,4 @@ opt-level = 3
 
 [patch.crates-io]
 # REDOX START, Uncommment when you want to compile/check with redoxer
-# rustyline = { git = "https://github.com/kkawakam/rustyline" }
-# libc = { git = "https://github.com/rust-lang/libc" }
-# dns-lookup = { git = "https://github.com/coolreader18/dns-lookup", branch = "fix-redox" }
 # REDOX END

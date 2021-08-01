@@ -1138,7 +1138,7 @@ mod _os {
         })
     }
 
-    const STAT_DIR_FD: bool = cfg!(not(windows));
+    const STAT_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
 
     fn stat_inner(
         file: PathOrFd,
@@ -1166,26 +1166,26 @@ mod _os {
                         Ok(x) => x,
                         Err(_) => return Ok(None),
                     };
-                    let flags = if follow_symlinks.0 {
-                        None
-                    } else {
-                        #[cfg(not(target_os = "redox"))]
-                        {
-                            Some(libc::AT_SYMLINK_NOFOLLOW)
+
+                    #[cfg(not(target_os = "redox"))]
+                    let fstatat_ret = dir_fd.get_opt().map(|dir_fd| {
+                        let flags = if follow_symlinks.0 {
+                            0
+                        } else {
+                            libc::AT_SYMLINK_NOFOLLOW
+                        };
+                        unsafe { libc::fstatat(dir_fd, path.as_ptr(), stat.as_mut_ptr(), flags) }
+                    });
+                    #[cfg(target_os = "redox")]
+                    let ([], fstatat_ret) = (dir_fd.0, None);
+
+                    fstatat_ret.unwrap_or_else(|| {
+                        if follow_symlinks.0 {
+                            unsafe { libc::stat(path.as_ptr(), stat.as_mut_ptr()) }
+                        } else {
+                            unsafe { libc::lstat(path.as_ptr(), stat.as_mut_ptr()) }
                         }
-                        #[cfg(target_os = "redox")]
-                        {
-                            // TODO: does redox support NOFOLLOW?
-                            None
-                        }
-                    };
-                    let dir_fd = dir_fd.fd();
-                    if flags.is_some() || dir_fd != DEFAULT_DIR_FD {
-                        let flags = flags.unwrap_or(0);
-                        unsafe { libc::fstatat(dir_fd.0, path.as_ptr(), stat.as_mut_ptr(), flags) }
-                    } else {
-                        unsafe { libc::stat(path.as_ptr(), stat.as_mut_ptr()) }
-                    }
+                    })
                 }
                 PathOrFd::Fd(fd) => unsafe { libc::fstat(fd, stat.as_mut_ptr()) },
             };
@@ -1511,6 +1511,7 @@ mod _os {
     #[pyimpl(with(PyStructSequence))]
     impl TimesResult {}
 
+    #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn times(vm: &VirtualMachine) -> PyResult {
         #[cfg(windows)]
@@ -3223,11 +3224,7 @@ mod nt {
     use winapi::vc::vcruntime::intptr_t;
 
     #[pyattr]
-    use libc::O_BINARY;
-
-    #[pyattr]
-    // use libc::O_TEMPORARY;
-    const O_TEMPORARY: i32 = 0x40;
+    use libc::{O_BINARY, O_TEMPORARY};
 
     #[pyfunction]
     pub(super) fn access(path: PyPathLike, mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
@@ -3273,7 +3270,6 @@ mod nt {
 
     #[pyfunction]
     fn set_inheritable(fd: i32, inheritable: bool, vm: &VirtualMachine) -> PyResult<()> {
-        use winapi::um::{handleapi, winbase};
         let handle = Fd(fd).to_raw_handle().map_err(|e| e.into_pyexception(vm))?;
         set_handle_inheritable(handle as _, inheritable, vm)
     }
