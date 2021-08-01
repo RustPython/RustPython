@@ -98,6 +98,7 @@ mod _io {
         StaticType, TryFromObject, TypeProtocol,
     };
 
+    #[allow(clippy::let_and_return)]
     fn validate_whence(whence: i32) -> bool {
         let x = (0..=2).contains(&whence);
         cfg_if::cfg_if! {
