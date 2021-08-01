@@ -317,18 +317,25 @@ where
         let item_meta = MethodItemMeta::from_attr(ident.clone(), &item_attr)?;
 
         let py_name = item_meta.method_name()?;
-        let build_func = Ident::new(&format!("build_{}", &self.method_type), args.item.span());
         let tokens = {
             let doc = args.attrs.doc().map_or_else(
                 TokenStream::new,
                 |doc| quote!(.with_doc(#doc.to_owned(), ctx)),
             );
+            let build_func = match self.method_type.as_str() {
+                "method" => quote!(.build_method(ctx, class.clone())),
+                "classmethod" => quote!(.build_classmethod(ctx, class.clone())),
+                other => unreachable!(
+                    "Only 'method' and 'classmethod' are supported, got {}",
+                    other
+                ),
+            };
             quote! {
                 class.set_str_attr(
                     #py_name,
                     ctx.make_funcdef(#py_name, Self::#ident)
                         #doc
-                        .#build_func(ctx),
+                        #build_func
                 );
             }
         };
