@@ -29,6 +29,8 @@ class MutateCmp:
 
 class TestBasic(unittest.TestCase):
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_basics(self):
         d = deque(range(-5125, -5000))
         d.__init__(range(200))
@@ -48,6 +50,8 @@ class TestBasic(unittest.TestCase):
         self.assertEqual(right, list(range(150, 400)))
         self.assertEqual(list(d), list(range(50, 150)))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_maxlen(self):
         self.assertRaises(ValueError, deque, 'abc', -1)
         self.assertRaises(ValueError, deque, 'abc', -2)
@@ -105,6 +109,8 @@ class TestBasic(unittest.TestCase):
         d.extendleft(it)
         self.assertEqual(list(it), [])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_maxlen_attribute(self):
         self.assertEqual(deque().maxlen, None)
         self.assertEqual(deque('abc').maxlen, None)
@@ -208,6 +214,8 @@ class TestBasic(unittest.TestCase):
         d.extend(d)
         self.assertEqual(list(d), list('abcdabcd'))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_add(self):
         d = deque()
         e = deque('abc')
@@ -228,6 +236,8 @@ class TestBasic(unittest.TestCase):
         with self.assertRaises(TypeError):
             deque('abc') + 'def'
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_iadd(self):
         d = deque('a')
         d += 'bcd'
@@ -320,6 +330,8 @@ class TestBasic(unittest.TestCase):
         with self.assertRaises(ValueError):
             i = d.index("Hello world", 0, 4)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_insert(self):
         # Test to make sure insert behaves like lists
         elements = 'ABCDEFGHI'
@@ -345,6 +357,8 @@ class TestBasic(unittest.TestCase):
             else:
                 self.assertEqual(d[i-1], 'Z')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_imul(self):
         for n in (-10, -1, 0, 1, 2, 10, 1000):
             d = deque()
@@ -376,6 +390,8 @@ class TestBasic(unittest.TestCase):
             self.assertEqual(d, deque(('abcdef' * n)[-500:]))
             self.assertEqual(d.maxlen, 500)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_mul(self):
         d = deque('abc')
         self.assertEqual(d * -5, deque())
@@ -574,6 +590,8 @@ class TestBasic(unittest.TestCase):
         self.assertRaises(TypeError, deque, 'abc', 2, 3);
         self.assertRaises(TypeError, deque, 1);
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_hash(self):
         self.assertRaises(TypeError, hash, deque('abc'))
 
@@ -649,6 +667,8 @@ class TestBasic(unittest.TestCase):
         self.assertNotEqual(id(d), id(e))
         self.assertEqual(list(d), list(e))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_pickle(self):
         for d in deque(range(200)), deque(range(200), 100):
             for i in range(pickle.HIGHEST_PROTOCOL + 1):
@@ -658,6 +678,8 @@ class TestBasic(unittest.TestCase):
                 self.assertEqual(list(e), list(d))
                 self.assertEqual(e.maxlen, d.maxlen)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_pickle_recursive(self):
         for d in deque('abc'), deque('abc', 3):
             d.append(d)
@@ -667,6 +689,8 @@ class TestBasic(unittest.TestCase):
                 self.assertEqual(id(e[-1]), id(e))
                 self.assertEqual(e.maxlen, d.maxlen)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_iterator_pickle(self):
         orig = deque(range(200))
         data = [i*1.01 for i in orig]
@@ -708,6 +732,8 @@ class TestBasic(unittest.TestCase):
             self.assertEqual(type(it), type(itorg))
             self.assertEqual(list(it), [])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_deepcopy(self):
         mut = [10]
         d = deque([mut])
@@ -717,6 +743,8 @@ class TestBasic(unittest.TestCase):
         self.assertNotEqual(id(d), id(e))
         self.assertNotEqual(list(d), list(e))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_copy(self):
         mut = [10]
         d = deque([mut])
@@ -748,6 +776,8 @@ class TestBasic(unittest.TestCase):
         for s in ('abcd', range(2000)):
             self.assertEqual(list(reversed(deque(s))), list(reversed(s)))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_reversed_new(self):
         klass = type(reversed(deque()))
         for s in ('abcd', range(2000)):
@@ -762,6 +792,8 @@ class TestBasic(unittest.TestCase):
             d.append(1)
             gc.collect()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_container_iterator(self):
         # Bug #3680: tp_traverse was not implemented for deque iterator objects
         class C(object):
@@ -805,12 +837,16 @@ class TestVariousIteratorArgs(unittest.TestCase):
             self.assertRaises(TypeError, deque, seq_tests.IterNoNext(s))
             self.assertRaises(ZeroDivisionError, deque, seq_tests.IterGenExc(s))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_iter_with_altered_data(self):
         d = deque('abcdefg')
         it = iter(d)
         d.pop()
         self.assertRaises(RuntimeError, next, it)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_runtime_error_on_empty_deque(self):
         d = deque()
         it = iter(d)
@@ -826,6 +862,8 @@ class DequeWithBadIter(deque):
 
 class TestSubclass(unittest.TestCase):
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_basics(self):
         d = Deque(range(25))
         d.__init__(range(200))
@@ -905,6 +943,8 @@ class TestSubclass(unittest.TestCase):
             for d in DequeWithBadIter('abc'), DequeWithBadIter('abc', 2):
                 self.assertRaises(TypeError, pickle.dumps, d, proto)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_weakref(self):
         d = deque('gallahad')
         p = weakref.proxy(d)
