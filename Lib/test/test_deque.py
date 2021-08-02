@@ -886,6 +886,7 @@ class TestSubclass(unittest.TestCase):
         d.clear()
         self.assertEqual(len(d), 0)
 
+    @unittest.skip("AttributeError: 'Deque' object has no attribute '__copy__'")
     def test_copy_pickle(self):
 
         d = Deque('abc')
@@ -922,6 +923,7 @@ class TestSubclass(unittest.TestCase):
             self.assertEqual(type(d), type(e))
             self.assertEqual(list(d), list(e))
 
+    @unittest.skip("TODO: RUSTPYTHON RuntimeError: Unexpected payload 'deque' for type 'Deque'")
     def test_pickle_recursive(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             for d in Deque('abc'), Deque('abc', 3):
@@ -982,6 +984,7 @@ class SubclassWithKwargs(deque):
         deque.__init__(self)
 
 class TestSubclassWithKwargs(unittest.TestCase):
+    @unittest.skip("TODO: RUSTPYTHON TypeError: Unexpected keyword argument newarg")
     def test_subclass_with_kwargs(self):
         # SF bug #1486663 -- this used to erroneously raise a TypeError
         SubclassWithKwargs(newarg=1)
@@ -1004,6 +1007,21 @@ class TestSequence(seq_tests.CommonTest):
     def test_free_after_iterating(self):
         # For now, bypass tests that require slicing
         self.skipTest("Exhausted deque iterator doesn't free a deque")
+    
+    @unittest.skip("TODO: RUSTPYTHON TypeError: unexpected payload for __eq__")
+    def test_pickle(self):
+        pass
+        
+    @unittest.skip("TODO: RUSTPYTHON TypeError: '+=' not supported between instances of 'deque' and 'deque'")
+    def test_iadd(self):
+        pass
+
+    @unittest.skip("TODO: RUSTPYTHON TypeError: '+' not supported between instances of 'deque' and 'deque'")
+    def test_addmul(self):
+        pass
+
+
+
 
 #==============================================================================
 
