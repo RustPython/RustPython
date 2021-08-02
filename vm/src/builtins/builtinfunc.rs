@@ -140,10 +140,12 @@ impl PyBuiltinFunction {
     }
 }
 
-// PyMethodDescrObject in
+// `PyBuiltinMethod` is similar to both `PyMethodDescrObject` in
 // https://github.com/python/cpython/blob/main/Include/descrobject.h
-// and
 // https://github.com/python/cpython/blob/main/Objects/descrobject.c
+// and `PyCMethodObject` in
+// https://github.com/python/cpython/blob/main/Include/cpython/methodobject.h
+// https://github.com/python/cpython/blob/main/Objects/methodobject.c
 #[pyclass(module = false, name = "method_descriptor")]
 pub struct PyBuiltinMethod {
     value: PyNativeFuncDef,
