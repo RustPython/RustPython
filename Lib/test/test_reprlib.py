@@ -197,8 +197,6 @@ class ReprTests(unittest.TestCase):
                                   r'int object at 0x[0-9A-Fa-f]+>')
         self.assertRegex(r(x), r'<cell at 0x.*\.\.\..*>')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_descriptors(self):
         eq = self.assertEqual
         # method descriptors
