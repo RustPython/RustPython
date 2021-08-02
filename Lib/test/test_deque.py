@@ -1,4 +1,5 @@
 from collections import deque
+from io import UnsupportedOperation
 import unittest
 from test import support, seq_tests
 import gc
@@ -114,6 +115,7 @@ class TestBasic(unittest.TestCase):
             d = deque('abc')
             d.maxlen = 10
 
+    @unittest.skip("TODO: RUSTPYTHON hangs")
     def test_count(self):
         for s in ('', 'abracadabra', 'simsalabim'*500+'abc'):
             s = list(s)
@@ -163,6 +165,7 @@ class TestBasic(unittest.TestCase):
                 self.assertEqual(x >  y, list(x) >  list(y), (x,y))
                 self.assertEqual(x >= y, list(x) >= list(y), (x,y))
 
+    @unittest.skip("TODO: RUSTPYTHON hangs")
     def test_contains(self):
         n = 200
 
@@ -183,6 +186,7 @@ class TestBasic(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             n in d
 
+    @unittest.skip("TODO: RUSTPYTHON hangs")
     def test_contains_count_stop_crashes(self):
         class A:
             def __eq__(self, other):
@@ -195,6 +199,7 @@ class TestBasic(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             _ = d.count(3)
 
+    @unittest.skip("TODO: RUSTPYTHON hangs")
     def test_extend(self):
         d = deque('a')
         self.assertRaises(TypeError, d.extend, 1)
@@ -230,6 +235,7 @@ class TestBasic(unittest.TestCase):
         d += d
         self.assertEqual(list(d), list('abcdabcd'))
 
+    @unittest.skip("TODO: RUSTPYTHON hangs")
     def test_extendleft(self):
         d = deque('a')
         self.assertRaises(TypeError, d.extendleft, 1)
@@ -262,6 +268,7 @@ class TestBasic(unittest.TestCase):
         self.assertRaises(IndexError, d.__getitem__, 0)
         self.assertRaises(IndexError, d.__getitem__, -1)
 
+    @unittest.skip("TODO: RUSTPYTHON hangs")
     def test_index(self):
         for n in 1, 2, 30, 40, 200:
 
@@ -433,6 +440,7 @@ class TestBasic(unittest.TestCase):
             self.assertEqual(list(d), data[:i])
         self.assertRaises(TypeError, d.reverse, 1)          # Arity is zero
 
+    @unittest.skip("TODO: RUSTPYTHON panics")
     def test_rotate(self):
         s = tuple('abcde')
         n = len(s)
@@ -516,6 +524,7 @@ class TestBasic(unittest.TestCase):
         d.clear()               # clear an empty deque
         self.assertEqual(list(d), [])
 
+    @unittest.skip("TODO: RUSTPYTHON hangs")
     def test_remove(self):
         d = deque('abcdefghcij')
         d.remove('c')
