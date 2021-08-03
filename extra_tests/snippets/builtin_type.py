@@ -117,3 +117,9 @@ assert repr(int.to_bytes) == "<method 'to_bytes' of 'int' objects>"
 assert iter.__qualname__ == iter.__name__ == 'iter'
 assert max.__qualname__ == max.__name__ == 'max'
 assert min.__qualname__ ==  min.__name__ == 'min'
+
+
+def custom_func():
+    pass
+
+assert custom_func.__qualname__ == 'custom_func'
