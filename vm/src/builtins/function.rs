@@ -482,6 +482,11 @@ impl PyBoundMethod {
     fn module(&self, vm: &VirtualMachine) -> Option<PyObjectRef> {
         vm.get_attribute(self.function.clone(), "__module__").ok()
     }
+
+    #[pyproperty(magic)]
+    fn qualname(&self, vm: &VirtualMachine) -> PyResult {
+        vm.get_attribute(self.function.clone(), "__qualname__")
+    }
 }
 
 impl PyValue for PyBoundMethod {
