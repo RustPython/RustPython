@@ -12,7 +12,7 @@ jobs:
     container:
       image: redoxos/redoxer:latest
     steps:
-      - uses: actions/checkout@master
+      - uses: actions/checkout@v2
       - name: prepare repository for redoxer compilation
         run: bash scripts/redox/uncomment-cargo.sh
       - name: compile for redox
@@ -22,7 +22,7 @@ jobs:
     name: Collect code coverage data
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@master
+      - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: nightly
@@ -35,7 +35,7 @@ jobs:
           args: --release --verbose
         env:
           RUSTC_WRAPPER: './scripts/codecoverage-rustc-wrapper.sh'
-      - uses: actions/setup-python@v1
+      - uses: actions/setup-python@v2
         with:
           python-version: 3.8
       - name: Install pipenv
@@ -69,7 +69,7 @@ jobs:
     name: Collect regression test data
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@master
+      - uses: actions/checkout@v2
       - name: build rustpython
         uses: actions-rs/cargo@v1
         with:
@@ -99,7 +99,7 @@ jobs:
     name: Collect what is left data
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@master
+      - uses: actions/checkout@v2
       - name: build rustpython
         uses: actions-rs/cargo@v1
         with:
@@ -132,7 +132,7 @@ jobs:
     name: Collect benchmark data
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@master
+      - uses: actions/checkout@v2
       - run: cargo install cargo-criterion
       - name: build benchmarks
         run: cargo build --release --benches
