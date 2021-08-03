@@ -391,16 +391,21 @@ impl PyList {
     #[pyslot]
     fn tp_new(
         cls: PyTypeRef,
-        iterable: OptionalArg<PyObjectRef>,
+        _iterable: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        let elements = if let OptionalArg::Present(iterable) = iterable {
+        PyList::default().into_ref_with_type(vm, cls)
+    }
+
+    #[pymethod(name = "__init__")]
+    fn init(&self, iterable: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<()> {
+        let mut elements = if let OptionalArg::Present(iterable) = iterable {
             vm.extract_elements(&iterable)?
         } else {
             vec![]
         };
-
-        PyList::from(elements).into_ref_with_type(vm, cls)
+        std::mem::swap(self.borrow_vec_mut().deref_mut(), &mut elements);
+        Ok(())
     }
 }
 

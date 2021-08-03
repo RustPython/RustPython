@@ -78,14 +78,6 @@ impl PySetInner {
         Ok(set)
     }
 
-    fn from_arg(iterable: OptionalArg<PyIterable>, vm: &VirtualMachine) -> PyResult<PySetInner> {
-        if let OptionalArg::Present(iterable) = iterable {
-            Self::new(iterable, vm)
-        } else {
-            Ok(PySetInner::default())
-        }
-    }
-
     fn len(&self) -> usize {
         self.content.len()
     }
@@ -318,13 +310,21 @@ impl PySet {
     #[pyslot]
     fn tp_new(
         cls: PyTypeRef,
-        iterable: OptionalArg<PyIterable>,
+        _iterable: OptionalArg<PyIterable>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        Self {
-            inner: PySetInner::from_arg(iterable, vm)?,
+        PySet::default().into_ref_with_type(vm, cls)
+    }
+
+    #[pymethod(magic)]
+    fn init(&self, iterable: OptionalArg<PyIterable>, vm: &VirtualMachine) -> PyResult<()> {
+        if self.len() > 0 {
+            self.clear();
         }
-        .into_ref_with_type(vm, cls)
+        if let OptionalArg::Present(it) = iterable {
+            self.update(Args::new(vec![it]), vm)?;
+        }
+        Ok(())
     }
 
     #[pymethod(name = "__len__")]

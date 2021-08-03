@@ -54,10 +54,7 @@ impl PyValue for PyDict {
 impl PyDict {
     #[pyslot]
     fn tp_new(class: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        PyDict {
-            entries: DictContentType::default(),
-        }
-        .into_ref_with_type(vm, class)
+        PyDict::default().into_ref_with_type(vm, class)
     }
 
     #[pymethod(magic)]

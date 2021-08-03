@@ -47,8 +47,6 @@ class TestJointOps:
         self.s = self.thetype(word)
         self.d = dict.fromkeys(word)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_new_or_init(self):
         self.assertRaises(TypeError, self.thetype, [], 2)
         self.assertRaises(TypeError, set().__init__, a=1)
@@ -386,8 +384,6 @@ class TestSet(TestJointOps, unittest.TestCase):
     def test_contains(self):
         super().test_contains()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_init(self):
         s = self.thetype()
         s.__init__(self.word)
