@@ -118,6 +118,10 @@ impl PyBuiltinFunction {
         self.value.name.clone()
     }
     #[pyproperty(magic)]
+    fn qualname(&self) -> PyStrRef {
+        self.name()
+    }
+    #[pyproperty(magic)]
     fn doc(&self) -> Option<PyStrRef> {
         self.value.doc.clone()
     }
