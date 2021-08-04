@@ -12,8 +12,6 @@ from test import support, seq_tests
 
 class CommonTest(seq_tests.CommonTest):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_init(self):
         # Iterable arg is optional
         self.assertEqual(self.type2test([]), self.type2test())
