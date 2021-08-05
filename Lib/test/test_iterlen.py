@@ -86,8 +86,6 @@ class TestXrange(TestInvariantWithoutMutations, unittest.TestCase):
     def setUp(self):
         self.it = iter(range(n))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_invariant(self):
         super().test_invariant()
 
@@ -96,8 +94,6 @@ class TestXrangeCustomReversed(TestInvariantWithoutMutations, unittest.TestCase)
     def setUp(self):
         self.it = reversed(range(n))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_invariant(self):
         super().test_invariant()
 
@@ -205,8 +201,6 @@ class TestList(TestInvariantWithoutMutations, unittest.TestCase):
     def setUp(self):
         self.it = iter(range(n))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_invariant(self):
         super().test_invariant()
 
@@ -230,8 +224,6 @@ class TestListReversed(TestInvariantWithoutMutations, unittest.TestCase):
     def setUp(self):
         self.it = reversed(range(n))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_invariant(self):
         super().test_invariant()
 

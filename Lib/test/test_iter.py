@@ -109,8 +109,6 @@ class TestCase(unittest.TestCase):
             self.assertEqual(list(it), seq[1:])
 
     # Test basic use of iter() function
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_iter_basic(self):
         self.check_iterator(iter(range(10)), list(range(10)))
 
@@ -122,8 +120,6 @@ class TestCase(unittest.TestCase):
         self.assertTrue(it is it2)
 
     # Test that for loops over iterators work
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_iter_for_loop(self):
         self.check_for_loop(iter(range(10)), list(range(10)))
 
@@ -302,8 +298,6 @@ class TestCase(unittest.TestCase):
         self.check_for_loop(MySequenceClass(20), list(range(10)), pickle=False)
 
     # Test a big range
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_iter_big_range(self):
         self.check_for_loop(iter(range(10000)), list(range(10000)))
 
@@ -315,8 +309,6 @@ class TestCase(unittest.TestCase):
         self.check_for_loop(iter((0,1,2,3,4,5,6,7,8,9)), list(range(10)))
 
     # Test a range
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_iter_range(self):
         self.check_for_loop(iter(range(10)), list(range(10)))
 

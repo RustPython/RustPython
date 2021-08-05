@@ -2,6 +2,7 @@ use crossbeam_utils::atomic::AtomicCell;
 use num_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_traits::{One, Signed, ToPrimitive, Zero};
+use std::cmp::max;
 
 use super::int::{PyInt, PyIntRef};
 use super::pytype::PyTypeRef;
@@ -481,10 +482,40 @@ impl PyValue for PyLongRangeIterator {
 }
 
 #[pyimpl(with(PyIter))]
-impl PyLongRangeIterator {}
+impl PyLongRangeIterator {
+    #[pymethod(magic)]
+    fn length_hint(&self) -> BigInt {
+        let index = BigInt::from(self.index.load());
+        if index < self.length {
+            self.length.clone() - index
+        } else {
+            BigInt::zero()
+        }
+    }
+
+    #[pymethod(magic)]
+    fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.index.store(range_state(&self.length, state, vm)?);
+        Ok(())
+    }
+
+    #[pymethod(magic)]
+    fn reduce(&self, vm: &VirtualMachine) -> PyResult {
+        range_iter_reduce(
+            self.start.clone(),
+            self.length.clone(),
+            self.step.clone(),
+            self.index.load(),
+            vm,
+        )
+    }
+}
 
 impl PyIter for PyLongRangeIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        // TODO: In pathological case (index == usize::MAX) this can wrap around
+        // (since fetch_add wraps). This would result in the iterator spinning again
+        // from the beginning.
         let index = BigInt::from(zelf.index.fetch_add(1));
         if index < zelf.length {
             Ok(vm
@@ -514,17 +545,82 @@ impl PyValue for PyRangeIterator {
 }
 
 #[pyimpl(with(PyIter))]
-impl PyRangeIterator {}
+impl PyRangeIterator {
+    #[pymethod(magic)]
+    fn length_hint(&self) -> usize {
+        let index = self.index.load();
+        if index < self.length {
+            self.length - index
+        } else {
+            0
+        }
+    }
+
+    #[pymethod(magic)]
+    fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.index
+            .store(range_state(&BigInt::from(self.length), state, vm)?);
+        Ok(())
+    }
+
+    #[pymethod(magic)]
+    fn reduce(&self, vm: &VirtualMachine) -> PyResult {
+        range_iter_reduce(
+            BigInt::from(self.start),
+            BigInt::from(self.length),
+            BigInt::from(self.step),
+            self.index.load(),
+            vm,
+        )
+    }
+}
 
 impl PyIter for PyRangeIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        if zelf.index.load() < zelf.length {
-            Ok(vm
-                .ctx
-                .new_int(zelf.start + (zelf.index.fetch_add(1) as isize) * zelf.step))
+        // TODO: In pathological case (index == usize::MAX) this can wrap around
+        // (since fetch_add wraps). This would result in the iterator spinning again
+        // from the beginning.
+        let index = zelf.index.fetch_add(1);
+        if index < zelf.length {
+            Ok(vm.ctx.new_int(zelf.start + (index as isize) * zelf.step))
         } else {
             Err(vm.new_stop_iteration())
         }
+    }
+}
+
+fn range_iter_reduce(
+    start: BigInt,
+    length: BigInt,
+    step: BigInt,
+    index: usize,
+    vm: &VirtualMachine,
+) -> PyResult {
+    let iter = vm.get_attribute(vm.builtins.clone(), "iter")?;
+    let stop = start.clone() + length * step.clone();
+    let range = PyRange {
+        start: PyInt::from(start).into_ref(vm),
+        stop: PyInt::from(stop).into_ref(vm),
+        step: PyInt::from(step).into_ref(vm),
+    };
+    Ok(vm.ctx.new_tuple(vec![
+        iter,
+        vm.ctx.new_tuple(vec![range.into_object(vm)]),
+        vm.ctx.new_int(index),
+    ]))
+}
+
+// Silently clips state (i.e index) in range [0, usize::MAX].
+fn range_state(length: &BigInt, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+    if let Some(i) = state.payload::<PyInt>() {
+        let mut index = i.as_bigint();
+        let max_usize = BigInt::from(usize::MAX);
+        if index > length {
+            index = max(length, &max_usize);
+        }
+        Ok(index.to_usize().unwrap_or(0))
+    } else {
+        Err(vm.new_type_error("an integer is required.".to_owned()))
     }
 }
 
