@@ -116,6 +116,20 @@ assert MyTypeWithMethod().N.c.__qualname__ == 'MyTypeWithMethod.N.c'
 assert MyTypeWithMethod.N.s.__qualname__ == 'MyTypeWithMethod.N.s'
 assert MyTypeWithMethod().N.s.__qualname__ == 'MyTypeWithMethod.N.s'
 
+assert MyTypeWithMethod.N().m.__name__ == 'm'
+assert MyTypeWithMethod().N().m.__name__ == 'm'
+assert MyTypeWithMethod.N().c.__name__ == 'c'
+assert MyTypeWithMethod().N().c.__name__ == 'c'
+assert MyTypeWithMethod.N().s.__name__ == 's'
+assert MyTypeWithMethod().N.s.__name__ == 's'
+
+assert MyTypeWithMethod.N().m.__qualname__ == 'MyTypeWithMethod.N.m'
+assert MyTypeWithMethod().N().m.__qualname__ == 'MyTypeWithMethod.N.m'
+assert MyTypeWithMethod.N().c.__qualname__ == 'MyTypeWithMethod.N.c'
+assert MyTypeWithMethod().N().c.__qualname__ == 'MyTypeWithMethod.N.c'
+assert MyTypeWithMethod.N().s.__qualname__ == 'MyTypeWithMethod.N.s'
+assert MyTypeWithMethod().N().s.__qualname__ == 'MyTypeWithMethod.N.s'
+
 
 # Regresesion to
 # https://github.com/RustPython/RustPython/issues/2775
@@ -148,8 +162,6 @@ assert object.__subclasshook__.__name__ == '__subclasshook__'
 assert object.__subclasshook__.__qualname__ == 'object.__subclasshook__'
 assert type.__new__.__name__ == '__new__'
 assert type.__new__.__qualname__ == 'type.__new__'
-assert type.__subclasshook__.__name__ == '__subclasshook__'
-assert type.__subclasshook__.__qualname__ == 'type.__subclasshook__'
 
 
 class AQ:
@@ -274,3 +286,27 @@ assert BQ.three_cls.__qualname__ == 'BQ.three_cls'
 assert BQ().three_cls.__qualname__ == 'BQ.three_cls'
 assert BQ.three_st.__qualname__ == 'BQ.three_st'
 assert BQ().three_st.__qualname__ == 'BQ.three_st'
+
+
+class ClassWithNew:
+    def __new__(cls, *args, **kwargs):
+        return super().__new__(cls, *args, **kwargs)
+
+    class N:
+        def __new__(cls, *args, **kwargs):
+            return super().__new__(cls, *args, **kwargs)
+
+
+assert ClassWithNew.__new__.__qualname__ == 'ClassWithNew.__new__'
+assert ClassWithNew().__new__.__qualname__ == 'ClassWithNew.__new__'
+assert ClassWithNew.__new__.__name__ == '__new__'
+assert ClassWithNew().__new__.__name__ == '__new__'
+
+assert ClassWithNew.N.__new__.__qualname__ == 'ClassWithNew.N.__new__'
+assert ClassWithNew().N.__new__.__qualname__ == 'ClassWithNew.N.__new__'
+assert ClassWithNew.N.__new__.__name__ == '__new__'
+assert ClassWithNew().N.__new__.__name__ == '__new__'
+assert ClassWithNew.N().__new__.__qualname__ == 'ClassWithNew.N.__new__'
+assert ClassWithNew().N().__new__.__qualname__ == 'ClassWithNew.N.__new__'
+assert ClassWithNew.N().__new__.__name__ == '__new__'
+assert ClassWithNew().N().__new__.__name__ == '__new__'
