@@ -367,8 +367,6 @@ class RangeTest(unittest.TestCase):
                     self.assertEqual(list(pickle.loads(pickle.dumps(r, proto))),
                                      list(r))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_iterator_pickling(self):
         testcases = [(13,), (0, 11), (-22, 10), (20, 3, -1),
                      (13, 21, 3), (-2, 2, 2), (2**65, 2**65+2)]
@@ -391,8 +389,6 @@ class RangeTest(unittest.TestCase):
                 it = pickle.loads(d)
                 self.assertEqual(list(it), data[1:])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exhausted_iterator_pickling(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             r = range(2**65, 2**65+2)
@@ -406,8 +402,6 @@ class RangeTest(unittest.TestCase):
             self.assertEqual(list(i), [])
             self.assertEqual(list(i2), [])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_large_exhausted_iterator_pickling(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             r = range(20)
