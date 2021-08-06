@@ -123,6 +123,8 @@ class AbstractTestsWithSourceFile:
             # Check that testzip doesn't raise an exception
             zipfp.testzip()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_basic(self):
         for f in get_files(self):
             self.zip_test(f, self.compression)
@@ -392,6 +394,8 @@ class AbstractTestsWithSourceFile:
                 self.assertIn('[closed]', repr(zipopen))
             self.assertIn('[closed]', repr(zipfp))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_compresslevel_basic(self):
         for f in get_files(self):
             self.zip_test(f, self.compression, compresslevel=9)
@@ -596,6 +600,8 @@ class StoredTestsWithSourceFile(AbstractTestsWithSourceFile,
             zinfo = zipfp.getinfo(TESTFN)
             self.assertEqual(zinfo.date_time, (1980, 1, 1, 0, 0, 0))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_add_file_after_2107(self):
         # Set atime and mtime to 2108-12-30
         ts = 4386268800
@@ -733,6 +739,8 @@ class AbstractTestZip64InSmallFiles:
             # Check that testzip doesn't raise an exception
             zipfp.testzip()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_basic(self):
         for f in get_files(self):
             self.zip_test(f, self.compression)
@@ -1140,6 +1148,8 @@ class PyZipFileTests(unittest.TestCase):
             self.skipTest('requires write access to the installed location')
         unlink(filename)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_write_pyfile(self):
         self.requiresWriteAccess(os.path.dirname(__file__))
         with TemporaryFile() as t, zipfile.PyZipFile(t, "w") as zipfp:
@@ -1170,6 +1180,8 @@ class PyZipFileTests(unittest.TestCase):
             self.assertNotIn(bn, zipfp.namelist())
             self.assertCompiledIn(bn, zipfp.namelist())
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_write_python_package(self):
         import email
         packagedir = os.path.dirname(email.__file__)
@@ -1184,6 +1196,8 @@ class PyZipFileTests(unittest.TestCase):
             self.assertCompiledIn('email/__init__.py', names)
             self.assertCompiledIn('email/mime/text.py', names)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_write_filtered_python_package(self):
         import test
         packagedir = os.path.dirname(test.__file__)
@@ -1214,6 +1228,8 @@ class PyZipFileTests(unittest.TestCase):
                 print(reportStr)
             self.assertTrue('SyntaxError' not in reportStr)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_write_with_optimization(self):
         import email
         packagedir = os.path.dirname(email.__file__)
@@ -1589,6 +1605,8 @@ class OtherTests(unittest.TestCase):
             self.assertEqual(zf.filelist[0].filename, "foo.txt")
             self.assertEqual(zf.filelist[1].filename, "\xf6.txt")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_read_after_write_unicode_filenames(self):
         with zipfile.ZipFile(TESTFN2, 'w') as zipfp:
             zipfp.writestr('приклад', b'sample')
@@ -1797,6 +1815,8 @@ class OtherTests(unittest.TestCase):
         self.assertEqual(zipfile.sizeEndCentDir64, 56)
         self.assertEqual(zipfile.sizeEndCentDir64Locator, 20)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_comments(self):
         """Check that comments on the archive are handled properly."""
 
@@ -2715,6 +2735,8 @@ class TestExecutablePrependedZip(unittest.TestCase):
     def test_read_zip64_with_exe_prepended(self):
         self._test_zip_works(self.exe_zip64)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(sys.executable, 'sys.executable required.')
     @unittest.skipUnless(os.access('/bin/bash', os.X_OK),
                          'Test relies on #!/bin/bash working.')
@@ -2722,6 +2744,8 @@ class TestExecutablePrependedZip(unittest.TestCase):
         output = subprocess.check_output([self.exe_zip, sys.executable])
         self.assertIn(b'number in executable: 5', output)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(sys.executable, 'sys.executable required.')
     @unittest.skipUnless(os.access('/bin/bash', os.X_OK),
                          'Test relies on #!/bin/bash working.')
@@ -2942,6 +2966,7 @@ class TestPath(unittest.TestCase):
         # Check the file iterated all items
         assert entries.count == self.HUGE_ZIPFILE_NUM_ENTRIES
 
+    @unittest.skip("TODO: RUSTPYTHON, appears to hang")
     # @func_timeout.func_set_timeout(3)
     def test_implied_dirs_performance(self):
         data = ['/'.join(string.ascii_lowercase + str(n)) for n in range(10000)]
