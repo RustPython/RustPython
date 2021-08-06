@@ -1,10 +1,10 @@
 use std::fmt;
 
-use crate::builtins::{PyDict, PyTypeRef};
+use crate::builtins::PyTypeRef;
 use crate::pyobject::{PyObjectRef, PyValue, StaticType};
 use crate::VirtualMachine;
 
-use crate::stdlib::ctypes::basics::{PyCData, PyCDataMethods};
+use crate::stdlib::ctypes::basics::PyCData;
 
 #[pyclass(module = "_ctypes", name = "_Pointer", base = "PyCData")]
 pub struct PyCPointer {}

@@ -1,5 +1,4 @@
 use crossbeam_utils::atomic::AtomicCell;
-use rustpython_common::borrow::BorrowValue;
 use std::fmt;
 
 use crate::builtins::memory::try_buffer_from_object;
@@ -9,17 +8,16 @@ use crate::builtins::{
 };
 use crate::function::OptionalArg;
 use crate::pyobject::{
-    Either, IdProtocol, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject,
-    TypeProtocol,
+    IdProtocol, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
 };
-use crate::VirtualMachine;
-
 use crate::stdlib::ctypes::array::PyCArray;
 use crate::stdlib::ctypes::basics::{
     get_size, BorrowValueMut, PyCData, PyCDataFunctions, PyCDataMethods, PyCDataSequenceMethods,
 };
 use crate::stdlib::ctypes::function::PyCFuncPtr;
 use crate::stdlib::ctypes::pointer::PyCPointer;
+use crate::utils::Either;
+use crate::VirtualMachine;
 
 const SIMPLE_TYPE_CHARS: &str = "cbBhHiIlLdfguzZPqQ?";
 
@@ -33,12 +31,12 @@ fn set_primitive(_type_: &str, value: &PyObjectRef, vm: &VirtualMachine) -> PyRe
                 || value
                     .clone()
                     .downcast_exact::<PyByteArray>(vm)
-                    .map_or(false, |v| v.borrow_value().len() == 1)
+                    .map_or(false, |v| v.borrow_buf().len() == 1)
                 || value
                     .clone()
                     .downcast_exact::<PyInt>(vm)
                     .map_or(Ok(false), |v| {
-                        let n: i64 = try_to_primitive(v.borrow_value(), vm)?;
+                        let n: i64 = try_to_primitive(v.as_bigint(), vm)?;
                         Ok(0 <= n && n <= 255)
                     })?
             {

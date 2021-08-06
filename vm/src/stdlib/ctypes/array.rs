@@ -11,10 +11,10 @@ use crate::common::borrow::BorrowedValueMut;
 use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::function::OptionalArg;
 use crate::pyobject::{
-    BorrowValue, Either, IdProtocol, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
-    TryFromObject, TypeProtocol,
+    IdProtocol, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
 };
 use crate::slots::BufferProtocol;
+use crate::utils::Either;
 use crate::VirtualMachine;
 
 use crate::stdlib::ctypes::basics::{
@@ -287,7 +287,7 @@ impl PyCArray {
         let length = match vm.get_attribute(cls.as_object().to_owned(), "_length_") {
             Ok(ref length_obj) => {
                 if let Ok(length_int) = length_obj.clone().downcast_exact::<PyInt>(vm) {
-                    if length_int.borrow_value().sign() == Sign::Minus {
+                    if length_int.as_bigint().sign() == Sign::Minus {
                         Err(vm.new_value_error(
                             "The '_length_' attribute must not be negative".to_string(),
                         ))

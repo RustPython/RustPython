@@ -10,9 +10,10 @@ use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
 use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::function::OptionalArg;
 use crate::pyobject::{
-    Either, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
+    PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
 };
 use crate::slots::BufferProtocol;
+use crate::utils::Either;
 use crate::VirtualMachine;
 
 use crate::stdlib::ctypes::array::make_array_with_lenght;

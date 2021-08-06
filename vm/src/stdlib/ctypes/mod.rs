@@ -1,4 +1,4 @@
-use crate::pyobject::{PyClassImpl, PyObjectRef, PyValue};
+use crate::pyobject::{PyClassImpl, PyObjectRef};
 use crate::VirtualMachine;
 
 mod array;
@@ -25,17 +25,17 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     py_module!(vm, "_ctypes", {
         "__version__" => ctx.new_str("1.1.0"),
 
-        "dlopen" => ctx.new_function(dlopen),
-        "dlsym" => ctx.new_function(dlsym),
-        "dlclose" => ctx.new_function(dlclose),
+        "dlopen" => ctx.new_function("dlopen", dlopen),
+        "dlsym" => ctx.new_function("dlsym", dlsym),
+        "dlclose" => ctx.new_function("dlclose", dlclose),
 
-        "alignment" => ctx.new_function(alignment),
-        "sizeof" => ctx.new_function(sizeof_func),
-        "byref" => ctx.new_function(byref),
-        "addressof" => ctx.new_function(addressof),
+        "alignment" => ctx.new_function("alignment", alignment),
+        "sizeof" => ctx.new_function("sizeof", sizeof_func),
+        "byref" => ctx.new_function("byref", byref),
+        "addressof" => ctx.new_function("addressof", addressof),
 
-        "POINTER" => ctx.new_function(POINTER),
-        "pointer" => ctx.new_function(pointer_fn),
+        "POINTER" => ctx.new_function("POINTER", POINTER),
+        "pointer" => ctx.new_function("pointer", pointer_fn),
         "_pointer_type_cache" => ctx.new_dict(),
 
         "CFuncPtr" => PyCFuncPtr::make_class(ctx),
