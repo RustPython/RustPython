@@ -16,7 +16,7 @@ use crate::slots::BufferProtocol;
 use crate::utils::Either;
 use crate::VirtualMachine;
 
-use crate::stdlib::ctypes::array::make_array_with_lenght;
+use crate::stdlib::ctypes::array::make_array_with_length;
 use crate::stdlib::ctypes::dll::dlsym;
 use crate::stdlib::ctypes::primitive::{new_simple_type, PySimpleType};
 
@@ -290,7 +290,7 @@ pub trait PyCDataSequenceMethods: PyValue {
             Err(vm.new_value_error(format!("Array length must be >= 0, not {} length", length)))
         } else {
             Ok(
-                make_array_with_lenght(zelf.clone_class(), length as usize, vm)?
+                make_array_with_length(zelf.clone_class(), length as usize, vm)?
                     .as_object()
                     .clone(),
             )
