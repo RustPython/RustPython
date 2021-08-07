@@ -6,13 +6,17 @@ mod decl {
     use itertools::Itertools;
     use rustpython_parser::lexer;
 
-    use crate::builtins::pystr::PyStrRef;
+    use crate::builtins::PyStr;
     use crate::vm::VirtualMachine;
     use crate::PyObjectRef;
 
     #[pyfunction]
-    fn iskeyword(s: PyStrRef) -> bool {
-        lexer::KEYWORDS.contains_key(s.as_str())
+    fn iskeyword(s: PyObjectRef) -> bool {
+        if let Some(s) = s.payload::<PyStr>() {
+            lexer::KEYWORDS.contains_key(s.as_str())
+        } else {
+            false
+        }
     }
 
     #[pyattr]

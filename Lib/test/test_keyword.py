@@ -9,8 +9,6 @@ class Test_iskeyword(unittest.TestCase):
     def test_uppercase_true_is_not_a_keyword(self):
         self.assertFalse(keyword.iskeyword('TRUE'))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_none_value_is_not_a_keyword(self):
         self.assertFalse(keyword.iskeyword(None))
 
