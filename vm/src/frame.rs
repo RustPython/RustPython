@@ -1311,7 +1311,7 @@ impl ExecutingFrame<'_> {
             }
         } else {
             for (key, value) in self.pop_multiple(2 * size).tuples() {
-                map_obj.set_item(key, value, vm).unwrap();
+                map_obj.set_item(key, value, vm)?;
             }
         }
 
