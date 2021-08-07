@@ -5,6 +5,7 @@ use crate::builtins::memory::try_buffer_from_object;
 use crate::builtins::PyTypeRef;
 use crate::builtins::{
     int::try_to_primitive, pybool::boolval, PyByteArray, PyBytes, PyFloat, PyInt, PyNone, PyStr,
+    PyType,
 };
 use crate::function::OptionalArg;
 use crate::pyobject::{
@@ -268,7 +269,18 @@ pub fn new_simple_type(
     }
 }
 
-#[pyclass(module = "_ctypes", name = "_SimpleCData", base = "PyCData")]
+#[pyclass(module = "_ctypes", name = "CSimpleType", base = "PyType")]
+pub struct PyCSimpleType {}
+
+#[pyimpl(flags(BASETYPE))]
+impl PyCSimpleType {}
+
+#[pyclass(
+    module = "_ctypes",
+    name = "_SimpleCData",
+    base = "PyCData",
+    metaclass = "PyCSimpleType"
+)]
 pub struct PySimpleType {
     pub _type_: String,
     value: AtomicCell<PyObjectRef>,

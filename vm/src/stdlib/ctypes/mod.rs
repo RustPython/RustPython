@@ -15,12 +15,13 @@ use basics::{addressof, alignment, byref, sizeof_func, PyCData};
 use dll::*;
 use function::PyCFuncPtr;
 use pointer::{pointer_fn, PyCPointer, POINTER};
-use primitive::PySimpleType;
+use primitive::{PyCSimpleType, PySimpleType};
 use structure::PyCStructure;
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
     PyCData::make_class(ctx);
+    PyCSimpleType::make_class(ctx);
 
     py_module!(vm, "_ctypes", {
         "__version__" => ctx.new_str("1.1.0"),
