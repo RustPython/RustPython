@@ -142,6 +142,7 @@ fn generate_class_def(
     name: &str,
     module_name: Option<&str>,
     base: Option<String>,
+    metaclass: Option<String>,
     attrs: &[Attribute],
 ) -> std::result::Result<TokenStream, Diagnostic> {
     let doc = if let Some(doc) = attrs.doc() {
@@ -175,8 +176,6 @@ fn generate_class_def(
         )
         .into());
     }
-    let base = base.map(|name| Ident::new(&name, ident.span()));
-
     let base_class = if is_pystruct {
         quote! {
             fn static_baseclass() -> &'static ::rustpython_vm::builtins::PyTypeRef {
@@ -184,11 +183,24 @@ fn generate_class_def(
                 rustpython_vm::builtins::PyTuple::static_type()
             }
         }
-    } else if let Some(base) = base {
+    } else if let Some(typ) = base {
+        let typ = Ident::new(&typ, ident.span());
         quote! {
             fn static_baseclass() -> &'static ::rustpython_vm::builtins::PyTypeRef {
                 use rustpython_vm::StaticType;
-                #base::static_type()
+                #typ::static_type()
+            }
+        }
+    } else {
+        quote!()
+    };
+
+    let meta_class = if let Some(typ) = metaclass {
+        let typ = Ident::new(&typ, ident.span());
+        quote! {
+            fn static_metaclass() -> &'static ::rustpython_vm::builtins::PyTypeRef {
+                use rustpython_vm::StaticType;
+                #typ::static_type()
             }
         }
     } else {
@@ -211,6 +223,8 @@ fn generate_class_def(
                 &CELL
             }
 
+            #meta_class
+
             #base_class
         }
     };
@@ -227,7 +241,15 @@ pub(crate) fn impl_pyclass(
     let class_name = class_meta.class_name()?;
     let module_name = class_meta.module()?;
     let base = class_meta.base()?;
-    let class_def = generate_class_def(ident, &class_name, module_name.as_deref(), base, attrs)?;
+    let metaclass = class_meta.metaclass()?;
+    let class_def = generate_class_def(
+        ident,
+        &class_name,
+        module_name.as_deref(),
+        base,
+        metaclass,
+        attrs,
+    )?;
 
     let ret = quote! {
         #item
