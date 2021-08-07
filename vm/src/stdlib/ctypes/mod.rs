@@ -12,7 +12,6 @@ mod structure;
 
 use array::PyCArray;
 use basics::{addressof, alignment, byref, sizeof_func, PyCData};
-use dll::*;
 use function::PyCFuncPtr;
 use pointer::{pointer_fn, PyCPointer, POINTER};
 use primitive::{PyCSimpleType, PySimpleType};
@@ -23,12 +22,8 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     PyCData::make_class(ctx);
     PyCSimpleType::make_class(ctx);
 
-    py_module!(vm, "_ctypes", {
+    let module = py_module!(vm, "_ctypes", {
         "__version__" => ctx.new_str("1.1.0"),
-
-        "dlopen" => ctx.new_function("dlopen", dlopen),
-        "dlsym" => ctx.new_function("dlsym", dlsym),
-        "dlclose" => ctx.new_function("dlclose", dlclose),
 
         "alignment" => ctx.new_function("alignment", alignment),
         "sizeof" => ctx.new_function("sizeof", sizeof_func),
@@ -44,5 +39,9 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "_Pointer" => PyCPointer::make_class(ctx),
         "Array" => PyCArray::make_class(ctx),
         "Struct" => PyCStructure::make_class(ctx)
-    })
+    });
+
+    dll::extend_module(vm, &module);
+
+    module
 }
