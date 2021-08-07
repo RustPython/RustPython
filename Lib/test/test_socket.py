@@ -812,8 +812,6 @@ class GeneralModuleTests(unittest.TestCase):
         else:
             self.fail('Socket proxy still exists')
 
-    # TODO: RUSTPYTHON, socket.herror
-    @unittest.expectedFailure
     def testSocketError(self):
         # Testing socket module exceptions
         msg = "Error raising socket exception (%s)."
@@ -5037,8 +5035,6 @@ class UDPTimeoutTest(SocketUDPTest):
 
 class TestExceptions(unittest.TestCase):
 
-    # TODO: RUSTPYTHON, socket.herror
-    @unittest.expectedFailure
     def testExceptionTree(self):
         self.assertTrue(issubclass(OSError, Exception))
         self.assertTrue(issubclass(socket.herror, OSError))
