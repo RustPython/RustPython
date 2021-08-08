@@ -34,8 +34,7 @@ class BytesTest(unittest.TestCase):
     def test_c_wchar_p(self):
         c_wchar_p("foo bar")
         self.assertRaises(TypeError, c_wchar_p, b"foo bar")
-    
-    @unittest.skip("TODO: RUSTPYTHON, implrment Structure")
+
     def test_struct(self):
         class X(Structure):
             _fields_ = [("a", c_char * 3)]
@@ -45,7 +44,6 @@ class BytesTest(unittest.TestCase):
         self.assertEqual(x.a, b"abc")
         self.assertEqual(type(x.a), bytes)
 
-    @unittest.skip("TODO: RUSTPYTHON, implrment Structure")
     def test_struct_W(self):
         class X(Structure):
             _fields_ = [("a", c_wchar * 3)]

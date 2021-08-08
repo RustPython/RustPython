@@ -56,15 +56,15 @@ s_ulong = {4: 'L', 8: 'Q'}[sizeof(c_long)]
     (c_double, "<d"),
     (c_bool, "<?"),
     (py_object, "<O"),
-    # ## pointers
-    # (POINTER(c_byte), "&<b"),
-    # (POINTER(POINTER(c_long)), f"&&<{s_long}"),
+    ## pointers
+    (POINTER(c_byte), "&<b"),
+    (POINTER(POINTER(c_long)), f"&&<{s_long}"),
     ## arrays and pointers
     (c_double * 4, "<d"),
     (c_float * 4 * 3 * 2, "<f"),
-    # (POINTER(c_short) * 2, "&<h"),
-    # (POINTER(c_short) * 2 * 3, "&<h"),
-    # (POINTER(c_short * 2), "&(2)<h"),
+    (POINTER(c_short) * 2, "&<h"),
+    (POINTER(c_short) * 2 * 3, "&<h"),
+    (POINTER(c_short * 2), "&(2)<h"),
 ])
 def test_memoryview_format(tp, fmt):
     assert memoryview(tp()).format == normalize(fmt)

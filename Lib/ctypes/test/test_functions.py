@@ -25,8 +25,6 @@ class POINT(Structure):
 class RECT(Structure):
     _fields_ = [("left", c_int), ("top", c_int),
                 ("right", c_int), ("bottom", c_int)]
-
-@unittest.skip("TODO: RUSTPYTHON, implrment Structure")
 class FunctionTestCase(unittest.TestCase):
 
     def test_mro(self):
@@ -82,7 +80,6 @@ class FunctionTestCase(unittest.TestCase):
         result = f(0, 0, 0, 0, 0, 0)
         self.assertEqual(result, '\x00')
 
-    @unittest.skip("TODO: RUSTPYTHON, implrment POINTER")
     def test_voidresult(self):
         f = dll._testfunc_v
         f.restype = None
@@ -177,7 +174,6 @@ class FunctionTestCase(unittest.TestCase):
         result = f(None)
         self.assertEqual(result, None)
 
-    @unittest.skip("TODO: RUSTPYTHON, implrment POINTER")
     def test_pointers(self):
         f = dll._testfunc_p_p
         f.restype = POINTER(c_int)
@@ -213,7 +209,6 @@ class FunctionTestCase(unittest.TestCase):
         result = f(byref(c_int(99)))
         self.assertNotEqual(result.contents, 99)
 
-    @unittest.skip("TODO: RUSTPYTHON, implrment Structure")
     def test_errors(self):
         f = dll._testfunc_p_p
         f.restype = c_int
@@ -315,7 +310,6 @@ class FunctionTestCase(unittest.TestCase):
         self.assertRaises(AttributeError, getattr, dll, "_xxx_yyy")
         self.assertRaises(ValueError, c_int.in_dll, dll, "_xxx_yyy")
 
-    @unittest.skip("TODO: RUSTPYTHON, implrment POINTER")
     def test_byval(self):
 
         # without prototype
@@ -337,7 +331,6 @@ class FunctionTestCase(unittest.TestCase):
         expected = 203, 101, 102
         self.assertEqual(got, expected)
 
-    @unittest.skip("TODO: RUSTPYTHON, implrment Structure")
     def test_struct_return_2H(self):
         class S2H(Structure):
             _fields_ = [("x", c_short),
@@ -348,7 +341,6 @@ class FunctionTestCase(unittest.TestCase):
         s2h = dll.ret_2h_func(inp)
         self.assertEqual((s2h.x, s2h.y), (99*2, 88*3))
 
-    @unittest.skip("TODO: RUSTPYTHON, implrment Structure")
     @unittest.skipUnless(sys.platform == "win32", 'Windows-specific test')
     def test_struct_return_2H_stdcall(self):
         class S2H(Structure):
@@ -360,7 +352,6 @@ class FunctionTestCase(unittest.TestCase):
         s2h = windll.s_ret_2h_func(S2H(99, 88))
         self.assertEqual((s2h.x, s2h.y), (99*2, 88*3))
 
-    @unittest.skip("TODO: RUSTPYTHON, implrment Structure")
     def test_struct_return_8H(self):
         class S8I(Structure):
             _fields_ = [("a", c_int),
@@ -378,7 +369,6 @@ class FunctionTestCase(unittest.TestCase):
         self.assertEqual((s8i.a, s8i.b, s8i.c, s8i.d, s8i.e, s8i.f, s8i.g, s8i.h),
                              (9*2, 8*3, 7*4, 6*5, 5*6, 4*7, 3*8, 2*9))
 
-    @unittest.skip("TODO: RUSTPYTHON, implrment Structure")
     @unittest.skipUnless(sys.platform == "win32", 'Windows-specific test')
     def test_struct_return_8H_stdcall(self):
         class S8I(Structure):
@@ -399,7 +389,7 @@ class FunctionTestCase(unittest.TestCase):
                 (9*2, 8*3, 7*4, 6*5, 5*6, 4*7, 3*8, 2*9))
 
     def test_sf1651235(self):
-        # see http://www.python.org/sf/1651235
+        # see https://www.python.org/sf/1651235
 
         proto = CFUNCTYPE(c_int, RECT, POINT)
         def callback(*args):

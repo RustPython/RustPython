@@ -1,5 +1,4 @@
 import pytest
-import unittest
 from ctypes import *
 
 def test_slice():
@@ -19,7 +18,6 @@ def test_init_again():
     addr2 = addressof(sz)
     assert addr1 == addr2
 
-@unittest.skip("TODO: RUSTPYTHON, implement Structure")
 def test_array_of_structures():
     class X(Structure):
         _fields_ = [('x', c_int), ('y', c_int)]
@@ -31,7 +29,6 @@ def test_array_of_structures():
     y[1] = x
     assert y[1].y == 3
 
-@unittest.skip("TODO: RUSTPYTHON, implement POINTER")
 def test_output_simple():
     A = c_char * 10
     TP = POINTER(A)
@@ -49,7 +46,6 @@ def test_output_simple_array():
     aa = AA()
     assert aa[0] != b''
 
-@unittest.skip("TODO: RUSTPYTHON, implement Structure")
 def test_output_complex_test():
     class Car(Structure):
         _fields_ = [("brand", c_char * 10),

@@ -42,7 +42,6 @@ class CFuncPtrTestCase(unittest.TestCase):
         if not WINFUNCTYPE is CFUNCTYPE:
             self.assertRaises(TypeError, s, 1, 2, 3)
 
-    @unittest.skip("TODO: RUSTPYTHON, implrment Structure")
     def test_structures(self):
         WNDPROC = WINFUNCTYPE(c_long, c_int, c_int, c_int, c_int)
 
