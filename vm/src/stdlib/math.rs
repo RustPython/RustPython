@@ -533,8 +533,8 @@ fn math_comb(n: PyIntRef, k: PyIntRef, vm: &VirtualMachine) -> PyResult<BigInt> 
         return Ok(one);
     }
 
-    let mut result = n - 0;
-    let mut factor = n - 0;
+    let mut result = n.clone();
+    let mut factor = n.clone();
     let mut current = one;
     while current < *k {
         factor -= 1;
