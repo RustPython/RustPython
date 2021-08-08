@@ -123,3 +123,17 @@ def custom_func():
     pass
 
 assert custom_func.__qualname__ == 'custom_func'
+
+
+# Regression to
+# https://github.com/RustPython/RustPython/issues/2762
+
+assert type.__prepare__() == {}
+assert type.__prepare__('name') == {}
+assert type.__prepare__('name', object) == {}
+assert type.__prepare__('name', (bytes, str)) == {}
+assert type.__prepare__(a=1, b=2) == {}
+assert type.__prepare__('name', (object, int), kw=True) == {}
+
+assert int.__prepare__() == {}
+assert int.__prepare__('name', (object, int), kw=True) == {}
