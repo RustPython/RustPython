@@ -361,6 +361,15 @@ impl PyGetSet {
     fn qualname(&self) -> String {
         format!("{}.{}", self.class.tp_name(), self.name.clone())
     }
+
+    #[pymethod(magic)]
+    fn repr(&self) -> String {
+        format!(
+            "<attribute '{}' of '{}' objects>",
+            self.name.clone(),
+            self.class.tp_name()
+        )
+    }
 }
 
 pub(crate) fn init(context: &PyContext) {

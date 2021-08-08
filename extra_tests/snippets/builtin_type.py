@@ -151,3 +151,13 @@ assert BaseException.args.__qualname__ == 'BaseException.args'
 assert Exception.args.__qualname__ == 'BaseException.args'
 # dynamic with `.new_readonly_getset`
 assert SyntaxError.msg.__qualname__ == 'SyntaxError.msg'
+
+
+# Regression to
+# https://github.com/RustPython/RustPython/issues/2809
+
+assert (
+    repr(BaseException.args) == "<attribute 'args' of 'BaseException' objects>"
+)
+assert repr(Exception.args) == "<attribute 'args' of 'BaseException' objects>"
+assert repr(SyntaxError.msg) == "<attribute 'msg' of 'SyntaxError' objects>"
