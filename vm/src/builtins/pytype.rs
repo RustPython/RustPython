@@ -343,9 +343,10 @@ impl PyType {
             .insert("__module__".to_owned(), value);
     }
 
-    #[pymethod(magic)]
+    #[pyclassmethod(magic)]
     fn prepare(
-        _name: OptionalArg<PyStrRef>,
+        _cls: PyTypeRef,
+        _name: OptionalArg<PyObjectRef>,
         _bases: OptionalArg<PyObjectRef>,
         _kwargs: KwArgs,
         vm: &VirtualMachine,
