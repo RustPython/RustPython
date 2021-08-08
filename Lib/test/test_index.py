@@ -243,8 +243,6 @@ class NewSeqTestCase(SeqTestCase, unittest.TestCase):
 
 class RangeTestCase(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_range(self):
         n = newstyle()
         n.ind = 5
