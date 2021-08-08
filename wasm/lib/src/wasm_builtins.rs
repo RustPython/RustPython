@@ -29,12 +29,12 @@ pub fn make_stdout_object(
     let cls = py_class!(ctx, "JSStdout", &vm.ctx.types.object_type, {});
     let write_method = ctx.new_method(
         "write",
+        cls.clone(),
         move |_self: PyObjectRef, data: PyStrRef, vm: &VirtualMachine| -> PyResult<()> {
             write_f(data.as_str(), vm)
         },
-        cls.clone(),
     );
-    let flush_method = ctx.new_method("flush", |_self: PyObjectRef| {}, cls.clone());
+    let flush_method = ctx.new_method("flush", cls.clone(), |_self: PyObjectRef| {});
     extend_class!(ctx, cls, {
         "write" => write_method,
         "flush" => flush_method,

@@ -620,7 +620,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     let js_error = create_simple_type("JSError", &ctx.exceptions.exception_type);
     extend_class!(ctx, &js_error, {
-        "value" => ctx.new_readonly_getset("value", |exc: PyBaseExceptionRef| exc.get_arg(0)),
+        "value" => ctx.new_readonly_getset("value", js_error.clone(), |exc: PyBaseExceptionRef| exc.get_arg(0)),
     });
 
     AwaitPromise::make_class(ctx);

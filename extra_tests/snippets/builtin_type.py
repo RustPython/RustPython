@@ -140,3 +140,14 @@ assert type.__prepare__(1) == {}
 
 assert int.__prepare__() == {}
 assert int.__prepare__('name', (object, int), kw=True) == {}
+
+
+# Regression to
+# https://github.com/RustPython/RustPython/issues/2790
+
+# `#[pyproperty]`
+assert BaseException.args.__qualname__ == 'BaseException.args'
+# class extension without `#[pyproperty]` override
+assert Exception.args.__qualname__ == 'BaseException.args'
+# dynamic with `.new_readonly_getset`
+assert SyntaxError.msg.__qualname__ == 'SyntaxError.msg'

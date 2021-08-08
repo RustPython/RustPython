@@ -228,6 +228,11 @@ pub(crate) fn init(context: &PyContext) {
     // This is a bit unfortunate, but this instance attribute overlaps with the
     // class __doc__ string..
     extend_class!(context, &context.types.property_type, {
-        "__doc__" => context.new_getset("__doc__", PyProperty::doc_getter, PyProperty::doc_setter),
+        "__doc__" => context.new_getset(
+            "__doc__",
+            context.types.property_type.clone(),
+            PyProperty::doc_getter,
+            PyProperty::doc_setter,
+        ),
     });
 }
