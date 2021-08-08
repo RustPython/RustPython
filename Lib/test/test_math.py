@@ -1880,8 +1880,6 @@ class MathTests(unittest.TestCase):
             self.assertIs(type(perm(IntSubclass(5), IntSubclass(k))), int)
             self.assertIs(type(perm(MyIndexable(5), MyIndexable(k))), int)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testComb(self):
         comb = math.comb
         factorial = math.factorial
