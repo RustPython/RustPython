@@ -448,11 +448,11 @@ impl PySimpleType {
 }
 
 impl PyCDataFunctions for PySimpleType {
-    fn size_of_instances(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        Ok(vm.new_pyobj(get_size(zelf._type_.as_str())))
+    fn size_of_instances(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<usize> {
+        Ok(get_size(zelf._type_.as_str()))
     }
 
-    fn alignment_of_instances(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+    fn alignment_of_instances(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<usize> {
         Self::size_of_instances(zelf, vm)
     }
 

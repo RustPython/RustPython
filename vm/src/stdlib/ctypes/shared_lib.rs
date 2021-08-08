@@ -32,7 +32,7 @@ impl PyValue for SharedLibrary {
 impl SharedLibrary {
     pub fn new(name: &str) -> Result<SharedLibrary, libloading::Error> {
         Ok(SharedLibrary {
-            lib: AtomicCell::new(Some(Library::new(name.to_string())?)),
+            lib: AtomicCell::new(Some(unsafe { Library::new(name.to_string())? })),
         })
     }
 

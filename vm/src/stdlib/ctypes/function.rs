@@ -278,8 +278,15 @@ impl PyCFuncPtr {
 
     #[pyproperty(name = "_argtypes_", setter)]
     fn set_argtypes(&self, argtypes: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        if vm.isinstance(&argtypes, &vm.ctx.types.list_type).is_ok()
-            || vm.isinstance(&argtypes, &vm.ctx.types.tuple_type).is_ok()
+        if vm
+            .isinstance(&argtypes, &vm.ctx.types.list_type)
+            .and_then(|_| vm.isinstance(&argtypes, &vm.ctx.types.tuple_type))
+            .map_err(|e| {
+                vm.new_type_error(format!(
+                    "_argtypes_ must be a sequence of types, {} found.",
+                    argtypes.to_string()
+                ))
+            })?
         {
             let args = vm.extract_elements(&argtypes)?;
             let c_args_res: PyResult<Vec<PyObjectRef>> = args
@@ -287,9 +294,9 @@ impl PyCFuncPtr {
                 .enumerate()
                 .map(|(idx, inner_obj)| {
                     match vm.isinstance(inner_obj, PySimpleType::static_type()) {
-                        // @TODO: checks related to _type_ are temporary
+                        // FIXME: checks related to _type_ are temporary
                         // it needs to check for from_param method, instead
-                        Ok(_) => Ok(vm.get_attribute(inner_obj.clone(), "_type_").unwrap()),
+                        Ok(_) => vm.get_attribute(inner_obj.clone(), "_type_"),
                         _ => Err(vm.new_type_error(format!(
                             "item {} in _argtypes_ must be subclass of _SimpleType, but type {} found",
                             idx,
@@ -310,14 +317,9 @@ impl PyCFuncPtr {
 
             let mut fn_ptr = self._f.write();
             fn_ptr.set_args(str_types);
-
-            Ok(())
-        } else {
-            Err(vm.new_type_error(format!(
-                "_argtypes_ must be a sequence of types, {} found.",
-                argtypes.to_string()
-            )))
         }
+
+        Ok(())
     }
 
     #[pyproperty(name = "_restype_", setter)]

@@ -114,15 +114,16 @@ pub fn make_array_with_length(
         .get_attribute(outer_type.clone(), "_type_")
         .map_err(|_| vm.new_type_error("_type_ must have storage info".to_string()))?;
     let itemsize = get_size(_type_.downcast::<PyStr>().unwrap().to_string().as_str());
-    let _ = length
+    let capacity = length
         .checked_mul(itemsize)
         .ok_or_else(|| vm.new_overflow_error("Array size too big".to_string()))?;
+    // FIXME change this initialization
     Ok(PyCArray {
         _type_: new_simple_type(Either::A(&outer_type), vm)?.into_ref(vm),
         _length_: length,
         _buffer: PyRwLock::new(RawBuffer {
-            inner: Vec::with_capacity(length * itemsize).as_mut_ptr(),
-            size: length * itemsize,
+            inner: Vec::with_capacity(capacity).as_mut_ptr(),
+            size: capacity,
         }),
     }
     .into_ref_with_type(vm, cls)?)
@@ -480,6 +481,7 @@ impl PyCArray {
         self._length_
     }
 
+    // FIXME: change k_or_idx to SequenceIndex
     #[pymethod(magic)]
     fn getitem(
         zelf: PyRef<Self>,
@@ -574,17 +576,11 @@ impl PyCArray {
 }
 
 impl PyCDataFunctions for PyCArray {
-    fn size_of_instances(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.new_pyobj(
-            zelf._length_
-                * usize::try_from_object(
-                    vm,
-                    PyCDataFunctions::size_of_instances(zelf._type_.clone(), vm)?,
-                )?,
-        ))
+    fn size_of_instances(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<usize> {
+        Ok(zelf._length_ * PyCDataFunctions::size_of_instances(zelf._type_.clone(), vm)?)
     }
 
-    fn alignment_of_instances(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+    fn alignment_of_instances(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<usize> {
         PyCDataFunctions::alignment_of_instances(zelf._type_.clone(), vm)
     }
 

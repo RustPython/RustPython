@@ -131,8 +131,8 @@ openssl-probe = { version = "0.1", optional = true }
 which = "4.0"
 foreign-types-shared = { version = "0.1", optional = true }
 # ctypes
-libloading = "0.6.5"
-libffi = "1.0.0"
+libloading = "0.7.0"
+libffi = "1.0.1"
 widestring = "0.4.3"
 
 [target.'cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))'.dependencies]

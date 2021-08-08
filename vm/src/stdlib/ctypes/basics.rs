@@ -92,6 +92,7 @@ fn at_address(cls: &PyTypeRef, buf: usize, vm: &VirtualMachine) -> PyResult<RawB
     }
 }
 
+// FIXME: rework this function
 fn buffer_copy(
     cls: PyTypeRef,
     obj: PyObjectRef,
@@ -130,8 +131,7 @@ fn buffer_copy(
                             opts.len + (offset_int as usize)
                         )))
                     } else if let Some(mut buffer) = buffer.as_contiguous_mut() {
-                        // @TODO: Is this copying?
-
+                        // FIXME: Perform copy
                         let buffered = if copy {
                             unsafe { slice::from_raw_parts_mut(buffer.as_mut_ptr(), buffer.len()) }
                                 .as_mut_ptr()
@@ -162,11 +162,7 @@ fn buffer_copy(
     }
 }
 
-pub fn default_from_param(
-    cls: PyTypeRef,
-    value: PyObjectRef,
-    vm: &VirtualMachine,
-) -> PyResult<PyObjectRef> {
+pub fn default_from_param(cls: PyTypeRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     //@TODO: check if this behaves like it should
     if vm.isinstance(&value, &cls)? {
         Ok(value)
@@ -183,17 +179,16 @@ pub fn default_from_param(
 #[pyimpl]
 pub trait PyCDataFunctions: PyValue {
     #[pymethod]
-    fn size_of_instances(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef>;
+    fn size_of_instances(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<usize>;
 
     #[pymethod]
-    fn alignment_of_instances(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef>;
+    fn alignment_of_instances(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<usize>;
 
     #[pymethod]
-    fn ref_to(zelf: PyRef<Self>, offset: OptionalArg, vm: &VirtualMachine)
-        -> PyResult<PyObjectRef>;
+    fn ref_to(zelf: PyRef<Self>, offset: OptionalArg, vm: &VirtualMachine) -> PyResult;
 
     #[pymethod]
-    fn address_of(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef>;
+    fn address_of(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult;
 }
 #[pyimpl]
 pub trait PyCDataMethods: PyValue {
@@ -208,11 +203,7 @@ pub trait PyCDataMethods: PyValue {
     // PyCFuncPtrType_Type
 
     #[pymethod]
-    fn from_param(
-        zelf: PyRef<Self>,
-        value: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyObjectRef>;
+    fn from_param(zelf: PyRef<Self>, value: PyObjectRef, vm: &VirtualMachine) -> PyResult;
 
     #[pyclassmethod]
     fn from_address(
@@ -285,7 +276,7 @@ pub trait PyCDataSequenceMethods: PyValue {
 
     #[pymethod(name = "__mul__")]
     #[pymethod(name = "__rmul__")]
-    fn mul(zelf: PyRef<Self>, length: isize, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+    fn mul(zelf: PyRef<Self>, length: isize, vm: &VirtualMachine) -> PyResult {
         if length < 0 {
             Err(vm.new_value_error(format!("Array length must be >= 0, not {} length", length)))
         } else {
@@ -381,6 +372,7 @@ where
     pub options: BufferOptions,
 }
 
+// FIXME: Change this implementation
 pub struct RawBuffer {
     pub inner: *mut u8,
     pub size: usize,
@@ -447,29 +439,33 @@ impl PyCData {
     pub fn setstate(zelf: PyRef<Self>) {}
 }
 
-pub fn sizeof_func(tp: Either<PyTypeRef, PyObjectRef>, vm: &VirtualMachine) -> PyResult {
+// FIXME: this function is too hacky, work a better way of doing it
+pub fn sizeof_func(tp: Either<PyTypeRef, PyObjectRef>, vm: &VirtualMachine) -> PyResult<usize> {
     match tp {
         Either::A(type_) if type_.issubclass(PySimpleType::static_type()) => {
             let zelf = new_simple_type(Either::B(&type_), vm)?;
             PyCDataFunctions::size_of_instances(zelf.into_ref(vm), vm)
         }
         Either::B(obj) if obj.has_class_attr("size_of_instances") => {
-            let size_of = vm.get_attribute(obj, "size_of_instances").unwrap();
-            vm.invoke(&size_of, ())
+            let size_of_method = vm.get_attribute(obj, "size_of_instances").unwrap();
+            let size_of_return = vm.invoke(&size_of_method, ())?;
+            Ok(usize::try_from_object(vm, size_of_return)?)
         }
         _ => Err(vm.new_type_error("this type has no size".to_string())),
     }
 }
 
-pub fn alignment(tp: Either<PyTypeRef, PyObjectRef>, vm: &VirtualMachine) -> PyResult {
+// FIXME: this function is too hacky, work a better way of doing it
+pub fn alignment(tp: Either<PyTypeRef, PyObjectRef>, vm: &VirtualMachine) -> PyResult<usize> {
     match tp {
         Either::A(type_) if type_.issubclass(PySimpleType::static_type()) => {
             let zelf = new_simple_type(Either::B(&type_), vm)?;
             PyCDataFunctions::alignment_of_instances(zelf.into_ref(vm), vm)
         }
         Either::B(obj) if obj.has_class_attr("alignment_of_instances") => {
-            let size_of = vm.get_attribute(obj, "alignment_of_instances").unwrap();
-            vm.invoke(&size_of, ())
+            let alignment_of_m = vm.get_attribute(obj, "alignment_of_instances")?;
+            let alignment_of_r = vm.invoke(&alignment_of_m, ())?;
+            usize::try_from_object(vm, alignment_of_m)
         }
         _ => Err(vm.new_type_error("no alignment info".to_string())),
     }
