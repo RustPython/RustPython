@@ -517,11 +517,11 @@ fn math_comb(n: PyIntRef, k: PyIntRef, vm: &VirtualMachine) -> PyResult<BigInt> 
     let zero = BigInt::zero();
 
     if n.is_negative() || k.is_negative() {
-        return Err(vm.new_value_error("comb() not defined for negative values".to_owned()))
+        return Err(vm.new_value_error("comb() not defined for negative values".to_owned()));
     }
 
     let temp = n - k;
-    if temp < zero {
+    if temp.is_negative() {
         return Ok(zero);
     }
 
@@ -529,7 +529,7 @@ fn math_comb(n: PyIntRef, k: PyIntRef, vm: &VirtualMachine) -> PyResult<BigInt> 
         k = &temp
     }
 
-    if *k == zero {
+    if k.is_zero() {
         return Ok(one);
     }
 
