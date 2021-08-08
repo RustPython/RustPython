@@ -209,6 +209,7 @@ where
 #[pyclass(module = false, name = "getset_descriptor")]
 pub struct PyGetSet {
     name: String,
+    class: PyTypeRef,
     getter: Option<PyGetterFunc>,
     setter: Option<PySetterFunc>,
     deleter: Option<PyDeleterFunc>,
@@ -265,9 +266,10 @@ impl SlotDescriptor for PyGetSet {
 }
 
 impl PyGetSet {
-    pub fn new(name: String) -> Self {
+    pub fn new(name: String, class: PyTypeRef) -> Self {
         Self {
             name,
+            class,
             getter: None,
             setter: None,
             deleter: None,
@@ -353,6 +355,11 @@ impl PyGetSet {
     #[pyproperty(magic)]
     fn name(&self) -> String {
         self.name.clone()
+    }
+
+    #[pyproperty(magic)]
+    fn qualname(&self) -> String {
+        format!("{}.{}", self.class.tp_name(), self.name.clone())
     }
 }
 
