@@ -634,10 +634,13 @@ impl TryFromObject for RangeIndex {
         match_class!(match obj {
             i @ PyInt => Ok(RangeIndex::Int(i)),
             s @ PySlice => Ok(RangeIndex::Slice(s)),
-            obj => Err(vm.new_type_error(format!(
-                "sequence indices be integers or slices, not '{}'",
-                obj.class().name,
-            ))),
+            obj => {
+                let val = vm.to_index(&obj).map_err(|_| vm.new_type_error(format!(
+                    "sequence indices be integers or slices or classes that override __index__ operator, not '{}'",
+                    obj.class().name
+                )))?;
+                Ok(RangeIndex::Int(val))
+            }
         })
     }
 }
