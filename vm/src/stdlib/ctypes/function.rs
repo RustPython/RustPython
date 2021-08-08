@@ -15,7 +15,7 @@ use crate::pyobject::{
 use crate::VirtualMachine;
 
 use crate::stdlib::ctypes::basics::PyCData;
-use crate::stdlib::ctypes::primitive::PySimpleType;
+use crate::stdlib::ctypes::primitive::PyCSimple;
 
 use crate::slots::Callable;
 use crate::stdlib::ctypes::dll::dlsym;
@@ -293,7 +293,7 @@ impl PyCFuncPtr {
                 .iter()
                 .enumerate()
                 .map(|(idx, inner_obj)| {
-                    match vm.isinstance(inner_obj, PySimpleType::static_type()) {
+                    match vm.isinstance(inner_obj, PyCSimple::static_type()) {
                         // FIXME: checks related to _type_ are temporary
                         // it needs to check for from_param method, instead
                         Ok(_) => vm.get_attribute(inner_obj.clone(), "_type_"),
@@ -324,7 +324,7 @@ impl PyCFuncPtr {
 
     #[pyproperty(name = "_restype_", setter)]
     fn set_restype(&self, restype: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        match vm.isinstance(&restype, PySimpleType::static_type()) {
+        match vm.isinstance(&restype, PyCSimple::static_type()) {
             // @TODO: checks related to _type_ are temporary
             Ok(_) => match vm.get_attribute(restype.clone(), "_type_") {
                 Ok(_type_) => {
@@ -421,7 +421,7 @@ impl Callable for PyCFuncPtr {
             .enumerate()
             .map(|(idx, obj)| {
                 if vm
-                    .issubclass(&obj.clone_class(), PySimpleType::static_type())
+                    .issubclass(&obj.clone_class(), PyCSimple::static_type())
                     .is_ok()
                 {
                     Ok(vm.get_attribute(obj.clone(), "value")?)

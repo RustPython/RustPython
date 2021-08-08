@@ -139,13 +139,12 @@ fn generic_xxx_p_from_param(
     if vm.isinstance(value, &vm.ctx.types.str_type)?
         || vm.isinstance(value, &vm.ctx.types.bytes_type)?
     {
-        Ok(PySimpleType {
+        Ok(PyCSimple {
             _type_: type_str.to_string(),
             value: AtomicCell::new(value.clone()),
-            __abstract__: cls.is(PySimpleType::static_type()),
         }
         .into_object(vm))
-    } else if vm.isinstance(value, PySimpleType::static_type())?
+    } else if vm.isinstance(value, PyCSimple::static_type())?
         && (type_str == "z" || type_str == "Z" || type_str == "P")
     {
         Ok(value.clone())
@@ -217,10 +216,9 @@ fn from_param_void_p(
             Err(vm.new_attribute_error("class has no from_address method".to_string()))
         }
     } else if vm.isinstance(value, &vm.ctx.types.int_type)? {
-        Ok(PySimpleType {
+        Ok(PyCSimple {
             _type_: type_str.to_string(),
             value: AtomicCell::new(value.clone()),
-            __abstract__: cls.is(PySimpleType::static_type()),
         }
         .into_object(vm))
     } else {
@@ -232,19 +230,14 @@ fn from_param_void_p(
 pub fn new_simple_type(
     cls: Either<&PyObjectRef, &PyTypeRef>,
     vm: &VirtualMachine,
-) -> PyResult<PySimpleType> {
+) -> PyResult<PyCSimple> {
     let cls = match cls {
         Either::A(obj) => obj,
         Either::B(typ) => typ.as_object(),
     };
 
-    let is_abstract = cls.is(PySimpleType::static_type());
-
-    if is_abstract {
-        return Err(vm.new_type_error("abstract class".to_string()));
-    }
-    match vm.get_attribute(cls.clone(), "_type_") {
-        Ok(_type_) if vm.isinstance(&_type_, &vm.ctx.types.str_type)? => {
+    if let Ok(_type_) = vm.get_attribute(cls.clone(), "_type_") {
+        if vm.isinstance(&_type_, &vm.ctx.types.str_type)? {
             let tp_str = _type_.downcast_exact::<PyStr>(vm).unwrap().to_string();
 
             if tp_str.len() != 1 {
@@ -255,45 +248,48 @@ pub fn new_simple_type(
             } else if !SIMPLE_TYPE_CHARS.contains(tp_str.as_str()) {
                 Err(vm.new_attribute_error(format!("class must define a '_type_' attribute which must be a single character string containing one of {}.",SIMPLE_TYPE_CHARS)))
             } else {
-                Ok(PySimpleType {
+                Ok(PyCSimple {
                     _type_: tp_str,
                     value: AtomicCell::new(vm.ctx.none()),
-                    __abstract__: is_abstract,
                 })
             }
-        }
-        Ok(_) => {
+        } else {
             Err(vm.new_type_error("class must define a '_type_' string attribute".to_string()))
         }
-        _ => Err(vm.new_attribute_error("class must define a '_type_' attribute".to_string())),
+    } else {
+        Err(vm.new_attribute_error("class must define a '_type_' attribute".to_string()))
     }
 }
 
-#[pyclass(module = "_ctypes", name = "CSimpleType", base = "PyType")]
-pub struct PyCSimpleType {}
+#[pyclass(module = "_ctypes", name = "PyCSimpleType", base = "PyType")]
+pub struct PySimpleMeta{}
 
-#[pyimpl(flags(BASETYPE))]
-impl PyCSimpleType {}
+#[pyimpl(with(PyCDataMethods), flags(BASETYPE))]
+impl PySimpleMeta {
+    #[pyslot]
+    fn tp_new(cls: PyTypeRef, _: OptionalArg, vm: &VirtualMachine) -> PyResult {
+        Ok(new_simple_type(Either::B(&cls), vm)?.into_ref_with_type(vm, cls)?.as_object().clone())
+    }
+}
 
 #[pyclass(
     module = "_ctypes",
     name = "_SimpleCData",
     base = "PyCData",
-    metaclass = "PyCSimpleType"
+    metaclass = "PySimpleMeta"
 )]
-pub struct PySimpleType {
+pub struct PyCSimple {
     pub _type_: String,
     value: AtomicCell<PyObjectRef>,
-    __abstract__: bool,
 }
 
-impl fmt::Debug for PySimpleType {
+impl fmt::Debug for PyCSimple {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let value = unsafe { (*self.value.as_ptr()).to_string() };
 
         write!(
             f,
-            "PySimpleType {{
+            "PyCSimple {{
             _type_: {},
             value: {},
         }}",
@@ -303,102 +299,92 @@ impl fmt::Debug for PySimpleType {
     }
 }
 
-impl PyValue for PySimpleType {
+impl fmt::Debug for PySimpleMeta {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "PySimpleMeta"
+        )
+    }
+}
+
+impl PyValue for PyCSimple {
     fn class(_vm: &VirtualMachine) -> &PyTypeRef {
         Self::static_type()
     }
 }
 
-impl PyCDataMethods for PySimpleType {
+impl PyValue for PySimpleMeta {
+    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+        Self::static_type()
+    }
+}
+
+impl PyCDataMethods for PySimpleMeta {
     // From PyCSimpleType_Type PyCSimpleType_methods
     fn from_param(
-        zelf: PyRef<Self>,
+        tp: PyTypeRef,
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
-        let cls = zelf.clone_class();
-        if cls.is(PySimpleType::static_type()) {
+        let cls = tp.clone_class();
+        if cls.is(PyCSimple::static_type()) {
             Err(vm.new_type_error("abstract class".to_string()))
         } else if vm.isinstance(&value, &cls)? {
             Ok(value)
         } else {
-            match vm.get_attribute(zelf.as_object().clone(), "_type_") {
-                Ok(tp_obj) if vm.isinstance(&tp_obj, &vm.ctx.types.str_type)? => {
-                    let _type_ = tp_obj.downcast_exact::<PyStr>(vm).unwrap();
-                    let tp_str = _type_.as_ref();
+            let tp_obj = vm.get_attribute(tp.as_object().clone(), "_type_").unwrap();
+            let _type_ = tp_obj.downcast_exact::<PyStr>(vm).unwrap();
+            match _type_.as_ref() {
+                "z" | "Z" => from_param_char_p(&cls, &value, vm),
+                "P" => from_param_void_p(&cls, &value, vm),
+                _ => {
+                    match new_simple_type(Either::B(&cls), vm) {
+                        Ok(obj) => Ok(obj.into_object(vm)),
+                        Err(e) => {
+                            if vm.isinstance(
+                                &e.clone().into_object(),
+                                &vm.ctx.exceptions.type_error,
+                            )? || vm.isinstance(
+                                &e.clone().into_object(),
+                                &vm.ctx.exceptions.value_error,
+                            )? {
+                                if vm.isinstance(&value,&tp)?{
+                                    return Ok(value);
+                                }  
+                                
+                                let as_parameter = vm
+                                    .get_attribute(tp.as_object().clone(), "_as_parameter_")
+                                    .map_err(|_| {
+                                        vm.new_type_error(format!("expected {} instance instead of {}", tp.class().name, value.class().name))
+                                    })?;
 
-                    match tp_str {
-                        "z" | "Z" => from_param_char_p(&cls, &value, vm),
-                        "P" => from_param_void_p(&cls, &value, vm),
-                        _ => {
-                            match new_simple_type(Either::B(&cls), vm) {
-                                Ok(obj) => Ok(obj.into_object(vm)),
-                                Err(e)
-                                    if vm.isinstance(
-                                        &e.clone().into_object(),
-                                        &vm.ctx.exceptions.type_error,
-                                    )? || vm.isinstance(
-                                        &e.clone().into_object(),
-                                        &vm.ctx.exceptions.value_error,
-                                    )? =>
-                                {
-                                    if let Some(my_base) = cls.base.clone() {
-                                        if let Some(from_param) =
-                                            vm.get_method(my_base.as_object().clone(), "from_param")
-                                        {
-                                            Ok(vm.invoke(
-                                                &from_param?,
-                                                (my_base.clone_class(), value),
-                                            )?)
-                                        } else {
-                                            // @TODO: Make sure of what goes here
-                                            Err(vm.new_attribute_error(
-                                                "class has no from_param method".to_string(),
-                                            ))
-                                        }
-                                    } else {
-                                        // @TODO: This should be unreachable
-                                        Err(vm.new_type_error("class has no base".to_string()))
-                                    }
-                                }
-                                Err(e) => Err(e),
+                                return PySimpleMeta::from_param(tp, value, &vm);
                             }
+                            Err(e)
                         }
                     }
-                }
-                // @TODO: Sanity check, this should be unreachable
-                _ => {
-                    Err(vm
-                        .new_attribute_error("class must define a '_type_' attribute".to_string()))
                 }
             }
         }
     }
 }
 
-#[pyimpl(with(PyCDataFunctions, PyCDataMethods), flags(BASETYPE))]
-impl PySimpleType {
-    #[pyslot]
-    fn tp_new(cls: PyTypeRef, _: OptionalArg, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        new_simple_type(Either::B(&cls), vm)?.into_ref_with_type(vm, cls)
-    }
-
+#[pyimpl(with(PyCDataFunctions), flags(BASETYPE))]
+impl PyCSimple {
     #[pymethod(magic)]
     pub fn init(&self, value: OptionalArg, vm: &VirtualMachine) -> PyResult<()> {
-        match value.into_option() {
-            Some(ref v) => {
-                let content = set_primitive(self._type_.as_str(), v, vm)?;
-                self.value.store(content);
-            }
-            _ => {
-                self.value.store(match self._type_.as_str() {
-                    "c" | "u" => vm.ctx.new_bytes(vec![0]),
-                    "b" | "B" | "h" | "H" | "i" | "I" | "l" | "q" | "L" | "Q" => vm.ctx.new_int(0),
-                    "f" | "d" | "g" => vm.ctx.new_float(0.0),
-                    "?" => vm.ctx.new_bool(false),
-                    _ => vm.ctx.none(), // "z" | "Z" | "P"
-                });
-            }
+        if let Some(ref v) = value.into_option() {
+            let content = set_primitive(self._type_.as_str(), v, vm)?;
+            self.value.store(content);
+        } else {
+            self.value.store(match self._type_.as_str() {
+                "c" | "u" => vm.ctx.new_bytes(vec![0]),
+                "b" | "B" | "h" | "H" | "i" | "I" | "l" | "q" | "L" | "Q" => vm.ctx.new_int(0),
+                "f" | "d" | "g" => vm.ctx.new_float(0.0),
+                "?" => vm.ctx.new_bool(false),
+                _ => vm.ctx.none(), // "z" | "Z" | "P"
+            });
         }
         Ok(())
     }
@@ -419,7 +405,7 @@ impl PySimpleType {
     #[pymethod(magic)]
     pub fn ctypes_from_outparam(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         if let Some(base) = zelf.class().base.clone() {
-            if vm.bool_eq(&base.as_object(), PySimpleType::static_type().as_object())? {
+            if vm.bool_eq(&base.as_object(), PyCSimple::static_type().as_object())? {
                 return Ok(zelf.as_object().clone());
             }
         }
@@ -447,7 +433,7 @@ impl PySimpleType {
     }
 }
 
-impl PyCDataFunctions for PySimpleType {
+impl PyCDataFunctions for PyCSimple {
     fn size_of_instances(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<usize> {
         Ok(get_size(zelf._type_.as_str()))
     }
@@ -469,4 +455,4 @@ impl PyCDataFunctions for PySimpleType {
     }
 }
 
-impl PyCDataSequenceMethods for PySimpleType {}
+impl PyCDataSequenceMethods for PySimpleMeta {}

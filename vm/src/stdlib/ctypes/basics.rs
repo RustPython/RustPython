@@ -18,7 +18,7 @@ use crate::VirtualMachine;
 
 use crate::stdlib::ctypes::array::make_array_with_length;
 use crate::stdlib::ctypes::dll::dlsym;
-use crate::stdlib::ctypes::primitive::{new_simple_type, PySimpleType};
+use crate::stdlib::ctypes::primitive::{new_simple_type, PyCSimple};
 
 use crossbeam_utils::atomic::AtomicCell;
 
@@ -203,7 +203,7 @@ pub trait PyCDataMethods: PyValue {
     // PyCFuncPtrType_Type
 
     #[pymethod]
-    fn from_param(zelf: PyRef<Self>, value: PyObjectRef, vm: &VirtualMachine) -> PyResult;
+    fn from_param(zelf: PyTypeRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult;
 
     #[pyclassmethod]
     fn from_address(
@@ -442,7 +442,7 @@ impl PyCData {
 // FIXME: this function is too hacky, work a better way of doing it
 pub fn sizeof_func(tp: Either<PyTypeRef, PyObjectRef>, vm: &VirtualMachine) -> PyResult<usize> {
     match tp {
-        Either::A(type_) if type_.issubclass(PySimpleType::static_type()) => {
+        Either::A(type_) if type_.issubclass(PyCSimple::static_type()) => {
             let zelf = new_simple_type(Either::B(&type_), vm)?;
             PyCDataFunctions::size_of_instances(zelf.into_ref(vm), vm)
         }
@@ -458,7 +458,7 @@ pub fn sizeof_func(tp: Either<PyTypeRef, PyObjectRef>, vm: &VirtualMachine) -> P
 // FIXME: this function is too hacky, work a better way of doing it
 pub fn alignment(tp: Either<PyTypeRef, PyObjectRef>, vm: &VirtualMachine) -> PyResult<usize> {
     match tp {
-        Either::A(type_) if type_.issubclass(PySimpleType::static_type()) => {
+        Either::A(type_) if type_.issubclass(PyCSimple::static_type()) => {
             let zelf = new_simple_type(Either::B(&type_), vm)?;
             PyCDataFunctions::alignment_of_instances(zelf.into_ref(vm), vm)
         }

@@ -10,17 +10,18 @@ mod primitive;
 mod shared_lib;
 mod structure;
 
-use array::PyCArray;
+use array::{PyCArray,PyCArrayMeta};
 use basics::{addressof, alignment, byref, sizeof_func, PyCData};
 use function::PyCFuncPtr;
 use pointer::{pointer_fn, PyCPointer, POINTER};
-use primitive::{PyCSimpleType, PySimpleType};
+use primitive::{PySimpleMeta, PyCSimple};
 use structure::PyCStructure;
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
     PyCData::make_class(ctx);
-    PyCSimpleType::make_class(ctx);
+    PySimpleMeta::make_class(ctx);
+    PyCArrayMeta::make_class(ctx);
 
     let module = py_module!(vm, "_ctypes", {
         "__version__" => ctx.new_str("1.1.0"),
@@ -35,7 +36,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "_pointer_type_cache" => ctx.new_dict(),
 
         "CFuncPtr" => PyCFuncPtr::make_class(ctx),
-        "_SimpleCData" => PySimpleType::make_class(ctx),
+        "_SimpleCData" => PyCSimple::make_class(ctx),
         "_Pointer" => PyCPointer::make_class(ctx),
         "Array" => PyCArray::make_class(ctx),
         "Struct" => PyCStructure::make_class(ctx)

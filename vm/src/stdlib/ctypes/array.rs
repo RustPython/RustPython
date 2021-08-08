@@ -1,11 +1,11 @@
 use super::{
     pointer::PyCPointer,
-    primitive::{new_simple_type, PySimpleType},
+    primitive::{new_simple_type, PySimpleMeta, PyCSimple},
 };
 use crate::builtins::{
     self,
     memory::{try_buffer_from_object, Buffer},
-    slice::PySlice,
+    slice::PySlice, PyType,
     PyBytes, PyInt, PyList, PyStr, PyTypeRef,
 };
 use crate::common::borrow::BorrowedValueMut;
@@ -138,7 +138,7 @@ fn set_array_value(
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     if !obj.class().issubclass(PyCData::static_type()) {
-        let value = PyCDataMethods::from_param(zelf._type_.clone(), obj, vm)?;
+        let value = PySimpleMeta::from_param(zelf._type_.clone_class(), obj, vm)?;
 
         let v_buffer = try_buffer_from_object(vm, &value)?;
         let v_buffer_bytes = v_buffer.obj_bytes_mut();
@@ -191,11 +191,28 @@ fn array_get_slice_inner(
     Ok((step, start, stop))
 }
 
-#[pyclass(module = "_ctypes", name = "Array", base = "PyCData")]
+#[pyclass(module = "_ctypes", name = "PyCArrayType", base = "PyType")]
+pub struct PyCArrayMeta {}
+
+#[pyclass(
+    module = "_ctypes",
+    name = "Array",
+    base = "PyCData",
+    metaclass = "PyCArrayMeta"
+)]
 pub struct PyCArray {
-    _type_: PyRef<PySimpleType>,
+    _type_: PyRef<PyCSimple>,
     _length_: usize,
     _buffer: PyRwLock<RawBuffer>,
+}
+
+impl fmt::Debug for PyCArrayMeta {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "PyCArrayMeta",
+        )
+    }
 }
 
 impl fmt::Debug for PyCArray {
@@ -206,6 +223,12 @@ impl fmt::Debug for PyCArray {
             self._type_._type_.as_str(),
             self._length_
         )
+    }
+}
+
+impl PyValue for PyCArrayMeta {
+    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+        Self::static_type()
     }
 }
 
@@ -233,15 +256,17 @@ impl BufferProtocol for PyCArray {
     }
 }
 
-impl PyCDataMethods for PyCArray {
+impl PyCDataMethods for PyCArrayMeta {
     fn from_param(
-        zelf: PyRef<Self>,
+        tp: PyTypeRef,
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
         if vm.isinstance(&value, PyCArray::static_type())? {
             return Ok(value);
         }
+
+        let zelf = tp.as_object().downcast_exact::<PyCArray>(vm).unwrap();
 
         if vm.obj_len(&value)? > zelf._length_ {
             return Err(vm.new_value_error("value has size greater than the array".to_string()));
@@ -272,13 +297,10 @@ impl PyCDataMethods for PyCArray {
     }
 }
 
-#[pyimpl(
-    flags(BASETYPE),
-    with(BufferProtocol, PyCDataFunctions, PyCDataMethods)
-)]
-impl PyCArray {
+#[pyimpl(with(PyCDataMethods), flags(BASETYPE))]
+impl PyCArrayMeta {
     #[pyslot]
-    fn tp_new(cls: PyTypeRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    fn tp_new(cls: PyTypeRef, vm: &VirtualMachine) -> PyResult {
         let length_obj = vm
             .get_attribute(cls.as_object().to_owned(), "_length_")
             .map_err(|_| {
@@ -297,9 +319,15 @@ impl PyCArray {
             )
         }?;
 
-        make_array_with_length(cls, length, vm)
+        Ok(make_array_with_length(cls, length, vm)?.as_object().clone())
     }
+}
 
+#[pyimpl(
+    flags(BASETYPE),
+    with(BufferProtocol, PyCDataFunctions)
+)]
+impl PyCArray {
     #[pymethod(magic)]
     pub fn init(zelf: PyRef<Self>, value: OptionalArg, vm: &VirtualMachine) -> PyResult<()> {
         value.map_or(Ok(()), |value| {
@@ -605,4 +633,4 @@ impl PyCDataFunctions for PyCArray {
     }
 }
 
-impl PyCDataSequenceMethods for PyCArray {}
+impl PyCDataSequenceMethods for PyCArrayMeta {}
