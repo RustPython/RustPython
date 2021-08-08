@@ -16,7 +16,7 @@ use super::staticmethod::PyStaticMethod;
 use super::tuple::PyTuple;
 use super::weakref::PyWeak;
 use crate::builtins::tuple::PyTupleTyped;
-use crate::function::{FuncArgs, KwArgs};
+use crate::function::{FuncArgs, KwArgs, OptionalArg};
 use crate::slots::{self, Callable, PyTpFlags, PyTypeSlots, SlotGetattro, SlotSetattro};
 use crate::utils::Either;
 use crate::vm::VirtualMachine;
@@ -343,10 +343,11 @@ impl PyType {
             .insert("__module__".to_owned(), value);
     }
 
-    #[pymethod(magic)]
+    #[pyclassmethod(magic)]
     fn prepare(
-        _name: PyStrRef,
-        _bases: PyObjectRef,
+        _cls: PyTypeRef,
+        _name: OptionalArg<PyObjectRef>,
+        _bases: OptionalArg<PyObjectRef>,
         _kwargs: KwArgs,
         vm: &VirtualMachine,
     ) -> PyDictRef {
