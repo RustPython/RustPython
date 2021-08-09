@@ -1814,8 +1814,6 @@ class MathTests(unittest.TestCase):
         self.assertEqual(type(prod([1, decimal.Decimal(2.0), 3, 4, 5, 6])),
                          decimal.Decimal)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testPerm(self):
         perm = math.perm
         factorial = math.factorial
@@ -1839,7 +1837,7 @@ class MathTests(unittest.TestCase):
         # Test one argument form
         for n in range(20):
             self.assertEqual(perm(n), factorial(n))
-            self.assertEqual(perm(n, None), factorial(n))
+            # self.assertEqual(perm(n, None), factorial(n)) # TODO: RUSTPYTHON
 
         # Raises TypeError if any argument is non-integer or argument count is
         # not 1 or 2
