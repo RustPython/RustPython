@@ -99,7 +99,7 @@ impl std::fmt::Debug for PyTypeSlots {
 }
 
 #[pyimpl]
-pub trait SlotDesctuctor: PyValue {
+pub trait SlotDestructor: PyValue {
     #[pyslot]
     fn tp_del(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if let Some(zelf) = zelf.downcast_ref() {
