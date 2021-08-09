@@ -251,32 +251,33 @@ fn write_exception_recursive<W: Write>(
     // use `wite_exception` as a public interface.
     // It is similar to `print_exception_recursive` from `CPython`.
     seen.insert(exc.as_object().get_id());
-    if let Some(cause) = exc.cause() {
+
+    #[allow(clippy::manual_map)]
+    if let Some((cause_or_context, msg)) = if let Some(cause) = exc.cause() {
         // This can be a special case: `raise e from e`,
         // we just ignore it and treat like `raise e` without any extra steps.
-        if !seen.contains(&cause.as_object().get_id()) {
-            write_exception_recursive(output, vm, &cause, seen)?;
-            writeln!(
-                output,
-                "\nThe above exception was the direct cause of the following exception:\n"
-            )?;
-        } else {
-            seen.insert(cause.as_object().get_id());
-        }
+        Some((
+            cause,
+            "\nThe above exception was the direct cause of the following exception:\n",
+        ))
     } else if let Some(context) = exc.context() {
         // This can be a special case:
         //   e = ValueError('e')
         //   e.__context__ = e
         // In this case, we just ignore
         // `__context__` part from going into recursion.
-        if !seen.contains(&context.as_object().get_id()) {
-            write_exception_recursive(output, vm, &context, seen)?;
-            writeln!(
-                output,
-                "\nDuring handling of the above exception, another exception occurred:\n"
-            )?;
+        Some((
+            context,
+            "\nDuring handling of the above exception, another exception occurred:\n",
+        ))
+    } else {
+        None
+    } {
+        if !seen.contains(&cause_or_context.as_object().get_id()) {
+            write_exception_recursive(output, vm, &cause_or_context, seen)?;
+            writeln!(output, "{}", msg)?;
         } else {
-            seen.insert(context.as_object().get_id());
+            seen.insert(cause_or_context.as_object().get_id());
         }
     }
 
