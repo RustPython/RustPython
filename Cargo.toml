@@ -72,4 +72,7 @@ opt-level = 3
 
 [patch.crates-io]
 # REDOX START, Uncommment when you want to compile/check with redoxer
+# rustyline = { git = "https://github.com/kkawakam/rustyline" }
+# # nix = { git = "https://github.com/nix-rust/nix" }
+# nix = { git = "https://github.com/coolreader18/nix", branch = "upd-libc" }
 # REDOX END
