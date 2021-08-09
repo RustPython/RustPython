@@ -88,6 +88,13 @@ class MyTypeWithMethod:
         def s():
             pass
 
+assert MyTypeWithMethod.method.__name__ == 'method'
+assert MyTypeWithMethod().method.__name__ == 'method'
+assert MyTypeWithMethod.clsmethod.__name__ == 'clsmethod'
+assert MyTypeWithMethod().clsmethod.__name__ == 'clsmethod'
+assert MyTypeWithMethod.stmethod.__name__ == 'stmethod'
+assert MyTypeWithMethod().stmethod.__name__ == 'stmethod'
+
 assert MyTypeWithMethod.method.__qualname__ == 'MyTypeWithMethod.method'
 assert MyTypeWithMethod().method.__qualname__ == 'MyTypeWithMethod.method'
 assert MyTypeWithMethod.clsmethod.__qualname__ == 'MyTypeWithMethod.clsmethod'
@@ -95,12 +102,33 @@ assert MyTypeWithMethod().clsmethod.__qualname__ == 'MyTypeWithMethod.clsmethod'
 assert MyTypeWithMethod.stmethod.__qualname__ == 'MyTypeWithMethod.stmethod'
 assert MyTypeWithMethod().stmethod.__qualname__ == 'MyTypeWithMethod.stmethod'
 
+assert MyTypeWithMethod.N.m.__name__ == 'm'
+assert MyTypeWithMethod().N.m.__name__ == 'm'
+assert MyTypeWithMethod.N.c.__name__ == 'c'
+assert MyTypeWithMethod().N.c.__name__ == 'c'
+assert MyTypeWithMethod.N.s.__name__ == 's'
+assert MyTypeWithMethod().N.s.__name__ == 's'
+
 assert MyTypeWithMethod.N.m.__qualname__ == 'MyTypeWithMethod.N.m'
 assert MyTypeWithMethod().N.m.__qualname__ == 'MyTypeWithMethod.N.m'
 assert MyTypeWithMethod.N.c.__qualname__ == 'MyTypeWithMethod.N.c'
 assert MyTypeWithMethod().N.c.__qualname__ == 'MyTypeWithMethod.N.c'
 assert MyTypeWithMethod.N.s.__qualname__ == 'MyTypeWithMethod.N.s'
 assert MyTypeWithMethod().N.s.__qualname__ == 'MyTypeWithMethod.N.s'
+
+assert MyTypeWithMethod.N().m.__name__ == 'm'
+assert MyTypeWithMethod().N().m.__name__ == 'm'
+assert MyTypeWithMethod.N().c.__name__ == 'c'
+assert MyTypeWithMethod().N().c.__name__ == 'c'
+assert MyTypeWithMethod.N().s.__name__ == 's'
+assert MyTypeWithMethod().N.s.__name__ == 's'
+
+assert MyTypeWithMethod.N().m.__qualname__ == 'MyTypeWithMethod.N.m'
+assert MyTypeWithMethod().N().m.__qualname__ == 'MyTypeWithMethod.N.m'
+assert MyTypeWithMethod.N().c.__qualname__ == 'MyTypeWithMethod.N.c'
+assert MyTypeWithMethod().N().c.__qualname__ == 'MyTypeWithMethod.N.c'
+assert MyTypeWithMethod.N().s.__qualname__ == 'MyTypeWithMethod.N.s'
+assert MyTypeWithMethod().N().s.__qualname__ == 'MyTypeWithMethod.N.s'
 
 
 # Regresesion to
@@ -126,6 +154,165 @@ assert custom_func.__qualname__ == 'custom_func'
 
 
 # Regression to
+# https://github.com/RustPython/RustPython/issues/2786
+
+assert object.__new__.__name__ == '__new__'
+assert object.__new__.__qualname__ == 'object.__new__'
+assert object.__subclasshook__.__name__ == '__subclasshook__'
+assert object.__subclasshook__.__qualname__ == 'object.__subclasshook__'
+assert type.__new__.__name__ == '__new__'
+assert type.__new__.__qualname__ == 'type.__new__'
+
+
+class AQ:
+    # To be overridden:
+
+    def one(self):
+        pass
+
+    @classmethod
+    def one_cls(cls):
+        pass
+
+    @staticmethod
+    def one_st():
+        pass
+
+    # To be inherited:
+
+    def two(self):
+        pass
+
+    @classmethod
+    def two_cls(cls):
+        pass
+
+    @staticmethod
+    def two_st():
+        pass
+
+
+class BQ(AQ):
+    def one(self):
+        pass
+
+    @classmethod
+    def one_cls(cls):
+        pass
+
+    @staticmethod
+    def one_st():
+        pass
+
+    # Extras, defined in subclass:
+
+    def three(self):
+        pass
+
+    @classmethod
+    def three_cls(cls):
+        pass
+
+    @staticmethod
+    def three_st():
+        pass
+
+assert AQ.one.__name__ == 'one'
+assert AQ().one.__name__ == 'one'
+assert AQ.one_cls.__name__ == 'one_cls'
+assert AQ().one_cls.__name__ == 'one_cls'
+assert AQ.one_st.__name__ == 'one_st'
+assert AQ().one_st.__name__ == 'one_st'
+
+assert AQ.one.__qualname__ == 'AQ.one'
+assert AQ().one.__qualname__ == 'AQ.one'
+assert AQ.one_cls.__qualname__ == 'AQ.one_cls'
+assert AQ().one_cls.__qualname__ == 'AQ.one_cls'
+assert AQ.one_st.__qualname__ == 'AQ.one_st'
+assert AQ().one_st.__qualname__ == 'AQ.one_st'
+
+assert AQ.two.__name__ == 'two'
+assert AQ().two.__name__ == 'two'
+assert AQ.two_cls.__name__ == 'two_cls'
+assert AQ().two_cls.__name__ == 'two_cls'
+assert AQ.two_st.__name__ == 'two_st'
+assert AQ().two_st.__name__ == 'two_st'
+
+assert AQ.two.__qualname__ == 'AQ.two'
+assert AQ().two.__qualname__ == 'AQ.two'
+assert AQ.two_cls.__qualname__ == 'AQ.two_cls'
+assert AQ().two_cls.__qualname__ == 'AQ.two_cls'
+assert AQ.two_st.__qualname__ == 'AQ.two_st'
+assert AQ().two_st.__qualname__ == 'AQ.two_st'
+
+assert BQ.one.__name__ == 'one'
+assert BQ().one.__name__ == 'one'
+assert BQ.one_cls.__name__ == 'one_cls'
+assert BQ().one_cls.__name__ == 'one_cls'
+assert BQ.one_st.__name__ == 'one_st'
+assert BQ().one_st.__name__ == 'one_st'
+
+assert BQ.one.__qualname__ == 'BQ.one'
+assert BQ().one.__qualname__ == 'BQ.one'
+assert BQ.one_cls.__qualname__ == 'BQ.one_cls'
+assert BQ().one_cls.__qualname__ == 'BQ.one_cls'
+assert BQ.one_st.__qualname__ == 'BQ.one_st'
+assert BQ().one_st.__qualname__ == 'BQ.one_st'
+
+assert BQ.two.__name__ == 'two'
+assert BQ().two.__name__ == 'two'
+assert BQ.two_cls.__name__ == 'two_cls'
+assert BQ().two_cls.__name__ == 'two_cls'
+assert BQ.two_st.__name__ == 'two_st'
+assert BQ().two_st.__name__ == 'two_st'
+
+assert BQ.two.__qualname__ == 'AQ.two'
+assert BQ().two.__qualname__ == 'AQ.two'
+assert BQ.two_cls.__qualname__ == 'AQ.two_cls'
+assert BQ().two_cls.__qualname__ == 'AQ.two_cls'
+assert BQ.two_st.__qualname__ == 'AQ.two_st'
+assert BQ().two_st.__qualname__ == 'AQ.two_st'
+
+assert BQ.three.__name__ == 'three'
+assert BQ().three.__name__ == 'three'
+assert BQ.three_cls.__name__ == 'three_cls'
+assert BQ().three_cls.__name__ == 'three_cls'
+assert BQ.three_st.__name__ == 'three_st'
+assert BQ().three_st.__name__ == 'three_st'
+
+assert BQ.three.__qualname__ == 'BQ.three'
+assert BQ().three.__qualname__ == 'BQ.three'
+assert BQ.three_cls.__qualname__ == 'BQ.three_cls'
+assert BQ().three_cls.__qualname__ == 'BQ.three_cls'
+assert BQ.three_st.__qualname__ == 'BQ.three_st'
+assert BQ().three_st.__qualname__ == 'BQ.three_st'
+
+
+class ClassWithNew:
+    def __new__(cls, *args, **kwargs):
+        return super().__new__(cls, *args, **kwargs)
+
+    class N:
+        def __new__(cls, *args, **kwargs):
+            return super().__new__(cls, *args, **kwargs)
+
+
+assert ClassWithNew.__new__.__qualname__ == 'ClassWithNew.__new__'
+assert ClassWithNew().__new__.__qualname__ == 'ClassWithNew.__new__'
+assert ClassWithNew.__new__.__name__ == '__new__'
+assert ClassWithNew().__new__.__name__ == '__new__'
+
+assert ClassWithNew.N.__new__.__qualname__ == 'ClassWithNew.N.__new__'
+assert ClassWithNew().N.__new__.__qualname__ == 'ClassWithNew.N.__new__'
+assert ClassWithNew.N.__new__.__name__ == '__new__'
+assert ClassWithNew().N.__new__.__name__ == '__new__'
+assert ClassWithNew.N().__new__.__qualname__ == 'ClassWithNew.N.__new__'
+assert ClassWithNew().N().__new__.__qualname__ == 'ClassWithNew.N.__new__'
+assert ClassWithNew.N().__new__.__name__ == '__new__'
+assert ClassWithNew().N().__new__.__name__ == '__new__'
+
+
+# Regression to:
 # https://github.com/RustPython/RustPython/issues/2762
 
 assert type.__prepare__() == {}
