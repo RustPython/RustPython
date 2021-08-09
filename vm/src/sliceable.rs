@@ -341,20 +341,21 @@ impl SequenceIndex {
         obj: PyObjectRef,
         owner_type: &'static str,
     ) -> PyResult<Self> {
-        match_class!(match obj {
-            i @ PyInt => i
-                .as_bigint()
-                .to_isize()
-                .map(SequenceIndex::Int)
-                .ok_or_else(|| vm
-                    .new_index_error("cannot fit 'int' into an index-sized integer".to_owned())),
-            s @ PySlice => Ok(SequenceIndex::Slice(s)),
-            obj => Err(vm.new_type_error(format!(
-                "{} indices must be integers or slices, not {}",
-                owner_type,
-                obj.class().name,
-            ))),
-        })
+        let idx = match_class!(match obj {
+            i @ PyInt => i.as_bigint().to_isize(),
+            s @ PySlice => return Ok(SequenceIndex::Slice(s)),
+            obj => {
+                let val = vm.to_index(&obj).map_err(|_| vm.new_type_error(format!(
+                    "{} indices must be integers or slices or classes that override __index__ operator, not '{}'",
+                    owner_type,
+                    obj.class().name
+                )))?;
+                val.as_bigint().to_isize()
+            }
+        }).ok_or_else(|| {
+            vm.new_index_error("cannot fit 'int' into an index-sized integer".to_owned())
+        })?;
+        Ok(SequenceIndex::Int(idx))
     }
 }
 
