@@ -497,17 +497,11 @@ class MathTests(unittest.TestCase):
         self.assertRaises(ValueError, math.factorial, -1)
         self.assertRaises(ValueError, math.factorial, -10**100)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testFactorialNonIntegers(self):
-        with self.assertWarns(DeprecationWarning):
-            self.assertEqual(math.factorial(5.0), 120)
-        with self.assertWarns(DeprecationWarning):
-            self.assertRaises(ValueError, math.factorial, 5.2)
-        with self.assertWarns(DeprecationWarning):
-            self.assertRaises(ValueError, math.factorial, -1.0)
-        with self.assertWarns(DeprecationWarning):
-            self.assertRaises(ValueError, math.factorial, -1e100)
+        self.assertRaises(TypeError, math.factorial, 5.0)
+        self.assertRaises(TypeError, math.factorial, 5.2)
+        self.assertRaises(TypeError, math.factorial, -1.0)
+        self.assertRaises(TypeError, math.factorial, -1e100)
         self.assertRaises(TypeError, math.factorial, decimal.Decimal('5'))
         self.assertRaises(TypeError, math.factorial, decimal.Decimal('5.2'))
         self.assertRaises(TypeError, math.factorial, "5")
