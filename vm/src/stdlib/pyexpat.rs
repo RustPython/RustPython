@@ -18,9 +18,10 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 }
 
 macro_rules! create_property {
-    ($ctx: expr, $attributes: expr, $name: expr, $element: ident) => {
+    ($ctx: expr, $attributes: expr, $name: expr, $class: expr, $element: ident) => {
         let attr = $ctx.new_getset(
             $name,
+            $class,
             move |this: &PyExpatLikeXmlParser| this.$element.read().clone(),
             move |this: &PyExpatLikeXmlParser, func: PyObjectRef| *this.$element.write() = func,
         );
@@ -88,11 +89,35 @@ mod _pyexpat {
         fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
             let mut attributes = class.attributes.write();
 
-            create_property!(ctx, attributes, "StartElementHandler", start_element);
-            create_property!(ctx, attributes, "EndElementHandler", end_element);
-            create_property!(ctx, attributes, "CharacterDataHandler", character_data);
-            create_property!(ctx, attributes, "EntityDeclHandler", entity_decl);
-            create_property!(ctx, attributes, "buffer_text", buffer_text);
+            create_property!(
+                ctx,
+                attributes,
+                "StartElementHandler",
+                class.clone(),
+                start_element
+            );
+            create_property!(
+                ctx,
+                attributes,
+                "EndElementHandler",
+                class.clone(),
+                end_element
+            );
+            create_property!(
+                ctx,
+                attributes,
+                "CharacterDataHandler",
+                class.clone(),
+                character_data
+            );
+            create_property!(
+                ctx,
+                attributes,
+                "EntityDeclHandler",
+                class.clone(),
+                entity_decl
+            );
+            create_property!(ctx, attributes, "buffer_text", class.clone(), buffer_text);
         }
 
         fn create_config(&self) -> xml::ParserConfig {

@@ -39,8 +39,6 @@ class HierarchyTest(unittest.TestCase):
         self.assertIs(IOError, OSError)
         self.assertIs(EnvironmentError, OSError)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_socket_errors(self):
         self.assertIs(socket.error, IOError)
         self.assertIs(socket.gaierror.__base__, OSError)

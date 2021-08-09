@@ -5,7 +5,7 @@ mod _collections {
     use crate::builtins::pytype::PyTypeRef;
     use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
     use crate::function::OptionalArg;
-    use crate::slots::{Comparable, Iterable, PyComparisonOp, PyIter};
+    use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable};
     use crate::vm::ReprGuard;
     use crate::VirtualMachine;
     use crate::{sequence, sliceable};
@@ -64,7 +64,7 @@ mod _collections {
         }
     }
 
-    #[pyimpl(flags(BASETYPE), with(Comparable, Iterable))]
+    #[pyimpl(flags(BASETYPE), with(Comparable, Hashable, Iterable))]
     impl PyDeque {
         #[pyslot]
         fn tp_new(
@@ -339,6 +339,8 @@ mod _collections {
                 .map(PyComparisonValue::Implemented)
         }
     }
+
+    impl Unhashable for PyDeque {}
 
     impl Iterable for PyDeque {
         fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {

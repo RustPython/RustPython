@@ -7,7 +7,10 @@ use crate::common::lock::PyRwLock;
 use crate::function::{FuncArgs, OptionalArg, PyNativeFunc};
 use crate::utils::Either;
 use crate::VirtualMachine;
-use crate::{IdProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject};
+use crate::{
+    IdProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol,
+};
 use crossbeam_utils::atomic::AtomicCell;
 
 bitflags! {
@@ -96,7 +99,7 @@ impl std::fmt::Debug for PyTypeSlots {
 }
 
 #[pyimpl]
-pub trait SlotDesctuctor: PyValue {
+pub trait SlotDestructor: PyValue {
     #[pyslot]
     fn tp_del(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if let Some(zelf) = zelf.downcast_ref() {
@@ -223,7 +226,7 @@ where
     T: Unhashable,
 {
     fn hash(_zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
-        Err(vm.new_type_error("unhashable type".to_owned()))
+        Err(vm.new_type_error(format!("unhashable type: '{}'", _zelf.class().name)))
     }
 }
 

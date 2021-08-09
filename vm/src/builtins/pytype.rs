@@ -16,7 +16,7 @@ use super::staticmethod::PyStaticMethod;
 use super::tuple::PyTuple;
 use super::weakref::PyWeak;
 use crate::builtins::tuple::PyTupleTyped;
-use crate::function::{FuncArgs, KwArgs};
+use crate::function::{FuncArgs, KwArgs, OptionalArg};
 use crate::slots::{self, Callable, PyTpFlags, PyTypeSlots, SlotGetattro, SlotSetattro};
 use crate::utils::Either;
 use crate::vm::VirtualMachine;
@@ -290,6 +290,11 @@ impl PyType {
         subclass.issubclass(&zelf)
     }
 
+    #[pyclassmethod(magic)]
+    fn subclasshook(_args: FuncArgs, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.not_implemented()
+    }
+
     #[pyproperty(magic)]
     fn name(&self) -> String {
         self.name.clone()
@@ -343,10 +348,11 @@ impl PyType {
             .insert("__module__".to_owned(), value);
     }
 
-    #[pymethod(magic)]
+    #[pyclassmethod(magic)]
     fn prepare(
-        _name: PyStrRef,
-        _bases: PyObjectRef,
+        _cls: PyTypeRef,
+        _name: OptionalArg<PyObjectRef>,
+        _bases: OptionalArg<PyObjectRef>,
         _kwargs: KwArgs,
         vm: &VirtualMachine,
     ) -> PyDictRef {
@@ -444,8 +450,12 @@ impl PyType {
         if !attributes.contains_key("__dict__") {
             attributes.insert(
                 "__dict__".to_owned(),
-                vm.ctx
-                    .new_getset("__dict__", subtype_get_dict, subtype_set_dict),
+                vm.ctx.new_getset(
+                    "__dict__",
+                    vm.ctx.types.object_type.clone(),
+                    subtype_get_dict,
+                    subtype_set_dict,
+                ),
             );
         }
 

@@ -299,8 +299,8 @@ impl PyContext {
     pub fn new_method<F, FKind>(
         &self,
         name: impl Into<String>,
-        f: F,
         class: PyTypeRef,
+        f: F,
     ) -> PyObjectRef
     where
         F: IntoPyNativeFunc<FKind>,
@@ -311,8 +311,8 @@ impl PyContext {
     pub fn new_classmethod<F, FKind>(
         &self,
         name: impl Into<String>,
-        f: F,
         class: PyTypeRef,
+        f: F,
     ) -> PyObjectRef
     where
         F: IntoPyNativeFunc<FKind>,
@@ -322,37 +322,48 @@ impl PyContext {
     pub fn new_staticmethod<F, FKind>(
         &self,
         name: impl Into<String>,
-        f: F,
         class: PyTypeRef,
+        f: F,
     ) -> PyObjectRef
     where
         F: IntoPyNativeFunc<FKind>,
     {
         PyObject::new(
-            PyStaticMethod::from(self.new_method(name, f, class)),
+            PyStaticMethod::from(self.new_method(name, class, f)),
             self.types.staticmethod_type.clone(),
             None,
         )
     }
 
-    pub fn new_readonly_getset<F, T>(&self, name: impl Into<String>, f: F) -> PyObjectRef
+    pub fn new_readonly_getset<F, T>(
+        &self,
+        name: impl Into<String>,
+        class: PyTypeRef,
+        f: F,
+    ) -> PyObjectRef
     where
         F: IntoPyGetterFunc<T>,
     {
         PyObject::new(
-            PyGetSet::new(name.into()).with_get(f),
+            PyGetSet::new(name.into(), class).with_get(f),
             self.types.getset_type.clone(),
             None,
         )
     }
 
-    pub fn new_getset<G, S, T, U>(&self, name: impl Into<String>, g: G, s: S) -> PyObjectRef
+    pub fn new_getset<G, S, T, U>(
+        &self,
+        name: impl Into<String>,
+        class: PyTypeRef,
+        g: G,
+        s: S,
+    ) -> PyObjectRef
     where
         G: IntoPyGetterFunc<T>,
         S: IntoPySetterFunc<U>,
     {
         PyObject::new(
-            PyGetSet::new(name.into()).with_get(g).with_set(s),
+            PyGetSet::new(name.into(), class).with_get(g).with_set(s),
             self.types.getset_type.clone(),
             None,
         )
@@ -1045,7 +1056,12 @@ pub trait PyClassImpl: PyClassDef {
         if Self::TP_FLAGS.has_feature(PyTpFlags::HAS_DICT) {
             class.set_str_attr(
                 "__dict__",
-                ctx.new_getset("__dict__", object::object_get_dict, object::object_set_dict),
+                ctx.new_getset(
+                    "__dict__",
+                    class.clone(),
+                    object::object_get_dict,
+                    object::object_set_dict,
+                ),
             );
         }
         Self::impl_extend_class(ctx, class);
@@ -1140,7 +1156,9 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
             let i = i as u8;
             class.set_str_attr(
                 name,
-                ctx.new_readonly_getset(name, move |zelf: &PyTuple| zelf.fast_getitem(i.into())),
+                ctx.new_readonly_getset(name, class.clone(), move |zelf: &PyTuple| {
+                    zelf.fast_getitem(i.into())
+                }),
             );
         }
     }

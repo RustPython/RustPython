@@ -510,6 +510,43 @@ fn math_factorial(value: PyIntRef, vm: &VirtualMachine) -> PyResult<BigInt> {
     Ok(product)
 }
 
+fn math_comb(n: PyIntRef, k: PyIntRef, vm: &VirtualMachine) -> PyResult<BigInt> {
+    let mut k = k.as_bigint();
+    let n = n.as_bigint();
+    let one = BigInt::one();
+    let zero = BigInt::zero();
+
+    if n.is_negative() || k.is_negative() {
+        return Err(vm.new_value_error("comb() not defined for negative values".to_owned()));
+    }
+
+    let temp = n - k;
+    if temp.is_negative() {
+        return Ok(zero);
+    }
+
+    if temp < *k {
+        k = &temp
+    }
+
+    if k.is_zero() {
+        return Ok(one);
+    }
+
+    let mut result = n.clone();
+    let mut factor = n.clone();
+    let mut current = one;
+    while current < *k {
+        factor -= 1;
+        current += 1;
+
+        result *= &factor;
+        result /= &current;
+    }
+
+    Ok(result)
+}
+
 fn math_modf(x: IntoPyFloat) -> (f64, f64) {
     let x = x.to_f64();
     if !x.is_finite() {
@@ -657,6 +694,9 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
         // Factorial function
         "factorial" => named_function!(ctx, math, factorial),
+
+        // Combination function
+        "comb" => named_function!(ctx, math, comb),
 
         // Floating point
         "nextafter" => named_function!(ctx, math, nextafter),

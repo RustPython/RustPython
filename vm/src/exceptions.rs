@@ -653,7 +653,7 @@ impl ExceptionZoo {
         PyBaseException::extend_class(ctx, &excs.base_exception_type);
 
         extend_class!(ctx, &excs.syntax_error, {
-            "msg" => ctx.new_readonly_getset("msg", make_arg_getter(0)),
+            "msg" => ctx.new_readonly_getset("msg", excs.syntax_error.clone(), make_arg_getter(0)),
             // TODO: members
             "filename" => ctx.none(),
             "lineno" => ctx.none(),
@@ -662,27 +662,28 @@ impl ExceptionZoo {
         });
 
         extend_class!(ctx, &excs.system_exit, {
-            "code" => ctx.new_readonly_getset("code", system_exit_code),
+            "code" => ctx.new_readonly_getset("code", excs.system_exit.clone(), system_exit_code),
         });
 
         extend_class!(ctx, &excs.import_error, {
-            "__init__" => ctx.new_method("__init__", import_error_init, excs.import_error.clone()),
-            "msg" => ctx.new_readonly_getset("msg", make_arg_getter(0)),
+            "__init__" => ctx.new_method("__init__", excs.import_error.clone(), import_error_init),
+            "msg" => ctx.new_readonly_getset("msg", excs.import_error.clone(), make_arg_getter(0)),
         });
 
         extend_class!(ctx, &excs.stop_iteration, {
-            "value" => ctx.new_readonly_getset("value", make_arg_getter(0)),
+            "value" => ctx.new_readonly_getset("value", excs.stop_iteration.clone(), make_arg_getter(0)),
         });
 
         extend_class!(ctx, &excs.key_error, {
-            "__str__" => ctx.new_method("__str__", key_error_str, excs.key_error.clone()),
+            "__str__" => ctx.new_method("__str__", excs.key_error.clone(), key_error_str),
         });
 
-        let errno_getter = ctx.new_readonly_getset("errno", |exc: PyBaseExceptionRef| {
-            let args = exc.args();
-            let args = args.as_slice();
-            args.get(0).filter(|_| args.len() > 1).cloned()
-        });
+        let errno_getter =
+            ctx.new_readonly_getset("errno", excs.os_error.clone(), |exc: PyBaseExceptionRef| {
+                let args = exc.args();
+                let args = args.as_slice();
+                args.get(0).filter(|_| args.len() > 1).cloned()
+            });
         #[cfg(windows)]
         extend_class!(ctx, &excs.os_error, {
             // TODO: this isn't really accurate
@@ -690,31 +691,31 @@ impl ExceptionZoo {
         });
         extend_class!(ctx, &excs.os_error, {
             "errno" => errno_getter,
-            "strerror" => ctx.new_readonly_getset("strerror", make_arg_getter(1)),
+            "strerror" => ctx.new_readonly_getset("strerror", excs.os_error.clone(), make_arg_getter(1)),
         });
 
         extend_class!(ctx, &excs.unicode_decode_error, {
-            "encoding" => ctx.new_readonly_getset("encoding", make_arg_getter(0)),
-            "object" => ctx.new_readonly_getset("object", make_arg_getter(1)),
-            "start" => ctx.new_readonly_getset("start", make_arg_getter(2)),
-            "end" => ctx.new_readonly_getset("end", make_arg_getter(3)),
-            "reason" => ctx.new_readonly_getset("reason", make_arg_getter(4)),
+            "encoding" => ctx.new_readonly_getset("encoding", excs.unicode_decode_error.clone(), make_arg_getter(0)),
+            "object" => ctx.new_readonly_getset("object", excs.unicode_decode_error.clone(), make_arg_getter(1)),
+            "start" => ctx.new_readonly_getset("start", excs.unicode_decode_error.clone(), make_arg_getter(2)),
+            "end" => ctx.new_readonly_getset("end", excs.unicode_decode_error.clone(), make_arg_getter(3)),
+            "reason" => ctx.new_readonly_getset("reason", excs.unicode_decode_error.clone(), make_arg_getter(4)),
         });
 
         extend_class!(ctx, &excs.unicode_encode_error, {
-            "encoding" => ctx.new_readonly_getset("encoding", make_arg_getter(0)),
-            "object" => ctx.new_readonly_getset("object", make_arg_getter(1)),
-            "start" => ctx.new_readonly_getset("start", make_arg_getter(2)),
-            "end" => ctx.new_readonly_getset("end", make_arg_getter(3)),
-            "reason" => ctx.new_readonly_getset("reason", make_arg_getter(4)),
+            "encoding" => ctx.new_readonly_getset("encoding", excs.unicode_encode_error.clone(), make_arg_getter(0)),
+            "object" => ctx.new_readonly_getset("object", excs.unicode_encode_error.clone(), make_arg_getter(1)),
+            "start" => ctx.new_readonly_getset("start", excs.unicode_encode_error.clone(), make_arg_getter(2), ),
+            "end" => ctx.new_readonly_getset("end", excs.unicode_encode_error.clone(), make_arg_getter(3)),
+            "reason" => ctx.new_readonly_getset("reason", excs.unicode_encode_error.clone(), make_arg_getter(4)),
         });
 
         extend_class!(ctx, &excs.unicode_translate_error, {
-            "encoding" => ctx.new_readonly_getset("encoding", none_getter),
-            "object" => ctx.new_readonly_getset("object", make_arg_getter(0)),
-            "start" => ctx.new_readonly_getset("start", make_arg_getter(1)),
-            "end" => ctx.new_readonly_getset("end", make_arg_getter(2)),
-            "reason" => ctx.new_readonly_getset("reason", make_arg_getter(3)),
+            "encoding" => ctx.new_readonly_getset("encoding", excs.unicode_translate_error.clone(), none_getter),
+            "object" => ctx.new_readonly_getset("object", excs.unicode_translate_error.clone(), make_arg_getter(0)),
+            "start" => ctx.new_readonly_getset("start", excs.unicode_translate_error.clone(), make_arg_getter(1)),
+            "end" => ctx.new_readonly_getset("end", excs.unicode_translate_error.clone(), make_arg_getter(2)),
+            "reason" => ctx.new_readonly_getset("reason", excs.unicode_translate_error.clone(), make_arg_getter(3)),
         });
     }
 }
