@@ -290,6 +290,11 @@ impl PyType {
         subclass.issubclass(&zelf)
     }
 
+    #[pyclassmethod(magic)]
+    fn subclasshook(_args: FuncArgs, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.not_implemented()
+    }
+
     #[pyproperty(magic)]
     fn name(&self) -> String {
         self.name.clone()

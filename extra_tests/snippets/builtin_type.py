@@ -151,3 +151,10 @@ assert BaseException.args.__qualname__ == 'BaseException.args'
 assert Exception.args.__qualname__ == 'BaseException.args'
 # dynamic with `.new_readonly_getset`
 assert SyntaxError.msg.__qualname__ == 'SyntaxError.msg'
+
+
+# Regression to
+# https://github.com/RustPython/RustPython/issues/2794
+
+assert type.__subclasshook__.__qualname__ == 'type.__subclasshook__'
+assert object.__subclasshook__.__qualname__ == 'object.__subclasshook__'
