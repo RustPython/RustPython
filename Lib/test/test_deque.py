@@ -590,8 +590,6 @@ class TestBasic(unittest.TestCase):
         self.assertRaises(TypeError, deque, 'abc', 2, 3);
         self.assertRaises(TypeError, deque, 1);
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_hash(self):
         self.assertRaises(TypeError, hash, deque('abc'))
 
