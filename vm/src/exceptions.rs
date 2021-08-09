@@ -11,12 +11,13 @@ use crate::types::create_type_with_slots;
 use crate::StaticType;
 use crate::VirtualMachine;
 use crate::{
-    IntoPyObject, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
+    IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult,
+    PyValue, TryFromObject, TypeProtocol,
 };
 
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
+use std::collections::HashSet;
 use std::fmt;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
@@ -194,21 +195,8 @@ pub fn write_exception<W: Write>(
     vm: &VirtualMachine,
     exc: &PyBaseExceptionRef,
 ) -> Result<(), W::Error> {
-    if let Some(cause) = exc.cause() {
-        write_exception(output, vm, &cause)?;
-        writeln!(
-            output,
-            "\nThe above exception was the direct cause of the following exception:\n"
-        )?;
-    } else if let Some(context) = exc.context() {
-        write_exception(output, vm, &context)?;
-        writeln!(
-            output,
-            "\nDuring handling of the above exception, another exception occurred:\n"
-        )?;
-    }
-
-    write_exception_inner(output, vm, exc)
+    let seen = &mut HashSet::<usize>::new();
+    write_exception_recursive(output, vm, exc, seen)
 }
 
 fn print_source_line<W: Write>(
@@ -251,6 +239,48 @@ fn write_traceback_entry<W: Write>(
     print_source_line(output, filename, tb_entry.lineno)?;
 
     Ok(())
+}
+
+fn write_exception_recursive<W: Write>(
+    output: &mut W,
+    vm: &VirtualMachine,
+    exc: &PyBaseExceptionRef,
+    seen: &mut HashSet<usize>,
+) -> Result<(), W::Error> {
+    // This function should not be called directly,
+    // use `wite_exception` as a public interface.
+    // It is similar to `print_exception_recursive` from `CPython`.
+    seen.insert(exc.as_object().get_id());
+    if let Some(cause) = exc.cause() {
+        // This can be a special case: `raise e from e`,
+        // we just ignore it and treat like `raise e` without any extra steps.
+        if !seen.contains(&cause.as_object().get_id()) {
+            write_exception_recursive(output, vm, &cause, seen)?;
+            writeln!(
+                output,
+                "\nThe above exception was the direct cause of the following exception:\n"
+            )?;
+        } else {
+            seen.insert(cause.as_object().get_id());
+        }
+    } else if let Some(context) = exc.context() {
+        // This can be a special case:
+        //   e = ValueError('e')
+        //   e.__context__ = e
+        // In this case, we just ignore
+        // `__context__` part from going into recursion.
+        if !seen.contains(&context.as_object().get_id()) {
+            write_exception_recursive(output, vm, &context, seen)?;
+            writeln!(
+                output,
+                "\nDuring handling of the above exception, another exception occurred:\n"
+            )?;
+        } else {
+            seen.insert(context.as_object().get_id());
+        }
+    }
+
+    write_exception_inner(output, vm, exc)
 }
 
 /// Print exception with traceback
