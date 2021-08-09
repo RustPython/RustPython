@@ -101,8 +101,6 @@ class SeqTestCase:
         self.o2 = newstyle()
         self.n2 = newstyle()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_index(self):
         self.o.ind = -2
         self.n.ind = 2
@@ -140,8 +138,6 @@ class SeqTestCase:
         self.assertEqual(self.o * self.seq, self.seq * 3)
         self.assertEqual(self.n * self.seq, self.seq * 2)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_wrappers(self):
         self.o.ind = 4
         self.n.ind = 5
@@ -169,8 +165,6 @@ class SeqTestCase:
 class ListTestCase(SeqTestCase, unittest.TestCase):
     seq = [0,10,20,30,40,50]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_setdelitem(self):
         self.o.ind = -2
         self.n.ind = 2
