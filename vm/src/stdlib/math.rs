@@ -510,11 +510,18 @@ fn math_factorial(value: PyIntRef, vm: &VirtualMachine) -> PyResult<BigInt> {
     Ok(product)
 }
 
-fn math_perm(n: PyIntRef, k: OptionalArg<PyIntRef>, vm: &VirtualMachine) -> PyResult<BigInt> {
+fn math_perm(
+    n: PyIntRef,
+    k: OptionalArg<Option<PyIntRef>>,
+    vm: &VirtualMachine,
+) -> PyResult<BigInt> {
     let n = n.as_bigint();
     let v: BigInt = match k {
         OptionalArg::Missing => n.clone(),
-        OptionalArg::Present(x) => x.as_bigint().clone(),
+        OptionalArg::Present(x) => match x {
+            Some(xi) => xi.as_bigint().clone(),
+            None => n.clone(),
+        },
     };
 
     if n.is_negative() || v.is_negative() {

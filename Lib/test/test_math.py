@@ -1837,7 +1837,7 @@ class MathTests(unittest.TestCase):
         # Test one argument form
         for n in range(20):
             self.assertEqual(perm(n), factorial(n))
-            # self.assertEqual(perm(n, None), factorial(n)) # TODO: RUSTPYTHON
+            self.assertEqual(perm(n, None), factorial(n))
 
         # Raises TypeError if any argument is non-integer or argument count is
         # not 1 or 2
