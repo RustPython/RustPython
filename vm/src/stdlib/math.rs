@@ -510,6 +510,37 @@ fn math_factorial(value: PyIntRef, vm: &VirtualMachine) -> PyResult<BigInt> {
     Ok(product)
 }
 
+fn math_perm(
+    n: PyIntRef,
+    k: OptionalArg<Option<PyIntRef>>,
+    vm: &VirtualMachine,
+) -> PyResult<BigInt> {
+    let n = n.as_bigint();
+    let k_ref;
+    let v = match k.flatten() {
+        Some(k) => {
+            k_ref = k;
+            k_ref.as_bigint()
+        }
+        None => n,
+    };
+
+    if n.is_negative() || v.is_negative() {
+        return Err(vm.new_value_error("perm() not defined for negative values".to_owned()));
+    }
+    if v > n {
+        return Ok(BigInt::zero());
+    }
+    let mut result = BigInt::one();
+    let mut current = n.clone();
+    let tmp = n - v;
+    while current > tmp {
+        result *= &current;
+        current -= 1;
+    }
+    Ok(result)
+}
+
 fn math_comb(n: PyIntRef, k: PyIntRef, vm: &VirtualMachine) -> PyResult<BigInt> {
     let mut k = k.as_bigint();
     let n = n.as_bigint();
@@ -694,6 +725,9 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
         // Factorial function
         "factorial" => named_function!(ctx, math, factorial),
+
+        // Permutation function
+        "perm" => named_function!(ctx, math, perm),
 
         // Combination function
         "comb" => named_function!(ctx, math, comb),
