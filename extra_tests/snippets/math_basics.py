@@ -5,13 +5,13 @@ assert -3 % 2 == 1
 
 a = 4
 
-#print(a ** 3)
-#print(a * 3)
-#print(a / 2)
-#print(a % 3)
-#print(a - 3)
-#print(-a)
-#print(+a)
+# print(a ** 3)
+# print(a * 3)
+# print(a / 2)
+# print(a % 3)
+# print(a - 3)
+# print(-a)
+# print(+a)
 
 assert a ** 3 == 64
 assert a * 3 == 12
@@ -30,20 +30,20 @@ assert round(-0.5) == 0
 assert round(-1.5) == -2
 
 # ValueError: cannot convert float NaN to integer
-assert_raises(ValueError, round, float('nan'))
+assert_raises(ValueError, round, float("nan"))
 # OverflowError: cannot convert float infinity to integer
-assert_raises(OverflowError, round, float('inf'))
+assert_raises(OverflowError, round, float("inf"))
 # OverflowError: cannot convert float infinity to integer
-assert_raises(OverflowError, round, -float('inf'))
+assert_raises(OverflowError, round, -float("inf"))
 
 assert pow(0, 0) == 1
 assert pow(2, 2) == 4
 assert pow(1, 2.0) == 1.0
 assert pow(2.0, 1) == 2.0
-assert pow(0, 10**1000) == 0
-assert pow(1, 10**1000) == 1
-assert pow(-1, 10**1000+1) == -1
-assert pow(-1, 10**1000) == 1
+assert pow(0, 10 ** 1000) == 0
+assert pow(1, 10 ** 1000) == 1
+assert pow(-1, 10 ** 1000 + 1) == -1
+assert pow(-1, 10 ** 1000) == 1
 
 assert pow(2, 4, 5) == 1
 assert_raises(TypeError, pow, 2, 4, 5.0)

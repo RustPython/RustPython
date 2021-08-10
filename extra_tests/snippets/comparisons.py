@@ -13,11 +13,13 @@ assert not 1 < 2 < 3 > 4
 assert not 1 < 2 > 3 < 4
 assert not 1 > 2 < 3 < 4
 
+
 def test_type_error(x, y):
     assert_raises(TypeError, lambda: x < y)
     assert_raises(TypeError, lambda: x <= y)
     assert_raises(TypeError, lambda: x > y)
     assert_raises(TypeError, lambda: x >= y)
+
 
 test_type_error([], 0)
 test_type_error((), 0)

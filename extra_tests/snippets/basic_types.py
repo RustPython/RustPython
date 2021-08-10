@@ -12,9 +12,9 @@ print(1.1)
 print("abc")
 # print(u"abc")
 # Structural below
-print((1, 2)) # Tuple can be any length, but fixed after declared
-x = (1,2)
-print(x[0]) # Tuple can be any length, but fixed after declared
+print((1, 2))  # Tuple can be any length, but fixed after declared
+x = (1, 2)
+print(x[0])  # Tuple can be any length, but fixed after declared
 print([1, 2, 3])
 # print({"first":1,"second":2})
 
@@ -51,15 +51,14 @@ assert int() == 0
 a = complex(2, 4)
 assert type(a) is complex
 assert type(a + a) is complex
-assert repr(a) == '(2+4j)'
+assert repr(a) == "(2+4j)"
 a = 10j
-assert repr(a) == '10j'
+assert repr(a) == "10j"
 
 a = 1
 assert a.conjugate() == a
 
 a = 12345
 
-b = a*a*a*a*a*a*a*a
+b = a * a * a * a * a * a * a * a
 assert b.bit_length() == 109
-

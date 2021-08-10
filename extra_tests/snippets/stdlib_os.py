@@ -5,23 +5,22 @@ import sys
 
 from testutils import assert_raises
 
-fd = os.open('README.md', os.O_RDONLY)
+fd = os.open("README.md", os.O_RDONLY)
 assert fd > 0
 
 os.close(fd)
 assert_raises(OSError, lambda: os.read(fd, 10))
-assert_raises(FileNotFoundError,
-              lambda: os.open('DOES_NOT_EXIST', os.O_RDONLY))
-assert_raises(FileNotFoundError,
-              lambda: os.open('DOES_NOT_EXIST', os.O_WRONLY))
-assert_raises(FileNotFoundError,
-              lambda: os.rename('DOES_NOT_EXIST', 'DOES_NOT_EXIST 2'))
+assert_raises(FileNotFoundError, lambda: os.open("DOES_NOT_EXIST", os.O_RDONLY))
+assert_raises(FileNotFoundError, lambda: os.open("DOES_NOT_EXIST", os.O_WRONLY))
+assert_raises(
+    FileNotFoundError, lambda: os.rename("DOES_NOT_EXIST", "DOES_NOT_EXIST 2")
+)
 
 # sendfile only supports in_fd as non-socket on linux and solaris
 if hasattr(os, "sendfile") and sys.platform.startswith("linux"):
-    src_fd = os.open('README.md', os.O_RDONLY)
-    dest_fd = os.open('destination.md', os.O_RDWR | os.O_CREAT)
-    src_len = os.stat('README.md').st_size
+    src_fd = os.open("README.md", os.O_RDONLY)
+    dest_fd = os.open("destination.md", os.O_RDWR | os.O_CREAT)
+    src_len = os.stat("README.md").st_size
 
     bytes_sent = os.sendfile(dest_fd, src_fd, 0, src_len)
     assert src_len == bytes_sent
@@ -32,7 +31,7 @@ if hasattr(os, "sendfile") and sys.platform.startswith("linux"):
     os.close(dest_fd)
 
 try:
-    os.open('DOES_NOT_EXIST', 0)
+    os.open("DOES_NOT_EXIST", 0)
 except OSError as err:
     assert err.errno == 2
 
@@ -78,15 +77,14 @@ assert os.fspath(b"Testing") == b"Testing"
 assert_raises(TypeError, lambda: os.fspath([1, 2, 3]))
 
 
-class TestWithTempDir():
+class TestWithTempDir:
     def __enter__(self):
         if os.name == "nt":
             base_folder = os.environ["TEMP"]
         else:
             base_folder = "/tmp"
 
-        name = os.path.join(base_folder,
-                            "rustpython_test_os_" + str(int(time.time())))
+        name = os.path.join(base_folder, "rustpython_test_os_" + str(int(time.time())))
 
         while os.path.isdir(name):
             name = name + "_"
@@ -99,7 +97,7 @@ class TestWithTempDir():
         pass
 
 
-class TestWithTempCurrentDir():
+class TestWithTempCurrentDir:
     def __enter__(self):
         self.prev_cwd = os.getcwd()
 
@@ -127,8 +125,9 @@ with TestWithTempDir() as tmpdir:
     assert os.write(fd, CONTENT3) == len(CONTENT3)
     os.close(fd)
 
-    assert_raises(FileExistsError,
-                  lambda: os.open(fname, os.O_WRONLY | os.O_CREAT | os.O_EXCL))
+    assert_raises(
+        FileExistsError, lambda: os.open(fname, os.O_WRONLY | os.O_CREAT | os.O_EXCL)
+    )
 
     fd = os.open(fname, os.O_RDONLY)
     assert os.read(fd, len(CONTENT2)) == CONTENT2
@@ -147,7 +146,7 @@ with TestWithTempDir() as tmpdir:
     assert not os.isatty(fd)
 
     # TODO: get os.lseek working on windows
-    if os.name != 'nt':
+    if os.name != "nt":
         fd = os.open(fname3, 0)
         assert os.read(fd, len(CONTENT2)) == CONTENT2
         assert os.read(fd, len(CONTENT3)) == CONTENT3
@@ -198,8 +197,7 @@ with TestWithTempDir() as tmpdir:
         if dir_entry.is_symlink():
             symlinks.add(dir_entry.name)
 
-    assert names == set(
-        [FILE_NAME, FILE_NAME2, FOLDER, SYMLINK_FILE, SYMLINK_FOLDER])
+    assert names == set([FILE_NAME, FILE_NAME2, FOLDER, SYMLINK_FILE, SYMLINK_FOLDER])
     assert paths == set([fname, fname2, folder, symlink_file, symlink_folder])
     assert dirs == set([FOLDER, SYMLINK_FOLDER])
     assert dirs_no_symlink == set([FOLDER])
@@ -267,23 +265,26 @@ with TestWithTempDir() as tmpdir:
     os.stat(fname).st_mode == os.stat(symlink_file).st_mode
 
     os.stat(fname, follow_symlinks=False).st_ino == os.stat(
-        symlink_file, follow_symlinks=False).st_ino
+        symlink_file, follow_symlinks=False
+    ).st_ino
     os.stat(fname, follow_symlinks=False).st_mode == os.stat(
-        symlink_file, follow_symlinks=False).st_mode
+        symlink_file, follow_symlinks=False
+    ).st_mode
 
     # os.chmod
     if os.name != "nt":
         os.chmod(fname, 0o666)
-        assert oct(os.stat(fname).st_mode) == '0o100666'
+        assert oct(os.stat(fname).st_mode) == "0o100666"
 
-# os.chown
+    # os.chown
     if os.name != "nt":
         # setup
         root_in_posix = False
-        if hasattr(os, 'geteuid'):
-            root_in_posix = (os.geteuid() == 0)
+        if hasattr(os, "geteuid"):
+            root_in_posix = os.geteuid() == 0
         try:
             import pwd
+
             all_users = [u.pw_uid for u in pwd.getpwall()]
         except (ImportError, AttributeError):
             all_users = []
@@ -296,10 +297,8 @@ with TestWithTempDir() as tmpdir:
         if not root_in_posix and len(all_users) > 1:
             uid_1, uid_2 = all_users[:2]
             gid = os.stat(fname1).st_gid
-            assert_raises(PermissionError,
-                          lambda: os.chown(fname1, uid_1, gid))
-            assert_raises(PermissionError,
-                          lambda: os.chown(fname1, uid_2, gid))
+            assert_raises(PermissionError, lambda: os.chown(fname1, uid_1, gid))
+            assert_raises(PermissionError, lambda: os.chown(fname1, uid_2, gid))
 
         # test chown with root perm and file name
         if root_in_posix and len(all_users) > 1:
@@ -324,7 +323,7 @@ with TestWithTempDir() as tmpdir:
             assert uid == uid_2
 
         # test gid change
-        if hasattr(os, 'getgroups'):
+        if hasattr(os, "getgroups"):
             groups = os.getgroups()
             if len(groups) > 1:
                 gid_1, gid_2 = groups[:2]
@@ -431,7 +430,7 @@ if "win" not in sys.platform:
         os.close(wfd)
 
 # os.pipe2
-if sys.platform.startswith('linux') or sys.platform.startswith('freebsd'):
+if sys.platform.startswith("linux") or sys.platform.startswith("freebsd"):
     rfd, wfd = os.pipe2(0)
     try:
         os.write(wfd, CONTENT2)
@@ -457,11 +456,11 @@ if sys.platform.startswith('linux') or sys.platform.startswith('freebsd'):
 
 with TestWithTempDir() as tmpdir:
     for i in range(0, 4):
-        file_name = os.path.join(tmpdir, 'file' + str(i))
-        with open(file_name, 'w') as f:
-            f.write('test')
+        file_name = os.path.join(tmpdir, "file" + str(i))
+        with open(file_name, "w") as f:
+            f.write("test")
 
-    expected_files = ['file0', 'file1', 'file2', 'file3']
+    expected_files = ["file0", "file1", "file2", "file3"]
 
     dir_iter = os.scandir(tmpdir)
     collected_files = [dir_entry.name for dir_entry in dir_iter]
@@ -473,13 +472,14 @@ with TestWithTempDir() as tmpdir:
 
     dir_iter.close()
 
-    expected_files_bytes = [(file.encode(), os.path.join(tmpdir,
-                                                         file).encode())
-                            for file in expected_files]
+    expected_files_bytes = [
+        (file.encode(), os.path.join(tmpdir, file).encode()) for file in expected_files
+    ]
 
     dir_iter_bytes = os.scandir(tmpdir.encode())
-    collected_files_bytes = [(dir_entry.name, dir_entry.path)
-                             for dir_entry in dir_iter_bytes]
+    collected_files_bytes = [
+        (dir_entry.name, dir_entry.path) for dir_entry in dir_iter_bytes
+    ]
 
     assert set(collected_files_bytes) == set(expected_files_bytes)
 
@@ -489,8 +489,7 @@ with TestWithTempDir() as tmpdir:
     assert set(collected_files) == set(expected_files)
 
     collected_files = os.listdir(tmpdir.encode())
-    assert set(collected_files) == set(
-        [file.encode() for file in expected_files])
+    assert set(collected_files) == set([file.encode() for file in expected_files])
 
     with TestWithTempCurrentDir():
         os.chdir(tmpdir)
@@ -500,31 +499,43 @@ with TestWithTempDir() as tmpdir:
 
 # system()
 if "win" not in sys.platform:
-    assert os.system('ls') == 0
-    assert os.system('{') != 0
+    assert os.system("ls") == 0
+    assert os.system("{") != 0
 
     for arg in [None, 1, 1.0, TabError]:
         assert_raises(TypeError, os.system, arg)
 
 if sys.platform.startswith("win"):
-	winver = sys.getwindowsversion()
+    winver = sys.getwindowsversion()
 
-	# the biggest value of wSuiteMask (https://docs.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-osversioninfoexa#members).
-	all_masks = 0x00000004 | 0x00000400 | 0x00004000 | 0x00000080 | 0x00000002 | 0x00000040 | 0x00000200 | \
-		0x00000100 | 0x00000001 | 0x00000020 | 0x00002000 | 0x00000010 | 0x00008000 | 0x00020000
+    # the biggest value of wSuiteMask (https://docs.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-osversioninfoexa#members).
+    all_masks = (
+        0x00000004
+        | 0x00000400
+        | 0x00004000
+        | 0x00000080
+        | 0x00000002
+        | 0x00000040
+        | 0x00000200
+        | 0x00000100
+        | 0x00000001
+        | 0x00000020
+        | 0x00002000
+        | 0x00000010
+        | 0x00008000
+        | 0x00020000
+    )
 
-	# We really can't test if the results are correct, so it just checks for meaningful value
-	assert winver.major > 0
-	assert winver.minor >= 0
-	assert winver.build > 0
-	assert winver.platform == 2
-	assert isinstance(winver.service_pack, str)
-	assert 0 <= winver.suite_mask <= all_masks
-	assert 1 <= winver.product_type <= 3
+    # We really can't test if the results are correct, so it just checks for meaningful value
+    assert winver.major > 0
+    assert winver.minor >= 0
+    assert winver.build > 0
+    assert winver.platform == 2
+    assert isinstance(winver.service_pack, str)
+    assert 0 <= winver.suite_mask <= all_masks
+    assert 1 <= winver.product_type <= 3
 
-	# XXX if platform_version is implemented correctly, this'll break on compatiblity mode or a build without manifest
-	assert winver.major == winver.platform_version[0]
-	assert winver.minor == winver.platform_version[1]
-	assert winver.build == winver.platform_version[2]
-
-
+    # XXX if platform_version is implemented correctly, this'll break on compatiblity mode or a build without manifest
+    assert winver.major == winver.platform_version[0]
+    assert winver.minor == winver.platform_version[1]
+    assert winver.build == winver.platform_version[2]

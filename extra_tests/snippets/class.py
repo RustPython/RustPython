@@ -24,8 +24,10 @@ assert Foo.square.__name__ == "square"
 assert Foo.square.__qualname__ == "Foo.square"
 assert Foo.square.__module__ == "class"
 
+
 class Bar:
-    """ W00t """
+    """W00t"""
+
     def __init__(self, x):
         self.x = x
 
@@ -66,14 +68,17 @@ class Bar2(Bar):
     def __init__(self):
         super().__init__(101)
 
+
 bar2 = Bar2()
 assert bar2.get_x() == 101
 
-class A():
+
+class A:
     def test(self):
         return 100
 
-class B():
+
+class B:
     def test1(self):
         return 200
 
@@ -81,7 +86,8 @@ class B():
     def test3(cls):
         return 300
 
-class C(A,B):
+
+class C(A, B):
     def test(self):
         return super().test()
 
@@ -92,33 +98,38 @@ class C(A,B):
     def test3(cls):
         return super().test3()
 
+
 c = C()
 assert c.test() == 100
 assert c.test1() == 200
 assert c.test3() == 300
 assert C.test3() == 300
 
-class Me():
 
+class Me:
     def test(me):
         return 100
 
-class Me2(Me):
 
+class Me2(Me):
     def test(me):
         return super().test()
 
-class A():
+
+class A:
     def f(self):
         pass
+
 
 class B(A):
     def f(self):
         super().f()
 
+
 class C(B):
     def f(self):
         super().f()
+
 
 C().f()
 
@@ -134,19 +145,25 @@ assert a.conjugate() == 1
 class T1:
     "test1"
 
+
 assert T1.__doc__ == "test1"
 
+
 class T2:
-    '''test2'''
+    """test2"""
+
 
 assert T2.__doc__ == "test2"
+
 
 class T3:
     """
     test3
     """
 
+
 assert T3.__doc__ == "\n    test3\n    "
+
 
 class T4:
 
@@ -156,6 +173,7 @@ class T4:
         """t1"""
         pass
 
+
 assert T4.__doc__ == "test4"
 assert T4.t1.__doc__ == "t1"
 
@@ -164,8 +182,10 @@ assert cm.__func__(int) is int
 
 assert str(super(int, 5)) == "<super: <class 'int'>, <int object>>"
 
+
 class T5(int):
     pass
+
 
 assert str(super(int, T5(5))) == "<super: <class 'int'>, <T5 object>>"
 
@@ -174,21 +194,31 @@ assert str(super(type, None)) == "<super: <class 'type'>, NULL>"
 assert str(super(int).__get__(T5(5))) == "<super: <class 'int'>, <T5 object>>"
 
 a = 1
+
+
 class A:
     a = 2
+
     def b():
         assert a == 1
+
     b()
     assert a == 2
+
+
 A.b()
+
 
 class A:
     pass
 
+
 assert A.__doc__ == None
+
 
 class B:
     "Docstring"
+
 
 assert B.__doc__ == "Docstring"
 
@@ -209,59 +239,80 @@ assert B.__doc__ == "Docstring"
 # nested_scope()
 
 
-
 # Multiple inheritance and mro tests.
-class A():
+class A:
     def f(self):
-        return 'a'
+        return "a"
+
 
 class B(A):
     def f(self):
-        return 'b' + super().f()
+        return "b" + super().f()
+
 
 class C(A):
     def f(self):
-        return 'c' + super().f()
+        return "c" + super().f()
+
 
 class D(B, C):
     def f(self):
-        return 'd' + super().f()
-
-assert D().f() == 'dbca', "Mro resolution using super failed."
+        return "d" + super().f()
 
 
+assert D().f() == "dbca", "Mro resolution using super failed."
 
-class A():
+
+class A:
     pass
+
+
 try:
+
     class B(A, A):
         pass
+
+
 except TypeError:
     pass
 else:
     assert False, "Managed to create a class with duplicate base classes."
 
 
-class A():
+class A:
     pass
+
+
 class B(A):
     pass
+
+
 try:
+
     class C(A, B):
         pass
+
+
 except TypeError:
     pass
 else:
     assert False, "Managed to create a class without local type precedence."
 
 
-class A():
+class A:
     a: int
 
-assert A.__annotations__['a'] == int
 
-class A: pass
-class B: pass
+assert A.__annotations__["a"] == int
+
+
+class A:
+    pass
+
+
+class B:
+    pass
+
 
 class C(*(A, B), **{"metaclass": type}):
     pass

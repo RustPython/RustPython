@@ -20,8 +20,10 @@ assert ret("0" if a and b else "1") == "1"
 def func1():
     return 0
 
+
 def func2():
     return 20
+
 
 assert ret(func1() or func2()) == 20
 

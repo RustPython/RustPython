@@ -2,23 +2,28 @@ import sys
 
 from testutils import assert_raises
 
-print('python executable:', sys.executable)
+print("python executable:", sys.executable)
 print(sys.argv)
-assert sys.argv[0].endswith('.py')
+assert sys.argv[0].endswith(".py")
 
-assert sys.platform == "linux" or sys.platform == "darwin" or sys.platform == "win32" or sys.platform == "unknown"
+assert (
+    sys.platform == "linux"
+    or sys.platform == "darwin"
+    or sys.platform == "win32"
+    or sys.platform == "unknown"
+)
 
 if hasattr(sys, "_framework"):
     assert type(sys._framework) is str
 
 assert isinstance(sys.builtin_module_names, tuple)
-assert 'sys' in sys.builtin_module_names
+assert "sys" in sys.builtin_module_names
 
 assert isinstance(sys.implementation.name, str)
 assert isinstance(sys.implementation.cache_tag, str)
 
-assert sys.getfilesystemencoding() == 'utf-8'
-assert sys.getfilesystemencodeerrors().startswith('surrogate')
+assert sys.getfilesystemencoding() == "utf-8"
+assert sys.getfilesystemencodeerrors().startswith("surrogate")
 
 assert sys.byteorder == "little" or sys.byteorder == "big"
 
@@ -33,14 +38,17 @@ assert sys.maxunicode == 1114111
 
 events = []
 
+
 def trc(frame, event, arg):
     fn_name = frame.f_code.co_name
     events.append((fn_name, event, arg))
-    print('trace event:', fn_name, event, arg)
+    print("trace event:", fn_name, event, arg)
+
 
 def demo(x):
     if x > 0:
         demo(x - 1)
+
 
 sys.settrace(trc)
 demo(5)
@@ -51,18 +59,20 @@ assert ("demo", "call", None) in events
 assert sys.exc_info() == (None, None, None)
 
 try:
-	1/0
+    1 / 0
 except ZeroDivisionError as exc:
-	exc_info = sys.exc_info()
-	assert exc_info[0] == type(exc) == ZeroDivisionError
-	assert exc_info[1] == exc
+    exc_info = sys.exc_info()
+    assert exc_info[0] == type(exc) == ZeroDivisionError
+    assert exc_info[1] == exc
 
 
 # Recursion:
 
+
 def recursive_call(n):
     if n > 0:
         recursive_call(n - 1)
+
 
 sys.setrecursionlimit(200)
 assert sys.getrecursionlimit() == 200

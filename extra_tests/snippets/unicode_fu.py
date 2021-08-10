@@ -1,27 +1,27 @@
-
 # Test the unicode support! 👋
 
 
-ᚴ=2
+ᚴ = 2
 
-assert ᚴ*8 == 16
+assert ᚴ * 8 == 16
 
-ᚴ="👋"
+ᚴ = "👋"
 
-c = ᚴ*3
+c = ᚴ * 3
 
-assert c == '👋👋👋'
+assert c == "👋👋👋"
 
 import unicodedata
-assert unicodedata.category('a') == 'Ll'
-assert unicodedata.category('A') == 'Lu'
-assert unicodedata.name('a') == 'LATIN SMALL LETTER A'
-assert unicodedata.lookup('LATIN SMALL LETTER A') == 'a'
-assert unicodedata.bidirectional('a') == 'L'
-assert unicodedata.normalize('NFC', 'bla') == 'bla'
+
+assert unicodedata.category("a") == "Ll"
+assert unicodedata.category("A") == "Lu"
+assert unicodedata.name("a") == "LATIN SMALL LETTER A"
+assert unicodedata.lookup("LATIN SMALL LETTER A") == "a"
+assert unicodedata.bidirectional("a") == "L"
+assert unicodedata.normalize("NFC", "bla") == "bla"
 
 # testing unicodedata.ucd_3_2_0 for idna
-assert "abcСĤ".encode("idna") == b'xn--abc-7sa390b'
+assert "abcСĤ".encode("idna") == b"xn--abc-7sa390b"
 # TODO: fix: assert "abc䄣Ĳ".encode("idna") == b'xn--abcij-zb5f'
 
 # from CPython tests

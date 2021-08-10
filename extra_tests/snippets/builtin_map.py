@@ -1,5 +1,5 @@
 a = list(map(str, [1, 2, 3]))
-assert a == ['1', '2', '3']
+assert a == ["1", "2", "3"]
 
 
 b = list(map(lambda x, y: x + y, [1, 2, 4], [3, 5]))
@@ -20,7 +20,7 @@ class Counter(object):
         return self
 
 
-it = map(lambda x: x+1, Counter())
+it = map(lambda x: x + 1, Counter())
 assert next(it) == 2
 assert next(it) == 3
 

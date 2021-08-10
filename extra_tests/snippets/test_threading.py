@@ -11,7 +11,7 @@ def thread_function(name):
 
 
 output.append((0, 0))
-x = threading.Thread(target=thread_function, args=(1, ))
+x = threading.Thread(target=thread_function, args=(1,))
 output.append((0, 1))
 x.start()
 output.append((0, 2))

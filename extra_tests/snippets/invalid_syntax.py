@@ -8,7 +8,7 @@ yield 2
 """
 
 with assert_raises(SyntaxError) as ae:
-    compile(src, 'test.py', 'exec')
+    compile(src, "test.py", "exec")
 assert ae.exception.lineno == 5
 
 src = """
@@ -17,7 +17,7 @@ pass
 """
 
 with assert_raises(IndentationError):
-    compile(src, '', 'exec')
+    compile(src, "", "exec")
 
 src = """
 if True:
@@ -26,7 +26,7 @@ if True:
 """
 
 with assert_raises(IndentationError):
-    compile(src, '', 'exec')
+    compile(src, "", "exec")
 
 src = """
 if True:
@@ -35,7 +35,7 @@ if True:
 """
 
 with assert_raises(IndentationError):
-    compile(src, '', 'exec')
+    compile(src, "", "exec")
 
 src = """
 if True:
@@ -44,10 +44,10 @@ if True:
 """
 
 with assert_raises(TabError):
-    compile(src, '', 'exec')
+    compile(src, "", "exec")
 
 with assert_raises(SyntaxError):
-    compile('0xX', 'test.py', 'exec')
+    compile("0xX", "test.py", "exec")
 
 
 src = """
@@ -56,14 +56,14 @@ src = """
 """
 
 with assert_raises(SyntaxError):
-    compile(src, 'test.py', 'exec')
+    compile(src, "test.py", "exec")
 
 src = """
 from __future__ import not_a_real_future_feature
 """
 
 with assert_raises(SyntaxError):
-    compile(src, 'test.py', 'exec')
+    compile(src, "test.py", "exec")
 
 src = """
 a = 1
@@ -71,9 +71,9 @@ from __future__ import print_function
 """
 
 with assert_raises(SyntaxError):
-    compile(src, 'test.py', 'exec')
+    compile(src, "test.py", "exec")
 
 src = """
 from __future__ import print_function
 """
-compile(src, 'test.py', 'exec')
+compile(src, "test.py", "exec")

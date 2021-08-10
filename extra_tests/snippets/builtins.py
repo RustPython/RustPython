@@ -1,4 +1,4 @@
-x = sum(map(int, ['1', '2', '3']))
+x = sum(map(int, ["1", "2", "3"]))
 assert x == 6
 
 assert callable(type)
@@ -7,7 +7,7 @@ assert callable(type)
 
 assert type(frozenset) is type
 
-assert 3 == eval('1+2')
+assert 3 == eval("1+2")
 
-code = compile('5+3', 'x.py', 'eval')
+code = compile("5+3", "x.py", "eval")
 assert eval(code) == 8

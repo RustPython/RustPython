@@ -3,17 +3,22 @@ from testutils import assert_raises
 # simple values
 assert min(0, 0) == 0
 assert min(1, 0) == 0
-assert min(1., 0.) == 0.
+assert min(1.0, 0.0) == 0.0
 assert min(-1, 0) == -1
 assert min(1, 2, 3) == 1
 
 # iterables
 assert min([1, 2, 3]) == 1
 assert min((1, 2, 3)) == 1
-assert min({
-    "a": 0,
-    "b": 1,
-}) == "a"
+assert (
+    min(
+        {
+            "a": 0,
+            "b": 1,
+        }
+    )
+    == "a"
+)
 assert min([1, 2], default=0) == 1
 assert min([], default=0) == 0
 
@@ -31,7 +36,7 @@ assert_raises(TypeError, min, 1)
 
 
 # custom class
-class MyComparable():
+class MyComparable:
     nb = 0
 
     def __init__(self):
@@ -48,7 +53,7 @@ assert min(first, second) == first
 assert min([first, second]) == first
 
 
-class MyNotComparable():
+class MyNotComparable:
     pass
 
 

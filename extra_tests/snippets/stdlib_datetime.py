@@ -19,8 +19,13 @@ from datetime import date, datetime
 import time as _time
 
 from testutils import (
-    assert_raises, assert_equal, assert_true, assert_false, assert_isinstance,
-    assert_in)
+    assert_raises,
+    assert_equal,
+    assert_true,
+    assert_false,
+    assert_isinstance,
+    assert_in,
+)
 
 # An arbitrary collection of objects of non-datetime types, for testing
 # mixed-type comparisons.
@@ -40,7 +45,7 @@ NAN = float("nan")
 assert_equal(datetime_module.MINYEAR, 1)
 assert_equal(datetime_module.MAXYEAR, 9999)
 
-if hasattr(datetime_module, '_divide_and_round'):
+if hasattr(datetime_module, "_divide_and_round"):
     #  def test_divide_and_round(self):
     dar = datetime_module._divide_and_round
 
@@ -68,8 +73,8 @@ if hasattr(datetime_module, '_divide_and_round'):
 #############################################################################
 # tzinfo tests
 
-class FixedOffset(tzinfo):
 
+class FixedOffset(tzinfo):
     def __init__(self, offset, name, dstoffset=42):
         if isinstance(offset, int):
             offset = timedelta(minutes=offset)
@@ -78,23 +83,29 @@ class FixedOffset(tzinfo):
         self.__offset = offset
         self.__name = name
         self.__dstoffset = dstoffset
+
     def __repr__(self):
         return self.__name.lower()
+
     def utcoffset(self, dt):
         return self.__offset
+
     def tzname(self, dt):
         return self.__name
+
     def dst(self, dt):
         return self.__dstoffset
 
-class PicklableFixedOffset(FixedOffset):
 
+class PicklableFixedOffset(FixedOffset):
     def __init__(self, offset=None, name=None, dstoffset=None):
         FixedOffset.__init__(self, offset, name, dstoffset)
+
 
 class _TZInfo(tzinfo):
     def utcoffset(self, datetime_module):
         return random.random()
+
 
 # class TestTZInfo(unittest.TestCase):
 
@@ -122,6 +133,8 @@ class NotEnough(tzinfo):
     def __init__(self, offset, name):
         self.__offset = offset
         self.__name = name
+
+
 assert_true(issubclass(NotEnough, tzinfo))
 ne = NotEnough(3, "NotByALongShot")
 assert_isinstance(ne, tzinfo)
@@ -133,14 +146,14 @@ assert_raises(NotImplementedError, ne.dst, dt)
 
 # XXX: bug #1302
 # def test_normal(self):
-#fo = FixedOffset(3, "Three")
-#assert_isinstance(fo, tzinfo)
-#for dt in datetime.now(), None:
+# fo = FixedOffset(3, "Three")
+# assert_isinstance(fo, tzinfo)
+# for dt in datetime.now(), None:
 #    assert_equal(fo.utcoffset(dt), timedelta(minutes=3))
 #    assert_equal(fo.tzname(dt), "Three")
 #    assert_equal(fo.dst(dt), timedelta(minutes=42))
 
-'''
+"""
 class TestTimeZone(unittest.TestCase):
 
     def setUp(self):
@@ -272,17 +285,17 @@ class TestTimeZone(unittest.TestCase):
         tz = timezone.utc
         tz_copy = copy.deepcopy(tz)
         self.assertIs(tz_copy, tz)
-'''
+"""
 
 #############################################################################
 # Base class for testing a particular aspect of timedelta, time, date and
 # datetime comparisons.
 
 # class HarmlessMixedComparison:
-    # Test that __eq__ and __ne__ don't complain for mixed-type comparisons.
+# Test that __eq__ and __ne__ don't complain for mixed-type comparisons.
 
-    # Subclasses must define 'theclass', and theclass(1, 1, 1) must be a
-    # legit constructor.
+# Subclasses must define 'theclass', and theclass(1, 1, 1) must be a
+# legit constructor.
 
 for theclass in timedelta, date, time:
     # def test_harmless_mixed_comparison(self):

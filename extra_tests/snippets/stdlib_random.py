@@ -1,4 +1,4 @@
-import random 
+import random
 
 random.seed(1234)
 
@@ -14,9 +14,9 @@ assert left == right
 # random.choice
 assert random.choice(left) == 5
 
-# random.choices 
-expected = ['red', 'green', 'red', 'black', 'black', 'red']
-result = random.choices(['red', 'black', 'green'], [18, 18, 2], k=6)
+# random.choices
+expected = ["red", "green", "red", "black", "black", "red"]
+result = random.choices(["red", "black", "green"], [18, 18, 2], k=6)
 assert expected == result
 
 # random.sample

@@ -596,31 +596,33 @@ assert (
 
 
 # repeat by multiply
-a = b'abcd'
-assert a * 0 == b''
-assert a * -1 == b''
-assert a * 1 == b'abcd'
-assert a * 3 == b'abcdabcdabcd'
-assert 3 * a == b'abcdabcdabcd'
+a = b"abcd"
+assert a * 0 == b""
+assert a * -1 == b""
+assert a * 1 == b"abcd"
+assert a * 3 == b"abcdabcdabcd"
+assert 3 * a == b"abcdabcdabcd"
 
 # decode
-assert b'\x72\x75\x73\x74'.decode('ascii') == 'rust'
-assert b'\xc2\xae\x75\x73\x74'.decode('ascii', 'replace') == '��ust'
-assert b'\xc2\xae\x75\x73\x74'.decode('ascii', 'ignore') == 'ust'
-assert b'\xc2\xae\x75\x73\x74'.decode('utf-8') == '®ust'
-assert b'\xc2\xae\x75\x73\x74'.decode() == '®ust'
-assert b'\xe4\xb8\xad\xe6\x96\x87\xe5\xad\x97'.decode('utf-8') == '中文字'
+assert b"\x72\x75\x73\x74".decode("ascii") == "rust"
+assert b"\xc2\xae\x75\x73\x74".decode("ascii", "replace") == "��ust"
+assert b"\xc2\xae\x75\x73\x74".decode("ascii", "ignore") == "ust"
+assert b"\xc2\xae\x75\x73\x74".decode("utf-8") == "®ust"
+assert b"\xc2\xae\x75\x73\x74".decode() == "®ust"
+assert b"\xe4\xb8\xad\xe6\x96\x87\xe5\xad\x97".decode("utf-8") == "中文字"
 
 # mod
-assert b'rust%bpython%b' % (b' ', b'!') == b'rust python!'
-assert b'x=%i y=%f' % (1, 2.5) == b'x=1 y=2.500000'
+assert b"rust%bpython%b" % (b" ", b"!") == b"rust python!"
+assert b"x=%i y=%f" % (1, 2.5) == b"x=1 y=2.500000"
+
 
 class A:
     def __bytes__(self):
         return b"bytess"
 
+
 assert bytes(A()) == b"bytess"
 
 # Issue #2125
-b = b'abc'
+b = b"abc"
 assert bytes(b) is b

@@ -4,9 +4,11 @@ from testutils import assert_raises
 
 a = 2
 
+
 def b():
     global a
     a = 4
+
 
 assert a == 2
 b()
@@ -19,18 +21,22 @@ def x():
         nonlocal b
         assert a == 4, a
         b = 3
-    a = "no!" # a here shouldn't be seen by the global above.
+
+    a = "no!"  # a here shouldn't be seen by the global above.
     b = 2
     y()
     return b
 
+
 res = x()
 assert res == 3, str(res)
 
+
 def x():
     global a
-    global a # a here shouldn't generate SyntaxError
+    global a  # a here shouldn't generate SyntaxError
     a = 3
+
 
 x()
 assert a == 3
@@ -85,27 +91,33 @@ with assert_raises(SyntaxError):
 #     nonlocal c
 #     c = 2
 
-def a():
-    x = 0
-    locals()['x'] = 3
-    assert x == 0
-
-a()
 
 def a():
     x = 0
-    del locals()['x']
+    locals()["x"] = 3
     assert x == 0
 
+
 a()
+
+
+def a():
+    x = 0
+    del locals()["x"]
+    assert x == 0
+
+
+a()
+
 
 def a():
     x = 0
     b = locals()
-    assert b['x'] == 0
+    assert b["x"] == 0
 
-    del b['x']
+    del b["x"]
     b = locals()
-    assert b['x'] == 0
+    assert b["x"] == 0
+
 
 a()

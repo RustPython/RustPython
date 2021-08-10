@@ -62,8 +62,8 @@ with assert_raises(TypeError):
 assert p.__doc__ is None
 
 # Test property instance __doc__ attribute:
-p.__doc__ = '222'
-assert p.__doc__ == '222'
+p.__doc__ = "222"
+assert p.__doc__ == "222"
 
 
 p1 = property("a", "b", "c")
@@ -83,5 +83,5 @@ assert p1.deleter(None).fdel == "c"
 assert p1.__get__(None, object) is p1
 # assert p1.__doc__ is 'a'.__doc__
 
-p2 = property('a', doc='pdoc')
+p2 = property("a", doc="pdoc")
 # assert p2.__doc__ == 'pdoc'

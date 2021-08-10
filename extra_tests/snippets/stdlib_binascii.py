@@ -49,4 +49,3 @@ assert_equal(
     dec_b64(b"4pii8J+QoyAg4ZaH8J2TpPCdlYrRguKTn/CdlZDwnZWl5Y2Ez4PwnZSrICDimazwn5Gj\n"),
     "☢🐣  ᖇ𝓤𝕊тⓟ𝕐𝕥卄σ𝔫  ♬👣".encode(),
 )
-

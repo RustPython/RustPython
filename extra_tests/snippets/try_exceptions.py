@@ -13,9 +13,11 @@ try:
 except ZeroDivisionError as ex:
     pass
 
+
 class E(Exception):
     def __init__(self):
         asdf  # noqa: F821
+
 
 try:
     raise E
@@ -29,10 +31,10 @@ try:
     l.append(2)
 except:
     l.append(3)
-    print('boom')
+    print("boom")
 finally:
     l.append(4)
-    print('kablam')
+    print("kablam")
 assert l == [1, 3, 4]
 
 
@@ -43,10 +45,10 @@ try:
     l.append(2)
 except AssertionError as ex:
     l.append(3)
-    print('boom', type(ex))
+    print("boom", type(ex))
 finally:
     l.append(4)
-    print('kablam')
+    print("kablam")
 assert l == [1, 3, 4]
 
 l = []
@@ -56,10 +58,10 @@ try:
     l.append(2)
 except AssertionError as ex:
     l.append(3)
-    print('boom', type(ex))
+    print("boom", type(ex))
 finally:
     l.append(4)
-    print('kablam')
+    print("kablam")
 assert l == [1, 2, 4]
 
 l = []
@@ -70,10 +72,10 @@ try:
         l.append(2)
     finally:
         l.append(3)
-        print('kablam')
+        print("kablam")
 except AssertionError as ex:
     l.append(4)
-    print('boom', type(ex))
+    print("boom", type(ex))
 assert l == [1, 3, 4]
 
 l = []
@@ -83,7 +85,7 @@ try:
     l.append(2)
 except NameError as ex:
     l.append(3)
-    print('boom', type(ex))
+    print("boom", type(ex))
 assert l == [1, 3]
 
 
@@ -93,7 +95,7 @@ try:
     raise 1
 except TypeError as ex:
     l.append(3)
-    print('boom', type(ex))
+    print("boom", type(ex))
 assert l == [1, 3]
 
 cause = None
@@ -168,18 +170,20 @@ try:
 except NameError as ex2:
     assert ex2.__context__ == None
 
+
 def f():
     raise
 
+
 with assert_raises(ZeroDivisionError):
     try:
-        1/0
+        1 / 0
     except:
         f()
 
 with assert_raises(ZeroDivisionError):
     try:
-        1/0
+        1 / 0
     except ZeroDivisionError:
         try:
             raise
@@ -189,11 +193,14 @@ with assert_raises(ZeroDivisionError):
 
 # try-return-finally behavior:
 l = []
+
+
 def foo():
     try:
         return 33
     finally:
         l.append(1337)
+
 
 r = foo()
 assert r == 33
@@ -210,9 +217,10 @@ for _ in [1, 2]:
 
 def g():
     try:
-        1/0
+        1 / 0
     except ArithmeticError:
         return 5
+
 
 try:
     g()
@@ -223,7 +231,7 @@ except NameError as ex:
 
 def y():
     try:
-        1/0
+        1 / 0
     except ArithmeticError:
         yield 5
 
@@ -271,17 +279,21 @@ else:
 
 # the else clause requires at least one except clause:
 with assert_raises(SyntaxError):
-    exec("""
+    exec(
+        """
 try:
     pass
 else:
     pass
-    """)
+    """
+    )
 
 
 # Try requires at least except or finally (or both)
 with assert_raises(SyntaxError):
-    exec("""
+    exec(
+        """
 try:
     pass
-""")
+"""
+    )

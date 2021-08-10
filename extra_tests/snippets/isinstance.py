@@ -1,4 +1,3 @@
-
 class Regular:
     pass
 
@@ -53,4 +52,13 @@ class ReturnInt(metaclass=MCReturnInt):
 
 assert isinstance("a", ReturnInt) is True
 
-assert isinstance(1, ((int, float,), str))
+assert isinstance(
+    1,
+    (
+        (
+            int,
+            float,
+        ),
+        str,
+    ),
+)
