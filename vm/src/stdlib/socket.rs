@@ -1285,7 +1285,6 @@ fn _socket_gethostbyaddr(
     addr: PyStrRef,
     vm: &VirtualMachine,
 ) -> PyResult<(String, PyObjectRef, PyObjectRef)> {
-    // TODO: figure out how to do this properly
     let addr = get_addr(vm, addr, c::AF_UNSPEC)?;
     let (hostname, _) = dns_lookup::getnameinfo(&addr, 0)
         .map_err(|e| convert_socket_error(vm, e, SocketError::HError))?;
@@ -1707,16 +1706,15 @@ fn convert_socket_error(
     let strerr = {
         #[cfg(unix)]
         {
-            match err_kind {
-                SocketError::GaiError => {
-                    let s = unsafe { ffi::CStr::from_ptr(libc::gai_strerror(err.error_num())) };
-                    std::str::from_utf8(s.to_bytes()).unwrap()
-                }
-                SocketError::HError => {
-                    // TODO: wait for libc hstrerror to land (https://github.com/rust-lang/libc/pull/2323)
-                    "host not found"
-                }
-            }
+            let s = match err_kind {
+                SocketError::GaiError => unsafe {
+                    ffi::CStr::from_ptr(libc::gai_strerror(err.error_num()))
+                },
+                SocketError::HError => unsafe {
+                    ffi::CStr::from_ptr(libc::hstrerror(err.error_num()))
+                },
+            };
+            s.to_str().unwrap()
         }
         #[cfg(windows)]
         {
