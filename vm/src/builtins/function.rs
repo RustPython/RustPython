@@ -27,6 +27,7 @@ use itertools::Itertools;
 use rustpython_common::lock::OnceCell;
 #[cfg(feature = "jit")]
 use rustpython_jit::CompiledCode;
+use rustpython_vm::builtins::PyStr;
 
 pub type PyFunctionRef = PyRef<PyFunction>;
 
@@ -352,8 +353,15 @@ impl PyFunction {
     }
 
     #[pymethod(magic)]
-    fn repr(zelf: PyRef<Self>) -> String {
-        format!("<function {} at {:#x}>", zelf.name.lock(), zelf.get_id())
+    fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> String {
+        let qualname = vm
+            .get_attribute(zelf.as_object().clone(), "__qualname__")
+            .ok()
+            .and_then(|qualname_attr| qualname_attr.downcast::<PyStr>().ok())
+            .map(|qualname| qualname.as_str().to_owned())
+            .unwrap_or_else(|| zelf.name().as_str().to_owned());
+
+        format!("<function {} at {:#x}>", qualname, zelf.get_id())
     }
 
     #[cfg(feature = "jit")]
