@@ -108,7 +108,7 @@ jobs:
       - uses: actions-rs/toolchain@v1
       - uses: actions/setup-python@v2
         with:
-          python-version: 3.8
+          python-version: 3.9
       - name: Set up the Windows environment
         shell: bash
         run: |
@@ -126,13 +126,13 @@ jobs:
           args: --release --verbose ${{ env.CARGO_ARGS }}
       - uses: actions/setup-python@v2
         with:
-          python-version: 3.8
+          python-version: 3.9
       - name: Install pipenv
         run: |
           python -V
           python -m pip install --upgrade pip
           python -m pip install pipenv
-      - run: pipenv install --python 3.8
+      - run: pipenv install --python 3.9
         working-directory: ./extra_tests
       - name: run snippets
         run: pipenv run pytest -v
@@ -186,7 +186,7 @@ jobs:
           args: --manifest-path=wasm/lib/Cargo.toml -- -Dwarnings
       - uses: actions/setup-python@v2
         with:
-          python-version: 3.8
+          python-version: 3.9
       - name: install flake8
         run: python -m pip install flake8
       - name: run lint
@@ -238,7 +238,7 @@ jobs:
           tar -xzf geckodriver-v0.24.0-linux32.tar.gz -C geckodriver
       - uses: actions/setup-python@v2
         with:
-          python-version: 3.8
+          python-version: 3.9
       - name: Install pipenv
         run: |
           python -V
