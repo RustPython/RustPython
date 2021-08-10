@@ -4,7 +4,7 @@ use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 
 use crate::anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper};
-use crate::builtins::bytearray::{PyByteArray, PyByteArrayRef};
+use crate::builtins::bytearray::PyByteArray;
 use crate::builtins::bytes::{PyBytes, PyBytesRef};
 use crate::builtins::int::{PyInt, PyIntRef};
 use crate::builtins::pystr::{self, PyStr, PyStrRef};
@@ -120,12 +120,8 @@ impl ByteInnerNewOptions {
         PyBytes::from(inner).into_ref_with_type(vm, cls)
     }
 
-    pub fn get_bytearray(
-        mut self,
-        cls: PyTypeRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyByteArrayRef> {
-        let inner = if let OptionalArg::Present(source) = self.source.take() {
+    pub fn get_bytearray_inner(mut self, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
+        if let OptionalArg::Present(source) = self.source.take() {
             match_class!(match source {
                 s @ PyStr => Self::get_value_from_string(s, self.encoding, self.errors, vm),
                 i @ PyInt => {
@@ -139,9 +135,7 @@ impl ByteInnerNewOptions {
             })
         } else {
             self.check_args(vm).map(|_| vec![].into())
-        }?;
-
-        PyByteArray::from(inner).into_ref_with_type(vm, cls)
+        }
     }
 }
 
@@ -291,6 +285,11 @@ impl PyBytesInner {
     #[inline]
     pub fn len(&self) -> usize {
         self.elements.len()
+    }
+
+    #[inline]
+    pub fn capacity(&self) -> usize {
+        self.elements.capacity()
     }
 
     #[inline]

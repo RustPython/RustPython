@@ -18,7 +18,7 @@ use crate::common::lock::{
     PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyRwLock, PyRwLockReadGuard,
     PyRwLockWriteGuard,
 };
-use crate::function::{OptionalArg, OptionalOption};
+use crate::function::{FuncArgs, OptionalArg, OptionalOption};
 use crate::sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex};
 use crate::slots::{
     BufferProtocol, Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable,
@@ -45,7 +45,7 @@ use std::mem::size_of;
 ///  - any object implementing the buffer API.\n  \
 ///  - an integer";
 #[pyclass(module = false, name = "bytearray")]
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct PyByteArray {
     inner: PyRwLock<PyBytesInner>,
     exports: AtomicCell<usize>,
@@ -102,12 +102,16 @@ pub(crate) fn init(context: &PyContext) {
 #[pyimpl(flags(BASETYPE), with(Hashable, Comparable, BufferProtocol, Iterable))]
 impl PyByteArray {
     #[pyslot]
-    fn tp_new(
-        cls: PyTypeRef,
-        options: ByteInnerNewOptions,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyRef<Self>> {
-        options.get_bytearray(cls, vm)
+    fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        PyByteArray::default().into_ref_with_type(vm, cls)
+    }
+
+    #[pymethod(magic)]
+    fn init(&self, options: ByteInnerNewOptions, vm: &VirtualMachine) -> PyResult<()> {
+        // First unpack bytearray and *then* get a lock to set it.
+        let mut inner = options.get_bytearray_inner(vm)?;
+        std::mem::swap(&mut *self.inner_mut(), &mut inner);
+        Ok(())
     }
 
     #[inline]
@@ -122,6 +126,11 @@ impl PyByteArray {
     #[pymethod(name = "__repr__")]
     fn repr(&self) -> String {
         self.inner().repr("bytearray(", ")")
+    }
+
+    #[pymethod(magic)]
+    fn alloc(&self) -> usize {
+        self.inner().capacity()
     }
 
     #[pymethod(name = "__len__")]
