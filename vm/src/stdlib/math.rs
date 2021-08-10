@@ -528,12 +528,12 @@ fn math_perm(
     if n.is_negative() || v.is_negative() {
         return Err(vm.new_value_error("perm() not defined for negative values".to_owned()));
     }
-    if &v > n {
+    if v > n {
         return Ok(BigInt::zero());
     }
     let mut result = BigInt::one();
     let mut current = n.clone();
-    let tmp = n - &v;
+    let tmp = n - v;
     while current > tmp {
         result *= &current;
         current -= 1;
