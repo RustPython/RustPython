@@ -345,3 +345,22 @@ assert SyntaxError.msg.__qualname__ == 'SyntaxError.msg'
 
 assert type.__subclasshook__.__qualname__ == 'type.__subclasshook__'
 assert object.__subclasshook__.__qualname__ == 'object.__subclasshook__'
+
+
+# Regression to
+# https://github.com/RustPython/RustPython/issues/2776
+
+assert repr(BQ.one).startswith('<function BQ.one at 0x')
+assert repr(BQ.one_st).startswith('<function BQ.one_st at 0x')
+
+assert repr(BQ.two).startswith('<function AQ.two at 0x')
+assert repr(BQ.two_st).startswith('<function AQ.two_st at 0x')
+
+assert repr(BQ.three).startswith('<function BQ.three at 0x')
+assert repr(BQ.three_st).startswith('<function BQ.three_st at 0x')
+
+
+def my_repr_func():
+    pass
+
+assert repr(my_repr_func).startswith('<function my_repr_func at 0x')

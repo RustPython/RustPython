@@ -352,8 +352,16 @@ impl PyFunction {
     }
 
     #[pymethod(magic)]
-    fn repr(zelf: PyRef<Self>) -> String {
-        format!("<function {} at {:#x}>", zelf.name.lock(), zelf.get_id())
+    fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> String {
+        let attr: Option<PyStrRef> = vm
+            .get_attribute(zelf.as_object().clone(), "__qualname__")
+            .ok()
+            .and_then(|qualname_attr| qualname_attr.downcast().ok());
+        let qualname = attr
+            .map(|strref| strref.as_str().to_owned())
+            .unwrap_or(zelf.name.lock().as_str().to_owned());
+
+        format!("<function {} at {:#x}>", qualname, zelf.get_id())
     }
 
     #[cfg(feature = "jit")]
