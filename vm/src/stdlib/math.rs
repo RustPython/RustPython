@@ -516,12 +516,13 @@ fn math_perm(
     vm: &VirtualMachine,
 ) -> PyResult<BigInt> {
     let n = n.as_bigint();
-    let v: BigInt = match k {
-        OptionalArg::Missing => n.clone(),
-        OptionalArg::Present(x) => match x {
-            Some(xi) => xi.as_bigint().clone(),
-            None => n.clone(),
-        },
+    let k_ref;
+    let v = match k.flatten() {
+        Some(k) => {
+            k_ref = k;
+            k_ref.as_bigint()
+        }
+        None => n,
     };
 
     if n.is_negative() || v.is_negative() {
