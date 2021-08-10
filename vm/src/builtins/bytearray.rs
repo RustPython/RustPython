@@ -124,6 +124,11 @@ impl PyByteArray {
         self.inner().repr("bytearray(", ")")
     }
 
+    #[pymethod(magic)]
+    fn alloc(&self) -> usize {
+        self.inner().capacity()
+    }
+
     #[pymethod(name = "__len__")]
     fn len(&self) -> usize {
         self.borrow_buf().len()

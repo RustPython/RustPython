@@ -294,6 +294,11 @@ impl PyBytesInner {
     }
 
     #[inline]
+    pub fn capacity(&self) -> usize {
+        self.elements.capacity()
+    }
+
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.elements.is_empty()
     }
