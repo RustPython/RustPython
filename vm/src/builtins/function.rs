@@ -27,6 +27,7 @@ use itertools::Itertools;
 use rustpython_common::lock::OnceCell;
 #[cfg(feature = "jit")]
 use rustpython_jit::CompiledCode;
+use rustpython_vm::builtins::PyStr;
 
 pub type PyFunctionRef = PyRef<PyFunction>;
 
