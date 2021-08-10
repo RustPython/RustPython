@@ -520,6 +520,17 @@ fn write_profile(matches: &ArgMatches) -> Result<(), Box<dyn std::error::Error>>
 fn run_rustpython(vm: &VirtualMachine, matches: &ArgMatches) -> PyResult<()> {
     let scope = vm.new_scope_with_builtins();
     let main_module = vm.new_module("__main__", scope.globals.clone());
+    main_module
+        .dict()
+        .and_then(|d| {
+            d.set_item(
+                "__annotations__",
+                vm.ctx.new_dict().as_object().to_owned(),
+                vm,
+            )
+            .ok()
+        })
+        .expect("Failed to initialize __main__.__annotations__");
 
     vm.get_attribute(vm.sys_module.clone(), "modules")?
         .set_item("__main__", main_module, vm)?;
