@@ -172,7 +172,7 @@ impl PyTuple {
     fn mul(zelf: PyRef<Self>, counter: isize, vm: &VirtualMachine) -> PyRef<Self> {
         if zelf.elements.is_empty() || counter == 0 {
             vm.ctx.empty_tuple.clone()
-        } else if counter == 1 && zelf.clone_class().is(PyTuple::class(vm)) {
+        } else if counter == 1 && zelf.class().is(&vm.ctx.types.tuple_type) {
             // Special case: when some `tuple` is multiplied by `1`,
             // nothing really happens, we need to return an object itself
             // with the same `id()` to be compatible with CPython.
