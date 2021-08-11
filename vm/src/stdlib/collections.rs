@@ -310,8 +310,9 @@ mod _collections {
             let skipped = self
                 .maxlen
                 .load()
-                .map(|maxlen| mul.len().wrapping_sub(maxlen))
+                .and_then(|maxlen| mul.len().checked_sub(maxlen))
                 .unwrap_or(0);
+
             let deque = mul.skip(skipped).cloned().collect();
             PyDeque {
                 deque: PyRwLock::new(deque),
