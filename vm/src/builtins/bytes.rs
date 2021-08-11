@@ -25,7 +25,7 @@ use crate::{
     PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 
-use crate::builtins::memory::{Buffer, BufferOptions};
+use crate::builtins::memory::{BufferOptions, PyBuffer};
 
 /// "bytes(iterable_of_ints) -> bytes\n\
 /// bytes(string, encoding[, errors]) -> bytes\n\
@@ -495,7 +495,7 @@ impl PyBytes {
 }
 
 impl BufferProtocol for PyBytes {
-    fn get_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<Box<dyn Buffer>> {
+    fn get_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<Box<dyn PyBuffer>> {
         let buf = BytesBuffer {
             bytes: zelf.clone(),
             options: BufferOptions {
@@ -513,7 +513,7 @@ struct BytesBuffer {
     options: BufferOptions,
 }
 
-impl Buffer for BytesBuffer {
+impl PyBuffer for BytesBuffer {
     fn obj_bytes(&self) -> BorrowedValue<[u8]> {
         self.bytes.as_bytes().into()
     }

@@ -395,7 +395,8 @@ where
                     Self::#ident as _
                 }
             };
-            if slot_name == "new" || slot_name == "buffer" {
+            const NON_ATOMIC_SLOTS: &[&str] = &["new", "as_buffer"];
+            if NON_ATOMIC_SLOTS.contains(&slot_name.as_str()) {
                 quote! {
                     slots.#slot_ident = Some(#into_func);
                 }

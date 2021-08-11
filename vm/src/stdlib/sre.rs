@@ -8,7 +8,7 @@ mod _sre {
     use rustpython_common::hash::PyHash;
 
     use crate::builtins::list::PyListRef;
-    use crate::builtins::memory::try_buffer_from_object;
+    use crate::builtins::memory::PyBufferRef;
     use crate::builtins::tuple::PyTupleRef;
     use crate::builtins::{
         PyCallableIterator, PyDictRef, PyInt, PyList, PyStr, PyStrRef, PyTypeRef,
@@ -153,7 +153,7 @@ mod _sre {
             let vec;
             let s;
             let str_drive = if self.isbytes {
-                buffer = try_buffer_from_object(vm, &string)?;
+                buffer = PyBufferRef::try_from_object(vm, string.clone())?;
                 let bytes = match buffer.as_contiguous() {
                     Some(bytes) => {
                         guard = bytes;

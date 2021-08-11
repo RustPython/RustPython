@@ -15,50 +15,67 @@ use crate::sliceable::{convert_slice, saturate_range, wrap_index, SequenceIndex}
 use crate::slots::{BufferProtocol, Comparable, Hashable, PyComparisonOp};
 use crate::stdlib::pystruct::_struct::FormatSpec;
 use crate::utils::Either;
-use crate::VirtualMachine;
 use crate::{
     IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
     PyResult, PyThreadingConstraint, PyValue, TypeProtocol,
 };
+use crate::{TryFromObject, VirtualMachine};
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
 use num_bigint::BigInt;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
 #[derive(Debug)]
-pub struct BufferRef(Box<dyn Buffer>);
-impl Drop for BufferRef {
+pub struct PyBufferRef(Box<dyn PyBuffer>);
+
+impl TryFromObject for PyBufferRef {
+    // FIXME: `obj: &PyObjectRef` is enough
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        let obj_cls = obj.class();
+        for cls in obj_cls.iter_mro() {
+            if let Some(f) = cls.slots.as_buffer.as_ref() {
+                return f(&obj, vm).map(|x| PyBufferRef(x));
+            }
+        }
+        Err(vm.new_type_error(format!(
+            "a bytes-like object is required, not '{}'",
+            obj_cls.name
+        )))
+    }
+}
+
+impl Drop for PyBufferRef {
     fn drop(&mut self) {
         self.0.release();
     }
 }
-impl Deref for BufferRef {
-    type Target = dyn Buffer;
+impl Deref for PyBufferRef {
+    type Target = dyn PyBuffer;
 
     fn deref(&self) -> &Self::Target {
         self.0.deref()
     }
 }
-impl BufferRef {
-    pub fn new(buffer: impl Buffer + 'static) -> Self {
+impl PyBufferRef {
+    pub fn new(buffer: impl PyBuffer + 'static) -> Self {
         Self(Box::new(buffer))
     }
     pub fn into_rcbuf(self) -> RcBuffer {
-        // move self.0 out of self; BufferRef impls Drop so it's tricky
+        // move self.0 out of self; PyBufferRef impls Drop so it's tricky
         let this = std::mem::ManuallyDrop::new(self);
         let buf_box = unsafe { std::ptr::read(&this.0) };
         RcBuffer(buf_box.into())
     }
 }
-impl From<Box<dyn Buffer>> for BufferRef {
-    fn from(buffer: Box<dyn Buffer>) -> Self {
-        BufferRef(buffer)
+impl From<Box<dyn PyBuffer>> for PyBufferRef {
+    fn from(buffer: Box<dyn PyBuffer>) -> Self {
+        PyBufferRef(buffer)
     }
 }
 #[derive(Debug, Clone)]
-pub struct RcBuffer(PyRc<dyn Buffer>);
+pub struct RcBuffer(PyRc<dyn PyBuffer>);
 impl Deref for RcBuffer {
-    type Target = dyn Buffer;
+    type Target = dyn PyBuffer;
     fn deref(&self) -> &Self::Target {
         self.0.deref()
     }
@@ -71,7 +88,7 @@ impl Drop for RcBuffer {
         }
     }
 }
-impl Buffer for RcBuffer {
+impl PyBuffer for RcBuffer {
     fn get_options(&self) -> &BufferOptions {
         self.0.get_options()
     }
@@ -93,7 +110,7 @@ impl Buffer for RcBuffer {
     }
 }
 
-pub trait Buffer: Debug + PyThreadingConstraint {
+pub trait PyBuffer: Debug + PyThreadingConstraint {
     fn get_options(&self) -> &BufferOptions;
     /// Get the full inner buffer of this memory. You probably want [`as_contiguous()`], as
     /// `obj_bytes` doesn't take into account the range a memoryview might operate on, among other
@@ -171,7 +188,7 @@ struct PyMemoryViewNewArgs {
 #[derive(Debug)]
 pub struct PyMemoryView {
     obj: PyObjectRef,
-    buffer: BufferRef,
+    buffer: PyBufferRef,
     options: BufferOptions,
     pub(crate) released: AtomicCell<bool>,
     // start should always less or equal to the stop
@@ -195,7 +212,11 @@ impl PyMemoryView {
             .map_err(|msg| vm.new_exception_msg(vm.ctx.types.memoryview_type.clone(), msg))
     }
 
-    pub fn from_buffer(obj: PyObjectRef, buffer: BufferRef, vm: &VirtualMachine) -> PyResult<Self> {
+    pub fn from_buffer(
+        obj: PyObjectRef,
+        buffer: PyBufferRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<Self> {
         // when we get a buffer means the buffered object is size locked
         // so we can assume the buffer's options will never change as long
         // as memoryview is still alive
@@ -219,7 +240,7 @@ impl PyMemoryView {
 
     pub fn from_buffer_range(
         obj: PyObjectRef,
-        buffer: BufferRef,
+        buffer: PyBufferRef,
         range: std::ops::Range<usize>,
         vm: &VirtualMachine,
     ) -> PyResult<Self> {
@@ -256,7 +277,7 @@ impl PyMemoryView {
         args: PyMemoryViewNewArgs,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        let buffer = try_buffer_from_object(vm, &args.object)?;
+        let buffer = PyBufferRef::try_from_object(vm, args.object.clone())?;
         let zelf = PyMemoryView::from_buffer(args.object, buffer, vm)?;
         zelf.into_ref_with_type(vm, cls)
     }
@@ -373,7 +394,7 @@ impl PyMemoryView {
         let itemsize = zelf.options.itemsize;
 
         let obj = zelf.obj.clone();
-        let buffer = BufferRef(Box::new(zelf.clone()));
+        let buffer = PyBufferRef(Box::new(zelf.clone()));
         zelf.exports.fetch_add(1);
         let options = zelf.options.clone();
         let format_spec = zelf.format_spec.clone();
@@ -517,7 +538,7 @@ impl PyMemoryView {
         items: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let items = try_buffer_from_object(vm, &items)?;
+        let items = PyBufferRef::try_from_object(vm, items)?;
         let options = items.get_options();
         let len = options.len;
         let itemsize = options.itemsize;
@@ -660,7 +681,7 @@ impl PyMemoryView {
     #[pymethod]
     fn toreadonly(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         zelf.try_not_released(vm)?;
-        let buffer = BufferRef(Box::new(zelf.clone()));
+        let buffer = PyBufferRef(Box::new(zelf.clone()));
         zelf.exports.fetch_add(1);
         Ok(PyMemoryView {
             obj: zelf.obj.clone(),
@@ -731,7 +752,7 @@ impl PyMemoryView {
             );
         }
 
-        let buffer = BufferRef(Box::new(zelf.clone()));
+        let buffer = PyBufferRef(Box::new(zelf.clone()));
         zelf.exports.fetch_add(1);
 
         Ok(PyMemoryView {
@@ -761,7 +782,7 @@ impl PyMemoryView {
             return Ok(false);
         }
 
-        let other = match try_buffer_from_object(vm, other) {
+        let other = match PyBufferRef::try_from_object(vm, other.clone()) {
             Ok(buf) => buf,
             Err(_) => return Ok(false),
         };
@@ -829,7 +850,7 @@ impl Drop for PyMemoryView {
 }
 
 impl BufferProtocol for PyMemoryView {
-    fn get_buffer(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<Box<dyn Buffer>> {
+    fn get_buffer(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<Box<dyn PyBuffer>> {
         if zelf.released.load() {
             Err(vm.new_value_error("operation forbidden on released memoryview object".to_owned()))
         } else {
@@ -838,7 +859,7 @@ impl BufferProtocol for PyMemoryView {
     }
 }
 
-impl Buffer for PyMemoryViewRef {
+impl PyBuffer for PyMemoryViewRef {
     fn get_options(&self) -> &BufferOptions {
         &self.options
     }
@@ -938,19 +959,6 @@ impl PyValue for PyMemoryView {
 
 pub(crate) fn init(ctx: &PyContext) {
     PyMemoryView::extend_class(ctx, &ctx.types.memoryview_type)
-}
-
-pub fn try_buffer_from_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<BufferRef> {
-    let obj_cls = obj.class();
-    for cls in obj_cls.iter_mro() {
-        if let Some(f) = cls.slots.buffer.as_ref() {
-            return f(obj, vm).map(|x| BufferRef(x));
-        }
-    }
-    Err(vm.new_type_error(format!(
-        "a bytes-like object is required, not '{}'",
-        obj_cls.name
-    )))
 }
 
 fn format_unpack(
