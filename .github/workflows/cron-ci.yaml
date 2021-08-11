@@ -6,18 +6,6 @@ on:
 name: Periodic checks/tasks
 
 jobs:
-  redox:
-    name: Check compilation on Redox
-    runs-on: ubuntu-latest
-    container:
-      image: redoxos/redoxer:latest
-    steps:
-      - uses: actions/checkout@v2
-      - name: prepare repository for redoxer compilation
-        run: bash scripts/redox/uncomment-cargo.sh
-      - name: compile for redox
-        run: redoxer build --verbose
-
   codecov:
     name: Collect code coverage data
     runs-on: ubuntu-latest
