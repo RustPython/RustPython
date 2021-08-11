@@ -20,9 +20,7 @@ use crate::common::lock::{
 };
 use crate::function::{FuncArgs, OptionalArg, OptionalOption};
 use crate::sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex};
-use crate::slots::{
-    BufferProtocol, Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable,
-};
+use crate::slots::{AsBuffer, Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable};
 use crate::utils::Either;
 use crate::vm::VirtualMachine;
 use crate::{
@@ -99,7 +97,7 @@ pub(crate) fn init(context: &PyContext) {
     PyByteArrayIterator::extend_class(context, &context.types.bytearray_iterator_type);
 }
 
-#[pyimpl(flags(BASETYPE), with(Hashable, Comparable, BufferProtocol, Iterable))]
+#[pyimpl(flags(BASETYPE), with(Hashable, Comparable, AsBuffer, Iterable))]
 impl PyByteArray {
     #[pyslot]
     fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
@@ -667,7 +665,7 @@ impl Comparable for PyByteArray {
     }
 }
 
-impl BufferProtocol for PyByteArray {
+impl AsBuffer for PyByteArray {
     fn get_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<Box<dyn PyBuffer>> {
         zelf.exports.fetch_add(1);
         let buf = ByteArrayBuffer {

@@ -493,7 +493,7 @@ pub trait SlotSetattro: PyValue {
 }
 
 #[pyimpl]
-pub trait BufferProtocol: PyValue {
+pub trait AsBuffer: PyValue {
     #[pyslot]
     fn tp_as_buffer(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Box<dyn PyBuffer>> {
         if let Some(zelf) = zelf.downcast_ref() {

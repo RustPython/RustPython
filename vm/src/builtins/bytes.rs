@@ -12,7 +12,7 @@ use crate::bytesinner::{
 use crate::byteslike::PyBytesLike;
 use crate::common::hash::PyHash;
 use crate::function::{OptionalArg, OptionalOption};
-use crate::slots::{BufferProtocol, Comparable, Hashable, Iterable, PyComparisonOp, PyIter};
+use crate::slots::{AsBuffer, Comparable, Hashable, Iterable, PyComparisonOp, PyIter};
 use crate::utils::Either;
 use crate::vm::VirtualMachine;
 use crate::{
@@ -96,7 +96,7 @@ pub(crate) fn init(context: &PyContext) {
     PyBytesIterator::extend_class(context, &context.types.bytes_iterator_type);
 }
 
-#[pyimpl(flags(BASETYPE), with(Hashable, Comparable, BufferProtocol, Iterable))]
+#[pyimpl(flags(BASETYPE), with(Hashable, Comparable, AsBuffer, Iterable))]
 impl PyBytes {
     #[pyslot]
     fn tp_new(
@@ -500,7 +500,7 @@ impl PyBytes {
     }
 }
 
-impl BufferProtocol for PyBytes {
+impl AsBuffer for PyBytes {
     fn get_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<Box<dyn PyBuffer>> {
         let buf = BytesBuffer {
             bytes: zelf.clone(),

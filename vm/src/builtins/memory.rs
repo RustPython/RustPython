@@ -10,7 +10,7 @@ use crate::common::hash::PyHash;
 use crate::common::lock::OnceCell;
 use crate::function::{FuncArgs, OptionalArg};
 use crate::sliceable::{convert_slice, saturate_range, wrap_index, SequenceIndex};
-use crate::slots::{BufferProtocol, Comparable, Hashable, PyComparisonOp};
+use crate::slots::{AsBuffer, Comparable, Hashable, PyComparisonOp};
 use crate::stdlib::pystruct::_struct::FormatSpec;
 use crate::utils::Either;
 use crate::{
@@ -51,7 +51,7 @@ pub struct PyMemoryView {
 
 type PyMemoryViewRef = PyRef<PyMemoryView>;
 
-#[pyimpl(with(Hashable, Comparable, BufferProtocol))]
+#[pyimpl(with(Hashable, Comparable, AsBuffer))]
 impl PyMemoryView {
     fn parse_format(format: &str, vm: &VirtualMachine) -> PyResult<FormatSpec> {
         FormatSpec::parse(format)
@@ -695,7 +695,7 @@ impl Drop for PyMemoryView {
     }
 }
 
-impl BufferProtocol for PyMemoryView {
+impl AsBuffer for PyMemoryView {
     fn get_buffer(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<Box<dyn PyBuffer>> {
         if zelf.released.load() {
             Err(vm.new_value_error("operation forbidden on released memoryview object".to_owned()))

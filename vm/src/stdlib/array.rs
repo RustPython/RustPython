@@ -13,7 +13,7 @@ use crate::common::lock::{
 };
 use crate::function::OptionalArg;
 use crate::sliceable::{saturate_index, PySliceableSequence, PySliceableSequenceMut};
-use crate::slots::{BufferProtocol, Comparable, Iterable, PyComparisonOp, PyIter};
+use crate::slots::{AsBuffer, Comparable, Iterable, PyComparisonOp, PyIter};
 use crate::utils::Either;
 use crate::VirtualMachine;
 use crate::{
@@ -488,7 +488,7 @@ impl From<ArrayContentType> for PyArray {
     }
 }
 
-#[pyimpl(flags(BASETYPE), with(Comparable, BufferProtocol, Iterable))]
+#[pyimpl(flags(BASETYPE), with(Comparable, AsBuffer, Iterable))]
 impl PyArray {
     fn read(&self) -> PyRwLockReadGuard<'_, ArrayContentType> {
         self.array.read()
@@ -848,7 +848,7 @@ impl Comparable for PyArray {
     }
 }
 
-impl BufferProtocol for PyArray {
+impl AsBuffer for PyArray {
     fn get_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<Box<dyn PyBuffer>> {
         zelf.exports.fetch_add(1);
         let array = zelf.read();
