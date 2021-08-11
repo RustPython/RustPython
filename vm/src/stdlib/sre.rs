@@ -18,7 +18,7 @@ mod _sre {
     use crate::VirtualMachine;
     use crate::{
         IntoPyObject, ItemProtocol, PyCallable, PyComparisonValue, PyObjectRef, PyRef, PyResult,
-        PyValue, StaticType, TryFromObject,
+        PyValue, StaticType, TryFromBorrowedObject, TryFromObject,
     };
     use core::str;
     use sre_engine::constants::SreFlag;
@@ -153,7 +153,7 @@ mod _sre {
             let vec;
             let s;
             let str_drive = if self.isbytes {
-                buffer = PyBufferRef::try_from_object(vm, string.clone())?;
+                buffer = PyBufferRef::try_from_borrowed_object(vm, &string)?;
                 let bytes = match buffer.as_contiguous() {
                     Some(bytes) => {
                         guard = bytes;

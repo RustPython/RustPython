@@ -19,7 +19,7 @@ use crate::{
     IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
     PyResult, PyThreadingConstraint, PyValue, TypeProtocol,
 };
-use crate::{TryFromObject, VirtualMachine};
+use crate::{TryFromBorrowedObject, TryFromObject, VirtualMachine};
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
 use num_bigint::BigInt;
@@ -28,9 +28,8 @@ use num_traits::{One, Signed, ToPrimitive, Zero};
 #[derive(Debug)]
 pub struct PyBufferRef(Box<dyn PyBuffer>);
 
-impl TryFromObject for PyBufferRef {
-    // FIXME: `obj: &PyObjectRef` is enough
-    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+impl TryFromBorrowedObject for PyBufferRef {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Self> {
         let obj_cls = obj.class();
         for cls in obj_cls.iter_mro() {
             if let Some(f) = cls.slots.as_buffer.as_ref() {
@@ -277,7 +276,7 @@ impl PyMemoryView {
         args: PyMemoryViewNewArgs,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        let buffer = PyBufferRef::try_from_object(vm, args.object.clone())?;
+        let buffer = PyBufferRef::try_from_borrowed_object(vm, &args.object)?;
         let zelf = PyMemoryView::from_buffer(args.object, buffer, vm)?;
         zelf.into_ref_with_type(vm, cls)
     }
@@ -782,7 +781,7 @@ impl PyMemoryView {
             return Ok(false);
         }
 
-        let other = match PyBufferRef::try_from_object(vm, other.clone()) {
+        let other = match PyBufferRef::try_from_borrowed_object(vm, other) {
             Ok(buf) => buf,
             Err(_) => return Ok(false),
         };

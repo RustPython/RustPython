@@ -2,7 +2,7 @@ use crate::builtins::memory::PyBufferRef;
 use crate::builtins::PyStrRef;
 use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
 use crate::vm::VirtualMachine;
-use crate::{PyObjectRef, PyResult, TryFromObject};
+use crate::{PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject};
 
 #[derive(Debug)]
 pub struct PyBytesLike(PyBufferRef);
@@ -50,7 +50,7 @@ impl PyRwBytesLike {
 
 impl PyBytesLike {
     pub fn new(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Self> {
-        let buffer = PyBufferRef::try_from_object(vm, obj.clone())?;
+        let buffer = PyBufferRef::try_from_borrowed_object(vm, obj)?;
         if buffer.get_options().contiguous {
             Ok(Self(buffer))
         } else {
@@ -78,7 +78,7 @@ pub fn try_bytes_like<R>(
     obj: &PyObjectRef,
     f: impl FnOnce(&[u8]) -> R,
 ) -> PyResult<R> {
-    let buffer = PyBufferRef::try_from_object(vm, obj.clone())?;
+    let buffer = PyBufferRef::try_from_borrowed_object(vm, obj)?;
     buffer.as_contiguous().map(|x| f(&*x)).ok_or_else(|| {
         vm.new_type_error("non-contiguous buffer is not a bytes-like object".to_owned())
     })
@@ -89,7 +89,7 @@ pub fn try_rw_bytes_like<R>(
     obj: &PyObjectRef,
     f: impl FnOnce(&mut [u8]) -> R,
 ) -> PyResult<R> {
-    let buffer = PyBufferRef::try_from_object(vm, obj.clone())?;
+    let buffer = PyBufferRef::try_from_borrowed_object(vm, obj)?;
     buffer
         .as_contiguous_mut()
         .map(|mut x| f(&mut *x))
@@ -98,7 +98,7 @@ pub fn try_rw_bytes_like<R>(
 
 impl PyRwBytesLike {
     pub fn new(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Self> {
-        let buffer = PyBufferRef::try_from_object(vm, obj.clone())?;
+        let buffer = PyBufferRef::try_from_borrowed_object(vm, obj)?;
         let options = buffer.get_options();
         if !options.contiguous {
             Err(vm.new_type_error("non-contiguous buffer is not a bytes-like object".to_owned()))
