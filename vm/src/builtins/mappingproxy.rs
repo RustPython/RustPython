@@ -69,13 +69,13 @@ impl PyMappingProxy {
         Ok(value)
     }
 
-    #[pymethod(name = "__getitem__")]
+    #[pymethod(magic)]
     pub fn getitem(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self.get_inner(key.clone(), vm)?
             .ok_or_else(|| vm.new_key_error(key))
     }
 
-    #[pymethod(name = "__contains__")]
+    #[pymethod(magic)]
     pub fn contains(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         match &self.mapping {
             MappingProxyInner::Class(class) => {

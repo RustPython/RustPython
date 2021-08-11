@@ -59,7 +59,7 @@ impl PySlice {
         }
     }
 
-    #[pymethod(name = "__repr__")]
+    #[pymethod(magic)]
     fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
         let start_repr = vm.to_repr(self.start_ref(vm))?;
         let stop_repr = vm.to_repr(&self.stop)?;

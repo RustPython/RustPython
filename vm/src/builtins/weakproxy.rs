@@ -37,7 +37,7 @@ impl PyWeakProxy {
         .into_ref_with_type(vm, cls)
     }
 
-    #[pymethod(name = "__getattr__")]
+    #[pymethod(magic)]
     fn getattr(&self, attr_name: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         match self.weak.upgrade() {
             Some(obj) => vm.get_attribute(obj, attr_name),

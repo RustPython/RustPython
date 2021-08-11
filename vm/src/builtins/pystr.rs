@@ -227,7 +227,7 @@ impl PyStr {
         }
     }
 
-    #[pymethod(name = "__add__")]
+    #[pymethod(magic)]
     fn add(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(other) = other.payload::<PyStr>() {
             Ok(vm.ctx.new_str(zelf.value.py_add(other.as_ref())))
@@ -242,17 +242,17 @@ impl PyStr {
         }
     }
 
-    #[pymethod(name = "__bool__")]
+    #[pymethod(magic)]
     fn bool(&self) -> bool {
         !self.value.is_empty()
     }
 
-    #[pymethod(name = "__contains__")]
+    #[pymethod(magic)]
     fn contains(&self, needle: PyStrRef) -> bool {
         self.value.contains(needle.as_str())
     }
 
-    #[pymethod(name = "__getitem__")]
+    #[pymethod(magic)]
     fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let s = match self.get_item(vm, needle, Self::NAME)? {
             Either::A(ch) => ch.to_string(),
@@ -322,23 +322,23 @@ impl PyStr {
         ffi::CString::new(self.as_str()).map_err(|err| err.into_pyexception(vm))
     }
 
-    #[pymethod(name = "__sizeof__")]
+    #[pymethod(magic)]
     fn sizeof(&self) -> usize {
         size_of::<Self>() + self.as_str().len() * size_of::<u8>()
     }
 
-    #[pymethod(name = "__mul__")]
     #[pymethod(name = "__rmul__")]
+    #[pymethod(magic)]
     fn mul(&self, value: isize) -> String {
         self.value.repeat(value.to_usize().unwrap_or(0))
     }
 
-    #[pymethod(name = "__str__")]
+    #[pymethod(magic)]
     fn str(zelf: PyRef<Self>) -> PyStrRef {
         zelf
     }
 
-    #[pymethod(name = "__repr__")]
+    #[pymethod(magic)]
     pub(crate) fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
         let in_len = self.value.len();
         let mut out_len = 0usize;
@@ -602,7 +602,7 @@ impl PyStr {
         Ok(formatted)
     }
 
-    #[pymethod(name = "__rmod__")]
+    #[pymethod(magic)]
     fn rmod(&self, _values: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.not_implemented()
     }

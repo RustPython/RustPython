@@ -109,12 +109,12 @@ impl PyBytes {
         options.get_bytes(cls, vm)
     }
 
-    #[pymethod(name = "__repr__")]
+    #[pymethod(magic)]
     pub(crate) fn repr(&self) -> String {
         self.inner.repr("", "")
     }
 
-    #[pymethod(name = "__len__")]
+    #[pymethod(magic)]
     #[inline]
     pub fn len(&self) -> usize {
         self.inner.len()
@@ -130,17 +130,17 @@ impl PyBytes {
         &self.inner.elements
     }
 
-    #[pymethod(name = "__sizeof__")]
+    #[pymethod(magic)]
     fn sizeof(&self) -> usize {
         size_of::<Self>() + self.inner.elements.len() * size_of::<u8>()
     }
 
-    #[pymethod(name = "__add__")]
+    #[pymethod(magic)]
     fn add(&self, other: PyBytesLike, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_bytes(self.inner.add(&*other.borrow_buf()))
     }
 
-    #[pymethod(name = "__contains__")]
+    #[pymethod(magic)]
     fn contains(
         &self,
         needle: Either<PyBytesInner, PyIntRef>,
@@ -149,7 +149,7 @@ impl PyBytes {
         self.inner.contains(needle, vm)
     }
 
-    #[pymethod(name = "__getitem__")]
+    #[pymethod(magic)]
     fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self.inner.getitem("byte", needle, vm) // byte != Self::NAME
     }
@@ -428,8 +428,8 @@ impl PyBytes {
         self.inner.title().into()
     }
 
-    #[pymethod(name = "__mul__")]
     #[pymethod(name = "__rmul__")]
+    #[pymethod(magic)]
     fn mul(zelf: PyRef<Self>, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         if value > 0 && zelf.inner.len() as isize > std::isize::MAX / value {
             return Err(vm.new_overflow_error("repeated bytes are too long".to_owned()));
@@ -446,12 +446,12 @@ impl PyBytes {
     }
 
     #[pymethod(name = "__mod__")]
-    fn modulo(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyBytes> {
+    fn mod_(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyBytes> {
         let formatted = self.inner.cformat(values, vm)?;
         Ok(formatted.into())
     }
 
-    #[pymethod(name = "__rmod__")]
+    #[pymethod(magic)]
     fn rmod(&self, _values: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.not_implemented()
     }

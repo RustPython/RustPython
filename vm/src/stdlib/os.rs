@@ -956,12 +956,12 @@ mod _os {
             self.exhausted.store(true);
         }
 
-        #[pymethod(name = "__enter__")]
+        #[pymethod(magic)]
         fn enter(zelf: PyRef<Self>) -> PyRef<Self> {
             zelf
         }
 
-        #[pymethod(name = "__exit__")]
+        #[pymethod(magic)]
         fn exit(zelf: PyRef<Self>, _args: FuncArgs) {
             zelf.close()
         }

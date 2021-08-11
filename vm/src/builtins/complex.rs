@@ -99,7 +99,7 @@ impl PyComplex {
         self.value.im
     }
 
-    #[pymethod(name = "__abs__")]
+    #[pymethod(magic)]
     fn abs(&self) -> f64 {
         let Complex64 { im, re } = self.value;
         re.hypot(im)
@@ -121,8 +121,8 @@ impl PyComplex {
         )
     }
 
-    #[pymethod(name = "__add__")]
     #[pymethod(name = "__radd__")]
+    #[pymethod(magic)]
     fn add(
         &self,
         other: PyObjectRef,
@@ -131,7 +131,7 @@ impl PyComplex {
         self.op(other, |a, b| Ok(a + b), vm)
     }
 
-    #[pymethod(name = "__sub__")]
+    #[pymethod(magic)]
     fn sub(
         &self,
         other: PyObjectRef,
@@ -140,7 +140,7 @@ impl PyComplex {
         self.op(other, |a, b| Ok(a - b), vm)
     }
 
-    #[pymethod(name = "__rsub__")]
+    #[pymethod(magic)]
     fn rsub(
         &self,
         other: PyObjectRef,
@@ -154,18 +154,18 @@ impl PyComplex {
         self.value.conj()
     }
 
-    #[pymethod(name = "__float__")]
+    #[pymethod(magic)]
     fn float(&self, vm: &VirtualMachine) -> PyResult<Never> {
         Err(vm.new_type_error(String::from("Can't convert complex to float")))
     }
 
-    #[pymethod(name = "__int__")]
+    #[pymethod(magic)]
     fn int(&self, vm: &VirtualMachine) -> PyResult<Never> {
         Err(vm.new_type_error(String::from("Can't convert complex to int")))
     }
 
-    #[pymethod(name = "__mul__")]
     #[pymethod(name = "__rmul__")]
+    #[pymethod(magic)]
     fn mul(
         &self,
         other: PyObjectRef,
@@ -174,7 +174,7 @@ impl PyComplex {
         self.op(other, |a, b| Ok(a * b), vm)
     }
 
-    #[pymethod(name = "__truediv__")]
+    #[pymethod(magic)]
     fn truediv(
         &self,
         other: PyObjectRef,
@@ -183,7 +183,7 @@ impl PyComplex {
         self.op(other, |a, b| inner_div(a, b, vm), vm)
     }
 
-    #[pymethod(name = "__rtruediv__")]
+    #[pymethod(magic)]
     fn rtruediv(
         &self,
         other: PyObjectRef,
@@ -198,29 +198,29 @@ impl PyComplex {
         Err(vm.new_type_error("can't mod complex numbers.".to_owned()))
     }
 
-    #[pymethod(name = "__floordiv__")]
     #[pymethod(name = "__rfloordiv__")]
+    #[pymethod(magic)]
     fn floordiv(&self, _other: PyObjectRef, vm: &VirtualMachine) -> PyResult<Never> {
         Err(vm.new_type_error("can't take floor of complex number.".to_owned()))
     }
 
-    #[pymethod(name = "__divmod__")]
     #[pymethod(name = "__rdivmod__")]
+    #[pymethod(magic)]
     fn divmod(&self, _other: PyObjectRef, vm: &VirtualMachine) -> PyResult<Never> {
         Err(vm.new_type_error("can't take floor or mod of complex number.".to_owned()))
     }
 
-    #[pymethod(name = "__pos__")]
+    #[pymethod(magic)]
     fn pos(&self) -> Complex64 {
         self.value
     }
 
-    #[pymethod(name = "__neg__")]
+    #[pymethod(magic)]
     fn neg(&self) -> Complex64 {
         -self.value
     }
 
-    #[pymethod(name = "__repr__")]
+    #[pymethod(magic)]
     fn repr(&self) -> String {
         let Complex64 { re, im } = self.value;
         if re == 0.0 {
@@ -230,7 +230,7 @@ impl PyComplex {
         }
     }
 
-    #[pymethod(name = "__pow__")]
+    #[pymethod(magic)]
     fn pow(
         &self,
         other: PyObjectRef,
@@ -244,7 +244,7 @@ impl PyComplex {
         }
     }
 
-    #[pymethod(name = "__rpow__")]
+    #[pymethod(magic)]
     fn rpow(
         &self,
         other: PyObjectRef,
@@ -253,7 +253,7 @@ impl PyComplex {
         self.op(other, |a, b| inner_pow(b, a, vm), vm)
     }
 
-    #[pymethod(name = "__bool__")]
+    #[pymethod(magic)]
     fn bool(&self) -> bool {
         !Complex64::is_zero(&self.value)
     }
@@ -331,8 +331,8 @@ impl PyComplex {
         Self::from(value).into_ref_with_type(vm, cls)
     }
 
-    #[pymethod(name = "__getnewargs__")]
-    fn complex_getnewargs(&self, vm: &VirtualMachine) -> PyObjectRef {
+    #[pymethod(magic)]
+    fn getnewargs(&self, vm: &VirtualMachine) -> PyObjectRef {
         let Complex64 { re, im } = self.value;
         vm.ctx
             .new_tuple(vec![vm.ctx.new_float(re), vm.ctx.new_float(im)])

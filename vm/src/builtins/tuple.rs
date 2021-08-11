@@ -96,7 +96,7 @@ impl PyTuple {
         &self.elements
     }
 
-    #[pymethod(name = "__add__")]
+    #[pymethod(magic)]
     fn add(
         zelf: PyRef<Self>,
         other: PyObjectRef,
@@ -120,7 +120,7 @@ impl PyTuple {
         PyArithmaticValue::from_option(added.ok())
     }
 
-    #[pymethod(name = "__bool__")]
+    #[pymethod(magic)]
     fn bool(&self) -> bool {
         !self.elements.is_empty()
     }
@@ -136,7 +136,7 @@ impl PyTuple {
         Ok(count)
     }
 
-    #[pymethod(name = "__len__")]
+    #[pymethod(magic)]
     #[inline]
     pub fn len(&self) -> usize {
         self.elements.len()
@@ -147,7 +147,7 @@ impl PyTuple {
         self.elements.is_empty()
     }
 
-    #[pymethod(name = "__repr__")]
+    #[pymethod(magic)]
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
         let s = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
             let mut str_parts = Vec::with_capacity(zelf.elements.len());
@@ -167,8 +167,8 @@ impl PyTuple {
         Ok(s)
     }
 
-    #[pymethod(name = "__mul__")]
     #[pymethod(name = "__rmul__")]
+    #[pymethod(magic)]
     fn mul(zelf: PyRef<Self>, counter: isize, vm: &VirtualMachine) -> PyRef<Self> {
         if zelf.elements.is_empty() || counter == 0 {
             vm.ctx.empty_tuple.clone()
@@ -187,7 +187,7 @@ impl PyTuple {
         }
     }
 
-    #[pymethod(name = "__getitem__")]
+    #[pymethod(magic)]
     fn getitem(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let result = match zelf.elements.as_ref().get_item(vm, needle, Self::NAME)? {
             Either::A(obj) => obj,
@@ -232,7 +232,7 @@ impl PyTuple {
         Err(vm.new_value_error("tuple.index(x): x not in tuple".to_owned()))
     }
 
-    #[pymethod(name = "__contains__")]
+    #[pymethod(magic)]
     fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         for element in self.elements.iter() {
             if vm.identical_or_equal(element, &needle)? {
@@ -344,7 +344,7 @@ impl PyTupleIterator {
         }
     }
 
-    #[pymethod(name = "__setstate__")]
+    #[pymethod(magic)]
     fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         // When we're exhausted, just return.
         if let Exhausted = self.status.load() {

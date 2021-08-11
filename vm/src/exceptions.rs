@@ -67,7 +67,7 @@ impl PyBaseException {
         PyBaseException::new(args.args, vm).into_ref_with_type(vm, cls)
     }
 
-    #[pymethod(name = "__init__")]
+    #[pymethod(magic)]
     fn init(&self, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         *self.args.write() = PyTupleRef::with_elements(args.args, &vm.ctx);
         Ok(())
@@ -137,7 +137,7 @@ impl PyBaseException {
         Ok(zelf.as_object().clone())
     }
 
-    #[pymethod(name = "__str__")]
+    #[pymethod(magic)]
     fn str(&self, vm: &VirtualMachine) -> PyStrRef {
         let str_args = exception_args_as_string(vm, self.args(), true);
         match str_args.into_iter().exactly_one() {
@@ -147,7 +147,7 @@ impl PyBaseException {
         }
     }
 
-    #[pymethod(name = "__repr__")]
+    #[pymethod(magic)]
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> String {
         let repr_args = exception_args_as_string(vm, zelf.args(), false);
         let cls = zelf.class();

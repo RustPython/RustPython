@@ -55,12 +55,12 @@ impl PyAsyncGen {
         zelf.inner.repr(zelf.get_id())
     }
 
-    #[pymethod(name = "__aiter__")]
+    #[pymethod(magic)]
     fn aiter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
         zelf
     }
 
-    #[pymethod(name = "__anext__")]
+    #[pymethod(magic)]
     fn anext(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyAsyncGenASend {
         Self::asend(zelf, vm.ctx.none(), vm)
     }
