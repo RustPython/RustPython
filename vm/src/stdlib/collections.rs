@@ -303,14 +303,16 @@ mod _collections {
         }
 
         #[pymethod(magic)]
+        #[pymethod(name = "__rmul__")]
         fn mul(&self, n: isize) -> Self {
             let deque: SimpleSeqDeque = self.borrow_deque().into();
             let mul = sequence::seq_mul(&deque, n);
-            let skipped = if let Some(maxlen) = self.maxlen.load() {
-                mul.len() - maxlen
-            } else {
-                0
-            };
+            let skipped = self
+                .maxlen
+                .load()
+                .and_then(|maxlen| mul.len().checked_sub(maxlen))
+                .unwrap_or(0);
+
             let deque = mul.skip(skipped).cloned().collect();
             PyDeque {
                 deque: PyRwLock::new(deque),
