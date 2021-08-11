@@ -71,9 +71,9 @@ impl ArgBytesLike {
     }
 }
 
-impl TryFromObject for ArgBytesLike {
-    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        Self::new(vm, &obj)
+impl TryFromBorrowedObject for ArgBytesLike {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Self> {
+        Self::new(vm, obj)
     }
 }
 
@@ -122,9 +122,9 @@ impl ArgMemoryBuffer {
     }
 }
 
-impl TryFromObject for ArgMemoryBuffer {
-    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        Self::new(vm, &obj)
+impl TryFromBorrowedObject for ArgMemoryBuffer {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Self> {
+        Self::new(vm, obj)
     }
 }
 
