@@ -624,3 +624,25 @@ assert bytes(A()) == b"bytess"
 # Issue #2125
 b = b'abc'
 assert bytes(b) is b
+
+
+# Regression to
+# https://github.com/RustPython/RustPython/issues/2840
+
+a = b'123abc!?'
+assert id(a) == id(a)
+assert id(a) != id(a * -1)
+assert id(a) != id(a * 0)
+assert id(a) == id(a * 1)  # only case when `id` stays the same
+assert id(a) != id(a * 2)
+
+
+class SubBytes(bytes):
+    pass
+
+b = SubBytes(b'0123abc*&')
+assert id(b) == id(b)
+assert id(b) != id(b * -1)
+assert id(b) != id(b * 0)
+assert id(b) != id(b * 1)
+assert id(b) != id(b * 2)
