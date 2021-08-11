@@ -21,7 +21,7 @@ use crate::builtins::pystr::{PyStr, PyStrRef};
 use crate::builtins::pytype::PyTypeRef;
 use crate::builtins::set::PySet;
 use crate::builtins::tuple::{PyTuple, PyTupleRef};
-use crate::byteslike::PyBytesLike;
+use crate::byteslike::ArgBytesLike;
 use crate::common::lock::PyRwLock;
 use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
 use crate::function::{ArgumentError, FromArgs, FuncArgs, OptionalArg};
@@ -541,10 +541,10 @@ mod _os {
     fn _extract_vec_bytes(
         x: OptionalArg,
         vm: &VirtualMachine,
-    ) -> PyResult<Option<Vec<PyBytesLike>>> {
+    ) -> PyResult<Option<Vec<ArgBytesLike>>> {
         let inner = match x.into_option() {
             Some(v) => {
-                let v = vm.extract_elements::<PyBytesLike>(&v)?;
+                let v = vm.extract_elements::<ArgBytesLike>(&v)?;
                 if v.is_empty() {
                     None
                 } else {
@@ -575,7 +575,6 @@ mod _os {
         let headers = headers.as_deref();
 
         let trailers = _extract_vec_bytes(args.trailers, vm)?;
-
         let trailers = trailers
             .as_ref()
             .map(|v| v.iter().map(|b| b.borrow_buf()).collect::<Vec<_>>());
@@ -614,7 +613,7 @@ mod _os {
     }
 
     #[pyfunction]
-    fn write(fd: i32, data: PyBytesLike, vm: &VirtualMachine) -> PyResult {
+    fn write(fd: i32, data: ArgBytesLike, vm: &VirtualMachine) -> PyResult {
         let mut file = Fd(fd);
         let written = data
             .with_ref(|b| file.write(b))

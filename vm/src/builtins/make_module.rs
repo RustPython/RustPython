@@ -20,7 +20,7 @@ mod decl {
     use crate::builtins::pystr::{PyStr, PyStrRef};
     use crate::builtins::pytype::PyTypeRef;
     use crate::builtins::{PyByteArray, PyBytes};
-    use crate::byteslike::PyBytesLike;
+    use crate::byteslike::ArgBytesLike;
     use crate::common::{hash::PyHash, str::to_ascii};
     #[cfg(feature = "rustpython-compiler")]
     use crate::compile;
@@ -563,7 +563,7 @@ mod decl {
     }
 
     #[pyfunction]
-    fn ord(string: Either<PyBytesLike, PyStrRef>, vm: &VirtualMachine) -> PyResult<u32> {
+    fn ord(string: Either<ArgBytesLike, PyStrRef>, vm: &VirtualMachine) -> PyResult<u32> {
         match string {
             Either::A(bytes) => bytes.with_ref(|bytes| {
                 let bytes_len = bytes.len();

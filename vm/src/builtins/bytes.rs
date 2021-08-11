@@ -9,7 +9,7 @@ use crate::bytesinner::{
     bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
     ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
 };
-use crate::byteslike::PyBytesLike;
+use crate::byteslike::ArgBytesLike;
 use crate::common::hash::PyHash;
 use crate::function::{OptionalArg, OptionalOption};
 use crate::slots::{AsBuffer, Comparable, Hashable, Iterable, PyComparisonOp, PyIter};
@@ -134,7 +134,7 @@ impl PyBytes {
     }
 
     #[pymethod(magic)]
-    fn add(&self, other: PyBytesLike, vm: &VirtualMachine) -> PyObjectRef {
+    fn add(&self, other: ArgBytesLike, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_bytes(self.inner.add(&*other.borrow_buf()))
     }
 

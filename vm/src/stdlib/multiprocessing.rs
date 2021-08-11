@@ -4,7 +4,7 @@ pub(crate) use _multiprocessing::make_module;
 #[pymodule]
 mod _multiprocessing {
     use super::super::os;
-    use crate::byteslike::PyBytesLike;
+    use crate::byteslike::ArgBytesLike;
     use crate::PyResult;
     use crate::VirtualMachine;
     use winapi::um::winsock2::{self, SOCKET};
@@ -32,7 +32,7 @@ mod _multiprocessing {
     }
 
     #[pyfunction]
-    fn send(socket: usize, buf: PyBytesLike, vm: &VirtualMachine) -> PyResult<libc::c_int> {
+    fn send(socket: usize, buf: ArgBytesLike, vm: &VirtualMachine) -> PyResult<libc::c_int> {
         let ret = buf.with_ref(|b| unsafe {
             winsock2::send(socket as SOCKET, b.as_ptr() as *const _, b.len() as i32, 0)
         });

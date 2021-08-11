@@ -14,7 +14,7 @@ use crate::builtins::int;
 use crate::builtins::pystr::PyStrRef;
 use crate::builtins::pytype::PyTypeRef;
 use crate::builtins::tuple::PyTupleRef;
-use crate::byteslike::{PyBytesLike, PyRwBytesLike};
+use crate::byteslike::{ArgBytesLike, ArgMemoryBuffer};
 use crate::common::lock::{PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard};
 use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
 use crate::function::{FuncArgs, OptionalArg, OptionalOption};
@@ -384,7 +384,7 @@ impl PySocket {
             #[cfg(unix)]
             c::AF_UNIX => {
                 use std::os::unix::ffi::OsStrExt;
-                let buf = crate::byteslike::BufOrStr::try_from_object(vm, addr)?;
+                let buf = crate::byteslike::ArgStrOrBytesLike::try_from_object(vm, addr)?;
                 let path = &*buf.borrow_bytes();
                 if cfg!(any(target_os = "linux", target_os = "android")) && path.first() == Some(&0)
                 {
@@ -593,7 +593,7 @@ impl PySocket {
     #[pymethod]
     fn recv_into(
         &self,
-        buf: PyRwBytesLike,
+        buf: ArgMemoryBuffer,
         flags: OptionalArg<i32>,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
@@ -629,7 +629,7 @@ impl PySocket {
     #[pymethod]
     fn recvfrom_into(
         &self,
-        buf: PyRwBytesLike,
+        buf: ArgMemoryBuffer,
         nbytes: OptionalArg<isize>,
         flags: OptionalArg<i32>,
         vm: &VirtualMachine,
@@ -658,7 +658,7 @@ impl PySocket {
     #[pymethod]
     fn send(
         &self,
-        bytes: PyBytesLike,
+        bytes: ArgBytesLike,
         flags: OptionalArg<i32>,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
@@ -673,7 +673,7 @@ impl PySocket {
     #[pymethod]
     fn sendall(
         &self,
-        bytes: PyBytesLike,
+        bytes: ArgBytesLike,
         flags: OptionalArg<i32>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -706,7 +706,7 @@ impl PySocket {
     #[pymethod]
     fn sendto(
         &self,
-        bytes: PyBytesLike,
+        bytes: ArgBytesLike,
         arg2: PyObjectRef,
         arg3: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
@@ -853,7 +853,7 @@ impl PySocket {
         &self,
         level: i32,
         name: i32,
-        value: Option<Either<PyBytesLike, i32>>,
+        value: Option<Either<ArgBytesLike, i32>>,
         optlen: OptionalArg<u32>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -1058,7 +1058,7 @@ fn _socket_inet_aton(ip_string: PyStrRef, vm: &VirtualMachine) -> PyResult<Vec<u
         .map_err(|_| vm.new_os_error("illegal IP address string passed to inet_aton".to_owned()))
 }
 
-fn _socket_inet_ntoa(packed_ip: PyBytesLike, vm: &VirtualMachine) -> PyResult {
+fn _socket_inet_ntoa(packed_ip: ArgBytesLike, vm: &VirtualMachine) -> PyResult {
     let packed_ip = packed_ip.borrow_buf();
     let packed_ip = <&[u8; 4]>::try_from(&*packed_ip)
         .map_err(|_| vm.new_os_error("packed IP wrong length for inet_ntoa".to_owned()))?;
@@ -1325,7 +1325,7 @@ fn _socket_inet_pton(af_inet: i32, ip_string: PyStrRef, vm: &VirtualMachine) -> 
 
 fn _socket_inet_ntop(
     af_inet: i32,
-    packed_ip: PyBytesLike,
+    packed_ip: ArgBytesLike,
     vm: &VirtualMachine,
 ) -> PyResult<String> {
     let packed_ip = packed_ip.borrow_buf();

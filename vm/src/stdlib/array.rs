@@ -5,7 +5,7 @@ use crate::builtins::pystr::PyStrRef;
 use crate::builtins::pytype::PyTypeRef;
 use crate::builtins::slice::PySliceRef;
 use crate::builtins::{PyByteArray, PyBytes};
-use crate::byteslike::{try_bytes_like, PyBytesLike};
+use crate::byteslike::{try_bytes_like, ArgBytesLike};
 use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
 use crate::common::lock::{
     PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyRwLock, PyRwLockReadGuard,
@@ -585,7 +585,7 @@ impl PyArray {
     }
 
     #[pymethod]
-    fn frombytes(zelf: PyRef<Self>, b: PyBytesLike, vm: &VirtualMachine) -> PyResult<()> {
+    fn frombytes(zelf: PyRef<Self>, b: ArgBytesLike, vm: &VirtualMachine) -> PyResult<()> {
         let b = b.borrow_buf();
         let itemsize = zelf.read().itemsize();
         if b.len() % itemsize != 0 {

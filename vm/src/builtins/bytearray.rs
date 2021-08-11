@@ -12,7 +12,7 @@ use crate::bytesinner::{
     ByteInnerPaddingOptions, ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs,
     PyBytesInner,
 };
-use crate::byteslike::PyBytesLike;
+use crate::byteslike::ArgBytesLike;
 use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
 use crate::common::lock::{
     PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyRwLock, PyRwLockReadGuard,
@@ -142,7 +142,7 @@ impl PyByteArray {
     }
 
     #[pymethod(magic)]
-    fn add(&self, other: PyBytesLike, vm: &VirtualMachine) -> PyObjectRef {
+    fn add(&self, other: ArgBytesLike, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_bytearray(self.inner().add(&*other.borrow_buf()))
     }
 
@@ -190,7 +190,7 @@ impl PyByteArray {
     }
 
     #[pymethod(magic)]
-    fn iadd(zelf: PyRef<Self>, other: PyBytesLike, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    fn iadd(zelf: PyRef<Self>, other: ArgBytesLike, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         zelf.try_resizable(vm)?
             .elements
             .extend(&*other.borrow_buf());
