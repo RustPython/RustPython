@@ -1,6 +1,6 @@
+use crate::buffer::{BufferOptions, PyBuffer, ResizeGuard};
 use crate::builtins::float::IntoPyFloat;
 use crate::builtins::list::{PyList, PyListRef};
-use crate::builtins::memory::{BufferOptions, PyBuffer, ResizeGuard};
 use crate::builtins::pystr::PyStrRef;
 use crate::builtins::pytype::PyTypeRef;
 use crate::builtins::slice::PySliceRef;

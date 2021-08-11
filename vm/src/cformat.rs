@@ -1,8 +1,8 @@
+use crate::buffer::PyBufferRef;
 /// Implementation of Printf-Style string formatting
 /// [https://docs.python.org/3/library/stdtypes.html#printf-style-string-formatting]
 use crate::builtins::float::{try_bigint, IntoPyFloat, PyFloat};
 use crate::builtins::int::{self, PyInt};
-use crate::builtins::memory::PyBufferRef;
 use crate::builtins::pystr::PyStr;
 use crate::builtins::{tuple, PyBytes};
 use crate::common::float_ops;

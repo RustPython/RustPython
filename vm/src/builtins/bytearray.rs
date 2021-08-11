@@ -2,11 +2,11 @@
 use super::bytes::{PyBytes, PyBytesRef};
 use super::dict::PyDictRef;
 use super::int::PyIntRef;
-use super::memory::{BufferOptions, PyBuffer, ResizeGuard};
 use super::pystr::PyStrRef;
 use super::pytype::PyTypeRef;
 use super::tuple::PyTupleRef;
 use crate::anystr::{self, AnyStr};
+use crate::buffer::{BufferOptions, PyBuffer, ResizeGuard};
 use crate::bytesinner::{
     bytes_decode, bytes_from_object, value_from_object, ByteInnerFindOptions, ByteInnerNewOptions,
     ByteInnerPaddingOptions, ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs,

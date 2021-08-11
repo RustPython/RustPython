@@ -1,14 +1,9 @@
-use bstr::ByteSlice;
-use crossbeam_utils::atomic::AtomicCell;
-use rustpython_common::borrow::{BorrowedValue, BorrowedValueMut};
-use std::mem::size_of;
-use std::ops::Deref;
-
 use super::dict::PyDictRef;
 use super::int::PyIntRef;
 use super::pystr::PyStrRef;
 use super::pytype::PyTypeRef;
 use crate::anystr::{self, AnyStr};
+use crate::buffer::{BufferOptions, PyBuffer};
 use crate::builtins::tuple::PyTupleRef;
 use crate::bytesinner::{
     bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
@@ -24,8 +19,11 @@ use crate::{
     IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef,
     PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
-
-use crate::builtins::memory::{BufferOptions, PyBuffer};
+use bstr::ByteSlice;
+use crossbeam_utils::atomic::AtomicCell;
+use rustpython_common::borrow::{BorrowedValue, BorrowedValueMut};
+use std::mem::size_of;
+use std::ops::Deref;
 
 /// "bytes(iterable_of_ints) -> bytes\n\
 /// bytes(string, encoding[, errors]) -> bytes\n\

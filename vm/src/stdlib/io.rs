@@ -77,9 +77,8 @@ mod _io {
     use std::io::{self, prelude::*, Cursor, SeekFrom};
     use std::ops::Range;
 
-    use crate::builtins::memory::{
-        BufferOptions, PyBuffer, PyBufferRef, PyMemoryView, ResizeGuard,
-    };
+    use crate::buffer::{BufferOptions, PyBuffer, PyBufferRef, ResizeGuard};
+    use crate::builtins::memory::PyMemoryView;
     use crate::builtins::{
         bytes::{PyBytes, PyBytesRef},
         pybool, pytype, PyByteArray, PyStr, PyStrRef, PyTypeRef,

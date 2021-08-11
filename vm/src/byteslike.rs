@@ -1,4 +1,4 @@
-use crate::builtins::memory::PyBufferRef;
+use crate::buffer::PyBufferRef;
 use crate::builtins::PyStrRef;
 use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
 use crate::vm::VirtualMachine;
