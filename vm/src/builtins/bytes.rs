@@ -21,8 +21,8 @@ use crate::slots::{BufferProtocol, Comparable, Hashable, Iterable, PyComparisonO
 use crate::utils::Either;
 use crate::vm::VirtualMachine;
 use crate::{
-    IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef,
-    PyResult, PyValue, TryFromObject, TypeProtocol,
+    IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef,
+    PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 
 use crate::builtins::memory::{BufferOptions, PyBuffer};
@@ -430,11 +430,19 @@ impl PyBytes {
 
     #[pymethod(name = "__mul__")]
     #[pymethod(name = "__rmul__")]
-    fn mul(&self, value: isize, vm: &VirtualMachine) -> PyResult<PyBytes> {
-        if value > 0 && self.inner.len() as isize > std::isize::MAX / value {
+    fn mul(zelf: PyRef<Self>, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        if value > 0 && zelf.inner.len() as isize > std::isize::MAX / value {
             return Err(vm.new_overflow_error("repeated bytes are too long".to_owned()));
         }
-        Ok(self.inner.repeat(value).into())
+        if value == 1 && zelf.class().is(&vm.ctx.types.bytes_type) {
+            // Special case: when some `bytes` is multiplied by `1`,
+            // nothing really happens, we need to return an object itself
+            // with the same `id()` to be compatible with CPython.
+            // This only works for `bytes` itself, not its subclasses.
+            return Ok(zelf);
+        }
+        let bytes: PyBytes = zelf.inner.repeat(value).into();
+        Ok(bytes.into_ref(vm))
     }
 
     #[pymethod(name = "__mod__")]
