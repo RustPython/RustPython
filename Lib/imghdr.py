@@ -1,6 +1,6 @@
 """Recognize image file formats based on their first few bytes."""
 
-#from os import PathLike
+from os import PathLike
 
 __all__ = ["what"]
 
@@ -14,8 +14,7 @@ def what(file, h=None):
     f = None
     try:
         if h is None:
-            # if isinstance(file, (str, PathLike))
-            if isinstance(file, str): # FIXME(corona10): RustPython doesn't support PathLike yet.
+            if isinstance(file, (str, PathLike)):
                 f = FileIO(file, 'rb')
                 h = f.read(32)
             else:
