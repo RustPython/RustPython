@@ -1912,7 +1912,7 @@ class UnicodeTest(string_tests.CommonTest,
         """
         FFFD = '\ufffd'
         for byte in b'\x80\xA0\x9F\xBF\xC0\xC1\xF5\xFF':
-            self.assertCorrectUTF8Decoding(bytes([byte]), '\ufffd',
+            self.assertCorrectUTF8Decoding(bytes([byte]), FFFD,
                                            'invalid start byte')
 
     def test_unexpected_end_of_data(self):
@@ -1938,7 +1938,7 @@ class UnicodeTest(string_tests.CommonTest,
         ]
         FFFD = '\ufffd'
         for seq in sequences:
-            self.assertCorrectUTF8Decoding(bytes.fromhex(seq), '\ufffd',
+            self.assertCorrectUTF8Decoding(bytes.fromhex(seq), FFFD,
                                            'unexpected end of data')
 
     def test_invalid_cb_for_2bytes_seq(self):
