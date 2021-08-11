@@ -52,7 +52,7 @@ pub(crate) type DescrGetFunc =
 pub(crate) type DescrSetFunc =
     fn(PyObjectRef, PyObjectRef, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>;
 pub(crate) type HashFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<PyHash>;
-pub(crate) type CmpFunc = fn(
+pub(crate) type RichCompareFunc = fn(
     &PyObjectRef,
     &PyObjectRef,
     PyComparisonOp,
@@ -89,7 +89,7 @@ pub struct PyTypeSlots {
 
     // Assigned meaning in release 2.1
     // rich comparisons
-    pub cmp: AtomicCell<Option<CmpFunc>>,
+    pub richcompare: AtomicCell<Option<RichCompareFunc>>,
 
     // Iterators
     pub iter: AtomicCell<Option<IterFunc>>,
@@ -268,7 +268,7 @@ where
 #[pyimpl]
 pub trait Comparable: PyValue {
     #[pyslot]
-    fn tp_cmp(
+    fn tp_richcompare(
         zelf: &PyObjectRef,
         other: &PyObjectRef,
         op: PyComparisonOp,

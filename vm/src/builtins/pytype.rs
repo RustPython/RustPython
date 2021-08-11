@@ -193,11 +193,11 @@ impl PyType {
                 update_slot!(del, func);
             }
             "__eq__" | "__ne__" | "__le__" | "__lt__" | "__ge__" | "__gt__" => {
-                let func: slots::CmpFunc = |zelf, other, op, vm| {
+                let func: slots::RichCompareFunc = |zelf, other, op, vm| {
                     vm.call_special_method(zelf.clone(), op.method_name(), (other.clone(),))
                         .map(Either::A)
                 } as _;
-                update_slot!(cmp, func);
+                update_slot!(richcompare, func);
             }
             "__getattribute__" => {
                 let func: slots::GetattroFunc =
