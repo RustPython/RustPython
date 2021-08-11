@@ -148,8 +148,6 @@ class TestDictKeys(TestTemporarilyImmutable, unittest.TestCase):
         self.it = iter(d)
         self.mutate = d.popitem
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_immutable_during_iteration(self):
         super().test_immutable_during_iteration()
 
@@ -160,8 +158,6 @@ class TestDictItems(TestTemporarilyImmutable, unittest.TestCase):
         self.it = iter(d.items())
         self.mutate = d.popitem
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_immutable_during_iteration(self):
         super().test_immutable_during_iteration()
 
@@ -172,8 +168,6 @@ class TestDictValues(TestTemporarilyImmutable, unittest.TestCase):
         self.it = iter(d.values())
         self.mutate = d.popitem
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_immutable_during_iteration(self):
         super().test_immutable_during_iteration()
 
