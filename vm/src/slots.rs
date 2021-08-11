@@ -67,20 +67,55 @@ pub(crate) type IterNextFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult;
 
 #[derive(Default)]
 pub struct PyTypeSlots {
-    pub flags: PyTpFlags,
     pub name: PyRwLock<Option<String>>, // tp_name, not class name
-    pub new: Option<PyNativeFunc>,
-    pub del: AtomicCell<Option<DelFunc>>,
-    pub call: AtomicCell<Option<GenericMethod>>,
-    pub descr_get: AtomicCell<Option<DescrGetFunc>>,
-    pub descr_set: AtomicCell<Option<DescrSetFunc>>,
+    // tp_basicsize, tp_itemsize
+
+    // Methods to implement standard operations
+
+    // Method suites for standard classes
+    // tp_as_number
+    // tp_as_sequence
+    // tp_as_mapping
+
+    // More standard operations (here for binary compatibility)
     pub hash: AtomicCell<Option<HashFunc>>,
-    pub cmp: AtomicCell<Option<CmpFunc>>,
+    pub call: AtomicCell<Option<GenericMethod>>,
+    // tp_str
     pub getattro: AtomicCell<Option<GetattroFunc>>,
     pub setattro: AtomicCell<Option<SetattroFunc>>,
+
+    // Functions to access object as input/output buffer
     pub as_buffer: Option<BufferFunc>,
+
+    // Assigned meaning in release 2.1
+    // rich comparisons
+    pub cmp: AtomicCell<Option<CmpFunc>>,
+
+    // Iterators
     pub iter: AtomicCell<Option<IterFunc>>,
     pub iternext: AtomicCell<Option<IterNextFunc>>,
+
+    // Flags to define presence of optional/expanded features
+    pub flags: PyTpFlags,
+    // tp_doc
+
+    // Strong reference on a heap type, borrowed reference on a static type
+    // tp_base
+    // tp_dict
+    pub descr_get: AtomicCell<Option<DescrGetFunc>>,
+    pub descr_set: AtomicCell<Option<DescrSetFunc>>,
+    // tp_dictoffset
+    // tp_init
+    // tp_alloc
+    pub new: Option<PyNativeFunc>,
+    // tp_free
+    // tp_is_gc
+    // tp_bases
+    // tp_mro
+    // tp_cache
+    // tp_subclasses
+    // tp_weaklist
+    pub del: AtomicCell<Option<DelFunc>>,
 }
 
 impl PyTypeSlots {
