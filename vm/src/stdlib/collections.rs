@@ -303,6 +303,7 @@ mod _collections {
         }
 
         #[pymethod(magic)]
+        #[pymethod(name = "__rmul__")]
         fn mul(&self, n: isize) -> Self {
             let deque: SimpleSeqDeque = self.borrow_deque().into();
             let mul = sequence::seq_mul(&deque, n);

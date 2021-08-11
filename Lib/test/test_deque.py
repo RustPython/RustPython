@@ -388,8 +388,6 @@ class TestBasic(unittest.TestCase):
             self.assertEqual(d, deque(('abcdef' * n)[-500:]))
             self.assertEqual(d.maxlen, 500)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_mul(self):
         d = deque('abc')
         self.assertEqual(d * -5, deque())
@@ -1003,11 +1001,11 @@ class TestSequence(seq_tests.CommonTest):
     def test_free_after_iterating(self):
         # For now, bypass tests that require slicing
         self.skipTest("Exhausted deque iterator doesn't free a deque")
-    
+
     @unittest.skip("TODO: RUSTPYTHON TypeError: unexpected payload for __eq__")
     def test_pickle(self):
         pass
-        
+
     def test_iadd(self):
         pass
 
