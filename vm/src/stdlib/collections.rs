@@ -8,7 +8,7 @@ mod _collections {
     use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable};
     use crate::vm::ReprGuard;
     use crate::VirtualMachine;
-    use crate::{sequence, sliceable};
+    use crate::{sequence, sliceable, IdProtocol, TryFromObject};
     use crate::{PyComparisonValue, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, StaticType};
     use itertools::Itertools;
     use std::collections::VecDeque;
@@ -22,6 +22,7 @@ mod _collections {
         deque: PyRwLock<VecDeque<PyObjectRef>>,
         maxlen: AtomicCell<Option<usize>>,
     }
+
     type PyDequeRef = PyRef<PyDeque>;
 
     impl PyValue for PyDeque {
@@ -320,6 +321,23 @@ mod _collections {
         #[pymethod(magic)]
         fn len(&self) -> usize {
             self.borrow_deque().len()
+        }
+
+        #[pymethod(magic)]
+        fn iadd(
+            zelf: PyRef<Self>,
+            other: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyRef<Self>> {
+            let other: PyObjectRef = if zelf.is(&other) {
+                vm.new_pyobj(zelf.copy())
+            } else {
+                other
+            };
+            let other = PyIterable::try_from_object(vm, other)?;
+
+            zelf.extend(other, vm)?;
+            Ok(zelf)
         }
     }
 
