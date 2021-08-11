@@ -307,10 +307,10 @@ mod _collections {
         fn mul(&self, n: isize) -> Self {
             let deque: SimpleSeqDeque = self.borrow_deque().into();
             let mul = sequence::seq_mul(&deque, n);
-            let skipped = if let Some(maxlen) = self.maxlen.load() {
-                mul.len() - maxlen
-            } else {
-                0
+            let mul_len = mul.len();
+            let skipped = match self.maxlen.load() {
+                Some(maxlen) if mul_len > maxlen => mul_len - maxlen,
+                _ => 0,
             };
             let deque = mul.skip(skipped).cloned().collect();
             PyDeque {

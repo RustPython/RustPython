@@ -355,8 +355,6 @@ class TestBasic(unittest.TestCase):
             else:
                 self.assertEqual(d[i-1], 'Z')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_imul(self):
         for n in (-10, -1, 0, 1, 2, 10, 1000):
             d = deque()
