@@ -105,7 +105,7 @@ impl PyList {
         elements.insert(position, element);
     }
 
-    #[pymethod(name = "__add__")]
+    #[pymethod(magic)]
     fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(other) = other.payload_if_subclass::<PyList>(vm) {
             let mut elements = self.borrow_vec().to_vec();
@@ -120,7 +120,7 @@ impl PyList {
         }
     }
 
-    #[pymethod(name = "__iadd__")]
+    #[pymethod(magic)]
     fn iadd(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if let Ok(new_elements) = vm.extract_elements(&other) {
             let mut e = new_elements;
@@ -131,7 +131,7 @@ impl PyList {
         }
     }
 
-    #[pymethod(name = "__bool__")]
+    #[pymethod(magic)]
     fn bool(&self) -> bool {
         !self.borrow_vec().is_empty()
     }
@@ -146,12 +146,12 @@ impl PyList {
         vm.ctx.new_list(self.borrow_vec().to_vec())
     }
 
-    #[pymethod(name = "__len__")]
+    #[pymethod(magic)]
     fn len(&self) -> usize {
         self.borrow_vec().len()
     }
 
-    #[pymethod(name = "__sizeof__")]
+    #[pymethod(magic)]
     fn sizeof(&self) -> usize {
         size_of::<Self>() + self.elements.read().capacity() * size_of::<PyObjectRef>()
     }
@@ -161,7 +161,7 @@ impl PyList {
         self.borrow_vec_mut().reverse();
     }
 
-    #[pymethod(name = "__reversed__")]
+    #[pymethod(magic)]
     fn reversed(zelf: PyRef<Self>) -> PyListReverseIterator {
         let final_position = zelf.borrow_vec().len();
         PyListReverseIterator {
@@ -170,7 +170,7 @@ impl PyList {
         }
     }
 
-    #[pymethod(name = "__getitem__")]
+    #[pymethod(magic)]
     fn getitem(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let result = match zelf.borrow_vec().get_item(vm, needle, Self::NAME)? {
             Either::A(obj) => obj,
@@ -179,7 +179,7 @@ impl PyList {
         Ok(result)
     }
 
-    #[pymethod(name = "__setitem__")]
+    #[pymethod(magic)]
     fn setitem(
         &self,
         needle: PyObjectRef,
@@ -214,7 +214,7 @@ impl PyList {
         elements.set_slice_items(vm, &slice, items.as_slice())
     }
 
-    #[pymethod(name = "__repr__")]
+    #[pymethod(magic)]
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
         let s = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
             let elements = zelf.borrow_vec().to_vec();
@@ -230,7 +230,7 @@ impl PyList {
         Ok(s)
     }
 
-    #[pymethod(name = "__mul__")]
+    #[pymethod(magic)]
     fn mul(&self, counter: isize, vm: &VirtualMachine) -> PyObjectRef {
         let new_elements = sequence::seq_mul(&self.borrow_vec(), counter)
             .cloned()
@@ -238,12 +238,12 @@ impl PyList {
         vm.ctx.new_list(new_elements)
     }
 
-    #[pymethod(name = "__rmul__")]
+    #[pymethod(magic)]
     fn rmul(&self, counter: isize, vm: &VirtualMachine) -> PyObjectRef {
         self.mul(counter, vm)
     }
 
-    #[pymethod(name = "__imul__")]
+    #[pymethod(magic)]
     fn imul(zelf: PyRef<Self>, counter: isize) -> PyRef<Self> {
         let mut elements = zelf.borrow_vec_mut();
         let mut new_elements: Vec<PyObjectRef> =
@@ -263,7 +263,7 @@ impl PyList {
         Ok(count)
     }
 
-    #[pymethod(name = "__contains__")]
+    #[pymethod(magic)]
     fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         for element in self.borrow_vec().to_vec().iter() {
             if vm.identical_or_equal(element, &needle)? {
@@ -346,7 +346,7 @@ impl PyList {
         .map(drop)
     }
 
-    #[pymethod(name = "__delitem__")]
+    #[pymethod(magic)]
     fn delitem(&self, subscript: SequenceIndex, vm: &VirtualMachine) -> PyResult<()> {
         match subscript {
             SequenceIndex::Int(index) => self.delindex(index, vm),
@@ -397,7 +397,7 @@ impl PyList {
         PyList::default().into_ref_with_type(vm, cls)
     }
 
-    #[pymethod(name = "__init__")]
+    #[pymethod(magic)]
     fn init(&self, iterable: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<()> {
         let mut elements = if let OptionalArg::Present(iterable) = iterable {
             vm.extract_elements(&iterable)?
@@ -494,7 +494,7 @@ impl PyListIterator {
         }
     }
 
-    #[pymethod(name = "__setstate__")]
+    #[pymethod(magic)]
     fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         // When we're exhausted, just return.
         if let Exhausted = self.status.load() {

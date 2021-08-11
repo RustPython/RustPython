@@ -327,12 +327,12 @@ impl PySet {
         Ok(())
     }
 
-    #[pymethod(name = "__len__")]
+    #[pymethod(magic)]
     fn len(&self) -> usize {
         self.inner.len()
     }
 
-    #[pymethod(name = "__sizeof__")]
+    #[pymethod(magic)]
     fn sizeof(&self) -> usize {
         std::mem::size_of::<Self>() + self.inner.sizeof()
     }
@@ -344,7 +344,7 @@ impl PySet {
         }
     }
 
-    #[pymethod(name = "__contains__")]
+    #[pymethod(magic)]
     fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         self.inner.contains(&needle, vm)
     }
@@ -388,47 +388,35 @@ impl PySet {
         self.inner.isdisjoint(other, vm)
     }
 
-    #[pymethod(name = "__or__")]
+    #[pymethod(name = "__ror__")]
+    #[pymethod(magic)]
     fn or(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
         self.union(other.iterable, vm)
     }
 
-    #[pymethod(name = "__ror__")]
-    fn ror(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
-        self.or(other, vm)
-    }
-
-    #[pymethod(name = "__and__")]
+    #[pymethod(name = "__rand__")]
+    #[pymethod(magic)]
     fn and(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
         self.intersection(other.iterable, vm)
     }
 
-    #[pymethod(name = "__rand__")]
-    fn rand(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
-        self.and(other, vm)
-    }
-
-    #[pymethod(name = "__sub__")]
+    #[pymethod(magic)]
     fn sub(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
         self.difference(other.iterable, vm)
     }
 
-    #[pymethod(name = "__rsub__")]
+    #[pymethod(magic)]
     fn rsub(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
         self.sub(other, vm)
     }
 
-    #[pymethod(name = "__xor__")]
+    #[pymethod(name = "__rxor__")]
+    #[pymethod(magic)]
     fn xor(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
         self.symmetric_difference(other.iterable, vm)
     }
 
-    #[pymethod(name = "__rxor__")]
-    fn rxor(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
-        self.xor(other, vm)
-    }
-
-    #[pymethod(name = "__repr__")]
+    #[pymethod(magic)]
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         let s = if zelf.inner.len() == 0 {
             "set()".to_owned()
@@ -467,7 +455,7 @@ impl PySet {
         self.inner.pop(vm)
     }
 
-    #[pymethod(name = "__ior__")]
+    #[pymethod(magic)]
     fn ior(zelf: PyRef<Self>, iterable: SetIterable, vm: &VirtualMachine) -> PyResult {
         zelf.inner.update(iterable.iterable, vm)?;
         Ok(zelf.as_object().clone())
@@ -485,7 +473,7 @@ impl PySet {
         Ok(())
     }
 
-    #[pymethod(name = "__iand__")]
+    #[pymethod(magic)]
     fn iand(zelf: PyRef<Self>, iterable: SetIterable, vm: &VirtualMachine) -> PyResult {
         zelf.inner.intersection_update(iterable.iterable, vm)?;
         Ok(zelf.as_object().clone())
@@ -497,7 +485,7 @@ impl PySet {
         Ok(())
     }
 
-    #[pymethod(name = "__isub__")]
+    #[pymethod(magic)]
     fn isub(zelf: PyRef<Self>, iterable: SetIterable, vm: &VirtualMachine) -> PyResult {
         zelf.inner.difference_update(iterable.iterable, vm)?;
         Ok(zelf.as_object().clone())
@@ -513,7 +501,7 @@ impl PySet {
         Ok(())
     }
 
-    #[pymethod(name = "__ixor__")]
+    #[pymethod(magic)]
     fn ixor(zelf: PyRef<Self>, iterable: SetIterable, vm: &VirtualMachine) -> PyResult {
         zelf.inner
             .symmetric_difference_update(iterable.iterable, vm)?;
@@ -594,12 +582,12 @@ impl PyFrozenSet {
         }
     }
 
-    #[pymethod(name = "__len__")]
+    #[pymethod(magic)]
     fn len(&self) -> usize {
         self.inner.len()
     }
 
-    #[pymethod(name = "__sizeof__")]
+    #[pymethod(magic)]
     fn sizeof(&self) -> usize {
         std::mem::size_of::<Self>() + self.inner.sizeof()
     }
@@ -611,7 +599,7 @@ impl PyFrozenSet {
         }
     }
 
-    #[pymethod(name = "__contains__")]
+    #[pymethod(magic)]
     fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         self.inner.contains(&needle, vm)
     }
@@ -655,47 +643,35 @@ impl PyFrozenSet {
         self.inner.isdisjoint(other, vm)
     }
 
-    #[pymethod(name = "__or__")]
+    #[pymethod(name = "__ror__")]
+    #[pymethod(magic)]
     fn or(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
         self.union(other.iterable, vm)
     }
 
-    #[pymethod(name = "__ror__")]
-    fn ror(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
-        self.or(other, vm)
-    }
-
-    #[pymethod(name = "__and__")]
+    #[pymethod(name = "__rand__")]
+    #[pymethod(magic)]
     fn and(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
         self.intersection(other.iterable, vm)
     }
 
-    #[pymethod(name = "__rand__")]
-    fn rand(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
-        self.and(other, vm)
-    }
-
-    #[pymethod(name = "__sub__")]
+    #[pymethod(magic)]
     fn sub(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
         self.difference(other.iterable, vm)
     }
 
-    #[pymethod(name = "__rsub__")]
+    #[pymethod(magic)]
     fn rsub(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
         self.sub(other, vm)
     }
 
-    #[pymethod(name = "__xor__")]
+    #[pymethod(name = "__rxor__")]
+    #[pymethod(magic)]
     fn xor(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
         self.symmetric_difference(other.iterable, vm)
     }
 
-    #[pymethod(name = "__rxor__")]
-    fn rxor(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
-        self.xor(other, vm)
-    }
-
-    #[pymethod(name = "__repr__")]
+    #[pymethod(magic)]
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         let inner = &zelf.inner;
         let s = if inner.len() == 0 {

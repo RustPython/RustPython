@@ -23,12 +23,12 @@ impl FrameRef {
         Err(vm.new_type_error("Cannot directly create frame object".to_owned()))
     }
 
-    #[pymethod(name = "__repr__")]
+    #[pymethod(magic)]
     fn repr(self) -> String {
         "<frame object at .. >".to_owned()
     }
 
-    #[pymethod(name = "__delattr__")]
+    #[pymethod(magic)]
     fn delattr(self, value: PyStrRef, vm: &VirtualMachine) {
         // CPython' Frame.f_trace is set to None when deleted.
         // The strange behavior is mimicked here make bdb.py happy about it.

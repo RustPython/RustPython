@@ -309,7 +309,7 @@ impl PyDict {
         PyDict::merge(&self.entries, dict_obj, kwargs, vm)
     }
 
-    #[pymethod(name = "__ior__")]
+    #[pymethod(magic)]
     fn ior(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let dicted: Result<PyDictRef, _> = other.downcast();
         if let Ok(other) = dicted {
@@ -319,7 +319,7 @@ impl PyDict {
         Ok(vm.ctx.not_implemented())
     }
 
-    #[pymethod(name = "__ror__")]
+    #[pymethod(magic)]
     fn ror(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let dicted: Result<PyDictRef, _> = other.downcast();
         if let Ok(other) = dicted {
@@ -330,7 +330,7 @@ impl PyDict {
         Ok(vm.ctx.not_implemented())
     }
 
-    #[pymethod(name = "__or__")]
+    #[pymethod(magic)]
     fn or(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let dicted: Result<PyDictRef, _> = other.downcast();
         if let Ok(other) = dicted {
@@ -386,7 +386,7 @@ impl PyDict {
         self.entries.size()
     }
 
-    #[pymethod(name = "__reversed__")]
+    #[pymethod(magic)]
     fn reversed(zelf: PyRef<Self>) -> PyDictReverseKeyIterator {
         PyDictReverseKeyIterator::new(zelf)
     }
@@ -603,13 +603,13 @@ macro_rules! dict_iterator {
                 $name { dict }
             }
 
-            #[pymethod(name = "__len__")]
+            #[pymethod(magic)]
             fn len(&self) -> usize {
                 self.dict.clone().len()
             }
 
-            #[pymethod(name = "__repr__")]
             #[allow(clippy::redundant_closure_call)]
+            #[pymethod(magic)]
             fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
                 let s = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
                     let mut str_parts = vec![];
@@ -623,7 +623,7 @@ macro_rules! dict_iterator {
                 };
                 Ok(s)
             }
-            #[pymethod(name = "__reversed__")]
+            #[pymethod(magic)]
             fn reversed(&self) -> $reverse_iter_name {
                 $reverse_iter_name::new(self.dict.clone())
             }

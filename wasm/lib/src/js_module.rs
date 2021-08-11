@@ -260,7 +260,7 @@ impl PyJsValue {
         instance_of(&self.value, &rhs.value).map_err(|err| new_js_error(vm, err))
     }
 
-    #[pymethod(name = "__repr__")]
+    #[pymethod(magic)]
     fn repr(&self) -> String {
         format!("{:?}", self.value)
     }

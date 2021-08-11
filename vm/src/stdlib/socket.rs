@@ -195,7 +195,7 @@ impl PySocket {
         Self::default().into_ref_with_type(vm, cls)
     }
 
-    #[pymethod(name = "__init__")]
+    #[pymethod(magic)]
     fn init(
         &self,
         family: OptionalArg<i32>,

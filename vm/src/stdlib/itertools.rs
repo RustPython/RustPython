@@ -994,7 +994,7 @@ mod decl {
             Ok(PyTupleRef::with_elements(tee_vec, &vm.ctx))
         }
 
-        #[pymethod(name = "__copy__")]
+        #[pymethod(magic)]
         fn copy(&self, vm: &VirtualMachine) -> PyResult {
             Ok(PyItertoolsTee {
                 tee_data: PyRc::clone(&self.tee_data),

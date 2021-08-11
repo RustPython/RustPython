@@ -40,7 +40,7 @@ impl PySuper {
         Ok(Self { typ, obj })
     }
 
-    #[pymethod(name = "__repr__")]
+    #[pymethod(magic)]
     fn repr(&self) -> String {
         let typname = &self.typ.name;
         match self.obj {

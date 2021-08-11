@@ -216,7 +216,7 @@ impl PyRange {
         self.step.clone()
     }
 
-    #[pymethod(name = "__reversed__")]
+    #[pymethod(magic)]
     fn reversed(&self, vm: &VirtualMachine) -> PyResult {
         let start = self.start.as_bigint();
         let step = self.step.as_bigint();
@@ -252,12 +252,12 @@ impl PyRange {
         )
     }
 
-    #[pymethod(name = "__len__")]
+    #[pymethod(magic)]
     fn len(&self) -> BigInt {
         self.length()
     }
 
-    #[pymethod(name = "__repr__")]
+    #[pymethod(magic)]
     fn repr(&self) -> String {
         if self.step.as_bigint().is_one() {
             format!("range({}, {})", self.start, self.stop)
@@ -266,12 +266,12 @@ impl PyRange {
         }
     }
 
-    #[pymethod(name = "__bool__")]
+    #[pymethod(magic)]
     fn bool(&self) -> bool {
         !self.is_empty()
     }
 
-    #[pymethod(name = "__contains__")]
+    #[pymethod(magic)]
     fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> bool {
         // Only accept ints, not subclasses.
         if let Some(int) = needle.payload_if_exact::<PyInt>(vm) {
@@ -291,7 +291,7 @@ impl PyRange {
         }
     }
 
-    #[pymethod(name = "__reduce__")]
+    #[pymethod(magic)]
     fn reduce(&self, vm: &VirtualMachine) -> (PyTypeRef, PyObjectRef) {
         let range_paramters: Vec<PyObjectRef> = vec![&self.start, &self.stop, &self.step]
             .iter()
@@ -333,7 +333,7 @@ impl PyRange {
         }
     }
 
-    #[pymethod(name = "__getitem__")]
+    #[pymethod(magic)]
     fn getitem(&self, subscript: RangeIndex, vm: &VirtualMachine) -> PyResult {
         match subscript {
             RangeIndex::Slice(slice) => {
