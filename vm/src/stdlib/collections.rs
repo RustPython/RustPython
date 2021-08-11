@@ -225,14 +225,14 @@ mod _collections {
             *self.borrow_deque_mut() = rev;
         }
 
-        // #[pymethod(name = "__reversed__")]
-        // fn reversed(zelf: PyRef<Self>) -> PyDequeIterator {
-        //     let final_position = zelf.borrow_deque().len();
-        //     PyDequeIterator {
-        //         position: AtomicCell::new(final_position as usize),
-        //         deque: zelf,
-        //     }
-        // }
+        #[pymethod(name = "__reversed__")]
+        fn reversed(zelf: PyRef<Self>) -> PyDequeIterator {
+            let final_position = zelf.borrow_deque().len();
+            PyDequeIterator {
+                position: AtomicCell::new(final_position as usize),
+                deque: zelf,
+            }
+        }
 
         #[pymethod]
         fn rotate(&self, mid: OptionalArg<isize>) {
