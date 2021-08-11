@@ -79,7 +79,7 @@ mod _collections {
                 maxlen: AtomicCell::new(maxlen),
             };
             if let OptionalArg::Present(iter) = iter {
-                py_deque._extend(iter, vm)?;
+                py_deque._extend(iter.iter(vm)?)?;
             }
             py_deque.into_ref_with_type(vm, cls)
         }
@@ -126,9 +126,8 @@ mod _collections {
             Ok(count)
         }
 
-        fn _extend(&self, iter: PyIterable, vm: &VirtualMachine) -> PyResult<()> {
-            // TODO: use length_hint here and for extendleft
-            for elem in iter.iter(vm)? {
+        fn _extend(&self, iter: impl std::iter::Iterator<Item = PyResult>) -> PyResult<()> {
+            for elem in iter {
                 self.append(elem?);
             }
             Ok(())
@@ -138,16 +137,16 @@ mod _collections {
         fn extend(zelf: PyRef<Self>, iter: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             // TODO: use length_hint here and for extendleft
             if zelf.is(&iter) {
-                let iter = PyIterable::try_from_object(vm, PyDeque::iter(zelf.copy().into_ref(vm), vm)?)?;
-                for elem in iter.iter(vm)?
-                {
+                let iter =
+                    PyIterable::try_from_object(vm, PyDeque::iter(zelf.copy().into_ref(vm), vm)?)?;
+                for elem in iter.iter(vm)? {
                     zelf.append(elem?)
                 }
                 Ok(())
             } else {
                 let iter = PyIterable::try_from_object(vm, iter)?;
 
-                zelf._extend(iter, vm)
+                zelf._extend(iter.iter(vm)?)
             }
         }
 
@@ -352,7 +351,7 @@ mod _collections {
             };
             let other = PyIterable::try_from_object(vm, other)?;
 
-            zelf._extend(other, vm)?;
+            zelf._extend(other.iter(vm)?)?;
             Ok(zelf)
         }
     }
