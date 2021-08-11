@@ -18,7 +18,8 @@ use crate::slots::PyComparisonOp;
 use crate::utils::Either;
 use crate::vm::VirtualMachine;
 use crate::{
-    IdProtocol, PyComparisonValue, PyIterable, PyObjectRef, PyResult, PyValue, TryFromObject,
+    IdProtocol, PyComparisonValue, PyIterable, PyObjectRef, PyResult, PyValue,
+    TryFromBorrowedObject,
 };
 use rustpython_common::hash;
 
@@ -33,9 +34,9 @@ impl From<Vec<u8>> for PyBytesInner {
     }
 }
 
-impl TryFromObject for PyBytesInner {
-    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        bytes_from_object(vm, &obj).map(Self::from)
+impl TryFromBorrowedObject for PyBytesInner {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Self> {
+        bytes_from_object(vm, obj).map(Self::from)
     }
 }
 
@@ -107,7 +108,7 @@ impl ByteInnerNewOptions {
                     self.check_args(vm)?;
                     if let Some(bytes_method) = vm.get_method(obj.clone(), "__bytes__") {
                         let bytes = vm.invoke(&bytes_method?, ())?;
-                        PyBytesInner::try_from_object(vm, bytes)
+                        PyBytesInner::try_from_borrowed_object(vm, &bytes)
                     } else {
                         Self::get_value_from_source(obj, vm)
                     }

@@ -17,7 +17,7 @@ use crate::utils::Either;
 use crate::vm::VirtualMachine;
 use crate::{
     IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef,
-    PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    PyRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject, TypeProtocol,
 };
 use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;
@@ -364,7 +364,7 @@ impl PyBytes {
 
     #[pymethod]
     fn partition(&self, sep: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let sub = PyBytesInner::try_from_object(vm, sep.clone())?;
+        let sub = PyBytesInner::try_from_borrowed_object(vm, &sep)?;
         let (front, has_mid, back) = self.inner.partition(&sub, vm)?;
         Ok(vm.ctx.new_tuple(vec![
             vm.ctx.new_bytes(front),
@@ -379,7 +379,7 @@ impl PyBytes {
 
     #[pymethod]
     fn rpartition(&self, sep: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let sub = PyBytesInner::try_from_object(vm, sep.clone())?;
+        let sub = PyBytesInner::try_from_borrowed_object(vm, &sep)?;
         let (back, has_mid, front) = self.inner.rpartition(&sub, vm)?;
         Ok(vm.ctx.new_tuple(vec![
             vm.ctx.new_bytes(front),
@@ -604,6 +604,6 @@ impl PyIter for PyBytesIterator {
 
 impl TryFromObject for PyBytes {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        PyBytesInner::try_from_object(vm, obj).map(|x| x.into())
+        PyBytesInner::try_from_borrowed_object(vm, &obj).map(|x| x.into())
     }
 }
