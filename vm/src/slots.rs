@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use crate::builtins::memory::Buffer;
+use crate::builtins::memory::PyBuffer;
 use crate::builtins::pystr::PyStrRef;
 use crate::common::hash::PyHash;
 use crate::common::lock::PyRwLock;
@@ -61,7 +61,7 @@ pub(crate) type CmpFunc = fn(
 pub(crate) type GetattroFunc = fn(PyObjectRef, PyStrRef, &VirtualMachine) -> PyResult;
 pub(crate) type SetattroFunc =
     fn(&PyObjectRef, PyStrRef, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>;
-pub(crate) type BufferFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<Box<dyn Buffer>>;
+pub(crate) type BufferFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<Box<dyn PyBuffer>>;
 pub(crate) type IterFunc = fn(PyObjectRef, &VirtualMachine) -> PyResult;
 pub(crate) type IterNextFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult;
 
@@ -496,7 +496,7 @@ pub trait SlotSetattro: PyValue {
 #[pyimpl]
 pub trait BufferProtocol: PyValue {
     #[pyslot]
-    fn tp_as_buffer(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Box<dyn Buffer>> {
+    fn tp_as_buffer(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Box<dyn PyBuffer>> {
         if let Some(zelf) = zelf.downcast_ref() {
             Self::get_buffer(zelf, vm)
         } else {
@@ -504,7 +504,7 @@ pub trait BufferProtocol: PyValue {
         }
     }
 
-    fn get_buffer(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<Box<dyn Buffer>>;
+    fn get_buffer(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<Box<dyn PyBuffer>>;
 }
 
 #[pyimpl]

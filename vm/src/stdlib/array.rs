@@ -1,6 +1,6 @@
 use crate::builtins::float::IntoPyFloat;
 use crate::builtins::list::{PyList, PyListRef};
-use crate::builtins::memory::{Buffer, BufferOptions, ResizeGuard};
+use crate::builtins::memory::{BufferOptions, PyBuffer, ResizeGuard};
 use crate::builtins::pystr::PyStrRef;
 use crate::builtins::pytype::PyTypeRef;
 use crate::builtins::slice::PySliceRef;
@@ -853,7 +853,7 @@ impl Comparable for PyArray {
 }
 
 impl BufferProtocol for PyArray {
-    fn get_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<Box<dyn Buffer>> {
+    fn get_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<Box<dyn PyBuffer>> {
         zelf.exports.fetch_add(1);
         let array = zelf.read();
         let buf = ArrayBuffer {
@@ -876,7 +876,7 @@ struct ArrayBuffer {
     options: BufferOptions,
 }
 
-impl Buffer for ArrayBuffer {
+impl PyBuffer for ArrayBuffer {
     fn obj_bytes(&self) -> BorrowedValue<[u8]> {
         self.array.get_bytes().into()
     }

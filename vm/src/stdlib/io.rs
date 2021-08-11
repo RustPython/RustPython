@@ -77,7 +77,9 @@ mod _io {
     use std::io::{self, prelude::*, Cursor, SeekFrom};
     use std::ops::Range;
 
-    use crate::builtins::memory::{Buffer, BufferOptions, BufferRef, PyMemoryView, ResizeGuard};
+    use crate::builtins::memory::{
+        BufferOptions, PyBuffer, PyBufferRef, PyMemoryView, ResizeGuard,
+    };
     use crate::builtins::{
         bytes::{PyBytes, PyBytesRef},
         pybool, pytype, PyByteArray, PyStr, PyStrRef, PyTypeRef,
@@ -856,7 +858,7 @@ mod _io {
         /// None means non-blocking failed
         fn raw_write(
             &mut self,
-            buf: Option<BufferRef>,
+            buf: Option<PyBufferRef>,
             buf_range: Range<usize>,
             vm: &VirtualMachine,
         ) -> PyResult<Option<usize>> {
@@ -879,9 +881,12 @@ mod _io {
                     range: buf_range,
                     options,
                 });
-                let memobj =
-                    PyMemoryView::from_buffer(vm.ctx.none(), BufferRef::new(writebuf.clone()), vm)?
-                        .into_ref(vm);
+                let memobj = PyMemoryView::from_buffer(
+                    vm.ctx.none(),
+                    PyBufferRef::new(writebuf.clone()),
+                    vm,
+                )?
+                .into_ref(vm);
 
                 // TODO: loop if write() raises an interrupt
                 let res = vm.call_method(self.raw.as_ref().unwrap(), "write", (memobj.clone(),));
@@ -945,7 +950,7 @@ mod _io {
             let rcbuf = obj.into_buffer().into_rcbuf();
             while remaining > self.buffer.len() {
                 let res =
-                    self.raw_write(Some(BufferRef::new(rcbuf.clone())), written..buf_len, vm)?;
+                    self.raw_write(Some(PyBufferRef::new(rcbuf.clone())), written..buf_len, vm)?;
                 match res {
                     Some(n) => {
                         written += n;
@@ -1093,7 +1098,7 @@ mod _io {
 
         fn raw_read(
             &mut self,
-            v: Either<Option<&mut Vec<u8>>, BufferRef>,
+            v: Either<Option<&mut Vec<u8>>, PyBufferRef>,
             buf_range: Range<usize>,
             vm: &VirtualMachine,
         ) -> PyResult<Option<usize>> {
@@ -1115,7 +1120,7 @@ mod _io {
                     });
                     let memobj = PyMemoryView::from_buffer(
                         vm.ctx.none(),
-                        BufferRef::new(readbuf.clone()),
+                        PyBufferRef::new(readbuf.clone()),
                         vm,
                     )?
                     .into_ref(vm);
@@ -1239,7 +1244,7 @@ mod _io {
 
         fn readinto_generic(
             &mut self,
-            buf: BufferRef,
+            buf: PyBufferRef,
             readinto1: bool,
             vm: &VirtualMachine,
         ) -> PyResult<Option<usize>> {
@@ -1271,7 +1276,7 @@ mod _io {
             let mut remaining = buf_len - written;
             while remaining > 0 {
                 let n = if remaining as usize > self.buffer.len() {
-                    let buf = BufferRef::new(rcbuf.clone());
+                    let buf = PyBufferRef::new(rcbuf.clone());
                     self.raw_read(Either::B(buf), written..written + remaining, vm)?
                 } else if !(readinto1 && written != 0) {
                     let n = self.fill_buffer(vm)?;
@@ -1316,7 +1321,7 @@ mod _io {
         range: Range<usize>,
         options: BufferOptions,
     }
-    impl Buffer for PyRc<BufferedRawBuffer> {
+    impl PyBuffer for PyRc<BufferedRawBuffer> {
         fn get_options(&self) -> &BufferOptions {
             &self.options
         }
@@ -3343,7 +3348,7 @@ mod _io {
         #[pymethod]
         fn getbuffer(self, vm: &VirtualMachine) -> PyResult<PyMemoryView> {
             self.exports.fetch_add(1);
-            let buffer = BufferRef::new(BytesIOBuffer {
+            let buffer = PyBufferRef::new(BytesIOBuffer {
                 bytesio: self.clone(),
                 options: BufferOptions {
                     readonly: false,
@@ -3362,7 +3367,7 @@ mod _io {
         options: BufferOptions,
     }
 
-    impl Buffer for BytesIOBuffer {
+    impl PyBuffer for BytesIOBuffer {
         fn get_options(&self) -> &BufferOptions {
             &self.options
         }

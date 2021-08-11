@@ -2,7 +2,7 @@
 use super::bytes::{PyBytes, PyBytesRef};
 use super::dict::PyDictRef;
 use super::int::PyIntRef;
-use super::memory::{Buffer, BufferOptions, ResizeGuard};
+use super::memory::{BufferOptions, PyBuffer, ResizeGuard};
 use super::pystr::PyStrRef;
 use super::pytype::PyTypeRef;
 use super::tuple::PyTupleRef;
@@ -668,7 +668,7 @@ impl Comparable for PyByteArray {
 }
 
 impl BufferProtocol for PyByteArray {
-    fn get_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<Box<dyn Buffer>> {
+    fn get_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<Box<dyn PyBuffer>> {
         zelf.exports.fetch_add(1);
         let buf = ByteArrayBuffer {
             bytearray: zelf.clone(),
@@ -688,7 +688,7 @@ struct ByteArrayBuffer {
     options: BufferOptions,
 }
 
-impl Buffer for ByteArrayBuffer {
+impl PyBuffer for ByteArrayBuffer {
     fn obj_bytes(&self) -> BorrowedValue<[u8]> {
         self.bytearray.borrow_buf().into()
     }

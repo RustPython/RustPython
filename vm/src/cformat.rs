@@ -2,8 +2,9 @@
 /// [https://docs.python.org/3/library/stdtypes.html#printf-style-string-formatting]
 use crate::builtins::float::{try_bigint, IntoPyFloat, PyFloat};
 use crate::builtins::int::{self, PyInt};
+use crate::builtins::memory::PyBufferRef;
 use crate::builtins::pystr::PyStr;
-use crate::builtins::{memory::try_buffer_from_object, tuple, PyBytes};
+use crate::builtins::{tuple, PyBytes};
 use crate::common::float_ops;
 use crate::vm::VirtualMachine;
 use crate::{ItemProtocol, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
@@ -363,7 +364,7 @@ impl CFormatSpec {
                     Ok(s.into_bytes())
                 }
                 CFormatPreconversor::Str | CFormatPreconversor::Bytes => {
-                    if let Ok(buffer) = try_buffer_from_object(vm, &obj) {
+                    if let Ok(buffer) = PyBufferRef::try_from_object(vm, obj.clone()) {
                         let guard;
                         let vec;
                         let bytes = match buffer.as_contiguous() {
