@@ -943,7 +943,7 @@ pub(crate) fn init(ctx: &PyContext) {
 pub fn try_buffer_from_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<BufferRef> {
     let obj_cls = obj.class();
     for cls in obj_cls.iter_mro() {
-        if let Some(f) = cls.slots.buffer.as_ref() {
+        if let Some(f) = cls.slots.as_buffer.as_ref() {
             return f(obj, vm).map(|x| BufferRef(x));
         }
     }

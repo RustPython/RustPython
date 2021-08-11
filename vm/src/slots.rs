@@ -78,7 +78,7 @@ pub struct PyTypeSlots {
     pub cmp: AtomicCell<Option<CmpFunc>>,
     pub getattro: AtomicCell<Option<GetattroFunc>>,
     pub setattro: AtomicCell<Option<SetattroFunc>>,
-    pub buffer: Option<BufferFunc>,
+    pub as_buffer: Option<BufferFunc>,
     pub iter: AtomicCell<Option<IterFunc>>,
     pub iternext: AtomicCell<Option<IterNextFunc>>,
 }
@@ -461,7 +461,7 @@ pub trait SlotSetattro: PyValue {
 #[pyimpl]
 pub trait BufferProtocol: PyValue {
     #[pyslot]
-    fn tp_buffer(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Box<dyn Buffer>> {
+    fn tp_as_buffer(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Box<dyn Buffer>> {
         if let Some(zelf) = zelf.downcast_ref() {
             Self::get_buffer(zelf, vm)
         } else {
