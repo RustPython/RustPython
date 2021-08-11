@@ -11,7 +11,7 @@ mod _codecs {
     use crate::exceptions::PyBaseExceptionRef;
     use crate::function::FuncArgs;
     use crate::VirtualMachine;
-    use crate::{IdProtocol, PyObjectRef, PyResult, TryFromObject};
+    use crate::{IdProtocol, PyObjectRef, PyResult, TryFromBorrowedObject};
 
     #[pyfunction]
     fn register(search_function: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
@@ -156,7 +156,7 @@ mod _codecs {
                         .ok_or_else(tuple_err)?
                         .clone();
                     let restart =
-                        isize::try_from_object(vm, restart.clone()).map_err(|_| tuple_err())?;
+                        isize::try_from_borrowed_object(vm, restart).map_err(|_| tuple_err())?;
                     let restart = if restart < 0 {
                         // will still be out of bounds if it underflows ¯\_(ツ)_/¯
                         data.len().wrapping_sub(restart.unsigned_abs())

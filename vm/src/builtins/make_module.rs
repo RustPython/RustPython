@@ -13,7 +13,7 @@ mod decl {
     use crate::builtins::code::PyCodeRef;
     use crate::builtins::dict::PyDictRef;
     use crate::builtins::function::{PyCellRef, PyFunctionRef};
-    use crate::builtins::int::PyIntRef;
+    use crate::builtins::int::{self, PyIntRef};
     use crate::builtins::iter::{PyCallableIterator, PySequenceIterator};
     use crate::builtins::list::{PyList, SortOptions};
     use crate::builtins::pybool::IntoPyBool;
@@ -161,7 +161,7 @@ mod decl {
 
                 let flags = args
                     .flags
-                    .map_or(Ok(0), |v| i32::try_from_object(vm, v.into_object()))?;
+                    .map_or(Ok(0), |v| int::try_to_primitive(v.as_bigint(), vm))?;
 
                 if (flags & ast::PY_COMPILE_FLAG_AST_ONLY).is_zero() {
                     #[cfg(not(feature = "rustpython-compiler"))]
