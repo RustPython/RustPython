@@ -1654,7 +1654,7 @@ impl VirtualMachine {
         let call_cmp = |obj: &PyObjectRef, other, op| {
             let cmp = obj
                 .class()
-                .mro_find_map(|cls| cls.slots.cmp.load())
+                .mro_find_map(|cls| cls.slots.richcompare.load())
                 .unwrap();
             Ok(match cmp(obj, other, op, self)? {
                 Either::A(obj) => PyArithmaticValue::from_object(self, obj).map(Either::A),

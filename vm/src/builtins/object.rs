@@ -40,7 +40,7 @@ impl PyBaseObject {
     }
 
     #[pyslot]
-    fn tp_cmp(
+    fn tp_richcompare(
         zelf: &PyObjectRef,
         other: &PyObjectRef,
         op: PyComparisonOp,
@@ -67,7 +67,7 @@ impl PyBaseObject {
             PyComparisonOp::Ne => {
                 let cmp = zelf
                     .class()
-                    .mro_find_map(|cls| cls.slots.cmp.load())
+                    .mro_find_map(|cls| cls.slots.richcompare.load())
                     .unwrap();
                 let value = match cmp(zelf, other, PyComparisonOp::Eq, vm)? {
                     Either::A(obj) => PyArithmaticValue::from_object(vm, obj)
