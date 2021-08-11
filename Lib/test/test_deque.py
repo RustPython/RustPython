@@ -772,8 +772,6 @@ class TestBasic(unittest.TestCase):
         for s in ('abcd', range(2000)):
             self.assertEqual(list(reversed(deque(s))), list(reversed(s)))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_reversed_new(self):
         klass = type(reversed(deque()))
         for s in ('abcd', range(2000)):
