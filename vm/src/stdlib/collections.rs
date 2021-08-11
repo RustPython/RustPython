@@ -137,17 +137,13 @@ mod _collections {
         fn extend(zelf: PyRef<Self>, iter: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             // TODO: use length_hint here and for extendleft
             if zelf.is(&iter) {
-                let iter =
-                    PyIterable::try_from_object(vm, PyDeque::iter(zelf.copy().into_ref(vm), vm)?)?;
-                for elem in iter.iter(vm)? {
-                    zelf.append(elem?)
-                }
-                Ok(())
+                let copied: Vec<PyObjectRef> = vm.extract_elements(zelf.as_object())?;
+                zelf._extend(copied.into_iter().map(Ok))?;
             } else {
                 let iter = PyIterable::try_from_object(vm, iter)?;
-
-                zelf._extend(iter.iter(vm)?)
+                zelf._extend(iter.iter(vm)?)?;
             }
+            Ok(())
         }
 
         #[pymethod]
