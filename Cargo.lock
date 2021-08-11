@@ -1195,6 +1195,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "nix"
+version = "0.22.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf1e25ee6b412c2a1e3fcb6a4499a5c1bfe7f43e014bdce9a6b6666e5aa2d187"
+dependencies = [
+ "bitflags",
+ "cc",
+ "cfg-if 1.0.0",
+ "libc",
+ "memoffset",
+]
+
+[[package]]
 name = "num-bigint"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1909,7 +1922,7 @@ dependencies = [
  "md-5",
  "memchr",
  "mt19937",
- "nix",
+ "nix 0.22.0",
  "num-bigint",
  "num-complex",
  "num-integer",
@@ -2007,7 +2020,7 @@ dependencies = [
  "libc",
  "log",
  "memchr",
- "nix",
+ "nix 0.20.0",
  "radix_trie",
  "scopeguard",
  "smallvec",

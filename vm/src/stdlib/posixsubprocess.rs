@@ -78,7 +78,6 @@ fn exec(args: &ForkExecArgs, procargs: ProcArgs) -> ! {
     match exec_inner(args, procargs) {
         Ok(x) => match x {},
         Err(e) => {
-            let e = e.as_errno().expect("got a non-errno nix error");
             let buf: &mut [u8] = &mut [0; 256];
             let mut cur = io::Cursor::new(&mut *buf);
             // TODO: check if reached preexec, if not then have "noexec" after
@@ -161,7 +160,7 @@ fn exec_inner(args: &ForkExecArgs, procargs: ProcArgs) -> nix::Result<Never> {
             first_err = Some(e)
         }
     }
-    Err(first_err.unwrap_or_else(Errno::last).into())
+    Err(first_err.unwrap_or_else(Errno::last))
 }
 
 #[cfg(not(target_os = "redox"))]

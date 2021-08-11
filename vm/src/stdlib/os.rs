@@ -262,27 +262,7 @@ impl IntoPyException for &'_ io::Error {
 #[cfg(unix)]
 impl IntoPyException for nix::Error {
     fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        match self {
-            nix::Error::InvalidPath => {
-                let exc_type = vm.ctx.exceptions.file_not_found_error.clone();
-                vm.new_exception_msg(exc_type, self.to_string())
-            }
-            nix::Error::InvalidUtf8 => {
-                let exc_type = vm.ctx.exceptions.unicode_error.clone();
-                vm.new_exception_msg(exc_type, self.to_string())
-            }
-            nix::Error::UnsupportedOperation => vm.new_runtime_error(self.to_string()),
-            nix::Error::Sys(errno) => {
-                let exc_type = posix::convert_nix_errno(vm, errno);
-                vm.new_exception(
-                    exc_type,
-                    vec![
-                        vm.ctx.new_int(errno as i32),
-                        vm.ctx.new_str(self.to_string()),
-                    ],
-                )
-            }
-        }
+        io::Error::from(self).into_pyexception(vm)
     }
 }
 
@@ -2089,13 +2069,6 @@ mod posix {
         }
     }
 
-    pub(super) fn convert_nix_errno(vm: &VirtualMachine, errno: Errno) -> PyTypeRef {
-        match errno {
-            Errno::EPERM => vm.ctx.exceptions.permission_error.clone(),
-            _ => vm.ctx.exceptions.os_error.clone(),
-        }
-    }
-
     struct Permissions {
         is_readable: bool,
         is_writable: bool,
@@ -2160,7 +2133,7 @@ mod posix {
 
     #[cfg(target_os = "redox")]
     fn getgroups_impl() -> nix::Result<Vec<Gid>> {
-        Err(nix::Error::UnsupportedOperation)
+        Err(nix::Error::EOPNOTSUPP)
     }
 
     #[pyfunction]
