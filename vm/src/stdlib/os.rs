@@ -517,34 +517,68 @@ mod _os {
         fd.map(|fd| fd.0).map_err(|e| e.into_pyexception(vm))
     }
 
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[derive(FromArgs)]
+    struct SendFileArgs {
+        #[pyarg(any)]
+        out_fd: i32,
+        #[pyarg(any)]
+        in_fd: i32,
+        #[pyarg(any)]
+        offset: i64,
+        #[pyarg(any)]
+        count: i64,
+        #[cfg(target_os = "macos")]
+        #[pyarg(any, optional)]
+        headers: OptionalArg<PyObjectRef>,
+        #[cfg(target_os = "macos")]
+        #[pyarg(any, optional)]
+        trailers: OptionalArg<PyObjectRef>,
+        #[cfg(target_os = "macos")]
+        #[allow(dead_code)]
+        #[pyarg(any, default)]
+        // TODO: not implemented
+        flags: OptionalArg<i32>,
+    }
+
     #[cfg(target_os = "linux")]
     #[pyfunction]
-    fn sendfile(out_fd: i32, in_fd: i32, offset: i64, count: u64, vm: &VirtualMachine) -> PyResult {
-        let mut file_offset = offset;
+    fn sendfile(args: SendFileArgs, vm: &VirtualMachine) -> PyResult {
+        let mut file_offset = args.offset;
 
-        let res =
-            nix::sys::sendfile::sendfile(out_fd, in_fd, Some(&mut file_offset), count as usize)
-                .map_err(|err| err.into_pyexception(vm))?;
+        let res = nix::sys::sendfile::sendfile(
+            args.out_fd,
+            args.in_fd,
+            Some(&mut file_offset),
+            args.count as usize,
+        )
+        .map_err(|err| err.into_pyexception(vm))?;
         Ok(vm.ctx.new_int(res as u64))
     }
 
     #[cfg(target_os = "macos")]
-    #[pyfunction]
-    #[allow(clippy::too_many_arguments)]
-    fn sendfile(
-        out_fd: i32,
-        in_fd: i32,
-        offset: i64,
-        count: i64,
-        headers: OptionalArg<PyObjectRef>,
-        trailers: OptionalArg<PyObjectRef>,
-        _flags: OptionalArg<i32>,
+    fn _extract_vec_bytes(
+        x: OptionalArg,
         vm: &VirtualMachine,
-    ) -> PyResult {
-        let headers = match headers.into_option() {
-            Some(x) => Some(vm.extract_elements::<PyBytesLike>(&x)?),
+    ) -> PyResult<Option<Vec<PyBytesLike>>> {
+        let inner = match x.into_option() {
+            Some(v) => {
+                let v = vm.extract_elements::<PyBytesLike>(&v)?;
+                if v.is_empty() {
+                    None
+                } else {
+                    Some(v)
+                }
+            }
             None => None,
         };
+        Ok(inner)
+    }
+
+    #[cfg(target_os = "macos")]
+    #[pyfunction]
+    fn sendfile(args: SendFileArgs, vm: &VirtualMachine) -> PyResult {
+        let headers = _extract_vec_bytes(args.headers, vm)?;
 
         let headers = headers
             .as_ref()
@@ -554,10 +588,7 @@ mod _os {
             .map(|v| v.iter().map(|borrowed| &**borrowed).collect::<Vec<_>>());
         let headers = headers.as_deref();
 
-        let trailers = match trailers.into_option() {
-            Some(x) => Some(vm.extract_elements::<PyBytesLike>(&x)?),
-            None => None,
-        };
+        let trailers = _extract_vec_bytes(args.trailers, vm)?;
 
         let trailers = trailers
             .as_ref()
@@ -567,8 +598,14 @@ mod _os {
             .map(|v| v.iter().map(|borrowed| &**borrowed).collect::<Vec<_>>());
         let trailers = trailers.as_deref();
 
-        let (res, written) =
-            nix::sys::sendfile::sendfile(in_fd, out_fd, offset, Some(count), headers, trailers);
+        let (res, written) = nix::sys::sendfile::sendfile(
+            args.in_fd,
+            args.out_fd,
+            args.offset,
+            Some(args.count),
+            headers,
+            trailers,
+        );
         res.map_err(|err| err.into_pyexception(vm))?;
         Ok(vm.ctx.new_int(written as u64))
     }
