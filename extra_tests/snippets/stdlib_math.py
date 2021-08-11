@@ -1,5 +1,5 @@
 import math
-from testutils import assert_raises
+from testutils import assert_raises, skip_if_unsupported
 
 NAN = float('nan')
 INF = float('inf')
@@ -21,10 +21,18 @@ assert int.__floor__
 assert int.__ceil__
 
 # assert float.__trunc__
-with assert_raises(AttributeError):
+
+
+def float_floor_exists():
     assert float.__floor__
-with assert_raises(AttributeError):
+
+
+def float_ceil_exists():
     assert float.__ceil__
+
+
+skip_if_unsupported(3, 9, float_floor_exists)
+skip_if_unsupported(3, 9, float_ceil_exists)
 
 assert math.trunc(2) == 2
 assert math.ceil(3) == 3
