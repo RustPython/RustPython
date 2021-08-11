@@ -42,27 +42,15 @@ def test_dunion_ror0():
 def test_dunion_other_types():
     def perf_test_or(other_obj):
         d={1:2}
-        try:
-            d.__or__(other_obj)
-        except:
-            return True
-        return False
+        return d.__or__(other_obj) is NotImplemented
 
     def perf_test_ior(other_obj):
         d={1:2}
-        try:
-            d.__ior__(other_obj)
-        except:
-            return True
-        return False
+        return d.__ior__(other_obj) is NotImplemented
 
     def perf_test_ror(other_obj):
         d={1:2}
-        try:
-            d.__ror__(other_obj)
-        except:
-            return True
-        return False
+        return d.__ror__(other_obj) is NotImplemented
 
     test_fct={'__or__':perf_test_or, '__ror__':perf_test_ror, '__ior__':perf_test_ior}
     others=['FooBar', 42, [36], set([19]), ['aa'], None]
