@@ -1306,7 +1306,7 @@ impl ExecutingFrame<'_> {
                             return Err(vm.new_type_error(msg));
                         }
                     }
-                    map_obj.set_item(key, value, vm).unwrap();
+                    map_obj.set_item(key, value, vm)?;
                 }
             }
         } else {
