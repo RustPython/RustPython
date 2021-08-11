@@ -169,11 +169,17 @@ impl PyTuple {
 
     #[pymethod(name = "__mul__")]
     #[pymethod(name = "__rmul__")]
-    fn mul(&self, counter: isize, vm: &VirtualMachine) -> PyRef<Self> {
-        if self.elements.is_empty() || counter == 0 {
+    fn mul(zelf: PyRef<Self>, counter: isize, vm: &VirtualMachine) -> PyRef<Self> {
+        if zelf.elements.is_empty() || counter == 0 {
             vm.ctx.empty_tuple.clone()
+        } else if counter == 1 && zelf.class().is(&vm.ctx.types.tuple_type) {
+            // Special case: when some `tuple` is multiplied by `1`,
+            // nothing really happens, we need to return an object itself
+            // with the same `id()` to be compatible with CPython.
+            // This only works for `tuple` itself, not its subclasses.
+            zelf
         } else {
-            let elements = sequence::seq_mul(&self.elements, counter)
+            let elements = sequence::seq_mul(&zelf.elements, counter)
                 .cloned()
                 .collect::<Vec<_>>()
                 .into_boxed_slice();

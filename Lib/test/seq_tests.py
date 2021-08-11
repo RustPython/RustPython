@@ -311,8 +311,6 @@ class CommonTest(unittest.TestCase):
                 return str(key) + '!!!'
         self.assertEqual(next(iter(T((1,2)))), 1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_repeat(self):
         for m in range(4):
             s = tuple(range(m))
