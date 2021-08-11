@@ -83,7 +83,7 @@ mod decl {
             self.symtable.typ == SymbolTableType::Function
         }
 
-        #[pymethod(name = "lookup")]
+        #[pymethod]
         fn lookup(&self, name: PyStrRef, vm: &VirtualMachine) -> PyResult<PySymbolRef> {
             let name = name.as_str();
             if let Some(symbol) = self.symtable.symbols.get(name) {

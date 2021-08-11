@@ -149,7 +149,7 @@ impl PyComplex {
         self.op(other, |a, b| Ok(b - a), vm)
     }
 
-    #[pymethod(name = "conjugate")]
+    #[pymethod]
     fn conjugate(&self) -> Complex64 {
         self.value.conj()
     }
