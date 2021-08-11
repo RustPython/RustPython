@@ -316,29 +316,29 @@ impl PyDict {
             PyDict::merge_dict(&zelf.entries, other, vm)?;
             return Ok(zelf.into_object());
         }
-        Err(vm.new_type_error("__ior__ not implemented for non-dict type".to_owned()))
+        Ok(vm.ctx.not_implemented())
     }
 
     #[pymethod(name = "__ror__")]
-    fn ror(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyDict> {
+    fn ror(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let dicted: Result<PyDictRef, _> = other.downcast();
         if let Ok(other) = dicted {
             let other_cp = other.copy();
             PyDict::merge_dict(&other_cp.entries, zelf, vm)?;
-            return Ok(other_cp);
+            return Ok(other_cp.into_object(vm));
         }
-        Err(vm.new_type_error("__ror__ not implemented for non-dict type".to_owned()))
+        Ok(vm.ctx.not_implemented())
     }
 
     #[pymethod(name = "__or__")]
-    fn or(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyDict> {
+    fn or(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let dicted: Result<PyDictRef, _> = other.downcast();
         if let Ok(other) = dicted {
             let self_cp = self.copy();
             PyDict::merge_dict(&self_cp.entries, other, vm)?;
-            return Ok(self_cp);
+            return Ok(self_cp.into_object(vm));
         }
-        Err(vm.new_type_error("__or__ not implemented for non-dict type".to_owned()))
+        Ok(vm.ctx.not_implemented())
     }
 
     #[pymethod]
