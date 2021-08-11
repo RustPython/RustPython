@@ -17,7 +17,7 @@ use crate::utils::Either;
 use crate::vm::VirtualMachine;
 use crate::{
     IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef,
-    PyRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject, TypeProtocol,
+    PyRef, PyResult, PyValue, TryFromBorrowedObject, TypeProtocol,
 };
 use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;
@@ -602,8 +602,8 @@ impl PyIter for PyBytesIterator {
     }
 }
 
-impl TryFromObject for PyBytes {
-    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        PyBytesInner::try_from_borrowed_object(vm, &obj).map(|x| x.into())
+impl TryFromBorrowedObject for PyBytes {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Self> {
+        PyBytesInner::try_from_borrowed_object(vm, obj).map(|x| x.into())
     }
 }
