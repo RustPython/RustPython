@@ -328,8 +328,6 @@ class TestBasic(unittest.TestCase):
         with self.assertRaises(ValueError):
             i = d.index("Hello world", 0, 4)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_insert(self):
         # Test to make sure insert behaves like lists
         elements = 'ABCDEFGHI'
