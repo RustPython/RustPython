@@ -633,7 +633,8 @@ a = b'123abc!?'
 assert id(a) == id(a)
 assert id(a) != id(a * -1)
 assert id(a) != id(a * 0)
-assert id(a) == id(a * 1)  # only case when `id` stays the same
+assert id(a) == id(a * 1)  # only cases
+assert id(a) == id(1 * a)  # when `id` stays the same
 assert id(a) != id(a * 2)
 
 

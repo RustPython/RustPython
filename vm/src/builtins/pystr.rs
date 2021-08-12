@@ -329,8 +329,15 @@ impl PyStr {
 
     #[pymethod(name = "__rmul__")]
     #[pymethod(magic)]
-    fn mul(&self, value: isize) -> String {
-        self.value.repeat(value.to_usize().unwrap_or(0))
+    fn mul(zelf: PyRef<Self>, value: isize, vm: &VirtualMachine) -> PyRef<Self> {
+        if value == 1 && zelf.class().is(&vm.ctx.types.str_type) {
+            // Special case: when some `str` is multiplied by `1`,
+            // nothing really happens, we need to return an object itself
+            // with the same `id()` to be compatible with CPython.
+            // This only works for `str` itself, not its subclasses.
+            return zelf;
+        }
+        Self::from(zelf.value.repeat(value.to_usize().unwrap_or(0))).into_ref(vm)
     }
 
     #[pymethod(magic)]
