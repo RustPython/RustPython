@@ -221,8 +221,6 @@ class TestListReversed(TestInvariantWithoutMutations, unittest.TestCase):
     def test_invariant(self):
         super().test_invariant()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_mutation(self):
         d = list(range(n))
         it = reversed(d)
