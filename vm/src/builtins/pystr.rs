@@ -337,8 +337,7 @@ impl PyStr {
             // This only works for `str` itself, not its subclasses.
             return zelf;
         }
-        vm.ctx
-            .new_stringref(zelf.value.repeat(value.to_usize().unwrap_or(0)))
+        Self::from(zelf.value.repeat(value.to_usize().unwrap_or(0))).into_ref(vm)
     }
 
     #[pymethod(magic)]
