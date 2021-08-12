@@ -29,8 +29,6 @@ class MutateCmp:
 
 class TestBasic(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_basics(self):
         d = deque(range(-5125, -5000))
         d.__init__(range(200))
@@ -50,8 +48,6 @@ class TestBasic(unittest.TestCase):
         self.assertEqual(right, list(range(150, 400)))
         self.assertEqual(list(d), list(range(50, 150)))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_maxlen(self):
         self.assertRaises(ValueError, deque, 'abc', -1)
         self.assertRaises(ValueError, deque, 'abc', -2)
@@ -849,8 +845,6 @@ class DequeWithBadIter(deque):
 
 class TestSubclass(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_basics(self):
         d = Deque(range(25))
         d.__init__(range(200))
@@ -971,7 +965,6 @@ class SubclassWithKwargs(deque):
         deque.__init__(self)
 
 class TestSubclassWithKwargs(unittest.TestCase):
-    @unittest.skip("TODO: RUSTPYTHON TypeError: Unexpected keyword argument newarg")
     def test_subclass_with_kwargs(self):
         # SF bug #1486663 -- this used to erroneously raise a TypeError
         SubclassWithKwargs(newarg=1)
