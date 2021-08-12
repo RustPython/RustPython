@@ -1994,12 +1994,10 @@ pub(crate) use _os::os_open as open;
 mod posix {
     use super::*;
 
-    use crate::builtins::dict::PyMapping;
     use crate::builtins::list::PyListRef;
-    use crate::PyIterable;
     use bitflags::bitflags;
-    use nix::errno::{errno, Errno};
     use nix::unistd::{self, Gid, Pid, Uid};
+    #[allow(unused_imports)] // TODO: use will be unnecessary in edition 2021
     use std::convert::TryFrom;
     use std::os::unix::io::RawFd;
 
@@ -2112,6 +2110,7 @@ mod posix {
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     fn getgroups_impl() -> nix::Result<Vec<Gid>> {
         use libc::{c_int, gid_t};
+        use nix::errno::{errno, Errno};
         use std::ptr;
         let ret = unsafe { libc::getgroups(0, ptr::null_mut()) };
         let mut groups = Vec::<Gid>::with_capacity(Errno::result(ret)? as usize);
@@ -2742,7 +2741,7 @@ mod posix {
     // cfg from nix
     #[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "redox")))]
     #[pyfunction]
-    fn setgroups(group_ids: PyIterable<u32>, vm: &VirtualMachine) -> PyResult<()> {
+    fn setgroups(group_ids: crate::PyIterable<u32>, vm: &VirtualMachine) -> PyResult<()> {
         let gids = group_ids
             .iter(vm)?
             .map(|entry| match entry {
@@ -2789,13 +2788,13 @@ mod posix {
         #[pyarg(positional)]
         path: PyPathLike,
         #[pyarg(positional)]
-        args: PyIterable<PyPathLike>,
+        args: crate::PyIterable<PyPathLike>,
         #[pyarg(positional)]
-        env: PyMapping,
+        env: crate::builtins::dict::PyMapping,
         #[pyarg(named, default)]
-        file_actions: Option<PyIterable<PyTupleRef>>,
+        file_actions: Option<crate::PyIterable<PyTupleRef>>,
         #[pyarg(named, default)]
-        setsigdef: Option<PyIterable<i32>>,
+        setsigdef: Option<crate::PyIterable<i32>>,
     }
 
     #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
@@ -2980,7 +2979,7 @@ mod posix {
     fn waitpid(pid: libc::pid_t, opt: i32, vm: &VirtualMachine) -> PyResult<(libc::pid_t, i32)> {
         let mut status = 0;
         let pid = unsafe { libc::waitpid(pid, &mut status, opt) };
-        let pid = Errno::result(pid).map_err(|err| err.into_pyexception(vm))?;
+        let pid = nix::Error::result(pid).map_err(|err| err.into_pyexception(vm))?;
         Ok((pid, status))
     }
     #[pyfunction]
@@ -3158,6 +3157,7 @@ mod posix {
         who: PriorityWhoType,
         vm: &VirtualMachine,
     ) -> PyResult {
+        use nix::errno::{errno, Errno};
         Errno::clear();
         let retval = unsafe { libc::getpriority(which, who) };
         if errno() != 0 {
