@@ -632,7 +632,7 @@ def test_removeprefix():
     assert s_uc.removeprefix('😱') == s_ref_uc[1:]
     assert s_uc.removeprefix('😱fo') == s_ref_uc[3:]
     assert s_uc.removeprefix('😱foo') == s_ref_uc[4:]
-    
+
     assert s_uc.removeprefix('🖖') == s_ref_uc
     assert s_uc.removeprefix('foo') == s_ref_uc
     assert s_uc.removeprefix(' ') == s_ref_uc
@@ -676,7 +676,7 @@ def test_removesuffix():
     assert s_uc.removesuffix('🖖') == s_ref_uc[:-1]
     assert s_uc.removesuffix('oo🖖') == s_ref_uc[:-3]
     assert s_uc.removesuffix('foo🖖') == s_ref_uc[:-4]
-    
+
     assert s_uc.removesuffix('😱') == s_ref_uc
     assert s_uc.removesuffix('foo') == s_ref_uc
     assert s_uc.removesuffix(' ') == s_ref_uc
@@ -702,3 +702,28 @@ skip_if_unsupported(3,9,test_removeprefix)
 skip_if_unsupported(3,9,test_removeprefix_types)
 skip_if_unsupported(3,9,test_removesuffix)
 skip_if_unsupported(3,9,test_removesuffix_types)
+
+
+# Regression to
+# https://github.com/RustPython/RustPython/issues/2840
+
+a = 'abc123()'
+
+assert id(a) == id(a)
+assert id(a) != id(a * -1)
+assert id(a) != id(a * 0)
+assert id(a) == id(a * 1)  # only cases
+assert id(a) == id(1 * a)  # when `id` stays the same
+assert id(a) != id(a * 2)
+
+
+class MyString(str):
+    pass
+
+b = MyString('0123abc*&')
+assert id(b) == id(b)
+assert id(b) != id(b * -1)
+assert id(b) != id(b * 0)
+assert id(b) != id(b * 1)
+assert id(b) != id(1 * b)
+assert id(b) != id(b * 2)
