@@ -58,27 +58,27 @@ mod decl {
 
     #[pyimpl]
     impl PySymbolTable {
-        #[pymethod(name = "get_name")]
+        #[pymethod]
         fn get_name(&self) -> String {
             self.symtable.name.clone()
         }
 
-        #[pymethod(name = "get_type")]
+        #[pymethod]
         fn get_type(&self) -> String {
             self.symtable.typ.to_string()
         }
 
-        #[pymethod(name = "get_lineno")]
+        #[pymethod]
         fn get_lineno(&self) -> usize {
             self.symtable.line_number
         }
 
-        #[pymethod(name = "is_nested")]
+        #[pymethod]
         fn is_nested(&self) -> bool {
             self.symtable.is_nested
         }
 
-        #[pymethod(name = "is_optimized")]
+        #[pymethod]
         fn is_optimized(&self) -> bool {
             self.symtable.typ == SymbolTableType::Function
         }
@@ -103,7 +103,7 @@ mod decl {
             }
         }
 
-        #[pymethod(name = "get_identifiers")]
+        #[pymethod]
         fn get_identifiers(&self, vm: &VirtualMachine) -> PyResult {
             let symbols = self
                 .symtable
@@ -114,7 +114,7 @@ mod decl {
             Ok(vm.ctx.new_list(symbols))
         }
 
-        #[pymethod(name = "get_symbols")]
+        #[pymethod]
         fn get_symbols(&self, vm: &VirtualMachine) -> PyResult {
             let symbols = self
                 .symtable
@@ -138,12 +138,12 @@ mod decl {
             Ok(vm.ctx.new_list(symbols))
         }
 
-        #[pymethod(name = "has_children")]
+        #[pymethod]
         fn has_children(&self) -> bool {
             !self.symtable.sub_tables.is_empty()
         }
 
-        #[pymethod(name = "get_children")]
+        #[pymethod]
         fn get_children(&self, vm: &VirtualMachine) -> PyResult {
             let children = self
                 .symtable
@@ -176,68 +176,68 @@ mod decl {
 
     #[pyimpl]
     impl PySymbol {
-        #[pymethod(name = "get_name")]
+        #[pymethod]
         fn get_name(&self) -> String {
             self.symbol.name.clone()
         }
 
-        #[pymethod(name = "is_global")]
+        #[pymethod]
         fn is_global(&self) -> bool {
             self.symbol.is_global()
         }
 
-        #[pymethod(name = "is_local")]
+        #[pymethod]
         fn is_local(&self) -> bool {
             self.symbol.is_local()
         }
 
-        #[pymethod(name = "is_imported")]
+        #[pymethod]
         fn is_imported(&self) -> bool {
             self.symbol.is_imported
         }
 
-        #[pymethod(name = "is_nested")]
+        #[pymethod]
         fn is_nested(&self) -> bool {
             // TODO
             false
         }
 
-        #[pymethod(name = "is_nonlocal")]
+        #[pymethod]
         fn is_nonlocal(&self) -> bool {
             self.symbol.is_nonlocal
         }
 
-        #[pymethod(name = "is_referenced")]
+        #[pymethod]
         fn is_referenced(&self) -> bool {
             self.symbol.is_referenced
         }
 
-        #[pymethod(name = "is_assigned")]
+        #[pymethod]
         fn is_assigned(&self) -> bool {
             self.symbol.is_assigned
         }
 
-        #[pymethod(name = "is_parameter")]
+        #[pymethod]
         fn is_parameter(&self) -> bool {
             self.symbol.is_parameter
         }
 
-        #[pymethod(name = "is_free")]
+        #[pymethod]
         fn is_free(&self) -> bool {
             matches!(self.symbol.scope, SymbolScope::Free)
         }
 
-        #[pymethod(name = "is_namespace")]
+        #[pymethod]
         fn is_namespace(&self) -> bool {
             !self.namespaces.is_empty()
         }
 
-        #[pymethod(name = "is_annotated")]
+        #[pymethod]
         fn is_annotated(&self) -> bool {
             self.symbol.is_annotated
         }
 
-        #[pymethod(name = "get_namespaces")]
+        #[pymethod]
         fn get_namespaces(&self, vm: &VirtualMachine) -> PyResult {
             let namespaces = self
                 .namespaces
@@ -247,7 +247,7 @@ mod decl {
             Ok(vm.ctx.new_list(namespaces))
         }
 
-        #[pymethod(name = "get_namespace")]
+        #[pymethod]
         fn get_namespace(&self, vm: &VirtualMachine) -> PyResult {
             if self.namespaces.len() != 1 {
                 Err(vm.new_value_error("namespace is bound to multiple namespaces".to_owned()))

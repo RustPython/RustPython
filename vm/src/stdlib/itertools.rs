@@ -299,7 +299,7 @@ mod decl {
             PyItertoolsRepeat { object, times }.into_ref_with_type(vm, cls)
         }
 
-        #[pymethod(name = "__length_hint__")]
+        #[pymethod(magic)]
         fn length_hint(&self, vm: &VirtualMachine) -> PyResult {
             match self.times {
                 Some(ref times) => Ok(vm.ctx.new_int(*times.read())),

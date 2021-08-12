@@ -590,7 +590,7 @@ impl PyInt {
         size_of::<Self>() + (((self.value.bits() + 7) & !7) / 8) as usize
     }
 
-    #[pymethod(name = "as_integer_ratio")]
+    #[pymethod]
     fn as_integer_ratio(&self, vm: &VirtualMachine) -> (PyObjectRef, BigInt) {
         (vm.ctx.new_bigint(&self.value), BigInt::one())
     }

@@ -42,7 +42,7 @@ impl PyMap {
         .into_ref_with_type(vm, cls)
     }
 
-    #[pymethod(name = "__length_hint__")]
+    #[pymethod(magic)]
     fn length_hint(&self, vm: &VirtualMachine) -> PyResult<usize> {
         self.iterators.iter().try_fold(0, |prev, cur| {
             let cur = iterator::length_hint(vm, cur.clone())?.unwrap_or(0);
