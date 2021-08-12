@@ -16,7 +16,7 @@ d = deque([1, 2, 3], 5)
 
 d.extend([4, 5, 6])
 
-assert d == deque([2, 3, 4, 5, 6])
+assert d == deque([2, 3, 4, 5, 6]), d
 
 d.remove(4)
 

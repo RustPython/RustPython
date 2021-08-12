@@ -205,7 +205,6 @@ class TestBasic(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             _ = d.count(3)
 
-    @unittest.skip("TODO: RUSTPYTHON hangs")
     def test_extend(self):
         d = deque('a')
         self.assertRaises(TypeError, d.extend, 1)

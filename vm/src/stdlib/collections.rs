@@ -8,7 +8,7 @@ mod _collections {
     use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable};
     use crate::vm::ReprGuard;
     use crate::VirtualMachine;
-    use crate::{sequence, sliceable, IdProtocol, TryFromObject};
+    use crate::{sequence, sliceable};
     use crate::{PyComparisonValue, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, StaticType};
     use itertools::Itertools;
     use std::collections::VecDeque;
@@ -70,18 +70,19 @@ mod _collections {
         #[pyslot]
         fn tp_new(
             cls: PyTypeRef,
-            iter: OptionalArg<PyIterable>,
+            iter: OptionalArg<PyObjectRef>,
             PyDequeOptions { maxlen }: PyDequeOptions,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
             let py_deque = PyDeque {
                 deque: PyRwLock::default(),
                 maxlen: AtomicCell::new(maxlen),
-            };
-            if let OptionalArg::Present(iter) = iter {
-                py_deque.extend(iter, vm)?;
             }
-            py_deque.into_ref_with_type(vm, cls)
+            .into_ref_with_type(vm, cls)?;
+            if let OptionalArg::Present(iter) = iter {
+                Self::extend(py_deque.clone(), iter, vm)?;
+            }
+            Ok(py_deque)
         }
 
         #[pymethod]
@@ -127,11 +128,21 @@ mod _collections {
         }
 
         #[pymethod]
-        fn extend(&self, iter: PyIterable, vm: &VirtualMachine) -> PyResult<()> {
+        fn extend(zelf: PyRef<Self>, iter: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             // TODO: use length_hint here and for extendleft
-            for elem in iter.iter(vm)? {
-                self.append(elem?);
+            let max_len = zelf.maxlen.load();
+            let mut elements: Vec<PyObjectRef> = vm.extract_elements(&iter)?;
+            if let Some(max_len) = max_len {
+                if max_len > elements.len() {
+                    let mut deque = zelf.borrow_deque_mut();
+                    let drain_until = deque.len().saturating_sub(max_len - elements.len());
+                    deque.drain(..drain_until);
+                } else {
+                    zelf.borrow_deque_mut().clear();
+                    elements.drain(..(elements.len() - max_len));
+                }
             }
+            zelf.borrow_deque_mut().extend(elements);
             Ok(())
         }
 
@@ -331,14 +342,7 @@ mod _collections {
             other: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
-            let other: PyObjectRef = if zelf.is(&other) {
-                vm.new_pyobj(zelf.copy())
-            } else {
-                other
-            };
-            let other = PyIterable::try_from_object(vm, other)?;
-
-            zelf.extend(other, vm)?;
+            Self::extend(zelf.clone(), other, vm)?;
             Ok(zelf)
         }
     }
