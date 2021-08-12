@@ -180,8 +180,8 @@ mod _collections {
                 } else {
                     deque.len() - ((-idx) as usize)
                 }
-            } else if idx as usize >= deque.len() {
-                deque.len() - 1
+            } else if idx as usize > deque.len() {
+                deque.len()
             } else {
                 idx as usize
             };
