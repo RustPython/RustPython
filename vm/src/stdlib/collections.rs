@@ -2,8 +2,7 @@ pub(crate) use _collections::make_module;
 
 #[pymodule]
 mod _collections {
-    use crate::builtins::pytype::PyTypeRef;
-    use crate::builtins::PyInt;
+    use crate::builtins::{PyInt, PyTypeRef};
     use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
     use crate::function::{FuncArgs, OptionalArg};
     use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable};
@@ -11,18 +10,17 @@ mod _collections {
     use crate::VirtualMachine;
     use crate::{sequence, sliceable};
     use crate::{PyComparisonValue, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, StaticType};
+    use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
     use num_traits::ToPrimitive;
     use std::collections::VecDeque;
-
-    use crossbeam_utils::atomic::AtomicCell;
 
     #[pyattr]
     #[pyclass(name = "deque")]
     #[derive(Debug, Default)]
     struct PyDeque {
         deque: PyRwLock<VecDeque<PyObjectRef>>,
-        maxlen: AtomicCell<Option<usize>>,
+        maxlen: Option<usize>,
     }
 
     type PyDequeRef = PyRef<PyDeque>;
@@ -84,7 +82,7 @@ mod _collections {
         ) -> PyResult<()> {
             // TODO: This is _basically_ pyobject_to_opt_usize in itertools.rs
             // need to move that function elsewhere and refactor usages.
-            if let Some(obj) = maxlen.into_option() {
+            let maxlen = if let Some(obj) = maxlen.into_option() {
                 if !vm.is_none(&obj) {
                     let value = obj.payload::<PyInt>().ok_or_else(|| {
                         vm.new_value_error("maxlen must be non-negative.".to_owned())
@@ -93,21 +91,48 @@ mod _collections {
                         vm.new_value_error("maxlen must be non-negative.".to_owned())
                     })?;
                     // Only succeeds for values for which 0 <= value <= isize::MAX
-                    if maxlen <= isize::MAX as usize {
-                        zelf.maxlen.store(Some(maxlen));
-                    } else {
+                    if maxlen > isize::MAX as usize {
                         return Err(vm.new_overflow_error(
                             "Python int too large to convert to Rust isize.".to_owned(),
                         ));
                     }
+                    Some(maxlen)
+                } else {
+                    None
                 }
-            }
-            // Clear any previous data present.
-            if zelf.len() > 0 {
-                zelf.clear();
-            }
-            if let OptionalArg::Present(iter) = iterable {
-                Self::extend(zelf, iter, vm)?
+            } else {
+                None
+            };
+
+            // retrieve elements first to not to make too huge lock
+            let elements = iterable
+                .into_option()
+                .map(|iter| {
+                    let mut elements: Vec<PyObjectRef> = vm.extract_elements(&iter)?;
+                    if let Some(maxlen) = maxlen {
+                        elements.drain(..elements.len().saturating_sub(maxlen));
+                    }
+                    Ok(elements)
+                })
+                .transpose()?;
+
+            // SAFETY: This is hacky part for read-only field
+            // Because `maxlen` is only mutated from __init__. We can abuse the lock of deque to ensure this is locked enough.
+            // If we make a single lock of deque not only for extend but also for setting maxlen, it will be safe.
+            {
+                let mut deque = zelf.borrow_deque_mut();
+                // Clear any previous data present.
+                deque.clear();
+                unsafe {
+                    // `maxlen` is better to be defined as UnsafeCell in common practice,
+                    // but then more type works without any safety benifits
+                    let unsafe_maxlen =
+                        &zelf.maxlen as *const _ as *const std::cell::UnsafeCell<Option<usize>>;
+                    *(*unsafe_maxlen).get() = maxlen;
+                }
+                if let Some(elements) = elements {
+                    deque.extend(elements);
+                }
             }
             Ok(())
         }
@@ -115,7 +140,7 @@ mod _collections {
         #[pymethod]
         fn append(&self, obj: PyObjectRef) {
             let mut deque = self.borrow_deque_mut();
-            if self.maxlen.load() == Some(deque.len()) {
+            if self.maxlen == Some(deque.len()) {
                 deque.pop_front();
             }
             deque.push_back(obj);
@@ -124,7 +149,7 @@ mod _collections {
         #[pymethod]
         fn appendleft(&self, obj: PyObjectRef) {
             let mut deque = self.borrow_deque_mut();
-            if self.maxlen.load() == Some(deque.len()) {
+            if self.maxlen == Some(deque.len()) {
                 deque.pop_back();
             }
             deque.push_front(obj);
@@ -139,7 +164,7 @@ mod _collections {
         fn copy(&self) -> Self {
             PyDeque {
                 deque: PyRwLock::new(self.borrow_deque().clone()),
-                maxlen: AtomicCell::new(self.maxlen.load()),
+                maxlen: self.maxlen,
             }
         }
 
@@ -155,21 +180,21 @@ mod _collections {
         }
 
         #[pymethod]
-        fn extend(zelf: PyRef<Self>, iter: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn extend(&self, iter: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             // TODO: use length_hint here and for extendleft
-            let max_len = zelf.maxlen.load();
+            let max_len = self.maxlen;
             let mut elements: Vec<PyObjectRef> = vm.extract_elements(&iter)?;
             if let Some(max_len) = max_len {
                 if max_len > elements.len() {
-                    let mut deque = zelf.borrow_deque_mut();
+                    let mut deque = self.borrow_deque_mut();
                     let drain_until = deque.len().saturating_sub(max_len - elements.len());
                     deque.drain(..drain_until);
                 } else {
-                    zelf.borrow_deque_mut().clear();
+                    self.borrow_deque_mut().clear();
                     elements.drain(..(elements.len() - max_len));
                 }
             }
-            zelf.borrow_deque_mut().extend(elements);
+            self.borrow_deque_mut().extend(elements);
             Ok(())
         }
 
@@ -208,7 +233,7 @@ mod _collections {
         fn insert(&self, idx: i32, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             let mut deque = self.borrow_deque_mut();
 
-            if self.maxlen.load() == Some(deque.len()) {
+            if self.maxlen == Some(deque.len()) {
                 return Err(vm.new_index_error("deque already at its maximum size".to_owned()));
             }
 
@@ -276,7 +301,7 @@ mod _collections {
 
         #[pyproperty]
         fn maxlen(&self) -> Option<usize> {
-            self.maxlen.load()
+            self.maxlen
         }
 
         #[pymethod(magic)]
@@ -314,7 +339,6 @@ mod _collections {
                     .collect::<Result<Vec<_>, _>>()?;
                 let maxlen = zelf
                     .maxlen
-                    .load()
                     .map(|maxlen| format!(", maxlen={}", maxlen))
                     .unwrap_or_default();
                 format!("deque([{}]{})", elements.into_iter().format(", "), maxlen)
@@ -342,14 +366,13 @@ mod _collections {
             let mul = sequence::seq_mul(&deque, n);
             let skipped = self
                 .maxlen
-                .load()
                 .and_then(|maxlen| mul.len().checked_sub(maxlen))
                 .unwrap_or(0);
 
             let deque = mul.skip(skipped).cloned().collect();
             PyDeque {
                 deque: PyRwLock::new(deque),
-                maxlen: AtomicCell::new(self.maxlen.load()),
+                maxlen: self.maxlen,
             }
         }
 
@@ -364,7 +387,7 @@ mod _collections {
             other: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
-            Self::extend(zelf.clone(), other, vm)?;
+            zelf.extend(other, vm)?;
             Ok(zelf)
         }
     }
