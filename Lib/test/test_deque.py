@@ -109,8 +109,6 @@ class TestBasic(unittest.TestCase):
         d.extendleft(it)
         self.assertEqual(list(it), [])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_maxlen_attribute(self):
         self.assertEqual(deque().maxlen, None)
         self.assertEqual(deque('abc').maxlen, None)

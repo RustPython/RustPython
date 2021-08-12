@@ -252,11 +252,6 @@ mod _collections {
             self.maxlen.load()
         }
 
-        #[pyproperty(setter)]
-        fn set_maxlen(&self, maxlen: Option<usize>) {
-            self.maxlen.store(maxlen);
-        }
-
         #[pymethod(magic)]
         fn getitem(&self, idx: isize, vm: &VirtualMachine) -> PyResult {
             let deque = self.borrow_deque();
