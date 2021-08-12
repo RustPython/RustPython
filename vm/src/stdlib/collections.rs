@@ -20,7 +20,7 @@ mod _collections {
     #[derive(Debug)]
     struct PyDeque {
         deque: PyRwLock<VecDeque<PyObjectRef>>,
-        maxlen: AtomicCell<Option<usize>>,
+        maxlen: Option<usize>,
     }
 
     type PyDequeRef = PyRef<PyDeque>;
@@ -76,7 +76,7 @@ mod _collections {
         ) -> PyResult<PyRef<Self>> {
             let py_deque = PyDeque {
                 deque: PyRwLock::default(),
-                maxlen: AtomicCell::new(maxlen),
+                maxlen,
             }
             .into_ref_with_type(vm, cls)?;
             if let OptionalArg::Present(iter) = iter {
@@ -88,7 +88,7 @@ mod _collections {
         #[pymethod]
         fn append(&self, obj: PyObjectRef) {
             let mut deque = self.borrow_deque_mut();
-            if self.maxlen.load() == Some(deque.len()) {
+            if self.maxlen == Some(deque.len()) {
                 deque.pop_front();
             }
             deque.push_back(obj);
@@ -97,7 +97,7 @@ mod _collections {
         #[pymethod]
         fn appendleft(&self, obj: PyObjectRef) {
             let mut deque = self.borrow_deque_mut();
-            if self.maxlen.load() == Some(deque.len()) {
+            if self.maxlen == Some(deque.len()) {
                 deque.pop_back();
             }
             deque.push_front(obj);
@@ -112,7 +112,7 @@ mod _collections {
         fn copy(&self) -> Self {
             PyDeque {
                 deque: PyRwLock::new(self.borrow_deque().clone()),
-                maxlen: AtomicCell::new(self.maxlen.load()),
+                maxlen: self.maxlen.clone(),
             }
         }
 
@@ -130,7 +130,7 @@ mod _collections {
         #[pymethod]
         fn extend(zelf: PyRef<Self>, iter: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             // TODO: use length_hint here and for extendleft
-            let max_len = zelf.maxlen.load();
+            let max_len = zelf.maxlen;
             let mut elements: Vec<PyObjectRef> = vm.extract_elements(&iter)?;
             if let Some(max_len) = max_len {
                 if max_len > elements.len() {
@@ -181,7 +181,7 @@ mod _collections {
         fn insert(&self, idx: i32, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             let mut deque = self.borrow_deque_mut();
 
-            if self.maxlen.load() == Some(deque.len()) {
+            if self.maxlen == Some(deque.len()) {
                 return Err(vm.new_index_error("deque already at its maximum size".to_owned()));
             }
 
@@ -249,7 +249,7 @@ mod _collections {
 
         #[pyproperty]
         fn maxlen(&self) -> Option<usize> {
-            self.maxlen.load()
+            self.maxlen
         }
 
         #[pymethod(magic)]
@@ -287,7 +287,6 @@ mod _collections {
                     .collect::<Result<Vec<_>, _>>()?;
                 let maxlen = zelf
                     .maxlen
-                    .load()
                     .map(|maxlen| format!(", maxlen={}", maxlen))
                     .unwrap_or_default();
                 format!("deque([{}]{})", elements.into_iter().format(", "), maxlen)
@@ -315,14 +314,13 @@ mod _collections {
             let mul = sequence::seq_mul(&deque, n);
             let skipped = self
                 .maxlen
-                .load()
                 .and_then(|maxlen| mul.len().checked_sub(maxlen))
                 .unwrap_or(0);
 
             let deque = mul.skip(skipped).cloned().collect();
             PyDeque {
                 deque: PyRwLock::new(deque),
-                maxlen: AtomicCell::new(self.maxlen.load()),
+                maxlen: self.maxlen.clone(),
             }
         }
 
