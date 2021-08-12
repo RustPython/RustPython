@@ -112,7 +112,7 @@ mod _collections {
         fn copy(&self) -> Self {
             PyDeque {
                 deque: PyRwLock::new(self.borrow_deque().clone()),
-                maxlen: self.maxlen.clone(),
+                maxlen: self.maxlen,
             }
         }
 
@@ -320,7 +320,7 @@ mod _collections {
             let deque = mul.skip(skipped).cloned().collect();
             PyDeque {
                 deque: PyRwLock::new(deque),
-                maxlen: self.maxlen.clone(),
+                maxlen: self.maxlen,
             }
         }
 
