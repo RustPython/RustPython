@@ -89,7 +89,7 @@ impl PyBaseException {
         Ok(())
     }
 
-    #[pyproperty(name = "__traceback__")]
+    #[pyproperty(magic)]
     pub fn traceback(&self) -> Option<PyTracebackRef> {
         self.traceback.read().clone()
     }
@@ -99,7 +99,7 @@ impl PyBaseException {
         *self.traceback.write() = traceback;
     }
 
-    #[pyproperty(name = "__cause__")]
+    #[pyproperty(magic)]
     pub fn cause(&self) -> Option<PyBaseExceptionRef> {
         self.cause.read().clone()
     }
@@ -111,7 +111,7 @@ impl PyBaseException {
         *c = cause;
     }
 
-    #[pyproperty(name = "__context__")]
+    #[pyproperty(magic)]
     pub fn context(&self) -> Option<PyBaseExceptionRef> {
         self.context.read().clone()
     }

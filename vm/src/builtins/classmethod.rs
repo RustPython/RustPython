@@ -61,7 +61,7 @@ impl PyClassMethod {
         PyClassMethod { callable }.into_ref_with_type(vm, cls)
     }
 
-    #[pyproperty(name = "__func__")]
+    #[pyproperty(magic)]
     fn func(&self) -> PyObjectRef {
         self.callable.clone()
     }

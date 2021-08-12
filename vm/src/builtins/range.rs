@@ -201,17 +201,17 @@ impl PyRange {
         PyRange { start, stop, step }.into_ref_with_type(vm, cls)
     }
 
-    #[pyproperty(name = "start")]
+    #[pyproperty]
     fn start(&self) -> PyIntRef {
         self.start.clone()
     }
 
-    #[pyproperty(name = "stop")]
+    #[pyproperty]
     fn stop(&self) -> PyIntRef {
         self.stop.clone()
     }
 
-    #[pyproperty(name = "step")]
+    #[pyproperty]
     fn step(&self) -> PyIntRef {
         self.step.clone()
     }
