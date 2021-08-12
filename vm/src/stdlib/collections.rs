@@ -133,14 +133,13 @@ mod _collections {
             let max_len = zelf.maxlen.load();
             let mut elements: Vec<PyObjectRef> = vm.extract_elements(&iter)?;
             if let Some(max_len) = max_len {
-                let cut_len = max_len as isize - elements.len() as isize;
-                if cut_len > 0 {
+                if max_len > elements.len() {
                     let mut deque = zelf.borrow_deque_mut();
-                    let drain_until = deque.len().saturating_sub(cut_len as usize);
+                    let drain_until = deque.len().saturating_sub(max_len - elements.len());
                     deque.drain(..drain_until);
                 } else {
                     zelf.borrow_deque_mut().clear();
-                    elements.drain(..(-cut_len) as usize);
+                    elements.drain(..(elements.len() - max_len));
                 }
             }
             zelf.borrow_deque_mut().extend(elements);
