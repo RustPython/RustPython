@@ -49,7 +49,7 @@ mod decl {
             .into_ref_with_type(vm, cls)
         }
 
-        #[pyclassmethod(name = "from_iterable")]
+        #[pyclassmethod]
         fn from_iterable(
             cls: PyTypeRef,
             iterable: PyObjectRef,
