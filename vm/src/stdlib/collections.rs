@@ -8,7 +8,7 @@ mod _collections {
     use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable};
     use crate::vm::ReprGuard;
     use crate::VirtualMachine;
-    use crate::{sequence, sliceable, IdProtocol, TryFromObject};
+    use crate::{sequence, sliceable};
     use crate::{PyComparisonValue, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, StaticType};
     use itertools::Itertools;
     use std::collections::VecDeque;
@@ -70,18 +70,19 @@ mod _collections {
         #[pyslot]
         fn tp_new(
             cls: PyTypeRef,
-            iter: OptionalArg<PyIterable>,
+            iter: OptionalArg<PyObjectRef>,
             PyDequeOptions { maxlen }: PyDequeOptions,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
             let py_deque = PyDeque {
                 deque: PyRwLock::default(),
                 maxlen: AtomicCell::new(maxlen),
-            };
-            if let OptionalArg::Present(iter) = iter {
-                py_deque._extend(iter.iter(vm)?)?;
             }
-            py_deque.into_ref_with_type(vm, cls)
+            .into_ref_with_type(vm, cls)?;
+            if let OptionalArg::Present(iter) = iter {
+                Self::extend(py_deque.clone(), iter, vm)?;
+            }
+            Ok(py_deque)
         }
 
         #[pymethod]
@@ -126,23 +127,23 @@ mod _collections {
             Ok(count)
         }
 
-        fn _extend(&self, iter: impl std::iter::Iterator<Item = PyResult>) -> PyResult<()> {
-            for elem in iter {
-                self.append(elem?);
-            }
-            Ok(())
-        }
-
         #[pymethod]
         fn extend(zelf: PyRef<Self>, iter: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             // TODO: use length_hint here and for extendleft
-            if zelf.is(&iter) {
-                let copied: Vec<PyObjectRef> = vm.extract_elements(zelf.as_object())?;
-                zelf._extend(copied.into_iter().map(Ok))?;
-            } else {
-                let iter = PyIterable::try_from_object(vm, iter)?;
-                zelf._extend(iter.iter(vm)?)?;
+            let max_len = zelf.maxlen.load();
+            let mut elements: Vec<PyObjectRef> = vm.extract_elements(&iter)?;
+            if let Some(max_len) = max_len {
+                let cut_len = max_len as isize - elements.len() as isize;
+                if cut_len > 0 {
+                    let mut deque = zelf.borrow_deque_mut();
+                    let drain_until = deque.len().saturating_sub(cut_len as usize);
+                    deque.drain(..drain_until);
+                } else {
+                    zelf.borrow_deque_mut().clear();
+                    elements.drain(..(-cut_len) as usize);
+                }
             }
+            zelf.borrow_deque_mut().extend(elements);
             Ok(())
         }
 
@@ -340,14 +341,7 @@ mod _collections {
             other: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
-            let other: PyObjectRef = if zelf.is(&other) {
-                vm.new_pyobj(zelf.copy())
-            } else {
-                other
-            };
-            let other = PyIterable::try_from_object(vm, other)?;
-
-            zelf._extend(other.iter(vm)?)?;
+            Self::extend(zelf.clone(), other, vm)?;
             Ok(zelf)
         }
     }
