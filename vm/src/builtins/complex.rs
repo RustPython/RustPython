@@ -89,12 +89,12 @@ impl PyComplex {
         self.value
     }
 
-    #[pyproperty(name = "real")]
+    #[pyproperty]
     fn real(&self) -> f64 {
         self.value.re
     }
 
-    #[pyproperty(name = "imag")]
+    #[pyproperty]
     fn imag(&self) -> f64 {
         self.value.im
     }

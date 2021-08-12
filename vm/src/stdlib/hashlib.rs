@@ -60,12 +60,12 @@ mod hashlib {
                 .into_object())
         }
 
-        #[pyproperty(name = "name")]
+        #[pyproperty]
         fn name(&self) -> String {
             self.name.clone()
         }
 
-        #[pyproperty(name = "digest_size")]
+        #[pyproperty]
         fn digest_size(&self, vm: &VirtualMachine) -> PyResult {
             Ok(vm.ctx.new_int(self.read().digest_size()))
         }

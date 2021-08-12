@@ -332,7 +332,7 @@ impl PyPattern {
         self.sub(repl, text, vm)
     }
 
-    #[pyproperty(name = "pattern")]
+    #[pyproperty]
     fn pattern(&self, vm: &VirtualMachine) -> PyResult {
         Ok(vm.ctx.new_str(self.pattern.clone()))
     }
