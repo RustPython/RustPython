@@ -301,7 +301,7 @@ impl PyRange {
         (vm.ctx.types.range_type.clone(), range_paramters_tuple)
     }
 
-    #[pymethod(name = "index")]
+    #[pymethod]
     fn index(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt> {
         if let Ok(int) = needle.clone().downcast::<PyInt>() {
             match self.index_of(int.as_bigint()) {
@@ -318,7 +318,7 @@ impl PyRange {
         }
     }
 
-    #[pymethod(name = "count")]
+    #[pymethod]
     fn count(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         if let Ok(int) = item.clone().downcast::<PyInt>() {
             if self.index_of(int.as_bigint()).is_some() {

@@ -204,7 +204,7 @@ impl PySlice {
         Ok((start, stop, step))
     }
 
-    #[pymethod(name = "indices")]
+    #[pymethod]
     fn indices(&self, length: PyIntRef, vm: &VirtualMachine) -> PyResult {
         let length = length.as_bigint();
         if length.is_negative() {

@@ -305,67 +305,67 @@ impl PyByteArray {
         Ok(())
     }
 
-    #[pymethod(name = "isalnum")]
+    #[pymethod]
     fn isalnum(&self) -> bool {
         self.inner().isalnum()
     }
 
-    #[pymethod(name = "isalpha")]
+    #[pymethod]
     fn isalpha(&self) -> bool {
         self.inner().isalpha()
     }
 
-    #[pymethod(name = "isascii")]
+    #[pymethod]
     fn isascii(&self) -> bool {
         self.inner().isascii()
     }
 
-    #[pymethod(name = "isdigit")]
+    #[pymethod]
     fn isdigit(&self) -> bool {
         self.inner().isdigit()
     }
 
-    #[pymethod(name = "islower")]
+    #[pymethod]
     fn islower(&self) -> bool {
         self.inner().islower()
     }
 
-    #[pymethod(name = "isspace")]
+    #[pymethod]
     fn isspace(&self) -> bool {
         self.inner().isspace()
     }
 
-    #[pymethod(name = "isupper")]
+    #[pymethod]
     fn isupper(&self) -> bool {
         self.inner().isupper()
     }
 
-    #[pymethod(name = "istitle")]
+    #[pymethod]
     fn istitle(&self) -> bool {
         self.inner().istitle()
     }
 
-    #[pymethod(name = "lower")]
+    #[pymethod]
     fn lower(&self) -> Self {
         self.inner().lower().into()
     }
 
-    #[pymethod(name = "upper")]
+    #[pymethod]
     fn upper(&self) -> Self {
         self.inner().upper().into()
     }
 
-    #[pymethod(name = "capitalize")]
+    #[pymethod]
     fn capitalize(&self) -> Self {
         self.inner().capitalize().into()
     }
 
-    #[pymethod(name = "swapcase")]
+    #[pymethod]
     fn swapcase(&self) -> Self {
         self.inner().swapcase().into()
     }
 
-    #[pymethod(name = "hex")]
+    #[pymethod]
     fn hex(
         &self,
         sep: OptionalArg<Either<PyStrRef, PyBytesRef>>,
@@ -380,7 +380,7 @@ impl PyByteArray {
         Ok(PyBytesInner::fromhex(string.as_str(), vm)?.into())
     }
 
-    #[pymethod(name = "center")]
+    #[pymethod]
     fn center(
         &self,
         options: ByteInnerPaddingOptions,
@@ -389,7 +389,7 @@ impl PyByteArray {
         Ok(self.inner().center(options, vm)?.into())
     }
 
-    #[pymethod(name = "ljust")]
+    #[pymethod]
     fn ljust(
         &self,
         options: ByteInnerPaddingOptions,
@@ -398,7 +398,7 @@ impl PyByteArray {
         Ok(self.inner().ljust(options, vm)?.into())
     }
 
-    #[pymethod(name = "rjust")]
+    #[pymethod]
     fn rjust(
         &self,
         options: ByteInnerPaddingOptions,
@@ -407,17 +407,17 @@ impl PyByteArray {
         Ok(self.inner().rjust(options, vm)?.into())
     }
 
-    #[pymethod(name = "count")]
+    #[pymethod]
     fn count(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<usize> {
         self.inner().count(options, vm)
     }
 
-    #[pymethod(name = "join")]
+    #[pymethod]
     fn join(&self, iter: PyIterable<PyBytesInner>, vm: &VirtualMachine) -> PyResult<PyByteArray> {
         Ok(self.inner().join(iter, vm)?.into())
     }
 
-    #[pymethod(name = "endswith")]
+    #[pymethod]
     fn endswith(&self, options: anystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
         self.borrow_buf().py_startsendswith(
             options,
@@ -428,7 +428,7 @@ impl PyByteArray {
         )
     }
 
-    #[pymethod(name = "startswith")]
+    #[pymethod]
     fn startswith(
         &self,
         options: anystr::StartsEndsWithArgs,
@@ -443,31 +443,31 @@ impl PyByteArray {
         )
     }
 
-    #[pymethod(name = "find")]
+    #[pymethod]
     fn find(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
         let index = self.inner().find(options, |h, n| h.find(n), vm)?;
         Ok(index.map_or(-1, |v| v as isize))
     }
 
-    #[pymethod(name = "index")]
+    #[pymethod]
     fn index(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<usize> {
         let index = self.inner().find(options, |h, n| h.find(n), vm)?;
         index.ok_or_else(|| vm.new_value_error("substring not found".to_owned()))
     }
 
-    #[pymethod(name = "rfind")]
+    #[pymethod]
     fn rfind(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
         let index = self.inner().find(options, |h, n| h.rfind(n), vm)?;
         Ok(index.map_or(-1, |v| v as isize))
     }
 
-    #[pymethod(name = "rindex")]
+    #[pymethod]
     fn rindex(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<usize> {
         let index = self.inner().find(options, |h, n| h.rfind(n), vm)?;
         index.ok_or_else(|| vm.new_value_error("substring not found".to_owned()))
     }
 
-    #[pymethod(name = "translate")]
+    #[pymethod]
     fn translate(
         &self,
         options: ByteInnerTranslateOptions,
@@ -476,17 +476,17 @@ impl PyByteArray {
         Ok(self.inner().translate(options, vm)?.into())
     }
 
-    #[pymethod(name = "strip")]
+    #[pymethod]
     fn strip(&self, chars: OptionalOption<PyBytesInner>) -> Self {
         self.inner().strip(chars).into()
     }
 
-    #[pymethod(name = "lstrip")]
+    #[pymethod]
     fn lstrip(&self, chars: OptionalOption<PyBytesInner>) -> Self {
         self.inner().lstrip(chars).into()
     }
 
-    #[pymethod(name = "rstrip")]
+    #[pymethod]
     fn rstrip(&self, chars: OptionalOption<PyBytesInner>) -> Self {
         self.inner().rstrip(chars).into()
     }
@@ -498,7 +498,7 @@ impl PyByteArray {
     ///
     /// If the bytearray starts with the prefix string, return string[len(prefix):]
     /// Otherwise, return a copy of the original bytearray.
-    #[pymethod(name = "removeprefix")]
+    #[pymethod]
     fn removeprefix(&self, prefix: PyBytesInner) -> Self {
         self.inner().removeprefix(prefix).into()
     }
@@ -510,24 +510,24 @@ impl PyByteArray {
     ///
     /// If the bytearray ends with the suffix string, return string[:len(suffix)]
     /// Otherwise, return a copy of the original bytearray.
-    #[pymethod(name = "removesuffix")]
+    #[pymethod]
     fn removesuffix(&self, suffix: PyBytesInner) -> Self {
         self.inner().removesuffix(suffix).to_vec().into()
     }
 
-    #[pymethod(name = "split")]
+    #[pymethod]
     fn split(&self, options: ByteInnerSplitOptions, vm: &VirtualMachine) -> PyResult {
         self.inner()
             .split(options, |s, vm| vm.ctx.new_bytearray(s.to_vec()), vm)
     }
 
-    #[pymethod(name = "rsplit")]
+    #[pymethod]
     fn rsplit(&self, options: ByteInnerSplitOptions, vm: &VirtualMachine) -> PyResult {
         self.inner()
             .rsplit(options, |s, vm| vm.ctx.new_bytearray(s.to_vec()), vm)
     }
 
-    #[pymethod(name = "partition")]
+    #[pymethod]
     fn partition(&self, sep: PyBytesInner, vm: &VirtualMachine) -> PyResult {
         // sep ALWAYS converted to  bytearray even it's bytes or memoryview
         // so its ok to accept PyBytesInner
@@ -541,7 +541,7 @@ impl PyByteArray {
         ]))
     }
 
-    #[pymethod(name = "rpartition")]
+    #[pymethod]
     fn rpartition(&self, sep: PyBytesInner, vm: &VirtualMachine) -> PyResult {
         let value = self.inner();
         let (back, has_mid, front) = value.rpartition(&sep, vm)?;
@@ -553,12 +553,12 @@ impl PyByteArray {
         ]))
     }
 
-    #[pymethod(name = "expandtabs")]
+    #[pymethod]
     fn expandtabs(&self, options: anystr::ExpandTabsArgs) -> Self {
         self.inner().expandtabs(options).into()
     }
 
-    #[pymethod(name = "splitlines")]
+    #[pymethod]
     fn splitlines(&self, options: anystr::SplitLinesArgs, vm: &VirtualMachine) -> PyObjectRef {
         let lines = self
             .inner()
@@ -566,12 +566,12 @@ impl PyByteArray {
         vm.ctx.new_list(lines)
     }
 
-    #[pymethod(name = "zfill")]
+    #[pymethod]
     fn zfill(&self, width: isize) -> Self {
         self.inner().zfill(width).into()
     }
 
-    #[pymethod(name = "replace")]
+    #[pymethod]
     fn replace(
         &self,
         old: PyBytesInner,
@@ -582,18 +582,18 @@ impl PyByteArray {
         Ok(self.inner().replace(old, new, count, vm)?.into())
     }
 
-    #[pymethod(name = "clear")]
+    #[pymethod]
     fn clear(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<()> {
         zelf.try_resizable(vm)?.elements.clear();
         Ok(())
     }
 
-    #[pymethod(name = "copy")]
+    #[pymethod]
     fn copy(&self) -> Self {
         self.borrow_buf().to_vec().into()
     }
 
-    #[pymethod(name = "title")]
+    #[pymethod]
     fn title(&self) -> Self {
         self.inner().title().into()
     }
@@ -620,7 +620,7 @@ impl PyByteArray {
         vm.ctx.not_implemented()
     }
 
-    #[pymethod(name = "reverse")]
+    #[pymethod]
     fn reverse(&self) {
         self.borrow_buf_mut().reverse();
     }

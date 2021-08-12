@@ -70,17 +70,17 @@ mod hashlib {
             Ok(vm.ctx.new_int(self.read().digest_size()))
         }
 
-        #[pymethod(name = "update")]
+        #[pymethod]
         fn update(&self, data: PyBytesRef) {
             self.write().input(data.as_bytes());
         }
 
-        #[pymethod(name = "digest")]
+        #[pymethod]
         fn digest(&self) -> PyBytes {
             self.get_digest().into()
         }
 
-        #[pymethod(name = "hexdigest")]
+        #[pymethod]
         fn hexdigest(&self) -> String {
             let result = self.get_digest();
             hex::encode(result)

@@ -449,7 +449,7 @@ impl PyFloat {
         0.0f64
     }
 
-    #[pymethod(name = "conjugate")]
+    #[pymethod]
     fn conjugate(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
