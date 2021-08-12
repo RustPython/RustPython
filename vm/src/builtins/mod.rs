@@ -15,7 +15,7 @@ pub(crate) mod complex;
 pub use complex::PyComplex;
 pub(crate) mod coroutine;
 pub use coroutine::PyCoroutine;
-pub(crate) mod dict;
+pub mod dict;
 pub use dict::{PyDict, PyDictRef};
 pub(crate) mod enumerate;
 pub use enumerate::PyEnumerate;

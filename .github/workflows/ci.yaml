@@ -49,6 +49,28 @@ jobs:
           command: check
           args: ${{ env.CARGO_ARGS }} --no-default-features
 
+  exotic_targets:
+    name: Ensure compilation on exotic targets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          target: aarch64-linux-android
+
+      - name: Check compilation for android
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: --target aarch64-linux-android
+
+      - name: Prepare repository for redox compilation
+        run: bash scripts/redox/uncomment-cargo.sh
+      - name: Check compilation for Redox
+        uses: coolreader18/redoxer-action@v1
+        with:
+          command: check
+
   snippets_cpython:
     name: Run snippets and cpython tests
     runs-on:  ${{ matrix.os }}

@@ -30,7 +30,7 @@ mod _posixsubprocess {
     }
 }
 
-use nix::{errno::Errno, fcntl, unistd};
+use nix::{errno::Errno, unistd};
 use std::convert::Infallible as Never;
 use std::ffi::{CStr, CString};
 use std::io::{self, prelude::*};
@@ -78,7 +78,6 @@ fn exec(args: &ForkExecArgs, procargs: ProcArgs) -> ! {
     match exec_inner(args, procargs) {
         Ok(x) => match x {},
         Err(e) => {
-            let e = e.as_errno().expect("got a non-errno nix error");
             let buf: &mut [u8] = &mut [0; 256];
             let mut cur = io::Cursor::new(&mut *buf);
             // TODO: check if reached preexec, if not then have "noexec" after
@@ -161,17 +160,18 @@ fn exec_inner(args: &ForkExecArgs, procargs: ProcArgs) -> nix::Result<Never> {
             first_err = Some(e)
         }
     }
-    Err(first_err.unwrap_or_else(Errno::last).into())
+    Err(first_err.unwrap_or_else(Errno::last))
 }
 
 #[cfg(not(target_os = "redox"))]
 fn close_fds(above: i32, keep: &[i32]) -> nix::Result<()> {
+    use nix::{dir::Dir, fcntl::OFlag};
     // TODO: close fds by brute force if readdir doesn't work:
     // https://github.com/python/cpython/blob/3.8/Modules/_posixsubprocess.c#L220
     let path = unsafe { CStr::from_bytes_with_nul_unchecked(FD_DIR_NAME) };
-    let mut dir = nix::dir::Dir::open(
+    let mut dir = Dir::open(
         path,
-        fcntl::OFlag::O_RDONLY | fcntl::OFlag::O_DIRECTORY,
+        OFlag::O_RDONLY | OFlag::O_DIRECTORY,
         nix::sys::stat::Mode::empty(),
     )?;
     let dirfd = dir.as_raw_fd();
@@ -197,6 +197,7 @@ const FD_DIR_NAME: &[u8] = b"/dev/fd\0";
 #[cfg(any(target_os = "linux", target_os = "android"))]
 const FD_DIR_NAME: &[u8] = b"/proc/self/fd\0";
 
+#[cfg(not(target_os = "redox"))]
 fn pos_int_from_ascii(name: &CStr) -> Option<i32> {
     let mut num = 0;
     for c in name.to_bytes() {

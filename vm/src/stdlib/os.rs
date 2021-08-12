@@ -262,27 +262,7 @@ impl IntoPyException for &'_ io::Error {
 #[cfg(unix)]
 impl IntoPyException for nix::Error {
     fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        match self {
-            nix::Error::InvalidPath => {
-                let exc_type = vm.ctx.exceptions.file_not_found_error.clone();
-                vm.new_exception_msg(exc_type, self.to_string())
-            }
-            nix::Error::InvalidUtf8 => {
-                let exc_type = vm.ctx.exceptions.unicode_error.clone();
-                vm.new_exception_msg(exc_type, self.to_string())
-            }
-            nix::Error::UnsupportedOperation => vm.new_runtime_error(self.to_string()),
-            nix::Error::Sys(errno) => {
-                let exc_type = posix::convert_nix_errno(vm, errno);
-                vm.new_exception(
-                    exc_type,
-                    vec![
-                        vm.ctx.new_int(errno as i32),
-                        vm.ctx.new_str(self.to_string()),
-                    ],
-                )
-            }
-        }
+        io::Error::from(self).into_pyexception(vm)
     }
 }
 
@@ -2014,12 +1994,10 @@ pub(crate) use _os::os_open as open;
 mod posix {
     use super::*;
 
-    use crate::builtins::dict::PyMapping;
     use crate::builtins::list::PyListRef;
-    use crate::PyIterable;
     use bitflags::bitflags;
-    use nix::errno::{errno, Errno};
     use nix::unistd::{self, Gid, Pid, Uid};
+    #[allow(unused_imports)] // TODO: use will be unnecessary in edition 2021
     use std::convert::TryFrom;
     use std::os::unix::io::RawFd;
 
@@ -2089,13 +2067,6 @@ mod posix {
         }
     }
 
-    pub(super) fn convert_nix_errno(vm: &VirtualMachine, errno: Errno) -> PyTypeRef {
-        match errno {
-            Errno::EPERM => vm.ctx.exceptions.permission_error.clone(),
-            _ => vm.ctx.exceptions.os_error.clone(),
-        }
-    }
-
     struct Permissions {
         is_readable: bool,
         is_writable: bool,
@@ -2139,6 +2110,7 @@ mod posix {
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     fn getgroups_impl() -> nix::Result<Vec<Gid>> {
         use libc::{c_int, gid_t};
+        use nix::errno::{errno, Errno};
         use std::ptr;
         let ret = unsafe { libc::getgroups(0, ptr::null_mut()) };
         let mut groups = Vec::<Gid>::with_capacity(Errno::result(ret)? as usize);
@@ -2160,7 +2132,7 @@ mod posix {
 
     #[cfg(target_os = "redox")]
     fn getgroups_impl() -> nix::Result<Vec<Gid>> {
-        Err(nix::Error::UnsupportedOperation)
+        Err(nix::Error::EOPNOTSUPP)
     }
 
     #[pyfunction]
@@ -2769,7 +2741,7 @@ mod posix {
     // cfg from nix
     #[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "redox")))]
     #[pyfunction]
-    fn setgroups(group_ids: PyIterable<u32>, vm: &VirtualMachine) -> PyResult<()> {
+    fn setgroups(group_ids: crate::PyIterable<u32>, vm: &VirtualMachine) -> PyResult<()> {
         let gids = group_ids
             .iter(vm)?
             .map(|entry| match entry {
@@ -2816,13 +2788,13 @@ mod posix {
         #[pyarg(positional)]
         path: PyPathLike,
         #[pyarg(positional)]
-        args: PyIterable<PyPathLike>,
+        args: crate::PyIterable<PyPathLike>,
         #[pyarg(positional)]
-        env: PyMapping,
+        env: crate::builtins::dict::PyMapping,
         #[pyarg(named, default)]
-        file_actions: Option<PyIterable<PyTupleRef>>,
+        file_actions: Option<crate::PyIterable<PyTupleRef>>,
         #[pyarg(named, default)]
-        setsigdef: Option<PyIterable<i32>>,
+        setsigdef: Option<crate::PyIterable<i32>>,
     }
 
     #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
@@ -3007,7 +2979,7 @@ mod posix {
     fn waitpid(pid: libc::pid_t, opt: i32, vm: &VirtualMachine) -> PyResult<(libc::pid_t, i32)> {
         let mut status = 0;
         let pid = unsafe { libc::waitpid(pid, &mut status, opt) };
-        let pid = Errno::result(pid).map_err(|err| err.into_pyexception(vm))?;
+        let pid = nix::Error::result(pid).map_err(|err| err.into_pyexception(vm))?;
         Ok((pid, status))
     }
     #[pyfunction]
@@ -3185,6 +3157,7 @@ mod posix {
         who: PriorityWhoType,
         vm: &VirtualMachine,
     ) -> PyResult {
+        use nix::errno::{errno, Errno};
         Errno::clear();
         let retval = unsafe { libc::getpriority(which, who) };
         if errno() != 0 {
