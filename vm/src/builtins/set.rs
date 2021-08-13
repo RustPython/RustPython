@@ -93,7 +93,7 @@ impl PySetInner {
     }
 
     fn contains(&self, needle: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        self.content.contains(vm, needle)
+        self.retry_op_with_frozenset(needle, vm, |needle, vm| self.content.contains(vm, needle))
     }
 
     fn compare(
@@ -213,11 +213,11 @@ impl PySetInner {
     }
 
     fn remove(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.content.delete(vm, item)
+        self.retry_op_with_frozenset(&item, vm, |item, vm| self.content.delete(vm, item.clone()))
     }
 
     fn discard(&self, item: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        self.content.delete_if_exists(vm, item)
+        self.retry_op_with_frozenset(item, vm, |item, vm| self.content.delete_if_exists(vm, item))
     }
 
     fn clear(&self) {
@@ -284,6 +284,42 @@ impl PySetInner {
 
     fn hash(&self, vm: &VirtualMachine) -> PyResult<PyHash> {
         crate::utils::hash_iter_unordered(self.content.keys().iter(), vm)
+    }
+
+    // Run operation, on failure, if item is a set/set subclass, convert it
+    // into a frozenset and try the operation again. Propagates original error
+    // on failure to convert and restores item in KeyError on failure (remove).
+    fn retry_op_with_frozenset<T, F>(
+        &self,
+        item: &PyObjectRef,
+        vm: &VirtualMachine,
+        op: F,
+    ) -> PyResult<T>
+    where
+        F: Fn(&PyObjectRef, &VirtualMachine) -> PyResult<T>,
+    {
+        op(item, vm).or_else(|original_err| {
+            item.payload_if_subclass::<PySet>(vm)
+                // Keep original error around.
+                .ok_or(original_err)
+                .and_then(|set| {
+                    op(
+                        &PyFrozenSet {
+                            inner: set.inner.copy(),
+                        }
+                        .into_object(vm),
+                        vm,
+                    )
+                    // If operation raised KeyError, report original set (set.remove)
+                    .map_err(|op_err| {
+                        if op_err.isinstance(&vm.ctx.exceptions.key_error) {
+                            vm.new_key_error(item.clone())
+                        } else {
+                            op_err
+                        }
+                    })
+                })
+        })
     }
 }
 
