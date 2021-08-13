@@ -379,8 +379,6 @@ class TestSet(TestJointOps, unittest.TestCase):
     thetype = set
     basetype = set
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_contains(self):
         super().test_contains()
 
@@ -440,8 +438,6 @@ class TestSet(TestJointOps, unittest.TestCase):
         self.assertEqual(self.s, dup)
         self.assertRaises(TypeError, self.s.add, [])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_remove(self):
         self.s.remove('a')
         self.assertNotIn('a', self.s)
@@ -464,8 +460,6 @@ class TestSet(TestJointOps, unittest.TestCase):
             else:
                 self.fail()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_remove_keyerror_set(self):
         key = self.thetype([3, 4])
         try:
@@ -477,8 +471,6 @@ class TestSet(TestJointOps, unittest.TestCase):
         else:
             self.fail()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_discard(self):
         self.s.discard('a')
         self.assertNotIn('a', self.s)
