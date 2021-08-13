@@ -2110,7 +2110,7 @@ mod posix {
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     fn getgroups_impl() -> nix::Result<Vec<Gid>> {
         use libc::{c_int, gid_t};
-        use nix::errno::{errno, Errno};
+        use nix::errno::Errno;
         use std::ptr;
         let ret = unsafe { libc::getgroups(0, ptr::null_mut()) };
         let mut groups = Vec::<Gid>::with_capacity(Errno::result(ret)? as usize);
