@@ -143,6 +143,7 @@ impl FsPath {
             Self::Bytes(_) => OutputMode::Bytes,
         }
     }
+    #[cfg(not(target_os = "redox"))]
     pub(crate) fn as_bytes(&self) -> &[u8] {
         // TODO: FS encodings
         match self {
