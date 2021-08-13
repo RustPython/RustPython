@@ -579,6 +579,11 @@ mod _os {
     #[pyfunction]
     fn sendfile(args: SendFileArgs, vm: &VirtualMachine) -> PyResult {
         let headers = _extract_vec_bytes(args.headers, vm)?;
+        let count = headers
+            .as_ref()
+            .map(|v| v.iter().map(|s| s.len()).sum())
+            .unwrap_or(0) as i64
+            + args.count;
 
         let headers = headers
             .as_ref()
@@ -602,7 +607,7 @@ mod _os {
             args.in_fd,
             args.out_fd,
             args.offset,
-            Some(args.count),
+            Some(count),
             headers,
             trailers,
         );
