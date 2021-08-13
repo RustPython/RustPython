@@ -36,7 +36,7 @@ use std::convert::Infallible as Never;
 use std::ffi::CStr;
 use std::ffi::CString;
 use std::io::{self, prelude::*};
-#[cfg(unix)]
+#[cfg(not(target_os = "redox"))]
 use std::os::unix::io::AsRawFd;
 
 use super::os;
