@@ -696,7 +696,7 @@ macro_rules! dict_iterator {
                 }
             }
 
-            #[pymethod(name = "__length_hint__")]
+            #[pymethod(magic)]
             fn length_hint(&self) -> usize {
                 if let IterStatus::Exhausted = self.status.load() {
                     0
@@ -760,7 +760,7 @@ macro_rules! dict_iterator {
                 }
             }
 
-            #[pymethod(name = "__length_hint__")]
+            #[pymethod(magic)]
             fn length_hint(&self) -> usize {
                 if let IterStatus::Exhausted = self.status.load() {
                     0

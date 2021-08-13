@@ -336,7 +336,7 @@ impl PyValue for PyTupleIterator {
 
 #[pyimpl(with(PyIter))]
 impl PyTupleIterator {
-    #[pymethod(name = "__length_hint__")]
+    #[pymethod(magic)]
     fn length_hint(&self) -> usize {
         match self.status.load() {
             Active => self.tuple.len().saturating_sub(self.position.load()),

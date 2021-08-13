@@ -53,7 +53,7 @@ impl PySequenceIterator {
         }
     }
 
-    #[pymethod(name = "__length_hint__")]
+    #[pymethod(magic)]
     fn length_hint(&self, vm: &VirtualMachine) -> PyResult<isize> {
         let pos = self.position.load();
         let hint = if self.reversed {

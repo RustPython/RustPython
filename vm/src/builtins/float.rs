@@ -454,12 +454,12 @@ impl PyFloat {
         zelf
     }
 
-    #[pymethod(name = "is_integer")]
+    #[pymethod]
     fn is_integer(&self) -> bool {
         float_ops::is_integer(self.value)
     }
 
-    #[pymethod(name = "as_integer_ratio")]
+    #[pymethod]
     fn as_integer_ratio(&self, vm: &VirtualMachine) -> PyResult {
         let value = self.value;
         if !value.is_finite() {
