@@ -32,6 +32,8 @@ mod _posixsubprocess {
 
 use nix::{errno::Errno, unistd};
 use std::convert::Infallible as Never;
+#[cfg(not(target_os = "redox"))]
+use std::ffi::CStr;
 use std::ffi::CString;
 use std::io::{self, prelude::*};
 use std::os::unix::io::AsRawFd;
