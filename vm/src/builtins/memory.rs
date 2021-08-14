@@ -1,5 +1,4 @@
-use std::{borrow::Cow, fmt::Debug, ops::Deref};
-
+use crate::buffer::{BufferOptions, PyBuffer, PyBufferRef};
 use crate::builtins::bytes::{PyBytes, PyBytesRef};
 use crate::builtins::list::{PyList, PyListRef};
 use crate::builtins::pystr::{PyStr, PyStrRef};
@@ -9,174 +8,21 @@ use crate::bytesinner::bytes_to_hex;
 use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
 use crate::common::hash::PyHash;
 use crate::common::lock::OnceCell;
-use crate::common::rc::PyRc;
 use crate::function::{FuncArgs, OptionalArg};
 use crate::sliceable::{convert_slice, saturate_range, wrap_index, SequenceIndex};
-use crate::slots::{BufferProtocol, Comparable, Hashable, PyComparisonOp};
+use crate::slots::{AsBuffer, Comparable, Hashable, PyComparisonOp};
 use crate::stdlib::pystruct::_struct::FormatSpec;
 use crate::utils::Either;
 use crate::{
     IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
-    PyResult, PyThreadingConstraint, PyValue, TypeProtocol,
+    PyResult, PyValue, TypeProtocol,
 };
-use crate::{TryFromObject, VirtualMachine};
+use crate::{TryFromBorrowedObject, TryFromObject, VirtualMachine};
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
 use num_bigint::BigInt;
 use num_traits::{One, Signed, ToPrimitive, Zero};
-
-#[derive(Debug)]
-pub struct PyBufferRef(Box<dyn PyBuffer>);
-
-impl TryFromObject for PyBufferRef {
-    // FIXME: `obj: &PyObjectRef` is enough
-    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        let obj_cls = obj.class();
-        for cls in obj_cls.iter_mro() {
-            if let Some(f) = cls.slots.as_buffer.as_ref() {
-                return f(&obj, vm).map(|x| PyBufferRef(x));
-            }
-        }
-        Err(vm.new_type_error(format!(
-            "a bytes-like object is required, not '{}'",
-            obj_cls.name
-        )))
-    }
-}
-
-impl Drop for PyBufferRef {
-    fn drop(&mut self) {
-        self.0.release();
-    }
-}
-impl Deref for PyBufferRef {
-    type Target = dyn PyBuffer;
-
-    fn deref(&self) -> &Self::Target {
-        self.0.deref()
-    }
-}
-impl PyBufferRef {
-    pub fn new(buffer: impl PyBuffer + 'static) -> Self {
-        Self(Box::new(buffer))
-    }
-    pub fn into_rcbuf(self) -> RcBuffer {
-        // move self.0 out of self; PyBufferRef impls Drop so it's tricky
-        let this = std::mem::ManuallyDrop::new(self);
-        let buf_box = unsafe { std::ptr::read(&this.0) };
-        RcBuffer(buf_box.into())
-    }
-}
-impl From<Box<dyn PyBuffer>> for PyBufferRef {
-    fn from(buffer: Box<dyn PyBuffer>) -> Self {
-        PyBufferRef(buffer)
-    }
-}
-#[derive(Debug, Clone)]
-pub struct RcBuffer(PyRc<dyn PyBuffer>);
-impl Deref for RcBuffer {
-    type Target = dyn PyBuffer;
-    fn deref(&self) -> &Self::Target {
-        self.0.deref()
-    }
-}
-impl Drop for RcBuffer {
-    fn drop(&mut self) {
-        // check if this is the last rc before the inner buffer gets dropped
-        if let Some(buf) = PyRc::get_mut(&mut self.0) {
-            buf.release()
-        }
-    }
-}
-impl PyBuffer for RcBuffer {
-    fn get_options(&self) -> &BufferOptions {
-        self.0.get_options()
-    }
-    fn obj_bytes(&self) -> BorrowedValue<[u8]> {
-        self.0.obj_bytes()
-    }
-    fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
-        self.0.obj_bytes_mut()
-    }
-    fn release(&self) {}
-    fn as_contiguous(&self) -> Option<BorrowedValue<[u8]>> {
-        self.0.as_contiguous()
-    }
-    fn as_contiguous_mut(&self) -> Option<BorrowedValueMut<[u8]>> {
-        self.0.as_contiguous_mut()
-    }
-    fn to_contiguous(&self) -> Vec<u8> {
-        self.0.to_contiguous()
-    }
-}
-
-pub trait PyBuffer: Debug + PyThreadingConstraint {
-    fn get_options(&self) -> &BufferOptions;
-    /// Get the full inner buffer of this memory. You probably want [`as_contiguous()`], as
-    /// `obj_bytes` doesn't take into account the range a memoryview might operate on, among other
-    /// footguns.
-    fn obj_bytes(&self) -> BorrowedValue<[u8]>;
-    /// Get the full inner buffer of this memory, mutably. You probably want
-    /// [`as_contiguous_mut()`], as `obj_bytes` doesn't take into account the range a memoryview
-    /// might operate on, among other footguns.
-    fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]>;
-    fn release(&self);
-
-    fn as_contiguous(&self) -> Option<BorrowedValue<[u8]>> {
-        if !self.get_options().contiguous {
-            return None;
-        }
-        Some(self.obj_bytes())
-    }
-
-    fn as_contiguous_mut(&self) -> Option<BorrowedValueMut<[u8]>> {
-        if !self.get_options().contiguous {
-            return None;
-        }
-        Some(self.obj_bytes_mut())
-    }
-
-    fn to_contiguous(&self) -> Vec<u8> {
-        self.obj_bytes().to_vec()
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct BufferOptions {
-    pub readonly: bool,
-    pub len: usize,
-    pub itemsize: usize,
-    pub contiguous: bool,
-    pub format: Cow<'static, str>,
-    // TODO: support multiple dimension array
-    pub ndim: usize,
-    pub shape: Vec<usize>,
-    pub strides: Vec<isize>,
-}
-
-impl BufferOptions {
-    pub const DEFAULT: Self = BufferOptions {
-        readonly: true,
-        len: 0,
-        itemsize: 1,
-        contiguous: true,
-        format: Cow::Borrowed("B"),
-        ndim: 1,
-        shape: Vec::new(),
-        strides: Vec::new(),
-    };
-}
-
-impl Default for BufferOptions {
-    fn default() -> Self {
-        Self::DEFAULT
-    }
-}
-
-pub(crate) trait ResizeGuard<'a> {
-    type Resizable: 'a;
-    fn try_resizable(&'a self, vm: &VirtualMachine) -> PyResult<Self::Resizable>;
-}
+use std::fmt::Debug;
 
 #[derive(FromArgs)]
 struct PyMemoryViewNewArgs {
@@ -205,7 +51,7 @@ pub struct PyMemoryView {
 
 type PyMemoryViewRef = PyRef<PyMemoryView>;
 
-#[pyimpl(with(Hashable, Comparable, BufferProtocol))]
+#[pyimpl(with(Hashable, Comparable, AsBuffer))]
 impl PyMemoryView {
     fn parse_format(format: &str, vm: &VirtualMachine) -> PyResult<FormatSpec> {
         FormatSpec::parse(format)
@@ -277,7 +123,7 @@ impl PyMemoryView {
         args: PyMemoryViewNewArgs,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        let buffer = PyBufferRef::try_from_object(vm, args.object.clone())?;
+        let buffer = PyBufferRef::try_from_borrowed_object(vm, &args.object)?;
         let zelf = PyMemoryView::from_buffer(args.object, buffer, vm)?;
         zelf.into_ref_with_type(vm, cls)
     }
@@ -394,7 +240,7 @@ impl PyMemoryView {
         let itemsize = zelf.options.itemsize;
 
         let obj = zelf.obj.clone();
-        let buffer = PyBufferRef(Box::new(zelf.clone()));
+        let buffer = PyBufferRef::new(zelf.clone());
         zelf.exports.fetch_add(1);
         let options = zelf.options.clone();
         let format_spec = zelf.format_spec.clone();
@@ -681,7 +527,7 @@ impl PyMemoryView {
     #[pymethod]
     fn toreadonly(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         zelf.try_not_released(vm)?;
-        let buffer = PyBufferRef(Box::new(zelf.clone()));
+        let buffer = PyBufferRef::new(zelf.clone());
         zelf.exports.fetch_add(1);
         Ok(PyMemoryView {
             obj: zelf.obj.clone(),
@@ -752,7 +598,7 @@ impl PyMemoryView {
             );
         }
 
-        let buffer = PyBufferRef(Box::new(zelf.clone()));
+        let buffer = PyBufferRef::new(zelf.clone());
         zelf.exports.fetch_add(1);
 
         Ok(PyMemoryView {
@@ -782,7 +628,7 @@ impl PyMemoryView {
             return Ok(false);
         }
 
-        let other = match PyBufferRef::try_from_object(vm, other.clone()) {
+        let other = match PyBufferRef::try_from_borrowed_object(vm, other) {
             Ok(buf) => buf,
             Err(_) => return Ok(false),
         };
@@ -849,7 +695,7 @@ impl Drop for PyMemoryView {
     }
 }
 
-impl BufferProtocol for PyMemoryView {
+impl AsBuffer for PyMemoryView {
     fn get_buffer(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<Box<dyn PyBuffer>> {
         if zelf.released.load() {
             Err(vm.new_value_error("operation forbidden on released memoryview object".to_owned()))

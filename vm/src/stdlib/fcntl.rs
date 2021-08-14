@@ -4,7 +4,7 @@ pub(crate) use fcntl::make_module;
 mod fcntl {
     use super::super::{io, os};
     use crate::builtins::int;
-    use crate::byteslike::{BufOrStr, PyRwBytesLike};
+    use crate::byteslike::{ArgMemoryBuffer, ArgStrOrBytesLike};
     use crate::function::OptionalArg;
     use crate::utils::Either;
     use crate::PyResult;
@@ -25,7 +25,7 @@ mod fcntl {
     fn fcntl(
         io::Fildes(fd): io::Fildes,
         cmd: i32,
-        arg: OptionalArg<Either<BufOrStr, int::PyIntRef>>,
+        arg: OptionalArg<Either<ArgStrOrBytesLike, int::PyIntRef>>,
         vm: &VirtualMachine,
     ) -> PyResult {
         let int = match arg {
@@ -59,7 +59,7 @@ mod fcntl {
     fn ioctl(
         fd: i32,
         request: i32,
-        arg: OptionalArg<Either<Either<PyRwBytesLike, BufOrStr>, i32>>,
+        arg: OptionalArg<Either<Either<ArgMemoryBuffer, ArgStrOrBytesLike>, i32>>,
         mutate_flag: OptionalArg<bool>,
         vm: &VirtualMachine,
     ) -> PyResult {

@@ -1,16 +1,20 @@
-use crate::builtins::memory::PyBufferRef;
+use crate::buffer::PyBufferRef;
 use crate::builtins::PyStrRef;
 use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
 use crate::vm::VirtualMachine;
-use crate::{PyObjectRef, PyResult, TryFromObject};
+use crate::{PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject};
 
+// Python/getargs.c
+
+/// any bytes-like object. Like the `y*` format code for `PyArg_Parse` in CPython.
 #[derive(Debug)]
-pub struct PyBytesLike(PyBufferRef);
+pub struct ArgBytesLike(PyBufferRef);
 
+/// A memory buffer, read-write access. Like the `w*` format code for `PyArg_Parse` in CPython.
 #[derive(Debug)]
-pub struct PyRwBytesLike(PyBufferRef);
+pub struct ArgMemoryBuffer(PyBufferRef);
 
-impl PyBytesLike {
+impl ArgBytesLike {
     pub fn with_ref<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&[u8]) -> R,
@@ -31,7 +35,7 @@ impl PyBytesLike {
     }
 }
 
-impl PyRwBytesLike {
+impl ArgMemoryBuffer {
     pub fn with_ref<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&mut [u8]) -> R,
@@ -48,9 +52,9 @@ impl PyRwBytesLike {
     }
 }
 
-impl PyBytesLike {
+impl ArgBytesLike {
     pub fn new(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Self> {
-        let buffer = PyBufferRef::try_from_object(vm, obj.clone())?;
+        let buffer = PyBufferRef::try_from_borrowed_object(vm, obj)?;
         if buffer.get_options().contiguous {
             Ok(Self(buffer))
         } else {
@@ -67,9 +71,9 @@ impl PyBytesLike {
     }
 }
 
-impl TryFromObject for PyBytesLike {
-    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        Self::new(vm, &obj)
+impl TryFromBorrowedObject for ArgBytesLike {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Self> {
+        Self::new(vm, obj)
     }
 }
 
@@ -78,7 +82,7 @@ pub fn try_bytes_like<R>(
     obj: &PyObjectRef,
     f: impl FnOnce(&[u8]) -> R,
 ) -> PyResult<R> {
-    let buffer = PyBufferRef::try_from_object(vm, obj.clone())?;
+    let buffer = PyBufferRef::try_from_borrowed_object(vm, obj)?;
     buffer.as_contiguous().map(|x| f(&*x)).ok_or_else(|| {
         vm.new_type_error("non-contiguous buffer is not a bytes-like object".to_owned())
     })
@@ -89,16 +93,16 @@ pub fn try_rw_bytes_like<R>(
     obj: &PyObjectRef,
     f: impl FnOnce(&mut [u8]) -> R,
 ) -> PyResult<R> {
-    let buffer = PyBufferRef::try_from_object(vm, obj.clone())?;
+    let buffer = PyBufferRef::try_from_borrowed_object(vm, obj)?;
     buffer
         .as_contiguous_mut()
         .map(|mut x| f(&mut *x))
         .ok_or_else(|| vm.new_type_error("buffer is not a read-write bytes-like object".to_owned()))
 }
 
-impl PyRwBytesLike {
+impl ArgMemoryBuffer {
     pub fn new(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Self> {
-        let buffer = PyBufferRef::try_from_object(vm, obj.clone())?;
+        let buffer = PyBufferRef::try_from_borrowed_object(vm, obj)?;
         let options = buffer.get_options();
         if !options.contiguous {
             Err(vm.new_type_error("non-contiguous buffer is not a bytes-like object".to_owned()))
@@ -118,27 +122,27 @@ impl PyRwBytesLike {
     }
 }
 
-impl TryFromObject for PyRwBytesLike {
-    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        Self::new(vm, &obj)
+impl TryFromBorrowedObject for ArgMemoryBuffer {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Self> {
+        Self::new(vm, obj)
     }
 }
 
-/// A buffer or utf8 string. Like the `s*` format code for `PyArg_Parse` in CPython.
-pub enum BufOrStr {
-    Buf(PyBytesLike),
+/// A text string or bytes-like object. Like the `s*` format code for `PyArg_Parse` in CPython.
+pub enum ArgStrOrBytesLike {
+    Buf(ArgBytesLike),
     Str(PyStrRef),
 }
 
-impl TryFromObject for BufOrStr {
+impl TryFromObject for ArgStrOrBytesLike {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         obj.downcast()
             .map(Self::Str)
-            .or_else(|obj| PyBytesLike::try_from_object(vm, obj).map(Self::Buf))
+            .or_else(|obj| ArgBytesLike::try_from_object(vm, obj).map(Self::Buf))
     }
 }
 
-impl BufOrStr {
+impl ArgStrOrBytesLike {
     pub fn borrow_bytes(&self) -> BorrowedValue<'_, [u8]> {
         match self {
             Self::Buf(b) => b.borrow_buf(),

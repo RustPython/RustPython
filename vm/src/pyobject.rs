@@ -827,6 +827,18 @@ pub trait TryFromObject: Sized {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self>;
 }
 
+/// Rust-side only version of TryFromObject to reduce unnessessary Rc::clone
+impl<T: TryFromBorrowedObject> TryFromObject for T {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        TryFromBorrowedObject::try_from_borrowed_object(vm, &obj)
+    }
+}
+
+pub trait TryFromBorrowedObject: Sized {
+    /// Attempt to convert a Python object to a value of this type.
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Self>;
+}
+
 /// Marks a type that has the exact same layout as PyObjectRef, e.g. a type that is
 /// `repr(transparent)` over PyObjectRef.
 ///

@@ -1,13 +1,15 @@
+use crate::buffer::PyBufferRef;
 /// Implementation of Printf-Style string formatting
 /// [https://docs.python.org/3/library/stdtypes.html#printf-style-string-formatting]
 use crate::builtins::float::{try_bigint, IntoPyFloat, PyFloat};
 use crate::builtins::int::{self, PyInt};
-use crate::builtins::memory::PyBufferRef;
 use crate::builtins::pystr::PyStr;
 use crate::builtins::{tuple, PyBytes};
 use crate::common::float_ops;
 use crate::vm::VirtualMachine;
-use crate::{ItemProtocol, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
+use crate::{
+    ItemProtocol, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject, TypeProtocol,
+};
 use itertools::Itertools;
 use num_bigint::{BigInt, Sign};
 use num_traits::cast::ToPrimitive;
@@ -364,7 +366,7 @@ impl CFormatSpec {
                     Ok(s.into_bytes())
                 }
                 CFormatPreconversor::Str | CFormatPreconversor::Bytes => {
-                    if let Ok(buffer) = PyBufferRef::try_from_object(vm, obj.clone()) {
+                    if let Ok(buffer) = PyBufferRef::try_from_borrowed_object(vm, &obj) {
                         let guard;
                         let vec;
                         let bytes = match buffer.as_contiguous() {
@@ -389,7 +391,7 @@ impl CFormatSpec {
                                 ))
                             })?
                             .invoke((), vm)?;
-                        let bytes = PyBytes::try_from_object(vm, bytes)?;
+                        let bytes = PyBytes::try_from_borrowed_object(vm, &bytes)?;
                         Ok(self.format_bytes(bytes.as_bytes()))
                     }
                 }

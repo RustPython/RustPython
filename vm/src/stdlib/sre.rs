@@ -2,13 +2,8 @@ pub(crate) use _sre::make_module;
 
 #[pymodule]
 mod _sre {
-    use crossbeam_utils::atomic::AtomicCell;
-    use itertools::Itertools;
-    use num_traits::ToPrimitive;
-    use rustpython_common::hash::PyHash;
-
+    use crate::buffer::PyBufferRef;
     use crate::builtins::list::PyListRef;
-    use crate::builtins::memory::PyBufferRef;
     use crate::builtins::tuple::PyTupleRef;
     use crate::builtins::{
         PyCallableIterator, PyDictRef, PyInt, PyList, PyStr, PyStrRef, PyTypeRef,
@@ -18,9 +13,13 @@ mod _sre {
     use crate::VirtualMachine;
     use crate::{
         IntoPyObject, ItemProtocol, PyCallable, PyComparisonValue, PyObjectRef, PyRef, PyResult,
-        PyValue, StaticType, TryFromObject,
+        PyValue, StaticType, TryFromBorrowedObject, TryFromObject,
     };
     use core::str;
+    use crossbeam_utils::atomic::AtomicCell;
+    use itertools::Itertools;
+    use num_traits::ToPrimitive;
+    use rustpython_common::hash::PyHash;
     use sre_engine::constants::SreFlag;
     use sre_engine::engine::{lower_ascii, lower_unicode, upper_unicode, State, StrDrive};
 
@@ -153,7 +152,7 @@ mod _sre {
             let vec;
             let s;
             let str_drive = if self.isbytes {
-                buffer = PyBufferRef::try_from_object(vm, string.clone())?;
+                buffer = PyBufferRef::try_from_borrowed_object(vm, &string)?;
                 let bytes = match buffer.as_contiguous() {
                     Some(bytes) => {
                         guard = bytes;

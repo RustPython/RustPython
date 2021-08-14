@@ -77,14 +77,13 @@ mod _io {
     use std::io::{self, prelude::*, Cursor, SeekFrom};
     use std::ops::Range;
 
-    use crate::builtins::memory::{
-        BufferOptions, PyBuffer, PyBufferRef, PyMemoryView, ResizeGuard,
-    };
+    use crate::buffer::{BufferOptions, PyBuffer, PyBufferRef, ResizeGuard};
+    use crate::builtins::memory::PyMemoryView;
     use crate::builtins::{
         bytes::{PyBytes, PyBytesRef},
         pybool, pytype, PyByteArray, PyStr, PyStrRef, PyTypeRef,
     };
-    use crate::byteslike::{PyBytesLike, PyRwBytesLike};
+    use crate::byteslike::{ArgBytesLike, ArgMemoryBuffer};
     use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
     use crate::common::lock::{
         PyMappedThreadMutexGuard, PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
@@ -440,7 +439,7 @@ mod _io {
             let read = vm.get_attribute(instance, "read")?;
             let mut res = Vec::new();
             while size.map_or(true, |s| res.len() < s) {
-                let read_res = PyBytesLike::try_from_object(vm, vm.invoke(&read, (1,))?)?;
+                let read_res = ArgBytesLike::try_from_object(vm, vm.invoke(&read, (1,))?)?;
                 if read_res.with_ref(|b| b.is_empty()) {
                     break;
                 }
@@ -619,14 +618,14 @@ mod _io {
             method: &str,
             vm: &VirtualMachine,
         ) -> PyResult<usize> {
-            let b = PyRwBytesLike::new(vm, &bufobj)?;
+            let b = ArgMemoryBuffer::new(vm, &bufobj)?;
             let l = b.len();
             let data = vm.call_method(&zelf, method, (l,))?;
             if data.is(&bufobj) {
                 return Ok(l);
             }
             let mut buf = b.borrow_buf_mut();
-            let data = PyBytesLike::try_from_object(vm, data)?;
+            let data = ArgBytesLike::try_from_object(vm, data)?;
             let data = data.borrow_buf();
             match buf.get_mut(..data.len()) {
                 Some(slice) => {
@@ -913,7 +912,7 @@ mod _io {
             Ok(Some(n as usize))
         }
 
-        fn write(&mut self, obj: PyBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
+        fn write(&mut self, obj: ArgBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
             if !self.valid_read() && !self.valid_write() {
                 self.pos = 0;
                 self.raw_pos = 0;
@@ -1625,14 +1624,14 @@ mod _io {
             Ok(v)
         }
         #[pymethod]
-        fn readinto(&self, buf: PyRwBytesLike, vm: &VirtualMachine) -> PyResult<Option<usize>> {
+        fn readinto(&self, buf: ArgMemoryBuffer, vm: &VirtualMachine) -> PyResult<Option<usize>> {
             let mut data = self.reader().lock(vm)?;
             let raw = data.check_init(vm)?;
             ensure_unclosed(raw, "readinto of closed file", vm)?;
             data.readinto_generic(buf.into_buffer(), false, vm)
         }
         #[pymethod]
-        fn readinto1(&self, buf: PyRwBytesLike, vm: &VirtualMachine) -> PyResult<Option<usize>> {
+        fn readinto1(&self, buf: ArgMemoryBuffer, vm: &VirtualMachine) -> PyResult<Option<usize>> {
             let mut data = self.reader().lock(vm)?;
             let raw = data.check_init(vm)?;
             ensure_unclosed(raw, "readinto of closed file", vm)?;
@@ -1678,7 +1677,7 @@ mod _io {
         type Writer: BufferedMixin;
         fn writer(&self) -> &Self::Writer;
         #[pymethod]
-        fn write(&self, obj: PyBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
+        fn write(&self, obj: ArgBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
             let mut data = self.writer().lock(vm)?;
             let raw = data.check_init(vm)?;
             ensure_unclosed(raw, "write to closed file", vm)?;
@@ -2947,7 +2946,7 @@ mod _io {
             let chunk_size = std::cmp::max(self.chunk_size, size_hint);
             let input_chunk = vm.call_method(&self.buffer, method, (chunk_size,))?;
 
-            let buf = PyBytesLike::new(vm, &input_chunk).map_err(|_| {
+            let buf = ArgBytesLike::new(vm, &input_chunk).map_err(|_| {
                 vm.new_type_error(format!(
                     "underlying {}() should have returned a bytes-like object, not '{}'",
                     method,
@@ -3257,7 +3256,7 @@ mod _io {
     #[pyimpl]
     impl BytesIORef {
         #[pymethod]
-        fn write(self, data: PyBytesLike, vm: &VirtualMachine) -> PyResult<u64> {
+        fn write(self, data: ArgBytesLike, vm: &VirtualMachine) -> PyResult<u64> {
             let mut buffer = self.try_resizable(vm)?;
             match data.with_ref(|b| buffer.write(b)) {
                 Some(value) => Ok(value),
@@ -3285,7 +3284,7 @@ mod _io {
         }
 
         #[pymethod]
-        fn readinto(self, obj: PyRwBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
+        fn readinto(self, obj: ArgMemoryBuffer, vm: &VirtualMachine) -> PyResult<usize> {
             let mut buf = self.buffer(vm)?;
             let ret = buf
                 .cursor
@@ -3725,7 +3724,7 @@ mod fileio {
     use super::Offset;
     use super::_io::*;
     use crate::builtins::{PyStr, PyStrRef, PyTypeRef};
-    use crate::byteslike::{PyBytesLike, PyRwBytesLike};
+    use crate::byteslike::{ArgBytesLike, ArgMemoryBuffer};
     use crate::crt_fd::Fd;
     use crate::exceptions::IntoPyException;
     use crate::function::OptionalOption;
@@ -4026,7 +4025,7 @@ mod fileio {
         }
 
         #[pymethod]
-        fn readinto(&self, obj: PyRwBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
+        fn readinto(&self, obj: ArgMemoryBuffer, vm: &VirtualMachine) -> PyResult<usize> {
             if !self.mode.load().contains(Mode::READABLE) {
                 return Err(new_unsupported_operation(
                     vm,
@@ -4044,7 +4043,7 @@ mod fileio {
         }
 
         #[pymethod]
-        fn write(&self, obj: PyBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
+        fn write(&self, obj: ArgBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
             if !self.mode.load().contains(Mode::WRITABLE) {
                 return Err(new_unsupported_operation(
                     vm,
