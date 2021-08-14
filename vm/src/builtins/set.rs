@@ -605,10 +605,8 @@ impl PyFrozenSet {
     }
 
     #[pymethod]
-    fn copy(&self) -> Self {
-        Self {
-            inner: self.inner.copy(),
-        }
+    fn copy(zelf: PyRef<Self>) -> PyRef<Self> {
+        zelf
     }
 
     #[pymethod(name = "__contains__")]
