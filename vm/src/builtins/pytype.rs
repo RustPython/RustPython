@@ -467,8 +467,6 @@ impl PyType {
         let typ = new(metatype, name.as_str(), base, bases, attributes, slots)
             .map_err(|e| vm.new_type_error(e))?;
 
-        vm.ctx.add_slot_wrappers(&typ);
-
         // avoid deadlock
         let attributes = typ
             .attributes
