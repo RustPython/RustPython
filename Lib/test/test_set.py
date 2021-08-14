@@ -724,8 +724,6 @@ class TestFrozenSet(TestJointOps, unittest.TestCase):
             results.add(hash(self.thetype(seq)))
         self.assertEqual(len(results), 1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_copy(self):
         dup = self.s.copy()
         self.assertEqual(id(self.s), id(dup))
