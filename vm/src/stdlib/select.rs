@@ -150,7 +150,7 @@ fn sec_to_timeval(sec: f64) -> timeval {
 
 #[pymodule(name = "select")]
 mod decl {
-    use super::super::time_module;
+    use super::super::time;
     use super::*;
     use crate::exceptions::IntoPyException;
     use crate::function::OptionalOption;
@@ -175,7 +175,7 @@ mod decl {
                 return Err(vm.new_value_error("timeout must be positive".to_owned()));
             }
         }
-        let deadline = timeout.map(|s| time_module::get_time() + s);
+        let deadline = timeout.map(|s| time::get_time() + s);
 
         let seq2set = |list| -> PyResult<(Vec<Selectable>, FdSet)> {
             let v = vm.extract_elements::<Selectable>(list)?;
@@ -214,7 +214,7 @@ mod decl {
             vm.check_signals()?;
 
             if let Some(ref mut timeout) = timeout {
-                *timeout = deadline.unwrap() - time_module::get_time();
+                *timeout = deadline.unwrap() - time::get_time();
                 if *timeout < 0.0 {
                     r.clear();
                     w.clear();
