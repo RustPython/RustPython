@@ -820,16 +820,12 @@ class TestVariousIteratorArgs(unittest.TestCase):
             self.assertRaises(TypeError, deque, seq_tests.IterNoNext(s))
             self.assertRaises(ZeroDivisionError, deque, seq_tests.IterGenExc(s))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_iter_with_altered_data(self):
         d = deque('abcdefg')
         it = iter(d)
         d.pop()
         self.assertRaises(RuntimeError, next, it)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_runtime_error_on_empty_deque(self):
         d = deque()
         it = iter(d)
