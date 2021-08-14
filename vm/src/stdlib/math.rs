@@ -657,6 +657,64 @@ fn math_remainder(x: IntoPyFloat, y: IntoPyFloat, vm: &VirtualMachine) -> PyResu
     Ok(x)
 }
 
+#[derive(FromArgs)]
+struct ProdArgs {
+    #[pyarg(positional)]
+    iterable: PyIterable<Either<PyFloatRef, PyIntRef>>,
+    #[pyarg(named, optional)]
+    start: OptionalArg<Either<PyFloatRef, PyIntRef>>,
+}
+fn math_prod(args: ProdArgs, vm: &VirtualMachine) -> PyResult<Either<BigInt, f64>> {
+    let iter = args.iterable;
+
+    let mut is_result_float = false;
+    let mut i_result: BigInt = BigInt::one();
+    let mut f_result: f64 = 1.0;
+
+    if let OptionalArg::Present(start) = args.start {
+        match start {
+            Either::A(f) => {
+                is_result_float = true;
+                f_result = f.to_f64()
+            },
+            Either::B(z) => {
+                let z = z.as_bigint();
+                i_result = z.clone()
+            }
+        }
+    }
+
+    for obj in iter.iter(vm)? {
+        match obj? {
+            Either::A(f) => {
+                if is_result_float {
+                    f_result *= f.to_f64();
+                    continue
+                }
+                
+                f_result = int::to_float(&i_result, vm)? * f.to_f64();
+                is_result_float = true;
+            },
+            Either::B(z) => {
+                if is_result_float {
+                    let z = z.as_bigint();
+                    f_result *= int::to_float(z, vm)?;
+                    continue
+                }
+
+                let z = z.as_bigint();
+                i_result *= z.clone()
+            }
+        }   
+    }
+
+    if !is_result_float {
+        return Ok(Either::A(i_result));
+    }
+
+    Ok(Either::B(f_result))
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -713,6 +771,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "fmod" => named_function!(ctx, math, fmod),
         "fsum" => named_function!(ctx, math, fsum),
         "remainder" => named_function!(ctx, math, remainder),
+        "prod" => named_function!(ctx, math, prod),
 
         // Rounding functions:
         "trunc" => named_function!(ctx, math, trunc),
