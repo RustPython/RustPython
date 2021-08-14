@@ -1698,8 +1698,6 @@ class TestEnum(unittest.TestCase):
             test = 1
         self.assertEqual(Test.test.test, 'dynamic')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_no_duplicates(self):
         class UniqueEnum(Enum):
             def __init__(self, *args):

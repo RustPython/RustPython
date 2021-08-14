@@ -1,7 +1,7 @@
 use super::os::PyPathLike;
 use super::socket::{self, PySocketRef};
 use crate::builtins::{pytype, weakref::PyWeak, PyStrRef, PyTypeRef};
-use crate::byteslike::{PyBytesLike, PyRwBytesLike};
+use crate::byteslike::{ArgBytesLike, ArgMemoryBuffer};
 use crate::common::lock::{PyRwLock, PyRwLockWriteGuard};
 use crate::exceptions::{create_exception_type, IntoPyException, PyBaseExceptionRef};
 use crate::function::OptionalArg;
@@ -216,7 +216,7 @@ fn _ssl_rand_status() -> i32 {
     unsafe { sys::RAND_status() }
 }
 
-fn _ssl_rand_add(string: Either<PyStrRef, PyBytesLike>, entropy: f64) {
+fn _ssl_rand_add(string: Either<PyStrRef, ArgBytesLike>, entropy: f64) {
     let f = |b: &[u8]| {
         for buf in b.chunks(libc::c_int::max_value() as usize) {
             unsafe { sys::RAND_add(buf.as_ptr() as *const _, buf.len() as _, entropy) }
@@ -419,7 +419,7 @@ impl PySslContext {
     }
 
     #[pymethod]
-    fn _set_alpn_protocols(&self, protos: PyBytesLike, vm: &VirtualMachine) -> PyResult<()> {
+    fn _set_alpn_protocols(&self, protos: ArgBytesLike, vm: &VirtualMachine) -> PyResult<()> {
         #[cfg(ossl102)]
         {
             let mut ctx = self.builder();
@@ -632,7 +632,7 @@ struct LoadVerifyLocationsArgs {
     #[pyarg(any, default)]
     capath: Option<PyStrRef>,
     #[pyarg(any, default)]
-    cadata: Option<Either<PyStrRef, PyBytesLike>>,
+    cadata: Option<Either<PyStrRef, ArgBytesLike>>,
 }
 
 #[derive(FromArgs)]
@@ -848,7 +848,7 @@ impl PySslSocket {
     }
 
     #[pymethod]
-    fn write(&self, data: PyBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
+    fn write(&self, data: ArgBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
         let mut stream = self.stream.write();
         let data = data.borrow_buf();
         let data = &*data;
@@ -890,7 +890,12 @@ impl PySslSocket {
     }
 
     #[pymethod]
-    fn read(&self, n: usize, buffer: OptionalArg<PyRwBytesLike>, vm: &VirtualMachine) -> PyResult {
+    fn read(
+        &self,
+        n: usize,
+        buffer: OptionalArg<ArgMemoryBuffer>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
         let mut stream = self.stream.write();
         let mut inner_buffer = if let OptionalArg::Present(buffer) = &buffer {
             Either::A(buffer.borrow_buf_mut())

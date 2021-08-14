@@ -5,7 +5,7 @@ mod decl {
     use crate::builtins::bytes::PyBytes;
     use crate::builtins::code::{PyCode, PyCodeRef};
     use crate::bytecode;
-    use crate::byteslike::PyBytesLike;
+    use crate::byteslike::ArgBytesLike;
     use crate::vm::VirtualMachine;
     use crate::{PyObjectRef, PyResult, TryFromObject};
 
@@ -21,7 +21,7 @@ mod decl {
     }
 
     #[pyfunction]
-    fn loads(code_bytes: PyBytesLike, vm: &VirtualMachine) -> PyResult<PyCode> {
+    fn loads(code_bytes: ArgBytesLike, vm: &VirtualMachine) -> PyResult<PyCode> {
         let code =
             bytecode::CodeObject::from_bytes(&*code_bytes.borrow_buf()).map_err(|e| match e {
                 bytecode::CodeDeserializeError::Eof => vm.new_exception_msg(
@@ -38,7 +38,7 @@ mod decl {
     #[pyfunction]
     fn load(f: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyCode> {
         let read_res = vm.call_method(&f, "read", ())?;
-        let bytes = PyBytesLike::try_from_object(vm, read_res)?;
+        let bytes = ArgBytesLike::try_from_object(vm, read_res)?;
         loads(bytes, vm)
     }
 }

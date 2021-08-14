@@ -1,31 +1,29 @@
-use bstr::ByteSlice;
-use crossbeam_utils::atomic::AtomicCell;
-use rustpython_common::borrow::{BorrowedValue, BorrowedValueMut};
-use std::mem::size_of;
-use std::ops::Deref;
-
 use super::dict::PyDictRef;
 use super::int::PyIntRef;
 use super::pystr::PyStrRef;
 use super::pytype::PyTypeRef;
 use crate::anystr::{self, AnyStr};
+use crate::buffer::{BufferOptions, PyBuffer};
 use crate::builtins::tuple::PyTupleRef;
 use crate::bytesinner::{
     bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
     ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
 };
-use crate::byteslike::PyBytesLike;
+use crate::byteslike::ArgBytesLike;
 use crate::common::hash::PyHash;
 use crate::function::{OptionalArg, OptionalOption};
-use crate::slots::{BufferProtocol, Comparable, Hashable, Iterable, PyComparisonOp, PyIter};
+use crate::slots::{AsBuffer, Comparable, Hashable, Iterable, PyComparisonOp, PyIter};
 use crate::utils::Either;
 use crate::vm::VirtualMachine;
 use crate::{
     IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef,
-    PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    PyRef, PyResult, PyValue, TryFromBorrowedObject, TypeProtocol,
 };
-
-use crate::builtins::memory::{BufferOptions, PyBuffer};
+use bstr::ByteSlice;
+use crossbeam_utils::atomic::AtomicCell;
+use rustpython_common::borrow::{BorrowedValue, BorrowedValueMut};
+use std::mem::size_of;
+use std::ops::Deref;
 
 /// "bytes(iterable_of_ints) -> bytes\n\
 /// bytes(string, encoding[, errors]) -> bytes\n\
@@ -98,7 +96,7 @@ pub(crate) fn init(context: &PyContext) {
     PyBytesIterator::extend_class(context, &context.types.bytes_iterator_type);
 }
 
-#[pyimpl(flags(BASETYPE), with(Hashable, Comparable, BufferProtocol, Iterable))]
+#[pyimpl(flags(BASETYPE), with(Hashable, Comparable, AsBuffer, Iterable))]
 impl PyBytes {
     #[pyslot]
     fn tp_new(
@@ -136,7 +134,7 @@ impl PyBytes {
     }
 
     #[pymethod(magic)]
-    fn add(&self, other: PyBytesLike, vm: &VirtualMachine) -> PyObjectRef {
+    fn add(&self, other: ArgBytesLike, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_bytes(self.inner.add(&*other.borrow_buf()))
     }
 
@@ -366,7 +364,7 @@ impl PyBytes {
 
     #[pymethod]
     fn partition(&self, sep: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let sub = PyBytesInner::try_from_object(vm, sep.clone())?;
+        let sub = PyBytesInner::try_from_borrowed_object(vm, &sep)?;
         let (front, has_mid, back) = self.inner.partition(&sub, vm)?;
         Ok(vm.ctx.new_tuple(vec![
             vm.ctx.new_bytes(front),
@@ -381,7 +379,7 @@ impl PyBytes {
 
     #[pymethod]
     fn rpartition(&self, sep: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let sub = PyBytesInner::try_from_object(vm, sep.clone())?;
+        let sub = PyBytesInner::try_from_borrowed_object(vm, &sep)?;
         let (back, has_mid, front) = self.inner.rpartition(&sub, vm)?;
         Ok(vm.ctx.new_tuple(vec![
             vm.ctx.new_bytes(front),
@@ -502,7 +500,7 @@ impl PyBytes {
     }
 }
 
-impl BufferProtocol for PyBytes {
+impl AsBuffer for PyBytes {
     fn get_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<Box<dyn PyBuffer>> {
         let buf = BytesBuffer {
             bytes: zelf.clone(),
@@ -604,8 +602,8 @@ impl PyIter for PyBytesIterator {
     }
 }
 
-impl TryFromObject for PyBytes {
-    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        PyBytesInner::try_from_object(vm, obj).map(|x| x.into())
+impl TryFromBorrowedObject for PyBytes {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Self> {
+        PyBytesInner::try_from_borrowed_object(vm, obj).map(|x| x.into())
     }
 }

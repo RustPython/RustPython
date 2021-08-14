@@ -15,7 +15,7 @@ mod _operator {
     use crate::builtins::pystr::PyStrRef;
     use crate::builtins::PyInt;
     use crate::builtins::PyTypeRef;
-    use crate::byteslike::PyBytesLike;
+    use crate::byteslike::ArgBytesLike;
     use crate::common::cmp;
     use crate::function::FuncArgs;
     use crate::function::KwArgs;
@@ -402,8 +402,8 @@ mod _operator {
     /// types and lengths of a and b--but not their values.
     #[pyfunction]
     fn _compare_digest(
-        a: Either<PyStrRef, PyBytesLike>,
-        b: Either<PyStrRef, PyBytesLike>,
+        a: Either<PyStrRef, ArgBytesLike>,
+        b: Either<PyStrRef, ArgBytesLike>,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
         let res = match (a, b) {

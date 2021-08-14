@@ -40,7 +40,7 @@ mod symtable;
 mod sysconfigdata;
 #[cfg(feature = "threading")]
 mod thread;
-mod time_module;
+mod time;
 mod unicodedata;
 mod warnings;
 mod weakref;
@@ -126,7 +126,7 @@ pub fn get_module_inits() -> StdlibMap {
             "_sre" => sre::make_module,
             "_string" => string::make_module,
             "_struct" => pystruct::make_module,
-            "time" => time_module::make_module,
+            "time" => time::make_module,
             "_weakref" => weakref::make_module,
             "_imp" => imp::make_module,
             "unicodedata" => unicodedata::make_module,

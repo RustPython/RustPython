@@ -5,7 +5,7 @@ mod decl {
     use crate::builtins::bytearray::{PyByteArray, PyByteArrayRef};
     use crate::builtins::bytes::{PyBytes, PyBytesRef};
     use crate::builtins::pystr::{PyStr, PyStrRef};
-    use crate::byteslike::PyBytesLike;
+    use crate::byteslike::ArgBytesLike;
     use crate::function::OptionalArg;
     use crate::vm::VirtualMachine;
     use crate::{PyObjectRef, PyResult, TryFromObject, TypeProtocol};
@@ -61,7 +61,7 @@ mod decl {
 
     #[pyfunction(name = "b2a_hex")]
     #[pyfunction]
-    fn hexlify(data: PyBytesLike) -> Vec<u8> {
+    fn hexlify(data: ArgBytesLike) -> Vec<u8> {
         data.with_ref(|bytes| {
             let mut hex = Vec::<u8>::with_capacity(bytes.len() * 2);
             for b in bytes.iter() {
@@ -135,7 +135,7 @@ mod decl {
     }
 
     #[pyfunction]
-    fn b2a_base64(data: PyBytesLike, NewlineArg { newline }: NewlineArg) -> Vec<u8> {
+    fn b2a_base64(data: ArgBytesLike, NewlineArg { newline }: NewlineArg) -> Vec<u8> {
         #[allow(clippy::redundant_closure)] // https://stackoverflow.com/questions/63916821
         let mut encoded = data.with_ref(|b| base64::encode(b)).into_bytes();
         if newline {

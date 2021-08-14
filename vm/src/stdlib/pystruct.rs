@@ -23,7 +23,7 @@ pub(crate) mod _struct {
         bytes::PyBytesRef, float, int::try_to_primitive, pybool::IntoPyBool, pystr::PyStr,
         pystr::PyStrRef, pytype::PyTypeRef, tuple::PyTupleRef,
     };
-    use crate::byteslike::{PyBytesLike, PyRwBytesLike};
+    use crate::byteslike::{ArgBytesLike, ArgMemoryBuffer};
     use crate::exceptions::PyBaseExceptionRef;
     use crate::function::Args;
     use crate::slots::PyIter;
@@ -676,7 +676,7 @@ pub(crate) mod _struct {
     }
 
     fn pack_string(vm: &VirtualMachine, arg: PyObjectRef, buf: &mut [u8]) -> PyResult<()> {
-        let b = PyBytesLike::try_from_object(vm, arg)?;
+        let b = ArgBytesLike::try_from_object(vm, arg)?;
         b.with_ref(|data| write_string(buf, data));
         Ok(())
     }
@@ -685,7 +685,7 @@ pub(crate) mod _struct {
         if buf.is_empty() {
             return Ok(());
         }
-        let b = PyBytesLike::try_from_object(vm, arg)?;
+        let b = ArgBytesLike::try_from_object(vm, arg)?;
         b.with_ref(|data| {
             let string_length = std::cmp::min(std::cmp::min(data.len(), 255), buf.len() - 1);
             buf[0] = string_length as u8;
@@ -727,7 +727,7 @@ pub(crate) mod _struct {
     #[pyfunction]
     fn pack_into(
         fmt: Either<PyStrRef, PyBytesRef>,
-        buffer: PyRwBytesLike,
+        buffer: ArgMemoryBuffer,
         offset: isize,
         args: Args,
         vm: &VirtualMachine,
@@ -756,7 +756,7 @@ pub(crate) mod _struct {
     #[pyfunction]
     fn unpack(
         fmt: Either<PyStrRef, PyBytesRef>,
-        buffer: PyBytesLike,
+        buffer: ArgBytesLike,
         vm: &VirtualMachine,
     ) -> PyResult<PyTupleRef> {
         let format_spec = FormatSpec::decode_and_parse(vm, &fmt)?;
@@ -765,7 +765,7 @@ pub(crate) mod _struct {
 
     #[derive(FromArgs)]
     struct UpdateFromArgs {
-        buffer: PyBytesLike,
+        buffer: ArgBytesLike,
         #[pyarg(any, default = "0")]
         offset: isize,
     }
@@ -788,7 +788,7 @@ pub(crate) mod _struct {
     #[derive(Debug)]
     struct UnpackIterator {
         format_spec: FormatSpec,
-        buffer: PyBytesLike,
+        buffer: ArgBytesLike,
         offset: AtomicCell<usize>,
     }
 
@@ -796,7 +796,7 @@ pub(crate) mod _struct {
         fn new(
             vm: &VirtualMachine,
             format_spec: FormatSpec,
-            buffer: PyBytesLike,
+            buffer: ArgBytesLike,
         ) -> PyResult<UnpackIterator> {
             if format_spec.size == 0 {
                 Err(new_struct_error(
@@ -851,7 +851,7 @@ pub(crate) mod _struct {
     #[pyfunction]
     fn iter_unpack(
         fmt: Either<PyStrRef, PyBytesRef>,
-        buffer: PyBytesLike,
+        buffer: ArgBytesLike,
         vm: &VirtualMachine,
     ) -> PyResult<UnpackIterator> {
         let format_spec = FormatSpec::decode_and_parse(vm, &fmt)?;
@@ -914,7 +914,7 @@ pub(crate) mod _struct {
         #[pymethod]
         fn pack_into(
             &self,
-            buffer: PyRwBytesLike,
+            buffer: ArgMemoryBuffer,
             offset: isize,
             args: Args,
             vm: &VirtualMachine,
@@ -927,7 +927,7 @@ pub(crate) mod _struct {
         }
 
         #[pymethod]
-        fn unpack(&self, data: PyBytesLike, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        fn unpack(&self, data: ArgBytesLike, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
             data.with_ref(|buf| self.spec.unpack(buf, vm))
         }
 
@@ -941,7 +941,7 @@ pub(crate) mod _struct {
         #[pymethod]
         fn iter_unpack(
             &self,
-            buffer: PyBytesLike,
+            buffer: ArgBytesLike,
             vm: &VirtualMachine,
         ) -> PyResult<UnpackIterator> {
             UnpackIterator::new(vm, self.spec.clone(), buffer)

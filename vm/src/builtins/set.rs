@@ -652,9 +652,14 @@ impl PyFrozenSet {
     }
 
     #[pymethod]
-    fn copy(&self) -> Self {
-        Self {
-            inner: self.inner.copy(),
+    fn copy(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRef<Self> {
+        if zelf.class().is(&vm.ctx.types.frozenset_type) {
+            zelf
+        } else {
+            Self {
+                inner: zelf.inner.copy(),
+            }
+            .into_ref(vm)
         }
     }
 

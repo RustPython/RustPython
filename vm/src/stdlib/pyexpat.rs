@@ -33,7 +33,7 @@ macro_rules! create_property {
 #[pymodule(name = "pyexpat")]
 mod _pyexpat {
     use crate::builtins::{PyStr, PyStrRef, PyTypeRef};
-    use crate::byteslike::PyBytesLike;
+    use crate::byteslike::ArgBytesLike;
     use crate::function::{IntoFuncArgs, OptionalArg};
     use crate::pyobject::StaticType;
     use crate::{
@@ -173,7 +173,7 @@ mod _pyexpat {
         fn parse_file(&self, file: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             // todo: read chunks at a time
             let read_res = vm.call_method(&file, "read", ())?;
-            let bytes_like = PyBytesLike::try_from_object(vm, read_res)?;
+            let bytes_like = ArgBytesLike::try_from_object(vm, read_res)?;
             let buf = bytes_like.borrow_buf().to_vec();
             let reader = Cursor::new(buf);
             let parser = self.create_config().create_reader(reader);

@@ -43,6 +43,7 @@ pub use rustpython_derive::*;
 pub mod macros;
 
 mod anystr;
+mod buffer;
 pub mod builtins;
 mod bytesinner;
 pub mod byteslike;

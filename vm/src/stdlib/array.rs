@@ -1,11 +1,11 @@
+use crate::buffer::{BufferOptions, PyBuffer, ResizeGuard};
 use crate::builtins::float::IntoPyFloat;
 use crate::builtins::list::{PyList, PyListRef};
-use crate::builtins::memory::{BufferOptions, PyBuffer, ResizeGuard};
 use crate::builtins::pystr::PyStrRef;
 use crate::builtins::pytype::PyTypeRef;
 use crate::builtins::slice::PySliceRef;
 use crate::builtins::{PyByteArray, PyBytes};
-use crate::byteslike::{try_bytes_like, PyBytesLike};
+use crate::byteslike::{try_bytes_like, ArgBytesLike};
 use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
 use crate::common::lock::{
     PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyRwLock, PyRwLockReadGuard,
@@ -13,7 +13,7 @@ use crate::common::lock::{
 };
 use crate::function::OptionalArg;
 use crate::sliceable::{saturate_index, PySliceableSequence, PySliceableSequenceMut};
-use crate::slots::{BufferProtocol, Comparable, Iterable, PyComparisonOp, PyIter};
+use crate::slots::{AsBuffer, Comparable, Iterable, PyComparisonOp, PyIter};
 use crate::utils::Either;
 use crate::VirtualMachine;
 use crate::{
@@ -488,7 +488,7 @@ impl From<ArrayContentType> for PyArray {
     }
 }
 
-#[pyimpl(flags(BASETYPE), with(Comparable, BufferProtocol, Iterable))]
+#[pyimpl(flags(BASETYPE), with(Comparable, AsBuffer, Iterable))]
 impl PyArray {
     fn read(&self) -> PyRwLockReadGuard<'_, ArrayContentType> {
         self.array.read()
@@ -585,7 +585,7 @@ impl PyArray {
     }
 
     #[pymethod]
-    fn frombytes(zelf: PyRef<Self>, b: PyBytesLike, vm: &VirtualMachine) -> PyResult<()> {
+    fn frombytes(zelf: PyRef<Self>, b: ArgBytesLike, vm: &VirtualMachine) -> PyResult<()> {
         let b = b.borrow_buf();
         let itemsize = zelf.read().itemsize();
         if b.len() % itemsize != 0 {
@@ -848,7 +848,7 @@ impl Comparable for PyArray {
     }
 }
 
-impl BufferProtocol for PyArray {
+impl AsBuffer for PyArray {
     fn get_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<Box<dyn PyBuffer>> {
         zelf.exports.fetch_add(1);
         let array = zelf.read();

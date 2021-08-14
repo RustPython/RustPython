@@ -5,7 +5,7 @@ mod decl {
     use crate::builtins::bytes::{PyBytes, PyBytesRef};
     use crate::builtins::int::{self, PyIntRef};
     use crate::builtins::pytype::PyTypeRef;
-    use crate::byteslike::PyBytesLike;
+    use crate::byteslike::ArgBytesLike;
     use crate::common::lock::PyMutex;
     use crate::exceptions::PyBaseExceptionRef;
     use crate::function::OptionalArg;
@@ -66,7 +66,7 @@ mod decl {
 
     /// Compute an Adler-32 checksum of data.
     #[pyfunction]
-    fn adler32(data: PyBytesLike, begin_state: OptionalArg<PyIntRef>) -> u32 {
+    fn adler32(data: ArgBytesLike, begin_state: OptionalArg<PyIntRef>) -> u32 {
         data.with_ref(|data| {
             let begin_state = begin_state.map_or(1, |i| int::bigint_unsigned_mask(i.as_bigint()));
 
@@ -78,7 +78,7 @@ mod decl {
 
     /// Compute a CRC-32 checksum of data.
     #[pyfunction]
-    fn crc32(data: PyBytesLike, begin_state: OptionalArg<PyIntRef>) -> u32 {
+    fn crc32(data: ArgBytesLike, begin_state: OptionalArg<PyIntRef>) -> u32 {
         data.with_ref(|data| {
             let begin_state = begin_state.map_or(0, |i| int::bigint_unsigned_mask(i.as_bigint()));
 
@@ -100,7 +100,7 @@ mod decl {
 
     /// Returns a bytes object containing compressed data.
     #[pyfunction]
-    fn compress(data: PyBytesLike, level: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult {
+    fn compress(data: ArgBytesLike, level: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult {
         let compression = compression_from_int(level.into_option())
             .ok_or_else(|| new_zlib_error("Bad compression level", vm))?;
 
@@ -230,7 +230,7 @@ mod decl {
     /// Returns a bytes object containing the uncompressed data.
     #[pyfunction]
     fn decompress(
-        data: PyBytesLike,
+        data: ArgBytesLike,
         wbits: OptionalArg<i8>,
         bufsize: OptionalArg<usize>,
         vm: &VirtualMachine,
@@ -396,7 +396,7 @@ mod decl {
     #[derive(FromArgs)]
     struct DecompressArgs {
         #[pyarg(positional)]
-        data: PyBytesLike,
+        data: ArgBytesLike,
         #[pyarg(any, default = "0")]
         max_length: usize,
     }
@@ -407,7 +407,7 @@ mod decl {
         wbits: OptionalArg<i8>,
         #[cfg(feature = "zlib")]
         #[pyarg(any, optional)]
-        zdict: OptionalArg<PyBytesLike>,
+        zdict: OptionalArg<ArgBytesLike>,
     }
 
     #[pyfunction]
@@ -419,7 +419,7 @@ mod decl {
         // these aren't used.
         _mem_level: OptionalArg<i32>, // this is memLevel in CPython
         _strategy: OptionalArg<i32>,
-        _zdict: OptionalArg<PyBytesLike>,
+        _zdict: OptionalArg<ArgBytesLike>,
         vm: &VirtualMachine,
     ) -> PyResult<PyCompress> {
         let level = compression_from_int(level.into_option())
@@ -455,7 +455,7 @@ mod decl {
     #[pyimpl]
     impl PyCompress {
         #[pymethod]
-        fn compress(&self, data: PyBytesLike, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        fn compress(&self, data: ArgBytesLike, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
             let mut inner = self.inner.lock();
             data.with_ref(|b| inner.compress(b, vm))
         }

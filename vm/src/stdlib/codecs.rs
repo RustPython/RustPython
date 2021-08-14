@@ -5,7 +5,7 @@ mod _codecs {
     use std::ops::Range;
 
     use crate::builtins::{PyBytesRef, PyStr, PyStrRef, PyTuple};
-    use crate::byteslike::PyBytesLike;
+    use crate::byteslike::ArgBytesLike;
     use crate::codecs;
     use crate::common::encodings;
     use crate::exceptions::PyBaseExceptionRef;
@@ -202,7 +202,7 @@ mod _codecs {
     #[derive(FromArgs)]
     struct DecodeArgs {
         #[pyarg(positional)]
-        data: PyBytesLike,
+        data: ArgBytesLike,
         #[pyarg(positional, optional)]
         errors: Option<PyStrRef>,
         #[pyarg(positional, default = "false")]

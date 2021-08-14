@@ -2,13 +2,15 @@ use js_sys::{Array, ArrayBuffer, Object, Promise, Reflect, SyntaxError, Uint8Arr
 use wasm_bindgen::{closure::Closure, prelude::*, JsCast};
 
 use rustpython_parser::error::ParseErrorType;
-use rustpython_vm::byteslike::PyBytesLike;
+use rustpython_vm::byteslike::ArgBytesLike;
 use rustpython_vm::compile::{CompileError, CompileErrorType};
 use rustpython_vm::exceptions::PyBaseExceptionRef;
 use rustpython_vm::function::FuncArgs;
 use rustpython_vm::VirtualMachine;
 use rustpython_vm::{exceptions, py_serde};
-use rustpython_vm::{ItemProtocol, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol};
+use rustpython_vm::{
+    ItemProtocol, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject, TypeProtocol,
+};
 
 use crate::js_module;
 use crate::vm_class::{stored_vm_from_wasm, WASMVirtualMachine};
@@ -139,7 +141,7 @@ pub fn py_to_js(vm: &VirtualMachine, py_obj: PyObjectRef) -> JsValue {
         }
     }
 
-    if let Ok(bytes) = PyBytesLike::try_from_object(vm, py_obj.clone()) {
+    if let Ok(bytes) = ArgBytesLike::try_from_borrowed_object(vm, &py_obj) {
         bytes.with_ref(|bytes| unsafe {
             // `Uint8Array::view` is an `unsafe fn` because it provides
             // a direct view into the WASM linear memory; if you were to allocate

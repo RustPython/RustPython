@@ -1,6 +1,4 @@
-use std::cmp::Ordering;
-
-use crate::builtins::memory::PyBuffer;
+use crate::buffer::PyBuffer;
 use crate::builtins::pystr::PyStrRef;
 use crate::common::hash::PyHash;
 use crate::common::lock::PyRwLock;
@@ -12,6 +10,7 @@ use crate::{
     TypeProtocol,
 };
 use crossbeam_utils::atomic::AtomicCell;
+use std::cmp::Ordering;
 
 bitflags! {
     pub struct PyTpFlags: u64 {
@@ -494,7 +493,7 @@ pub trait SlotSetattro: PyValue {
 }
 
 #[pyimpl]
-pub trait BufferProtocol: PyValue {
+pub trait AsBuffer: PyValue {
     #[pyslot]
     fn tp_as_buffer(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Box<dyn PyBuffer>> {
         if let Some(zelf) = zelf.downcast_ref() {
