@@ -58,6 +58,18 @@ pub fn get_time() -> f64 {
     Date::now() / 1000.0
 }
 
+#[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+pub fn get_time_ns() -> u64 {
+    match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(v) => v.as_nanos() as u64,
+        Err(err) => panic!("Time error: {:?}", err),
+    }
+}
+
+fn time_time_ns(_vm: &VirtualMachine) -> u64 {
+    get_time_ns()
+}
+
 fn time_time(_vm: &VirtualMachine) -> f64 {
     get_time()
 }
@@ -267,5 +279,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "struct_time" => struct_time_type,
         "time" => named_function!(ctx, time, time),
         "perf_counter" => named_function!(ctx, time, time), // TODO: fix
+        "time_ns" => named_function!(ctx,time,time_ns),
     })
 }
