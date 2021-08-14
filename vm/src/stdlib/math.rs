@@ -676,7 +676,7 @@ fn math_prod(args: ProdArgs, vm: &VirtualMachine) -> PyResult<Either<BigInt, f64
             Either::A(f) => {
                 is_result_float = true;
                 f_result = f.to_f64()
-            },
+            }
             Either::B(z) => {
                 let z = z.as_bigint();
                 i_result = z.clone()
@@ -689,23 +689,23 @@ fn math_prod(args: ProdArgs, vm: &VirtualMachine) -> PyResult<Either<BigInt, f64
             Either::A(f) => {
                 if is_result_float {
                     f_result *= f.to_f64();
-                    continue
+                    continue;
                 }
-                
+
                 f_result = int::to_float(&i_result, vm)? * f.to_f64();
                 is_result_float = true;
-            },
+            }
             Either::B(z) => {
                 if is_result_float {
                     let z = z.as_bigint();
                     f_result *= int::to_float(z, vm)?;
-                    continue
+                    continue;
                 }
 
                 let z = z.as_bigint();
                 i_result *= z.clone()
             }
-        }   
+        }
     }
 
     if !is_result_float {
