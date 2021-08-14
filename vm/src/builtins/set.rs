@@ -605,8 +605,15 @@ impl PyFrozenSet {
     }
 
     #[pymethod]
-    fn copy(zelf: PyRef<Self>) -> PyRef<Self> {
-        zelf
+    fn copy(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRef<Self> {
+        if zelf.class().is(&vm.ctx.types.frozenset_type) {
+            zelf
+        } else {
+            Self {
+                inner: zelf.inner.copy(),
+            }
+            .into_ref(vm)
+        }
     }
 
     #[pymethod(name = "__contains__")]
