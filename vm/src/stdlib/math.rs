@@ -667,10 +667,7 @@ struct ProdArgs {
 fn math_prod(args: ProdArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
     let iter = args.iterable;
 
-    let mut result = match args.start {
-        OptionalArg::Present(start) => start,
-        OptionalArg::Missing => vm.new_pyobj(1),
-    };
+    let mut result = args.start.unwrap_or_else(|| vm.new_pyobj(1));
 
     // TODO: CPython has optimized implementation for this
     // refer: https://github.com/python/cpython/blob/main/Modules/mathmodule.c#L3093-L3193
