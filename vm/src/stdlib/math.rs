@@ -672,6 +672,8 @@ fn math_prod(args: ProdArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         OptionalArg::Missing => vm.new_pyobj(1),
     };
 
+    // TODO: CPython has optimized implementation for this
+    // refer: https://github.com/python/cpython/blob/main/Modules/mathmodule.c#L3093-L3193
     for obj in iter.iter(vm)? {
         let obj = obj?;
 
