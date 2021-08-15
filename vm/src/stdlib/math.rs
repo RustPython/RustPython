@@ -672,14 +672,18 @@ fn math_prod(args: ProdArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         OptionalArg::Missing => vm.new_pyobj(1),
     };
 
+    let mut multiply_error_occured = false;
     for obj in iter.iter(vm)? {
         let obj = obj?;
-        if let Ok(Some(_v)) = float::try_float_opt(&obj, vm) {
-            result = vm._mul(&result, &obj).unwrap();
-            continue;
-        }
 
-        return Err(vm.new_type_error(format!("math type error")));
+        result = vm._mul(&result, &obj).unwrap_or_else(|_| {
+            multiply_error_occured = true;
+            result
+        });
+
+        if multiply_error_occured {
+            return Err(vm.new_type_error("math type error".to_owned()));
+        }
     }
 
     Ok(result)
