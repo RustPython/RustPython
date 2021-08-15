@@ -657,6 +657,31 @@ fn math_remainder(x: IntoPyFloat, y: IntoPyFloat, vm: &VirtualMachine) -> PyResu
     Ok(x)
 }
 
+#[derive(FromArgs)]
+struct ProdArgs {
+    #[pyarg(positional)]
+    iterable: PyIterable<PyObjectRef>,
+    #[pyarg(named, optional)]
+    start: OptionalArg<PyObjectRef>,
+}
+fn math_prod(args: ProdArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+    let iter = args.iterable;
+
+    let mut result = args.start.unwrap_or_else(|| vm.new_pyobj(1));
+
+    // TODO: CPython has optimized implementation for this
+    // refer: https://github.com/python/cpython/blob/main/Modules/mathmodule.c#L3093-L3193
+    for obj in iter.iter(vm)? {
+        let obj = obj?;
+
+        result = vm
+            ._mul(&result, &obj)
+            .map_err(|_| vm.new_type_error("math type error".to_owned()))?;
+    }
+
+    Ok(result)
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -713,6 +738,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "fmod" => named_function!(ctx, math, fmod),
         "fsum" => named_function!(ctx, math, fsum),
         "remainder" => named_function!(ctx, math, remainder),
+        "prod" => named_function!(ctx, math, prod),
 
         // Rounding functions:
         "trunc" => named_function!(ctx, math, trunc),

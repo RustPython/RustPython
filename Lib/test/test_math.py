@@ -1726,8 +1726,6 @@ class MathTests(unittest.TestCase):
             self.fail('Failures in test_mtestfile:\n  ' +
                       '\n  '.join(failures))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_prod(self):
         prod = math.prod
         self.assertEqual(prod([]), 1)
