@@ -2078,9 +2078,6 @@ class TestStdev(VarianceStdevMixin, NumericTestCase):
         self.assertEqual(self.func(data, xbar=2.0), 1.0)
 
 class TestGeometricMean(unittest.TestCase):
-
-    # TODO: RUSTPYTHON math.prod isn't implemented
-    @unittest.expectedFailure
     def test_basics(self):
         geometric_mean = statistics.geometric_mean
         self.assertAlmostEqual(geometric_mean([54, 24, 36]), 36.0)
