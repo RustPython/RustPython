@@ -84,10 +84,10 @@ fn at_address(cls: &PyTypeRef, buf: usize, vm: &VirtualMachine) -> PyResult<RawB
                 })
             }
             Ok(_) => Err(vm.new_type_error("abstract class".to_string())),
-            // @TODO: A sanity check
+            // FIXME: A sanity check
             Err(_) => Err(vm.new_type_error("attribute '__abstract__' must be bool".to_string())),
         },
-        // @TODO: I think it's unreachable
+        // FIXME: I think it's unreachable
         Err(_) => Err(vm.new_attribute_error("abstract class".to_string())),
     }
 }
@@ -107,7 +107,7 @@ fn buffer_copy(
                     let buffer = try_buffer_from_object(vm, &obj)?;
                     let opts = buffer.get_options().clone();
 
-                    // @TODO: Fix the way the size of stored
+                    // TODO: Fix the way the size of stored
                     // Would this be the a proper replacement?
                     // vm.call_method(cls.as_object().to_owned(), "size", ())?.
                     let cls_size = vm
@@ -152,22 +152,26 @@ fn buffer_copy(
                 }
                 Ok(_) => Err(vm.new_type_error("abstract class".to_string())),
                 Err(_) => {
-                    // @TODO: A sanity check
+                    // TODO: A sanity check
                     Err(vm.new_type_error("attribute '__abstract__' must be bool".to_string()))
                 }
             }
         }
-        // @TODO: I think this is unreachable...
+        // TODO: I think this is unreachable...
         Err(_) => Err(vm.new_type_error("abstract class".to_string())),
     }
 }
 
-pub fn default_from_param(cls: PyTypeRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    //@TODO: check if this behaves like it should
+pub fn default_from_param<T>(zelf: PyRef<T>, value: PyObjectRef, vm: &VirtualMachine) -> PyResult
+where
+    T: PyCDataMethods + PyValue,
+{
+    //TODO: check if this behaves like it should
+    let cls = zelf.as_object().clone_class();
     if vm.isinstance(&value, &cls)? {
         Ok(value)
     } else if let Ok(parameter) = vm.get_attribute(value.clone(), "_as_parameter_") {
-        default_from_param(cls, parameter, vm)
+        T::from_param(zelf, parameter, vm)
     } else {
         Err(vm.new_attribute_error(format!(
             "expected {} instance instead of {}",
@@ -203,7 +207,7 @@ pub trait PyCDataMethods: PyValue {
     // PyCFuncPtrType_Type
 
     #[pymethod]
-    fn from_param(zelf: PyTypeRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult;
+    fn from_param(zelf: PyRef<Self>, value: PyObjectRef, vm: &VirtualMachine) -> PyResult;
 
     #[pyclassmethod]
     fn from_address(
@@ -472,7 +476,7 @@ pub fn alignment(tp: Either<PyTypeRef, PyObjectRef>, vm: &VirtualMachine) -> PyR
 }
 
 pub fn byref(tp: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    //@TODO: Return a Pointer when Pointer implementation is ready
+    //TODO: Return a Pointer when Pointer implementation is ready
     let class = tp.clone_class();
 
     if class.issubclass(PyCData::static_type()) {

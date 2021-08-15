@@ -10,11 +10,11 @@ mod primitive;
 mod shared_lib;
 mod structure;
 
-use array::{PyCArray,PyCArrayMeta};
+use array::{PyCArray, PyCArrayMeta};
 use basics::{addressof, alignment, byref, sizeof_func, PyCData};
 use function::PyCFuncPtr;
 use pointer::{pointer_fn, PyCPointer, POINTER};
-use primitive::{PySimpleMeta, PyCSimple};
+use primitive::{PyCSimple, PySimpleMeta};
 use structure::PyCStructure;
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {

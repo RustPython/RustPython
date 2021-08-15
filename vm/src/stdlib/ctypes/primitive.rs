@@ -13,7 +13,8 @@ use crate::pyobject::{
 };
 use crate::stdlib::ctypes::array::PyCArray;
 use crate::stdlib::ctypes::basics::{
-    get_size, BorrowValueMut, PyCData, PyCDataFunctions, PyCDataMethods, PyCDataSequenceMethods,
+    default_from_param, get_size, BorrowValueMut, PyCData, PyCDataFunctions, PyCDataMethods,
+    PyCDataSequenceMethods,
 };
 use crate::stdlib::ctypes::function::PyCFuncPtr;
 use crate::stdlib::ctypes::pointer::PyCPointer;
@@ -149,7 +150,7 @@ fn generic_xxx_p_from_param(
     {
         Ok(value.clone())
     } else {
-        // @TODO: better message
+        // TODO: better message
         Err(vm.new_type_error("wrong type".to_string()))
     }
 }
@@ -175,7 +176,7 @@ fn from_param_char_p(
     {
         Ok(value.clone())
     } else {
-        // @TODO: Make sure of what goes here
+        // TODO: Make sure of what goes here
         Err(vm.new_type_error("some error".to_string()))
     }
 }
@@ -200,7 +201,7 @@ fn from_param_void_p(
     } else if vm.isinstance(value, PyCFuncPtr::static_type())?
         || vm.isinstance(value, PyCPointer::static_type())?
     {
-        // @TODO: Is there a better way of doing this?
+        // TODO: Is there a better way of doing this?
         if let Some(from_address) = vm.get_method(cls.as_object().clone(), "from_address") {
             if let Ok(cdata) = value.clone().downcast::<PyCData>() {
                 let buffer_guard = cdata.borrow_value_mut();
@@ -208,11 +209,11 @@ fn from_param_void_p(
 
                 Ok(vm.invoke(&from_address?, (cls.clone_class(), addr))?)
             } else {
-                // @TODO: Make sure of what goes here
+                // TODO: Make sure of what goes here
                 Err(vm.new_type_error("value should be an instance of _CData".to_string()))
             }
         } else {
-            // @TODO: Make sure of what goes here
+            // TODO: Make sure of what goes here
             Err(vm.new_attribute_error("class has no from_address method".to_string()))
         }
     } else if vm.isinstance(value, &vm.ctx.types.int_type)? {
@@ -222,7 +223,7 @@ fn from_param_void_p(
         }
         .into_object(vm))
     } else {
-        // @TODO: Make sure of what goes here
+        // TODO: Make sure of what goes here
         Err(vm.new_type_error("some error".to_string()))
     }
 }
@@ -246,7 +247,7 @@ pub fn new_simple_type(
                         .to_string(),
                 ))
             } else if !SIMPLE_TYPE_CHARS.contains(tp_str.as_str()) {
-                Err(vm.new_attribute_error(format!("class must define a '_type_' attribute which must be a single character string containing one of {}.",SIMPLE_TYPE_CHARS)))
+                Err(vm.new_attribute_error(format!("class must define a '_type_' attribute which must be\n a single character string containing one of {}.",SIMPLE_TYPE_CHARS)))
             } else {
                 Ok(PyCSimple {
                     _type_: tp_str,
@@ -262,13 +263,16 @@ pub fn new_simple_type(
 }
 
 #[pyclass(module = "_ctypes", name = "PyCSimpleType", base = "PyType")]
-pub struct PySimpleMeta{}
+pub struct PySimpleMeta {}
 
 #[pyimpl(with(PyCDataMethods), flags(BASETYPE))]
 impl PySimpleMeta {
     #[pyslot]
     fn tp_new(cls: PyTypeRef, _: OptionalArg, vm: &VirtualMachine) -> PyResult {
-        Ok(new_simple_type(Either::B(&cls), vm)?.into_ref_with_type(vm, cls)?.as_object().clone())
+        Ok(new_simple_type(Either::B(&cls), vm)?
+            .into_ref_with_type(vm, cls)?
+            .as_object()
+            .clone())
     }
 }
 
@@ -301,10 +305,7 @@ impl fmt::Debug for PyCSimple {
 
 impl fmt::Debug for PySimpleMeta {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "PySimpleMeta"
-        )
+        write!(f, "PySimpleMeta")
     }
 }
 
@@ -323,48 +324,37 @@ impl PyValue for PySimpleMeta {
 impl PyCDataMethods for PySimpleMeta {
     // From PyCSimpleType_Type PyCSimpleType_methods
     fn from_param(
-        tp: PyTypeRef,
+        zelf: PyRef<Self>,
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
-        let cls = tp.clone_class();
+        let cls = zelf.clone_class();
         if cls.is(PyCSimple::static_type()) {
             Err(vm.new_type_error("abstract class".to_string()))
         } else if vm.isinstance(&value, &cls)? {
             Ok(value)
         } else {
-            let tp_obj = vm.get_attribute(tp.as_object().clone(), "_type_").unwrap();
-            let _type_ = tp_obj.downcast_exact::<PyStr>(vm).unwrap();
-            match _type_.as_ref() {
+            let tp = vm.get_attribute(zelf.as_object().clone(), "_type_")?;
+            let _type_ = tp.downcast::<PyStr>().unwrap().to_string().as_str();
+
+            match _type_ {
                 "z" | "Z" => from_param_char_p(&cls, &value, vm),
                 "P" => from_param_void_p(&cls, &value, vm),
-                _ => {
-                    match new_simple_type(Either::B(&cls), vm) {
-                        Ok(obj) => Ok(obj.into_object(vm)),
-                        Err(e) => {
-                            if vm.isinstance(
-                                &e.clone().into_object(),
-                                &vm.ctx.exceptions.type_error,
-                            )? || vm.isinstance(
+                _ => match new_simple_type(Either::B(&cls), vm) {
+                    Ok(obj) => Ok(obj.into_object(vm)),
+                    Err(e) => {
+                        if vm.isinstance(&e.clone().into_object(), &vm.ctx.exceptions.type_error)?
+                            || vm.isinstance(
                                 &e.clone().into_object(),
                                 &vm.ctx.exceptions.value_error,
-                            )? {
-                                if vm.isinstance(&value,&tp)?{
-                                    return Ok(value);
-                                }  
-                                
-                                let as_parameter = vm
-                                    .get_attribute(tp.as_object().clone(), "_as_parameter_")
-                                    .map_err(|_| {
-                                        vm.new_type_error(format!("expected {} instance instead of {}", tp.class().name, value.class().name))
-                                    })?;
-
-                                return PySimpleMeta::from_param(tp, value, &vm);
-                            }
+                            )?
+                        {
+                            default_from_param(zelf, value.clone(), vm)
+                        } else {
                             Err(e)
                         }
                     }
-                }
+                },
             }
         }
     }

@@ -325,10 +325,10 @@ impl PyCFuncPtr {
     #[pyproperty(name = "_restype_", setter)]
     fn set_restype(&self, restype: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         match vm.isinstance(&restype, PyCSimple::static_type()) {
-            // @TODO: checks related to _type_ are temporary
+            // TODO: checks related to _type_ are temporary
             Ok(_) => match vm.get_attribute(restype.clone(), "_type_") {
                 Ok(_type_) => {
-                    // @TODO: restype must be a type, a callable, or None
+                    // TODO: restype must be a type, a callable, or None
                     self._restype_.store(restype.clone());
                     let mut fn_ptr = self._f.write();
                     fn_ptr.set_ret(vm.to_str(&_type_)?.as_ref());
@@ -345,7 +345,7 @@ impl PyCFuncPtr {
         }
     }
 
-    // @TODO: Needs to check and implement other forms of new
+    // TODO: Needs to check and implement other forms of new
     #[pyslot]
     fn tp_new(
         cls: PyTypeRef,
