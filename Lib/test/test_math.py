@@ -1809,9 +1809,8 @@ class MathTests(unittest.TestCase):
         self.assertEqual(type(prod([1, 2.0, 3, 4, 5, 6])), float)
         self.assertEqual(type(prod(range(1, 10000))), int)
         self.assertEqual(type(prod(range(1, 10000), start=1.0)), float)
-        # TODO: RUSTPYTHON
-        # self.assertEqual(type(prod([1, decimal.Decimal(2.0), 3, 4, 5, 6])),
-                        #  decimal.Decimal)
+        self.assertEqual(type(prod([1, decimal.Decimal(2.0), 3, 4, 5, 6])),
+                         decimal.Decimal)
 
     def testPerm(self):
         perm = math.perm
