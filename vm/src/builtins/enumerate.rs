@@ -32,7 +32,7 @@ struct EnumerateArgs {
     start: OptionalArg<PyIntRef>,
 }
 
-#[pyimpl(with(PyIter))]
+#[pyimpl(with(PyIter), flags(BASETYPE))]
 impl PyEnumerate {
     #[pyslot]
     fn tp_new(cls: PyTypeRef, args: EnumerateArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
