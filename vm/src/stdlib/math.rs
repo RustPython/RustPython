@@ -145,7 +145,7 @@ fn math_pow(x: IntoPyFloat, y: IntoPyFloat, vm: &VirtualMachine) -> PyResult<f64
 
     let value = x.powf(y);
 
-    return Ok(value);
+    Ok(value)
 }
 
 fn math_sqrt(value: IntoPyFloat, vm: &VirtualMachine) -> PyResult<f64> {
