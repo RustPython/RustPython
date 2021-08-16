@@ -389,11 +389,9 @@ impl PyContext {
     }
 
     pub fn add_slot_wrappers(&self, ty: &PyTypeRef) {
-        if !ty.attributes.read().contains_key("__new__") {
-            let new_wrapper =
-                self.new_bound_method(self.tp_new_wrapper.clone(), ty.clone().into_object());
-            ty.set_str_attr("__new__", new_wrapper);
-        }
+        let new_wrapper =
+            self.new_bound_method(self.tp_new_wrapper.clone(), ty.clone().into_object());
+        ty.set_str_attr("__new__", new_wrapper);
     }
 
     pub fn is_tp_new_wrapper(&self, obj: &PyObjectRef) -> bool {
