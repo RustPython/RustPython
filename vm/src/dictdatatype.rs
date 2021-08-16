@@ -25,6 +25,7 @@ type EntryIndex = usize;
 pub struct Dict<T = PyObjectRef> {
     inner: PyRwLock<DictInner<T>>,
 }
+
 impl<T> fmt::Debug for Dict<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Debug").finish()
@@ -37,10 +38,12 @@ enum IndexEntry {
     Free,
     Index(usize),
 }
+
 impl IndexEntry {
     const FREE: i64 = -1;
     const DUMMY: i64 = -2;
 }
+
 impl From<i64> for IndexEntry {
     fn from(idx: i64) -> Self {
         match idx {
@@ -50,6 +53,7 @@ impl From<i64> for IndexEntry {
         }
     }
 }
+
 impl From<IndexEntry> for i64 {
     fn from(idx: IndexEntry) -> Self {
         match idx {
@@ -65,7 +69,7 @@ struct DictInner<T> {
     used: usize,
     filled: usize,
     indices: Vec<i64>,
-    entries: Vec<DictEntry<T>>,
+    entries: Vec<Option<DictEntry<T>>>,
 }
 
 impl<T: Clone> Clone for Dict<T> {
@@ -143,15 +147,19 @@ impl<T> DictInner<T> {
         self.indices = vec![IndexEntry::FREE; new_size];
         let mask = (new_size - 1) as i64;
         for (entry_idx, entry) in self.entries.iter_mut().enumerate() {
-            let mut idxs = GenIndexes::new(entry.hash, mask);
-            loop {
-                let index_index = idxs.next();
-                let idx = &mut self.indices[index_index];
-                if *idx == IndexEntry::FREE {
-                    *idx = entry_idx as i64;
-                    entry.index = index_index;
-                    break;
+            if let Some(entry) = entry {
+                let mut idxs = GenIndexes::new(entry.hash, mask);
+                loop {
+                    let index_index = idxs.next();
+                    let idx = &mut self.indices[index_index];
+                    if *idx == IndexEntry::FREE {
+                        *idx = entry_idx as i64;
+                        entry.index = index_index;
+                        break;
+                    }
                 }
+            } else {
+                //removed entry
             }
         }
         self.filled = self.used;
@@ -172,7 +180,7 @@ impl<T> DictInner<T> {
             index,
         };
         let entry_index = self.entries.len();
-        self.entries.push(entry);
+        self.entries.push(Some(entry));
         self.indices[index] = entry_index as i64;
         self.used += 1;
         if let IndexEntry::Free = index_entry {
@@ -213,8 +221,8 @@ impl<T: Clone> Dict<T> {
 
     /// Store a key
     pub fn insert<K>(&self, vm: &VirtualMachine, key: K, value: T) -> PyResult<()>
-    where
-        K: DictKey,
+        where
+            K: DictKey,
     {
         let hash = key.key_hash(vm)?;
         let _removed = loop {
@@ -223,6 +231,7 @@ impl<T: Clone> Dict<T> {
                 let mut inner = self.write();
                 // Update existing key
                 if let Some(entry) = inner.entries.get_mut(index) {
+                    let entry = entry.as_mut().unwrap();
                     if entry.index == index_index {
                         let removed = std::mem::replace(&mut entry.value, value);
                         // defer dec RC
@@ -266,6 +275,7 @@ impl<T: Clone> Dict<T> {
             if let IndexEntry::Index(index) = entry {
                 let inner = self.read();
                 if let Some(entry) = inner.entries.get(index) {
+                    let entry = entry.as_ref().unwrap();
                     if entry.index == index_index {
                         break Some(entry.value.clone());
                     } else {
@@ -310,8 +320,8 @@ impl<T: Clone> Dict<T> {
 
     /// Delete a key
     pub fn delete<K>(&self, vm: &VirtualMachine, key: K) -> PyResult<()>
-    where
-        K: DictKey,
+        where
+            K: DictKey,
     {
         if self.delete_if_exists(vm, &key)? {
             Ok(())
@@ -321,8 +331,8 @@ impl<T: Clone> Dict<T> {
     }
 
     pub fn delete_if_exists<K>(&self, vm: &VirtualMachine, key: &K) -> PyResult<bool>
-    where
-        K: DictKey,
+        where
+            K: DictKey,
     {
         let hash = key.key_hash(vm)?;
         let deleted = loop {
@@ -366,9 +376,9 @@ impl<T: Clone> Dict<T> {
     }
 
     pub fn setdefault<K, F>(&self, vm: &VirtualMachine, key: K, default: F) -> PyResult<T>
-    where
-        K: DictKey,
-        F: FnOnce() -> T,
+        where
+            K: DictKey,
+            F: FnOnce() -> T,
     {
         let hash = key.key_hash(vm)?;
         let res = loop {
@@ -377,6 +387,7 @@ impl<T: Clone> Dict<T> {
             if let IndexEntry::Index(index) = entry {
                 let inner = self.read();
                 if let Some(entry) = inner.entries.get(index) {
+                    let entry = entry.as_ref().unwrap();
                     if entry.index == index_index {
                         break entry.value.clone();
                     } else {
@@ -408,9 +419,9 @@ impl<T: Clone> Dict<T> {
         key: K,
         default: F,
     ) -> PyResult<(PyObjectRef, T)>
-    where
-        K: DictKey,
-        F: FnOnce() -> T,
+        where
+            K: DictKey,
+            F: FnOnce() -> T,
     {
         let hash = key.key_hash(vm)?;
         let res = loop {
@@ -419,6 +430,7 @@ impl<T: Clone> Dict<T> {
             if let IndexEntry::Index(index) = entry {
                 let inner = self.read();
                 if let Some(entry) = inner.entries.get(index) {
+                    let entry = entry.as_ref().unwrap();
                     if entry.index == index_index {
                         break (entry.key.clone(), entry.value.clone());
                     } else {
@@ -453,10 +465,18 @@ impl<T: Clone> Dict<T> {
     }
 
     pub fn next_entry(&self, position: &mut EntryIndex) -> Option<(PyObjectRef, T)> {
-        self.read().entries.get(*position).map(|entry| {
-            *position += 1;
-            (entry.key.clone(), entry.value.clone())
-        })
+        let inner = self.read();
+        loop {
+            let entry = inner.entries.get(*position);
+            if let Some(entry) = entry {
+                *position += 1;
+                if let Some(entry) = entry {
+                    break Some((entry.key.clone(), entry.value.clone()));
+                }
+            } else {
+                break None;
+            }
+        }
     }
 
     pub fn len_from_entry_index(&self, position: EntryIndex) -> usize {
@@ -469,7 +489,9 @@ impl<T: Clone> Dict<T> {
     }
 
     pub fn keys(&self) -> Vec<PyObjectRef> {
-        self.read().entries.iter().map(|v| v.key.clone()).collect()
+        self.read().entries.iter()
+            .filter(|v| v.is_some())
+            .map(|v| v.as_ref().unwrap().key.clone()).collect()
     }
 
     /// Lookup the index for the given key.
@@ -505,7 +527,7 @@ impl<T: Clone> Dict<T> {
                             return Ok(idxs);
                         }
                         IndexEntry::Index(i) => {
-                            let entry = &inner.entries[i];
+                            let entry = &inner.entries[i].as_ref().unwrap();
                             let ret = (IndexEntry::Index(i), index_index);
                             if key.key_is(&entry.key) {
                                 break 'outer ret;
@@ -540,7 +562,7 @@ impl<T: Clone> Dict<T> {
             return Ok(None);
         };
         let mut inner = self.write();
-        if matches!(inner.entries.get(entry_index), Some(entry) if entry.index == index_index) {
+        if matches!(inner.entries.get(entry_index), Some(entry) if entry.as_ref().unwrap().index == index_index) {
             // all good
         } else {
             // The dict was changed since we did lookup. Let's try again.
@@ -551,12 +573,12 @@ impl<T: Clone> Dict<T> {
         let removed = if entry_index == inner.used {
             inner.entries.pop().unwrap()
         } else {
-            let last_index = inner.entries.last().unwrap().index;
+            let last_index = inner.entries.last().unwrap().as_ref().unwrap().index;
             let removed = inner.entries.swap_remove(entry_index);
             inner.indices[last_index] = entry_index as i64;
             removed
         };
-        Ok(Some(removed))
+        Ok(Some(removed.unwrap()))
     }
 
     /// Retrieve and delete a key
@@ -576,6 +598,7 @@ impl<T: Clone> Dict<T> {
     pub fn pop_back(&self) -> Option<(PyObjectRef, T)> {
         let mut inner = self.write();
         inner.entries.pop().map(|entry| {
+            let entry = entry.unwrap();
             inner.used -= 1;
             inner.indices[entry.index] = IndexEntry::DUMMY;
             (entry.key, entry.value)
@@ -638,6 +661,7 @@ impl DictKey for PyStrRef {
         }
     }
 }
+
 impl DictKey for PyRefExact<PyStr> {
     fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
         (**self).key_hash(vm)
