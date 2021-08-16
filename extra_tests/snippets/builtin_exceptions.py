@@ -152,3 +152,9 @@ except MyError as exc:
         assert isinstance(exc, MyError)
         assert exc.__cause__ is None
         assert exc.__context__ is e
+
+
+# Regression to
+# https://github.com/RustPython/RustPython/issues/2771
+
+assert KeyboardInterrupt.__init__.__qualname__ == 'KeyboardInterrupt.__init__'

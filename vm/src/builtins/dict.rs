@@ -592,7 +592,7 @@ macro_rules! dict_iterator {
       $class: ident, $iter_class: ident, $reverse_iter_class: ident,
       $class_name: literal, $iter_class_name: literal, $reverse_iter_class_name: literal,
       $result_fn: expr) => {
-        #[pyclass(module=false,name = $class_name)]
+        #[pyclass(module = false, name = $class_name)]
         #[derive(Debug)]
         pub(crate) struct $name {
             pub dict: PyDictRef,
@@ -670,7 +670,7 @@ macro_rules! dict_iterator {
             }
         }
 
-        #[pyclass(module=false,name = $iter_class_name)]
+        #[pyclass(module = false, name = $iter_class_name)]
         #[derive(Debug)]
         pub(crate) struct $iter_name {
             pub dict: PyDictRef,
@@ -734,7 +734,7 @@ macro_rules! dict_iterator {
             }
         }
 
-        #[pyclass(module=false,name = $reverse_iter_class_name)]
+        #[pyclass(module = false, name = $reverse_iter_class_name)]
         #[derive(Debug)]
         pub(crate) struct $reverse_iter_name {
             pub dict: PyDictRef,

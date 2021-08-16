@@ -68,8 +68,8 @@ impl PyBaseException {
     }
 
     #[pymethod(magic)]
-    fn init(&self, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-        *self.args.write() = PyTupleRef::with_elements(args.args, &vm.ctx);
+    pub(crate) fn init(zelf: PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        *zelf.args.write() = PyTupleRef::with_elements(args.args, &vm.ctx);
         Ok(())
     }
 
@@ -522,13 +522,84 @@ pub fn create_exception_type(name: &str, base: &PyTypeRef) -> PyTypeRef {
     create_type_with_slots(name, PyType::static_type(), base, exception_slots())
 }
 
+macro_rules! extends_exception {
+    // This case is like `SimpleExtendsException`:
+    (
+        $class_name: ident,
+        $class_name_literal: literal,
+        $base_class: ident,
+        $base_class_literal: literal,
+        $docs: tt
+    ) => {
+        simple_extends_exception!(
+            $class_name,
+            $class_name_literal,
+            $base_class,
+            $base_class_literal,
+            $docs,
+            {}
+        );
+    };
+
+    // TODO: Do we need `MiddlingExtendsException`?
+
+    // This case is like `ComplexExtendsException`:
+    (
+        $class_name: ident,
+        $class_name_literal: literal,
+        $base_class: ident,
+        $base_class_literal: literal,
+        $docs: tt,
+        { $($attr_name:expr => $attr_value:expr),* $(,)* }
+    ) => {
+        #[pyclass(module = false, name = $class_name_literal, base = $base_class_literal)]
+        #[derive(Debug)]
+        struct $class_name {}
+
+        #[pyimpl(flags(BASETYPE))]
+        impl $class_name {
+            // TODO: we probably need to add `new` as well
+
+            #[pymethod(magic)]
+            fn init(
+                zelf: PyRef<PyBaseException>,
+                args: FuncArgs,
+                vm: &VirtualMachine,
+            ) -> PyResult<()> {
+                // We need this method, because of how `CPython` copies `init`
+                // from `BaseException` in `SimpleExtendsException` macro.
+                // See: `(initproc)BaseException_init`
+                // In: https://github.com/python/cpython/blob/main/Objects/exceptions.c
+                $base_class::init(zelf, args, vm)
+            }
+
+            #[extend_class]
+            fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
+                class.set_str_attr("__doc__", ctx.new_str($docs.to_owned()));
+                $(
+                    class.set_str_attr($attr_name, $attr_value);
+                )*
+            }
+        }
+    };
+}
+
+extends_exception! {
+    PyKeyboardInterrupt,
+    "KeyboardInterrupt",
+    PyBaseException,
+    "PyBaseException",
+    "Program interrupted by user."
+}
+
 impl ExceptionZoo {
     pub(crate) fn init() -> Self {
         let base_exception_type = PyBaseException::init_bare_type().clone();
 
         // Sorted By Hierarchy then alphabetized.
         let system_exit = create_exception_type("SystemExit", &base_exception_type);
-        let keyboard_interrupt = create_exception_type("KeyboardInterrupt", &base_exception_type);
+        // let keyboard_interrupt = create_exception_type("KeyboardInterrupt", &base_exception_type);
+        let keyboard_interrupt = PyKeyboardInterrupt::init_bare_type().clone();
         let generator_exit = create_exception_type("GeneratorExit", &base_exception_type);
 
         let exception_type = create_exception_type("Exception", &base_exception_type);
@@ -682,6 +753,7 @@ impl ExceptionZoo {
         let excs = &ctx.exceptions;
 
         PyBaseException::extend_class(ctx, &excs.base_exception_type);
+        PyKeyboardInterrupt::extend_class(ctx, &excs.keyboard_interrupt);
 
         extend_class!(ctx, &excs.syntax_error, {
             "msg" => ctx.new_readonly_getset("msg", excs.syntax_error.clone(), make_arg_getter(0)),

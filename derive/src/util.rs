@@ -300,7 +300,7 @@ impl ClassItemMeta {
         }.map_err(|span| syn::Error::new(
             span,
             format!(
-                "#[{attr_name}(module = ...)] must exist as a string or false. Try #[{attr_name}(module=false)] for built-in types.",
+                "#[{attr_name}(module = ...)] must exist as a string or false. Try #[{attr_name}(module = false)] for built-in types.",
                 attr_name=inner.meta_name()
             ),
         ))?;
