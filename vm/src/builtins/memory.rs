@@ -54,8 +54,7 @@ type PyMemoryViewRef = PyRef<PyMemoryView>;
 #[pyimpl(with(Hashable, Comparable, AsBuffer))]
 impl PyMemoryView {
     fn parse_format(format: &str, vm: &VirtualMachine) -> PyResult<FormatSpec> {
-        FormatSpec::parse(format)
-            .map_err(|msg| vm.new_exception_msg(vm.ctx.types.memoryview_type.clone(), msg))
+        FormatSpec::parse(format, vm)
     }
 
     pub fn from_buffer(

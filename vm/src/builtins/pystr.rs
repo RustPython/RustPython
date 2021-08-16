@@ -780,6 +780,12 @@ impl PyStr {
         self.value.py_join(iter)
     }
 
+    // FIXME: two traversals of str is expensive
+    #[inline]
+    fn _to_char_idx(r: &str, byte_idx: usize) -> usize {
+        r[..byte_idx].chars().count()
+    }
+
     #[inline]
     fn _find<F>(&self, args: FindArgs, find: F) -> Option<usize>
     where
@@ -791,25 +797,25 @@ impl PyStr {
 
     #[pymethod]
     fn find(&self, args: FindArgs) -> isize {
-        self._find(args, |r, s| r.find(s))
+        self._find(args, |r, s| Some(Self::_to_char_idx(r, r.find(s)?)))
             .map_or(-1, |v| v as isize)
     }
 
     #[pymethod]
     fn rfind(&self, args: FindArgs) -> isize {
-        self._find(args, |r, s| r.rfind(s))
+        self._find(args, |r, s| Some(Self::_to_char_idx(r, r.rfind(s)?)))
             .map_or(-1, |v| v as isize)
     }
 
     #[pymethod]
     fn index(&self, args: FindArgs, vm: &VirtualMachine) -> PyResult<usize> {
-        self._find(args, |r, s| r.find(s))
+        self._find(args, |r, s| Some(Self::_to_char_idx(r, r.find(s)?)))
             .ok_or_else(|| vm.new_value_error("substring not found".to_owned()))
     }
 
     #[pymethod]
     fn rindex(&self, args: FindArgs, vm: &VirtualMachine) -> PyResult<usize> {
-        self._find(args, |r, s| r.rfind(s))
+        self._find(args, |r, s| Some(Self::_to_char_idx(r, r.rfind(s)?)))
             .ok_or_else(|| vm.new_value_error("substring not found".to_owned()))
     }
 

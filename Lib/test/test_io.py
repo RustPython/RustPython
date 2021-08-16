@@ -2596,8 +2596,6 @@ class TextIOWrapperTest(unittest.TestCase):
     def tearDown(self):
         support.unlink(support.TESTFN)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_constructor(self):
         r = self.BytesIO(b"\xc3\xa9\n\n")
         b = self.BufferedReader(r, 1000)
@@ -2935,8 +2933,6 @@ class TextIOWrapperTest(unittest.TestCase):
 
     # Systematic tests of the text I/O API
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_basic_io(self):
         for chunksize in (1, 2, 3, 4, 5, 15, 16, 17, 31, 32, 33, 63, 64, 65):
             for enc in "ascii", "latin-1", "utf-8" :# , "utf-16-be", "utf-16-le":
@@ -2988,8 +2984,6 @@ class TextIOWrapperTest(unittest.TestCase):
             rlines.append((pos, line))
         self.assertEqual(rlines, wlines)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_telling(self):
         f = self.open(support.TESTFN, "w+", encoding="utf-8")
         p0 = f.tell()
@@ -3608,8 +3602,6 @@ class TextIOWrapperTest(unittest.TestCase):
         F.tell = lambda x: 0
         t = self.TextIOWrapper(F(), encoding='utf-8')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_reconfigure_encoding_read(self):
         # latin1 -> utf8
         # (latin1 can decode utf-8 encoded string)
@@ -3761,6 +3753,26 @@ def _to_memoryview(buf):
 class CTextIOWrapperTest(TextIOWrapperTest):
     io = io
     shutdown_error = "RuntimeError: could not find io module state"
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_constructor(self):
+        super().test_constructor()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_reconfigure_encoding_read(self):
+        super().test_reconfigure_encoding_read()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_basic_io(self):
+        super().test_basic_io()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_telling(self):
+        super().test_telling()
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
@@ -3917,8 +3929,6 @@ class PyTextIOWrapperTest(TextIOWrapperTest):
     def test_line_buffering(self):
         super().test_line_buffering()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_seeking_too(self):
         super().test_seeking_too()
 
@@ -3927,8 +3937,6 @@ class PyTextIOWrapperTest(TextIOWrapperTest):
     def test_bufio_write_through(self):
         super().test_bufio_write_through()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_seeking(self):
         super().test_seeking()
 
