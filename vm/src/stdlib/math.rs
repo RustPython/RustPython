@@ -131,8 +131,21 @@ fn math_log1p(x: IntoPyFloat) -> f64 {
 make_math_func!(math_log2, log2);
 make_math_func!(math_log10, log10);
 
-fn math_pow(x: IntoPyFloat, y: IntoPyFloat) -> f64 {
-    x.to_f64().powf(y.to_f64())
+fn math_pow(x: IntoPyFloat, y: IntoPyFloat, vm: &VirtualMachine) -> PyResult<f64> {
+    let x = x.to_f64();
+    let y = y.to_f64();
+    
+    if x < 0.0 && x.is_finite() && y.fract() != 0.0 && y.is_finite() {
+        return Err(vm.new_value_error("math domain error".to_owned()));
+    }
+
+    if x == 0.0 && y < 0.0 {
+        return Err(vm.new_value_error("math domain error".to_owned()));
+    }
+
+    let value = x.powf(y);
+
+    return Ok(value);
 }
 
 fn math_sqrt(value: IntoPyFloat, vm: &VirtualMachine) -> PyResult<f64> {
