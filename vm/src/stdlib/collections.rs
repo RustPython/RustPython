@@ -205,10 +205,24 @@ mod _collections {
         }
 
         #[pymethod]
-        fn extendleft(&self, iter: PyIterable, vm: &VirtualMachine) -> PyResult<()> {
-            for elem in iter.iter(vm)? {
-                self.appendleft(elem?);
+        fn extendleft(&self, iter: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            let max_len = self.maxlen;
+            let mut elements: Vec<PyObjectRef> = vm.extract_elements(&iter)?;
+            elements.reverse();
+            let elements_len = elements.len();
+
+            if let Some(max_len) = max_len {
+                if max_len > elements.len() {
+                    let mut deque = self.borrow_deque_mut();
+                    let drain_until = deque.len().saturating_sub(max_len - elements.len());
+                    deque.drain(..drain_until);
+                } else {
+                    self.borrow_deque_mut().clear();
+                    elements.drain(..(elements.len() - max_len));
+                }
             }
+            self.borrow_deque_mut().extend(elements);
+            self.borrow_deque_mut().rotate_right(elements_len);
             Ok(())
         }
 

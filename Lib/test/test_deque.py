@@ -236,7 +236,6 @@ class TestBasic(unittest.TestCase):
         d += d
         self.assertEqual(list(d), list('abcdabcd'))
 
-    @unittest.skip("TODO: RUSTPYTHON hangs")
     def test_extendleft(self):
         d = deque('a')
         self.assertRaises(TypeError, d.extendleft, 1)
