@@ -134,7 +134,7 @@ make_math_func!(math_log10, log10);
 fn math_pow(x: IntoPyFloat, y: IntoPyFloat, vm: &VirtualMachine) -> PyResult<f64> {
     let x = x.to_f64();
     let y = y.to_f64();
-    
+
     if x < 0.0 && x.is_finite() && y.fract() != 0.0 && y.is_finite() {
         return Err(vm.new_value_error("math domain error".to_owned()));
     }
