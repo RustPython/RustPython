@@ -531,7 +531,7 @@ macro_rules! extends_exception {
         $base_class_literal: literal,
         $docs: tt
     ) => {
-        simple_extends_exception!(
+        extends_exception!(
             $class_name,
             $class_name_literal,
             $base_class,
@@ -585,11 +585,11 @@ macro_rules! extends_exception {
 }
 
 extends_exception! {
-    PyKeyboardInterrupt,
-    "KeyboardInterrupt",
-    PyBaseException,
-    "PyBaseException",
-    "Program interrupted by user."
+  PyKeyboardInterrupt,
+  "KeyboardInterrupt",
+  PyBaseException,
+  "PyBaseException",
+  "Program interrupted by user."
 }
 
 impl ExceptionZoo {
