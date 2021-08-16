@@ -10,7 +10,7 @@ license = "MIT"
 
 [dependencies]
 bincode =  "1.1"
-bitflags = "1.1"
+bitflags = "^1"
 lz4_flex = "0.7"
 num-bigint = { version = "0.4.0", features = ["serde"] }
 num-complex = { version = "0.4.0", features = ["serde"] }
