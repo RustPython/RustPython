@@ -21,12 +21,11 @@ pub enum IterStatus {
     Exhausted,
 }
 
-#[pyclass(module = false, name = "iter")]
+#[pyclass(module = false, name = "iterator")]
 #[derive(Debug)]
 pub struct PySequenceIterator {
     pub position: AtomicCell<isize>,
     pub obj: PyObjectRef,
-    pub reversed: bool,
 }
 
 impl PyValue for PySequenceIterator {
@@ -41,45 +40,26 @@ impl PySequenceIterator {
         Self {
             position: AtomicCell::new(0),
             obj,
-            reversed: false,
-        }
-    }
-
-    pub fn new_reversed(obj: PyObjectRef, len: isize) -> Self {
-        Self {
-            position: AtomicCell::new(len - 1),
-            obj,
-            reversed: true,
         }
     }
 
     #[pymethod(magic)]
     fn length_hint(&self, vm: &VirtualMachine) -> PyResult<isize> {
         let pos = self.position.load();
-        let hint = if self.reversed {
-            pos + 1
-        } else {
-            let len = vm.obj_len(&self.obj)?;
-            len as isize - pos
-        };
-        Ok(hint)
+        let len = vm.obj_len(&self.obj)?;
+        Ok(len as isize - pos)
     }
 }
 
 impl PyIter for PySequenceIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        let step: isize = if zelf.reversed { -1 } else { 1 };
-        let pos = zelf.position.fetch_add(step);
-        if pos >= 0 {
-            match zelf.obj.get_item(pos, vm) {
-                Err(ref e) if e.isinstance(&vm.ctx.exceptions.index_error) => {
-                    Err(vm.new_stop_iteration())
-                }
-                // also catches stop_iteration => stop_iteration
-                ret => ret,
+        let pos = zelf.position.fetch_add(1);
+        match zelf.obj.get_item(pos, vm) {
+            Err(ref e) if e.isinstance(&vm.ctx.exceptions.index_error) => {
+                Err(vm.new_stop_iteration())
             }
-        } else {
-            Err(vm.new_stop_iteration())
+            // also catches stop_iteration => stop_iteration
+            ret => ret,
         }
     }
 }
