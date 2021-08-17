@@ -30,7 +30,7 @@ use crate::utils::Either;
 use crate::vm::{ReprGuard, VirtualMachine};
 use crate::{
     IntoPyObject, ItemProtocol, PyObjectRef, PyRef, PyResult, PyStructSequence, PyValue,
-    StaticType, TryFromObject, TypeProtocol,
+    StaticType, TryFromBorrowedObject, TryFromObject, TypeProtocol,
 };
 
 #[cfg(unix)]
@@ -1654,7 +1654,7 @@ mod _os {
 
     #[pyfunction]
     fn truncate(path: PyObjectRef, length: Offset, vm: &VirtualMachine) -> PyResult<()> {
-        if let Ok(fd) = i32::try_from_object(vm, path.clone()) {
+        if let Ok(fd) = i32::try_from_borrowed_object(vm, &path) {
             return ftruncate(fd, length, vm);
         }
         let path = PyPathLike::try_from_object(vm, path)?;
@@ -2867,7 +2867,7 @@ mod posix {
                             "Each file_actions element must be a non-empty tuple".to_owned(),
                         )
                     })?;
-                    let id = i32::try_from_object(vm, id.clone())?;
+                    let id = i32::try_from_borrowed_object(vm, id)?;
                     let id = PosixSpawnFileActionIdentifier::try_from(id).map_err(|_| {
                         vm.new_type_error("Unknown file_actions identifier".to_owned())
                     })?;

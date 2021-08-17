@@ -6,8 +6,8 @@ use super::pystr::PyStrRef;
 use crate::function::OptionalArg;
 use crate::vm::VirtualMachine;
 use crate::{
-    IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyResult, TryFromObject,
-    TypeProtocol,
+    IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyResult, TryFromBorrowedObject,
+    TryFromObject, TypeProtocol,
 };
 
 impl IntoPyObject for bool {
@@ -16,10 +16,10 @@ impl IntoPyObject for bool {
     }
 }
 
-impl TryFromObject for bool {
-    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
+impl TryFromBorrowedObject for bool {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<bool> {
         if obj.isinstance(&vm.ctx.types.int_type) {
-            Ok(get_value(&obj))
+            Ok(get_value(obj))
         } else {
             Err(vm.new_type_error(format!("Expected type bool, not {}", obj.class().name)))
         }

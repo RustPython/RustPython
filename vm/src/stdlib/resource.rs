@@ -5,7 +5,7 @@ mod resource {
     use super::super::os;
     use crate::exceptions::IntoPyException;
     use crate::VirtualMachine;
-    use crate::{IntoPyObject, PyObjectRef, PyResult, PyStructSequence, TryFromObject};
+    use crate::{IntoPyObject, PyObjectRef, PyResult, PyStructSequence, TryFromBorrowedObject};
     use std::{io, mem};
 
     cfg_if::cfg_if! {
@@ -111,9 +111,9 @@ mod resource {
     }
 
     struct Limits(libc::rlimit);
-    impl TryFromObject for Limits {
-        fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-            let seq = vm.extract_elements::<libc::rlim_t>(&obj)?;
+    impl TryFromBorrowedObject for Limits {
+        fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Self> {
+            let seq = vm.extract_elements::<libc::rlim_t>(obj)?;
             match *seq {
                 [cur, max] => Ok(Self(libc::rlimit {
                     rlim_cur: cur & RLIM_INFINITY,
