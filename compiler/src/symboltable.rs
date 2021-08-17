@@ -1121,10 +1121,36 @@ impl SymbolTableBuilder {
             match role {
                 SymbolUsage::Global => {
                     if !symbol.is_global() {
-                        return Err(SymbolTableError {
-                            error: format!("name '{}' is used prior to global declaration", name),
-                            location,
-                        });
+                        if symbol.is_parameter {
+                            return Err(SymbolTableError {
+                                error: format!("name '{}' is parameter and global", name),
+                                location,
+                            });
+                        }
+                        if symbol.is_referenced {
+                            return Err(SymbolTableError {
+                                error: format!(
+                                    "name '{}' is used prior to global declaration",
+                                    name
+                                ),
+                                location,
+                            });
+                        }
+                        if symbol.is_annotated {
+                            return Err(SymbolTableError {
+                                error: format!("annotated name '{}' can't be global", name),
+                                location,
+                            });
+                        }
+                        if symbol.is_assigned {
+                            return Err(SymbolTableError {
+                                error: format!(
+                                    "name '{}' is assigned to before global declaration",
+                                    name
+                                ),
+                                location,
+                            });
+                        }
                     }
                 }
                 SymbolUsage::Nonlocal => {
