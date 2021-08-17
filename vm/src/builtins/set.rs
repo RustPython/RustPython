@@ -226,7 +226,7 @@ impl PySetInner {
 
     fn pop(&self, vm: &VirtualMachine) -> PyResult {
         // TODO: should be pop_front, but that requires rearranging every index
-        if let Some((key, _)) = self.content.pop_back() {
+        if let Some((key, _)) = self.content.pop_back(vm) {
             Ok(key)
         } else {
             let err_msg = vm.ctx.new_str("pop from an empty set");

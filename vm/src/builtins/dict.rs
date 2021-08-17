@@ -360,7 +360,7 @@ impl PyDict {
 
     #[pymethod]
     fn popitem(&self, vm: &VirtualMachine) -> PyResult {
-        if let Some((key, value)) = self.entries.pop_back() {
+        if let Some((key, value)) = self.entries.pop_back(vm) {
             Ok(vm.ctx.new_tuple(vec![key, value]))
         } else {
             let err_msg = vm.ctx.new_str("popitem(): dictionary is empty");

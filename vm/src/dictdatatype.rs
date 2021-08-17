@@ -221,8 +221,8 @@ impl<T: Clone> Dict<T> {
 
     /// Store a key
     pub fn insert<K>(&self, vm: &VirtualMachine, key: K, value: T) -> PyResult<()>
-        where
-            K: DictKey,
+    where
+        K: DictKey,
     {
         let hash = key.key_hash(vm)?;
         let _removed = loop {
@@ -320,8 +320,8 @@ impl<T: Clone> Dict<T> {
 
     /// Delete a key
     pub fn delete<K>(&self, vm: &VirtualMachine, key: K) -> PyResult<()>
-        where
-            K: DictKey,
+    where
+        K: DictKey,
     {
         if self.delete_if_exists(vm, &key)? {
             Ok(())
@@ -331,8 +331,8 @@ impl<T: Clone> Dict<T> {
     }
 
     pub fn delete_if_exists<K>(&self, vm: &VirtualMachine, key: &K) -> PyResult<bool>
-        where
-            K: DictKey,
+    where
+        K: DictKey,
     {
         let hash = key.key_hash(vm)?;
         let deleted = loop {
@@ -376,9 +376,9 @@ impl<T: Clone> Dict<T> {
     }
 
     pub fn setdefault<K, F>(&self, vm: &VirtualMachine, key: K, default: F) -> PyResult<T>
-        where
-            K: DictKey,
-            F: FnOnce() -> T,
+    where
+        K: DictKey,
+        F: FnOnce() -> T,
     {
         let hash = key.key_hash(vm)?;
         let res = loop {
@@ -419,9 +419,9 @@ impl<T: Clone> Dict<T> {
         key: K,
         default: F,
     ) -> PyResult<(PyObjectRef, T)>
-        where
-            K: DictKey,
-            F: FnOnce() -> T,
+    where
+        K: DictKey,
+        F: FnOnce() -> T,
     {
         let hash = key.key_hash(vm)?;
         let res = loop {
@@ -489,9 +489,12 @@ impl<T: Clone> Dict<T> {
     }
 
     pub fn keys(&self) -> Vec<PyObjectRef> {
-        self.read().entries.iter()
+        self.read()
+            .entries
+            .iter()
             .filter(|v| v.is_some())
-            .map(|v| v.as_ref().unwrap().key.clone()).collect()
+            .map(|v| v.as_ref().unwrap().key.clone())
+            .collect()
     }
 
     /// Lookup the index for the given key.
@@ -562,7 +565,8 @@ impl<T: Clone> Dict<T> {
             return Ok(None);
         };
         let mut inner = self.write();
-        if matches!(inner.entries.get(entry_index), Some(entry) if entry.as_ref().unwrap().index == index_index) {
+        if matches!(inner.entries.get(entry_index), Some(entry) if entry.as_ref().unwrap().index == index_index)
+        {
             // all good
         } else {
             // The dict was changed since we did lookup. Let's try again.
@@ -570,14 +574,9 @@ impl<T: Clone> Dict<T> {
         };
         inner.indices[index_index] = IndexEntry::DUMMY;
         inner.used -= 1;
-        let removed = if entry_index == inner.used {
-            inner.entries.pop().unwrap()
-        } else {
-            let last_index = inner.entries.last().unwrap().as_ref().unwrap().index;
-            let removed = inner.entries.swap_remove(entry_index);
-            inner.indices[last_index] = entry_index as i64;
-            removed
-        };
+        let removed = inner.entries[entry_index].clone();
+        inner.entries[entry_index] = None;
+
         Ok(Some(removed.unwrap()))
     }
 
@@ -595,14 +594,31 @@ impl<T: Clone> Dict<T> {
         Ok(removed)
     }
 
-    pub fn pop_back(&self) -> Option<(PyObjectRef, T)> {
-        let mut inner = self.write();
-        inner.entries.pop().map(|entry| {
-            let entry = entry.unwrap();
-            inner.used -= 1;
-            inner.indices[entry.index] = IndexEntry::DUMMY;
-            (entry.key, entry.value)
-        })
+    pub fn pop_back(&self, vm: &VirtualMachine) -> Option<(PyObjectRef, T)> {
+        let inner = self.read();
+        let mut idx: i64 = inner.size().entries_size as i64 - 1;
+
+        while idx >= 0 && inner.entries.get(idx as usize).unwrap().is_none() {
+            idx -= 1;
+        }
+
+        if idx < 0 {
+            None
+        } else {
+            let idx = idx as usize;
+            let entry = inner.entries.get(idx).unwrap().as_ref().unwrap().clone();
+
+            let removed_key = entry.key;
+            let removed_item = entry.value;
+            if let Ok(lookup) = self.lookup(vm, &removed_key, entry.hash, Some(inner)) {
+                match self.pop_inner(lookup) {
+                    Ok(_) => Some((removed_key, removed_item)),
+                    Err(_) => None,
+                }
+            } else {
+                None
+            }
+        }
     }
 
     pub fn sizeof(&self) -> usize {
