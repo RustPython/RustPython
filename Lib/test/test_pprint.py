@@ -76,8 +76,6 @@ class QueryTestCase(unittest.TestCase):
         self.b = list(range(200))
         self.a[-12] = self.b
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_init(self):
         pp = pprint.PrettyPrinter()
         pp = pprint.PrettyPrinter(indent=4, width=40, depth=5,
@@ -300,8 +298,6 @@ class QueryTestCase(unittest.TestCase):
         self.assertEqual(pprint.pformat({"xy\tab\n": (3,), 5: [[]], (): {}}),
             r"{5: [[]], 'xy\tab\n': (3,), (): {}}")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_sort_dict(self):
         d = dict.fromkeys('cba')
         self.assertEqual(pprint.pformat(d, sort_dicts=False), "{'c': None, 'b': None, 'a': None}")
