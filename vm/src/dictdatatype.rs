@@ -70,6 +70,8 @@ struct DictInner<T> {
     filled: usize,
     indices: Vec<i64>,
     entries: Vec<Option<DictEntry<T>>>,
+    // index to new inserted element should be in entries
+    nentries: usize,
 }
 
 impl<T: Clone> Clone for Dict<T> {
@@ -88,6 +90,7 @@ impl<T> Default for Dict<T> {
                 filled: 0,
                 indices: vec![IndexEntry::FREE; 8],
                 entries: Vec::new(),
+                nentries: 0,
             }),
         }
     }
@@ -107,6 +110,7 @@ pub struct DictSize {
     entries_size: usize,
     used: usize,
     filled: usize,
+    nentires: usize,
 }
 
 struct GenIndexes {
@@ -163,6 +167,7 @@ impl<T> DictInner<T> {
             }
         }
         self.filled = self.used;
+        self.nentries = self.entries.len();
     }
 
     fn unchecked_push(
@@ -179,10 +184,15 @@ impl<T> DictInner<T> {
             value,
             index,
         };
-        let entry_index = self.entries.len();
-        self.entries.push(Some(entry));
+        let entry_index = self.nentries;
+        if self.entries.len() == entry_index {
+            self.entries.push(Some(entry));
+        } else {
+            self.entries[entry_index] = Some(entry);
+        }
         self.indices[index] = entry_index as i64;
         self.used += 1;
+        self.nentries += 1;
         if let IndexEntry::Free = index_entry {
             self.filled += 1;
             if let Some(new_size) = self.should_resize() {
@@ -197,6 +207,7 @@ impl<T> DictInner<T> {
             entries_size: self.entries.len(),
             used: self.used,
             filled: self.filled,
+            nentires: self.nentries,
         }
     }
 
@@ -313,6 +324,7 @@ impl<T: Clone> Dict<T> {
             inner.indices.resize(8, IndexEntry::FREE);
             inner.used = 0;
             inner.filled = 0;
+            inner.nentries = 0;
             // defer dec rc
             std::mem::take(&mut inner.entries)
         };
@@ -596,7 +608,7 @@ impl<T: Clone> Dict<T> {
 
     pub fn pop_back(&self, vm: &VirtualMachine) -> Option<(PyObjectRef, T)> {
         let inner = self.read();
-        let mut idx: i64 = inner.size().entries_size as i64 - 1;
+        let mut idx: i64 = inner.nentries as i64 - 1;
 
         while idx >= 0 && inner.entries.get(idx as usize).unwrap().is_none() {
             idx -= 1;
@@ -612,7 +624,11 @@ impl<T: Clone> Dict<T> {
             let removed_item = entry.value;
             if let Ok(lookup) = self.lookup(vm, &removed_key, entry.hash, Some(inner)) {
                 match self.pop_inner(lookup) {
-                    Ok(_) => Some((removed_key, removed_item)),
+                    Ok(_) => {
+                        let mut inner = self.write();
+                        inner.nentries = idx as usize;
+                        Some((removed_key, removed_item))
+                    }
                     Err(_) => None,
                 }
             } else {
