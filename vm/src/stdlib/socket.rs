@@ -21,8 +21,8 @@ use crate::function::{FuncArgs, OptionalArg, OptionalOption};
 use crate::utils::Either;
 use crate::VirtualMachine;
 use crate::{
-    IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject,
-    TypeProtocol,
+    IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
+    TryFromBorrowedObject, TryFromObject, TypeProtocol,
 };
 
 #[cfg(unix)]
@@ -970,7 +970,7 @@ impl TryFromObject for Address {
 impl Address {
     fn from_tuple(tuple: &[PyObjectRef], vm: &VirtualMachine) -> PyResult<Self> {
         let host = PyStrRef::try_from_object(vm, tuple[0].clone())?;
-        let port = i32::try_from_object(vm, tuple[1].clone())?;
+        let port = i32::try_from_borrowed_object(vm, &tuple[1])?;
         let port = port
             .to_u16()
             .ok_or_else(|| vm.new_overflow_error("port must be 0-65535.".to_owned()))?;
@@ -980,12 +980,12 @@ impl Address {
         let addr = Address::from_tuple(tuple, vm)?;
         let flowinfo = tuple
             .get(2)
-            .map(|obj| u32::try_from_object(vm, obj.clone()))
+            .map(|obj| u32::try_from_borrowed_object(vm, obj))
             .transpose()?
             .unwrap_or(0);
         let scopeid = tuple
             .get(3)
-            .map(|obj| u32::try_from_object(vm, obj.clone()))
+            .map(|obj| u32::try_from_borrowed_object(vm, obj))
             .transpose()?
             .unwrap_or(0);
         if flowinfo > 0xfffff {

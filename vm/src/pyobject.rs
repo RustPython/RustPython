@@ -406,6 +406,28 @@ impl Default for PyContext {
     }
 }
 
+pub(crate) fn try_value_from_borrowed_object<T, F, R>(
+    vm: &VirtualMachine,
+    obj: &PyObjectRef,
+    f: F,
+) -> PyResult<R>
+where
+    T: PyValue,
+    F: Fn(&T) -> PyResult<R>,
+{
+    let class = T::class(vm);
+    let special;
+    let py_ref = if obj.isinstance(class) {
+        obj.downcast_ref()
+            .ok_or_else(|| pyref_payload_error(vm, class, obj))?
+    } else {
+        special = T::special_retrieve(vm, obj)
+            .unwrap_or_else(|| Err(pyref_type_error(vm, class, obj)))?;
+        &special
+    };
+    f(py_ref)
+}
+
 impl<T> TryFromObject for PyRef<T>
 where
     T: PyValue,
@@ -433,7 +455,8 @@ fn pyref_payload_error(
         &*obj.borrow().class().name,
     ))
 }
-fn pyref_type_error(
+
+pub(crate) fn pyref_type_error(
     vm: &VirtualMachine,
     class: &PyTypeRef,
     obj: impl std::borrow::Borrow<PyObjectRef>,
