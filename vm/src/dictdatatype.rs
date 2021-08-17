@@ -25,6 +25,7 @@ type EntryIndex = usize;
 pub struct Dict<T = PyObjectRef> {
     inner: PyRwLock<DictInner<T>>,
 }
+
 impl<T> fmt::Debug for Dict<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Debug").finish()
@@ -37,10 +38,12 @@ enum IndexEntry {
     Free,
     Index(usize),
 }
+
 impl IndexEntry {
     const FREE: i64 = -1;
     const DUMMY: i64 = -2;
 }
+
 impl From<i64> for IndexEntry {
     fn from(idx: i64) -> Self {
         match idx {
@@ -50,6 +53,7 @@ impl From<i64> for IndexEntry {
         }
     }
 }
+
 impl From<IndexEntry> for i64 {
     fn from(idx: IndexEntry) -> Self {
         match idx {
@@ -65,7 +69,9 @@ struct DictInner<T> {
     used: usize,
     filled: usize,
     indices: Vec<i64>,
-    entries: Vec<DictEntry<T>>,
+    entries: Vec<Option<DictEntry<T>>>,
+    // index to new inserted element should be in entries
+    next_new_entry_idx: usize,
 }
 
 impl<T: Clone> Clone for Dict<T> {
@@ -84,6 +90,7 @@ impl<T> Default for Dict<T> {
                 filled: 0,
                 indices: vec![IndexEntry::FREE; 8],
                 entries: Vec::new(),
+                next_new_entry_idx: 0,
             }),
         }
     }
@@ -143,18 +150,23 @@ impl<T> DictInner<T> {
         self.indices = vec![IndexEntry::FREE; new_size];
         let mask = (new_size - 1) as i64;
         for (entry_idx, entry) in self.entries.iter_mut().enumerate() {
-            let mut idxs = GenIndexes::new(entry.hash, mask);
-            loop {
-                let index_index = idxs.next();
-                let idx = &mut self.indices[index_index];
-                if *idx == IndexEntry::FREE {
-                    *idx = entry_idx as i64;
-                    entry.index = index_index;
-                    break;
+            if let Some(entry) = entry {
+                let mut idxs = GenIndexes::new(entry.hash, mask);
+                loop {
+                    let index_index = idxs.next();
+                    let idx = &mut self.indices[index_index];
+                    if *idx == IndexEntry::FREE {
+                        *idx = entry_idx as i64;
+                        entry.index = index_index;
+                        break;
+                    }
                 }
+            } else {
+                //removed entry
             }
         }
         self.filled = self.used;
+        self.next_new_entry_idx = self.entries.len();
     }
 
     fn unchecked_push(
@@ -171,10 +183,15 @@ impl<T> DictInner<T> {
             value,
             index,
         };
-        let entry_index = self.entries.len();
-        self.entries.push(entry);
+        let entry_index = self.next_new_entry_idx;
+        if self.entries.len() == entry_index {
+            self.entries.push(Some(entry));
+        } else {
+            self.entries[entry_index] = Some(entry);
+        }
         self.indices[index] = entry_index as i64;
         self.used += 1;
+        self.next_new_entry_idx += 1;
         if let IndexEntry::Free = index_entry {
             self.filled += 1;
             if let Some(new_size) = self.should_resize() {
@@ -223,6 +240,9 @@ impl<T: Clone> Dict<T> {
                 let mut inner = self.write();
                 // Update existing key
                 if let Some(entry) = inner.entries.get_mut(index) {
+                    let entry = entry
+                        .as_mut()
+                        .expect("The dict was changed since we did lookup.");
                     if entry.index == index_index {
                         let removed = std::mem::replace(&mut entry.value, value);
                         // defer dec RC
@@ -266,6 +286,7 @@ impl<T: Clone> Dict<T> {
             if let IndexEntry::Index(index) = entry {
                 let inner = self.read();
                 if let Some(entry) = inner.entries.get(index) {
+                    let entry = extract_dict_entry(entry);
                     if entry.index == index_index {
                         break Some(entry.value.clone());
                     } else {
@@ -303,6 +324,7 @@ impl<T: Clone> Dict<T> {
             inner.indices.resize(8, IndexEntry::FREE);
             inner.used = 0;
             inner.filled = 0;
+            inner.next_new_entry_idx = 0;
             // defer dec rc
             std::mem::take(&mut inner.entries)
         };
@@ -377,6 +399,7 @@ impl<T: Clone> Dict<T> {
             if let IndexEntry::Index(index) = entry {
                 let inner = self.read();
                 if let Some(entry) = inner.entries.get(index) {
+                    let entry = extract_dict_entry(entry);
                     if entry.index == index_index {
                         break entry.value.clone();
                     } else {
@@ -419,6 +442,7 @@ impl<T: Clone> Dict<T> {
             if let IndexEntry::Index(index) = entry {
                 let inner = self.read();
                 if let Some(entry) = inner.entries.get(index) {
+                    let entry = extract_dict_entry(entry);
                     if entry.index == index_index {
                         break (entry.key.clone(), entry.value.clone());
                     } else {
@@ -453,10 +477,14 @@ impl<T: Clone> Dict<T> {
     }
 
     pub fn next_entry(&self, position: &mut EntryIndex) -> Option<(PyObjectRef, T)> {
-        self.read().entries.get(*position).map(|entry| {
+        let inner = self.read();
+        loop {
+            let entry = inner.entries.get(*position)?;
             *position += 1;
-            (entry.key.clone(), entry.value.clone())
-        })
+            if let Some(entry) = entry {
+                break Some((entry.key.clone(), entry.value.clone()));
+            }
+        }
     }
 
     pub fn len_from_entry_index(&self, position: EntryIndex) -> usize {
@@ -469,7 +497,11 @@ impl<T: Clone> Dict<T> {
     }
 
     pub fn keys(&self) -> Vec<PyObjectRef> {
-        self.read().entries.iter().map(|v| v.key.clone()).collect()
+        self.read()
+            .entries
+            .iter()
+            .filter_map(|v| v.as_ref().map(|v| v.key.clone()))
+            .collect()
     }
 
     /// Lookup the index for the given key.
@@ -505,7 +537,7 @@ impl<T: Clone> Dict<T> {
                             return Ok(idxs);
                         }
                         IndexEntry::Index(i) => {
-                            let entry = &inner.entries[i];
+                            let entry = &inner.entries[i].as_ref().unwrap();
                             let ret = (IndexEntry::Index(i), index_index);
                             if key.key_is(&entry.key) {
                                 break 'outer ret;
@@ -540,7 +572,8 @@ impl<T: Clone> Dict<T> {
             return Ok(None);
         };
         let mut inner = self.write();
-        if matches!(inner.entries.get(entry_index), Some(entry) if entry.index == index_index) {
+        if matches!(inner.entries.get(entry_index), Some(Some(entry)) if entry.index == index_index)
+        {
             // all good
         } else {
             // The dict was changed since we did lookup. Let's try again.
@@ -548,15 +581,8 @@ impl<T: Clone> Dict<T> {
         };
         inner.indices[index_index] = IndexEntry::DUMMY;
         inner.used -= 1;
-        let removed = if entry_index == inner.used {
-            inner.entries.pop().unwrap()
-        } else {
-            let last_index = inner.entries.last().unwrap().index;
-            let removed = inner.entries.swap_remove(entry_index);
-            inner.indices[last_index] = entry_index as i64;
-            removed
-        };
-        Ok(Some(removed))
+        let removed = std::mem::take(&mut inner.entries[entry_index]);
+        Ok(removed)
     }
 
     /// Retrieve and delete a key
@@ -575,11 +601,19 @@ impl<T: Clone> Dict<T> {
 
     pub fn pop_back(&self) -> Option<(PyObjectRef, T)> {
         let mut inner = self.write();
-        inner.entries.pop().map(|entry| {
-            inner.used -= 1;
-            inner.indices[entry.index] = IndexEntry::DUMMY;
-            (entry.key, entry.value)
-        })
+        let mut idx = inner.next_new_entry_idx.checked_sub(1)?;
+        while inner.entries.get(idx).unwrap().is_none() {
+            idx = idx.checked_sub(1)?;
+        }
+
+        let entry = std::mem::take(&mut inner.entries[idx]).unwrap();
+        let removed_key = entry.key;
+        let removed_item = entry.value;
+
+        inner.used -= 1;
+        inner.indices[entry.index] = IndexEntry::DUMMY;
+        inner.next_new_entry_idx = idx;
+        Some((removed_key, removed_item))
     }
 
     pub fn sizeof(&self) -> usize {
@@ -638,6 +672,7 @@ impl DictKey for PyStrRef {
         }
     }
 }
+
 impl DictKey for PyRefExact<PyStr> {
     fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
         (**self).key_hash(vm)
@@ -697,6 +732,12 @@ fn str_exact<'a>(obj: &'a PyObjectRef, vm: &VirtualMachine) -> Option<&'a PyStr>
     } else {
         None
     }
+}
+
+fn extract_dict_entry<T>(option_entry: &Option<DictEntry<T>>) -> &DictEntry<T> {
+    option_entry
+        .as_ref()
+        .expect("The dict was changed since we did lookup.")
 }
 
 #[cfg(test)]
