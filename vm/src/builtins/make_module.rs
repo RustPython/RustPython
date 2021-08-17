@@ -12,9 +12,10 @@ mod decl {
     use crate::builtins::bytes::PyBytesRef;
     use crate::builtins::code::PyCodeRef;
     use crate::builtins::dict::PyDictRef;
+    use crate::builtins::enumerate::PyReverseSequenceIterator;
     use crate::builtins::function::{PyCellRef, PyFunctionRef};
     use crate::builtins::int::{self, PyIntRef};
-    use crate::builtins::iter::{PyCallableIterator, PySequenceIterator};
+    use crate::builtins::iter::PyCallableIterator;
     use crate::builtins::list::{PyList, SortOptions};
     use crate::builtins::pybool::IntoPyBool;
     use crate::builtins::pystr::{PyStr, PyStrRef};
@@ -720,7 +721,7 @@ mod decl {
                 "argument to reversed() must be a sequence".to_owned()
             })?;
             let len = vm.obj_len(&obj)? as isize;
-            let obj_iterator = PySequenceIterator::new_reversed(obj, len);
+            let obj_iterator = PyReverseSequenceIterator::new(obj, len);
             Ok(obj_iterator.into_object(vm))
         }
     }

@@ -1,14 +1,15 @@
 use crate::common::lock::PyRwLock;
 
+use crossbeam_utils::atomic::AtomicCell;
 use num_bigint::BigInt;
 use num_traits::Zero;
 
 use super::int::PyIntRef;
 use super::pytype::PyTypeRef;
 use crate::function::OptionalArg;
-use crate::iterator;
 use crate::slots::PyIter;
 use crate::vm::VirtualMachine;
+use crate::{iterator, ItemProtocol, TypeProtocol};
 use crate::{IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 
 #[pyclass(module = false, name = "enumerate")]
@@ -60,6 +61,52 @@ impl PyIter for PyEnumerate {
     }
 }
 
+#[pyclass(module = false, name = "reversed")]
+#[derive(Debug)]
+pub struct PyReverseSequenceIterator {
+    pub position: AtomicCell<isize>,
+    pub obj: PyObjectRef,
+}
+
+impl PyValue for PyReverseSequenceIterator {
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.reverse_iter_type
+    }
+}
+
+#[pyimpl(with(PyIter))]
+impl PyReverseSequenceIterator {
+    pub fn new(obj: PyObjectRef, len: isize) -> Self {
+        Self {
+            position: AtomicCell::new(len - 1),
+            obj,
+        }
+    }
+
+    #[pymethod(magic)]
+    fn length_hint(&self) -> PyResult<isize> {
+        Ok(self.position.load() + 1)
+    }
+}
+
+impl PyIter for PyReverseSequenceIterator {
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        let pos = zelf.position.fetch_sub(1);
+        if pos >= 0 {
+            match zelf.obj.get_item(pos, vm) {
+                Err(ref e) if e.isinstance(&vm.ctx.exceptions.index_error) => {
+                    Err(vm.new_stop_iteration())
+                }
+                // also catches stop_iteration => stop_iteration
+                ret => ret,
+            }
+        } else {
+            Err(vm.new_stop_iteration())
+        }
+    }
+}
+
 pub fn init(context: &PyContext) {
     PyEnumerate::extend_class(context, &context.types.enumerate_type);
+    PyReverseSequenceIterator::extend_class(context, &context.types.reverse_iter_type);
 }
