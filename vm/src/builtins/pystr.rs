@@ -160,21 +160,16 @@ impl PyStrIterator {
 
     #[pymethod(magic)]
     fn reduce(&self, vm: &VirtualMachine) -> PyResult {
-        let pos = if let Exhausted = self.status.load() {
-            None
-        } else {
-            Some(self.position.load(atomic::Ordering::Relaxed))
-        };
         let iter = vm.get_attribute(vm.builtins.clone(), "iter")?;
-        let elems = match pos {
-            None => vec![iter, vm.ctx.new_tuple(vec![vm.ctx.new_str("")])],
-            Some(pos) => vec![
+        Ok(vm.ctx.new_tuple(match self.status.load() {
+            Exhausted => vec![iter, vm.ctx.new_tuple(vec![vm.ctx.new_str("")])],
+            Active => vec![
                 iter,
                 vm.ctx.new_tuple(vec![self.string.clone().into_object()]),
-                vm.ctx.new_int(pos),
+                vm.ctx
+                    .new_int(self.position.load(atomic::Ordering::Relaxed)),
             ],
-        };
-        Ok(vm.ctx.new_tuple(elems))
+        }))
     }
 }
 
