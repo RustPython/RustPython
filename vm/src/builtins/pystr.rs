@@ -4,7 +4,6 @@ use std::string::ToString;
 use std::{char, ffi, fmt};
 
 use crossbeam_utils::atomic::AtomicCell;
-
 use itertools::Itertools;
 use num_traits::ToPrimitive;
 use unic_ucd_bidi::BidiClass;
