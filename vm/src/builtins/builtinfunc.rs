@@ -145,10 +145,9 @@ impl PyBuiltinFunction {
     }
     #[pyproperty(magic)]
     fn text_signature(&self, vm: &VirtualMachine) -> PyObjectRef {
-        match self.value.doc.as_ref()
-            .and_then(|doc| pytype::get_text_signature_from_internal_doc(
-                self.value.name.as_str(),
-                doc.as_str())) {
+        match self.value.doc.as_ref().and_then(|doc| {
+            pytype::get_text_signature_from_internal_doc(self.value.name.as_str(), doc.as_str())
+        }) {
             Some(signature) => vm.ctx.new_str(signature),
             None => vm.ctx.none(),
         }
@@ -220,10 +219,9 @@ impl PyBuiltinMethod {
     }
     #[pyproperty(magic)]
     fn text_signature(&self, vm: &VirtualMachine) -> PyObjectRef {
-        match self.value.doc.as_ref()
-            .and_then(|doc| pytype::get_text_signature_from_internal_doc(
-                self.value.name.as_str(),
-                doc.as_str())) {
+        match self.value.doc.as_ref().and_then(|doc| {
+            pytype::get_text_signature_from_internal_doc(self.value.name.as_str(), doc.as_str())
+        }) {
             Some(signature) => vm.ctx.new_str(signature),
             None => vm.ctx.none(),
         }

@@ -522,7 +522,9 @@ impl PyType {
     fn text_signature(&self, vm: &VirtualMachine) -> PyObjectRef {
         let doc_string = self.get_attr("__doc__");
         let doc_string: Option<PyStrRef> = doc_string.and_then(|o| o.downcast().ok());
-        match doc_string.and_then(|doc| get_text_signature_from_internal_doc(self.name().as_str(), doc.as_str())) {
+        match doc_string.and_then(|doc| {
+            get_text_signature_from_internal_doc(self.name().as_str(), doc.as_str())
+        }) {
             Some(doc) => vm.ctx.new_str(doc),
             _ => vm.ctx.none(),
         }
@@ -557,7 +559,10 @@ fn find_signature(name: &str, doc: &str) -> Option<String> {
     }
 }
 
-pub(crate) fn get_text_signature_from_internal_doc(name: &str, internal_doc: &str) -> Option<String> {
+pub(crate) fn get_text_signature_from_internal_doc(
+    name: &str,
+    internal_doc: &str,
+) -> Option<String> {
     find_signature(name, internal_doc).and_then(|signature| skip_signature(signature))
 }
 
