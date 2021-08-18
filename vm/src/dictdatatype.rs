@@ -602,18 +602,21 @@ impl<T: Clone> Dict<T> {
     pub fn pop_back(&self) -> Option<(PyObjectRef, T)> {
         let mut inner = self.write();
         let mut idx = inner.next_new_entry_idx.checked_sub(1)?;
-        while inner.entries.get(idx).unwrap().is_none() {
+        let entry = loop {
+            if let Some(entry) = inner.entries.get_mut(idx) {
+                if entry.is_some() {
+                    break entry;
+                }
+            }
             idx = idx.checked_sub(1)?;
-        }
+        };
 
-        let entry = std::mem::take(&mut inner.entries[idx]).unwrap();
-        let removed_key = entry.key;
-        let removed_item = entry.value;
+        let entry = std::mem::take(entry).unwrap();
 
         inner.used -= 1;
         inner.indices[entry.index] = IndexEntry::DUMMY;
         inner.next_new_entry_idx = idx;
-        Some((removed_key, removed_item))
+        Some((entry.key, entry.value))
     }
 
     pub fn sizeof(&self) -> usize {
