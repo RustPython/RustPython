@@ -144,13 +144,10 @@ impl PyBuiltinFunction {
         format!("<built-in function {}>", self.value.name)
     }
     #[pyproperty(magic)]
-    fn text_signature(&self, vm: &VirtualMachine) -> PyObjectRef {
-        match self.value.doc.as_ref().and_then(|doc| {
+    fn text_signature(&self) -> Option<String> {
+        self.value.doc.as_ref().and_then(|doc| {
             pytype::get_text_signature_from_internal_doc(self.value.name.as_str(), doc.as_str())
-        }) {
-            Some(signature) => vm.ctx.new_str(signature),
-            None => vm.ctx.none(),
-        }
+        })
     }
 }
 
@@ -218,13 +215,10 @@ impl PyBuiltinMethod {
         self.value.doc.clone()
     }
     #[pyproperty(magic)]
-    fn text_signature(&self, vm: &VirtualMachine) -> PyObjectRef {
-        match self.value.doc.as_ref().and_then(|doc| {
+    fn text_signature(&self) -> Option<String> {
+        self.value.doc.as_ref().and_then(|doc| {
             pytype::get_text_signature_from_internal_doc(self.value.name.as_str(), doc.as_str())
-        }) {
-            Some(signature) => vm.ctx.new_str(signature),
-            None => vm.ctx.none(),
-        }
+        })
     }
     #[pymethod(magic)]
     fn repr(&self) -> String {

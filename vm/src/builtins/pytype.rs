@@ -519,15 +519,12 @@ impl PyType {
     }
 
     #[pyproperty(magic)]
-    fn text_signature(&self, vm: &VirtualMachine) -> PyObjectRef {
+    fn text_signature(&self) -> Option<String> {
         let doc_string = self.get_attr("__doc__");
         let doc_string: Option<PyStrRef> = doc_string.and_then(|o| o.downcast().ok());
-        match doc_string.and_then(|doc| {
+        doc_string.and_then(|doc| {
             get_text_signature_from_internal_doc(self.name().as_str(), doc.as_str())
-        }) {
-            Some(doc) => vm.ctx.new_str(doc),
-            _ => vm.ctx.none(),
-        }
+        })
     }
 }
 
