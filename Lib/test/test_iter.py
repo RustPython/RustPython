@@ -313,8 +313,6 @@ class TestCase(unittest.TestCase):
         self.check_for_loop(iter(range(10)), list(range(10)))
 
     # Test a string
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_iter_string(self):
         self.check_for_loop(iter("abcde"), ["a", "b", "c", "d", "e"])
 
