@@ -533,15 +533,12 @@ impl PyType {
 
 const SIGNATURE_END_MARKER: &str = ")\n--\n\n";
 fn skip_signature(doc: String) -> Option<String> {
-    if let Some(index) = doc.find(SIGNATURE_END_MARKER) {
-        Some(doc[..index + 1].to_owned())
-    } else {
-        None
-    }
+    doc.find(SIGNATURE_END_MARKER)
+        .map(|index| doc[..index + 1].to_owned())
 }
 
 fn find_signature(name: &str, doc: &str) -> Option<String> {
-    let dot_index = name.rfind(".");
+    let dot_index = name.rfind('.');
     let name = match dot_index {
         Some(index) => name[index + 1..].to_owned(),
         _ => name.to_owned(),
@@ -552,7 +549,7 @@ fn find_signature(name: &str, doc: &str) -> Option<String> {
     }
 
     let doc = doc[name.len()..].to_owned();
-    if doc.chars().nth(0).unwrap() != '(' {
+    if doc.chars().next().unwrap() != '(' {
         None
     } else {
         Some(doc)
@@ -563,7 +560,7 @@ pub(crate) fn get_text_signature_from_internal_doc(
     name: &str,
     internal_doc: &str,
 ) -> Option<String> {
-    find_signature(name, internal_doc).and_then(|signature| skip_signature(signature))
+    find_signature(name, internal_doc).and_then(skip_signature)
 }
 
 impl SlotGetattro for PyType {
