@@ -128,6 +128,7 @@ class BaseLockTests(BaseTestCase):
         self.assertFalse(result[0])
         lock.release()
 
+    @unittest.skip("TODO: RUSTPYTHON, sometimes hangs")
     def test_acquire_contended(self):
         lock = self.locktype()
         lock.acquire()
