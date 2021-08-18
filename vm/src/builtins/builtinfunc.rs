@@ -1,6 +1,7 @@
 use std::fmt;
 
 use super::classmethod::PyClassMethod;
+use super::pytype;
 use crate::builtins::pystr::PyStrRef;
 use crate::builtins::pytype::PyTypeRef;
 use crate::function::{FuncArgs, PyNativeFunc};
@@ -142,6 +143,16 @@ impl PyBuiltinFunction {
     fn repr(&self) -> String {
         format!("<built-in function {}>", self.value.name)
     }
+    #[pyproperty(magic)]
+    fn text_signature(&self, vm: &VirtualMachine) -> PyObjectRef {
+        match self.value.doc.as_ref()
+            .and_then(|doc| pytype::get_text_signature_from_internal_doc(
+                self.value.name.as_str(),
+                doc.as_str())) {
+            Some(signature) => vm.ctx.new_str(signature),
+            None => vm.ctx.none(),
+        }
+    }
 }
 
 // `PyBuiltinMethod` is similar to both `PyMethodDescrObject` in
@@ -206,6 +217,16 @@ impl PyBuiltinMethod {
     #[pyproperty(magic)]
     fn doc(&self) -> Option<PyStrRef> {
         self.value.doc.clone()
+    }
+    #[pyproperty(magic)]
+    fn text_signature(&self, vm: &VirtualMachine) -> PyObjectRef {
+        match self.value.doc.as_ref()
+            .and_then(|doc| pytype::get_text_signature_from_internal_doc(
+                self.value.name.as_str(),
+                doc.as_str())) {
+            Some(signature) => vm.ctx.new_str(signature),
+            None => vm.ctx.none(),
+        }
     }
     #[pymethod(magic)]
     fn repr(&self) -> String {

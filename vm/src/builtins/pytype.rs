@@ -517,6 +517,48 @@ impl PyType {
             "Setting __dict__ attribute on a type isn't yet implemented".to_owned(),
         ))
     }
+
+    #[pyproperty(magic)]
+    fn text_signature(&self, vm: &VirtualMachine) -> PyObjectRef {
+        let doc_string = self.get_attr("__doc__");
+        let doc_string: Option<PyStrRef> = doc_string.and_then(|o| o.downcast().ok());
+        match doc_string.and_then(|doc| get_text_signature_from_internal_doc(self.name().as_str(), doc.as_str())) {
+            Some(doc) => vm.ctx.new_str(doc),
+            _ => vm.ctx.none(),
+        }
+    }
+}
+
+const SIGNATURE_END_MARKER: &str = ")\n--\n\n";
+fn skip_signature(doc: String) -> Option<String> {
+    if let Some(index) = doc.find(SIGNATURE_END_MARKER) {
+        Some(doc[..index + 1].to_owned())
+    } else {
+        None
+    }
+}
+
+fn find_signature(name: &str, doc: &str) -> Option<String> {
+    let dot_index = name.rfind(".");
+    let name = match dot_index {
+        Some(index) => name[index + 1..].to_owned(),
+        _ => name.to_owned(),
+    };
+
+    if !doc.starts_with(&name) {
+        return None;
+    }
+
+    let doc = doc[name.len()..].to_owned();
+    if doc.chars().nth(0).unwrap() != '(' {
+        None
+    } else {
+        Some(doc)
+    }
+}
+
+pub(crate) fn get_text_signature_from_internal_doc(name: &str, internal_doc: &str) -> Option<String> {
+    find_signature(name, internal_doc).and_then(|signature| skip_signature(signature))
 }
 
 impl SlotGetattro for PyType {
