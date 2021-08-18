@@ -600,22 +600,15 @@ impl<T: Clone> Dict<T> {
     }
 
     pub fn pop_back(&self) -> Option<(PyObjectRef, T)> {
-        let mut inner = self.write();
-        let mut idx = inner.next_new_entry_idx.checked_sub(1)?;
-        let entry = loop {
-            if let Some(entry) = inner.entries.get_mut(idx) {
-                if entry.is_some() {
-                    break entry;
-                }
-            }
-            idx = idx.checked_sub(1)?;
-        };
-
-        let entry = std::mem::take(entry).unwrap();
-
+        let mut inner = &mut *self.write();
+        let (entry_idx, entry) = inner.entries[..inner.next_new_entry_idx]
+            .iter_mut()
+            .enumerate()
+            .rev()
+            .find_map(|(i, entry)| entry.take().map(|e| (i, e)))?;
         inner.used -= 1;
         inner.indices[entry.index] = IndexEntry::DUMMY;
-        inner.next_new_entry_idx = idx;
+        inner.next_new_entry_idx = entry_idx;
         Some((entry.key, entry.value))
     }
 
