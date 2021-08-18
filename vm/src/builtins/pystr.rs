@@ -3,6 +3,8 @@ use std::ops::Range;
 use std::string::ToString;
 use std::{char, ffi, fmt};
 
+use crossbeam_utils::atomic::AtomicCell;
+
 use itertools::Itertools;
 use num_traits::ToPrimitive;
 use unic_ucd_bidi::BidiClass;
@@ -12,7 +14,11 @@ use unicode_casing::CharExt;
 
 use super::bytes::PyBytesRef;
 use super::dict::PyDict;
-use super::int::{PyInt, PyIntRef};
+use super::int::{try_to_primitive, PyInt, PyIntRef};
+use super::iter::{
+    IterStatus,
+    IterStatus::{Active, Exhausted},
+};
 use super::pytype::PyTypeRef;
 use crate::anystr::{self, adjust_indices, AnyStr, AnyStrContainer, AnyStrWrapper};
 use crate::exceptions::IntoPyException;
@@ -113,6 +119,7 @@ impl TryIntoRef<PyStr> for &str {
 pub struct PyStrIterator {
     string: PyStrRef,
     position: PyAtomic<usize>,
+    status: AtomicCell<IterStatus>,
 }
 
 impl PyValue for PyStrIterator {
@@ -122,20 +129,71 @@ impl PyValue for PyStrIterator {
 }
 
 #[pyimpl(with(PyIter))]
-impl PyStrIterator {}
+impl PyStrIterator {
+    #[pymethod(magic)]
+    fn length_hint(&self) -> usize {
+        match self.status.load() {
+            Active => {
+                let pos = self.position.load(atomic::Ordering::SeqCst);
+                self.string.len().saturating_sub(pos)
+            }
+            Exhausted => 0,
+        }
+    }
+
+    #[pymethod(magic)]
+    fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        // When we're exhausted, just return.
+        if let Exhausted = self.status.load() {
+            return Ok(());
+        }
+        let pos = state
+            .payload::<PyInt>()
+            .ok_or_else(|| vm.new_type_error("an integer is required.".to_owned()))?;
+        let pos = std::cmp::min(
+            try_to_primitive(pos.as_bigint(), vm).unwrap_or(0),
+            self.string.len(),
+        );
+        self.position.store(pos, atomic::Ordering::SeqCst);
+        Ok(())
+    }
+
+    #[pymethod(magic)]
+    fn reduce(&self, vm: &VirtualMachine) -> PyResult {
+        let pos = if let Exhausted = self.status.load() {
+            None
+        } else {
+            Some(self.position.load(atomic::Ordering::Relaxed))
+        };
+        let iter = vm.get_attribute(vm.builtins.clone(), "iter")?;
+        let elems = match pos {
+            None => vec![iter, vm.ctx.new_tuple(vec![vm.ctx.new_str("")])],
+            Some(pos) => vec![
+                iter,
+                vm.ctx.new_tuple(vec![self.string.clone().into_object()]),
+                vm.ctx.new_int(pos),
+            ],
+        };
+        Ok(vm.ctx.new_tuple(elems))
+    }
+}
 
 impl PyIter for PyStrIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        if let Exhausted = zelf.status.load() {
+            return Err(vm.new_stop_iteration());
+        }
         let value = &*zelf.string.value;
         let mut start = zelf.position.load(atomic::Ordering::SeqCst);
         loop {
             if start == value.len() {
+                zelf.status.store(Exhausted);
                 return Err(vm.new_stop_iteration());
             }
-            let ch = value[start..]
-                .chars()
-                .next()
-                .ok_or_else(|| vm.new_stop_iteration())?;
+            let ch = value[start..].chars().next().ok_or_else(|| {
+                zelf.status.store(Exhausted);
+                vm.new_stop_iteration()
+            })?;
 
             match zelf.position.compare_exchange_weak(
                 start,
@@ -1123,6 +1181,7 @@ impl Iterable for PyStr {
         Ok(PyStrIterator {
             position: Radium::new(0),
             string: zelf,
+            status: AtomicCell::new(Active),
         }
         .into_object(vm))
     }
