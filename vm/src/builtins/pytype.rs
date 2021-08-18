@@ -546,7 +546,7 @@ fn find_signature(name: &str, doc: &str) -> Option<String> {
     }
 
     let doc = doc[name.len()..].to_owned();
-    if doc.chars().next().unwrap() != '(' {
+    if !doc.starts_with('(') {
         None
     } else {
         Some(doc)
