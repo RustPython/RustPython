@@ -12,6 +12,7 @@ pub(crate) const ALL_ALLOWED_NAMES: &[&str] = &[
     "pyproperty",
     "pyfunction",
     "pyclass",
+    "pyexception",
     "pystruct_sequence",
     "pyattr",
     "pyslot",
@@ -96,7 +97,7 @@ impl ItemMetaInner {
                     Err(syn::Error::new_spanned(
                         ident,
                         format!(
-                            "#[{}({})] is not one of allowed attributes {}",
+                            "#[{}({})] is not one of allowed attributes [{}]",
                             meta_ident.to_string(),
                             name,
                             allowed_names.join(", ")

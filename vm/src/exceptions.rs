@@ -526,16 +526,12 @@ macro_rules! extends_exception {
     // This case is like `SimpleExtendsException`:
     (
         $class_name: ident,
-        $class_name_literal: literal,
         $base_class: ident,
-        $base_class_literal: literal,
         $docs: tt
     ) => {
         extends_exception!(
             $class_name,
-            $class_name_literal,
             $base_class,
-            $base_class_literal,
             $docs,
             {}
         );
@@ -546,13 +542,11 @@ macro_rules! extends_exception {
     // This case is like `ComplexExtendsException`:
     (
         $class_name: ident,
-        $class_name_literal: literal,
         $base_class: ident,
-        $base_class_literal: literal,
         $docs: tt,
         { $($attr_name:expr => $attr_value:expr),* $(,)* }
     ) => {
-        #[pyclass(module = false, name = $class_name_literal, base = $base_class_literal)]
+        #[pyexception($class_name, $base_class)]
         #[derive(Debug)]
         struct $class_name {}
 
@@ -585,11 +579,9 @@ macro_rules! extends_exception {
 }
 
 extends_exception! {
-  PyKeyboardInterrupt,
-  "KeyboardInterrupt",
-  PyBaseException,
-  "PyBaseException",
-  "Program interrupted by user."
+    PyKeyboardInterrupt,
+    PyBaseException,
+    "Program interrupted by user."
 }
 
 impl ExceptionZoo {
