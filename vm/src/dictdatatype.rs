@@ -487,6 +487,19 @@ impl<T: Clone> Dict<T> {
         }
     }
 
+    pub fn next_entry_reversed(&self, position: &mut EntryIndex) -> Option<(PyObjectRef, T)> {
+        let inner = self.read();
+        let mut position_index = inner.entries.len().checked_sub(*position + 1)?;
+        loop {
+            let entry = inner.entries.get(position_index)?;
+            *position += 1;
+            if let Some(entry) = entry {
+                break Some((entry.key.clone(), entry.value.clone()));
+            }
+            position_index = position_index.checked_sub(1)?;
+        }
+    }
+
     pub fn len_from_entry_index(&self, position: EntryIndex) -> usize {
         self.read().entries.len() - position
     }

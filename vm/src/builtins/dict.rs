@@ -753,7 +753,7 @@ macro_rules! dict_iterator {
         impl $reverse_iter_name {
             fn new(dict: PyDictRef) -> Self {
                 $reverse_iter_name {
-                    position: AtomicCell::new(1),
+                    position: AtomicCell::new(0),
                     size: dict.size(),
                     dict,
                     status: AtomicCell::new(IterStatus::Active),
@@ -782,10 +782,10 @@ macro_rules! dict_iterator {
                                 "dictionary changed size during iteration".to_owned(),
                             ));
                         }
-                        let count = zelf.position.fetch_add(1);
-                        match zelf.dict.len().checked_sub(count) {
-                            Some(mut pos) => {
-                                let (key, value) = zelf.dict.entries.next_entry(&mut pos).unwrap();
+                        let mut position = zelf.position.load();
+                        match zelf.dict.entries.next_entry_reversed(&mut position) {
+                            Some((key, value)) => {
+                                zelf.position.store(position);
                                 Ok(($result_fn)(vm, key, value))
                             }
                             None => {
