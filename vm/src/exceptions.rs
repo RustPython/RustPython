@@ -63,7 +63,11 @@ impl PyBaseException {
     }
 
     #[pyslot]
-    fn tp_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    pub(crate) fn tp_new(
+        cls: PyTypeRef,
+        args: FuncArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<Self>> {
         PyBaseException::new(args.args, vm).into_ref_with_type(vm, cls)
     }
 
@@ -522,37 +526,45 @@ pub fn create_exception_type(name: &str, base: &PyTypeRef) -> PyTypeRef {
     create_type_with_slots(name, PyType::static_type(), base, exception_slots())
 }
 
+/// This macro serves a goal of generating multiple BaseException / Exception
+/// subtypes in a uniform and convenient manner.
+/// It looks like `SimpleExtendsException` in `CPython`.
+/// https://github.com/python/cpython/blob/main/Objects/exceptions.c
+///
+/// We need `ctx` to be ready to add `properties` / `custom` constructors / slots / etc.
+/// So, we use `extend_class!` macro as the second step in exception type definition.
 macro_rules! extends_exception {
-    // This case is like `SimpleExtendsException`:
     (
         $class_name: ident,
         $base_class: ident,
+        $ctx_name: ident,
         $docs: tt
-    ) => {
-        extends_exception!(
-            $class_name,
-            $base_class,
-            $docs,
-            {}
-        );
-    };
-
-    // TODO: Do we need `MiddlingExtendsException`?
-
-    // This case is like `ComplexExtendsException`:
-    (
-        $class_name: ident,
-        $base_class: ident,
-        $docs: tt,
-        { $($attr_name:expr => $attr_value:expr),* $(,)* }
     ) => {
         #[pyexception($class_name, $base_class)]
         #[derive(Debug)]
+        #[doc = $docs]
         struct $class_name {}
 
-        #[pyimpl(flags(BASETYPE))]
+        // We need this to make extend mechanism work:
+        impl PyValue for $class_name {
+            fn class(vm: &VirtualMachine) -> &PyTypeRef {
+                &vm.ctx.exceptions.$ctx_name
+            }
+        }
+
+        #[pyimpl(flags(BASETYPE, HAS_DICT))]
         impl $class_name {
-            // TODO: we probably need to add `new` as well
+            #[pyslot]
+            fn tp_new(
+                cls: PyTypeRef,
+                args: FuncArgs,
+                vm: &VirtualMachine,
+            ) -> PyResult<PyRef<PyBaseException>> {
+                // We need this method, because of how `CPython` copies `init`
+                // from `BaseException` in `SimpleExtendsException` macro.
+                // See: `BaseException_new`
+                PyBaseException::tp_new(cls, args, vm)
+            }
 
             #[pymethod(magic)]
             fn init(
@@ -563,25 +575,44 @@ macro_rules! extends_exception {
                 // We need this method, because of how `CPython` copies `init`
                 // from `BaseException` in `SimpleExtendsException` macro.
                 // See: `(initproc)BaseException_init`
-                // In: https://github.com/python/cpython/blob/main/Objects/exceptions.c
                 $base_class::init(zelf, args, vm)
-            }
-
-            #[extend_class]
-            fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-                class.set_str_attr("__doc__", ctx.new_str($docs.to_owned()));
-                $(
-                    class.set_str_attr($attr_name, $attr_value);
-                )*
             }
         }
     };
 }
 
+// Exception types that extend `BaseException`,
+// sorted the same way CPython does.
+
+extends_exception! {
+    PyException,
+    PyBaseException,
+    exception_type,
+    "Common base class for all non-exit exceptions."
+}
+
 extends_exception! {
     PyKeyboardInterrupt,
     PyBaseException,
+    keyboard_interrupt,
     "Program interrupted by user."
+}
+
+// Exception types that extend `Exception`,
+// sorted the same way CPython does.
+
+extends_exception! {
+    PyTypeError,
+    PyException,
+    type_error,
+    "Inappropriate argument type."
+}
+
+extends_exception! {
+    PyOSError,
+    PyException,
+    os_error,
+    "Base class for I/O related errors."
 }
 
 impl ExceptionZoo {
@@ -590,11 +621,10 @@ impl ExceptionZoo {
 
         // Sorted By Hierarchy then alphabetized.
         let system_exit = create_exception_type("SystemExit", &base_exception_type);
-        // let keyboard_interrupt = create_exception_type("KeyboardInterrupt", &base_exception_type);
         let keyboard_interrupt = PyKeyboardInterrupt::init_bare_type().clone();
         let generator_exit = create_exception_type("GeneratorExit", &base_exception_type);
 
-        let exception_type = create_exception_type("Exception", &base_exception_type);
+        let exception_type = PyException::init_bare_type().clone();
         let stop_iteration = create_exception_type("StopIteration", &exception_type);
         let stop_async_iteration = create_exception_type("StopAsyncIteration", &exception_type);
         let arithmetic_error = create_exception_type("ArithmeticError", &exception_type);
@@ -615,7 +645,7 @@ impl ExceptionZoo {
         let unbound_local_error = create_exception_type("UnboundLocalError", &name_error);
 
         // os errors
-        let os_error = create_exception_type("OSError", &exception_type);
+        let os_error = PyOSError::init_bare_type().clone();
         let blocking_io_error = create_exception_type("BlockingIOError", &os_error);
         let child_process_error = create_exception_type("ChildProcessError", &os_error);
         let connection_error = create_exception_type("ConnectionError", &os_error);
@@ -644,7 +674,7 @@ impl ExceptionZoo {
         let tab_error = create_exception_type("TabError", &indentation_error);
         let target_scope_error = create_exception_type("TargetScopeError", &syntax_error);
         let system_error = create_exception_type("SystemError", &exception_type);
-        let type_error = create_exception_type("TypeError", &exception_type);
+        let type_error = PyTypeError::init_bare_type().clone();
         let value_error = create_exception_type("ValueError", &exception_type);
         let unicode_error = create_exception_type("UnicodeError", &value_error);
         let unicode_decode_error = create_exception_type("UnicodeDecodeError", &unicode_error);
@@ -745,7 +775,10 @@ impl ExceptionZoo {
         let excs = &ctx.exceptions;
 
         PyBaseException::extend_class(ctx, &excs.base_exception_type);
+        PyException::extend_class(ctx, &excs.exception_type);
         PyKeyboardInterrupt::extend_class(ctx, &excs.keyboard_interrupt);
+
+        PyTypeError::extend_class(ctx, &excs.type_error);
 
         extend_class!(ctx, &excs.syntax_error, {
             "msg" => ctx.new_readonly_getset("msg", excs.syntax_error.clone(), make_arg_getter(0)),
@@ -773,6 +806,7 @@ impl ExceptionZoo {
             "__str__" => ctx.new_method("__str__", excs.key_error.clone(), key_error_str),
         });
 
+        PyOSError::extend_class(ctx, &excs.os_error);
         let errno_getter =
             ctx.new_readonly_getset("errno", excs.os_error.clone(), |exc: PyBaseExceptionRef| {
                 let args = exc.args();
