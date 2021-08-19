@@ -276,12 +276,9 @@ pub(crate) fn impl_pyexception(
     // We also need to strip `Py` prefix from `class_name`,
     // due to implementation and Python naming conventions mismatch:
     // `PyKeyboardInterrupt` -> `KeyboardInterrupt`
-    let class_name = class_name
-        .strip_prefix("Py")
-        .ok_or_else(|| syn::Error::new_spanned(
-            &item,
-            "We require 'class_name' to have 'Py' prefix",
-        ))?;
+    let class_name = class_name.strip_prefix("Py").ok_or_else(|| {
+        syn::Error::new_spanned(&item, "We require 'class_name' to have 'Py' prefix")
+    })?;
 
     // We just "proxy" it into `pyclass` macro, because, exception is a class.
     let ret = quote! {
@@ -977,14 +974,15 @@ fn parse_vec_ident(
 ) -> std::result::Result<String, Diagnostic> {
     Ok(attr
         .get(index)
-        .ok_or_else(|| syn::Error::new_spanned(
-            &item,
-            format!("We require {} argument to be set", &message),
-        ))?
+        .ok_or_else(|| {
+            syn::Error::new_spanned(&item, format!("We require {} argument to be set", &message))
+        })?
         .get_ident()
-        .ok_or_else(|| syn::Error::new_spanned(
-            &item,
-            format!("We require {} argument to be ident or string", &message),
-        ))?
+        .ok_or_else(|| {
+            syn::Error::new_spanned(
+                &item,
+                format!("We require {} argument to be ident or string", &message),
+            )
+        })?
         .to_string())
 }
