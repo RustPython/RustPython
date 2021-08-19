@@ -720,7 +720,7 @@ mod decl {
             vm.get_method_or_type_error(obj.clone(), "__getitem__", || {
                 "argument to reversed() must be a sequence".to_owned()
             })?;
-            let len = vm.obj_len(&obj)? as isize;
+            let len = vm.obj_len(&obj)?;
             let obj_iterator = PyReverseSequenceIterator::new(obj, len);
             Ok(obj_iterator.into_object(vm))
         }

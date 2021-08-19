@@ -202,45 +202,6 @@ impl PyIter for PyStrIterator {
     }
 }
 
-#[pyclass(module = false, name = "str_reverseiterator")]
-#[derive(Debug)]
-pub struct PyStrReverseIterator {
-    string: PyStrRef,
-    position: PyAtomic<usize>,
-}
-
-impl PyValue for PyStrReverseIterator {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.str_reverseiterator_type
-    }
-}
-
-#[pyimpl(with(PyIter))]
-impl PyStrReverseIterator {}
-
-impl PyIter for PyStrReverseIterator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        let value = &*zelf.string.value;
-        let mut end = zelf.position.load(atomic::Ordering::Relaxed);
-        loop {
-            let ch = value[..end]
-                .chars()
-                .next_back()
-                .ok_or_else(|| vm.new_stop_iteration())?;
-
-            match zelf.position.compare_exchange_weak(
-                end,
-                end - ch.len_utf8(),
-                atomic::Ordering::Release,
-                atomic::Ordering::Relaxed,
-            ) {
-                Ok(_) => break Ok(ch.into_pyobject(vm)),
-                Err(cur) => end = cur,
-            }
-        }
-    }
-}
-
 #[derive(FromArgs)]
 struct StrArgs {
     #[pyarg(any, optional)]
@@ -1126,14 +1087,6 @@ impl PyStr {
     fn encode(zelf: PyRef<Self>, args: EncodeArgs, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
         encode_string(zelf, args.encoding, args.errors, vm)
     }
-
-    #[pymethod(magic)]
-    fn reversed(zelf: PyRef<Self>) -> PyStrReverseIterator {
-        PyStrReverseIterator {
-            position: Radium::new(zelf.byte_len()),
-            string: zelf,
-        }
-    }
 }
 
 impl PyStrRef {
@@ -1254,7 +1207,6 @@ pub fn init(ctx: &PyContext) {
     PyStr::extend_class(ctx, &ctx.types.str_type);
 
     PyStrIterator::extend_class(ctx, &ctx.types.str_iterator_type);
-    PyStrReverseIterator::extend_class(ctx, &ctx.types.str_reverseiterator_type);
 }
 
 impl PySliceableSequence for PyStr {
