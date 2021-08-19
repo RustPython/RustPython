@@ -172,8 +172,6 @@ class TestReversed(unittest.TestCase, PickleTest):
         x = range(1)
         self.assertEqual(type(reversed(x)), type(iter(x)))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_len(self):
         for s in ('hello', tuple('hello'), list('hello'), range(5)):
             self.assertEqual(operator.length_hint(reversed(s)), len(s))
@@ -243,8 +241,6 @@ class TestReversed(unittest.TestCase, PickleTest):
         b = Blocked()
         self.assertRaises(TypeError, reversed, b)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pickle(self):
         for data in 'abc', range(5), tuple(enumerate('abc')), range(1,17,5):
             self.check_pickle(reversed(data), list(data)[::-1])
