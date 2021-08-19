@@ -270,8 +270,8 @@ pub(crate) fn impl_pyexception(
     attr: AttributeArgs,
     item: Item,
 ) -> std::result::Result<TokenStream, Diagnostic> {
-    let class_name = parse_vec_ident(&attr, &item, 0, "first 'class_name'".to_owned())?;
-    let base_class_name = parse_vec_ident(&attr, &item, 1, "first 'base_class_name'".to_owned())?;
+    let class_name = parse_vec_ident(&attr, &item, 0, "first 'class_name'")?;
+    let base_class_name = parse_vec_ident(&attr, &item, 1, "second 'base_class_name'")?;
 
     // We also need to strip `Py` prefix from `class_name`,
     // due to implementation and Python naming conventions mismatch:
@@ -970,7 +970,7 @@ fn parse_vec_ident(
     attr: &[NestedMeta],
     item: &Item,
     index: usize,
-    message: String,
+    message: &str,
 ) -> std::result::Result<String, Diagnostic> {
     Ok(attr
         .get(index)
