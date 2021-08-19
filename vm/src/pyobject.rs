@@ -741,7 +741,7 @@ impl<T> PyIterable<T> {
     pub fn iter<'a>(&self, vm: &'a VirtualMachine) -> PyResult<PyIterator<'a, T>> {
         let iter_obj = match self.iterfn {
             Some(f) => f(self.iterable.clone(), vm)?,
-            None => PySequenceIterator::new_forward(self.iterable.clone()).into_object(vm),
+            None => PySequenceIterator::new(self.iterable.clone()).into_object(vm),
         };
 
         let length_hint = iterator::length_hint(vm, iter_obj.clone())?;

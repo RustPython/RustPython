@@ -36,7 +36,7 @@ pub fn get_iter(vm: &VirtualMachine, iter_target: PyObjectRef) -> PyResult {
         vm.get_method_or_type_error(iter_target.clone(), "__getitem__", || {
             format!("'{}' object is not iterable", iter_target.class().name)
         })?;
-        Ok(PySequenceIterator::new_forward(iter_target)
+        Ok(PySequenceIterator::new(iter_target)
             .into_ref(vm)
             .into_object())
     }
