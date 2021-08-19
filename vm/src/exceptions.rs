@@ -592,6 +592,20 @@ extends_exception! {
 }
 
 extends_exception! {
+    PyGeneratorExit,
+    PyBaseException,
+    generator_exit,
+    "Request that a generator exit."
+}
+
+extends_exception! {
+    PySystemExit,
+    PyBaseException,
+    system_exit,
+    "Request to exit from the interpreter."
+}
+
+extends_exception! {
     PyKeyboardInterrupt,
     PyBaseException,
     keyboard_interrupt,
@@ -609,6 +623,20 @@ extends_exception! {
 }
 
 extends_exception! {
+    PyStopAsyncIteration,
+    PyException,
+    stop_async_iteration,
+    "Signal the end from iterator.__anext__()."
+}
+
+extends_exception! {
+    PyStopIteration,
+    PyException,
+    stop_iteration,
+    "Signal the end from iterator.__next__()."
+}
+
+extends_exception! {
     PyOSError,
     PyException,
     os_error,
@@ -617,16 +645,16 @@ extends_exception! {
 
 impl ExceptionZoo {
     pub(crate) fn init() -> Self {
+        // The same order as definitions:
         let base_exception_type = PyBaseException::init_bare_type().clone();
-
-        // Sorted By Hierarchy then alphabetized.
-        let system_exit = create_exception_type("SystemExit", &base_exception_type);
-        let keyboard_interrupt = PyKeyboardInterrupt::init_bare_type().clone();
-        let generator_exit = create_exception_type("GeneratorExit", &base_exception_type);
-
         let exception_type = PyException::init_bare_type().clone();
-        let stop_iteration = create_exception_type("StopIteration", &exception_type);
-        let stop_async_iteration = create_exception_type("StopAsyncIteration", &exception_type);
+
+        let system_exit = PySystemExit::init_bare_type().clone();
+        let keyboard_interrupt = PyKeyboardInterrupt::init_bare_type().clone();
+        let generator_exit = PyGeneratorExit::init_bare_type().clone();
+
+        let stop_iteration = PyStopIteration::init_bare_type().clone();
+        let stop_async_iteration = PyStopAsyncIteration::init_bare_type().clone();
         let arithmetic_error = create_exception_type("ArithmeticError", &exception_type);
         let floating_point_error = create_exception_type("FloatingPointError", &arithmetic_error);
         let overflow_error = create_exception_type("OverflowError", &arithmetic_error);
@@ -776,9 +804,20 @@ impl ExceptionZoo {
 
         PyBaseException::extend_class(ctx, &excs.base_exception_type);
         PyException::extend_class(ctx, &excs.exception_type);
+
+        PyGeneratorExit::extend_class(ctx, &excs.generator_exit);
+        PySystemExit::extend_class(ctx, &excs.system_exit);
+        extend_class!(ctx, &excs.system_exit, {
+            "code" => ctx.new_readonly_getset("code", excs.system_exit.clone(), system_exit_code),
+        });
         PyKeyboardInterrupt::extend_class(ctx, &excs.keyboard_interrupt);
 
         PyTypeError::extend_class(ctx, &excs.type_error);
+        PyStopAsyncIteration::extend_class(ctx, &excs.stop_async_iteration);
+        PyStopIteration::extend_class(ctx, &excs.stop_iteration);
+        extend_class!(ctx, &excs.stop_iteration, {
+            "value" => ctx.new_readonly_getset("value", excs.stop_iteration.clone(), make_arg_getter(0)),
+        });
 
         extend_class!(ctx, &excs.syntax_error, {
             "msg" => ctx.new_readonly_getset("msg", excs.syntax_error.clone(), make_arg_getter(0)),
@@ -789,17 +828,9 @@ impl ExceptionZoo {
             "text" => ctx.none(),
         });
 
-        extend_class!(ctx, &excs.system_exit, {
-            "code" => ctx.new_readonly_getset("code", excs.system_exit.clone(), system_exit_code),
-        });
-
         extend_class!(ctx, &excs.import_error, {
             "__init__" => ctx.new_method("__init__", excs.import_error.clone(), import_error_init),
             "msg" => ctx.new_readonly_getset("msg", excs.import_error.clone(), make_arg_getter(0)),
-        });
-
-        extend_class!(ctx, &excs.stop_iteration, {
-            "value" => ctx.new_readonly_getset("value", excs.stop_iteration.clone(), make_arg_getter(0)),
         });
 
         extend_class!(ctx, &excs.key_error, {
