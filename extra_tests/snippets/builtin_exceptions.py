@@ -192,3 +192,6 @@ assert OSError.errno
 assert OSError.strerror
 assert OSError(1, 2).errno
 assert OSError(1, 2).strerror
+
+assert ImportError.__init__.__qualname__ == 'ImportError.__init__'
+assert ImportError(name='a').name == 'a'

@@ -643,6 +643,19 @@ extends_exception! {
     "Base class for I/O related errors."
 }
 
+macro_rules! extend_exception {
+    ( $ctx:expr, $class:expr, { $($name:expr => $value:expr),* $(,)* }) => {
+        $class.set_str_attr("__new__", $ctx.new_method("__new__", $class.clone(), PyBaseException::tp_new));
+        $class.set_str_attr("__init__", $ctx.new_method("__init__", $class.clone(), PyBaseException::init));
+
+        extend_class!($ctx, $class, {
+            $(
+                $name => $value,
+            )*
+        });
+    };
+}
+
 impl ExceptionZoo {
     pub(crate) fn init() -> Self {
         // The same order as definitions:
@@ -819,6 +832,8 @@ impl ExceptionZoo {
             "value" => ctx.new_readonly_getset("value", excs.stop_iteration.clone(), make_arg_getter(0)),
         });
 
+        extend_exception!(ctx, &excs.arithmetic_error, {});
+
         extend_class!(ctx, &excs.syntax_error, {
             "msg" => ctx.new_readonly_getset("msg", excs.syntax_error.clone(), make_arg_getter(0)),
             // TODO: members
@@ -828,7 +843,7 @@ impl ExceptionZoo {
             "text" => ctx.none(),
         });
 
-        extend_class!(ctx, &excs.import_error, {
+        extend_exception!(ctx, &excs.import_error, {
             "__init__" => ctx.new_method("__init__", excs.import_error.clone(), import_error_init),
             "msg" => ctx.new_readonly_getset("msg", excs.import_error.clone(), make_arg_getter(0)),
         });
