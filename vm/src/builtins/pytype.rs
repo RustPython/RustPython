@@ -517,6 +517,37 @@ impl PyType {
             "Setting __dict__ attribute on a type isn't yet implemented".to_owned(),
         ))
     }
+
+    #[pyproperty(magic)]
+    fn text_signature(&self) -> Option<String> {
+        self.slots
+            .doc
+            .and_then(|doc| get_text_signature_from_internal_doc(self.name().as_str(), doc))
+            .map(|signature| signature.to_string())
+    }
+}
+
+const SIGNATURE_END_MARKER: &str = ")\n--\n\n";
+fn get_signature(doc: &str) -> Option<&str> {
+    doc.find(SIGNATURE_END_MARKER)
+        .map(|index| &doc[..index + 1])
+}
+
+fn find_signature<'a>(name: &str, doc: &'a str) -> Option<&'a str> {
+    let name = name.rsplit('.').next().unwrap();
+    let doc = doc.strip_prefix(name)?;
+    if !doc.starts_with('(') {
+        None
+    } else {
+        Some(doc)
+    }
+}
+
+pub(crate) fn get_text_signature_from_internal_doc<'a>(
+    name: &str,
+    internal_doc: &'a str,
+) -> Option<&'a str> {
+    find_signature(name, internal_doc).and_then(get_signature)
 }
 
 impl SlotGetattro for PyType {

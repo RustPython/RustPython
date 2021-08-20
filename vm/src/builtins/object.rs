@@ -14,7 +14,13 @@ use crate::{
     PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 
-/// The most base type
+/// object()
+/// --
+///
+/// The base class of the class hierarchy.
+///
+/// When called, it accepts no arguments and returns a new featureless
+/// instance that has no instance attributes and cannot be given any.
 #[pyclass(module = false, name = "object")]
 #[derive(Debug)]
 pub struct PyBaseObject;
@@ -27,6 +33,10 @@ impl PyValue for PyBaseObject {
 
 #[pyimpl(flags(BASETYPE))]
 impl PyBaseObject {
+    /// __new__($type, *args, **kwargs)
+    /// --
+    ///
+    /// Create and return a new object.  See help(type) for accurate signature.
     #[pyslot]
     fn tp_new(mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         // more or less __new__ operator
@@ -82,6 +92,10 @@ impl PyBaseObject {
         Ok(res)
     }
 
+    /// __eq__($self, value, /)
+    /// --
+    ///
+    /// Return self==value.
     #[pymethod(magic)]
     fn eq(
         zelf: PyObjectRef,
@@ -90,6 +104,11 @@ impl PyBaseObject {
     ) -> PyResult<PyComparisonValue> {
         Self::cmp(&zelf, &other, PyComparisonOp::Eq, vm)
     }
+
+    /// __ne__($self, value, /)
+    /// --
+    ///
+    /// Return self!=value.
     #[pymethod(magic)]
     fn ne(
         zelf: PyObjectRef,
@@ -98,6 +117,11 @@ impl PyBaseObject {
     ) -> PyResult<PyComparisonValue> {
         Self::cmp(&zelf, &other, PyComparisonOp::Ne, vm)
     }
+
+    /// __lt__($self, value, /)
+    /// --
+    ///
+    /// Return self<value.
     #[pymethod(magic)]
     fn lt(
         zelf: PyObjectRef,
@@ -106,6 +130,11 @@ impl PyBaseObject {
     ) -> PyResult<PyComparisonValue> {
         Self::cmp(&zelf, &other, PyComparisonOp::Lt, vm)
     }
+
+    /// __le__($self, value, /)
+    /// --
+    ///
+    /// Return self<=value.
     #[pymethod(magic)]
     fn le(
         zelf: PyObjectRef,
@@ -114,6 +143,11 @@ impl PyBaseObject {
     ) -> PyResult<PyComparisonValue> {
         Self::cmp(&zelf, &other, PyComparisonOp::Le, vm)
     }
+
+    /// __ge__($self, value, /)
+    /// --
+    ///
+    /// Return self>=value.
     #[pymethod(magic)]
     fn ge(
         zelf: PyObjectRef,
@@ -122,6 +156,11 @@ impl PyBaseObject {
     ) -> PyResult<PyComparisonValue> {
         Self::cmp(&zelf, &other, PyComparisonOp::Ge, vm)
     }
+
+    /// __gt__($self, value, /)
+    /// --
+    ///
+    /// Return self>value.
     #[pymethod(magic)]
     fn gt(
         zelf: PyObjectRef,
@@ -131,6 +170,10 @@ impl PyBaseObject {
         Self::cmp(&zelf, &other, PyComparisonOp::Gt, vm)
     }
 
+    /// __setattr__($self, name, value /)
+    /// --
+    ///
+    /// Implement setattr(self, name, value).
     #[pymethod]
     fn __setattr__(
         obj: PyObjectRef,
@@ -141,6 +184,10 @@ impl PyBaseObject {
         setattr(&obj, attr_name, Some(value), vm)
     }
 
+    /// __delattr__($self, name, /)
+    /// --
+    ///
+    /// Implement delattr(self, name).
     #[pymethod]
     fn __delattr__(obj: PyObjectRef, attr_name: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
         setattr(&obj, attr_name, None, vm)
@@ -156,11 +203,19 @@ impl PyBaseObject {
         setattr(obj, attr_name, value, vm)
     }
 
+    /// __str__($self, /)
+    /// --
+    ///
+    /// Return str(self).
     #[pymethod(magic)]
     fn str(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         vm.to_repr(&zelf)
     }
 
+    /// __repr__($self, /)
+    /// --
+    ///
+    /// Return repr(self).
     #[pymethod(magic)]
     fn repr(zelf: PyObjectRef) -> String {
         format!("<{} object at {:#x}>", zelf.class().name, zelf.get_id())
@@ -233,6 +288,10 @@ impl PyBaseObject {
         }
     }
 
+    /// __getattribute__($self, name, /)
+    /// --
+    ///
+    /// Return getattr(self, name).
     #[pymethod(name = "__getattribute__")]
     #[pyslot]
     pub(crate) fn getattro(obj: PyObjectRef, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
@@ -262,6 +321,10 @@ impl PyBaseObject {
         Ok(zelf.get_id() as _)
     }
 
+    /// __hash__($self, /)
+    /// --
+    ///
+    /// Return hash(self).
     #[pymethod(magic)]
     fn hash(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyHash> {
         Self::tp_hash(&zelf, vm)

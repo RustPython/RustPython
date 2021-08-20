@@ -1126,6 +1126,7 @@ pub trait PyClassImpl: PyClassDef {
         let mut slots = PyTypeSlots {
             flags: Self::TP_FLAGS,
             name: PyRwLock::new(Some(Self::TP_NAME.to_owned())),
+            doc: Self::DOC,
             ..Default::default()
         };
         Self::extend_slots(&mut slots);
