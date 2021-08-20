@@ -520,9 +520,9 @@ impl PyType {
 
     #[pyproperty(magic)]
     fn text_signature(&self) -> Option<String> {
-        let doc_string = self.get_attr("__doc__");
-        let doc: PyStrRef = doc_string.and_then(|o| o.downcast().ok())?;
-        get_text_signature_from_internal_doc(self.name().as_str(), doc.as_str())
+        self.slots
+            .doc
+            .and_then(|doc| get_text_signature_from_internal_doc(self.name().as_str(), doc))
             .map(|signature| signature.to_string())
     }
 }

@@ -96,7 +96,9 @@ pub struct PyTypeSlots {
 
     // Flags to define presence of optional/expanded features
     pub flags: PyTpFlags,
+
     // tp_doc
+    pub doc: Option<&'static str>,
 
     // Strong reference on a heap type, borrowed reference on a static type
     // tp_base
