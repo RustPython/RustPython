@@ -530,6 +530,11 @@ impl PyType {
 const SIGNATURE_END_MARKER: &str = ")\n--\n\n";
 fn skip_signature(doc: &str) -> Option<&str> {
     doc.find(SIGNATURE_END_MARKER)
+        .map(|index| &doc[index + SIGNATURE_END_MARKER.len()..])
+}
+
+fn get_signature(doc: &str) -> Option<&str> {
+    doc.find(SIGNATURE_END_MARKER)
         .map(|index| &doc[..index + 1])
 }
 
@@ -547,7 +552,7 @@ pub(crate) fn get_text_signature_from_internal_doc<'a>(
     name: &str,
     internal_doc: &'a str,
 ) -> Option<&'a str> {
-    find_signature(name, internal_doc).and_then(skip_signature)
+    find_signature(name, internal_doc).and_then(get_signature)
 }
 
 impl SlotGetattro for PyType {
