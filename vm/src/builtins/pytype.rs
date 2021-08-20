@@ -521,31 +521,21 @@ impl PyType {
     #[pyproperty(magic)]
     fn text_signature(&self) -> Option<String> {
         let doc_string = self.get_attr("__doc__");
-        let doc_string: Option<PyStrRef> = doc_string.and_then(|o| o.downcast().ok());
-        doc_string.and_then(|doc| {
-            get_text_signature_from_internal_doc(self.name().as_str(), doc.as_str())
-        })
+        let doc: PyStrRef = doc_string.and_then(|o| o.downcast().ok())?;
+        get_text_signature_from_internal_doc(self.name().as_str(), doc.as_str())
+            .map(|signature| signature.to_string())
     }
 }
 
 const SIGNATURE_END_MARKER: &str = ")\n--\n\n";
-fn skip_signature(doc: String) -> Option<String> {
+fn skip_signature(doc: &str) -> Option<&str> {
     doc.find(SIGNATURE_END_MARKER)
-        .map(|index| doc[..index + 1].to_owned())
+        .map(|index| &doc[..index + 1])
 }
 
-fn find_signature(name: &str, doc: &str) -> Option<String> {
-    let dot_index = name.rfind('.');
-    let name = match dot_index {
-        Some(index) => name[index + 1..].to_owned(),
-        _ => name.to_owned(),
-    };
-
-    if !doc.starts_with(&name) {
-        return None;
-    }
-
-    let doc = doc[name.len()..].to_owned();
+fn find_signature<'a>(name: &str, doc: &'a str) -> Option<&'a str> {
+    let name = name.rsplit('.').next().unwrap();
+    let doc = doc.strip_prefix(name)?;
     if !doc.starts_with('(') {
         None
     } else {
@@ -553,10 +543,10 @@ fn find_signature(name: &str, doc: &str) -> Option<String> {
     }
 }
 
-pub(crate) fn get_text_signature_from_internal_doc(
+pub(crate) fn get_text_signature_from_internal_doc<'a>(
     name: &str,
-    internal_doc: &str,
-) -> Option<String> {
+    internal_doc: &'a str,
+) -> Option<&'a str> {
     find_signature(name, internal_doc).and_then(skip_signature)
 }
 

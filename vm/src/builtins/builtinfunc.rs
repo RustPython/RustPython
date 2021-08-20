@@ -147,6 +147,7 @@ impl PyBuiltinFunction {
     fn text_signature(&self) -> Option<String> {
         self.value.doc.as_ref().and_then(|doc| {
             pytype::get_text_signature_from_internal_doc(self.value.name.as_str(), doc.as_str())
+                .map(|signature| signature.to_string())
         })
     }
 }
@@ -218,6 +219,7 @@ impl PyBuiltinMethod {
     fn text_signature(&self) -> Option<String> {
         self.value.doc.as_ref().and_then(|doc| {
             pytype::get_text_signature_from_internal_doc(self.value.name.as_str(), doc.as_str())
+                .map(|signature| signature.to_string())
         })
     }
     #[pymethod(magic)]
