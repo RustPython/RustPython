@@ -1,7 +1,7 @@
 use crate::buffer::{BufferOptions, PyBuffer, ResizeGuard};
 use crate::builtins::float::IntoPyFloat;
 use crate::builtins::list::{PyList, PyListRef};
-use crate::builtins::pystr::PyStrRef;
+use crate::builtins::pystr::{PyStr, PyStrRef};
 use crate::builtins::pytype::PyTypeRef;
 use crate::builtins::slice::PySliceRef;
 use crate::builtins::{PyByteArray, PyBytes};
@@ -15,28 +15,16 @@ use crate::function::OptionalArg;
 use crate::sliceable::{saturate_index, PySliceableSequence, PySliceableSequenceMut};
 use crate::slots::{AsBuffer, Comparable, Iterable, PyComparisonOp, PyIter};
 use crate::utils::Either;
-use crate::VirtualMachine;
 use crate::{
     IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyIterable, PyObjectRef, PyRef,
     PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
 };
+use crate::{IntoPyResult, VirtualMachine};
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
 use std::cmp::Ordering;
+use std::convert::TryFrom;
 use std::{fmt, os::raw};
-
-struct ArrayTypeSpecifierError {
-    _priv: (),
-}
-
-impl fmt::Display for ArrayTypeSpecifierError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "bad typecode (must be b, B, u, h, H, i, I, l, L, q, Q, f or d)"
-        )
-    }
-}
 
 macro_rules! def_array_enum {
     ($(($n:ident, $t:ty, $c:literal, $scode:literal)),*$(,)?) => {
@@ -47,10 +35,10 @@ macro_rules! def_array_enum {
 
         #[allow(clippy::naive_bytecount, clippy::float_cmp)]
         impl ArrayContentType {
-            fn from_char(c: char) -> Result<Self, ArrayTypeSpecifierError> {
+            fn from_char(c: char) -> Result<Self, String> {
                 match c {
                     $($c => Ok(ArrayContentType::$n(Vec::new())),)*
-                    _ => Err(ArrayTypeSpecifierError { _priv: () }),
+                    _ => Err("bad typecode (must be b, B, u, h, H, i, I, l, L, q, Q, f or d)".into()),
                 }
             }
 
@@ -94,10 +82,10 @@ macro_rules! def_array_enum {
                 Ok(())
             }
 
-            fn pop(&mut self, i: usize, vm: &VirtualMachine) -> PyObjectRef {
+            fn pop(&mut self, i: usize, vm: &VirtualMachine) -> PyResult {
                 match self {
                     $(ArrayContentType::$n(v) => {
-                        v.remove(i).into_pyobject(vm)
+                        v.remove(i).into_pyresult(vm)
                     })*
                 }
             }
@@ -225,9 +213,11 @@ macro_rules! def_array_enum {
                 Ok(i)
             }
 
-            fn getitem_by_idx(&self, i: usize, vm: &VirtualMachine) -> Option<PyObjectRef> {
+            fn getitem_by_idx(&self, i: usize, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
                 match self {
-                    $(ArrayContentType::$n(v) => v.get(i).map(|x| x.into_pyobject(vm)),)*
+                    $(ArrayContentType::$n(v) => {
+                        v.get(i).map(|x| x.into_pyresult(vm)).transpose()
+                    })*
                 }
             }
 
@@ -244,8 +234,8 @@ macro_rules! def_array_enum {
             fn getitem(&self, needle: Either<isize, PySliceRef>, vm: &VirtualMachine) -> PyResult {
                 match needle {
                     Either::A(i) => {
-                        self.idx(i, "array", vm).map(|i| {
-                            self.getitem_by_idx(i, vm).unwrap()
+                        self.idx(i, "array", vm).and_then(|i| {
+                            self.getitem_by_idx(i, vm).map(Option::unwrap)
                         })
                     }
                     Either::B(slice) => self.getitem_by_slice(slice, vm),
@@ -377,13 +367,8 @@ macro_rules! def_array_enum {
                 Ok(s)
             }
 
-            fn iter<'a>(&'a self, vm: &'a VirtualMachine) -> impl Iterator<Item = PyObjectRef> + 'a {
-                let mut i = 0;
-                std::iter::from_fn(move || {
-                    let ret = self.getitem_by_idx(i, vm);
-                    i += 1;
-                    ret
-                })
+            fn iter<'a, 'vm: 'a>(&'a self, vm: &'vm VirtualMachine) -> impl Iterator<Item = PyResult> + 'a {
+                (0..self.len()).map(move |i| self.getitem_by_idx(i, vm).map(Option::unwrap))
             }
 
             fn cmp(&self, other: &ArrayContentType) -> Result<Option<Ordering>, ()> {
@@ -404,7 +389,7 @@ macro_rules! def_array_enum {
 def_array_enum!(
     (SignedByte, i8, 'b', "b"),
     (UnsignedByte, u8, 'B', "B"),
-    // TODO: support unicode char
+    (PyUnicode, WideChar, 'u', "u"),
     (SignedShort, raw::c_short, 'h', "h"),
     (UnsignedShort, raw::c_ushort, 'H', "H"),
     (SignedInt, raw::c_int, 'i', "i"),
@@ -416,6 +401,16 @@ def_array_enum!(
     (Float, f32, 'f', "f"),
     (Double, f64, 'd', "d"),
 );
+
+#[cfg(not(target_arch = "wasm32"))]
+#[allow(non_camel_case_types)]
+pub type wchar_t = libc::wchar_t;
+#[cfg(target_arch = "wasm32")]
+#[allow(non_camel_case_types)]
+pub type wchar_t = u32;
+
+#[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Debug)]
+pub struct WideChar(wchar_t);
 
 trait ArrayElement: Sized {
     fn try_into_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self>;
@@ -464,6 +459,45 @@ fn f64_try_into_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<f
     IntoPyFloat::try_from_object(vm, obj).map(|x| x.to_f64())
 }
 
+impl ArrayElement for WideChar {
+    fn try_into_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        PyStrRef::try_from_object(vm, obj)?
+            .as_str()
+            .chars()
+            .exactly_one()
+            .map(|ch| Self(ch as _))
+            .map_err(|_| vm.new_type_error("array item must be unicode character".into()))
+    }
+    fn byteswap(self) -> Self {
+        Self(self.0.swap_bytes())
+    }
+}
+
+impl TryFrom<WideChar> for char {
+    type Error = String;
+
+    fn try_from(ch: WideChar) -> Result<Self, Self::Error> {
+        // safe because every configuration of bytes for the types we support are valid
+        char::from_u32(ch.0 as u32)
+            .ok_or_else(|| { format!("'utf-8' codec can't encode character '\\u{:x}' in position 0: surrogates not allowed", ch.0 ) })
+    }
+}
+
+impl IntoPyResult for WideChar {
+    fn into_pyresult(self, vm: &VirtualMachine) -> PyResult {
+        Ok(
+            String::from(char::try_from(self).map_err(|e| vm.new_unicode_encode_error(e))?)
+                .into_pyobject(vm),
+        )
+    }
+}
+
+impl fmt::Display for WideChar {
+    fn fmt(&self, _f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        unreachable!("`repr(array('u'))` calls `PyStr::repr`")
+    }
+}
+
 #[pyclass(module = "array", name = "array")]
 #[derive(Debug)]
 pub struct PyArray {
@@ -508,17 +542,33 @@ impl PyArray {
         let spec = spec.as_str().chars().exactly_one().map_err(|_| {
             vm.new_type_error("array() argument 1 must be a unicode character, not str".to_owned())
         })?;
-        let mut array =
-            ArrayContentType::from_char(spec).map_err(|err| vm.new_value_error(err.to_string()))?;
+        let mut array = ArrayContentType::from_char(spec).map_err(|err| vm.new_value_error(err))?;
 
         if let OptionalArg::Present(init) = init {
             if let Some(init) = init.payload::<PyArray>() {
-                if array.typecode() == init.read().typecode() {
-                    array.iadd(&*init.read(), vm)?;
-                } else {
-                    for obj in init.read().iter(vm) {
-                        array.push(obj, vm)?
+                match (spec, init.read().typecode()) {
+                    (spec, ch) if spec == ch => array.frombytes(&init.get_bytes()),
+                    (spec, 'u') => {
+                        return Err(vm.new_type_error(format!(
+                            "cannot use a unicode array to initialize an array with typecode '{}'",
+                            spec
+                        )))
                     }
+                    _ => {
+                        for obj in init.read().iter(vm) {
+                            array.push(obj?, vm)?;
+                        }
+                    }
+                }
+            } else if let Some(utf8) = init.payload::<PyStr>() {
+                if spec == 'u' {
+                    let bytes = Self::_unicode_to_wchar_bytes(utf8.as_str(), array.itemsize());
+                    array.frombytes(&bytes);
+                } else {
+                    return Err(vm.new_type_error(format!(
+                        "cannot use a str to initialize an array with typecode '{}'",
+                        spec
+                    )));
                 }
             } else if init.payload_is::<PyBytes>() || init.payload_is::<PyByteArray>() {
                 try_bytes_like(vm, &init, |x| array.frombytes(x))?;
@@ -584,6 +634,78 @@ impl PyArray {
         }
     }
 
+    fn _unicode_to_wchar_bytes(utf8: &str, item_size: usize) -> Vec<u8> {
+        if item_size == 2 {
+            utf8.encode_utf16()
+                .flat_map(|ch| ch.to_ne_bytes())
+                .collect()
+        } else {
+            utf8.chars()
+                .flat_map(|ch| (ch as u32).to_ne_bytes())
+                .collect()
+        }
+    }
+
+    #[pymethod]
+    fn fromunicode(zelf: PyRef<Self>, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let utf8 = PyStrRef::try_from_object(vm, obj.clone()).map_err(|_| {
+            vm.new_type_error(format!(
+                "fromunicode() argument must be str, not {}",
+                obj.class().name
+            ))
+        })?;
+        if zelf.read().typecode() != 'u' {
+            return Err(vm.new_value_error(
+                "fromunicode() may only be called on unicode type arrays".into(),
+            ));
+        }
+        let mut w = zelf.try_resizable(vm)?;
+        let bytes = Self::_unicode_to_wchar_bytes(utf8.as_str(), w.itemsize());
+        w.frombytes(&bytes);
+        Ok(())
+    }
+
+    #[pymethod]
+    fn tounicode(&self, vm: &VirtualMachine) -> PyResult<String> {
+        let array = self.array.read();
+        if array.typecode() != 'u' {
+            return Err(
+                vm.new_value_error("tounicode() may only be called on unicode type arrays".into())
+            );
+        }
+        let bytes = array.get_bytes();
+        if self.itemsize() == 2 {
+            // safe because every configuration of bytes for the types we support are valid
+            let utf16 = unsafe {
+                std::slice::from_raw_parts(
+                    bytes.as_ptr() as *const u16,
+                    bytes.len() / std::mem::size_of::<u16>(),
+                )
+            };
+            Ok(String::from_utf16_lossy(utf16))
+        } else {
+            // safe because every configuration of bytes for the types we support are valid
+            let chars = unsafe {
+                std::slice::from_raw_parts(
+                    bytes.as_ptr() as *const u32,
+                    bytes.len() / std::mem::size_of::<u32>(),
+                )
+            };
+            chars
+                .iter()
+                .map(|&ch| {
+                    // cpython issue 17223
+                    char::from_u32(ch).ok_or_else(|| {
+                        vm.new_value_error(format!(
+                            "character U+{:4x} is not in range [U+0000; U+10ffff]",
+                            ch
+                        ))
+                    })
+                })
+                .try_collect()
+        }
+    }
+
     #[pymethod]
     fn frombytes(zelf: PyRef<Self>, b: ArgBytesLike, vm: &VirtualMachine) -> PyResult<()> {
         let b = b.borrow_buf();
@@ -621,7 +743,7 @@ impl PyArray {
             Err(vm.new_index_error("pop from empty array".to_owned()))
         } else {
             let i = w.idx(i.unwrap_or(-1), "pop", vm)?;
-            Ok(w.pop(i, vm))
+            w.pop(i, vm)
         }
     }
 
@@ -643,7 +765,7 @@ impl PyArray {
         let array = self.read();
         let mut v = Vec::with_capacity(array.len());
         for obj in array.iter(vm) {
-            v.push(obj);
+            v.push(obj?);
         }
         Ok(vm.ctx.new_list(v))
     }
@@ -767,6 +889,15 @@ impl PyArray {
 
     #[pymethod(magic)]
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        if zelf.read().typecode() == 'u' {
+            if zelf.len() == 0 {
+                return Ok("array('u')".into());
+            }
+            return Ok(format!(
+                "array('u', {})",
+                PyStr::from(zelf.tounicode(vm)?).repr(vm)?
+            ));
+        }
         zelf.read().repr(vm)
     }
 
@@ -792,7 +923,7 @@ impl PyArray {
         let iter = Iterator::zip(array_a.iter(vm), array_b.iter(vm));
 
         for (a, b) in iter {
-            if !vm.bool_eq(&a, &b)? {
+            if !vm.bool_eq(&a?, &b?)? {
                 return Ok(false);
             }
         }
@@ -830,8 +961,8 @@ impl Comparable for PyArray {
 
                 for (a, b) in iter {
                     let ret = match op {
-                        PyComparisonOp::Lt | PyComparisonOp::Le => vm.bool_seq_lt(&a, &b)?,
-                        PyComparisonOp::Gt | PyComparisonOp::Ge => vm.bool_seq_gt(&a, &b)?,
+                        PyComparisonOp::Lt | PyComparisonOp::Le => vm.bool_seq_lt(&a?, &b?)?,
+                        PyComparisonOp::Gt | PyComparisonOp::Ge => vm.bool_seq_gt(&a?, &b?)?,
                         _ => unreachable!(),
                     };
                     if let Some(v) = ret {
@@ -933,7 +1064,7 @@ impl PyArrayIter {}
 impl PyIter for PyArrayIter {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         let pos = zelf.position.fetch_add(1);
-        if let Some(item) = zelf.array.read().getitem_by_idx(pos, vm) {
+        if let Some(item) = zelf.array.read().getitem_by_idx(pos, vm)? {
             Ok(item)
         } else {
             Err(vm.new_stop_iteration())

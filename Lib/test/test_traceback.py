@@ -46,8 +46,6 @@ class TracebackCases(unittest.TestCase):
     def syntax_error_bad_indentation2(self):
         compile(" print(2)", "?", "exec")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_caret(self):
         err = self.get_exception_format(self.syntax_error_with_caret,
                                         SyntaxError)

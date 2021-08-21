@@ -1398,8 +1398,6 @@ class ReTests(unittest.TestCase):
         for x in not_decimal_digits:
             self.assertIsNone(re.match(r'^\d$', x))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_empty_array(self):
         # SF buf 1647541
         import array

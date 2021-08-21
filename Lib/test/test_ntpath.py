@@ -95,8 +95,6 @@ class TestNtpath(NtpathTestCase):
         tester('ntpath.splitext("xx\\foo.bar.ext")', ('xx\\foo.bar', '.ext'))
         tester('ntpath.splitext("c:a/b\\c.d")', ('c:a/b\\c', '.d'))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_splitdrive(self):
         tester('ntpath.splitdrive("c:\\foo\\bar")',
                ('c:', '\\foo\\bar'))
@@ -479,8 +477,6 @@ class TestNtpath(NtpathTestCase):
             tester('ntpath.expandvars("\'%foo%\'%bar")', "\'%foo%\'%bar")
             tester('ntpath.expandvars("bar\'%foo%")', "bar\'%foo%")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipUnless(support.FS_NONASCII, 'need support.FS_NONASCII')
     def test_expandvars_nonascii(self):
         def check(value, expected):
@@ -730,8 +726,6 @@ class NtCommonTest(test_genericpath.CommonTest, unittest.TestCase):
     pathmodule = ntpath
     attributes = ['relpath']
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_expandvars_nonascii(self):
         super().test_expandvars_nonascii()
 
