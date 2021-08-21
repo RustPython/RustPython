@@ -243,16 +243,14 @@ fn math_dist(
     let p = IntoPyFloat::vec_into_f64(p.into_vec());
     let q = IntoPyFloat::vec_into_f64(q.into_vec());
     let mut diffs = vec![];
-    let n = p.len();
-    let m = q.len();
 
-    if m != n {
+    if p.len() != q.len() {
         return Err(
             vm.new_value_error("both points must have the same number of dimensions".to_owned())
         );
     }
 
-    for i in 0..m {
+    for i in 0..p.len() {
         let px = p[i];
         let qx = q[i];
 
