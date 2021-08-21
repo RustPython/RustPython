@@ -131,7 +131,7 @@ mod _collections {
                 deque.clear();
                 unsafe {
                     // `maxlen` is better to be defined as UnsafeCell in common practice,
-                    // but then more type works without any safety benifits
+                    // but then more type works without any safety benefits
                     let unsafe_maxlen =
                         &zelf.maxlen as *const _ as *const std::cell::UnsafeCell<Option<usize>>;
                     *(*unsafe_maxlen).get() = maxlen;

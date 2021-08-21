@@ -462,7 +462,7 @@ impl PyDictRef {
         key: K,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
-        // Test if this object is a true dict, or mabye a subclass?
+        // Test if this object is a true dict, or maybe a subclass?
         // If it is a dict, we can directly invoke inner_get_item_option,
         // and prevent the creation of the KeyError exception.
         // Also note, that we prevent the creation of a full PyStr object

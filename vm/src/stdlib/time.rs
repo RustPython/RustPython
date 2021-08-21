@@ -61,7 +61,7 @@ pub fn get_time() -> f64 {
 fn time_time_ns(_vm: &VirtualMachine) -> u64 {
     match SystemTime::now().duration_since(UNIX_EPOCH) {
         Ok(v) => v.as_nanos() as u64,
-        Err(_) => unsafe { std::hint::unreachable_unchecked() }, // guaranted to be not to be happen with now() + UNIX_EPOCH,
+        Err(_) => unsafe { std::hint::unreachable_unchecked() }, // guaranteed to be not to be happen with now() + UNIX_EPOCH,
     }
 }
 

@@ -95,7 +95,7 @@ pub fn import_builtin(vm: &VirtualMachine, module_name: &str) -> PyResult {
         .get(module_name)
         .ok_or_else(|| {
             vm.new_import_error(
-                format!("Cannot import bultin module {}", module_name),
+                format!("Cannot import builtin module {}", module_name),
                 module_name,
             )
         })

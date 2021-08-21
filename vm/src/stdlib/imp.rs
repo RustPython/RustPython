@@ -71,7 +71,7 @@ fn _imp_create_builtin(spec: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 }
 
 fn _imp_exec_builtin(_mod: PyModuleRef) -> i32 {
-    // TOOD: Should we do something here?
+    // TODO: Should we do something here?
     0
 }
 
