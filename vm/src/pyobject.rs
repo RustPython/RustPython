@@ -685,14 +685,26 @@ where
     T: IntoPyObject,
 {
     fn get_item(&self, key: T, vm: &VirtualMachine) -> PyResult {
-        vm.get_special_method(self.clone(), "__getitem__")?
-            .map_err(|obj| {
-                vm.new_type_error(format!(
-                    "'{}' object is not subscriptable",
-                    obj.class().name
-                ))
-            })?
-            .invoke((key,), vm)
+        match vm.get_special_method(self.clone(), "__getitem__")? {
+            Ok(special_method) => special_method.invoke((key,), vm),
+            Err(obj) => {
+                if obj.isinstance(&vm.ctx.types.type_type) {
+                    vm.get_special_method(obj, "__class_getitem__")?
+                        .map_err(|obj2| {
+                            vm.new_type_error(format!(
+                                "'{}' object is not subscriptable",
+                                obj2.class().name
+                            ))
+                        })?
+                        .invoke((key,), vm)
+                } else {
+                    Err(vm.new_type_error(format!(
+                        "'{}' object is not subscriptable",
+                        obj.class().name
+                    )))
+                }
+            }
+        }
     }
 
     fn set_item(&self, key: T, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
