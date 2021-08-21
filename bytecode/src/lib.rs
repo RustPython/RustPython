@@ -46,7 +46,7 @@ impl Location {
 pub trait Constant: Sized {
     type Name: AsRef<str>;
 
-    /// Tranforms the given Constant to a BorrowedConstant
+    /// Transforms the given Constant to a BorrowedConstant
     fn borrow_constant(&self) -> BorrowedConstant<Self>;
     /// Get the data this Constant holds.
     fn into_data(self) -> ConstantData {

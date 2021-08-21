@@ -16,7 +16,7 @@ Author:         Reinhold P. Weicker,  CACM Vol 27, No 10, 10/84 pg. 1013.
 
 Version History:
 
-                Inofficial version 1.1.1 by Chris Arndt:
+                Unofficial version 1.1.1 by Chris Arndt:
 
                 - Make it run under Python 2 and 3 by using
                   "from __future__ import print_function".

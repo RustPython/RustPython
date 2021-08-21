@@ -1,6 +1,6 @@
 
 # Pre Delivery Check - or PDC for short - runs all build and check steps.
-# The intension is to run all checks before delivering (or raising a PR or commiting or what ever you want to use it for).
+# The intention is to run all checks before delivering (or raising a PR or committing or what ever you want to use it for).
 #
 # PDC executes all of the configured actions in the given order and reports which of them failed, 
 # without stopping in case of an fail. 
