@@ -22,43 +22,24 @@ use crate::stdlib::ctypes::primitive::{new_simple_type, PyCSimple};
 
 use crossbeam_utils::atomic::AtomicCell;
 
-macro_rules! os_match_type {
-    (
-        $kind: expr,
-
-        $(
-            $($type: literal)|+ => $body: ident
-        )+
-    ) => {
-        match $kind {
-            $(
-                $(
-                    t if t == $type => { mem::size_of::<$body>() }
-                )+
-            )+
-            _ => unreachable!()
-        }
-    }
-}
-
 pub fn get_size(ty: &str) -> usize {
-    os_match_type!(
-        ty,
-        "u" => WideChar
-        "c" | "b" => c_schar
-        "h" => c_short
-        "H" => c_ushort
-        "i" => c_int
-        "I" => c_uint
-        "l" => c_long
-        "q" => c_longlong
-        "L" => c_ulong
-        "Q" => c_ulonglong
-        "f" => c_float
-        "d" | "g" => c_double
-        "?" | "B" => c_uchar
-        "P" | "z" | "Z" => usize
-    )
+    match ty {
+        "u" => mem::size_of::<WideChar>(),
+        "c" | "b" => mem::size_of::<c_schar>(),
+        "h" => mem::size_of::<c_short>(),
+        "H" => mem::size_of::<c_short>(),
+        "i" => mem::size_of::<c_int>(),
+        "I" => mem::size_of::<c_uint>(),
+        "l" => mem::size_of::<c_long>(),
+        "q" => mem::size_of::<c_longlong>(),
+        "L" => mem::size_of::<c_ulong>(),
+        "Q" => mem::size_of::<c_ulonglong>(),
+        "f" => mem::size_of::<c_float>(),
+        "d" | "g" => mem::size_of::<c_double>(),
+        "?" | "B" => mem::size_of::<c_uchar>(),
+        "P" | "z" | "Z" => mem::size_of::<usize>(),
+        _ => unreachable!(),
+    }
 }
 
 fn at_address(cls: &PyTypeRef, buf: usize, vm: &VirtualMachine) -> PyResult<RawBuffer> {

@@ -334,8 +334,8 @@ impl PyCDataMethods for PySimpleMeta {
         } else if vm.isinstance(&value, &cls)? {
             Ok(value)
         } else {
-            let tp = vm.get_attribute(zelf.as_object().clone(), "_type_")?;
-            let _type_ = tp.downcast::<PyStr>().unwrap().to_string().as_str();
+            let tp = vm.get_attribute(zelf.as_object().clone(), "_type_")?.downcast::<PyStr>().unwrap().to_string();
+            let _type_ = tp.as_str();
 
             match _type_ {
                 "z" | "Z" => from_param_char_p(&cls, &value, vm),

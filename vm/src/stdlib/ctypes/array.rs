@@ -11,7 +11,7 @@ use crate::builtins::{
 use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::function::OptionalArg;
 use crate::pyobject::{
-    IdProtocol, ItemProtocol, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject,
+    IdProtocol, ItemProtocol, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject,
     TypeProtocol,
 };
 use crate::sliceable::SequenceIndex;
@@ -27,10 +27,10 @@ use std::convert::TryInto;
 use std::fmt;
 use widestring::WideCString;
 
-// TODO: make sure that this is correct
-fn byte_to_pyobj(ty: &str, b: &[u8], vm: &VirtualMachine) -> PyResult {
-    let res = if ty == "u" {
-        vm.new_pyobj(if cfg!(windows) {
+// TODO: make sure that this is correct wrt windows and unix wstr
+fn slice_to_obj(ty: &str, b: &[u8], vm: &VirtualMachine) -> PyResult {
+    if ty == "u" {
+        Ok(vm.new_pyobj(if cfg!(windows) {
             u16::from_ne_bytes(
                 b.try_into().map_err(|_| {
                     vm.new_value_error("buffer does not fit widestring".to_string())
@@ -42,7 +42,7 @@ fn byte_to_pyobj(ty: &str, b: &[u8], vm: &VirtualMachine) -> PyResult {
                     vm.new_value_error("buffer does not fit widestring".to_string())
                 })?,
             )
-        })
+        }))
     } else {
         macro_rules! byte_match_type {
             (
@@ -54,7 +54,7 @@ fn byte_to_pyobj(ty: &str, b: &[u8], vm: &VirtualMachine) -> PyResult {
                     $(
                         $(
                             t if t == $type => {
-                                vm.new_pyobj($body::from_ne_bytes(b.try_into().map_err(|_| vm.new_value_error(format!("buffer does not fit type '{}'",ty)))?))
+                                Ok(vm.new_pyobj($body::from_ne_bytes(b.try_into().map_err(|_| vm.new_value_error(format!("buffer does not fit type '{}'",ty)))?)))
                             }
                         )+
                     )+
@@ -75,8 +75,7 @@ fn byte_to_pyobj(ty: &str, b: &[u8], vm: &VirtualMachine) -> PyResult {
             "?" | "B" => u8
             "P" | "z" | "Z" => usize
         )
-    };
-    Ok(res)
+    }
 }
 
 pub fn make_array_with_length(
@@ -150,13 +149,13 @@ fn set_array_value(
 
 fn array_get_slice_params(
     slice: PyRef<PySlice>,
-    length: Option<PyObjectRef>,
+    length: &Option<PyObjectRef>,
     vm: &VirtualMachine,
 ) -> PyResult<(isize, isize, isize)> {
-    if let Some(len) = length {
+    if let Some(ref len) = length {
         let indices = vm.get_method(slice.as_object().clone(), "indices").unwrap().unwrap();
-        let tuple = vm.invoke(&indices, ())?;
-
+        let tuple = vm.invoke(&indices, (len.clone(),))?;
+        
         let (start, stop, step) = (
             tuple.get_item(0, vm)?,
             tuple.get_item(1, vm)?,
@@ -169,41 +168,40 @@ fn array_get_slice_params(
             isize::try_from_object(vm, stop)?,
         ))
     } else {
-        let step = slice
-            .step
-            .map_or(Ok(1), |o| isize::try_from_object(vm, o))?;
+        let step = slice.step.as_ref()
+            .map_or(Ok(1), |o| isize::try_from_object(vm, o.clone()))?;
 
-        let start = slice.start.map_or_else(
-            || {
+        let start = slice.start.as_ref()
+            .map_or_else(|| {
                 if step > 0 {
                     Ok(0)
                 } else {
                     Err(vm.new_value_error("slice start is required for step < 0".to_string()))
                 }
             },
-            |o| isize::try_from_object(vm, o),
+            |o| isize::try_from_object(vm, o.clone()),
         )?;
 
-        let stop = isize::try_from_object(vm, slice.stop)?;
+        let stop = isize::try_from_object(vm, slice.stop.clone())?;
 
         Ok((step, start, stop))
     }
 }
 
-fn array_slice_getitem(
+fn array_slice_getitem<'a>(
     zelf: PyObjectRef,
-    buffer_bytes: &mut [u8],
+    buffer_bytes: &'a [u8],
     slice: PyRef<PySlice>,
     size: usize,
-    vm: &VirtualMachine,
+    vm: &'a VirtualMachine,
 ) -> PyResult {
     let length = vm
         .get_attribute(zelf.clone(), "_length_")
         .map(|c_l| usize::try_from_object(vm, c_l))??;
 
-    let tp = vm.get_attribute(zelf, "_type_")?;
-    let _type_ = tp.downcast::<PyStr>().unwrap().to_string().as_str();
-    let (step, start, stop) = array_get_slice_params(slice, Some(vm.ctx.new_int(length)), vm)?;
+    let tp = vm.get_attribute(zelf, "_type_")?.downcast::<PyStr>().unwrap().to_string();
+    let _type_ = tp.as_str();
+    let (step, start, stop) = array_get_slice_params(slice, &Some(vm.ctx.new_int(length)), vm)?;
 
     let _range = PyRange {
         start: PyInt::from(start).into_ref(vm),
@@ -211,14 +209,14 @@ fn array_slice_getitem(
         step: PyInt::from(step).into_ref(vm),
     };
 
-    let obj_vec = Vec::new();
+    let mut obj_vec = Vec::new();
     let mut offset;
 
-    for curr in _range {
-        let idx = fix_index(isize::try_from_object(vm, curr)?, length, vm)? as usize;
+    for curr in PyIterable::try_from_object(vm,_range.into_object(vm))?.iter(vm)? {
+        let idx = fix_index(isize::try_from_object(vm, curr?)?, length, vm)? as usize;
         offset = idx * size;
 
-        obj_vec.push(byte_to_pyobj(
+        obj_vec.push(slice_to_obj(
             _type_,
             buffer_bytes[offset..offset + size].as_ref(),
             vm,
@@ -236,7 +234,7 @@ fn array_slice_setitem(
     length: Option<PyObjectRef>,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
-    let (step, start, stop) = array_get_slice_params(slice, length, vm)?;
+    let (step, start, stop) = array_get_slice_params(slice, &length, vm)?;
 
     let slice_length = if (step < 0 && stop >= start) || (step > 0 && start >= stop) {
         0
@@ -261,8 +259,8 @@ fn array_slice_setitem(
     //Right now I'm setting one
     let size = length.map_or(Ok(1), |v| usize::try_from_object(vm, v))?;
 
-    for (i, curr) in _range.enumerate() {
-        let idx = fix_index(isize::try_from_object(vm, curr)?, size, vm)? as usize;
+    for (i, curr) in PyIterable::try_from_object(vm,_range.into_object(vm))?.iter(vm)?.enumerate() {
+        let idx = fix_index(isize::try_from_object(vm, curr?)?, size, vm)? as usize;
         let offset = idx * size;
         let item = obj.get_item(i, vm)?;
         let buffer_slice = &mut buffer_bytes[offset..offset + size];
@@ -377,7 +375,7 @@ impl PyCDataMethods for PyCArrayMeta {
                     if value_len > length {
                         return Err(vm.new_value_error("Invalid length".to_string()));
                     }
-                    value = make_array_with_length(cls, length, vm)?.as_object().clone();
+                    value = make_array_with_length(cls.clone(), length, vm)?.as_object().clone();
                 } else if vm.isinstance(&value, &cls).is_err() {
                     return Err(
                         vm.new_type_error(format!("expected bytes, {} found", value.class().name))
@@ -388,7 +386,7 @@ impl PyCDataMethods for PyCArrayMeta {
                     if value_len > length {
                         return Err(vm.new_value_error("Invalid length".to_string()));
                     }
-                    value = make_array_with_length(cls, length, vm)?.as_object().clone();
+                    value = make_array_with_length(cls.clone(), length, vm)?.as_object().clone();
                 } else if vm.isinstance(&value, &cls).is_err() {
                     return Err(vm.new_type_error(format!(
                         "expected unicode string, {} found",
@@ -632,11 +630,11 @@ impl PyCArray {
                 let idx = fix_index(idx, zelf._length_, vm)? as usize;
                 let offset = idx * size;
                 let buffer_slice = buffer_bytes[offset..offset + size].as_ref();
-                byte_to_pyobj(zelf._type_._type_.as_str(), buffer_slice, vm)
+                slice_to_obj(zelf._type_._type_.as_str(), buffer_slice, vm)
             }
             SequenceIndex::Slice(slice) => array_slice_getitem(
                 zelf.as_object().clone(),
-                &mut buffer_bytes[..],
+                &buffer_bytes[..],
                 slice,
                 size,
                 vm,
