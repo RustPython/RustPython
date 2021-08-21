@@ -807,8 +807,6 @@ class MathTests(unittest.TestCase):
             scale = FLOAT_MIN / 2.0 ** exp
             self.assertEqual(math.hypot(4*scale, 3*scale), 5*scale)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testDist(self):
         from decimal import Decimal as D
         from fractions import Fraction as F

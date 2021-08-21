@@ -12,7 +12,7 @@ use crate::builtins::int::{self, PyInt, PyIntRef};
 use crate::function::{Args, OptionalArg};
 use crate::utils::Either;
 use crate::vm::VirtualMachine;
-use crate::{PyIterable, PyObjectRef, PyResult, TypeProtocol};
+use crate::{PyIterable, PyObjectRef, PyResult, PySequence, TypeProtocol};
 use rustpython_common::float_ops;
 
 use std::cmp::Ordering;
@@ -230,6 +230,48 @@ fn vector_norm(v: &[f64], max: f64) -> f64 {
         frac += (old - csum) + f;
     }
     max * f64::sqrt(csum - 1.0 + frac)
+}
+
+fn math_dist(
+    p: PySequence<IntoPyFloat>,
+    q: PySequence<IntoPyFloat>,
+    vm: &VirtualMachine,
+) -> PyResult<f64> {
+    let mut max = 0.0;
+    let mut has_nan = false;
+
+    let p = IntoPyFloat::vec_into_f64(p.into_vec());
+    let q = IntoPyFloat::vec_into_f64(q.into_vec());
+    let mut diffs = vec![];
+
+    if p.len() != q.len() {
+        return Err(
+            vm.new_value_error("both points must have the same number of dimensions".to_owned())
+        );
+    }
+
+    for i in 0..p.len() {
+        let px = p[i];
+        let qx = q[i];
+
+        let x = (px - qx).abs();
+        if x.is_nan() {
+            has_nan = true;
+        }
+
+        diffs.push(x);
+        if x > max {
+            max = x;
+        }
+    }
+
+    if max.is_infinite() {
+        return Ok(max);
+    }
+    if has_nan {
+        return Ok(f64::NAN);
+    }
+    Ok(vector_norm(&diffs, max))
 }
 
 make_math_func!(math_sin, sin);
@@ -725,6 +767,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "atan2" => named_function!(ctx, math, atan2),
         "cos" => named_function!(ctx, math, cos),
         "hypot" => named_function!(ctx, math, hypot),
+        "dist" => named_function!(ctx, math, dist),
         "sin" => named_function!(ctx, math, sin),
         "tan" => named_function!(ctx, math, tan),
 
