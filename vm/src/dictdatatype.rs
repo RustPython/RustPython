@@ -6,6 +6,7 @@ use crate::builtins::{PyStr, PyStrRef};
 use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::vm::VirtualMachine;
 use crate::{IdProtocol, IntoPyObject, PyObjectRef, PyRefExact, PyResult, TypeProtocol};
+use crossbeam_utils::atomic::AtomicCell;
 use rustpython_common::hash;
 use std::fmt;
 use std::mem::size_of;
@@ -481,6 +482,18 @@ impl<T: Clone> Dict<T> {
         loop {
             let entry = inner.entries.get(*position)?;
             *position += 1;
+            if let Some(entry) = entry {
+                break Some((entry.key.clone(), entry.value.clone()));
+            }
+        }
+    }
+
+    pub fn next_entry_reversed(&self, position: &AtomicCell<usize>) -> Option<(PyObjectRef, T)> {
+        let inner = self.read();
+        loop {
+            let position_usize = position.fetch_add(1);
+            let position_index = inner.entries.len().checked_sub(position_usize + 1)?;
+            let entry = inner.entries.get(position_index)?;
             if let Some(entry) = entry {
                 break Some((entry.key.clone(), entry.value.clone()));
             }
