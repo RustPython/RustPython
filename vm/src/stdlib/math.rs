@@ -232,7 +232,11 @@ fn vector_norm(v: &[f64], max: f64) -> f64 {
     max * f64::sqrt(csum - 1.0 + frac)
 }
 
-fn math_dist(p: PySequence<IntoPyFloat>, q: PySequence<IntoPyFloat>, vm: &VirtualMachine) -> PyResult<f64> {
+fn math_dist(
+    p: PySequence<IntoPyFloat>,
+    q: PySequence<IntoPyFloat>,
+    vm: &VirtualMachine,
+) -> PyResult<f64> {
     let mut max = 0.0;
     let mut has_nan = false;
 
@@ -243,13 +247,15 @@ fn math_dist(p: PySequence<IntoPyFloat>, q: PySequence<IntoPyFloat>, vm: &Virtua
     let m = q.len();
 
     if m != n {
-        return Err(vm.new_value_error("both points must have the same number of dimensions".to_owned()))
+        return Err(
+            vm.new_value_error("both points must have the same number of dimensions".to_owned())
+        );
     }
 
     for i in 0..m {
         let px = p[i];
         let qx = q[i];
-        
+
         let x = (px - qx).abs();
         if x.is_nan() {
             has_nan = true;
