@@ -154,8 +154,8 @@ fn trigger_signals(
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     for (signum, trigger) in TRIGGERS.iter().enumerate().skip(1) {
-        let triggerd = trigger.swap(false, Ordering::Relaxed);
-        if triggerd {
+        let triggered = trigger.swap(false, Ordering::Relaxed);
+        if triggered {
             if let Some(handler) = &signal_handlers[signum] {
                 if vm.is_callable(handler) {
                     vm.invoke(handler, (signum, vm.ctx.none()))?;

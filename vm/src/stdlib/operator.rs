@@ -224,7 +224,7 @@ mod _operator {
         vm._membership(a, b)
     }
 
-    /// Return the number of occurences of b in a.
+    /// Return the number of occurrences of b in a.
     #[pyfunction(name = "countOf")]
     fn count_of(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         let mut count: usize = 0;
@@ -249,7 +249,7 @@ mod _operator {
         a.get_item(b, vm)
     }
 
-    /// Return the number of occurences of b in a.
+    /// Return the number of occurrences of b in a.
     #[pyfunction(name = "indexOf")]
     fn index_of(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         let mut index: usize = 0;

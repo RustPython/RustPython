@@ -409,8 +409,9 @@ impl PyFloat {
                 None if ndigits.is_positive() => i32::MAX,
                 None => i32::MIN,
             };
-            let float = float_ops::round_float_digits(self.value, ndigits)
-                .ok_or_else(|| vm.new_overflow_error("overflow ocurred during round".to_owned()))?;
+            let float = float_ops::round_float_digits(self.value, ndigits).ok_or_else(|| {
+                vm.new_overflow_error("overflow occurred during round".to_owned())
+            })?;
             vm.ctx.new_float(float)
         } else {
             let fract = self.value.fract();

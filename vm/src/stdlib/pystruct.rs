@@ -237,7 +237,7 @@ pub(crate) mod _struct {
             // First determine "@", "<", ">","!" or "="
             let endianness = parse_endianness(&mut chars);
 
-            // Now, analyze struct string furter:
+            // Now, analyze struct string further:
             let (codes, size, arg_count) = parse_format_codes(&mut chars, endianness)
                 .map_err(|err| new_struct_error(vm, err))?;
 

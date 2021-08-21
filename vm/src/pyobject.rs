@@ -848,7 +848,7 @@ pub trait TryFromObject: Sized {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self>;
 }
 
-/// Rust-side only version of TryFromObject to reduce unnessessary Rc::clone
+/// Rust-side only version of TryFromObject to reduce unnecessary Rc::clone
 impl<T: TryFromBorrowedObject> TryFromObject for T {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         TryFromBorrowedObject::try_from_borrowed_object(vm, &obj)
