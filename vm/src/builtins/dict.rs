@@ -782,12 +782,8 @@ macro_rules! dict_iterator {
                                 "dictionary changed size during iteration".to_owned(),
                             ));
                         }
-                        let mut position = zelf.position.load();
-                        match zelf.dict.entries.next_entry_reversed(&mut position) {
-                            Some((key, value)) => {
-                                zelf.position.store(position);
-                                Ok(($result_fn)(vm, key, value))
-                            }
+                        match zelf.dict.entries.next_entry_reversed(&zelf.position) {
+                            Some((key, value)) => Ok(($result_fn)(vm, key, value)),
                             None => {
                                 zelf.status.store(IterStatus::Exhausted);
                                 Err(vm.new_stop_iteration())
