@@ -635,3 +635,24 @@ assert it.__length_hint__() == 0
 
 a = [*[1, 2], 3, *[4, 5]]
 assert a == [1, 2, 3, 4, 5]
+
+# Test for list entering daedlock or not (https://github.com/RustPython/RustPython/pull/2933)
+class MutatingCompare:
+    def __eq__(self, other):
+        self.list.pop()
+        return True
+
+m = MutatingCompare()
+
+l = [1, 2, 3, m, 4]
+m.list = l
+l.count(4) # TODO: assert l.count(4) == 1
+
+l = [1, 2, 3, m, 4]
+m.list = l
+assert l.index(4) == 3
+
+l = [1, 2, 3, m, 4]
+m.list = l
+l.remove(4) 
+assert_raises(ValueError, lambda: l.index(4)) # element 4 must not be in the list
