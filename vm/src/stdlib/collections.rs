@@ -15,7 +15,7 @@ mod _collections {
         TypeProtocol,
     };
     use crate::{sequence, sliceable};
-    use crate::{PyComparisonValue, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, StaticType};
+    use crate::{PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, StaticType};
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
     use num_traits::ToPrimitive;
