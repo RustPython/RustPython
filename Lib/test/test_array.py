@@ -13,7 +13,7 @@ import sys
 import warnings
 
 import array
-# from array import _array_reconstructor as array_reconstructor  # XXX: RUSTPYTHON
+from array import _array_reconstructor as array_reconstructor
 
 sizeof_wchar = array.array('u').itemsize
 
@@ -76,8 +76,6 @@ UTF32_BE = 21
 
 class ArrayReconstructorTest(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_error(self):
         self.assertRaises(TypeError, array_reconstructor,
                           "", "b", 0, b"")
@@ -96,8 +94,6 @@ class ArrayReconstructorTest(unittest.TestCase):
         self.assertRaises(ValueError, array_reconstructor,
                           array.array, "d", 16, b"a")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_numbers(self):
         testcases = (
             (['B', 'H', 'I', 'L'], UNSIGNED_INT8, '=BBBB',
@@ -168,8 +164,8 @@ class ArrayReconstructorTest(unittest.TestCase):
         testcases = (
             (UTF16_LE, "UTF-16-LE"),
             (UTF16_BE, "UTF-16-BE"),
-            (UTF32_LE, "UTF-32-LE"),
-            (UTF32_BE, "UTF-32-BE")
+            (UTF32_LE, "UTF-32-LE"), # TODO: RUSTPYTHON
+            (UTF32_BE, "UTF-32-BE")  # TODO: RUSTPYTHON
         )
         for testcase in testcases:
             mformat_code, encoding = testcase

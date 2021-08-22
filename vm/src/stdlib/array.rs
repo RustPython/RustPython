@@ -15,7 +15,7 @@ mod array {
     use crate::builtins::pystr::{PyStr, PyStrRef};
     use crate::builtins::pytype::PyTypeRef;
     use crate::builtins::slice::PySliceRef;
-    use crate::builtins::{PyByteArray, PyBytes};
+    use crate::builtins::{PyByteArray, PyBytes, PyBytesRef, PyIntRef};
     use crate::byteslike::{try_bytes_like, ArgBytesLike};
     use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
     use crate::common::lock::{
@@ -35,8 +35,10 @@ mod array {
     use crate::{IntoPyResult, VirtualMachine};
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
+    use lexical_core::Integer;
+    use num_traits::ToPrimitive;
     use std::cmp::Ordering;
-    use std::convert::TryFrom;
+    use std::convert::{TryFrom, TryInto};
     use std::{fmt, os::raw};
 
     macro_rules! def_array_enum {
@@ -69,6 +71,13 @@ mod array {
                     }
                 }
 
+                fn itemsize_of_typecode(c: char) -> Option<usize> {
+                    match c {
+                        $($c => Some(std::mem::size_of::<$t>()),)*
+                        _ => None,
+                    }
+                }
+
                 fn itemsize(&self) -> usize {
                     match self {
                         $(ArrayContentType::$n(_) => std::mem::size_of::<$t>(),)*
@@ -87,6 +96,12 @@ mod array {
                     }
                 }
 
+                fn reserve(&mut self, len: usize) {
+                    match self {
+                        $(ArrayContentType::$n(v) => v.reserve(len),)*
+                    }
+                }
+
                 fn push(&mut self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
                     match self {
                         $(ArrayContentType::$n(v) => {
@@ -100,9 +115,9 @@ mod array {
                 fn pop(&mut self, i: isize, vm: &VirtualMachine) -> PyResult {
                     match self {
                         $(ArrayContentType::$n(v) => {
-                            let i = v.wrap_index(i).ok_or_else(|| {
-                                vm.new_index_error("pop index out of range".to_owned())
-                            })?;
+                        let i = v.wrap_index(i).ok_or_else(|| {
+                            vm.new_index_error("pop index out of range".to_owned())
+                        })?;
                             v.remove(i).into_pyresult(vm)
                         })*
                     }
@@ -145,6 +160,24 @@ mod array {
                                 }
                             }
                             Err(vm.new_value_error("array.remove(x): x not in array".to_owned()))
+                        })*
+                    }
+                }
+
+                fn frombytes_move(&mut self, b: Vec<u8>) {
+                    match self {
+                        $(ArrayContentType::$n(v) => {
+                            if v.is_empty() {
+                                // safe because every configuration of bytes for the types we
+                                // support are valid
+                                let b = std::mem::ManuallyDrop::new(b);
+                                let ptr = b.as_ptr() as *mut $t;
+                                let len = b.len() / std::mem::size_of::<$t>();
+                                let capacity = b.capacity() / std::mem::size_of::<$t>();
+                                *v = unsafe { Vec::from_raw_parts(ptr, len, capacity) };
+                            } else {
+                                self.frombytes(&b);
+                            }
                         })*
                     }
                 }
@@ -231,7 +264,11 @@ mod array {
                     }
                 }
 
-                fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+                fn getitem(
+                    &self,
+                    needle: PyObjectRef,
+                    vm: &VirtualMachine
+                ) -> PyResult {
                     match self {
                         $(ArrayContentType::$n(v) => {
                             match SequenceIndex::try_from_object_for(vm, needle, "array")? {
@@ -296,7 +333,8 @@ mod array {
                             let i = v.wrap_index(i).ok_or_else(|| {
                                 vm.new_index_error("array assignment index out of range".to_owned())
                             })?;
-                            v[i] = <$t>::try_into_from_object(vm, value)? },)*
+                            v[i] = <$t>::try_into_from_object(vm, value)?
+                        })*
                     }
                     Ok(())
                 }
@@ -307,7 +345,8 @@ mod array {
                             let i = v.wrap_index(i).ok_or_else(|| {
                                 vm.new_index_error("array assignment index out of range".to_owned())
                             })?;
-                            v.remove(i); },)*
+                            v.remove(i);
+                        })*
                     }
                     Ok(())
                 }
@@ -508,13 +547,28 @@ mod array {
         }
     }
 
+    fn u32_to_char(ch: u32) -> Result<char, String> {
+        if ch > 0x10ffff {
+            return Err(format!(
+                "character U+{:4x} is not in range [U+0000; U+10ffff]",
+                ch
+            ));
+        };
+        char::from_u32(ch).ok_or_else(|| {
+            format!(
+                "'utf-8' codec can't encode character '\\u{:x}' \
+                in position 0: surrogates not allowed",
+                ch
+            )
+        })
+    }
+
     impl TryFrom<WideChar> for char {
         type Error = String;
 
         fn try_from(ch: WideChar) -> Result<Self, Self::Error> {
             // safe because every configuration of bytes for the types we support are valid
-            char::from_u32(ch.0 as u32)
-                .ok_or_else(|| { format!("'utf-8' codec can't encode character '\\u{:x}' in position 0: surrogates not allowed", ch.0) })
+            u32_to_char(ch.0 as u32)
         }
     }
 
@@ -602,7 +656,7 @@ mod array {
                 } else if let Some(utf8) = init.payload::<PyStr>() {
                     if spec == 'u' {
                         let bytes = Self::_unicode_to_wchar_bytes(utf8.as_str(), array.itemsize());
-                        array.frombytes(&bytes);
+                        array.frombytes_move(bytes);
                     } else {
                         return Err(vm.new_type_error(format!(
                             "cannot use a str to initialize an array with typecode '{}'",
@@ -700,7 +754,7 @@ mod array {
             }
             let mut w = zelf.try_resizable(vm)?;
             let bytes = Self::_unicode_to_wchar_bytes(utf8.as_str(), w.itemsize());
-            w.frombytes(&bytes);
+            w.frombytes_move(bytes);
             Ok(())
         }
 
@@ -734,12 +788,7 @@ mod array {
                     .iter()
                     .map(|&ch| {
                         // cpython issue 17223
-                        char::from_u32(ch).ok_or_else(|| {
-                            vm.new_value_error(format!(
-                                "character U+{:4x} is not in range [U+0000; U+10ffff]",
-                                ch
-                            ))
-                        })
+                        u32_to_char(ch).map_err(|msg| vm.new_value_error(msg))
                     })
                     .try_collect()
             }
@@ -1121,5 +1170,245 @@ mod array {
                 Err(vm.new_stop_iteration())
             }
         }
+    }
+
+    #[derive(FromArgs)]
+    struct ReconstructorArgs {
+        #[pyarg(positional)]
+        arraytype: PyTypeRef,
+        #[pyarg(positional)]
+        typecode: PyStrRef,
+        #[pyarg(positional)]
+        mformat_code: MachineFormatCode,
+        #[pyarg(positional)]
+        items: PyBytesRef,
+    }
+
+    #[derive(Debug, Copy, Clone, Eq, PartialEq)]
+    #[repr(u8)]
+    enum MachineFormatCode {
+        Int8 { signed: bool },                    // 0, 1
+        Int16 { signed: bool, big_endian: bool }, // 2, 3, 4, 5
+        Int32 { signed: bool, big_endian: bool }, // 6, 7, 8, 9
+        Int64 { signed: bool, big_endian: bool }, // 10, 11, 12, 13
+        Ieee754Float { big_endian: bool },        // 14, 15
+        Ieee754Double { big_endian: bool },       // 16, 17
+        Utf16 { big_endian: bool },               // 18, 19
+        Utf32 { big_endian: bool },               // 20, 21
+    }
+
+    impl From<MachineFormatCode> for u8 {
+        fn from(code: MachineFormatCode) -> u8 {
+            use MachineFormatCode::*;
+            match code {
+                Int8 { signed } => signed as u8,
+                Int16 { signed, big_endian } => 2 + signed as u8 * 2 + big_endian as u8,
+                Int32 { signed, big_endian } => 6 + signed as u8 * 2 + big_endian as u8,
+                Int64 { signed, big_endian } => 10 + signed as u8 * 2 + big_endian as u8,
+                Ieee754Float { big_endian } => 14 + big_endian as u8,
+                Ieee754Double { big_endian } => 16 + big_endian as u8,
+                Utf16 { big_endian } => 18 + big_endian as u8,
+                Utf32 { big_endian } => 20 + big_endian as u8,
+            }
+        }
+    }
+
+    impl TryFrom<u8> for MachineFormatCode {
+        type Error = u8;
+
+        fn try_from(code: u8) -> Result<Self, Self::Error> {
+            let big_endian = code % 2 != 0;
+            let signed = match code {
+                0 | 1 => code != 0,
+                2..=13 => (code - 2) % 4 >= 2,
+                _ => false,
+            };
+            match code {
+                0 | 1 => Ok(Self::Int8 { signed }),
+                2 | 3 | 4 | 5 => Ok(Self::Int16 { signed, big_endian }),
+                6 | 7 | 8 | 9 => Ok(Self::Int32 { signed, big_endian }),
+                10 | 11 | 12 | 13 => Ok(Self::Int64 { signed, big_endian }),
+                14 | 15 => Ok(Self::Ieee754Float { big_endian }),
+                16 | 17 => Ok(Self::Ieee754Double { big_endian }),
+                18 | 19 => Ok(Self::Utf16 { big_endian }),
+                20 | 21 => Ok(Self::Utf32 { big_endian }),
+                _ => Err(code),
+            }
+        }
+    }
+
+    impl TryFromObject for MachineFormatCode {
+        fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+            PyIntRef::try_from_object(vm, obj.clone())
+                .map_err(|_| {
+                    vm.new_type_error(format!(
+                        "an integer is required (got type {})",
+                        obj.class().name
+                    ))
+                })?
+                .as_bigint()
+                .to_i32()
+                .ok_or_else(|| {
+                    vm.new_overflow_error("Python int too large to convert to C int".into())
+                })?
+                .try_u8_or_max()
+                .try_into()
+                .map_err(|_| {
+                    vm.new_value_error("third argument must be a valid machine format code.".into())
+                })
+        }
+    }
+
+    impl MachineFormatCode {
+        fn from_typecode(code: char) -> Option<Self> {
+            use std::mem::size_of;
+            let signed = code.is_ascii_uppercase();
+            let big_endian = cfg!(target_endian = "big");
+            let int_size = match code {
+                'b' | 'B' => return Some(Self::Int8 { signed }),
+                'u' => {
+                    return match size_of::<wchar_t>() {
+                        2 => Some(Self::Utf16 { big_endian }),
+                        4 => Some(Self::Utf32 { big_endian }),
+                        _ => None,
+                    }
+                }
+                'f' => {
+                    // Copied from CPython
+                    const Y: f32 = 16711938.0;
+                    return match &Y.to_ne_bytes() {
+                        b"\x4b\x7f\x01\x02" => Some(Self::Ieee754Float { big_endian: true }),
+                        b"\x02\x01\x7f\x4b" => Some(Self::Ieee754Float { big_endian: false }),
+                        _ => None,
+                    };
+                }
+                'd' => {
+                    // Copied from CPython
+                    const Y: f64 = 9006104071832581.0;
+                    return match &Y.to_ne_bytes() {
+                        b"\x43\x3f\xff\x01\x02\x03\x04\x05" => {
+                            Some(Self::Ieee754Double { big_endian: true })
+                        }
+                        b"\x05\x04\x03\x02\x01\xff\x3f\x43" => {
+                            Some(Self::Ieee754Double { big_endian: false })
+                        }
+                        _ => None,
+                    };
+                }
+                _ => ArrayContentType::itemsize_of_typecode(code)? as u8,
+            };
+            match int_size {
+                2 => Some(Self::Int16 { signed, big_endian }),
+                4 => Some(Self::Int32 { signed, big_endian }),
+                8 => Some(Self::Int64 { signed, big_endian }),
+                _ => None,
+            }
+        }
+        fn item_size(self) -> usize {
+            match self {
+                Self::Int8 { .. } => 1,
+                Self::Int16 { .. } | Self::Utf16 { .. } => 2,
+                Self::Int32 { .. } | Self::Utf32 { .. } | Self::Ieee754Float { .. } => 4,
+                Self::Int64 { .. } | Self::Ieee754Double { .. } => 8,
+            }
+        }
+    }
+
+    fn check_array_type(typ: PyTypeRef, vm: &VirtualMachine) -> PyResult<PyTypeRef> {
+        if !typ.issubclass(PyArray::class(vm)) {
+            return Err(vm.new_type_error(format!("{} is not a subtype of array.array", typ.name)));
+        }
+        Ok(typ)
+    }
+
+    fn check_type_code(spec: PyStrRef, vm: &VirtualMachine) -> PyResult<ArrayContentType> {
+        let spec = spec.as_str().chars().exactly_one().map_err(|_| {
+            vm.new_type_error(
+                "_array_reconstructor() argument 2 must be a unicode character, not str".into(),
+            )
+        })?;
+        ArrayContentType::from_char(spec)
+            .map_err(|_| vm.new_value_error("second argument must be a valid type code".into()))
+    }
+
+    macro_rules! chunk_to_obj {
+        ($BYTE:ident, $TY:ty, $BIG_ENDIAN:ident) => {{
+            let b = <[u8; ::std::mem::size_of::<$TY>()]>::try_from($BYTE).unwrap();
+            if $BIG_ENDIAN {
+                <$TY>::from_be_bytes(b)
+            } else {
+                <$TY>::from_le_bytes(b)
+            }
+        }};
+        ($VM:ident, $BYTE:ident, $TY:ty, $BIG_ENDIAN:ident) => {
+            chunk_to_obj!($BYTE, $TY, $BIG_ENDIAN).into_pyobject($VM)
+        };
+        ($VM:ident, $BYTE:ident, $SIGNED_TY:ty, $UNSIGNED_TY:ty, $SIGNED:ident, $BIG_ENDIAN:ident) => {{
+            let b = <[u8; ::std::mem::size_of::<$SIGNED_TY>()]>::try_from($BYTE).unwrap();
+            match ($SIGNED, $BIG_ENDIAN) {
+                (false, false) => <$UNSIGNED_TY>::from_le_bytes(b).into_pyobject($VM),
+                (false, true) => <$UNSIGNED_TY>::from_be_bytes(b).into_pyobject($VM),
+                (true, false) => <$SIGNED_TY>::from_le_bytes(b).into_pyobject($VM),
+                (true, true) => <$SIGNED_TY>::from_be_bytes(b).into_pyobject($VM),
+            }
+        }};
+    }
+
+    #[pyfunction]
+    fn _array_reconstructor(args: ReconstructorArgs, vm: &VirtualMachine) -> PyResult<PyArrayRef> {
+        let cls = check_array_type(args.arraytype, vm)?;
+        let mut array = check_type_code(args.typecode, vm)?;
+        let format = args.mformat_code;
+        let bytes = args.items.as_bytes();
+        if bytes.len() % format.item_size() != 0 {
+            return Err(vm.new_value_error("bytes length not a multiple of item size".into()));
+        }
+        if MachineFormatCode::from_typecode(array.typecode()) == Some(format) {
+            array.frombytes(bytes);
+            return PyArray::from(array).into_ref_with_type(vm, cls);
+        }
+        if !matches!(
+            format,
+            MachineFormatCode::Utf16 { .. } | MachineFormatCode::Utf32 { .. }
+        ) {
+            array.reserve(bytes.len() / format.item_size());
+        }
+        let mut chunks = bytes.chunks(format.item_size());
+        match format {
+            MachineFormatCode::Ieee754Float { big_endian } => {
+                chunks.try_for_each(|b| array.push(chunk_to_obj!(vm, b, f32, big_endian), vm))?
+            }
+            MachineFormatCode::Ieee754Double { big_endian } => {
+                chunks.try_for_each(|b| array.push(chunk_to_obj!(vm, b, f64, big_endian), vm))?
+            }
+            MachineFormatCode::Int8 { signed } => chunks
+                .try_for_each(|b| array.push(chunk_to_obj!(vm, b, i8, u8, signed, false), vm))?,
+            MachineFormatCode::Int16 { signed, big_endian } => chunks.try_for_each(|b| {
+                array.push(chunk_to_obj!(vm, b, i16, u16, signed, big_endian), vm)
+            })?,
+            MachineFormatCode::Int32 { signed, big_endian } => chunks.try_for_each(|b| {
+                array.push(chunk_to_obj!(vm, b, i32, u32, signed, big_endian), vm)
+            })?,
+            MachineFormatCode::Int64 { signed, big_endian } => chunks.try_for_each(|b| {
+                array.push(chunk_to_obj!(vm, b, i64, u64, signed, big_endian), vm)
+            })?,
+            MachineFormatCode::Utf16 { big_endian } => {
+                let utf16: Vec<_> = chunks.map(|b| chunk_to_obj!(b, u16, big_endian)).collect();
+                let s = String::from_utf16(&utf16).map_err(|_| {
+                    vm.new_unicode_encode_error("items cannot decode as utf16".into())
+                })?;
+                let bytes = PyArray::_unicode_to_wchar_bytes(&s, array.itemsize());
+                array.frombytes_move(bytes);
+            }
+            MachineFormatCode::Utf32 { big_endian } => {
+                let s: String = chunks
+                    .map(|b| chunk_to_obj!(b, u32, big_endian))
+                    .map(|ch| u32_to_char(ch).map_err(|msg| vm.new_value_error(msg)))
+                    .try_collect()?;
+                let bytes = PyArray::_unicode_to_wchar_bytes(&s, array.itemsize());
+                array.frombytes_move(bytes);
+            }
+        };
+        PyArray::from(array).into_ref_with_type(vm, cls)
     }
 }
