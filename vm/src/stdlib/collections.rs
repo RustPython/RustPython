@@ -217,7 +217,7 @@ mod _collections {
                     deque.truncate(truncate_until);
                 } else {
                     self.borrow_deque_mut().clear();
-                    elements.drain(..(elements.len() - max_len));
+                    elements.truncate(max_len);
                 }
             }
             let mut created = VecDeque::from(elements);
