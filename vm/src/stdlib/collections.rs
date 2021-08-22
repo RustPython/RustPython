@@ -400,6 +400,11 @@ mod _collections {
         }
 
         #[pymethod(magic)]
+        fn bool(&self) -> bool {
+            self.borrow_deque().len() != 0
+        }
+
+        #[pymethod(magic)]
         fn iadd(
             zelf: PyRef<Self>,
             other: PyObjectRef,
