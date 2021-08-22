@@ -1691,7 +1691,7 @@ mod tests {
 
     #[test]
     fn test_escape_char_in_byte_literal() {
-        // backslash doesnt escape
+        // backslash does not escape
         let source = r##"b"omkmok\Xaa""##;
         let tokens = lex_source(source);
         let res = vec![111, 109, 107, 109, 111, 107, 92, 88, 97, 97];

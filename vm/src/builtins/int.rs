@@ -19,8 +19,9 @@ use crate::slots::{Comparable, Hashable, PyComparisonOp};
 use crate::VirtualMachine;
 use crate::{bytesinner::PyBytesInner, byteslike::try_bytes_like};
 use crate::{
-    IdProtocol, IntoPyObject, IntoPyResult, PyArithmaticValue, PyClassImpl, PyComparisonValue,
-    PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    try_value_from_borrowed_object, IdProtocol, IntoPyObject, IntoPyResult, PyArithmaticValue,
+    PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromBorrowedObject, TypeProtocol,
 };
 use rustpython_common::hash;
 
@@ -101,10 +102,11 @@ where
 
 macro_rules! impl_try_from_object_int {
     ($(($t:ty, $to_prim:ident),)*) => {$(
-        impl TryFromObject for $t {
-            fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-                let int = PyIntRef::try_from_object(vm, obj)?;
-                try_to_primitive(&int.value, vm)
+        impl TryFromBorrowedObject for $t {
+            fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Self> {
+                try_value_from_borrowed_object(vm, obj, |int: &PyInt| {
+                    try_to_primitive(int.as_bigint(), vm)
+                })
             }
         }
     )*};

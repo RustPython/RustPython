@@ -1,5 +1,5 @@
 use crate::vm::VirtualMachine;
-use crate::{PyObjectRef, PyResult, TryFromObject};
+use crate::{PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject};
 use std::{io, mem};
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
@@ -72,7 +72,7 @@ struct Selectable {
 
 impl TryFromObject for Selectable {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        let fno = RawFd::try_from_object(vm, obj.clone()).or_else(|_| {
+        let fno = RawFd::try_from_borrowed_object(vm, &obj).or_else(|_| {
             let meth = vm.get_method_or_type_error(obj.clone(), "fileno", || {
                 "select arg must be an int or object with a fileno() method".to_owned()
             })?;

@@ -311,7 +311,7 @@ impl<T: TryFromObject> FromArgOptional for T {
 
 /// A map of keyword arguments to their values.
 ///
-/// A built-in function with a `KwArgs` parameter is analagous to a Python
+/// A built-in function with a `KwArgs` parameter is analogous to a Python
 /// function with `**kwargs`. All remaining keyword arguments are extracted
 /// (and hence the function will permit an arbitrary number of them).
 ///

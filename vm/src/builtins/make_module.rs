@@ -12,14 +12,15 @@ mod decl {
     use crate::builtins::bytes::PyBytesRef;
     use crate::builtins::code::PyCodeRef;
     use crate::builtins::dict::PyDictRef;
+    use crate::builtins::enumerate::PyReverseSequenceIterator;
     use crate::builtins::function::{PyCellRef, PyFunctionRef};
-    use crate::builtins::int::PyIntRef;
-    use crate::builtins::iter::{PyCallableIterator, PySequenceIterator};
+    use crate::builtins::int::{self, PyIntRef};
+    use crate::builtins::iter::PyCallableIterator;
     use crate::builtins::list::{PyList, SortOptions};
     use crate::builtins::pybool::IntoPyBool;
     use crate::builtins::pystr::{PyStr, PyStrRef};
     use crate::builtins::pytype::PyTypeRef;
-    use crate::builtins::{PyByteArray, PyBytes};
+    use crate::builtins::{PyByteArray, PyBytes, PyTupleRef};
     use crate::byteslike::ArgBytesLike;
     use crate::common::{hash::PyHash, str::to_ascii};
     #[cfg(feature = "rustpython-compiler")]
@@ -161,7 +162,7 @@ mod decl {
 
                 let flags = args
                     .flags
-                    .map_or(Ok(0), |v| i32::try_from_object(vm, v.into_object()))?;
+                    .map_or(Ok(0), |v| int::try_to_primitive(v.as_bigint(), vm))?;
 
                 if (flags & ast::PY_COMPILE_FLAG_AST_ONLY).is_zero() {
                     #[cfg(not(feature = "rustpython-compiler"))]
@@ -719,8 +720,8 @@ mod decl {
             vm.get_method_or_type_error(obj.clone(), "__getitem__", || {
                 "argument to reversed() must be a sequence".to_owned()
             })?;
-            let len = vm.obj_len(&obj)? as isize;
-            let obj_iterator = PySequenceIterator::new_reversed(obj, len);
+            let len = vm.obj_len(&obj)?;
+            let obj_iterator = PyReverseSequenceIterator::new(obj, len);
             Ok(obj_iterator.into_object(vm))
         }
     }
@@ -831,7 +832,7 @@ mod decl {
     pub fn __build_class__(
         function: PyFunctionRef,
         qualified_name: PyStrRef,
-        bases: Args<PyTypeRef>,
+        bases: Args,
         mut kwargs: KwArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
@@ -844,7 +845,41 @@ mod decl {
             vm.ctx.types.type_type.clone()
         };
 
-        for base in bases.clone() {
+        let mut new_bases: Option<Vec<PyObjectRef>> = None;
+
+        let bases = PyTupleRef::with_elements(bases.into_vec(), &vm.ctx);
+
+        for (i, base) in bases.as_slice().iter().enumerate() {
+            if base.isinstance(&vm.ctx.types.type_type) {
+                if let Some(bases) = &mut new_bases {
+                    bases.push(base.clone());
+                }
+                continue;
+            }
+            let mro_entries = vm.get_attribute_opt(base.clone(), "__mro_entries__")?;
+            let entries = match mro_entries {
+                Some(meth) => vm.invoke(&meth, (bases.clone(),))?,
+                None => {
+                    if let Some(bases) = &mut new_bases {
+                        bases.push(base.clone());
+                    }
+                    continue;
+                }
+            };
+            let entries: PyTupleRef = entries
+                .downcast()
+                .map_err(|_| vm.new_type_error("__mro_entries__ must return a tuple".to_owned()))?;
+            let new_bases = new_bases.get_or_insert_with(|| bases.as_slice()[..i].to_vec());
+            new_bases.extend_from_slice(entries.as_slice());
+        }
+
+        let new_bases = new_bases.map(|v| PyTupleRef::with_elements(v, &vm.ctx));
+        let (orig_bases, bases) = match new_bases {
+            Some(new) => (Some(bases), new),
+            None => (None, bases),
+        };
+
+        for base in bases.as_slice().iter() {
             let base_class = base.class();
             if base_class.issubclass(&metaclass) {
                 metaclass = base.clone_class();
@@ -857,7 +892,7 @@ mod decl {
             }
         }
 
-        let bases = bases.into_tuple(vm);
+        let bases = bases.into_object();
 
         // Prepare uses full __getattribute__ resolution chain.
         let prepare = vm.get_attribute(metaclass.clone().into_object(), "__prepare__")?;
@@ -870,6 +905,10 @@ mod decl {
 
         let classcell = function.invoke_with_locals(().into(), Some(namespace.clone()), vm)?;
         let classcell = <Option<PyCellRef>>::try_from_object(vm, classcell)?;
+
+        if let Some(orig_bases) = orig_bases {
+            namespace.set_item("__orig_bases__", orig_bases.into_object(), vm)?;
+        }
 
         let class = vm.invoke(
             metaclass.as_object(),

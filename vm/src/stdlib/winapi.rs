@@ -25,22 +25,22 @@ fn husize(h: HANDLE) -> usize {
     h as usize
 }
 
-trait Convertable {
+trait Convertible {
     fn is_err(&self) -> bool;
 }
 
-impl Convertable for HANDLE {
+impl Convertible for HANDLE {
     fn is_err(&self) -> bool {
         *self == handleapi::INVALID_HANDLE_VALUE
     }
 }
-impl Convertable for i32 {
+impl Convertible for i32 {
     fn is_err(&self) -> bool {
         *self == 0
     }
 }
 
-fn cvt<T: Convertable>(vm: &VirtualMachine, res: T) -> PyResult<T> {
+fn cvt<T: Convertible>(vm: &VirtualMachine, res: T) -> PyResult<T> {
     if res.is_err() {
         Err(errno_err(vm))
     } else {

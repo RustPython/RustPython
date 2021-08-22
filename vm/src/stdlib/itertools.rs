@@ -586,7 +586,7 @@ mod decl {
             state.grouper = None;
 
             if !state.next_group {
-                // FIXME: unnecessary clone. current_key always exist until assinging new
+                // FIXME: unnecessary clone. current_key always exist until assigning new
                 let current_key = state.current_key.clone();
                 drop(state);
 

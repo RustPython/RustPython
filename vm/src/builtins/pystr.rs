@@ -3,6 +3,7 @@ use std::ops::Range;
 use std::string::ToString;
 use std::{char, ffi, fmt};
 
+use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
 use num_traits::ToPrimitive;
 use unic_ucd_bidi::BidiClass;
@@ -12,7 +13,11 @@ use unicode_casing::CharExt;
 
 use super::bytes::PyBytesRef;
 use super::dict::PyDict;
-use super::int::{PyInt, PyIntRef};
+use super::int::{try_to_primitive, PyInt, PyIntRef};
+use super::iter::{
+    IterStatus,
+    IterStatus::{Active, Exhausted},
+};
 use super::pytype::PyTypeRef;
 use crate::anystr::{self, adjust_indices, AnyStr, AnyStrContainer, AnyStrWrapper};
 use crate::exceptions::IntoPyException;
@@ -113,6 +118,7 @@ impl TryIntoRef<PyStr> for &str {
 pub struct PyStrIterator {
     string: PyStrRef,
     position: PyAtomic<usize>,
+    status: AtomicCell<IterStatus>,
 }
 
 impl PyValue for PyStrIterator {
@@ -122,20 +128,66 @@ impl PyValue for PyStrIterator {
 }
 
 #[pyimpl(with(PyIter))]
-impl PyStrIterator {}
+impl PyStrIterator {
+    #[pymethod(magic)]
+    fn length_hint(&self) -> usize {
+        match self.status.load() {
+            Active => {
+                let pos = self.position.load(atomic::Ordering::SeqCst);
+                self.string.len().saturating_sub(pos)
+            }
+            Exhausted => 0,
+        }
+    }
+
+    #[pymethod(magic)]
+    fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        // When we're exhausted, just return.
+        if let Exhausted = self.status.load() {
+            return Ok(());
+        }
+        let pos = state
+            .payload::<PyInt>()
+            .ok_or_else(|| vm.new_type_error("an integer is required.".to_owned()))?;
+        let pos = std::cmp::min(
+            try_to_primitive(pos.as_bigint(), vm).unwrap_or(0),
+            self.string.len(),
+        );
+        self.position.store(pos, atomic::Ordering::SeqCst);
+        Ok(())
+    }
+
+    #[pymethod(magic)]
+    fn reduce(&self, vm: &VirtualMachine) -> PyResult {
+        let iter = vm.get_attribute(vm.builtins.clone(), "iter")?;
+        Ok(vm.ctx.new_tuple(match self.status.load() {
+            Exhausted => vec![iter, vm.ctx.new_tuple(vec![vm.ctx.new_str("")])],
+            Active => vec![
+                iter,
+                vm.ctx.new_tuple(vec![self.string.clone().into_object()]),
+                vm.ctx
+                    .new_int(self.position.load(atomic::Ordering::Relaxed)),
+            ],
+        }))
+    }
+}
 
 impl PyIter for PyStrIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        if let Exhausted = zelf.status.load() {
+            return Err(vm.new_stop_iteration());
+        }
         let value = &*zelf.string.value;
         let mut start = zelf.position.load(atomic::Ordering::SeqCst);
         loop {
             if start == value.len() {
+                zelf.status.store(Exhausted);
                 return Err(vm.new_stop_iteration());
             }
-            let ch = value[start..]
-                .chars()
-                .next()
-                .ok_or_else(|| vm.new_stop_iteration())?;
+            let ch = value[start..].chars().next().ok_or_else(|| {
+                zelf.status.store(Exhausted);
+                vm.new_stop_iteration()
+            })?;
 
             match zelf.position.compare_exchange_weak(
                 start,
@@ -145,45 +197,6 @@ impl PyIter for PyStrIterator {
             ) {
                 Ok(_) => break Ok(ch.into_pyobject(vm)),
                 Err(cur) => start = cur,
-            }
-        }
-    }
-}
-
-#[pyclass(module = false, name = "str_reverseiterator")]
-#[derive(Debug)]
-pub struct PyStrReverseIterator {
-    string: PyStrRef,
-    position: PyAtomic<usize>,
-}
-
-impl PyValue for PyStrReverseIterator {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.str_reverseiterator_type
-    }
-}
-
-#[pyimpl(with(PyIter))]
-impl PyStrReverseIterator {}
-
-impl PyIter for PyStrReverseIterator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        let value = &*zelf.string.value;
-        let mut end = zelf.position.load(atomic::Ordering::Relaxed);
-        loop {
-            let ch = value[..end]
-                .chars()
-                .next_back()
-                .ok_or_else(|| vm.new_stop_iteration())?;
-
-            match zelf.position.compare_exchange_weak(
-                end,
-                end - ch.len_utf8(),
-                atomic::Ordering::Release,
-                atomic::Ordering::Relaxed,
-            ) {
-                Ok(_) => break Ok(ch.into_pyobject(vm)),
-                Err(cur) => end = cur,
             }
         }
     }
@@ -767,6 +780,12 @@ impl PyStr {
         self.value.py_join(iter)
     }
 
+    // FIXME: two traversals of str is expensive
+    #[inline]
+    fn _to_char_idx(r: &str, byte_idx: usize) -> usize {
+        r[..byte_idx].chars().count()
+    }
+
     #[inline]
     fn _find<F>(&self, args: FindArgs, find: F) -> Option<usize>
     where
@@ -778,25 +797,25 @@ impl PyStr {
 
     #[pymethod]
     fn find(&self, args: FindArgs) -> isize {
-        self._find(args, |r, s| r.find(s))
+        self._find(args, |r, s| Some(Self::_to_char_idx(r, r.find(s)?)))
             .map_or(-1, |v| v as isize)
     }
 
     #[pymethod]
     fn rfind(&self, args: FindArgs) -> isize {
-        self._find(args, |r, s| r.rfind(s))
+        self._find(args, |r, s| Some(Self::_to_char_idx(r, r.rfind(s)?)))
             .map_or(-1, |v| v as isize)
     }
 
     #[pymethod]
     fn index(&self, args: FindArgs, vm: &VirtualMachine) -> PyResult<usize> {
-        self._find(args, |r, s| r.find(s))
+        self._find(args, |r, s| Some(Self::_to_char_idx(r, r.find(s)?)))
             .ok_or_else(|| vm.new_value_error("substring not found".to_owned()))
     }
 
     #[pymethod]
     fn rindex(&self, args: FindArgs, vm: &VirtualMachine) -> PyResult<usize> {
-        self._find(args, |r, s| r.rfind(s))
+        self._find(args, |r, s| Some(Self::_to_char_idx(r, r.rfind(s)?)))
             .ok_or_else(|| vm.new_value_error("substring not found".to_owned()))
     }
 
@@ -1074,14 +1093,6 @@ impl PyStr {
     fn encode(zelf: PyRef<Self>, args: EncodeArgs, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
         encode_string(zelf, args.encoding, args.errors, vm)
     }
-
-    #[pymethod(magic)]
-    fn reversed(zelf: PyRef<Self>) -> PyStrReverseIterator {
-        PyStrReverseIterator {
-            position: Radium::new(zelf.byte_len()),
-            string: zelf,
-        }
-    }
 }
 
 impl PyStrRef {
@@ -1123,6 +1134,7 @@ impl Iterable for PyStr {
         Ok(PyStrIterator {
             position: Radium::new(0),
             string: zelf,
+            status: AtomicCell::new(Active),
         }
         .into_object(vm))
     }
@@ -1201,7 +1213,6 @@ pub fn init(ctx: &PyContext) {
     PyStr::extend_class(ctx, &ctx.types.str_type);
 
     PyStrIterator::extend_class(ctx, &ctx.types.str_iterator_type);
-    PyStrReverseIterator::extend_class(ctx, &ctx.types.str_reverseiterator_type);
 }
 
 impl PySliceableSequence for PyStr {

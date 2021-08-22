@@ -377,7 +377,7 @@ impl VirtualMachine {
 
         let res = inner_init();
 
-        self.expect_pyresult(res, "initializiation failed");
+        self.expect_pyresult(res, "initialization failed");
 
         self.initialized = true;
     }
@@ -1658,7 +1658,7 @@ impl VirtualMachine {
                 .unwrap();
             Ok(match cmp(obj, other, op, self)? {
                 Either::A(obj) => PyArithmaticValue::from_object(self, obj).map(Either::A),
-                Either::B(arithmatic) => arithmatic.map(Either::B),
+                Either::B(arithmetic) => arithmetic.map(Either::B),
             })
         };
 

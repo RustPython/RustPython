@@ -474,8 +474,6 @@ class DictTest(unittest.TestCase):
             for i in d:
                 d[i+1] = 1
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_mutating_iteration_delete(self):
         # change dict content during iteration
         d = {}
@@ -485,8 +483,6 @@ class DictTest(unittest.TestCase):
                 del d[0]
                 d[0] = 0
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_mutating_iteration_delete_over_values(self):
         # change dict content during iteration
         d = {}
@@ -496,8 +492,6 @@ class DictTest(unittest.TestCase):
                 del d[0]
                 d[0] = 0
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_mutating_iteration_delete_over_items(self):
         # change dict content during iteration
         d = {}
@@ -1346,8 +1340,6 @@ class DictTest(unittest.TestCase):
 
         self.assertRaises(RuntimeError, iter_and_mutate)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_reversed(self):
         d = {"a": 1, "b": 2, "foo": 0, "c": 3, "d": 4}
         del d["foo"]

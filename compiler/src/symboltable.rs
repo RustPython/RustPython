@@ -111,7 +111,7 @@ pub struct Symbol {
     // this is required to correct the scope in the analysis.
     pub is_assign_namedexpr_in_comprehension: bool,
 
-    // inidicates that the symbol is used a bound iterator variable. We distinguish this case
+    // indicates that the symbol is used a bound iterator variable. We distinguish this case
     // from normal assignment to detect unallowed re-assignment to iterator variables.
     pub is_iter: bool,
 
@@ -470,7 +470,7 @@ impl SymbolTableAnalyzer {
             SymbolTableType::Function => {
                 if let Some(parent_symbol) = symbols.get_mut(&symbol.name) {
                     if let SymbolScope::Unknown = parent_symbol.scope {
-                        // this information is new, as the asignment is done in inner scope
+                        // this information is new, as the assignment is done in inner scope
                         parent_symbol.is_assigned = true;
                     }
 
@@ -504,7 +504,7 @@ impl SymbolTableAnalyzer {
                     None => {
                         // extend the scope of the inner symbol
                         // as we are in a nested comprehension, we expect that the symbol is needed
-                        // ouside, too, and set it therefore to non-local scope. I.e., we expect to
+                        // outside, too, and set it therefore to non-local scope. I.e., we expect to
                         // find a definition on a higher level
                         let mut cloned_sym = symbol.clone();
                         cloned_sym.scope = SymbolScope::Free;
@@ -989,7 +989,7 @@ impl SymbolTableBuilder {
             }
 
             NamedExpr { target, value } => {
-                // named expressions are not allowed in the definiton of
+                // named expressions are not allowed in the definition of
                 // comprehension iterator definitions
                 if let ExpressionContext::IterDefinitionExp = context {
                     return Err(SymbolTableError {
@@ -1121,10 +1121,36 @@ impl SymbolTableBuilder {
             match role {
                 SymbolUsage::Global => {
                     if !symbol.is_global() {
-                        return Err(SymbolTableError {
-                            error: format!("name '{}' is used prior to global declaration", name),
-                            location,
-                        });
+                        if symbol.is_parameter {
+                            return Err(SymbolTableError {
+                                error: format!("name '{}' is parameter and global", name),
+                                location,
+                            });
+                        }
+                        if symbol.is_referenced {
+                            return Err(SymbolTableError {
+                                error: format!(
+                                    "name '{}' is used prior to global declaration",
+                                    name
+                                ),
+                                location,
+                            });
+                        }
+                        if symbol.is_annotated {
+                            return Err(SymbolTableError {
+                                error: format!("annotated name '{}' can't be global", name),
+                                location,
+                            });
+                        }
+                        if symbol.is_assigned {
+                            return Err(SymbolTableError {
+                                error: format!(
+                                    "name '{}' is assigned to before global declaration",
+                                    name
+                                ),
+                                location,
+                            });
+                        }
                     }
                 }
                 SymbolUsage::Nonlocal => {

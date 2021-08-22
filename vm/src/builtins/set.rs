@@ -633,7 +633,7 @@ impl PyFrozenSet {
             vec![]
         };
 
-        // Return empty fs if iterable passed is emtpy and only for exact fs types.
+        // Return empty fs if iterable passed is empty and only for exact fs types.
         if elements.is_empty() && cls.is(&vm.ctx.types.frozenset_type) {
             Ok(vm.ctx.empty_frozenset.clone())
         } else {

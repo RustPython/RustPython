@@ -12,7 +12,7 @@ use crate::builtins::int::{self, PyInt, PyIntRef};
 use crate::function::{Args, OptionalArg};
 use crate::utils::Either;
 use crate::vm::VirtualMachine;
-use crate::{PyIterable, PyObjectRef, PyResult, TypeProtocol};
+use crate::{PyIterable, PyObjectRef, PyResult, PySequence, TypeProtocol};
 use rustpython_common::float_ops;
 
 use std::cmp::Ordering;
@@ -131,8 +131,21 @@ fn math_log1p(x: IntoPyFloat) -> f64 {
 make_math_func!(math_log2, log2);
 make_math_func!(math_log10, log10);
 
-fn math_pow(x: IntoPyFloat, y: IntoPyFloat) -> f64 {
-    x.to_f64().powf(y.to_f64())
+fn math_pow(x: IntoPyFloat, y: IntoPyFloat, vm: &VirtualMachine) -> PyResult<f64> {
+    let x = x.to_f64();
+    let y = y.to_f64();
+
+    if x < 0.0 && x.is_finite() && y.fract() != 0.0 && y.is_finite() {
+        return Err(vm.new_value_error("math domain error".to_owned()));
+    }
+
+    if x == 0.0 && y < 0.0 {
+        return Err(vm.new_value_error("math domain error".to_owned()));
+    }
+
+    let value = x.powf(y);
+
+    Ok(value)
 }
 
 fn math_sqrt(value: IntoPyFloat, vm: &VirtualMachine) -> PyResult<f64> {
@@ -217,6 +230,48 @@ fn vector_norm(v: &[f64], max: f64) -> f64 {
         frac += (old - csum) + f;
     }
     max * f64::sqrt(csum - 1.0 + frac)
+}
+
+fn math_dist(
+    p: PySequence<IntoPyFloat>,
+    q: PySequence<IntoPyFloat>,
+    vm: &VirtualMachine,
+) -> PyResult<f64> {
+    let mut max = 0.0;
+    let mut has_nan = false;
+
+    let p = IntoPyFloat::vec_into_f64(p.into_vec());
+    let q = IntoPyFloat::vec_into_f64(q.into_vec());
+    let mut diffs = vec![];
+
+    if p.len() != q.len() {
+        return Err(
+            vm.new_value_error("both points must have the same number of dimensions".to_owned())
+        );
+    }
+
+    for i in 0..p.len() {
+        let px = p[i];
+        let qx = q[i];
+
+        let x = (px - qx).abs();
+        if x.is_nan() {
+            has_nan = true;
+        }
+
+        diffs.push(x);
+        if x > max {
+            max = x;
+        }
+    }
+
+    if max.is_infinite() {
+        return Ok(max);
+    }
+    if has_nan {
+        return Ok(f64::NAN);
+    }
+    Ok(vector_norm(&diffs, max))
 }
 
 make_math_func!(math_sin, sin);
@@ -657,6 +712,31 @@ fn math_remainder(x: IntoPyFloat, y: IntoPyFloat, vm: &VirtualMachine) -> PyResu
     Ok(x)
 }
 
+#[derive(FromArgs)]
+struct ProdArgs {
+    #[pyarg(positional)]
+    iterable: PyIterable<PyObjectRef>,
+    #[pyarg(named, optional)]
+    start: OptionalArg<PyObjectRef>,
+}
+fn math_prod(args: ProdArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+    let iter = args.iterable;
+
+    let mut result = args.start.unwrap_or_else(|| vm.new_pyobj(1));
+
+    // TODO: CPython has optimized implementation for this
+    // refer: https://github.com/python/cpython/blob/main/Modules/mathmodule.c#L3093-L3193
+    for obj in iter.iter(vm)? {
+        let obj = obj?;
+
+        result = vm
+            ._mul(&result, &obj)
+            .map_err(|_| vm.new_type_error("math type error".to_owned()))?;
+    }
+
+    Ok(result)
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -687,6 +767,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "atan2" => named_function!(ctx, math, atan2),
         "cos" => named_function!(ctx, math, cos),
         "hypot" => named_function!(ctx, math, hypot),
+        "dist" => named_function!(ctx, math, dist),
         "sin" => named_function!(ctx, math, sin),
         "tan" => named_function!(ctx, math, tan),
 
@@ -713,6 +794,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "fmod" => named_function!(ctx, math, fmod),
         "fsum" => named_function!(ctx, math, fsum),
         "remainder" => named_function!(ctx, math, remainder),
+        "prod" => named_function!(ctx, math, prod),
 
         // Rounding functions:
         "trunc" => named_function!(ctx, math, trunc),

@@ -389,11 +389,9 @@ impl PyContext {
     }
 
     pub fn add_slot_wrappers(&self, ty: &PyTypeRef) {
-        if !ty.attributes.read().contains_key("__new__") {
-            let new_wrapper =
-                self.new_bound_method(self.tp_new_wrapper.clone(), ty.clone().into_object());
-            ty.set_str_attr("__new__", new_wrapper);
-        }
+        let new_wrapper =
+            self.new_bound_method(self.tp_new_wrapper.clone(), ty.clone().into_object());
+        ty.set_str_attr("__new__", new_wrapper);
     }
 
     pub fn is_tp_new_wrapper(&self, obj: &PyObjectRef) -> bool {
@@ -406,6 +404,28 @@ impl Default for PyContext {
     fn default() -> Self {
         PyContext::new()
     }
+}
+
+pub(crate) fn try_value_from_borrowed_object<T, F, R>(
+    vm: &VirtualMachine,
+    obj: &PyObjectRef,
+    f: F,
+) -> PyResult<R>
+where
+    T: PyValue,
+    F: Fn(&T) -> PyResult<R>,
+{
+    let class = T::class(vm);
+    let special;
+    let py_ref = if obj.isinstance(class) {
+        obj.downcast_ref()
+            .ok_or_else(|| pyref_payload_error(vm, class, obj))?
+    } else {
+        special = T::special_retrieve(vm, obj)
+            .unwrap_or_else(|| Err(pyref_type_error(vm, class, obj)))?;
+        &special
+    };
+    f(py_ref)
 }
 
 impl<T> TryFromObject for PyRef<T>
@@ -435,7 +455,8 @@ fn pyref_payload_error(
         &*obj.borrow().class().name,
     ))
 }
-fn pyref_type_error(
+
+pub(crate) fn pyref_type_error(
     vm: &VirtualMachine,
     class: &PyTypeRef,
     obj: impl std::borrow::Borrow<PyObjectRef>,
@@ -664,14 +685,20 @@ where
     T: IntoPyObject,
 {
     fn get_item(&self, key: T, vm: &VirtualMachine) -> PyResult {
-        vm.get_special_method(self.clone(), "__getitem__")?
-            .map_err(|obj| {
-                vm.new_type_error(format!(
-                    "'{}' object is not subscriptable",
-                    obj.class().name
-                ))
-            })?
-            .invoke((key,), vm)
+        match vm.get_special_method(self.clone(), "__getitem__")? {
+            Ok(special_method) => return special_method.invoke((key,), vm),
+            Err(obj) => {
+                if obj.isinstance(&vm.ctx.types.type_type) {
+                    if let Some(class_getitem) = vm.get_attribute_opt(obj, "__class_getitem__")? {
+                        return vm.invoke(&class_getitem, (key,));
+                    }
+                }
+            }
+        }
+        Err(vm.new_type_error(format!(
+            "'{}' object is not subscriptable",
+            self.class().name
+        )))
     }
 
     fn set_item(&self, key: T, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
@@ -720,7 +747,7 @@ impl<T> PyIterable<T> {
     pub fn iter<'a>(&self, vm: &'a VirtualMachine) -> PyResult<PyIterator<'a, T>> {
         let iter_obj = match self.iterfn {
             Some(f) => f(self.iterable.clone(), vm)?,
-            None => PySequenceIterator::new_forward(self.iterable.clone()).into_object(vm),
+            None => PySequenceIterator::new(self.iterable.clone()).into_object(vm),
         };
 
         let length_hint = iterator::length_hint(vm, iter_obj.clone())?;
@@ -827,7 +854,7 @@ pub trait TryFromObject: Sized {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self>;
 }
 
-/// Rust-side only version of TryFromObject to reduce unnessessary Rc::clone
+/// Rust-side only version of TryFromObject to reduce unnecessary Rc::clone
 impl<T: TryFromBorrowedObject> TryFromObject for T {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         TryFromBorrowedObject::try_from_borrowed_object(vm, &obj)
@@ -1105,6 +1132,7 @@ pub trait PyClassImpl: PyClassDef {
         let mut slots = PyTypeSlots {
             flags: Self::TP_FLAGS,
             name: PyRwLock::new(Some(Self::TP_NAME.to_owned())),
+            doc: Self::DOC,
             ..Default::default()
         };
         Self::extend_slots(&mut slots);

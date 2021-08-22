@@ -424,7 +424,7 @@ impl ExecutingFrame<'_> {
         }
     }
 
-    /// Ok(Err(e)) means that an error ocurred while calling throw() and the generator should try
+    /// Ok(Err(e)) means that an error occurred while calling throw() and the generator should try
     /// sending it
     fn gen_throw(
         &mut self,

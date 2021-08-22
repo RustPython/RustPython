@@ -673,8 +673,6 @@ class SyntaxTestCase(unittest.TestCase):
     def test_assign_del(self):
         self._check_error("del f()", "delete")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_global_param_err_first(self):
         source = """if 1:
             def error(a):

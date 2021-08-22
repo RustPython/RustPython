@@ -699,7 +699,6 @@ del method
 # TODO: RUSTPYTHON
 import functools
 setattr(CPythonBuiltinDictTests, "test_delitem", functools.partialmethod(OrderedDictTests.test_delitem))
-CPythonBuiltinDictTests.test_delitem = unittest.expectedFailure(CPythonBuiltinDictTests.test_delitem)
 
 @unittest.skipUnless(c_coll, 'requires the C version of the collections module')
 class CPythonOrderedDictTests(OrderedDictTests, unittest.TestCase):

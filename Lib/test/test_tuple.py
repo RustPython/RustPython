@@ -361,8 +361,6 @@ class TupleTest(seq_tests.CommonTest):
             d = pickle.dumps(it, proto)
             self.assertEqual(self.type2test(it), self.type2test(data)[1:])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_reversed_pickle(self):
         data = self.type2test([4, 5, 6, 7])
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):

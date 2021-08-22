@@ -27,6 +27,7 @@ pub(crate) mod _struct {
     use crate::exceptions::PyBaseExceptionRef;
     use crate::function::Args;
     use crate::slots::PyIter;
+    use crate::stdlib::array::wchar_t;
     use crate::utils::Either;
     use crate::VirtualMachine;
     use crate::{IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject};
@@ -55,6 +56,7 @@ pub(crate) mod _struct {
         SByte = b'b',
         UByte = b'B',
         Char = b'c',
+        WideChar = b'u',
         Str = b's',
         Pascal = b'p',
         Short = b'h',
@@ -168,6 +170,7 @@ pub(crate) mod _struct {
                         pack: Some(pack_char),
                         unpack: Some(unpack_char),
                     },
+                    WideChar => native_info!(wchar_t),
                     Short => native_info!(raw::c_short),
                     UShort => native_info!(raw::c_ushort),
                     Int => native_info!(raw::c_int),
@@ -225,17 +228,18 @@ pub(crate) mod _struct {
                     ))
                 }
             };
-            FormatSpec::parse(decoded_fmt).map_err(|err| new_struct_error(vm, err))
+            FormatSpec::parse(decoded_fmt, vm)
         }
 
-        pub fn parse(fmt: &str) -> Result<FormatSpec, String> {
+        pub fn parse(fmt: &str, vm: &VirtualMachine) -> PyResult<FormatSpec> {
             let mut chars = fmt.bytes().peekable();
 
             // First determine "@", "<", ">","!" or "="
             let endianness = parse_endianness(&mut chars);
 
-            // Now, analyze struct string furter:
-            let (codes, size, arg_count) = parse_format_codes(&mut chars, endianness)?;
+            // Now, analyze struct string further:
+            let (codes, size, arg_count) = parse_format_codes(&mut chars, endianness)
+                .map_err(|err| new_struct_error(vm, err))?;
 
             Ok(FormatSpec {
                 endianness,

@@ -5,6 +5,7 @@
 use crossbeam_utils::atomic::AtomicCell;
 
 use super::pytype::PyTypeRef;
+use super::{int, PyInt};
 use crate::slots::PyIter;
 use crate::vm::VirtualMachine;
 use crate::{
@@ -21,12 +22,12 @@ pub enum IterStatus {
     Exhausted,
 }
 
-#[pyclass(module = false, name = "iter")]
+#[pyclass(module = false, name = "iterator")]
 #[derive(Debug)]
 pub struct PySequenceIterator {
-    pub position: AtomicCell<isize>,
+    pub position: AtomicCell<usize>,
     pub obj: PyObjectRef,
-    pub reversed: bool,
+    pub status: AtomicCell<IterStatus>,
 }
 
 impl PyValue for PySequenceIterator {
@@ -37,49 +38,73 @@ impl PyValue for PySequenceIterator {
 
 #[pyimpl(with(PyIter))]
 impl PySequenceIterator {
-    pub fn new_forward(obj: PyObjectRef) -> Self {
+    pub fn new(obj: PyObjectRef) -> Self {
         Self {
             position: AtomicCell::new(0),
             obj,
-            reversed: false,
-        }
-    }
-
-    pub fn new_reversed(obj: PyObjectRef, len: isize) -> Self {
-        Self {
-            position: AtomicCell::new(len - 1),
-            obj,
-            reversed: true,
+            status: AtomicCell::new(IterStatus::Active),
         }
     }
 
     #[pymethod(magic)]
-    fn length_hint(&self, vm: &VirtualMachine) -> PyResult<isize> {
-        let pos = self.position.load();
-        let hint = if self.reversed {
-            pos + 1
+    fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
+        match self.status.load() {
+            IterStatus::Active => {
+                let pos = self.position.load();
+                // return NotImplemented if no length is around.
+                vm.obj_len(&self.obj)
+                    .map_or(vm.ctx.not_implemented(), |len| {
+                        PyInt::from(len.saturating_sub(pos)).into_object(vm)
+                    })
+            }
+            IterStatus::Exhausted => PyInt::from(0).into_object(vm),
+        }
+    }
+
+    #[pymethod(magic)]
+    fn reduce(&self, vm: &VirtualMachine) -> PyResult {
+        let iter = vm.get_attribute(vm.builtins.clone(), "iter")?;
+        Ok(match self.status.load() {
+            IterStatus::Exhausted => vm
+                .ctx
+                .new_tuple(vec![iter, vm.ctx.new_tuple(vec![vm.ctx.new_list(vec![])])]),
+            IterStatus::Active => vm.ctx.new_tuple(vec![
+                iter,
+                vm.ctx.new_tuple(vec![self.obj.clone()]),
+                vm.ctx.new_int(self.position.load()),
+            ]),
+        })
+    }
+
+    #[pymethod(magic)]
+    fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        // When we're exhausted, just return.
+        if let IterStatus::Exhausted = self.status.load() {
+            return Ok(());
+        }
+        if let Some(i) = state.payload::<PyInt>() {
+            self.position
+                .store(int::try_to_primitive(i.as_bigint(), vm).unwrap_or(0));
+            Ok(())
         } else {
-            let len = vm.obj_len(&self.obj)?;
-            len as isize - pos
-        };
-        Ok(hint)
+            Err(vm.new_type_error("an integer is required.".to_owned()))
+        }
     }
 }
 
 impl PyIter for PySequenceIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        let step: isize = if zelf.reversed { -1 } else { 1 };
-        let pos = zelf.position.fetch_add(step);
-        if pos >= 0 {
-            match zelf.obj.get_item(pos, vm) {
-                Err(ref e) if e.isinstance(&vm.ctx.exceptions.index_error) => {
-                    Err(vm.new_stop_iteration())
-                }
-                // also catches stop_iteration => stop_iteration
-                ret => ret,
+        if let IterStatus::Exhausted = zelf.status.load() {
+            return Err(vm.new_stop_iteration());
+        }
+        let pos = zelf.position.fetch_add(1);
+        match zelf.obj.get_item(pos, vm) {
+            Err(ref e) if e.isinstance(&vm.ctx.exceptions.index_error) => {
+                zelf.status.store(IterStatus::Exhausted);
+                Err(vm.new_stop_iteration())
             }
-        } else {
-            Err(vm.new_stop_iteration())
+            // also catches stop_iteration => stop_iteration
+            ret => ret,
         }
     }
 }

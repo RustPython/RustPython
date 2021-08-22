@@ -1,6 +1,6 @@
 use crate::exceptions::IntoPyException;
 use crate::vm::{VirtualMachine, NSIG};
-use crate::{PyObjectRef, PyResult, TryFromObject};
+use crate::{PyObjectRef, PyResult, TryFromBorrowedObject};
 
 use std::sync::atomic::{self, AtomicBool, Ordering};
 
@@ -81,7 +81,7 @@ fn _signal_signal(
         .as_deref()
         .ok_or_else(|| vm.new_value_error("signal only works in main thread".to_owned()))?;
 
-    let sig_handler = match usize::try_from_object(vm, handler.clone()).ok() {
+    let sig_handler = match usize::try_from_borrowed_object(vm, &handler).ok() {
         Some(SIG_DFL) => SIG_DFL,
         Some(SIG_IGN) => SIG_IGN,
         None if vm.is_callable(&handler) => run_signal as libc::sighandler_t,
@@ -154,8 +154,8 @@ fn trigger_signals(
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     for (signum, trigger) in TRIGGERS.iter().enumerate().skip(1) {
-        let triggerd = trigger.swap(false, Ordering::Relaxed);
-        if triggerd {
+        let triggered = trigger.swap(false, Ordering::Relaxed);
+        if triggered {
             if let Some(handler) = &signal_handlers[signum] {
                 if vm.is_callable(handler) {
                     vm.invoke(handler, (signum, vm.ctx.none()))?;

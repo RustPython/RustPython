@@ -15,7 +15,7 @@ import warnings
 import array
 # from array import _array_reconstructor as array_reconstructor  # XXX: RUSTPYTHON
 
-# sizeof_wchar = array.array('u').itemsize  # XXX: RUSTPYTHON
+sizeof_wchar = array.array('u').itemsize
 
 
 class ArraySubclass(array.array):
@@ -25,10 +25,7 @@ class ArraySubclassWithKwargs(array.array):
     def __init__(self, typecode, newarg=None):
         array.array.__init__(self)
 
-# TODO: RUSTPYTHON
-# We did not support typecode u for unicode yet
-# typecodes = 'ubBhHiIlLfdqQ'
-typecodes = 'bBhHiIlLfdqQ'
+typecodes = 'ubBhHiIlLfdqQ'
 
 class MiscTest(unittest.TestCase):
 
@@ -1091,8 +1088,6 @@ class BaseTest:
         basesize = support.calcvobjsize('Pn2Pi')
         support.check_sizeof(self, a, basesize)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_initialize_with_unicode(self):
         if self.typecode != 'u':
             with self.assertRaises(TypeError) as cm:
@@ -1121,8 +1116,6 @@ class BaseTest:
 
 class StringTest(BaseTest):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_setitem(self):
         super().test_setitem()
         a = array.array(self.typecode, self.example)
@@ -1136,173 +1129,105 @@ class UnicodeTest(StringTest, unittest.TestCase):
     outside = str('\x33')
     minitemsize = 2
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_add(self):
         super().test_add()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_buffer(self):
         super().test_buffer()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_buffer_info(self):
         super().test_buffer_info()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_byteswap(self):
         super().test_byteswap()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_cmp(self):
         super().test_cmp()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_constructor(self):
         super().test_constructor()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_constructor_with_iterable_argument(self):
         super().test_constructor_with_iterable_argument()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_copy(self):
         super().test_copy()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_count(self):
         super().test_count()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_coveritertraverse(self):
         super().test_coveritertraverse()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_deepcopy(self):
         super().test_deepcopy()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_delitem(self):
         super().test_delitem()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exhausted_iterator(self):
         super().test_exhausted_iterator()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_extend(self):
         super().test_extend()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_extended_getslice(self):
         super().test_extended_getslice()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_extended_set_del_slice(self):
         super().test_extended_set_del_slice()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_fromarray(self):
         super().test_fromarray()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_getitem(self):
         super().test_getitem()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_getslice(self):
         super().test_getslice()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_iadd(self):
         super().test_iadd()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_imul(self):
         super().test_imul()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_index(self):
         super().test_index()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_insert(self):
         super().test_insert()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_len(self):
         super().test_len()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_mul(self):
         super().test_mul()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pop(self):
         super().test_pop()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_remove(self):
         super().test_remove()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_repr(self):
         super().test_repr()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_reverse(self):
         super().test_reverse()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_setslice(self):
         super().test_setslice()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_str(self):
         super().test_str()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_tofrombytes(self):
         super().test_tofrombytes()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_tofromlist(self):
         super().test_tofromlist()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_unicode(self):
         self.assertRaises(TypeError, array.array, 'b', 'foo')
 
@@ -1323,8 +1248,6 @@ class UnicodeTest(StringTest, unittest.TestCase):
 
         self.assertRaises(TypeError, a.fromunicode)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_issue17223(self):
         # this used to crash
         if sizeof_wchar == 4:
