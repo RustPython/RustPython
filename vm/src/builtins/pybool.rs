@@ -81,6 +81,7 @@ pub struct PyBool;
 
 #[pyimpl]
 impl PyBool {
+    #[pymethod(name = "__str__")]
     #[pymethod(magic)]
     fn repr(zelf: bool) -> String {
         if zelf { "True" } else { "False" }.to_owned()
