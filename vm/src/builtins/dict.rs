@@ -578,7 +578,7 @@ impl Iterator for DictIter {
     type Item = (PyObjectRef, PyObjectRef);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.dict.entries._next_entry(&mut self.position)
+        self.dict.entries.next_entry(&mut self.position)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -718,7 +718,7 @@ macro_rules! dict_iterator {
                                 "dictionary changed size during iteration".to_owned(),
                             ));
                         }
-                        match zelf.dict.entries.next_entry(&zelf.position) {
+                        match zelf.dict.entries.next_entry_atomic(&zelf.position) {
                             Some((key, value)) => Ok(($result_fn)(vm, key, value)),
                             None => {
                                 zelf.status.store(IterStatus::Exhausted);
@@ -778,7 +778,7 @@ macro_rules! dict_iterator {
                                 "dictionary changed size during iteration".to_owned(),
                             ));
                         }
-                        match zelf.dict.entries.next_entry_reversed(&zelf.position) {
+                        match zelf.dict.entries.next_entry_atomic_reversed(&zelf.position) {
                             Some((key, value)) => Ok(($result_fn)(vm, key, value)),
                             None => {
                                 zelf.status.store(IterStatus::Exhausted);
