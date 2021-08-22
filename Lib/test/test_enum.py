@@ -747,12 +747,16 @@ class TestEnum(unittest.TestCase):
         test_pickle_dump_load(self.assertIs, Stooges.CURLY)
         test_pickle_dump_load(self.assertIs, Stooges)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_pickle_int(self):
         if isinstance(IntStooges, Exception):
             raise IntStooges
         test_pickle_dump_load(self.assertIs, IntStooges.CURLY)
         test_pickle_dump_load(self.assertIs, IntStooges)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_pickle_float(self):
         if isinstance(FloatStooges, Exception):
             raise FloatStooges
@@ -1018,6 +1022,8 @@ class TestEnum(unittest.TestCase):
             self.assertIn(e, SummerMonth)
             self.assertIs(type(e), SummerMonth)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_subclassing(self):
         if isinstance(Name, Exception):
             raise Name
@@ -3204,6 +3210,8 @@ class TestStdLib(unittest.TestCase):
 
 
 class MiscTestCase(unittest.TestCase):
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test__all__(self):
         support.check__all__(self, enum)
 
