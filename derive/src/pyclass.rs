@@ -337,13 +337,51 @@ where
 
         let item_attr = args.attrs.remove(self.index());
         let item_meta = MethodItemMeta::from_attr(ident.clone(), &item_attr)?;
-
         let py_name = item_meta.method_name()?;
+
+        let sig_doc = args.item.function_or_method_impl().ok().map(|item| {
+            let sig = item.sig();
+            let args: Vec<_> = sig
+                .inputs
+                .iter()
+                .filter_map(|arg| {
+                    use syn::FnArg::*;
+                    let arg = match arg {
+                        Receiver(_) => return Some("$self".to_owned()),
+                        Typed(typed) => typed,
+                    };
+                    let ty = arg.ty.as_ref();
+                    let ty = quote!(#ty).to_string();
+                    if ty == "FuncArgs" {
+                        return Some("*args, **kwargs".to_owned());
+                    }
+                    if ty == "& VirtualMachine" {
+                        return None;
+                    }
+                    let ident = match arg.pat.as_ref() {
+                        syn::Pat::Ident(p) => p.ident.to_string(),
+                        // FIXME: other => unreachable!("function arg pattern must be ident but found `{}`", quote!(fn #ident(.. #other ..))),
+                        other => quote!(#other).to_string(),
+                    };
+                    if ident == "zelf" {
+                        return Some("$self".to_owned());
+                    }
+                    if ident == "vm" {
+                        unreachable!("type &VirtualMachine(`{}`) must be filtered already", ty);
+                    }
+                    Some(ident)
+                })
+                .collect();
+            format!("{}({})", py_name, args.join(", "))
+        });
+
         let tokens = {
-            let doc = args.attrs.doc().map_or_else(
-                TokenStream::new,
-                |doc| quote!(.with_doc(#doc.to_owned(), ctx)),
-            );
+            let doc = args.attrs.doc().map_or_else(TokenStream::new, |mut doc| {
+                if let Some(sig_doc) = sig_doc {
+                    doc = format!("{}\n--\n\n{}", sig_doc, doc);
+                }
+                quote!(.with_doc(#doc.to_owned(), ctx))
+            });
             let build_func = match self.method_type.as_str() {
                 "method" => quote!(.build_method(ctx, class.clone())),
                 "classmethod" => quote!(.build_classmethod(ctx, class.clone())),

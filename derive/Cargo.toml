@@ -12,7 +12,7 @@ proc-macro = true
 
 [dependencies]
 syn = { version = "1.0", features = ["full", "extra-traits"] }
-syn-ext = { version = "0.2.1", features = ["full"] }
+syn-ext = { version = "0.2.3", features = ["full"] }
 quote = "1.0"
 proc-macro2 = "1.0"
 rustpython-compiler = { path = "../compiler/porcelain", version = "0.1.1" }
