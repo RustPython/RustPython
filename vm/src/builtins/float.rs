@@ -359,6 +359,7 @@ impl PyFloat {
         self.simple_op(other, |a, b| Ok(b - a), vm)
     }
 
+    #[pymethod(name = "__str__")]
     #[pymethod(magic)]
     fn repr(&self) -> String {
         float_ops::to_string(self.value)

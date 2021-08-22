@@ -220,6 +220,7 @@ impl PyComplex {
         -self.value
     }
 
+    #[pymethod(name = "__str__")]
     #[pymethod(magic)]
     fn repr(&self) -> String {
         let Complex64 { re, im } = self.value;

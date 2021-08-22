@@ -567,6 +567,7 @@ impl PyInt {
         !(&self.value)
     }
 
+    #[pymethod(name = "__str__")]
     #[pymethod(magic)]
     pub(crate) fn repr(&self) -> String {
         self.value.to_string()
