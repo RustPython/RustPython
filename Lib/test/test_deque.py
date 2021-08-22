@@ -276,7 +276,6 @@ class TestBasic(unittest.TestCase):
         d = deque([])
         self.assertEqual(d, False)
 
-
     @unittest.skip("TODO: RUSTPYTHON hangs")
     def test_index(self):
         for n in 1, 2, 30, 40, 200:
