@@ -214,8 +214,6 @@ class TestEnum(unittest.TestCase):
                 set(['__class__', '__doc__', '__module__', 'name', 'value', 'invisible']),
                 )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_dir_on_sub_with_behavior_including_instance_dict_on_super(self):
         # see issue40084
         class SuperEnum(IntEnum):
@@ -490,8 +488,6 @@ class TestEnum(unittest.TestCase):
         self.assertEqual(str(EnumWithStrFormatOverrides.one), 'Str!')
         self.assertEqual('{}'.format(EnumWithStrFormatOverrides.one), 'Format!')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_str_override_mixin(self):
         class MixinEnumWithStrOverride(float, Enum):
             one = 1.0
@@ -570,8 +566,6 @@ class TestEnum(unittest.TestCase):
         self.assertFormatIsValue('{:>20}', Directional.WEST)
         self.assertFormatIsValue('{:<20}', Directional.WEST)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_object_str_override(self):
         class Colors(Enum):
             RED, GREEN, BLUE = 1, 2, 3
@@ -580,8 +574,6 @@ class TestEnum(unittest.TestCase):
             __str__ = object.__str__
         self.assertEqual(str(Colors.RED), 'test.RED')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_enum_str_override(self):
         class MyStrEnum(Enum):
             def __str__(self):
@@ -612,8 +604,6 @@ class TestEnum(unittest.TestCase):
             C = 3
         self.assertEqual(repr(MyEnum.A), '<MyEnum.A: 0x1>')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_too_many_data_types(self):
         with self.assertRaisesRegex(TypeError, 'too many data types'):
             class Huh(str, int, Enum):
@@ -1032,8 +1022,6 @@ class TestEnum(unittest.TestCase):
         self.assertIs(Name.BDFL, getattr(Name, 'BDFL'))
         test_pickle_dump_load(self.assertIs, Name.BDFL)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_extending(self):
         class Color(Enum):
             red = 1
@@ -1439,8 +1427,6 @@ class TestEnum(unittest.TestCase):
         test_pickle_dump_load(self.assertIs, NEI.y)
         test_pickle_dump_load(self.assertIs, NEI)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_subclasses_without_direct_pickle_support(self):
         class NamedInt(int):
             __qualname__ = 'NamedInt'
@@ -1866,8 +1852,6 @@ class TestEnum(unittest.TestCase):
         self.assertEqual(Color.blue.value, 2)
         self.assertEqual(Color.green.value, 3)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_auto_order(self):
         with self.assertRaises(TypeError):
             class Color(Enum):
@@ -1896,8 +1880,6 @@ class TestEnum(unittest.TestCase):
             third = auto()
         self.assertEqual([Dupes.first, Dupes.second, Dupes.third], list(Dupes))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_default_missing(self):
         class Color(Enum):
             RED = 1
@@ -1947,8 +1929,6 @@ class TestEnum(unittest.TestCase):
         else:
             raise Exception('Exception not raised.')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_multiple_mixin(self):
         class MaxMixin:
             @classproperty
@@ -2066,8 +2046,6 @@ class TestEnum(unittest.TestCase):
             REVERT_ALL = "REVERT_ALL"
             RETRY = "RETRY"
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_multiple_mixin_inherited(self):
         class MyInt(int):
             def __new__(cls, value):
@@ -2471,8 +2449,6 @@ class TestFlag(unittest.TestCase):
             d = 6
         self.assertEqual(repr(Bizarre(7)), '<Bizarre.d|c|b: 7>')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_multiple_mixin(self):
         class AllMixin:
             @classproperty
@@ -2904,8 +2880,6 @@ class TestIntFlag(unittest.TestCase):
         for f in Open:
             self.assertEqual(bool(f.value), bool(f))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_multiple_mixin(self):
         class AllMixin:
             @classproperty
