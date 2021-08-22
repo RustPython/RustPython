@@ -209,20 +209,23 @@ mod _collections {
             let max_len = self.maxlen;
             let mut elements: Vec<PyObjectRef> = vm.extract_elements(&iter)?;
             elements.reverse();
-            let elements_len = elements.len();
 
             if let Some(max_len) = max_len {
                 if max_len > elements.len() {
                     let mut deque = self.borrow_deque_mut();
-                    let drain_until = deque.len().saturating_sub(max_len - elements.len());
-                    deque.drain(..drain_until);
+                    // let truncate_until = deque.len().saturating_sub(max_len - elements.len());
+                    let truncate_until = max_len - elements.len();
+                    
+                    deque.truncate(truncate_until);
                 } else {
                     self.borrow_deque_mut().clear();
                     elements.drain(..(elements.len() - max_len));
                 }
             }
-            self.borrow_deque_mut().extend(elements);
-            self.borrow_deque_mut().rotate_right(elements_len);
+            let mut created = VecDeque::from(elements);
+            let mut borrowed = self.borrow_deque_mut();
+            created.append(&mut borrowed);
+            std::mem::swap(&mut created, &mut borrowed);
             Ok(())
         }
 
