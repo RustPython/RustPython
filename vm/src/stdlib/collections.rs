@@ -213,9 +213,7 @@ mod _collections {
             if let Some(max_len) = max_len {
                 if max_len > elements.len() {
                     let mut deque = self.borrow_deque_mut();
-                    // let truncate_until = deque.len().saturating_sub(max_len - elements.len());
                     let truncate_until = max_len - elements.len();
-                    
                     deque.truncate(truncate_until);
                 } else {
                     self.borrow_deque_mut().clear();
