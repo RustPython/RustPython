@@ -15,7 +15,7 @@ mod _collections {
         TypeProtocol,
     };
     use crate::{sequence, sliceable};
-    use crate::{PyComparisonValue, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, StaticType};
+    use crate::{PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, StaticType};
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
     use num_traits::ToPrimitive;
@@ -218,11 +218,25 @@ mod _collections {
         }
 
         #[pymethod]
-        fn extendleft(&self, iter: PyIterable, vm: &VirtualMachine) -> PyResult<()> {
-            self.state.fetch_add(1);
-            for elem in iter.iter(vm)? {
-                self.appendleft(elem?);
+        fn extendleft(&self, iter: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            let max_len = self.maxlen;
+            let mut elements: Vec<PyObjectRef> = vm.extract_elements(&iter)?;
+            elements.reverse();
+
+            if let Some(max_len) = max_len {
+                if max_len > elements.len() {
+                    let mut deque = self.borrow_deque_mut();
+                    let truncate_until = max_len - elements.len();
+                    deque.truncate(truncate_until);
+                } else {
+                    self.borrow_deque_mut().clear();
+                    elements.truncate(max_len);
+                }
             }
+            let mut created = VecDeque::from(elements);
+            let mut borrowed = self.borrow_deque_mut();
+            created.append(&mut borrowed);
+            std::mem::swap(&mut created, &mut borrowed);
             Ok(())
         }
 
