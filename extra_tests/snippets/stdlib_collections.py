@@ -44,3 +44,15 @@ assert d <= d
 assert not (d < d)
 assert d == d
 assert not (d != d)
+
+
+# Test that calling an evil __repr__ can't hang deque
+class BadRepr:
+    def __repr__(self):
+        self.d.pop()
+        return ''
+
+b = BadRepr()
+d = deque([1, b, 2])
+b.d = d
+repr(d)

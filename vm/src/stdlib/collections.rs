@@ -382,8 +382,8 @@ mod _collections {
         #[pymethod(magic)]
         fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
             let repr = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-                let elements = zelf
-                    .borrow_deque()
+                let deque = zelf.borrow_deque().clone();
+                let elements = deque
                     .iter()
                     .map(|obj| vm.to_repr(obj))
                     .collect::<Result<Vec<_>, _>>()?;
