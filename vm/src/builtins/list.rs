@@ -260,6 +260,7 @@ impl PyList {
 
     #[pymethod]
     fn count(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+        // TODO: to_vec() cause copy which leads to cost O(N). It need to be improved.
         let elements = self.borrow_vec().to_vec();
         let mut count: usize = 0;
         for elem in elements.iter() {
@@ -272,6 +273,7 @@ impl PyList {
 
     #[pymethod(magic)]
     fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        // TODO: to_vec() cause copy which leads to cost O(N). It need to be improved.
         let elements = self.borrow_vec().to_vec();
         for elem in elements.iter() {
             if vm.identical_or_equal(elem, &needle)? {
@@ -304,6 +306,7 @@ impl PyList {
                 stop = 0;
             }
         }
+        // TODO: to_vec() cause copy which leads to cost O(N). It need to be improved.
         let elements = self.borrow_vec().to_vec();
         for (index, element) in elements
             .iter()
@@ -336,6 +339,7 @@ impl PyList {
 
     #[pymethod]
     fn remove(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        // TODO: to_vec() cause copy which leads to cost O(N). It need to be improved.
         let elements = self.borrow_vec().to_vec();
         let mut ri: Option<usize> = None;
         for (index, element) in elements.iter().enumerate() {
