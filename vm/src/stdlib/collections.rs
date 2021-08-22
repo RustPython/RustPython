@@ -27,8 +27,7 @@ mod _collections {
     struct PyDeque {
         deque: PyRwLock<VecDeque<PyObjectRef>>,
         maxlen: Option<usize>,
-        /* incremented whenever the indices move */
-        state: AtomicCell<usize>,
+        state: AtomicCell<usize>, // incremented whenever the indices move
     }
 
     type PyDequeRef = PyRef<PyDeque>;
@@ -181,18 +180,12 @@ mod _collections {
             }
         }
 
-        fn get_cloned_vec_deque(
-            &self,
-            deque: PyRwLockReadGuard<'_, VecDeque<PyObjectRef>>,
-        ) -> VecDeque<PyObjectRef> {
-            deque.iter().cloned().collect::<VecDeque<PyObjectRef>>()
-        }
-
         #[pymethod]
         fn count(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
             let mut count = 0;
             let start_state = self.state.load();
-            for elem in self.get_cloned_vec_deque(self.borrow_deque()).iter() {
+            let deque = self.borrow_deque().clone();
+            for elem in deque.iter() {
                 if vm.identical_or_equal(elem, &obj)? {
                     count += 1;
                 }
@@ -241,7 +234,7 @@ mod _collections {
             stop: OptionalArg<usize>,
             vm: &VirtualMachine,
         ) -> PyResult<usize> {
-            let deque = self.get_cloned_vec_deque(self.borrow_deque());
+            let deque = self.borrow_deque().clone();
             let start = start.unwrap_or(0);
             let start_state = self.state.load();
             let stop = stop.unwrap_or_else(|| deque.len());
@@ -306,7 +299,7 @@ mod _collections {
 
         #[pymethod]
         fn remove(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            let deque: VecDeque<_> = self.get_cloned_vec_deque(self.borrow_deque());
+            let deque = self.borrow_deque().clone();
             let start_state = self.state.load();
 
             let mut idx = None;
@@ -408,7 +401,8 @@ mod _collections {
         #[pymethod(magic)]
         fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
             let start_state = self.state.load();
-            for element in self.get_cloned_vec_deque(self.borrow_deque()).iter() {
+            let deque = self.borrow_deque().clone();
+            for element in deque.iter() {
                 let is_element = vm.identical_or_equal(element, &needle)?;
 
                 if start_state != self.state.load() {
@@ -493,8 +487,7 @@ mod _collections {
     struct PyDequeIterator {
         position: AtomicCell<usize>,
         status: AtomicCell<IterStatus>,
-        length: usize,
-        // To track length immutability.
+        length: usize, // To track length immutability.
         deque: PyDequeRef,
     }
 
@@ -557,8 +550,7 @@ mod _collections {
     struct PyReverseDequeIterator {
         position: AtomicCell<usize>,
         status: AtomicCell<IterStatus>,
-        length: usize,
-        // To track length immutability.
+        length: usize, // To track length immutability.
         deque: PyDequeRef,
     }
 
