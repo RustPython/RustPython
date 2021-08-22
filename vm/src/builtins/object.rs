@@ -229,11 +229,6 @@ impl PyBaseObject {
     #[pyclassmethod(magic)]
     fn init_subclass(_cls: PyTypeRef) {}
 
-    #[pyclassmethod(magic)]
-    fn class_getitem(cls: PyTypeRef, _args: FuncArgs) -> PyObjectRef {
-        cls.into_object()
-    }
-
     #[pymethod(magic)]
     pub fn dir(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyList> {
         let attributes: PyAttributes = obj.class().get_attributes();

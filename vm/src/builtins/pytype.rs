@@ -13,9 +13,8 @@ use super::mappingproxy::PyMappingProxy;
 use super::object;
 use super::pystr::{PyStr, PyStrRef};
 use super::staticmethod::PyStaticMethod;
-use super::tuple::PyTuple;
+use super::tuple::{PyTuple, PyTupleRef};
 use super::weakref::PyWeak;
-use crate::builtins::tuple::PyTupleTyped;
 use crate::function::{FuncArgs, KwArgs, OptionalArg};
 use crate::slots::{self, Callable, PyTpFlags, PyTypeSlots, SlotGetattro, SlotSetattro};
 use crate::utils::Either;
@@ -399,7 +398,7 @@ impl PyType {
             }));
         }
 
-        let (name, bases, dict, kwargs): (PyStrRef, PyTupleTyped<PyTypeRef>, PyDictRef, KwArgs) =
+        let (name, bases, dict, kwargs): (PyStrRef, PyTupleRef, PyDictRef, KwArgs) =
             args.clone().bind(vm)?;
 
         let bases = bases.as_slice();
@@ -407,16 +406,25 @@ impl PyType {
             let base = vm.ctx.types.object_type.clone();
             (metatype, base.clone(), vec![base])
         } else {
-            // TODO
-            // for base in &bases {
-            //   if PyType_Check(base) { continue; }
-            //   _PyObject_LookupAttrId(base, PyId___mro_entries__, &base)?
-            //   Err(new_type_error( "type() doesn't support MRO entry resolution; "
-            //                       "use types.new_class()"))
-            // }
+            let bases = bases
+                .iter()
+                .map(|obj| {
+                    obj.clone().downcast::<PyType>().or_else(|obj| {
+                        if vm.get_attribute_opt(obj, "__mro_entries__")?.is_some() {
+                            Err(vm.new_type_error(
+                                "type() doesn't support MRO entry resolution; \
+                                 use types.new_class()"
+                                    .to_owned(),
+                            ))
+                        } else {
+                            Err(vm.new_type_error("bases must be types".to_owned()))
+                        }
+                    })
+                })
+                .collect::<PyResult<Vec<_>>>()?;
 
             // Search the bases for the proper metatype to deal with this:
-            let winner = calculate_meta_class(metatype.clone(), bases, vm)?;
+            let winner = calculate_meta_class(metatype.clone(), &bases, vm)?;
             let metatype = if !winner.is(&metatype) {
                 #[allow(clippy::redundant_clone)] // false positive
                 if let Some(ref tp_new) = winner.clone().slots.new {
@@ -429,9 +437,9 @@ impl PyType {
                 metatype
             };
 
-            let base = best_base(bases, vm)?;
+            let base = best_base(&bases, vm)?;
 
-            (metatype, base, bases.to_vec())
+            (metatype, base, bases)
         };
 
         let mut attributes = dict.to_attributes();
