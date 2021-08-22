@@ -2356,6 +2356,18 @@ mod posix {
     }
 
     #[pyfunction]
+    fn nice(increment: i32, vm: &VirtualMachine) -> PyResult<i32> {
+        use nix::errno::{errno, Errno};
+        Errno::clear();
+        let res = unsafe { libc::nice(increment) };
+        if res == -1 && errno() != 0 {
+            Err(errno_err(vm))
+        } else {
+            Ok(res)
+        }
+    }
+
+    #[pyfunction]
     fn get_inheritable(fd: RawFd, vm: &VirtualMachine) -> PyResult<bool> {
         use nix::fcntl::fcntl;
         use nix::fcntl::FcntlArg;
