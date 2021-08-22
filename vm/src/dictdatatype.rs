@@ -477,11 +477,22 @@ impl<T: Clone> Dict<T> {
         self.read().size()
     }
 
-    pub fn next_entry(&self, position: &mut EntryIndex) -> Option<(PyObjectRef, T)> {
+    pub fn _next_entry(&self, position: &mut EntryIndex) -> Option<(PyObjectRef, T)> {
         let inner = self.read();
         loop {
             let entry = inner.entries.get(*position)?;
             *position += 1;
+            if let Some(entry) = entry {
+                break Some((entry.key.clone(), entry.value.clone()));
+            }
+        }
+    }
+
+    pub fn next_entry(&self, position: &AtomicCell<usize>) -> Option<(PyObjectRef, T)> {
+        let inner = self.read();
+        loop {
+            let position_usize = position.fetch_add(1);
+            let entry = inner.entries.get(position_usize)?;
             if let Some(entry) = entry {
                 break Some((entry.key.clone(), entry.value.clone()));
             }
