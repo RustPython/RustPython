@@ -260,9 +260,11 @@ impl PyList {
 
     #[pymethod]
     fn count(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+        // TODO: to_vec() cause copy which leads to cost O(N). It need to be improved.
+        let elements = self.borrow_vec().to_vec();
         let mut count: usize = 0;
-        for element in self.borrow_vec().to_vec().iter() {
-            if vm.identical_or_equal(element, &needle)? {
+        for elem in elements.iter() {
+            if vm.identical_or_equal(elem, &needle)? {
                 count += 1;
             }
         }
@@ -271,8 +273,10 @@ impl PyList {
 
     #[pymethod(magic)]
     fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        for element in self.borrow_vec().to_vec().iter() {
-            if vm.identical_or_equal(element, &needle)? {
+        // TODO: to_vec() cause copy which leads to cost O(N). It need to be improved.
+        let elements = self.borrow_vec().to_vec();
+        for elem in elements.iter() {
+            if vm.identical_or_equal(elem, &needle)? {
                 return Ok(true);
             }
         }
@@ -302,9 +306,9 @@ impl PyList {
                 stop = 0;
             }
         }
-        for (index, element) in self
-            .borrow_vec()
-            .to_vec()
+        // TODO: to_vec() cause copy which leads to cost O(N). It need to be improved.
+        let elements = self.borrow_vec().to_vec();
+        for (index, element) in elements
             .iter()
             .enumerate()
             .take(stop as usize)
@@ -335,8 +339,10 @@ impl PyList {
 
     #[pymethod]
     fn remove(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        // TODO: to_vec() cause copy which leads to cost O(N). It need to be improved.
+        let elements = self.borrow_vec().to_vec();
         let mut ri: Option<usize> = None;
-        for (index, element) in self.borrow_vec().to_vec().iter().enumerate() {
+        for (index, element) in elements.iter().enumerate() {
             if vm.identical_or_equal(element, &needle)? {
                 ri = Some(index);
                 break;

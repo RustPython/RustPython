@@ -2282,9 +2282,9 @@ dependencies = [
 
 [[package]]
 name = "syn-ext"
-version = "0.2.2"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "14e039b5850edc6e974a22c8ea37ba9dc4de7909c2572eff65b2f943bd5dc984"
+checksum = "9210542fa1f4811e2024f7ef22668ef8e035a54f6c9d4826faae8ae2885bd455"
 dependencies = [
  "syn",
 ]

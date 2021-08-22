@@ -488,7 +488,21 @@ impl<T: Clone> Dict<T> {
         }
     }
 
-    pub fn next_entry_reversed(&self, position: &AtomicCell<usize>) -> Option<(PyObjectRef, T)> {
+    pub fn next_entry_atomic(&self, position: &AtomicCell<usize>) -> Option<(PyObjectRef, T)> {
+        let inner = self.read();
+        loop {
+            let position_usize = position.fetch_add(1);
+            let entry = inner.entries.get(position_usize)?;
+            if let Some(entry) = entry {
+                break Some((entry.key.clone(), entry.value.clone()));
+            }
+        }
+    }
+
+    pub fn next_entry_atomic_reversed(
+        &self,
+        position: &AtomicCell<usize>,
+    ) -> Option<(PyObjectRef, T)> {
         let inner = self.read();
         loop {
             let position_usize = position.fetch_add(1);
