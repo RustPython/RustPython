@@ -1,3 +1,4 @@
+use crate::builtins::int::PyInt;
 use crate::builtins::pystr::{PyStr, PyStrRef};
 use crate::builtins::pytype::{PyType, PyTypeRef};
 use crate::builtins::singletons::{PyNone, PyNoneRef};
@@ -438,6 +439,86 @@ pub fn normalize(
     Ok(exc)
 }
 
+#[pyclass(module = false, name = "OSError", base = "PyBaseException")]
+pub struct PyOSError {}
+
+impl fmt::Debug for PyOSError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // TODO: implement more detailed, non-recursive Debug formatter
+        f.write_str("PyOSError")
+    }
+}
+
+#[pyimpl(flags(BASETYPE))]
+impl PyOSError {
+    pub(crate) fn optional_new(
+        args: Vec<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> Option<PyResult<PyBaseExceptionRef>> {
+        let len = args.len();
+        if len >= 2 {
+            let args = args.as_slice();
+            let errno = &args[0];
+            let error = match errno.payload_if_subclass::<PyInt>(vm) {
+                Some(errno) => {
+                    let error = match crate::builtins::int::try_to_primitive::<i32>(
+                        errno.as_bigint(),
+                        vm,
+                    ) {
+                        Ok(errno) => {
+                            let excs = &vm.ctx.exceptions;
+                            let error = match errno {
+                                libc::EAGAIN => Some(excs.blocking_io_error.clone()),
+                                libc::EALREADY => Some(excs.blocking_io_error.clone()),
+                                libc::EINPROGRESS => Some(excs.blocking_io_error.clone()),
+                                // libc::EWOULDBLOCK => Some(excs.blocking_io_error.clone()),
+                                libc::EPIPE => Some(excs.broken_pipe_error.clone()),
+                                libc::ESHUTDOWN => Some(excs.broken_pipe_error.clone()),
+                                libc::ECHILD => Some(excs.child_process_error.clone()),
+                                libc::ECONNABORTED => Some(excs.connection_aborted_error.clone()),
+                                libc::ECONNREFUSED => Some(excs.connection_refused_error.clone()),
+                                libc::ECONNRESET => Some(excs.connection_reset_error.clone()),
+                                libc::EEXIST => Some(excs.file_exists_error.clone()),
+                                libc::ENOENT => Some(excs.file_not_found_error.clone()),
+                                libc::EISDIR => Some(excs.is_a_directory_error.clone()),
+                                libc::ENOTDIR => Some(excs.not_a_directory_error.clone()),
+                                libc::EINTR => Some(excs.interrupted_error.clone()),
+                                libc::EACCES => Some(excs.permission_error.clone()),
+                                libc::EPERM => Some(excs.permission_error.clone()),
+                                libc::ESRCH => Some(excs.process_lookup_error.clone()),
+                                libc::ETIMEDOUT => Some(excs.timeout_error.clone()),
+                                _ => None,
+                            };
+
+                            if error.is_some() {
+                                Some(invoke(error?, args.to_vec(), vm))
+                            } else {
+                                None
+                            }
+                        }
+                        Err(_) => None,
+                    };
+
+                    error
+                }
+                None => None,
+            };
+
+            error
+        } else {
+            None
+        }
+    }
+
+    #[pyslot]
+    fn tp_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyBaseExceptionRef> {
+        match PyOSError::optional_new(args.args.to_vec(), vm) {
+            Some(error) => error,
+            None => PyBaseException::new(args.args, vm).into_ref_with_type(vm, cls),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ExceptionZoo {
     pub base_exception_type: PyTypeRef,
@@ -522,6 +603,17 @@ pub fn create_exception_type(name: &str, base: &PyTypeRef) -> PyTypeRef {
     create_type_with_slots(name, PyType::static_type(), base, exception_slots())
 }
 
+pub fn os_error_slots() -> crate::slots::PyTypeSlots {
+    let mut slots = PyOSError::make_slots();
+    // make_slots produces it with a tp_name of BaseException, which is usually wrong
+    slots.name.get_mut().take();
+    slots
+}
+
+pub fn create_os_error_type(name: &str, base: &PyTypeRef) -> PyTypeRef {
+    create_type_with_slots(name, PyType::static_type(), base, os_error_slots())
+}
+
 impl ExceptionZoo {
     pub(crate) fn init() -> Self {
         let base_exception_type = PyBaseException::init_bare_type().clone();
@@ -552,7 +644,7 @@ impl ExceptionZoo {
         let unbound_local_error = create_exception_type("UnboundLocalError", &name_error);
 
         // os errors
-        let os_error = create_exception_type("OSError", &exception_type);
+        let os_error = create_os_error_type("OSError", &exception_type);
         let blocking_io_error = create_exception_type("BlockingIOError", &os_error);
         let child_process_error = create_exception_type("ChildProcessError", &os_error);
         let connection_error = create_exception_type("ConnectionError", &os_error);
