@@ -1279,7 +1279,6 @@ impl ExecutingFrame<'_> {
         Ok(None)
     }
 
-    #[allow(clippy::collapsible_if)]
     fn execute_build_map(
         &mut self,
         vm: &VirtualMachine,
@@ -1296,6 +1295,7 @@ impl ExecutingFrame<'_> {
                     vm.new_type_error(format!("'{}' object is not a mapping", obj.class().name))
                 })?;
                 for (key, value) in dict {
+                    #[allow(clippy::collapsible_if)]
                     if for_call {
                         if map_obj.contains_key(key.clone(), vm) {
                             let key_repr = vm.to_repr(&key)?;

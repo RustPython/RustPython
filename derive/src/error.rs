@@ -121,7 +121,6 @@ impl Diagnostic {
         }
     }
 
-    #[allow(unconditional_recursion)]
     pub fn panic(&self) -> ! {
         match &self.inner {
             Repr::Single { text, .. } => panic!("{}", text),
