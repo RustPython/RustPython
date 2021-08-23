@@ -12,7 +12,7 @@ use crate::bytesinner::{
 use crate::byteslike::ArgBytesLike;
 use crate::common::hash::PyHash;
 use crate::function::{OptionalArg, OptionalOption};
-use crate::slots::{AsBuffer, Comparable, Hashable, Iterable, PyComparisonOp, PyIter};
+use crate::slots::{AsBuffer, Callable, Comparable, Hashable, Iterable, PyComparisonOp, PyIter};
 use crate::utils::Either;
 use crate::vm::VirtualMachine;
 use crate::{
@@ -222,9 +222,11 @@ impl PyBytes {
         self.inner.hex(sep, bytes_per_sep, vm)
     }
 
-    #[pymethod]
-    fn fromhex(string: PyStrRef, vm: &VirtualMachine) -> PyResult<PyBytes> {
-        Ok(PyBytesInner::fromhex(string.as_str(), vm)?.into())
+    #[pyclassmethod]
+    fn fromhex(cls: PyTypeRef, string: PyStrRef, vm: &VirtualMachine) -> PyResult {
+        let bytes = PyBytesInner::fromhex(string.as_str(), vm)?;
+        let bytes = vm.ctx.new_bytes(bytes);
+        Callable::call(&cls, vec![bytes].into(), vm)
     }
 
     #[pymethod]

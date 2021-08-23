@@ -20,7 +20,9 @@ use crate::common::lock::{
 };
 use crate::function::{FuncArgs, OptionalArg, OptionalOption};
 use crate::sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex};
-use crate::slots::{AsBuffer, Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable};
+use crate::slots::{
+    AsBuffer, Callable, Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable,
+};
 use crate::utils::Either;
 use crate::vm::VirtualMachine;
 use crate::{
@@ -373,9 +375,11 @@ impl PyByteArray {
         self.inner().hex(sep, bytes_per_sep, vm)
     }
 
-    #[pymethod]
-    fn fromhex(string: PyStrRef, vm: &VirtualMachine) -> PyResult<PyByteArray> {
-        Ok(PyBytesInner::fromhex(string.as_str(), vm)?.into())
+    #[pyclassmethod]
+    fn fromhex(cls: PyTypeRef, string: PyStrRef, vm: &VirtualMachine) -> PyResult {
+        let bytes = PyBytesInner::fromhex(string.as_str(), vm)?;
+        let bytes = vm.ctx.new_bytes(bytes);
+        Callable::call(&cls, vec![bytes].into(), vm)
     }
 
     #[pymethod]
