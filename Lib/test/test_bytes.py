@@ -1960,8 +1960,6 @@ class SubclassTest:
             self.assertEqual(type(a), type(b))
             self.assertEqual(type(a.y), type(b.y))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_fromhex(self):
         b = self.type2test.fromhex('1a2B30')
         self.assertEqual(b, b'\x1a\x2b\x30')

@@ -647,3 +647,12 @@ assert id(b) != id(b * -1)
 assert id(b) != id(b * 0)
 assert id(b) != id(b * 1)
 assert id(b) != id(b * 2)
+
+class B1(bytearray):
+    def __new__(cls, value):
+        assert type(value) == bytes
+        me = super().__new__(cls, value)
+        me.foo = 'bar'
+        return me
+b = B1.fromhex('a0a1a2')
+assert b.foo == 'bar'

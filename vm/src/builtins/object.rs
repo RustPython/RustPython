@@ -217,9 +217,10 @@ impl PyBaseObject {
         if format_spec.as_str().is_empty() {
             vm.to_str(&obj)
         } else {
-            Err(vm.new_type_error(
-                format!("unsupported format string passed to {}.__format__", obj.class().name),
-            ))
+            Err(vm.new_type_error(format!(
+                "unsupported format string passed to {}.__format__",
+                obj.class().name
+            )))
         }
     }
 
