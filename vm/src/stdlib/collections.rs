@@ -241,9 +241,9 @@ mod _collections {
             Ok(())
         }
 
-        fn adjust_negative_index(&self, index: i32) -> usize {
-            if index < 0 {
-                max(index + self.borrow_deque().len() as i32, 0) as usize
+        fn adjust_negative_index(&self, index: isize) -> usize {
+            if index.is_negative() {
+                max(index + self.borrow_deque().len() as isize, 0) as usize
             } else {
                 index as usize
             }
@@ -253,8 +253,8 @@ mod _collections {
         fn index(
             &self,
             obj: PyObjectRef,
-            start: OptionalArg<i32>,
-            stop: OptionalArg<i32>,
+            start: OptionalArg<isize>,
+            stop: OptionalArg<isize>,
             vm: &VirtualMachine,
         ) -> PyResult<usize> {
             let deque = self.borrow_deque().clone();
@@ -262,7 +262,7 @@ mod _collections {
 
             let start = self.adjust_negative_index(start.unwrap_or(0));
             let stop = min(
-                self.adjust_negative_index(stop.unwrap_or_else(|| deque.len() as i32)),
+                self.adjust_negative_index(stop.unwrap_or_else(|| deque.len() as isize)),
                 deque.len(),
             );
 
