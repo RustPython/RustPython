@@ -19,6 +19,7 @@ mod _collections {
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
     use num_traits::ToPrimitive;
+    use std::cmp::{max, min};
     use std::collections::VecDeque;
 
     #[pyattr]
@@ -240,26 +241,44 @@ mod _collections {
             Ok(())
         }
 
+        fn adjust_negative_index(&self, index: isize) -> usize {
+            if index.is_negative() {
+                max(index + self.borrow_deque().len() as isize, 0) as usize
+            } else {
+                index as usize
+            }
+        }
+
         #[pymethod]
         fn index(
             &self,
             obj: PyObjectRef,
-            start: OptionalArg<usize>,
-            stop: OptionalArg<usize>,
+            start: OptionalArg<isize>,
+            stop: OptionalArg<isize>,
             vm: &VirtualMachine,
         ) -> PyResult<usize> {
             let deque = self.borrow_deque().clone();
-            let start = start.unwrap_or(0);
             let start_state = self.state.load();
-            let stop = stop.unwrap_or_else(|| deque.len());
-            for (i, elem) in deque.iter().skip(start).take(stop - start).enumerate() {
+
+            let start = self.adjust_negative_index(start.unwrap_or(0));
+            let stop = min(
+                self.adjust_negative_index(stop.unwrap_or_else(|| deque.len() as isize)),
+                deque.len(),
+            );
+
+            for (i, elem) in deque
+                .iter()
+                .skip(start)
+                .take(stop.saturating_sub(start))
+                .enumerate()
+            {
                 let is_element = vm.identical_or_equal(elem, &obj)?;
 
                 if start_state != self.state.load() {
                     return Err(vm.new_runtime_error("deque mutated during iteration".to_owned()));
                 }
                 if is_element {
-                    return Ok(i);
+                    return Ok(i + start);
                 }
             }
             Err(vm.new_value_error(

@@ -265,8 +265,6 @@ class TestBasic(unittest.TestCase):
         self.assertRaises(IndexError, d.__getitem__, 0)
         self.assertRaises(IndexError, d.__getitem__, -1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_index(self):
         for n in 1, 2, 30, 40, 200:
 
