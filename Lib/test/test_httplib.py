@@ -519,8 +519,6 @@ class TransferEncodingTest(TestCase):
 
 
 class BasicTest(TestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_dir_with_added_behavior_on_status(self):
         # see issue40084
         self.assertTrue({'description', 'name', 'phrase', 'value'} <= set(dir(HTTPStatus(404))))
