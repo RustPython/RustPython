@@ -171,9 +171,7 @@ impl PyFloat {
             OptionalArg::Present(val) => {
                 let val = if cls.is(&vm.ctx.types.float_type) {
                     match val.downcast_exact::<PyFloat>(vm) {
-                        Ok(f) => {
-                            return Ok(f);
-                        }
+                        Ok(f) => return Ok(f),
                         Err(val) => val,
                     }
                 } else {
