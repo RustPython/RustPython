@@ -481,6 +481,32 @@ mod _collections {
         }
 
         #[pymethod(magic)]
+        fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
+            if let Some(o) = other.payload_if_subclass::<PyDeque>(vm) {
+                let mut deque = self.borrow_deque().clone();
+                let elements = o.borrow_deque().clone();
+                deque.extend(elements);
+
+                let skipped = self
+                    .maxlen
+                    .and_then(|maxlen| deque.len().checked_sub(maxlen))
+                    .unwrap_or(0);
+                deque.drain(0..skipped);
+
+                Ok(PyDeque {
+                    deque: PyRwLock::new(deque),
+                    maxlen: self.maxlen,
+                    state: AtomicCell::new(0),
+                })
+            } else {
+                Err(vm.new_type_error(format!(
+                    "can only concatenate deque (not \"{}\") to deque",
+                    other.class().name
+                )))
+            }
+        }
+
+        #[pymethod(magic)]
         fn iadd(
             zelf: PyRef<Self>,
             other: PyObjectRef,
