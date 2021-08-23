@@ -714,6 +714,11 @@ impl PyInt {
     fn bit_count(&self) -> u32 {
         self.value.iter_u32_digits().map(|n| n.count_ones()).sum()
     }
+
+    #[pymethod(magic)]
+    fn getnewargs(&self, vm: &VirtualMachine) -> PyObjectRef {
+        (self.value.clone(),).into_pyobject(vm)
+    }
 }
 
 impl Comparable for PyInt {

@@ -586,8 +586,6 @@ class TestCopy(unittest.TestCase):
         self.assertIsNot(y, x)
         self.assertIs(y.foo, y)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_deepcopy_range(self):
         class I(int):
             pass

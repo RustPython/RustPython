@@ -490,6 +490,11 @@ impl PyFloat {
     fn hex(&self) -> String {
         float_ops::to_hex(self.value)
     }
+
+    #[pymethod(magic)]
+    fn getnewargs(&self, vm: &VirtualMachine) -> PyObjectRef {
+        (self.value,).into_pyobject(vm)
+    }
 }
 
 impl Comparable for PyFloat {
