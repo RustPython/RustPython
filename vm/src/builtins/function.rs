@@ -187,7 +187,8 @@ impl PyFunction {
             }
             if !missing.is_empty() {
                 return Err(vm.new_type_error(format!(
-                    "Missing {} required positional arguments: {}",
+                    "{}() missing {} required positional arguments: {}",
+                    &self.code.obj_name,
                     missing.len(),
                     missing.iter().format(", ")
                 )));
