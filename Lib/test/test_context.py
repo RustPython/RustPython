@@ -23,6 +23,8 @@ def isolated_context(func):
 
 
 class ContextTest(unittest.TestCase):
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_context_var_new_1(self):
         with self.assertRaisesRegex(TypeError, 'takes exactly 1'):
             contextvars.ContextVar()
@@ -38,6 +40,8 @@ class ContextTest(unittest.TestCase):
 
         self.assertNotEqual(hash(c), hash('aaa'))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @isolated_context
     def test_context_var_repr_1(self):
         c = contextvars.ContextVar('a')
@@ -72,6 +76,8 @@ class ContextTest(unittest.TestCase):
             class MyToken(contextvars.Token):
                 pass
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_context_new_1(self):
         with self.assertRaisesRegex(TypeError, 'any arguments'):
             contextvars.Context(1)
@@ -81,6 +87,8 @@ class ContextTest(unittest.TestCase):
             contextvars.Context(a=1)
         contextvars.Context(**{})
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_context_typerrors_1(self):
         ctx = contextvars.Context()
 
@@ -91,16 +99,22 @@ class ContextTest(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, 'ContextVar key was expected'):
             ctx.get(1)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_context_get_context_1(self):
         ctx = contextvars.copy_context()
         self.assertIsInstance(ctx, contextvars.Context)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_context_run_1(self):
         ctx = contextvars.Context()
 
         with self.assertRaisesRegex(TypeError, 'missing 1 required'):
             ctx.run()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_context_run_2(self):
         ctx = contextvars.Context()
 
@@ -129,6 +143,8 @@ class ContextTest(unittest.TestCase):
                 ((11, 'bar'), {'spam': 'foo'}))
             self.assertEqual(a, {})
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_context_run_3(self):
         ctx = contextvars.Context()
 
@@ -142,6 +158,8 @@ class ContextTest(unittest.TestCase):
         with self.assertRaises(ZeroDivisionError):
             ctx.run(func, 1, 2, a=123)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @isolated_context
     def test_context_run_4(self):
         ctx1 = contextvars.Context()
@@ -167,6 +185,8 @@ class ContextTest(unittest.TestCase):
         self.assertEqual(returned_ctx[var], 'spam')
         self.assertIn(var, returned_ctx)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_context_run_5(self):
         ctx = contextvars.Context()
         var = contextvars.ContextVar('var')
@@ -181,6 +201,8 @@ class ContextTest(unittest.TestCase):
 
         self.assertIsNone(var.get(None))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_context_run_6(self):
         ctx = contextvars.Context()
         c = contextvars.ContextVar('a', default=0)
@@ -195,6 +217,8 @@ class ContextTest(unittest.TestCase):
 
         ctx.run(fun)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_context_run_7(self):
         ctx = contextvars.Context()
 
@@ -204,6 +228,8 @@ class ContextTest(unittest.TestCase):
 
         ctx.run(fun)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @isolated_context
     def test_context_getset_1(self):
         c = contextvars.ContextVar('c')
@@ -258,6 +284,8 @@ class ContextTest(unittest.TestCase):
         self.assertEqual(len(ctx2), 0)
         self.assertEqual(list(ctx2), [])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @isolated_context
     def test_context_getset_2(self):
         v1 = contextvars.ContextVar('v1')
@@ -267,6 +295,8 @@ class ContextTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'by a different'):
             v2.reset(t1)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @isolated_context
     def test_context_getset_3(self):
         c = contextvars.ContextVar('c', default=42)
@@ -292,6 +322,8 @@ class ContextTest(unittest.TestCase):
 
         ctx.run(fun)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @isolated_context
     def test_context_getset_4(self):
         c = contextvars.ContextVar('c', default=42)
@@ -302,6 +334,8 @@ class ContextTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'different Context'):
             c.reset(tok)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @isolated_context
     def test_context_getset_5(self):
         c = contextvars.ContextVar('c', default=42)
@@ -315,6 +349,8 @@ class ContextTest(unittest.TestCase):
         contextvars.copy_context().run(fun)
         self.assertEqual(c.get(), [])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_context_copy_1(self):
         ctx1 = contextvars.Context()
         c = contextvars.ContextVar('c', default=42)
@@ -340,6 +376,8 @@ class ContextTest(unittest.TestCase):
 
         ctx1.run(ctx1_fun)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @isolated_context
     def test_context_threads_1(self):
         cvar = contextvars.ContextVar('cvar')
@@ -358,6 +396,8 @@ class ContextTest(unittest.TestCase):
             tp.shutdown()
         self.assertEqual(results, list(range(10)))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_contextvar_getitem(self):
         clss = contextvars.ContextVar
         self.assertEqual(clss[str], clss)
