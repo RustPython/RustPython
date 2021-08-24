@@ -12,7 +12,9 @@ use crate::common::lock::{
     PyRwLockWriteGuard,
 };
 use crate::function::OptionalArg;
-use crate::sliceable::{saturate_index, PySliceableSequence, PySliceableSequenceMut};
+use crate::sliceable::{
+    saturate_index, PySliceableSequence, PySliceableSequenceMut, SequenceIndex,
+};
 use crate::slots::{AsBuffer, Comparable, Iterable, PyComparisonOp, PyIter};
 use crate::utils::Either;
 use crate::{
@@ -82,9 +84,12 @@ macro_rules! def_array_enum {
                 Ok(())
             }
 
-            fn pop(&mut self, i: usize, vm: &VirtualMachine) -> PyResult {
+            fn pop(&mut self, i: isize, vm: &VirtualMachine) -> PyResult {
                 match self {
                     $(ArrayContentType::$n(v) => {
+                        let i = v.wrap_index(i).ok_or_else(|| {
+                            vm.new_index_error("pop index out of range".to_owned())
+                        })?;
                         v.remove(i).into_pyresult(vm)
                     })*
                 }
@@ -196,23 +201,6 @@ macro_rules! def_array_enum {
                 }
             }
 
-            fn idx(&self, i: isize, msg: &str, vm: &VirtualMachine) -> PyResult<usize> {
-                let len = self.len();
-                let i = if i.is_negative() {
-                    if i.abs() as usize > len {
-                        return Err(vm.new_index_error(format!("{} index out of range", msg)));
-                    } else {
-                        len - i.abs() as usize
-                    }
-                } else {
-                    i as usize
-                };
-                if i > len - 1 {
-                    return Err(vm.new_index_error(format!("{} index out of range", msg)));
-                }
-                Ok(i)
-            }
-
             fn getitem_by_idx(&self, i: usize, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
                 match self {
                     $(ArrayContentType::$n(v) => {
@@ -221,24 +209,23 @@ macro_rules! def_array_enum {
                 }
             }
 
-            fn getitem_by_slice(&self, slice: PySliceRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+            fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
                 match self {
                     $(ArrayContentType::$n(v) => {
-                        let elements = v.get_slice_items(vm, &slice)?;
-                        let array: PyArray = ArrayContentType::$n(elements).into();
-                        Ok(array.into_object(vm))
+                        match SequenceIndex::try_from_object_for(vm, needle, "array")? {
+                            SequenceIndex::Int(i) => {
+                                let pos_index = v.wrap_index(i).ok_or_else(|| {
+                                    vm.new_index_error("array index out of range".to_owned())
+                                })?;
+                                v.get(pos_index).unwrap().into_pyresult(vm)
+                            }
+                            SequenceIndex::Slice(slice) => {
+                                let elements = v.get_slice_items(vm, &slice)?;
+                                let array: PyArray = ArrayContentType::$n(elements).into();
+                                Ok(array.into_object(vm))
+                            }
+                        }
                     })*
-                }
-            }
-
-            fn getitem(&self, needle: Either<isize, PySliceRef>, vm: &VirtualMachine) -> PyResult {
-                match needle {
-                    Either::A(i) => {
-                        self.idx(i, "array", vm).and_then(|i| {
-                            self.getitem_by_idx(i, vm).map(Option::unwrap)
-                        })
-                    }
-                    Either::B(slice) => self.getitem_by_slice(slice, vm),
                 }
             }
 
@@ -263,17 +250,23 @@ macro_rules! def_array_enum {
             }
 
             fn setitem_by_idx(&mut self, i: isize, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-                let i = self.idx(i, "array assignment", vm)?;
                 match self {
-                    $(ArrayContentType::$n(v) => { v[i] = <$t>::try_into_from_object(vm, value)? },)*
+                    $(ArrayContentType::$n(v) => {
+                        let i = v.wrap_index(i).ok_or_else(|| {
+                            vm.new_index_error("array assignment index out of range".to_owned())
+                        })?;
+                        v[i] = <$t>::try_into_from_object(vm, value)? },)*
                 }
                 Ok(())
             }
 
             fn delitem_by_idx(&mut self, i: isize, vm: &VirtualMachine) -> PyResult<()> {
-                let i = self.idx(i, "array assignment", vm)?;
                 match self {
-                    $(ArrayContentType::$n(v) => { v.remove(i); },)*
+                    $(ArrayContentType::$n(v) => {
+                        let i = v.wrap_index(i).ok_or_else(|| {
+                            vm.new_index_error("array assignment index out of range".to_owned())
+                        })?;
+                        v.remove(i); },)*
                 }
                 Ok(())
             }
@@ -742,8 +735,7 @@ impl PyArray {
         if w.len() == 0 {
             Err(vm.new_index_error("pop from empty array".to_owned()))
         } else {
-            let i = w.idx(i.unwrap_or(-1), "pop", vm)?;
-            w.pop(i, vm)
+            w.pop(i.unwrap_or(-1), vm)
         }
     }
 
@@ -791,7 +783,7 @@ impl PyArray {
     }
 
     #[pymethod(magic)]
-    fn getitem(&self, needle: Either<isize, PySliceRef>, vm: &VirtualMachine) -> PyResult {
+    fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self.read().getitem(needle, vm)
     }
 
