@@ -692,7 +692,7 @@ macro_rules! dict_iterator {
             }
         }
 
-        #[pyclass(module=false,name = $iter_class_name)]
+        #[pyclass(module = false, name = $iter_class_name)]
         #[derive(Debug)]
         pub(crate) struct $iter_name {
             pub dict: PyDictRef,
@@ -752,7 +752,7 @@ macro_rules! dict_iterator {
             }
         }
 
-        #[pyclass(module=false,name = $reverse_iter_class_name)]
+        #[pyclass(module = false, name = $reverse_iter_class_name)]
         #[derive(Debug)]
         pub(crate) struct $reverse_iter_name {
             pub dict: PyDictRef,
