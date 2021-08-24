@@ -22,6 +22,7 @@ use std::collections::HashSet;
 use std::fmt;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
+use std::ops::Deref;
 
 #[pyclass(module = false, name = "BaseException")]
 pub struct PyBaseException {
@@ -512,9 +513,13 @@ impl PyOSError {
 
     #[pyslot]
     fn tp_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyBaseExceptionRef> {
-        match PyOSError::optional_new(args.args.to_vec(), vm) {
-            Some(error) => error,
-            None => PyBaseException::new(args.args, vm).into_ref_with_type(vm, cls),
+        if cls.tp_name().deref() == vm.ctx.exceptions.os_error.tp_name().deref() {
+            match PyOSError::optional_new(args.args.to_vec(), vm) {
+                Some(error) => error,
+                None => PyBaseException::new(args.args, vm).into_ref_with_type(vm, cls),
+            }
+        } else {
+            PyBaseException::new(args.args, vm).into_ref_with_type(vm, cls)
         }
     }
 }
