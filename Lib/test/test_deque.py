@@ -719,8 +719,6 @@ class TestBasic(unittest.TestCase):
         self.assertNotEqual(id(d), id(e))
         self.assertNotEqual(list(d), list(e))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_copy(self):
         mut = [10]
         d = deque([mut])

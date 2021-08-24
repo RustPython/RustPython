@@ -172,6 +172,7 @@ mod _collections {
             self.borrow_deque_mut().clear()
         }
 
+        #[pymethod(magic)]
         #[pymethod]
         fn copy(&self) -> Self {
             PyDeque {
