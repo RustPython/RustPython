@@ -22,6 +22,8 @@ class TestIsInstanceExceptions(unittest.TestCase):
     # Sounds complicated, I know, but this mimics a situation where an
     # extension type raises an AttributeError when its __bases__ attribute is
     # gotten.  In that case, isinstance() should return False.
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_class_has_no_bases(self):
         class I(object):
             def getclass(self):
@@ -38,6 +40,8 @@ class TestIsInstanceExceptions(unittest.TestCase):
 
     # Like above except that inst.__class__.__bases__ raises an exception
     # other than AttributeError
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_bases_raises_other_than_attribute_error(self):
         class E(object):
             def getbases(self):
@@ -58,6 +62,8 @@ class TestIsInstanceExceptions(unittest.TestCase):
 
     # Here's a situation where getattr(cls, '__bases__') raises an exception.
     # If that exception is not AttributeError, it should not get masked
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_dont_mask_non_attribute_error(self):
         class I: pass
 
@@ -82,6 +88,8 @@ class TestIsInstanceExceptions(unittest.TestCase):
 
     # check that we don't mask non AttributeErrors
     # see: http://bugs.python.org/issue1574217
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_isinstance_dont_mask_non_attribute_error(self):
         class C(object):
             def getclass(self):
@@ -100,6 +108,8 @@ class TestIsInstanceExceptions(unittest.TestCase):
 # issubclass() instead of isinstance() -- really PyObject_IsSubclass()
 # vs. PyObject_IsInstance().
 class TestIsSubclassExceptions(unittest.TestCase):
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_dont_mask_non_attribute_error(self):
         class C(object):
             def getbases(self):
@@ -124,6 +134,8 @@ class TestIsSubclassExceptions(unittest.TestCase):
     # second arg (the cls arg) is tested.  This means the first arg must
     # return a valid __bases__, and it's okay for it to be a normal --
     # unrelated by inheritance -- class.
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_dont_mask_non_attribute_error_in_cls_arg(self):
         class B: pass
 
@@ -186,6 +198,8 @@ class TestIsInstanceIsSubclass(unittest.TestCase):
     # 'abstract' classes and instances.  This case tries to test all
     # combinations.
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_isinstance_normal(self):
         # normal instances
         self.assertEqual(True, isinstance(Super(), Super))
@@ -196,6 +210,8 @@ class TestIsInstanceIsSubclass(unittest.TestCase):
         self.assertEqual(True, isinstance(Child(), Super))
         self.assertEqual(False, isinstance(Child(), AbstractSuper))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_isinstance_abstract(self):
         # abstract instances
         self.assertEqual(True, isinstance(AbstractSuper(), AbstractSuper))
@@ -208,6 +224,8 @@ class TestIsInstanceIsSubclass(unittest.TestCase):
         self.assertEqual(False, isinstance(AbstractChild(), Super))
         self.assertEqual(False, isinstance(AbstractChild(), Child))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_subclass_normal(self):
         # normal classes
         self.assertEqual(True, issubclass(Super, Super))
@@ -218,6 +236,8 @@ class TestIsInstanceIsSubclass(unittest.TestCase):
         self.assertEqual(True, issubclass(Child, Super))
         self.assertEqual(False, issubclass(Child, AbstractSuper))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_subclass_abstract(self):
         # abstract classes
         self.assertEqual(True, issubclass(AbstractSuper, AbstractSuper))
@@ -241,16 +261,22 @@ class TestIsInstanceIsSubclass(unittest.TestCase):
         self.assertEqual(True, issubclass(int, (int, (float, int))))
         self.assertEqual(True, issubclass(str, (str, (Child, str))))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_subclass_recursion_limit(self):
         # make sure that issubclass raises RecursionError before the C stack is
         # blown
         self.assertRaises(RecursionError, blowstack, issubclass, str, str)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_isinstance_recursion_limit(self):
         # make sure that issubclass raises RecursionError before the C stack is
         # blown
         self.assertRaises(RecursionError, blowstack, isinstance, '', str)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_issubclass_refcount_handling(self):
         # bpo-39382: abstract_issubclass() didn't hold item reference while
         # peeking in the bases tuple, in the single inheritance case.
@@ -271,6 +297,8 @@ class TestIsInstanceIsSubclass(unittest.TestCase):
 
         self.assertEqual(True, issubclass(B(), int))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_infinite_recursion_in_bases(self):
         class X:
             @property
