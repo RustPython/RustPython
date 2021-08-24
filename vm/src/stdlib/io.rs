@@ -3887,7 +3887,7 @@ mod fileio {
             zelf.mode.store(mode);
             let fd = if let Some(opener) = args.opener {
                 let fd = vm.invoke(&opener, (name.clone(), flags))?;
-                if !vm.isinstance(&fd, &vm.ctx.types.int_type)? {
+                if !vm.isinstance(&fd, vm.ctx.types.int_type.as_object())? {
                     return Err(vm.new_type_error("expected integer from opener".to_owned()));
                 }
                 let fd = i32::try_from_object(vm, fd)?;
