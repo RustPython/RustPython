@@ -200,25 +200,24 @@ pub trait AnyStr<'s>: 's {
         F: Fn(&Self, &T) -> bool,
     {
         let (affix, range) = args.get_value(self.bytes_len());
-        if range.is_normal() {
-            let value = self.get_bytes(range);
-            single_or_tuple_any(
-                affix,
-                &|s: &T| Ok(func(value, s)),
-                &|o| {
-                    format!(
-                        "{} first arg must be {} or a tuple of {}, not {}",
-                        func_name,
-                        py_type_name,
-                        py_type_name,
-                        o.class(),
-                    )
-                },
-                vm,
-            )
-        } else {
-            Ok(false)
+        if !range.is_normal() {
+            return Ok(false);
         }
+        let value = self.get_bytes(range);
+        single_or_tuple_any(
+            affix,
+            &|s: &T| Ok(func(value, s)),
+            &|o| {
+                format!(
+                    "{} first arg must be {} or a tuple of {}, not {}",
+                    func_name,
+                    py_type_name,
+                    py_type_name,
+                    o.class(),
+                )
+            },
+            vm,
+        )
     }
 
     #[inline]

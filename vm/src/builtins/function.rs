@@ -218,21 +218,19 @@ impl PyFunction {
                 .zip(&*code.varnames)
                 .skip(code.arg_count)
                 .take(code.kwonlyarg_count)
+                .filter(|(slot, _)| slot.is_none())
             {
-                if slot.is_none() {
-                    if let Some(defaults) = &get_defaults!().1 {
-                        if let Some(default) = defaults.get_item_option(kwarg.clone(), vm)? {
-                            *slot = Some(default);
-                            continue;
-                        }
+                if let Some(defaults) = &get_defaults!().1 {
+                    if let Some(default) = defaults.get_item_option(kwarg.clone(), vm)? {
+                        *slot = Some(default);
+                        continue;
                     }
-
-                    // No default value and not specified.
-                    return Err(vm.new_type_error(format!(
-                        "Missing required kw only argument: '{}'",
-                        kwarg
-                    )));
                 }
+
+                // No default value and not specified.
+                return Err(
+                    vm.new_type_error(format!("Missing required kw only argument: '{}'", kwarg))
+                );
             }
         }
 
