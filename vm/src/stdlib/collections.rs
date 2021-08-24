@@ -374,11 +374,13 @@ mod _collections {
         fn rotate(&self, mid: OptionalArg<isize>) {
             self.state.fetch_add(1);
             let mut deque = self.borrow_deque_mut();
-            let mid = mid.unwrap_or(1);
-            if mid < 0 {
-                deque.rotate_left(-mid as usize);
-            } else {
-                deque.rotate_right(mid as usize);
+            if !deque.is_empty() {
+                let mid = mid.unwrap_or(1) % deque.len() as isize;
+                if mid.is_negative() {
+                    deque.rotate_left(-mid as usize);
+                } else {
+                    deque.rotate_right(mid as usize);
+                }
             }
         }
 
