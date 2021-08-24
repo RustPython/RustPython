@@ -161,7 +161,7 @@ cfg_if::cfg_if! {
                     .complete_opt(&line[0..pos])
                     // as far as I can tell, there's no better way to do both completion
                     // and indentation (or even just indentation)
-                    .unwrap_or_else(|| (line.len(), vec!["\t".to_owned()])))
+                    .unwrap_or_else(|| (pos, vec!["\t".to_owned()])))
             }
         }
 
