@@ -269,13 +269,6 @@ class TestBasic(unittest.TestCase):
         self.assertRaises(IndexError, d.__getitem__, 0)
         self.assertRaises(IndexError, d.__getitem__, -1)
 
-    def test_bool(self):
-        d = deque('abc')
-        self.assertEqual(d, True)
-
-        d = deque([])
-        self.assertEqual(d, False)
-
     @unittest.skip("TODO: RUSTPYTHON hangs")
     def test_index(self):
         for n in 1, 2, 30, 40, 200:
