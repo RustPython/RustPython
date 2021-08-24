@@ -1005,8 +1005,6 @@ class BytesTest(BaseBytesTest, unittest.TestCase):
         with open(fd, "rb", buffering=0) as f:
             self.assertRaises(TypeError, f.readinto, b"")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_custom(self):
         class A:
             def __bytes__(self):
@@ -1154,8 +1152,6 @@ class BytesTest(BaseBytesTest, unittest.TestCase):
         self.assertEqual(PyBytes_FromFormat(b'%s', b''),
                          b'')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bytes_blocking(self):
         class IterationBlocked(list):
             __bytes__ = None
