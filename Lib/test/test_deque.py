@@ -436,7 +436,6 @@ class TestBasic(unittest.TestCase):
             self.assertEqual(list(d), data[:i])
         self.assertRaises(TypeError, d.reverse, 1)          # Arity is zero
 
-    @unittest.skip("TODO: RUSTPYTHON panics")
     def test_rotate(self):
         s = tuple('abcde')
         n = len(s)
