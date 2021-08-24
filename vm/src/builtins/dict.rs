@@ -13,9 +13,9 @@ use crate::iterator;
 use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable};
 use crate::vm::{ReprGuard, VirtualMachine};
 use crate::{
-    IdProtocol, IntoPyObject, ItemProtocol, PyArithmaticValue::*, PyAttributes, PyClassImpl,
-    PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol,
+    IdProtocol, IntoPyObject, ItemProtocol, PyArithmaticValue::*, PyAttributes, PyClassDef,
+    PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol,
 };
 
 pub type DictContentType = dictdatatype::Dict;
@@ -587,45 +587,67 @@ impl Iterator for DictIter {
     }
 }
 
+#[pyimpl]
+trait DictIterator: PyValue + PyClassDef
+where
+    Self::ReverseIter: PyValue,
+{
+    type ReverseIter;
+
+    fn dict(&self) -> &PyDictRef;
+    fn item(vm: &VirtualMachine, key: PyObjectRef, value: PyObjectRef) -> PyObjectRef;
+
+    #[pymethod(magic)]
+    fn len(&self) -> usize {
+        self.dict().len()
+    }
+
+    #[allow(clippy::redundant_closure_call)]
+    #[pymethod(magic)]
+    fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        let s = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
+            let mut str_parts = vec![];
+            for (key, value) in zelf.dict().clone() {
+                let s = vm.to_repr(&Self::item(vm, key, value))?;
+                str_parts.push(s.as_str().to_owned());
+            }
+            format!("{}([{}])", Self::NAME, str_parts.join(", "))
+        } else {
+            "{...}".to_owned()
+        };
+        Ok(s)
+    }
+
+    #[pymethod(magic)]
+    fn reversed(&self) -> Self::ReverseIter;
+}
+
 macro_rules! dict_iterator {
     ( $name: ident, $iter_name: ident, $reverse_iter_name: ident,
       $class: ident, $iter_class: ident, $reverse_iter_class: ident,
       $class_name: literal, $iter_class_name: literal, $reverse_iter_class_name: literal,
       $result_fn: expr) => {
-        #[pyclass(module=false,name = $class_name)]
+        #[pyclass(module = false, name = $class_name)]
         #[derive(Debug)]
         pub(crate) struct $name {
             pub dict: PyDictRef,
         }
 
-        #[pyimpl(with(Comparable, Iterable))]
         impl $name {
             fn new(dict: PyDictRef) -> Self {
                 $name { dict }
             }
+        }
 
-            #[pymethod(magic)]
-            fn len(&self) -> usize {
-                self.dict.clone().len()
+        impl DictIterator for $name {
+            type ReverseIter = $reverse_iter_name;
+            fn dict(&self) -> &PyDictRef {
+                &self.dict
             }
-
-            #[allow(clippy::redundant_closure_call)]
-            #[pymethod(magic)]
-            fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
-                let s = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-                    let mut str_parts = vec![];
-                    for (key, value) in zelf.dict.clone() {
-                        let s = vm.to_repr(&($result_fn)(vm, key, value))?;
-                        str_parts.push(s.as_str().to_owned());
-                    }
-                    format!("{}([{}])", $class_name, str_parts.join(", "))
-                } else {
-                    "{...}".to_owned()
-                };
-                Ok(s)
+            fn item(vm: &VirtualMachine, key: PyObjectRef, value: PyObjectRef) -> PyObjectRef {
+                $result_fn(vm, key, value)
             }
-            #[pymethod(magic)]
-            fn reversed(&self) -> $reverse_iter_name {
+            fn reversed(&self) -> Self::ReverseIter {
                 $reverse_iter_name::new(self.dict.clone())
             }
         }
@@ -831,6 +853,15 @@ dict_iterator! {
     |vm: &VirtualMachine, key: PyObjectRef, value: PyObjectRef|
         vm.ctx.new_tuple(vec![key, value])
 }
+
+#[pyimpl(with(DictIterator, Comparable, Iterable))]
+impl PyDictKeys {}
+
+#[pyimpl(with(DictIterator, Comparable, Iterable))]
+impl PyDictValues {}
+
+#[pyimpl(with(DictIterator, Comparable, Iterable))]
+impl PyDictItems {}
 
 pub(crate) fn init(context: &PyContext) {
     PyDict::extend_class(context, &context.types.dict_type);
