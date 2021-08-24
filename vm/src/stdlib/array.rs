@@ -16,7 +16,6 @@ use crate::sliceable::{
     saturate_index, PySliceableSequence, PySliceableSequenceMut, SequenceIndex,
 };
 use crate::slots::{AsBuffer, Comparable, Iterable, PyComparisonOp, PyIter};
-use crate::utils::Either;
 use crate::{
     IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyIterable, PyObjectRef, PyRef,
     PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
@@ -790,13 +789,13 @@ impl PyArray {
     #[pymethod(magic)]
     fn setitem(
         zelf: PyRef<Self>,
-        needle: Either<isize, PySliceRef>,
+        needle: PyObjectRef,
         obj: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        match needle {
-            Either::A(i) => zelf.write().setitem_by_idx(i, obj, vm),
-            Either::B(slice) => {
+        match SequenceIndex::try_from_object_for(vm, needle, "array")? {
+            SequenceIndex::Int(i) => zelf.write().setitem_by_idx(i, obj, vm),
+            SequenceIndex::Slice(slice) => {
                 let cloned;
                 let guard;
                 let items = if zelf.is(&obj) {
@@ -826,14 +825,10 @@ impl PyArray {
     }
 
     #[pymethod(magic)]
-    fn delitem(
-        zelf: PyRef<Self>,
-        needle: Either<isize, PySliceRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        match needle {
-            Either::A(i) => zelf.try_resizable(vm)?.delitem_by_idx(i, vm),
-            Either::B(slice) => zelf.try_resizable(vm)?.delitem_by_slice(slice, vm),
+    fn delitem(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        match SequenceIndex::try_from_object_for(vm, needle, "array")? {
+            SequenceIndex::Int(i) => zelf.try_resizable(vm)?.delitem_by_idx(i, vm),
+            SequenceIndex::Slice(slice) => zelf.try_resizable(vm)?.delitem_by_slice(slice, vm),
         }
     }
 
