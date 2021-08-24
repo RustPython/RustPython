@@ -1,12 +1,5 @@
-use num_bigint::{BigInt, ToBigInt};
-use num_complex::Complex64;
-use num_rational::Ratio;
-use num_traits::{Signed, ToPrimitive, Zero};
-
-use super::bytes::PyBytes;
-use super::int::{self, PyInt, PyIntRef};
-use super::pystr::{PyStr, PyStrRef};
-use super::pytype::PyTypeRef;
+use super::{int, PyBytes, PyInt, PyIntRef, PyStr, PyStrRef, PyTypeRef};
+use crate::common::{float_ops, hash};
 use crate::format::FormatSpec;
 use crate::function::{OptionalArg, OptionalOption};
 use crate::slots::{Comparable, Hashable, PyComparisonOp};
@@ -17,7 +10,10 @@ use crate::{
     PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol,
 };
-use rustpython_common::{float_ops, hash};
+use num_bigint::{BigInt, ToBigInt};
+use num_complex::Complex64;
+use num_rational::Ratio;
+use num_traits::{Signed, ToPrimitive, Zero};
 
 /// Convert a string or number to a floating point number, if possible.
 #[pyclass(module = false, name = "float")]
@@ -489,6 +485,11 @@ impl PyFloat {
     #[pymethod]
     fn hex(&self) -> String {
         float_ops::to_hex(self.value)
+    }
+
+    #[pymethod(magic)]
+    fn getnewargs(&self, vm: &VirtualMachine) -> PyObjectRef {
+        (self.value,).into_pyobject(vm)
     }
 }
 
