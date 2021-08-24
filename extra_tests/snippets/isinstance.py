@@ -41,6 +41,13 @@ assert isinstance(AlwaysInstanceOf(), AlwaysInstanceOf)
 assert isinstance(Regular(), AlwaysInstanceOf)
 assert isinstance(1, AlwaysInstanceOf)
 
+class GenericInstance:
+    def __instancecheck__(self, _):
+        return True
+
+assert isinstance(Regular(), GenericInstance())
+assert isinstance([], GenericInstance())
+assert isinstance(1, GenericInstance())
 
 class MCReturnInt(type):
     def __instancecheck__(self, instance):
