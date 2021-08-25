@@ -1000,7 +1000,6 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::EndAsyncFor => {
                 let exc = self.pop_value();
-                self.pop_value(); // async iterator we were calling __anext__ on
                 if exc.fast_isinstance(vm.ctx.exceptions.stop_async_iteration) {
                     vm.take_exception().expect("Should have exception in stack");
                     Ok(None)

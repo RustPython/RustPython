@@ -2654,11 +2654,8 @@ impl Compiler {
         }
 
         let mut loop_labels = vec![];
+        let mut is_async = false;
         for generator in generators {
-            if generator.is_async {
-                unimplemented!("async for comprehensions");
-            }
-
             let loop_block = self.new_block();
             let after_block = self.new_block();
 
@@ -2670,18 +2667,32 @@ impl Compiler {
                 self.compile_expression(&generator.iter)?;
 
                 // Get iterator / turn item into an iterator
-                emit!(self, Instruction::GetIter);
+                if generator.is_async {
+                    emit!(self, Instruction::GetAIter);
+                } else {
+                    emit!(self, Instruction::GetIter);
+                }
             }
 
             loop_labels.push((loop_block, after_block));
-
             self.switch_to_block(loop_block);
-            emit!(
-                self,
-                Instruction::ForIter {
-                    target: after_block,
-                }
-            );
+            if generator.is_async {
+                is_async = true;
+                emit!(self, Instruction::SetupFinally {
+                    handler: after_block,
+                });
+                emit!(self, Instruction::GetANext);
+                self.emit_constant(ConstantData::None);
+                emit!(self, Instruction::YieldFrom);
+                emit!(self, Instruction::PopBlock);
+            } else {
+                emit!(
+                    self,
+                    Instruction::ForIter {
+                        target: after_block,
+                    }
+                );
+            }
 
             self.compile_store(&generator.target)?;
 
@@ -2699,6 +2710,9 @@ impl Compiler {
 
             // End of for loop:
             self.switch_to_block(after_block);
+            if is_async {
+                emit!(self, Instruction::EndAsyncFor);
+            }
         }
 
         if return_none {
@@ -2735,10 +2749,19 @@ impl Compiler {
         self.compile_expression(&generators[0].iter)?;
 
         // Get iterator / turn item into an iterator
-        emit!(self, Instruction::GetIter);
+        if is_async {
+            emit!(self, Instruction::GetAIter);
+        } else {
+            emit!(self, Instruction::GetIter);
+        };
 
         // Call just created <listcomp> function:
         emit!(self, Instruction::CallFunctionPositional { nargs: 1 });
+        if is_async {
+            emit!(self, Instruction::GetAwaitable);
+            self.emit_constant(ConstantData::None);
+            emit!(self, Instruction::YieldFrom);
+        }
         Ok(())
     }
 
