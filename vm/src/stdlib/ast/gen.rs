@@ -3,7 +3,11 @@
 use super::*;
 use crate::common::ascii;
 
-#[pyclass(module = "_ast", name = "Module", base = "AstNode")]
+#[pyclass(module = "_ast", name = "mod", base = "AstNode")]
+struct NodeKindMod;
+#[pyimpl(flags(HAS_DICT, BASETYPE))]
+impl NodeKindMod {}
+#[pyclass(module = "_ast", name = "Module", base = "NodeKindMod")]
 struct NodeModule;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeModule {
@@ -13,7 +17,7 @@ impl NodeModule {
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
-#[pyclass(module = "_ast", name = "Interactive", base = "AstNode")]
+#[pyclass(module = "_ast", name = "Interactive", base = "NodeKindMod")]
 struct NodeInteractive;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeInteractive {
@@ -23,7 +27,7 @@ impl NodeInteractive {
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
-#[pyclass(module = "_ast", name = "Expression", base = "AstNode")]
+#[pyclass(module = "_ast", name = "Expression", base = "NodeKindMod")]
 struct NodeExpression;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeExpression {
@@ -33,7 +37,7 @@ impl NodeExpression {
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
-#[pyclass(module = "_ast", name = "FunctionType", base = "AstNode")]
+#[pyclass(module = "_ast", name = "FunctionType", base = "NodeKindMod")]
 struct NodeFunctionType;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeFunctionType {
@@ -43,7 +47,11 @@ impl NodeFunctionType {
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
-#[pyclass(module = "_ast", name = "FunctionDef", base = "AstNode")]
+#[pyclass(module = "_ast", name = "stmt", base = "AstNode")]
+struct NodeKindStmt;
+#[pyimpl(flags(HAS_DICT, BASETYPE))]
+impl NodeKindStmt {}
+#[pyclass(module = "_ast", name = "FunctionDef", base = "NodeKindStmt")]
 struct NodeFunctionDef;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeFunctionDef {
@@ -53,7 +61,7 @@ impl NodeFunctionDef {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "AsyncFunctionDef", base = "AstNode")]
+#[pyclass(module = "_ast", name = "AsyncFunctionDef", base = "NodeKindStmt")]
 struct NodeAsyncFunctionDef;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeAsyncFunctionDef {
@@ -63,7 +71,7 @@ impl NodeAsyncFunctionDef {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "ClassDef", base = "AstNode")]
+#[pyclass(module = "_ast", name = "ClassDef", base = "NodeKindStmt")]
 struct NodeClassDef;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeClassDef {
@@ -73,7 +81,7 @@ impl NodeClassDef {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "Return", base = "AstNode")]
+#[pyclass(module = "_ast", name = "Return", base = "NodeKindStmt")]
 struct NodeReturn;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeReturn {
@@ -83,7 +91,7 @@ impl NodeReturn {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "Delete", base = "AstNode")]
+#[pyclass(module = "_ast", name = "Delete", base = "NodeKindStmt")]
 struct NodeDelete;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeDelete {
@@ -93,7 +101,7 @@ impl NodeDelete {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "Assign", base = "AstNode")]
+#[pyclass(module = "_ast", name = "Assign", base = "NodeKindStmt")]
 struct NodeAssign;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeAssign {
@@ -103,7 +111,7 @@ impl NodeAssign {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "AugAssign", base = "AstNode")]
+#[pyclass(module = "_ast", name = "AugAssign", base = "NodeKindStmt")]
 struct NodeAugAssign;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeAugAssign {
@@ -113,7 +121,7 @@ impl NodeAugAssign {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "AnnAssign", base = "AstNode")]
+#[pyclass(module = "_ast", name = "AnnAssign", base = "NodeKindStmt")]
 struct NodeAnnAssign;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeAnnAssign {
@@ -123,7 +131,7 @@ impl NodeAnnAssign {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "For", base = "AstNode")]
+#[pyclass(module = "_ast", name = "For", base = "NodeKindStmt")]
 struct NodeFor;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeFor {
@@ -133,7 +141,7 @@ impl NodeFor {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "AsyncFor", base = "AstNode")]
+#[pyclass(module = "_ast", name = "AsyncFor", base = "NodeKindStmt")]
 struct NodeAsyncFor;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeAsyncFor {
@@ -143,7 +151,7 @@ impl NodeAsyncFor {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "While", base = "AstNode")]
+#[pyclass(module = "_ast", name = "While", base = "NodeKindStmt")]
 struct NodeWhile;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeWhile {
@@ -153,7 +161,7 @@ impl NodeWhile {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "If", base = "AstNode")]
+#[pyclass(module = "_ast", name = "If", base = "NodeKindStmt")]
 struct NodeIf;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeIf {
@@ -163,7 +171,7 @@ impl NodeIf {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "With", base = "AstNode")]
+#[pyclass(module = "_ast", name = "With", base = "NodeKindStmt")]
 struct NodeWith;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeWith {
@@ -173,7 +181,7 @@ impl NodeWith {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "AsyncWith", base = "AstNode")]
+#[pyclass(module = "_ast", name = "AsyncWith", base = "NodeKindStmt")]
 struct NodeAsyncWith;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeAsyncWith {
@@ -183,7 +191,7 @@ impl NodeAsyncWith {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "Raise", base = "AstNode")]
+#[pyclass(module = "_ast", name = "Raise", base = "NodeKindStmt")]
 struct NodeRaise;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeRaise {
@@ -193,7 +201,7 @@ impl NodeRaise {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "Try", base = "AstNode")]
+#[pyclass(module = "_ast", name = "Try", base = "NodeKindStmt")]
 struct NodeTry;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeTry {
@@ -203,7 +211,7 @@ impl NodeTry {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "Assert", base = "AstNode")]
+#[pyclass(module = "_ast", name = "Assert", base = "NodeKindStmt")]
 struct NodeAssert;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeAssert {
@@ -213,7 +221,7 @@ impl NodeAssert {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "Import", base = "AstNode")]
+#[pyclass(module = "_ast", name = "Import", base = "NodeKindStmt")]
 struct NodeImport;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeImport {
@@ -223,7 +231,7 @@ impl NodeImport {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "ImportFrom", base = "AstNode")]
+#[pyclass(module = "_ast", name = "ImportFrom", base = "NodeKindStmt")]
 struct NodeImportFrom;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeImportFrom {
@@ -233,7 +241,7 @@ impl NodeImportFrom {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "Global", base = "AstNode")]
+#[pyclass(module = "_ast", name = "Global", base = "NodeKindStmt")]
 struct NodeGlobal;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeGlobal {
@@ -243,7 +251,7 @@ impl NodeGlobal {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "Nonlocal", base = "AstNode")]
+#[pyclass(module = "_ast", name = "Nonlocal", base = "NodeKindStmt")]
 struct NodeNonlocal;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeNonlocal {
@@ -253,7 +261,7 @@ impl NodeNonlocal {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "Expr", base = "AstNode")]
+#[pyclass(module = "_ast", name = "Expr", base = "NodeKindStmt")]
 struct NodeExpr;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeExpr {
@@ -263,7 +271,7 @@ impl NodeExpr {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "Pass", base = "AstNode")]
+#[pyclass(module = "_ast", name = "Pass", base = "NodeKindStmt")]
 struct NodePass;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodePass {
@@ -273,7 +281,7 @@ impl NodePass {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "Break", base = "AstNode")]
+#[pyclass(module = "_ast", name = "Break", base = "NodeKindStmt")]
 struct NodeBreak;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeBreak {
@@ -283,7 +291,7 @@ impl NodeBreak {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "Continue", base = "AstNode")]
+#[pyclass(module = "_ast", name = "Continue", base = "NodeKindStmt")]
 struct NodeContinue;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeContinue {
@@ -293,7 +301,11 @@ impl NodeContinue {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "BoolOp", base = "AstNode")]
+#[pyclass(module = "_ast", name = "expr", base = "AstNode")]
+struct NodeKindExpr;
+#[pyimpl(flags(HAS_DICT, BASETYPE))]
+impl NodeKindExpr {}
+#[pyclass(module = "_ast", name = "BoolOp", base = "NodeKindExpr")]
 struct NodeBoolOp;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeBoolOp {
@@ -303,7 +315,7 @@ impl NodeBoolOp {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "NamedExpr", base = "AstNode")]
+#[pyclass(module = "_ast", name = "NamedExpr", base = "NodeKindExpr")]
 struct NodeNamedExpr;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeNamedExpr {
@@ -313,7 +325,7 @@ impl NodeNamedExpr {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "BinOp", base = "AstNode")]
+#[pyclass(module = "_ast", name = "BinOp", base = "NodeKindExpr")]
 struct NodeBinOp;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeBinOp {
@@ -323,7 +335,7 @@ impl NodeBinOp {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "UnaryOp", base = "AstNode")]
+#[pyclass(module = "_ast", name = "UnaryOp", base = "NodeKindExpr")]
 struct NodeUnaryOp;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeUnaryOp {
@@ -333,7 +345,7 @@ impl NodeUnaryOp {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "Lambda", base = "AstNode")]
+#[pyclass(module = "_ast", name = "Lambda", base = "NodeKindExpr")]
 struct NodeLambda;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeLambda {
@@ -343,7 +355,7 @@ impl NodeLambda {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "IfExp", base = "AstNode")]
+#[pyclass(module = "_ast", name = "IfExp", base = "NodeKindExpr")]
 struct NodeIfExp;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeIfExp {
@@ -353,7 +365,7 @@ impl NodeIfExp {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "Dict", base = "AstNode")]
+#[pyclass(module = "_ast", name = "Dict", base = "NodeKindExpr")]
 struct NodeDict;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeDict {
@@ -363,7 +375,7 @@ impl NodeDict {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "Set", base = "AstNode")]
+#[pyclass(module = "_ast", name = "Set", base = "NodeKindExpr")]
 struct NodeSet;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeSet {
@@ -373,7 +385,7 @@ impl NodeSet {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "ListComp", base = "AstNode")]
+#[pyclass(module = "_ast", name = "ListComp", base = "NodeKindExpr")]
 struct NodeListComp;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeListComp {
@@ -383,7 +395,7 @@ impl NodeListComp {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "SetComp", base = "AstNode")]
+#[pyclass(module = "_ast", name = "SetComp", base = "NodeKindExpr")]
 struct NodeSetComp;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeSetComp {
@@ -393,7 +405,7 @@ impl NodeSetComp {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "DictComp", base = "AstNode")]
+#[pyclass(module = "_ast", name = "DictComp", base = "NodeKindExpr")]
 struct NodeDictComp;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeDictComp {
@@ -403,7 +415,7 @@ impl NodeDictComp {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "GeneratorExp", base = "AstNode")]
+#[pyclass(module = "_ast", name = "GeneratorExp", base = "NodeKindExpr")]
 struct NodeGeneratorExp;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeGeneratorExp {
@@ -413,7 +425,7 @@ impl NodeGeneratorExp {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "Await", base = "AstNode")]
+#[pyclass(module = "_ast", name = "Await", base = "NodeKindExpr")]
 struct NodeAwait;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeAwait {
@@ -423,7 +435,7 @@ impl NodeAwait {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "Yield", base = "AstNode")]
+#[pyclass(module = "_ast", name = "Yield", base = "NodeKindExpr")]
 struct NodeYield;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeYield {
@@ -433,7 +445,7 @@ impl NodeYield {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "YieldFrom", base = "AstNode")]
+#[pyclass(module = "_ast", name = "YieldFrom", base = "NodeKindExpr")]
 struct NodeYieldFrom;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeYieldFrom {
@@ -443,7 +455,7 @@ impl NodeYieldFrom {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "Compare", base = "AstNode")]
+#[pyclass(module = "_ast", name = "Compare", base = "NodeKindExpr")]
 struct NodeCompare;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeCompare {
@@ -453,7 +465,7 @@ impl NodeCompare {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "Call", base = "AstNode")]
+#[pyclass(module = "_ast", name = "Call", base = "NodeKindExpr")]
 struct NodeCall;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeCall {
@@ -463,7 +475,7 @@ impl NodeCall {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "FormattedValue", base = "AstNode")]
+#[pyclass(module = "_ast", name = "FormattedValue", base = "NodeKindExpr")]
 struct NodeFormattedValue;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeFormattedValue {
@@ -473,7 +485,7 @@ impl NodeFormattedValue {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "JoinedStr", base = "AstNode")]
+#[pyclass(module = "_ast", name = "JoinedStr", base = "NodeKindExpr")]
 struct NodeJoinedStr;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeJoinedStr {
@@ -483,7 +495,7 @@ impl NodeJoinedStr {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "Constant", base = "AstNode")]
+#[pyclass(module = "_ast", name = "Constant", base = "NodeKindExpr")]
 struct NodeConstant;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeConstant {
@@ -493,7 +505,7 @@ impl NodeConstant {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "Attribute", base = "AstNode")]
+#[pyclass(module = "_ast", name = "Attribute", base = "NodeKindExpr")]
 struct NodeAttribute;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeAttribute {
@@ -503,7 +515,7 @@ impl NodeAttribute {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "Subscript", base = "AstNode")]
+#[pyclass(module = "_ast", name = "Subscript", base = "NodeKindExpr")]
 struct NodeSubscript;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeSubscript {
@@ -513,7 +525,7 @@ impl NodeSubscript {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "Starred", base = "AstNode")]
+#[pyclass(module = "_ast", name = "Starred", base = "NodeKindExpr")]
 struct NodeStarred;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeStarred {
@@ -523,7 +535,7 @@ impl NodeStarred {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "Name", base = "AstNode")]
+#[pyclass(module = "_ast", name = "Name", base = "NodeKindExpr")]
 struct NodeName;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeName {
@@ -533,7 +545,7 @@ impl NodeName {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "List", base = "AstNode")]
+#[pyclass(module = "_ast", name = "List", base = "NodeKindExpr")]
 struct NodeList;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeList {
@@ -543,7 +555,7 @@ impl NodeList {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "Tuple", base = "AstNode")]
+#[pyclass(module = "_ast", name = "Tuple", base = "NodeKindExpr")]
 struct NodeTuple;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeTuple {
@@ -553,7 +565,7 @@ impl NodeTuple {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "Slice", base = "AstNode")]
+#[pyclass(module = "_ast", name = "Slice", base = "NodeKindExpr")]
 struct NodeSlice;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeSlice {
@@ -563,7 +575,11 @@ impl NodeSlice {
         class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]));
     }
 }
-#[pyclass(module = "_ast", name = "Load", base = "AstNode")]
+#[pyclass(module = "_ast", name = "expr_context", base = "AstNode")]
+struct NodeKindExprContext;
+#[pyimpl(flags(HAS_DICT, BASETYPE))]
+impl NodeKindExprContext {}
+#[pyclass(module = "_ast", name = "Load", base = "NodeKindExprContext")]
 struct NodeLoad;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeLoad {
@@ -573,7 +589,7 @@ impl NodeLoad {
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
-#[pyclass(module = "_ast", name = "Store", base = "AstNode")]
+#[pyclass(module = "_ast", name = "Store", base = "NodeKindExprContext")]
 struct NodeStore;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeStore {
@@ -583,7 +599,7 @@ impl NodeStore {
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
-#[pyclass(module = "_ast", name = "Del", base = "AstNode")]
+#[pyclass(module = "_ast", name = "Del", base = "NodeKindExprContext")]
 struct NodeDel;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeDel {
@@ -593,7 +609,11 @@ impl NodeDel {
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
-#[pyclass(module = "_ast", name = "And", base = "AstNode")]
+#[pyclass(module = "_ast", name = "boolop", base = "AstNode")]
+struct NodeKindBoolop;
+#[pyimpl(flags(HAS_DICT, BASETYPE))]
+impl NodeKindBoolop {}
+#[pyclass(module = "_ast", name = "And", base = "NodeKindBoolop")]
 struct NodeAnd;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeAnd {
@@ -603,7 +623,7 @@ impl NodeAnd {
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
-#[pyclass(module = "_ast", name = "Or", base = "AstNode")]
+#[pyclass(module = "_ast", name = "Or", base = "NodeKindBoolop")]
 struct NodeOr;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeOr {
@@ -613,7 +633,11 @@ impl NodeOr {
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
-#[pyclass(module = "_ast", name = "Add", base = "AstNode")]
+#[pyclass(module = "_ast", name = "operator", base = "AstNode")]
+struct NodeKindOperator;
+#[pyimpl(flags(HAS_DICT, BASETYPE))]
+impl NodeKindOperator {}
+#[pyclass(module = "_ast", name = "Add", base = "NodeKindOperator")]
 struct NodeAdd;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeAdd {
@@ -623,7 +647,7 @@ impl NodeAdd {
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
-#[pyclass(module = "_ast", name = "Sub", base = "AstNode")]
+#[pyclass(module = "_ast", name = "Sub", base = "NodeKindOperator")]
 struct NodeSub;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeSub {
@@ -633,7 +657,7 @@ impl NodeSub {
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
-#[pyclass(module = "_ast", name = "Mult", base = "AstNode")]
+#[pyclass(module = "_ast", name = "Mult", base = "NodeKindOperator")]
 struct NodeMult;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeMult {
@@ -643,7 +667,7 @@ impl NodeMult {
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
-#[pyclass(module = "_ast", name = "MatMult", base = "AstNode")]
+#[pyclass(module = "_ast", name = "MatMult", base = "NodeKindOperator")]
 struct NodeMatMult;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeMatMult {
@@ -653,7 +677,7 @@ impl NodeMatMult {
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
-#[pyclass(module = "_ast", name = "Div", base = "AstNode")]
+#[pyclass(module = "_ast", name = "Div", base = "NodeKindOperator")]
 struct NodeDiv;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeDiv {
@@ -663,7 +687,7 @@ impl NodeDiv {
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
-#[pyclass(module = "_ast", name = "Mod", base = "AstNode")]
+#[pyclass(module = "_ast", name = "Mod", base = "NodeKindOperator")]
 struct NodeMod;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeMod {
@@ -673,7 +697,7 @@ impl NodeMod {
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
-#[pyclass(module = "_ast", name = "Pow", base = "AstNode")]
+#[pyclass(module = "_ast", name = "Pow", base = "NodeKindOperator")]
 struct NodePow;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodePow {
@@ -683,7 +707,7 @@ impl NodePow {
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
-#[pyclass(module = "_ast", name = "LShift", base = "AstNode")]
+#[pyclass(module = "_ast", name = "LShift", base = "NodeKindOperator")]
 struct NodeLShift;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeLShift {
@@ -693,7 +717,7 @@ impl NodeLShift {
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
-#[pyclass(module = "_ast", name = "RShift", base = "AstNode")]
+#[pyclass(module = "_ast", name = "RShift", base = "NodeKindOperator")]
 struct NodeRShift;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeRShift {
@@ -703,7 +727,7 @@ impl NodeRShift {
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
-#[pyclass(module = "_ast", name = "BitOr", base = "AstNode")]
+#[pyclass(module = "_ast", name = "BitOr", base = "NodeKindOperator")]
 struct NodeBitOr;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeBitOr {
@@ -713,7 +737,7 @@ impl NodeBitOr {
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
-#[pyclass(module = "_ast", name = "BitXor", base = "AstNode")]
+#[pyclass(module = "_ast", name = "BitXor", base = "NodeKindOperator")]
 struct NodeBitXor;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeBitXor {
@@ -723,7 +747,7 @@ impl NodeBitXor {
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
-#[pyclass(module = "_ast", name = "BitAnd", base = "AstNode")]
+#[pyclass(module = "_ast", name = "BitAnd", base = "NodeKindOperator")]
 struct NodeBitAnd;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeBitAnd {
@@ -733,7 +757,7 @@ impl NodeBitAnd {
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
-#[pyclass(module = "_ast", name = "FloorDiv", base = "AstNode")]
+#[pyclass(module = "_ast", name = "FloorDiv", base = "NodeKindOperator")]
 struct NodeFloorDiv;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeFloorDiv {
@@ -743,7 +767,11 @@ impl NodeFloorDiv {
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
-#[pyclass(module = "_ast", name = "Invert", base = "AstNode")]
+#[pyclass(module = "_ast", name = "unaryop", base = "AstNode")]
+struct NodeKindUnaryop;
+#[pyimpl(flags(HAS_DICT, BASETYPE))]
+impl NodeKindUnaryop {}
+#[pyclass(module = "_ast", name = "Invert", base = "NodeKindUnaryop")]
 struct NodeInvert;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeInvert {
@@ -753,7 +781,7 @@ impl NodeInvert {
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
-#[pyclass(module = "_ast", name = "Not", base = "AstNode")]
+#[pyclass(module = "_ast", name = "Not", base = "NodeKindUnaryop")]
 struct NodeNot;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeNot {
@@ -763,7 +791,7 @@ impl NodeNot {
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
-#[pyclass(module = "_ast", name = "UAdd", base = "AstNode")]
+#[pyclass(module = "_ast", name = "UAdd", base = "NodeKindUnaryop")]
 struct NodeUAdd;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeUAdd {
@@ -773,7 +801,7 @@ impl NodeUAdd {
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
-#[pyclass(module = "_ast", name = "USub", base = "AstNode")]
+#[pyclass(module = "_ast", name = "USub", base = "NodeKindUnaryop")]
 struct NodeUSub;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeUSub {
@@ -783,7 +811,11 @@ impl NodeUSub {
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
-#[pyclass(module = "_ast", name = "Eq", base = "AstNode")]
+#[pyclass(module = "_ast", name = "cmpop", base = "AstNode")]
+struct NodeKindCmpop;
+#[pyimpl(flags(HAS_DICT, BASETYPE))]
+impl NodeKindCmpop {}
+#[pyclass(module = "_ast", name = "Eq", base = "NodeKindCmpop")]
 struct NodeEq;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeEq {
@@ -793,7 +825,7 @@ impl NodeEq {
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
-#[pyclass(module = "_ast", name = "NotEq", base = "AstNode")]
+#[pyclass(module = "_ast", name = "NotEq", base = "NodeKindCmpop")]
 struct NodeNotEq;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeNotEq {
@@ -803,7 +835,7 @@ impl NodeNotEq {
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
-#[pyclass(module = "_ast", name = "Lt", base = "AstNode")]
+#[pyclass(module = "_ast", name = "Lt", base = "NodeKindCmpop")]
 struct NodeLt;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeLt {
@@ -813,7 +845,7 @@ impl NodeLt {
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
-#[pyclass(module = "_ast", name = "LtE", base = "AstNode")]
+#[pyclass(module = "_ast", name = "LtE", base = "NodeKindCmpop")]
 struct NodeLtE;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeLtE {
@@ -823,7 +855,7 @@ impl NodeLtE {
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
-#[pyclass(module = "_ast", name = "Gt", base = "AstNode")]
+#[pyclass(module = "_ast", name = "Gt", base = "NodeKindCmpop")]
 struct NodeGt;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeGt {
@@ -833,7 +865,7 @@ impl NodeGt {
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
-#[pyclass(module = "_ast", name = "GtE", base = "AstNode")]
+#[pyclass(module = "_ast", name = "GtE", base = "NodeKindCmpop")]
 struct NodeGtE;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeGtE {
@@ -843,7 +875,7 @@ impl NodeGtE {
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
-#[pyclass(module = "_ast", name = "Is", base = "AstNode")]
+#[pyclass(module = "_ast", name = "Is", base = "NodeKindCmpop")]
 struct NodeIs;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeIs {
@@ -853,7 +885,7 @@ impl NodeIs {
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
-#[pyclass(module = "_ast", name = "IsNot", base = "AstNode")]
+#[pyclass(module = "_ast", name = "IsNot", base = "NodeKindCmpop")]
 struct NodeIsNot;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeIsNot {
@@ -863,7 +895,7 @@ impl NodeIsNot {
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
-#[pyclass(module = "_ast", name = "In", base = "AstNode")]
+#[pyclass(module = "_ast", name = "In", base = "NodeKindCmpop")]
 struct NodeIn;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeIn {
@@ -873,7 +905,7 @@ impl NodeIn {
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
-#[pyclass(module = "_ast", name = "NotIn", base = "AstNode")]
+#[pyclass(module = "_ast", name = "NotIn", base = "NodeKindCmpop")]
 struct NodeNotIn;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeNotIn {
@@ -893,7 +925,11 @@ impl Nodecomprehension {
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
-#[pyclass(module = "_ast", name = "ExceptHandler", base = "AstNode")]
+#[pyclass(module = "_ast", name = "excepthandler", base = "AstNode")]
+struct NodeKindExcepthandler;
+#[pyimpl(flags(HAS_DICT, BASETYPE))]
+impl NodeKindExcepthandler {}
+#[pyclass(module = "_ast", name = "ExceptHandler", base = "NodeKindExcepthandler")]
 struct NodeExceptHandler;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeExceptHandler {
@@ -953,7 +989,11 @@ impl Nodewithitem {
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
-#[pyclass(module = "_ast", name = "TypeIgnore", base = "AstNode")]
+#[pyclass(module = "_ast", name = "type_ignore", base = "AstNode")]
+struct NodeKindTypeIgnore;
+#[pyimpl(flags(HAS_DICT, BASETYPE))]
+impl NodeKindTypeIgnore {}
+#[pyclass(module = "_ast", name = "TypeIgnore", base = "NodeKindTypeIgnore")]
 struct NodeTypeIgnore;
 #[pyimpl(flags(HAS_DICT, BASETYPE))]
 impl NodeTypeIgnore {
@@ -2319,10 +2359,12 @@ impl Node for ast::TypeIgnore {
 
 pub fn extend_module_nodes(vm: &VirtualMachine, module: &PyObjectRef) {
     extend_module!(vm, module, {
+        "mod" => NodeKindMod::make_class(&vm.ctx),
         "Module" => NodeModule::make_class(&vm.ctx),
         "Interactive" => NodeInteractive::make_class(&vm.ctx),
         "Expression" => NodeExpression::make_class(&vm.ctx),
         "FunctionType" => NodeFunctionType::make_class(&vm.ctx),
+        "stmt" => NodeKindStmt::make_class(&vm.ctx),
         "FunctionDef" => NodeFunctionDef::make_class(&vm.ctx),
         "AsyncFunctionDef" => NodeAsyncFunctionDef::make_class(&vm.ctx),
         "ClassDef" => NodeClassDef::make_class(&vm.ctx),
@@ -2348,6 +2390,7 @@ pub fn extend_module_nodes(vm: &VirtualMachine, module: &PyObjectRef) {
         "Pass" => NodePass::make_class(&vm.ctx),
         "Break" => NodeBreak::make_class(&vm.ctx),
         "Continue" => NodeContinue::make_class(&vm.ctx),
+        "expr" => NodeKindExpr::make_class(&vm.ctx),
         "BoolOp" => NodeBoolOp::make_class(&vm.ctx),
         "NamedExpr" => NodeNamedExpr::make_class(&vm.ctx),
         "BinOp" => NodeBinOp::make_class(&vm.ctx),
@@ -2375,11 +2418,14 @@ pub fn extend_module_nodes(vm: &VirtualMachine, module: &PyObjectRef) {
         "List" => NodeList::make_class(&vm.ctx),
         "Tuple" => NodeTuple::make_class(&vm.ctx),
         "Slice" => NodeSlice::make_class(&vm.ctx),
+        "expr_context" => NodeKindExprContext::make_class(&vm.ctx),
         "Load" => NodeLoad::make_class(&vm.ctx),
         "Store" => NodeStore::make_class(&vm.ctx),
         "Del" => NodeDel::make_class(&vm.ctx),
+        "boolop" => NodeKindBoolop::make_class(&vm.ctx),
         "And" => NodeAnd::make_class(&vm.ctx),
         "Or" => NodeOr::make_class(&vm.ctx),
+        "operator" => NodeKindOperator::make_class(&vm.ctx),
         "Add" => NodeAdd::make_class(&vm.ctx),
         "Sub" => NodeSub::make_class(&vm.ctx),
         "Mult" => NodeMult::make_class(&vm.ctx),
@@ -2393,10 +2439,12 @@ pub fn extend_module_nodes(vm: &VirtualMachine, module: &PyObjectRef) {
         "BitXor" => NodeBitXor::make_class(&vm.ctx),
         "BitAnd" => NodeBitAnd::make_class(&vm.ctx),
         "FloorDiv" => NodeFloorDiv::make_class(&vm.ctx),
+        "unaryop" => NodeKindUnaryop::make_class(&vm.ctx),
         "Invert" => NodeInvert::make_class(&vm.ctx),
         "Not" => NodeNot::make_class(&vm.ctx),
         "UAdd" => NodeUAdd::make_class(&vm.ctx),
         "USub" => NodeUSub::make_class(&vm.ctx),
+        "cmpop" => NodeKindCmpop::make_class(&vm.ctx),
         "Eq" => NodeEq::make_class(&vm.ctx),
         "NotEq" => NodeNotEq::make_class(&vm.ctx),
         "Lt" => NodeLt::make_class(&vm.ctx),
@@ -2408,12 +2456,14 @@ pub fn extend_module_nodes(vm: &VirtualMachine, module: &PyObjectRef) {
         "In" => NodeIn::make_class(&vm.ctx),
         "NotIn" => NodeNotIn::make_class(&vm.ctx),
         "comprehension" => Nodecomprehension::make_class(&vm.ctx),
+        "excepthandler" => NodeKindExcepthandler::make_class(&vm.ctx),
         "ExceptHandler" => NodeExceptHandler::make_class(&vm.ctx),
         "arguments" => Nodearguments::make_class(&vm.ctx),
         "arg" => Nodearg::make_class(&vm.ctx),
         "keyword" => Nodekeyword::make_class(&vm.ctx),
         "alias" => Nodealias::make_class(&vm.ctx),
         "withitem" => Nodewithitem::make_class(&vm.ctx),
+        "type_ignore" => NodeKindTypeIgnore::make_class(&vm.ctx),
         "TypeIgnore" => NodeTypeIgnore::make_class(&vm.ctx),
     })
 }

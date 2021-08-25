@@ -368,18 +368,23 @@ class ClassDefVisitor(EmitVisitor):
         self.visit(type.value, type.name, depth)
 
     def visitSum(self, sum, name, depth):
+        structname = "NodeKind" + get_rust_type(name)
+        self.emit(f'#[pyclass(module = "_ast", name = {json.dumps(name)}, base = "AstNode")]', depth)
+        self.emit(f'struct {structname};', depth)
+        self.emit( '#[pyimpl(flags(HAS_DICT, BASETYPE))]', depth)
+        self.emit(f'impl {structname} {{}}', depth)
         for cons in sum.types:
-            self.visit(cons, sum.attributes, depth)
+            self.visit(cons, sum.attributes, structname, depth)
 
-    def visitConstructor(self, cons, attrs, depth):
-        self.gen_classdef(cons.name, cons.fields, attrs, depth)
+    def visitConstructor(self, cons, attrs, base, depth):
+        self.gen_classdef(cons.name, cons.fields, attrs, depth, base)
 
     def visitProduct(self, product, name, depth):
         self.gen_classdef(name, product.fields, product.attributes, depth)
 
-    def gen_classdef(self, name, fields, attrs, depth):
+    def gen_classdef(self, name, fields, attrs, depth, base="AstNode"):
         structname = "Node" + name
-        self.emit(f'#[pyclass(module = "_ast", name = {json.dumps(name)}, base = "AstNode")]', depth)
+        self.emit(f'#[pyclass(module = "_ast", name = {json.dumps(name)}, base = {json.dumps(base)})]', depth)
         self.emit(f"struct {structname};", depth)
         self.emit("#[pyimpl(flags(HAS_DICT, BASETYPE))]", depth)
         self.emit(f"impl {structname} {{", depth)
@@ -407,6 +412,7 @@ class ExtendModuleVisitor(EmitVisitor):
         self.visit(type.value, type.name, depth)
 
     def visitSum(self, sum, name, depth):
+        self.emit(f"{json.dumps(name)} => NodeKind{get_rust_type(name)}::make_class(&vm.ctx),", depth)
         for cons in sum.types:
             self.visit(cons, depth)
 
