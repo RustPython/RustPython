@@ -182,15 +182,31 @@ impl PyFunction {
             let mut missing = vec![];
             for i in nargs..nrequired {
                 if fastlocals[i].is_none() {
-                    missing.push(&code.varnames[i]);
+                    missing.push(format!("'{}'", &code.varnames[i]));
                 }
             }
+
             if !missing.is_empty() {
+                let missing_args = match missing.len() {
+                    1 => missing[0].clone(),
+                    2 => format!("{} and {}", missing[0], missing[1]),
+                    _ => {
+                        let tail = format!(
+                            ", {}, and {}",
+                            missing[missing.len() - 2],
+                            missing[missing.len() - 1],
+                        );
+                        let head = missing.iter().dropping_back(2).join(", ");
+                        format!("{}{}", head, tail)
+                    }
+                };
+
                 return Err(vm.new_type_error(format!(
-                    "{}() missing {} required positional arguments: {}",
+                    "{}() missing {} required positional argument{}: {}",
                     &self.code.obj_name,
                     missing.len(),
-                    missing.iter().format(", ")
+                    if missing.len() == 1 { "" } else { "s" },
+                    missing_args,
                 )));
             }
 
