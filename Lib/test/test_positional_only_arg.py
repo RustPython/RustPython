@@ -288,8 +288,6 @@ class PositionalOnlyTestCase(unittest.TestCase):
                 return __a
         self.assertEqual(X().f(), 42)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_module_function(self):
         with self.assertRaisesRegex(TypeError, r"f\(\) missing 2 required positional arguments: 'a' and 'b'"):
             global_pos_only_f()
