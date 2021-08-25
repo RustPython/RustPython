@@ -594,6 +594,9 @@ impl VirtualMachine {
         vm_trace!("New exception created: {}", exc_type.name);
 
         PyRef::new_ref(
+            // TODO: this costructor might be invalid, because multiple
+            // exception (even builtin ones) are using custom constructors,
+            // see `OSError` as an example:
             PyBaseException::new(args, self),
             exc_type,
             Some(self.ctx.new_dict()),

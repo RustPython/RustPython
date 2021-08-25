@@ -152,3 +152,46 @@ except MyError as exc:
         assert isinstance(exc, MyError)
         assert exc.__cause__ is None
         assert exc.__context__ is e
+
+
+# Regression to
+# https://github.com/RustPython/RustPython/issues/2771
+
+# `BaseException` and `Exception`:
+assert BaseException.__new__.__qualname__ == 'BaseException.__new__'
+assert BaseException.__init__.__qualname__ == 'BaseException.__init__'
+assert BaseException().__dict__ == {}
+assert BaseException.__doc__
+
+assert Exception.__new__.__qualname__ == 'Exception.__new__'
+assert Exception.__init__.__qualname__ == 'Exception.__init__'
+assert Exception().__dict__ == {}
+assert Exception.__doc__
+
+
+# Extends `BaseException`, simple:
+assert KeyboardInterrupt.__new__.__qualname__ == 'KeyboardInterrupt.__new__'
+assert KeyboardInterrupt.__init__.__qualname__ == 'KeyboardInterrupt.__init__'
+assert KeyboardInterrupt().__dict__ == {}
+assert KeyboardInterrupt.__doc__
+
+
+# Extends `Exception`, simple:
+assert TypeError.__new__.__qualname__ == 'TypeError.__new__'
+assert TypeError.__init__.__qualname__ == 'TypeError.__init__'
+assert TypeError().__dict__ == {}
+assert TypeError.__doc__
+
+
+# Extends `Exception`, complex:
+assert OSError.__new__.__qualname__ == 'OSError.__new__'
+assert OSError.__init__.__qualname__ == 'OSError.__init__'
+assert OSError().__dict__ == {}
+assert OSError.__doc__
+assert OSError.errno
+assert OSError.strerror
+assert OSError(1, 2).errno
+assert OSError(1, 2).strerror
+
+assert ImportError.__init__.__qualname__ == 'ImportError.__init__'
+assert ImportError(name='a').name == 'a'

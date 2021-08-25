@@ -436,7 +436,6 @@ class TestBasic(unittest.TestCase):
             self.assertEqual(list(d), data[:i])
         self.assertRaises(TypeError, d.reverse, 1)          # Arity is zero
 
-    @unittest.skip("TODO: RUSTPYTHON panics")
     def test_rotate(self):
         s = tuple('abcde')
         n = len(s)
@@ -720,8 +719,6 @@ class TestBasic(unittest.TestCase):
         self.assertNotEqual(id(d), id(e))
         self.assertNotEqual(list(d), list(e))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_copy(self):
         mut = [10]
         d = deque([mut])

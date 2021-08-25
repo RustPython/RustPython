@@ -1,3 +1,4 @@
+from testutils import assert_raises
 from array import array
 
 a1 = array("b", [0, 1, 2, 3])
@@ -87,3 +88,12 @@ def test_array_frombytes():
     assert a == c
 
 test_array_frombytes()
+
+# test that indexing on an empty array doesn't panic
+a = array('b')
+with assert_raises(IndexError):
+    a[0]
+with assert_raises(IndexError):
+    a[0] = 42
+with assert_raises(IndexError):
+    del a[42]

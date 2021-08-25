@@ -1,18 +1,5 @@
-use std::convert::TryFrom;
-use std::fmt;
-use std::mem::size_of;
-
-use bstr::ByteSlice;
-use num_bigint::{BigInt, BigUint, Sign};
-use num_integer::Integer;
-use num_traits::{One, Pow, PrimInt, Signed, ToPrimitive, Zero};
-
-use super::bytearray::PyByteArray;
-use super::bytes::PyBytes;
-use super::float;
-use super::pybool::IntoPyBool;
-use super::pystr::{PyStr, PyStrRef};
-use super::pytype::PyTypeRef;
+use super::{float, IntoPyBool, PyByteArray, PyBytes, PyStr, PyStrRef, PyTypeRef};
+use crate::common::hash;
 use crate::format::FormatSpec;
 use crate::function::{OptionalArg, OptionalOption};
 use crate::slots::{Comparable, Hashable, PyComparisonOp};
@@ -23,7 +10,13 @@ use crate::{
     PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromBorrowedObject, TypeProtocol,
 };
-use rustpython_common::hash;
+use bstr::ByteSlice;
+use num_bigint::{BigInt, BigUint, Sign};
+use num_integer::Integer;
+use num_traits::{One, Pow, PrimInt, Signed, ToPrimitive, Zero};
+use std::convert::TryFrom;
+use std::fmt;
+use std::mem::size_of;
 
 /// int(x=0) -> integer
 /// int(x, base=10) -> integer
@@ -713,6 +706,11 @@ impl PyInt {
     /// then it returns the number of ones of the absolute value.
     fn bit_count(&self) -> u32 {
         self.value.iter_u32_digits().map(|n| n.count_ones()).sum()
+    }
+
+    #[pymethod(magic)]
+    fn getnewargs(&self, vm: &VirtualMachine) -> PyObjectRef {
+        (self.value.clone(),).into_pyobject(vm)
     }
 }
 
