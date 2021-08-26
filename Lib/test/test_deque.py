@@ -1,5 +1,4 @@
 from collections import deque
-from io import UnsupportedOperation
 import unittest
 from test import support, seq_tests
 import gc
@@ -183,18 +182,6 @@ class TestBasic(unittest.TestCase):
         d[n//2] = BadCmp()
         with self.assertRaises(RuntimeError):
             n in d
-
-    def test_contains_count_stop_crashes(self):
-        class A:
-            def __eq__(self, other):
-                d.clear()
-                return NotImplemented
-        d = deque([A(), A()])
-        with self.assertRaises(RuntimeError):
-            _ = 3 in d
-        d = deque([A(), A()])
-        with self.assertRaises(RuntimeError):
-            _ = d.count(3)
 
     def test_extend(self):
         d = deque('a')
@@ -852,7 +839,8 @@ class TestSubclass(unittest.TestCase):
         d.clear()
         self.assertEqual(len(d), 0)
 
-    @unittest.skip("AttributeError: 'Deque' object has no attribute '__copy__'")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_copy_pickle(self):
 
         d = Deque('abc')
@@ -889,7 +877,8 @@ class TestSubclass(unittest.TestCase):
             self.assertEqual(type(d), type(e))
             self.assertEqual(list(d), list(e))
 
-    @unittest.skip("TODO: RUSTPYTHON RuntimeError: Unexpected payload 'deque' for type 'Deque'")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_pickle_recursive(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             for d in Deque('abc'), Deque('abc', 3):
@@ -973,19 +962,8 @@ class TestSequence(seq_tests.CommonTest):
         # For now, bypass tests that require slicing
         self.skipTest("Exhausted deque iterator doesn't free a deque")
 
-    @unittest.skip("TODO: RUSTPYTHON TypeError: unexpected payload for __eq__")
     def test_pickle(self):
-        pass
-
-    def test_iadd(self):
-        pass
-
-    @unittest.skip("TODO: RUSTPYTHON TypeError: '+' not supported between instances of 'deque' and 'deque'")
-    def test_addmul(self):
-        pass
-
-
-
+        self.skipTest("unexpected payload for __eq__")
 
 #==============================================================================
 
