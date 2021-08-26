@@ -198,7 +198,14 @@ impl PyFunction {
                 };
 
                 let (and, right) = if let Some(last) = last {
-                    ("' and '", last.as_str())
+                    (
+                        if missing.len() == 1 {
+                            "' and '"
+                        } else {
+                            "', and '"
+                        },
+                        last.as_str(),
+                    )
                 } else {
                     ("", "")
                 };
