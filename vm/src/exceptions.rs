@@ -529,7 +529,7 @@ macro_rules! extend_exception {
     (
         $ctx:expr,
         $class:expr,
-        $docs:tt$(,)?
+        $docs:tt
     ) => {
         extend_exception!($ctx, $class, $docs, {});
     };
@@ -537,7 +537,7 @@ macro_rules! extend_exception {
         $ctx:expr,
         $class:expr,
         $docs:tt,
-        { $($name:expr => $value:expr),* $(,)* }$(,)?
+        { $($name:expr => $value:expr),* $(,)* }
     ) => {
         // We need to copy some methods to match `CPython`:
         $class.set_str_attr("__new__", $ctx.new_method("__new__", $class.clone(), PyBaseException::tp_new));
