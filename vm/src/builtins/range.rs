@@ -483,6 +483,11 @@ impl PyValue for PyLongRangeIterator {
 
 #[pyimpl(with(PyIter))]
 impl PyLongRangeIterator {
+    #[pyslot]
+    fn tp_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        Err(vm.new_type_error("cannot create 'longrange_iterator' instances".to_owned()))
+    }
+
     #[pymethod(magic)]
     fn length_hint(&self) -> BigInt {
         let index = BigInt::from(self.index.load());
@@ -546,6 +551,11 @@ impl PyValue for PyRangeIterator {
 
 #[pyimpl(with(PyIter))]
 impl PyRangeIterator {
+    #[pyslot]
+    fn tp_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        Err(vm.new_type_error("cannot create 'range_iterator' instances".to_owned()))
+    }
+
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
         let index = self.index.load();
