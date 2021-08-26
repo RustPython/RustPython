@@ -1226,8 +1226,6 @@ class DictTest(unittest.TestCase):
                 d.popitem()
         self.check_reentrant_insertion(mutate)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_merge_and_mutate(self):
         class X:
             def __hash__(self):
