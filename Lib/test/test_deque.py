@@ -204,8 +204,6 @@ class TestBasic(unittest.TestCase):
         d.extend(d)
         self.assertEqual(list(d), list('abcdabcd'))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_add(self):
         d = deque()
         e = deque('abc')
