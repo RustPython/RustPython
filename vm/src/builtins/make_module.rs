@@ -408,17 +408,7 @@ mod decl {
 
     #[pyfunction]
     pub fn isinstance(obj: PyObjectRef, typ: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        single_or_tuple_any(
-            typ,
-            &|cls: &PyTypeRef| vm.isinstance(&obj, cls),
-            &|o| {
-                format!(
-                    "isinstance() arg 2 must be a type or tuple of types, not {}",
-                    o.class()
-                )
-            },
-            vm,
-        )
+        vm.isinstance(&obj, &typ)
     }
 
     #[pyfunction]
