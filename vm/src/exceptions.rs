@@ -667,83 +667,69 @@ impl PyOSError {
                         vm,
                     ) {
                         Ok(errno) => {
+                            #[cfg(not(windows))]
+                            const EWOULDBLOCK: i32 = libc::EWOULDBLOCK;
+                            #[cfg(windows)]
+                            const EWOULDBLOCK: i32 =
+                                winapi::shared::winerror::WSAEWOULDBLOCK as i32;
+
+                            #[cfg(not(windows))]
+                            const EALREADY: i32 = libc::EALREADY;
+                            #[cfg(windows)]
+                            const EALREADY: i32 = winapi::shared::winerror::WSAEALREADY as i32;
+
+                            #[cfg(not(windows))]
+                            const EINPROGRESS: i32 = libc::EINPROGRESS;
+                            #[cfg(windows)]
+                            const EINPROGRESS: i32 =
+                                winapi::shared::winerror::WSAEINPROGRESS as i32;
+
+                            #[cfg(not(windows))]
+                            const ESHUTDOWN: i32 = libc::ESHUTDOWN;
+                            #[cfg(windows)]
+                            const ESHUTDOWN: i32 = winapi::shared::winerror::WSAESHUTDOWN as i32;
+
+                            #[cfg(not(windows))]
+                            const ECONNABORTED: i32 = libc::ECONNABORTED;
+                            #[cfg(windows)]
+                            const ECONNABORTED: i32 =
+                                winapi::shared::winerror::WSAECONNABORTED as i32;
+
+                            #[cfg(not(windows))]
+                            const ECONNREFUSED: i32 = libc::ECONNREFUSED;
+                            #[cfg(windows)]
+                            const ECONNREFUSED: i32 =
+                                winapi::shared::winerror::WSAECONNREFUSED as i32;
+
+                            #[cfg(not(windows))]
+                            const ECONNRESET: i32 = libc::ECONNRESET;
+                            #[cfg(windows)]
+                            const ECONNRESET: i32 = winapi::shared::winerror::WSAECONNRESET as i32;
+                            #[cfg(not(windows))]
+                            const ETIMEDOUT: i32 = libc::ETIMEDOUT;
+                            #[cfg(windows)]
+                            const ETIMEDOUT: i32 = winapi::shared::winerror::WSAETIMEDOUT as i32;
+
                             let excs = &vm.ctx.exceptions;
                             let error = match errno {
-                                #[cfg(not(windows))]
-                                libc::EWOULDBLOCK => Some(excs.blocking_io_error.clone()),
-                                #[cfg(windows)]
-                                winapi::shared::winerror::WSAEWOULDBLOCK => {
-                                    Some(excs.blocking_io_error.clone())
-                                }
-
-                                #[cfg(not(windows))]
-                                libc::EALREADY => Some(excs.blocking_io_error.clone()),
-                                #[cfg(windows)]
-                                winapi::shared::winerror::WSAEALREADY => {
-                                    Some(excs.blocking_io_error.clone())
-                                }
-
-                                #[cfg(not(windows))]
-                                libc::EINPROGRESS => Some(excs.blocking_io_error.clone()),
-                                #[cfg(windows)]
-                                winapi::shared::winerror::WSAEINPROGRESS => {
-                                    Some(excs.blocking_io_error.clone())
-                                }
-
+                                EWOULDBLOCK => Some(excs.blocking_io_error.clone()),
+                                EALREADY => Some(excs.blocking_io_error.clone()),
+                                EINPROGRESS => Some(excs.blocking_io_error.clone()),
                                 libc::EPIPE => Some(excs.broken_pipe_error.clone()),
-
-                                #[cfg(not(windows))]
-                                libc::ESHUTDOWN => Some(excs.broken_pipe_error.clone()),
-                                #[cfg(windows)]
-                                winapi::shared::winerror::WSAESHUTDOWN => {
-                                    Some(excs.broken_pipe_error.clone())
-                                }
-
+                                ESHUTDOWN => Some(excs.broken_pipe_error.clone()),
                                 libc::ECHILD => Some(excs.child_process_error.clone()),
-
-                                #[cfg(not(windows))]
-                                libc::ECONNABORTED => Some(excs.connection_aborted_error.clone()),
-                                #[cfg(windows)]
-                                winapi::shared::winerror::WSAECONNABORTED => {
-                                    Some(excs.connection_aborted_error.clone())
-                                }
-
-                                #[cfg(not(windows))]
-                                libc::ECONNREFUSED => Some(excs.connection_refused_error.clone()),
-                                #[cfg(windows)]
-                                winapi::shared::winerror::WSAECONNREFUSED => {
-                                    Some(excs.connection_refused_error.clone())
-                                }
-
-                                #[cfg(not(windows))]
-                                libc::ECONNRESET => Some(excs.connection_reset_error.clone()),
-                                #[cfg(windows)]
-                                winapi::shared::winerror::WSAECONNRESET => {
-                                    Some(excs.connection_reset_error.clone())
-                                }
-
+                                ECONNABORTED => Some(excs.connection_aborted_error.clone()),
+                                ECONNREFUSED => Some(excs.connection_refused_error.clone()),
+                                ECONNRESET => Some(excs.connection_reset_error.clone()),
                                 libc::EEXIST => Some(excs.file_exists_error.clone()),
-
                                 libc::ENOENT => Some(excs.file_not_found_error.clone()),
-
                                 libc::EISDIR => Some(excs.is_a_directory_error.clone()),
-
                                 libc::ENOTDIR => Some(excs.not_a_directory_error.clone()),
-
                                 libc::EINTR => Some(excs.interrupted_error.clone()),
-
                                 libc::EACCES => Some(excs.permission_error.clone()),
-
                                 libc::EPERM => Some(excs.permission_error.clone()),
-
                                 libc::ESRCH => Some(excs.process_lookup_error.clone()),
-
-                                #[cfg(not(windows))]
-                                libc::ETIMEDOUT => Some(excs.timeout_error.clone()),
-                                #[cfg(windows)]
-                                winapi::shared::winerror::WSAETIMEDOUT => {
-                                    Some(excs.timeout_error.clone())
-                                }
+                                ETIMEDOUT => Some(excs.timeout_error.clone()),
                                 _ => None,
                             };
 
