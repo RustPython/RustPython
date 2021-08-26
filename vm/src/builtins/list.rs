@@ -18,7 +18,7 @@ use crate::common::lock::{
 };
 use crate::function::OptionalArg;
 use crate::sequence::{self, SimpleSeq};
-use crate::sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex};
+use crate::sliceable::{PySliceableSequence, PySliceableSequenceMut, SeqSlice, SequenceIndex};
 use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable};
 use crate::utils::Either;
 use crate::vm::{ReprGuard, VirtualMachine};
@@ -216,8 +216,9 @@ impl PyList {
     fn setslice(&self, slice: PySliceRef, sec: PyIterable, vm: &VirtualMachine) -> PyResult<()> {
         let items: Result<Vec<PyObjectRef>, _> = sec.iter(vm)?.collect();
         let items = items?;
-        let mut elements = self.borrow_vec_mut();
-        elements.set_slice_items(vm, &slice, items.as_slice())
+        let slice = SeqSlice::new(slice, vm)?;
+        self.borrow_vec_mut()
+            .set_slice_items(vm, &slice, items.as_slice())
     }
 
     #[pymethod(magic)]
@@ -380,7 +381,8 @@ impl PyList {
     }
 
     fn delslice(&self, slice: PySliceRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.borrow_vec_mut().delete_slice(vm, &slice)
+        let slice = SeqSlice::new(slice, vm)?;
+        self.borrow_vec_mut().delete_slice(&slice, vm)
     }
 
     #[pymethod]

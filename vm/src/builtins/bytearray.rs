@@ -19,7 +19,7 @@ use crate::common::lock::{
     PyRwLockWriteGuard,
 };
 use crate::function::{FuncArgs, OptionalArg, OptionalOption};
-use crate::sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex};
+use crate::sliceable::{PySliceableSequence, PySliceableSequenceMut, SeqSlice, SequenceIndex};
 use crate::slots::{
     AsBuffer, Callable, Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable,
 };
@@ -181,6 +181,7 @@ impl PyByteArray {
                 } else {
                     bytes_from_object(vm, &value)?
                 };
+                let slice = SeqSlice::new(slice, vm)?;
                 if let Ok(mut w) = zelf.try_resizable(vm) {
                     w.elements.set_slice_items(vm, &slice, items.as_slice())
                 } else {
@@ -206,9 +207,9 @@ impl PyByteArray {
 
     #[pymethod(magic)]
     pub fn delitem(&self, needle: SequenceIndex, vm: &VirtualMachine) -> PyResult<()> {
-        let elements = &mut self.try_resizable(vm)?.elements;
         match needle {
             SequenceIndex::Int(int) => {
+                let elements = &mut self.try_resizable(vm)?.elements;
                 if let Some(idx) = elements.wrap_index(int) {
                     elements.remove(idx);
                     Ok(())
@@ -216,7 +217,11 @@ impl PyByteArray {
                     Err(vm.new_index_error("index out of range".to_owned()))
                 }
             }
-            SequenceIndex::Slice(slice) => elements.delete_slice(vm, &slice),
+            SequenceIndex::Slice(slice) => {
+                let slice = SeqSlice::new(slice, vm)?;
+                let elements = &mut self.try_resizable(vm)?.elements;
+                elements.delete_slice(&slice, vm)
+            }
         }
     }
 

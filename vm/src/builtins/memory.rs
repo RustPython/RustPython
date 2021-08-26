@@ -9,7 +9,7 @@ use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
 use crate::common::hash::PyHash;
 use crate::common::lock::OnceCell;
 use crate::function::{FuncArgs, OptionalArg};
-use crate::sliceable::{convert_slice, saturate_range, wrap_index, SequenceIndex};
+use crate::sliceable::{saturate_range, wrap_index, SeqSlice, SequenceIndex};
 use crate::slots::{AsBuffer, Comparable, Hashable, PyComparisonOp};
 use crate::stdlib::pystruct::_struct::FormatSpec;
 use crate::utils::Either;
@@ -405,7 +405,8 @@ impl PyMemoryView {
             return diff_err();
         }
 
-        let (range, step, is_negative_step) = convert_slice(&slice, zelf.options.len, vm)?;
+        let (range, step, is_negative_step) =
+            SeqSlice::new(slice, vm)?.convert(zelf.options.len, vm)?;
 
         let bytes = items.to_contiguous();
         assert_eq!(bytes.len(), len * itemsize);

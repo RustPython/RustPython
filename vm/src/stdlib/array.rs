@@ -3,7 +3,6 @@ use crate::builtins::float::IntoPyFloat;
 use crate::builtins::list::{PyList, PyListRef};
 use crate::builtins::pystr::{PyStr, PyStrRef};
 use crate::builtins::pytype::PyTypeRef;
-use crate::builtins::slice::PySliceRef;
 use crate::builtins::{PyByteArray, PyBytes};
 use crate::byteslike::{try_bytes_like, ArgBytesLike};
 use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
@@ -13,7 +12,7 @@ use crate::common::lock::{
 };
 use crate::function::OptionalArg;
 use crate::sliceable::{
-    saturate_index, PySliceableSequence, PySliceableSequenceMut, SequenceIndex,
+    saturate_index, PySliceableSequence, PySliceableSequenceMut, SeqSlice, SequenceIndex,
 };
 use crate::slots::{AsBuffer, Comparable, Iterable, PyComparisonOp, PyIter};
 use crate::{
@@ -209,26 +208,31 @@ macro_rules! def_array_enum {
             }
 
             fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-                match self {
-                    $(ArrayContentType::$n(v) => {
-                        match SequenceIndex::try_from_object_for(vm, needle, "array")? {
-                            SequenceIndex::Int(i) => {
+                match SequenceIndex::try_from_object_for(vm, needle, "array")? {
+                    SequenceIndex::Int(i) => {
+                        match self {
+                            $(ArrayContentType::$n(v) => {
                                 let pos_index = v.wrap_index(i).ok_or_else(|| {
                                     vm.new_index_error("array index out of range".to_owned())
                                 })?;
                                 v.get(pos_index).unwrap().into_pyresult(vm)
-                            }
-                            SequenceIndex::Slice(slice) => {
-                                let elements = v.get_slice_items(vm, &slice)?;
+                            })*
+                        }
+                    },
+                    SequenceIndex::Slice(slice) => {
+                        let slice = SeqSlice::new(slice, vm)?;
+                        match self {
+                            $(ArrayContentType::$n(v) => {
+                                let elements = v.get_slice_items(&slice, vm)?;
                                 let array: PyArray = ArrayContentType::$n(elements).into();
                                 Ok(array.into_object(vm))
-                            }
+                            })*
                         }
-                    })*
+                    }
                 }
             }
 
-            fn setitem_by_slice(&mut self, slice: PySliceRef, items: &ArrayContentType, vm: &VirtualMachine) -> PyResult<()> {
+            fn setitem_by_slice(&mut self, slice: &SeqSlice, items: &ArrayContentType, vm: &VirtualMachine) -> PyResult<()> {
                 match self {
                     $(ArrayContentType::$n(elements) => if let ArrayContentType::$n(items) = items {
                         elements.set_slice_items(vm, &slice, items)
@@ -238,7 +242,7 @@ macro_rules! def_array_enum {
                 }
             }
 
-            fn setitem_by_slice_no_resize(&mut self, slice: PySliceRef, items: &ArrayContentType, vm: &VirtualMachine) -> PyResult<()> {
+            fn setitem_by_slice_no_resize(&mut self, slice: &SeqSlice, items: &ArrayContentType, vm: &VirtualMachine) -> PyResult<()> {
                 match self {
                     $(ArrayContentType::$n(elements) => if let ArrayContentType::$n(items) = items {
                         elements.set_slice_items_no_resize(vm, &slice, items)
@@ -270,11 +274,10 @@ macro_rules! def_array_enum {
                 Ok(())
             }
 
-            fn delitem_by_slice(&mut self, slice: PySliceRef, vm: &VirtualMachine) -> PyResult<()> {
-
+            fn delitem_by_slice(&mut self, slice: &SeqSlice, vm: &VirtualMachine) -> PyResult<()> {
                 match self {
                     $(ArrayContentType::$n(elements) => {
-                        elements.delete_slice(vm, &slice)
+                        elements.delete_slice(&slice, vm)
                     })*
                 }
             }
@@ -796,6 +799,7 @@ impl PyArray {
         match SequenceIndex::try_from_object_for(vm, needle, "array")? {
             SequenceIndex::Int(i) => zelf.write().setitem_by_idx(i, obj, vm),
             SequenceIndex::Slice(slice) => {
+                let slice = SeqSlice::new(slice, vm)?;
                 let cloned;
                 let guard;
                 let items = if zelf.is(&obj) {
@@ -816,9 +820,9 @@ impl PyArray {
                     }
                 };
                 if let Ok(mut w) = zelf.try_resizable(vm) {
-                    w.setitem_by_slice(slice, items, vm)
+                    w.setitem_by_slice(&slice, items, vm)
                 } else {
-                    zelf.write().setitem_by_slice_no_resize(slice, items, vm)
+                    zelf.write().setitem_by_slice_no_resize(&slice, items, vm)
                 }
             }
         }
@@ -828,7 +832,10 @@ impl PyArray {
     fn delitem(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         match SequenceIndex::try_from_object_for(vm, needle, "array")? {
             SequenceIndex::Int(i) => zelf.try_resizable(vm)?.delitem_by_idx(i, vm),
-            SequenceIndex::Slice(slice) => zelf.try_resizable(vm)?.delitem_by_slice(slice, vm),
+            SequenceIndex::Slice(slice) => {
+                let slice = SeqSlice::new(slice, vm)?;
+                zelf.try_resizable(vm)?.delitem_by_slice(&slice, vm)
+            }
         }
     }
 
