@@ -12,7 +12,6 @@ use crate::builtins::singletons::PyNoneRef;
 use crate::builtins::PyTypeRef;
 use crate::byteslike::try_bytes_like;
 use crate::cformat::CFormatBytes;
-use crate::exceptions::PyBaseExceptionRef;
 use crate::function::{OptionalArg, OptionalOption};
 use crate::sliceable::PySliceableSequence;
 use crate::slots::PyComparisonOp;
@@ -78,21 +77,10 @@ impl ByteInnerNewOptions {
         Ok(vec![0; size].into())
     }
 
-    fn string_without_encoding(vm: &VirtualMachine) -> PyBaseExceptionRef {
-        vm.new_type_error("string argument without an encoding".to_owned())
-    }
-
-    fn encoding_without_string(vm: &VirtualMachine) -> PyBaseExceptionRef {
-        vm.new_type_error("encoding without a string argument".to_owned())
-    }
-
-    fn errors_without_string(vm: &VirtualMachine) -> PyBaseExceptionRef {
-        vm.new_type_error("errors without a string argument".to_owned())
-    }
-
     pub fn get_bytes(self, cls: PyTypeRef, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
-        match (self.source, self.encoding, self.errors) {
+        let inner = match (&self.source, &self.encoding, &self.errors) {
             (OptionalArg::Present(obj), OptionalArg::Missing, OptionalArg::Missing) => {
+                let obj = obj.clone();
                 // construct an exact bytes from an exact bytes do not clone
                 let obj = if cls.is(PyBytes::class(vm)) {
                     match obj.downcast_exact::<PyBytes>(vm) {
@@ -105,7 +93,7 @@ impl ByteInnerNewOptions {
                     obj
                 };
 
-                let inner = if let Some(bytes_method) = vm.get_method(obj.clone(), "__bytes__") {
+                if let Some(bytes_method) = vm.get_method(obj, "__bytes__") {
                     // construct an exact bytes from __bytes__ slot.
                     // if __bytes__ return a bytes, use the bytes object except we are the subclass of the bytes
                     let bytes = vm.invoke(&bytes_method?, ())?;
@@ -117,76 +105,52 @@ impl ByteInnerNewOptions {
                     } else {
                         bytes
                     };
-                    PyBytesInner::try_from_borrowed_object(vm, &bytes)
+                    Some(PyBytesInner::try_from_borrowed_object(vm, &bytes))
                 } else {
-                    match_class!(match obj {
-                        i @ PyInt => {
-                            Self::get_value_from_size(i, vm)
-                        }
-                        _s @ PyStr => return Err(Self::string_without_encoding(vm)),
-                        obj => {
-                            Self::get_value_from_source(obj, vm)
-                        }
-                    })
-                }?;
-                PyBytes::from(inner).into_ref_with_type(vm, cls)
-            }
-            (OptionalArg::Present(obj), OptionalArg::Present(encoding), errors) => {
-                if let Ok(s) = obj.downcast::<PyStr>() {
-                    let inner = Self::get_value_from_string(s, encoding, errors, vm)?;
-                    PyBytes::from(inner).into_ref_with_type(vm, cls)
-                } else {
-                    Err(Self::encoding_without_string(vm))
+                    None
                 }
             }
-            (OptionalArg::Missing, OptionalArg::Missing, OptionalArg::Missing) => {
-                PyBytes::default().into_ref_with_type(vm, cls)
-            }
-            (OptionalArg::Missing, OptionalArg::Present(_), _) => {
-                Err(Self::encoding_without_string(vm))
-            }
-            (OptionalArg::Missing, _, OptionalArg::Present(_)) => {
-                Err(Self::errors_without_string(vm))
-            }
-            (OptionalArg::Present(_), OptionalArg::Missing, OptionalArg::Present(_)) => {
-                Err(Self::string_without_encoding(vm))
-            }
+            _ => None,
         }
+        .unwrap_or_else(|| self.get_bytearray_inner(vm))?;
+        PyBytes::from(inner).into_ref_with_type(vm, cls)
     }
 
     pub fn get_bytearray_inner(self, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
+        const STRING_WITHOUT_ENCODING: &str = "string argument without an encoding";
+        const ENCODING_WITHOUT_STRING: &str = "encoding without a string argument";
+
         match (self.source, self.encoding, self.errors) {
             (OptionalArg::Present(obj), OptionalArg::Missing, OptionalArg::Missing) => {
                 match_class!(match obj {
                     i @ PyInt => {
-                        Self::get_value_from_size(i, vm)
+                        Ok(Self::get_value_from_size(i, vm)?)
                     }
-                    _s @ PyStr => Err(Self::string_without_encoding(vm)),
+                    _s @ PyStr => Err(STRING_WITHOUT_ENCODING),
                     obj => {
-                        Self::get_value_from_source(obj, vm)
+                        Ok(Self::get_value_from_source(obj, vm)?)
                     }
                 })
             }
             (OptionalArg::Present(obj), OptionalArg::Present(encoding), errors) => {
                 if let Ok(s) = obj.downcast::<PyStr>() {
-                    Self::get_value_from_string(s, encoding, errors, vm)
+                    Ok(Self::get_value_from_string(s, encoding, errors, vm)?)
                 } else {
-                    Err(Self::encoding_without_string(vm))
+                    Err(ENCODING_WITHOUT_STRING)
                 }
             }
             (OptionalArg::Missing, OptionalArg::Missing, OptionalArg::Missing) => {
                 Ok(PyBytesInner::default())
             }
-            (OptionalArg::Missing, OptionalArg::Present(_), _) => {
-                Err(Self::encoding_without_string(vm))
-            }
+            (OptionalArg::Missing, OptionalArg::Present(_), _) => Err(ENCODING_WITHOUT_STRING),
             (OptionalArg::Missing, _, OptionalArg::Present(_)) => {
-                Err(Self::errors_without_string(vm))
+                Err("errors without a string argument")
             }
             (OptionalArg::Present(_), OptionalArg::Missing, OptionalArg::Present(_)) => {
-                Err(Self::string_without_encoding(vm))
+                Err(STRING_WITHOUT_ENCODING)
             }
         }
+        .map_err(|e| vm.new_type_error(e.to_owned()))
     }
 }
 

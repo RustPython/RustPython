@@ -35,7 +35,7 @@ use std::ops::Deref;
 /// - any object implementing the buffer API.\n  \
 /// - an integer";
 #[pyclass(module = false, name = "bytes")]
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct PyBytes {
     inner: PyBytesInner,
 }
