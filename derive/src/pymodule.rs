@@ -109,7 +109,6 @@ fn new_module_item(
             inner: ContentItemInner { index, attr_name },
             pyattrs: pyattrs.unwrap_or_else(Vec::new),
         }),
-        "pyexception" => unreachable!("#[pyexception] {:?}", pyattrs.unwrap_or_else(Vec::new)),
         other => unreachable!("#[pymodule] doesn't accept #[{}]", other),
     }
 }

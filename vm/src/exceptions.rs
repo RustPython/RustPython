@@ -68,8 +68,8 @@ impl PyBaseException {
     }
 
     #[pymethod(magic)]
-    pub(crate) fn init(zelf: PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-        *zelf.args.write() = PyTupleRef::with_elements(args.args, &vm.ctx);
+    pub(crate) fn init(&self, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        *self.args.write() = PyTupleRef::with_elements(args.args, &vm.ctx);
         Ok(())
     }
 
@@ -484,7 +484,6 @@ pub struct ExceptionZoo {
     pub not_implemented_error: PyTypeRef,
     pub recursion_error: PyTypeRef,
     pub syntax_error: PyTypeRef,
-    pub target_scope_error: PyTypeRef,
     pub indentation_error: PyTypeRef,
     pub tab_error: PyTypeRef,
     pub system_error: PyTypeRef,
@@ -526,120 +525,26 @@ pub fn create_exception_type(name: &str, base: &PyTypeRef) -> PyTypeRef {
 /// subtypes in a uniform and convenient manner.
 /// It looks like `SimpleExtendsException` in `CPython`.
 /// https://github.com/python/cpython/blob/main/Objects/exceptions.c
-///
-/// We need `ctx` to be ready to add `properties` / `custom` constructors / slots / etc.
-/// So, we use `extend_class!` macro as the second step in exception type definition.
-macro_rules! extends_exception {
-    (
-        $class_name: ident,
-        $base_class: ident,
-        $ctx_name: ident,
-        $docs: tt
-    ) => {
-        #[pyexception($class_name, $base_class)]
-        #[derive(Debug)]
-        #[doc = $docs]
-        struct $class_name {}
-
-        // We need this to make extend mechanism work:
-        impl PyValue for $class_name {
-            fn class(vm: &VirtualMachine) -> &PyTypeRef {
-                &vm.ctx.exceptions.$ctx_name
-            }
-        }
-
-        #[pyimpl(flags(BASETYPE, HAS_DICT))]
-        impl $class_name {
-            #[pyslot]
-            fn tp_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-                // We need this method, because of how `CPython` copies `init`
-                // from `BaseException` in `SimpleExtendsException` macro.
-                // See: `BaseException_new`
-                PyBaseException::tp_new(cls, args, vm)
-            }
-
-            #[pymethod(magic)]
-            fn init(
-                zelf: PyRef<PyBaseException>,
-                args: FuncArgs,
-                vm: &VirtualMachine,
-            ) -> PyResult<()> {
-                // We need this method, because of how `CPython` copies `init`
-                // from `BaseException` in `SimpleExtendsException` macro.
-                // See: `(initproc)BaseException_init`
-                $base_class::init(zelf, args, vm)
-            }
-        }
-    };
-}
-
-// Exception types that extend `BaseException`,
-// sorted the same way CPython does.
-
-extends_exception! {
-    PyException,
-    PyBaseException,
-    exception_type,
-    "Common base class for all non-exit exceptions."
-}
-
-extends_exception! {
-    PyGeneratorExit,
-    PyBaseException,
-    generator_exit,
-    "Request that a generator exit."
-}
-
-extends_exception! {
-    PySystemExit,
-    PyBaseException,
-    system_exit,
-    "Request to exit from the interpreter."
-}
-
-extends_exception! {
-    PyKeyboardInterrupt,
-    PyBaseException,
-    keyboard_interrupt,
-    "Program interrupted by user."
-}
-
-// Exception types that extend `Exception`,
-// sorted the same way CPython does.
-
-extends_exception! {
-    PyTypeError,
-    PyException,
-    type_error,
-    "Inappropriate argument type."
-}
-
-extends_exception! {
-    PyStopAsyncIteration,
-    PyException,
-    stop_async_iteration,
-    "Signal the end from iterator.__anext__()."
-}
-
-extends_exception! {
-    PyStopIteration,
-    PyException,
-    stop_iteration,
-    "Signal the end from iterator.__next__()."
-}
-
-extends_exception! {
-    PyOSError,
-    PyException,
-    os_error,
-    "Base class for I/O related errors."
-}
-
 macro_rules! extend_exception {
-    ( $ctx:expr, $class:expr, { $($name:expr => $value:expr),* $(,)* }) => {
+    (
+        $ctx:expr,
+        $class:expr,
+        $docs:tt$(,)?
+    ) => {
+        extend_exception!($ctx, $class, $docs, {});
+    };
+    (
+        $ctx:expr,
+        $class:expr,
+        $docs:tt,
+        { $($name:expr => $value:expr),* $(,)* }$(,)?
+    ) => {
+        // We need to copy some methods to match `CPython`:
         $class.set_str_attr("__new__", $ctx.new_method("__new__", $class.clone(), PyBaseException::tp_new));
         $class.set_str_attr("__init__", $ctx.new_method("__init__", $class.clone(), PyBaseException::init));
+        $class.set_str_attr("__doc__", $ctx.new_str($docs));
 
+        // Setting extra attributes:
         extend_class!($ctx, $class, {
             $(
                 $name => $value,
@@ -650,16 +555,16 @@ macro_rules! extend_exception {
 
 impl ExceptionZoo {
     pub(crate) fn init() -> Self {
-        // The same order as definitions:
         let base_exception_type = PyBaseException::init_bare_type().clone();
-        let exception_type = PyException::init_bare_type().clone();
 
-        let system_exit = PySystemExit::init_bare_type().clone();
-        let keyboard_interrupt = PyKeyboardInterrupt::init_bare_type().clone();
-        let generator_exit = PyGeneratorExit::init_bare_type().clone();
+        // Sorted By Hierarchy then alphabetized.
+        let system_exit = create_exception_type("SystemExit", &base_exception_type);
+        let keyboard_interrupt = create_exception_type("KeyboardInterrupt", &base_exception_type);
+        let generator_exit = create_exception_type("GeneratorExit", &base_exception_type);
 
-        let stop_iteration = PyStopIteration::init_bare_type().clone();
-        let stop_async_iteration = PyStopAsyncIteration::init_bare_type().clone();
+        let exception_type = create_exception_type("Exception", &base_exception_type);
+        let stop_iteration = create_exception_type("StopIteration", &exception_type);
+        let stop_async_iteration = create_exception_type("StopAsyncIteration", &exception_type);
         let arithmetic_error = create_exception_type("ArithmeticError", &exception_type);
         let floating_point_error = create_exception_type("FloatingPointError", &arithmetic_error);
         let overflow_error = create_exception_type("OverflowError", &arithmetic_error);
@@ -678,22 +583,24 @@ impl ExceptionZoo {
         let unbound_local_error = create_exception_type("UnboundLocalError", &name_error);
 
         // os errors
-        let os_error = PyOSError::init_bare_type().clone();
+        let os_error = create_exception_type("OSError", &exception_type);
         let blocking_io_error = create_exception_type("BlockingIOError", &os_error);
         let child_process_error = create_exception_type("ChildProcessError", &os_error);
+
         let connection_error = create_exception_type("ConnectionError", &os_error);
+        let broken_pipe_error = create_exception_type("BrokenPipeError", &connection_error);
         let connection_aborted_error =
             create_exception_type("ConnectionAbortedError", &connection_error);
         let connection_refused_error =
             create_exception_type("ConnectionRefusedError", &connection_error);
         let connection_reset_error =
             create_exception_type("ConnectionResetError", &connection_error);
+
         let file_exists_error = create_exception_type("FileExistsError", &os_error);
         let file_not_found_error = create_exception_type("FileNotFoundError", &os_error);
         let interrupted_error = create_exception_type("InterruptedError", &os_error);
         let is_a_directory_error = create_exception_type("IsADirectoryError", &os_error);
         let not_a_directory_error = create_exception_type("NotADirectoryError", &os_error);
-        let broken_pipe_error = create_exception_type("BrokenPipeError", &connection_error);
         let permission_error = create_exception_type("PermissionError", &os_error);
         let process_lookup_error = create_exception_type("ProcessLookupError", &os_error);
         let timeout_error = create_exception_type("TimeoutError", &os_error);
@@ -705,9 +612,8 @@ impl ExceptionZoo {
         let syntax_error = create_exception_type("SyntaxError", &exception_type);
         let indentation_error = create_exception_type("IndentationError", &syntax_error);
         let tab_error = create_exception_type("TabError", &indentation_error);
-        let target_scope_error = create_exception_type("TargetScopeError", &syntax_error);
         let system_error = create_exception_type("SystemError", &exception_type);
-        let type_error = PyTypeError::init_bare_type().clone();
+        let type_error = create_exception_type("TypeError", &exception_type);
         let value_error = create_exception_type("ValueError", &exception_type);
         let unicode_error = create_exception_type("UnicodeError", &value_error);
         let unicode_decode_error = create_exception_type("UnicodeDecodeError", &unicode_error);
@@ -776,7 +682,6 @@ impl ExceptionZoo {
             not_implemented_error,
             recursion_error,
             syntax_error,
-            target_scope_error,
             indentation_error,
             tab_error,
             system_error,
@@ -808,25 +713,135 @@ impl ExceptionZoo {
         let excs = &ctx.exceptions;
 
         PyBaseException::extend_class(ctx, &excs.base_exception_type);
-        PyException::extend_class(ctx, &excs.exception_type);
 
-        PyGeneratorExit::extend_class(ctx, &excs.generator_exit);
-        PySystemExit::extend_class(ctx, &excs.system_exit);
-        extend_class!(ctx, &excs.system_exit, {
+        // Sorted By Hierarchy then alphabetized.
+        extend_exception!(ctx, &excs.system_exit, "Request to exit from the interpreter.", {
             "code" => ctx.new_readonly_getset("code", excs.system_exit.clone(), system_exit_code),
         });
-        PyKeyboardInterrupt::extend_class(ctx, &excs.keyboard_interrupt);
+        extend_exception!(
+            ctx,
+            &excs.keyboard_interrupt,
+            "Program interrupted by user."
+        );
+        extend_exception!(ctx, &excs.generator_exit, "Request that a generator exit.");
+        extend_exception!(
+            ctx,
+            &excs.exception_type,
+            "Common base class for all non-exit exceptions."
+        );
 
-        PyTypeError::extend_class(ctx, &excs.type_error);
-        PyStopAsyncIteration::extend_class(ctx, &excs.stop_async_iteration);
-        PyStopIteration::extend_class(ctx, &excs.stop_iteration);
-        extend_class!(ctx, &excs.stop_iteration, {
+        extend_exception!(ctx, &excs.stop_iteration, "Signal the end from iterator.__next__().", {
             "value" => ctx.new_readonly_getset("value", excs.stop_iteration.clone(), make_arg_getter(0)),
         });
+        extend_exception!(
+            ctx,
+            &excs.stop_async_iteration,
+            "Signal the end from iterator.__anext__()."
+        );
 
-        extend_exception!(ctx, &excs.arithmetic_error, {});
+        extend_exception!(
+            ctx,
+            &excs.arithmetic_error,
+            "Base class for arithmetic errors."
+        );
+        extend_exception!(
+            ctx,
+            &excs.floating_point_error,
+            "Floating point operation failed."
+        );
+        extend_exception!(
+            ctx,
+            &excs.overflow_error,
+            "Result too large to be represented."
+        );
+        extend_exception!(
+            ctx,
+            &excs.zero_division_error,
+            "Second argument to a division or modulo operation was zero."
+        );
 
-        extend_class!(ctx, &excs.syntax_error, {
+        extend_exception!(ctx, &excs.assertion_error, "Assertion failed.");
+        extend_exception!(ctx, &excs.attribute_error, "Attribute not found.");
+        extend_exception!(ctx, &excs.buffer_error, "Buffer error.");
+        extend_exception!(ctx, &excs.eof_error, "Read beyond end of file.");
+
+        extend_exception!(ctx, &excs.import_error, "Import can't find module, or can't find name in module.", {
+            "__init__" => ctx.new_method("__init__", excs.import_error.clone(), import_error_init),
+            "msg" => ctx.new_readonly_getset("msg", excs.import_error.clone(), make_arg_getter(0)),
+        });
+        extend_exception!(ctx, &excs.module_not_found_error, "Module not found.");
+
+        extend_exception!(ctx, &excs.lookup_error, "Base class for lookup errors.");
+        extend_exception!(ctx, &excs.index_error, "Sequence index out of range.");
+        extend_exception!(ctx, &excs.key_error, "Mapping key not found.", {
+            "__str__" => ctx.new_method("__str__", excs.key_error.clone(), key_error_str),
+        });
+
+        extend_exception!(ctx, &excs.memory_error, "Out of memory.");
+        extend_exception!(ctx, &excs.name_error, "Name not found globally.");
+        extend_exception!(
+            ctx,
+            &excs.unbound_local_error,
+            "Local name referenced but not bound to a value."
+        );
+
+        // os errors:
+        let errno_getter =
+            ctx.new_readonly_getset("errno", excs.os_error.clone(), |exc: PyBaseExceptionRef| {
+                let args = exc.args();
+                let args = args.as_slice();
+                args.get(0).filter(|_| args.len() > 1).cloned()
+            });
+
+        extend_exception!(ctx, &excs.os_error, "Base class for I/O related errors.", {
+            "errno" => errno_getter,
+            "strerror" => ctx.new_readonly_getset("strerror", excs.os_error.clone(), make_arg_getter(1)),
+        });
+        #[cfg(windows)]
+        extend_class!(ctx, &excs.os_error, {
+            // TODO: this isn't really accurate
+            "winerror" => errno_getter.clone(),
+        });
+        extend_exception!(ctx, &excs.blocking_io_error, "I/O operation would block.");
+        extend_exception!(ctx, &excs.child_process_error, "Child process error.");
+
+        extend_exception!(ctx, &excs.connection_error, "Connection error.");
+        extend_exception!(ctx, &excs.broken_pipe_error, "Broken pipe.");
+        extend_exception!(ctx, &excs.connection_aborted_error, "Connection aborted.");
+        extend_exception!(ctx, &excs.connection_refused_error, "Connection refused.");
+        extend_exception!(ctx, &excs.connection_reset_error, "Connection reset.");
+
+        extend_exception!(ctx, &excs.file_exists_error, "File already exists.");
+        extend_exception!(ctx, &excs.file_not_found_error, "File not found.");
+        extend_exception!(ctx, &excs.interrupted_error, "Interrupted by signal.");
+        extend_exception!(
+            ctx,
+            &excs.is_a_directory_error,
+            "Operation doesn't work on directories."
+        );
+        extend_exception!(
+            ctx,
+            &excs.not_a_directory_error,
+            "Operation only works on directories."
+        );
+        extend_exception!(ctx, &excs.permission_error, "Not enough permissions.");
+        extend_exception!(ctx, &excs.process_lookup_error, "Process not found.");
+        extend_exception!(ctx, &excs.timeout_error, "Timeout expired.");
+
+        extend_exception!(
+            ctx,
+            &excs.reference_error,
+            "Weak ref proxy used after referent went away."
+        );
+        extend_exception!(ctx, &excs.runtime_error, "Unspecified run-time error.");
+        extend_exception!(
+            ctx,
+            &excs.not_implemented_error,
+            "Method or function hasn't been implemented yet."
+        );
+        extend_exception!(ctx, &excs.recursion_error, "Recursion limit exceeded.");
+
+        extend_exception!(ctx, &excs.syntax_error, "Invalid syntax.", {
             "msg" => ctx.new_readonly_getset("msg", excs.syntax_error.clone(), make_arg_getter(0)),
             // TODO: members
             "filename" => ctx.none(),
@@ -834,56 +849,81 @@ impl ExceptionZoo {
             "offset" => ctx.none(),
             "text" => ctx.none(),
         });
+        extend_exception!(ctx, &excs.indentation_error, "Improper indentation.");
+        extend_exception!(ctx, &excs.tab_error, "Improper mixture of spaces and tabs.");
 
-        extend_exception!(ctx, &excs.import_error, {
-            "__init__" => ctx.new_method("__init__", excs.import_error.clone(), import_error_init),
-            "msg" => ctx.new_readonly_getset("msg", excs.import_error.clone(), make_arg_getter(0)),
-        });
-
-        extend_class!(ctx, &excs.key_error, {
-            "__str__" => ctx.new_method("__str__", excs.key_error.clone(), key_error_str),
-        });
-
-        PyOSError::extend_class(ctx, &excs.os_error);
-        let errno_getter =
-            ctx.new_readonly_getset("errno", excs.os_error.clone(), |exc: PyBaseExceptionRef| {
-                let args = exc.args();
-                let args = args.as_slice();
-                args.get(0).filter(|_| args.len() > 1).cloned()
-            });
-        #[cfg(windows)]
-        extend_class!(ctx, &excs.os_error, {
-            // TODO: this isn't really accurate
-            "winerror" => errno_getter.clone(),
-        });
-        extend_class!(ctx, &excs.os_error, {
-            "errno" => errno_getter,
-            "strerror" => ctx.new_readonly_getset("strerror", excs.os_error.clone(), make_arg_getter(1)),
-        });
-
-        extend_class!(ctx, &excs.unicode_decode_error, {
+        extend_exception!(ctx, &excs.system_error, "Internal error in the Python interpreter.\n\nPlease report this to the Python maintainer, along with the traceback,\nthe Python version, and the hardware/OS platform and version.");
+        extend_exception!(ctx, &excs.type_error, "Inappropriate argument type.");
+        extend_exception!(
+            ctx,
+            &excs.value_error,
+            "Inappropriate argument value (of correct type)."
+        );
+        extend_exception!(ctx, &excs.unicode_error, "Unicode related error.");
+        extend_exception!(ctx, &excs.unicode_decode_error, "Unicode decoding error.", {
             "encoding" => ctx.new_readonly_getset("encoding", excs.unicode_decode_error.clone(), make_arg_getter(0)),
             "object" => ctx.new_readonly_getset("object", excs.unicode_decode_error.clone(), make_arg_getter(1)),
             "start" => ctx.new_readonly_getset("start", excs.unicode_decode_error.clone(), make_arg_getter(2)),
             "end" => ctx.new_readonly_getset("end", excs.unicode_decode_error.clone(), make_arg_getter(3)),
             "reason" => ctx.new_readonly_getset("reason", excs.unicode_decode_error.clone(), make_arg_getter(4)),
         });
-
-        extend_class!(ctx, &excs.unicode_encode_error, {
+        extend_exception!(ctx, &excs.unicode_encode_error, "Unicode encoding error.", {
             "encoding" => ctx.new_readonly_getset("encoding", excs.unicode_encode_error.clone(), make_arg_getter(0)),
             "object" => ctx.new_readonly_getset("object", excs.unicode_encode_error.clone(), make_arg_getter(1)),
             "start" => ctx.new_readonly_getset("start", excs.unicode_encode_error.clone(), make_arg_getter(2), ),
             "end" => ctx.new_readonly_getset("end", excs.unicode_encode_error.clone(), make_arg_getter(3)),
             "reason" => ctx.new_readonly_getset("reason", excs.unicode_encode_error.clone(), make_arg_getter(4)),
         });
-
-        extend_class!(ctx, &excs.unicode_translate_error, {
+        extend_exception!(ctx, &excs.unicode_translate_error, "Unicode translation error.", {
             "encoding" => ctx.new_readonly_getset("encoding", excs.unicode_translate_error.clone(), none_getter),
             "object" => ctx.new_readonly_getset("object", excs.unicode_translate_error.clone(), make_arg_getter(0)),
             "start" => ctx.new_readonly_getset("start", excs.unicode_translate_error.clone(), make_arg_getter(1)),
             "end" => ctx.new_readonly_getset("end", excs.unicode_translate_error.clone(), make_arg_getter(2)),
             "reason" => ctx.new_readonly_getset("reason", excs.unicode_translate_error.clone(), make_arg_getter(3)),
         });
+
+        #[cfg(feature = "jit")]
+        extend_exception!(ctx, &excs.jit_error, "JIT error.");
+
+        extend_exception!(ctx, &excs.warning, "Base class for warning categories.");
+        extend_exception!(
+            ctx,
+            &excs.deprecation_warning,
+            "Base class for warnings about deprecated features."
+        );
+        extend_exception!(
+            ctx,
+            &excs.pending_deprecation_warning,
+            "Base class for warnings about features which will be deprecated\nin the future."
+        );
+        extend_exception!(
+            ctx,
+            &excs.runtime_warning,
+            "Base class for warnings about dubious runtime behavior."
+        );
+        extend_exception!(
+            ctx,
+            &excs.syntax_warning,
+            "Base class for warnings about dubious syntax."
+        );
+        extend_exception!(
+            ctx,
+            &excs.user_warning,
+            "Base class for warnings generated by user code."
+        );
+        extend_exception!(ctx, &excs.future_warning , "Base class for warnings about constructs that will change semantically\nin the future.");
+        extend_exception!(
+            ctx,
+            &excs.import_warning,
+            "Base class for warnings about probable mistakes in module imports"
+        );
+        extend_exception!(ctx, &excs.unicode_warning, "Base class for warnings about Unicode related problems, mostly\nrelated to conversion problems.");
+        extend_exception!(ctx, &excs.bytes_warning, "Base class for warnings about bytes and buffer related problems, mostly\nrelated to conversion from str or comparing to str.");
+        extend_exception!(
+            ctx,
+            &excs.resource_warning,
+            "Base class for warnings about resource usage."
+        );
     }
 }
 

@@ -1,3 +1,4 @@
+import builtins
 import platform
 import sys
 
@@ -195,3 +196,11 @@ assert OSError(1, 2).strerror
 
 assert ImportError.__init__.__qualname__ == 'ImportError.__init__'
 assert ImportError(name='a').name == 'a'
+
+
+# Check that all exceptions have string `__doc__`:
+for exc in filter(
+    lambda obj: isinstance(obj, BaseException),
+    vars(builtins).values(),
+):
+    assert isinstance(exc.__doc__, str)
