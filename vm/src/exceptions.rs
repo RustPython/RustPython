@@ -583,182 +583,6 @@ macro_rules! extends_exception {
     };
 }
 
-macro_rules! extends_os_error {
-    (
-        $class_name: ident,
-        $base_class: ident,
-        $ctx_name: ident,
-        $docs: tt
-    ) => {
-        #[pyexception($class_name, $base_class)]
-        #[derive(Debug)]
-        #[doc = $docs]
-        struct $class_name {}
-
-        // We need this to make extend mechanism work:
-        impl PyValue for $class_name {
-            fn class(vm: &VirtualMachine) -> &PyTypeRef {
-                &vm.ctx.exceptions.$ctx_name
-            }
-        }
-
-        #[pyimpl(flags(BASETYPE, HAS_DICT))]
-        impl $class_name {
-            fn optional_new(
-                args: Vec<PyObjectRef>,
-                vm: &VirtualMachine,
-            ) -> Option<PyResult<PyBaseExceptionRef>> {
-                let len = args.len();
-                if len >= 2 {
-                    let args = args.as_slice();
-                    let errno = &args[0];
-                    let error = match errno.payload_if_subclass::<PyInt>(vm) {
-                        Some(errno) => {
-                            let error = match crate::builtins::int::try_to_primitive::<i32>(
-                                errno.as_bigint(),
-                                vm,
-                            ) {
-                                Ok(errno) => {
-                                    let excs = &vm.ctx.exceptions;
-                                    let error = match errno {
-                                        #[cfg(not(windows))]
-                                        libc::EWOULDBLOCK => Some(excs.blocking_io_error.clone()),
-                                        #[cfg(windows)]
-                                        winapi::shared::winerror::WSAEWOULDBLOCK => {
-                                            Some(excs.blocking_io_error.clone())
-                                        }
-
-                                        #[cfg(not(windows))]
-                                        libc::EALREADY => Some(excs.blocking_io_error.clone()),
-                                        #[cfg(windows)]
-                                        winapi::shared::winerror::WSAEALREADY => {
-                                            Some(excs.blocking_io_error.clone())
-                                        }
-
-                                        #[cfg(not(windows))]
-                                        libc::EINPROGRESS => Some(excs.blocking_io_error.clone()),
-                                        #[cfg(windows)]
-                                        winapi::shared::winerror::WSAEINPROGRESS => {
-                                            Some(excs.blocking_io_error.clone())
-                                        }
-
-                                        libc::EPIPE => Some(excs.broken_pipe_error.clone()),
-
-                                        #[cfg(not(windows))]
-                                        libc::ESHUTDOWN => Some(excs.broken_pipe_error.clone()),
-                                        #[cfg(windows)]
-                                        winapi::shared::winerror::WSAESHUTDOWN => {
-                                            Some(excs.broken_pipe_error.clone())
-                                        }
-
-                                        libc::ECHILD => Some(excs.child_process_error.clone()),
-
-                                        #[cfg(not(windows))]
-                                        libc::ECONNABORTED => {
-                                            Some(excs.connection_aborted_error.clone())
-                                        }
-                                        #[cfg(windows)]
-                                        winapi::shared::winerror::WSAECONNABORTED => {
-                                            Some(excs.connection_aborted_error.clone())
-                                        }
-
-                                        #[cfg(not(windows))]
-                                        libc::ECONNREFUSED => {
-                                            Some(excs.connection_refused_error.clone())
-                                        }
-                                        #[cfg(windows)]
-                                        winapi::shared::winerror::WSAECONNREFUSED => {
-                                            Some(excs.connection_refused_error.clone())
-                                        }
-
-                                        #[cfg(not(windows))]
-                                        libc::ECONNRESET => {
-                                            Some(excs.connection_reset_error.clone())
-                                        }
-                                        #[cfg(windows)]
-                                        winapi::shared::winerror::WSAECONNRESET => {
-                                            Some(excs.connection_reset_error.clone())
-                                        }
-
-                                        libc::EEXIST => Some(excs.file_exists_error.clone()),
-
-                                        libc::ENOENT => Some(excs.file_not_found_error.clone()),
-
-                                        libc::EISDIR => Some(excs.is_a_directory_error.clone()),
-
-                                        libc::ENOTDIR => Some(excs.not_a_directory_error.clone()),
-
-                                        libc::EINTR => Some(excs.interrupted_error.clone()),
-
-                                        libc::EACCES => Some(excs.permission_error.clone()),
-
-                                        libc::EPERM => Some(excs.permission_error.clone()),
-
-                                        libc::ESRCH => Some(excs.process_lookup_error.clone()),
-
-                                        #[cfg(not(windows))]
-                                        libc::ETIMEDOUT => Some(excs.timeout_error.clone()),
-                                        #[cfg(windows)]
-                                        winapi::shared::winerror::WSAETIMEDOUT => {
-                                            Some(excs.timeout_error.clone())
-                                        }
-                                        _ => None,
-                                    };
-
-                                    if error.is_some() {
-                                        Some(invoke(error?, args.to_vec(), vm))
-                                    } else {
-                                        None
-                                    }
-                                }
-                                Err(_) => None,
-                            };
-
-                            error
-                        }
-                        None => None,
-                    };
-
-                    error
-                } else {
-                    None
-                }
-            }
-
-            #[pyslot]
-            fn tp_new(
-                cls: PyTypeRef,
-                args: FuncArgs,
-                vm: &VirtualMachine,
-            ) -> PyResult<PyRef<PyBaseException>> {
-                // We need this method, because of how `CPython` copies `init`
-                // from `BaseException` in `SimpleExtendsException` macro.
-                // See: `BaseException_new`
-                if cls.tp_name().deref() == vm.ctx.exceptions.os_error.tp_name().deref() {
-                    match PyOSError::optional_new(args.args.to_vec(), vm) {
-                        Some(error) => error,
-                        None => PyBaseException::tp_new(cls, args, vm),
-                    }
-                } else {
-                    PyBaseException::tp_new(cls, args, vm)
-                }
-            }
-
-            #[pymethod(magic)]
-            fn init(
-                zelf: PyRef<PyBaseException>,
-                args: FuncArgs,
-                vm: &VirtualMachine,
-            ) -> PyResult<()> {
-                // We need this method, because of how `CPython` copies `init`
-                // from `BaseException` in `SimpleExtendsException` macro.
-                // See: `(initproc)BaseException_init`
-                $base_class::init(zelf, args, vm)
-            }
-        }
-    };
-}
-
 // Exception types that extend `BaseException`,
 // sorted the same way CPython does.
 
@@ -814,11 +638,161 @@ extends_exception! {
     "Signal the end from iterator.__next__()."
 }
 
-extends_os_error! {
-    PyOSError,
-    PyException,
-    os_error,
-    "Base class for I/O related errors."
+#[pyexception(PyOSError, PyException)]
+#[derive(Debug)]
+#[doc = "Base class for I/O related errors."]
+struct PyOSError {}
+
+// We need this to make extend mechanism work:
+impl PyValue for PyOSError {
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.exceptions.os_error
+    }
+}
+
+#[pyimpl(flags(BASETYPE, HAS_DICT))]
+impl PyOSError {
+    fn optional_new(
+        args: Vec<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> Option<PyResult<PyBaseExceptionRef>> {
+        let len = args.len();
+        if len >= 2 {
+            let args = args.as_slice();
+            let errno = &args[0];
+            let error = match errno.payload_if_subclass::<PyInt>(vm) {
+                Some(errno) => {
+                    let error = match crate::builtins::int::try_to_primitive::<i32>(
+                        errno.as_bigint(),
+                        vm,
+                    ) {
+                        Ok(errno) => {
+                            let excs = &vm.ctx.exceptions;
+                            let error = match errno {
+                                #[cfg(not(windows))]
+                                libc::EWOULDBLOCK => Some(excs.blocking_io_error.clone()),
+                                #[cfg(windows)]
+                                winapi::shared::winerror::WSAEWOULDBLOCK => {
+                                    Some(excs.blocking_io_error.clone())
+                                }
+
+                                #[cfg(not(windows))]
+                                libc::EALREADY => Some(excs.blocking_io_error.clone()),
+                                #[cfg(windows)]
+                                winapi::shared::winerror::WSAEALREADY => {
+                                    Some(excs.blocking_io_error.clone())
+                                }
+
+                                #[cfg(not(windows))]
+                                libc::EINPROGRESS => Some(excs.blocking_io_error.clone()),
+                                #[cfg(windows)]
+                                winapi::shared::winerror::WSAEINPROGRESS => {
+                                    Some(excs.blocking_io_error.clone())
+                                }
+
+                                libc::EPIPE => Some(excs.broken_pipe_error.clone()),
+
+                                #[cfg(not(windows))]
+                                libc::ESHUTDOWN => Some(excs.broken_pipe_error.clone()),
+                                #[cfg(windows)]
+                                winapi::shared::winerror::WSAESHUTDOWN => {
+                                    Some(excs.broken_pipe_error.clone())
+                                }
+
+                                libc::ECHILD => Some(excs.child_process_error.clone()),
+
+                                #[cfg(not(windows))]
+                                libc::ECONNABORTED => Some(excs.connection_aborted_error.clone()),
+                                #[cfg(windows)]
+                                winapi::shared::winerror::WSAECONNABORTED => {
+                                    Some(excs.connection_aborted_error.clone())
+                                }
+
+                                #[cfg(not(windows))]
+                                libc::ECONNREFUSED => Some(excs.connection_refused_error.clone()),
+                                #[cfg(windows)]
+                                winapi::shared::winerror::WSAECONNREFUSED => {
+                                    Some(excs.connection_refused_error.clone())
+                                }
+
+                                #[cfg(not(windows))]
+                                libc::ECONNRESET => Some(excs.connection_reset_error.clone()),
+                                #[cfg(windows)]
+                                winapi::shared::winerror::WSAECONNRESET => {
+                                    Some(excs.connection_reset_error.clone())
+                                }
+
+                                libc::EEXIST => Some(excs.file_exists_error.clone()),
+
+                                libc::ENOENT => Some(excs.file_not_found_error.clone()),
+
+                                libc::EISDIR => Some(excs.is_a_directory_error.clone()),
+
+                                libc::ENOTDIR => Some(excs.not_a_directory_error.clone()),
+
+                                libc::EINTR => Some(excs.interrupted_error.clone()),
+
+                                libc::EACCES => Some(excs.permission_error.clone()),
+
+                                libc::EPERM => Some(excs.permission_error.clone()),
+
+                                libc::ESRCH => Some(excs.process_lookup_error.clone()),
+
+                                #[cfg(not(windows))]
+                                libc::ETIMEDOUT => Some(excs.timeout_error.clone()),
+                                #[cfg(windows)]
+                                winapi::shared::winerror::WSAETIMEDOUT => {
+                                    Some(excs.timeout_error.clone())
+                                }
+                                _ => None,
+                            };
+
+                            if error.is_some() {
+                                Some(invoke(error?, args.to_vec(), vm))
+                            } else {
+                                None
+                            }
+                        }
+                        Err(_) => None,
+                    };
+
+                    error
+                }
+                None => None,
+            };
+
+            error
+        } else {
+            None
+        }
+    }
+
+    #[pyslot]
+    fn tp_new(
+        cls: PyTypeRef,
+        args: FuncArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<PyBaseException>> {
+        // We need this method, because of how `CPython` copies `init`
+        // from `BaseException` in `SimpleExtendsException` macro.
+        // See: `BaseException_new`
+        if cls.tp_name().deref() == vm.ctx.exceptions.os_error.tp_name().deref() {
+            match PyOSError::optional_new(args.args.to_vec(), vm) {
+                Some(error) => error,
+                None => PyBaseException::tp_new(cls, args, vm),
+            }
+        } else {
+            PyBaseException::tp_new(cls, args, vm)
+        }
+    }
+
+    #[pymethod(magic)]
+    fn init(zelf: PyRef<PyBaseException>, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        // We need this method, because of how `CPython` copies `init`
+        // from `BaseException` in `SimpleExtendsException` macro.
+        // See: `(initproc)BaseException_init`
+        PyBaseException::init(zelf, args, vm)
+    }
 }
 
 macro_rules! extend_exception {
