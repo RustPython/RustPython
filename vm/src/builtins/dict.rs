@@ -75,7 +75,7 @@ impl PyDict {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         if let OptionalArg::Present(dict_obj) = dict_obj {
-            let dicted: Result<PyDictRef, _> = dict_obj.clone().downcast();
+            let dicted: Result<PyDictRef, _> = dict_obj.clone().downcast_exact(vm);
             if let Ok(dict_obj) = dicted {
                 for (key, value) in dict_obj {
                     dict.insert(vm, key, value)?;
