@@ -155,7 +155,7 @@ class UnixCCompiler(CCompiler):
                                         runtime_library_dirs)
         libraries, library_dirs, runtime_library_dirs = fixed_args
 
-        # filter out standard library paths, which are not explicitely needed
+        # filter out standard library paths, which are not explicitly needed
         # for linking
         system_libdirs = ['/lib', '/lib64', '/usr/lib', '/usr/lib64']
         multiarch = sysconfig.get_config_var("MULTIARCH")
