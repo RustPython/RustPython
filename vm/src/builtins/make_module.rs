@@ -407,7 +407,7 @@ mod decl {
     }
 
     #[pyfunction]
-    pub fn isinstance(obj: PyObjectRef, typ: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+    fn isinstance(obj: PyObjectRef, typ: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         vm.isinstance(&obj, &typ)
     }
 
@@ -913,7 +913,7 @@ mod decl {
     }
 }
 
-pub use decl::{ascii, isinstance, print};
+pub use decl::{ascii, print};
 
 pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
     let ctx = &vm.ctx;
