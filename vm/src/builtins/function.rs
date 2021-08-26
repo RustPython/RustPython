@@ -179,18 +179,45 @@ impl PyFunction {
 
             // Given the number of defaults available, check all the arguments for which we
             // _don't_ have defaults; if any are missing, raise an exception
-            let mut missing = vec![];
-            for i in nargs..nrequired {
-                if fastlocals[i].is_none() {
-                    missing.push(&code.varnames[i]);
-                }
-            }
+            let mut missing: Vec<_> = (nargs..nrequired)
+                .filter_map(|i| {
+                    if fastlocals[i].is_none() {
+                        Some(&code.varnames[i])
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            let missing_args_len = missing.len();
+
             if !missing.is_empty() {
+                let last = if missing.len() > 1 {
+                    missing.pop()
+                } else {
+                    None
+                };
+
+                let (and, right) = if let Some(last) = last {
+                    (
+                        if missing.len() == 1 {
+                            "' and '"
+                        } else {
+                            "', and '"
+                        },
+                        last.as_str(),
+                    )
+                } else {
+                    ("", "")
+                };
+
                 return Err(vm.new_type_error(format!(
-                    "{}() missing {} required positional arguments: {}",
+                    "{}() missing {} required positional argument{}: '{}{}{}'",
                     &self.code.obj_name,
-                    missing.len(),
-                    missing.iter().format(", ")
+                    missing_args_len,
+                    if missing_args_len == 1 { "" } else { "s" },
+                    missing.iter().join("', '"),
+                    and,
+                    right,
                 )));
             }
 
