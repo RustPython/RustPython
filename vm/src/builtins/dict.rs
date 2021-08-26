@@ -75,10 +75,14 @@ impl PyDict {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         if let OptionalArg::Present(dict_obj) = dict_obj {
-            let dicted: Result<PyDictRef, _> = dict_obj.clone().downcast();
+            let dicted: Result<PyDictRef, _> = dict_obj.clone().downcast_exact(vm);
             if let Ok(dict_obj) = dicted {
-                for (key, value) in dict_obj {
+                let dict_size = &dict_obj.size();
+                for (key, value) in &dict_obj {
                     dict.insert(vm, key, value)?;
+                }
+                if dict_obj.entries.has_changed_size(dict_size) {
+                    return Err(vm.new_runtime_error("dict mutated during update".to_owned()));
                 }
             } else if let Some(keys) = vm.get_method(dict_obj.clone(), "keys") {
                 let keys = iterator::get_iter(vm, vm.invoke(&keys?, ())?)?;

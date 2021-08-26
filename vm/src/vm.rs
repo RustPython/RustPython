@@ -21,7 +21,7 @@ use crate::builtins::object;
 use crate::builtins::pybool;
 use crate::builtins::pystr::{PyStr, PyStrRef};
 use crate::builtins::pytype::PyTypeRef;
-use crate::builtins::tuple::{PyTuple, PyTupleTyped};
+use crate::builtins::tuple::{PyTuple, PyTupleRef, PyTupleTyped};
 use crate::codecs::CodecsRegistry;
 use crate::common::{hash::HashSecret, lock::PyMutex, rc::PyRc};
 #[cfg(feature = "rustpython-compiler")]
@@ -944,21 +944,45 @@ impl VirtualMachine {
         }
     }
 
+    pub fn _isinstance(&self, obj: &PyObjectRef, cls: &PyObjectRef) -> PyResult<bool> {
+        if let Ok(typ) = PyTypeRef::try_from_object(self, cls.clone()) {
+            Ok(obj.isinstance(&typ))
+        } else {
+            Err(self.new_type_error(format!(
+                "isinstance() arg 2 must be a type or tuple of types, not {}",
+                cls.class()
+            )))
+        }
+    }
+
     /// Determines if `obj` is an instance of `cls`, either directly, indirectly or virtually via
     /// the __instancecheck__ magic method.
-    pub fn isinstance(&self, obj: &PyObjectRef, cls: &PyTypeRef) -> PyResult<bool> {
+    pub fn isinstance(&self, obj: &PyObjectRef, cls: &PyObjectRef) -> PyResult<bool> {
         // cpython first does an exact check on the type, although documentation doesn't state that
         // https://github.com/python/cpython/blob/a24107b04c1277e3c1105f98aff5bfa3a98b33a0/Objects/abstract.c#L2408
         if obj.class().is(cls) {
-            Ok(true)
-        } else {
-            let ret = self.call_special_method(
-                cls.as_object().clone(),
-                "__instancecheck__",
-                (obj.clone(),),
-            )?;
-            pybool::boolval(self, ret)
+            return Ok(true);
         }
+
+        if cls.class().is(&self.ctx.types.type_type) {
+            return self._isinstance(obj, cls);
+        }
+
+        if let Ok(tuple) = PyTupleRef::try_from_object(self, cls.clone()) {
+            for typ in tuple.as_slice().iter() {
+                if self.isinstance(obj, typ)? {
+                    return Ok(true);
+                }
+            }
+            return Ok(false);
+        }
+
+        if let Ok(meth) = self.get_special_method(cls.clone(), "__instancecheck__")? {
+            let ret = meth.invoke((obj.clone(),), self)?;
+            return pybool::boolval(self, ret);
+        }
+
+        self._isinstance(obj, cls)
     }
 
     /// Determines if `subclass` is a subclass of `cls`, either directly, indirectly or virtually

@@ -1,5 +1,4 @@
 from collections import deque
-from io import UnsupportedOperation
 import unittest
 from test import support, seq_tests
 import gc
@@ -184,18 +183,6 @@ class TestBasic(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             n in d
 
-    def test_contains_count_stop_crashes(self):
-        class A:
-            def __eq__(self, other):
-                d.clear()
-                return NotImplemented
-        d = deque([A(), A()])
-        with self.assertRaises(RuntimeError):
-            _ = 3 in d
-        d = deque([A(), A()])
-        with self.assertRaises(RuntimeError):
-            _ = d.count(3)
-
     def test_extend(self):
         d = deque('a')
         self.assertRaises(TypeError, d.extend, 1)
@@ -204,8 +191,6 @@ class TestBasic(unittest.TestCase):
         d.extend(d)
         self.assertEqual(list(d), list('abcdabcd'))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_add(self):
         d = deque()
         e = deque('abc')
@@ -643,8 +628,6 @@ class TestBasic(unittest.TestCase):
         self.assertNotEqual(id(d), id(e))
         self.assertEqual(list(d), list(e))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pickle(self):
         for d in deque(range(200)), deque(range(200), 100):
             for i in range(pickle.HIGHEST_PROTOCOL + 1):
@@ -654,8 +637,6 @@ class TestBasic(unittest.TestCase):
                 self.assertEqual(list(e), list(d))
                 self.assertEqual(e.maxlen, d.maxlen)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pickle_recursive(self):
         for d in deque('abc'), deque('abc', 3):
             d.append(d)
@@ -708,8 +689,6 @@ class TestBasic(unittest.TestCase):
             self.assertEqual(type(it), type(itorg))
             self.assertEqual(list(it), [])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_deepcopy(self):
         mut = [10]
         d = deque([mut])
@@ -854,7 +833,8 @@ class TestSubclass(unittest.TestCase):
         d.clear()
         self.assertEqual(len(d), 0)
 
-    @unittest.skip("AttributeError: 'Deque' object has no attribute '__copy__'")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_copy_pickle(self):
 
         d = Deque('abc')
@@ -891,7 +871,8 @@ class TestSubclass(unittest.TestCase):
             self.assertEqual(type(d), type(e))
             self.assertEqual(list(d), list(e))
 
-    @unittest.skip("TODO: RUSTPYTHON RuntimeError: Unexpected payload 'deque' for type 'Deque'")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_pickle_recursive(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             for d in Deque('abc'), Deque('abc', 3):
@@ -974,20 +955,6 @@ class TestSequence(seq_tests.CommonTest):
     def test_free_after_iterating(self):
         # For now, bypass tests that require slicing
         self.skipTest("Exhausted deque iterator doesn't free a deque")
-
-    @unittest.skip("TODO: RUSTPYTHON TypeError: unexpected payload for __eq__")
-    def test_pickle(self):
-        pass
-
-    def test_iadd(self):
-        pass
-
-    @unittest.skip("TODO: RUSTPYTHON TypeError: '+' not supported between instances of 'deque' and 'deque'")
-    def test_addmul(self):
-        pass
-
-
-
 
 #==============================================================================
 

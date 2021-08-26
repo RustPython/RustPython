@@ -1226,8 +1226,6 @@ class DictTest(unittest.TestCase):
                 d.popitem()
         self.check_reentrant_insertion(mutate)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_merge_and_mutate(self):
         class X:
             def __hash__(self):
@@ -1347,8 +1345,6 @@ class DictTest(unittest.TestCase):
         self.assertEqual(list(r), list('dcba'))
         self.assertRaises(StopIteration, next, r)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_dict_copy_order(self):
         # bpo-34320
         od = collections.OrderedDict([('a', 1), ('b', 2)])
