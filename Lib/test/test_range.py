@@ -502,8 +502,6 @@ class RangeTest(unittest.TestCase):
             test_id = "reversed(range({}, {}, {}))".format(start, end, step)
             self.assert_iterators_equal(iter1, iter2, test_id, limit=100)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_range_iterators_invocation(self):
         # verify range iterators instances cannot be created by
         # calling their type
