@@ -628,8 +628,6 @@ class TestBasic(unittest.TestCase):
         self.assertNotEqual(id(d), id(e))
         self.assertEqual(list(d), list(e))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pickle(self):
         for d in deque(range(200)), deque(range(200), 100):
             for i in range(pickle.HIGHEST_PROTOCOL + 1):
@@ -639,8 +637,6 @@ class TestBasic(unittest.TestCase):
                 self.assertEqual(list(e), list(d))
                 self.assertEqual(e.maxlen, d.maxlen)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pickle_recursive(self):
         for d in deque('abc'), deque('abc', 3):
             d.append(d)
@@ -693,8 +689,6 @@ class TestBasic(unittest.TestCase):
             self.assertEqual(type(it), type(itorg))
             self.assertEqual(list(it), [])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_deepcopy(self):
         mut = [10]
         d = deque([mut])
@@ -961,9 +955,6 @@ class TestSequence(seq_tests.CommonTest):
     def test_free_after_iterating(self):
         # For now, bypass tests that require slicing
         self.skipTest("Exhausted deque iterator doesn't free a deque")
-
-    def test_pickle(self):
-        self.skipTest("unexpected payload for __eq__")
 
 #==============================================================================
 

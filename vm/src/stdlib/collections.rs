@@ -515,6 +515,28 @@ mod _collections {
             zelf.extend(other, vm)?;
             Ok(zelf)
         }
+
+        #[pymethod(magic)]
+        fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+            let cls = zelf.clone_class().into_object();
+            Ok(match zelf.maxlen {
+                Some(v) => vm.ctx.new_tuple(vec![
+                    cls,
+                    vm.ctx.new_tuple(vec![
+                        vm.ctx.empty_tuple.clone().into_object(),
+                        vm.ctx.new_int(v),
+                    ]),
+                    vm.ctx.none(),
+                    PyDequeIterator::new(zelf).into_object(vm),
+                ]),
+                None => vm.ctx.new_tuple(vec![
+                    cls,
+                    vm.ctx.empty_tuple.clone().into_object(),
+                    vm.ctx.none(),
+                    PyDequeIterator::new(zelf).into_object(vm),
+                ]),
+            })
+        }
     }
 
     impl Comparable for PyDeque {
@@ -538,13 +560,7 @@ mod _collections {
 
     impl Iterable for PyDeque {
         fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-            Ok(PyDequeIterator {
-                position: AtomicCell::new(0),
-                status: AtomicCell::new(IterStatus::Active),
-                length: zelf.len(),
-                deque: zelf,
-            }
-            .into_object(vm))
+            Ok(PyDequeIterator::new(zelf).into_object(vm))
         }
     }
 
@@ -566,6 +582,15 @@ mod _collections {
 
     #[pyimpl(with(PyIter))]
     impl PyDequeIterator {
+        pub(crate) fn new(deque: PyDequeRef) -> Self {
+            PyDequeIterator {
+                position: AtomicCell::new(0),
+                status: AtomicCell::new(IterStatus::Active),
+                length: deque.len(),
+                deque,
+            }
+        }
+
         #[pymethod(magic)]
         fn length_hint(&self) -> usize {
             match self.status.load() {
