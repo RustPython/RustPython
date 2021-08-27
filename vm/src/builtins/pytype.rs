@@ -300,8 +300,19 @@ impl PyType {
     }
 
     #[pymethod(magic)]
-    fn repr(&self) -> String {
-        format!("<class '{}'>", self.tp_name())
+    fn repr(&self, vm: &VirtualMachine) -> Option<String> {
+        let module = self.module(vm);
+        let module = module.downcast_ref::<PyStr>().map(|m| m.as_str())?;
+
+        Some(if module != "builtins" {
+            format!(
+                "<class '{}.{}'>",
+                module,
+                self.qualname(vm).downcast_ref::<PyStr>()?.as_str()
+            )
+        } else {
+            format!("<class '{}'>", self.tp_name())
+        })
     }
 
     #[pyproperty(magic)]
