@@ -833,8 +833,6 @@ class TestSubclass(unittest.TestCase):
         d.clear()
         self.assertEqual(len(d), 0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_copy_pickle(self):
 
         d = Deque('abc')
