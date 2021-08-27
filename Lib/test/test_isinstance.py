@@ -297,6 +297,7 @@ class TestIsInstanceIsSubclass(unittest.TestCase):
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
+    @unittest.skipIf(sys.platform == "win32", "thread 'main' has overflowed its stack")
     def test_infinite_recursion_in_bases(self):
         class X:
             @property
