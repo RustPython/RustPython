@@ -300,19 +300,19 @@ impl PyType {
     }
 
     #[pymethod(magic)]
-    fn repr(&self, vm: &VirtualMachine) -> Option<String> {
+    fn repr(&self, vm: &VirtualMachine) -> String {
         let module = self.module(vm);
         let module = module.downcast_ref::<PyStr>().map(|m| m.as_str());
 
-        Some(if module.is_some() && module.unwrap() != "builtins" {
+        if module.is_some() && module.unwrap() != "builtins" {
             format!(
                 "<class '{}.{}'>",
                 module.unwrap(),
-                self.qualname(vm).downcast_ref::<PyStr>()?.as_str()
+                self.qualname(vm).downcast_ref::<PyStr>().unwrap().as_str()
             )
         } else {
             format!("<class '{}'>", self.tp_name())
-        })
+        }
     }
 
     #[pyproperty(magic)]
