@@ -1021,8 +1021,8 @@ impl Compiler {
         };
 
         let qualified_name = self.create_qualified_name(name, "");
-        let old_qualified_path = self.current_qualified_path.take();
-        self.current_qualified_path = Some(self.create_qualified_name(name, ".<locals>"));
+        let old_qualified_path = self.current_qualified_path.replace(qualified_name.clone());
+        self.current_qualified_path = Some(self.create_qualified_name("<locals>", ""));
 
         let (body, doc_str) = get_doc(body);
 
