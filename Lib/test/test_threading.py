@@ -1069,6 +1069,13 @@ class ThreadingExceptionTests(BaseTestCase):
         # for threads
         script = """if True:
             import threading
+            # TODO: RUSTPYTHON
+            # Following lines set the recursion limit to previous default of 512
+            # for the execution of this process. Without this, the test runners
+            # on Github fail. Ideally, at a future point this should be removed.
+            import os, sys
+            if os.getenv("CI"):
+                sys.setrecursionlimit(512)
 
             def recurse():
                 return recurse()

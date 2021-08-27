@@ -286,7 +286,7 @@ impl VirtualMachine {
             profile_func,
             trace_func,
             use_tracing: Cell::new(false),
-            recursion_limit: Cell::new(if cfg!(debug_assertions) { 256 } else { 512 }),
+            recursion_limit: Cell::new(if cfg!(debug_assertions) { 256 } else { 1000 }),
             signal_handlers: Some(Box::new(signal_handlers)),
             repr_guards: RefCell::default(),
             state: PyRc::new(PyGlobalState {
