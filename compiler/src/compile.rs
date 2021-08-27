@@ -1020,9 +1020,10 @@ impl Compiler {
             },
         };
 
-        let qualified_name = self.create_qualified_name(name, "");
-        let old_qualified_path = self.current_qualified_path.replace(qualified_name.clone());
-        self.current_qualified_path = Some(self.create_qualified_name("<locals>", ""));
+        let old_qualified_path = self.current_qualified_path.clone();
+        self.push_qualified_name(name);
+        let qualified_name = self.current_qualified_path.clone().unwrap();
+        self.push_qualified_name("<locals>");
 
         let (body, doc_str) = get_doc(body);
 
@@ -1190,11 +1191,9 @@ impl Compiler {
 
         let prev_class_name = std::mem::replace(&mut self.class_name, Some(name.to_owned()));
 
-        let qualified_name = self.create_qualified_name(name, "");
-        let old_qualified_path = std::mem::replace(
-            &mut self.current_qualified_path,
-            Some(qualified_name.clone()),
-        );
+        let old_qualified_path = self.current_qualified_path.clone();
+        self.push_qualified_name(name);
+        let qualified_name = self.current_qualified_path.clone().unwrap();
 
         self.push_output(bytecode::CodeFlags::empty(), 0, 0, 0, name.to_owned());
 
@@ -2466,11 +2465,12 @@ impl Compiler {
         self.current_source_location.row()
     }
 
-    fn create_qualified_name(&self, name: &str, suffix: &str) -> String {
-        if let Some(ref qualified_path) = self.current_qualified_path {
-            format!("{}.{}{}", qualified_path, name, suffix)
+    fn push_qualified_name(&mut self, name: &str) {
+        if let Some(ref mut qualified_path) = self.current_qualified_path {
+            qualified_path.push('.');
+            qualified_path.push_str(name);
         } else {
-            format!("{}{}", name, suffix)
+            self.current_qualified_path = Some(name.to_owned());
         }
     }
 
