@@ -2402,8 +2402,6 @@ class TestSingleDispatch(unittest.TestCase):
         self.assertEqual(a.t(''), "str")
         self.assertEqual(a.t(0.0), "base")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_invalid_registrations(self):
         msg_prefix = "Invalid first argument to `register()`: "
         msg_suffix = (
