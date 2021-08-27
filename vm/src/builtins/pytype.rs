@@ -304,14 +304,18 @@ impl PyType {
         let module = self.module(vm);
         let module = module.downcast_ref::<PyStr>().map(|m| m.as_str());
 
-        if module.is_some() && module.unwrap() != "builtins" {
-            format!(
-                "<class '{}.{}'>",
-                module.unwrap(),
-                self.qualname(vm).downcast_ref::<PyStr>().unwrap().as_str()
-            )
-        } else {
-            format!("<class '{}'>", self.tp_name())
+        match module {
+            Some(module) if module != "builtins" => {
+                format!(
+                    "<class '{}.{}'>",
+                    module,
+                    self.qualname(vm)
+                        .downcast_ref::<PyStr>()
+                        .map(|n| n.as_str())
+                        .unwrap_or_else(|| &self.name)
+                )
+            }
+            _ => format!("<class '{}'>", self.tp_name()),
         }
     }
 
