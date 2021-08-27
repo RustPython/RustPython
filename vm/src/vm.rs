@@ -985,15 +985,86 @@ impl VirtualMachine {
         self._isinstance(obj, cls)
     }
 
+    fn abstract_issubclass(&self, subclass: PyObjectRef, cls: &PyObjectRef) -> PyResult<bool> {
+        let mut derived = subclass;
+        loop {
+            if derived.class().is(cls) {
+                return Ok(true);
+            }
+
+            let bases = self.get_attribute(derived, "__bases__")?;
+            let tuple = PyTupleRef::try_from_object(self, bases)?;
+
+            let n = tuple.len();
+            match n {
+                0 => {
+                    return Ok(false);
+                }
+                1 => {
+                    derived = tuple.fast_getitem(0);
+                    continue;
+                }
+                _ => {
+                    for i in 0..n {
+                        if let Ok(true) = self.abstract_issubclass(tuple.fast_getitem(i), cls) {
+                            return Ok(true);
+                        }
+                    }
+                }
+            }
+
+            return Ok(false);
+        }
+    }
+
+    fn recursive_issubclass(&self, subclass: &PyObjectRef, cls: &PyObjectRef) -> PyResult<bool> {
+        if let (Ok(subclass), Ok(cls)) = (
+            PyTypeRef::try_from_object(self, subclass.clone()),
+            PyTypeRef::try_from_object(self, cls.clone()),
+        ) {
+            Ok(subclass.issubclass(cls))
+        } else {
+            if self.get_attribute(subclass.clone(), "__bases__").is_err() {
+                return Err(self.new_type_error(format!(
+                    "issubclass() arg 1 must be a class, not {}",
+                    subclass.class()
+                )));
+            }
+            if self.get_attribute(cls.clone(), "__bases__").is_err() {
+                return Err(self.new_type_error(format!(
+                    "issubclass() arg 2 must be a class or tuple of classes, not {}",
+                    cls.class()
+                )));
+            }
+            self.abstract_issubclass(subclass.clone(), cls)
+        }
+    }
+
     /// Determines if `subclass` is a subclass of `cls`, either directly, indirectly or virtually
     /// via the __subclasscheck__ magic method.
-    pub fn issubclass(&self, subclass: &PyTypeRef, cls: &PyTypeRef) -> PyResult<bool> {
-        let ret = self.call_special_method(
-            cls.as_object().clone(),
-            "__subclasscheck__",
-            (subclass.clone(),),
-        )?;
-        pybool::boolval(self, ret)
+    pub fn issubclass(&self, subclass: &PyObjectRef, cls: &PyObjectRef) -> PyResult<bool> {
+        if cls.class().is(&self.ctx.types.type_type) {
+            if subclass.is(cls) {
+                return Ok(true);
+            }
+            return self.recursive_issubclass(subclass, cls);
+        }
+
+        if let Ok(tuple) = PyTupleRef::try_from_object(self, cls.clone()) {
+            for typ in tuple.as_slice().iter() {
+                if self.issubclass(subclass, typ)? {
+                    return Ok(true);
+                }
+            }
+            return Ok(false);
+        }
+
+        if let Ok(meth) = self.get_special_method(cls.clone(), "__subclasscheck__")? {
+            let ret = meth.invoke((subclass.clone(),), self)?;
+            return pybool::boolval(self, ret);
+        }
+
+        self.recursive_issubclass(subclass, cls)
     }
 
     pub fn call_get_descriptor_specific(

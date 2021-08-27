@@ -25,9 +25,7 @@ mod decl {
     use crate::common::{hash::PyHash, str::to_ascii};
     #[cfg(feature = "rustpython-compiler")]
     use crate::compile;
-    use crate::function::{
-        single_or_tuple_any, Args, FuncArgs, KwArgs, OptionalArg, OptionalOption,
-    };
+    use crate::function::{Args, FuncArgs, KwArgs, OptionalArg, OptionalOption};
     use crate::iterator;
     use crate::readline::{Readline, ReadlineResult};
     use crate::scope::Scope;
@@ -412,18 +410,8 @@ mod decl {
     }
 
     #[pyfunction]
-    fn issubclass(subclass: PyTypeRef, typ: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        single_or_tuple_any(
-            typ,
-            &|cls: &PyTypeRef| vm.issubclass(&subclass, cls),
-            &|o| {
-                format!(
-                    "issubclass() arg 2 must be a class or tuple of classes, not {}",
-                    o.class()
-                )
-            },
-            vm,
-        )
+    fn issubclass(subclass: PyObjectRef, typ: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        vm.issubclass(&subclass, &typ)
     }
 
     #[pyfunction]
