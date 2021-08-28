@@ -299,32 +299,23 @@ pub(crate) fn impl_define_exception(
         ctx_name,
         docs,
         tp_new,
+        init,
     } = exc_def;
 
     // We need this method, because of how `CPython` copies `__new__`
     // from `BaseException` in `SimpleExtendsException` macro.
     // See: `BaseException_new`
     let tp_new_slot = match tp_new {
-        Some(tp_call) => quote! {
-            #[pyslot]
-            pub(crate) fn tp_new(
-                cls: PyTypeRef,
-                args: FuncArgs,
-                vm: &VirtualMachine,
-            ) -> PyResult<PyRef<PyBaseException>> {
-                #tp_call(cls, args, vm)
-            }
-        },
-        None => quote! {
-            #[pyslot]
-            pub(crate) fn tp_new(
-                cls: PyTypeRef,
-                args: FuncArgs,
-                vm: &VirtualMachine,
-            ) -> PyResult<PyBaseExceptionRef> {
-                #base_class::tp_new(cls, args, vm)
-            }
-        },
+        Some(tp_call) => quote! { #tp_call(cls, args, vm) },
+        None => quote! { #base_class::tp_new(cls, args, vm) },
+    };
+
+    // We need this method, because of how `CPython` copies `__init__`
+    // from `BaseException` in `SimpleExtendsException` macro.
+    // See: `(initproc)BaseException_init`
+    let init_method = match init {
+        Some(init_def) => quote! { #init_def(zelf, args, vm) },
+        None => quote! { #base_class::init(zelf, args, vm) },
     };
 
     let ret = quote! {
@@ -342,25 +333,22 @@ pub(crate) fn impl_define_exception(
 
         #[pyimpl(flags(BASETYPE, HAS_DICT))]
         impl #class_name {
-            #tp_new_slot
+            #[pyslot]
+            pub(crate) fn tp_new(
+                cls: PyTypeRef,
+                args: FuncArgs,
+                vm: &VirtualMachine,
+            ) -> PyResult<PyBaseExceptionRef> {
+                #tp_new_slot
+            }
 
             #[pymethod(magic)]
             pub(crate) fn init(
                 zelf: PyRef<PyBaseException>,
-                mut args: FuncArgs,
+                args: FuncArgs,
                 vm: &VirtualMachine,
             ) -> PyResult<()> {
-                // We need this method, because of how `CPython` copies `__init__`
-                // from `BaseException` in `SimpleExtendsException` macro.
-                // See: `(initproc)BaseException_init`
-                match zelf.clone_class().get_super_attr("__init__") {
-                    Some(super_init) => {
-                        args.prepend_arg(zelf.clone().into_object());
-                        vm.invoke(&super_init, args)?;
-                        Ok(())
-                    },
-                    None => #base_class::init(zelf, args, vm)
-                }
+                #init_method
             }
         }
     };
@@ -1059,25 +1047,37 @@ pub(crate) struct PyExceptionDef {
 
     /// Holds optional `tp_new` slot to be used instead of a default one:
     pub tp_new: Option<Ident>,
+    /// We also store `__init__` magic method, that can
+    pub init: Option<Ident>,
 }
 
 impl Parse for PyExceptionDef {
     fn parse(input: ParseStream) -> ParsingResult<Self> {
         let class_name: Ident = input.parse()?;
         input.parse::<Token![,]>()?;
+
         let base_class: Ident = input.parse()?;
         input.parse::<Token![,]>()?;
+
         let ctx_name: Ident = input.parse()?;
         input.parse::<Token![,]>()?;
+
         let docs: LitStr = input.parse()?;
         input.parse::<Option<Token![,]>>()?;
+
         let tp_new: Option<Ident> = input.parse()?;
+        input.parse::<Option<Token![,]>>()?;
+
+        let init: Option<Ident> = input.parse()?;
+        input.parse::<Option<Token![,]>>()?; // leading `,`
+
         Ok(PyExceptionDef {
             class_name,
             base_class,
             ctx_name,
             docs,
             tp_new,
+            init,
         })
     }
 }

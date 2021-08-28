@@ -155,6 +155,14 @@ impl PyBaseException {
     }
 }
 
+fn base_exception_new(
+    cls: PyTypeRef,
+    args: FuncArgs,
+    vm: &VirtualMachine,
+) -> PyResult<PyRef<PyBaseException>> {
+    PyBaseException::new(args.args, vm).into_ref_with_type(vm, cls)
+}
+
 pub fn chain<T>(e1: PyResult<()>, e2: PyResult<T>) -> PyResult<T> {
     match (e1, e2) {
         (Err(e1), Err(e)) => {
@@ -638,7 +646,9 @@ define_exception! {
     PyImportError,
     PyException,
     import_error,
-    "Import can't find module, or can't find name in module."
+    "Import can't find module, or can't find name in module.",
+    base_exception_new,
+    import_error_init,
 }
 define_exception! {
     PyModuleNotFoundError,
@@ -1120,7 +1130,6 @@ impl ExceptionZoo {
         });
 
         extend_exception!(PyImportError, ctx, &excs.import_error, {
-            "__init__" => ctx.new_method("__init__", excs.import_error.clone(), import_error_init),
             "msg" => ctx.new_readonly_getset("msg", excs.import_error.clone(), make_arg_getter(0)),
         });
         extend_exception!(PyModuleNotFoundError, ctx, &excs.module_not_found_error);
@@ -1241,7 +1250,12 @@ impl ExceptionZoo {
     }
 }
 
-fn import_error_init(exc_self: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+fn import_error_init(
+    zelf: PyRef<PyBaseException>,
+    args: FuncArgs,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    let exc_self = zelf.into_object();
     vm.set_attr(
         &exc_self,
         "name",
