@@ -73,13 +73,13 @@ __all__ = [
 
     # Structural checks, a.k.a. protocols.
     'Reversible',
-    # 'SupportsAbs',  # TODO: RUSTPYTHON
+    'SupportsAbs',
     'SupportsBytes',
     'SupportsComplex',
     'SupportsFloat',
     'SupportsIndex',
     'SupportsInt',
-    # 'SupportsRound',  # TODO: RUSTPYTHON
+    'SupportsRound',
 
     # Concrete collection types.
     'ChainMap',
@@ -1570,26 +1570,24 @@ class SupportsIndex(Protocol):
         pass
 
 
-# TODO: RUSTPYTHON, sort out the method resolution order nonsense
-# 
-# @runtime_checkable
-# class SupportsAbs(Protocol[T_co]):
-#     """An ABC with one abstract method __abs__ that is covariant in its return type."""
-#     __slots__ = ()
-# 
-#     @abstractmethod
-#     def __abs__(self) -> T_co:
-#         pass
-# 
-# 
-# @runtime_checkable
-# class SupportsRound(Protocol[T_co]):
-#     """An ABC with one abstract method __round__ that is covariant in its return type."""
-#     __slots__ = ()
-# 
-#     @abstractmethod
-#     def __round__(self, ndigits: int = 0) -> T_co:
-#         pass
+@runtime_checkable
+class SupportsAbs(Protocol[T_co]):
+    """An ABC with one abstract method __abs__ that is covariant in its return type."""
+    __slots__ = ()
+
+    @abstractmethod
+    def __abs__(self) -> T_co:
+        pass
+
+
+@runtime_checkable
+class SupportsRound(Protocol[T_co]):
+    """An ABC with one abstract method __round__ that is covariant in its return type."""
+    __slots__ = ()
+
+    @abstractmethod
+    def __round__(self, ndigits: int = 0) -> T_co:
+        pass
 
 
 def _make_nmtuple(name, types):
