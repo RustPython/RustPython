@@ -56,7 +56,7 @@ struct Compiler {
     symbol_table_stack: Vec<SymbolTable>,
     source_path: String,
     current_source_location: ast::Location,
-    current_qualified_path: Option<String>,
+    qualified_path: Vec<String>,
     done_with_future_stmts: bool,
     ctx: CompileContext,
     class_name: Option<String>,
@@ -190,7 +190,7 @@ impl Compiler {
             symbol_table_stack: Vec::new(),
             source_path,
             current_source_location: ast::Location::default(),
-            current_qualified_path: None,
+            qualified_path: Vec::new(),
             done_with_future_stmts: false,
             ctx: CompileContext {
                 loop_data: None,
@@ -1020,9 +1020,9 @@ impl Compiler {
             },
         };
 
-        let qualified_name = self.create_qualified_name(name, "");
-        let old_qualified_path = self.current_qualified_path.take();
-        self.current_qualified_path = Some(self.create_qualified_name(name, ".<locals>"));
+        self.push_qualified_path(name);
+        let qualified_name = self.qualified_path.join(".");
+        self.push_qualified_path("<locals>");
 
         let (body, doc_str) = get_doc(body);
 
@@ -1040,7 +1040,8 @@ impl Compiler {
         }
 
         let code = self.pop_code_object();
-        self.current_qualified_path = old_qualified_path;
+        self.qualified_path.pop();
+        self.qualified_path.pop();
         self.ctx = prev_ctx;
 
         // Prepare type annotations:
@@ -1190,11 +1191,8 @@ impl Compiler {
 
         let prev_class_name = std::mem::replace(&mut self.class_name, Some(name.to_owned()));
 
-        let qualified_name = self.create_qualified_name(name, "");
-        let old_qualified_path = std::mem::replace(
-            &mut self.current_qualified_path,
-            Some(qualified_name.clone()),
-        );
+        self.push_qualified_path(name);
+        let qualified_name = self.qualified_path.join(".");
 
         self.push_output(bytecode::CodeFlags::empty(), 0, 0, 0, name.to_owned());
 
@@ -1240,7 +1238,7 @@ impl Compiler {
         let code = self.pop_code_object();
 
         self.class_name = prev_class_name;
-        self.current_qualified_path = old_qualified_path;
+        self.qualified_path.pop();
         self.ctx = prev_ctx;
 
         let mut funcflags = bytecode::MakeFunctionFlags::empty();
@@ -2466,12 +2464,8 @@ impl Compiler {
         self.current_source_location.row()
     }
 
-    fn create_qualified_name(&self, name: &str, suffix: &str) -> String {
-        if let Some(ref qualified_path) = self.current_qualified_path {
-            format!("{}.{}{}", qualified_path, name, suffix)
-        } else {
-            format!("{}{}", name, suffix)
-        }
+    fn push_qualified_path(&mut self, name: &str) {
+        self.qualified_path.push(name.to_owned());
     }
 
     fn mark_generator(&mut self) {

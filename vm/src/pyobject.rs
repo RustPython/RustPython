@@ -991,8 +991,7 @@ pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
         None
     }
 
-    fn into_ref(self, vm: &VirtualMachine) -> PyRef<Self> {
-        let cls = Self::class(vm).clone();
+    fn _into_ref(self, cls: PyTypeRef, vm: &VirtualMachine) -> PyRef<Self> {
         let dict = if cls.slots.flags.has_feature(PyTpFlags::HAS_DICT) {
             Some(vm.ctx.new_dict())
         } else {
@@ -1001,19 +1000,20 @@ pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
         PyRef::new_ref(self, cls, dict)
     }
 
+    fn into_ref(self, vm: &VirtualMachine) -> PyRef<Self> {
+        let cls = Self::class(vm);
+        self._into_ref(cls.clone(), vm)
+    }
+
     fn into_ref_with_type(self, vm: &VirtualMachine, cls: PyTypeRef) -> PyResult<PyRef<Self>> {
         let exact_class = Self::class(vm);
         if cls.issubclass(exact_class) {
-            let dict = if cls.slots.flags.has_feature(PyTpFlags::HAS_DICT) {
-                Some(vm.ctx.new_dict())
-            } else {
-                None
-            };
-            Ok(PyRef::new_ref(self, cls, dict))
+            Ok(self._into_ref(cls, vm))
         } else {
-            let subtype = vm.to_str(cls.as_object())?;
-            let basetype = vm.to_str(exact_class.as_object())?;
-            Err(vm.new_type_error(format!("{} is not a subtype of {}", subtype, basetype)))
+            Err(vm.new_type_error(format!(
+                "'{}' is not a subtype of '{}'",
+                &cls.name, exact_class.name
+            )))
         }
     }
 }

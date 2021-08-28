@@ -224,8 +224,6 @@ class TestIsInstanceIsSubclass(unittest.TestCase):
         self.assertEqual(False, isinstance(AbstractChild(), Super))
         self.assertEqual(False, isinstance(AbstractChild(), Child))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_subclass_normal(self):
         # normal classes
         self.assertEqual(True, issubclass(Super, Super))
@@ -299,6 +297,7 @@ class TestIsInstanceIsSubclass(unittest.TestCase):
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
+    @unittest.skipIf(sys.platform == "win32", "thread 'main' has overflowed its stack")
     def test_infinite_recursion_in_bases(self):
         class X:
             @property

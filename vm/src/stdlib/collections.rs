@@ -174,12 +174,13 @@ mod _collections {
 
         #[pymethod(magic)]
         #[pymethod]
-        fn copy(&self) -> Self {
-            PyDeque {
-                deque: PyRwLock::new(self.borrow_deque().clone()),
-                maxlen: self.maxlen,
-                state: AtomicCell::new(self.state.load()),
+        fn copy(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+            Self {
+                deque: PyRwLock::new(zelf.borrow_deque().clone()),
+                maxlen: zelf.maxlen,
+                state: AtomicCell::new(zelf.state.load()),
             }
+            .into_ref_with_type(vm, zelf.clone_class())
         }
 
         #[pymethod]

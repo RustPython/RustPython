@@ -1730,9 +1730,7 @@ impl ExecutingFrame<'_> {
             bytecode::ComparisonOperator::IsNot => vm.ctx.new_bool(self._is_not(a, b)),
             bytecode::ComparisonOperator::In => vm.ctx.new_bool(self._in(vm, a, b)?),
             bytecode::ComparisonOperator::NotIn => vm.ctx.new_bool(self._not_in(vm, a, b)?),
-            bytecode::ComparisonOperator::ExceptionMatch => {
-                vm.ctx.new_bool(builtins::isinstance(a, b, vm)?)
-            }
+            bytecode::ComparisonOperator::ExceptionMatch => vm.ctx.new_bool(vm.isinstance(&a, &b)?),
         };
 
         self.push_value(value);

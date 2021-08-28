@@ -80,4 +80,4 @@ pub(crate) mod zip;
 pub use zip::PyZip;
 
 mod make_module;
-pub use make_module::{ascii, isinstance, make_module, print};
+pub use make_module::{ascii, make_module, print};
