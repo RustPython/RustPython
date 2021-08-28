@@ -652,6 +652,7 @@ impl PyValue for PyOSError {
 
 #[pyimpl(flags(BASETYPE, HAS_DICT))]
 impl PyOSError {
+    #[cfg(not(target_os = "wasi"))]
     fn optional_new(
         args: Vec<PyObjectRef>,
         vm: &VirtualMachine,
@@ -751,6 +752,14 @@ impl PyOSError {
         } else {
             None
         }
+    }
+
+    #[cfg(target_os = "wasi")]
+    fn optional_new(
+        args: Vec<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> Option<PyResult<PyBaseExceptionRef>> {
+        None
     }
 
     #[pyslot]
