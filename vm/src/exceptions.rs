@@ -1128,6 +1128,25 @@ impl ExceptionZoo {
         extend_exception!(PySystemExit, ctx, &excs.system_exit, {
             "code" => ctx.new_readonly_getset("code", excs.system_exit.clone(), system_exit_code),
         });
+        extend_exception!(PyKeyboardInterrupt, ctx, &excs.keyboard_interrupt);
+        extend_exception!(PyGeneratorExit, ctx, &excs.generator_exit);
+
+        extend_exception!(PyException, ctx, &excs.exception_type);
+
+        extend_exception!(PyStopIteration, ctx, &excs.stop_iteration, {
+            "value" => ctx.new_readonly_getset("value", excs.stop_iteration.clone(), make_arg_getter(0)),
+        });
+        extend_exception!(PyStopAsyncIteration, ctx, &excs.stop_async_iteration);
+
+        extend_exception!(PyArithmeticError, ctx, &excs.arithmetic_error);
+        extend_exception!(PyFloatingPointError, ctx, &excs.floating_point_error);
+        extend_exception!(PyOverflowError, ctx, &excs.overflow_error);
+        extend_exception!(PyZeroDivisionError, ctx, &excs.zero_division_error);
+
+        extend_exception!(PyAssertionError, ctx, &excs.assertion_error);
+        extend_exception!(PyAttributeError, ctx, &excs.attribute_error);
+        extend_exception!(PyBufferError, ctx, &excs.buffer_error);
+        extend_exception!(PyEOFError, ctx, &excs.eof_error);
 
         extend_exception!(PyImportError, ctx, &excs.import_error, {
             "msg" => ctx.new_readonly_getset("msg", excs.import_error.clone(), make_arg_getter(0)),
