@@ -129,6 +129,15 @@ impl PyBytes {
     }
 
     #[pymethod(magic)]
+    fn bytes(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRef<Self> {
+        if zelf.is(&vm.ctx.types.bytes_type) {
+            zelf
+        } else {
+            PyBytes::from(zelf.inner.clone()).into_ref(vm)
+        }
+    }
+
+    #[pymethod(magic)]
     fn sizeof(&self) -> usize {
         size_of::<Self>() + self.inner.elements.len() * size_of::<u8>()
     }
