@@ -646,8 +646,6 @@ class TestBasic(unittest.TestCase):
                 self.assertEqual(id(e[-1]), id(e))
                 self.assertEqual(e.maxlen, d.maxlen)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_iterator_pickle(self):
         orig = deque(range(200))
         data = [i*1.01 for i in orig]
@@ -729,8 +727,6 @@ class TestBasic(unittest.TestCase):
         for s in ('abcd', range(2000)):
             self.assertEqual(list(reversed(deque(s))), list(reversed(s)))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_reversed_new(self):
         klass = type(reversed(deque()))
         for s in ('abcd', range(2000)):

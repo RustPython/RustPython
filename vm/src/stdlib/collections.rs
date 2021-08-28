@@ -360,15 +360,14 @@ mod _collections {
         }
 
         #[pymethod(magic)]
-        fn reversed(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        fn reversed(zelf: PyRef<Self>) -> PyResult<PyReverseDequeIterator> {
             let length = zelf.len();
             Ok(PyReverseDequeIterator {
                 position: AtomicCell::new(length),
                 status: AtomicCell::new(if length > 0 { Active } else { Exhausted }),
                 length,
                 deque: zelf,
-            }
-            .into_object(vm))
+            })
         }
 
         #[pymethod]
@@ -591,6 +590,19 @@ mod _collections {
             }
         }
 
+        #[pyslot]
+        fn tp_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+            if args.args.len() <= 1 {
+                let deque = args.bind(vm)?;
+                PyDequeIterator::new(deque).into_ref_with_type(vm, cls)
+            } else {
+                let (deque, position) = args.bind(vm)?;
+                let iter = PyDequeIterator::new(deque);
+                iter.position.store(position);
+                iter.into_ref_with_type(vm, cls)
+            }
+        }
+
         #[pymethod(magic)]
         fn length_hint(&self) -> usize {
             match self.status.load() {
@@ -659,6 +671,23 @@ mod _collections {
             match self.status.load() {
                 Active => self.position.load(),
                 Exhausted => 0,
+            }
+        }
+
+        #[pyslot]
+        fn tp_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+            if args.args.len() <= 1 {
+                let deque = args.bind(vm)?;
+                PyDeque::reversed(deque)?.into_ref_with_type(vm, cls)
+            } else {
+                let (deque, position): (PyRef<PyDeque>, usize) = args.bind(vm)?;
+                let len = deque.len();
+                let iter = PyDeque::reversed(deque)?;
+                if len.le(&position) {
+                    iter.status.store(Exhausted);
+                }
+                iter.position.store(len.saturating_sub(position));
+                iter.into_ref_with_type(vm, cls)
             }
         }
 
