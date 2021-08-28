@@ -670,93 +670,111 @@ impl PyOSError {
                             #[cfg(not(any(windows, target_os = "wasi")))]
                             const EWOULDBLOCK: i32 = libc::EWOULDBLOCK;
                             #[cfg(windows)]
-                            const EWOULDBLOCK: i32 = winapi::shared::winerror: WSAEWOULDBLOCK;
+                            const EWOULDBLOCK: i32 = winapi::shared::winerror::WSAEWOULDBLOCK;
                             #[cfg(target_os = "wasi")]
                             const EWOULDBLOCK: i32 = wasmer_wasi::types::__WASI_EWOULDBLOCK as i32;
+
                             #[cfg(not(any(windows, target_os = "wasi")))]
                             const EALREADY: i32 = libc::EALREADY;
                             #[cfg(windows)]
-                            const EALREADY: i32 = winapi::shared::winerror: WSAEALREADY;
+                            const EALREADY: i32 = winapi::shared::winerror::WSAEALREADY;
                             #[cfg(target_os = "wasi")]
                             const EALREADY: i32 = wasmer_wasi::types::__WASI_EALREADY as i32;
+
                             #[cfg(not(any(windows, target_os = "wasi")))]
                             const EINPROGRESS: i32 = libc::EINPROGRESS;
                             #[cfg(windows)]
-                            const EINPROGRESS: i32 = winapi::shared::winerror: WSAEINPROGRESS;
+                            const EINPROGRESS: i32 = winapi::shared::winerror::WSAEINPROGRESS;
                             #[cfg(target_os = "wasi")]
                             const EINPROGRESS: i32 = wasmer_wasi::types::__WASI_EINPROGRESS as i32;
+
                             #[cfg(not(target_os = "wasi"))]
                             const EPIPE: i32 = libc::EPIPE;
                             #[cfg(target_os = "wasi")]
                             const EPIPE: i32 = wasmer_wasi::types::__WASI_EPIPE as i32;
+
                             #[cfg(not(any(windows, target_os = "wasi")))]
                             const ESHUTDOWN: i32 = libc::ESHUTDOWN;
                             #[cfg(windows)]
-                            const ESHUTDOWN: i32 = winapi::shared::winerror: WSAESHUTDOWN;
+                            const ESHUTDOWN: i32 = winapi::shared::winerror::WSAESHUTDOWN;
                             #[cfg(target_os = "wasi")]
                             const ESHUTDOWN: i32 = wasmer_wasi::types::__WASI_ESHUTDOWN as i32;
+
                             #[cfg(not(target_os = "wasi"))]
                             const ECHILD: i32 = libc::ECHILD;
                             #[cfg(target_os = "wasi")]
                             const ECHILD: i32 = wasmer_wasi::types::__WASI_ECHILD as i32;
+
                             #[cfg(not(any(windows, target_os = "wasi")))]
                             const ECONNABORTED: i32 = libc::ECONNABORTED;
                             #[cfg(windows)]
-                            const ECONNABORTED: i32 = winapi::shared::winerror: WSAECONNABORTED;
+                            const ECONNABORTED: i32 = winapi::shared::winerror::WSAECONNABORTED;
                             #[cfg(target_os = "wasi")]
                             const ECONNABORTED: i32 =
                                 wasmer_wasi::types::__WASI_ECONNABORTED as i32;
+
                             #[cfg(not(any(windows, target_os = "wasi")))]
                             const ECONNREFUSED: i32 = libc::ECONNREFUSED;
                             #[cfg(windows)]
-                            const ECONNREFUSED: i32 = winapi::shared::winerror: WSAECONNREFUSED;
+                            const ECONNREFUSED: i32 = winapi::shared::winerror::WSAECONNREFUSED;
                             #[cfg(target_os = "wasi")]
                             const ECONNREFUSED: i32 =
                                 wasmer_wasi::types::__WASI_ECONNREFUSED as i32;
+
                             #[cfg(not(any(windows, target_os = "wasi")))]
                             const ECONNRESET: i32 = libc::ECONNRESET;
                             #[cfg(windows)]
-                            const ECONNRESET: i32 = winapi::shared::winerror: WSAECONNRESET;
+                            const ECONNRESET: i32 = winapi::shared::winerror::WSAECONNRESET;
                             #[cfg(target_os = "wasi")]
                             const ECONNRESET: i32 = wasmer_wasi::types::__WASI_ECONNRESET as i32;
+
                             #[cfg(not(target_os = "wasi"))]
                             const EEXIST: i32 = libc::EEXIST;
                             #[cfg(target_os = "wasi")]
                             const EEXIST: i32 = wasmer_wasi::types::__WASI_EEXIST as i32;
+
                             #[cfg(not(target_os = "wasi"))]
                             const ENOENT: i32 = libc::ENOENT;
                             #[cfg(target_os = "wasi")]
                             const ENOENT: i32 = wasmer_wasi::types::__WASI_ENOENT as i32;
+
                             #[cfg(not(target_os = "wasi"))]
                             const EISDIR: i32 = libc::EISDIR;
                             #[cfg(target_os = "wasi")]
                             const EISDIR: i32 = wasmer_wasi::types::__WASI_EISDIR as i32;
+
                             #[cfg(not(target_os = "wasi"))]
                             const ENOTDIR: i32 = libc::ENOTDIR;
                             #[cfg(target_os = "wasi")]
                             const ENOTDIR: i32 = wasmer_wasi::types::__WASI_ENOTDIR as i32;
+
                             #[cfg(not(target_os = "wasi"))]
                             const EINTR: i32 = libc::EINTR;
                             #[cfg(target_os = "wasi")]
                             const EINTR: i32 = wasmer_wasi::types::__WASI_EINTR as i32;
+
                             #[cfg(not(target_os = "wasi"))]
                             const EACCES: i32 = libc::EACCES;
                             #[cfg(target_os = "wasi")]
                             const EACCES: i32 = wasmer_wasi::types::__WASI_EACCES as i32;
+
                             #[cfg(not(target_os = "wasi"))]
                             const EPERM: i32 = libc::EPERM;
                             #[cfg(target_os = "wasi")]
                             const EPERM: i32 = wasmer_wasi::types::__WASI_EPERM as i32;
+
                             #[cfg(not(target_os = "wasi"))]
                             const ESRCH: i32 = libc::ESRCH;
                             #[cfg(target_os = "wasi")]
                             const ESRCH: i32 = wasmer_wasi::types::__WASI_ESRCH as i32;
+
                             #[cfg(not(any(windows, target_os = "wasi")))]
                             const ETIMEDOUT: i32 = libc::ETIMEDOUT;
                             #[cfg(windows)]
-                            const ETIMEDOUT: i32 = winapi::shared::winerror: WSAETIMEDOUT;
+                            const ETIMEDOUT: i32 = winapi::shared::winerror::WSAETIMEDOUT;
                             #[cfg(target_os = "wasi")]
                             const ETIMEDOUT: i32 = wasmer_wasi::types::__WASI_ETIMEDOUT as i32;
+
                             let excs = &vm.ctx.exceptions;
                             let error = match errno {
                                 EWOULDBLOCK => Some(excs.blocking_io_error.clone()),
