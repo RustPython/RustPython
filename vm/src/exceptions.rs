@@ -670,21 +670,23 @@ impl PyOSError {
                             #[cfg(not(any(windows, target_os = "wasi")))]
                             const EWOULDBLOCK: i32 = libc::EWOULDBLOCK;
                             #[cfg(windows)]
-                            const EWOULDBLOCK: i32 = winapi::shared::winerror::WSAEWOULDBLOCK;
+                            const EWOULDBLOCK: i32 =
+                                winapi::shared::winerror::WSAEWOULDBLOCK as i32;
                             #[cfg(target_os = "wasi")]
                             const EWOULDBLOCK: i32 = wasmer_wasi::types::__WASI_EWOULDBLOCK as i32;
 
                             #[cfg(not(any(windows, target_os = "wasi")))]
                             const EALREADY: i32 = libc::EALREADY;
                             #[cfg(windows)]
-                            const EALREADY: i32 = winapi::shared::winerror::WSAEALREADY;
+                            const EALREADY: i32 = winapi::shared::winerror::WSAEALREADY as i32;
                             #[cfg(target_os = "wasi")]
                             const EALREADY: i32 = wasmer_wasi::types::__WASI_EALREADY as i32;
 
                             #[cfg(not(any(windows, target_os = "wasi")))]
                             const EINPROGRESS: i32 = libc::EINPROGRESS;
                             #[cfg(windows)]
-                            const EINPROGRESS: i32 = winapi::shared::winerror::WSAEINPROGRESS;
+                            const EINPROGRESS: i32 =
+                                winapi::shared::winerror::WSAEINPROGRESS as i32;
                             #[cfg(target_os = "wasi")]
                             const EINPROGRESS: i32 = wasmer_wasi::types::__WASI_EINPROGRESS as i32;
 
@@ -696,7 +698,7 @@ impl PyOSError {
                             #[cfg(not(any(windows, target_os = "wasi")))]
                             const ESHUTDOWN: i32 = libc::ESHUTDOWN;
                             #[cfg(windows)]
-                            const ESHUTDOWN: i32 = winapi::shared::winerror::WSAESHUTDOWN;
+                            const ESHUTDOWN: i32 = winapi::shared::winerror::WSAESHUTDOWN as i32;
                             #[cfg(target_os = "wasi")]
                             const ESHUTDOWN: i32 = wasmer_wasi::types::__WASI_ESHUTDOWN as i32;
 
@@ -708,7 +710,8 @@ impl PyOSError {
                             #[cfg(not(any(windows, target_os = "wasi")))]
                             const ECONNABORTED: i32 = libc::ECONNABORTED;
                             #[cfg(windows)]
-                            const ECONNABORTED: i32 = winapi::shared::winerror::WSAECONNABORTED;
+                            const ECONNABORTED: i32 =
+                                winapi::shared::winerror::WSAECONNABORTED as i32;
                             #[cfg(target_os = "wasi")]
                             const ECONNABORTED: i32 =
                                 wasmer_wasi::types::__WASI_ECONNABORTED as i32;
@@ -716,7 +719,8 @@ impl PyOSError {
                             #[cfg(not(any(windows, target_os = "wasi")))]
                             const ECONNREFUSED: i32 = libc::ECONNREFUSED;
                             #[cfg(windows)]
-                            const ECONNREFUSED: i32 = winapi::shared::winerror::WSAECONNREFUSED;
+                            const ECONNREFUSED: i32 =
+                                winapi::shared::winerror::WSAECONNREFUSED as i32;
                             #[cfg(target_os = "wasi")]
                             const ECONNREFUSED: i32 =
                                 wasmer_wasi::types::__WASI_ECONNREFUSED as i32;
@@ -724,7 +728,7 @@ impl PyOSError {
                             #[cfg(not(any(windows, target_os = "wasi")))]
                             const ECONNRESET: i32 = libc::ECONNRESET;
                             #[cfg(windows)]
-                            const ECONNRESET: i32 = winapi::shared::winerror::WSAECONNRESET;
+                            const ECONNRESET: i32 = winapi::shared::winerror::WSAECONNRESET as i32;
                             #[cfg(target_os = "wasi")]
                             const ECONNRESET: i32 = wasmer_wasi::types::__WASI_ECONNRESET as i32;
 
@@ -771,7 +775,7 @@ impl PyOSError {
                             #[cfg(not(any(windows, target_os = "wasi")))]
                             const ETIMEDOUT: i32 = libc::ETIMEDOUT;
                             #[cfg(windows)]
-                            const ETIMEDOUT: i32 = winapi::shared::winerror::WSAETIMEDOUT;
+                            const ETIMEDOUT: i32 = winapi::shared::winerror::WSAETIMEDOUT as i32;
                             #[cfg(target_os = "wasi")]
                             const ETIMEDOUT: i32 = wasmer_wasi::types::__WASI_ETIMEDOUT as i32;
 
