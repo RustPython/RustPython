@@ -4,6 +4,8 @@ import pickle
 import re
 import sys
 from unittest import TestCase, main, skipUnless, SkipTest, skip
+# TODO: RUSTPYTHON
+import unittest
 from copy import copy, deepcopy
 
 from typing import Any, NoReturn
@@ -436,6 +438,8 @@ class CallableTests(BaseTestCase):
         self.assertNotEqual(Callable[[int], int], Callable[[], int])
         self.assertNotEqual(Callable[[int], int], Callable)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_cannot_instantiate(self):
         with self.assertRaises(TypeError):
             Callable()
@@ -643,6 +647,8 @@ class HasCallProtocol(Protocol):
 
 
 class ProtocolTests(BaseTestCase):
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_basic_protocol(self):
         @runtime_checkable
         class P(Protocol):
@@ -665,6 +671,8 @@ class ProtocolTests(BaseTestCase):
         self.assertNotIsSubclass(types.FunctionType, P)
         self.assertNotIsInstance(f, P)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_everything_implements_empty_protocol(self):
         @runtime_checkable
         class Empty(Protocol):
@@ -687,6 +695,8 @@ class ProtocolTests(BaseTestCase):
 
         self.assertIsInstance(f, HasCallProtocol)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_no_inheritance_from_nominal(self):
         class C: pass
 
@@ -709,6 +719,8 @@ class ProtocolTests(BaseTestCase):
         self.assertNotIsInstance(D(), E)
         self.assertNotIsInstance(E(), D)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_no_instantiation(self):
         class P(Protocol): pass
 
@@ -733,6 +745,8 @@ class ProtocolTests(BaseTestCase):
 
         self.assertIsInstance(CG[int](), CG)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_cannot_instantiate_abstract(self):
         @runtime_checkable
         class P(Protocol):
@@ -751,6 +765,8 @@ class ProtocolTests(BaseTestCase):
             B()
         self.assertIsInstance(C(), P)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_subprotocols_extending(self):
         class P1(Protocol):
             def meth1(self):
@@ -783,6 +799,8 @@ class ProtocolTests(BaseTestCase):
         self.assertIsInstance(C(), P2)
         self.assertIsSubclass(C, P2)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_subprotocols_merging(self):
         class P1(Protocol):
             def meth1(self):
@@ -818,6 +836,8 @@ class ProtocolTests(BaseTestCase):
         self.assertIsInstance(C(), P)
         self.assertIsSubclass(C, P)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_protocols_issubclass(self):
         T = TypeVar('T')
 
@@ -855,6 +875,8 @@ class ProtocolTests(BaseTestCase):
         with self.assertRaises(TypeError):
             issubclass(PG, PG[int])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_protocols_issubclass_non_callable(self):
         class C:
             x = 1
@@ -882,6 +904,8 @@ class ProtocolTests(BaseTestCase):
         with self.assertRaises(TypeError):
             issubclass(D, PNonCall)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_protocols_isinstance(self):
         T = TypeVar('T')
 
@@ -913,6 +937,8 @@ class ProtocolTests(BaseTestCase):
         with self.assertRaises(TypeError):
             isinstance(C(), BadPG)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_protocols_isinstance_py36(self):
         class APoint:
             def __init__(self, x, y, label):
@@ -968,6 +994,8 @@ class ProtocolTests(BaseTestCase):
         self.assertIsInstance(C(1), P)
         self.assertIsInstance(C(1), PG)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_protocol_checks_after_subscript(self):
         class P(Protocol[T]): pass
         class C(P[T]): pass
@@ -1038,6 +1066,8 @@ class ProtocolTests(BaseTestCase):
         self.assertNotIsInstance(B(), P)
         self.assertNotIsInstance(C(), P)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_non_protocol_subclasses(self):
         class P(Protocol):
             x = 1
@@ -1064,6 +1094,8 @@ class ProtocolTests(BaseTestCase):
         self.assertIsInstance(NonPR(), PR)
         self.assertIsSubclass(NonPR, PR)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_custom_subclasshook(self):
         class P(Protocol):
             x = 1
@@ -1093,6 +1125,8 @@ class ProtocolTests(BaseTestCase):
         with self.assertRaises(TypeError):
             issubclass(C(), P)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_defining_generic_protocols(self):
         T = TypeVar('T')
         S = TypeVar('S')
@@ -1117,6 +1151,8 @@ class ProtocolTests(BaseTestCase):
 
         self.assertIsInstance(C[str](), C)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_defining_generic_protocols_old_style(self):
         T = TypeVar('T')
         S = TypeVar('S')
@@ -1156,6 +1192,8 @@ class ProtocolTests(BaseTestCase):
         with self.assertRaises(TypeError):
             PR[int, ClassVar]
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_init_called(self):
         T = TypeVar('T')
 
@@ -1209,6 +1247,8 @@ class ProtocolTests(BaseTestCase):
         self.assertEqual(P[int].__args__, (int,))
         self.assertIs(P[int].__origin__, P)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_generic_protocols_special_from_protocol(self):
         @runtime_checkable
         class PR(Protocol):
@@ -1237,6 +1277,8 @@ class ProtocolTests(BaseTestCase):
         self.assertEqual(frozenset(typing._get_protocol_attrs(PG)),
                          frozenset({'x', 'meth'}))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_no_runtime_deco_on_nominal(self):
         with self.assertRaises(TypeError):
             @runtime_checkable
@@ -1287,6 +1329,8 @@ class ProtocolTests(BaseTestCase):
         Alias2 = typing.Union[P, typing.Iterable]
         self.assertEqual(Alias, Alias2)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_protocols_pickleable(self):
         global P, CP  # pickle wants to reference the class by name
         T = TypeVar('T')
@@ -1316,14 +1360,20 @@ class ProtocolTests(BaseTestCase):
 
             self.assertIsInstance(E(), D)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_supports_int(self):
         self.assertIsSubclass(int, typing.SupportsInt)
         self.assertNotIsSubclass(str, typing.SupportsInt)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_supports_float(self):
         self.assertIsSubclass(float, typing.SupportsFloat)
         self.assertNotIsSubclass(str, typing.SupportsFloat)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_supports_complex(self):
 
         # Note: complex itself doesn't have __complex__.
@@ -1334,6 +1384,8 @@ class ProtocolTests(BaseTestCase):
         self.assertIsSubclass(C, typing.SupportsComplex)
         self.assertNotIsSubclass(str, typing.SupportsComplex)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_supports_bytes(self):
 
         # Note: bytes itself doesn't have __bytes__.
@@ -1344,11 +1396,15 @@ class ProtocolTests(BaseTestCase):
         self.assertIsSubclass(B, typing.SupportsBytes)
         self.assertNotIsSubclass(str, typing.SupportsBytes)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_supports_abs(self):
         self.assertIsSubclass(float, typing.SupportsAbs)
         self.assertIsSubclass(int, typing.SupportsAbs)
         self.assertNotIsSubclass(str, typing.SupportsAbs)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_supports_round(self):
         issubclass(float, typing.SupportsRound)
         self.assertIsSubclass(float, typing.SupportsRound)
@@ -1359,10 +1415,14 @@ class ProtocolTests(BaseTestCase):
         self.assertIsSubclass(list, typing.Reversible)
         self.assertNotIsSubclass(int, typing.Reversible)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_supports_index(self):
         self.assertIsSubclass(int, typing.SupportsIndex)
         self.assertNotIsSubclass(str, typing.SupportsIndex)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_bundled_protocol_instance_works(self):
         self.assertIsInstance(0, typing.SupportsAbs)
         class C1(typing.SupportsInt):
@@ -1373,6 +1433,8 @@ class ProtocolTests(BaseTestCase):
         c = C2()
         self.assertIsInstance(c, C1)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_collections_protocols_allowed(self):
         @runtime_checkable
         class Custom(collections.abc.Iterable, Protocol):
@@ -1854,6 +1916,8 @@ class GenericTests(BaseTestCase):
                     self.assertNotEqual(repr(base), '')
                     self.assertEqual(base, base)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_pickle(self):
         global C  # pickle wants to reference the class by name
         T = TypeVar('T')
@@ -1953,6 +2017,8 @@ class GenericTests(BaseTestCase):
         for t in things:
             self.assertEqual(weakref.ref(t)(), t)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_parameterized_slots(self):
         T = TypeVar('T')
         class C(Generic[T]):
@@ -1972,6 +2038,8 @@ class GenericTests(BaseTestCase):
         self.assertEqual(get_type_hints(foo, globals(), locals())['x'], C[C])
         self.assertEqual(copy(C[int]), deepcopy(C[int]))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_parameterized_slots_dict(self):
         T = TypeVar('T')
         class D(Generic[T]):
@@ -2178,6 +2246,8 @@ class GenericTests(BaseTestCase):
         self.assertEqual(c.from_a, 'foo')
         self.assertEqual(c.from_c, 'foo')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_new_no_args(self):
 
         class A(Generic[T]):
@@ -2806,6 +2876,8 @@ class GetTypeHintTests(BaseTestCase):
         with self.assertRaises(TypeError):
             gth(None)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_get_type_hints_modules(self):
         ann_module_type_hints = {1: 2, 'f': Tuple[int, int], 'x': int, 'y': str}
         self.assertEqual(gth(ann_module), ann_module_type_hints)
@@ -2821,6 +2893,8 @@ class GetTypeHintTests(BaseTestCase):
                      'default_b': Optional[mod_generics_cache.B]}
         self.assertEqual(gth(mod_generics_cache), mgc_hints)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_get_type_hints_classes(self):
         self.assertEqual(gth(ann_module.C),  # gth will find the right globalns
                          {'y': Optional[ann_module.C]})
@@ -2944,6 +3018,8 @@ class GetUtilitiesTestCase(TestCase):
 
 class CollectionsAbcTests(BaseTestCase):
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_hashable(self):
         self.assertIsInstance(42, typing.Hashable)
         self.assertNotIsInstance([], typing.Hashable)
@@ -3237,6 +3313,8 @@ class CollectionsAbcTests(BaseTestCase):
         g = foo()
         self.assertIsSubclass(type(g), typing.Generator)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_no_generator_instantiation(self):
         with self.assertRaises(TypeError):
             typing.Generator()
@@ -3252,6 +3330,8 @@ class CollectionsAbcTests(BaseTestCase):
         g = ns['f']()
         self.assertIsSubclass(type(g), typing.AsyncGenerator)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_no_async_generator_instantiation(self):
         with self.assertRaises(TypeError):
             typing.AsyncGenerator()
@@ -3260,6 +3340,8 @@ class CollectionsAbcTests(BaseTestCase):
         with self.assertRaises(TypeError):
             typing.AsyncGenerator[int, int]()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_subclassing(self):
 
         class MMA(typing.MutableMapping):
@@ -3625,6 +3707,8 @@ class XMethBad2(NamedTuple):
         self.assertEqual(Emp.__name__, 'Emp')
         self.assertEqual(Emp._fields, ('name', 'id'))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_copy_and_pickle(self):
         global Emp  # pickle wants to reference the class by name
         Emp = NamedTuple('Emp', [('name', str), ('cool', int)])
@@ -3677,6 +3761,8 @@ class TypedDictTests(BaseTestCase):
         self.assertEqual(Emp.__annotations__, {'name': str, 'id': int})
         self.assertEqual(Emp.__total__, True)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_typeddict_special_keyword_names(self):
         TD = TypedDict("TD", cls=type, self=object, typename=str, _typename=int, fields=list, _fields=dict)
         self.assertEqual(TD.__name__, 'TD')
@@ -3731,6 +3817,8 @@ class TypedDictTests(BaseTestCase):
         other = LabelPoint2D(x=0, y=1, label='hi')
         self.assertEqual(other['label'], 'hi')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_pickle(self):
         global EmpD  # pickle wants to reference the class by name
         EmpD = TypedDict('EmpD', name=str, id=int)
@@ -3787,6 +3875,8 @@ class IOTests(BaseTestCase):
         a = stuff.__annotations__['a']
         self.assertEqual(a.__parameters__, ())
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_io_submodule(self):
         from typing.io import IO, TextIO, BinaryIO, __all__, __name__
         self.assertIs(IO, typing.IO)
@@ -3839,6 +3929,8 @@ class RETests(BaseTestCase):
         self.assertEqual(repr(Match[str]), 'typing.Match[str]')
         self.assertEqual(repr(Match[bytes]), 'typing.Match[bytes]')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_re_submodule(self):
         from typing.re import Match, Pattern, __all__, __name__
         self.assertIs(Match, typing.Match)
@@ -3846,6 +3938,8 @@ class RETests(BaseTestCase):
         self.assertEqual(set(__all__), set(['Match', 'Pattern']))
         self.assertEqual(__name__, 'typing.re')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_cannot_subclass(self):
         with self.assertRaises(TypeError) as ex:
 
