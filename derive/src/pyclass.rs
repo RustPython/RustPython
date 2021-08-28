@@ -478,14 +478,17 @@ where
         let tokens = {
             let into_func = if slot_name == "new" {
                 quote_spanned! {ident.span() =>
-                    ::rustpython_vm::function::IntoPyNativeFunc::into_func(Self::#ident)
+                    // ::rustpython_vm::function::IntoPyNativeFunc::into_func(Self::#ident)
+                    // FIXME: temporary replacement of actual tp_new to avoid type error
+                    // once this is done, the whole branch can be removed
+                    ::rustpython_vm::builtins::pytype::x
                 }
             } else {
                 quote_spanned! {ident.span() =>
                     Self::#ident as _
                 }
             };
-            const NON_ATOMIC_SLOTS: &[&str] = &["new", "as_buffer"];
+            const NON_ATOMIC_SLOTS: &[&str] = &["as_buffer"];
             if NON_ATOMIC_SLOTS.contains(&slot_name.as_str()) {
                 quote! {
                     slots.#slot_ident = Some(#into_func);

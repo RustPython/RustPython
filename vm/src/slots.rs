@@ -1,8 +1,8 @@
 use crate::buffer::PyBuffer;
-use crate::builtins::pystr::PyStrRef;
+use crate::builtins::{PyStrRef, PyTypeRef};
 use crate::common::hash::PyHash;
 use crate::common::lock::PyRwLock;
-use crate::function::{FuncArgs, OptionalArg, PyNativeFunc};
+use crate::function::{FromArgs, FuncArgs, OptionalArg};
 use crate::utils::Either;
 use crate::VirtualMachine;
 use crate::{
@@ -45,6 +45,7 @@ impl Default for PyTpFlags {
 }
 
 pub(crate) type GenericMethod = fn(&PyObjectRef, FuncArgs, &VirtualMachine) -> PyResult;
+pub(crate) type NewFunc = fn(PyTypeRef, FuncArgs, &VirtualMachine) -> PyResult;
 pub(crate) type DelFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<()>;
 pub(crate) type DescrGetFunc =
     fn(PyObjectRef, Option<PyObjectRef>, Option<PyObjectRef>, &VirtualMachine) -> PyResult;
@@ -108,7 +109,7 @@ pub struct PyTypeSlots {
     // tp_dictoffset
     // tp_init
     // tp_alloc
-    pub new: Option<PyNativeFunc>,
+    pub new: AtomicCell<Option<NewFunc>>,
     // tp_free
     // tp_is_gc
     // tp_bases
@@ -132,6 +133,19 @@ impl std::fmt::Debug for PyTypeSlots {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("PyTypeSlots")
     }
+}
+
+#[pyimpl]
+pub trait SlotConstructor: PyValue {
+    type Args: FromArgs;
+
+    #[pyslot]
+    fn tp_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let args: Self::Args = args.bind(vm)?;
+        Self::py_new(cls, args, vm)
+    }
+
+    fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult;
 }
 
 #[pyimpl]
