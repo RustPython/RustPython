@@ -7,6 +7,7 @@ use crate::common::lock::PyRwLock;
 use crate::function::FuncArgs;
 use crate::py_io::{self, Write};
 use crate::sysmodule;
+use crate::types::create_type_with_slots;
 use crate::StaticType;
 use crate::VirtualMachine;
 use crate::{
@@ -516,6 +517,10 @@ pub fn exception_slots() -> crate::slots::PyTypeSlots {
     slots
 }
 
+pub fn create_exception_type(name: &str, base: &PyTypeRef) -> PyTypeRef {
+    create_type_with_slots(name, PyType::static_type(), base, exception_slots())
+}
+
 macro_rules! extend_exception {
     (
         $exc_struct:ident,
@@ -947,7 +952,6 @@ define_exception! {
 
 impl ExceptionZoo {
     pub(crate) fn init() -> Self {
-        println!("exceptions init");
         let base_exception_type = PyBaseException::init_bare_type().clone();
 
         // Sorted By Hierarchy then alphabetized.
@@ -1106,7 +1110,6 @@ impl ExceptionZoo {
     }
 
     pub fn extend(ctx: &PyContext) {
-        println!("exceptions extend");
         let excs = &ctx.exceptions;
 
         PyBaseException::extend_class(ctx, &excs.base_exception_type);
