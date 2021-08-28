@@ -6,8 +6,10 @@ use crate::util::{
 use proc_macro2::TokenStream;
 use quote::{quote, quote_spanned, ToTokens};
 use std::collections::HashMap;
+use syn::parse::{Parse, ParseStream, Result as ParsingResult};
 use syn::{
-    parse_quote, spanned::Spanned, Attribute, AttributeArgs, Ident, Item, Meta, NestedMeta, Result,
+    parse_quote, spanned::Spanned, Attribute, AttributeArgs, Ident, Item, LitStr, Meta, NestedMeta,
+    Result, Token,
 };
 use syn_ext::ext::*;
 
@@ -284,6 +286,83 @@ pub(crate) fn impl_pyexception(
     let ret = quote! {
         #[pyclass(module = false, name = #class_name, base = #base_class_name)]
         #item
+    };
+    Ok(ret)
+}
+
+pub(crate) fn impl_define_exception(
+    exc_def: PyExceptionDef,
+) -> std::result::Result<TokenStream, Diagnostic> {
+    let PyExceptionDef {
+        class_name,
+        base_class,
+        ctx_name,
+        docs,
+        tp_new,
+    } = exc_def;
+
+    // We need this method, because of how `CPython` copies `__new__`
+    // from `BaseException` in `SimpleExtendsException` macro.
+    // See: `BaseException_new`
+    let tp_new_slot = match tp_new {
+        Some(tp_call) => quote! {
+            #[pyslot]
+            pub(crate) fn tp_new(
+                cls: PyTypeRef,
+                args: FuncArgs,
+                vm: &VirtualMachine,
+            ) -> PyResult<PyRef<PyBaseException>> {
+                #tp_call(cls, args, vm)
+            }
+        },
+        None => quote! {
+            #[pyslot]
+            pub(crate) fn tp_new(
+                cls: PyTypeRef,
+                args: FuncArgs,
+                vm: &VirtualMachine,
+            ) -> PyResult<PyBaseExceptionRef> {
+                #base_class::tp_new(cls, args, vm)
+            }
+        },
+    };
+
+    let ret = quote! {
+        #[pyexception(#class_name, #base_class)]
+        #[derive(Debug)]
+        #[doc = #docs]
+        struct #class_name {}
+
+        // We need this to make extend mechanism work:
+        impl PyValue for #class_name {
+            fn class(vm: &VirtualMachine) -> &PyTypeRef {
+                &vm.ctx.exceptions.#ctx_name
+            }
+        }
+
+        #[pyimpl(flags(BASETYPE, HAS_DICT))]
+        impl #class_name {
+            #tp_new_slot
+
+            #[pymethod(magic)]
+            pub(crate) fn init(
+                zelf: PyRef<PyBaseException>,
+                mut args: FuncArgs,
+                vm: &VirtualMachine,
+            ) -> PyResult<()> {
+                // We need this method, because of how `CPython` copies `__init__`
+                // from `BaseException` in `SimpleExtendsException` macro.
+                // See: `(initproc)BaseException_init`
+                match zelf.clone_class().get_super_attr("__init__") {
+                    Some(super_init) => {
+                        args.prepend_arg(zelf.clone().into_object());
+                        vm.invoke(&super_init, args)?;
+                        Ok(())
+                    },
+                    None => #base_class::init(zelf, args, vm)
+                }
+            }
+        }
     };
     Ok(ret)
 }
@@ -969,6 +1048,38 @@ where
         result.push(new_item(attr, i, attr_name)?);
     }
     Ok((result, cfgs))
+}
+
+#[derive(Debug)]
+pub(crate) struct PyExceptionDef {
+    pub class_name: Ident,
+    pub base_class: Ident,
+    pub ctx_name: Ident,
+    pub docs: LitStr,
+
+    /// Holds optional `tp_new` slot to be used instead of a default one:
+    pub tp_new: Option<Ident>,
+}
+
+impl Parse for PyExceptionDef {
+    fn parse(input: ParseStream) -> ParsingResult<Self> {
+        let class_name: Ident = input.parse()?;
+        input.parse::<Token![,]>()?;
+        let base_class: Ident = input.parse()?;
+        input.parse::<Token![,]>()?;
+        let ctx_name: Ident = input.parse()?;
+        input.parse::<Token![,]>()?;
+        let docs: LitStr = input.parse()?;
+        input.parse::<Option<Token![,]>>()?;
+        let tp_new: Option<Ident> = input.parse()?;
+        Ok(PyExceptionDef {
+            class_name,
+            base_class,
+            ctx_name,
+            docs,
+            tp_new,
+        })
+    }
 }
 
 fn parse_vec_ident(
