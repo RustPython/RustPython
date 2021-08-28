@@ -643,7 +643,7 @@ define_exception! {
 define_exception! {
     PyModuleNotFoundError,
     PyImportError,
-    eof_error,
+    module_not_found_error,
     "Module not found."
 }
 
