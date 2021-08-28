@@ -716,16 +716,16 @@ define_exception! {
     "Child process error."
 }
 define_exception! {
-    PyBrokenPipeError,
-    PyOSError,
-    broken_pipe_error,
-    "Broken pipe."
-}
-define_exception! {
     PyConnectionError,
     PyOSError,
     connection_error,
     "Connection error."
+}
+define_exception! {
+    PyBrokenPipeError,
+    PyConnectionError,
+    broken_pipe_error,
+    "Broken pipe."
 }
 define_exception! {
     PyConnectionAbortedError,
@@ -834,7 +834,7 @@ define_exception! {
 }
 define_exception! {
     PyTabError,
-    PySyntaxError,
+    PyIndentationError,
     tab_error,
     "Improper mixture of spaces and tabs."
 }
@@ -1172,7 +1172,7 @@ impl ExceptionZoo {
             });
 
         extend_exception!(PyOSError, ctx, &excs.os_error, {
-            "errno" => errno_getter,
+            "errno" => errno_getter.clone(),
             "strerror" => ctx.new_readonly_getset("strerror", excs.os_error.clone(), make_arg_getter(1)),
         });
         #[cfg(windows)]
