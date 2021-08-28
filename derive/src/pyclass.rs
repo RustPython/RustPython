@@ -258,6 +258,36 @@ pub(crate) fn impl_pyclass(
     Ok(ret)
 }
 
+/// Special macro to create exception types.
+///
+/// Why do we need it and why can't we just use `pyclass` macro instead?
+/// We generate exception types with a `macro_rules`,
+/// similar to how CPython does it.
+/// But, inside `macro_rules` we don't have an opportunity
+/// to add non-literal attributes to `pyclass`.
+/// That's why we have to use this proxy.
+pub(crate) fn impl_pyexception(
+    attr: AttributeArgs,
+    item: Item,
+) -> std::result::Result<TokenStream, Diagnostic> {
+    let class_name = parse_vec_ident(&attr, &item, 0, "first 'class_name'")?;
+    let base_class_name = parse_vec_ident(&attr, &item, 1, "second 'base_class_name'")?;
+
+    // We also need to strip `Py` prefix from `class_name`,
+    // due to implementation and Python naming conventions mismatch:
+    // `PyKeyboardInterrupt` -> `KeyboardInterrupt`
+    let class_name = class_name.strip_prefix("Py").ok_or_else(|| {
+        syn::Error::new_spanned(&item, "We require 'class_name' to have 'Py' prefix")
+    })?;
+
+    // We just "proxy" it into `pyclass` macro, because, exception is a class.
+    let ret = quote! {
+        #[pyclass(module = false, name = #class_name, base = #base_class_name)]
+        #item
+    };
+    Ok(ret)
+}
+
 /// #[pymethod] and #[pyclassmethod]
 struct MethodItem {
     inner: ContentItemInner,
@@ -939,4 +969,25 @@ where
         result.push(new_item(attr, i, attr_name)?);
     }
     Ok((result, cfgs))
+}
+
+fn parse_vec_ident(
+    attr: &[NestedMeta],
+    item: &Item,
+    index: usize,
+    message: &str,
+) -> std::result::Result<String, Diagnostic> {
+    Ok(attr
+        .get(index)
+        .ok_or_else(|| {
+            syn::Error::new_spanned(&item, format!("We require {} argument to be set", &message))
+        })?
+        .get_ident()
+        .ok_or_else(|| {
+            syn::Error::new_spanned(
+                &item,
+                format!("We require {} argument to be ident or string", &message),
+            )
+        })?
+        .to_string())
 }

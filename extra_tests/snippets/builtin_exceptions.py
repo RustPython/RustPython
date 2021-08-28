@@ -196,6 +196,10 @@ assert OSError(1, 2).strerror
 
 assert ImportError.__init__.__qualname__ == 'ImportError.__init__'
 assert ImportError(name='a').name == 'a'
+assert (
+    ModuleNotFoundError.__init__.__qualname__ == 'ModuleNotFoundError.__init__'
+)
+assert ModuleNotFoundError(name='a').name == 'a'
 
 
 # Check that all exceptions have string `__doc__`:

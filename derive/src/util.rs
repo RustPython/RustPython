@@ -13,6 +13,7 @@ pub(crate) const ALL_ALLOWED_NAMES: &[&str] = &[
     "pyproperty",
     "pyfunction",
     "pyclass",
+    "pyexception",
     "pystruct_sequence",
     "pyattr",
     "pyslot",

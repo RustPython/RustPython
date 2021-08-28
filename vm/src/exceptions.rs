@@ -68,8 +68,8 @@ impl PyBaseException {
     }
 
     #[pymethod(magic)]
-    pub(crate) fn init(&self, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-        *self.args.write() = PyTupleRef::with_elements(args.args, &vm.ctx);
+    pub(crate) fn init(zelf: PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        *zelf.args.write() = PyTupleRef::with_elements(args.args, &vm.ctx);
         Ok(())
     }
 
@@ -521,10 +521,6 @@ pub fn create_exception_type(name: &str, base: &PyTypeRef) -> PyTypeRef {
     create_type_with_slots(name, PyType::static_type(), base, exception_slots())
 }
 
-/// This macro serves a goal of generating multiple BaseException / Exception
-/// subtypes in a uniform and convenient manner.
-/// It looks like `SimpleExtendsException` in `CPython`.
-/// https://github.com/python/cpython/blob/main/Objects/exceptions.c
 macro_rules! extend_exception {
     (
         $ctx:expr,
@@ -538,19 +534,199 @@ macro_rules! extend_exception {
         $class:expr,
         $docs:tt,
         { $($name:expr => $value:expr),* $(,)* }
-    ) => {
-        // We need to copy some methods to match `CPython`:
-        $class.set_str_attr("__new__", $ctx.new_method("__new__", $class.clone(), PyBaseException::tp_new));
-        $class.set_str_attr("__init__", $ctx.new_method("__init__", $class.clone(), PyBaseException::init));
-        $class.set_str_attr("__doc__", $ctx.new_str($docs));
+    ) => {};
+}
 
-        // Setting extra attributes:
-        extend_class!($ctx, $class, {
-            $(
-                $name => $value,
-            )*
-        });
+/// This macro serves a goal of generating multiple
+/// `BaseException` / `Exception`
+/// subtypes in a uniform and convenient manner.
+/// It looks like `SimpleExtendsException` in `CPython`.
+/// https://github.com/python/cpython/blob/main/Objects/exceptions.c
+///
+/// We need `ctx` to be ready to add
+/// `properties` / `custom` constructors / slots / methods etc.
+/// So, we use `extend_class!` macro as the second
+/// step in exception type definition.
+macro_rules! extends_exception {
+    (
+      $class_name: ident,
+      $base_class: ident,
+      $ctx_name: ident,
+      $docs: tt
+  ) => {
+        #[pyexception($class_name, $base_class)]
+        #[derive(Debug)]
+        #[doc = $docs]
+        struct $class_name {}
+
+        // We need this to make extend mechanism work:
+        impl PyValue for $class_name {
+            fn class(vm: &VirtualMachine) -> &PyTypeRef {
+                &vm.ctx.exceptions.$ctx_name
+            }
+        }
+
+        #[pyimpl(flags(BASETYPE, HAS_DICT))]
+        impl $class_name {
+            #[pyslot]
+            pub(crate) fn tp_new(
+                cls: PyTypeRef,
+                mut args: FuncArgs,
+                vm: &VirtualMachine,
+            ) -> PyResult {
+                // We need this method, because of how `CPython` copies `__new__`
+                // from `BaseException` in `SimpleExtendsException` macro.
+                // See: `BaseException_new`
+                // $base_class::tp_new(cls, args, vm)
+                if let Some(new_meth) = cls.get_attr("__new__") {
+                    if !vm.ctx.is_tp_new_wrapper(&new_meth) {
+                        let new_meth = vm.call_if_get_descriptor(new_meth, cls.clone().into_object())?;
+                        args.prepend_arg(cls.clone().into_object());
+                        return vm.invoke(&new_meth, args);
+                    }
+                }
+                if let Some(base) = cls.base.as_ref() {
+                    println!("base type is {} and self is {}", &base, &cls);
+                    if let Some(tp_new) = base.slots.new.as_ref() {
+                        args.prepend_arg(base.clone().into_object());
+                        return tp_new(vm, args);
+                    }
+                }
+                unreachable!("Should be able to find a new slot somewhere in the mro")
+            }
+
+            #[pymethod(magic)]
+            pub(crate) fn init(
+                zelf: PyRef<PyBaseException>,
+                args: FuncArgs,
+                vm: &VirtualMachine,
+            ) -> PyResult<()> {
+                // We need this method, because of how `CPython` copies `__init__`
+                // from `BaseException` in `SimpleExtendsException` macro.
+                // See: `(initproc)BaseException_init`
+                $base_class::init(zelf, args, vm)
+            }
+        }
     };
+}
+
+// Sorted By Hierarchy then alphabetized.
+
+extends_exception! {
+    PySystemExit,
+    PyBaseException,
+    system_exit,
+    "Request to exit from the interpreter."
+}
+extends_exception! {
+    PyGeneratorExit,
+    PyBaseException,
+    generator_exit,
+    "Request that a generator exit."
+}
+extends_exception! {
+    PyKeyboardInterrupt,
+    PyBaseException,
+    keyboard_interrupt,
+    "Program interrupted by user."
+}
+
+// Base `Exception` type
+extends_exception! {
+    PyException,
+    PyBaseException,
+    exception_type,
+    "Common base class for all non-exit exceptions."
+}
+
+extends_exception! {
+    PyStopIteration,
+    PyException,
+    stop_iteration,
+    "Signal the end from iterator.__next__()."
+}
+extends_exception! {
+    PyStopAsyncIteration,
+    PyException,
+    stop_async_iteration,
+    "Signal the end from iterator.__anext__()."
+}
+
+extends_exception! {
+    PyArithmeticError,
+    PyException,
+    arithmetic_error,
+    "Base class for arithmetic errors."
+}
+extends_exception! {
+    PyFloatingPointError,
+    PyArithmeticError,
+    floating_point_error,
+    "Floating point operation failed."
+}
+extends_exception! {
+    PyOverflowError,
+    PyArithmeticError,
+    overflow_error,
+    "Result too large to be represented."
+}
+extends_exception! {
+    PyZeroDivisionError,
+    PyArithmeticError,
+    zero_division_error,
+    "Second argument to a division or modulo operation was zero."
+}
+
+extends_exception! {
+    PyAssertionError,
+    PyException,
+    assertion_error,
+    "Assertion failed."
+}
+extends_exception! {
+    PyAttributeError,
+    PyException,
+    attribute_error,
+    "Attribute not found."
+}
+extends_exception!{
+    PyBufferError,
+    PyException,
+    buffer_error,
+    "Buffer error."
+}
+extends_exception!{
+    PyEOFError,
+    PyException,
+    eof_error,
+    "Read beyond end of file."
+}
+
+extends_exception!{
+    PyImportError,
+    PyException,
+    import_error,
+    "Import can't find module, or can't find name in module."
+}
+extends_exception!{
+    PyModuleNotFoundError,
+    PyImportError,
+    eof_error,
+    "Module not found."
+}
+
+extends_exception! {
+    PyOSError,
+    PyException,
+    os_error,
+    "Base class for I/O related errors."
+}
+
+extends_exception! {
+    PyTypeError,
+    PyException,
+    type_error,
+    "Inappropriate argument type."
 }
 
 impl ExceptionZoo {
@@ -558,13 +734,13 @@ impl ExceptionZoo {
         let base_exception_type = PyBaseException::init_bare_type().clone();
 
         // Sorted By Hierarchy then alphabetized.
-        let system_exit = create_exception_type("SystemExit", &base_exception_type);
-        let keyboard_interrupt = create_exception_type("KeyboardInterrupt", &base_exception_type);
-        let generator_exit = create_exception_type("GeneratorExit", &base_exception_type);
+        let system_exit = PySystemExit::init_bare_type().clone();
+        let keyboard_interrupt = PyKeyboardInterrupt::init_bare_type().clone();
+        let generator_exit = PyGeneratorExit::init_bare_type().clone();
 
-        let exception_type = create_exception_type("Exception", &base_exception_type);
-        let stop_iteration = create_exception_type("StopIteration", &exception_type);
-        let stop_async_iteration = create_exception_type("StopAsyncIteration", &exception_type);
+        let exception_type = PyException::init_bare_type().clone();
+        let stop_iteration = PyStopIteration::init_bare_type().clone();
+        let stop_async_iteration = PyStopAsyncIteration::init_bare_type().clone();
         let arithmetic_error = create_exception_type("ArithmeticError", &exception_type);
         let floating_point_error = create_exception_type("FloatingPointError", &arithmetic_error);
         let overflow_error = create_exception_type("OverflowError", &arithmetic_error);
@@ -573,8 +749,8 @@ impl ExceptionZoo {
         let attribute_error = create_exception_type("AttributeError", &exception_type);
         let buffer_error = create_exception_type("BufferError", &exception_type);
         let eof_error = create_exception_type("EOFError", &exception_type);
-        let import_error = create_exception_type("ImportError", &exception_type);
-        let module_not_found_error = create_exception_type("ModuleNotFoundError", &import_error);
+        let import_error = PyImportError::init_bare_type().clone();
+        let module_not_found_error = PyModuleNotFoundError::init_bare_type().clone();
         let lookup_error = create_exception_type("LookupError", &exception_type);
         let index_error = create_exception_type("IndexError", &lookup_error);
         let key_error = create_exception_type("KeyError", &lookup_error);
@@ -583,7 +759,7 @@ impl ExceptionZoo {
         let unbound_local_error = create_exception_type("UnboundLocalError", &name_error);
 
         // os errors
-        let os_error = create_exception_type("OSError", &exception_type);
+        let os_error = PyOSError::init_bare_type().clone();
         let blocking_io_error = create_exception_type("BlockingIOError", &os_error);
         let child_process_error = create_exception_type("ChildProcessError", &os_error);
 
@@ -718,58 +894,15 @@ impl ExceptionZoo {
         extend_exception!(ctx, &excs.system_exit, "Request to exit from the interpreter.", {
             "code" => ctx.new_readonly_getset("code", excs.system_exit.clone(), system_exit_code),
         });
-        extend_exception!(
-            ctx,
-            &excs.keyboard_interrupt,
-            "Program interrupted by user."
-        );
-        extend_exception!(ctx, &excs.generator_exit, "Request that a generator exit.");
-        extend_exception!(
-            ctx,
-            &excs.exception_type,
-            "Common base class for all non-exit exceptions."
-        );
 
-        extend_exception!(ctx, &excs.stop_iteration, "Signal the end from iterator.__next__().", {
-            "value" => ctx.new_readonly_getset("value", excs.stop_iteration.clone(), make_arg_getter(0)),
-        });
-        extend_exception!(
-            ctx,
-            &excs.stop_async_iteration,
-            "Signal the end from iterator.__anext__()."
-        );
-
-        extend_exception!(
-            ctx,
-            &excs.arithmetic_error,
-            "Base class for arithmetic errors."
-        );
-        extend_exception!(
-            ctx,
-            &excs.floating_point_error,
-            "Floating point operation failed."
-        );
-        extend_exception!(
-            ctx,
-            &excs.overflow_error,
-            "Result too large to be represented."
-        );
-        extend_exception!(
-            ctx,
-            &excs.zero_division_error,
-            "Second argument to a division or modulo operation was zero."
-        );
-
-        extend_exception!(ctx, &excs.assertion_error, "Assertion failed.");
-        extend_exception!(ctx, &excs.attribute_error, "Attribute not found.");
-        extend_exception!(ctx, &excs.buffer_error, "Buffer error.");
-        extend_exception!(ctx, &excs.eof_error, "Read beyond end of file.");
-
-        extend_exception!(ctx, &excs.import_error, "Import can't find module, or can't find name in module.", {
+        PyImportError::extend_class(ctx, &excs.import_error);
+        extend_class!(ctx, &excs.import_error, {
+            "__new__" => ctx.new_method("__new__", excs.import_error.clone(), import_error_new),
             "__init__" => ctx.new_method("__init__", excs.import_error.clone(), import_error_init),
             "msg" => ctx.new_readonly_getset("msg", excs.import_error.clone(), make_arg_getter(0)),
         });
-        extend_exception!(ctx, &excs.module_not_found_error, "Module not found.");
+        PyModuleNotFoundError::extend_class(ctx, &excs.module_not_found_error);
+        // extend_exception!(ctx, &excs.module_not_found_error, "Module not found.");
 
         extend_exception!(ctx, &excs.lookup_error, "Base class for lookup errors.");
         extend_exception!(ctx, &excs.index_error, "Sequence index out of range.");
@@ -925,6 +1058,15 @@ impl ExceptionZoo {
             "Base class for warnings about resource usage."
         );
     }
+}
+
+fn import_error_new(
+    cls: PyTypeRef,
+    args: FuncArgs,
+    vm: &VirtualMachine,
+) -> PyResult<PyRef<PyBaseException>> {
+    println!("custom new");
+    PyBaseException::new(args.args, vm).into_ref_with_type(vm, cls)
 }
 
 fn import_error_init(exc_self: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {

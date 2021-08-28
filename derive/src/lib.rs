@@ -42,6 +42,13 @@ pub fn pyclass(attr: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 #[proc_macro_attribute]
+pub fn pyexception(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let attr = parse_macro_input!(attr as AttributeArgs);
+    let item = parse_macro_input!(item as Item);
+    result_to_tokens(pyclass::impl_pyexception(attr, item))
+}
+
+#[proc_macro_attribute]
 pub fn pyimpl(attr: TokenStream, item: TokenStream) -> TokenStream {
     let attr = parse_macro_input!(attr as AttributeArgs);
     let item = parse_macro_input!(item as Item);
