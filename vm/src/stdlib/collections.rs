@@ -579,6 +579,15 @@ mod _collections {
         }
     }
 
+    #[derive(FromArgs)]
+    struct DequeIterArgs {
+        #[pyarg(positional)]
+        deque: PyDequeRef,
+
+        #[pyarg(positional, optional)]
+        index: OptionalArg<isize>,
+    }
+
     #[pyimpl(with(PyIter))]
     impl PyDequeIterator {
         pub(crate) fn new(deque: PyDequeRef) -> Self {
@@ -591,16 +600,22 @@ mod _collections {
         }
 
         #[pyslot]
-        fn tp_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-            if args.args.len() <= 1 {
-                let deque = args.bind(vm)?;
-                PyDequeIterator::new(deque).into_ref_with_type(vm, cls)
-            } else {
-                let (deque, position) = args.bind(vm)?;
-                let iter = PyDequeIterator::new(deque);
-                iter.position.store(position);
-                iter.into_ref_with_type(vm, cls)
+        fn tp_new(
+            cls: PyTypeRef,
+            DequeIterArgs { deque, index }: DequeIterArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyRef<Self>> {
+            let len = deque.len();
+            let iter = PyDequeIterator::new(deque);
+            if let OptionalArg::Present(index) = index {
+                let index = max(index, 0) as usize;
+                iter.position.store(min(index, len));
+
+                if len.le(&index) {
+                    iter.status.store(Exhausted);
+                }
             }
+            iter.into_ref_with_type(vm, cls)
         }
 
         #[pymethod(magic)]
@@ -675,20 +690,21 @@ mod _collections {
         }
 
         #[pyslot]
-        fn tp_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-            if args.args.len() <= 1 {
-                let deque = args.bind(vm)?;
-                PyDeque::reversed(deque)?.into_ref_with_type(vm, cls)
-            } else {
-                let (deque, position): (PyRef<PyDeque>, usize) = args.bind(vm)?;
-                let len = deque.len();
-                let iter = PyDeque::reversed(deque)?;
-                if len.le(&position) {
+        fn tp_new(
+            cls: PyTypeRef,
+            DequeIterArgs { deque, index }: DequeIterArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyRef<Self>> {
+            let len = deque.len();
+            let iter = PyDeque::reversed(deque)?;
+            if let OptionalArg::Present(index) = index {
+                let index = max(index, 0) as usize;
+                if len.le(&index) {
                     iter.status.store(Exhausted);
                 }
-                iter.position.store(len.saturating_sub(position));
-                iter.into_ref_with_type(vm, cls)
+                iter.position.store(len.saturating_sub(index));
             }
+            iter.into_ref_with_type(vm, cls)
         }
 
         #[pymethod(magic)]
