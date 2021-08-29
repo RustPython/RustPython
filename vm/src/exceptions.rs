@@ -1119,6 +1119,8 @@ impl ExceptionZoo {
         }
     }
 
+    // TODO: remove it after fixing `errno` / `winerror` problem
+    #[allow(clippy::redundant_clone)]
     pub fn extend(ctx: &PyContext) {
         let excs = &ctx.exceptions;
 
@@ -1170,14 +1172,14 @@ impl ExceptionZoo {
                 let args = args.as_slice();
                 args.get(0).filter(|_| args.len() > 1).cloned()
             });
+        extend_exception!(PyOSError, ctx, &excs.os_error, {
+            "errno" => errno_getter.clone(),
+            "strerror" => ctx.new_readonly_getset("strerror", excs.os_error.clone(), make_arg_getter(1)),
+        });
         #[cfg(windows)]
         extend_class!(ctx, &excs.os_error, {
             // TODO: this isn't really accurate
             "winerror" => errno_getter.clone(),
-        });
-        extend_exception!(PyOSError, ctx, &excs.os_error, {
-            "errno" => errno_getter,
-            "strerror" => ctx.new_readonly_getset("strerror", excs.os_error.clone(), make_arg_getter(1)),
         });
 
         extend_exception!(PyBlockingIOError, ctx, &excs.blocking_io_error);
