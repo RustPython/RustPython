@@ -1,4 +1,4 @@
-from testutils import assert_raises
+from testutils import assert_raises, skip_if_unsupported
 
 # new
 assert bytes([1, 2, 3])
@@ -616,14 +616,15 @@ assert b'rust%bpython%b' % (b' ', b'!') == b'rust python!'
 assert b'x=%i y=%f' % (1, 2.5) == b'x=1 y=2.500000'
 
 # __bytes__
-foo = b'foo\x00bar'
-assert foo.__bytes__() == foo
-assert type(foo.__bytes__()) == bytes
-class bytes_subclass(bytes):
-    pass
-bar = bytes_subclass(b'bar\x00foo')
-assert bar.__bytes__() == bar
-assert type(bar.__bytes__()) == bytes
+def test__bytes__():
+    foo = b'foo\x00bar'
+    assert foo.__bytes__() == foo
+    assert type(foo.__bytes__()) == bytes
+    class bytes_subclass(bytes):
+        pass
+    bar = bytes_subclass(b'bar\x00foo')
+    assert bar.__bytes__() == bar
+    assert type(bar.__bytes__()) == bytes
 
 class A:
     def __bytes__(self):
@@ -666,3 +667,5 @@ class B1(bytearray):
         return me
 b = B1.fromhex('a0a1a2')
 assert b.foo == 'bar'
+
+skip_if_unsupported(3,11,test__bytes__)
