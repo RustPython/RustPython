@@ -89,6 +89,15 @@ impl PyComplex {
         self.value
     }
 
+    #[pymethod(magic)]
+    fn complex(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRef<PyComplex> {
+        if zelf.is(&vm.ctx.types.complex_type) {
+            zelf
+        } else {
+            PyComplex::from(zelf.value).into_ref(vm)
+        }
+    }
+
     #[pyproperty]
     fn real(&self) -> f64 {
         self.value.re
