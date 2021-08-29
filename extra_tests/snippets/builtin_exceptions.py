@@ -1,7 +1,6 @@
 import builtins
 import platform
 import sys
-import os
 
 
 # Regression to:
@@ -189,12 +188,6 @@ assert OSError.errno
 assert OSError.strerror
 assert OSError(1, 2).errno
 assert OSError(1, 2).strerror
-if os.name == 'nt':
-    assert OSError.winerror
-    assert OSError(1, 2).winerror
-else:
-    assert getattr(OSError, 'winerror', None) is None
-    assert getattr(OSError(1, 2), 'winerror', None) is None
 
 # Custom `__new__` and `__init__`:
 assert ImportError.__init__.__qualname__ == 'ImportError.__init__'
