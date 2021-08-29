@@ -1176,11 +1176,9 @@ impl ExceptionZoo {
             "errno" => errno_getter.clone(),
             "strerror" => ctx.new_readonly_getset("strerror", excs.os_error.clone(), make_arg_getter(1)),
         });
+        // TODO: this isn't really accurate
         #[cfg(windows)]
-        extend_class!(ctx, &excs.os_error, {
-            // TODO: this isn't really accurate
-            "winerror" => errno_getter.clone(),
-        });
+        excs.os_error.set_str_attr("winerror", errno_getter.clone());
 
         extend_exception!(PyBlockingIOError, ctx, &excs.blocking_io_error);
         extend_exception!(PyChildProcessError, ctx, &excs.child_process_error);
