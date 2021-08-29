@@ -440,9 +440,6 @@ impl PyBytes {
     #[pymethod(name = "__rmul__")]
     #[pymethod(magic)]
     fn mul(zelf: PyRef<Self>, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        if value > 0 && zelf.inner.len() as isize > std::isize::MAX / value {
-            return Err(vm.new_overflow_error("repeated bytes are too long".to_owned()));
-        }
         if value == 1 && zelf.class().is(&vm.ctx.types.bytes_type) {
             // Special case: when some `bytes` is multiplied by `1`,
             // nothing really happens, we need to return an object itself
@@ -450,8 +447,14 @@ impl PyBytes {
             // This only works for `bytes` itself, not its subclasses.
             return Ok(zelf);
         }
-        let bytes: PyBytes = zelf.inner.repeat(value).into();
-        Ok(bytes.into_ref(vm))
+        // todo: map err to overflow.
+        vm.check_repeat_or_memory_error(zelf.inner.len(), value)
+            .map(|value| {
+                let bytes: PyBytes = zelf.inner.repeat(value).into();
+                bytes.into_ref(vm)
+            })
+            // see issue 45044 on b.p.o.
+            .map_err(|_| vm.new_overflow_error("repeated bytes are too long".to_owned()))
     }
 
     #[pymethod(name = "__mod__")]
