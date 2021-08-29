@@ -159,6 +159,10 @@ impl CodecsRegistry {
                 "backslashreplace",
                 ctx.new_function("backslashreplace_errors", backslashreplace_errors),
             ),
+            (
+                "namereplace",
+                ctx.new_function("namereplace_errors", namereplace_errors),
+            ),
         ];
         let errors = std::array::IntoIter::new(errors)
             .map(|(name, f)| (name.to_owned(), f))
@@ -427,4 +431,31 @@ fn backslashreplace_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(S
         }
     }
     Ok((out, range.end))
+}
+
+fn namereplace_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(String, usize)> {
+    if err.isinstance(&vm.ctx.exceptions.unicode_encode_error) {
+        let range = extract_unicode_error_range(&err, vm)?;
+        let s = PyStrRef::try_from_object(vm, vm.get_attribute(err, "object")?)?;
+        let s_after_start =
+            crate::common::str::try_get_chars(s.as_str(), range.start..).unwrap_or("");
+        let num_chars = range.len();
+        let mut out = String::with_capacity(num_chars * 4);
+        for c in s_after_start.chars().take(num_chars) {
+            use std::fmt::Write;
+            let c_u32 = c as u32;
+            if let Some(c_name) = unicode_names2::name(c) {
+                write!(out, "\\N{{{}}}", c_name.to_string()).unwrap();
+            } else if c_u32 >= 0x10000 {
+                write!(out, "\\U{:08x}", c_u32).unwrap();
+            } else if c_u32 >= 0x100 {
+                write!(out, "\\u{:04x}", c_u32).unwrap();
+            } else {
+                write!(out, "\\x{:02x}", c_u32).unwrap();
+            }
+        }
+        Ok((out, range.end))
+    } else {
+        Err(bad_err_type(err, vm))
+    }
 }
