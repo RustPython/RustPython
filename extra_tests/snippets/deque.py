@@ -45,7 +45,7 @@ def test_deque_iterator__new__not_using_keyword_index():
             assert (list(d) == list(s))
 
 
-# test_deque_iterator__new__not_using_keyword_index()
+test_deque_iterator__new__not_using_keyword_index()
 
 
 def test_deque_reverse_iterator__new__positional_index():
@@ -82,4 +82,4 @@ def test_deque_reverse_iterator__new__not_using_keyword_index():
             assert (list(d) == list(reversed(s)))
 
 
-# test_deque_reverse_iterator__new__not_using_keyword_index()
+test_deque_reverse_iterator__new__not_using_keyword_index()

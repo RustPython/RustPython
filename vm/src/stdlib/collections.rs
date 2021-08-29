@@ -3,7 +3,7 @@ pub(crate) use _collections::make_module;
 #[pymodule]
 mod _collections {
     use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
-    use crate::function::{FuncArgs, OptionalArg};
+    use crate::function::{FuncArgs, KwArgs, OptionalArg};
     use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable};
     use crate::vm::ReprGuard;
     use crate::VirtualMachine;
@@ -603,6 +603,7 @@ mod _collections {
         fn tp_new(
             cls: PyTypeRef,
             DequeIterArgs { deque, index }: DequeIterArgs,
+            _kwargs: KwArgs,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
             let len = deque.len();
@@ -693,6 +694,7 @@ mod _collections {
         fn tp_new(
             cls: PyTypeRef,
             DequeIterArgs { deque, index }: DequeIterArgs,
+            _kwargs: KwArgs,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
             let len = deque.len();
