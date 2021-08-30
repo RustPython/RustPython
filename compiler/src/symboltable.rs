@@ -537,6 +537,7 @@ struct SymbolTableBuilder {
     class_name: Option<String>,
     // Scope stack.
     tables: Vec<SymbolTable>,
+    future_annotations: bool,
 }
 
 /// Enum to indicate in what mode an expression
@@ -557,6 +558,7 @@ impl SymbolTableBuilder {
         let mut this = Self {
             class_name: None,
             tables: vec![],
+            future_annotations: false,
         };
         this.enter_scope("top", SymbolTableType::Module, 0);
         this
@@ -617,14 +619,31 @@ impl SymbolTableBuilder {
 
     fn scan_parameter_annotation(&mut self, parameter: &ast::Arg) -> SymbolTableResult {
         if let Some(annotation) = &parameter.node.annotation {
-            self.scan_expression(annotation, ExpressionContext::Load)?;
+            self.scan_annotation(annotation)?;
         }
         Ok(())
+    }
+
+    fn scan_annotation(&mut self, annotation: &ast::Expr) -> SymbolTableResult {
+        if self.future_annotations {
+            Ok(())
+        } else {
+            self.scan_expression(annotation, ExpressionContext::Load)
+        }
     }
 
     fn scan_statement(&mut self, statement: &ast::Stmt) -> SymbolTableResult {
         use ast::StmtKind::*;
         let location = statement.location;
+        if let ImportFrom { module, names, .. } = &statement.node {
+            if module.as_deref() == Some("__future__") {
+                for feature in names {
+                    if feature.name == "annotations" {
+                        self.future_annotations = true;
+                    }
+                }
+            }
+        }
         match &statement.node {
             Global { names } => {
                 for name in names {
@@ -655,7 +674,7 @@ impl SymbolTableBuilder {
                 self.scan_expressions(decorator_list, ExpressionContext::Load)?;
                 self.register_name(name, SymbolUsage::Assigned, location)?;
                 if let Some(expression) = returns {
-                    self.scan_expression(expression, ExpressionContext::Load)?;
+                    self.scan_annotation(expression)?;
                 }
                 self.enter_function(name, args, location.row())?;
                 self.scan_statements(body)?;
@@ -769,7 +788,7 @@ impl SymbolTableBuilder {
                         self.scan_expression(target, ExpressionContext::Store)?;
                     }
                 }
-                self.scan_expression(annotation, ExpressionContext::Load)?;
+                self.scan_annotation(annotation)?;
                 if let Some(value) = value {
                     self.scan_expression(value, ExpressionContext::Load)?;
                 }
