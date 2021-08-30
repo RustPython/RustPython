@@ -301,8 +301,7 @@ macro_rules! def_array_enum {
                 }
             }
 
-            fn mul(&self, counter: isize) -> Self {
-                let counter = if counter < 0 { 0 } else { counter as usize };
+            fn mul(&self, counter: usize) -> Self {
                 match self {
                     $(ArrayContentType::$n(v) => {
                         let elements = v.repeat(counter);
@@ -317,11 +316,10 @@ macro_rules! def_array_enum {
                 }
             }
 
-            fn imul(&mut self, counter: isize) {
-                if counter <= 0 {
+            fn imul(&mut self, counter: usize) {
+                if counter == 0 {
                     self.clear();
                 } else if counter != 1 {
-                    let counter = counter as usize;
                     match self {
                         $(ArrayContentType::$n(v) => {
                             let old = v.clone();
@@ -864,14 +862,18 @@ impl PyArray {
 
     #[pymethod(name = "__rmul__")]
     #[pymethod(magic)]
-    fn mul(&self, counter: isize, vm: &VirtualMachine) -> PyRef<Self> {
-        PyArray::from(self.read().mul(counter)).into_ref(vm)
+    fn mul(&self, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        vm.check_repeat_or_memory_error(self.len(), value)
+            .map(|value| PyArray::from(self.read().mul(value)).into_ref(vm))
     }
 
     #[pymethod(magic)]
-    fn imul(zelf: PyRef<Self>, counter: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        zelf.try_resizable(vm)?.imul(counter);
-        Ok(zelf)
+    fn imul(zelf: PyRef<Self>, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        vm.check_repeat_or_memory_error(zelf.len(), value)
+            .and_then(|value| {
+                zelf.try_resizable(vm)?.imul(value);
+                Ok(zelf)
+            })
     }
 
     #[pymethod(magic)]

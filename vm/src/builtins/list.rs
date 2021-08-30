@@ -237,25 +237,21 @@ impl PyList {
     }
 
     #[pymethod(magic)]
-    fn mul(&self, counter: isize, vm: &VirtualMachine) -> PyObjectRef {
-        let new_elements = sequence::seq_mul(&self.borrow_vec(), counter)
+    #[pymethod(name = "__rmul__")]
+    fn mul(&self, value: isize, vm: &VirtualMachine) -> PyResult {
+        let new_elements = sequence::seq_mul(vm, &self.borrow_vec(), value)?
             .cloned()
             .collect();
-        vm.ctx.new_list(new_elements)
+        Ok(vm.ctx.new_list(new_elements))
     }
 
     #[pymethod(magic)]
-    fn rmul(&self, counter: isize, vm: &VirtualMachine) -> PyObjectRef {
-        self.mul(counter, vm)
-    }
-
-    #[pymethod(magic)]
-    fn imul(zelf: PyRef<Self>, counter: isize) -> PyRef<Self> {
+    fn imul(zelf: PyRef<Self>, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         let mut elements = zelf.borrow_vec_mut();
         let mut new_elements: Vec<PyObjectRef> =
-            sequence::seq_mul(&*elements, counter).cloned().collect();
+            sequence::seq_mul(vm, &*elements, value)?.cloned().collect();
         std::mem::swap(elements.deref_mut(), &mut new_elements);
-        zelf.clone()
+        Ok(zelf.clone())
     }
 
     #[pymethod]

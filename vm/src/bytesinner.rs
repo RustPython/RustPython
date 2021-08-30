@@ -964,8 +964,8 @@ impl PyBytesInner {
             .format(vm, values)
     }
 
-    pub fn repeat(&self, n: isize) -> Vec<u8> {
-        self.elements.repeat(n.to_usize().unwrap_or(0))
+    pub fn repeat(&self, n: usize) -> Vec<u8> {
+        self.elements.repeat(n)
     }
 }
 

@@ -784,6 +784,11 @@ impl VirtualMachine {
         self.new_exception_msg(runtime_error, msg)
     }
 
+    pub fn new_memory_error(&self, msg: String) -> PyBaseExceptionRef {
+        let memory_error_type = self.ctx.exceptions.memory_error.clone();
+        self.new_exception_msg(memory_error_type, msg)
+    }
+
     pub fn new_stop_iteration(&self) -> PyBaseExceptionRef {
         let stop_iteration_type = self.ctx.exceptions.stop_iteration.clone();
         self.new_exception_empty(stop_iteration_type)
@@ -1881,6 +1886,18 @@ impl VirtualMachine {
                 obj.class().name
             )))
         })
+    }
+
+    /// Checks that the multiplication is able to be performed. On Ok returns the
+    /// index as a usize for sequences to be able to use immediately.
+    pub fn check_repeat_or_memory_error(&self, length: usize, n: isize) -> PyResult<usize> {
+        let n = n.to_usize().unwrap_or(0);
+        if n > 0 && length > isize::MAX as usize / n {
+            // Empty message is currently used in CPython.
+            Err(self.new_memory_error("".to_owned()))
+        } else {
+            Ok(n)
+        }
     }
 
     // https://docs.python.org/3/reference/expressions.html#membership-test-operations

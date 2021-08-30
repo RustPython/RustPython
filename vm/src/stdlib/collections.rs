@@ -454,20 +454,20 @@ mod _collections {
 
         #[pymethod(magic)]
         #[pymethod(name = "__rmul__")]
-        fn mul(&self, n: isize) -> Self {
+        fn mul(&self, value: isize, vm: &VirtualMachine) -> PyResult<Self> {
             let deque: SimpleSeqDeque = self.borrow_deque().into();
-            let mul = sequence::seq_mul(&deque, n);
+            let mul = sequence::seq_mul(vm, &deque, value)?;
             let skipped = self
                 .maxlen
                 .and_then(|maxlen| mul.len().checked_sub(maxlen))
                 .unwrap_or(0);
 
             let deque = mul.skip(skipped).cloned().collect();
-            PyDeque {
+            Ok(PyDeque {
                 deque: PyRwLock::new(deque),
                 maxlen: self.maxlen,
                 state: AtomicCell::new(0),
-            }
+            })
         }
 
         #[pymethod(magic)]
