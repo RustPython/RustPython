@@ -944,14 +944,52 @@ impl VirtualMachine {
         }
     }
 
-    pub fn _isinstance(&self, obj: &PyObjectRef, cls: &PyObjectRef) -> PyResult<bool> {
+    // Equivalent to check_class. Masks Attribute errors (into TypeErrors) and lets everything
+    // else go through.
+    fn check_cls<F>(&self, cls: &PyObjectRef, msg: F) -> PyResult
+    where
+        F: Fn() -> String,
+    {
+        self.get_attribute(cls.clone(), "__bases__").map_err(|e| {
+            // Only mask AttributeErrors.
+            if e.class().is(&self.ctx.exceptions.attribute_error) {
+                self.new_type_error(msg())
+            } else {
+                e
+            }
+        })
+    }
+
+    fn abstract_isinstance(&self, obj: &PyObjectRef, cls: &PyObjectRef) -> PyResult<bool> {
         if let Ok(typ) = PyTypeRef::try_from_object(self, cls.clone()) {
-            Ok(obj.isinstance(&typ))
+            if obj.class().issubclass(typ.clone()) {
+                Ok(true)
+            } else if let Ok(icls) =
+                PyTypeRef::try_from_object(self, self.get_attribute(obj.clone(), "__class__")?)
+            {
+                if icls.is(&obj.class()) {
+                    Ok(false)
+                } else {
+                    Ok(icls.issubclass(typ))
+                }
+            } else {
+                Ok(false)
+            }
         } else {
-            Err(self.new_type_error(format!(
-                "isinstance() arg 2 must be a type or tuple of types, not {}",
-                cls.class()
-            )))
+            self.check_cls(cls, || {
+                format!(
+                    "isinstance() arg 2 must be a type or tuple of types, not {}",
+                    cls.class()
+                )
+            })
+            .and_then(|_| {
+                let icls = self.get_attribute(obj.clone(), "__class__")?;
+                if self.is_none(&icls) {
+                    Ok(false)
+                } else {
+                    self.abstract_issubclass(icls, cls)
+                }
+            })
         }
     }
 
@@ -965,7 +1003,7 @@ impl VirtualMachine {
         }
 
         if cls.class().is(&self.ctx.types.type_type) {
-            return self._isinstance(obj, cls);
+            return self.abstract_isinstance(obj, cls);
         }
 
         if let Ok(tuple) = PyTupleRef::try_from_object(self, cls.clone()) {
@@ -982,13 +1020,13 @@ impl VirtualMachine {
             return pybool::boolval(self, ret);
         }
 
-        self._isinstance(obj, cls)
+        self.abstract_isinstance(obj, cls)
     }
 
     fn abstract_issubclass(&self, subclass: PyObjectRef, cls: &PyObjectRef) -> PyResult<bool> {
         let mut derived = subclass;
         loop {
-            if derived.class().is(cls) {
+            if derived.is(cls) {
                 return Ok(true);
             }
 
@@ -1024,19 +1062,19 @@ impl VirtualMachine {
         ) {
             Ok(subclass.issubclass(cls))
         } else {
-            if self.get_attribute(subclass.clone(), "__bases__").is_err() {
-                return Err(self.new_type_error(format!(
+            self.check_cls(subclass, || {
+                format!(
                     "issubclass() arg 1 must be a class, not {}",
                     subclass.class()
-                )));
-            }
-            if self.get_attribute(cls.clone(), "__bases__").is_err() {
-                return Err(self.new_type_error(format!(
+                )
+            })
+            .and(self.check_cls(cls, || {
+                format!(
                     "issubclass() arg 2 must be a class or tuple of classes, not {}",
                     cls.class()
-                )));
-            }
-            self.abstract_issubclass(subclass.clone(), cls)
+                )
+            }))
+            .and(self.abstract_issubclass(subclass.clone(), cls))
         }
     }
 
