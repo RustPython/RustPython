@@ -830,6 +830,22 @@ impl PySetIterator {
             self.dict.len_from_entry_index(self.position.load())
         }
     }
+
+    #[pymethod(magic)]
+    fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<(PyObjectRef, (PyObjectRef,))> {
+        Ok((
+            vm.get_attribute(vm.builtins.clone(), "iter")?,
+            (vm.ctx.new_list(match zelf.status.load() {
+                IterStatus::Exhausted => vec![],
+                IterStatus::Active => zelf
+                    .dict
+                    .keys()
+                    .into_iter()
+                    .skip(zelf.position.load())
+                    .collect(),
+            }),),
+        ))
+    }
 }
 
 impl PyIter for PySetIterator {
