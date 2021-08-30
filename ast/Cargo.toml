@@ -8,6 +8,8 @@ edition = "2018"
 default = ["constant-optimization", "fold"]
 constant-optimization = ["fold"]
 fold = []
+unparse = ["rustpython-common"]
 
 [dependencies]
 num-bigint = "0.4.2"
+rustpython-common = { path = "../common", optional = true }

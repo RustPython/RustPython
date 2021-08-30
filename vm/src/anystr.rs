@@ -441,15 +441,3 @@ pub trait AnyStr<'s>: 's {
             .format(vm, values)
     }
 }
-
-/// returns the outer quotes to use and the number of quotes that need to be escaped
-#[inline]
-pub fn choose_quotes_for_repr(num_squotes: usize, num_dquotes: usize) -> (char, usize) {
-    // always use squote unless we have squotes but no dquotes
-    let use_dquote = num_squotes > 0 && num_dquotes == 0;
-    if use_dquote {
-        ('"', num_dquotes)
-    } else {
-        ('\'', num_squotes)
-    }
-}

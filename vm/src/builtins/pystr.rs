@@ -9,7 +9,6 @@ use crate::{
     function::{ArgIterable, FuncArgs, IntoPyException, IntoPyObject, OptionalArg, OptionalOption},
     protocol::PyIterReturn,
     sliceable::PySliceableSequence,
-    stdlib::sys,
     types::{
         Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable, PyComparisonOp,
         Unconstructible,
@@ -495,91 +494,10 @@ impl PyStr {
     }
 
     #[pymethod(magic)]
-    pub fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
-        let in_len = self.byte_len();
-        let mut out_len = 0usize;
-        // let mut max = 127;
-        let mut squote = 0;
-        let mut dquote = 0;
-
-        for ch in self.as_str().chars() {
-            let incr = match ch {
-                '\'' => {
-                    squote += 1;
-                    1
-                }
-                '"' => {
-                    dquote += 1;
-                    1
-                }
-                '\\' | '\t' | '\r' | '\n' => 2,
-                ch if ch < ' ' || ch as u32 == 0x7f => 4, // \xHH
-                ch if ch.is_ascii() => 1,
-                ch if char_is_printable(ch) => {
-                    // max = std::cmp::max(ch, max);
-                    ch.len_utf8()
-                }
-                ch if (ch as u32) < 0x100 => 4,   // \xHH
-                ch if (ch as u32) < 0x10000 => 6, // \uHHHH
-                _ => 10,                          // \uHHHHHHHH
-            };
-            if out_len > (sys::MAXSIZE as usize) - incr {
-                return Err(vm.new_overflow_error("string is too long to generate repr".to_owned()));
-            }
-            out_len += incr;
-        }
-
-        let (quote, num_escaped_quotes) = anystr::choose_quotes_for_repr(squote, dquote);
-        // we'll be adding backslashes in front of the existing inner quotes
-        out_len += num_escaped_quotes;
-
-        // if we don't need to escape anything we can just copy
-        let unchanged = out_len == in_len;
-
-        // start and ending quotes
-        out_len += 2;
-
-        let mut repr = String::with_capacity(out_len);
-        repr.push(quote);
-        if unchanged {
-            repr.push_str(self.as_str());
-        } else {
-            for ch in self.as_str().chars() {
-                use std::fmt::Write;
-                match ch {
-                    '\n' => repr.push_str("\\n"),
-                    '\t' => repr.push_str("\\t"),
-                    '\r' => repr.push_str("\\r"),
-                    // these 2 branches *would* be handled below, but we shouldn't have to do a
-                    // unicodedata lookup just for ascii characters
-                    '\x20'..='\x7e' => {
-                        // printable ascii range
-                        if ch == quote || ch == '\\' {
-                            repr.push('\\');
-                        }
-                        repr.push(ch);
-                    }
-                    ch if ch.is_ascii() => {
-                        write!(repr, "\\x{:02x}", ch as u8).unwrap();
-                    }
-                    ch if char_is_printable(ch) => {
-                        repr.push(ch);
-                    }
-                    '\0'..='\u{ff}' => {
-                        write!(repr, "\\x{:02x}", ch as u32).unwrap();
-                    }
-                    '\0'..='\u{ffff}' => {
-                        write!(repr, "\\u{:04x}", ch as u32).unwrap();
-                    }
-                    _ => {
-                        write!(repr, "\\U{:08x}", ch as u32).unwrap();
-                    }
-                }
-            }
-        }
-        repr.push(quote);
-
-        Ok(repr)
+    pub(crate) fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
+        rustpython_common::str::repr(self.as_str())
+            .to_string_checked()
+            .map_err(|err| vm.new_overflow_error(err.to_string()))
     }
 
     #[pymethod]
@@ -914,7 +832,7 @@ impl PyStr {
     ///   * Zs (Separator, Space) other than ASCII space('\x20').
     #[pymethod]
     fn isprintable(&self) -> bool {
-        self.char_all(|c| c == '\u{0020}' || char_is_printable(c))
+        self.char_all(|c| c == '\u{0020}' || rustpython_common::char::is_printable(c))
     }
 
     #[pymethod]
@@ -1514,20 +1432,6 @@ impl PySliceableSequence for PyStr {
     fn is_empty(&self) -> bool {
         self.is_empty()
     }
-}
-
-// According to python following categories aren't printable:
-// * Cc (Other, Control)
-// * Cf (Other, Format)
-// * Cs (Other, Surrogate)
-// * Co (Other, Private Use)
-// * Cn (Other, Not Assigned)
-// * Zl Separator, Line ('\u2028', LINE SEPARATOR)
-// * Zp Separator, Paragraph ('\u2029', PARAGRAPH SEPARATOR)
-// * Zs (Separator, Space) other than ASCII space('\x20').
-fn char_is_printable(c: char) -> bool {
-    let cat = GeneralCategory::of(c);
-    !(cat.is_other() || cat.is_separator())
 }
 
 #[cfg(test)]

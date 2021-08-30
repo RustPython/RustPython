@@ -1083,7 +1083,7 @@ mod array {
                 return Ok(format!(
                     "{}('u', {})",
                     class_name,
-                    PyStr::from(zelf.tounicode(vm)?).repr(vm)?
+                    crate::common::str::repr(&zelf.tounicode(vm)?)
                 ));
             }
             zelf.read().repr(&class_name, vm)
