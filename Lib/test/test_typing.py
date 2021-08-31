@@ -695,8 +695,6 @@ class ProtocolTests(BaseTestCase):
 
         self.assertIsInstance(f, HasCallProtocol)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_no_inheritance_from_nominal(self):
         class C: pass
 
@@ -719,8 +717,6 @@ class ProtocolTests(BaseTestCase):
         self.assertNotIsInstance(D(), E)
         self.assertNotIsInstance(E(), D)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_no_instantiation(self):
         class P(Protocol): pass
 
@@ -875,8 +871,6 @@ class ProtocolTests(BaseTestCase):
         with self.assertRaises(TypeError):
             issubclass(PG, PG[int])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_protocols_issubclass_non_callable(self):
         class C:
             x = 1
@@ -994,8 +988,6 @@ class ProtocolTests(BaseTestCase):
         self.assertIsInstance(C(1), P)
         self.assertIsInstance(C(1), PG)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_protocol_checks_after_subscript(self):
         class P(Protocol[T]): pass
         class C(P[T]): pass
@@ -1094,8 +1086,6 @@ class ProtocolTests(BaseTestCase):
         self.assertIsInstance(NonPR(), PR)
         self.assertIsSubclass(NonPR, PR)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_custom_subclasshook(self):
         class P(Protocol):
             x = 1
@@ -1125,8 +1115,6 @@ class ProtocolTests(BaseTestCase):
         with self.assertRaises(TypeError):
             issubclass(C(), P)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_defining_generic_protocols(self):
         T = TypeVar('T')
         S = TypeVar('S')
@@ -1192,8 +1180,6 @@ class ProtocolTests(BaseTestCase):
         with self.assertRaises(TypeError):
             PR[int, ClassVar]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_init_called(self):
         T = TypeVar('T')
 
@@ -1277,8 +1263,6 @@ class ProtocolTests(BaseTestCase):
         self.assertEqual(frozenset(typing._get_protocol_attrs(PG)),
                          frozenset({'x', 'meth'}))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_no_runtime_deco_on_nominal(self):
         with self.assertRaises(TypeError):
             @runtime_checkable
@@ -2894,8 +2878,6 @@ class GetTypeHintTests(BaseTestCase):
                      'default_b': Optional[mod_generics_cache.B]}
         self.assertEqual(gth(mod_generics_cache), mgc_hints)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_get_type_hints_classes(self):
         self.assertEqual(gth(ann_module.C),  # gth will find the right globalns
                          {'y': Optional[ann_module.C]})
