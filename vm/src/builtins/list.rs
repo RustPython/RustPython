@@ -86,11 +86,13 @@ pub type PyListRef = PyRef<PyList>;
 
 #[pyimpl(with(Iterable, Hashable, Comparable), flags(BASETYPE))]
 impl PyList {
+    /// Append object to the end of the list.
     #[pymethod]
     pub(crate) fn append(&self, x: PyObjectRef) {
         self.borrow_vec_mut().push(x);
     }
 
+    /// Extend list by appending elements from the iterable.
     #[pymethod]
     fn extend(&self, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let mut new_elements = vm.extract_elements(&x)?;
@@ -98,6 +100,7 @@ impl PyList {
         Ok(())
     }
 
+    /// Insert object before index.
     #[pymethod]
     pub(crate) fn insert(&self, position: isize, element: PyObjectRef) {
         let mut elements = self.borrow_vec_mut();
@@ -105,6 +108,7 @@ impl PyList {
         elements.insert(position, element);
     }
 
+    /// Return self+value.
     #[pymethod(magic)]
     fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(other) = other.payload_if_subclass::<PyList>(vm) {
@@ -120,6 +124,7 @@ impl PyList {
         }
     }
 
+    /// Implement self+=value.
     #[pymethod(magic)]
     fn iadd(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if let Ok(new_elements) = vm.extract_elements(&other) {
@@ -131,36 +136,43 @@ impl PyList {
         }
     }
 
+    /// self != 0
     #[pymethod(magic)]
     fn bool(&self) -> bool {
         !self.borrow_vec().is_empty()
     }
 
+    /// Remove all items from list.
     #[pymethod]
     fn clear(&self) {
         let _removed = std::mem::take(self.borrow_vec_mut().deref_mut());
     }
 
+    /// Return a shallow copy of the list.
     #[pymethod]
     fn copy(&self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_list(self.borrow_vec().to_vec())
     }
 
+    /// Return len(self).
     #[pymethod(magic)]
     fn len(&self) -> usize {
         self.borrow_vec().len()
     }
 
+    /// Return the size of the list in memory, in bytes.
     #[pymethod(magic)]
     fn sizeof(&self) -> usize {
         size_of::<Self>() + self.elements.read().capacity() * size_of::<PyObjectRef>()
     }
 
+    /// Reverse *IN PLACE*.
     #[pymethod]
     fn reverse(&self) {
         self.borrow_vec_mut().reverse();
     }
 
+    /// Return a reverse iterator over the list.
     #[pymethod(magic)]
     fn reversed(zelf: PyRef<Self>) -> PyListReverseIterator {
         let final_position = zelf.borrow_vec().len();
@@ -176,6 +188,7 @@ impl PyList {
         }
     }
 
+    /// x.__getitem__(y) <==> x[y]
     #[pymethod(magic)]
     fn getitem(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let result = match zelf.borrow_vec().get_item(vm, needle, Self::NAME)? {
@@ -185,6 +198,7 @@ impl PyList {
         Ok(result)
     }
 
+    /// Set self[key] to value.
     #[pymethod(magic)]
     fn setitem(
         &self,
@@ -220,6 +234,7 @@ impl PyList {
         elements.set_slice_items(vm, &slice, items.as_slice())
     }
 
+    /// Return repr(self).
     #[pymethod(magic)]
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
         let s = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
@@ -236,6 +251,7 @@ impl PyList {
         Ok(s)
     }
 
+    /// Return value*self.
     #[pymethod(magic)]
     #[pymethod(name = "__rmul__")]
     fn mul(&self, value: isize, vm: &VirtualMachine) -> PyResult {
@@ -245,6 +261,7 @@ impl PyList {
         Ok(vm.ctx.new_list(new_elements))
     }
 
+    /// Implement self*=value.
     #[pymethod(magic)]
     fn imul(zelf: PyRef<Self>, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         let mut elements = zelf.borrow_vec_mut();
@@ -254,6 +271,7 @@ impl PyList {
         Ok(zelf.clone())
     }
 
+    /// Return number of occurrences of value.
     #[pymethod]
     fn count(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         // TODO: to_vec() cause copy which leads to cost O(N). It need to be improved.
@@ -267,6 +285,7 @@ impl PyList {
         Ok(count)
     }
 
+    /// Return key in self.
     #[pymethod(magic)]
     fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         // TODO: to_vec() cause copy which leads to cost O(N). It need to be improved.
@@ -280,6 +299,7 @@ impl PyList {
         Ok(false)
     }
 
+    /// Return first index of value.\n\nRaises ValueError if the value is not present.
     #[pymethod]
     fn index(
         &self,
@@ -317,6 +337,7 @@ impl PyList {
         Err(vm.new_value_error(format!("'{}' is not in list", vm.to_str(&needle)?)))
     }
 
+    /// Remove and return item at index (default last).\n\nRaises IndexError if list is empty or index is out of range.
     #[pymethod]
     fn pop(&self, i: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult {
         let mut i = i.into_option().unwrap_or(-1);
@@ -333,6 +354,7 @@ impl PyList {
         }
     }
 
+    /// Remove first occurrence of value.\n\nRaises ValueError if the value is not present.
     #[pymethod]
     fn remove(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         // TODO: to_vec() cause copy which leads to cost O(N). It need to be improved.
@@ -354,6 +376,7 @@ impl PyList {
         .map(drop)
     }
 
+    /// Delete self[key].
     #[pymethod(magic)]
     fn delitem(&self, subscript: SequenceIndex, vm: &VirtualMachine) -> PyResult<()> {
         match subscript {
@@ -379,6 +402,7 @@ impl PyList {
         self.borrow_vec_mut().delete_slice(vm, &slice)
     }
 
+    /// Sort the list in ascending order and return None.\n\nThe sort is in-place (i.e. the list itself is modified) and stable (i.e. the\norder of two equal elements is maintained).\n\nIf a key function is given, apply it once to each list item and sort them,\nascending or descending, according to their function values.\n\nThe reverse flag can be set to sort in descending order.
     #[pymethod]
     pub(crate) fn sort(&self, options: SortOptions, vm: &VirtualMachine) -> PyResult<()> {
         // replace list contents with [] for duration of sort.
@@ -401,6 +425,7 @@ impl PyList {
         PyList::default().into_pyresult_with_type(vm, cls)
     }
 
+    /// Initialize self.  See help(type(self)) for accurate signature.
     #[pymethod(magic)]
     fn init(&self, iterable: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<()> {
         let mut elements = if let OptionalArg::Present(iterable) = iterable {
@@ -470,6 +495,7 @@ fn do_sort(
     Ok(())
 }
 
+/// Implement iter(self)
 #[pyclass(module = false, name = "list_iterator")]
 #[derive(Debug)]
 pub struct PyListIterator {
@@ -509,6 +535,7 @@ impl PyListIterator {
         Ok(())
     }
 
+    /// Built-in immutable sequence.\n\nIf no argument is given, the constructor returns an empty tuple.\nIf iterable is specified the tuple is initialized from iterable's items.\n\nIf the argument is a tuple, the return value is the same object.
     #[pymethod(magic)]
     fn reduce(&self, vm: &VirtualMachine) -> PyResult {
         let pos = if let Exhausted = self.status.load() {

@@ -106,6 +106,7 @@ impl PyByteArray {
         PyByteArray::default().into_pyresult_with_type(vm, cls)
     }
 
+    /// Initialize self.  See help(type(self)) for accurate signature.
     #[pymethod(magic)]
     fn init(&self, options: ByteInnerNewOptions, vm: &VirtualMachine) -> PyResult<()> {
         // First unpack bytearray and *then* get a lock to set it.
@@ -123,31 +124,37 @@ impl PyByteArray {
         self.inner.write()
     }
 
+    /// Return repr(self).
     #[pymethod(magic)]
     fn repr(&self) -> String {
         self.inner().repr("bytearray(", ")")
     }
 
+    /// B.__alloc__() -> int\n\nReturn the number of bytes actually allocated.
     #[pymethod(magic)]
     fn alloc(&self) -> usize {
         self.inner().capacity()
     }
 
+    /// Return len(self).
     #[pymethod(magic)]
     fn len(&self) -> usize {
         self.borrow_buf().len()
     }
 
+    /// Returns the size of the bytearray object in memory, in bytes.
     #[pymethod(magic)]
     fn sizeof(&self) -> usize {
         size_of::<Self>() + self.borrow_buf().len() * size_of::<u8>()
     }
 
+    /// Return self+value.
     #[pymethod(magic)]
     fn add(&self, other: ArgBytesLike, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_bytearray(self.inner().add(&*other.borrow_buf()))
     }
 
+    /// Return key in self.
     #[pymethod(magic)]
     fn contains(
         &self,
@@ -157,6 +164,7 @@ impl PyByteArray {
         self.inner().contains(needle, vm)
     }
 
+    /// Set self[key] to value.
     #[pymethod(magic)]
     fn setitem(
         zelf: PyRef<Self>,
@@ -191,6 +199,7 @@ impl PyByteArray {
         }
     }
 
+    /// Implement self+=value.
     #[pymethod(magic)]
     fn iadd(zelf: PyRef<Self>, other: ArgBytesLike, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         zelf.try_resizable(vm)?
@@ -199,11 +208,13 @@ impl PyByteArray {
         Ok(zelf)
     }
 
+    /// Return self[key].
     #[pymethod(magic)]
     fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self.inner().getitem(Self::NAME, needle, vm)
     }
 
+    /// Delete self[key].
     #[pymethod(magic)]
     pub fn delitem(&self, needle: SequenceIndex, vm: &VirtualMachine) -> PyResult<()> {
         let elements = &mut self.try_resizable(vm)?.elements;
@@ -220,6 +231,7 @@ impl PyByteArray {
         }
     }
 
+    /// Remove and return a single item from B.\n\n  index\n    The index from where to remove the item.\n    -1 (the default value) means remove the last item.\n\nIf no index argument is given, will pop the last item.
     #[pymethod]
     fn pop(zelf: PyRef<Self>, index: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult<u8> {
         let elements = &mut zelf.try_resizable(vm)?.elements;
@@ -229,6 +241,7 @@ impl PyByteArray {
         Ok(elements.remove(index))
     }
 
+    /// Insert a single item into the bytearray before the given index.\n\n  index\n    The index where the value is to be inserted.\n  item\n    The item to be inserted.
     #[pymethod]
     fn insert(
         zelf: PyRef<Self>,
@@ -243,6 +256,7 @@ impl PyByteArray {
         Ok(())
     }
 
+    /// Append a single item to the end of the bytearray.\n\n  item\n    The item to be appended.
     #[pymethod]
     fn append(zelf: PyRef<Self>, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let value = value_from_object(vm, &object)?;
@@ -250,6 +264,7 @@ impl PyByteArray {
         Ok(())
     }
 
+    /// Remove the first occurrence of a value in the bytearray.\n\n  value\n    The value to remove.
     #[pymethod]
     fn remove(zelf: PyRef<Self>, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let value = value_from_object(vm, &object)?;
@@ -262,6 +277,7 @@ impl PyByteArray {
         }
     }
 
+    /// Append all the items from the iterator or sequence to the end of the bytearray.\n\n  iterable_of_ints\n    The iterable of items to append.
     #[pymethod]
     fn extend(zelf: PyRef<Self>, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if zelf.is(&object) {
@@ -303,11 +319,13 @@ impl PyByteArray {
         Ok(())
     }
 
+    /// B.isalnum() -> bool\n\nReturn True if all characters in B are alphanumeric\nand there is at least one character in B, False otherwise.
     #[pymethod]
     fn isalnum(&self) -> bool {
         self.inner().isalnum()
     }
 
+    /// B.isalpha() -> bool\n\nReturn True if all characters in B are alphabetic\nand there is at least one character in B, False otherwise.
     #[pymethod]
     fn isalpha(&self) -> bool {
         self.inner().isalpha()
