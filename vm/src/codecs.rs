@@ -167,6 +167,10 @@ impl CodecsRegistry {
                 "surrogatepass",
                 ctx.new_function("surrogatepass_errors", surrogatepass_errors),
             ),
+            (
+                "surrogateescape",
+                ctx.new_function("surrogateescape_errors", surrogateescape_errors),
+            ),
         ];
         let errors = std::array::IntoIter::new(errors)
             .map(|(name, f)| (name.to_owned(), f))
@@ -640,6 +644,50 @@ fn surrogatepass_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(Stri
             return Err(err.downcast().unwrap());
         }
         Ok((format!("\\x{:x?}", c), range.start + byte_length))
+    } else {
+        Err(bad_err_type(err, vm))
+    }
+}
+
+fn surrogateescape_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(String, usize)> {
+    if err.isinstance(&vm.ctx.exceptions.unicode_encode_error) {
+        let range = extract_unicode_error_range(&err, vm)?;
+        let s = PyStrRef::try_from_object(vm, vm.get_attribute(err.clone(), "object")?)?;
+        let s_after_start =
+            crate::common::str::try_get_chars(s.as_str(), range.start..).unwrap_or("");
+        let num_chars = range.len();
+        let mut out = String::with_capacity(num_chars * 4);
+        for c in s_after_start.chars().take(num_chars).map(|x| x as u32) {
+            use std::fmt::Write;
+            if !(0xd800..=0xdfff).contains(&c) {
+                // Not a UTF-8b surrogate, fail with original exception
+                return Err(err.downcast().unwrap());
+            }
+            write!(out, "#{}", c - 0xdc00).unwrap();
+        }
+        Ok((out, range.end))
+    } else if is_decode_err(&err, vm) {
+        let range = extract_unicode_error_range(&err, vm)?;
+        let s = PyStrRef::try_from_object(vm, vm.get_attribute(err.clone(), "object")?)?;
+        let s_after_start = crate::common::str::try_get_chars(s.as_str(), range.start..)
+            .unwrap_or("")
+            .as_bytes();
+        let mut consumed = 0;
+        let mut replace = String::with_capacity(4 * range.len());
+        while consumed < 4 && consumed < range.len() {
+            let c = s_after_start[consumed] as u32;
+            if c < 128 {
+                // Refuse to escape ASCII bytes
+                break;
+            }
+            use std::fmt::Write;
+            write!(replace, "#{}", 0xdc00 + c).unwrap();
+            consumed += 1;
+        }
+        if consumed == 0 {
+            return Err(err.downcast().unwrap());
+        }
+        Ok((replace, range.start + consumed))
     } else {
         Err(bad_err_type(err, vm))
     }
