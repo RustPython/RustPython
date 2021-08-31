@@ -50,7 +50,7 @@ impl PyMappingProxy {
         let opt = match &self.mapping {
             MappingProxyInner::Class(class) => {
                 let key = PyStrRef::try_from_object(vm, key)?;
-                class.get_attr(key.as_str())
+                class.attributes.read().get(key.as_str()).cloned()
             }
             MappingProxyInner::Dict(obj) => obj.get_item(key, vm).ok(),
         };
