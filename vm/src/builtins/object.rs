@@ -185,7 +185,11 @@ impl PyBaseObject {
     /// Return repr(self).
     #[pymethod(magic)]
     fn repr(zelf: PyObjectRef) -> String {
-        format!("<{} object at {:#x}>", zelf.class().name, zelf.get_id())
+        format!(
+            "<{} object at {:#x}>",
+            zelf.class().tp_name(),
+            zelf.get_id()
+        )
     }
 
     #[pyclassmethod(magic)]
