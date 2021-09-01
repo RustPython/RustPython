@@ -8,7 +8,7 @@ use crate::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 /// map(func, *iterables) --> map object
 ///
 /// Make an iterator that computes the function using arguments from
-/// each of the iterables.  Stops when the shortest iterable is exhausted.
+/// each of the iterables. Stops when the shortest iterable is exhausted.
 #[pyclass(module = false, name = "map")]
 #[derive(Debug)]
 pub struct PyMap {
@@ -42,6 +42,7 @@ impl PyMap {
         .into_ref_with_type(vm, cls)
     }
 
+    /// Return an estimate of the number of items.
     #[pymethod(magic)]
     fn length_hint(&self, vm: &VirtualMachine) -> PyResult<usize> {
         self.iterators.iter().try_fold(0, |prev, cur| {
