@@ -170,13 +170,9 @@ class TestSet(TestTemporarilyImmutable, unittest.TestCase):
         self.it = iter(d)
         self.mutate = d.pop
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_immutable_during_iteration(self):
         super().test_immutable_during_iteration()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_invariant(self):
         super().test_invariant()
 

@@ -1,10 +1,10 @@
 /*
  * Builtin set type with a sequence of unique items.
  */
-use super::{pytype::PyTypeRef, PyDictRef};
+use super::{pytype::PyTypeRef, IterStatus, PyDictRef};
 use crate::common::hash::PyHash;
 use crate::common::rc::PyRc;
-use crate::dictdatatype;
+use crate::dictdatatype::{self, DictSize};
 use crate::function::{Args, FuncArgs, OptionalArg};
 use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable};
 use crate::vm::{ReprGuard, VirtualMachine};
@@ -186,15 +186,11 @@ impl PySetInner {
     }
 
     fn iter(&self) -> PySetIterator {
-        let set_size = SetSizeInfo {
-            position: 0,
-            size: Some(self.content.len()),
-        };
-
         PySetIterator {
             dict: PyRc::clone(&self.content),
-            elements: self.elements(),
-            size_info: AtomicCell::new(set_size),
+            size: self.content.size(),
+            position: AtomicCell::new(0),
+            status: AtomicCell::new(IterStatus::Active),
         }
     }
 
@@ -803,17 +799,12 @@ impl TryFromObject for SetIterable {
     }
 }
 
-#[derive(Copy, Clone, Default)]
-struct SetSizeInfo {
-    size: Option<usize>,
-    position: usize,
-}
-
 #[pyclass(module = false, name = "set_iterator")]
 pub(crate) struct PySetIterator {
     dict: PyRc<SetContentType>,
-    elements: Vec<PyObjectRef>,
-    size_info: AtomicCell<SetSizeInfo>,
+    size: DictSize,
+    position: AtomicCell<usize>,
+    status: AtomicCell<IterStatus>,
 }
 
 impl fmt::Debug for PySetIterator {
@@ -833,33 +824,50 @@ impl PyValue for PySetIterator {
 impl PySetIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
-        let set_len = self.dict.len();
-        let position = self.size_info.load().position;
-        set_len.saturating_sub(position)
+        if let IterStatus::Exhausted = self.status.load() {
+            0
+        } else {
+            self.dict.len_from_entry_index(self.position.load())
+        }
+    }
+
+    #[pymethod(magic)]
+    fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<(PyObjectRef, (PyObjectRef,))> {
+        Ok((
+            vm.get_attribute(vm.builtins.clone(), "iter")?,
+            (vm.ctx.new_list(match zelf.status.load() {
+                IterStatus::Exhausted => vec![],
+                IterStatus::Active => zelf
+                    .dict
+                    .keys()
+                    .into_iter()
+                    .skip(zelf.position.load())
+                    .collect(),
+            }),),
+        ))
     }
 }
 
 impl PyIter for PySetIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        let mut size_info = zelf.size_info.take();
-
-        if let Some(set_size) = size_info.size {
-            if set_size == zelf.dict.len() {
-                let index = size_info.position;
-                let item = zelf
-                    .elements
-                    .get(index)
-                    .ok_or_else(|| vm.new_stop_iteration())?;
-                size_info.position += 1;
-                zelf.size_info.store(size_info);
-                return Ok(item.clone());
-            } else {
-                size_info.size = None;
-                zelf.size_info.store(size_info);
+        match zelf.status.load() {
+            IterStatus::Exhausted => Err(vm.new_stop_iteration()),
+            IterStatus::Active => {
+                if zelf.dict.has_changed_size(&zelf.size) {
+                    zelf.status.store(IterStatus::Exhausted);
+                    return Err(
+                        vm.new_runtime_error("set changed size during iteration".to_owned())
+                    );
+                }
+                match zelf.dict.next_entry_atomic(&zelf.position) {
+                    Some((key, _)) => Ok(key),
+                    None => {
+                        zelf.status.store(IterStatus::Exhausted);
+                        Err(vm.new_stop_iteration())
+                    }
+                }
             }
         }
-
-        Err(vm.new_runtime_error("set changed size during iteration".into()))
     }
 }
 
