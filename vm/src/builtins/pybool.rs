@@ -3,12 +3,15 @@ use num_traits::Zero;
 
 use super::int::PyInt;
 use super::pystr::PyStrRef;
+use crate::builtins::PyTypeRef;
 use crate::function::OptionalArg;
+use crate::slots::SlotConstructor;
 use crate::vm::VirtualMachine;
 use crate::{
-    IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyResult, TryFromBorrowedObject,
-    TryFromObject, TypeProtocol,
+    IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue,
+    TryFromBorrowedObject, TryFromObject, TypeProtocol,
 };
+use std::fmt::{Debug, Formatter};
 
 impl IntoPyObject for bool {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
@@ -79,7 +82,38 @@ pub fn boolval(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
 #[pyclass(name = "bool", module = false, base = "PyInt")]
 pub struct PyBool;
 
-#[pyimpl]
+impl PyValue for PyBool {
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.bool_type
+    }
+}
+
+impl Debug for PyBool {
+    fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
+        todo!()
+    }
+}
+
+impl SlotConstructor for PyBool {
+    type Args = OptionalArg<PyObjectRef>;
+
+    fn py_new(zelf: PyTypeRef, x: Self::Args, vm: &VirtualMachine) -> PyResult {
+        if !zelf.isinstance(&vm.ctx.types.type_type) {
+            let actual_type = &zelf.class().name;
+            return Err(vm.new_type_error(format!(
+                "requires a 'type' object but received a '{}'",
+                actual_type
+            )));
+        }
+        let val = match x {
+            OptionalArg::Present(val) => boolval(vm, val)?,
+            OptionalArg::Missing => false,
+        };
+        Ok(vm.ctx.new_bool(val))
+    }
+}
+
+#[pyimpl(with(SlotConstructor))]
 impl PyBool {
     #[pymethod(magic)]
     fn repr(zelf: bool) -> String {
@@ -129,22 +163,6 @@ impl PyBool {
         } else {
             get_py_int(&lhs).xor(rhs, vm).into_pyobject(vm)
         }
-    }
-
-    #[pyslot]
-    fn tp_new(zelf: PyObjectRef, x: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
-        if !zelf.isinstance(&vm.ctx.types.type_type) {
-            let actual_type = &zelf.class().name;
-            return Err(vm.new_type_error(format!(
-                "requires a 'type' object but received a '{}'",
-                actual_type
-            )));
-        }
-        let val = match x {
-            OptionalArg::Present(val) => boolval(vm, val)?,
-            OptionalArg::Missing => false,
-        };
-        Ok(vm.ctx.new_bool(val))
     }
 }
 

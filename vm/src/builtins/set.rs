@@ -4,9 +4,12 @@
 use super::{pytype::PyTypeRef, IterStatus, PyDictRef};
 use crate::common::hash::PyHash;
 use crate::common::rc::PyRc;
-use crate::dictdatatype::{self, DictSize};
+use crate::dictdatatype;
+use crate::dictdatatype::DictSize;
 use crate::function::{Args, FuncArgs, OptionalArg};
-use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable};
+use crate::slots::{
+    Comparable, Hashable, Iterable, PyComparisonOp, PyIter, SlotConstructor, Unhashable,
+};
 use crate::vm::{ReprGuard, VirtualMachine};
 use crate::{
     IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef,
@@ -359,8 +362,8 @@ macro_rules! multi_args_set {
 #[pyimpl(with(Hashable, Comparable, Iterable), flags(BASETYPE))]
 impl PySet {
     #[pyslot]
-    fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        PySet::default().into_ref_with_type(vm, cls)
+    fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        PySet::default().into_pyresult_with_type(vm, cls)
     }
 
     #[pymethod(magic)]
@@ -595,30 +598,14 @@ macro_rules! multi_args_frozenset {
     }};
 }
 
-#[pyimpl(flags(BASETYPE), with(Hashable, Comparable, Iterable))]
-impl PyFrozenSet {
-    // Also used by ssl.rs windows.
-    pub(crate) fn from_iter(
-        vm: &VirtualMachine,
-        it: impl IntoIterator<Item = PyObjectRef>,
-    ) -> PyResult<Self> {
-        let inner = PySetInner::default();
-        for elem in it {
-            inner.add(elem, vm)?;
-        }
-        Ok(Self { inner })
-    }
+impl SlotConstructor for PyFrozenSet {
+    type Args = OptionalArg<PyObjectRef>;
 
-    #[pyslot]
-    fn tp_new(
-        cls: PyTypeRef,
-        iterable: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyRef<Self>> {
+    fn py_new(cls: PyTypeRef, iterable: Self::Args, vm: &VirtualMachine) -> PyResult {
         let elements = if let OptionalArg::Present(iterable) = iterable {
             let iterable = if cls.is(&vm.ctx.types.frozenset_type) {
                 match iterable.downcast_exact::<Self>(vm) {
-                    Ok(fs) => return Ok(fs),
+                    Ok(fs) => return Ok(fs.into_object()),
                     Err(iterable) => iterable,
                 }
             } else {
@@ -631,10 +618,25 @@ impl PyFrozenSet {
 
         // Return empty fs if iterable passed is empty and only for exact fs types.
         if elements.is_empty() && cls.is(&vm.ctx.types.frozenset_type) {
-            Ok(vm.ctx.empty_frozenset.clone())
+            Ok(vm.ctx.empty_frozenset.clone().into_object())
         } else {
-            Self::from_iter(vm, elements).and_then(|o| o.into_ref_with_type(vm, cls))
+            Self::from_iter(vm, elements).and_then(|o| o.into_pyresult_with_type(vm, cls))
         }
+    }
+}
+
+#[pyimpl(flags(BASETYPE), with(Hashable, Comparable, Iterable, SlotConstructor))]
+impl PyFrozenSet {
+    // Also used by ssl.rs windows.
+    pub(crate) fn from_iter(
+        vm: &VirtualMachine,
+        it: impl IntoIterator<Item = PyObjectRef>,
+    ) -> PyResult<Self> {
+        let inner = PySetInner::default();
+        for elem in it {
+            inner.add(elem, vm)?;
+        }
+        Ok(Self { inner })
     }
 
     #[pymethod(magic)]

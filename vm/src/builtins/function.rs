@@ -14,7 +14,9 @@ use crate::common::lock::PyMutex;
 use crate::frame::Frame;
 use crate::function::{FuncArgs, OptionalArg};
 use crate::scope::Scope;
-use crate::slots::{Callable, Comparable, PyComparisonOp, SlotDescriptor, SlotGetattro};
+use crate::slots::{
+    Callable, Comparable, PyComparisonOp, SlotConstructor, SlotDescriptor, SlotGetattro,
+};
 #[cfg(feature = "jit")]
 use crate::IntoPyObject;
 use crate::VirtualMachine;
@@ -465,20 +467,33 @@ impl SlotGetattro for PyBoundMethod {
     }
 }
 
-#[pyimpl(with(Callable, Comparable, SlotGetattro), flags(HAS_DICT))]
+#[derive(FromArgs)]
+pub struct PyBoundMethodNewArgs {
+    #[pyarg(positional)]
+    function: PyObjectRef,
+    #[pyarg(positional)]
+    object: PyObjectRef,
+}
+
+impl SlotConstructor for PyBoundMethod {
+    type Args = PyBoundMethodNewArgs;
+
+    fn py_new(
+        cls: PyTypeRef,
+        Self::Args { function, object }: Self::Args,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        PyBoundMethod::new(object, function).into_pyresult_with_type(vm, cls)
+    }
+}
+
+#[pyimpl(
+    with(Callable, Comparable, SlotGetattro, SlotConstructor),
+    flags(HAS_DICT)
+)]
 impl PyBoundMethod {
     pub fn new(object: PyObjectRef, function: PyObjectRef) -> Self {
         PyBoundMethod { object, function }
-    }
-
-    #[pyslot]
-    fn tp_new(
-        cls: PyTypeRef,
-        function: PyObjectRef,
-        object: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyRef<Self>> {
-        PyBoundMethod::new(object, function).into_ref_with_type(vm, cls)
     }
 
     #[pymethod(magic)]
@@ -559,13 +574,16 @@ impl PyValue for PyCell {
     }
 }
 
-#[pyimpl]
-impl PyCell {
-    #[pyslot]
-    fn tp_new(cls: PyTypeRef, value: OptionalArg, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        Self::new(value.into_option()).into_ref_with_type(vm, cls)
-    }
+impl SlotConstructor for PyCell {
+    type Args = OptionalArg;
 
+    fn py_new(cls: PyTypeRef, value: Self::Args, vm: &VirtualMachine) -> PyResult {
+        Self::new(value.into_option()).into_pyresult_with_type(vm, cls)
+    }
+}
+
+#[pyimpl(with(SlotConstructor))]
+impl PyCell {
     pub fn new(contents: Option<PyObjectRef>) -> Self {
         Self {
             contents: PyMutex::new(contents),

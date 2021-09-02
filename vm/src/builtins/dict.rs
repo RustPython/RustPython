@@ -54,8 +54,8 @@ impl PyValue for PyDict {
 #[pyimpl(with(Hashable, Comparable, Iterable), flags(BASETYPE))]
 impl PyDict {
     #[pyslot]
-    fn tp_new(class: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        PyDict::default().into_ref_with_type(vm, class)
+    fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        PyDict::default().into_pyresult_with_type(vm, cls)
     }
 
     #[pymethod(magic)]

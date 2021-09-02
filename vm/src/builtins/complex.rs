@@ -6,7 +6,7 @@ use super::float;
 use super::pystr::PyStr;
 use super::pytype::PyTypeRef;
 use crate::function::{OptionalArg, OptionalOption};
-use crate::slots::{Comparable, Hashable, PyComparisonOp};
+use crate::slots::{Comparable, Hashable, PyComparisonOp, SlotConstructor};
 use crate::VirtualMachine;
 use crate::{
     IdProtocol, IntoPyObject,
@@ -83,7 +83,83 @@ fn inner_pow(v1: Complex64, v2: Complex64, vm: &VirtualMachine) -> PyResult<Comp
     }
 }
 
-#[pyimpl(flags(BASETYPE), with(Comparable, Hashable))]
+impl SlotConstructor for PyComplex {
+    type Args = ComplexArgs;
+
+    fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+        let imag_missing = args.imag.is_missing();
+        let (real, real_was_complex) = match args.real {
+            OptionalArg::Missing => (Complex64::new(0.0, 0.0), false),
+            OptionalArg::Present(val) => {
+                let val = if cls.is(&vm.ctx.types.complex_type) && imag_missing {
+                    match val.downcast_exact::<PyComplex>(vm) {
+                        Ok(c) => {
+                            return Ok(c.into_object());
+                        }
+                        Err(val) => val,
+                    }
+                } else {
+                    val
+                };
+
+                if let Some(c) = try_complex(&val, vm)? {
+                    c
+                } else if let Some(s) = val.payload_if_subclass::<PyStr>(vm) {
+                    if args.imag.is_present() {
+                        return Err(vm.new_type_error(
+                            "complex() can't take second arg if first is a string".to_owned(),
+                        ));
+                    }
+                    let value = parse_str(s.as_str().trim()).ok_or_else(|| {
+                        vm.new_value_error("complex() arg is a malformed string".to_owned())
+                    })?;
+                    return Self::from(value).into_pyresult_with_type(vm, cls);
+                } else {
+                    return Err(vm.new_type_error(format!(
+                        "complex() first argument must be a string or a number, not '{}'",
+                        val.class().name
+                    )));
+                }
+            }
+        };
+
+        let (imag, imag_was_complex) = match args.imag {
+            // Copy the imaginary from the real to the real of the imaginary
+            // if an  imaginary argument is not passed in
+            OptionalArg::Missing => (Complex64::new(real.im, 0.0), false),
+            OptionalArg::Present(obj) => {
+                if let Some(c) = try_complex(&obj, vm)? {
+                    c
+                } else if obj.class().issubclass(&vm.ctx.types.str_type) {
+                    return Err(
+                        vm.new_type_error("complex() second arg can't be a string".to_owned())
+                    );
+                } else {
+                    return Err(vm.new_type_error(format!(
+                        "complex() second argument must be a number, not '{}'",
+                        obj.class().name
+                    )));
+                }
+            }
+        };
+
+        let final_real = if imag_was_complex {
+            real.re - imag.im
+        } else {
+            real.re
+        };
+
+        let final_imag = if real_was_complex && !imag_missing {
+            imag.re + real.im
+        } else {
+            imag.re
+        };
+        let value = Complex64::new(final_real, final_imag);
+        Self::from(value).into_pyresult_with_type(vm, cls)
+    }
+}
+
+#[pyimpl(flags(BASETYPE), with(Comparable, Hashable, SlotConstructor))]
 impl PyComplex {
     pub fn to_complex(&self) -> Complex64 {
         self.value
@@ -267,79 +343,6 @@ impl PyComplex {
         !Complex64::is_zero(&self.value)
     }
 
-    #[pyslot]
-    fn tp_new(cls: PyTypeRef, args: ComplexArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        let imag_missing = args.imag.is_missing();
-        let (real, real_was_complex) = match args.real {
-            OptionalArg::Missing => (Complex64::new(0.0, 0.0), false),
-            OptionalArg::Present(val) => {
-                let val = if cls.is(&vm.ctx.types.complex_type) && imag_missing {
-                    match val.downcast_exact::<PyComplex>(vm) {
-                        Ok(c) => {
-                            return Ok(c);
-                        }
-                        Err(val) => val,
-                    }
-                } else {
-                    val
-                };
-
-                if let Some(c) = try_complex(&val, vm)? {
-                    c
-                } else if let Some(s) = val.payload_if_subclass::<PyStr>(vm) {
-                    if args.imag.is_present() {
-                        return Err(vm.new_type_error(
-                            "complex() can't take second arg if first is a string".to_owned(),
-                        ));
-                    }
-                    let value = parse_str(s.as_str().trim()).ok_or_else(|| {
-                        vm.new_value_error("complex() arg is a malformed string".to_owned())
-                    })?;
-                    return Self::from(value).into_ref_with_type(vm, cls);
-                } else {
-                    return Err(vm.new_type_error(format!(
-                        "complex() first argument must be a string or a number, not '{}'",
-                        val.class().name
-                    )));
-                }
-            }
-        };
-
-        let (imag, imag_was_complex) = match args.imag {
-            // Copy the imaginary from the real to the real of the imaginary
-            // if an  imaginary argument is not passed in
-            OptionalArg::Missing => (Complex64::new(real.im, 0.0), false),
-            OptionalArg::Present(obj) => {
-                if let Some(c) = try_complex(&obj, vm)? {
-                    c
-                } else if obj.class().issubclass(&vm.ctx.types.str_type) {
-                    return Err(
-                        vm.new_type_error("complex() second arg can't be a string".to_owned())
-                    );
-                } else {
-                    return Err(vm.new_type_error(format!(
-                        "complex() second argument must be a number, not '{}'",
-                        obj.class().name
-                    )));
-                }
-            }
-        };
-
-        let final_real = if imag_was_complex {
-            real.re - imag.im
-        } else {
-            real.re
-        };
-
-        let final_imag = if real_was_complex && !imag_missing {
-            imag.re + real.im
-        } else {
-            imag.re
-        };
-        let value = Complex64::new(final_real, final_imag);
-        Self::from(value).into_ref_with_type(vm, cls)
-    }
-
     #[pymethod(magic)]
     fn getnewargs(&self, vm: &VirtualMachine) -> PyObjectRef {
         let Complex64 { re, im } = self.value;
@@ -377,7 +380,7 @@ impl Hashable for PyComplex {
 }
 
 #[derive(FromArgs)]
-struct ComplexArgs {
+pub struct ComplexArgs {
     #[pyarg(any, optional)]
     real: OptionalArg<PyObjectRef>,
     #[pyarg(any, optional)]

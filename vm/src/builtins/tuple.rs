@@ -15,7 +15,7 @@ use crate::common::hash::PyHash;
 use crate::function::OptionalArg;
 use crate::sequence::{self, SimpleSeq};
 use crate::sliceable::PySliceableSequence;
-use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter};
+use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter, SlotConstructor};
 use crate::utils::Either;
 use crate::vm::{ReprGuard, VirtualMachine};
 use crate::{
@@ -83,7 +83,36 @@ impl PyTupleRef {
     }
 }
 
-#[pyimpl(flags(BASETYPE), with(Hashable, Comparable, Iterable))]
+impl SlotConstructor for PyTuple {
+    type Args = OptionalArg<PyObjectRef>;
+
+    fn py_new(cls: PyTypeRef, iterable: Self::Args, vm: &VirtualMachine) -> PyResult {
+        let elements = if let OptionalArg::Present(iterable) = iterable {
+            let iterable = if cls.is(&vm.ctx.types.tuple_type) {
+                match iterable.downcast_exact::<Self>(vm) {
+                    Ok(tuple) => return Ok(tuple.into_object()),
+                    Err(iterable) => iterable,
+                }
+            } else {
+                iterable
+            };
+            vm.extract_elements(&iterable)?
+        } else {
+            vec![]
+        };
+        // Return empty tuple only for exact tuple types if the iterable is empty.
+        if elements.is_empty() && cls.is(&vm.ctx.types.tuple_type) {
+            Ok(vm.ctx.empty_tuple.clone().into_object())
+        } else {
+            Self {
+                elements: elements.into_boxed_slice(),
+            }
+            .into_pyresult_with_type(vm, cls)
+        }
+    }
+}
+
+#[pyimpl(flags(BASETYPE), with(Hashable, Comparable, Iterable, SlotConstructor))]
 impl PyTuple {
     /// Creating a new tuple with given boxed slice.
     /// NOTE: for usual case, you probably want to use PyTupleRef::with_elements.
@@ -253,36 +282,6 @@ impl PyTuple {
             PyTupleRef::with_elements(zelf.elements.clone().into_vec(), &vm.ctx)
         };
         (tup_arg,)
-    }
-
-    #[pyslot]
-    fn tp_new(
-        cls: PyTypeRef,
-        iterable: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyRef<Self>> {
-        let elements = if let OptionalArg::Present(iterable) = iterable {
-            let iterable = if cls.is(&vm.ctx.types.tuple_type) {
-                match iterable.downcast_exact::<Self>(vm) {
-                    Ok(tuple) => return Ok(tuple),
-                    Err(iterable) => iterable,
-                }
-            } else {
-                iterable
-            };
-            vm.extract_elements(&iterable)?
-        } else {
-            vec![]
-        };
-        // Return empty tuple only for exact tuple types if the iterable is empty.
-        if elements.is_empty() && cls.is(&vm.ctx.types.tuple_type) {
-            Ok(vm.ctx.empty_tuple.clone())
-        } else {
-            Self {
-                elements: elements.into_boxed_slice(),
-            }
-            .into_ref_with_type(vm, cls)
-        }
     }
 }
 

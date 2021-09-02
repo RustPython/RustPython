@@ -191,8 +191,8 @@ impl PySocket {
     }
 
     #[pyslot]
-    fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        Self::default().into_ref_with_type(vm, cls)
+    fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        Self::default().into_pyresult_with_type(vm, cls)
     }
 
     #[pymethod(magic)]

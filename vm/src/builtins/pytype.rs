@@ -405,7 +405,7 @@ impl PyType {
         )
     }
     #[pyslot]
-    fn tp_new(metatype: PyTypeRef, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn tp_new(metatype: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         vm_trace!("type.__new__ {:?}", args);
 
         let is_type_type = metatype.is(&vm.ctx.types.type_type);

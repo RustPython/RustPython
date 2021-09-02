@@ -1,7 +1,7 @@
 use super::pytype::PyTypeRef;
 use crate::function::Args;
 use crate::iterator;
-use crate::slots::PyIter;
+use crate::slots::{PyIter, SlotConstructor};
 use crate::vm::VirtualMachine;
 use crate::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 
@@ -22,15 +22,10 @@ impl PyValue for PyMap {
     }
 }
 
-#[pyimpl(with(PyIter), flags(BASETYPE))]
-impl PyMap {
-    #[pyslot]
-    fn tp_new(
-        cls: PyTypeRef,
-        function: PyObjectRef,
-        iterables: Args,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyRef<Self>> {
+impl SlotConstructor for PyMap {
+    type Args = (PyObjectRef, Args<PyObjectRef>);
+
+    fn py_new(cls: PyTypeRef, (function, iterables): Self::Args, vm: &VirtualMachine) -> PyResult {
         let iterators = iterables
             .into_iter()
             .map(|iterable| iterator::get_iter(vm, iterable))
@@ -39,10 +34,12 @@ impl PyMap {
             mapper: function,
             iterators,
         }
-        .into_ref_with_type(vm, cls)
+        .into_pyresult_with_type(vm, cls)
     }
+}
 
-    /// Return an estimate of the number of items.
+#[pyimpl(with(PyIter, SlotConstructor), flags(BASETYPE))]
+impl PyMap {
     #[pymethod(magic)]
     fn length_hint(&self, vm: &VirtualMachine) -> PyResult<usize> {
         self.iterators.iter().try_fold(0, |prev, cur| {

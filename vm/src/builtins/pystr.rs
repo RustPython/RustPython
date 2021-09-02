@@ -24,7 +24,7 @@ use crate::exceptions::IntoPyException;
 use crate::format::{FormatSpec, FormatString, FromTemplate};
 use crate::function::{FuncArgs, OptionalArg, OptionalOption};
 use crate::sliceable::PySliceableSequence;
-use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter};
+use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter, SlotConstructor};
 use crate::utils::Either;
 use crate::VirtualMachine;
 use crate::{
@@ -203,7 +203,7 @@ impl PyIter for PyStrIterator {
 }
 
 #[derive(FromArgs)]
-struct StrArgs {
+pub struct StrArgs {
     #[pyarg(any, optional)]
     object: OptionalArg<PyObjectRef>,
     #[pyarg(any, optional)]
@@ -212,10 +212,10 @@ struct StrArgs {
     errors: OptionalArg<PyStrRef>,
 }
 
-#[pyimpl(flags(BASETYPE), with(Hashable, Comparable, Iterable))]
-impl PyStr {
-    #[pyslot]
-    fn tp_new(cls: PyTypeRef, args: StrArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+impl SlotConstructor for PyStr {
+    type Args = StrArgs;
+
+    fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
         let string: PyStrRef = match args.object {
             OptionalArg::Present(input) => {
                 if let OptionalArg::Present(enc) = args.encoding {
@@ -234,12 +234,15 @@ impl PyStr {
             }
         };
         if string.class().is(&cls) {
-            Ok(string)
+            Ok(string.into_object())
         } else {
-            PyStr::from(string.as_str()).into_ref_with_type(vm, cls)
+            PyStr::from(string.as_str()).into_pyresult_with_type(vm, cls)
         }
     }
+}
 
+#[pyimpl(flags(BASETYPE), with(Hashable, Comparable, Iterable, SlotConstructor))]
+impl PyStr {
     #[pymethod(magic)]
     fn add(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(other) = other.payload::<PyStr>() {

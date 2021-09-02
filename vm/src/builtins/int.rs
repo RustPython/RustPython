@@ -238,7 +238,7 @@ fn inner_truediv(i1: &BigInt, i2: &BigInt, vm: &VirtualMachine) -> PyResult {
 impl SlotConstructor for PyInt {
     type Args = IntOptions;
 
-    fn py_new(cls: PyTypeRef, options: IntOptions, vm: &VirtualMachine) -> PyResult {
+    fn py_new(cls: PyTypeRef, options: Self::Args, vm: &VirtualMachine) -> PyResult {
         let value = if let OptionalArg::Present(val) = options.val_options {
             if let OptionalArg::Present(base) = options.base {
                 let base = vm

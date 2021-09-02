@@ -2,7 +2,7 @@ use super::pytype::PyTypeRef;
 use super::weakref::PyWeak;
 use super::PyStrRef;
 use crate::function::OptionalArg;
-use crate::slots::SlotSetattro;
+use crate::slots::{SlotConstructor, SlotSetattro};
 use crate::vm::VirtualMachine;
 use crate::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 
@@ -18,25 +18,35 @@ impl PyValue for PyWeakProxy {
     }
 }
 
-#[pyimpl(with(SlotSetattro))]
-impl PyWeakProxy {
-    // TODO: callbacks
-    #[pyslot]
-    fn tp_new(
+#[derive(FromArgs)]
+pub struct WeakProxyNewArgs {
+    #[pyarg(positional)]
+    referent: PyObjectRef,
+    #[pyarg(positional, optional)]
+    callback: OptionalArg<PyObjectRef>,
+}
+
+impl SlotConstructor for PyWeakProxy {
+    type Args = WeakProxyNewArgs;
+
+    fn py_new(
         cls: PyTypeRef,
-        referent: PyObjectRef,
-        callback: OptionalArg<PyObjectRef>,
+        Self::Args { referent, callback }: Self::Args,
         vm: &VirtualMachine,
-    ) -> PyResult<PyRef<Self>> {
+    ) -> PyResult {
         if callback.is_present() {
             panic!("Passed a callback to weakproxy, but weakproxy does not yet support proxies.");
         }
         PyWeakProxy {
             weak: PyWeak::downgrade(&referent),
         }
-        .into_ref_with_type(vm, cls)
+        .into_pyresult_with_type(vm, cls)
     }
+}
 
+#[pyimpl(with(SlotSetattro, SlotConstructor))]
+impl PyWeakProxy {
+    // TODO: callbacks
     #[pymethod(magic)]
     fn getattr(&self, attr_name: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         match self.weak.upgrade() {

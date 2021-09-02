@@ -1,7 +1,7 @@
 use super::pytype::PyTypeRef;
 use crate::common::hash::PyHash;
 use crate::function::{FuncArgs, OptionalArg};
-use crate::slots::{Callable, Comparable, Hashable, PyComparisonOp};
+use crate::slots::{Callable, Comparable, Hashable, PyComparisonOp, SlotConstructor};
 use crate::vm::VirtualMachine;
 use crate::{
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyObjectWeak, PyRef, PyResult, PyValue,
@@ -30,6 +30,14 @@ impl PyWeak {
     }
 }
 
+#[derive(FromArgs)]
+pub struct WeakNewArgs {
+    #[pyarg(positional)]
+    referent: PyObjectRef,
+    #[pyarg(positional, optional)]
+    _callback: OptionalArg<PyObjectRef>,
+}
+
 impl PyValue for PyWeak {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.weakref_type
@@ -43,19 +51,24 @@ impl Callable for PyWeak {
     }
 }
 
-#[pyimpl(with(Callable, Hashable, Comparable), flags(BASETYPE))]
-impl PyWeak {
-    // TODO callbacks
-    #[pyslot]
-    fn tp_new(
-        cls: PyTypeRef,
-        referent: PyObjectRef,
-        _callback: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyRef<Self>> {
-        PyWeak::downgrade(&referent).into_ref_with_type(vm, cls)
-    }
+impl SlotConstructor for PyWeak {
+    type Args = WeakNewArgs;
 
+    // TODO callbacks
+    fn py_new(
+        cls: PyTypeRef,
+        Self::Args {
+            referent,
+            _callback,
+        }: Self::Args,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        PyWeak::downgrade(&referent).into_pyresult_with_type(vm, cls)
+    }
+}
+
+#[pyimpl(with(Callable, Hashable, Comparable, SlotConstructor), flags(BASETYPE))]
+impl PyWeak {
     #[pymethod(magic)]
     fn repr(zelf: PyRef<Self>) -> String {
         let id = zelf.get_id();

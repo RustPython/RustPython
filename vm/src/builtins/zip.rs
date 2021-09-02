@@ -1,11 +1,9 @@
 use super::pytype::PyTypeRef;
 use crate::function::Args;
 use crate::iterator;
-use crate::slots::PyIter;
+use crate::slots::{PyIter, SlotConstructor};
 use crate::vm::VirtualMachine;
 use crate::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
-
-pub type PyZipRef = PyRef<PyZip>;
 
 #[pyclass(module = false, name = "zip")]
 #[derive(Debug)]
@@ -19,17 +17,20 @@ impl PyValue for PyZip {
     }
 }
 
-#[pyimpl(with(PyIter), flags(BASETYPE))]
-impl PyZip {
-    #[pyslot]
-    fn tp_new(cls: PyTypeRef, iterables: Args, vm: &VirtualMachine) -> PyResult<PyZipRef> {
+impl SlotConstructor for PyZip {
+    type Args = Args;
+
+    fn py_new(cls: PyTypeRef, iterables: Self::Args, vm: &VirtualMachine) -> PyResult {
         let iterators = iterables
             .into_iter()
             .map(|iterable| iterator::get_iter(vm, iterable))
             .collect::<Result<Vec<_>, _>>()?;
-        PyZip { iterators }.into_ref_with_type(vm, cls)
+        PyZip { iterators }.into_pyresult_with_type(vm, cls)
     }
 }
+
+#[pyimpl(with(PyIter, SlotConstructor), flags(BASETYPE))]
+impl PyZip {}
 
 impl PyIter for PyZip {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {

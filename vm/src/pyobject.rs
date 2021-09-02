@@ -1016,6 +1016,10 @@ pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
             )))
         }
     }
+
+    fn into_pyresult_with_type(self, vm: &VirtualMachine, cls: PyTypeRef) -> PyResult {
+        self.into_ref_with_type(vm, cls).into_pyresult(vm)
+    }
 }
 
 pub trait PyObjectPayload: Any + fmt::Debug + PyThreadingConstraint + 'static {}

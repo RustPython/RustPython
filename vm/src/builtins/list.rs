@@ -16,7 +16,7 @@ use super::PyInt;
 use crate::common::lock::{
     PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
 };
-use crate::function::OptionalArg;
+use crate::function::{FuncArgs, OptionalArg};
 use crate::sequence::{self, SimpleSeq};
 use crate::sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex};
 use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable};
@@ -397,12 +397,8 @@ impl PyList {
     }
 
     #[pyslot]
-    fn tp_new(
-        cls: PyTypeRef,
-        _iterable: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyRef<Self>> {
-        PyList::default().into_ref_with_type(vm, cls)
+    fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        PyList::default().into_pyresult_with_type(vm, cls)
     }
 
     #[pymethod(magic)]

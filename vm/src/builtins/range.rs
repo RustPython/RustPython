@@ -362,12 +362,12 @@ impl PyRange {
     }
 
     #[pyslot]
-    fn tp_new(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let range = if args.args.len() <= 2 {
-            let (cls, stop) = args.bind(vm)?;
+    fn tp_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let range = if args.args.len() <= 1 {
+            let stop = args.bind(vm)?;
             PyRange::new(cls, stop, vm)
         } else {
-            let (cls, start, stop, step) = args.bind(vm)?;
+            let (start, stop, step) = args.bind(vm)?;
             PyRange::new_from(cls, start, stop, step, vm)
         }?;
 

@@ -92,6 +92,7 @@ mod _io {
     use crate::common::rc::PyRc;
     use crate::exceptions::{self, IntoPyException, PyBaseExceptionRef};
     use crate::function::{FuncArgs, OptionalArg, OptionalOption};
+    use crate::slots::SlotConstructor;
     use crate::utils::Either;
     use crate::vm::{ReprGuard, VirtualMachine};
     use crate::{
@@ -1667,8 +1668,8 @@ mod _io {
     #[pyimpl(with(BufferedMixin, BufferedReadable), flags(BASETYPE, HAS_DICT))]
     impl BufferedReader {
         #[pyslot]
-        fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-            Self::default().into_ref_with_type(vm, cls)
+        fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            Self::default().into_pyresult_with_type(vm, cls)
         }
     }
 
@@ -1721,8 +1722,8 @@ mod _io {
     #[pyimpl(with(BufferedMixin, BufferedWritable), flags(BASETYPE, HAS_DICT))]
     impl BufferedWriter {
         #[pyslot]
-        fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-            Self::default().into_ref_with_type(vm, cls)
+        fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            Self::default().into_pyresult_with_type(vm, cls)
         }
     }
 
@@ -1764,8 +1765,8 @@ mod _io {
     )]
     impl BufferedRandom {
         #[pyslot]
-        fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-            Self::default().into_ref_with_type(vm, cls)
+        fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            Self::default().into_pyresult_with_type(vm, cls)
         }
     }
 
@@ -1796,8 +1797,8 @@ mod _io {
     #[pyimpl(with(BufferedReadable, BufferedWritable), flags(BASETYPE, HAS_DICT))]
     impl BufferedRWPair {
         #[pyslot]
-        fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-            Self::default().into_ref_with_type(vm, cls)
+        fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            Self::default().into_pyresult_with_type(vm, cls)
         }
         #[pymethod(magic)]
         fn init(
@@ -2198,8 +2199,8 @@ mod _io {
     #[pyimpl(flags(BASETYPE))]
     impl TextIOWrapper {
         #[pyslot]
-        fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-            Self::default().into_ref_with_type(vm, cls)
+        fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            Self::default().into_pyresult_with_type(vm, cls)
         }
 
         fn lock_opt(
@@ -3044,14 +3045,6 @@ mod _io {
         }
     }
 
-    #[derive(FromArgs)]
-    struct StringIOArgs {
-        #[pyarg(any, default)]
-        #[allow(dead_code)]
-        // TODO: use this
-        newline: Newlines,
-    }
-
     #[pyattr]
     #[pyclass(name = "StringIO", base = "_TextIOBase")]
     #[derive(Debug)]
@@ -3068,23 +3061,26 @@ mod _io {
         }
     }
 
-    #[pyimpl(flags(BASETYPE, HAS_DICT), with(PyRef))]
-    impl StringIO {
-        fn buffer(&self, vm: &VirtualMachine) -> PyResult<PyRwLockWriteGuard<'_, BufferedIO>> {
-            if !self.closed.load() {
-                Ok(self.buffer.write())
-            } else {
-                Err(io_closed_error(vm))
-            }
-        }
+    #[derive(FromArgs)]
+    struct StringIONewArgs {
+        #[pyarg(positional, optional)]
+        object: OptionalOption<PyStrRef>,
 
-        #[pyslot]
-        fn tp_new(
+        // TODO: use this
+        #[pyarg(any, default)]
+        #[allow(dead_code)]
+        newline: Newlines,
+    }
+
+    impl SlotConstructor for StringIO {
+        type Args = StringIONewArgs;
+
+        #[allow(unused_variables)]
+        fn py_new(
             cls: PyTypeRef,
-            object: OptionalOption<PyStrRef>,
-            _args: StringIOArgs,
+            Self::Args { object, newline }: Self::Args,
             vm: &VirtualMachine,
-        ) -> PyResult<StringIORef> {
+        ) -> PyResult {
             let raw_bytes = object
                 .flatten()
                 .map_or_else(Vec::new, |v| v.as_str().as_bytes().to_vec());
@@ -3093,7 +3089,18 @@ mod _io {
                 buffer: PyRwLock::new(BufferedIO::new(Cursor::new(raw_bytes))),
                 closed: AtomicCell::new(false),
             }
-            .into_ref_with_type(vm, cls)
+            .into_pyresult_with_type(vm, cls)
+        }
+    }
+
+    #[pyimpl(flags(BASETYPE, HAS_DICT), with(PyRef, SlotConstructor))]
+    impl StringIO {
+        fn buffer(&self, vm: &VirtualMachine) -> PyResult<PyRwLockWriteGuard<'_, BufferedIO>> {
+            if !self.closed.load() {
+                Ok(self.buffer.write())
+            } else {
+                Err(io_closed_error(vm))
+            }
         }
 
         #[pymethod]
@@ -3211,22 +3218,10 @@ mod _io {
         }
     }
 
-    #[pyimpl(flags(BASETYPE, HAS_DICT), with(PyRef))]
-    impl BytesIO {
-        fn buffer(&self, vm: &VirtualMachine) -> PyResult<PyRwLockWriteGuard<'_, BufferedIO>> {
-            if !self.closed.load() {
-                Ok(self.buffer.write())
-            } else {
-                Err(io_closed_error(vm))
-            }
-        }
+    impl SlotConstructor for BytesIO {
+        type Args = OptionalArg<Option<PyBytesRef>>;
 
-        #[pyslot]
-        fn tp_new(
-            cls: PyTypeRef,
-            object: OptionalArg<Option<PyBytesRef>>,
-            vm: &VirtualMachine,
-        ) -> PyResult<BytesIORef> {
+        fn py_new(cls: PyTypeRef, object: Self::Args, vm: &VirtualMachine) -> PyResult {
             let raw_bytes = object
                 .flatten()
                 .map_or_else(Vec::new, |input| input.as_bytes().to_vec());
@@ -3236,7 +3231,18 @@ mod _io {
                 closed: AtomicCell::new(false),
                 exports: AtomicCell::new(0),
             }
-            .into_ref_with_type(vm, cls)
+            .into_pyresult_with_type(vm, cls)
+        }
+    }
+
+    #[pyimpl(flags(BASETYPE, HAS_DICT), with(PyRef, SlotConstructor))]
+    impl BytesIO {
+        fn buffer(&self, vm: &VirtualMachine) -> PyResult<PyRwLockWriteGuard<'_, BufferedIO>> {
+            if !self.closed.load() {
+                Ok(self.buffer.write())
+            } else {
+                Err(io_closed_error(vm))
+            }
         }
 
         #[pymethod]
@@ -3844,8 +3850,6 @@ mod fileio {
         seekable: AtomicCell<Option<bool>>,
     }
 
-    type FileIORef = PyRef<FileIO>;
-
     impl PyValue for FileIO {
         fn class(_vm: &VirtualMachine) -> &PyTypeRef {
             Self::static_type()
@@ -3867,14 +3871,14 @@ mod fileio {
     #[pyimpl(flags(BASETYPE, HAS_DICT))]
     impl FileIO {
         #[pyslot]
-        fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<FileIORef> {
+        fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             FileIO {
                 fd: AtomicCell::new(-1),
                 closefd: AtomicCell::new(false),
                 mode: AtomicCell::new(Mode::empty()),
                 seekable: AtomicCell::new(None),
             }
-            .into_ref_with_type(vm, cls)
+            .into_pyresult_with_type(vm, cls)
         }
 
         #[pymethod(magic)]

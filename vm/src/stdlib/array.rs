@@ -26,7 +26,7 @@ mod array {
     use crate::sliceable::{
         saturate_index, PySliceableSequence, PySliceableSequenceMut, SequenceIndex,
     };
-    use crate::slots::{AsBuffer, Comparable, Iterable, PyComparisonOp, PyIter};
+    use crate::slots::{AsBuffer, Comparable, Iterable, PyComparisonOp, PyIter, SlotConstructor};
     use crate::stdlib::array::wchar_t;
     use crate::{
         IdProtocol, IntoPyObject, PyComparisonValue, PyIterable, PyObjectRef, PyRef, PyResult,
@@ -612,23 +612,22 @@ mod array {
         }
     }
 
-    #[pyimpl(flags(BASETYPE), with(Comparable, AsBuffer, Iterable))]
-    impl PyArray {
-        fn read(&self) -> PyRwLockReadGuard<'_, ArrayContentType> {
-            self.array.read()
-        }
+    #[derive(FromArgs)]
+    pub struct ArrayNewArgs {
+        #[pyarg(positional)]
+        spec: PyStrRef,
+        #[pyarg(positional, optional)]
+        init: OptionalArg<PyObjectRef>,
+    }
 
-        fn write(&self) -> PyRwLockWriteGuard<'_, ArrayContentType> {
-            self.array.write()
-        }
+    impl SlotConstructor for PyArray {
+        type Args = ArrayNewArgs;
 
-        #[pyslot]
-        fn tp_new(
+        fn py_new(
             cls: PyTypeRef,
-            spec: PyStrRef,
-            init: OptionalArg<PyObjectRef>,
+            Self::Args { spec, init }: Self::Args,
             vm: &VirtualMachine,
-        ) -> PyResult<PyArrayRef> {
+        ) -> PyResult {
             let spec = spec.as_str().chars().exactly_one().map_err(|_| {
                 vm.new_type_error(
                     "array() argument 1 must be a unicode character, not str".to_owned(),
@@ -675,7 +674,18 @@ mod array {
             }
 
             let zelf = Self::from(array).into_ref_with_type(vm, cls)?;
-            Ok(zelf)
+            Ok(zelf.into_object())
+        }
+    }
+
+    #[pyimpl(flags(BASETYPE), with(Comparable, AsBuffer, Iterable, SlotConstructor))]
+    impl PyArray {
+        fn read(&self) -> PyRwLockReadGuard<'_, ArrayContentType> {
+            self.array.read()
+        }
+
+        fn write(&self) -> PyRwLockWriteGuard<'_, ArrayContentType> {
+            self.array.write()
         }
 
         #[pyproperty]

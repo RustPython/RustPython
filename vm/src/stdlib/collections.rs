@@ -4,7 +4,9 @@ pub(crate) use _collections::make_module;
 mod _collections {
     use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
     use crate::function::{FuncArgs, KwArgs, OptionalArg};
-    use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable};
+    use crate::slots::{
+        Comparable, Hashable, Iterable, PyComparisonOp, PyIter, SlotConstructor, Unhashable,
+    };
     use crate::vm::ReprGuard;
     use crate::VirtualMachine;
     use crate::{
@@ -78,8 +80,8 @@ mod _collections {
     #[pyimpl(flags(BASETYPE), with(Comparable, Hashable, Iterable))]
     impl PyDeque {
         #[pyslot]
-        fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-            PyDeque::default().into_ref_with_type(vm, cls)
+        fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            PyDeque::default().into_pyresult_with_type(vm, cls)
         }
 
         #[pymethod(name = "__init__")]
@@ -589,24 +591,14 @@ mod _collections {
         index: OptionalArg<isize>,
     }
 
-    #[pyimpl(with(PyIter))]
-    impl PyDequeIterator {
-        pub(crate) fn new(deque: PyDequeRef) -> Self {
-            PyDequeIterator {
-                position: AtomicCell::new(0),
-                status: AtomicCell::new(IterStatus::Active),
-                length: deque.len(),
-                deque,
-            }
-        }
+    impl SlotConstructor for PyDequeIterator {
+        type Args = (DequeIterArgs, KwArgs);
 
-        #[pyslot]
-        fn tp_new(
+        fn py_new(
             cls: PyTypeRef,
-            DequeIterArgs { deque, index }: DequeIterArgs,
-            _kwargs: KwArgs,
+            (DequeIterArgs { deque, index }, _kwargs): Self::Args,
             vm: &VirtualMachine,
-        ) -> PyResult<PyRef<Self>> {
+        ) -> PyResult {
             let len = deque.len();
             let iter = PyDequeIterator::new(deque);
             if let OptionalArg::Present(index) = index {
@@ -617,7 +609,19 @@ mod _collections {
                     iter.status.store(Exhausted);
                 }
             }
-            iter.into_ref_with_type(vm, cls)
+            iter.into_pyresult_with_type(vm, cls)
+        }
+    }
+
+    #[pyimpl(with(PyIter, SlotConstructor))]
+    impl PyDequeIterator {
+        pub(crate) fn new(deque: PyDequeRef) -> Self {
+            PyDequeIterator {
+                position: AtomicCell::new(0),
+                status: AtomicCell::new(IterStatus::Active),
+                length: deque.len(),
+                deque,
+            }
         }
 
         #[pymethod(magic)]
@@ -681,23 +685,15 @@ mod _collections {
         }
     }
 
-    #[pyimpl(with(PyIter))]
-    impl PyReverseDequeIterator {
-        #[pymethod(magic)]
-        fn length_hint(&self) -> usize {
-            match self.status.load() {
-                Active => self.position.load(),
-                Exhausted => 0,
-            }
-        }
+    impl SlotConstructor for PyReverseDequeIterator {
+        type Args = (DequeIterArgs, KwArgs);
 
-        #[pyslot]
-        fn tp_new(
+        fn py_new(
             cls: PyTypeRef,
-            DequeIterArgs { deque, index }: DequeIterArgs,
-            _kwargs: KwArgs,
+
+            (DequeIterArgs { deque, index }, _kwargs): Self::Args,
             vm: &VirtualMachine,
-        ) -> PyResult<PyRef<Self>> {
+        ) -> PyResult {
             let len = deque.len();
             let iter = PyDeque::reversed(deque)?;
             if let OptionalArg::Present(index) = index {
@@ -707,7 +703,18 @@ mod _collections {
                 }
                 iter.position.store(len.saturating_sub(index));
             }
-            iter.into_ref_with_type(vm, cls)
+            iter.into_pyresult_with_type(vm, cls)
+        }
+    }
+
+    #[pyimpl(with(PyIter, SlotConstructor))]
+    impl PyReverseDequeIterator {
+        #[pymethod(magic)]
+        fn length_hint(&self) -> usize {
+            match self.status.load() {
+                Active => self.position.load(),
+                Exhausted => 0,
+            }
         }
 
         #[pymethod(magic)]

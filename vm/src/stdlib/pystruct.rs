@@ -26,7 +26,7 @@ pub(crate) mod _struct {
     use crate::byteslike::{ArgBytesLike, ArgMemoryBuffer};
     use crate::exceptions::PyBaseExceptionRef;
     use crate::function::Args;
-    use crate::slots::PyIter;
+    use crate::slots::{PyIter, SlotConstructor};
     use crate::stdlib::array::wchar_t;
     use crate::utils::Either;
     use crate::VirtualMachine;
@@ -882,23 +882,22 @@ pub(crate) mod _struct {
         }
     }
 
-    #[pyimpl]
-    impl PyStruct {
-        #[pyslot]
-        fn tp_new(
-            cls: PyTypeRef,
-            fmt: Either<PyStrRef, PyBytesRef>,
-            vm: &VirtualMachine,
-        ) -> PyResult<PyRef<Self>> {
+    impl SlotConstructor for PyStruct {
+        type Args = Either<PyStrRef, PyBytesRef>;
+
+        fn py_new(cls: PyTypeRef, fmt: Self::Args, vm: &VirtualMachine) -> PyResult {
             let spec = FormatSpec::decode_and_parse(vm, &fmt)?;
             let fmt_str = match fmt {
                 Either::A(s) => s,
                 Either::B(b) => PyStr::from(std::str::from_utf8(b.as_bytes()).unwrap())
                     .into_ref_with_type(vm, vm.ctx.types.str_type.clone())?,
             };
-            PyStruct { spec, fmt_str }.into_ref_with_type(vm, cls)
+            PyStruct { spec, fmt_str }.into_pyresult_with_type(vm, cls)
         }
+    }
 
+    #[pyimpl(with(SlotConstructor))]
+    impl PyStruct {
         #[pyproperty]
         fn format(&self) -> PyStrRef {
             self.fmt_str.clone()

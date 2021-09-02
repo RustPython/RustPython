@@ -9,7 +9,7 @@ mod _json {
     use crate::exceptions::PyBaseExceptionRef;
     use crate::function::{FuncArgs, OptionalArg};
     use crate::iterator;
-    use crate::slots::Callable;
+    use crate::slots::{Callable, SlotConstructor};
     use crate::VirtualMachine;
     use crate::{
         IdProtocol, IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject,
@@ -37,10 +37,10 @@ mod _json {
         }
     }
 
-    #[pyimpl(with(Callable))]
-    impl JsonScanner {
-        #[pyslot]
-        fn tp_new(cls: PyTypeRef, ctx: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    impl SlotConstructor for JsonScanner {
+        type Args = PyObjectRef;
+
+        fn py_new(cls: PyTypeRef, ctx: Self::Args, vm: &VirtualMachine) -> PyResult {
             let strict = pybool::boolval(vm, vm.get_attribute(ctx.clone(), "strict")?)?;
             let object_hook = vm.option_if_none(vm.get_attribute(ctx.clone(), "object_hook")?);
             let object_pairs_hook =
@@ -69,9 +69,12 @@ mod _json {
                 parse_constant,
                 ctx,
             }
-            .into_ref_with_type(vm, cls)
+            .into_pyresult_with_type(vm, cls)
         }
+    }
 
+    #[pyimpl(with(Callable, SlotConstructor))]
+    impl JsonScanner {
         fn parse(
             &self,
             s: &str,

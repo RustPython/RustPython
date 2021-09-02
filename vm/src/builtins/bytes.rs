@@ -12,12 +12,14 @@ use crate::bytesinner::{
 use crate::byteslike::ArgBytesLike;
 use crate::common::hash::PyHash;
 use crate::function::{OptionalArg, OptionalOption};
-use crate::slots::{AsBuffer, Callable, Comparable, Hashable, Iterable, PyComparisonOp, PyIter};
+use crate::slots::{
+    AsBuffer, Callable, Comparable, Hashable, Iterable, PyComparisonOp, PyIter, SlotConstructor,
+};
 use crate::utils::Either;
 use crate::vm::VirtualMachine;
 use crate::{
-    IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef,
-    PyRef, PyResult, PyValue, TryFromBorrowedObject, TypeProtocol,
+    IdProtocol, IntoPyObject, IntoPyResult, PyClassImpl, PyComparisonValue, PyContext, PyIterable,
+    PyObjectRef, PyRef, PyResult, PyValue, TryFromBorrowedObject, TypeProtocol,
 };
 use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;
@@ -96,17 +98,19 @@ pub(crate) fn init(context: &PyContext) {
     PyBytesIterator::extend_class(context, &context.types.bytes_iterator_type);
 }
 
-#[pyimpl(flags(BASETYPE), with(Hashable, Comparable, AsBuffer, Iterable))]
-impl PyBytes {
-    #[pyslot]
-    fn tp_new(
-        cls: PyTypeRef,
-        options: ByteInnerNewOptions,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyRef<Self>> {
-        options.get_bytes(cls, vm)
-    }
+impl SlotConstructor for PyBytes {
+    type Args = ByteInnerNewOptions;
 
+    fn py_new(cls: PyTypeRef, options: Self::Args, vm: &VirtualMachine) -> PyResult {
+        options.get_bytes(cls, vm).into_pyresult(vm)
+    }
+}
+
+#[pyimpl(
+    flags(BASETYPE),
+    with(Hashable, Comparable, AsBuffer, Iterable, SlotConstructor)
+)]
+impl PyBytes {
     #[pymethod(magic)]
     pub(crate) fn repr(&self) -> String {
         self.inner.repr("", "")
