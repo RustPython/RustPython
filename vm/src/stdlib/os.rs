@@ -2087,6 +2087,39 @@ mod posix {
     #[pyattr]
     const EX_CONFIG: i8 = exitcode::CONFIG as i8;
 
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "dragonfly",
+        target_os = "netbsd"
+    ))]
+    #[pyattr]
+    const SCHED_RR: i32 = libc::SCHED_RR;
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "dragonfly",
+        target_os = "netbsd"
+    ))]
+    #[pyattr]
+    const SCHED_FIFO: i32 = libc::SCHED_FIFO;
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "freebsd",
+        target_os = "dragonfly",
+        target_os = "netbsd"
+    ))]
+    #[pyattr]
+    const SCHED_OTHER: i32 = libc::SCHED_OTHER;
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[pyattr]
+    const SCHED_IDLE: i32 = libc::SCHED_IDLE;
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[pyattr]
+    const SCHED_BATCH: i32 = libc::SCHED_BATCH;
+
     #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
     #[pyattr]
     const POSIX_SPAWN_OPEN: i32 = PosixSpawnFileActionIdentifier::Open as i32;
@@ -2367,6 +2400,34 @@ mod posix {
         } else {
             Ok(res)
         }
+    }
+
+    #[cfg(not(target_os = "redox"))]
+    #[pyfunction]
+    fn sched_get_priority_max(policy: i32, vm: &VirtualMachine) -> PyResult<i32> {
+        let max = unsafe { libc::sched_get_priority_max(policy) };
+        if max == -1 {
+            Err(errno_err(vm))
+        } else {
+            Ok(max)
+        }
+    }
+
+    #[cfg(not(target_os = "redox"))]
+    #[pyfunction]
+    fn sched_get_priority_min(policy: i32, vm: &VirtualMachine) -> PyResult<i32> {
+        let min = unsafe { libc::sched_get_priority_min(policy) };
+        if min == -1 {
+            Err(errno_err(vm))
+        } else {
+            Ok(min)
+        }
+    }
+
+    #[pyfunction]
+    fn sched_yield(vm: &VirtualMachine) -> PyResult<()> {
+        let _ = nix::sched::sched_yield().map_err(|e| e.into_pyexception(vm))?;
+        Ok(())
     }
 
     #[pyfunction]
