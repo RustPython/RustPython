@@ -147,6 +147,8 @@ class ReadTest(MixInCheckStateHandling):
             "".join(codecs.iterdecode([bytes([c]) for c in encoded], self.encoding))
         )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_readline(self):
         def getreader(input):
             stream = io.BytesIO(input.encode(self.encoding))
@@ -382,6 +384,8 @@ class ReadTest(MixInCheckStateHandling):
 
     ill_formed_sequence_replace = "\ufffd"
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_lone_surrogates(self):
         self.assertRaises(UnicodeEncodeError, "\ud800".encode, self.encoding)
         self.assertEqual("[\uDC80]".encode(self.encoding, "backslashreplace"),
@@ -457,6 +461,8 @@ class UTF32Test(ReadTest, unittest.TestCase):
               b'\x00\x00\x00s\x00\x00\x00p\x00\x00\x00a\x00\x00\x00m'
               b'\x00\x00\x00s\x00\x00\x00p\x00\x00\x00a\x00\x00\x00m')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_only_one_bom(self):
         _,_,reader,writer = codecs.lookup(self.encoding)
         # encode some stream
@@ -472,6 +478,8 @@ class UTF32Test(ReadTest, unittest.TestCase):
         f = reader(s)
         self.assertEqual(f.read(), "spamspam")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_badbom(self):
         s = io.BytesIO(4*b"\xff")
         f = codecs.getreader(self.encoding)(s)
@@ -481,6 +489,8 @@ class UTF32Test(ReadTest, unittest.TestCase):
         f = codecs.getreader(self.encoding)(s)
         self.assertRaises(UnicodeError, f.read)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_partial(self):
         self.check_partial(
             "\x00\xff\u0100\uffff\U00010000",
@@ -512,22 +522,30 @@ class UTF32Test(ReadTest, unittest.TestCase):
             ]
         )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_handlers(self):
         self.assertEqual(('\ufffd', 1),
                          codecs.utf_32_decode(b'\x01', 'replace', True))
         self.assertEqual(('', 1),
                          codecs.utf_32_decode(b'\x01', 'ignore', True))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_errors(self):
         self.assertRaises(UnicodeDecodeError, codecs.utf_32_decode,
                           b"\xff", "strict", True)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_decoder_state(self):
         self.check_state_handling_decode(self.encoding,
                                          "spamspam", self.spamle)
         self.check_state_handling_decode(self.encoding,
                                          "spamspam", self.spambe)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_issue8941(self):
         # Issue #8941: insufficient result allocation when decoding into
         # surrogate pairs on UCS-2 builds.
@@ -538,11 +556,43 @@ class UTF32Test(ReadTest, unittest.TestCase):
         self.assertEqual('\U00010000' * 1024,
                          codecs.utf_32_decode(encoded_be)[0])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_bug1098990_a(self):
+        super().test_bug1098990_a()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_bug1098990_b(self):
+        super().test_bug1098990_b()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_bug1175396(self):
+        super().test_bug1175396()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_incremental_surrogatepass(self):
+        super().test_incremental_surrogatepass()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_mixed_readline_and_read(self):
+        super().test_mixed_readline_and_read()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_readlinequeue(self):
+        super().test_readlinequeue()
+
 
 class UTF32LETest(ReadTest, unittest.TestCase):
     encoding = "utf-32-le"
     ill_formed_sequence = b"\x80\xdc\x00\x00"
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_partial(self):
         self.check_partial(
             "\x00\xff\u0100\uffff\U00010000",
@@ -570,13 +620,19 @@ class UTF32LETest(ReadTest, unittest.TestCase):
             ]
         )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_simple(self):
         self.assertEqual("\U00010203".encode(self.encoding), b"\x03\x02\x01\x00")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_errors(self):
         self.assertRaises(UnicodeDecodeError, codecs.utf_32_le_decode,
                           b"\xff", "strict", True)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_issue8941(self):
         # Issue #8941: insufficient result allocation when decoding into
         # surrogate pairs on UCS-2 builds.
@@ -584,11 +640,43 @@ class UTF32LETest(ReadTest, unittest.TestCase):
         self.assertEqual('\U00010000' * 1024,
                          codecs.utf_32_le_decode(encoded)[0])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_bug1098990_a(self):
+        super().test_bug1098990_a()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_bug1098990_b(self):
+        super().test_bug1098990_b()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_bug1175396(self):
+        super().test_bug1175396()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_incremental_surrogatepass(self):
+        super().test_incremental_surrogatepass()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_mixed_readline_and_read(self):
+        super().test_mixed_readline_and_read()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_readlinequeue(self):
+        super().test_readlinequeue()
+
 
 class UTF32BETest(ReadTest, unittest.TestCase):
     encoding = "utf-32-be"
     ill_formed_sequence = b"\x00\x00\xdc\x80"
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_partial(self):
         self.check_partial(
             "\x00\xff\u0100\uffff\U00010000",
@@ -616,19 +704,55 @@ class UTF32BETest(ReadTest, unittest.TestCase):
             ]
         )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_simple(self):
         self.assertEqual("\U00010203".encode(self.encoding), b"\x00\x01\x02\x03")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_errors(self):
         self.assertRaises(UnicodeDecodeError, codecs.utf_32_be_decode,
                           b"\xff", "strict", True)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_issue8941(self):
         # Issue #8941: insufficient result allocation when decoding into
         # surrogate pairs on UCS-2 builds.
         encoded = b'\x00\x01\x00\x00' * 1024
         self.assertEqual('\U00010000' * 1024,
                          codecs.utf_32_be_decode(encoded)[0])
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_bug1098990_a(self):
+        super().test_bug1098990_a()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_bug1098990_b(self):
+        super().test_bug1098990_b()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_bug1175396(self):
+        super().test_bug1175396()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_incremental_surrogatepass(self):
+        super().test_incremental_surrogatepass()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_mixed_readline_and_read(self):
+        super().test_mixed_readline_and_read()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_readlinequeue(self):
+        super().test_readlinequeue()
 
 
 class UTF16Test(ReadTest, unittest.TestCase):
@@ -665,6 +789,8 @@ class UTF16Test(ReadTest, unittest.TestCase):
         f = codecs.getreader(self.encoding)(s)
         self.assertRaises(UnicodeError, f.read)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_partial(self):
         self.check_partial(
             "\x00\xff\u0100\uffff\U00010000",
@@ -686,6 +812,8 @@ class UTF16Test(ReadTest, unittest.TestCase):
             ]
         )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_handlers(self):
         self.assertEqual(('\ufffd', 1),
                          codecs.utf_16_decode(b'\x01', 'replace', True))
@@ -702,6 +830,8 @@ class UTF16Test(ReadTest, unittest.TestCase):
         self.check_state_handling_decode(self.encoding,
                                          "spamspam", self.spambe)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_bug691291(self):
         # Files are always opened in binary mode, even if no binary mode was
         # specified.  This means that no automatic conversion of '\n' is done
@@ -721,6 +851,8 @@ class UTF16LETest(ReadTest, unittest.TestCase):
     encoding = "utf-16-le"
     ill_formed_sequence = b"\x80\xdc"
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_partial(self):
         self.check_partial(
             "\x00\xff\u0100\uffff\U00010000",
@@ -740,6 +872,8 @@ class UTF16LETest(ReadTest, unittest.TestCase):
             ]
         )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_errors(self):
         tests = [
             (b'\xff', '\ufffd'),
@@ -765,6 +899,8 @@ class UTF16BETest(ReadTest, unittest.TestCase):
     encoding = "utf-16-be"
     ill_formed_sequence = b"\xdc\x80"
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_partial(self):
         self.check_partial(
             "\x00\xff\u0100\uffff\U00010000",
@@ -784,6 +920,8 @@ class UTF16BETest(ReadTest, unittest.TestCase):
             ]
         )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_errors(self):
         tests = [
             (b'\xff', '\ufffd'),
@@ -838,6 +976,8 @@ class UTF8Test(ReadTest, unittest.TestCase):
         self.check_state_handling_decode(self.encoding,
                                          u, u.encode(self.encoding))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_decode_error(self):
         for data, error_handler, expected in (
             (b'[\x80\xff]', 'ignore', '[]'),
@@ -850,6 +990,8 @@ class UTF8Test(ReadTest, unittest.TestCase):
                 self.assertEqual(data.decode(self.encoding, error_handler),
                                  expected)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_lone_surrogates(self):
         super().test_lone_surrogates()
         # not sure if this is making sense for
@@ -862,6 +1004,8 @@ class UTF8Test(ReadTest, unittest.TestCase):
         exc = cm.exception
         self.assertEqual(exc.object[exc.start:exc.end], '\uD800\uDFFF')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_surrogatepass_handler(self):
         self.assertEqual("abc\ud800def".encode(self.encoding, "surrogatepass"),
                          self.BOM + b"abc\xed\xa0\x80def")
@@ -902,6 +1046,8 @@ class UTF8Test(ReadTest, unittest.TestCase):
 class UTF7Test(ReadTest, unittest.TestCase):
     encoding = "utf-7"
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_ascii(self):
         # Set D (directly encoded characters)
         set_d = ('ABCDEFGHIJKLMNOPQRSTUVWXYZ'
@@ -928,6 +1074,8 @@ class UTF7Test(ReadTest, unittest.TestCase):
                          b'+AAAAAQACAAMABAAFAAYABwAIAAsADAAOAA8AEAARABIAEwAU'
                          b'ABUAFgAXABgAGQAaABsAHAAdAB4AHwBcAH4Afw-')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_partial(self):
         self.check_partial(
             'a+-b\x00c\x80d\u0100e\U00010000f',
@@ -967,6 +1115,8 @@ class UTF7Test(ReadTest, unittest.TestCase):
             ]
         )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_errors(self):
         tests = [
             (b'\xffb', '\ufffdb'),
@@ -997,6 +1147,8 @@ class UTF7Test(ReadTest, unittest.TestCase):
                                 raw, 'strict', True)
                 self.assertEqual(raw.decode('utf-7', 'replace'), expected)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_nonbmp(self):
         self.assertEqual('\U000104A0'.encode(self.encoding), b'+2AHcoA-')
         self.assertEqual('\ud801\udca0'.encode(self.encoding), b'+2AHcoA-')
@@ -1012,6 +1164,8 @@ class UTF7Test(ReadTest, unittest.TestCase):
         self.assertEqual(b'+IKwgrNgB3KA'.decode(self.encoding),
                          '\u20ac\u20ac\U000104A0')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_lone_surrogates(self):
         tests = [
             (b'a+2AE-b', 'a\ud801b'),
@@ -1031,6 +1185,16 @@ class UTF7Test(ReadTest, unittest.TestCase):
         for raw, expected in tests:
             with self.subTest(raw=raw):
                 self.assertEqual(raw.decode('utf-7', 'replace'), expected)
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_bug1175396(self):
+        super().test_bug1175396()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_incremental_surrogatepass(self):
+        super().test_incremental_surrogatepass()
 
 
 class UTF16ExTest(unittest.TestCase):
@@ -1155,6 +1319,8 @@ class EscapeDecodeTest(unittest.TestCase):
             if b != b'\\':
                 self.assertEqual(decode(b + b'0'), (b + b'0', 2))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_escape(self):
         decode = codecs.escape_decode
         check = coding_checker(self, decode)
@@ -1192,6 +1358,8 @@ class EscapeDecodeTest(unittest.TestCase):
         with self.assertWarns(DeprecationWarning):
             check(b"\\\xfa", b"\\\xfa")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_errors(self):
         decode = codecs.escape_decode
         self.assertRaises(ValueError, decode, br"\x")
@@ -1500,6 +1668,8 @@ nameprep_tests = [
 
 
 class NameprepTest(unittest.TestCase):
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_nameprep(self):
         from encodings.idna import nameprep
         for pos, (orig, prepped) in enumerate(nameprep_tests):
@@ -1866,6 +2036,8 @@ broken_unicode_with_stateful = [
 
 
 class BasicUnicodeTest(unittest.TestCase, MixInCheckStateHandling):
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_basics(self):
         s = "abc123"  # all codecs should be able to encode these
         for encoding in all_unicode_encodings:
@@ -1981,6 +2153,8 @@ class BasicUnicodeTest(unittest.TestCase, MixInCheckStateHandling):
                         self.assertEqual(decodedresult, s,
                                          "encoding=%r" % encoding)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_seek(self):
         # all codecs should be able to encode these
         s = "%s\n%s\n" % (100*"abc123", 100*"def456")
@@ -1996,6 +2170,8 @@ class BasicUnicodeTest(unittest.TestCase, MixInCheckStateHandling):
                 data = reader.read()
                 self.assertEqual(s, data)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_bad_decode_args(self):
         for encoding in all_unicode_encodings:
             decoder = codecs.getdecoder(encoding)
@@ -2003,6 +2179,8 @@ class BasicUnicodeTest(unittest.TestCase, MixInCheckStateHandling):
             if encoding not in ("idna", "punycode"):
                 self.assertRaises(TypeError, decoder, 42)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_bad_encode_args(self):
         for encoding in all_unicode_encodings:
             encoder = codecs.getencoder(encoding)
@@ -2014,6 +2192,8 @@ class BasicUnicodeTest(unittest.TestCase, MixInCheckStateHandling):
         table_type = type(cp1140.encoding_table)
         self.assertEqual(table_type, table_type)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_decoder_state(self):
         # Check that getstate() and setstate() handle the state properly
         u = "abc123"
@@ -2024,6 +2204,8 @@ class BasicUnicodeTest(unittest.TestCase, MixInCheckStateHandling):
 
 
 class CharmapTest(unittest.TestCase):
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_decode_with_string_map(self):
         self.assertEqual(
             codecs.charmap_decode(b"\x00\x01\x02", "strict", "abc"),
@@ -2079,6 +2261,8 @@ class CharmapTest(unittest.TestCase):
             ("", len(allbytes))
         )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_decode_with_int2str_map(self):
         self.assertEqual(
             codecs.charmap_decode(b"\x00\x01\x02", "strict",
@@ -2195,6 +2379,8 @@ class CharmapTest(unittest.TestCase):
             b"\x00\x01\x02", "strict", {0: "A", 1: 'Bb', 2: 999999999}
         )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_decode_with_int2int_map(self):
         a = ord('a')
         b = ord('b')
@@ -2287,6 +2473,8 @@ class WithStmtTest(unittest.TestCase):
 
 
 class TypesTest(unittest.TestCase):
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_decode_unicode(self):
         # Most decoders don't accept unicode input
         decoders = [
@@ -2487,6 +2675,8 @@ class EscapeEncodeTest(unittest.TestCase):
 
 class SurrogateEscapeTest(unittest.TestCase):
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_utf8(self):
         # Bad byte
         self.assertEqual(b"foo\x80bar".decode("utf-8", "surrogateescape"),
@@ -2499,6 +2689,8 @@ class SurrogateEscapeTest(unittest.TestCase):
         self.assertEqual("\udced\udcb0\udc80".encode("utf-8", "surrogateescape"),
                          b"\xed\xb0\x80")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_ascii(self):
         # bad byte
         self.assertEqual(b"foo\x80bar".decode("ascii", "surrogateescape"),
@@ -2506,6 +2698,8 @@ class SurrogateEscapeTest(unittest.TestCase):
         self.assertEqual("foo\udc80bar".encode("ascii", "surrogateescape"),
                          b"foo\x80bar")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_charmap(self):
         # bad byte: \xa5 is unmapped in iso-8859-3
         self.assertEqual(b"foo\xa5bar".decode("iso-8859-3", "surrogateescape"),
@@ -2513,6 +2707,8 @@ class SurrogateEscapeTest(unittest.TestCase):
         self.assertEqual("foo\udca5bar".encode("iso-8859-3", "surrogateescape"),
                          b"foo\xa5bar")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_latin1(self):
         # Issue6373
         self.assertEqual("\udce4\udceb\udcef\udcf6\udcfc".encode("latin-1", "surrogateescape"),
@@ -2520,6 +2716,8 @@ class SurrogateEscapeTest(unittest.TestCase):
 
 
 class BomTest(unittest.TestCase):
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_seek0(self):
         data = "1234567890"
         tests = ("utf-16",
@@ -2609,6 +2807,8 @@ else:
 
 class TransformCodecTest(unittest.TestCase):
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_basics(self):
         binput = bytes(range(256))
         for encoding in bytes_transform_encodings:
@@ -2620,6 +2820,8 @@ class TransformCodecTest(unittest.TestCase):
                 self.assertEqual(size, len(o))
                 self.assertEqual(i, binput)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_read(self):
         for encoding in bytes_transform_encodings:
             with self.subTest(encoding=encoding):
@@ -2628,6 +2830,8 @@ class TransformCodecTest(unittest.TestCase):
                 sout = reader.read()
                 self.assertEqual(sout, b"\x80")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_readline(self):
         for encoding in bytes_transform_encodings:
             with self.subTest(encoding=encoding):
@@ -2636,6 +2840,8 @@ class TransformCodecTest(unittest.TestCase):
                 sout = reader.readline()
                 self.assertEqual(sout, b"\x80")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_buffer_api_usage(self):
         # We check all the transform codecs accept memoryview input
         # for encoding and decoding
@@ -2698,6 +2904,8 @@ class TransformCodecTest(unittest.TestCase):
                     bad_input.decode("rot_13")
                 self.assertIsNone(failure.exception.__cause__)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(zlib, "Requires zlib support")
     def test_custom_zlib_error_is_wrapped(self):
         # Check zlib codec gives a good error for malformed input
@@ -2707,6 +2915,8 @@ class TransformCodecTest(unittest.TestCase):
         self.assertIsInstance(failure.exception.__cause__,
                                                 type(failure.exception))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_custom_hex_error_is_wrapped(self):
         # Check hex codec gives a good error for malformed input
         msg = "^decoding with 'hex_codec' codec failed"
@@ -2824,19 +3034,27 @@ class ExceptionChainingTest(unittest.TestCase):
         with self.assertWrapped("decoding", exc_type, msg):
             codecs.decode(b"bytes input", self.codec_name)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_raise_by_type(self):
         self.check_wrapped(RuntimeError, "")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_raise_by_value(self):
         msg = "This should be wrapped"
         self.check_wrapped(RuntimeError(msg), msg)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_raise_grandchild_subclass_exact_size(self):
         msg = "This should be wrapped"
         class MyRuntimeError(RuntimeError):
             __slots__ = ()
         self.check_wrapped(MyRuntimeError(msg), msg, MyRuntimeError)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_raise_subclass_with_weakref_support(self):
         msg = "This should be wrapped"
         class MyRuntimeError(RuntimeError):
@@ -2894,6 +3112,8 @@ class ExceptionChainingTest(unittest.TestCase):
         with self.assertRaisesRegex(LookupError, msg):
             codecs.decode(b"bytes input", self.codec_name)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_unflagged_non_text_codec_handling(self):
         # The stdlib non-text codecs are now marked so they're
         # pre-emptively skipped by the text model related methods
@@ -3144,6 +3364,8 @@ class ASCIITest(unittest.TestCase):
     def test_encode(self):
         self.assertEqual('abc123'.encode('ascii'), b'abc123')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_encode_error(self):
         for data, error_handler, expected in (
             ('[\x80\xff\u20ac]', 'ignore', b'[]'),
@@ -3166,6 +3388,8 @@ class ASCIITest(unittest.TestCase):
     def test_decode(self):
         self.assertEqual(b'abc'.decode('ascii'), 'abc')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_decode_error(self):
         for data, error_handler, expected in (
             (b'[\x80\xff]', 'ignore', '[]'),
@@ -3188,6 +3412,8 @@ class Latin1Test(unittest.TestCase):
             with self.subTest(data=data, expected=expected):
                 self.assertEqual(data.encode('latin1'), expected)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_encode_errors(self):
         for data, error_handler, expected in (
             ('[\u20ac\udc80]', 'ignore', b'[]'),
