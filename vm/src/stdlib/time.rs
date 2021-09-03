@@ -14,6 +14,30 @@ use crate::utils::Either;
 use crate::vm::VirtualMachine;
 use crate::{PyClassImpl, PyObjectRef, PyResult, PyStructSequence, TryFromObject};
 
+#[cfg(windows)]
+use winapi::shared::{minwindef::FILETIME, ntdef::ULARGE_INTEGER};
+#[cfg(windows)]
+use winapi::um::processthreadsapi::{
+    GetCurrentProcess, GetCurrentThread, GetProcessTimes, GetThreadTimes,
+};
+
+#[allow(dead_code)]
+const SEC_TO_MS: i64 = 1000;
+#[allow(dead_code)]
+const MS_TO_US: i64 = 1000;
+#[allow(dead_code)]
+const SEC_TO_US: i64 = SEC_TO_MS * MS_TO_US;
+#[allow(dead_code)]
+const US_TO_NS: i64 = 1000;
+#[allow(dead_code)]
+const MS_TO_NS: i64 = MS_TO_US * US_TO_NS;
+#[allow(dead_code)]
+const SEC_TO_NS: i64 = SEC_TO_MS * MS_TO_NS;
+#[allow(dead_code)]
+const NS_TO_MS: i64 = 1000 * 1000;
+#[allow(dead_code)]
+const NS_TO_US: i64 = 1000;
+
 #[cfg(unix)]
 fn time_sleep(dur: Duration, vm: &VirtualMachine) -> PyResult<()> {
     // this is basically std::thread::sleep, but that catches interrupts and we don't want to;
@@ -173,6 +197,179 @@ fn time_strptime(
     Ok(PyStructTime::new(vm, instant, -1))
 }
 
+fn get_thread_time(vm: &VirtualMachine) -> PyResult<Duration> {
+    cfg_if::cfg_if! {
+        if #[cfg(windows)] {
+            let mut _creation_time = FILETIME::default();
+            let mut _exit_time = FILETIME::default();
+            let mut kernel_time = FILETIME::default();
+            let mut user_time = FILETIME::default();
+
+            let (ktime, utime) = unsafe {
+                let thread = GetCurrentThread();
+                if GetThreadTimes(thread, &mut _creation_time, &mut _exit_time, &mut kernel_time, &mut user_time) == 0 {
+                    return Err(vm.new_os_error("Failed to get clock time".to_owned()));
+                }
+                (time_from_filtime(kernel_time), time_from_filtime(user_time))
+            };
+            Ok(Duration::from_nanos((ktime + utime) * 100))
+        } else if #[cfg(any(
+            target_os = "android",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "linux",
+            target_os = "openbsd",
+        ))] {
+            let mut time = libc::timespec {
+                tv_sec: 0,
+                tv_nsec: 0,
+            };
+            if unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut time) } == -1 {
+                return Err(vm.new_os_error("Failed to get clock time".to_owned()));
+            }
+
+            Ok(Duration::new(time.tv_sec as u64, time.tv_nsec as u32))
+        } else if #[cfg(solaris)] {
+            Ok(Duration::from_nanos(unsafe { libc::gethrvtime() }))
+        } else {
+            Err(vm.new_not_implemented_error("thread time unsupported in this system".to_owned()))
+        }
+    }
+}
+
+fn time_thread_time(vm: &VirtualMachine) -> PyResult<f64> {
+    Ok(get_thread_time(vm)?.as_secs_f64())
+}
+
+fn time_thread_time_ns(vm: &VirtualMachine) -> PyResult<u64> {
+    Ok(get_thread_time(vm)?.as_nanos() as u64)
+}
+
+#[cfg(windows)]
+unsafe fn time_from_filtime(time: FILETIME) -> u64 {
+    let mut large: ULARGE_INTEGER = std::mem::zeroed();
+    large.u_mut().LowPart = time.dwLowDateTime;
+    large.u_mut().HighPart = time.dwHighDateTime;
+    *large.QuadPart()
+}
+
+#[cfg(any(
+    target_os = "illumos",
+    target_os = "netbsd",
+    target_os = "solaris",
+    target_os = "openbsd"
+))]
+fn time_fromtimeval(tv: libc::timeval, vm: &VirtualMachine) -> PyResult<i64> {
+    (|tv: libc::timeval| {
+        let t = tv.tv_sec.checked_mul(SEC_TO_NS)?;
+        #[cfg(target_os = netbsd)]
+        let u = tv.tv_usec.checked_mul(US_TO_NS as i32)? as i64;
+        #[cfg(not(target_os = netbsd))]
+        let u = tv.tv_usec.checked_mul(US_TO_NS)?;
+        t.checked_add(u)
+    })(tv)
+    .ok_or_else(|| vm.new_overflow_error("timestamp too large to convert to i64".to_owned()))
+}
+
+#[cfg(any(
+    all(target_arch = "wasm32", not(target_os = "unknown")),
+    target_os = "redox"
+))]
+fn time_muldiv(ticks: i64, mul: i64, div: i64) -> u64 {
+    let intpart = ticks / div;
+    let ticks = ticks % div;
+    let remaining = (ticks * mul) / div;
+    (intpart * mul + remaining) as u64
+}
+
+#[cfg(windows)]
+fn get_process_time(vm: &VirtualMachine) -> PyResult<Duration> {
+    let mut _creation_time = FILETIME::default();
+    let mut _exit_time = FILETIME::default();
+    let mut kernel_time = FILETIME::default();
+    let mut user_time = FILETIME::default();
+
+    let (ktime, utime) = unsafe {
+        let process = GetCurrentProcess();
+        if GetProcessTimes(
+            process,
+            &mut _creation_time,
+            &mut _exit_time,
+            &mut kernel_time,
+            &mut user_time,
+        ) == 0
+        {
+            return Err(vm.new_os_error("Failed to get clock time".to_owned()));
+        }
+
+        (time_from_filtime(kernel_time), time_from_filtime(user_time))
+    };
+    Ok(Duration::from_nanos((ktime + utime) * 100))
+}
+
+#[cfg(not(windows))]
+fn get_process_time(vm: &VirtualMachine) -> PyResult<Duration> {
+    cfg_if::cfg_if! {
+        if #[cfg(any(
+            target_os = "android",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "linux"
+        ))] {
+            let mut time = libc::timespec {
+                tv_sec: 0,
+                tv_nsec: 0,
+            };
+
+            if unsafe { libc::clock_gettime(libc::CLOCK_PROCESS_CPUTIME_ID, &mut time) } == -1 {
+                return Err(vm.new_os_error("Failed to get clock time".to_owned()));
+            }
+
+            Ok(Duration::new(time.tv_sec as u64, time.tv_nsec as u32))
+        } else if #[cfg(any(
+            target_os = "illumos",
+            target_os = "netbsd",
+            target_os = "solaris",
+            target_os = "openbsd"
+        ))] {
+            let mut ru: libc::rusage = unsafe { std::mem::zeroed() };
+            if unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut ru) } == -1 {
+                return Err(vm.new_os_error("Failed to get clock time".to_owned()));
+            }
+
+            let utime = time_fromtimeval(ru.ru_utime, vm)?;
+            let stime = time_fromtimeval(ru.ru_stime, vm)?;
+
+            Ok(Duration::from_nanos(utime + stime))
+        } else if #[cfg(any(
+            all(target_arch = "wasm32", not(target_os = "unknown")),
+            target_os = "redox"
+        ))] {
+            let mut t: libc::tms = unsafe { std::mem::zeroed() };
+            if unsafe { libc::times(&mut t) } == -1 {
+                return Err(vm.new_os_error("Failed to get clock time".to_owned()));
+            }
+
+            #[cfg(target_os = "wasi")]
+            let freq = 60;
+            #[cfg(not(target_os = "wasi"))]
+            let freq = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
+
+            Ok(Duration::from_nanos(time_muldiv(t.tms_utime, SEC_TO_NS, freq) + time_muldiv(t.tms_stime, SEC_TO_NS, freq)))
+        } else {
+            Err(vm.new_not_implemented_error("thread time unsupported in this system".to_owned()))
+        }
+    }
+}
+
+fn time_process_time(vm: &VirtualMachine) -> PyResult<f64> {
+    Ok(get_process_time(vm)?.as_secs_f64())
+}
+
+fn time_process_time_ns(vm: &VirtualMachine) -> PyResult<u64> {
+    Ok(get_process_time(vm)?.as_nanos() as u64)
+}
+
 #[pyclass(module = "time", name = "struct_time")]
 #[derive(PyStructSequence)]
 #[allow(dead_code)]
@@ -274,6 +471,10 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "struct_time" => struct_time_type,
         "time" => named_function!(ctx, time, time),
         "perf_counter" => named_function!(ctx, time, time), // TODO: fix
+        "thread_time" => named_function!(ctx, time, thread_time),
+        "thread_time_ns" => named_function!(ctx, time, thread_time_ns),
+        "process_time" => named_function!(ctx, time, process_time),
+        "process_time_ns" => named_function!(ctx, time, process_time_ns),
     });
 
     #[cfg(not(target_os = "wasi"))]
