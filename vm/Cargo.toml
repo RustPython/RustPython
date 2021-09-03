@@ -37,7 +37,7 @@ blake2 = "0.9.1"
 xml-rs = "0.8"
 
 num-complex = { version = "0.4.0", features = ["serde"] }
-num-bigint = { version = "0.4.0", features = ["serde"] }
+num-bigint = { version = "0.4.2", features = ["serde"] }
 num-traits = "0.2.8"
 num-integer = "0.1.41"
 num-rational = "0.4.0"

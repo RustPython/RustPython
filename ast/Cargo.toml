@@ -10,4 +10,4 @@ constant-optimization = ["fold"]
 fold = []
 
 [dependencies]
-num-bigint = "0.4.0"
+num-bigint = "0.4.2"
