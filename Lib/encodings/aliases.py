@@ -266,6 +266,8 @@ aliases = {
     'roman8'             : 'hp_roman8',
     'r8'                 : 'hp_roman8',
     'csHPRoman8'         : 'hp_roman8',
+    'cp1051'             : 'hp_roman8',
+    'ibm1051'            : 'hp_roman8',
 
     # hz codec
     'hzgb'               : 'hz',
@@ -534,6 +536,7 @@ aliases = {
     'utf8'               : 'utf_8',
     'utf8_ucs2'          : 'utf_8',
     'utf8_ucs4'          : 'utf_8',
+    'cp65001'            : 'utf_8',
 
     # uu_codec codec
     'uu'                 : 'uu_codec',
