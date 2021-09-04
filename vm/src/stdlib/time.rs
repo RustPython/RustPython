@@ -2,7 +2,7 @@
 
 // See also:
 // https://docs.python.org/3/library/time.html
-use crate::{PyObjectRef, VirtualMachine};
+use crate::{PyObjectRef, PyResult, VirtualMachine};
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let module = time::make_module(vm);
@@ -15,17 +15,12 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 }
 
 #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
-pub fn get_time() -> f64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    match SystemTime::now().duration_since(UNIX_EPOCH) {
-        Ok(v) => v.as_secs_f64(),
-        Err(err) => panic!("Time error: {:?}", err),
-    }
+pub(crate) fn get_time(vm: &VirtualMachine) -> PyResult<f64> {
+    Ok(duration_since_system_now(vm)?.as_secs_f64())
 }
 
 #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
-pub fn get_time() -> f64 {
+pub(crate) fn get_time(_vm: &VirtualMachine) -> PyResult<f64> {
     use wasm_bindgen::prelude::*;
     #[wasm_bindgen]
     extern "C" {
@@ -34,7 +29,15 @@ pub fn get_time() -> f64 {
         fn now() -> f64;
     }
     // Date.now returns unix time in milliseconds, we want it in seconds
-    Date::now() / 1000.0
+    Ok(Date::now() / 1000.0)
+}
+
+fn duration_since_system_now(vm: &VirtualMachine) -> PyResult<std::time::Duration> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| vm.new_value_error(format!("Time error: {:?}", e)))
 }
 
 #[pymodule(name = "time")]
@@ -47,8 +50,6 @@ mod time {
         naive::{NaiveDate, NaiveDateTime, NaiveTime},
         Datelike, Timelike,
     };
-    use std::fmt;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[allow(dead_code)]
     pub(super) const SEC_TO_MS: i64 = 1000;
@@ -75,26 +76,20 @@ mod time {
 
     #[cfg(not(target_os = "wasi"))]
     #[pyfunction]
-    fn time_ns(_vm: &VirtualMachine) -> u64 {
-        match SystemTime::now().duration_since(UNIX_EPOCH) {
-            Ok(v) => v.as_nanos() as u64,
-            Err(_) => unsafe { std::hint::unreachable_unchecked() }, // guaranteed to be not to be happen with now() + UNIX_EPOCH,
-        }
+    fn time_ns(vm: &VirtualMachine) -> PyResult<u64> {
+        Ok(super::duration_since_system_now(vm)?.as_nanos() as u64)
     }
 
     #[pyfunction(name = "perf_counter")] // TODO: fix
     #[pyfunction]
-    fn time() -> f64 {
-        super::get_time()
+    fn time(vm: &VirtualMachine) -> PyResult<f64> {
+        super::get_time(vm)
     }
 
     #[pyfunction]
-    fn monotonic() -> f64 {
+    fn monotonic(vm: &VirtualMachine) -> PyResult<f64> {
         // TODO: implement proper monotonic time!
-        match SystemTime::now().duration_since(UNIX_EPOCH) {
-            Ok(v) => v.as_secs_f64(),
-            Err(err) => panic!("Time error: {:?}", err),
-        }
+        Ok(super::duration_since_system_now(vm)?.as_secs_f64())
     }
 
     fn pyobj_to_naive_date_time(
@@ -293,8 +288,8 @@ mod time {
         tm_isdst: PyObjectRef,
     }
 
-    impl fmt::Debug for PyStructTime {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    impl std::fmt::Debug for PyStructTime {
+        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
             write!(f, "struct_time()")
         }
     }
