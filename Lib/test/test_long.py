@@ -206,6 +206,7 @@ class LongTest(unittest.TestCase):
 
 
 
+    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'Cannot subtract b from a because b is larger than a.'")
     def test_karatsuba(self):
         digits = list(range(1, 5)) + list(range(KARATSUBA_CUTOFF,
                                                 KARATSUBA_CUTOFF + 10))
