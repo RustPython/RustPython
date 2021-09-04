@@ -468,6 +468,7 @@ fn namereplace_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(String
     }
 }
 
+#[derive(Eq, PartialEq)]
 enum StandardEncoding {
     Utf8,
     Utf16Be,
@@ -481,10 +482,9 @@ fn get_standard_encoding(encoding: &str) -> (usize, StandardEncoding) {
     if let Some(encoding) = encoding.to_lowercase().strip_prefix("utf") {
         let mut byte_length: usize = 0;
         let mut standard_encoding = StandardEncoding::Unknown;
-        let encoding = match encoding.strip_prefix(|c| c == '-' || c == '_') {
-            Some(x) => x,
-            None => encoding,
-        };
+        let encoding = encoding
+            .strip_prefix(|c| ['-', '_'].contains(&c))
+            .unwrap_or(encoding);
         if encoding == "8" {
             byte_length = 3;
             standard_encoding = StandardEncoding::Utf8;
@@ -496,15 +496,13 @@ fn get_standard_encoding(encoding: &str) -> (usize, StandardEncoding) {
                 } else if cfg!(target_endian = "big") {
                     standard_encoding = StandardEncoding::Utf16Be;
                 }
-                match standard_encoding {
-                    StandardEncoding::Unknown => (),
-                    _ => return (byte_length, standard_encoding),
+                if standard_encoding != StandardEncoding::Unknown {
+                    return (byte_length, standard_encoding);
                 }
             }
-            let encoding = match encoding.strip_prefix(|c| c == '-' || c == '_') {
-                Some(x) => x,
-                None => encoding,
-            };
+            let encoding = encoding
+                .strip_prefix(|c| ['-', '_'].contains(&c))
+                .unwrap_or(encoding);
             standard_encoding = match encoding {
                 "be" => StandardEncoding::Utf16Be,
                 "le" => StandardEncoding::Utf16Le,
@@ -518,15 +516,13 @@ fn get_standard_encoding(encoding: &str) -> (usize, StandardEncoding) {
                 } else if cfg!(target_endian = "big") {
                     standard_encoding = StandardEncoding::Utf32Be;
                 }
-                match standard_encoding {
-                    StandardEncoding::Unknown => (),
-                    _ => return (byte_length, standard_encoding),
+                if standard_encoding != StandardEncoding::Unknown {
+                    return (byte_length, standard_encoding);
                 }
             }
-            let encoding = match encoding.strip_prefix(|c| c == '-' || c == '_') {
-                Some(x) => x,
-                None => encoding,
-            };
+            let encoding = encoding
+                .strip_prefix(|c| ['-', '_'].contains(&c))
+                .unwrap_or(encoding);
             standard_encoding = match encoding {
                 "be" => StandardEncoding::Utf32Be,
                 "le" => StandardEncoding::Utf32Le,
@@ -586,7 +582,9 @@ fn surrogatepass_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(Stri
                     write!(out, "\\x{:x?}", (c >> 8)).unwrap();
                     write!(out, "\\x{:x?}", c).unwrap();
                 }
-                StandardEncoding::Unknown => unreachable!(), // NOTE: RUSTPYTHON, should've bailed out earlier
+                StandardEncoding::Unknown => {
+                    unreachable!("NOTE: RUSTPYTHON, should've bailed out earlier")
+                }
             }
         }
         Ok((out, range.end))
@@ -636,7 +634,9 @@ fn surrogatepass_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(Stri
                         | ((s_after_start[2] as u32) << 8)
                         | s_after_start[3] as u32;
                 }
-                StandardEncoding::Unknown => unreachable!(), // NOTE: RUSTPYTHON, should've bailed out earlier
+                StandardEncoding::Unknown => {
+                    unreachable!("NOTE: RUSTPYTHON, should've bailed out earlier")
+                }
             }
         }
         if !(0xd800..=0xdfff).contains(&c) {
