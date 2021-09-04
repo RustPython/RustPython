@@ -5,7 +5,9 @@
 use super::code::PyCodeRef;
 use super::dict::PyDictRef;
 use super::pystr::PyStrRef;
+use crate::builtins::PyTypeRef;
 use crate::frame::{Frame, FrameRef};
+use crate::function::FuncArgs;
 use crate::vm::VirtualMachine;
 use crate::{IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult};
 
@@ -19,7 +21,7 @@ impl Frame {}
 #[pyimpl]
 impl FrameRef {
     #[pyslot]
-    fn tp_new(_cls: FrameRef, vm: &VirtualMachine) -> PyResult<Self> {
+    fn tp_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         Err(vm.new_type_error("Cannot directly create frame object".to_owned()))
     }
 

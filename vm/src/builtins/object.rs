@@ -11,7 +11,7 @@ use crate::utils::Either;
 use crate::vm::VirtualMachine;
 use crate::{
     IdProtocol, ItemProtocol, PyArithmaticValue, PyAttributes, PyClassImpl, PyComparisonValue,
-    PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
 };
 
 /// object()
@@ -35,9 +35,8 @@ impl PyValue for PyBaseObject {
 impl PyBaseObject {
     /// Create and return a new object.  See help(type) for accurate signature.
     #[pyslot]
-    fn tp_new(mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         // more or less __new__ operator
-        let cls = PyTypeRef::try_from_object(vm, args.shift())?;
         let dict = if cls.is(&vm.ctx.types.object_type) {
             None
         } else {

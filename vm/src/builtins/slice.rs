@@ -3,7 +3,7 @@
 use super::int::{PyInt, PyIntRef};
 use super::pytype::PyTypeRef;
 use crate::function::{FuncArgs, OptionalArg};
-use crate::slots::{Comparable, Hashable, PyComparisonOp, Unhashable};
+use crate::slots::{Comparable, Hashable, PyComparisonOp, SlotConstructor, Unhashable};
 use crate::VirtualMachine;
 use crate::{
     IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
@@ -94,7 +94,7 @@ impl PySlice {
     }
 
     #[pyslot]
-    fn tp_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    fn tp_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let slice: PySlice = match args.args.len() {
             0 => {
                 return Err(
@@ -119,7 +119,7 @@ impl PySlice {
                 }
             }
         };
-        slice.into_ref_with_type(vm, cls)
+        slice.into_pyresult_with_type(vm, cls)
     }
 
     pub(crate) fn inner_indices(
@@ -293,13 +293,16 @@ impl PyValue for PyEllipsis {
     }
 }
 
-#[pyimpl]
-impl PyEllipsis {
-    #[pyslot]
-    fn tp_new(_cls: PyTypeRef, vm: &VirtualMachine) -> PyRef<Self> {
-        vm.ctx.ellipsis.clone()
-    }
+impl SlotConstructor for PyEllipsis {
+    type Args = ();
 
+    fn py_new(_cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.ellipsis.clone().into_object())
+    }
+}
+
+#[pyimpl(with(SlotConstructor))]
+impl PyEllipsis {
     #[pymethod(magic)]
     fn repr(&self) -> String {
         "Ellipsis".to_owned()

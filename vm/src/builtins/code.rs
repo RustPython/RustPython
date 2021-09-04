@@ -7,6 +7,7 @@ use std::ops::Deref;
 
 use super::{PyStrRef, PyTypeRef};
 use crate::bytecode::{self, BorrowedConstant, Constant, ConstantBag};
+use crate::function::FuncArgs;
 use crate::VirtualMachine;
 use crate::{
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
@@ -196,7 +197,7 @@ impl PyCode {}
 #[pyimpl]
 impl PyCodeRef {
     #[pyslot]
-    fn tp_new(_cls: PyTypeRef, vm: &VirtualMachine) -> PyResult<Self> {
+    fn tp_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         Err(vm.new_type_error("Cannot directly create code object".to_owned()))
     }
 

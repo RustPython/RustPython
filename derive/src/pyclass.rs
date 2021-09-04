@@ -476,16 +476,10 @@ where
         let slot_ident = item_meta.slot_name()?;
         let slot_name = slot_ident.to_string();
         let tokens = {
-            let into_func = if slot_name == "new" {
-                quote_spanned! {ident.span() =>
-                    ::rustpython_vm::function::IntoPyNativeFunc::into_func(Self::#ident)
-                }
-            } else {
-                quote_spanned! {ident.span() =>
-                    Self::#ident as _
-                }
+            let into_func = quote_spanned! {ident.span() =>
+                Self::#ident as _
             };
-            const NON_ATOMIC_SLOTS: &[&str] = &["new", "as_buffer"];
+            const NON_ATOMIC_SLOTS: &[&str] = &["as_buffer"];
             if NON_ATOMIC_SLOTS.contains(&slot_name.as_str()) {
                 quote! {
                     slots.#slot_ident = Some(#into_func);

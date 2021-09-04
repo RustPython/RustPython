@@ -10,7 +10,7 @@ use crate::common::hash::PyHash;
 use crate::common::lock::OnceCell;
 use crate::function::{FuncArgs, OptionalArg};
 use crate::sliceable::{convert_slice, saturate_range, wrap_index, SequenceIndex};
-use crate::slots::{AsBuffer, Comparable, Hashable, PyComparisonOp};
+use crate::slots::{AsBuffer, Comparable, Hashable, PyComparisonOp, SlotConstructor};
 use crate::stdlib::pystruct::_struct::FormatSpec;
 use crate::utils::Either;
 use crate::{
@@ -25,7 +25,7 @@ use num_traits::{One, Signed, ToPrimitive, Zero};
 use std::fmt::Debug;
 
 #[derive(FromArgs)]
-struct PyMemoryViewNewArgs {
+pub struct PyMemoryViewNewArgs {
     #[pyarg(any)]
     object: PyObjectRef,
 }
@@ -49,9 +49,19 @@ pub struct PyMemoryView {
     hash: OnceCell<PyHash>,
 }
 
+impl SlotConstructor for PyMemoryView {
+    type Args = PyMemoryViewNewArgs;
+
+    fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+        let buffer = PyBufferRef::try_from_borrowed_object(vm, &args.object)?;
+        let zelf = PyMemoryView::from_buffer(args.object, buffer, vm)?;
+        zelf.into_pyresult_with_type(vm, cls)
+    }
+}
+
 type PyMemoryViewRef = PyRef<PyMemoryView>;
 
-#[pyimpl(with(Hashable, Comparable, AsBuffer))]
+#[pyimpl(with(Hashable, Comparable, AsBuffer, SlotConstructor))]
 impl PyMemoryView {
     fn parse_format(format: &str, vm: &VirtualMachine) -> PyResult<FormatSpec> {
         FormatSpec::parse(format, vm)
@@ -114,17 +124,6 @@ impl PyMemoryView {
         self.buffer.as_contiguous().map(|x| f(&*x)).ok_or_else(|| {
             vm.new_type_error("non-contiguous memoryview is not a bytes-like object".to_owned())
         })
-    }
-
-    #[pyslot]
-    fn tp_new(
-        cls: PyTypeRef,
-        args: PyMemoryViewNewArgs,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyRef<Self>> {
-        let buffer = PyBufferRef::try_from_borrowed_object(vm, &args.object)?;
-        let zelf = PyMemoryView::from_buffer(args.object, buffer, vm)?;
-        zelf.into_ref_with_type(vm, cls)
     }
 
     #[pymethod]

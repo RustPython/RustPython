@@ -9,7 +9,7 @@ use chrono::{Datelike, Timelike};
 
 use crate::builtins::pystr::PyStrRef;
 use crate::builtins::pytype::PyTypeRef;
-use crate::function::OptionalArg;
+use crate::function::{FuncArgs, OptionalArg};
 use crate::utils::Either;
 use crate::vm::VirtualMachine;
 use crate::{PyClassImpl, PyObjectRef, PyResult, PyStructSequence, TryFromObject};
@@ -227,9 +227,10 @@ impl PyStructTime {
     }
 
     #[pyslot]
-    fn tp_new(_cls: PyTypeRef, seq: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
+    fn tp_new(_cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         // cls is ignorable because this is not a basetype
-        Self::try_from_object(vm, seq)
+        let seq = args.bind(vm)?;
+        Ok(vm.new_pyobj(Self::try_from_object(vm, seq)?))
     }
 }
 

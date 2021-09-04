@@ -12,6 +12,7 @@ use crate::{
     StaticType,
 };
 
+use crate::slots::SlotConstructor;
 use crossbeam_utils::atomic::AtomicCell;
 use foreign_types_shared::{ForeignType, ForeignTypeRef};
 use openssl::{
@@ -273,21 +274,10 @@ fn builder_as_ctx(x: &SslContextBuilder) -> &ssl::SslContextRef {
     unsafe { ssl::SslContextRef::from_ptr(x.as_ptr()) }
 }
 
-#[pyimpl(flags(BASETYPE))]
-impl PySslContext {
-    fn builder(&self) -> PyRwLockWriteGuard<'_, SslContextBuilder> {
-        self.ctx.write()
-    }
-    fn exec_ctx<F, R>(&self, func: F) -> R
-    where
-        F: Fn(&ssl::SslContextRef) -> R,
-    {
-        let c = self.ctx.read();
-        func(builder_as_ctx(&c))
-    }
+impl SlotConstructor for PySslContext {
+    type Args = i32;
 
-    #[pyslot]
-    fn tp_new(cls: PyTypeRef, proto_version: i32, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    fn py_new(cls: PyTypeRef, proto_version: Self::Args, vm: &VirtualMachine) -> PyResult {
         let proto = SslVersion::try_from(proto_version)
             .map_err(|_| vm.new_value_error("invalid protocol version".to_owned()))?;
         let method = match proto {
@@ -339,7 +329,21 @@ impl PySslContext {
             check_hostname: AtomicCell::new(check_hostname),
             protocol: proto,
         }
-        .into_ref_with_type(vm, cls)
+        .into_pyresult_with_type(vm, cls)
+    }
+}
+
+#[pyimpl(flags(BASETYPE), with(SlotConstructor))]
+impl PySslContext {
+    fn builder(&self) -> PyRwLockWriteGuard<'_, SslContextBuilder> {
+        self.ctx.write()
+    }
+    fn exec_ctx<F, R>(&self, func: F) -> R
+    where
+        F: Fn(&ssl::SslContextRef) -> R,
+    {
+        let c = self.ctx.read();
+        func(builder_as_ctx(&c))
     }
 
     #[pymethod]

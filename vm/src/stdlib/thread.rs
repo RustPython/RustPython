@@ -169,11 +169,11 @@ impl fmt::Debug for PyRLock {
 #[pyimpl]
 impl PyRLock {
     #[pyslot]
-    fn tp_new(cls: PyTypeRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         PyRLock {
             mu: RawRMutex::INIT,
         }
-        .into_ref_with_type(vm, cls)
+        .into_pyresult_with_type(vm, cls)
     }
 
     #[pymethod]
@@ -321,11 +321,11 @@ impl PyLocal {
     }
 
     #[pyslot]
-    fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         PyLocal {
             data: ThreadLocal::new(),
         }
-        .into_ref_with_type(vm, cls)
+        .into_pyresult_with_type(vm, cls)
     }
 }
 

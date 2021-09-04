@@ -1,7 +1,7 @@
 use super::pybool;
 use super::pytype::PyTypeRef;
 use crate::iterator;
-use crate::slots::PyIter;
+use crate::slots::{PyIter, SlotConstructor};
 use crate::vm::VirtualMachine;
 use crate::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 
@@ -22,24 +22,34 @@ impl PyValue for PyFilter {
     }
 }
 
-#[pyimpl(with(PyIter), flags(BASETYPE))]
-impl PyFilter {
-    #[pyslot]
-    fn tp_new(
+#[derive(FromArgs)]
+pub struct FilterArgs {
+    #[pyarg(positional)]
+    function: PyObjectRef,
+    #[pyarg(positional)]
+    iterable: PyObjectRef,
+}
+
+impl SlotConstructor for PyFilter {
+    type Args = FilterArgs;
+
+    fn py_new(
         cls: PyTypeRef,
-        function: PyObjectRef,
-        iterable: PyObjectRef,
+        Self::Args { function, iterable }: Self::Args,
         vm: &VirtualMachine,
-    ) -> PyResult<PyRef<Self>> {
+    ) -> PyResult {
         let iterator = iterator::get_iter(vm, iterable)?;
 
         Self {
             predicate: function,
             iterator,
         }
-        .into_ref_with_type(vm, cls)
+        .into_pyresult_with_type(vm, cls)
     }
 }
+
+#[pyimpl(with(PyIter, SlotConstructor), flags(BASETYPE))]
+impl PyFilter {}
 
 impl PyIter for PyFilter {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {

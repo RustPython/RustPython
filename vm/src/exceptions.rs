@@ -63,12 +63,8 @@ impl PyBaseException {
     }
 
     #[pyslot]
-    pub(crate) fn tp_new(
-        cls: PyTypeRef,
-        args: FuncArgs,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyRef<Self>> {
-        PyBaseException::new(args.args, vm).into_ref_with_type(vm, cls)
+    pub(crate) fn tp_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        PyBaseException::new(args.args, vm).into_pyresult_with_type(vm, cls)
     }
 
     #[pymethod(magic)]
@@ -555,11 +551,7 @@ macro_rules! extends_exception {
         #[pyimpl(flags(BASETYPE, HAS_DICT))]
         impl $class_name {
             #[pyslot]
-            fn tp_new(
-                cls: PyTypeRef,
-                args: FuncArgs,
-                vm: &VirtualMachine,
-            ) -> PyResult<PyRef<PyBaseException>> {
+            fn tp_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
                 // We need this method, because of how `CPython` copies `init`
                 // from `BaseException` in `SimpleExtendsException` macro.
                 // See: `BaseException_new`

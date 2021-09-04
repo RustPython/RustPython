@@ -151,6 +151,17 @@ impl PyType {
             }};
         }
         match name {
+            "__new__" => {
+                let func: slots::NewFunc =
+                    |cls: PyTypeRef, mut args: FuncArgs, vm: &VirtualMachine| {
+                        let new = vm
+                            .get_attribute_opt(cls.as_object().clone(), "__new__")?
+                            .unwrap();
+                        args.prepend_arg(cls.into_object());
+                        vm.invoke(&new, args)
+                    };
+                update_slot!(new, func);
+            }
             "__call__" => {
                 let func: slots::GenericMethod =
                     |zelf, args, vm| vm.call_special_method(zelf.clone(), "__call__", args);
@@ -394,7 +405,7 @@ impl PyType {
         )
     }
     #[pyslot]
-    fn tp_new(metatype: PyTypeRef, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn tp_new(metatype: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         vm_trace!("type.__new__ {:?}", args);
 
         let is_type_type = metatype.is(&vm.ctx.types.type_type);
@@ -442,10 +453,9 @@ impl PyType {
             let winner = calculate_meta_class(metatype.clone(), &bases, vm)?;
             let metatype = if !winner.is(&metatype) {
                 #[allow(clippy::redundant_clone)] // false positive
-                if let Some(ref tp_new) = winner.clone().slots.new {
+                if let Some(ref tp_new) = winner.clone().slots.new.load() {
                     // Pass it to the winner
-                    args.prepend_arg(winner.into_object());
-                    return tp_new(vm, args);
+                    return tp_new(winner, args, vm);
                 }
                 winner
             } else {
@@ -787,9 +797,8 @@ fn call_tp_new(
                 return vm.invoke(&new_meth, args);
             }
         }
-        if let Some(tp_new) = cls.slots.new.as_ref() {
-            args.prepend_arg(subtype.into_object());
-            return tp_new(vm, args);
+        if let Some(tp_new) = cls.slots.new.load() {
+            return tp_new(subtype, args, vm);
         }
     }
     unreachable!("Should be able to find a new slot somewhere in the mro")

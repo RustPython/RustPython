@@ -2,7 +2,7 @@ use super::{float, IntoPyBool, PyByteArray, PyBytes, PyStr, PyStrRef, PyTypeRef}
 use crate::common::hash;
 use crate::format::FormatSpec;
 use crate::function::{OptionalArg, OptionalOption};
-use crate::slots::{Comparable, Hashable, PyComparisonOp};
+use crate::slots::{Comparable, Hashable, PyComparisonOp, SlotConstructor};
 use crate::VirtualMachine;
 use crate::{bytesinner::PyBytesInner, byteslike::try_bytes_like};
 use crate::{
@@ -235,7 +235,46 @@ fn inner_truediv(i1: &BigInt, i2: &BigInt, vm: &VirtualMachine) -> PyResult {
     }
 }
 
-#[pyimpl(flags(BASETYPE), with(Comparable, Hashable))]
+impl SlotConstructor for PyInt {
+    type Args = IntOptions;
+
+    fn py_new(cls: PyTypeRef, options: Self::Args, vm: &VirtualMachine) -> PyResult {
+        let value = if let OptionalArg::Present(val) = options.val_options {
+            if let OptionalArg::Present(base) = options.base {
+                let base = vm
+                    .to_index(&base)?
+                    .as_bigint()
+                    .to_u32()
+                    .filter(|&v| v == 0 || (2..=36).contains(&v))
+                    .ok_or_else(|| {
+                        vm.new_value_error("int() base must be >= 2 and <= 36, or 0".to_owned())
+                    })?;
+                try_int_radix(&val, base, vm)
+            } else {
+                let val = if cls.is(&vm.ctx.types.int_type) {
+                    match val.downcast_exact::<PyInt>(vm) {
+                        Ok(i) => {
+                            return Ok(i.into_pyobject(vm));
+                        }
+                        Err(val) => val,
+                    }
+                } else {
+                    val
+                };
+
+                try_int(&val, vm)
+            }
+        } else if let OptionalArg::Present(_) = options.base {
+            Err(vm.new_type_error("int() missing string argument".to_owned()))
+        } else {
+            Ok(Zero::zero())
+        }?;
+
+        Self::with_value(cls, value, vm).into_pyresult(vm)
+    }
+}
+
+#[pyimpl(flags(BASETYPE), with(Comparable, Hashable, SlotConstructor))]
 impl PyInt {
     fn with_value<T>(cls: PyTypeRef, value: T, vm: &VirtualMachine) -> PyResult<PyRef<Self>>
     where
@@ -256,42 +295,6 @@ impl PyInt {
 
     pub fn as_bigint(&self) -> &BigInt {
         &self.value
-    }
-
-    #[pyslot]
-    fn tp_new(cls: PyTypeRef, options: IntOptions, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        let value = if let OptionalArg::Present(val) = options.val_options {
-            if let OptionalArg::Present(base) = options.base {
-                let base = vm
-                    .to_index(&base)?
-                    .as_bigint()
-                    .to_u32()
-                    .filter(|&v| v == 0 || (2..=36).contains(&v))
-                    .ok_or_else(|| {
-                        vm.new_value_error("int() base must be >= 2 and <= 36, or 0".to_owned())
-                    })?;
-                try_int_radix(&val, base, vm)
-            } else {
-                let val = if cls.is(&vm.ctx.types.int_type) {
-                    match val.downcast_exact::<PyInt>(vm) {
-                        Ok(i) => {
-                            return Ok(i);
-                        }
-                        Err(val) => val,
-                    }
-                } else {
-                    val
-                };
-
-                try_int(&val, vm)
-            }
-        } else if let OptionalArg::Present(_) = options.base {
-            Err(vm.new_type_error("int() missing string argument".to_owned()))
-        } else {
-            Ok(Zero::zero())
-        }?;
-
-        Self::with_value(cls, value, vm)
     }
 
     #[inline]
@@ -735,7 +738,7 @@ impl Hashable for PyInt {
 }
 
 #[derive(FromArgs)]
-struct IntOptions {
+pub struct IntOptions {
     #[pyarg(positional, optional)]
     val_options: OptionalArg<PyObjectRef>,
     #[pyarg(any, optional)]

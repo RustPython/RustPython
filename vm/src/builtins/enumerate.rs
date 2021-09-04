@@ -11,7 +11,7 @@ use super::iter::{
 };
 use super::pytype::PyTypeRef;
 use crate::function::OptionalArg;
-use crate::slots::PyIter;
+use crate::slots::{PyIter, SlotConstructor};
 use crate::vm::VirtualMachine;
 use crate::{iterator, ItemProtocol, TypeProtocol};
 use crate::{IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
@@ -30,17 +30,17 @@ impl PyValue for PyEnumerate {
 }
 
 #[derive(FromArgs)]
-struct EnumerateArgs {
+pub struct EnumerateArgs {
     #[pyarg(any)]
     iterable: PyObjectRef,
     #[pyarg(any, optional)]
     start: OptionalArg<PyIntRef>,
 }
 
-#[pyimpl(with(PyIter), flags(BASETYPE))]
-impl PyEnumerate {
-    #[pyslot]
-    fn tp_new(cls: PyTypeRef, args: EnumerateArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+impl SlotConstructor for PyEnumerate {
+    type Args = EnumerateArgs;
+
+    fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
         let counter = match args.start {
             OptionalArg::Present(start) => start.as_bigint().clone(),
             OptionalArg::Missing => BigInt::zero(),
@@ -51,9 +51,12 @@ impl PyEnumerate {
             counter: PyRwLock::new(counter),
             iterator,
         }
-        .into_ref_with_type(vm, cls)
+        .into_pyresult_with_type(vm, cls)
     }
 }
+
+#[pyimpl(with(PyIter, SlotConstructor), flags(BASETYPE))]
+impl PyEnumerate {}
 
 impl PyIter for PyEnumerate {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
