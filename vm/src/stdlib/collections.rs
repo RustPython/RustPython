@@ -503,7 +503,7 @@ mod _collections {
             } else {
                 Err(vm.new_type_error(format!(
                     "can only concatenate deque (not \"{}\") to deque",
-                    other.class().name
+                    other.class().name()
                 )))
             }
         }

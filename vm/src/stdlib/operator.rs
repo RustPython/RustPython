@@ -212,7 +212,7 @@ mod _operator {
         // Best attempt at checking that a is sequence-like.
         if !a.class().has_attr("__getitem__") || a.isinstance(&vm.ctx.types.dict_type) {
             return Err(
-                vm.new_type_error(format!("{} object can't be concatenated", a.class().name))
+                vm.new_type_error(format!("{} object can't be concatenated", a.class().name()))
             );
         }
         vm._add(&a, &b)
@@ -288,7 +288,7 @@ mod _operator {
                 if !v.isinstance(&vm.ctx.types.int_type) {
                     return Err(vm.new_type_error(format!(
                         "'{}' type cannot be interpreted as an integer",
-                        v.class().name
+                        v.class().name()
                     )));
                 }
                 int::try_to_primitive(v.payload::<PyInt>().unwrap().as_bigint(), vm)
@@ -317,7 +317,7 @@ mod _operator {
         // Best attempt at checking that a is sequence-like.
         if !a.class().has_attr("__getitem__") || a.isinstance(&vm.ctx.types.dict_type) {
             return Err(
-                vm.new_type_error(format!("{} object can't be concatenated", a.class().name))
+                vm.new_type_error(format!("{} object can't be concatenated", a.class().name()))
             );
         }
         vm._iadd(&a, &b)

@@ -438,7 +438,7 @@ impl PySocket {
                     vm.new_type_error(format!(
                         "{}(): AF_INET address must be tuple, not {}",
                         caller,
-                        obj.class().name
+                        obj.class().name()
                     ))
                 })?;
                 let tuple = tuple.as_slice();
@@ -462,7 +462,7 @@ impl PySocket {
                     vm.new_type_error(format!(
                         "{}(): AF_INET6 address must be tuple, not {}",
                         caller,
-                        obj.class().name
+                        obj.class().name()
                     ))
                 })?;
                 let tuple = tuple.as_slice();

@@ -34,7 +34,7 @@ mod decl {
                 }
                 obj => Err(vm.new_type_error(format!(
                     "argument should be bytes, buffer or ASCII string, not '{}'",
-                    obj.class().name,
+                    obj.class().name(),
                 ))),
             })
         }

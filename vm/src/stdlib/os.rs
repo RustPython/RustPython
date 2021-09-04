@@ -195,15 +195,15 @@ pub(crate) fn fspath(
     let method = vm.get_method_or_type_error(obj.clone(), "__fspath__", || {
         format!(
             "expected str, bytes or os.PathLike object, not {}",
-            obj.class().name
+            obj.class().name()
         )
     })?;
     let result = vm.invoke(&method, ())?;
     match1(result)?.map_err(|result| {
         vm.new_type_error(format!(
             "expected {}.__fspath__() to return str or bytes, not {}",
-            obj.class().name,
-            result.class().name,
+            obj.class().name(),
+            result.class().name(),
         ))
     })
 }
@@ -348,7 +348,7 @@ impl<const AVAILABLE: usize> FromArgs for DirFd<AVAILABLE> {
                 let fd = vm.to_index_opt(o.clone()).unwrap_or_else(|| {
                     Err(vm.new_type_error(format!(
                         "argument should be integer or None, not {}",
-                        o.class().name
+                        o.class().name()
                     )))
                 })?;
                 let fd = int::try_to_primitive(fd.as_bigint(), vm)?;
@@ -1406,8 +1406,8 @@ mod _os {
                             .ok_or_else(|| {
                                 vm.new_type_error(format!(
                                     "{}.__divmod__() must return a 2-tuple, not {}",
-                                    obj.class().name,
-                                    divmod.class().name
+                                    obj.class().name(),
+                                    divmod.class().name()
                                 ))
                             })?;
                     let secs = int::try_to_primitive(vm.to_index(&div)?.as_bigint(), vm)?;

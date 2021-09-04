@@ -348,7 +348,7 @@ impl SequenceIndex {
                 let val = vm.to_index(&obj).map_err(|_| vm.new_type_error(format!(
                     "{} indices must be integers or slices or classes that override __index__ operator, not '{}'",
                     owner_type,
-                    obj.class().name
+                    obj.class().name()
                 )))?;
                 val.as_bigint().to_isize()
             }

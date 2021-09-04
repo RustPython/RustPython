@@ -754,7 +754,7 @@ mod array {
             let utf8 = PyStrRef::try_from_object(vm, obj.clone()).map_err(|_| {
                 vm.new_type_error(format!(
                     "fromunicode() argument must be str, not {}",
-                    obj.class().name
+                    obj.class().name()
                 ))
             })?;
             if zelf.read().typecode() != 'u' {
@@ -923,7 +923,7 @@ mod array {
                             None => {
                                 return Err(vm.new_type_error(format!(
                                     "can only assign array (not \"{}\") to array slice",
-                                    obj.class().name
+                                    obj.class().name()
                                 )));
                             }
                         }
@@ -954,7 +954,7 @@ mod array {
             } else {
                 Err(vm.new_type_error(format!(
                     "can only append array (not \"{}\") to array",
-                    other.class().name
+                    other.class().name()
                 )))
             }
         }
@@ -974,7 +974,7 @@ mod array {
             } else {
                 Err(vm.new_type_error(format!(
                     "can only extend array with array (not \"{}\")",
-                    other.class().name
+                    other.class().name()
                 )))
             }
         }
@@ -1253,7 +1253,7 @@ mod array {
                 .map_err(|_| {
                     vm.new_type_error(format!(
                         "an integer is required (got type {})",
-                        obj.class().name
+                        obj.class().name()
                     ))
                 })?
                 .as_bigint()
@@ -1326,7 +1326,9 @@ mod array {
 
     fn check_array_type(typ: PyTypeRef, vm: &VirtualMachine) -> PyResult<PyTypeRef> {
         if !typ.issubclass(PyArray::class(vm)) {
-            return Err(vm.new_type_error(format!("{} is not a subtype of array.array", typ.name)));
+            return Err(
+                vm.new_type_error(format!("{} is not a subtype of array.array", typ.name()))
+            );
         }
         Ok(typ)
     }

@@ -276,7 +276,7 @@ where
     T: Unhashable,
 {
     fn hash(_zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
-        Err(vm.new_type_error(format!("unhashable type: '{}'", _zelf.class().name)))
+        Err(vm.new_type_error(format!("unhashable type: '{}'", _zelf.class().name())))
     }
 }
 

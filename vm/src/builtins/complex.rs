@@ -117,7 +117,7 @@ impl SlotConstructor for PyComplex {
                 } else {
                     return Err(vm.new_type_error(format!(
                         "complex() first argument must be a string or a number, not '{}'",
-                        val.class().name
+                        val.class().name()
                     )));
                 }
             }
@@ -137,7 +137,7 @@ impl SlotConstructor for PyComplex {
                 } else {
                     return Err(vm.new_type_error(format!(
                         "complex() second argument must be a number, not '{}'",
-                        obj.class().name
+                        obj.class().name()
                     )));
                 }
             }
@@ -437,7 +437,7 @@ fn try_complex(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<(Compl
             Some(complex_obj) => Ok(Some((complex_obj.value, true))),
             None => Err(vm.new_type_error(format!(
                 "__complex__ returned non-complex (type '{}')",
-                result.class().name
+                result.class().name()
             ))),
         };
     }

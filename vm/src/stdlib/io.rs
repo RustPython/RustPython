@@ -127,7 +127,7 @@ mod _io {
     fn _unsupported<T>(vm: &VirtualMachine, zelf: &PyObjectRef, operation: &str) -> PyResult<T> {
         Err(new_unsupported_operation(
             vm,
-            format!("{}.{}() not supported", zelf.class().name, operation),
+            format!("{}.{}() not supported", zelf.class().name(), operation),
         ))
     }
 
@@ -335,7 +335,7 @@ mod _io {
         decoded.downcast().map_err(|obj| {
             vm.new_type_error(format!(
                 "decoder should return a string result, not '{}'",
-                obj.class().name
+                obj.class().name()
             ))
         })
     }
@@ -1345,7 +1345,7 @@ mod _io {
         int.as_bigint().try_into().map_err(|_| {
             vm.new_value_error(format!(
                 "cannot fit '{}' into an offset-sized integer",
-                obj.class().name
+                obj.class().name()
             ))
         })
     }
@@ -1566,7 +1566,7 @@ mod _io {
         // TODO: this should be the default for an equivalent of _PyObject_GetState
         #[pymethod(magic)]
         fn reduce(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            Err(vm.new_type_error(format!("cannot pickle '{}' object", zelf.class().name)))
+            Err(vm.new_type_error(format!("cannot pickle '{}' object", zelf.class().name())))
         }
     }
 
@@ -1940,7 +1940,7 @@ mod _io {
                 let s = obj.downcast::<PyStr>().map_err(|obj| {
                     vm.new_type_error(format!(
                         "newline argument must be str or None, not {}",
-                        obj.class().name
+                        obj.class().name()
                     ))
                 })?;
                 match s.as_str() {
@@ -2419,7 +2419,7 @@ mod _io {
                 let input_chunk: PyBytesRef = input_chunk.downcast().map_err(|obj| {
                     vm.new_type_error(format!(
                         "underlying read() should have returned a bytes object, not '{}'",
-                        obj.class().name
+                        obj.class().name()
                     ))
                 })?;
                 *snapshot = Some((cookie.dec_flags, input_chunk.clone()));
@@ -2671,7 +2671,7 @@ mod _io {
                         } else {
                             Err(vm.new_type_error(format!(
                                 "encoder should return a bytes object, not '{}'",
-                                obj.class().name
+                                obj.class().name()
                             )))
                         }
                     })?
@@ -2891,7 +2891,7 @@ mod _io {
 
         #[pymethod(magic)]
         fn reduce(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            Err(vm.new_type_error(format!("cannot pickle '{}' object", zelf.class().name)))
+            Err(vm.new_type_error(format!("cannot pickle '{}' object", zelf.class().name())))
         }
     }
 
@@ -2904,7 +2904,7 @@ mod _io {
                 let buf = buf.clone().downcast::<PyBytes>().map_err(|obj| {
                     vm.new_type_error(format!(
                         "illegal decoder state: the first item should be a bytes object, not '{}'",
-                        obj.class().name
+                        obj.class().name()
                     ))
                 })?;
                 let flags = flags.payload::<int::PyInt>().ok_or_else(state_err)?;
@@ -2951,7 +2951,7 @@ mod _io {
                 vm.new_type_error(format!(
                     "underlying {}() should have returned a bytes-like object, not '{}'",
                     method,
-                    input_chunk.class().name
+                    input_chunk.class().name()
                 ))
             })?;
             let nbytes = buf.borrow_buf().len();
@@ -4128,7 +4128,7 @@ mod fileio {
 
         #[pymethod(magic)]
         fn reduce(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            Err(vm.new_type_error(format!("cannot pickle '{}' object", zelf.class().name)))
+            Err(vm.new_type_error(format!("cannot pickle '{}' object", zelf.class().name())))
         }
     }
 }

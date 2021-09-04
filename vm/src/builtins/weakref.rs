@@ -76,7 +76,7 @@ impl PyWeak {
             format!(
                 "<weakref at {:#x}; to '{}' at {:#x}>",
                 id,
-                o.class().name,
+                o.class().name(),
                 o.get_id(),
             )
         } else {

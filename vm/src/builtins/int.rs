@@ -509,13 +509,13 @@ impl PyInt {
                     let _ndigits = value.payload_if_subclass::<PyInt>(vm).ok_or_else(|| {
                         vm.new_type_error(format!(
                             "'{}' object cannot be interpreted as an integer",
-                            value.class().name
+                            value.class().name()
                         ))
                     })?;
                 } else {
                     return Err(vm.new_type_error(format!(
                         "'{}' object cannot be interpreted as an integer",
-                        value.class().name
+                        value.class().name()
                     )));
                 }
             }
@@ -948,7 +948,7 @@ pub(crate) fn try_int(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt
             Some(int_obj) => Ok(int_obj.as_bigint().clone()),
             None => Err(vm.new_type_error(format!(
                 "__int__ returned non-int (type '{}')",
-                result.class().name
+                result.class().name()
             ))),
         };
     }
@@ -963,7 +963,7 @@ pub(crate) fn try_int(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt
             .unwrap_or_else(|| {
                 Err(vm.new_type_error(format!(
                     "__trunc__ returned non-Integral (type '{}')",
-                    result.class().name
+                    result.class().name()
                 )))
             })
             .map(|int_obj| int_obj.as_bigint().clone());
@@ -971,7 +971,7 @@ pub(crate) fn try_int(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt
 
     Err(vm.new_type_error(format!(
         "int() argument must be a string, a bytes-like object or a number, not '{}'",
-        obj.class().name
+        obj.class().name()
     )))
 }
 

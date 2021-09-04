@@ -31,7 +31,6 @@ use std::ops::Deref;
 /// type(name, bases, dict) -> a new type
 #[pyclass(module = false, name = "type")]
 pub struct PyType {
-    pub name: String,
     pub base: Option<PyTypeRef>,
     pub bases: Vec<PyTypeRef>,
     pub mro: Vec<PyTypeRef>,
@@ -42,13 +41,13 @@ pub struct PyType {
 
 impl fmt::Display for PyType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(&self.name, f)
+        fmt::Display::fmt(&self.name(), f)
     }
 }
 
 impl fmt::Debug for PyType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "[PyType {}]", &self.name)
+        write!(f, "[PyType {}]", &self.name())
     }
 }
 
@@ -61,23 +60,8 @@ impl PyValue for PyType {
 }
 
 impl PyType {
-    pub fn tp_name(&self) -> PyMappedRwLockReadGuard<str> {
-        let opt_name = self.slots.name.upgradable_read();
-        let read_guard = if opt_name.is_some() {
-            PyRwLockUpgradableReadGuard::downgrade(opt_name)
-        } else {
-            let mut opt_name = PyRwLockUpgradableReadGuard::upgrade(opt_name);
-            let module = self.attributes.read().get("__module__").cloned();
-            let module: Option<PyStrRef> = module.and_then(|m| m.downcast().ok());
-            let new_name = if let Some(module) = module {
-                format!("{}.{}", module, &self.name)
-            } else {
-                self.name.clone()
-            };
-            *opt_name = Some(new_name);
-            PyRwLockWriteGuard::downgrade(opt_name)
-        };
-        PyRwLockReadGuard::map(read_guard, |opt| opt.as_deref().unwrap())
+    pub fn tp_name(&self) -> String {
+        self.slots.name.read().as_ref().unwrap().to_string()
     }
 
     pub fn iter_mro(&self) -> impl Iterator<Item = &PyType> + DoubleEndedIterator {
@@ -306,8 +290,8 @@ impl PyType {
     }
 
     #[pyproperty(magic)]
-    fn name(&self) -> String {
-        self.name.clone()
+    pub fn name(&self) -> String {
+        self.tp_name().rsplit('.').next().unwrap().to_string()
     }
 
     #[pymethod(magic)]
@@ -317,13 +301,14 @@ impl PyType {
 
         match module {
             Some(module) if module != "builtins" => {
+                let name = self.name();
                 format!(
                     "<class '{}.{}'>",
                     module,
                     self.qualname(vm)
                         .downcast_ref::<PyStr>()
                         .map(|n| n.as_str())
-                        .unwrap_or_else(|| &self.name)
+                        .unwrap_or_else(|| &name)
                 )
             }
             _ => format!("<class '{}'>", self.tp_name()),
@@ -344,7 +329,7 @@ impl PyType {
                     Some(found)
                 }
             })
-            .unwrap_or_else(|| vm.ctx.new_str(self.name.clone()))
+            .unwrap_or_else(|| vm.ctx.new_str(self.name()))
     }
 
     #[pyproperty(magic)]
@@ -522,9 +507,9 @@ impl PyType {
                 .map_err(|e| {
                     let err = vm.new_runtime_error(format!(
                         "Error calling __set_name__ on '{}' instance {} in '{}'",
-                        obj.class().name,
+                        obj.class().name(),
                         name,
-                        typ.name
+                        typ.name()
                     ));
                     err.set_cause(Some(e));
                     err
@@ -627,7 +612,7 @@ impl SlotGetattro for PyType {
         } else {
             Err(vm.new_attribute_error(format!(
                 "type object '{}' has no attribute '{}'",
-                zelf, name
+                zelf.tp_name(), name
             )))
         }
     }
@@ -707,7 +692,7 @@ fn subtype_get_dict(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         Some(descr) => vm.call_get_descriptor(descr, obj).unwrap_or_else(|_| {
             Err(vm.new_type_error(format!(
                 "this __dict__ descriptor does not support '{}' objects",
-                cls.name
+                cls.name()
             )))
         })?,
         None => object::object_get_dict(obj, vm)?.into_object(),
@@ -725,7 +710,7 @@ fn subtype_set_dict(obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -
                 .ok_or_else(|| {
                     vm.new_type_error(format!(
                         "this __dict__ descriptor does not support '{}' objects",
-                        cls.name
+                        cls.name()
                     ))
                 })?;
             descr_set(descr, obj, Some(value), vm)
@@ -813,8 +798,8 @@ pub fn tp_new_wrapper(
     if !cls.issubclass(&zelf) {
         return Err(vm.new_type_error(format!(
             "{zelf}.__new__({cls}): {cls} is not a subtype of {zelf}",
-            zelf = zelf.name,
-            cls = cls.name,
+            zelf = zelf.name(),
+            cls = cls.name(),
         )));
     }
     call_tp_new(zelf, cls, args, vm)
@@ -888,7 +873,7 @@ pub fn new(
     let mut unique_bases = HashSet::new();
     for base in bases.iter() {
         if !unique_bases.insert(base.get_id()) {
-            return Err(format!("duplicate base class {}", base.name));
+            return Err(format!("duplicate base class {}", base.name()));
         }
     }
 
@@ -901,9 +886,11 @@ pub fn new(
     if base.slots.flags.has_feature(PyTpFlags::HAS_DICT) {
         slots.flags |= PyTpFlags::HAS_DICT
     }
+
+    *slots.name.write() = Some(String::from(name));
+
     let new_type = PyRef::new_ref(
         PyType {
-            name: String::from(name),
             base: Some(base),
             bases,
             mro,
@@ -975,7 +962,7 @@ fn best_base(bases: &[PyTypeRef], vm: &VirtualMachine) -> PyResult<PyTypeRef> {
         if !base_i.slots.flags.has_feature(PyTpFlags::BASETYPE) {
             return Err(vm.new_type_error(format!(
                 "type '{}' is not an acceptable base type",
-                base_i.name
+                base_i.name()
             )));
         }
         // candidate = solid_base(base_i);
