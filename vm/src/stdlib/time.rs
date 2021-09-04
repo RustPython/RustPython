@@ -195,6 +195,7 @@ mod time {
 
     #[cfg(not(any(
         windows,
+        target_os = "macos",
         target_os = "android",
         target_os = "dragonfly",
         target_os = "freebsd",
@@ -248,6 +249,7 @@ mod time {
 
     #[cfg(not(any(
         windows,
+        target_os = "macos",
         target_os = "android",
         target_os = "dragonfly",
         target_os = "freebsd",
@@ -391,6 +393,7 @@ mod unix {
     }
 
     #[cfg(any(
+        target_os = "macos",
         target_os = "android",
         target_os = "dragonfly",
         target_os = "freebsd",
@@ -414,6 +417,7 @@ mod unix {
     }
 
     #[cfg(any(
+        target_os = "macos",
         target_os = "android",
         target_os = "dragonfly",
         target_os = "freebsd",
