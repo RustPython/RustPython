@@ -352,7 +352,6 @@ impl PyType {
 
     #[pyproperty(magic, setter)]
     fn set_module(&self, value: PyObjectRef) {
-        *self.slots.name.write() = None;
         self.attributes
             .write()
             .insert("__module__".to_owned(), value);
