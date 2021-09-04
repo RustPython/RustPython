@@ -204,7 +204,6 @@ mod _collections {
 
         #[pymethod]
         fn extend(&self, iter: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            // TODO: use length_hint here and for extendleft
             self.state.fetch_add(1);
             let max_len = self.maxlen;
             let mut elements: Vec<PyObjectRef> = vm.extract_elements(&iter)?;
