@@ -611,7 +611,8 @@ impl SlotGetattro for PyType {
         } else {
             Err(vm.new_attribute_error(format!(
                 "type object '{}' has no attribute '{}'",
-                zelf.tp_name(), name
+                zelf.tp_name(),
+                name
             )))
         }
     }

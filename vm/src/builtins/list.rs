@@ -114,7 +114,7 @@ impl PyList {
         } else {
             Err(vm.new_type_error(format!(
                 "Cannot add {} and {}",
-                Self::class(vm).name() ,
+                Self::class(vm).name(),
                 other.class().name()
             )))
         }
