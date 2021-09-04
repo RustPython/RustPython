@@ -252,8 +252,6 @@ class NoneLengthHint(object):
 
 class TestLengthHintExceptions(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_issue1242657(self):
         self.assertRaises(RuntimeError, list, BadLen())
         self.assertRaises(RuntimeError, list, BadLengthHint())

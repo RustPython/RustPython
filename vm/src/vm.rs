@@ -1261,7 +1261,13 @@ impl VirtualMachine {
                 .collect()
         } else {
             let iter = iterator::get_iter(self, value.clone())?;
-            iterator::try_map(self, &iter, |obj| func(obj))
+            let cap = match iterator::length_hint(self, value.clone()) {
+                Err(e) if e.class().is(&self.ctx.exceptions.runtime_error) => return Err(e),
+                Ok(Some(value)) => value,
+                // Use a power of 2 as a default capacity.
+                _ => 4,
+            };
+            iterator::try_map(self, &iter, cap, |obj| func(obj))
         }
     }
 
@@ -1303,7 +1309,15 @@ impl VirtualMachine {
             // TODO: put internal iterable type
             obj => {
                 let iter = iterator::get_iter(self, obj.clone())?;
-                Ok(iterator::try_map(self, &iter, f))
+                let cap = match iterator::length_hint(self, obj.clone()) {
+                    Err(e) if e.class().is(&self.ctx.exceptions.runtime_error) => {
+                        return Ok(Err(e))
+                    }
+                    Ok(Some(value)) => value,
+                    // Use a power of 2 as a default capacity.
+                    _ => 4,
+                };
+                Ok(iterator::try_map(self, &iter, cap, f))
             }
         })
     }

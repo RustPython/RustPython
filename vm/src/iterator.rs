@@ -6,7 +6,7 @@ use crate::builtins::int::{self, PyInt};
 use crate::builtins::iter::PySequenceIterator;
 use crate::exceptions::PyBaseExceptionRef;
 use crate::vm::VirtualMachine;
-use crate::{IdProtocol, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol};
+use crate::{IdProtocol, PyObjectRef, PyResult, PyValue, TypeProtocol};
 use num_traits::Signed;
 
 /*
@@ -73,16 +73,15 @@ pub fn get_next_object(
     }
 }
 
-/* Retrieve all elements from an iterator */
-pub fn get_all<T: TryFromObject>(vm: &VirtualMachine, iter_obj: &PyObjectRef) -> PyResult<Vec<T>> {
-    try_map(vm, iter_obj, |obj| T::try_from_object(vm, obj))
-}
-
-pub fn try_map<F, R>(vm: &VirtualMachine, iter_obj: &PyObjectRef, mut f: F) -> PyResult<Vec<R>>
+pub fn try_map<F, R>(
+    vm: &VirtualMachine,
+    iter_obj: &PyObjectRef,
+    cap: usize,
+    mut f: F,
+) -> PyResult<Vec<R>>
 where
     F: FnMut(PyObjectRef) -> PyResult<R>,
 {
-    let cap = length_hint(vm, iter_obj.clone())?.unwrap_or(0);
     // TODO: fix extend to do this check (?), see test_extend in Lib/test/list_tests.py,
     // https://github.com/python/cpython/blob/v3.9.0/Objects/listobject.c#L922-L928
     if cap >= isize::max_value() as usize {
