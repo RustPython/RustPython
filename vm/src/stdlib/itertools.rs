@@ -14,7 +14,7 @@ mod decl {
     use crate::common::lock::{PyMutex, PyRwLock, PyRwLockWriteGuard};
     use crate::common::rc::PyRc;
     use crate::function::{Args, FuncArgs, OptionalArg, OptionalOption};
-    use crate::iterator::{call_next, get_all, get_iter, get_next_object};
+    use crate::iterator::{call_next, get_iter, get_next_object};
     use crate::slots::{PyIter, SlotConstructor};
     use crate::vm::VirtualMachine;
     use crate::{
@@ -55,11 +55,8 @@ mod decl {
             iterable: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
-            let it = get_iter(vm, iterable)?;
-            let iterables = get_all(vm, &it)?;
-
             PyItertoolsChain {
-                iterables,
+                iterables: vm.extract_elements(&iterable)?,
                 cur_idx: AtomicCell::new(0),
                 cached_iter: PyRwLock::new(None),
             }
@@ -1126,11 +1123,8 @@ mod decl {
         fn py_new(cls: PyTypeRef, (iterables, args): Self::Args, vm: &VirtualMachine) -> PyResult {
             let repeat = args.repeat.unwrap_or(1);
             let mut pools = Vec::new();
-            for arg in iterables.into_iter() {
-                let it = get_iter(vm, arg)?;
-                let pool = get_all(vm, &it)?;
-
-                pools.push(pool);
+            for arg in iterables.iter() {
+                pools.push(vm.extract_elements(arg)?);
             }
             let pools = std::iter::repeat(pools)
                 .take(repeat)
@@ -1236,8 +1230,7 @@ mod decl {
             Self::Args { iterable, r }: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult {
-            let iter = get_iter(vm, iterable)?;
-            let pool = get_all(vm, &iter)?;
+            let pool = vm.extract_elements(&iterable)?;
 
             let r = r.as_bigint();
             if r.is_negative() {
@@ -1333,9 +1326,7 @@ mod decl {
             Self::Args { iterable, r }: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult {
-            let iter = get_iter(vm, iterable)?;
-            let pool = get_all(vm, &iter)?;
-
+            let pool = vm.extract_elements(&iterable)?;
             let r = r.as_bigint();
             if r.is_negative() {
                 return Err(vm.new_value_error("r must be non-negative".to_owned()));
