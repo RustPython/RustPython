@@ -228,10 +228,13 @@ mod time {
             (intpart * mul + remaining) as u64
         }
 
-        let mut t: libc::tms = unsafe { std::mem::zeroed() };
-        if unsafe { libc::times(&mut t) } == -1 {
-            return Err(vm.new_os_error("Failed to get clock time".to_owned()));
-        }
+        let t: libc::tms = unsafe {
+            let mut t = std::mem::MaybeUninit::uninit();
+            if libc::times(t.as_mut_ptr()) == -1 {
+                return Err(vm.new_os_error("Failed to get clock time".to_owned()));
+            }
+            t.assume_init()
+        };
 
         #[cfg(target_os = "wasi")]
         let freq = 60;
@@ -395,13 +398,13 @@ mod unix {
         target_os = "openbsd",
     ))]
     pub(super) fn get_thread_time(vm: &VirtualMachine) -> PyResult<Duration> {
-        let mut time = libc::timespec {
-            tv_sec: 0,
-            tv_nsec: 0,
+        let time: libc::timespec = unsafe {
+            let mut time = std::mem::MaybeUninit::uninit();
+            if libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, time.as_mut_ptr()) == -1 {
+                return Err(vm.new_os_error("Failed to get clock time".to_owned()));
+            }
+            time.assume_init()
         };
-        if unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut time) } == -1 {
-            return Err(vm.new_os_error("Failed to get clock time".to_owned()));
-        }
         Ok(Duration::new(time.tv_sec as u64, time.tv_nsec as u32))
     }
 
@@ -417,15 +420,13 @@ mod unix {
         target_os = "linux"
     ))]
     pub(super) fn get_process_time(vm: &VirtualMachine) -> PyResult<Duration> {
-        let mut time = libc::timespec {
-            tv_sec: 0,
-            tv_nsec: 0,
+        let time: libc::timespec = unsafe {
+            let mut time = std::mem::MaybeUninit::uninit();
+            if libc::clock_gettime(libc::CLOCK_PROCESS_CPUTIME_ID, time.as_mut_ptr()) == -1 {
+                return Err(vm.new_os_error("Failed to get clock time".to_owned()));
+            }
+            time.assume_init()
         };
-
-        if unsafe { libc::clock_gettime(libc::CLOCK_PROCESS_CPUTIME_ID, &mut time) } == -1 {
-            return Err(vm.new_os_error("Failed to get clock time".to_owned()));
-        }
-
         Ok(Duration::new(time.tv_sec as u64, time.tv_nsec as u32))
     }
 
@@ -433,30 +434,28 @@ mod unix {
         target_os = "illumos",
         target_os = "netbsd",
         target_os = "solaris",
-        target_os = "openbsd"
+        target_os = "openbsd",
     ))]
     pub(super) fn get_process_time(vm: &VirtualMachine) -> PyResult<Duration> {
-        let mut ru: libc::rusage = unsafe { std::mem::zeroed() };
-        if unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut ru) } == -1 {
-            return Err(vm.new_os_error("Failed to get clock time".to_owned()));
-        }
-
         fn from_timeval(tv: libc::timeval, vm: &VirtualMachine) -> PyResult<i64> {
             use super::decl::{SEC_TO_NS, US_TO_NS};
 
             (|tv: libc::timeval| {
                 let t = tv.tv_sec.checked_mul(SEC_TO_NS)?;
-                #[cfg(target_os = netbsd)]
-                let u = tv.tv_usec.checked_mul(US_TO_NS as i32)? as i64;
-                #[cfg(not(target_os = netbsd))]
-                let u = tv.tv_usec.checked_mul(US_TO_NS)?;
+                let u = (tv.tv_usec as i64).checked_mul(US_TO_NS)?;
                 t.checked_add(u)
             })(tv)
             .ok_or_else(|| {
                 vm.new_overflow_error("timestamp too large to convert to i64".to_owned())
             })
         }
-
+        let ru: libc::rusage = unsafe {
+            let mut ru = std::mem::MaybeUninit::uninit();
+            if libc::getrusage(libc::RUSAGE_SELF, ru.as_mut_ptr()) == -1 {
+                return Err(vm.new_os_error("Failed to get clock time".to_owned()));
+            }
+            ru.assume_init()
+        };
         let utime = from_timeval(ru.ru_utime, vm)?;
         let stime = from_timeval(ru.ru_stime, vm)?;
 
@@ -477,56 +476,62 @@ mod windows {
 
     fn u64_from_filetime(time: FILETIME) -> u64 {
         unsafe {
-            let mut large: ULARGE_INTEGER = std::mem::zeroed();
-            large.u_mut().LowPart = time.dwLowDateTime;
-            large.u_mut().HighPart = time.dwHighDateTime;
+            let mut large = std::mem::MaybeUninit::<ULARGE_INTEGER>::uninit();
+            {
+                let m = (*large.as_mut_ptr()).u_mut();
+                m.LowPart = time.dwLowDateTime;
+                m.HighPart = time.dwHighDateTime;
+            }
+            let large = large.assume_init();
             *large.QuadPart()
         }
     }
 
     pub(super) fn get_thread_time(vm: &VirtualMachine) -> PyResult<Duration> {
-        let mut _creation_time = FILETIME::default();
-        let mut _exit_time = FILETIME::default();
-        let mut kernel_time = FILETIME::default();
-        let mut user_time = FILETIME::default();
+        let (kernel_time, user_time) = unsafe {
+            let mut _creation_time = std::mem::MaybeUninit::uninit();
+            let mut _exit_time = std::mem::MaybeUninit::uninit();
+            let mut kernel_time = std::mem::MaybeUninit::uninit();
+            let mut user_time = std::mem::MaybeUninit::uninit();
 
-        if unsafe {
             let thread = GetCurrentThread();
-            GetThreadTimes(
+            if GetThreadTimes(
                 thread,
-                &mut _creation_time,
-                &mut _exit_time,
-                &mut kernel_time,
-                &mut user_time,
-            )
-        } == 0
-        {
-            return Err(vm.new_os_error("Failed to get clock time".to_owned()));
-        }
+                _creation_time.as_mut_ptr(),
+                _exit_time.as_mut_ptr(),
+                kernel_time.as_mut_ptr(),
+                user_time.as_mut_ptr(),
+            ) == 0
+            {
+                return Err(vm.new_os_error("Failed to get clock time".to_owned()));
+            }
+            (kernel_time.assume_init(), user_time.assume_init())
+        };
         let ktime = u64_from_filetime(kernel_time);
         let utime = u64_from_filetime(user_time);
         Ok(Duration::from_nanos((ktime + utime) * 100))
     }
 
     pub(super) fn get_process_time(vm: &VirtualMachine) -> PyResult<Duration> {
-        let mut _creation_time = FILETIME::default();
-        let mut _exit_time = FILETIME::default();
-        let mut kernel_time = FILETIME::default();
-        let mut user_time = FILETIME::default();
+        let (kernel_time, user_time) = unsafe {
+            let mut _creation_time = std::mem::MaybeUninit::uninit();
+            let mut _exit_time = std::mem::MaybeUninit::uninit();
+            let mut kernel_time = std::mem::MaybeUninit::uninit();
+            let mut user_time = std::mem::MaybeUninit::uninit();
 
-        if unsafe {
             let process = GetCurrentProcess();
-            GetProcessTimes(
+            if GetProcessTimes(
                 process,
-                &mut _creation_time,
-                &mut _exit_time,
-                &mut kernel_time,
-                &mut user_time,
-            )
-        } == 0
-        {
-            return Err(vm.new_os_error("Failed to get clock time".to_owned()));
-        }
+                _creation_time.as_mut_ptr(),
+                _exit_time.as_mut_ptr(),
+                kernel_time.as_mut_ptr(),
+                user_time.as_mut_ptr(),
+            ) == 0
+            {
+                return Err(vm.new_os_error("Failed to get clock time".to_owned()));
+            }
+            (kernel_time.assume_init(), user_time.assume_init())
+        };
         let ktime = u64_from_filetime(kernel_time);
         let utime = u64_from_filetime(user_time);
         Ok(Duration::from_nanos((ktime + utime) * 100))
