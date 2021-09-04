@@ -109,14 +109,36 @@ mod time {
         })
     }
 
+    impl OptionalArg<Either<f64, i64>> {
+        /// Construct a localtime from the optional seconds, or get the current local time.
+        fn naive_or_local(self, vm: &VirtualMachine) -> PyResult<NaiveDateTime> {
+            Ok(match self {
+                OptionalArg::Present(secs) => pyobj_to_naive_date_time(secs, vm)?,
+                OptionalArg::Missing => chrono::offset::Local::now().naive_local(),
+            })
+        }
+
+        fn naive_or_utc(self, vm: &VirtualMachine) -> PyResult<NaiveDateTime> {
+            Ok(match self {
+                OptionalArg::Present(secs) => pyobj_to_naive_date_time(secs, vm)?,
+                OptionalArg::Missing => chrono::offset::Utc::now().naive_utc(),
+            })
+        }
+    }
+
+    impl OptionalArg<PyStructTime> {
+        fn naive_or_local(self, vm: &VirtualMachine) -> PyResult<NaiveDateTime> {
+            Ok(match self {
+                OptionalArg::Present(t) => t.to_date_time(vm)?,
+                OptionalArg::Missing => chrono::offset::Local::now().naive_local(),
+            })
+        }
+    }
+
     /// https://docs.python.org/3/library/time.html?highlight=gmtime#time.gmtime
     #[pyfunction]
     fn gmtime(secs: OptionalArg<Either<f64, i64>>, vm: &VirtualMachine) -> PyResult<PyStructTime> {
-        let default = chrono::offset::Utc::now().naive_utc();
-        let instant = match secs {
-            OptionalArg::Present(secs) => pyobj_to_naive_date_time(secs, vm)?,
-            OptionalArg::Missing => default,
-        };
+        let instant = secs.naive_or_utc(vm)?;
         Ok(PyStructTime::new(vm, instant, 0))
     }
 
@@ -125,7 +147,7 @@ mod time {
         secs: OptionalArg<Either<f64, i64>>,
         vm: &VirtualMachine,
     ) -> PyResult<PyStructTime> {
-        let instant = optional_or_localtime(secs, vm)?;
+        let instant = secs.naive_or_local(vm)?;
         // TODO: isdst flag must be valid value here
         // https://docs.python.org/3/library/time.html#time.localtime
         Ok(PyStructTime::new(vm, instant, -1))
@@ -137,45 +159,24 @@ mod time {
         let seconds_since_epoch = datetime.timestamp() as f64;
         Ok(vm.ctx.new_float(seconds_since_epoch))
     }
-
-    /// Construct a localtime from the optional seconds, or get the current local time.
-    fn optional_or_localtime(
-        secs: OptionalArg<Either<f64, i64>>,
-        vm: &VirtualMachine,
-    ) -> PyResult<NaiveDateTime> {
-        let default = chrono::offset::Local::now().naive_local();
-        Ok(match secs {
-            OptionalArg::Present(secs) => pyobj_to_naive_date_time(secs, vm)?,
-            OptionalArg::Missing => default,
-        })
-    }
-
     const CFMT: &str = "%a %b %e %H:%M:%S %Y";
 
     #[pyfunction]
     fn asctime(t: OptionalArg<PyStructTime>, vm: &VirtualMachine) -> PyResult {
-        let default = chrono::offset::Local::now().naive_local();
-        let instant = match t {
-            OptionalArg::Present(t) => t.to_date_time(vm)?,
-            OptionalArg::Missing => default,
-        };
+        let instant = t.naive_or_local(vm)?;
         let formatted_time = instant.format(CFMT).to_string();
         Ok(vm.ctx.new_str(formatted_time))
     }
 
     #[pyfunction]
     fn ctime(secs: OptionalArg<Either<f64, i64>>, vm: &VirtualMachine) -> PyResult<String> {
-        let instant = optional_or_localtime(secs, vm)?;
+        let instant = secs.naive_or_local(vm)?;
         Ok(instant.format(CFMT).to_string())
     }
 
     #[pyfunction]
     fn strftime(format: PyStrRef, t: OptionalArg<PyStructTime>, vm: &VirtualMachine) -> PyResult {
-        let default = chrono::offset::Local::now().naive_local();
-        let instant = match t {
-            OptionalArg::Present(t) => t.to_date_time(vm)?,
-            OptionalArg::Missing => default,
-        };
+        let instant = t.naive_or_local(vm)?;
         let formatted_time = instant.format(format.as_str()).to_string();
         Ok(vm.ctx.new_str(formatted_time))
     }
@@ -186,10 +187,7 @@ mod time {
         format: OptionalArg<PyStrRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyStructTime> {
-        let format = match format {
-            OptionalArg::Present(ref format) => format.as_str(),
-            OptionalArg::Missing => "%a %b %H:%M:%S %Y",
-        };
+        let format = format.as_ref().map_or("%a %b %H:%M:%S %Y", |s| s.as_str());
         let instant = NaiveDateTime::parse_from_str(string.as_str(), format)
             .map_err(|e| vm.new_value_error(format!("Parse error: {:?}", e)))?;
         Ok(PyStructTime::new(vm, instant, -1))
