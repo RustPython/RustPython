@@ -89,7 +89,7 @@ pub mod utf8 {
                     let err_idx = remaining_index + e.valid_up_to();
                     remaining_data = rest;
                     remaining_index += valid_prefix.len();
-                    if (0x80..0xc0).contains(&first_err) {
+                    if (0x80..0xc2).contains(&first_err) || (0xf5..=0xff).contains(&first_err) {
                         handle_error!(err_idx..err_idx + 1, "invalid start byte");
                     }
                     let err_len = match e.error_len() {
