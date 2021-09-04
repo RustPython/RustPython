@@ -1805,6 +1805,10 @@ class CodecsModuleTest(unittest.TestCase):
         self.assertEqual(codecs.encode('[\xff]', 'ascii', errors='ignore'),
                          b'[]')
 
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_encode = unittest.expectedFailure(test_encode)
+
     def test_register(self):
         self.assertRaises(TypeError, codecs.register)
         self.assertRaises(TypeError, codecs.register, 42)
@@ -1814,21 +1818,41 @@ class CodecsModuleTest(unittest.TestCase):
         self.assertRaises(LookupError, codecs.lookup, "__spam__")
         self.assertRaises(LookupError, codecs.lookup, " ")
 
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_lookup = unittest.expectedFailure(test_lookup)
+
     def test_getencoder(self):
         self.assertRaises(TypeError, codecs.getencoder)
         self.assertRaises(LookupError, codecs.getencoder, "__spam__")
+
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_getencoder = unittest.expectedFailure(test_getencoder)
 
     def test_getdecoder(self):
         self.assertRaises(TypeError, codecs.getdecoder)
         self.assertRaises(LookupError, codecs.getdecoder, "__spam__")
 
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_getdecoder = unittest.expectedFailure(test_getdecoder)
+
     def test_getreader(self):
         self.assertRaises(TypeError, codecs.getreader)
         self.assertRaises(LookupError, codecs.getreader, "__spam__")
 
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_getreader = unittest.expectedFailure(test_getreader)
+
     def test_getwriter(self):
         self.assertRaises(TypeError, codecs.getwriter)
         self.assertRaises(LookupError, codecs.getwriter, "__spam__")
+
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_getwriter = unittest.expectedFailure(test_getwriter)
 
     def test_lookup_issue1813(self):
         # Issue #1813: under Turkish locales, lookup of some codecs failed
@@ -1891,6 +1915,10 @@ class CodecsModuleTest(unittest.TestCase):
                 codecs.open(support.TESTFN, 'wt', 'invalid-encoding')
 
             file().close.assert_called()
+
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_file_closes_if_lookup_error_raised = unittest.expectedFailure(test_file_closes_if_lookup_error_raised)
 
 
 class StreamReaderTest(unittest.TestCase):
@@ -3080,11 +3108,19 @@ class ExceptionChainingTest(unittest.TestCase):
                 pass
         self.check_not_wrapped(CustomInit, "")
 
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_init_override_is_not_wrapped = unittest.expectedFailure(test_init_override_is_not_wrapped)
+
     def test_new_override_is_not_wrapped(self):
         class CustomNew(RuntimeError):
             def __new__(cls):
                 return super().__new__(cls)
         self.check_not_wrapped(CustomNew, "")
+
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_new_override_is_not_wrapped = unittest.expectedFailure(test_new_override_is_not_wrapped)
 
     def test_instance_attribute_is_not_wrapped(self):
         msg = "This should NOT be wrapped"
@@ -3092,12 +3128,24 @@ class ExceptionChainingTest(unittest.TestCase):
         exc.attr = 1
         self.check_not_wrapped(exc, "^{}$".format(msg))
 
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_instance_attribute_is_not_wrapped = unittest.expectedFailure(test_instance_attribute_is_not_wrapped)
+
     def test_non_str_arg_is_not_wrapped(self):
         self.check_not_wrapped(RuntimeError(1), "1")
+
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_non_str_arg_is_not_wrapped = unittest.expectedFailure(test_non_str_arg_is_not_wrapped)
 
     def test_multiple_args_is_not_wrapped(self):
         msg_re = r"^\('a', 'b', 'c'\)$"
         self.check_not_wrapped(RuntimeError('a', 'b', 'c'), msg_re)
+
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_multiple_args_is_not_wrapped = unittest.expectedFailure(test_multiple_args_is_not_wrapped)
 
     # http://bugs.python.org/issue19609
     def test_codec_lookup_failure_not_wrapped(self):
@@ -3111,6 +3159,10 @@ class ExceptionChainingTest(unittest.TestCase):
             b"bytes input".decode(self.codec_name)
         with self.assertRaisesRegex(LookupError, msg):
             codecs.decode(b"bytes input", self.codec_name)
+
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_codec_lookup_failure_not_wrapped = unittest.expectedFailure(test_codec_lookup_failure_not_wrapped)
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
@@ -3149,12 +3201,16 @@ class ExceptionChainingTest(unittest.TestCase):
 class CodePageTest(unittest.TestCase):
     CP_UTF8 = 65001
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_invalid_code_page(self):
         self.assertRaises(ValueError, codecs.code_page_encode, -1, 'a')
         self.assertRaises(ValueError, codecs.code_page_decode, -1, b'a')
         self.assertRaises(OSError, codecs.code_page_encode, 123, 'a')
         self.assertRaises(OSError, codecs.code_page_decode, 123, b'a')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_code_page_name(self):
         self.assertRaisesRegex(UnicodeEncodeError, 'cp932',
             codecs.code_page_encode, 932, '\xff')
@@ -3197,6 +3253,8 @@ class CodePageTest(unittest.TestCase):
                 self.assertRaises(UnicodeEncodeError,
                     codecs.code_page_encode, cp, text, errors)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_cp932(self):
         self.check_encode(932, (
             ('abc', 'strict', b'abc'),
@@ -3230,6 +3288,8 @@ class CodePageTest(unittest.TestCase):
             (b'\x81\x00abc', 'backslashreplace', '\\x81\x00abc'),
         ))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_cp1252(self):
         self.check_encode(1252, (
             ('abc', 'strict', b'abc'),
@@ -3248,6 +3308,8 @@ class CodePageTest(unittest.TestCase):
             (b'\xff', 'strict', '\xff'),
         ))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_cp_utf7(self):
         cp = 65000
         self.check_encode(cp, (
@@ -3268,6 +3330,8 @@ class CodePageTest(unittest.TestCase):
             (b'[\xff]', 'strict', '[\xff]'),
         ))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_multibyte_encoding(self):
         self.check_decode(932, (
             (b'\x84\xe9\x80', 'ignore', '\u9a3e'),
@@ -3282,6 +3346,8 @@ class CodePageTest(unittest.TestCase):
             ('[\U0010ffff\uDC80]', 'replace', b'[\xf4\x8f\xbf\xbf?]'),
         ))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_code_page_decode_flags(self):
         # Issue #36312: For some code pages (e.g. UTF-7) flags for
         # MultiByteToWideChar() must be set to 0.
@@ -3301,6 +3367,8 @@ class CodePageTest(unittest.TestCase):
         self.assertEqual(codecs.code_page_decode(42, b'abc'),
                          ('\uf061\uf062\uf063', 3))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_incremental(self):
         decoded = codecs.code_page_decode(932, b'\x82', 'strict', False)
         self.assertEqual(decoded, ('', 0))
@@ -3320,6 +3388,8 @@ class CodePageTest(unittest.TestCase):
                                           False)
         self.assertEqual(decoded, ('abc', 3))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_mbcs_alias(self):
         # Check that looking up our 'default' codepage will return
         # mbcs when we don't have a more specific one available
