@@ -300,7 +300,7 @@ pub fn write_exception_inner<W: Write>(
     let varargs = exc.args();
     let args_repr = exception_args_as_string(vm, varargs, true);
 
-    let exc_name = exc.class().name().clone();
+    let exc_name = exc.class().name();
     match args_repr.len() {
         0 => writeln!(output, "{}", exc_name),
         1 => writeln!(output, "{}: {}", exc_name, args_repr[0]),

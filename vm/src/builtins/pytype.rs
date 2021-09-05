@@ -1,7 +1,4 @@
-use crate::common::lock::{
-    PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard, PyRwLockUpgradableReadGuard,
-    PyRwLockWriteGuard,
-};
+use crate::common::lock::PyRwLock;
 use std::collections::HashSet;
 use std::fmt;
 

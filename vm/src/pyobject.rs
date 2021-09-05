@@ -68,13 +68,6 @@ pub type PyAttributes = HashMap<String, PyObjectRef, ahash::RandomState>;
 // TODO: remove this impl
 impl fmt::Display for PyObjectRef {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if let Some(_) = self.payload::<PyType>() {
-            let type_name = self.class().name().clone();
-            // We don't have access to a vm, so just assume that if its parent's name
-            // is type, it's a type
-            return write!(f, "'{}' object", type_name);
-        }
-
         write!(f, "'{}' object", self.class().name())
     }
 }
