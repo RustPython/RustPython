@@ -1,6 +1,6 @@
 use super::Diagnostic;
 use crate::util::{
-    get_sig, path_eq, pyclass_ident_and_attrs, ClassItemMeta, ContentItem, ContentItemInner,
+    path_eq, pyclass_ident_and_attrs, text_signature, ClassItemMeta, ContentItem, ContentItemInner,
     ErrorVec, ItemMeta, ItemMetaInner, ItemNursery, SimpleItemMeta, ALL_ALLOWED_NAMES,
 };
 use proc_macro2::TokenStream;
@@ -426,22 +426,22 @@ where
     Item: ItemLike + ToTokens + GetIdent,
 {
     fn gen_impl_item(&self, args: ImplItemArgs<'_, Item>) -> Result<()> {
-        let ident = if args.item.is_function_or_method() {
-            Ok(args.item.get_ident().unwrap())
-        } else {
-            Err(self.new_syn_error(args.item.span(), "can only be on a method"))
-        }?;
+        let func = args
+            .item
+            .function_or_method()
+            .map_err(|_| self.new_syn_error(args.item.span(), "can only be on a method"))?;
+        let ident = &func.sig().ident;
 
         let item_attr = args.attrs.remove(self.index());
         let item_meta = MethodItemMeta::from_attr(ident.clone(), &item_attr)?;
 
         let py_name = item_meta.method_name()?;
-        let sig_doc = get_sig(args.item, &py_name);
+        let sig_doc = text_signature(func.sig(), &py_name);
 
         let tokens = {
             let doc = args.attrs.doc().map_or_else(TokenStream::new, |mut doc| {
                 doc = format!("{}\n--\n\n{}", sig_doc, doc);
-                quote!(.with_doc(#doc.to_owned(), &ctx))
+                quote!(.with_doc(#doc.to_owned(), ctx))
             });
             let build_func = match self.method_type.as_str() {
                 "method" => quote!(.build_method(ctx, class.clone())),
@@ -473,11 +473,11 @@ where
     Item: ItemLike + ToTokens + GetIdent,
 {
     fn gen_impl_item(&self, args: ImplItemArgs<'_, Item>) -> Result<()> {
-        let ident = if args.item.is_function_or_method() {
-            Ok(args.item.get_ident().unwrap())
-        } else {
-            Err(self.new_syn_error(args.item.span(), "can only be on a method"))
-        }?;
+        let func = args
+            .item
+            .function_or_method()
+            .map_err(|_| self.new_syn_error(args.item.span(), "can only be on a method"))?;
+        let ident = &func.sig().ident;
 
         let item_attr = args.attrs.remove(self.index());
         let item_meta = PropertyItemMeta::from_attr(ident.clone(), &item_attr)?;
@@ -495,11 +495,11 @@ where
     Item: ItemLike + ToTokens + GetIdent,
 {
     fn gen_impl_item(&self, args: ImplItemArgs<'_, Item>) -> Result<()> {
-        let ident = if args.item.is_function_or_method() {
-            Ok(args.item.get_ident().unwrap())
-        } else {
-            Err(self.new_syn_error(args.item.span(), "can only be on a method"))
-        }?;
+        let func = args
+            .item
+            .function_or_method()
+            .map_err(|_| self.new_syn_error(args.item.span(), "can only be on a method"))?;
+        let ident = &func.sig().ident;
 
         let item_attr = args.attrs.remove(self.index());
         let item_meta = SlotItemMeta::from_attr(ident.clone(), &item_attr)?;
@@ -507,17 +507,14 @@ where
         let slot_ident = item_meta.slot_name()?;
         let slot_name = slot_ident.to_string();
         let tokens = {
-            let into_func = quote_spanned! {ident.span() =>
-                Self::#ident as _
-            };
             const NON_ATOMIC_SLOTS: &[&str] = &["as_buffer"];
             if NON_ATOMIC_SLOTS.contains(&slot_name.as_str()) {
-                quote! {
-                    slots.#slot_ident = Some(#into_func);
+                quote_spanned! { func.span() =>
+                    slots.#slot_ident = Some(Self::#ident as _);
                 }
             } else {
-                quote! {
-                    slots.#slot_ident.store(Some(#into_func))
+                quote_spanned! { func.span() =>
+                    slots.#slot_ident.store(Some(Self::#ident as _));
                 }
             }
         };
@@ -545,7 +542,7 @@ where
             let py_name = item_meta.simple_name()?;
             Ok(py_name)
         };
-        let (py_name, tokens) = if args.item.is_function_or_method() || args.item.is_const() {
+        let (py_name, tokens) = if args.item.function_or_method().is_ok() || args.item.is_const() {
             let ident = args.item.get_ident().unwrap();
             let py_name = get_py_name(&attr, ident)?;
 
@@ -583,11 +580,12 @@ where
     fn gen_impl_item(&self, args: ImplItemArgs<'_, Item>) -> Result<()> {
         args.attrs.remove(self.index());
 
-        let ident = if args.item.is_function_or_method() {
-            Ok(args.item.get_ident().unwrap())
-        } else {
-            Err(self.new_syn_error(args.item.span(), "can only be on a method"))
-        }?;
+        let ident = &args
+            .item
+            .function_or_method()
+            .map_err(|_| self.new_syn_error(args.item.span(), "can only be on a method"))?
+            .sig()
+            .ident;
 
         args.context.class_extensions.push(quote! {
             Self::#ident(ctx, class);
