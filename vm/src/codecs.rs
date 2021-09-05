@@ -159,6 +159,18 @@ impl CodecsRegistry {
                 "backslashreplace",
                 ctx.new_function("backslashreplace_errors", backslashreplace_errors),
             ),
+            (
+                "namereplace",
+                ctx.new_function("namereplace_errors", namereplace_errors),
+            ),
+            (
+                "surrogatepass",
+                ctx.new_function("surrogatepass_errors", surrogatepass_errors),
+            ),
+            (
+                "surrogateescape",
+                ctx.new_function("surrogateescape_errors", surrogateescape_errors),
+            ),
         ];
         let errors = std::array::IntoIter::new(errors)
             .map(|(name, f)| (name.to_owned(), f))
@@ -427,4 +439,256 @@ fn backslashreplace_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(S
         }
     }
     Ok((out, range.end))
+}
+
+fn namereplace_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(String, usize)> {
+    if err.isinstance(&vm.ctx.exceptions.unicode_encode_error) {
+        let range = extract_unicode_error_range(&err, vm)?;
+        let s = PyStrRef::try_from_object(vm, vm.get_attribute(err, "object")?)?;
+        let s_after_start =
+            crate::common::str::try_get_chars(s.as_str(), range.start..).unwrap_or("");
+        let num_chars = range.len();
+        let mut out = String::with_capacity(num_chars * 4);
+        for c in s_after_start.chars().take(num_chars) {
+            use std::fmt::Write;
+            let c_u32 = c as u32;
+            if let Some(c_name) = unicode_names2::name(c) {
+                write!(out, "\\N{{{}}}", c_name.to_string()).unwrap();
+            } else if c_u32 >= 0x10000 {
+                write!(out, "\\U{:08x}", c_u32).unwrap();
+            } else if c_u32 >= 0x100 {
+                write!(out, "\\u{:04x}", c_u32).unwrap();
+            } else {
+                write!(out, "\\x{:02x}", c_u32).unwrap();
+            }
+        }
+        Ok((out, range.end))
+    } else {
+        Err(bad_err_type(err, vm))
+    }
+}
+
+#[derive(Eq, PartialEq)]
+enum StandardEncoding {
+    Utf8,
+    Utf16Be,
+    Utf16Le,
+    Utf32Be,
+    Utf32Le,
+    Unknown,
+}
+
+fn get_standard_encoding(encoding: &str) -> (usize, StandardEncoding) {
+    if let Some(encoding) = encoding.to_lowercase().strip_prefix("utf") {
+        let mut byte_length: usize = 0;
+        let mut standard_encoding = StandardEncoding::Unknown;
+        let encoding = encoding
+            .strip_prefix(|c| ['-', '_'].contains(&c))
+            .unwrap_or(encoding);
+        if encoding == "8" {
+            byte_length = 3;
+            standard_encoding = StandardEncoding::Utf8;
+        } else if let Some(encoding) = encoding.strip_prefix("16") {
+            byte_length = 2;
+            if encoding.is_empty() {
+                if cfg!(target_endian = "little") {
+                    standard_encoding = StandardEncoding::Utf16Le;
+                } else if cfg!(target_endian = "big") {
+                    standard_encoding = StandardEncoding::Utf16Be;
+                }
+                if standard_encoding != StandardEncoding::Unknown {
+                    return (byte_length, standard_encoding);
+                }
+            }
+            let encoding = encoding
+                .strip_prefix(|c| ['-', '_'].contains(&c))
+                .unwrap_or(encoding);
+            standard_encoding = match encoding {
+                "be" => StandardEncoding::Utf16Be,
+                "le" => StandardEncoding::Utf16Le,
+                _ => StandardEncoding::Unknown,
+            }
+        } else if let Some(encoding) = encoding.strip_prefix("32") {
+            byte_length = 4;
+            if encoding.is_empty() {
+                if cfg!(target_endian = "little") {
+                    standard_encoding = StandardEncoding::Utf32Le;
+                } else if cfg!(target_endian = "big") {
+                    standard_encoding = StandardEncoding::Utf32Be;
+                }
+                if standard_encoding != StandardEncoding::Unknown {
+                    return (byte_length, standard_encoding);
+                }
+            }
+            let encoding = encoding
+                .strip_prefix(|c| ['-', '_'].contains(&c))
+                .unwrap_or(encoding);
+            standard_encoding = match encoding {
+                "be" => StandardEncoding::Utf32Be,
+                "le" => StandardEncoding::Utf32Le,
+                _ => StandardEncoding::Unknown,
+            }
+        }
+        return (byte_length, standard_encoding);
+    } else if encoding.to_lowercase() == "CP_UTF8" {
+        return (3, StandardEncoding::Utf8);
+    }
+    (0, StandardEncoding::Unknown)
+}
+
+fn surrogatepass_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(String, usize)> {
+    if err.isinstance(&vm.ctx.exceptions.unicode_encode_error) {
+        let range = extract_unicode_error_range(&err, vm)?;
+        let s = PyStrRef::try_from_object(vm, vm.get_attribute(err.clone(), "object")?)?;
+        let s_encoding = PyStrRef::try_from_object(vm, vm.get_attribute(err.clone(), "encoding")?)?;
+        let (_, standard_encoding) = get_standard_encoding(s_encoding.as_str());
+        if let StandardEncoding::Unknown = standard_encoding {
+            // Not supported, fail with original exception
+            return Err(err.downcast().unwrap());
+        }
+        let s_after_start =
+            crate::common::str::try_get_chars(s.as_str(), range.start..).unwrap_or("");
+        let num_chars = range.len();
+        let mut out = String::with_capacity(num_chars * 4);
+        for c in s_after_start.chars().take(num_chars).map(|x| x as u32) {
+            use std::fmt::Write;
+            if !(0xd800..=0xdfff).contains(&c) {
+                // Not a surrogate, fail with original exception
+                return Err(err.downcast().unwrap());
+            }
+            match standard_encoding {
+                StandardEncoding::Utf8 => {
+                    write!(out, "\\x{:x?}", (0xe0 | (c >> 12))).unwrap();
+                    write!(out, "\\x{:x?}", (0x80 | ((c >> 6) & 0x3f))).unwrap();
+                    write!(out, "\\x{:x?}", (0x80 | (c & 0x3f))).unwrap();
+                }
+                StandardEncoding::Utf16Le => {
+                    write!(out, "\\x{:x?}", c).unwrap();
+                    write!(out, "\\x{:x?}", (c >> 8)).unwrap();
+                }
+                StandardEncoding::Utf16Be => {
+                    write!(out, "\\x{:x?}", (c >> 8)).unwrap();
+                    write!(out, "\\x{:x?}", c).unwrap();
+                }
+                StandardEncoding::Utf32Le => {
+                    write!(out, "\\x{:x?}", c).unwrap();
+                    write!(out, "\\x{:x?}", (c >> 8)).unwrap();
+                    write!(out, "\\x{:x?}", (c >> 16)).unwrap();
+                    write!(out, "\\x{:x?}", (c >> 24)).unwrap();
+                }
+                StandardEncoding::Utf32Be => {
+                    write!(out, "\\x{:x?}", (c >> 24)).unwrap();
+                    write!(out, "\\x{:x?}", (c >> 16)).unwrap();
+                    write!(out, "\\x{:x?}", (c >> 8)).unwrap();
+                    write!(out, "\\x{:x?}", c).unwrap();
+                }
+                StandardEncoding::Unknown => {
+                    unreachable!("NOTE: RUSTPYTHON, should've bailed out earlier")
+                }
+            }
+        }
+        Ok((out, range.end))
+    } else if is_decode_err(&err, vm) {
+        let range = extract_unicode_error_range(&err, vm)?;
+        let s = PyStrRef::try_from_object(vm, vm.get_attribute(err.clone(), "object")?)?;
+        let s_encoding = PyStrRef::try_from_object(vm, vm.get_attribute(err.clone(), "encoding")?)?;
+        let (byte_length, standard_encoding) = get_standard_encoding(s_encoding.as_str());
+        if let StandardEncoding::Unknown = standard_encoding {
+            // Not supported, fail with original exception
+            return Err(err.downcast().unwrap());
+        }
+        let mut c: u32 = 0;
+        // Try decoding a single surrogate character. If there are more,
+        // let the codec call us again.
+        let s_after_start = crate::common::str::try_get_chars(s.as_str(), range.start..)
+            .unwrap_or("")
+            .as_bytes();
+        if s_after_start.len() - range.start >= byte_length {
+            match standard_encoding {
+                StandardEncoding::Utf8 => {
+                    if (s_after_start[0] as u32 & 0xf0) == 0xe0
+                        && (s_after_start[1] as u32 & 0xc0) == 0x80
+                        && (s_after_start[2] as u32 & 0xc0) == 0x80
+                    {
+                        // it's a three-byte code
+                        c = ((s_after_start[0] as u32 & 0x0f) << 12)
+                            + ((s_after_start[1] as u32 & 0x3f) << 6)
+                            + (s_after_start[2] as u32 & 0x3f);
+                    }
+                }
+                StandardEncoding::Utf16Le => {
+                    c = (s_after_start[1] as u32) << 8 | s_after_start[0] as u32;
+                }
+                StandardEncoding::Utf16Be => {
+                    c = (s_after_start[0] as u32) << 8 | s_after_start[1] as u32;
+                }
+                StandardEncoding::Utf32Le => {
+                    c = ((s_after_start[3] as u32) << 24)
+                        | ((s_after_start[2] as u32) << 16)
+                        | ((s_after_start[1] as u32) << 8)
+                        | s_after_start[0] as u32;
+                }
+                StandardEncoding::Utf32Be => {
+                    c = ((s_after_start[0] as u32) << 24)
+                        | ((s_after_start[1] as u32) << 16)
+                        | ((s_after_start[2] as u32) << 8)
+                        | s_after_start[3] as u32;
+                }
+                StandardEncoding::Unknown => {
+                    unreachable!("NOTE: RUSTPYTHON, should've bailed out earlier")
+                }
+            }
+        }
+        if !(0xd800..=0xdfff).contains(&c) {
+            // Not a surrogate, fail with original exception
+            return Err(err.downcast().unwrap());
+        }
+        Ok((format!("\\x{:x?}", c), range.start + byte_length))
+    } else {
+        Err(bad_err_type(err, vm))
+    }
+}
+
+fn surrogateescape_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(String, usize)> {
+    if err.isinstance(&vm.ctx.exceptions.unicode_encode_error) {
+        let range = extract_unicode_error_range(&err, vm)?;
+        let s = PyStrRef::try_from_object(vm, vm.get_attribute(err.clone(), "object")?)?;
+        let s_after_start =
+            crate::common::str::try_get_chars(s.as_str(), range.start..).unwrap_or("");
+        let num_chars = range.len();
+        let mut out = String::with_capacity(num_chars * 4);
+        for c in s_after_start.chars().take(num_chars).map(|x| x as u32) {
+            use std::fmt::Write;
+            if !(0xd800..=0xdfff).contains(&c) {
+                // Not a UTF-8b surrogate, fail with original exception
+                return Err(err.downcast().unwrap());
+            }
+            write!(out, "#{}", c - 0xdc00).unwrap();
+        }
+        Ok((out, range.end))
+    } else if is_decode_err(&err, vm) {
+        let range = extract_unicode_error_range(&err, vm)?;
+        let s = PyStrRef::try_from_object(vm, vm.get_attribute(err.clone(), "object")?)?;
+        let s_after_start = crate::common::str::try_get_chars(s.as_str(), range.start..)
+            .unwrap_or("")
+            .as_bytes();
+        let mut consumed = 0;
+        let mut replace = String::with_capacity(4 * range.len());
+        while consumed < 4 && consumed < range.len() {
+            let c = s_after_start[consumed] as u32;
+            if c < 128 {
+                // Refuse to escape ASCII bytes
+                break;
+            }
+            use std::fmt::Write;
+            write!(replace, "#{}", 0xdc00 + c).unwrap();
+            consumed += 1;
+        }
+        if consumed == 0 {
+            return Err(err.downcast().unwrap());
+        }
+        Ok((replace, range.start + consumed))
+    } else {
+        Err(bad_err_type(err, vm))
+    }
 }

@@ -143,4 +143,32 @@ mod decl {
         }
         encoded
     }
+
+    #[pyfunction]
+    fn a2b_uu(s: SerializedData, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        s.with_ref(|b| {
+            let mut buf;
+            let b = if memchr::memchr(b'\n', b).is_some() {
+                buf = b.to_vec();
+                buf.retain(|c| *c != b'\n');
+                &buf
+            } else {
+                b
+            };
+            // TODO: RUSTPYTHON, implement actual uuencoding code
+            base64::decode(b)
+        })
+        .map_err(|err| vm.new_value_error(format!("error decoding uuencode: {}", err)))
+    }
+
+    #[pyfunction]
+    fn b2a_uu(data: ArgBytesLike, NewlineArg { newline }: NewlineArg) -> Vec<u8> {
+        #[allow(clippy::redundant_closure)] // https://stackoverflow.com/questions/63916821
+        // TODO: RUSTPYTHON, implement actual uuencoding code
+        let mut encoded = data.with_ref(|b| base64::encode(b)).into_bytes();
+        if newline {
+            encoded.push(b'\n');
+        }
+        encoded
+    }
 }
