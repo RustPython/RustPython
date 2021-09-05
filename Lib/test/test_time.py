@@ -52,18 +52,21 @@ class TimeTestCase(unittest.TestCase):
     def setUp(self):
         self.t = time.time()
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_data_attributes(self):
         time.altzone
         time.daylight
         time.timezone
         time.tzname
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_time(self):
         time.time()
         info = time.get_clock_info('time')
         self.assertFalse(info.monotonic)
         self.assertTrue(info.adjustable)
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_time_ns_type(self):
         def check_ns(sec, ns):
             self.assertIsInstance(ns, int)
@@ -226,6 +229,7 @@ class TimeTestCase(unittest.TestCase):
         self.assertRaises(ValueError, func,
                             (1900, 1, 1, 0, 0, 0, 0, 367, -1))
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_strftime_bounding_check(self):
         self._bounds_checking(lambda tup: time.strftime('', tup))
 
@@ -243,6 +247,7 @@ class TimeTestCase(unittest.TestCase):
                     except ValueError:
                         pass
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_default_values_for_zero(self):
         # Make sure that using all zeros uses the proper default
         # values.  No test for daylight savings since strftime() does
@@ -253,6 +258,7 @@ class TimeTestCase(unittest.TestCase):
             result = time.strftime("%Y %m %d %H %M %S %w %j", (2000,)+(0,)*8)
         self.assertEqual(expected, result)
 
+    @unittest.skip("TODO: RUSTPYTHON")
     @skip_if_buggy_ucrt_strfptime
     def test_strptime(self):
         # Should be able to go round-trip from strftime to strptime without
@@ -274,6 +280,7 @@ class TimeTestCase(unittest.TestCase):
         self.assertRaises(TypeError, time.strptime, b'2009', "%Y")
         self.assertRaises(TypeError, time.strptime, '2009', b'%Y')
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_strptime_exception_context(self):
         # check that this doesn't chain exceptions needlessly (see #17572)
         with self.assertRaises(ValueError) as e:
@@ -284,6 +291,7 @@ class TimeTestCase(unittest.TestCase):
             time.strptime('19', '%Y %')
         self.assertIs(e.exception.__suppress_context__, True)
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_asctime(self):
         time.asctime(time.gmtime(self.t))
 
@@ -299,9 +307,11 @@ class TimeTestCase(unittest.TestCase):
         self.assertRaises(TypeError, time.asctime, ())
         self.assertRaises(TypeError, time.asctime, (0,) * 10)
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_asctime_bounding_check(self):
         self._bounds_checking(time.asctime)
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_ctime(self):
         t = time.mktime((1973, 9, 16, 1, 3, 52, 0, 0, -1))
         self.assertEqual(time.ctime(t), 'Sun Sep 16 01:03:52 1973')
@@ -401,6 +411,7 @@ class TimeTestCase(unittest.TestCase):
             for unreasonable in -1e200, 1e200:
                 self.assertRaises(OverflowError, func, unreasonable)
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_ctime_without_arg(self):
         # Not sure how to check the values, since the clock could tick
         # at any time.  Make sure these are at least accepted and
@@ -408,6 +419,7 @@ class TimeTestCase(unittest.TestCase):
         time.ctime()
         time.ctime(None)
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_gmtime_without_arg(self):
         gt0 = time.gmtime()
         gt1 = time.gmtime(None)
@@ -415,6 +427,7 @@ class TimeTestCase(unittest.TestCase):
         t1 = time.mktime(gt1)
         self.assertAlmostEqual(t1, t0, delta=0.2)
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_localtime_without_arg(self):
         lt0 = time.localtime()
         lt1 = time.localtime(None)
@@ -450,6 +463,7 @@ class TimeTestCase(unittest.TestCase):
             pass
         self.assertEqual(time.strftime('%Z', tt), tzname)
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_monotonic(self):
         # monotonic() should not go backward
         times = [time.monotonic() for n in range(100)]
@@ -476,6 +490,7 @@ class TimeTestCase(unittest.TestCase):
     def test_perf_counter(self):
         time.perf_counter()
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_process_time(self):
         # process_time() should not include time spend during a sleep
         start = time.process_time()
@@ -489,6 +504,7 @@ class TimeTestCase(unittest.TestCase):
         self.assertTrue(info.monotonic)
         self.assertFalse(info.adjustable)
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_thread_time(self):
         if not hasattr(time, 'thread_time'):
             if sys.platform.startswith(('linux', 'win')):
@@ -545,6 +561,7 @@ class TimeTestCase(unittest.TestCase):
         self.assertRaises(ValueError, time.localtime, float("nan"))
         self.assertRaises(ValueError, time.ctime, float("nan"))
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_get_clock_info(self):
         clocks = ['monotonic', 'perf_counter', 'process_time', 'time']
 
@@ -580,6 +597,7 @@ class TestLocale(unittest.TestCase):
         time.strftime("%B", (2009,2,1,0,0,0,0,0,0))
 
 
+@unittest.skip("TODO: RUSTPYTHON")
 class _TestAsctimeYear:
     _format = '%d'
 
@@ -658,6 +676,7 @@ class _Test4dYear:
         self.assertEqual(self.yearstr(TIME_MAXYEAR).lstrip('+'), str(TIME_MAXYEAR))
         self.assertRaises(OverflowError, self.yearstr, TIME_MAXYEAR + 1)
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_negative(self):
         self.assertEqual(self.yearstr(-1), self._format % -1)
         self.assertEqual(self.yearstr(-1234), '-1234')
