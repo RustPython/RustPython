@@ -451,7 +451,7 @@ where
                     other
                 ),
             };
-            quote! {
+            quote_spanned! { ident.span() =>
                 class.set_str_attr(
                     #py_name,
                     ctx.make_funcdef(#py_name, Self::#ident)
@@ -663,16 +663,16 @@ impl ToTokens for GetSetNursery {
             .iter()
             .map(|((name, cfgs), (getter, setter, deleter))| {
                 let setter = match setter {
-                    Some(setter) => quote_spanned! { setter.span()=> .with_set(&Self::#setter)},
+                    Some(setter) => quote_spanned! { setter.span() => .with_set(&Self::#setter)},
                     None => quote! {},
                 };
                 let deleter = match deleter {
                     Some(deleter) => {
-                        quote_spanned! { deleter.span()=> .with_delete(&Self::#deleter)}
+                        quote_spanned! { deleter.span() => .with_delete(&Self::#deleter)}
                     }
                     None => quote! {},
                 };
-                quote! {
+                quote_spanned! { getter.span() =>
                     #( #cfgs )*
                     class.set_str_attr(
                         #name,
