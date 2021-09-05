@@ -2460,7 +2460,7 @@ impl Compiler {
         self.current_source_location = location;
     }
 
-    fn get_source_line_number(&mut self) -> usize {
+    fn get_source_line_number(&self) -> usize {
         self.current_source_location.row()
     }
 
