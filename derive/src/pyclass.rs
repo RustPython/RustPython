@@ -893,17 +893,17 @@ fn extract_impl_attrs(attr: AttributeArgs) -> std::result::Result<ExtractedImplA
                         };
                         if path_eq(&path, "PyRef") {
                             // special handling for PyRef
-                            withs.push(quote! {
+                            withs.push(quote_spanned! { path.span() =>
                                 PyRef::<Self>::impl_extend_class(ctx, class);
                             });
-                            with_slots.push(quote! {
+                            with_slots.push(quote_spanned! { path.span() =>
                                 PyRef::<Self>::extend_slots(slots);
                             });
                         } else {
-                            withs.push(quote! {
+                            withs.push(quote_spanned! { path.span() =>
                                 <Self as #path>::__extend_py_class(ctx, class);
                             });
-                            with_slots.push(quote! {
+                            with_slots.push(quote_spanned! { path.span() =>
                                 <Self as #path>::__extend_slots(slots);
                             });
                         }
@@ -913,7 +913,7 @@ fn extract_impl_attrs(attr: AttributeArgs) -> std::result::Result<ExtractedImplA
                         match meta {
                             NestedMeta::Meta(Meta::Path(path)) => {
                                 if let Some(ident) = path.get_ident() {
-                                    flags.push(quote! {
+                                    flags.push(quote_spanned! { ident.span() =>
                                         | ::rustpython_vm::slots::PyTpFlags::#ident.bits()
                                     });
                                 } else {
