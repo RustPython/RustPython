@@ -33,6 +33,7 @@ enum CallType {
     Keyword { nargs: u32 },
     Ex { has_kwargs: bool },
 }
+
 impl CallType {
     fn normal_call(self) -> Instruction {
         match self {
@@ -69,6 +70,7 @@ pub struct CompileOpts {
     /// not emit assert statements
     pub optimize: u8,
 }
+
 impl Default for CompileOpts {
     fn default() -> Self {
         CompileOpts { optimize: 0 }
@@ -383,8 +385,14 @@ impl Compiler {
         self.compile_name(name, NameUsage::Load)
     }
 
-    fn store_name(&mut self, name: &str) {
-        self.compile_name(name, NameUsage::Store)
+    fn store_name(&mut self, name: &str) -> CompileResult<()> {
+        if name.eq("__debug__") {
+            return Err(self.error(CompileErrorType::SyntaxError(
+                "cannot assign to __debug__".to_owned(),
+            )));
+        }
+        self.compile_name(name, NameUsage::Store);
+        Ok(())
     }
 
     fn mangle<'a>(&self, name: &'a str) -> Cow<'a, str> {
@@ -491,9 +499,9 @@ impl Compiler {
                             let idx = self.name(part);
                             self.emit(Instruction::LoadAttr { idx });
                         }
-                        self.store_name(alias);
+                        self.store_name(alias)?;
                     } else {
-                        self.store_name(name.name.split('.').next().unwrap());
+                        self.store_name(name.name.split('.').next().unwrap())?;
                     }
                 }
             }
@@ -549,9 +557,9 @@ impl Compiler {
 
                         // Store module under proper name:
                         if let Some(alias) = &name.asname {
-                            self.store_name(alias);
+                            self.store_name(alias)?;
                         } else {
-                            self.store_name(&name.name);
+                            self.store_name(&name.name)?;
                         }
                     }
 
@@ -933,7 +941,7 @@ impl Compiler {
 
                 // We have a match, store in name (except x as y)
                 if let Some(alias) = name {
-                    self.store_name(alias);
+                    self.store_name(alias)?;
                 } else {
                     // Drop exception from top of stack:
                     self.emit(Instruction::Pop);
@@ -1105,7 +1113,7 @@ impl Compiler {
 
         self.apply_decorators(decorator_list);
 
-        self.store_name(name);
+        self.store_name(name)?;
 
         Ok(())
     }
@@ -1266,7 +1274,7 @@ impl Compiler {
 
         self.apply_decorators(decorator_list);
 
-        self.store_name(name);
+        self.store_name(name)?;
         Ok(())
     }
 
@@ -1552,7 +1560,7 @@ impl Compiler {
     fn compile_store(&mut self, target: &ast::Expr) -> CompileResult<()> {
         match &target.node {
             ast::ExprKind::Name { id, .. } => {
-                self.store_name(id);
+                self.store_name(id)?;
             }
             ast::ExprKind::Subscript { value, slice, .. } => {
                 self.compile_expression(value)?;
@@ -1608,7 +1616,7 @@ impl Compiler {
                         "starred assignment target must be in a list or tuple".to_owned(),
                     ),
                     _ => CompileErrorType::Assign(target.node.name()),
-                }))
+                }));
             }
         }
 
@@ -1907,10 +1915,10 @@ impl Compiler {
             YieldFrom { value } => {
                 match self.ctx.func {
                     FunctionContext::NoFunction => {
-                        return Err(self.error(CompileErrorType::InvalidYieldFrom))
+                        return Err(self.error(CompileErrorType::InvalidYieldFrom));
                     }
                     FunctionContext::AsyncFunction => {
-                        return Err(self.error(CompileErrorType::AsyncYieldFrom))
+                        return Err(self.error(CompileErrorType::AsyncYieldFrom));
                     }
                     FunctionContext::Function => {}
                 }
