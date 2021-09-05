@@ -55,9 +55,8 @@ python3-sys = "0.6"
 criterion = "0.3"
 
 [package.metadata.precommit]
-fmt = "cargo fmt --all"
-check = "cargo check"
 clippy = "cargo clippy"
+fmt = "cargo fmt --all"
 git-add = "git add -u"
 
 [[bench]]
