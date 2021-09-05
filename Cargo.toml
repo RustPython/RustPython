@@ -45,7 +45,8 @@ flamescope = { version = "0.1", optional = true }
 [target.'cfg(not(target_os = "wasi"))'.dependencies]
 rustyline = "8.1"
 
-[build-dependencies]
+
+[target.'cfg(not(target_os = "windows"))'.build-dependencies]
 pre-commit = "0.5.2"
 
 [dev-dependencies]
