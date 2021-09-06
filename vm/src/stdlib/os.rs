@@ -1270,6 +1270,7 @@ mod _os {
         env::set_current_dir(&path.path).map_err(|err| err.into_pyexception(vm))
     }
 
+    #[cfg(not(windows))]
     #[pyfunction]
     fn fchdir(fd: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
         let ret = match fd.as_bigint().to_i32() {
@@ -1954,6 +1955,7 @@ mod _os {
             SupportFunc::new("open", Some(false), Some(OPEN_DIR_FD), Some(false)),
             SupportFunc::new("access", Some(false), Some(false), None),
             SupportFunc::new("chdir", None, Some(false), Some(false)),
+            #[cfg(not(windows))]
             SupportFunc::new("fchdir", None, Some(true), Some(false)),
             // chflags Some, None Some
             SupportFunc::new("listdir", Some(LISTDIR_FD), Some(false), Some(false)),
