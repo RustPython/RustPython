@@ -59,9 +59,9 @@ mod _collections {
         }
     }
 
-    struct SimpleSeqDeque<'a>(PyRwLockReadGuard<'a, VecDeque<PyObjectRef>>);
+    struct SimpleSeqDeque(VecDeque<PyObjectRef>);
 
-    impl sequence::SimpleSeq for SimpleSeqDeque<'_> {
+    impl sequence::SimpleSeq for SimpleSeqDeque {
         fn len(&self) -> usize {
             self.0.len()
         }
@@ -71,9 +71,21 @@ mod _collections {
         }
     }
 
-    impl<'a> From<PyRwLockReadGuard<'a, VecDeque<PyObjectRef>>> for SimpleSeqDeque<'a> {
-        fn from(from: PyRwLockReadGuard<'a, VecDeque<PyObjectRef>>) -> Self {
-            Self(from)
+    impl From<VecDeque<PyObjectRef>> for SimpleSeqDeque {
+        fn from(deque: VecDeque<PyObjectRef>) -> Self {
+            Self(deque)
+        }
+    }
+
+    impl From<PyRwLockReadGuard<'_, VecDeque<PyObjectRef>>> for SimpleSeqDeque {
+        fn from(deque: PyRwLockReadGuard<'_, VecDeque<PyObjectRef>>) -> Self {
+            Self(deque.clone())
+        }
+    }
+
+    impl From<PyRwLockWriteGuard<'_, VecDeque<PyObjectRef>>> for SimpleSeqDeque {
+        fn from(deque: PyRwLockWriteGuard<'_, VecDeque<PyObjectRef>>) -> Self {
+            Self(deque.clone())
         }
     }
 
@@ -469,6 +481,23 @@ mod _collections {
                 maxlen: self.maxlen,
                 state: AtomicCell::new(0),
             })
+        }
+
+        #[pymethod(magic)]
+        fn imul(zelf: PyRef<Self>, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+            let mut deque = zelf.borrow_deque_mut();
+            let seq: SimpleSeqDeque = deque.clone().into();
+            let mul = sequence::seq_mul(vm, &seq, value)?;
+
+            let skipped = zelf
+                .maxlen
+                .and_then(|maxlen| mul.len().checked_sub(maxlen))
+                .unwrap_or(0);
+
+            let mut new_deque: VecDeque<PyObjectRef> = mul.skip(skipped).cloned().collect();
+            std::mem::swap(&mut *deque, &mut new_deque);
+            drop(deque);
+            Ok(zelf)
         }
 
         #[pymethod(magic)]
