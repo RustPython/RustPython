@@ -483,9 +483,8 @@ mod _collections {
 
                 mul.skip(skipped).cloned().collect()
             };
-            let mut deque = zelf.borrow_deque_mut();
-            std::mem::swap(&mut *deque, &mut new_deque);
-            drop(deque);
+
+            std::mem::swap(&mut *zelf.borrow_deque_mut(), &mut new_deque);
             Ok(zelf)
         }
 
