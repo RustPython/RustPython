@@ -299,7 +299,9 @@ impl PyList {
         Ok(false)
     }
 
-    /// Return first index of value.\n\nRaises ValueError if the value is not present.
+    /// Return first index of value.
+    /// 
+    /// Raises ValueError if the value is not present.
     #[pymethod]
     fn index(
         &self,
@@ -337,7 +339,9 @@ impl PyList {
         Err(vm.new_value_error(format!("'{}' is not in list", vm.to_str(&needle)?)))
     }
 
-    /// Remove and return item at index (default last).\n\nRaises IndexError if list is empty or index is out of range.
+    /// Remove and return item at index (default last).
+    /// 
+    /// Raises IndexError if list is empty or index is out of range.
     #[pymethod]
     fn pop(&self, i: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult {
         let mut i = i.into_option().unwrap_or(-1);
@@ -354,7 +358,9 @@ impl PyList {
         }
     }
 
-    /// Remove first occurrence of value.\n\nRaises ValueError if the value is not present.
+    /// Remove first occurrence of value.
+    /// 
+    /// Raises ValueError if the value is not present.
     #[pymethod]
     fn remove(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         // TODO: to_vec() cause copy which leads to cost O(N). It need to be improved.
@@ -402,7 +408,15 @@ impl PyList {
         self.borrow_vec_mut().delete_slice(vm, &slice)
     }
 
-    /// Sort the list in ascending order and return None.\n\nThe sort is in-place (i.e. the list itself is modified) and stable (i.e. the\norder of two equal elements is maintained).\n\nIf a key function is given, apply it once to each list item and sort them,\nascending or descending, according to their function values.\n\nThe reverse flag can be set to sort in descending order.
+    /// Sort the list in ascending order and return None.
+    /// 
+    /// The sort is in-place (i.e. the list itself is modified) and stable (i.e. the
+    /// order of two equal elements is maintained).
+    /// 
+    /// If a key function is given, apply it once to each list item and sort them,
+    /// ascending or descending, according to their function values.
+    /// 
+    /// The reverse flag can be set to sort in descending order.
     #[pymethod]
     pub(crate) fn sort(&self, options: SortOptions, vm: &VirtualMachine) -> PyResult<()> {
         // replace list contents with [] for duration of sort.
@@ -535,7 +549,12 @@ impl PyListIterator {
         Ok(())
     }
 
-    /// Built-in immutable sequence.\n\nIf no argument is given, the constructor returns an empty tuple.\nIf iterable is specified the tuple is initialized from iterable's items.\n\nIf the argument is a tuple, the return value is the same object.
+    /// Built-in immutable sequence.
+    /// 
+    /// If no argument is given, the constructor returns an empty tuple.
+    /// If iterable is specified the tuple is initialized from iterable's items.
+    /// 
+    /// If the argument is a tuple, the return value is the same object.
     #[pymethod(magic)]
     fn reduce(&self, vm: &VirtualMachine) -> PyResult {
         let pos = if let Exhausted = self.status.load() {

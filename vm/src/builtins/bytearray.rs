@@ -130,7 +130,9 @@ impl PyByteArray {
         self.inner().repr("bytearray(", ")")
     }
 
-    /// B.__alloc__() -> int\n\nReturn the number of bytes actually allocated.
+    /// B.__alloc__() -> int
+    /// 
+    /// Return the number of bytes actually allocated.
     #[pymethod(magic)]
     fn alloc(&self) -> usize {
         self.inner().capacity()
@@ -231,7 +233,13 @@ impl PyByteArray {
         }
     }
 
-    /// Remove and return a single item from B.\n\n  index\n    The index from where to remove the item.\n    -1 (the default value) means remove the last item.\n\nIf no index argument is given, will pop the last item.
+    /// Remove and return a single item from B.
+    /// 
+    ///   index
+    ///     The index from where to remove the item.
+    ///     -1 (the default value) means remove the last item.
+    /// 
+    /// If no index argument is given, will pop the last item.
     #[pymethod]
     fn pop(zelf: PyRef<Self>, index: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult<u8> {
         let elements = &mut zelf.try_resizable(vm)?.elements;
@@ -241,7 +249,12 @@ impl PyByteArray {
         Ok(elements.remove(index))
     }
 
-    /// Insert a single item into the bytearray before the given index.\n\n  index\n    The index where the value is to be inserted.\n  item\n    The item to be inserted.
+    /// Insert a single item into the bytearray before the given index.
+    /// 
+    ///   index
+    ///     The index where the value is to be inserted.
+    ///   item
+    ///     The item to be inserted.
     #[pymethod]
     fn insert(
         zelf: PyRef<Self>,
@@ -256,7 +269,10 @@ impl PyByteArray {
         Ok(())
     }
 
-    /// Append a single item to the end of the bytearray.\n\n  item\n    The item to be appended.
+    /// Append a single item to the end of the bytearray.
+    /// 
+    ///   item
+    ///     The item to be appended.
     #[pymethod]
     fn append(zelf: PyRef<Self>, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let value = value_from_object(vm, &object)?;
@@ -264,7 +280,10 @@ impl PyByteArray {
         Ok(())
     }
 
-    /// Remove the first occurrence of a value in the bytearray.\n\n  value\n    The value to remove.
+    /// Remove the first occurrence of a value in the bytearray.
+    /// 
+    ///   value
+    ///     The value to remove.
     #[pymethod]
     fn remove(zelf: PyRef<Self>, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let value = value_from_object(vm, &object)?;
@@ -277,7 +296,10 @@ impl PyByteArray {
         }
     }
 
-    /// Append all the items from the iterator or sequence to the end of the bytearray.\n\n  iterable_of_ints\n    The iterable of items to append.
+    /// Append all the items from the iterator or sequence to the end of the bytearray.
+    /// 
+    ///   iterable_of_ints
+    ///     The iterable of items to append.
     #[pymethod]
     fn extend(zelf: PyRef<Self>, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if zelf.is(&object) {
@@ -319,68 +341,132 @@ impl PyByteArray {
         Ok(())
     }
 
-    /// B.isalnum() -> bool\n\nReturn True if all characters in B are alphanumeric\nand there is at least one character in B, False otherwise.
+    /// B.isalnum() -> bool
+    /// 
+    /// Return True if all characters in B are alphanumeric
+    /// and there is at least one character in B, False otherwise.
     #[pymethod]
     fn isalnum(&self) -> bool {
         self.inner().isalnum()
     }
 
-    /// B.isalpha() -> bool\n\nReturn True if all characters in B are alphabetic\nand there is at least one character in B, False otherwise.
+    /// B.isalpha() -> bool
+    /// 
+    /// Return True if all characters in B are alphabetic
+    /// and there is at least one character in B, False otherwise.
     #[pymethod]
     fn isalpha(&self) -> bool {
         self.inner().isalpha()
     }
 
+    /// B.isascii() -> bool
+    /// 
+    /// Return True if B is empty or all characters in B are ASCII,
+    /// False otherwise.
     #[pymethod]
     fn isascii(&self) -> bool {
         self.inner().isascii()
     }
 
+    /// B.isdigit() -> bool
+    /// 
+    /// Return True if all characters in B are digits
+    /// and there is at least one character in B, False otherwise.
     #[pymethod]
     fn isdigit(&self) -> bool {
         self.inner().isdigit()
     }
 
+    /// B.islower() -> bool
+    /// 
+    /// Return True if all cased characters in B are lowercase and there is
+    /// at least one cased character in B, False otherwise.
     #[pymethod]
     fn islower(&self) -> bool {
         self.inner().islower()
     }
 
+    /// B.isspace() -> bool
+    /// 
+    /// Return True if all characters in B are whitespace
+    /// and there is at least one character in B, False otherwise.
     #[pymethod]
     fn isspace(&self) -> bool {
         self.inner().isspace()
     }
 
+    /// B.isupper() -> bool
+    /// 
+    /// Return True if all cased characters in B are uppercase and there is
+    /// at least one cased character in B, False otherwise.
     #[pymethod]
     fn isupper(&self) -> bool {
         self.inner().isupper()
     }
 
+    /// B.istitle() -> bool
+    /// 
+    /// Return True if B is a titlecased string and there is at least one
+    /// character in B, i.e. uppercase characters may only follow uncased
+    /// \ncharacters and lowercase characters only cased ones. Return False
+    /// otherwise.
     #[pymethod]
     fn istitle(&self) -> bool {
         self.inner().istitle()
     }
 
+    /// B.lower() -> copy of B
+    /// 
+    /// Return a copy of B with all ASCII characters converted to lowercase.
     #[pymethod]
     fn lower(&self) -> Self {
         self.inner().lower().into()
     }
 
+    /// B.upper() -> copy of B
+    /// 
+    /// Return a copy of B with all ASCII characters converted to uppercase.
     #[pymethod]
     fn upper(&self) -> Self {
         self.inner().upper().into()
     }
 
+    /// B.capitalize() -> copy of B
+    /// 
+    /// Return a copy of B with only its first character capitalized (ASCII)
+    /// and the rest lower-cased.
     #[pymethod]
     fn capitalize(&self) -> Self {
         self.inner().capitalize().into()
     }
 
+    /// B.swapcase() -> copy of B
+    /// 
+    /// Return a copy of B with uppercase ASCII characters converted
+    /// to lowercase ASCII and vice versa.
     #[pymethod]
     fn swapcase(&self) -> Self {
         self.inner().swapcase().into()
     }
 
+    /// Create a str of hexadecimal numbers from a bytearray object.
+    /// 
+    ///   sep
+    ///     An optional single character or byte to separate hex bytes.
+    ///   bytes_per_sep
+    ///     How many bytes between separators.  Positive values count from the
+    ///     right, negative values count from the left.
+    /// 
+    /// Example:
+    /// >>> value = bytearray([0xb9, 0x01, 0xef])
+    /// >>> value.hex()
+    /// 'b901ef'
+    /// >>> value.hex(':')
+    /// 'b9:01:ef'
+    /// >>> value.hex(':', 2)
+    /// 'b9:01ef'
+    /// >>> value.hex(':', -2)
+    /// 'b901:ef
     #[pymethod]
     fn hex(
         &self,
@@ -391,6 +477,10 @@ impl PyByteArray {
         self.inner().hex(sep, bytes_per_sep, vm)
     }
 
+    /// Create a bytearray object from a string of hexadecimal numbers.
+    /// 
+    /// Spaces between two numbers are accepted.
+    /// Example: bytearray.fromhex('B9 01EF') -> bytearray(b'\\\\xb9\\\\x01\\\\xef')
     #[pyclassmethod]
     fn fromhex(cls: PyTypeRef, string: PyStrRef, vm: &VirtualMachine) -> PyResult {
         let bytes = PyBytesInner::fromhex(string.as_str(), vm)?;
@@ -398,6 +488,9 @@ impl PyByteArray {
         Callable::call(&cls, vec![bytes].into(), vm)
     }
 
+    /// Return a centered string of length width.
+    /// 
+    /// Padding is done using the specified fill character.
     #[pymethod]
     fn center(
         &self,
@@ -407,6 +500,9 @@ impl PyByteArray {
         Ok(self.inner().center(options, vm)?.into())
     }
 
+    /// Return a left-justified string of length width.
+    /// 
+    /// Padding is done using the specified fill character.
     #[pymethod]
     fn ljust(
         &self,
@@ -416,6 +512,9 @@ impl PyByteArray {
         Ok(self.inner().ljust(options, vm)?.into())
     }
 
+    /// Return a right-justified string of length width.
+    /// 
+    /// Padding is done using the specified fill character.
     #[pymethod]
     fn rjust(
         &self,
@@ -425,16 +524,32 @@ impl PyByteArray {
         Ok(self.inner().rjust(options, vm)?.into())
     }
 
+    /// B.count(sub[, start[, end]]) -> int
+    /// 
+    /// Return the number of non-overlapping occurrences of subsection sub in
+    /// bytes B[start:end].  Optional arguments start and end are interpreted
+    /// as in slice notation.
     #[pymethod]
     fn count(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<usize> {
         self.inner().count(options, vm)
     }
 
+    /// Concatenate any number of bytes/bytearray objects.
+    /// 
+    /// The bytearray whose method is called is inserted in between each pair.
+    /// 
+    /// The result is returned as a new bytearray object.
     #[pymethod]
     fn join(&self, iter: PyIterable<PyBytesInner>, vm: &VirtualMachine) -> PyResult<PyByteArray> {
         Ok(self.inner().join(iter, vm)?.into())
     }
 
+    /// B.endswith(suffix[, start[, end]]) -> bool
+    /// 
+    /// Return True if B ends with the specified suffix, False otherwise.
+    /// With optional start, test B beginning at that position.
+    /// With optional end, stop comparing B at that position.
+    /// suffix can also be a tuple of bytes to try.
     #[pymethod]
     fn endswith(&self, options: anystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
         self.borrow_buf().py_startsendswith(
@@ -446,6 +561,12 @@ impl PyByteArray {
         )
     }
 
+    /// B.startswith(prefix[, start[, end]]) -> bool
+    /// 
+    /// Return True if B starts with the specified prefix, False otherwise.
+    /// With optional start, test B beginning at that position.
+    /// With optional end, stop comparing B at that position.
+    /// prefix can also be a tuple of bytes to try.
     #[pymethod]
     fn startswith(
         &self,
@@ -461,30 +582,65 @@ impl PyByteArray {
         )
     }
 
+    /// B.find(sub[, start[, end]]) -> int
+    /// 
+    /// Return the lowest index in B where subsection sub is found,
+    /// such that sub is contained within B[start,end].  Optional
+    /// arguments start and end are interpreted as in slice notation.
+    /// 
+    /// Return -1 on failure.
     #[pymethod]
     fn find(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
         let index = self.inner().find(options, |h, n| h.find(n), vm)?;
         Ok(index.map_or(-1, |v| v as isize))
     }
 
+    /// B.index(sub[, start[, end]]) -> int
+    /// 
+    /// Return the lowest index in B where subsection sub is found,
+    /// such that sub is contained within B[start,end].  Optional
+    /// arguments start and end are interpreted as in slice notation.
+    /// 
+    /// Raises ValueError when the subsection is not found.
     #[pymethod]
     fn index(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<usize> {
         let index = self.inner().find(options, |h, n| h.find(n), vm)?;
         index.ok_or_else(|| vm.new_value_error("substring not found".to_owned()))
     }
 
+    /// B.rfind(sub[, start[, end]]) -> int
+    /// 
+    /// Return the highest index in B where subsection sub is found,
+    /// such that sub is contained within B[start,end].  Optional
+    /// arguments start and end are interpreted as in slice notation.
+    /// 
+    /// Return -1 on failure.
     #[pymethod]
     fn rfind(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
         let index = self.inner().find(options, |h, n| h.rfind(n), vm)?;
         Ok(index.map_or(-1, |v| v as isize))
     }
 
+    /// B.rindex(sub[, start[, end]]) -> int
+    /// 
+    /// Return the highest index in B where subsection sub is found,
+    /// such that sub is contained within B[start,end].  Optional
+    /// arguments start and end are interpreted as in slice notation.
+    /// 
+    /// Raise ValueError when the subsection is not found.
     #[pymethod]
     fn rindex(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<usize> {
         let index = self.inner().find(options, |h, n| h.rfind(n), vm)?;
         index.ok_or_else(|| vm.new_value_error("substring not found".to_owned()))
     }
 
+    /// Return a copy with each character mapped by the given translation table.
+    /// 
+    ///   table
+    ///     Translation table, which must be a bytes object of length 256.
+    /// 
+    /// All characters occurring in the optional argument delete are removed.
+    /// The remaining characters are mapped through the given translation table.
     #[pymethod]
     fn translate(
         &self,
@@ -494,16 +650,25 @@ impl PyByteArray {
         Ok(self.inner().translate(options, vm)?.into())
     }
 
+    /// Strip leading and trailing bytes contained in the argument.
+    /// 
+    /// If the argument is omitted or None, strip leading and trailing ASCII whitespace.
     #[pymethod]
     fn strip(&self, chars: OptionalOption<PyBytesInner>) -> Self {
         self.inner().strip(chars).into()
     }
 
+    /// Strip leading bytes contained in the argument.
+    /// 
+    /// If the argument is omitted or None, strip leading ASCII whitespace.
     #[pymethod]
     fn lstrip(&self, chars: OptionalOption<PyBytesInner>) -> Self {
         self.inner().lstrip(chars).into()
     }
 
+    /// Strip trailing bytes contained in the argument.
+    /// 
+    /// If the argument is omitted or None, strip trailing ASCII whitespace.
     #[pymethod]
     fn rstrip(&self, chars: OptionalOption<PyBytesInner>) -> Self {
         self.inner().rstrip(chars).into()
@@ -533,18 +698,46 @@ impl PyByteArray {
         self.inner().removesuffix(suffix).to_vec().into()
     }
 
+    /// Return a list of the sections in the bytearray, using sep as the delimiter.
+    /// 
+    ///   sep
+    ///     The delimiter according which to split the bytearray.
+    ///     None (the default value) means split on ASCII whitespace characters
+    ///     (space, tab, return, newline, formfeed, vertical tab).
+    ///   maxsplit
+    ///     Maximum number of splits to do.
+    ///     -1 (the default value) means no limit.
     #[pymethod]
     fn split(&self, options: ByteInnerSplitOptions, vm: &VirtualMachine) -> PyResult {
         self.inner()
             .split(options, |s, vm| vm.ctx.new_bytearray(s.to_vec()), vm)
     }
 
+    /// Return a list of the sections in the bytearray, using sep as the delimiter.
+    /// 
+    ///   sep
+    ///     The delimiter according which to split the bytearray.
+    ///     None (the default value) means split on ASCII whitespace characters
+    ///     (space, tab, return, newline, formfeed, vertical tab).
+    ///   maxsplit
+    ///     Maximum number of splits to do.
+    ///     -1 (the default value) means no limit.
+    /// 
+    /// Splitting is done starting at the end of the bytearray and working to the front.
     #[pymethod]
     fn rsplit(&self, options: ByteInnerSplitOptions, vm: &VirtualMachine) -> PyResult {
         self.inner()
             .rsplit(options, |s, vm| vm.ctx.new_bytearray(s.to_vec()), vm)
     }
 
+    /// Partition the bytearray into three parts using the given separator.
+    /// 
+    /// This will search for the separator sep in the bytearray. If the separator is
+    /// found, returns a 3-tuple containing the part before the separator, the
+    /// separator itself, and the part after it as new bytearray objects.
+    /// 
+    /// If the separator is not found, returns a 3-tuple containing the copy of the
+    /// original bytearray object and two empty bytearray objects.
     #[pymethod]
     fn partition(&self, sep: PyBytesInner, vm: &VirtualMachine) -> PyResult {
         // sep ALWAYS converted to  bytearray even it's bytes or memoryview
@@ -559,6 +752,16 @@ impl PyByteArray {
         ]))
     }
 
+    /// Partition the bytearray into three parts using the given separator.
+    /// 
+    /// This will search for the separator sep in the bytearray, starting at the end.
+    /// If the separator is found, returns a 3-tuple containing the part before the
+    /// 
+    /// separator, the separator itself, and the part after it as new bytearray
+    /// objects.
+    /// 
+    /// If the separator is not found, returns a 3-tuple containing two empty bytearray
+    /// objects and the copy of the original bytearray object.
     #[pymethod]
     fn rpartition(&self, sep: PyBytesInner, vm: &VirtualMachine) -> PyResult {
         let value = self.inner();
@@ -571,11 +774,18 @@ impl PyByteArray {
         ]))
     }
 
+    /// Return a copy where all tab characters are expanded using spaces.
+    /// 
+    /// If tabsize is not given, a tab size of 8 characters is assumed.
     #[pymethod]
     fn expandtabs(&self, options: anystr::ExpandTabsArgs) -> Self {
         self.inner().expandtabs(options).into()
     }
 
+    /// Return a list of the lines in the bytearray, breaking at line boundaries.
+    /// 
+    /// Line breaks are not included in the resulting list unless keepends is given and
+    /// true.
     #[pymethod]
     fn splitlines(&self, options: anystr::SplitLinesArgs, vm: &VirtualMachine) -> PyObjectRef {
         let lines = self
@@ -584,11 +794,22 @@ impl PyByteArray {
         vm.ctx.new_list(lines)
     }
 
+    /// Pad a numeric string with zeros on the left, to fill a field of the given width.
+    /// 
+    /// The original string is never truncated.
     #[pymethod]
     fn zfill(&self, width: isize) -> Self {
         self.inner().zfill(width).into()
     }
 
+    /// Return a copy with all occurrences of substring old replaced by new.
+    /// 
+    ///   count
+    ///     Maximum number of occurrences to replace.
+    ///     -1 (the default value) means replace all occurrences.
+    /// 
+    /// If the optional argument count is given, only the first count occurrences are
+    /// replaced.
     #[pymethod]
     fn replace(
         &self,
@@ -600,22 +821,29 @@ impl PyByteArray {
         Ok(self.inner().replace(old, new, count, vm)?.into())
     }
 
+    /// Remove all items from the bytearray.
     #[pymethod]
     fn clear(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<()> {
         zelf.try_resizable(vm)?.elements.clear();
         Ok(())
     }
 
+    /// Return a copy of B.
     #[pymethod]
     fn copy(&self) -> Self {
         self.borrow_buf().to_vec().into()
     }
 
+    /// B.title() -> copy of B
+    /// 
+    /// Return a titlecased version of B, i.e. ASCII words start with uppercase
+    /// characters, all remaining cased characters have lowercase.
     #[pymethod]
     fn title(&self) -> Self {
         self.inner().title().into()
     }
 
+    /// Return value*self.
     #[pymethod(name = "__rmul__")]
     #[pymethod(magic)]
     fn mul(&self, value: isize, vm: &VirtualMachine) -> PyResult<Self> {
@@ -623,33 +851,48 @@ impl PyByteArray {
             .map(|value| self.inner().repeat(value).into())
     }
 
+    /// Implement self*=value.
     #[pymethod(magic)]
     fn imul(zelf: PyRef<Self>, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         vm.check_repeat_or_memory_error(zelf.len(), value)
             .and_then(|value| Self::irepeat(&zelf, value, vm).map(|_| zelf))
     }
 
+    /// Return self%value.
     #[pymethod(name = "__mod__")]
     fn mod_(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyByteArray> {
         let formatted = self.inner().cformat(values, vm)?;
         Ok(formatted.into())
     }
 
+    /// Return value%self.
     #[pymethod(magic)]
     fn rmod(&self, _values: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.not_implemented()
     }
 
+    /// Reverse the order of the values in B in place.
     #[pymethod]
     fn reverse(&self) {
         self.borrow_buf_mut().reverse();
     }
 
+    /// Decode the bytearray using the codec registered for encoding.
+    /// 
+    ///   encoding
+    ///     The encoding with which to decode the bytearray.
+    ///   errors
+    ///     The error handling scheme to use for the handling of decoding errors.
+    ///     The default is 'strict' meaning that decoding errors raise a
+    ///     UnicodeDecodeError. Other possible values are 'ignore' and 'replace'
+    ///     as well as any other name registered with codecs.register_error that
+    ///     can handle UnicodeDecodeErrors.
     #[pymethod]
     fn decode(zelf: PyRef<Self>, args: DecodeArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         bytes_decode(zelf.into_object(), args, vm)
     }
 
+    /// Return state information for pickling.
     #[pymethod(magic)]
     fn reduce_ex(
         zelf: PyRef<Self>,
@@ -659,6 +902,7 @@ impl PyByteArray {
         Self::reduce(zelf, vm)
     }
 
+    /// Return state information for pickling.
     #[pymethod(magic)]
     fn reduce(
         zelf: PyRef<Self>,
