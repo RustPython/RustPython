@@ -190,6 +190,7 @@ class TestAsyncCase(unittest.TestCase):
                                   'async_cleanup 2',
                                   'sync_cleanup 1'])
 
+    @unittest.skip("TODO: RUSTPYTHON, hangs")
     def test_base_exception_from_async_method(self):
         events = []
         class Test(unittest.IsolatedAsyncioTestCase):
