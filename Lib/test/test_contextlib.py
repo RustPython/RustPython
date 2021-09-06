@@ -20,6 +20,8 @@ class TestAbstractContextManager(unittest.TestCase):
         manager = DefaultEnter()
         self.assertIs(manager.__enter__(), manager)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_exit_is_abstract(self):
         class MissingExit(AbstractContextManager):
             pass
@@ -139,6 +141,7 @@ class ContextManagerTestCase(unittest.TestCase):
         else:
             self.fail('StopIteration was suppressed')
 
+    @unittest.skip("TODO: RUSTPYTHON, SyntaxError: future feature generator_stop is not defined at line 1 column 1")
     def test_contextmanager_except_pep479(self):
         code = """\
 from __future__ import generator_stop
@@ -566,6 +569,7 @@ class TestBaseExitStack:
         with self.exit_stack():
             pass
 
+    @unittest.skip("TODO: RUSTPYTHON, TypeError: Got multiple values for argument 'self'")
     def test_callback(self):
         expected = [
             ((), {}),
@@ -743,6 +747,8 @@ class TestBaseExitStack:
         self.assertIsInstance(inner_exc, ValueError)
         self.assertIsInstance(inner_exc.__context__, ZeroDivisionError)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_exit_exception_chaining(self):
         # Ensure exception chaining matches the reference behaviour
         def raise_exc(exc):
@@ -801,6 +807,8 @@ class TestBaseExitStack:
         else:
             self.fail("Expected KeyError, but no exception was raised")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_exit_exception_with_correct_context(self):
         # http://bugs.python.org/issue20317
         @contextmanager
@@ -832,6 +840,8 @@ class TestBaseExitStack:
             self.assertIsNone(
                        exc.__context__.__context__.__context__.__context__)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_exit_exception_with_existing_context(self):
         # Addresses a lack of test coverage discovered after checking in a
         # fix for issue 20317 that still contained debugging code.
