@@ -85,6 +85,8 @@ class ImportTests(unittest.TestCase):
         with self.assertRaises(ImportError):
             from importlib import something_that_should_not_exist_anywhere
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_from_import_missing_attr_has_name_and_path(self):
         with self.assertRaises(ImportError) as cm:
             from os import i_dont_exist
@@ -108,12 +110,16 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(cm.exception.name, '_warning')
         self.assertIsNone(cm.exception.path)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_from_import_missing_attr_path_is_canonical(self):
         with self.assertRaises(ImportError) as cm:
             from os.path import i_dont_exist
         self.assertIn(cm.exception.name, {'posixpath', 'ntpath'})
         self.assertIsNotNone(cm.exception)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_from_import_star_invalid_type(self):
         import re
         with _ready_to_import() as (name, path):
@@ -408,6 +414,8 @@ class ImportTests(unittest.TestCase):
         with self.assertRaisesRegex(ImportError, "^cannot import name 'bogus'"):
             from re import bogus
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_from_import_AttributeError(self):
         # Issue #24492: trying to import an attribute that raises an
         # AttributeError should lead to an ImportError.
@@ -646,6 +654,8 @@ func_filename = func.__code__.co_filename
         self.assertEqual(mod.code_filename, self.file_name)
         self.assertEqual(mod.func_filename, self.file_name)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_incorrect_code_name(self):
         py_compile.compile(self.file_name, dfile="another_module.py")
         mod = self.import_module()
@@ -664,6 +674,8 @@ func_filename = func.__code__.co_filename
         self.assertEqual(mod.code_filename, target)
         self.assertEqual(mod.func_filename, target)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_foreign_code(self):
         py_compile.compile(self.file_name)
         with open(self.compiled_name, "rb") as f:
@@ -804,6 +816,8 @@ class RelativeImportTests(unittest.TestCase):
 
 
 class OverridingImportBuiltinTests(unittest.TestCase):
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_override_builtin(self):
         # Test that overriding builtins.__import__ can bypass sys.modules.
         import os
@@ -882,6 +896,8 @@ class PycacheTests(unittest.TestCase):
         importlib.invalidate_caches()
         self.assertRaises(ImportError, __import__, TESTFN)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @skip_if_dont_write_bytecode
     def test_missing_source_legacy(self):
         # Like test_missing_source() except that for backward compatibility,
@@ -901,6 +917,8 @@ class PycacheTests(unittest.TestCase):
         finally:
             os.remove(pyc_file)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test___cached__(self):
         # Modules now also have an __cached__ that points to the pyc file.
         m = __import__(TESTFN)
@@ -908,6 +926,8 @@ class PycacheTests(unittest.TestCase):
         self.assertEqual(m.__cached__, os.path.join(os.getcwd(), os.curdir, pyc_file))
 
     @skip_if_dont_write_bytecode
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test___cached___legacy_pyc(self):
         # Like test___cached__() except that for backward compatibility,
         # when the pyc file lives where the py file would have been (and named
@@ -923,6 +943,8 @@ class PycacheTests(unittest.TestCase):
         self.assertEqual(m.__cached__,
                          os.path.join(os.getcwd(), os.curdir, os.path.relpath(pyc_file)))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @skip_if_dont_write_bytecode
     def test_package___cached__(self):
         # Like test___cached__ but for packages.
@@ -946,6 +968,8 @@ class PycacheTests(unittest.TestCase):
         self.assertEqual(sys.modules['pep3147.foo'].__cached__,
                          os.path.join(os.getcwd(), os.curdir, foo_pyc))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_package___cached___from_pyc(self):
         # Like test___cached__ but ensuring __cached__ when imported from a
         # PEP 3147 pyc file.
@@ -1312,6 +1336,8 @@ class CircularImportTests(unittest.TestCase):
         from test.test_import.data.circular_imports.subpkg import util
         self.assertIs(util.util, rebinding.util)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_binding(self):
         try:
             import test.test_import.data.circular_imports.binding
@@ -1322,6 +1348,8 @@ class CircularImportTests(unittest.TestCase):
         import test.test_import.data.circular_imports.use
         import test.test_import.data.circular_imports.source
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_crossreference2(self):
         with self.assertRaises(AttributeError) as cm:
             import test.test_import.data.circular_imports.source
@@ -1331,6 +1359,8 @@ class CircularImportTests(unittest.TestCase):
         self.assertIn('partially initialized module', errmsg)
         self.assertIn('circular import', errmsg)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_circular_from_import(self):
         with self.assertRaises(ImportError) as cm:
             import test.test_import.data.circular_imports.from_cycle1
