@@ -72,8 +72,8 @@ mod _collections {
     }
 
     impl<'a> From<PyRwLockReadGuard<'a, VecDeque<PyObjectRef>>> for SimpleSeqDeque<'a> {
-        fn from(deque: PyRwLockReadGuard<'a, VecDeque<PyObjectRef>>) -> Self {
-            Self(deque)
+        fn from(from: PyRwLockReadGuard<'a, VecDeque<PyObjectRef>>) -> Self {
+            Self(from)
         }
     }
 
@@ -473,18 +473,11 @@ mod _collections {
 
         #[pymethod(magic)]
         fn imul(zelf: PyRef<Self>, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-            let mut new_deque: VecDeque<PyObjectRef> = {
-                let deque: SimpleSeqDeque = zelf.borrow_deque().into();
-                let mul = sequence::seq_mul(vm, &deque, value)?;
-                let skipped = zelf
-                    .maxlen
-                    .and_then(|maxlen| mul.len().checked_sub(maxlen))
-                    .unwrap_or(0);
-
-                mul.skip(skipped).cloned().collect()
-            };
-
-            std::mem::swap(&mut *zelf.borrow_deque_mut(), &mut new_deque);
+            let mul_deque = zelf.mul(value, vm)?;
+            std::mem::swap(
+                &mut *zelf.borrow_deque_mut(),
+                &mut *mul_deque.borrow_deque_mut(),
+            );
             Ok(zelf)
         }
 
