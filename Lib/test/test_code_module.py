@@ -114,7 +114,8 @@ class TestInteractiveConsole(unittest.TestCase):
         expected = message + '\n'
         self.assertEqual(err_msg, ['write', (expected,), {}])
 
-
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_cause_tb(self):
         self.infunc.side_effect = ["raise ValueError('') from AttributeError",
                                     EOFError('Finished')]
@@ -131,6 +132,8 @@ class TestInteractiveConsole(unittest.TestCase):
         """)
         self.assertIn(expected, output)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_context_tb(self):
         self.infunc.side_effect = ["try: ham\nexcept: eggs\n",
                                     EOFError('Finished')]
