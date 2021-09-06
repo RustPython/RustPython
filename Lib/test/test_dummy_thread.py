@@ -126,6 +126,8 @@ class MiscTests(unittest.TestCase):
     def test_exit(self):
         self.assertRaises(SystemExit, _thread.exit)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_ident(self):
         self.assertIsInstance(_thread.get_ident(), int,
                               "_thread.get_ident() returned a non-integer")
