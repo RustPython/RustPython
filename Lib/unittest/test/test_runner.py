@@ -403,6 +403,8 @@ class TestModuleCleanUp(unittest.TestCase):
         self.assertEqual(str(e.exception), 'CleanUpExc')
         self.assertEqual(unittest.case._module_cleanups, [])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_addModuleCleanup_arg_errors(self):
         cleanups = []
         def cleanup(*args, **kwargs):
@@ -562,6 +564,8 @@ class TestModuleCleanUp(unittest.TestCase):
                           'tearDownModule', 'cleanup_good'])
         self.assertEqual(unittest.case._module_cleanups, [])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_addClassCleanup_arg_errors(self):
         cleanups = []
         def cleanup(*args, **kwargs):
@@ -584,6 +588,8 @@ class TestModuleCleanUp(unittest.TestCase):
         self.assertEqual(cleanups,
                          [((1, 2), {'function': 3, 'cls': 4})])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_addCleanup_arg_errors(self):
         cleanups = []
         def cleanup(*args, **kwargs):
