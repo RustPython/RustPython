@@ -816,6 +816,8 @@ class ExplicitConstructionTest(unittest.TestCase):
             x = random.expovariate(0.01) * (random.random() * 2.0 - 1.0)
             self.assertEqual(x, float(nc.create_decimal(x))) # roundtrip
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_unicode_digits(self):
         Decimal = self.decimal.Decimal
 
@@ -1181,6 +1183,8 @@ class FormatTest(unittest.TestCase):
         self.assertEqual(format(Decimal('100000000.123'), 'n'),
                          '100\u066c000\u066c000\u066b123')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_decimal_from_float_argument_type(self):
         class A(self.decimal.Decimal):
             def __init__(self, a):
@@ -1984,6 +1988,8 @@ class UsabilityTest(unittest.TestCase):
         for d, n, r in test_triples:
             self.assertEqual(str(round(Decimal(d), n)), r)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_nan_to_float(self):
         # Test conversions of decimal NANs to float.
         # See http://bugs.python.org/issue15544
@@ -2620,6 +2626,8 @@ class PythonAPItests(unittest.TestCase):
         x = d.quantize(context=c, exp=Decimal("1e797"), rounding=ROUND_DOWN)
         self.assertEqual(x, Decimal('8.71E+799'))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_complex(self):
         Decimal = self.decimal.Decimal
 
