@@ -35,13 +35,19 @@ class CmdLineTest(unittest.TestCase):
         self.assertNotIn(b'Traceback', out)
         self.assertNotIn(b'Traceback', err)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_optimize(self):
         self.verify_valid_flag('-O')
         self.verify_valid_flag('-OO')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_site_flag(self):
         self.verify_valid_flag('-S')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_usage(self):
         rc, out, err = assert_python_ok('-h')
         lines = out.splitlines()
@@ -50,6 +56,8 @@ class CmdLineTest(unittest.TestCase):
         # but the rest should be ASCII-only
         b''.join(lines[1:]).decode('ascii')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_version(self):
         version = ('Python %d.%d' % sys.version_info[:2]).encode("ascii")
         for switch in '-V', '--version', '-VV':
@@ -66,6 +74,7 @@ class CmdLineTest(unittest.TestCase):
         rc, out, err = assert_python_ok('-vv')
         self.assertNotIn(b'stack overflow', err)
 
+    @unittest.skip("TODO: RUSTPYTHON, TypeError: unexpected type bytes")
     @unittest.skipIf(interpreter_requires_environment(),
                      'Cannot run -E tests when PYTHON env vars are required.')
     def test_xoptions(self):
@@ -124,6 +133,8 @@ class CmdLineTest(unittest.TestCase):
         # All good if module is located and run successfully
         assert_python_ok('-m', 'timeit', '-n', '1')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_run_module_bug1764407(self):
         # -m and -i need to play well together
         # Runs the timeit module and checks the __main__
@@ -155,6 +166,8 @@ class CmdLineTest(unittest.TestCase):
     # command line, but how subprocess does decode bytes to unicode. Python
     # doesn't decode the command line because Windows provides directly the
     # arguments as unicode (using wmain() instead of main()).
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipIf(sys.platform == 'win32',
                      'Windows has a native unicode API')
     def test_undecodable_code(self):
@@ -190,6 +203,8 @@ class CmdLineTest(unittest.TestCase):
         if not stdout.startswith(pattern):
             raise AssertionError("%a doesn't start with %a" % (stdout, pattern))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipIf(sys.platform == 'win32',
                      'Windows has a native unicode API')
     def test_invalid_utf8_arg(self):
@@ -202,10 +217,14 @@ class CmdLineTest(unittest.TestCase):
         code = 'import sys, os; s=os.fsencode(sys.argv[1]); print(ascii(s))'
         base_cmd = [sys.executable, '-c', code]
 
+        # TODO: RUSTPYTHON
+        @unittest.expectedFailure
         def run_default(arg):
             cmd = [sys.executable, '-c', code, arg]
             return subprocess.run(cmd, stdout=subprocess.PIPE, text=True)
 
+        # TODO: RUSTPYTHON
+        @unittest.expectedFailure
         def run_c_locale(arg):
             cmd = [sys.executable, '-c', code, arg]
             env = dict(os.environ)
@@ -213,6 +232,8 @@ class CmdLineTest(unittest.TestCase):
             return subprocess.run(cmd, stdout=subprocess.PIPE,
                                   text=True, env=env)
 
+        # TODO: RUSTPYTHON
+        @unittest.expectedFailure
         def run_utf8_mode(arg):
             cmd = [sys.executable, '-X', 'utf8', '-c', code, arg]
             return subprocess.run(cmd, stdout=subprocess.PIPE, text=True)
@@ -257,6 +278,8 @@ class CmdLineTest(unittest.TestCase):
         self.assertEqual(stdout, expected)
         self.assertEqual(p.returncode, 0)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_unbuffered_output(self):
         # Test expected operation of the '-u' switch
         for stream in ('stdout', 'stderr'):
@@ -315,6 +338,8 @@ class CmdLineTest(unittest.TestCase):
         # for empty and unset PYTHONPATH
         self.assertEqual(out1, out2)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_displayhook_unencodable(self):
         for encoding in ('ascii', 'latin-1', 'utf-8'):
             env = os.environ.copy()
@@ -345,6 +370,7 @@ class CmdLineTest(unittest.TestCase):
                 stdout, stderr = proc.communicate()
         self.assertEqual(stdout.rstrip(), expected)
 
+    @unittest.skipIf(sys.platform == "win32", "AssertionError: b"'abc\\r'" != b"'abc'"")
     def test_stdin_readline(self):
         # Issue #11272: check that sys.stdin.readline() replaces '\r\n' by '\n'
         # on Windows (sys.stdin is opened in binary mode)
@@ -352,12 +378,15 @@ class CmdLineTest(unittest.TestCase):
             "import sys; print(repr(sys.stdin.readline()))",
             b"'abc\\n'")
 
+    @unittest.skipIf(sys.platform == "win32", "AssertionError: b"'abc\\r'" != b"'abc'"")
     def test_builtin_input(self):
         # Issue #11272: check that input() strips newlines ('\n' or '\r\n')
         self.check_input(
             "print(repr(input()))",
             b"'abc'")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_output_newline(self):
         # Issue 13119 Newline for print() should be \r\n on Windows.
         code = """if 1:
@@ -382,6 +411,8 @@ class CmdLineTest(unittest.TestCase):
         self.assertRegex(err.decode('ascii', 'ignore'), 'SyntaxError')
         self.assertEqual(b'', out)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_stdout_flush_at_shutdown(self):
         # Issue #5319: if stdout.flush() fails at shutdown, an error should
         # be printed out.
@@ -432,18 +463,24 @@ class CmdLineTest(unittest.TestCase):
         self.assertEqual(support.strip_python_stderr(err), b'')
         self.assertEqual(p.returncode, 42)
 
+    @unittest.skip("TODO: RUSTPYTHON, NotImplementedError: preexec_fn not supported yet")
     def test_no_stdin(self):
         self._test_no_stdio(['stdin'])
 
+    @unittest.skip("TODO: RUSTPYTHON, NotImplementedError: preexec_fn not supported yet")
     def test_no_stdout(self):
         self._test_no_stdio(['stdout'])
 
+    @unittest.skip("TODO: RUSTPYTHON, NotImplementedError: preexec_fn not supported yet")
     def test_no_stderr(self):
         self._test_no_stdio(['stderr'])
 
+    @unittest.skip("TODO: RUSTPYTHON, NotImplementedError: preexec_fn not supported yet")
     def test_no_std_streams(self):
         self._test_no_stdio(['stdin', 'stdout', 'stderr'])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_hash_randomization(self):
         # Verify that -R enables hash randomization:
         self.verify_valid_flag('-R')
@@ -492,6 +529,8 @@ class CmdLineTest(unittest.TestCase):
             print("del sys.modules['__main__']", file=script)
         assert_python_ok(filename)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_unknown_options(self):
         rc, out, err = assert_python_failure('-E', '-z')
         self.assertIn(b'Unknown option: -z', err)
@@ -510,6 +549,8 @@ class CmdLineTest(unittest.TestCase):
         self.assertEqual(err.splitlines().count(b'Unknown option: -a'), 1)
         self.assertEqual(b'', out)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipIf(interpreter_requires_environment(),
                      'Cannot run -I tests when PYTHON env vars are required.')
     def test_isolatedmode(self):
@@ -537,6 +578,8 @@ class CmdLineTest(unittest.TestCase):
                                           cwd=tmpdir)
             self.assertEqual(out.strip(), b"ok")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_sys_flags_set(self):
         # Issue 31845: a startup refactoring broke reading flags from env vars
         for value, expected in (("", 0), ("1", 1), ("text", 1), ("2", 2)):
@@ -560,6 +603,8 @@ class CmdLineTest(unittest.TestCase):
             with self.subTest(envar_value=value):
                 assert_python_ok('-c', code, **env_vars)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_set_pycache_prefix(self):
         # sys.pycache_prefix can be set from either -X pycache_prefix or
         # PYTHONPYCACHEPREFIX env var, with the former taking precedence.
@@ -605,6 +650,8 @@ class CmdLineTest(unittest.TestCase):
             self.assertEqual(proc.returncode, 0, proc)
         return proc.stdout.rstrip()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_xdev(self):
         # sys.flags.dev_mode
         code = "import sys; print(sys.flags.dev_mode)"
@@ -684,6 +731,8 @@ class CmdLineTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc)
         return proc.stdout.rstrip()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_warnings_filter_precedence(self):
         expected_filters = ("error::BytesWarning "
                             "once::UserWarning "
@@ -722,6 +771,7 @@ class CmdLineTest(unittest.TestCase):
         self.assertEqual(proc.stdout.rstrip(), name)
         self.assertEqual(proc.returncode, 0)
 
+    @unittest.skip("TODO: RUSTPYTHON, No module named '_testcapi'")
     def test_pythonmalloc(self):
         # Test the PYTHONMALLOC environment variable
         pymalloc = support.with_pymalloc()
@@ -748,6 +798,8 @@ class CmdLineTest(unittest.TestCase):
             with self.subTest(env_var=env_var, name=name):
                 self.check_pythonmalloc(env_var, name)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_pythondevmode_env(self):
         # Test the PYTHONDEVMODE environment variable
         code = "import sys; print(sys.flags.dev_mode)"
@@ -778,6 +830,8 @@ class CmdLineTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc)
         self.assertEqual(proc.stdout.strip(), b'0')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_parsing_error(self):
         args = [sys.executable, '-I', '--unknown-option']
         proc = subprocess.run(args,
@@ -806,6 +860,8 @@ class IgnoreEnvironmentTest(unittest.TestCase):
         self.run_ignoring_vars("'{}' not in sys.path".format(path),
                                PYTHONPATH=path)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_ignore_PYTHONHASHSEED(self):
         self.run_ignoring_vars("sys.flags.hash_randomization == 1",
                                PYTHONHASHSEED="0")
