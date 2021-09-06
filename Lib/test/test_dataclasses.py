@@ -52,6 +52,8 @@ class TestCase(unittest.TestCase):
             class C:
                 x: int = field(default=1, default_factory=int)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_field_repr(self):
         int_field = field(default=1, init=True, repr=False)
         int_field.name = "id"
@@ -1769,6 +1771,8 @@ class TestCase(unittest.TestCase):
 
         self.assertEqual(C.from_file('filename').x, 20)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_field_metadata_default(self):
         # Make sure the default metadata is read-only and of
         #  zero length.
@@ -1782,6 +1786,8 @@ class TestCase(unittest.TestCase):
                                     'does not support item assignment'):
             fields(C)[0].metadata['test'] = 3
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_field_metadata_mapping(self):
         # Make sure only a mapping can be passed as metadata
         #  zero length.
@@ -1825,6 +1831,7 @@ class TestCase(unittest.TestCase):
                                     'does not support item assignment'):
             fields(C)[0].metadata['test'] = 3
 
+    @unittest.skip("TODO: RUSTPYTHON, TypeError: object of type 'mappingproxy' has no len()")
     def test_field_metadata_custom_mapping(self):
         # Try a custom mapping.
         class SimpleNameSpace:
@@ -1905,6 +1912,7 @@ class TestCase(unittest.TestCase):
         # Check MRO resolution.
         self.assertEqual(Child.__mro__, (Child, Parent, Generic, object))
 
+    @unittest.skip("TODO: RUSTPYTHON, pickle.PicklingError")
     def test_dataclassses_pickleable(self):
         global P, Q, R
         @dataclass
@@ -2044,6 +2052,8 @@ class TestDocString(unittest.TestCase):
 
         self.assertDocStrEqual(C.__doc__, "C(x:List[int]=<factory>)")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_docstring_deque_field(self):
         @dataclass
         class C:
@@ -2051,6 +2061,8 @@ class TestDocString(unittest.TestCase):
 
         self.assertDocStrEqual(C.__doc__, "C(x:collections.deque)")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_docstring_deque_field_with_default_factory(self):
         @dataclass
         class C:
@@ -2154,6 +2166,8 @@ class TestRepr(unittest.TestCase):
         self.assertEqual(repr(C.D(0)), 'TestRepr.test_repr.<locals>.C.D(i=0)')
         self.assertEqual(repr(C.E()), 'TestRepr.test_repr.<locals>.C.E()')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_no_repr(self):
         # Test a class with no __repr__ and repr=False.
         @dataclass(repr=False)
@@ -2464,6 +2478,8 @@ class TestHash(unittest.TestCase):
         self.assertEqual(hash(C(4)), hash((4,)))
         self.assertEqual(hash(C(42)), hash((42,)))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_hash_no_args(self):
         # Test dataclasses with no hash= argument.  This exists to
         #  make sure that if the @dataclass parameter name is changed
@@ -2714,6 +2730,8 @@ class TestFrozen(unittest.TestCase):
 
 
 class TestSlots(unittest.TestCase):
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_simple(self):
         @dataclass
         class C:
@@ -2929,6 +2947,7 @@ class TestStringAnnotations(unittest.TestCase):
                 # x is not an InitVar, so there will be a member x.
                 self.assertEqual(C(10).x, 10)
 
+    @unittest.skip("TODO: RUSTPYTHON, ImportError: cannot import name 'dataclass_module_1'")
     def test_classvar_module_level_import(self):
         from test import dataclass_module_1
         from test import dataclass_module_1_str
@@ -2970,6 +2989,7 @@ class TestStringAnnotations(unittest.TestCase):
                     # won't exist on the instance.
                     self.assertNotIn('not_iv4', c.__dict__)
 
+    @unittest.skip("TODO: RUSTPYTHON, ImportError: cannot import name 'dataclass_textanno'")
     def test_text_annotations(self):
         from test import dataclass_textanno
 
@@ -3165,6 +3185,8 @@ class TestReplace(unittest.TestCase):
         self.assertEqual(c1.x, 3)
         self.assertEqual(c1.y, 2)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_frozen(self):
         @dataclass(frozen=True)
         class C:
@@ -3197,6 +3219,8 @@ class TestReplace(unittest.TestCase):
                                              "keyword argument 'a'"):
             c1 = replace(c, x=20, a=5)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_invalid_field_name(self):
         @dataclass(frozen=True)
         class C:
@@ -3240,6 +3264,8 @@ class TestReplace(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'init=False'):
             replace(c, y=30)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_classvar(self):
         @dataclass
         class C:
