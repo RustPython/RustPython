@@ -2319,6 +2319,12 @@ mod posix {
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
+    fn fchdir(fd: RawFd, vm: &VirtualMachine) -> PyResult<()> {
+        nix::unistd::fchdir(fd).map_err(|err| err.into_pyexception(vm))
+    }
+
+    #[cfg(not(target_os = "redox"))]
+    #[pyfunction]
     fn chroot(path: PyPathLike, vm: &VirtualMachine) -> PyResult<()> {
         nix::unistd::chroot(&*path.path).map_err(|err| err.into_pyexception(vm))
     }
