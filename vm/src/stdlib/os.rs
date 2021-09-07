@@ -10,7 +10,6 @@ use std::{env, fs};
 use crate::crt_fd::Fd;
 use crossbeam_utils::atomic::AtomicCell;
 use num_bigint::BigInt;
-use num_traits::ToPrimitive;
 #[cfg(unix)]
 use strum_macros::EnumString;
 
@@ -18,7 +17,6 @@ use super::errno::errors;
 use crate::builtins::bytes::{PyBytes, PyBytesRef};
 use crate::builtins::dict::PyDictRef;
 use crate::builtins::int;
-use crate::builtins::int::PyIntRef;
 use crate::builtins::pystr::{PyStr, PyStrRef};
 use crate::builtins::pytype::PyTypeRef;
 use crate::builtins::set::PySet;
@@ -1270,20 +1268,6 @@ mod _os {
         env::set_current_dir(&path.path).map_err(|err| err.into_pyexception(vm))
     }
 
-    #[cfg(not(windows))]
-    #[pyfunction]
-    fn fchdir(fd: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
-        let ret = match fd.as_bigint().to_i32() {
-            Some(fd) => unsafe { libc::fchdir(fd) },
-            None => -1,
-        };
-        if ret < 0 {
-            Err(io::Error::last_os_error().into_pyexception(vm))
-        } else {
-            Ok(())
-        }
-    }
-
     #[pyfunction]
     fn fspath(path: PyObjectRef, vm: &VirtualMachine) -> PyResult<FsPath> {
         super::fspath(path, false, vm)
@@ -1955,8 +1939,6 @@ mod _os {
             SupportFunc::new("open", Some(false), Some(OPEN_DIR_FD), Some(false)),
             SupportFunc::new("access", Some(false), Some(false), None),
             SupportFunc::new("chdir", None, Some(false), Some(false)),
-            #[cfg(not(windows))]
-            SupportFunc::new("fchdir", None, Some(true), Some(false)),
             // chflags Some, None Some
             SupportFunc::new("listdir", Some(LISTDIR_FD), Some(false), Some(false)),
             SupportFunc::new("mkdir", Some(false), Some(MKDIR_DIR_FD), Some(false)),
@@ -2333,6 +2315,12 @@ mod posix {
                 Ok(())
             }
         }
+    }
+
+    #[cfg(not(target_os = "redox"))]
+    #[pyfunction]
+    fn fchdir(fd: RawFd, vm: &VirtualMachine) -> PyResult<()> {
+        nix::unistd::fchdir(fd).map_err(|err| err.into_pyexception(vm))
     }
 
     #[cfg(not(target_os = "redox"))]
