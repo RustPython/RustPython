@@ -318,8 +318,6 @@ class bar:
         # Module name may be prefixed with "test.", depending on how run.
         self.assertEqual(repr(bar.bar), "<class '%s.bar'>" % bar.__name__)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_instance(self):
         self._check_path_limitations('baz')
         write_file(os.path.join(self.subpkgname, 'baz.py'), '''\
@@ -332,8 +330,6 @@ class baz:
         self.assertTrue(repr(ibaz).startswith(
             "<%s.baz object at 0x" % baz.__name__))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_method(self):
         self._check_path_limitations('qux')
         eq = self.assertEqual
