@@ -1,7 +1,7 @@
 use super::dict::{PyDict, PyDictRef};
 use super::list::PyList;
 use super::pybool;
-use super::pystr::PyStrRef;
+use super::pystr::{PyStr, PyStrRef};
 use super::pytype::PyTypeRef;
 use crate::builtins::pytype::PyType;
 use crate::common::hash::PyHash;
@@ -183,12 +183,29 @@ impl PyBaseObject {
 
     /// Return repr(self).
     #[pymethod(magic)]
-    fn repr(zelf: PyObjectRef) -> String {
-        format!(
-            "<{} object at {:#x}>",
-            zelf.class().tp_name(),
-            zelf.get_id()
-        )
+    fn repr(zelf: PyObjectRef, vm: &VirtualMachine) -> Option<String> {
+        let class = zelf.class();
+
+        match (
+            class
+                .qualname(vm)
+                .downcast_ref::<PyStr>()
+                .map(|n| n.as_str()),
+            class.module(vm).downcast_ref::<PyStr>().map(|m| m.as_str()),
+        ) {
+            (None, _) => None,
+            (Some(qualname), Some(module)) if module != "builtins" => Some(format!(
+                "<{}.{} object at {:#x}>",
+                module,
+                qualname,
+                zelf.get_id()
+            )),
+            _ => Some(format!(
+                "<{} object at {:#x}>",
+                class.tp_name(),
+                zelf.get_id()
+            )),
+        }
     }
 
     #[pyclassmethod(magic)]
