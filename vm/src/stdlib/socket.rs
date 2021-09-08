@@ -18,7 +18,7 @@ use crate::byteslike::{ArgBytesLike, ArgMemoryBuffer};
 use crate::common::lock::{PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard};
 use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
 use crate::function::{FuncArgs, OptionalArg, OptionalOption};
-use crate::utils::Either;
+use crate::utils::{Either, ToCString};
 use crate::VirtualMachine;
 use crate::{
     IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, StaticType,

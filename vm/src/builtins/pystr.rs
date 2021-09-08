@@ -27,7 +27,7 @@ use rustpython_common::hash;
 use std::mem::size_of;
 use std::ops::Range;
 use std::string::ToString;
-use std::{char, ffi, fmt};
+use std::{char, fmt};
 use unic_ucd_bidi::BidiClass;
 use unic_ucd_category::GeneralCategory;
 use unic_ucd_ident::{is_xid_continue, is_xid_start};
@@ -349,10 +349,6 @@ impl PyStr {
             // SAFETY: Both PyStrKind::{Ascii, Utf8} are valid utf8 string
             std::str::from_utf8_unchecked(&self.bytes)
         }
-    }
-
-    pub fn to_cstring(&self, vm: &VirtualMachine) -> PyResult<ffi::CString> {
-        ffi::CString::new(self.as_str()).map_err(|err| err.into_pyexception(vm))
     }
 
     fn char_all<F>(&self, test: F) -> bool
