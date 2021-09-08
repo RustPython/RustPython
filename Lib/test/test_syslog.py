@@ -9,6 +9,8 @@ import unittest
 
 class Test(unittest.TestCase):
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_openlog(self):
         syslog.openlog('python')
         # Issue #6697.
