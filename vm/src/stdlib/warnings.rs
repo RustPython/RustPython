@@ -26,14 +26,14 @@ mod _warnings {
             if !category.issubclass(&vm.ctx.exceptions.warning) {
                 return Err(vm.new_type_error(format!(
                     "category must be a Warning subclass, not '{}'",
-                    category.class().name
+                    category.class().name()
                 )));
             }
             category
         } else {
             vm.ctx.exceptions.user_warning.clone()
         };
-        eprintln!("level:{}: {}: {}", level, category.name, args.message);
+        eprintln!("level:{}: {}: {}", level, category.name(), args.message);
         Ok(())
     }
 }

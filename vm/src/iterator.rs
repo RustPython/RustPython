@@ -29,12 +29,12 @@ pub fn get_iter(vm: &VirtualMachine, iter_target: PyObjectRef) -> PyResult {
         } else {
             Err(vm.new_type_error(format!(
                 "iter() returned non-iterator of type '{}'",
-                cls.name
+                cls.name()
             )))
         }
     } else {
         vm.get_method_or_type_error(iter_target.clone(), "__getitem__", || {
-            format!("'{}' object is not iterable", iter_target.class().name)
+            format!("'{}' object is not iterable", iter_target.class().name())
         })?;
         Ok(PySequenceIterator::new(iter_target)
             .into_ref(vm)
@@ -46,7 +46,9 @@ pub fn call_next(vm: &VirtualMachine, iter_obj: &PyObjectRef) -> PyResult {
     let iternext = {
         let cls = iter_obj.class();
         cls.mro_find_map(|x| x.slots.iternext.load())
-            .ok_or_else(|| vm.new_type_error(format!("'{}' object is not an iterator", cls.name)))?
+            .ok_or_else(|| {
+                vm.new_type_error(format!("'{}' object is not an iterator", cls.name()))
+            })?
     };
     iternext(iter_obj, vm)
 }
@@ -140,7 +142,7 @@ pub fn length_hint(vm: &VirtualMachine, iter: PyObjectRef) -> PyResult<Option<us
         .ok_or_else(|| {
             vm.new_type_error(format!(
                 "'{}' object cannot be interpreted as an integer",
-                result.class().name
+                result.class().name()
             ))
         })?
         .as_bigint();

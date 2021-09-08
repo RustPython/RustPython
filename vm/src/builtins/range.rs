@@ -647,7 +647,7 @@ impl TryFromObject for RangeIndex {
             obj => {
                 let val = vm.to_index(&obj).map_err(|_| vm.new_type_error(format!(
                     "sequence indices be integers or slices or classes that override __index__ operator, not '{}'",
-                    obj.class().name
+                    obj.class().name()
                 )))?;
                 Ok(RangeIndex::Int(val))
             }

@@ -24,7 +24,7 @@ impl TryFromBorrowedObject for bool {
         if obj.isinstance(&vm.ctx.types.int_type) {
             Ok(get_value(obj))
         } else {
-            Err(vm.new_type_error(format!("Expected type bool, not {}", obj.class().name)))
+            Err(vm.new_type_error(format!("Expected type bool, not {}", obj.class().name())))
         }
     }
 }
@@ -45,7 +45,7 @@ pub fn boolval(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
             if !bool_obj.isinstance(&vm.ctx.types.bool_type) {
                 return Err(vm.new_type_error(format!(
                     "__bool__ should return bool, returned type {}",
-                    bool_obj.class().name
+                    bool_obj.class().name()
                 )));
             }
 
@@ -58,7 +58,7 @@ pub fn boolval(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
                 let int_obj = bool_obj.payload::<PyInt>().ok_or_else(|| {
                     vm.new_type_error(format!(
                         "'{}' object cannot be interpreted as an integer",
-                        bool_obj.class().name
+                        bool_obj.class().name()
                     ))
                 })?;
 
@@ -99,7 +99,7 @@ impl SlotConstructor for PyBool {
 
     fn py_new(zelf: PyTypeRef, x: Self::Args, vm: &VirtualMachine) -> PyResult {
         if !zelf.isinstance(&vm.ctx.types.type_type) {
-            let actual_type = &zelf.class().name;
+            let actual_type = &zelf.class().name();
             return Err(vm.new_type_error(format!(
                 "requires a 'type' object but received a '{}'",
                 actual_type

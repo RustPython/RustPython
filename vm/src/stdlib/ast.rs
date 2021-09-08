@@ -57,7 +57,7 @@ impl AstNode {
         if numargs > fields.len() {
             return Err(vm.new_type_error(format!(
                 "{} constructor takes at most {} positional argument{}",
-                zelf.class().name,
+                zelf.class().name(),
                 fields.len(),
                 if fields.len() == 1 { "" } else { "s" },
             )));
@@ -70,7 +70,7 @@ impl AstNode {
                 if pos < numargs {
                     return Err(vm.new_type_error(format!(
                         "{} got multiple values for argument '{}'",
-                        zelf.class().name,
+                        zelf.class().name(),
                         key
                     )));
                 }

@@ -278,7 +278,7 @@ impl CodecsRegistry {
                     "'{}' encoder returned '{}' instead of 'bytes'; use codecs.encode() to \
                      encode arbitrary types",
                     encoding,
-                    obj.class().name,
+                    obj.class().name(),
                 ))
             })
     }
@@ -296,7 +296,7 @@ impl CodecsRegistry {
                 "'{}' decoder returned '{}' instead of 'str'; use codecs.decode() \
                  to encode arbitrary types",
                 encoding,
-                obj.class().name,
+                obj.class().name(),
             ))
         })
     }
@@ -353,7 +353,7 @@ fn is_encode_ish_err(err: &PyObjectRef, vm: &VirtualMachine) -> bool {
 fn bad_err_type(err: PyObjectRef, vm: &VirtualMachine) -> PyBaseExceptionRef {
     vm.new_type_error(format!(
         "don't know how to handle {} in error callback",
-        err.class().name
+        err.class().name()
     ))
 }
 

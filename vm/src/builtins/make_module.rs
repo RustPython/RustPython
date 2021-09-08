@@ -315,7 +315,7 @@ mod decl {
             .map_err(|obj| {
                 vm.new_type_error(format!(
                     "__format__ must return a str, not {}",
-                    obj.class().name
+                    obj.class().name()
                 ))
             })
     }
@@ -719,7 +719,7 @@ mod decl {
             .map_err(|number| {
                 vm.new_type_error(format!(
                     "type {} doesn't define __round__",
-                    number.class().name
+                    number.class().name()
                 ))
             })?;
         match ndigits.flatten() {

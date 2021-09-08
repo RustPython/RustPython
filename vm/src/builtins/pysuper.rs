@@ -80,7 +80,7 @@ impl SlotConstructor for PySuper {
                     typ = Some(class.downcast().map_err(|o| {
                         vm.new_type_error(format!(
                             "super(): __class__ is not a type ({})",
-                            o.class().name
+                            o.class().name()
                         ))
                     })?);
                     break;
@@ -113,9 +113,9 @@ impl PySuper {
 
     #[pymethod(magic)]
     fn repr(&self) -> String {
-        let typname = &self.typ.name;
+        let typname = &self.typ.name();
         match self.obj {
-            Some((_, ref ty)) => format!("<super: <class '{}'>, <{} object>>", typname, ty.name),
+            Some((_, ref ty)) => format!("<super: <class '{}'>, <{} object>>", typname, ty.name()),
             None => format!("<super: <class '{}'>, NULL>", typname),
         }
     }

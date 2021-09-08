@@ -62,7 +62,7 @@ pub fn try_float_opt(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<
             Some(float_obj) => Ok(Some(float_obj.value)),
             None => Err(vm.new_type_error(format!(
                 "__float__ returned non-float (type '{}')",
-                result.class().name
+                result.class().name()
             ))),
         };
     }
@@ -73,8 +73,9 @@ pub fn try_float_opt(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<
 }
 
 pub fn try_float(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
-    try_float_opt(obj, vm)?
-        .ok_or_else(|| vm.new_type_error(format!("must be real number, not {}", obj.class().name)))
+    try_float_opt(obj, vm)?.ok_or_else(|| {
+        vm.new_type_error(format!("must be real number, not {}", obj.class().name()))
+    })
 }
 
 pub(crate) fn to_op_float(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<f64>> {
@@ -186,7 +187,7 @@ impl SlotConstructor for PyFloat {
                 } else {
                     return Err(vm.new_type_error(format!(
                         "float() argument must be a string or a number, not '{}'",
-                        val.class().name
+                        val.class().name()
                     )));
                 }
             }

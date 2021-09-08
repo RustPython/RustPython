@@ -591,7 +591,6 @@ impl VirtualMachine {
     /// [ctor]: rustpython_vm::exceptions::ExceptionCtor
     pub fn new_exception(&self, exc_type: PyTypeRef, args: Vec<PyObjectRef>) -> PyBaseExceptionRef {
         // TODO: add repr of args into logging?
-        vm_trace!("New exception created: {}", exc_type.name);
 
         PyRef::new_ref(
             // TODO: this costructor might be invalid, because multiple
@@ -646,7 +645,11 @@ impl VirtualMachine {
     }
 
     pub fn new_unsupported_unary_error(&self, a: &PyObjectRef, op: &str) -> PyBaseExceptionRef {
-        self.new_type_error(format!("bad operand type for {}: '{}'", op, a.class().name))
+        self.new_type_error(format!(
+            "bad operand type for {}: '{}'",
+            op,
+            a.class().name()
+        ))
     }
 
     pub fn new_unsupported_binop_error(
@@ -658,8 +661,8 @@ impl VirtualMachine {
         self.new_type_error(format!(
             "'{}' not supported between instances of '{}' and '{}'",
             op,
-            a.class().name,
-            b.class().name
+            a.class().name(),
+            b.class().name()
         ))
     }
 
@@ -673,9 +676,9 @@ impl VirtualMachine {
         self.new_type_error(format!(
             "Unsupported operand types for '{}': '{}', '{}', and '{}'",
             op,
-            a.class().name,
-            b.class().name,
-            c.class().name
+            a.class().name(),
+            b.class().name(),
+            c.class().name()
         ))
     }
 
@@ -872,7 +875,7 @@ impl VirtualMachine {
                 self.invoke(&index?, ())?.downcast().map_err(|bad| {
                     self.new_type_error(format!(
                         "__index__ returned non-int (type {})",
-                        bad.class().name
+                        bad.class().name()
                     ))
                 })
             }),
@@ -882,7 +885,7 @@ impl VirtualMachine {
         self.to_index_opt(obj.clone()).unwrap_or_else(|| {
             Err(self.new_type_error(format!(
                 "'{}' object cannot be interpreted as an integer",
-                obj.class().name
+                obj.class().name()
             )))
         })
     }
@@ -1181,7 +1184,7 @@ impl VirtualMachine {
             }
             None => Err(self.new_type_error(format!(
                 "'{}' object is not callable",
-                callable.class().name
+                callable.class().name()
             ))),
         }
     }
@@ -1366,7 +1369,7 @@ impl VirtualMachine {
                     let has_getattr = cls.mro_find_map(|cls| cls.slots.getattro.load()).is_some();
                     self.new_type_error(format!(
                         "'{}' object has {} attributes ({} {})",
-                        cls.name,
+                        cls.name(),
                         if has_getattr { "only read-only" } else { "no" },
                         if assign { "assign to" } else { "del" },
                         attr_name
@@ -1877,7 +1880,7 @@ impl VirtualMachine {
                     .ok_or_else(|| {
                         self.new_type_error(format!(
                             "'{}' object cannot be interpreted as an integer",
-                            len.class().name
+                            len.class().name()
                         ))
                     })?
                     .as_bigint();
@@ -1897,7 +1900,7 @@ impl VirtualMachine {
         self.obj_len_opt(obj).unwrap_or_else(|| {
             Err(self.new_type_error(format!(
                 "object of type '{}' has no len()",
-                obj.class().name
+                obj.class().name()
             )))
         })
     }

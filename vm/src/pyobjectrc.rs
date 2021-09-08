@@ -310,7 +310,7 @@ impl Drop for PyObjectRef {
                     let repr = vm.to_repr(&del_method);
                     match repr {
                         Ok(v) => println!("{}", v.to_string()),
-                        Err(_) => println!("{}", del_method.class().name),
+                        Err(_) => println!("{}", del_method.class().name()),
                     }
                     let tb_module = vm.import("traceback", None, 0).unwrap();
                     // TODO: set exc traceback
@@ -470,7 +470,7 @@ macro_rules! partially_init {
 
 pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef) {
     use crate::builtins::{object, PyType, PyWeak};
-    use crate::{PyAttributes, PyClassDef, PyClassImpl};
+    use crate::{PyAttributes, PyClassImpl};
     use std::mem::MaybeUninit;
     use std::ptr;
 
@@ -487,7 +487,6 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef) {
         static_assertions::assert_eq_align!(MaybeUninit<PyInner<PyType>>, PyInner<PyType>);
 
         let type_payload = PyType {
-            name: PyTypeRef::NAME.to_owned(),
             base: None,
             bases: vec![],
             mro: vec![],
@@ -496,7 +495,6 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef) {
             slots: PyType::make_slots(),
         };
         let object_payload = PyType {
-            name: object::PyBaseObject::NAME.to_owned(),
             base: None,
             bases: vec![],
             mro: vec![],

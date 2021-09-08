@@ -222,7 +222,7 @@ impl PyBaseObject {
         } else {
             Err(vm.new_type_error(format!(
                 "unsupported format string passed to {}.__format__",
-                obj.class().name
+                obj.class().name()
             )))
         }
     }
@@ -245,7 +245,7 @@ impl PyBaseObject {
                     Ok(())
                 }
                 Err(value) => {
-                    let type_repr = &value.class().name;
+                    let type_repr = &value.class().name();
                     Err(vm.new_type_error(format!(
                         "__class__ must be set to a class, not '{}' object",
                         type_repr
@@ -329,7 +329,7 @@ pub(crate) fn setattr(
                 if e.isinstance(&vm.ctx.exceptions.key_error) {
                     vm.new_attribute_error(format!(
                         "'{}' object has no attribute '{}'",
-                        obj.class().name,
+                        obj.class().name(),
                         attr_name,
                     ))
                 } else {
@@ -341,7 +341,7 @@ pub(crate) fn setattr(
     } else {
         Err(vm.new_attribute_error(format!(
             "'{}' object has no attribute '{}'",
-            obj.class().name,
+            obj.class().name(),
             attr_name,
         )))
     }

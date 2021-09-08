@@ -253,7 +253,7 @@ impl PyStr {
         } else {
             Err(vm.new_type_error(format!(
                 "can only concatenate str (not \"{}\") to str",
-                other.class().name
+                other.class().name()
             )))
         }
     }
@@ -997,7 +997,7 @@ impl PyStr {
     #[pymethod]
     fn translate(&self, table: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
         vm.get_method_or_type_error(table.clone(), "__getitem__", || {
-            format!("'{}' object is not subscriptable", table.class().name)
+            format!("'{}' object is not subscriptable", table.class().name())
         })?;
 
         let mut translated = String::new();
@@ -1412,7 +1412,10 @@ mod tests {
             let translated = text.translate(translated, &vm).unwrap();
             assert_eq!(translated, "🎅xda".to_owned());
             let translated = text.translate(vm.ctx.new_int(3), &vm);
-            assert_eq!(translated.unwrap_err().class().name, "TypeError".to_owned());
+            assert_eq!(
+                translated.unwrap_err().class().name(),
+                "TypeError".to_owned()
+            );
         })
     }
 }

@@ -111,7 +111,7 @@ impl PyIter for Reader {
         let string = string.downcast::<PyStr>().map_err(|obj| {
             vm.new_type_error(format!(
                 "iterator should return strings, not {} (the file should be opened in text mode)",
-                obj.class().name
+                obj.class().name()
             ))
         })?;
         let input = string.as_str().as_bytes();

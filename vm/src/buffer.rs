@@ -83,7 +83,7 @@ impl TryFromBorrowedObject for PyBufferRef {
         }
         Err(vm.new_type_error(format!(
             "a bytes-like object is required, not '{}'",
-            obj_cls.name
+            obj_cls.name()
         )))
     }
 }

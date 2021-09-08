@@ -387,7 +387,7 @@ impl CFormatSpec {
                                 vm.new_type_error(format!(
                                     "%b requires a bytes-like object, or an object that \
                                      implements __bytes__, not '{}'",
-                                    obj.class().name
+                                    obj.class().name()
                                 ))
                             })?
                             .invoke((), vm)?;
@@ -416,7 +416,7 @@ impl CFormatSpec {
                         Err(vm.new_type_error(format!(
                             "%{} format: a number is required, not {}",
                             self.format_char,
-                            obj.class().name
+                            obj.class().name()
                         )))
                     }
                 }),
@@ -427,7 +427,7 @@ impl CFormatSpec {
                         Err(vm.new_type_error(format!(
                             "%{} format: an integer is required, not {}",
                             self.format_char,
-                            obj.class().name
+                            obj.class().name()
                         )))
                     }
                 }
@@ -489,7 +489,7 @@ impl CFormatSpec {
                         Err(vm.new_type_error(format!(
                             "%{} format: a number is required, not {}",
                             self.format_char,
-                            obj.class().name
+                            obj.class().name()
                         )))
                     }
                 }),
@@ -500,7 +500,7 @@ impl CFormatSpec {
                         Err(vm.new_type_error(format!(
                             "%{} format: an integer is required, not {}",
                             self.format_char,
-                            obj.class().name
+                            obj.class().name()
                         )))
                     }
                 }
