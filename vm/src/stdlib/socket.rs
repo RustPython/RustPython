@@ -1987,8 +1987,9 @@ pub fn init_winsock() {
     #[cfg(windows)]
     {
         static WSA_INIT: parking_lot::Once = parking_lot::Once::new();
-        WSA_INIT.call_once(|| {
-            let _ = unsafe { winapi::um::winsock2::WSAStartup(0x0101, &mut std::mem::zeroed()) };
+        WSA_INIT.call_once(|| unsafe {
+            let mut wsa_data = std::mem::MaybeUninit::uninit();
+            let _ = winapi::um::winsock2::WSAStartup(0x0101, wsa_data.as_mut_ptr());
         })
     }
 }
