@@ -7,7 +7,7 @@ fn main() -> vm::PyResult<()> {
 fn run(vm: &vm::VirtualMachine) -> vm::PyResult<()> {
     let scope = vm.new_scope_with_builtins();
 
-    // the file parameter is relevant to the directory where the crate's Cargo.toml is located, see $CARGO_MANIFEST_DIR:
+    // the file parameter is relative to the directory where the crate's Cargo.toml is located, see $CARGO_MANIFEST_DIR:
     // https://doc.rust-lang.org/cargo/reference/environment-variables.html#environment-variables-cargo-sets-for-crates
     let module = vm::py_compile!(file = "examples/freeze/freeze.py");
 
