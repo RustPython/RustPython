@@ -22,14 +22,14 @@ mod decl {
 
     #[pyfunction]
     fn loads(code_bytes: ArgBytesLike, vm: &VirtualMachine) -> PyResult<PyCode> {
-        let code =
-            bytecode::CodeObject::from_bytes(&*code_bytes.borrow_buf()).map_err(|e| match e {
-                bytecode::CodeDeserializeError::Eof => vm.new_exception_msg(
-                    vm.ctx.exceptions.eof_error.clone(),
-                    "end of file while deserializing bytecode".to_owned(),
-                ),
-                _ => vm.new_value_error("Couldn't deserialize python bytecode".to_owned()),
-            })?;
+        let buf = &*code_bytes.borrow_buf();
+        let code = bytecode::CodeObject::from_bytes(buf).map_err(|e| match e {
+            bytecode::CodeDeserializeError::Eof => vm.new_exception_msg(
+                vm.ctx.exceptions.eof_error.clone(),
+                "end of file while deserializing bytecode".to_owned(),
+            ),
+            _ => vm.new_value_error("Couldn't deserialize python bytecode".to_owned()),
+        })?;
         Ok(PyCode {
             code: vm.map_codeobj(code),
         })
