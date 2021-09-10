@@ -314,8 +314,6 @@ class BaseXYTestCase(unittest.TestCase):
         self.check_other_types(base64.b32decode, b'MFRGG===', b"abc")
         self.check_decode_type_errors(base64.b32decode)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_b32decode_casefold(self):
         eq = self.assertEqual
         tests = {b'': b'',
@@ -357,8 +355,6 @@ class BaseXYTestCase(unittest.TestCase):
             self.assertRaises(binascii.Error, base64.b32decode, data)
             self.assertRaises(binascii.Error, base64.b32decode, data_str)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_b32decode_error(self):
         tests = [b'abc', b'ABCDEF==', b'==ABCDEF']
         prefixes = [b'M', b'ME', b'MFRA', b'MFRGG', b'MFRGGZA', b'MFRGGZDF']
@@ -675,8 +671,6 @@ class BaseXYTestCase(unittest.TestCase):
         for f in decode_funcs:
             self.assertRaises(ValueError, f, 'with non-ascii \xcb')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_ErrorHeritage(self):
         self.assertTrue(issubclass(binascii.Error, ValueError))
 
