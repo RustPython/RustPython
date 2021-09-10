@@ -385,8 +385,7 @@ class BaseXYTestCase(unittest.TestCase):
                                b'0102ABCDEF')
         self.check_encode_type_errors(base64.b16encode)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'range end index 15 out of range for slice of length 12',")
     def test_b16decode(self):
         eq = self.assertEqual
         eq(base64.b16decode(b'0102ABCDEF'), b'\x01\x02\xab\xcd\xef')
