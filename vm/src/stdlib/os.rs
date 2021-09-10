@@ -14,6 +14,7 @@ use num_bigint::BigInt;
 use strum_macros::EnumString;
 
 use super::errno::errors;
+use crate::buffer::PyBufferRef;
 use crate::builtins::bytes::{PyBytes, PyBytesRef};
 use crate::builtins::dict::PyDictRef;
 use crate::builtins::int;
@@ -210,6 +211,10 @@ pub(crate) fn fspath(
 
 impl TryFromObject for PyPathLike {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        let obj = match PyBufferRef::try_from_borrowed_object(vm, &obj) {
+            Ok(buffer) => PyBytes::from(Vec::from(&*buffer.obj_bytes())).into_pyobject(vm),
+            Err(_) => obj,
+        };
         let path = fspath(obj, true, vm)?;
         Ok(Self {
             path: path.as_os_str(vm)?.to_owned().into(),
