@@ -7,11 +7,11 @@ use super::pystr::PyStr;
 use super::pytype::PyTypeRef;
 use crate::function::{OptionalArg, OptionalOption};
 use crate::slots::{Comparable, Hashable, PyComparisonOp, SlotConstructor};
-use crate::VirtualMachine;
 use crate::{
     IdProtocol, IntoPyObject,
     PyArithmaticValue::{self, *},
-    PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol, VirtualMachine,
 };
 use rustpython_common::{float_ops, hash};
 
@@ -450,4 +450,26 @@ fn try_complex(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<(Compl
         return Ok(Some((Complex64::new(float, 0.0), false)));
     }
     Ok(None)
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+#[repr(transparent)]
+pub struct IntoPyComplex {
+    value: Complex64,
+}
+
+impl IntoPyComplex {
+    pub fn to_complex(self) -> Complex64 {
+        self.value
+    }
+}
+
+impl TryFromObject for IntoPyComplex {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        // We do not care if it was already a complex.
+        let (value, _) = try_complex(&obj, vm)?.ok_or_else(|| {
+            vm.new_type_error(format!("must be real number, not {}", obj.class().name()))
+        })?;
+        Ok(IntoPyComplex { value })
+    }
 }
