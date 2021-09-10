@@ -2048,6 +2048,7 @@ mod posix {
     use super::*;
 
     use crate::builtins::list::PyListRef;
+    use crate::slots::SlotConstructor;
     use crate::utils::ToCString;
     use bitflags::bitflags;
     use nix::unistd::{self, Gid, Pid, Uid};
@@ -2445,6 +2446,51 @@ mod posix {
     fn sched_yield(vm: &VirtualMachine) -> PyResult<()> {
         let _ = nix::sched::sched_yield().map_err(|e| e.into_pyexception(vm))?;
         Ok(())
+    }
+
+    #[pyattr]
+    #[pyclass(name = "sched_param")]
+    #[derive(Debug)]
+    struct SchedParam {
+        sched_priority: PyObjectRef,
+    }
+
+    impl PyValue for SchedParam {
+        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+            Self::static_type()
+        }
+    }
+
+    impl TryFromObject for SchedParam {
+        fn try_from_object(_vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+            Ok(SchedParam {
+                sched_priority: obj,
+            })
+        }
+    }
+
+    #[pyimpl(with(SlotConstructor))]
+    impl SchedParam {
+        #[pyproperty]
+        fn sched_priority(&self, vm: &VirtualMachine) -> PyObjectRef {
+            self.sched_priority.clone().into_pyobject(vm)
+        }
+
+        #[pymethod(magic)]
+        fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
+            let sched_priority_repr = vm.to_repr(&self.sched_priority)?;
+            Ok(format!(
+                "posix.sched_param(sched_priority = {})",
+                sched_priority_repr.as_str()
+            ))
+        }
+    }
+
+    impl SlotConstructor for SchedParam {
+        type Args = SchedParam;
+        fn py_new(cls: PyTypeRef, sched_param: Self::Args, vm: &VirtualMachine) -> PyResult {
+            sched_param.into_pyresult_with_type(vm, cls)
+        }
     }
 
     #[pyfunction]
