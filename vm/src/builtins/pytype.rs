@@ -313,7 +313,7 @@ impl PyType {
     }
 
     #[pyproperty(magic)]
-    fn qualname(&self, vm: &VirtualMachine) -> PyObjectRef {
+    pub fn qualname(&self, vm: &VirtualMachine) -> PyObjectRef {
         self.attributes
             .read()
             .get("__qualname__")
@@ -330,7 +330,7 @@ impl PyType {
     }
 
     #[pyproperty(magic)]
-    fn module(&self, vm: &VirtualMachine) -> PyObjectRef {
+    pub fn module(&self, vm: &VirtualMachine) -> PyObjectRef {
         // TODO: Implement getting the actual module a builtin type is from
         self.attributes
             .read()

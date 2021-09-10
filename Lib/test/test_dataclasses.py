@@ -2166,8 +2166,6 @@ class TestRepr(unittest.TestCase):
         self.assertEqual(repr(C.D(0)), 'TestRepr.test_repr.<locals>.C.D(i=0)')
         self.assertEqual(repr(C.E()), 'TestRepr.test_repr.<locals>.C.E()')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_no_repr(self):
         # Test a class with no __repr__ and repr=False.
         @dataclass(repr=False)
