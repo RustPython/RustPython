@@ -105,15 +105,8 @@ mod cmath {
     fn isclose(args: IsCloseArgs, vm: &VirtualMachine) -> PyResult<bool> {
         let a = args.a.to_complex();
         let b = args.b.to_complex();
-        let rel_tol = match args.rel_tol {
-            OptionalArg::Missing => 1e-09,
-            OptionalArg::Present(ref value) => value.to_f64(),
-        };
-
-        let abs_tol = match args.abs_tol {
-            OptionalArg::Missing => 0.0,
-            OptionalArg::Present(ref value) => value.to_f64(),
-        };
+        let rel_tol = args.rel_tol.map_or(1e-09, |value| value.to_f64());
+        let abs_tol = args.abs_tol.map_or(0.0, |value| value.to_f64());
 
         if rel_tol < 0.0 || abs_tol < 0.0 {
             return Err(vm.new_value_error("tolerances must be non-negative".to_owned()));

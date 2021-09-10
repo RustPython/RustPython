@@ -50,14 +50,18 @@ complex_nans = [complex(x, y) for x, y in [
         ]]
 
 class CMathTests(unittest.TestCase):
+    # TODO: RUSTPYTHON:
+    # Uncomment when functions have been added. Temporarily 
+    # commented out to allow incremented addition of functions.
+    #
     # list of all functions in cmath
-    test_functions = [getattr(cmath, fname) for fname in [
-            'acos', 'acosh', 'asin', 'asinh', 'atan', 'atanh',
-            'cos', 'cosh', 'exp', 'log', 'log10', 'sin', 'sinh',
-            'sqrt', 'tan', 'tanh']]
+    # test_functions = [getattr(cmath, fname) for fname in [
+    #        'acos', 'acosh', 'asin', 'asinh', 'atan', 'atanh',
+    #        'cos', 'cosh', 'exp', 'log', 'log10', 'sin', 'sinh',
+    #        'sqrt', 'tan', 'tanh']]
     # test first and second arguments independently for 2-argument log
-    test_functions.append(lambda x : cmath.log(x, 1729. + 0j))
-    test_functions.append(lambda x : cmath.log(14.-27j, x))
+    # test_functions.append(lambda x : cmath.log(x, 1729. + 0j))
+    # test_functions.append(lambda x : cmath.log(14.-27j, x))
 
     def setUp(self):
         self.test_values = open(test_file)
@@ -156,6 +160,8 @@ class CMathTests(unittest.TestCase):
         self.assertAlmostEqual(cmath.e, e_expected, places=9,
             msg="cmath.e is {}; should be {}".format(cmath.e, e_expected))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_infinity_and_nan_constants(self):
         self.assertEqual(cmath.inf.real, math.inf)
         self.assertEqual(cmath.inf.imag, 0.0)
@@ -173,6 +179,8 @@ class CMathTests(unittest.TestCase):
         self.assertEqual(repr(cmath.nan), "nan")
         self.assertEqual(repr(cmath.nanj), "nanj")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_user_object(self):
         # Test automatic calling of __complex__ and __float__ by cmath
         # functions
@@ -271,6 +279,8 @@ class CMathTests(unittest.TestCase):
             self.assertRaises(SomeException, f, MyComplexException())
             self.assertRaises(SomeException, f, MyComplexExceptionOS())
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_input_type(self):
         # ints should be acceptable inputs to all cmath
         # functions, by virtue of providing a __float__ method
@@ -283,6 +293,8 @@ class CMathTests(unittest.TestCase):
             for arg in ["a", "long_string", "0", "1j", ""]:
                 self.assertRaises(TypeError, f, arg)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_cmath_matches_math(self):
         # check that corresponding cmath and math functions are equal
         # for floats in the appropriate range
@@ -331,6 +343,8 @@ class CMathTests(unittest.TestCase):
                 self.rAssertAlmostEqual(math.log(v, base), z.real)
                 self.assertEqual(0., z.imag)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @requires_IEEE_754
     def test_specific_values(self):
         # Some tests need to be skipped on ancient OS X versions.
@@ -526,7 +540,8 @@ class CMathTests(unittest.TestCase):
         self.assertEqual(abs(complex(INF, NAN)), INF)
         self.assertTrue(math.isnan(abs(complex(NAN, NAN))))
 
-
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @requires_IEEE_754
     def test_abs_overflows(self):
         # result overflows
@@ -575,6 +590,8 @@ class CMathTests(unittest.TestCase):
         self.assertTrue(cmath.isinf(complex(NAN, INF)))
         self.assertTrue(cmath.isinf(complex(INF, NAN)))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @requires_IEEE_754
     def testTanhSign(self):
         for z in complex_zeros:
@@ -584,11 +601,15 @@ class CMathTests(unittest.TestCase):
     # log1p function; If that system function doesn't respect the sign
     # of zero, then atan and atanh will also have difficulties with
     # the sign of complex zeros.
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @requires_IEEE_754
     def testAtanSign(self):
         for z in complex_zeros:
             self.assertComplexIdentical(cmath.atan(z), z)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @requires_IEEE_754
     def testAtanhSign(self):
         for z in complex_zeros:
