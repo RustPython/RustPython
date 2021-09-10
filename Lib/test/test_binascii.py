@@ -25,8 +25,6 @@ class BinASCIITest(unittest.TestCase):
     def setUp(self):
         self.data = self.type2test(self.rawdata)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exceptions(self):
         # Check module exceptions
         self.assertTrue(issubclass(binascii.Error, Exception))
