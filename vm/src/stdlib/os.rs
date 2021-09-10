@@ -168,6 +168,8 @@ pub(crate) fn fspath(
     check_for_nul: bool,
     vm: &VirtualMachine,
 ) -> PyResult<FsPath> {
+    // path_converter
+    // unicode -> bytes -> buffer -> index -> fspath(unicode/bytes) -> TypeError
     let check_nul = |b: &[u8]| {
         if !check_for_nul || memchr::memchr(b'\0', b).is_none() {
             Ok(())
@@ -191,7 +193,15 @@ pub(crate) fn fspath(
     };
     let obj = match match1(obj)? {
         Ok(pathlike) => return Ok(pathlike),
-        Err(obj) => obj,
+        Err(obj) => match PyBufferRef::try_from_borrowed_object(vm, &obj) {
+            Ok(buffer) => {
+                let b = buffer.obj_bytes();
+                check_nul(b.as_ref())?;
+                let pathlike = FsPath::Bytes(PyBytes::from(b.to_vec()).into_ref(vm));
+                return Ok(pathlike);
+            }
+            Err(_) => obj,
+        },
     };
     let method = vm.get_method_or_type_error(obj.clone(), "__fspath__", || {
         format!(
@@ -211,10 +221,6 @@ pub(crate) fn fspath(
 
 impl TryFromObject for PyPathLike {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        let obj = match PyBufferRef::try_from_borrowed_object(vm, &obj) {
-            Ok(buffer) => PyBytes::from(Vec::from(&*buffer.obj_bytes())).into_pyobject(vm),
-            Err(_) => obj,
-        };
         let path = fspath(obj, true, vm)?;
         Ok(Self {
             path: path.as_os_str(vm)?.to_owned().into(),
