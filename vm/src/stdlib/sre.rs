@@ -654,12 +654,10 @@ mod _sre {
             group: OptionalArg<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<(isize, isize)> {
-            let index = match group {
-                OptionalArg::Present(group) => self
-                    .get_index(group, vm)
-                    .ok_or_else(|| vm.new_index_error("no such group".to_owned()))?,
-                OptionalArg::Missing => 0,
-            };
+            let index = group.map_or(Ok(0), |group| {
+                self.get_index(group, vm)
+                    .ok_or_else(|| vm.new_index_error("no such group".to_owned()))
+            })?;
             Ok(self.regs[index])
         }
 

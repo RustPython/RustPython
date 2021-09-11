@@ -519,10 +519,7 @@ mod decl {
     ) -> PyResult {
         iterator::call_next(vm, &iterator).or_else(|err| {
             if err.isinstance(&vm.ctx.exceptions.stop_iteration) {
-                match default_value {
-                    OptionalArg::Missing => Err(err),
-                    OptionalArg::Present(value) => Ok(value),
-                }
+                default_value.ok_or(err)
             } else {
                 Err(err)
             }
