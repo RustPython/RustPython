@@ -394,7 +394,7 @@ impl PyStr {
                 ch if (ch as u32) < 0x10000 => 6, // \uHHHH
                 _ => 10,                          // \uHHHHHHHH
             };
-            if out_len > (std::isize::MAX as usize) - incr {
+            if out_len > (isize::MAX as usize) - incr {
                 return Err(vm.new_overflow_error("string is too long to generate repr".to_owned()));
             }
             out_len += incr;

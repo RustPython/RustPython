@@ -832,7 +832,7 @@ impl PyBytesInner {
             return self.elements.clone();
         };
 
-        let mut count = maxcount.unwrap_or(std::usize::MAX) - 1;
+        let mut count = maxcount.unwrap_or(usize::MAX) - 1;
         for offset in iter {
             new[offset..offset + len].clone_from_slice(to.elements.as_slice());
             count -= 1;
@@ -860,7 +860,7 @@ impl PyBytesInner {
         //    result_len = self_len + count * (to_len-from_len)
         debug_assert!(count > 0);
         if to.len() as isize - from.len() as isize
-            > (std::isize::MAX - self.elements.len() as isize) / count as isize
+            > (isize::MAX - self.elements.len() as isize) / count as isize
         {
             return Err(vm.new_overflow_error("replace bytes is too long".to_owned()));
         }

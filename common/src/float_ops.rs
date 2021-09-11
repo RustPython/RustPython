@@ -97,7 +97,7 @@ pub fn parse_str(literal: &str) -> Option<f64> {
 }
 
 pub fn is_integer(v: f64) -> bool {
-    (v - v.round()).abs() < std::f64::EPSILON
+    (v - v.round()).abs() < f64::EPSILON
 }
 
 #[derive(Debug)]

@@ -10,9 +10,9 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "pi" => ctx.new_float(std::f64::consts::PI),
         "e" => ctx.new_float(std::f64::consts::E),
         "tau" => ctx.new_float(2.0 * std::f64::consts::PI),
-        "inf" => ctx.new_float(std::f64::INFINITY),
+        "inf" => ctx.new_float(f64::INFINITY),
         "infj" => ctx.new_complex(num_complex::Complex64::new(0., std::f64::INFINITY)),
-        "nan" => ctx.new_float(std::f64::NAN),
+        "nan" => ctx.new_float(f64::NAN),
         "nanj" => ctx.new_complex(num_complex::Complex64::new(0., std::f64::NAN)),
     });
 
