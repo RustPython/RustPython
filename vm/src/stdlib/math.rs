@@ -678,9 +678,10 @@ fn math_fmod(x: IntoPyFloat, y: IntoPyFloat, vm: &VirtualMachine) -> PyResult<f6
 fn math_remainder(x: IntoPyFloat, y: IntoPyFloat, vm: &VirtualMachine) -> PyResult<f64> {
     let x = x.to_f64();
     let y = y.to_f64();
+    
     if x.is_finite() && y.is_finite() {
         if y == 0.0 {
-            return Ok(std::f64::NAN);
+            return Err(vm.new_value_error("math domain error".to_owned()));
         }
 
         let absx = x.abs();
@@ -695,6 +696,15 @@ fn math_remainder(x: IntoPyFloat, y: IntoPyFloat, vm: &VirtualMachine) -> PyResu
         };
 
         return Ok(1.0_f64.copysign(x) * r);
+    }
+    if x.is_finite() && y.is_infinite() {
+        return Ok(fmod(x, y))
+    }
+    if x.is_infinite() && y == 0.0 {
+        return Err(vm.new_value_error("math domain error".to_owned()));
+    }
+    if x.is_infinite() && !y.is_nan() {
+        return Err(vm.new_value_error("math domain error".to_owned()));
     }
 
     if x.is_nan() {
