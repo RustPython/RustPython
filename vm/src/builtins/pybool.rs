@@ -105,10 +105,7 @@ impl SlotConstructor for PyBool {
                 actual_type
             )));
         }
-        let val = match x {
-            OptionalArg::Present(val) => boolval(vm, val)?,
-            OptionalArg::Missing => false,
-        };
+        let val = x.map_or(Ok(false), |val| boolval(vm, val))?;
         Ok(vm.ctx.new_bool(val))
     }
 }

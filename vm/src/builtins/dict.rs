@@ -355,10 +355,7 @@ impl PyDict {
     ) -> PyResult {
         match self.entries.pop(vm, &key)? {
             Some(value) => Ok(value),
-            None => match default {
-                OptionalArg::Present(default) => Ok(default),
-                OptionalArg::Missing => Err(vm.new_key_error(key)),
-            },
+            None => default.ok_or_else(|| vm.new_key_error(key)),
         }
     }
 

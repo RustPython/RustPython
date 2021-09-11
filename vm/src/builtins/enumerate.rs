@@ -41,11 +41,9 @@ impl SlotConstructor for PyEnumerate {
     type Args = EnumerateArgs;
 
     fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
-        let counter = match args.start {
-            OptionalArg::Present(start) => start.as_bigint().clone(),
-            OptionalArg::Missing => BigInt::zero(),
-        };
-
+        let counter = args
+            .start
+            .map_or_else(BigInt::zero, |start| start.as_bigint().clone());
         let iterator = iterator::get_iter(vm, args.iterable)?;
         PyEnumerate {
             counter: PyRwLock::new(counter),
