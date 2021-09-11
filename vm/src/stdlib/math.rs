@@ -327,7 +327,7 @@ fn math_gamma(x: IntoPyFloat) -> f64 {
     } else if x.is_nan() || x.is_sign_positive() {
         x
     } else {
-        std::f64::NAN
+        f64::NAN
     }
 }
 
@@ -338,7 +338,7 @@ fn math_lgamma(x: IntoPyFloat) -> f64 {
     } else if x.is_nan() {
         x
     } else {
-        std::f64::INFINITY
+        f64::INFINITY
     }
 }
 
@@ -822,7 +822,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "pi" => ctx.new_float(std::f64::consts::PI), // 3.14159...
         "e" => ctx.new_float(std::f64::consts::E), // 2.71..
         "tau" => ctx.new_float(2.0 * std::f64::consts::PI),
-        "inf" => ctx.new_float(std::f64::INFINITY),
-        "nan" => ctx.new_float(std::f64::NAN)
+        "inf" => ctx.new_float(f64::INFINITY),
+        "nan" => ctx.new_float(f64::NAN)
     })
 }

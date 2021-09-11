@@ -14,7 +14,7 @@ use crate::{
 /*
  * The magic sys module.
  */
-const MAXSIZE: usize = std::isize::MAX as usize;
+const MAXSIZE: usize = isize::MAX as usize;
 const MAXUNICODE: u32 = std::char::MAX as u32;
 
 fn argv(vm: &VirtualMachine) -> PyObjectRef {

@@ -97,7 +97,7 @@ mod _sre {
         string: PyObjectRef,
         #[pyarg(any, default = "0")]
         pos: usize,
-        #[pyarg(any, default = "std::isize::MAX as usize")]
+        #[pyarg(any, default = "isize::MAX as usize")]
         endpos: usize,
     }
 
@@ -340,48 +340,42 @@ mod _sre {
             split_args: SplitArgs,
             vm: &VirtualMachine,
         ) -> PyResult<PyListRef> {
-            zelf.with_state(
-                split_args.string.clone(),
-                0,
-                std::usize::MAX,
-                vm,
-                |mut state| {
-                    let mut splitlist: Vec<PyObjectRef> = Vec::new();
+            zelf.with_state(split_args.string.clone(), 0, usize::MAX, vm, |mut state| {
+                let mut splitlist: Vec<PyObjectRef> = Vec::new();
 
-                    let mut n = 0;
-                    let mut last = 0;
-                    while split_args.maxsplit == 0 || n < split_args.maxsplit {
-                        state = state.search();
-                        if !state.has_matched {
-                            break;
-                        }
-
-                        /* get segment before this match */
-                        splitlist.push(slice_drive(&state.string, last, state.start, vm));
-
-                        let m = Match::new(&state, zelf.clone(), split_args.string.clone());
-
-                        // add groups (if any)
-                        for i in 1..zelf.groups + 1 {
-                            splitlist.push(
-                                m.get_slice(i, state.string, vm)
-                                    .unwrap_or_else(|| vm.ctx.none()),
-                            );
-                        }
-
-                        n += 1;
-                        state.must_advance = state.string_position == state.start;
-                        last = state.string_position;
-                        state.start = state.string_position;
-                        state.reset();
+                let mut n = 0;
+                let mut last = 0;
+                while split_args.maxsplit == 0 || n < split_args.maxsplit {
+                    state = state.search();
+                    if !state.has_matched {
+                        break;
                     }
 
-                    // get segment following last match (even if empty)
-                    splitlist.push(slice_drive(&state.string, last, state.string.count(), vm));
+                    /* get segment before this match */
+                    splitlist.push(slice_drive(&state.string, last, state.start, vm));
 
-                    Ok(PyList::from(splitlist).into_ref(vm))
-                },
-            )
+                    let m = Match::new(&state, zelf.clone(), split_args.string.clone());
+
+                    // add groups (if any)
+                    for i in 1..zelf.groups + 1 {
+                        splitlist.push(
+                            m.get_slice(i, state.string, vm)
+                                .unwrap_or_else(|| vm.ctx.none()),
+                        );
+                    }
+
+                    n += 1;
+                    state.must_advance = state.string_position == state.start;
+                    last = state.string_position;
+                    state.start = state.string_position;
+                    state.reset();
+                }
+
+                // get segment following last match (even if empty)
+                splitlist.push(slice_drive(&state.string, last, state.string.count(), vm));
+
+                Ok(PyList::from(splitlist).into_ref(vm))
+            })
         }
 
         #[pymethod(magic)]
@@ -477,7 +471,7 @@ mod _sre {
                 }
             };
 
-            zelf.with_state(string.clone(), 0, std::usize::MAX, vm, |mut state| {
+            zelf.with_state(string.clone(), 0, usize::MAX, vm, |mut state| {
                 let mut sublist: Vec<PyObjectRef> = Vec::new();
                 let mut n = 0;
                 let mut last_pos = 0;

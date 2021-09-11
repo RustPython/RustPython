@@ -69,9 +69,9 @@ fn saturate_to_isize(py_int: PyIntRef) -> isize {
     let big = py_int.as_bigint();
     big.to_isize().unwrap_or_else(|| {
         if big.is_negative() {
-            std::isize::MIN
+            isize::MIN
         } else {
-            std::isize::MAX
+            isize::MAX
         }
     })
 }
