@@ -652,7 +652,6 @@ impl PyBytes {
         self.inner.title().into()
     }
 
-    /// Return value*self.
     #[pymethod(name = "__rmul__")]
     #[pymethod(magic)]
     fn mul(zelf: PyRef<Self>, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
@@ -698,7 +697,6 @@ impl PyBytes {
         bytes_decode(zelf.into_object(), args, vm)
     }
 
-    /// 
     #[pymethod(magic)]
     fn getnewargs(&self, vm: &VirtualMachine) -> PyTupleRef {
         let param: Vec<PyObjectRef> = self

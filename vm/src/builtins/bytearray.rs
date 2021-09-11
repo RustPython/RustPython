@@ -843,7 +843,6 @@ impl PyByteArray {
         self.inner().title().into()
     }
 
-    /// Return value*self.
     #[pymethod(name = "__rmul__")]
     #[pymethod(magic)]
     fn mul(&self, value: isize, vm: &VirtualMachine) -> PyResult<Self> {

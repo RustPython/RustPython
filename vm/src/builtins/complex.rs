@@ -184,6 +184,7 @@ impl PyComplex {
         self.value.im
     }
 
+    /// abs(self)
     #[pymethod(magic)]
     fn abs(&self) -> f64 {
         let Complex64 { im, re } = self.value;
@@ -216,6 +217,7 @@ impl PyComplex {
         self.op(other, |a, b| Ok(a + b), vm)
     }
 
+    /// Return self-value.
     #[pymethod(magic)]
     fn sub(
         &self,
@@ -225,6 +227,7 @@ impl PyComplex {
         self.op(other, |a, b| Ok(a - b), vm)
     }
 
+    /// Return value-self.
     #[pymethod(magic)]
     fn rsub(
         &self,
@@ -234,16 +237,21 @@ impl PyComplex {
         self.op(other, |a, b| Ok(b - a), vm)
     }
 
+    /// complex.conjugate() -> complex
+    /// 
+    /// Return the complex conjugate of its argument. (3-4j).conjugate() == 3+4j.
     #[pymethod]
     fn conjugate(&self) -> Complex64 {
         self.value.conj()
     }
 
+    /// float(self)
     #[pymethod(magic)]
     fn float(&self, vm: &VirtualMachine) -> PyResult<Never> {
         Err(vm.new_type_error(String::from("Can't convert complex to float")))
     }
 
+    /// int(self)
     #[pymethod(magic)]
     fn int(&self, vm: &VirtualMachine) -> PyResult<Never> {
         Err(vm.new_type_error(String::from("Can't convert complex to int")))
@@ -259,6 +267,7 @@ impl PyComplex {
         self.op(other, |a, b| Ok(a * b), vm)
     }
 
+    /// Return self/value.
     #[pymethod(magic)]
     fn truediv(
         &self,
@@ -268,6 +277,7 @@ impl PyComplex {
         self.op(other, |a, b| inner_div(a, b, vm), vm)
     }
 
+    /// Return value/self.
     #[pymethod(magic)]
     fn rtruediv(
         &self,
@@ -295,16 +305,19 @@ impl PyComplex {
         Err(vm.new_type_error("can't take floor or mod of complex number.".to_owned()))
     }
 
+    /// +self
     #[pymethod(magic)]
     fn pos(&self) -> Complex64 {
         self.value
     }
 
+    /// -self
     #[pymethod(magic)]
     fn neg(&self) -> Complex64 {
         -self.value
     }
 
+    /// Return repr(self).
     #[pymethod(magic)]
     fn repr(&self) -> String {
         let Complex64 { re, im } = self.value;
@@ -315,6 +328,7 @@ impl PyComplex {
         }
     }
 
+    /// Return pow(self, value, mod).
     #[pymethod(magic)]
     fn pow(
         &self,
@@ -329,6 +343,7 @@ impl PyComplex {
         }
     }
 
+    /// Return pow(value, self, mod).
     #[pymethod(magic)]
     fn rpow(
         &self,
@@ -338,11 +353,13 @@ impl PyComplex {
         self.op(other, |a, b| inner_pow(b, a, vm), vm)
     }
 
+    /// self != 0
     #[pymethod(magic)]
     fn bool(&self) -> bool {
         !Complex64::is_zero(&self.value)
     }
 
+    /// 
     #[pymethod(magic)]
     fn getnewargs(&self, vm: &VirtualMachine) -> PyObjectRef {
         let Complex64 { re, im } = self.value;

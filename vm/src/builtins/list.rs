@@ -251,7 +251,6 @@ impl PyList {
         Ok(s)
     }
 
-    /// Return value*self.
     #[pymethod(magic)]
     #[pymethod(name = "__rmul__")]
     fn mul(&self, value: isize, vm: &VirtualMachine) -> PyResult {
