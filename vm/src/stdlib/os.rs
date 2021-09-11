@@ -168,6 +168,7 @@ pub(crate) fn fspath(
     check_for_nul: bool,
     vm: &VirtualMachine,
 ) -> PyResult<FsPath> {
+    // PyOS_FSPath in CPython
     let check_nul = |b: &[u8]| {
         if !check_for_nul || memchr::memchr(b'\0', b).is_none() {
             Ok(())
@@ -211,6 +212,7 @@ pub(crate) fn fspath(
 
 impl TryFromObject for PyPathLike {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        // path_converter in CPython
         let obj = match PyBufferRef::try_from_borrowed_object(vm, &obj) {
             Ok(buffer) => PyBytes::from(Vec::from(&*buffer.obj_bytes())).into_pyobject(vm),
             Err(_) => obj,
