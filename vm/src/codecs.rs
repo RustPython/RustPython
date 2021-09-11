@@ -530,7 +530,7 @@ fn get_standard_encoding(encoding: &str) -> (usize, StandardEncoding) {
             }
         }
         return (byte_length, standard_encoding);
-    } else if encoding.to_lowercase() == "CP_UTF8" {
+    } else if encoding == "CP_UTF8" {
         return (3, StandardEncoding::Utf8);
     }
     (0, StandardEncoding::Unknown)
