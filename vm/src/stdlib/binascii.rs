@@ -5,6 +5,7 @@ mod decl {
     use crate::builtins::bytearray::{PyByteArray, PyByteArrayRef};
     use crate::builtins::bytes::{PyBytes, PyBytesRef};
     use crate::builtins::pystr::{PyStr, PyStrRef};
+    use crate::builtins::PyTypeRef;
     use crate::byteslike::ArgBytesLike;
     use crate::function::OptionalArg;
     use crate::vm::VirtualMachine;
@@ -49,6 +50,38 @@ mod decl {
                 SerializedData::Ascii(a) => f(a.as_str().as_bytes()),
             }
         }
+    }
+
+    #[pyattr(name = "Error")]
+    fn get_binascii_error(vm: &VirtualMachine) -> PyTypeRef {
+        rustpython_common::static_cell! {
+            static BINASCII_ERROR: PyTypeRef;
+        }
+        BINASCII_ERROR
+            .get_or_init(|| {
+                vm.ctx.new_class(
+                    "binascii.Error",
+                    &vm.ctx.exceptions.value_error,
+                    Default::default(),
+                )
+            })
+            .clone()
+    }
+
+    #[pyattr(name = "Incomplete")]
+    fn get_binascii_incomplete(vm: &VirtualMachine) -> PyTypeRef {
+        rustpython_common::static_cell! {
+            static BINASCII_INCOMPLTE: PyTypeRef;
+        }
+        BINASCII_INCOMPLTE
+            .get_or_init(|| {
+                vm.ctx.new_class(
+                    "binascii.Incomplete",
+                    &vm.ctx.exceptions.exception_type,
+                    Default::default(),
+                )
+            })
+            .clone()
     }
 
     fn hex_nibble(n: u8) -> u8 {
