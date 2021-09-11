@@ -697,29 +697,17 @@ fn math_remainder(x: IntoPyFloat, y: IntoPyFloat, vm: &VirtualMachine) -> PyResu
 
         return Ok(1.0_f64.copysign(x) * r);
     }
-    if x.is_finite() && y.is_infinite() {
-        return Ok(fmod(x, y));
-    }
-    if x.is_infinite() && y == 0.0 {
-        return Err(vm.new_value_error("math domain error".to_owned()));
-    }
     if x.is_infinite() && !y.is_nan() {
         return Err(vm.new_value_error("math domain error".to_owned()));
     }
-
-    if x.is_nan() {
-        return Ok(x);
-    }
-    if y.is_nan() {
-        return Ok(y);
-    }
-    if x.is_infinite() {
-        return Ok(std::f64::NAN);
+    if x.is_nan() || y.is_nan() {
+        return Ok(f64::NAN);
     }
     if y.is_infinite() {
-        return Err(vm.new_value_error("math domain error".to_owned()));
+        Ok(x)
+    } else {
+        Err(vm.new_value_error("math domain error".to_owned()))
     }
-    Ok(x)
 }
 
 #[derive(FromArgs)]
