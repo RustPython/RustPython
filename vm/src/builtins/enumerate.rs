@@ -30,7 +30,6 @@ impl PyValue for PyEnumerate {
 
 #[derive(FromArgs)]
 pub struct EnumerateArgs {
-    #[pyarg(any)]
     iterable: PyObjectRef,
     #[pyarg(any, optional)]
     start: OptionalArg<PyIntRef>,

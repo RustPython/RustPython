@@ -39,7 +39,6 @@ pub fn init_module_dict(
 
 #[derive(FromArgs)]
 struct ModuleInitArgs {
-    #[pyarg(any)]
     name: PyStrRef,
     #[pyarg(any, default)]
     doc: Option<PyStrRef>,

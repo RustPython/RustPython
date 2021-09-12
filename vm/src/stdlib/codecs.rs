@@ -28,7 +28,6 @@ mod _codecs {
 
     #[derive(FromArgs)]
     struct CodeArgs {
-        #[pyarg(any)]
         obj: PyObjectRef,
         #[pyarg(any, optional)]
         encoding: Option<PyStrRef>,

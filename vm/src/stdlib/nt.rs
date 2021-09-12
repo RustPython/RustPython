@@ -46,9 +46,7 @@ pub(crate) mod module {
 
     #[derive(FromArgs)]
     pub(super) struct SimlinkArgs {
-        #[pyarg(any)]
         src: PyPathLike,
-        #[pyarg(any)]
         dst: PyPathLike,
         #[pyarg(flatten)]
         target_is_directory: TargetIsDirectory,

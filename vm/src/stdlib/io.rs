@@ -1833,7 +1833,6 @@ mod _io {
 
     #[derive(FromArgs)]
     struct TextIOWrapperArgs {
-        #[pyarg(any)]
         buffer: PyObjectRef,
         #[pyarg(any, default)]
         encoding: Option<PyStrRef>,
@@ -3455,7 +3454,6 @@ mod _io {
 
     #[derive(FromArgs)]
     struct IoOpenArgs {
-        #[pyarg(any)]
         file: PyObjectRef,
         #[pyarg(any, optional)]
         mode: OptionalArg<PyStrRef>,
