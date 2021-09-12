@@ -1526,6 +1526,7 @@ mod _os {
         }
     }
 
+    #[cfg(all(any(unix, windows), not(target_os = "redox")))]
     #[pyattr]
     #[pyclass(module = "os", name = "times_result")]
     #[derive(Debug, PyStructSequence)]
@@ -1537,10 +1538,11 @@ mod _os {
         pub elapsed: f64,
     }
 
+    #[cfg(all(any(unix, windows), not(target_os = "redox")))]
     #[pyimpl(with(PyStructSequence))]
     impl TimesResult {}
 
-    #[cfg(any(unix, windows))]
+    #[cfg(all(any(unix, windows), not(target_os = "redox")))]
     #[pyfunction]
     fn times(vm: &VirtualMachine) -> PyResult {
         #[cfg(windows)]
@@ -2403,6 +2405,7 @@ mod posix {
         )
     }
 
+    #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn nice(increment: i32, vm: &VirtualMachine) -> PyResult<i32> {
         use nix::errno::{errno, Errno};
