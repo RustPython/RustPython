@@ -58,6 +58,24 @@ impl SlotConstructor for PyMemoryView {
 
 #[pyimpl(with(Hashable, Comparable, AsBuffer, SlotConstructor))]
 impl PyMemoryView {
+    #[cfg(debug_assertions)]
+    fn validate(self) -> Self {
+        let options = &self.buffer.options;
+        let bytes_len = options.len * options.itemsize;
+        let buffer_len = self.buffer.internal.obj_bytes().len();
+        let t1 = self.stop - self.start == bytes_len;
+        let t2 = buffer_len >= self.stop;
+        let t3 = buffer_len >= self.start + bytes_len;
+        assert!(t1);
+        assert!(t2);
+        assert!(t3);
+        self
+    }
+    #[cfg(not(debug_assertions))]
+    fn validate(self) -> Self {
+        self
+    }
+
     fn parse_format(format: &str, vm: &VirtualMachine) -> PyResult<FormatSpec> {
         FormatSpec::parse(format, vm)
     }
@@ -77,7 +95,8 @@ impl PyMemoryView {
             step: 1,
             format_spec,
             hash: OnceCell::new(),
-        })
+        }
+        .validate())
     }
 
     pub fn from_buffer_range(
@@ -96,7 +115,8 @@ impl PyMemoryView {
             step: 1,
             format_spec,
             hash: OnceCell::new(),
-        })
+        }
+        .validate())
     }
 
     fn as_contiguous(&self) -> Option<BorrowedValue<[u8]>> {
@@ -270,6 +290,7 @@ impl PyMemoryView {
                 format_spec,
                 hash: OnceCell::new(),
             }
+            .validate()
             .into_object(vm));
         }
 
@@ -315,6 +336,7 @@ impl PyMemoryView {
                 format_spec,
                 hash: OnceCell::new(),
             }
+            .validate()
             .into_object(vm));
         };
 
@@ -345,6 +367,7 @@ impl PyMemoryView {
             format_spec,
             hash: OnceCell::new(),
         }
+        .validate()
         .into_object(vm))
     }
 
@@ -538,6 +561,7 @@ impl PyMemoryView {
             hash: OnceCell::new(),
             ..*zelf
         }
+        .validate()
         .into_ref(vm))
     }
 
@@ -607,6 +631,7 @@ impl PyMemoryView {
             hash: OnceCell::new(),
             ..*zelf
         }
+        .validate()
         .into_ref(vm))
     }
 
