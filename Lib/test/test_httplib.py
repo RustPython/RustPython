@@ -839,8 +839,6 @@ class BasicTest(TestCase):
         with self.assertRaises(TypeError):
             conn.request('POST', 'test', conn)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_chunked(self):
         expected = chunked_expected
         sock = FakeSocket(chunked_start + last_chunk + chunked_end)
@@ -873,8 +871,6 @@ class BasicTest(TestCase):
             finally:
                 resp.close()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_readinto_chunked(self):
 
         expected = chunked_expected
