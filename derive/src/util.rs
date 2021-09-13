@@ -2,6 +2,7 @@ use indexmap::map::IndexMap;
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, ToTokens};
 use std::collections::HashMap;
+use syn::Signature;
 use syn::{spanned::Spanned, Attribute, Ident, Meta, MetaList, NestedMeta, Path, Result, UseTree};
 use syn_ext::ext::{AttributeExt as SynAttributeExt, *};
 use syn_ext::types::PunctuatedNestedMeta;
@@ -502,4 +503,41 @@ where
         }
     }
     Ok(())
+}
+
+// Best effort attempt to create a template from which a
+// __text_signature__ can be created.
+pub(crate) fn get_func_sig(sig: &Signature, name: &str) -> String {
+    let args: Vec<_> = sig
+        .inputs
+        .iter()
+        .filter_map(|arg| {
+            use syn::FnArg::*;
+            let arg = match arg {
+                Receiver(_) => return Some("$self".to_owned()),
+                Typed(typed) => typed,
+            };
+            let ty = arg.ty.as_ref();
+            let ty = quote!(#ty).to_string();
+            if ty == "FuncArgs" {
+                return Some("*args, **kwargs".to_owned());
+            }
+            if ty == "& VirtualMachine" {
+                return None;
+            }
+            let ident = match arg.pat.as_ref() {
+                syn::Pat::Ident(p) => p.ident.to_string(),
+                // FIXME: other => unreachable!("function arg pattern must be ident but found `{}`", quote!(fn #ident(.. #other ..))),
+                other => quote!(#other).to_string(),
+            };
+            if ident == "zelf" {
+                return Some("$self".to_owned());
+            }
+            if ident == "vm" {
+                unreachable!("type &VirtualMachine(`{}`) must be filtered already", ty);
+            }
+            Some(ident)
+        })
+        .collect();
+    format!("{}({})", name, args.join(", "))
 }

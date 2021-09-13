@@ -1,7 +1,7 @@
 use super::Diagnostic;
 use crate::util::{
-    path_eq, pyclass_ident_and_attrs, ClassItemMeta, ContentItem, ContentItemInner, ErrorVec,
-    ItemMeta, ItemMetaInner, ItemNursery, SimpleItemMeta, ALL_ALLOWED_NAMES,
+    get_func_sig, path_eq, pyclass_ident_and_attrs, ClassItemMeta, ContentItem, ContentItemInner,
+    ErrorVec, ItemMeta, ItemMetaInner, ItemNursery, SimpleItemMeta, ALL_ALLOWED_NAMES,
 };
 use proc_macro2::TokenStream;
 use quote::{quote, quote_spanned, ToTokens};
@@ -367,43 +367,13 @@ where
 
         let item_attr = args.attrs.remove(self.index());
         let item_meta = MethodItemMeta::from_attr(ident.clone(), &item_attr)?;
-        let py_name = item_meta.method_name()?;
 
-        let sig_doc = args.item.function_or_method_impl().ok().map(|item| {
-            let sig = item.sig();
-            let args: Vec<_> = sig
-                .inputs
-                .iter()
-                .filter_map(|arg| {
-                    use syn::FnArg::*;
-                    let arg = match arg {
-                        Receiver(_) => return Some("$self".to_owned()),
-                        Typed(typed) => typed,
-                    };
-                    let ty = arg.ty.as_ref();
-                    let ty = quote!(#ty).to_string();
-                    if ty == "FuncArgs" {
-                        return Some("*args, **kwargs".to_owned());
-                    }
-                    if ty == "& VirtualMachine" {
-                        return None;
-                    }
-                    let ident = match arg.pat.as_ref() {
-                        syn::Pat::Ident(p) => p.ident.to_string(),
-                        // FIXME: other => unreachable!("function arg pattern must be ident but found `{}`", quote!(fn #ident(.. #other ..))),
-                        other => quote!(#other).to_string(),
-                    };
-                    if ident == "zelf" {
-                        return Some("$self".to_owned());
-                    }
-                    if ident == "vm" {
-                        unreachable!("type &VirtualMachine(`{}`) must be filtered already", ty);
-                    }
-                    Some(ident)
-                })
-                .collect();
-            format!("{}({})", py_name, args.join(", "))
-        });
+        let py_name = item_meta.method_name()?;
+        let sig_doc = args
+            .item
+            .function_or_method_impl()
+            .ok()
+            .map(|f| get_func_sig(f.sig(), &py_name));
 
         let tokens = {
             let doc = args.attrs.doc().map_or_else(TokenStream::new, |mut doc| {
