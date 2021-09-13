@@ -9,7 +9,7 @@ use crate::common::{
     rc::PyRc,
 };
 use crate::function::{FuncArgs, OptionalArg};
-use crate::sliceable::{convert_slice, saturate_range, wrap_index, SequenceIndex};
+use crate::sliceable::{convert_slice, wrap_index, SequenceIndex};
 use crate::slots::{AsBuffer, Comparable, Hashable, PyComparisonOp, SlotConstructor};
 use crate::stdlib::pystruct::_struct::FormatSpec;
 use crate::utils::Either;
@@ -19,8 +19,7 @@ use crate::{
 };
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
-use num_bigint::BigInt;
-use num_traits::{One, Signed, ToPrimitive, Zero};
+use num_traits::ToPrimitive;
 use std::fmt::Debug;
 use std::ops::Deref;
 
@@ -255,25 +254,20 @@ impl PyMemoryView {
 
     fn getitem_by_slice(zelf: PyRef<Self>, slice: PySliceRef, vm: &VirtualMachine) -> PyResult {
         // slicing a memoryview return a new memoryview
-        let start = slice.start_index(vm)?;
-        let stop = slice.stop_index(vm)?;
-        let step = slice.step_index(vm)?.unwrap_or_else(BigInt::one);
-        if step.is_zero() {
-            return Err(vm.new_value_error("slice step cannot be zero".to_owned()));
-        }
-        let newstep: BigInt = step.clone() * zelf.step;
         let len = zelf.buffer.options.len;
+        let (range, step, is_negative_step) = convert_slice(&slice, len, vm)?;
+        let abs_step = step.unwrap();
+        let step = if is_negative_step {
+            -(abs_step as isize)
+        } else {
+            abs_step as isize
+        };
+        let newstep = step * zelf.step;
         let itemsize = zelf.buffer.options.itemsize;
 
         let format_spec = zelf.format_spec.clone();
 
-        if newstep == BigInt::one() {
-            let range = saturate_range(&start, &stop, len);
-            let range = if range.end < range.start {
-                range.start..range.start
-            } else {
-                range
-            };
+        if newstep == 1 {
             let newlen = range.end - range.start;
             let start = zelf.start + range.start * itemsize;
             let stop = zelf.start + range.end * itemsize;
@@ -294,35 +288,7 @@ impl PyMemoryView {
             .into_object(vm));
         }
 
-        let (start, stop) = if step.is_negative() {
-            (
-                stop.map(|x| {
-                    if x == -BigInt::one() {
-                        len + BigInt::one()
-                    } else {
-                        x + 1
-                    }
-                }),
-                start.map(|x| {
-                    if x == -BigInt::one() {
-                        BigInt::from(len)
-                    } else {
-                        x + 1
-                    }
-                }),
-            )
-        } else {
-            (start, stop)
-        };
-
-        let range = saturate_range(&start, &stop, len);
-        let newlen = if range.end > range.start {
-            // overflow is not possible as dividing a positive integer
-            ((range.end - range.start - 1) / step.abs())
-                .to_usize()
-                .unwrap()
-                + 1
-        } else {
+        if range.start >= range.end {
             return Ok(PyMemoryView {
                 buffer: zelf.buffer.clone_with_options(BufferOptions {
                     len: 0,
@@ -339,6 +305,12 @@ impl PyMemoryView {
             .validate()
             .into_object(vm));
         };
+
+        // overflow is not possible as dividing a positive integer
+        let newlen = ((range.end - range.start - 1) / abs_step)
+            .to_usize()
+            .unwrap()
+            + 1;
 
         // newlen will be 0 if step is overflowed
         let newstep = newstep.to_isize().unwrap_or(-1);
