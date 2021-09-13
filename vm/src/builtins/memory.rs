@@ -37,7 +37,7 @@ pub struct PyMemoryViewNewArgs {
 #[derive(Debug)]
 pub struct PyMemoryView {
     buffer: PyBuffer,
-    pub(crate) released: AtomicCell<bool>,
+    released: AtomicCell<bool>,
     // start should always less or equal to the stop
     // start and stop pointing to the memory index not slice index
     // if length is not zero than [start, stop)

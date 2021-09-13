@@ -893,7 +893,7 @@ mod _io {
                 // TODO: loop if write() raises an interrupt
                 let res = vm.call_method(raw, "write", (memobj.clone(),));
 
-                memobj.released.store(true);
+                memobj.release();
                 self.buffer = std::mem::take(&mut writebuf.data.lock());
 
                 res?
@@ -1132,7 +1132,7 @@ mod _io {
                     let res =
                         vm.call_method(self.raw.as_ref().unwrap(), "readinto", (memobj.clone(),));
 
-                    memobj.released.store(true);
+                    memobj.release();
                     std::mem::swap(v, &mut readbuf.data.lock());
 
                     res?
