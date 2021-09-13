@@ -55,10 +55,7 @@ class CMathTests(unittest.TestCase):
     # commented out to allow incremented addition of functions.
     #
     # list of all functions in cmath
-    # test_functions = [getattr(cmath, fname) for fname in [
-    #        'acos', 'acosh', 'asin', 'asinh', 'atan', 'atanh',
-    #        'cos', 'cosh', 'exp', 'log', 'log10', 'sin', 'sinh',
-    #        'sqrt', 'tan', 'tanh']]
+    test_functions = [getattr(cmath, fname) for fname in ['sqrt']]
     # test first and second arguments independently for 2-argument log
     # test_functions.append(lambda x : cmath.log(x, 1729. + 0j))
     # test_functions.append(lambda x : cmath.log(14.-27j, x))
@@ -179,8 +176,6 @@ class CMathTests(unittest.TestCase):
         self.assertEqual(repr(cmath.nan), "nan")
         self.assertEqual(repr(cmath.nanj), "nanj")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_user_object(self):
         # Test automatic calling of __complex__ and __float__ by cmath
         # functions
@@ -279,8 +274,6 @@ class CMathTests(unittest.TestCase):
             self.assertRaises(SomeException, f, MyComplexException())
             self.assertRaises(SomeException, f, MyComplexExceptionOS())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_input_type(self):
         # ints should be acceptable inputs to all cmath
         # functions, by virtue of providing a __float__ method
@@ -326,11 +319,16 @@ class CMathTests(unittest.TestCase):
             'sinh' : real_line,
             'sqrt' : nonnegative,
             'tan' : real_line,
-            'tanh' : real_line}
+            'tanh' : real_line
+        }
 
         for fn, values in test_functions.items():
             float_fn = getattr(math, fn)
-            complex_fn = getattr(cmath, fn)
+            # TODO: RUSTPYTHON replace with 'complex_fn = getattr(cmath, fn)'
+            # when all functions have been added.
+            complex_fn = getattr(cmath, fn, None)
+            if complex_fn is None:
+                continue
             for v in values:
                 z = complex_fn(v)
                 self.rAssertAlmostEqual(float_fn(v), z.real)
