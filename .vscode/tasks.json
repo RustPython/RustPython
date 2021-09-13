@@ -6,7 +6,7 @@
             "type": "shell",
             "command": "cargo",
             "args": [
-                "build", "--features=ssl",
+                "build",
             ],
             "problemMatcher": [
                 "$rustc",
