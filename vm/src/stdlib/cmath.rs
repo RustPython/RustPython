@@ -72,7 +72,11 @@ mod cmath {
         let z = z.to_complex();
         result_or_overflow(z, z.exp(), vm)
     }
-
+    /// Return the square root of z.
+    #[pyfunction]
+    fn sqrt(z: IntoPyComplex) -> Complex64 {
+        z.to_complex().sqrt()
+    }
     #[derive(FromArgs)]
     struct IsCloseArgs {
         #[pyarg(positional)]
