@@ -1,9 +1,6 @@
 use crate::buffer::{BufferOptions, PyBuffer, PyBufferInternal};
-use crate::builtins::bytes::{PyBytes, PyBytesRef};
-use crate::builtins::list::{PyList, PyListRef};
-use crate::builtins::pystr::{PyStr, PyStrRef};
-use crate::builtins::pytype::PyTypeRef;
 use crate::builtins::slice::PySliceRef;
+use crate::builtins::{PyBytes, PyBytesRef, PyList, PyListRef, PyStr, PyStrRef, PyTypeRef};
 use crate::bytesinner::bytes_to_hex;
 use crate::common::{
     borrow::{BorrowedValue, BorrowedValueMut},
