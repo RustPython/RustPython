@@ -73,6 +73,20 @@ mod cmath {
         result_or_overflow(z, z.exp(), vm)
     }
 
+    /// Return the arc cosine of z.
+    #[pyfunction]
+    fn acos(z: IntoPyComplex, vm: &VirtualMachine) -> PyResult<Complex64> {
+        let z = z.to_complex();
+        result_or_overflow(z, z.acos(), vm)
+    }
+
+    /// Return the inverse hyperbolic cosine of z.
+    #[pyfunction]
+    fn acosh(z: IntoPyComplex, vm: &VirtualMachine) -> PyResult<Complex64> {
+        let z = z.to_complex();
+        result_or_overflow(z, z.acosh(), vm)
+    }
+
     #[derive(FromArgs)]
     struct IsCloseArgs {
         #[pyarg(positional)]
