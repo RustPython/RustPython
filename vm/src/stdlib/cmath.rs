@@ -72,7 +72,7 @@ mod cmath {
         let z = z.to_complex();
         result_or_overflow(z, z.exp(), vm)
     }
-    /// Calculates the square Root of the complex number
+    /// Return the square root of z.
     #[pyfunction]
     fn sqrt(z: IntoPyComplex) -> Complex64 {
         z.to_complex().sqrt()
