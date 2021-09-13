@@ -56,7 +56,6 @@ criterion = "0.3"
 
 [package.metadata.precommit]
 fmt = "cargo fmt --all"
-git-add = "git add -u"
 
 [[bench]]
 name = "execution"
