@@ -9,7 +9,6 @@ mod zlib {
         IntoPyRef, PyResult, PyValue, VirtualMachine,
     };
     use adler32::RollingAdler32 as Adler32;
-    use crc32fast::Hasher as Crc32;
     use crossbeam_utils::atomic::AtomicCell;
     use flate2::{
         write::ZlibEncoder, Compress, Compression, Decompress, FlushCompress, FlushDecompress,
@@ -74,13 +73,7 @@ mod zlib {
     /// Compute a CRC-32 checksum of data.
     #[pyfunction]
     fn crc32(data: ArgBytesLike, begin_state: OptionalArg<PyIntRef>) -> u32 {
-        data.with_ref(|data| {
-            let begin_state = begin_state.map_or(0, |i| i.as_u32_mask());
-
-            let mut hasher = Crc32::new_with_initial(begin_state);
-            hasher.update(data);
-            hasher.finalize()
-        })
+        crate::binascii::crc32(data, begin_state)
     }
 
     fn compression_from_int(level: Option<i32>) -> Option<Compression> {

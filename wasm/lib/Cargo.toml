@@ -22,7 +22,7 @@ rustpython-common = { path = "../../common" }
 rustpython-vm = { path = "../../vm", default-features = false, features = ["compile-parse"]  }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
-serde-wasm-bindgen = "0.1"
+serde-wasm-bindgen = "0.3.1"
 serde = "1.0"
 js-sys = "0.3"
 console_error_panic_hook = "0.1"

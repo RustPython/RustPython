@@ -32,7 +32,7 @@ ssl-vendor = ["rustpython-stdlib/ssl-vendor"]
 
 [dependencies]
 log = "0.4"
-env_logger = { version = "0.8", default-features = false, features = ["atty", "termcolor"] }
+env_logger = { version = "0.9.0", default-features = false, features = ["atty", "termcolor"] }
 clap = "2.33"
 rustpython-compiler = { path = "compiler/porcelain", version = "0.1.1" }
 rustpython-parser = { path = "parser", version = "0.1.1" }
@@ -50,8 +50,8 @@ flamescope = { version = "0.1", optional = true }
 rustyline = "9"
 
 [dev-dependencies]
-cpython = "0.6"
-python3-sys = "0.6"
+cpython = "0.7.0"
+python3-sys = "0.7.0"
 criterion = "0.3"
 
 [[bench]]
