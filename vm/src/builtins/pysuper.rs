@@ -123,27 +123,37 @@ impl PySuper {
 
 impl SlotGetattro for PySuper {
     fn getattro(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        let (inst, obj_type) = match zelf.obj.clone() {
+        let skip = |zelf: PyRef<Self>, name| vm.generic_getattribute(zelf.into_object(), name);
+        let (obj, start_type): (PyObjectRef, PyTypeRef) = match zelf.obj.clone() {
             Some(o) => o,
-            None => return vm.generic_getattribute(zelf.into_object(), name),
+            None => return skip(zelf, name),
         };
-        // skip the classes in obj_type.mro up to and including zelf.typ
-        let it = obj_type
+        // We want __class__ to return the class of the super object
+        // (i.e. super, or a subclass), not the class of su->obj.
+
+        if name.as_str() == "__class__" {
+            return skip(zelf, name);
+        }
+
+        // skip the classes in start_type.mro up to and including zelf.typ
+        let mro: Vec<_> = start_type
             .iter_mro()
             .skip_while(|cls| !cls.is(&zelf.typ))
-            .skip(1);
-        for cls in it {
+            .skip(1) // skip su->type (if any)
+            .collect();
+        for cls in mro {
             if let Some(descr) = cls.get_direct_attr(name.as_str()) {
                 return vm
                     .call_get_descriptor_specific(
                         descr.clone(),
-                        if inst.is(&obj_type) { None } else { Some(inst) },
-                        Some(obj_type.clone().into_object()),
+                        // Only pass 'obj' param if this is instance-mode super (See https://bugs.python.org/issue743267)
+                        if obj.is(&start_type) { None } else { Some(obj) },
+                        Some(start_type.as_object().clone()),
                     )
                     .unwrap_or(Ok(descr));
             }
         }
-        vm.generic_getattribute(zelf.into_object(), name)
+        skip(zelf, name)
     }
 }
 
