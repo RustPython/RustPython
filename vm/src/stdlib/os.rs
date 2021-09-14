@@ -2563,6 +2563,18 @@ mod posix {
             .map_err(|err| err.into_pyexception(vm))
     }
 
+    #[cfg(not(target_os = "redox"))]
+    #[pyfunction]
+    fn lchmod(path: PyPathLike, mode: u16, vm: &VirtualMachine) -> PyResult<()> {
+        nix::sys::stat::fchmodat(
+            None,
+            &path.path,
+            nix::sys::stat::Mode::from_bits(mode).unwrap(),
+            nix::sys::stat::FchmodatFlags::NoFollowSymlink,
+        )
+        .map_err(|err| err.into_pyexception(vm))
+    }
+
     #[pyfunction]
     fn execv(
         path: PyStrRef,
