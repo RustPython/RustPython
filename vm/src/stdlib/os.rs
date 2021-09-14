@@ -2539,21 +2539,29 @@ mod posix {
 
     #[pyfunction]
     fn chmod(
-        path: PyPathLike,
+        path: PathOrFd,
         dir_fd: DirFd<0>,
         mode: u32,
         follow_symlinks: FollowSymlinks,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let [] = dir_fd.0;
-        let body = move || {
-            use std::os::unix::fs::PermissionsExt;
-            let meta = fs_metadata(&path, follow_symlinks.0)?;
-            let mut permissions = meta.permissions();
-            permissions.set_mode(mode);
-            fs::set_permissions(&path, permissions)
-        };
-        body().map_err(|err| err.into_pyexception(vm))
+        match path {
+            PathOrFd::Path(path) => {
+                let body = move || {
+                    use std::os::unix::fs::PermissionsExt;
+                    let meta = fs_metadata(&path, follow_symlinks.0)?;
+                    let mut permissions = meta.permissions();
+                    permissions.set_mode(mode);
+                    fs::set_permissions(&path, permissions)
+                };
+                body().map_err(|err| err.into_pyexception(vm))
+            }
+            PathOrFd::Fd(fd) => {
+                nix::sys::stat::fchmod(fd, nix::sys::stat::Mode::from_bits(mode as u16).unwrap())
+                    .map_err(|err| err.into_pyexception(vm))
+            }
+        }
     }
 
     #[cfg(not(target_os = "redox"))]
