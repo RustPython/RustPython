@@ -87,6 +87,7 @@ pub struct PyContext {
     pub int_cache_pool: Vec<PyIntRef>,
     // there should only be exact objects of str in here, no non-strs and no subclasses
     pub(crate) string_cache: Dict<()>,
+    tp_new_wrapper: PyObjectRef,
 }
 
 // Basic objects:
@@ -123,6 +124,13 @@ impl PyContext {
 
         let string_cache = Dict::default();
 
+        let new_str = PyRef::new_ref(pystr::PyStr::from("__new__"), types.str_type.clone(), None);
+        let tp_new_wrapper = create_object(
+            PyNativeFuncDef::new(object::PyBaseObject::new.into_func(), new_str).into_function(),
+            &types.builtin_function_or_method_type,
+        )
+        .into_object();
+
         let context = PyContext {
             true_value,
             false_value,
@@ -136,6 +144,7 @@ impl PyContext {
             exceptions,
             int_cache_pool,
             string_cache,
+            tp_new_wrapper,
         };
         TypeZoo::extend(&context);
         exceptions::ExceptionZoo::extend(&context);

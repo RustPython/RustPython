@@ -35,7 +35,7 @@ impl PyValue for PyBaseObject {
 #[pyimpl(flags(BASETYPE))]
 impl PyBaseObject {
     #[pyclassmethod(magic)]
-    fn new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    pub(crate) fn new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let (subtype, args): (PyTypeRef, FuncArgs) = args.bind(vm)?;
         pytype::call_tp_new(cls, subtype, args, vm)
     }

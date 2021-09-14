@@ -239,6 +239,19 @@ impl PyTypeRef {
 
 #[pyimpl(with(SlotGetattro, SlotSetattro, Callable), flags(BASETYPE))]
 impl PyType {
+    #[pymethod]
+    pub(crate) fn __new__(zelf: PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let (subtype, args): (PyRef<Self>, FuncArgs) = args.bind(vm)?;
+        if !subtype.issubclass(&zelf) {
+            return Err(vm.new_type_error(format!(
+                "{zelf}.__new__({subtype}): {subtype} is not a subtype of {zelf}",
+                zelf = zelf.name(),
+                subtype = subtype.name(),
+            )));
+        }
+        call_tp_new(zelf, subtype, args, vm)
+    }
+
     #[pyproperty(name = "__mro__")]
     fn get_mro(zelf: PyRef<Self>) -> PyTuple {
         let elements: Vec<PyObjectRef> = zelf.iter_mro().map(|x| x.as_object().clone()).collect();
