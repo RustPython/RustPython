@@ -1,6 +1,6 @@
 use super::Diagnostic;
 use crate::util::{
-    get_func_sig, path_eq, pyclass_ident_and_attrs, ClassItemMeta, ContentItem, ContentItemInner,
+    get_sig, path_eq, pyclass_ident_and_attrs, ClassItemMeta, ContentItem, ContentItemInner,
     ErrorVec, ItemMeta, ItemMetaInner, ItemNursery, SimpleItemMeta, ALL_ALLOWED_NAMES,
 };
 use proc_macro2::TokenStream;
@@ -369,18 +369,12 @@ where
         let item_meta = MethodItemMeta::from_attr(ident.clone(), &item_attr)?;
 
         let py_name = item_meta.method_name()?;
-        let sig_doc = args
-            .item
-            .function_or_method_impl()
-            .ok()
-            .map(|f| get_func_sig(f.sig(), &py_name));
+        let sig_doc = get_sig(args.item, &py_name);
 
         let tokens = {
             let doc = args.attrs.doc().map_or_else(TokenStream::new, |mut doc| {
-                if let Some(sig_doc) = sig_doc {
-                    doc = format!("{}\n--\n\n{}", sig_doc, doc);
-                }
-                quote!(.with_doc(#doc.to_owned(), ctx))
+                doc = format!("{}\n--\n\n{}", sig_doc, doc);
+                quote!(.with_doc(#doc.to_owned(), &ctx))
             });
             let build_func = match self.method_type.as_str() {
                 "method" => quote!(.build_method(ctx, class.clone())),

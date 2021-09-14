@@ -1,8 +1,7 @@
 use crate::error::Diagnostic;
 use crate::util::{
-    get_func_sig, iter_use_idents, pyclass_ident_and_attrs, AttributeExt, ClassItemMeta,
-    ContentItem, ContentItemInner, ErrorVec, ItemMeta, ItemNursery, SimpleItemMeta,
-    ALL_ALLOWED_NAMES,
+    get_sig, iter_use_idents, pyclass_ident_and_attrs, AttributeExt, ClassItemMeta, ContentItem,
+    ContentItemInner, ErrorVec, ItemMeta, ItemNursery, SimpleItemMeta, ALL_ALLOWED_NAMES,
 };
 use proc_macro2::TokenStream;
 use quote::{quote, quote_spanned, ToTokens};
@@ -258,17 +257,11 @@ impl ModuleItem for FunctionItem {
         let item_meta = SimpleItemMeta::from_attr(ident.clone(), &item_attr)?;
 
         let py_name = item_meta.simple_name()?;
-        let sig_doc = args
-            .item
-            .function_or_method_impl()
-            .ok()
-            .map(|f| get_func_sig(f.sig(), &py_name));
+        let sig_doc = get_sig(args.item, &py_name);
 
         let item = {
             let doc = args.attrs.doc().map_or_else(TokenStream::new, |mut doc| {
-                if let Some(sig_doc) = sig_doc {
-                    doc = format!("{}\n--\n\n{}", sig_doc, doc);
-                }
+                doc = format!("{}\n--\n\n{}", sig_doc, doc);
                 quote!(.with_doc(#doc.to_owned(), &vm.ctx))
             });
             let module = args.module_name();
