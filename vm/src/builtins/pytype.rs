@@ -765,41 +765,18 @@ impl<T: DerefToPyType> DerefToPyType for &'_ T {
     }
 }
 
-fn call_tp_new(
+pub(crate) fn call_tp_new(
     typ: PyTypeRef,
     subtype: PyTypeRef,
-    mut args: FuncArgs,
+    args: FuncArgs,
     vm: &VirtualMachine,
 ) -> PyResult {
     for cls in typ.deref().iter_mro() {
-        if let Some(new_meth) = cls.get_attr("__new__") {
-            if !vm.ctx.is_tp_new_wrapper(&new_meth) {
-                let new_meth = vm.call_if_get_descriptor(new_meth, typ.clone().into_object())?;
-                args.prepend_arg(typ.clone().into_object());
-                return vm.invoke(&new_meth, args);
-            }
-        }
         if let Some(tp_new) = cls.slots.new.load() {
             return tp_new(subtype, args, vm);
         }
     }
     unreachable!("Should be able to find a new slot somewhere in the mro")
-}
-
-pub fn tp_new_wrapper(
-    zelf: PyTypeRef,
-    cls: PyTypeRef,
-    args: FuncArgs,
-    vm: &VirtualMachine,
-) -> PyResult {
-    if !cls.issubclass(&zelf) {
-        return Err(vm.new_type_error(format!(
-            "{zelf}.__new__({cls}): {cls} is not a subtype of {zelf}",
-            zelf = zelf.name(),
-            cls = cls.name(),
-        )));
-    }
-    call_tp_new(zelf, cls, args, vm)
 }
 
 fn take_next_base(bases: &mut Vec<Vec<PyTypeRef>>) -> Option<PyTypeRef> {

@@ -30,7 +30,6 @@ macro_rules! py_class {
             $($crate::py_class!(@extract_slots($ctx, &mut slots, $name, $value));)*
             let py_class = $ctx.new_class($class_name, $class_base, slots);
             $($crate::py_class!(@extract_attrs($ctx, &py_class, $name, $value));)*
-            $ctx.add_slot_wrappers(&py_class);
             py_class
         }
     };
@@ -50,7 +49,6 @@ macro_rules! extend_class {
         $(
             $class.set_str_attr($name, $value);
         )*
-        $ctx.add_slot_wrappers(&$class);
     };
 }
 

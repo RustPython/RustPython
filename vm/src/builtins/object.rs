@@ -3,6 +3,7 @@ use super::list::PyList;
 use super::pybool;
 use super::pystr::{PyStr, PyStrRef};
 use super::pytype::PyTypeRef;
+use crate::builtins::pytype;
 use crate::builtins::pytype::PyType;
 use crate::common::hash::PyHash;
 use crate::function::FuncArgs;
@@ -33,6 +34,11 @@ impl PyValue for PyBaseObject {
 
 #[pyimpl(flags(BASETYPE))]
 impl PyBaseObject {
+    #[pyclassmethod(magic)]
+    fn new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let (subtype, args): (PyTypeRef, FuncArgs) = args.bind(vm)?;
+        pytype::call_tp_new(cls, subtype, args, vm)
+    }
     /// Create and return a new object.  See help(type) for accurate signature.
     #[pyslot]
     fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {

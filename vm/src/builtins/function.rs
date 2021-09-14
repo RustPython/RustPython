@@ -541,8 +541,6 @@ impl PyBoundMethod {
             // Special case: we work with `__new__`, which is not really a method.
             // It is a function, so its `__qualname__` is just `__new__`.
             // We need to add object's part manually.
-            // Note: at the moment, `__new__` in the form of `tp_new_wrapper`
-            // is the only instance of `builtin_function_or_method_type`.
             let obj_name = vm.get_attribute_opt(self.object.clone(), "__qualname__")?;
             let obj_name: Option<PyStrRef> = obj_name.and_then(|o| o.downcast().ok());
             return Ok(vm.ctx.new_str(format!(
