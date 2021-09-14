@@ -126,7 +126,7 @@ impl PyContext {
 
         let new_str = PyRef::new_ref(pystr::PyStr::from("__new__"), types.str_type.clone(), None);
         let tp_new_wrapper = create_object(
-            PyNativeFuncDef::new(object::PyBaseObject::new.into_func(), new_str).into_function(),
+            PyNativeFuncDef::new(PyType::__new__.into_func(), new_str).into_function(),
             &types.builtin_function_or_method_type,
         )
         .into_object();
@@ -1094,6 +1094,11 @@ pub trait PyClassImpl: PyClassDef {
         }
         if let Some(module_name) = Self::MODULE_NAME {
             class.set_str_attr("__module__", ctx.new_str(module_name));
+        }
+        if class.slots.new.load().is_some() {
+            let bound =
+                ctx.new_bound_method(ctx.tp_new_wrapper.clone(), class.clone().into_object());
+            class.set_str_attr("__new__", bound);
         }
     }
 

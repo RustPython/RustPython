@@ -239,7 +239,7 @@ impl PyTypeRef {
 
 #[pyimpl(with(SlotGetattro, SlotSetattro, Callable), flags(BASETYPE))]
 impl PyType {
-    #[pymethod]
+    // bound method for every type
     pub(crate) fn __new__(zelf: PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let (subtype, args): (PyRef<Self>, FuncArgs) = args.bind(vm)?;
         if !subtype.issubclass(&zelf) {
