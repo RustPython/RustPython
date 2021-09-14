@@ -884,12 +884,16 @@ fn extract_impl_attrs(attr: AttributeArgs) -> std::result::Result<ExtractedImplA
     })
 }
 
-fn new_impl_item<Item>(index: usize, attr_name: String) -> Box<dyn ImplItem<Item>>
+fn new_impl_item<Item>(
+    attr: &Attribute,
+    index: usize,
+    attr_name: String,
+) -> Result<Box<dyn ImplItem<Item>>>
 where
     Item: ItemLike + ToTokens + GetIdent,
 {
     assert!(ALL_ALLOWED_NAMES.contains(&attr_name.as_str()));
-    match attr_name.as_str() {
+    Ok(match attr_name.as_str() {
         attr_name @ "pymethod" | attr_name @ "pyclassmethod" => Box::new(MethodItem {
             inner: ContentItemInner {
                 index,
@@ -909,8 +913,13 @@ where
         "extend_class" => Box::new(ExtendClassItem {
             inner: ContentItemInner { index, attr_name },
         }),
-        other => unreachable!("#[pyimpl] doesn't accept #[{}]", other),
-    }
+        other => {
+            return Err(syn::Error::new_spanned(
+                attr,
+                format!("#[pyimpl] doesn't accept #[{}]", other),
+            ))
+        }
+    })
 }
 
 fn attrs_to_content_items<F, R>(
@@ -918,7 +927,7 @@ fn attrs_to_content_items<F, R>(
     new_item: F,
 ) -> Result<(Vec<R>, Vec<Attribute>)>
 where
-    F: Fn(usize, String) -> R,
+    F: Fn(&Attribute, usize, String) -> Result<R>,
 {
     let mut cfgs: Vec<Attribute> = Vec::new();
     let mut result = Vec::new();
@@ -957,7 +966,7 @@ where
             continue;
         }
 
-        result.push(new_item(i, attr_name));
+        result.push(new_item(attr, i, attr_name)?);
     }
     Ok((result, cfgs))
 }
