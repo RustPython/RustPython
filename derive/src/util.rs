@@ -505,17 +505,29 @@ where
     Ok(())
 }
 
-// Best effort attempt to create a template from which a
+// Best effort attempt to generate a template from which a
 // __text_signature__ can be created.
-pub(crate) fn get_func_sig(sig: &Signature, name: &str) -> String {
-    let args: Vec<_> = sig
-        .inputs
+pub(crate) fn get_sig<Item: ItemLike>(item: &Item, name: &str) -> String {
+    let sig = match item.function_or_method_impl().map(|f| f.sig()) {
+        Ok(sig) => sig,
+        _ => return "".to_owned(),
+    };
+    let signature = func_sig(sig);
+    if signature.starts_with("$self") {
+        format!("{}({})", name, signature)
+    } else {
+        format!("{}({}, {})", name, "$module", signature)
+    }
+}
+
+fn func_sig(sig: &Signature) -> String {
+    sig.inputs
         .iter()
         .filter_map(|arg| {
             use syn::FnArg::*;
             let arg = match arg {
-                Receiver(_) => return Some("$self".to_owned()),
                 Typed(typed) => typed,
+                Receiver(_) => return Some("$self".to_owned()),
             };
             let ty = arg.ty.as_ref();
             let ty = quote!(#ty).to_string();
@@ -538,6 +550,6 @@ pub(crate) fn get_func_sig(sig: &Signature, name: &str) -> String {
             }
             Some(ident)
         })
-        .collect();
-    format!("{}({})", name, args.join(", "))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
