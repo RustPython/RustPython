@@ -204,6 +204,7 @@ mod decl {
 
             // Allocate the buffer
             let mut res = Vec::<u8>::with_capacity(length);
+            let trailing_garbage_error = || Err(vm.new_value_error("Trailing garbage".to_string()));
 
             for chunk in b.get(1..).unwrap_or_default().chunks(4) {
                 let char_a = chunk.get(0).map_or(Ok(0), |x| uu_a2b_read(x, vm))?;
@@ -214,19 +215,19 @@ mod decl {
                 if res.len() < length {
                     res.push(char_a << 2 | char_b >> 4);
                 } else if char_a != 0 || char_b != 0 {
-                    return Err(vm.new_value_error("Trailing garbage".to_string()));
+                    return trailing_garbage_error();
                 }
 
                 if res.len() < length {
                     res.push((char_b & 0xf) | char_c >> 2);
                 } else if char_c != 0 {
-                    return Err(vm.new_value_error("Trailing garbage".to_string()));
+                    return trailing_garbage_error();
                 }
 
                 if res.len() < length {
                     res.push((char_c & 0x3) << 6 | char_d);
                 } else if char_d != 0 {
-                    return Err(vm.new_value_error("Trailing garbage".to_string()));
+                    return trailing_garbage_error();
                 }
             }
 
@@ -244,38 +245,38 @@ mod decl {
         backtick: bool,
     }
 
-    #[inline]
-    fn uu_b2a_write(res: &mut Vec<u8>, num: u8, backtick: bool) {
-        if backtick && num != 0 {
-            res.push(0x60);
-        } else {
-            res.push(0x20 + num);
-        }
-    }
-
     #[pyfunction]
     fn b2a_uu(
         data: ArgBytesLike,
         BacktickArg { backtick }: BacktickArg,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
+        #[inline]
+        fn uu_b2a(num: u8, backtick: bool) -> u8 {
+            if backtick && num != 0 {
+                0x60
+            } else {
+                0x20 + num
+            }
+        }
+
         data.with_ref(|b| {
             let length = b.len();
             if length > 45 {
                 return Err(vm.new_value_error("At most 45 bytes at once".to_string()));
             }
             let mut res = Vec::<u8>::with_capacity(2 + ((length + 2) / 3) * 4);
-            uu_b2a_write(&mut res, length as u8, backtick);
+            res.push(uu_b2a(length as u8, backtick));
 
             for chunk in b.chunks(3) {
                 let char_a = *chunk.get(0).unwrap_or(&0);
                 let char_b = *chunk.get(1).unwrap_or(&0);
                 let char_c = *chunk.get(2).unwrap_or(&0);
 
-                uu_b2a_write(&mut res, char_a >> 2, backtick);
-                uu_b2a_write(&mut res, (char_a & 0x3) << 4 | char_b >> 4, backtick);
-                uu_b2a_write(&mut res, (char_b & 0xf) << 2 | char_c >> 6, backtick);
-                uu_b2a_write(&mut res, char_c & 0x3f, backtick);
+                res.push(uu_b2a(char_a >> 2, backtick));
+                res.push(uu_b2a((char_a & 0x3) << 4 | char_b >> 4, backtick));
+                res.push(uu_b2a((char_b & 0xf) << 2 | char_c >> 6, backtick));
+                res.push(uu_b2a(char_c & 0x3f, backtick));
             }
 
             res.push(0xau8);
