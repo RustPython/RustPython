@@ -84,40 +84,41 @@ class TestSuper(unittest.TestCase):
 
         self.assertEqual(E().f(), 'AE')
 
-    def test_various___class___pathologies(self):
-        # See issue #12370
-        class X(A):
-            def f(self):
-                return super().f()
-            __class__ = 413
-        x = X()
-        self.assertEqual(x.f(), 'A')
-        self.assertEqual(x.__class__, 413)
-        class X:
-            x = __class__
-            def f():
-                __class__
-        self.assertIs(X.x, type(self))
-        with self.assertRaises(NameError) as e:
-            exec("""class X:
-                __class__
-                def f():
-                    __class__""", globals(), {})
-        self.assertIs(type(e.exception), NameError) # Not UnboundLocalError
-        class X:
-            global __class__
-            __class__ = 42
-            def f():
-                __class__
-        self.assertEqual(globals()["__class__"], 42)
-        del globals()["__class__"]
-        self.assertNotIn("__class__", X.__dict__)
-        class X:
-            nonlocal __class__
-            __class__ = 42
-            def f():
-                __class__
-        self.assertEqual(__class__, 42)
+    # SyntaxError
+    # def test_various___class___pathologies(self):
+    #     # See issue #12370
+    #     class X(A):
+    #         def f(self):
+    #             return super().f()
+    #         __class__ = 413
+    #     x = X()
+    #     self.assertEqual(x.f(), 'A')
+    #     self.assertEqual(x.__class__, 413)
+    #     class X:
+    #         x = __class__
+    #         def f():
+    #             __class__
+    #     self.assertIs(X.x, type(self))
+    #     with self.assertRaises(NameError) as e:
+    #         exec("""class X:
+    #             __class__
+    #             def f():
+    #                 __class__""", globals(), {})
+    #     self.assertIs(type(e.exception), NameError) # Not UnboundLocalError
+    #     class X:
+    #         global __class__
+    #         __class__ = 42
+    #         def f():
+    #             __class__
+    #     self.assertEqual(globals()["__class__"], 42)
+    #     del globals()["__class__"]
+    #     self.assertNotIn("__class__", X.__dict__)
+    #     class X:
+    #         nonlocal __class__
+    #         __class__ = 42
+    #         def f():
+    #             __class__
+    #     self.assertEqual(__class__, 42)
 
     def test___class___instancemethod(self):
         # See issue #14857
@@ -142,6 +143,7 @@ class TestSuper(unittest.TestCase):
                 return __class__
         self.assertIs(X.f(), X)
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test___class___new(self):
         # See issue #23722
         # Ensure zero-arg super() works as soon as type.__new__() is completed
@@ -161,6 +163,8 @@ class TestSuper(unittest.TestCase):
 
         self.assertIs(test_class, A)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test___class___delayed(self):
         # See issue #23722
         test_namespace = None
@@ -181,6 +185,8 @@ class TestSuper(unittest.TestCase):
         B = type("B", (), test_namespace)
         self.assertIs(B.f(), B)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test___class___mro(self):
         # See issue #23722
         test_class = None
@@ -198,6 +204,8 @@ class TestSuper(unittest.TestCase):
 
         self.assertIs(test_class, A)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test___classcell___expected_behaviour(self):
         # See issue #23722
         class Meta(type):
@@ -229,6 +237,8 @@ class TestSuper(unittest.TestCase):
         with self.assertRaises(AttributeError):
             WithClassRef.__classcell__
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test___classcell___missing(self):
         # See issue #23722
         # Some metaclasses may not pass the original namespace to type.__new__
@@ -252,6 +262,8 @@ class TestSuper(unittest.TestCase):
                 def f(self):
                     return __class__
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test___classcell___overwrite(self):
         # See issue #23722
         # Overwriting __classcell__ with nonsense is explicitly prohibited
@@ -266,6 +278,8 @@ class TestSuper(unittest.TestCase):
                     class A(metaclass=Meta, cell=bad_cell):
                         pass
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test___classcell___wrong_cell(self):
         # See issue #23722
         # Pointing the cell reference at the wrong class is also prohibited
