@@ -77,6 +77,18 @@ mod cmath {
     fn sqrt(z: IntoPyComplex) -> Complex64 {
         z.to_complex().sqrt()
     }
+    /// Return the sine of z
+    #[pyfunction]
+    fn sin(z: IntoPyComplex) -> Complex64 {
+        z.to_complex().sin()
+    }
+
+    /// Return the cosine of z
+    #[pyfunction]
+    fn cos(z: IntoPyComplex) -> Complex64 {
+        z.to_complex().cos()
+    }
+
     #[derive(FromArgs)]
     struct IsCloseArgs {
         #[pyarg(positional)]

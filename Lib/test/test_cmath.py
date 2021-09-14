@@ -55,7 +55,7 @@ class CMathTests(unittest.TestCase):
     # commented out to allow incremented addition of functions.
     #
     # list of all functions in cmath
-    test_functions = [getattr(cmath, fname) for fname in ['sqrt']]
+    test_functions = [getattr(cmath, fname) for fname in ['sqrt','sin','cos']]
     # test first and second arguments independently for 2-argument log
     # test_functions.append(lambda x : cmath.log(x, 1729. + 0j))
     # test_functions.append(lambda x : cmath.log(14.-27j, x))
