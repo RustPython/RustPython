@@ -2556,6 +2556,13 @@ mod posix {
         body().map_err(|err| err.into_pyexception(vm))
     }
 
+    #[cfg(not(target_os = "redox"))]
+    #[pyfunction]
+    fn fchmod(fd: RawFd, mode: u16, vm: &VirtualMachine) -> PyResult<()> {
+        nix::sys::stat::fchmod(fd, nix::sys::stat::Mode::from_bits(mode).unwrap())
+            .map_err(|err| err.into_pyexception(vm))
+    }
+
     #[pyfunction]
     fn execv(
         path: PyStrRef,
