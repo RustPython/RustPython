@@ -77,13 +77,13 @@ mod cmath {
     fn sqrt(z: IntoPyComplex) -> Complex64 {
         z.to_complex().sqrt()
     }
-    /// Return the sin of z
+    /// Return the sine of z
     #[pyfunction]
     fn sin(z: IntoPyComplex) -> Complex64 {
         z.to_complex().sin()
     }
 
-    /// Return the cos of z
+    /// Return the cosine of z
     #[pyfunction]
     fn cos(z: IntoPyComplex) -> Complex64 {
         z.to_complex().cos()
