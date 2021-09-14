@@ -677,7 +677,6 @@ settrace() -- set the global debug tracing function
       "__doc__" => ctx.new_str(sys_doc),
       "_getframe" => named_function!(ctx, sys, _getframe),
       "modules" => modules.clone(),
-      "warnoptions" => ctx.new_list(vec![]),
       "platform" => ctx.new_str(PLATFORM.to_owned()),
       "_framework" => ctx.new_str(framework),
       "meta_path" => ctx.new_list(vec![]),
