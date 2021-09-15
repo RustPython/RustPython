@@ -34,11 +34,45 @@ use unic_ucd_ident::{is_xid_continue, is_xid_start};
 use unicode_casing::CharExt;
 
 /// Utf8 + state.ascii (+ PyUnicode_Kind in future)
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub(crate) enum PyStrKind {
+    Ascii,
+    Utf8,
+}
+
+impl std::ops::BitOr for PyStrKind {
+    type Output = Self;
+    fn bitor(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Ascii, Self::Ascii) => Self::Ascii,
+            _ => Self::Utf8,
+        }
+    }
+}
+
+impl PyStrKind {
+    fn new_data(self) -> PyStrKindData {
+        match self {
+            PyStrKind::Ascii => PyStrKindData::Ascii,
+            PyStrKind::Utf8 => PyStrKindData::Utf8(Radium::new(usize::MAX)),
+        }
+    }
+}
+
+#[derive(Debug)]
+enum PyStrKindData {
     Ascii,
     // uses usize::MAX as a sentinel for "uncomputed"
     Utf8(PyAtomic<usize>),
+}
+
+impl PyStrKindData {
+    fn kind(&self) -> PyStrKind {
+        match self {
+            PyStrKindData::Ascii => PyStrKind::Ascii,
+            PyStrKindData::Utf8(_) => PyStrKind::Utf8,
+        }
+    }
 }
 
 /// str(object='') -> str
@@ -55,7 +89,7 @@ pub(crate) enum PyStrKind {
 #[derive(Debug)]
 pub struct PyStr {
     bytes: Box<[u8]>,
-    kind: PyStrKind,
+    kind: PyStrKindData,
     hash: PyAtomic<hash::PyHash>,
 }
 
@@ -100,19 +134,20 @@ impl From<Box<str>> for PyStr {
         // doing the check is ~10x faster for ascii, and is actually only 2% slower worst case for
         // non-ascii; see https://github.com/RustPython/RustPython/pull/2586#issuecomment-844611532
         let is_ascii = value.is_ascii();
-        let bytes = unsafe { Box::from_raw(Box::into_raw(value) as _) };
-        if is_ascii {
-            Self {
-                bytes,
-                kind: PyStrKind::Ascii,
-                hash: Radium::new(hash::SENTINEL),
-            }
+        let bytes = unsafe {
+            // SAFETY: Box<str> and Box<[u8]> have same layout
+            Box::from_raw(Box::into_raw(value) as _)
+        };
+        let kind = if is_ascii {
+            PyStrKind::Ascii
         } else {
-            Self {
-                bytes,
-                kind: PyStrKind::Utf8(Radium::new(usize::MAX)),
-                hash: Radium::new(hash::SENTINEL),
-            }
+            PyStrKind::Utf8
+        }
+        .new_data();
+        Self {
+            bytes,
+            kind,
+            hash: Radium::new(hash::SENTINEL),
         }
     }
 }
@@ -127,10 +162,10 @@ impl From<(Box<[u8]>, PyStrKind)> for PyStr {
     fn from((bytes, kind): (Box<[u8]>, PyStrKind)) -> PyStr {
         let s = Self {
             bytes,
-            kind,
+            kind: kind.new_data(),
             hash: Radium::new(hash::SENTINEL),
         };
-        debug_assert!(matches!(s.kind, PyStrKind::Ascii) || !s.as_str().is_ascii());
+        debug_assert!(matches!(s.kind, PyStrKindData::Ascii) || !s.as_str().is_ascii());
         s
     }
 }
@@ -206,7 +241,7 @@ impl PyStrIterator {
     fn reduce(&self, vm: &VirtualMachine) -> PyResult {
         let iter = vm.get_attribute(vm.builtins.clone(), "iter")?;
         Ok(vm.ctx.new_tuple(match self.status.load() {
-            Exhausted => vec![iter, vm.ctx.new_tuple(vec![vm.ctx.new_utf8_str("")])],
+            Exhausted => vec![iter, vm.ctx.new_tuple(vec![vm.ctx.new_ascii_str(b"")])],
             Active => vec![
                 iter,
                 vm.ctx.new_tuple(vec![self.string.clone().into_object()]),
@@ -286,12 +321,53 @@ impl SlotConstructor for PyStr {
     }
 }
 
+impl PyStr {
+    /// SAFETY: Given 's' must be valid data for given 'kind'
+    unsafe fn new_str_unchecked(s: String, kind: PyStrKind) -> Self {
+        Self {
+            bytes: Box::from_raw(Box::into_raw(s.into_boxed_str()) as _),
+            kind: kind.new_data(),
+            hash: Radium::new(hash::SENTINEL),
+        }
+    }
+
+    fn new_substr(&self, s: String) -> Self {
+        let kind = if self.kind.kind() == PyStrKind::Ascii || s.is_ascii() {
+            PyStrKind::Ascii
+        } else {
+            PyStrKind::Utf8
+        };
+        unsafe {
+            // SAFETY: kind is safely calculated for substring
+            Self::new_str_unchecked(s, kind)
+        }
+    }
+
+    #[inline]
+    pub fn as_str(&self) -> &str {
+        unsafe {
+            // SAFETY: Both PyStrKind::{Ascii, Utf8} are valid utf8 string
+            std::str::from_utf8_unchecked(&self.bytes)
+        }
+    }
+
+    pub fn to_cstring(&self, vm: &VirtualMachine) -> PyResult<ffi::CString> {
+        ffi::CString::new(self.as_str()).map_err(|err| err.into_pyexception(vm))
+    }
+}
+
 #[pyimpl(flags(BASETYPE), with(Hashable, Comparable, Iterable, SlotConstructor))]
 impl PyStr {
     #[pymethod(magic)]
     fn add(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(other) = other.payload::<PyStr>() {
-            Ok(vm.ctx.new_utf8_str(zelf.as_str().py_add(other.as_ref())))
+            let kind = zelf.kind.kind() | other.kind.kind();
+            let bytes = zelf.as_str().py_add(other.as_ref());
+            Ok(unsafe {
+                // SAFETY: safe kind operation
+                Self::new_str_unchecked(bytes, kind)
+            }
+            .into_pyobject(vm))
         } else if let Some(radd) = vm.get_method(other.clone(), "__radd__") {
             // hack to get around not distinguishing number add from seq concat
             vm.invoke(&radd?, (zelf,))
@@ -305,7 +381,7 @@ impl PyStr {
 
     #[pymethod(magic)]
     fn bool(&self) -> bool {
-        !self.as_str().is_empty()
+        !self.bytes.is_empty()
     }
 
     #[pymethod(magic)]
@@ -314,12 +390,12 @@ impl PyStr {
     }
 
     #[pymethod(magic)]
-    fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
         let s = match self.get_item(vm, needle, Self::NAME)? {
             Either::A(ch) => ch.to_string(),
             Either::B(s) => s,
         };
-        Ok(vm.ctx.new_utf8_str(s))
+        Ok(self.new_substr(s))
     }
 
     #[inline]
@@ -338,10 +414,6 @@ impl PyStr {
         hash_val
     }
 
-    pub fn as_str(&self) -> &str {
-        unsafe { std::str::from_utf8_unchecked(&self.bytes) }
-    }
-
     #[inline]
     pub fn byte_len(&self) -> usize {
         self.bytes.len()
@@ -355,8 +427,8 @@ impl PyStr {
     #[inline]
     pub fn char_len(&self) -> usize {
         match self.kind {
-            PyStrKind::Ascii => self.bytes.len(),
-            PyStrKind::Utf8(ref len) => match len.load(atomic::Ordering::Relaxed) {
+            PyStrKindData::Ascii => self.bytes.len(),
+            PyStrKindData::Utf8(ref len) => match len.load(atomic::Ordering::Relaxed) {
                 usize::MAX => self._compute_char_len(),
                 len => len,
             },
@@ -365,7 +437,7 @@ impl PyStr {
     #[cold]
     fn _compute_char_len(&self) -> usize {
         match self.kind {
-            PyStrKind::Utf8(ref char_len) => {
+            PyStrKindData::Utf8(ref char_len) => {
                 let len = self.as_str().chars().count();
                 // len cannot be usize::MAX, since vec.capacity() < isize::MAX
                 char_len.store(len, atomic::Ordering::Relaxed);
@@ -382,13 +454,9 @@ impl PyStr {
     #[inline(always)]
     pub fn is_ascii(&self) -> bool {
         match self.kind {
-            PyStrKind::Ascii => true,
-            PyStrKind::Utf8(_) => false,
+            PyStrKindData::Ascii => true,
+            PyStrKindData::Utf8(_) => false,
         }
-    }
-
-    pub fn to_cstring(&self, vm: &VirtualMachine) -> PyResult<ffi::CString> {
-        ffi::CString::new(self.as_str()).map_err(|err| err.into_pyexception(vm))
     }
 
     #[pymethod(magic)]
@@ -508,9 +576,9 @@ impl PyStr {
 
     #[pymethod]
     fn lower(&self) -> String {
-        match self.kind {
+        match self.kind.kind() {
             PyStrKind::Ascii => self.as_str().to_ascii_lowercase(),
-            PyStrKind::Utf8(_) => self.as_str().to_lowercase(),
+            PyStrKind::Utf8 => self.as_str().to_lowercase(),
         }
     }
 
@@ -522,9 +590,9 @@ impl PyStr {
 
     #[pymethod]
     fn upper(&self) -> String {
-        match self.kind {
+        match self.kind.kind() {
             PyStrKind::Ascii => self.as_str().to_ascii_uppercase(),
-            PyStrKind::Utf8(_) => self.as_str().to_uppercase(),
+            PyStrKind::Utf8 => self.as_str().to_uppercase(),
         }
     }
 
@@ -544,7 +612,7 @@ impl PyStr {
 
     #[pymethod]
     fn split(&self, args: SplitArgs, vm: &VirtualMachine) -> PyResult {
-        let elements = match self.kind {
+        let elements = match self.kind.kind() {
             PyStrKind::Ascii => self.as_str().py_split(
                 args,
                 vm,
@@ -565,7 +633,7 @@ impl PyStr {
                         .py_split_whitespace(n, |s| vm.ctx.new_ascii_str(s))
                 },
             ),
-            PyStrKind::Utf8(_) => self.as_str().py_split(
+            PyStrKind::Utf8 => self.as_str().py_split(
                 args,
                 vm,
                 |v, s, vm| v.split(s).map(|s| vm.ctx.new_utf8_str(s)).collect(),
@@ -843,9 +911,9 @@ impl PyStr {
     // Return true if all cased characters in the string are lowercase and there is at least one cased character, false otherwise.
     #[pymethod]
     fn islower(&self) -> bool {
-        match self.kind {
+        match self.kind.kind() {
             PyStrKind::Ascii => self.bytes.py_iscase(char::is_lowercase, char::is_uppercase),
-            PyStrKind::Utf8(_) => self
+            PyStrKind::Utf8 => self
                 .as_str()
                 .py_iscase(char::is_lowercase, char::is_uppercase),
         }
@@ -854,9 +922,9 @@ impl PyStr {
     // Return true if all cased characters in the string are uppercase and there is at least one cased character, false otherwise.
     #[pymethod]
     fn isupper(&self) -> bool {
-        match self.kind {
+        match self.kind.kind() {
             PyStrKind::Ascii => self.bytes.py_iscase(char::is_uppercase, char::is_lowercase),
-            PyStrKind::Utf8(_) => self
+            PyStrKind::Utf8 => self
                 .as_str()
                 .py_iscase(char::is_uppercase, char::is_lowercase),
         }
@@ -866,7 +934,7 @@ impl PyStr {
     fn splitlines(&self, args: anystr::SplitLinesArgs, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_list(
             self.as_str()
-                .py_splitlines(args, |s| vm.ctx.new_utf8_str(s)),
+                .py_splitlines(args, |s| self.new_substr(s.to_owned()).into_pyobject(vm)),
         )
     }
 
@@ -922,15 +990,16 @@ impl PyStr {
             || self.as_str().splitn(2, sep.as_str()),
             vm,
         )?;
-        Ok(vm.ctx.new_tuple(vec![
-            vm.ctx.new_utf8_str(front),
+        Ok((
+            self.new_substr(front),
             if has_mid {
                 sep.into_object()
             } else {
                 vm.ctx.new_ascii_str(b"")
             },
-            vm.ctx.new_utf8_str(back),
-        ]))
+            self.new_substr(back),
+        )
+            .into_pyobject(vm))
     }
 
     #[pymethod]
@@ -940,15 +1009,16 @@ impl PyStr {
             || self.as_str().rsplitn(2, sep.as_str()),
             vm,
         )?;
-        Ok(vm.ctx.new_tuple(vec![
-            vm.ctx.new_utf8_str(front),
+        Ok((
+            self.new_substr(front),
             if has_mid {
                 sep.into_object()
             } else {
                 vm.ctx.new_ascii_str(b"")
             },
-            vm.ctx.new_utf8_str(back),
-        ]))
+            self.new_substr(back),
+        )
+            .into_pyobject(vm))
     }
 
     /// Return `true` if the sequence is ASCII titlecase and the sequence is not
@@ -990,8 +1060,10 @@ impl PyStr {
 
     #[pymethod]
     fn zfill(&self, width: isize) -> String {
-        // this is safe-guaranteed because the original self.as_str() is valid utf8
-        unsafe { String::from_utf8_unchecked(self.as_str().py_zfill(width)) }
+        unsafe {
+            // SAFETY: this is safe-guaranteed because the original self.as_str() is valid utf8
+            String::from_utf8_unchecked(self.as_str().py_zfill(width))
+        }
     }
 
     #[inline]
