@@ -81,7 +81,7 @@ impl PyFunction {
         // the proper variables keeping into account default values
         // and starargs and kwargs.
         // See also: PyEval_EvalCodeWithName in cpython:
-        // https://github.com/python/cpython/blob/master/Python/ceval.c#L3681
+        // https://github.com/python/cpython/blob/main/Python/ceval.c#L3681
 
         let mut fastlocals = frame.fastlocals.lock();
 
