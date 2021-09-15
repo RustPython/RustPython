@@ -354,6 +354,16 @@ impl PyStr {
     pub fn to_cstring(&self, vm: &VirtualMachine) -> PyResult<ffi::CString> {
         ffi::CString::new(self.as_str()).map_err(|err| err.into_pyexception(vm))
     }
+
+    fn char_all<F>(&self, test: F) -> bool
+    where
+        F: Fn(char) -> bool,
+    {
+        match self.kind.kind() {
+            PyStrKind::Ascii => self.bytes.iter().all(|&x| test(char::from(x))),
+            PyStrKind::Utf8 => self.as_str().chars().all(test),
+        }
+    }
 }
 
 #[pyimpl(flags(BASETYPE), with(Hashable, Comparable, Iterable, SlotConstructor))]
@@ -738,14 +748,12 @@ impl PyStr {
 
     #[pymethod]
     fn isalnum(&self) -> bool {
-        let s = self.as_str();
-        !s.is_empty() && s.chars().all(char::is_alphanumeric)
+        !self.bytes.is_empty() && self.char_all(char::is_alphanumeric)
     }
 
     #[pymethod]
     fn isnumeric(&self) -> bool {
-        let s = self.as_str();
-        !s.is_empty() && s.chars().all(char::is_numeric)
+        !self.bytes.is_empty() && self.char_all(char::is_numeric)
     }
 
     #[pymethod]
@@ -763,8 +771,7 @@ impl PyStr {
 
     #[pymethod]
     fn isdecimal(&self) -> bool {
-        let s = self.as_str();
-        !s.is_empty() && s.chars().all(|c| c.is_ascii_digit())
+        !self.bytes.is_empty() && self.char_all(|c| c.is_ascii_digit())
     }
 
     #[pymethod(name = "__mod__")]
@@ -854,8 +861,7 @@ impl PyStr {
 
     #[pymethod]
     fn isalpha(&self) -> bool {
-        let s = self.as_str();
-        !s.is_empty() && s.chars().all(char::is_alphabetic)
+        !self.bytes.is_empty() && self.char_all(char::is_alphabetic)
     }
 
     #[pymethod]
@@ -891,21 +897,17 @@ impl PyStr {
     ///   * Zs (Separator, Space) other than ASCII space('\x20').
     #[pymethod]
     fn isprintable(&self) -> bool {
-        self.as_str()
-            .chars()
-            .all(|c| c == '\u{0020}' || char_is_printable(c))
+        self.char_all(|c| c == '\u{0020}' || char_is_printable(c))
     }
 
     #[pymethod]
     fn isspace(&self) -> bool {
-        if self.bytes.is_empty() {
-            return false;
-        }
         use unic_ucd_bidi::bidi_class::abbr_names::*;
-        self.as_str().chars().all(|c| {
-            GeneralCategory::of(c) == GeneralCategory::SpaceSeparator
-                || matches!(BidiClass::of(c), WS | B | S)
-        })
+        !self.bytes.is_empty()
+            && self.char_all(|c| {
+                GeneralCategory::of(c) == GeneralCategory::SpaceSeparator
+                    || matches!(BidiClass::of(c), WS | B | S)
+            })
     }
 
     // Return true if all cased characters in the string are lowercase and there is at least one cased character, false otherwise.
@@ -1025,7 +1027,7 @@ impl PyStr {
     /// empty, `false` otherwise.
     #[pymethod]
     fn istitle(&self) -> bool {
-        if self.as_str().is_empty() {
+        if self.bytes.is_empty() {
             return false;
         }
 
@@ -1408,21 +1410,19 @@ impl PySliceableSequence for PyStr {
     }
 
     fn do_slice_reverse(&self, range: Range<usize>) -> Self::Sliced {
-        let value = self.as_str();
-        let char_len = self.char_len();
-        if char_len == self.byte_len() {
+        if self.is_ascii() {
             // this is an ascii string
-            let mut v = value.as_bytes()[range].to_vec();
+            let mut v = self.bytes[range].to_vec();
             v.reverse();
             // TODO: from_utf8_unchecked?
             String::from_utf8(v).unwrap()
         } else {
-            let mut s = String::with_capacity(value.len());
+            let mut s = String::with_capacity(self.bytes.len());
             s.extend(
-                value
+                self.as_str()
                     .chars()
                     .rev()
-                    .skip(char_len - range.end)
+                    .skip(self.char_len() - range.end)
                     .take(range.end - range.start),
             );
             s
@@ -1430,13 +1430,8 @@ impl PySliceableSequence for PyStr {
     }
 
     fn do_stepped_slice(&self, range: Range<usize>, step: usize) -> Self::Sliced {
-        let value = self.as_str();
         if self.is_ascii() {
-            let v = value.as_bytes()[range]
-                .iter()
-                .copied()
-                .step_by(step)
-                .collect();
+            let v = self.bytes[range].iter().copied().step_by(step).collect();
             unsafe {
                 // SAFETY: Any subset of ascii string is a valid utf8 string
                 String::from_utf8_unchecked(v)
@@ -1444,7 +1439,7 @@ impl PySliceableSequence for PyStr {
         } else {
             let mut s = String::with_capacity(2 * ((range.len() / step) + 1));
             s.extend(
-                value
+                self.as_str()
                     .chars()
                     .skip(range.start)
                     .take(range.end - range.start)
@@ -1455,11 +1450,9 @@ impl PySliceableSequence for PyStr {
     }
 
     fn do_stepped_slice_reverse(&self, range: Range<usize>, step: usize) -> Self::Sliced {
-        let value = &*self.as_str();
-        let char_len = self.char_len();
-        if char_len == self.byte_len() {
+        if self.is_ascii() {
             // this is an ascii string
-            let v: Vec<u8> = value.as_bytes()[range]
+            let v: Vec<u8> = self.bytes[range]
                 .iter()
                 .rev()
                 .copied()
@@ -1471,10 +1464,10 @@ impl PySliceableSequence for PyStr {
             // not ascii, so the codepoints have to be at least 2 bytes each
             let mut s = String::with_capacity(2 * ((range.len() / step) + 1));
             s.extend(
-                value
+                self.as_str()
                     .chars()
                     .rev()
-                    .skip(char_len - range.end)
+                    .skip(self.char_len() - range.end)
                     .take(range.end - range.start)
                     .step_by(step),
             );
