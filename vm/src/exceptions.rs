@@ -208,7 +208,7 @@ fn print_source_line<W: Write>(
     filename: &str,
     lineno: usize,
 ) -> Result<(), W::Error> {
-    // TODO: use io.open() method instead, when available, according to https://github.com/python/cpython/blob/master/Python/traceback.c#L393
+    // TODO: use io.open() method instead, when available, according to https://github.com/python/cpython/blob/main/Python/traceback.c#L393
     // TODO: support different encodings
     let file = match File::open(filename) {
         Ok(file) => file,
