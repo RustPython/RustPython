@@ -268,7 +268,7 @@ impl ModuleItem for FunctionItem {
                 vm.ctx.make_funcdef(#py_name, #ident)
                     #doc
                     .into_function()
-                    .with_module(vm.ctx.new_str(#module.to_owned()))
+                    .with_module(vm.ctx.new_utf8_str(#module.to_owned()))
                     .build(&vm.ctx)
             );
             quote! {
@@ -324,7 +324,7 @@ impl ModuleItem for ClassItem {
                 );
                 let item = quote! {
                     let new_class = #new_class;
-                    new_class.set_str_attr("__module__", vm.ctx.new_str(#module_name));
+                    new_class.set_str_attr("__module__", vm.ctx.new_utf8_str(#module_name));
                     vm.__module_set_attr(&module, #py_name, new_class).unwrap();
                 };
 

@@ -870,7 +870,7 @@ impl FormatString {
             }
             FieldType::Keyword(keyword) => arguments
                 .get_optional_kwarg(&keyword)
-                .ok_or_else(|| vm.new_key_error(vm.ctx.new_str(keyword))),
+                .ok_or_else(|| vm.new_key_error(vm.ctx.new_utf8_str(keyword))),
         })
     }
 
@@ -893,7 +893,7 @@ fn call_object_format(
     let argument = match preconversion_spec.and_then(FormatPreconversor::from_char) {
         Some(FormatPreconversor::Str) => vm.to_str(&argument)?.into_object(),
         Some(FormatPreconversor::Repr) => vm.to_repr(&argument)?.into_object(),
-        Some(FormatPreconversor::Ascii) => vm.ctx.new_str(builtins::ascii(argument, vm)?),
+        Some(FormatPreconversor::Ascii) => vm.ctx.new_utf8_str(builtins::ascii(argument, vm)?),
         Some(FormatPreconversor::Bytes) => vm.call_method(&argument, "decode", ())?,
         None => argument,
     };

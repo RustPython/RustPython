@@ -382,7 +382,7 @@ mod decl {
             let prompt = prompt.as_ref().map_or("", |s| s.as_str());
             let mut readline = Readline::new(());
             match readline.readline(prompt) {
-                ReadlineResult::Line(s) => Ok(vm.ctx.new_str(s)),
+                ReadlineResult::Line(s) => Ok(vm.ctx.new_utf8_str(s)),
                 ReadlineResult::Eof => {
                     Err(vm.new_exception_empty(vm.ctx.exceptions.eof_error.clone()))
                 }
@@ -535,7 +535,7 @@ mod decl {
             format!("0o{:o}", n)
         };
 
-        Ok(vm.ctx.new_str(s))
+        Ok(vm.ctx.new_utf8_str(s))
     }
 
     #[pyfunction]
@@ -812,7 +812,7 @@ mod decl {
         vm: &VirtualMachine,
     ) -> PyResult {
         let name = qualified_name.as_str().split('.').next_back().unwrap();
-        let name_obj = vm.ctx.new_str(name);
+        let name_obj = vm.ctx.new_utf8_str(name);
 
         let mut metaclass = if let Some(metaclass) = kwargs.pop_kwarg("metaclass") {
             PyTypeRef::try_from_object(vm, metaclass)?

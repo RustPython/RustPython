@@ -211,6 +211,6 @@ pub fn init(context: &PyContext) {
                      super().cmeth(arg)\n";
 
     extend_class!(context, super_type, {
-        "__doc__" => context.new_str(super_doc),
+        "__doc__" => context.new_utf8_str(super_doc),
     });
 }

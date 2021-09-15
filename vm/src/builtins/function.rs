@@ -545,7 +545,7 @@ impl PyBoundMethod {
             // is the only instance of `builtin_function_or_method_type`.
             let obj_name = vm.get_attribute_opt(self.object.clone(), "__qualname__")?;
             let obj_name: Option<PyStrRef> = obj_name.and_then(|o| o.downcast().ok());
-            return Ok(vm.ctx.new_str(format!(
+            return Ok(vm.ctx.new_utf8_str(format!(
                 "{}.__new__",
                 obj_name.as_ref().map_or("?", |s| s.as_str())
             )));

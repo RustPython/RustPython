@@ -23,7 +23,7 @@ fn argv(vm: &VirtualMachine) -> PyObjectRef {
             .settings
             .argv
             .iter()
-            .map(|arg| vm.ctx.new_str(arg))
+            .map(|arg| vm.ctx.new_utf8_str(arg))
             .collect(),
     )
 }
@@ -33,7 +33,7 @@ fn executable(ctx: &PyContext) -> PyObjectRef {
     {
         if let Some(exec_path) = env::args_os().next() {
             if let Ok(path) = which::which(exec_path) {
-                return ctx.new_str(
+                return ctx.new_utf8_str(
                     path.into_os_string()
                         .into_string()
                         .unwrap_or_else(|p| p.to_string_lossy().into_owned()),
@@ -44,14 +44,14 @@ fn executable(ctx: &PyContext) -> PyObjectRef {
     if let Some(exec_path) = env::args().next() {
         let path = path::Path::new(&exec_path);
         if !path.exists() {
-            return ctx.new_str("");
+            return ctx.new_ascii_str(b"");
         }
         if path.is_absolute() {
-            return ctx.new_str(exec_path);
+            return ctx.new_utf8_str(exec_path);
         }
         if let Ok(dir) = env::current_dir() {
             if let Ok(dir) = dir.into_os_string().into_string() {
-                return ctx.new_str(format!(
+                return ctx.new_utf8_str(format!(
                     "{}/{}",
                     dir,
                     exec_path.strip_prefix("./").unwrap_or(&exec_path)
@@ -64,7 +64,7 @@ fn executable(ctx: &PyContext) -> PyObjectRef {
 
 fn _base_executable(ctx: &PyContext) -> PyObjectRef {
     if let Ok(var) = env::var("__PYVENV_LAUNCHER__") {
-        ctx.new_str(var)
+        ctx.new_utf8_str(var)
     } else {
         executable(ctx)
     }
@@ -237,9 +237,9 @@ fn sys_exc_info(vm: &VirtualMachine) -> (PyObjectRef, PyObjectRef, PyObjectRef) 
 
 fn sys_git_info(vm: &VirtualMachine) -> PyObjectRef {
     vm.ctx.new_tuple(vec![
-        vm.ctx.new_str("RustPython"),
-        vm.ctx.new_str(version::get_git_identifier()),
-        vm.ctx.new_str(version::get_git_revision()),
+        vm.ctx.new_ascii_str(b"RustPython"),
+        vm.ctx.new_utf8_str(version::get_git_identifier()),
+        vm.ctx.new_utf8_str(version::get_git_revision()),
     ])
 }
 
@@ -513,9 +513,9 @@ pub(crate) fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: Py
 
     // TODO Add crate version to this namespace
     let implementation = py_namespace!(vm, {
-        "name" => ctx.new_str("rustpython"),
-        "cache_tag" => ctx.new_str("rustpython-01"),
-        "_multiarch" => ctx.new_str(MULTIARCH.to_owned()),
+        "name" => ctx.new_ascii_str(b"rustpython"),
+        "cache_tag" => ctx.new_ascii_str(b"rustpython-01"),
+        "_multiarch" => ctx.new_utf8_str(MULTIARCH.to_owned()),
         "version" => version_info.clone(),
         "hexversion" => ctx.new_int(version::VERSION_HEX),
     });
@@ -525,7 +525,7 @@ pub(crate) fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: Py
             .settings
             .path_list
             .iter()
-            .map(|path| ctx.new_str(path.clone()))
+            .map(|path| ctx.new_utf8_str(path.clone()))
             .collect(),
     );
 
@@ -535,7 +535,7 @@ pub(crate) fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: Py
     for (key, value) in &vm.state.settings.xopts {
         let value = value
             .as_ref()
-            .map_or_else(|| ctx.new_bool(true), |s| ctx.new_str(s.clone()));
+            .map_or_else(|| ctx.new_bool(true), |s| ctx.new_utf8_str(s.clone()));
         xopts.set_item(&**key, value, vm).unwrap();
     }
 
@@ -544,7 +544,7 @@ pub(crate) fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: Py
             .settings
             .warnopts
             .iter()
-            .map(|s| ctx.new_str(s.clone()))
+            .map(|s| ctx.new_utf8_str(s.clone()))
             .collect(),
     );
 
@@ -637,7 +637,7 @@ settrace() -- set the global debug tracing function
     let builtin_module_names = ctx.new_tuple(
         module_names
             .into_iter()
-            .map(|n| ctx.new_str(n.into_owned()))
+            .map(|n| ctx.new_utf8_str(n.into_owned()))
             .collect(),
     );
     let modules = ctx.new_dict();
@@ -650,11 +650,11 @@ settrace() -- set the global debug tracing function
     let base_exec_prefix = option_env!("RUSTPYTHON_BASEEXECPREFIX").unwrap_or(exec_prefix);
 
     extend_module!(vm, module, {
-      "__name__" => ctx.new_str(String::from("sys")),
+      "__name__" => ctx.new_ascii_str(b"sys"),
       "argv" => argv(vm),
       "builtin_module_names" => builtin_module_names,
-      "byteorder" => ctx.new_str(bytorder),
-      "copyright" => ctx.new_str(copyright),
+      "byteorder" => ctx.new_utf8_str(bytorder),
+      "copyright" => ctx.new_utf8_str(copyright),
       "_base_executable" => _base_executable(ctx),
       "executable" => executable(ctx),
       "flags" => flags,
@@ -672,13 +672,13 @@ settrace() -- set the global debug tracing function
       "maxunicode" => ctx.new_int(MAXUNICODE),
       "maxsize" => ctx.new_int(MAXSIZE),
       "path" => path,
-      "ps1" => ctx.new_str(">>>>> "),
-      "ps2" => ctx.new_str("..... "),
-      "__doc__" => ctx.new_str(sys_doc),
+      "ps1" => ctx.new_ascii_str(b">>>>> "),
+      "ps2" => ctx.new_ascii_str(b"..... "),
+      "__doc__" => ctx.new_utf8_str(sys_doc),
       "_getframe" => named_function!(ctx, sys, _getframe),
       "modules" => modules.clone(),
-      "platform" => ctx.new_str(PLATFORM.to_owned()),
-      "_framework" => ctx.new_str(framework),
+      "platform" => ctx.new_utf8_str(PLATFORM.to_owned()),
+      "_framework" => ctx.new_utf8_str(framework),
       "meta_path" => ctx.new_list(vec![]),
       "path_hooks" => ctx.new_list(vec![]),
       "path_importer_cache" => ctx.new_dict(),
@@ -687,16 +687,16 @@ settrace() -- set the global debug tracing function
       "setprofile" => named_function!(ctx, sys, setprofile),
       "setrecursionlimit" => named_function!(ctx, sys, setrecursionlimit),
       "settrace" => named_function!(ctx, sys, settrace),
-      "version" => vm.ctx.new_str(version::get_version()),
+      "version" => vm.ctx.new_utf8_str(version::get_version()),
       "version_info" => version_info,
       "_git" => sys_git_info(vm),
       "exc_info" => named_function!(ctx, sys, exc_info),
-      "prefix" => ctx.new_str(prefix),
-      "base_prefix" => ctx.new_str(base_prefix),
-      "exec_prefix" => ctx.new_str(exec_prefix),
-      "base_exec_prefix" => ctx.new_str(base_exec_prefix),
+      "prefix" => ctx.new_utf8_str(prefix),
+      "base_prefix" => ctx.new_utf8_str(base_prefix),
+      "exec_prefix" => ctx.new_utf8_str(exec_prefix),
+      "base_exec_prefix" => ctx.new_utf8_str(base_exec_prefix),
       "exit" => named_function!(ctx, sys, exit),
-      "abiflags" => ctx.new_str(ABIFLAGS.to_owned()),
+      "abiflags" => ctx.new_utf8_str(ABIFLAGS.to_owned()),
       "audit" => named_function!(ctx, sys, audit),
       "displayhook" => named_function!(ctx, sys, displayhook),
       "__displayhook__" => named_function!(ctx, sys, displayhook),
@@ -706,7 +706,7 @@ settrace() -- set the global debug tracing function
       "api_version" => ctx.new_int(0x0), // what C api?
       "float_info" => float_info,
       "int_info" => int_info,
-      "float_repr_style" => ctx.new_str("short"),
+      "float_repr_style" => ctx.new_ascii_str(b"short"),
       "_xoptions" => xopts,
       "warnoptions" => warnopts,
       "_rustpython_debugbuild" => ctx.new_bool(cfg!(debug_assertions)),
