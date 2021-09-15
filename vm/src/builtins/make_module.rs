@@ -988,7 +988,6 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "NotImplementedError" => ctx.exceptions.not_implemented_error.clone(),
         "RecursionError" => ctx.exceptions.recursion_error.clone(),
         "SyntaxError" =>  ctx.exceptions.syntax_error.clone(),
-        "TargetScopeError" =>  ctx.exceptions.target_scope_error.clone(),
         "IndentationError" =>  ctx.exceptions.indentation_error.clone(),
         "TabError" =>  ctx.exceptions.tab_error.clone(),
         "SystemError" => ctx.exceptions.system_error.clone(),
