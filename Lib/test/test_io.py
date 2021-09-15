@@ -1039,8 +1039,6 @@ class CIOTest(IOTest):
         super().test_destructor(self)
 
 class PyIOTest(IOTest):
-    # TODO: RUSTPYTHON, can't resize b/c of existing exports
-    @unittest.expectedFailure
     def test_optional_abilities(self):
         super().test_optional_abilities()
 
@@ -2630,8 +2628,7 @@ class TextIOWrapperTest(unittest.TestCase):
         with self.assertRaisesRegex(LookupError, "is not a text encoding"):
             self.TextIOWrapper(b, encoding="hex")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skip('TODO: RUSTPYTHON')
     def test_detach(self):
         r = self.BytesIO()
         b = self.BufferedWriter(r)
@@ -2693,8 +2690,7 @@ class TextIOWrapperTest(unittest.TestCase):
         t.write("A\rB")
         self.assertEqual(r.getvalue(), b"XY\nZA\rB")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skip('TODO: RUSTPYTHON')
     def test_reconfigure_line_buffering(self):
         r = self.BytesIO()
         b = self.BufferedWriter(r, 1000)
@@ -3924,16 +3920,12 @@ class PyTextIOWrapperTest(TextIOWrapperTest):
     def test_newlines(self):
         super().test_newlines()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_line_buffering(self):
         super().test_line_buffering()
 
     def test_seeking_too(self):
         super().test_seeking_too()
 
-    # TODO: RUSTPYTHON, can't resize b/c of existing exports
-    @unittest.expectedFailure
     def test_bufio_write_through(self):
         super().test_bufio_write_through()
 

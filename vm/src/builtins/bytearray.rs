@@ -6,7 +6,7 @@ use super::pystr::PyStrRef;
 use super::pytype::PyTypeRef;
 use super::tuple::PyTupleRef;
 use crate::anystr::{self, AnyStr};
-use crate::buffer::{BufferOptions, PyBuffer, ResizeGuard};
+use crate::buffer::{BufferOptions, PyBuffer, PyBufferInternal, ResizeGuard};
 use crate::bytesinner::{
     bytes_decode, bytes_from_object, value_from_object, ByteInnerFindOptions, ByteInnerNewOptions,
     ByteInnerPaddingOptions, ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs,
@@ -670,41 +670,35 @@ impl Comparable for PyByteArray {
 }
 
 impl AsBuffer for PyByteArray {
-    fn get_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<Box<dyn PyBuffer>> {
-        zelf.exports.fetch_add(1);
-        let buf = ByteArrayBuffer {
-            bytearray: zelf.clone(),
-            options: BufferOptions {
+    fn get_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
+        let buffer = PyBuffer::new(
+            zelf.as_object().clone(),
+            zelf.clone(),
+            BufferOptions {
                 readonly: false,
                 len: zelf.len(),
                 ..Default::default()
             },
-        };
-        Ok(Box::new(buf))
+        );
+        Ok(buffer)
     }
 }
 
-#[derive(Debug)]
-struct ByteArrayBuffer {
-    bytearray: PyByteArrayRef,
-    options: BufferOptions,
-}
-
-impl PyBuffer for ByteArrayBuffer {
+impl PyBufferInternal for PyRef<PyByteArray> {
     fn obj_bytes(&self) -> BorrowedValue<[u8]> {
-        self.bytearray.borrow_buf().into()
+        self.borrow_buf().into()
     }
 
     fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
-        PyRwLockWriteGuard::map(self.bytearray.inner_mut(), |inner| &mut *inner.elements).into()
+        PyRwLockWriteGuard::map(self.inner_mut(), |inner| &mut *inner.elements).into()
     }
 
     fn release(&self) {
-        self.bytearray.exports.fetch_sub(1);
+        self.exports.fetch_sub(1);
     }
 
-    fn get_options(&self) -> &BufferOptions {
-        &self.options
+    fn retain(&self) {
+        self.exports.fetch_add(1);
     }
 }
 

@@ -2,7 +2,7 @@ pub(crate) use _sre::make_module;
 
 #[pymodule]
 mod _sre {
-    use crate::buffer::PyBufferRef;
+    use crate::buffer::PyBuffer;
     use crate::builtins::list::PyListRef;
     use crate::builtins::tuple::PyTupleRef;
     use crate::builtins::{
@@ -152,7 +152,7 @@ mod _sre {
             let vec;
             let s;
             let str_drive = if self.isbytes {
-                buffer = PyBufferRef::try_from_borrowed_object(vm, &string)?;
+                buffer = PyBuffer::try_from_borrowed_object(vm, &string)?;
                 let bytes = match buffer.as_contiguous() {
                     Some(bytes) => {
                         guard = bytes;

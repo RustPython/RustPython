@@ -3,7 +3,7 @@ use super::int::PyIntRef;
 use super::pystr::PyStrRef;
 use super::pytype::PyTypeRef;
 use crate::anystr::{self, AnyStr};
-use crate::buffer::{BufferOptions, PyBuffer};
+use crate::buffer::{BufferOptions, PyBuffer, PyBufferInternal};
 use crate::builtins::tuple::PyTupleRef;
 use crate::bytesinner::{
     bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
@@ -519,27 +519,22 @@ impl PyBytes {
 }
 
 impl AsBuffer for PyBytes {
-    fn get_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<Box<dyn PyBuffer>> {
-        let buf = BytesBuffer {
-            bytes: zelf.clone(),
-            options: BufferOptions {
+    fn get_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
+        let buf = PyBuffer::new(
+            zelf.as_object().clone(),
+            zelf.clone(),
+            BufferOptions {
                 len: zelf.len(),
                 ..Default::default()
             },
-        };
-        Ok(Box::new(buf))
+        );
+        Ok(buf)
     }
 }
 
-#[derive(Debug)]
-struct BytesBuffer {
-    bytes: PyBytesRef,
-    options: BufferOptions,
-}
-
-impl PyBuffer for BytesBuffer {
+impl PyBufferInternal for PyRef<PyBytes> {
     fn obj_bytes(&self) -> BorrowedValue<[u8]> {
-        self.bytes.as_bytes().into()
+        self.as_bytes().into()
     }
 
     fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
@@ -547,10 +542,7 @@ impl PyBuffer for BytesBuffer {
     }
 
     fn release(&self) {}
-
-    fn get_options(&self) -> &BufferOptions {
-        &self.options
-    }
+    fn retain(&self) {}
 }
 
 impl Hashable for PyBytes {

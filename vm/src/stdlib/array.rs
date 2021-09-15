@@ -9,7 +9,7 @@ pub type wchar_t = u32;
 
 #[pymodule(name = "array")]
 mod array {
-    use crate::buffer::{BufferOptions, PyBuffer, ResizeGuard};
+    use crate::buffer::{BufferOptions, PyBuffer, PyBufferInternal, ResizeGuard};
     use crate::builtins::float::IntoPyFloat;
     use crate::builtins::list::{PyList, PyListRef};
     use crate::builtins::pystr::{PyStr, PyStrRef};
@@ -1088,44 +1088,38 @@ mod array {
     }
 
     impl AsBuffer for PyArray {
-        fn get_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<Box<dyn PyBuffer>> {
-            zelf.exports.fetch_add(1);
+        fn get_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
             let array = zelf.read();
-            let buf = ArrayBuffer {
-                array: zelf.clone(),
-                options: BufferOptions {
+            let buf = PyBuffer::new(
+                zelf.as_object().clone(),
+                zelf.clone(),
+                BufferOptions {
                     readonly: false,
                     len: array.len(),
                     itemsize: array.itemsize(),
                     format: array.typecode_str().into(),
                     ..Default::default()
                 },
-            };
-            Ok(Box::new(buf))
+            );
+            Ok(buf)
         }
     }
 
-    #[derive(Debug)]
-    struct ArrayBuffer {
-        array: PyArrayRef,
-        options: BufferOptions,
-    }
-
-    impl PyBuffer for ArrayBuffer {
+    impl PyBufferInternal for PyRef<PyArray> {
         fn obj_bytes(&self) -> BorrowedValue<[u8]> {
-            self.array.get_bytes().into()
+            self.get_bytes().into()
         }
 
         fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
-            self.array.get_bytes_mut().into()
+            self.get_bytes_mut().into()
         }
 
         fn release(&self) {
-            self.array.exports.fetch_sub(1);
+            self.exports.fetch_sub(1);
         }
 
-        fn get_options(&self) -> &BufferOptions {
-            &self.options
+        fn retain(&self) {
+            self.exports.fetch_add(1);
         }
     }
 
