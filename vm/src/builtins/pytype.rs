@@ -266,7 +266,7 @@ impl PyType {
         let attributes: Vec<PyObjectRef> = zelf
             .get_attributes()
             .drain()
-            .map(|(k, _)| vm.ctx.new_str(k))
+            .map(|(k, _)| vm.ctx.new_utf8_str(k))
             .collect();
         PyList::from(attributes)
     }
@@ -326,7 +326,7 @@ impl PyType {
                     Some(found)
                 }
             })
-            .unwrap_or_else(|| vm.ctx.new_str(self.name()))
+            .unwrap_or_else(|| vm.ctx.new_utf8_str(self.name()))
     }
 
     #[pyproperty(magic)]
@@ -344,7 +344,7 @@ impl PyType {
                     Some(found)
                 }
             })
-            .unwrap_or_else(|| vm.ctx.new_str("builtins"))
+            .unwrap_or_else(|| vm.ctx.new_ascii_str(b"builtins"))
     }
 
     #[pyproperty(magic, setter)]

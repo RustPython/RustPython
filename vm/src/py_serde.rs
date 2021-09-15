@@ -177,7 +177,7 @@ impl<'de> Visitor<'de> for PyObjectDeserializer<'de> {
     where
         E: serde::de::Error,
     {
-        Ok(self.vm.ctx.new_str(value))
+        Ok(self.vm.ctx.new_utf8_str(value))
     }
 
     fn visit_unit<E>(self) -> Result<Self::Value, E>

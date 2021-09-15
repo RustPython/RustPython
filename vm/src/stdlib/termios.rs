@@ -98,7 +98,7 @@ mod termios {
             get_termios_error(vm),
             vec![
                 err.raw_os_error().into_pyobject(vm),
-                vm.ctx.new_str(err.to_string()),
+                vm.ctx.new_utf8_str(err.to_string()),
             ],
         )
     }

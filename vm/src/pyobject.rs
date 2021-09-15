@@ -203,11 +203,19 @@ impl PyContext {
         )
     }
 
-    pub fn new_str<S>(&self, s: S) -> PyObjectRef
+    pub fn new_utf8_str<S>(&self, s: S) -> PyObjectRef
     where
         S: Into<pystr::PyStr>,
     {
         PyObject::new(s.into(), self.types.str_type.clone(), None)
+    }
+
+    pub fn new_ascii_str(&self, s: &[u8]) -> PyObjectRef {
+        PyObject::new(
+            pystr::PyStr::from((s, pystr::PyStrKind::Ascii)),
+            self.types.str_type.clone(),
+            None,
+        )
     }
 
     pub fn new_bytes(&self, data: Vec<u8>) -> PyObjectRef {
@@ -1102,10 +1110,10 @@ pub trait PyClassImpl: PyClassDef {
         Self::impl_extend_class(ctx, class);
         ctx.add_slot_wrappers(class);
         if let Some(doc) = Self::DOC {
-            class.set_str_attr("__doc__", ctx.new_str(doc));
+            class.set_str_attr("__doc__", ctx.new_utf8_str(doc));
         }
         if let Some(module_name) = Self::MODULE_NAME {
-            class.set_str_attr("__module__", ctx.new_str(module_name));
+            class.set_str_attr("__module__", ctx.new_utf8_str(module_name));
         }
     }
 

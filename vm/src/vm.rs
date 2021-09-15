@@ -308,10 +308,15 @@ impl VirtualMachine {
         module::init_module_dict(
             &vm,
             &builtins_dict,
-            vm.ctx.new_str("builtins"),
+            vm.ctx.new_ascii_str(b"builtins"),
             vm.ctx.none(),
         );
-        module::init_module_dict(&vm, &sysmod_dict, vm.ctx.new_str("sys"), vm.ctx.none());
+        module::init_module_dict(
+            &vm,
+            &sysmod_dict,
+            vm.ctx.new_ascii_str(b"sys"),
+            vm.ctx.none(),
+        );
         vm
     }
 
@@ -621,7 +626,7 @@ impl VirtualMachine {
     /// [invoke]: rustpython_vm::exceptions::invoke
     /// [ctor]: rustpython_vm::exceptions::ExceptionCtor
     pub fn new_exception_msg(&self, exc_type: PyTypeRef, msg: String) -> PyBaseExceptionRef {
-        self.new_exception(exc_type, vec![self.ctx.new_str(msg)])
+        self.new_exception(exc_type, vec![self.ctx.new_utf8_str(msg)])
     }
 
     pub fn new_lookup_error(&self, msg: String) -> PyBaseExceptionRef {
@@ -764,7 +769,7 @@ impl VirtualMachine {
         self.set_attr(
             syntax_error.as_object(),
             "filename",
-            self.ctx.new_str(error.source_path.clone()),
+            self.ctx.new_utf8_str(error.source_path.clone()),
         )
         .unwrap();
         syntax_error
@@ -1219,7 +1224,7 @@ impl VirtualMachine {
         }
 
         let frame = frame_ref.unwrap().as_object().clone();
-        let event = self.ctx.new_str(event.to_string());
+        let event = self.ctx.new_utf8_str(event.to_string());
         let args = vec![frame, event, self.ctx.none()];
 
         // temporarily disable tracing, during the call to the
@@ -2225,7 +2230,7 @@ mod tests {
     #[test]
     fn test_multiply_str() {
         Interpreter::default().enter(|vm| {
-            let a = vm.ctx.new_str(String::from("Hello "));
+            let a = vm.ctx.new_ascii_str(b"Hello ");
             let b = vm.ctx.new_int(4_i32);
             let res = vm._mul(&a, &b).unwrap();
             let value = res.payload::<PyStr>().unwrap();

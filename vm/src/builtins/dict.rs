@@ -113,7 +113,7 @@ impl PyDict {
         }
 
         for (key, value) in kwargs.into_iter() {
-            dict.insert(vm, vm.ctx.new_str(key), value)?;
+            dict.insert(vm, vm.ctx.new_utf8_str(key), value)?;
         }
         Ok(())
     }
@@ -364,7 +364,7 @@ impl PyDict {
         if let Some((key, value)) = self.entries.pop_back() {
             Ok(vm.ctx.new_tuple(vec![key, value]))
         } else {
-            let err_msg = vm.ctx.new_str("popitem(): dictionary is empty");
+            let err_msg = vm.ctx.new_ascii_str(b"popitem(): dictionary is empty");
             Err(vm.new_key_error(err_msg))
         }
     }
@@ -373,7 +373,7 @@ impl PyDict {
         let dict = DictContentType::default();
 
         for (key, value) in attrs {
-            dict.insert(vm, vm.ctx.new_str(key), value)?;
+            dict.insert(vm, vm.ctx.new_utf8_str(key), value)?;
         }
 
         Ok(PyDict { entries: dict })

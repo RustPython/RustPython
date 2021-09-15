@@ -126,11 +126,11 @@ mod _codecs {
             let decode_exc = vm.new_exception(
                 vm.ctx.exceptions.unicode_decode_error.clone(),
                 vec![
-                    vm.ctx.new_str(self.encoding),
+                    vm.ctx.new_utf8_str(self.encoding),
                     data_bytes.clone(),
                     vm.ctx.new_int(byte_range.start),
                     vm.ctx.new_int(byte_range.end),
-                    vm.ctx.new_str(reason),
+                    vm.ctx.new_utf8_str(reason),
                 ],
             );
             let res = vm.invoke(self.handler_func()?, (decode_exc.clone(),))?;

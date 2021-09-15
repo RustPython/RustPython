@@ -39,7 +39,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "ucd_3_2_0" => ucd_3_2_0,
         // we do unidata_version here because the getter tries to do PyUCD::class() before
         // the module is in the VM
-        "unidata_version" => ctx.new_str(PyUCD::default().unic_version.to_string()),
+        "unidata_version" => ctx.new_utf8_str(PyUCD::default().unic_version.to_string()),
     });
 
     for attr in ["category", "lookup", "name", "bidirectional", "normalize"]
@@ -124,7 +124,7 @@ impl PyUCD {
         if let Some(c) = c {
             if self.check_age(c) {
                 if let Some(name) = unicode_names2::name(c) {
-                    return Ok(vm.ctx.new_str(name.to_string()));
+                    return Ok(vm.ctx.new_utf8_str(name.to_string()));
                 }
             }
         }

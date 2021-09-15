@@ -63,7 +63,7 @@ impl OutputMode {
                 })
             };
             match mode {
-                OutputMode::String => path_as_string(path).map(|s| vm.ctx.new_str(s)),
+                OutputMode::String => path_as_string(path).map(|s| vm.ctx.new_utf8_str(s)),
                 OutputMode::Bytes => {
                     #[cfg(any(unix, target_os = "wasi"))]
                     {
@@ -262,7 +262,7 @@ impl IntoPyException for &'_ io::Error {
             },
         };
         let errno = self.raw_os_error().into_pyobject(vm);
-        let msg = vm.ctx.new_str(self.to_string());
+        let msg = vm.ctx.new_utf8_str(self.to_string());
         vm.new_exception(exc_type, vec![errno, msg])
     }
 }
@@ -2769,7 +2769,7 @@ mod posix {
             Err(errno_err(vm))
         } else {
             let name = unsafe { ffi::CStr::from_ptr(name) }.to_str().unwrap();
-            Ok(vm.ctx.new_str(name))
+            Ok(vm.ctx.new_utf8_str(name))
         }
     }
 
@@ -3386,7 +3386,7 @@ mod nt {
 
         for (key, value) in env::vars() {
             environ
-                .set_item(vm.ctx.new_str(key), vm.ctx.new_str(value), vm)
+                .set_item(vm.ctx.new_utf8_str(key), vm.ctx.new_utf8_str(value), vm)
                 .unwrap();
         }
         environ
