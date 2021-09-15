@@ -804,19 +804,51 @@ mod array {
             }
         }
 
-        #[pymethod]
-        fn frombytes(zelf: PyRef<Self>, b: ArgBytesLike, vm: &VirtualMachine) -> PyResult<()> {
-            let b = b.borrow_buf();
-            let itemsize = zelf.read().itemsize();
+        fn _from_bytes(&self, b: &[u8], itemsize: usize, vm: &VirtualMachine) -> PyResult<()> {
             if b.len() % itemsize != 0 {
                 return Err(
                     vm.new_value_error("bytes length not a multiple of item size".to_owned())
                 );
             }
             if b.len() / itemsize > 0 {
-                zelf.try_resizable(vm)?.frombytes(&b);
+                self.try_resizable(vm)?.frombytes(b);
             }
             Ok(())
+        }
+
+        #[pymethod]
+        fn frombytes(&self, b: ArgBytesLike, vm: &VirtualMachine) -> PyResult<()> {
+            let b = b.borrow_buf();
+            let itemsize = self.read().itemsize();
+            self._from_bytes(&b, itemsize, vm)
+        }
+
+        #[pymethod]
+        fn fromfile(&self, f: PyObjectRef, n: isize, vm: &VirtualMachine) -> PyResult<()> {
+            let itemsize = self.itemsize();
+            if n < 0 {
+                return Err(vm.new_value_error("negative count".to_owned()));
+            }
+            let n = vm.check_repeat_or_memory_error(itemsize, n)?;
+            let nbytes = n * itemsize;
+
+            let b = vm.call_method(&f, "read", (nbytes,))?;
+            let b = b
+                .downcast::<PyBytes>()
+                .map_err(|_| vm.new_type_error("read() didn't return bytes".to_owned()))?;
+
+            let not_enough_bytes = b.len() != nbytes;
+
+            self._from_bytes(b.as_bytes(), itemsize, vm)?;
+
+            if not_enough_bytes {
+                Err(vm.new_exception_msg(
+                    vm.ctx.exceptions.eof_error.clone(),
+                    "read() didn't return enough bytes".to_owned(),
+                ))
+            } else {
+                Ok(())
+            }
         }
 
         #[pymethod]
