@@ -498,7 +498,7 @@ mod array {
     }
 
     macro_rules! impl_array_element {
-        ($(($t:ty, $f_from:path, $f_swap:path, $totype:ty),)*) => {$(
+        ($(($t:ty, $f_from:path, $f_swap:path, $f_to:path),)*) => {$(
             impl ArrayElement for $t {
                 fn try_into_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
                     $f_from(vm, obj)
@@ -507,23 +507,28 @@ mod array {
                     $f_swap(self)
                 }
                 fn to_object(self, vm: &VirtualMachine) -> PyObjectRef {
-                    <$totype>::from(self).into_object(vm)
+                    $f_to(self).into_object(vm)
                 }
             }
         )*};
     }
 
     impl_array_element!(
-        (i8, i8::try_from_object, i8::swap_bytes, PyInt),
-        (u8, u8::try_from_object, u8::swap_bytes, PyInt),
-        (i16, i16::try_from_object, i16::swap_bytes, PyInt),
-        (u16, u16::try_from_object, u16::swap_bytes, PyInt),
-        (i32, i32::try_from_object, i32::swap_bytes, PyInt),
-        (u32, u32::try_from_object, u32::swap_bytes, PyInt),
-        (i64, i64::try_from_object, i64::swap_bytes, PyInt),
-        (u64, u64::try_from_object, u64::swap_bytes, PyInt),
-        (f32, f32_try_into_from_object, f32_swap_bytes, PyFloat),
-        (f64, f64_try_into_from_object, f64_swap_bytes, PyFloat),
+        (i8, i8::try_from_object, i8::swap_bytes, PyInt::from),
+        (u8, u8::try_from_object, u8::swap_bytes, PyInt::from),
+        (i16, i16::try_from_object, i16::swap_bytes, PyInt::from),
+        (u16, u16::try_from_object, u16::swap_bytes, PyInt::from),
+        (i32, i32::try_from_object, i32::swap_bytes, PyInt::from),
+        (u32, u32::try_from_object, u32::swap_bytes, PyInt::from),
+        (i64, i64::try_from_object, i64::swap_bytes, PyInt::from),
+        (u64, u64::try_from_object, u64::swap_bytes, PyInt::from),
+        (
+            f32,
+            f32_try_into_from_object,
+            f32_swap_bytes,
+            pyfloat_from_f32
+        ),
+        (f64, f64_try_into_from_object, f64_swap_bytes, PyFloat::from),
     );
 
     fn f32_swap_bytes(x: f32) -> f32 {
@@ -540,6 +545,10 @@ mod array {
 
     fn f64_try_into_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<f64> {
         ArgIntoFloat::try_from_object(vm, obj).map(|x| x.to_f64())
+    }
+
+    fn pyfloat_from_f32(value: f32) -> PyFloat {
+        PyFloat::from(value as f64)
     }
 
     impl ArrayElement for WideChar {
@@ -1104,20 +1113,36 @@ mod array {
             zelf: PyRef<Self>,
             proto: usize,
             vm: &VirtualMachine,
-        ) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
-            Self::reduce(zelf, vm)
+        ) -> PyResult<(PyObjectRef, PyTupleRef, Option<PyDictRef>)> {
+            if proto < 3 {
+                return Ok(Self::reduce(zelf, vm));
+            }
+            let array = zelf.read();
+            let cls = zelf.as_object().clone_class().into_object();
+            let typecode = vm.ctx.new_str(array.typecode_str());
+            let bytes = vm.ctx.new_bytes(array.get_bytes().to_vec());
+            let code = MachineFormatCode::from_typecode(array.typecode()).unwrap();
+            let code = PyInt::from(u8::from(code)).into_object(vm);
+            let module = vm.import("array", None, 0)?;
+            let func = vm.get_attribute(module, "_array_reconstructor")?;
+            Ok((
+                func,
+                PyTupleRef::with_elements(vec![cls, typecode, code, bytes], &vm.ctx),
+                zelf.as_object().dict(),
+            ))
         }
 
         #[pymethod(magic)]
         fn reduce(
             zelf: PyRef<Self>,
             vm: &VirtualMachine,
-        ) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
+        ) -> (PyObjectRef, PyTupleRef, Option<PyDictRef>) {
             let array = zelf.read();
-            let values = vm.ctx.new_list(array.get_objects(vm));
+            let cls = zelf.as_object().clone_class().into_object();
             let typecode = vm.ctx.new_str(array.typecode_str());
+            let values = vm.ctx.new_list(array.get_objects(vm));
             (
-                zelf.as_object().clone_class(),
+                cls,
                 PyTupleRef::with_elements(vec![typecode, values], &vm.ctx),
                 zelf.as_object().dict(),
             )
