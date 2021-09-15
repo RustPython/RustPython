@@ -338,7 +338,7 @@ pub(crate) fn impl_define_exception(
                 cls: PyTypeRef,
                 args: FuncArgs,
                 vm: &VirtualMachine,
-            ) -> PyResult<PyBaseExceptionRef> {
+            ) -> PyResult {
                 #tp_new_slot
             }
 

@@ -155,12 +155,8 @@ impl PyBaseException {
     }
 }
 
-fn base_exception_new(
-    cls: PyTypeRef,
-    args: FuncArgs,
-    vm: &VirtualMachine,
-) -> PyResult<PyRef<PyBaseException>> {
-    PyBaseException::new(args.args, vm).into_ref_with_type(vm, cls)
+fn base_exception_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    PyBaseException::tp_new(cls, args, vm)
 }
 
 pub fn chain<T>(e1: PyResult<()>, e2: PyResult<T>) -> PyResult<T> {
