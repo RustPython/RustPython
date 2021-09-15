@@ -507,11 +507,7 @@ where
 
 // Best effort attempt to generate a template from which a
 // __text_signature__ can be created.
-pub(crate) fn get_sig<Item: ItemLike>(item: &Item, name: &str) -> String {
-    let sig = match item.function_or_method_impl().map(|f| f.sig()) {
-        Ok(sig) => sig,
-        _ => return "".to_owned(),
-    };
+pub(crate) fn text_signature(sig: &Signature, name: &str) -> String {
     let signature = func_sig(sig);
     if signature.starts_with("$self") {
         format!("{}({})", name, signature)

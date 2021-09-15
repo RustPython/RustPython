@@ -1315,9 +1315,9 @@ dependencies = [
 
 [[package]]
 name = "openssl-probe"
-version = "0.1.4"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "28988d872ab76095a6e6ac88d99b54fd267702734fd7ffe610ca27f533ddb95a"
+checksum = "77af24da69f9d9341038eba93a073b1fdaaa1b788221b00a69bce9e762cb32de"
 
 [[package]]
 name = "openssl-src"
@@ -2287,9 +2287,9 @@ dependencies = [
 
 [[package]]
 name = "syn-ext"
-version = "0.2.3"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9210542fa1f4811e2024f7ef22668ef8e035a54f6c9d4826faae8ae2885bd455"
+checksum = "ccfaff88a7edb37fd3a16f24b986500e4a6d4b87218d9b38255e208ca4a08848"
 dependencies = [
  "syn",
 ]

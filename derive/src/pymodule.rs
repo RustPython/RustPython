@@ -1,7 +1,8 @@
 use crate::error::Diagnostic;
 use crate::util::{
-    get_sig, iter_use_idents, pyclass_ident_and_attrs, AttributeExt, ClassItemMeta, ContentItem,
-    ContentItemInner, ErrorVec, ItemMeta, ItemNursery, SimpleItemMeta, ALL_ALLOWED_NAMES,
+    iter_use_idents, pyclass_ident_and_attrs, text_signature, AttributeExt, ClassItemMeta,
+    ContentItem, ContentItemInner, ErrorVec, ItemMeta, ItemNursery, SimpleItemMeta,
+    ALL_ALLOWED_NAMES,
 };
 use proc_macro2::TokenStream;
 use quote::{quote, quote_spanned, ToTokens};
@@ -247,16 +248,17 @@ trait ModuleItem: ContentItem {
 
 impl ModuleItem for FunctionItem {
     fn gen_module_item(&self, args: ModuleItemArgs<'_>) -> Result<()> {
-        let ident = match args.item {
-            Item::Fn(syn::ItemFn { sig, .. }) => sig.ident.clone(),
-            other => return Err(self.new_syn_error(other.span(), "can only be on a function")),
-        };
+        let func = args
+            .item
+            .function_or_method()
+            .map_err(|_| self.new_syn_error(args.item.span(), "can only be on a function"))?;
+        let ident = &func.sig().ident;
 
         let item_attr = args.attrs.remove(self.index());
         let item_meta = SimpleItemMeta::from_attr(ident.clone(), &item_attr)?;
 
         let py_name = item_meta.simple_name()?;
-        let sig_doc = get_sig(args.item, &py_name);
+        let sig_doc = text_signature(func.sig(), &py_name);
 
         let item = {
             let doc = args.attrs.doc().map_or_else(TokenStream::new, |mut doc| {
