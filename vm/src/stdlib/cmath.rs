@@ -89,6 +89,22 @@ mod cmath {
         z.to_complex().cos()
     }
 
+    /// Return the logarithm of z with respect to base. Default of base is 'e'
+    #[pyfunction]
+    fn log(z: IntoPyComplex, base: OptionalArg<IntoPyFloat>) -> Complex64 {
+        z.to_complex().log(
+            base.into_option()
+                .map(|base| base.to_f64())
+                .unwrap_or(std::f64::consts::E),
+        )
+    }
+
+    /// Return the logarithm of z with respect to 10
+    #[pyfunction]
+    fn log10(z: IntoPyComplex) -> Complex64 {
+        z.to_complex().log(10.0)
+    }
+
     #[derive(FromArgs)]
     struct IsCloseArgs {
         #[pyarg(positional)]
