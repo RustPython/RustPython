@@ -467,7 +467,6 @@ impl PyType {
             }
         }
 
-        // TODO: how do we know if it should have a dict?
         // All *classes* should have a dict. Exceptions are *instances* of
         // classes that define __slots__ and instances of built-in classes
         // (with exceptions, e.g function)
