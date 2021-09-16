@@ -1,5 +1,6 @@
 from testutils import assert_raises
 from array import array
+from pickle import dumps, loads
 
 a1 = array("b", [0, 1, 2, 3])
 
@@ -97,3 +98,9 @@ with assert_raises(IndexError):
     a[0] = 42
 with assert_raises(IndexError):
     del a[42]
+
+test_str = '🌉abc🌐def🌉🌐'
+u = array('u', test_str)
+assert u.__reduce_ex__(1)[1][1] == list(test_str)
+assert str(loads(dumps(u, 1))) == f"array('u', '{test_str}')"
+assert loads(dumps(u, 1)) == loads(dumps(u, 3))

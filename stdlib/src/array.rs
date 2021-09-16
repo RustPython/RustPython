@@ -563,12 +563,8 @@ mod array {
         fn byteswap(self) -> Self {
             Self(self.0.swap_bytes())
         }
-        fn to_object(self, vm: &VirtualMachine) -> PyObjectRef {
-            vm.ctx.new_str(
-                char::from_u32(self.0 as u32)
-                    .unwrap_or_default()
-                    .to_string(),
-            )
+        fn to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
+            unreachable!()
         }
     }
 
@@ -759,6 +755,38 @@ mod array {
             }
         }
 
+        fn _wchar_bytes_to_string(
+            bytes: &[u8],
+            item_size: usize,
+            vm: &VirtualMachine,
+        ) -> PyResult<String> {
+            if item_size == 2 {
+                // safe because every configuration of bytes for the types we support are valid
+                let utf16 = unsafe {
+                    std::slice::from_raw_parts(
+                        bytes.as_ptr() as *const u16,
+                        bytes.len() / std::mem::size_of::<u16>(),
+                    )
+                };
+                Ok(String::from_utf16_lossy(utf16))
+            } else {
+                // safe because every configuration of bytes for the types we support are valid
+                let chars = unsafe {
+                    std::slice::from_raw_parts(
+                        bytes.as_ptr() as *const u32,
+                        bytes.len() / std::mem::size_of::<u32>(),
+                    )
+                };
+                chars
+                    .iter()
+                    .map(|&ch| {
+                        // cpython issue 17223
+                        u32_to_char(ch).map_err(|msg| vm.new_value_error(msg))
+                    })
+                    .try_collect()
+            }
+        }
+
         fn _unicode_to_wchar_bytes(utf8: &str, item_size: usize) -> Vec<u8> {
             if item_size == 2 {
                 utf8.encode_utf16()
@@ -799,31 +827,7 @@ mod array {
                 ));
             }
             let bytes = array.get_bytes();
-            if self.itemsize() == 2 {
-                // safe because every configuration of bytes for the types we support are valid
-                let utf16 = unsafe {
-                    std::slice::from_raw_parts(
-                        bytes.as_ptr() as *const u16,
-                        bytes.len() / std::mem::size_of::<u16>(),
-                    )
-                };
-                Ok(String::from_utf16_lossy(utf16))
-            } else {
-                // safe because every configuration of bytes for the types we support are valid
-                let chars = unsafe {
-                    std::slice::from_raw_parts(
-                        bytes.as_ptr() as *const u32,
-                        bytes.len() / std::mem::size_of::<u32>(),
-                    )
-                };
-                chars
-                    .iter()
-                    .map(|&ch| {
-                        // cpython issue 17223
-                        u32_to_char(ch).map_err(|msg| vm.new_value_error(msg))
-                    })
-                    .try_collect()
-            }
+            Self::_wchar_bytes_to_string(bytes, self.itemsize(), vm)
         }
 
         fn _from_bytes(&self, b: &[u8], itemsize: usize, vm: &VirtualMachine) -> PyResult<()> {
@@ -1113,13 +1117,13 @@ mod array {
             zelf: PyRef<Self>,
             proto: usize,
             vm: &VirtualMachine,
-        ) -> PyResult<(PyObjectRef, PyTupleRef, Option<PyDictRef>)> {
+        ) -> PyResult<(PyObjectRef, PyObjectRef, Option<PyDictRef>)> {
             if proto < 3 {
-                return Ok(Self::reduce(zelf, vm));
+                return Self::reduce(zelf, vm);
             }
             let array = zelf.read();
             let cls = zelf.as_object().clone_class().into_object();
-            let typecode = vm.ctx.new_str(array.typecode_str());
+            let typecode = vm.ctx.new_utf8_str(array.typecode_str());
             let bytes = vm.ctx.new_bytes(array.get_bytes().to_vec());
             let code = MachineFormatCode::from_typecode(array.typecode()).unwrap();
             let code = PyInt::from(u8::from(code)).into_object(vm);
@@ -1127,7 +1131,7 @@ mod array {
             let func = vm.get_attribute(module, "_array_reconstructor")?;
             Ok((
                 func,
-                PyTupleRef::with_elements(vec![cls, typecode, code, bytes], &vm.ctx),
+                vm.ctx.new_tuple(vec![cls, typecode, code, bytes]),
                 zelf.as_object().dict(),
             ))
         }
@@ -1136,16 +1140,22 @@ mod array {
         fn reduce(
             zelf: PyRef<Self>,
             vm: &VirtualMachine,
-        ) -> (PyObjectRef, PyTupleRef, Option<PyDictRef>) {
+        ) -> PyResult<(PyObjectRef, PyObjectRef, Option<PyDictRef>)> {
             let array = zelf.read();
             let cls = zelf.as_object().clone_class().into_object();
-            let typecode = vm.ctx.new_str(array.typecode_str());
-            let values = vm.ctx.new_list(array.get_objects(vm));
-            (
+            let typecode = vm.ctx.new_utf8_str(array.typecode_str());
+            let values = if array.typecode() == 'u' {
+                let s = Self::_wchar_bytes_to_string(array.get_bytes(), array.itemsize(), vm)?;
+                s.chars().map(|x| x.into_pyobject(vm)).collect()
+            } else {
+                array.get_objects(vm)
+            };
+            let values = vm.ctx.new_list(values);
+            Ok((
                 cls,
-                PyTupleRef::with_elements(vec![typecode, values], &vm.ctx),
+                vm.ctx.new_tuple(vec![typecode, values]),
                 zelf.as_object().dict(),
-            )
+            ))
         }
     }
 
