@@ -1191,8 +1191,6 @@ class TestEnum(unittest.TestCase):
             b = 3
             c = ...
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_subclasses_with_getnewargs(self):
         class NamedInt(int):
             __qualname__ = 'NamedInt'       # needed for pickle protocol 4

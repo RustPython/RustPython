@@ -25,8 +25,16 @@ bitflags! {
 }
 
 impl PyTpFlags {
+    // Default used for both built-in and normal classes: empty, for now.
     // CPython default: Py_TPFLAGS_HAVE_STACKLESS_EXTENSION | Py_TPFLAGS_HAVE_VERSION_TAG
-    pub const DEFAULT: Self = Self::HEAPTYPE;
+    pub const DEFAULT: Self = Self::empty();
+
+    // CPython: See initialization of flags in type_new.
+    /// Used for types created in Python. Subclassable and are a
+    /// heaptype.
+    pub fn heap_type_flags() -> Self {
+        Self::DEFAULT | Self::HEAPTYPE | Self::BASETYPE
+    }
 
     pub fn has_feature(self, flag: Self) -> bool {
         self.contains(flag)
