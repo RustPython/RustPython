@@ -1,18 +1,17 @@
 use super::os::PyPathLike;
 use super::socket::{self, PySocketRef};
 use crate::builtins::{pytype, weakref::PyWeak, PyStrRef, PyTypeRef};
-use crate::byteslike::{ArgBytesLike, ArgMemoryBuffer};
+use crate::byteslike::{ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike};
 use crate::common::lock::{PyRwLock, PyRwLockWriteGuard};
 use crate::exceptions::{create_exception_type, IntoPyException, PyBaseExceptionRef};
 use crate::function::OptionalArg;
+use crate::slots::SlotConstructor;
 use crate::utils::Either;
 use crate::VirtualMachine;
 use crate::{
     IntoPyObject, ItemProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
     StaticType,
 };
-
-use crate::slots::SlotConstructor;
 use crossbeam_utils::atomic::AtomicCell;
 use foreign_types_shared::{ForeignType, ForeignTypeRef};
 use openssl::{
@@ -217,16 +216,13 @@ fn _ssl_rand_status() -> i32 {
     unsafe { sys::RAND_status() }
 }
 
-fn _ssl_rand_add(string: Either<PyStrRef, ArgBytesLike>, entropy: f64) {
+fn _ssl_rand_add(string: ArgStrOrBytesLike, entropy: f64) {
     let f = |b: &[u8]| {
         for buf in b.chunks(libc::c_int::max_value() as usize) {
             unsafe { sys::RAND_add(buf.as_ptr() as *const _, buf.len() as _, entropy) }
         }
     };
-    match string {
-        Either::A(s) => f(s.as_str().as_bytes()),
-        Either::B(b) => b.with_ref(f),
-    }
+    f(&string.borrow_bytes())
 }
 
 fn _ssl_rand_bytes(n: i32, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
