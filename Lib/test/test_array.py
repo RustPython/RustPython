@@ -374,8 +374,6 @@ class BaseTest:
             array.array(self.typecode, self.example + self.example[:1])
         )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_tofromfile(self):
         a = array.array(self.typecode, 2*self.example)
         self.assertRaises(TypeError, a.tofile)
