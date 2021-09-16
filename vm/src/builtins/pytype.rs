@@ -467,6 +467,10 @@ impl PyType {
             }
         }
 
+        // TODO: how do we know if it should have a dict?
+        // All *classes* should have a dict. Exceptions are *instances* of
+        // classes that define __slots__ and instances of built-in classes
+        // (with exceptions, e.g function)
         if !attributes.contains_key("__dict__") {
             attributes.insert(
                 "__dict__".to_owned(),
@@ -479,9 +483,10 @@ impl PyType {
             );
         }
 
-        // TODO: how do we know if it should have a dict?
-        let flags = base.slots.flags | PyTpFlags::HAS_DICT;
-
+        // TODO: Flags is currently initialized with HAS_DICT. Should be
+        // updated when __slots__ are supported (toggling the flag off if
+        // a class has __slots__ defined).
+        let flags = PyTpFlags::heap_type_flags() | PyTpFlags::HAS_DICT;
         let slots = PyTypeSlots::from_flags(flags);
 
         let typ = new(metatype, name.as_str(), base, bases, attributes, slots)

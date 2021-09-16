@@ -565,6 +565,8 @@ class AST_Tests(unittest.TestCase):
         x = ast.Sub()
         self.assertEqual(x._fields, ())
 
+    # TODO: RUSTPYTHON _ast classes should be HEAPTYPES (except for _ast.AST)
+    @unittest.expectedFailure
     def test_pickling(self):
         import pickle
         mods = [pickle]
