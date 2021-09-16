@@ -888,6 +888,22 @@ mod array {
             self.read().get_bytes().to_vec()
         }
 
+        #[pymethod]
+        fn tofile(&self, f: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            /* Write 64K blocks at a time */
+            /* XXX Make the block size settable */
+            const BLOCKSIZE: usize = 64 * 1024;
+
+            let bytes = self.read();
+            let bytes = bytes.get_bytes();
+
+            for b in bytes.chunks(BLOCKSIZE) {
+                let b = PyBytes::from(b.to_vec()).into_ref(vm);
+                vm.call_method(&f, "write", (b,))?;
+            }
+            Ok(())
+        }
+
         pub(crate) fn get_bytes(&self) -> PyMappedRwLockReadGuard<'_, [u8]> {
             PyRwLockReadGuard::map(self.read(), |a| a.get_bytes())
         }
