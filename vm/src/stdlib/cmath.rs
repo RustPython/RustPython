@@ -89,7 +89,9 @@ mod cmath {
         z.to_complex().cos()
     }
 
-    /// Return the logarithm of z with respect to base. Default of base is 'e'
+    /// log(z[, base]) -> the logarithm of z to the given base.
+    ///
+    /// If the base not specified, returns the natural logarithm (base e) of z.
     #[pyfunction]
     fn log(z: IntoPyComplex, base: OptionalArg<IntoPyFloat>) -> Complex64 {
         z.to_complex().log(
