@@ -1932,7 +1932,7 @@ mod _os {
                 Err(io::Error::from(Errno::last()).into_pyexception(vm))
             }
         } else {
-            Ok(Some(raw))
+            Ok(Some(raw as i64))
         }
     }
 
