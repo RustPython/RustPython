@@ -101,7 +101,7 @@ mod cmath {
         )
     }
 
-    /// Return the logarithm of z with respect to 10
+    /// Return the base-10 logarithm of z.
     #[pyfunction]
     fn log10(z: IntoPyComplex) -> Complex64 {
         z.to_complex().log(10.0)
