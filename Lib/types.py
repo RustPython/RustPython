@@ -247,8 +247,7 @@ def coroutine(func):
     if not callable(func):
         raise TypeError('types.coroutine() expects a callable')
 
-    # XXX RUSTPYTHON TODO: iterable coroutine
-    if (False and func.__class__ is FunctionType and
+    if (func.__class__ is FunctionType and
         getattr(func, '__code__', None).__class__ is CodeType):
 
         co_flags = func.__code__.co_flags
@@ -278,8 +277,6 @@ def coroutine(func):
     def wrapped(*args, **kwargs):
         coro = func(*args, **kwargs)
         if (coro.__class__ is CoroutineType or
-            # XXX RUSTPYTHON TODO: iterable coroutine
-            False and 
             coro.__class__ is GeneratorType and coro.gi_code.co_flags & 0x100):
             # 'coro' is a native coroutine object or an iterable coroutine
             return coro
@@ -294,6 +291,9 @@ def coroutine(func):
         return coro
 
     return wrapped
+
+
+GenericAlias = type(list[int])
 
 
 __all__ = [n for n in globals() if n[:1] != '_']
