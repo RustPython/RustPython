@@ -85,8 +85,11 @@ mod syslog {
             None => GlobalIdent::Implicit,
         };
 
-        unsafe { libc::openlog(ident.as_ptr(), logoption, facility) };
-        *global_ident().write() = Some(ident);
+        {
+            let mut locked_ident = global_ident().write();
+            unsafe { libc::openlog(ident.as_ptr(), logoption, facility) };
+            *locked_ident = Some(ident);
+        }
         Ok(())
     }
 
@@ -117,8 +120,9 @@ mod syslog {
     #[pyfunction]
     fn closelog() {
         if global_ident().read().is_some() {
+            let mut locked_ident = global_ident().write();
             unsafe { libc::closelog() };
-            *global_ident().write() = None;
+            *locked_ident = None;
         }
     }
 
