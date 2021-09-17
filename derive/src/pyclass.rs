@@ -1,13 +1,15 @@
 use super::Diagnostic;
 use crate::util::{
-    path_eq, pyclass_ident_and_attrs, ClassItemMeta, ContentItem, ContentItemInner, ErrorVec,
-    ItemMeta, ItemMetaInner, ItemNursery, SimpleItemMeta, ALL_ALLOWED_NAMES,
+    path_eq, pyclass_ident_and_attrs, text_signature, ClassItemMeta, ContentItem, ContentItemInner,
+    ErrorVec, ItemMeta, ItemMetaInner, ItemNursery, SimpleItemMeta, ALL_ALLOWED_NAMES,
 };
 use proc_macro2::TokenStream;
 use quote::{quote, quote_spanned, ToTokens};
 use std::collections::HashMap;
+use syn::parse::{Parse, ParseStream, Result as ParsingResult};
 use syn::{
-    parse_quote, spanned::Spanned, Attribute, AttributeArgs, Ident, Item, Meta, NestedMeta, Result,
+    parse_quote, spanned::Spanned, Attribute, AttributeArgs, Ident, Item, LitStr, Meta, NestedMeta,
+    Result, Token,
 };
 use syn_ext::ext::*;
 
@@ -288,6 +290,71 @@ pub(crate) fn impl_pyexception(
     Ok(ret)
 }
 
+pub(crate) fn impl_define_exception(
+    exc_def: PyExceptionDef,
+) -> std::result::Result<TokenStream, Diagnostic> {
+    let PyExceptionDef {
+        class_name,
+        base_class,
+        ctx_name,
+        docs,
+        tp_new,
+        init,
+    } = exc_def;
+
+    // We need this method, because of how `CPython` copies `__new__`
+    // from `BaseException` in `SimpleExtendsException` macro.
+    // See: `BaseException_new`
+    let tp_new_slot = match tp_new {
+        Some(tp_call) => quote! { #tp_call(cls, args, vm) },
+        None => quote! { #base_class::tp_new(cls, args, vm) },
+    };
+
+    // We need this method, because of how `CPython` copies `__init__`
+    // from `BaseException` in `SimpleExtendsException` macro.
+    // See: `(initproc)BaseException_init`
+    let init_method = match init {
+        Some(init_def) => quote! { #init_def(zelf, args, vm) },
+        None => quote! { #base_class::init(zelf, args, vm) },
+    };
+
+    let ret = quote! {
+        #[pyexception(#class_name, #base_class)]
+        #[derive(Debug)]
+        #[doc = #docs]
+        struct #class_name {}
+
+        // We need this to make extend mechanism work:
+        impl PyValue for #class_name {
+            fn class(vm: &VirtualMachine) -> &PyTypeRef {
+                &vm.ctx.exceptions.#ctx_name
+            }
+        }
+
+        #[pyimpl(flags(BASETYPE, HAS_DICT))]
+        impl #class_name {
+            #[pyslot]
+            pub(crate) fn tp_new(
+                cls: PyTypeRef,
+                args: FuncArgs,
+                vm: &VirtualMachine,
+            ) -> PyResult {
+                #tp_new_slot
+            }
+
+            #[pymethod(magic)]
+            pub(crate) fn init(
+                zelf: PyRef<PyBaseException>,
+                args: FuncArgs,
+                vm: &VirtualMachine,
+            ) -> PyResult<()> {
+                #init_method
+            }
+        }
+    };
+    Ok(ret)
+}
+
 /// #[pymethod] and #[pyclassmethod]
 struct MethodItem {
     inner: ContentItemInner,
@@ -359,57 +426,21 @@ where
     Item: ItemLike + ToTokens + GetIdent,
 {
     fn gen_impl_item(&self, args: ImplItemArgs<'_, Item>) -> Result<()> {
-        let ident = if args.item.is_function_or_method() {
-            Ok(args.item.get_ident().unwrap())
-        } else {
-            Err(self.new_syn_error(args.item.span(), "can only be on a method"))
-        }?;
+        let func = args
+            .item
+            .function_or_method()
+            .map_err(|_| self.new_syn_error(args.item.span(), "can only be on a method"))?;
+        let ident = &func.sig().ident;
 
         let item_attr = args.attrs.remove(self.index());
         let item_meta = MethodItemMeta::from_attr(ident.clone(), &item_attr)?;
-        let py_name = item_meta.method_name()?;
 
-        let sig_doc = args.item.function_or_method_impl().ok().map(|item| {
-            let sig = item.sig();
-            let args: Vec<_> = sig
-                .inputs
-                .iter()
-                .filter_map(|arg| {
-                    use syn::FnArg::*;
-                    let arg = match arg {
-                        Receiver(_) => return Some("$self".to_owned()),
-                        Typed(typed) => typed,
-                    };
-                    let ty = arg.ty.as_ref();
-                    let ty = quote!(#ty).to_string();
-                    if ty == "FuncArgs" {
-                        return Some("*args, **kwargs".to_owned());
-                    }
-                    if ty == "& VirtualMachine" {
-                        return None;
-                    }
-                    let ident = match arg.pat.as_ref() {
-                        syn::Pat::Ident(p) => p.ident.to_string(),
-                        // FIXME: other => unreachable!("function arg pattern must be ident but found `{}`", quote!(fn #ident(.. #other ..))),
-                        other => quote!(#other).to_string(),
-                    };
-                    if ident == "zelf" {
-                        return Some("$self".to_owned());
-                    }
-                    if ident == "vm" {
-                        unreachable!("type &VirtualMachine(`{}`) must be filtered already", ty);
-                    }
-                    Some(ident)
-                })
-                .collect();
-            format!("{}({})", py_name, args.join(", "))
-        });
+        let py_name = item_meta.method_name()?;
+        let sig_doc = text_signature(func.sig(), &py_name);
 
         let tokens = {
             let doc = args.attrs.doc().map_or_else(TokenStream::new, |mut doc| {
-                if let Some(sig_doc) = sig_doc {
-                    doc = format!("{}\n--\n\n{}", sig_doc, doc);
-                }
+                doc = format!("{}\n--\n\n{}", sig_doc, doc);
                 quote!(.with_doc(#doc.to_owned(), ctx))
             });
             let build_func = match self.method_type.as_str() {
@@ -420,7 +451,7 @@ where
                     other
                 ),
             };
-            quote! {
+            quote_spanned! { ident.span() =>
                 class.set_str_attr(
                     #py_name,
                     ctx.make_funcdef(#py_name, Self::#ident)
@@ -442,11 +473,11 @@ where
     Item: ItemLike + ToTokens + GetIdent,
 {
     fn gen_impl_item(&self, args: ImplItemArgs<'_, Item>) -> Result<()> {
-        let ident = if args.item.is_function_or_method() {
-            Ok(args.item.get_ident().unwrap())
-        } else {
-            Err(self.new_syn_error(args.item.span(), "can only be on a method"))
-        }?;
+        let func = args
+            .item
+            .function_or_method()
+            .map_err(|_| self.new_syn_error(args.item.span(), "can only be on a method"))?;
+        let ident = &func.sig().ident;
 
         let item_attr = args.attrs.remove(self.index());
         let item_meta = PropertyItemMeta::from_attr(ident.clone(), &item_attr)?;
@@ -464,11 +495,11 @@ where
     Item: ItemLike + ToTokens + GetIdent,
 {
     fn gen_impl_item(&self, args: ImplItemArgs<'_, Item>) -> Result<()> {
-        let ident = if args.item.is_function_or_method() {
-            Ok(args.item.get_ident().unwrap())
-        } else {
-            Err(self.new_syn_error(args.item.span(), "can only be on a method"))
-        }?;
+        let func = args
+            .item
+            .function_or_method()
+            .map_err(|_| self.new_syn_error(args.item.span(), "can only be on a method"))?;
+        let ident = &func.sig().ident;
 
         let item_attr = args.attrs.remove(self.index());
         let item_meta = SlotItemMeta::from_attr(ident.clone(), &item_attr)?;
@@ -476,17 +507,14 @@ where
         let slot_ident = item_meta.slot_name()?;
         let slot_name = slot_ident.to_string();
         let tokens = {
-            let into_func = quote_spanned! {ident.span() =>
-                Self::#ident as _
-            };
             const NON_ATOMIC_SLOTS: &[&str] = &["as_buffer"];
             if NON_ATOMIC_SLOTS.contains(&slot_name.as_str()) {
-                quote! {
-                    slots.#slot_ident = Some(#into_func);
+                quote_spanned! { func.span() =>
+                    slots.#slot_ident = Some(Self::#ident as _);
                 }
             } else {
-                quote! {
-                    slots.#slot_ident.store(Some(#into_func))
+                quote_spanned! { func.span() =>
+                    slots.#slot_ident.store(Some(Self::#ident as _));
                 }
             }
         };
@@ -514,7 +542,7 @@ where
             let py_name = item_meta.simple_name()?;
             Ok(py_name)
         };
-        let (py_name, tokens) = if args.item.is_function_or_method() || args.item.is_const() {
+        let (py_name, tokens) = if args.item.function_or_method().is_ok() || args.item.is_const() {
             let ident = args.item.get_ident().unwrap();
             let py_name = get_py_name(&attr, ident)?;
 
@@ -552,11 +580,12 @@ where
     fn gen_impl_item(&self, args: ImplItemArgs<'_, Item>) -> Result<()> {
         args.attrs.remove(self.index());
 
-        let ident = if args.item.is_function_or_method() {
-            Ok(args.item.get_ident().unwrap())
-        } else {
-            Err(self.new_syn_error(args.item.span(), "can only be on a method"))
-        }?;
+        let ident = &args
+            .item
+            .function_or_method()
+            .map_err(|_| self.new_syn_error(args.item.span(), "can only be on a method"))?
+            .sig()
+            .ident;
 
         args.context.class_extensions.push(quote! {
             Self::#ident(ctx, class);
@@ -634,16 +663,16 @@ impl ToTokens for GetSetNursery {
             .iter()
             .map(|((name, cfgs), (getter, setter, deleter))| {
                 let setter = match setter {
-                    Some(setter) => quote_spanned! { setter.span()=> .with_set(&Self::#setter)},
+                    Some(setter) => quote_spanned! { setter.span() => .with_set(&Self::#setter)},
                     None => quote! {},
                 };
                 let deleter = match deleter {
                     Some(deleter) => {
-                        quote_spanned! { deleter.span()=> .with_delete(&Self::#deleter)}
+                        quote_spanned! { deleter.span() => .with_delete(&Self::#deleter)}
                     }
                     None => quote! {},
                 };
-                quote! {
+                quote_spanned! { getter.span() =>
                     #( #cfgs )*
                     class.set_str_attr(
                         #name,
@@ -864,17 +893,17 @@ fn extract_impl_attrs(attr: AttributeArgs) -> std::result::Result<ExtractedImplA
                         };
                         if path_eq(&path, "PyRef") {
                             // special handling for PyRef
-                            withs.push(quote! {
+                            withs.push(quote_spanned! { path.span() =>
                                 PyRef::<Self>::impl_extend_class(ctx, class);
                             });
-                            with_slots.push(quote! {
+                            with_slots.push(quote_spanned! { path.span() =>
                                 PyRef::<Self>::extend_slots(slots);
                             });
                         } else {
-                            withs.push(quote! {
+                            withs.push(quote_spanned! { path.span() =>
                                 <Self as #path>::__extend_py_class(ctx, class);
                             });
-                            with_slots.push(quote! {
+                            with_slots.push(quote_spanned! { path.span() =>
                                 <Self as #path>::__extend_slots(slots);
                             });
                         }
@@ -884,7 +913,7 @@ fn extract_impl_attrs(attr: AttributeArgs) -> std::result::Result<ExtractedImplA
                         match meta {
                             NestedMeta::Meta(Meta::Path(path)) => {
                                 if let Some(ident) = path.get_ident() {
-                                    flags.push(quote! {
+                                    flags.push(quote_spanned! { ident.span() =>
                                         | ::rustpython_vm::slots::PyTpFlags::#ident.bits()
                                     });
                                 } else {
@@ -920,12 +949,16 @@ fn extract_impl_attrs(attr: AttributeArgs) -> std::result::Result<ExtractedImplA
     })
 }
 
-fn new_impl_item<Item>(index: usize, attr_name: String) -> Box<dyn ImplItem<Item>>
+fn new_impl_item<Item>(
+    attr: &Attribute,
+    index: usize,
+    attr_name: String,
+) -> Result<Box<dyn ImplItem<Item>>>
 where
     Item: ItemLike + ToTokens + GetIdent,
 {
     assert!(ALL_ALLOWED_NAMES.contains(&attr_name.as_str()));
-    match attr_name.as_str() {
+    Ok(match attr_name.as_str() {
         attr_name @ "pymethod" | attr_name @ "pyclassmethod" => Box::new(MethodItem {
             inner: ContentItemInner {
                 index,
@@ -945,8 +978,13 @@ where
         "extend_class" => Box::new(ExtendClassItem {
             inner: ContentItemInner { index, attr_name },
         }),
-        other => unreachable!("#[pyimpl] doesn't accept #[{}]", other),
-    }
+        other => {
+            return Err(syn::Error::new_spanned(
+                attr,
+                format!("#[pyimpl] doesn't accept #[{}]", other),
+            ))
+        }
+    })
 }
 
 fn attrs_to_content_items<F, R>(
@@ -954,7 +992,7 @@ fn attrs_to_content_items<F, R>(
     new_item: F,
 ) -> Result<(Vec<R>, Vec<Attribute>)>
 where
-    F: Fn(usize, String) -> R,
+    F: Fn(&Attribute, usize, String) -> Result<R>,
 {
     let mut cfgs: Vec<Attribute> = Vec::new();
     let mut result = Vec::new();
@@ -993,9 +1031,53 @@ where
             continue;
         }
 
-        result.push(new_item(i, attr_name));
+        result.push(new_item(attr, i, attr_name)?);
     }
     Ok((result, cfgs))
+}
+
+#[derive(Debug)]
+pub(crate) struct PyExceptionDef {
+    pub class_name: Ident,
+    pub base_class: Ident,
+    pub ctx_name: Ident,
+    pub docs: LitStr,
+
+    /// Holds optional `tp_new` slot to be used instead of a default one:
+    pub tp_new: Option<Ident>,
+    /// We also store `__init__` magic method, that can
+    pub init: Option<Ident>,
+}
+
+impl Parse for PyExceptionDef {
+    fn parse(input: ParseStream) -> ParsingResult<Self> {
+        let class_name: Ident = input.parse()?;
+        input.parse::<Token![,]>()?;
+
+        let base_class: Ident = input.parse()?;
+        input.parse::<Token![,]>()?;
+
+        let ctx_name: Ident = input.parse()?;
+        input.parse::<Token![,]>()?;
+
+        let docs: LitStr = input.parse()?;
+        input.parse::<Option<Token![,]>>()?;
+
+        let tp_new: Option<Ident> = input.parse()?;
+        input.parse::<Option<Token![,]>>()?;
+
+        let init: Option<Ident> = input.parse()?;
+        input.parse::<Option<Token![,]>>()?; // leading `,`
+
+        Ok(PyExceptionDef {
+            class_name,
+            base_class,
+            ctx_name,
+            docs,
+            tp_new,
+            init,
+        })
+    }
 }
 
 fn parse_vec_ident(

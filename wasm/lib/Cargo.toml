@@ -4,7 +4,7 @@ version = "0.1.2"
 authors = ["RustPython Team"]
 license = "MIT"
 description = "A Python-3 (CPython >= 3.5.0) Interpreter written in Rust, compiled to WASM"
-repository = "https://github.com/RustPython/RustPython/tree/master/wasm/lib"
+repository = "https://github.com/RustPython/RustPython/tree/main/wasm/lib"
 edition = "2018"
 
 [lib]

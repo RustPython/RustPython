@@ -9,7 +9,7 @@ pub type wchar_t = u32;
 
 #[pymodule(name = "array")]
 mod array {
-    use crate::buffer::{BufferOptions, PyBuffer, ResizeGuard};
+    use crate::buffer::{BufferOptions, PyBuffer, PyBufferInternal, ResizeGuard};
     use crate::builtins::float::IntoPyFloat;
     use crate::builtins::list::{PyList, PyListRef};
     use crate::builtins::pystr::{PyStr, PyStrRef};
@@ -804,19 +804,51 @@ mod array {
             }
         }
 
-        #[pymethod]
-        fn frombytes(zelf: PyRef<Self>, b: ArgBytesLike, vm: &VirtualMachine) -> PyResult<()> {
-            let b = b.borrow_buf();
-            let itemsize = zelf.read().itemsize();
+        fn _from_bytes(&self, b: &[u8], itemsize: usize, vm: &VirtualMachine) -> PyResult<()> {
             if b.len() % itemsize != 0 {
                 return Err(
                     vm.new_value_error("bytes length not a multiple of item size".to_owned())
                 );
             }
             if b.len() / itemsize > 0 {
-                zelf.try_resizable(vm)?.frombytes(&b);
+                self.try_resizable(vm)?.frombytes(b);
             }
             Ok(())
+        }
+
+        #[pymethod]
+        fn frombytes(&self, b: ArgBytesLike, vm: &VirtualMachine) -> PyResult<()> {
+            let b = b.borrow_buf();
+            let itemsize = self.read().itemsize();
+            self._from_bytes(&b, itemsize, vm)
+        }
+
+        #[pymethod]
+        fn fromfile(&self, f: PyObjectRef, n: isize, vm: &VirtualMachine) -> PyResult<()> {
+            let itemsize = self.itemsize();
+            if n < 0 {
+                return Err(vm.new_value_error("negative count".to_owned()));
+            }
+            let n = vm.check_repeat_or_memory_error(itemsize, n)?;
+            let nbytes = n * itemsize;
+
+            let b = vm.call_method(&f, "read", (nbytes,))?;
+            let b = b
+                .downcast::<PyBytes>()
+                .map_err(|_| vm.new_type_error("read() didn't return bytes".to_owned()))?;
+
+            let not_enough_bytes = b.len() != nbytes;
+
+            self._from_bytes(b.as_bytes(), itemsize, vm)?;
+
+            if not_enough_bytes {
+                Err(vm.new_exception_msg(
+                    vm.ctx.exceptions.eof_error.clone(),
+                    "read() didn't return enough bytes".to_owned(),
+                ))
+            } else {
+                Ok(())
+            }
         }
 
         #[pymethod]
@@ -854,6 +886,22 @@ mod array {
         #[pymethod]
         pub(crate) fn tobytes(&self) -> Vec<u8> {
             self.read().get_bytes().to_vec()
+        }
+
+        #[pymethod]
+        fn tofile(&self, f: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            /* Write 64K blocks at a time */
+            /* XXX Make the block size settable */
+            const BLOCKSIZE: usize = 64 * 1024;
+
+            let bytes = self.read();
+            let bytes = bytes.get_bytes();
+
+            for b in bytes.chunks(BLOCKSIZE) {
+                let b = PyBytes::from(b.to_vec()).into_ref(vm);
+                vm.call_method(&f, "write", (b,))?;
+            }
+            Ok(())
         }
 
         pub(crate) fn get_bytes(&self) -> PyMappedRwLockReadGuard<'_, [u8]> {
@@ -1088,44 +1136,38 @@ mod array {
     }
 
     impl AsBuffer for PyArray {
-        fn get_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<Box<dyn PyBuffer>> {
-            zelf.exports.fetch_add(1);
+        fn get_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
             let array = zelf.read();
-            let buf = ArrayBuffer {
-                array: zelf.clone(),
-                options: BufferOptions {
+            let buf = PyBuffer::new(
+                zelf.as_object().clone(),
+                zelf.clone(),
+                BufferOptions {
                     readonly: false,
                     len: array.len(),
                     itemsize: array.itemsize(),
                     format: array.typecode_str().into(),
                     ..Default::default()
                 },
-            };
-            Ok(Box::new(buf))
+            );
+            Ok(buf)
         }
     }
 
-    #[derive(Debug)]
-    struct ArrayBuffer {
-        array: PyArrayRef,
-        options: BufferOptions,
-    }
-
-    impl PyBuffer for ArrayBuffer {
+    impl PyBufferInternal for PyRef<PyArray> {
         fn obj_bytes(&self) -> BorrowedValue<[u8]> {
-            self.array.get_bytes().into()
+            self.get_bytes().into()
         }
 
         fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
-            self.array.get_bytes_mut().into()
+            self.get_bytes_mut().into()
         }
 
         fn release(&self) {
-            self.array.exports.fetch_sub(1);
+            self.exports.fetch_sub(1);
         }
 
-        fn get_options(&self) -> &BufferOptions {
-            &self.options
+        fn retain(&self) {
+            self.exports.fetch_add(1);
         }
     }
 

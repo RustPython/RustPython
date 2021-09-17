@@ -65,7 +65,7 @@ pub fn file_readline(obj: &PyObjectRef, size: Option<usize>, vm: &VirtualMachine
     let eof_err = || {
         vm.new_exception(
             vm.ctx.exceptions.eof_error.clone(),
-            vec![vm.ctx.new_str("EOF when reading a line".to_owned())],
+            vec![vm.ctx.new_ascii_str(b"EOF when reading a line")],
         )
     };
     let ret = match_class!(match ret {
@@ -75,7 +75,7 @@ pub fn file_readline(obj: &PyObjectRef, size: Option<usize>, vm: &VirtualMachine
                 return Err(eof_err());
             }
             if let Some(nonl) = sval.strip_suffix('\n') {
-                vm.ctx.new_str(nonl.to_owned())
+                vm.ctx.new_utf8_str(nonl)
             } else {
                 s.into_object()
             }

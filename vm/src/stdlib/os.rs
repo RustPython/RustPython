@@ -14,7 +14,7 @@ use num_bigint::BigInt;
 use strum_macros::EnumString;
 
 use super::errno::errors;
-use crate::buffer::PyBufferRef;
+use crate::buffer::PyBuffer;
 use crate::builtins::bytes::{PyBytes, PyBytesRef};
 use crate::builtins::dict::PyDictRef;
 use crate::builtins::int;
@@ -63,7 +63,7 @@ impl OutputMode {
                 })
             };
             match mode {
-                OutputMode::String => path_as_string(path).map(|s| vm.ctx.new_str(s)),
+                OutputMode::String => path_as_string(path).map(|s| vm.ctx.new_utf8_str(s)),
                 OutputMode::Bytes => {
                     #[cfg(any(unix, target_os = "wasi"))]
                     {
@@ -213,8 +213,8 @@ pub(crate) fn fspath(
 impl TryFromObject for PyPathLike {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         // path_converter in CPython
-        let obj = match PyBufferRef::try_from_borrowed_object(vm, &obj) {
-            Ok(buffer) => PyBytes::from(Vec::from(&*buffer.obj_bytes())).into_pyobject(vm),
+        let obj = match PyBuffer::try_from_borrowed_object(vm, &obj) {
+            Ok(buffer) => PyBytes::from(buffer.internal.obj_bytes().to_vec()).into_pyobject(vm),
             Err(_) => obj,
         };
         let path = fspath(obj, true, vm)?;
@@ -262,7 +262,7 @@ impl IntoPyException for &'_ io::Error {
             },
         };
         let errno = self.raw_os_error().into_pyobject(vm);
-        let msg = vm.ctx.new_str(self.to_string());
+        let msg = vm.ctx.new_utf8_str(self.to_string());
         vm.new_exception(exc_type, vec![errno, msg])
     }
 }
@@ -2769,7 +2769,7 @@ mod posix {
             Err(errno_err(vm))
         } else {
             let name = unsafe { ffi::CStr::from_ptr(name) }.to_str().unwrap();
-            Ok(vm.ctx.new_str(name))
+            Ok(vm.ctx.new_utf8_str(name))
         }
     }
 
@@ -3386,7 +3386,7 @@ mod nt {
 
         for (key, value) in env::vars() {
             environ
-                .set_item(vm.ctx.new_str(key), vm.ctx.new_str(value), vm)
+                .set_item(vm.ctx.new_utf8_str(key), vm.ctx.new_utf8_str(value), vm)
                 .unwrap();
         }
         environ

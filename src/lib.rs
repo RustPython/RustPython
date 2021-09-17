@@ -588,7 +588,7 @@ fn _run_string(vm: &VirtualMachine, scope: Scope, source: &str, source_path: Str
     // trace!("Code object: {:?}", code_obj.borrow());
     scope
         .globals
-        .set_item("__file__", vm.ctx.new_str(source_path), vm)?;
+        .set_item("__file__", vm.ctx.new_utf8_str(source_path), vm)?;
     vm.run_code_obj(code_obj, scope)
 }
 

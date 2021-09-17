@@ -1,5 +1,5 @@
 #![recursion_limit = "128"]
-#![doc(html_logo_url = "https://raw.githubusercontent.com/RustPython/RustPython/master/logo.png")]
+#![doc(html_logo_url = "https://raw.githubusercontent.com/RustPython/RustPython/main/logo.png")]
 #![doc(html_root_url = "https://docs.rs/rustpython-derive/")]
 
 extern crate proc_macro;
@@ -41,6 +41,24 @@ pub fn pyclass(attr: TokenStream, item: TokenStream) -> TokenStream {
     result_to_tokens(pyclass::impl_pyclass(attr, item))
 }
 
+/// This macro serves a goal of generating multiple
+/// `BaseException` / `Exception`
+/// subtypes in a uniform and convenient manner.
+/// It looks like `SimpleExtendsException` in `CPython`.
+/// https://github.com/python/cpython/blob/main/Objects/exceptions.c
+///
+/// We need `ctx` to be ready to add
+/// `properties` / `custom` constructors / slots / methods etc.
+/// So, we use `extend_class!` macro as the second
+/// step in exception type definition.
+#[proc_macro]
+pub fn define_exception(input: TokenStream) -> TokenStream {
+    let exc_def = parse_macro_input!(input as pyclass::PyExceptionDef);
+    result_to_tokens(pyclass::impl_define_exception(exc_def))
+}
+
+/// Helper macro to define `Exception` types.
+/// More-or-less is an alias to `pyclass` macro.
 #[proc_macro_attribute]
 pub fn pyexception(attr: TokenStream, item: TokenStream) -> TokenStream {
     let attr = parse_macro_input!(attr as AttributeArgs);

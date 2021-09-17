@@ -53,7 +53,7 @@ fn pwd_getpwnam(name: PyStrRef, vm: &VirtualMachine) -> PyResult<Passwd> {
             let name_repr = vm.to_repr(name.as_object())?;
             let message = vm
                 .ctx
-                .new_str(format!("getpwnam(): name not found: {}", name_repr));
+                .new_utf8_str(format!("getpwnam(): name not found: {}", name_repr));
             Err(vm.new_key_error(message))
         }
     }
@@ -70,7 +70,7 @@ fn pwd_getpwuid(uid: PyIntRef, vm: &VirtualMachine) -> PyResult<Passwd> {
         None => {
             let message = vm
                 .ctx
-                .new_str(format!("getpwuid(): uid not found: {}", uid.as_bigint()));
+                .new_utf8_str(format!("getpwuid(): uid not found: {}", uid.as_bigint()));
             Err(vm.new_key_error(message))
         }
     }

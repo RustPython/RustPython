@@ -25,7 +25,7 @@ mod decl {
             lexer::KEYWORDS
                 .keys()
                 .sorted()
-                .map(|k| vm.ctx.new_str(k.to_owned()))
+                .map(|k| vm.ctx.new_utf8_str(k))
                 .collect(),
         )
     }

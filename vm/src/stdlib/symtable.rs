@@ -99,7 +99,7 @@ mod decl {
                 }
                 .into_ref(vm))
             } else {
-                Err(vm.new_key_error(vm.ctx.new_str(format!("lookup {} failed", name))))
+                Err(vm.new_key_error(vm.ctx.new_utf8_str(format!("lookup {} failed", name))))
             }
         }
 
@@ -109,7 +109,7 @@ mod decl {
                 .symtable
                 .symbols
                 .keys()
-                .map(|s| vm.ctx.new_str(s))
+                .map(|s| vm.ctx.new_utf8_str(s))
                 .collect();
             Ok(vm.ctx.new_list(symbols))
         }

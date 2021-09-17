@@ -1,5 +1,5 @@
 # unittest for modified imghdr.py
-# Should be replace it into https://github.com/python/cpython/blob/master/Lib/test/test_imghdr.py
+# Should be replace it into https://github.com/python/cpython/blob/main/Lib/test/test_imghdr.py
 import os
 import imghdr
 

@@ -2,7 +2,7 @@ pub(crate) use _sre::make_module;
 
 #[pymodule]
 mod _sre {
-    use crate::buffer::PyBufferRef;
+    use crate::buffer::PyBuffer;
     use crate::builtins::list::PyListRef;
     use crate::builtins::tuple::PyTupleRef;
     use crate::builtins::{
@@ -57,7 +57,7 @@ mod _sre {
         match this {
             StrDrive::Str(s) => vm
                 .ctx
-                .new_str(s.chars().take(end).skip(start).collect::<String>()),
+                .new_utf8_str(s.chars().take(end).skip(start).collect::<String>()),
             StrDrive::Bytes(b) => vm
                 .ctx
                 .new_bytes(b.iter().take(end).skip(start).cloned().collect()),
@@ -152,7 +152,7 @@ mod _sre {
             let vec;
             let s;
             let str_drive = if self.isbytes {
-                buffer = PyBufferRef::try_from_borrowed_object(vm, &string)?;
+                buffer = PyBuffer::try_from_borrowed_object(vm, &string)?;
                 let bytes = match buffer.as_contiguous() {
                     Some(bytes) => {
                         guard = bytes;
@@ -274,7 +274,7 @@ mod _sre {
                             m.get_slice(zelf.groups, state.string, vm)
                                 .unwrap_or_else(|| vm.ctx.none())
                         } else {
-                            m.groups(OptionalArg::Present(vm.ctx.new_str("")), vm)?
+                            m.groups(OptionalArg::Present(vm.ctx.new_ascii_str(b"")), vm)?
                                 .into_object()
                         };
 
@@ -510,7 +510,7 @@ mod _sre {
                 let join_type = if zelf.isbytes {
                     vm.ctx.new_bytes(vec![])
                 } else {
-                    vm.ctx.new_str("")
+                    vm.ctx.new_ascii_str(b"")
                 };
                 let ret = vm.call_method(&join_type, "join", (list,))?;
 
