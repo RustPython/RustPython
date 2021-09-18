@@ -513,7 +513,7 @@ mod _os {
         #[pyarg(any)]
         in_fd: i32,
         #[pyarg(any)]
-        offset: i64,
+        offset: Offset,
         #[pyarg(any)]
         count: i64,
         #[cfg(target_os = "macos")]
@@ -1657,7 +1657,7 @@ mod _os {
     }
 
     #[pyfunction]
-    pub fn ftruncate(fd: i32, length: i64, vm: &VirtualMachine) -> PyResult<()> {
+    pub fn ftruncate(fd: i32, length: Offset, vm: &VirtualMachine) -> PyResult<()> {
         Fd(fd).ftruncate(length).map_err(|e| e.into_pyexception(vm))
     }
 
