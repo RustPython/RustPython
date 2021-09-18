@@ -51,11 +51,15 @@ complex_nans = [complex(x, y) for x, y in [
 
 class CMathTests(unittest.TestCase):
     # TODO: RUSTPYTHON:
-    # Uncomment when functions have been added. Temporarily 
+    # Uncomment when functions have been added. Temporarily
     # commented out to allow incremented addition of functions.
     #
     # list of all functions in cmath
-    test_functions = [getattr(cmath, fname) for fname in ['sqrt','sin','cos']]
+    test_functions = [getattr(cmath, fname) for fname in [
+        'sin','cos','log','log10','sqrt',
+        # 'exp','acos','acosh','asin','asinh',
+        # 'atan','atanh','sinh','cosh','tan','tanh'
+        ]]
     # test first and second arguments independently for 2-argument log
     # test_functions.append(lambda x : cmath.log(x, 1729. + 0j))
     # test_functions.append(lambda x : cmath.log(14.-27j, x))
@@ -286,8 +290,6 @@ class CMathTests(unittest.TestCase):
             for arg in ["a", "long_string", "0", "1j", ""]:
                 self.assertRaises(TypeError, f, arg)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_cmath_matches_math(self):
         # check that corresponding cmath and math functions are equal
         # for floats in the appropriate range
