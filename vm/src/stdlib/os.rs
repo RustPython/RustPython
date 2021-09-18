@@ -1912,7 +1912,7 @@ mod _os {
         path: PathOrFd,
         ConfName(name): ConfName,
         vm: &VirtualMachine,
-    ) -> PyResult<Option<i64>> {
+    ) -> PyResult<Option<libc::c_long>> {
         use nix::errno::{self, Errno};
 
         Errno::clear();
@@ -1938,7 +1938,7 @@ mod _os {
 
     #[cfg(unix)]
     #[pyfunction]
-    fn fpathconf(fd: i32, name: ConfName, vm: &VirtualMachine) -> PyResult<Option<i64>> {
+    fn fpathconf(fd: i32, name: ConfName, vm: &VirtualMachine) -> PyResult<Option<libc::c_long>> {
         pathconf(PathOrFd::Fd(fd), name, vm)
     }
 
