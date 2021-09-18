@@ -107,6 +107,12 @@ mod cmath {
         z.to_complex().log(10.0)
     }
 
+    /// Return the inverse hyperbolic cosine of z.
+    #[pyfunction]
+    fn acosh(z: IntoPyComplex) -> Complex64 {
+        z.to_complex().acosh()
+    }
+
     #[derive(FromArgs)]
     struct IsCloseArgs {
         #[pyarg(positional)]
