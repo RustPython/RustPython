@@ -78,6 +78,7 @@ pub(crate) mod weakref;
 pub use weakref::PyWeak;
 pub(crate) mod zip;
 pub use zip::PyZip;
+pub(crate) mod genericalias;
 
 mod make_module;
 pub use make_module::{ascii, make_module, print};
