@@ -2580,6 +2580,56 @@ mod posix {
         }
     }
 
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "netbsd",
+        target_os = "freebsd",
+        target_os = "android"
+    ))]
+    #[pyfunction]
+    fn sched_getparam(pid: libc::pid_t, vm: &VirtualMachine) -> PyResult<SchedParam> {
+        let mut libc_sched_param = libc::sched_param { sched_priority: 0 };
+        let ret = unsafe { libc::sched_getparam(pid, &mut libc_sched_param) };
+        if ret == -1 {
+            Err(errno_err(vm))
+        } else {
+            Ok(SchedParam {
+                sched_priority: BigInt::from(libc_sched_param.sched_priority).into_pyobject(vm),
+            })
+        }
+    }
+
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "netbsd",
+        target_os = "freebsd",
+        target_os = "android"
+    ))]
+    #[derive(FromArgs)]
+    struct SetSchedParamArgs {
+        #[pyarg(positional)]
+        pid: i32,
+        #[pyarg(positional)]
+        sched_param_obj: PyRef<SchedParam>,
+    }
+
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "netbsd",
+        target_os = "freebsd",
+        target_os = "android"
+    ))]
+    #[pyfunction]
+    fn sched_setparam(args: SetSchedParamArgs, vm: &VirtualMachine) -> PyResult<i32> {
+        let libc_sched_param = args.sched_param_obj.try_to_libc(vm)?;
+        let ret = unsafe { libc::sched_setparam(args.pid, &libc_sched_param) };
+        if ret == -1 {
+            Err(errno_err(vm))
+        } else {
+            Ok(ret)
+        }
+    }
+
     #[pyfunction]
     fn get_inheritable(fd: RawFd, vm: &VirtualMachine) -> PyResult<bool> {
         use nix::fcntl::fcntl;
