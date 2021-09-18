@@ -213,30 +213,6 @@ def gen_modules():
     return modules
 
 
-output = """\
-# WARNING: THIS IS AN AUTOMATICALLY GENERATED FILE
-# EDIT extra_tests/not_impl_gen.sh, NOT THIS FILE.
-# RESULTS OF THIS TEST DEPEND ON THE CPYTHON
-# VERSION AND PYTHON ENVIRONMENT USED
-# TO RUN not_impl_mods_gen.py
-
-"""
-
-output += gen_methods()
-output += f"""
-cpymods = {gen_modules()!r}
-libdir = {os.path.abspath("../Lib/").encode('utf8')!r}
-
-"""
-
-# Copy the source code of functions we will reuse in the generated script
-for fn in [attr_is_not_inherited, extra_info, dir_of_mod_or_error]:
-    output += "".join(inspect.getsourcelines(fn)[0]) + "\n\n"
-
-# Prevent missing variable linter errors from compare()
-expected_methods = {}
-cpymods = {}
-libdir = ""
 # This function holds the source code that will be run under RustPython
 def compare():
     import inspect
@@ -351,8 +327,37 @@ def remove_one_indent(s):
     return s[len(indent) :] if s.startswith(indent) else s
 
 
-compare_src = inspect.getsourcelines(compare)[0][1:]
-output += "".join(remove_one_indent(line) for line in compare_src)
+def generate(out_path):
+    output = """\
+    # WARNING: THIS IS AN AUTOMATICALLY GENERATED FILE
+    # EDIT extra_tests/not_impl_gen.sh, NOT THIS FILE.
+    # RESULTS OF THIS TEST DEPEND ON THE CPYTHON
+    # VERSION AND PYTHON ENVIRONMENT USED
+    # TO RUN not_impl_mods_gen.py
 
-with open("snippets/not_impl.py", "w") as f:
-    f.write(output + "\n")
+    """
+
+    output += gen_methods()
+    output += f"""
+    cpymods = {gen_modules()!r}
+    libdir = {os.path.abspath("../Lib/").encode('utf8')!r}
+
+    """
+
+    # Copy the source code of functions we will reuse in the generated script
+    for fn in [attr_is_not_inherited, extra_info, dir_of_mod_or_error]:
+        output += "".join(inspect.getsourcelines(fn)[0]) + "\n\n"
+
+    # Prevent missing variable linter errors from compare()
+    expected_methods = {}
+    cpymods = {}
+    libdir = ""
+
+    compare_src = inspect.getsourcelines(compare)[0][1:]
+    output += "".join(remove_one_indent(line) for line in compare_src)
+
+    with open(out_path, "w") as f:
+        f.write(output + "\n")
+
+if __name__ == '__main__':
+    generate("snippets/not_impl.py")
