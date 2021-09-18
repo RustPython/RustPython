@@ -2496,10 +2496,19 @@ mod posix {
         }
     }
 
+    #[derive(FromArgs)]
+    pub struct SchedParamArg {
+        #[pyarg(any)]
+        sched_priority: PyObjectRef,
+    }
+
     impl SlotConstructor for SchedParam {
-        type Args = SchedParam;
-        fn py_new(cls: PyTypeRef, sched_param: Self::Args, vm: &VirtualMachine) -> PyResult {
-            sched_param.into_pyresult_with_type(vm, cls)
+        type Args = SchedParamArg;
+        fn py_new(cls: PyTypeRef, arg: Self::Args, vm: &VirtualMachine) -> PyResult {
+            SchedParam {
+                sched_priority: arg.sched_priority,
+            }
+            .into_pyresult_with_type(vm, cls)
         }
     }
 
