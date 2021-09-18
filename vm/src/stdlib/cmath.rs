@@ -113,6 +113,18 @@ mod cmath {
         z.to_complex().acosh()
     }
 
+    /// Return the tangent of z.
+    #[pyfunction]
+    fn tan(z: IntoPyComplex) -> Complex64 {
+        z.to_complex().tan()
+    }
+
+    /// Return the hyperbolic tangent of z.
+    #[pyfunction]
+    fn tanh(z: IntoPyComplex) -> Complex64 {
+        z.to_complex().tanh()
+    }
+
     #[derive(FromArgs)]
     struct IsCloseArgs {
         #[pyarg(positional)]

@@ -56,9 +56,9 @@ class CMathTests(unittest.TestCase):
     #
     # list of all functions in cmath
     test_functions = [getattr(cmath, fname) for fname in [
-        'sin','cos','log','log10','sqrt','acosh'
+        'sin','cos','log','log10','sqrt','acosh','tan','tanh'
         # 'exp','acos','asin','asinh',
-        # 'atan','atanh','sinh','cosh','tan','tanh'
+        # 'atan','atanh','sinh','cosh'
         ]]
     # test first and second arguments independently for 2-argument log
     # test_functions.append(lambda x : cmath.log(x, 1729. + 0j))
@@ -590,8 +590,6 @@ class CMathTests(unittest.TestCase):
         self.assertTrue(cmath.isinf(complex(NAN, INF)))
         self.assertTrue(cmath.isinf(complex(INF, NAN)))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @requires_IEEE_754
     def testTanhSign(self):
         for z in complex_zeros:
