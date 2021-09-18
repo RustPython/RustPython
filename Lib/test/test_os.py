@@ -443,13 +443,9 @@ class StatAttributeTests(unittest.TestCase):
         except TypeError:
             pass
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_stat_attributes(self):
         self.check_stat_attributes(self.fname)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_stat_attributes_bytes(self):
         try:
             fname = self.fname.encode(sys.getfilesystemencoding())

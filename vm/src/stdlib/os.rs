@@ -9,6 +9,7 @@ use std::{env, fs};
 
 use crate::crt_fd::Fd;
 use crossbeam_utils::atomic::AtomicCell;
+use itertools::Itertools;
 use num_bigint::BigInt;
 #[cfg(unix)]
 use strum_macros::EnumString;
@@ -1042,24 +1043,40 @@ mod _os {
 
     #[pyattr]
     #[pyclass(module = "os", name = "stat_result")]
-    #[derive(Debug, PyStructSequence)]
+    #[derive(Debug, PyStructSequence, FromArgs)]
     struct StatResult {
+        #[pyarg(any)]
         pub st_mode: BigInt,
+        #[pyarg(any)]
         pub st_ino: BigInt,
+        #[pyarg(any)]
         pub st_dev: BigInt,
+        #[pyarg(any)]
         pub st_nlink: BigInt,
+        #[pyarg(any)]
         pub st_uid: BigInt,
+        #[pyarg(any)]
         pub st_gid: BigInt,
+        #[pyarg(any)]
         pub st_size: BigInt,
         // TODO: unnamed structsequence fields
+        #[pyarg(positional, default)]
         pub __st_atime_int: BigInt,
+        #[pyarg(positional, default)]
         pub __st_mtime_int: BigInt,
+        #[pyarg(positional, default)]
         pub __st_ctime_int: BigInt,
+        #[pyarg(any, default)]
         pub st_atime: f64,
+        #[pyarg(any, default)]
         pub st_mtime: f64,
+        #[pyarg(any, default)]
         pub st_ctime: f64,
+        #[pyarg(any, default)]
         pub st_atime_ns: BigInt,
+        #[pyarg(any, default)]
         pub st_mtime_ns: BigInt,
+        #[pyarg(any, default)]
         pub st_ctime_ns: BigInt,
     }
 
@@ -1101,6 +1118,32 @@ mod _os {
                 st_mtime_ns: to_ns(mtime).into(),
                 st_ctime_ns: to_ns(ctime).into(),
             }
+        }
+
+        #[pyslot]
+        fn tp_new(_cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            let flatten_args = |r: &[PyObjectRef]| {
+                let mut vec_args = Vec::from(r);
+                loop {
+                    if let Ok(obj) = vec_args.iter().exactly_one() {
+                        match obj.payload::<PyTuple>() {
+                            Some(t) => {
+                                vec_args = Vec::from(t.as_slice());
+                            }
+                            None => {
+                                return vec_args;
+                            }
+                        }
+                    } else {
+                        return vec_args;
+                    }
+                }
+            };
+
+            let args: FuncArgs = flatten_args(args.args.as_slice()).into();
+
+            let stat: StatResult = args.bind(vm)?;
+            Ok(stat.into_pyobject(vm))
         }
     }
 
