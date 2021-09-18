@@ -7,6 +7,7 @@ use crate::builtins::tuple::{PyTuple, PyTupleRef};
 use crate::common::lock::PyRwLock;
 use crate::function::FuncArgs;
 use crate::py_io::{self, Write};
+use crate::pyobject::IntoPyResult;
 use crate::sysmodule;
 use crate::types::create_type_with_slots;
 use crate::StaticType;
@@ -159,6 +160,14 @@ impl PyBaseException {
 
 fn base_exception_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
     PyBaseException::tp_new(cls, args, vm)
+}
+
+fn base_exception_init(
+    zelf: PyRef<PyBaseException>,
+    args: FuncArgs,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    PyBaseException::init(zelf, args, vm)
 }
 
 pub fn chain<T>(e1: PyResult<()>, e2: PyResult<T>) -> PyResult<T> {
@@ -699,7 +708,9 @@ define_exception! {
     PyOSError,
     PyException,
     os_error,
-    "Base class for I/O related errors."
+    "Base class for I/O related errors.",
+    os_error_new,
+    base_exception_init,
 }
 define_exception! {
     PyBlockingIOError,
@@ -1264,6 +1275,188 @@ impl ExceptionZoo {
         extend_exception!(PyUnicodeWarning, ctx, &excs.unicode_warning);
         extend_exception!(PyBytesWarning, ctx, &excs.bytes_warning);
         extend_exception!(PyResourceWarning, ctx, &excs.resource_warning);
+    }
+}
+
+fn os_error_optional_new(
+    args: Vec<PyObjectRef>,
+    vm: &VirtualMachine,
+) -> Option<PyResult<PyBaseExceptionRef>> {
+    let len = args.len();
+    if len >= 2 {
+        let args = args.as_slice();
+        let errno = &args[0];
+        let error = match errno.payload_if_subclass::<PyInt>(vm) {
+            Some(errno) => {
+                let error =
+                    match crate::builtins::int::try_to_primitive::<i32>(errno.as_bigint(), vm) {
+                        Ok(errno) => {
+                            #[cfg(not(any(windows, target_os = "wasi")))]
+                            const EWOULDBLOCK: i32 = libc::EWOULDBLOCK;
+                            #[cfg(windows)]
+                            const EWOULDBLOCK: i32 =
+                                winapi::shared::winerror::WSAEWOULDBLOCK as i32;
+                            #[cfg(target_os = "wasi")]
+                            const EWOULDBLOCK: i32 = wasmer_wasi::types::__WASI_EWOULDBLOCK as i32;
+
+                            #[cfg(not(any(windows, target_os = "wasi")))]
+                            const EALREADY: i32 = libc::EALREADY;
+                            #[cfg(windows)]
+                            const EALREADY: i32 = winapi::shared::winerror::WSAEALREADY as i32;
+                            #[cfg(target_os = "wasi")]
+                            const EALREADY: i32 = wasmer_wasi::types::__WASI_EALREADY as i32;
+
+                            #[cfg(not(any(windows, target_os = "wasi")))]
+                            const EINPROGRESS: i32 = libc::EINPROGRESS;
+                            #[cfg(windows)]
+                            const EINPROGRESS: i32 =
+                                winapi::shared::winerror::WSAEINPROGRESS as i32;
+                            #[cfg(target_os = "wasi")]
+                            const EINPROGRESS: i32 = wasmer_wasi::types::__WASI_EINPROGRESS as i32;
+
+                            #[cfg(not(target_os = "wasi"))]
+                            const EPIPE: i32 = libc::EPIPE;
+                            #[cfg(target_os = "wasi")]
+                            const EPIPE: i32 = wasmer_wasi::types::__WASI_EPIPE as i32;
+
+                            #[cfg(not(any(windows, target_os = "wasi")))]
+                            const ESHUTDOWN: i32 = libc::ESHUTDOWN;
+                            #[cfg(windows)]
+                            const ESHUTDOWN: i32 = winapi::shared::winerror::WSAESHUTDOWN as i32;
+                            #[cfg(target_os = "wasi")]
+                            const ESHUTDOWN: i32 = wasmer_wasi::types::__WASI_ESHUTDOWN as i32;
+
+                            #[cfg(not(target_os = "wasi"))]
+                            const ECHILD: i32 = libc::ECHILD;
+                            #[cfg(target_os = "wasi")]
+                            const ECHILD: i32 = wasmer_wasi::types::__WASI_ECHILD as i32;
+
+                            #[cfg(not(any(windows, target_os = "wasi")))]
+                            const ECONNABORTED: i32 = libc::ECONNABORTED;
+                            #[cfg(windows)]
+                            const ECONNABORTED: i32 =
+                                winapi::shared::winerror::WSAECONNABORTED as i32;
+                            #[cfg(target_os = "wasi")]
+                            const ECONNABORTED: i32 =
+                                wasmer_wasi::types::__WASI_ECONNABORTED as i32;
+
+                            #[cfg(not(any(windows, target_os = "wasi")))]
+                            const ECONNREFUSED: i32 = libc::ECONNREFUSED;
+                            #[cfg(windows)]
+                            const ECONNREFUSED: i32 =
+                                winapi::shared::winerror::WSAECONNREFUSED as i32;
+                            #[cfg(target_os = "wasi")]
+                            const ECONNREFUSED: i32 =
+                                wasmer_wasi::types::__WASI_ECONNREFUSED as i32;
+
+                            #[cfg(not(any(windows, target_os = "wasi")))]
+                            const ECONNRESET: i32 = libc::ECONNRESET;
+                            #[cfg(windows)]
+                            const ECONNRESET: i32 = winapi::shared::winerror::WSAECONNRESET as i32;
+                            #[cfg(target_os = "wasi")]
+                            const ECONNRESET: i32 = wasmer_wasi::types::__WASI_ECONNRESET as i32;
+
+                            #[cfg(not(target_os = "wasi"))]
+                            const EEXIST: i32 = libc::EEXIST;
+                            #[cfg(target_os = "wasi")]
+                            const EEXIST: i32 = wasmer_wasi::types::__WASI_EEXIST as i32;
+
+                            #[cfg(not(target_os = "wasi"))]
+                            const ENOENT: i32 = libc::ENOENT;
+                            #[cfg(target_os = "wasi")]
+                            const ENOENT: i32 = wasmer_wasi::types::__WASI_ENOENT as i32;
+
+                            #[cfg(not(target_os = "wasi"))]
+                            const EISDIR: i32 = libc::EISDIR;
+                            #[cfg(target_os = "wasi")]
+                            const EISDIR: i32 = wasmer_wasi::types::__WASI_EISDIR as i32;
+
+                            #[cfg(not(target_os = "wasi"))]
+                            const ENOTDIR: i32 = libc::ENOTDIR;
+                            #[cfg(target_os = "wasi")]
+                            const ENOTDIR: i32 = wasmer_wasi::types::__WASI_ENOTDIR as i32;
+
+                            #[cfg(not(target_os = "wasi"))]
+                            const EINTR: i32 = libc::EINTR;
+                            #[cfg(target_os = "wasi")]
+                            const EINTR: i32 = wasmer_wasi::types::__WASI_EINTR as i32;
+
+                            #[cfg(not(target_os = "wasi"))]
+                            const EACCES: i32 = libc::EACCES;
+                            #[cfg(target_os = "wasi")]
+                            const EACCES: i32 = wasmer_wasi::types::__WASI_EACCES as i32;
+
+                            #[cfg(not(target_os = "wasi"))]
+                            const EPERM: i32 = libc::EPERM;
+                            #[cfg(target_os = "wasi")]
+                            const EPERM: i32 = wasmer_wasi::types::__WASI_EPERM as i32;
+
+                            #[cfg(not(target_os = "wasi"))]
+                            const ESRCH: i32 = libc::ESRCH;
+                            #[cfg(target_os = "wasi")]
+                            const ESRCH: i32 = wasmer_wasi::types::__WASI_ESRCH as i32;
+
+                            #[cfg(not(any(windows, target_os = "wasi")))]
+                            const ETIMEDOUT: i32 = libc::ETIMEDOUT;
+                            #[cfg(windows)]
+                            const ETIMEDOUT: i32 = winapi::shared::winerror::WSAETIMEDOUT as i32;
+                            #[cfg(target_os = "wasi")]
+                            const ETIMEDOUT: i32 = wasmer_wasi::types::__WASI_ETIMEDOUT as i32;
+
+                            let excs = &vm.ctx.exceptions;
+                            let error = match errno {
+                                EWOULDBLOCK => Some(excs.blocking_io_error.clone()),
+                                EALREADY => Some(excs.blocking_io_error.clone()),
+                                EINPROGRESS => Some(excs.blocking_io_error.clone()),
+                                EPIPE => Some(excs.broken_pipe_error.clone()),
+                                ESHUTDOWN => Some(excs.broken_pipe_error.clone()),
+                                ECHILD => Some(excs.child_process_error.clone()),
+                                ECONNABORTED => Some(excs.connection_aborted_error.clone()),
+                                ECONNREFUSED => Some(excs.connection_refused_error.clone()),
+                                ECONNRESET => Some(excs.connection_reset_error.clone()),
+                                EEXIST => Some(excs.file_exists_error.clone()),
+                                ENOENT => Some(excs.file_not_found_error.clone()),
+                                EISDIR => Some(excs.is_a_directory_error.clone()),
+                                ENOTDIR => Some(excs.not_a_directory_error.clone()),
+                                EINTR => Some(excs.interrupted_error.clone()),
+                                EACCES => Some(excs.permission_error.clone()),
+                                EPERM => Some(excs.permission_error.clone()),
+                                ESRCH => Some(excs.process_lookup_error.clone()),
+                                ETIMEDOUT => Some(excs.timeout_error.clone()),
+                                _ => None,
+                            };
+
+                            if error.is_some() {
+                                Some(invoke(error?, args.to_vec(), vm))
+                            } else {
+                                None
+                            }
+                        }
+                        Err(_) => None,
+                    };
+
+                error
+            }
+            None => None,
+        };
+
+        error
+    } else {
+        None
+    }
+}
+
+fn os_error_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    // We need this method, because of how `CPython` copies `init`
+    // from `BaseException` in `SimpleExtendsException` macro.
+    // See: `BaseException_new`
+    if cls.tp_name().deref() == vm.ctx.exceptions.os_error.tp_name().deref() {
+        match os_error_optional_new(args.args.to_vec(), vm) {
+            Some(error) => error.unwrap().into_pyresult(vm),
+            None => base_exception_new(cls, args, vm),
+        }
+    } else {
+        base_exception_new(cls, args, vm)
     }
 }
 
