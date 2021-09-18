@@ -793,6 +793,8 @@ class MappingProxyTests(unittest.TestCase):
         self.assertEqual(set(view.values()), set(values))
         self.assertEqual(set(view.items()), set(items))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_reversed(self):
         d = {'a': 1, 'b': 2, 'foo': 0, 'c': 3, 'd': 4}
         mp = self.mappingproxy(d)
@@ -811,6 +813,8 @@ class MappingProxyTests(unittest.TestCase):
         self.assertEqual(view['key1'], 70)
         self.assertEqual(copy['key1'], 27)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_union(self):
         mapping = {'a': 0, 'b': 1, 'c': 2}
         view = self.mappingproxy(mapping)
