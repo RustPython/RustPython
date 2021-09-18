@@ -13,6 +13,7 @@ use crate::builtins::float;
 use crate::builtins::frame;
 use crate::builtins::function;
 use crate::builtins::generator;
+use crate::builtins::genericalias;
 use crate::builtins::getset;
 use crate::builtins::int;
 use crate::builtins::iter;
@@ -114,6 +115,7 @@ pub struct TypeZoo {
     pub ellipsis_type: PyTypeRef,
     pub none_type: PyTypeRef,
     pub not_implemented_type: PyTypeRef,
+    pub generic_alias_type: PyTypeRef,
 }
 
 impl TypeZoo {
@@ -199,6 +201,7 @@ impl TypeZoo {
             method_descriptor_type: builtinfunc::PyBuiltinMethod::init_bare_type().clone(),
             none_type: singletons::PyNone::init_bare_type().clone(),
             not_implemented_type: singletons::PyNotImplemented::init_bare_type().clone(),
+            generic_alias_type: genericalias::PyGenericAlias::init_bare_type().clone(),
         }
     }
 
@@ -244,6 +247,7 @@ impl TypeZoo {
         namespace::init(context);
         mappingproxy::init(context);
         traceback::init(context);
+        genericalias::init(context);
     }
 }
 
