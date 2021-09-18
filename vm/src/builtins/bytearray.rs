@@ -742,7 +742,28 @@ impl PyValue for PyByteArrayIterator {
 }
 
 #[pyimpl(with(SlotIterator))]
-impl PyByteArrayIterator {}
+impl PyByteArrayIterator {
+    #[pymethod(magic)]
+    fn reduce(&self, vm: &VirtualMachine) -> PyResult {
+        let iter = vm.get_attribute(vm.builtins.clone(), "iter")?;
+        Ok(vm.ctx.new_tuple(vec![
+            iter,
+            vm.ctx.new_tuple(vec![self.bytearray.clone().into_object()]),
+            vm.ctx.new_int(self.position.load()),
+        ]))
+    }
+
+    #[pymethod(magic)]
+    fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        if let Some(i) = state.payload::<PyInt>() {
+            self.position
+                .store(int::try_to_primitive(i.as_bigint(), vm).unwrap_or(0));
+            Ok(())
+        } else {
+            Err(vm.new_type_error("an integer is required.".to_owned()))
+        }
+    }
+}
 impl IteratorIterable for PyByteArrayIterator {}
 impl SlotIterator for PyByteArrayIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
