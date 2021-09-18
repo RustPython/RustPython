@@ -6,7 +6,7 @@ use crate::common::lock::{PyRwLock, PyRwLockWriteGuard};
 use crate::exceptions::{create_exception_type, IntoPyException, PyBaseExceptionRef};
 use crate::function::OptionalArg;
 use crate::slots::SlotConstructor;
-use crate::utils::Either;
+use crate::utils::{Either, ToCString};
 use crate::VirtualMachine;
 use crate::{
     IntoPyObject, ItemProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,

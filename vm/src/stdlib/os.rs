@@ -2048,6 +2048,7 @@ mod posix {
     use super::*;
 
     use crate::builtins::list::PyListRef;
+    use crate::utils::ToCString;
     use bitflags::bitflags;
     use nix::unistd::{self, Gid, Pid, Uid};
     #[allow(unused_imports)] // TODO: use will be unnecessary in edition 2021

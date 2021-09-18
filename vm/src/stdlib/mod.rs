@@ -39,6 +39,8 @@ mod string;
 #[cfg(feature = "rustpython-compiler")]
 mod symtable;
 mod sysconfigdata;
+#[cfg(unix)]
+mod syslog;
 #[cfg(feature = "threading")]
 mod thread;
 mod time;
@@ -188,6 +190,7 @@ pub fn get_module_inits() -> StdlibMap {
         #[cfg(unix)]
         {
             "_posixsubprocess" => posixsubprocess::make_module,
+            "syslog" => syslog::make_module,
         }
         // Windows-only
         #[cfg(windows)]

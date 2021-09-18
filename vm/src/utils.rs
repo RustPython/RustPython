@@ -1,4 +1,5 @@
-use crate::builtins::PyFloat;
+use crate::builtins::{pystr::PyStr, PyFloat};
+use crate::exceptions::IntoPyException;
 use crate::{
     IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
     VirtualMachine,
@@ -107,5 +108,21 @@ impl TryFromObject for std::time::Duration {
 impl IntoPyObject for std::convert::Infallible {
     fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
         match self {}
+    }
+}
+
+pub trait ToCString {
+    fn to_cstring(&self, vm: &VirtualMachine) -> PyResult<std::ffi::CString>;
+}
+
+impl ToCString for &str {
+    fn to_cstring(&self, vm: &VirtualMachine) -> PyResult<std::ffi::CString> {
+        std::ffi::CString::new(*self).map_err(|err| err.into_pyexception(vm))
+    }
+}
+
+impl ToCString for PyStr {
+    fn to_cstring(&self, vm: &VirtualMachine) -> PyResult<std::ffi::CString> {
+        std::ffi::CString::new(self.as_ref()).map_err(|err| err.into_pyexception(vm))
     }
 }
