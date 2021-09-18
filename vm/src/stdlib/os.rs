@@ -2557,27 +2557,31 @@ mod posix {
                 };
                 body().map_err(|err| err.into_pyexception(vm))
             }
-            PathOrFd::Fd(fd) => {
-                nix::sys::stat::fchmod(fd, nix::sys::stat::Mode::from_bits(mode as u16).unwrap())
-                    .map_err(|err| err.into_pyexception(vm))
-            }
+            PathOrFd::Fd(fd) => nix::sys::stat::fchmod(
+                fd,
+                nix::sys::stat::Mode::from_bits(mode as libc::mode_t).unwrap(),
+            )
+            .map_err(|err| err.into_pyexception(vm)),
         }
     }
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn fchmod(fd: RawFd, mode: u16, vm: &VirtualMachine) -> PyResult<()> {
-        nix::sys::stat::fchmod(fd, nix::sys::stat::Mode::from_bits(mode).unwrap())
-            .map_err(|err| err.into_pyexception(vm))
+    fn fchmod(fd: RawFd, mode: u32, vm: &VirtualMachine) -> PyResult<()> {
+        nix::sys::stat::fchmod(
+            fd,
+            nix::sys::stat::Mode::from_bits(mode as libc::mode_t).unwrap(),
+        )
+        .map_err(|err| err.into_pyexception(vm))
     }
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn lchmod(path: PyPathLike, mode: u16, vm: &VirtualMachine) -> PyResult<()> {
+    fn lchmod(path: PyPathLike, mode: u32, vm: &VirtualMachine) -> PyResult<()> {
         nix::sys::stat::fchmodat(
             None,
             &path.path,
-            nix::sys::stat::Mode::from_bits(mode).unwrap(),
+            nix::sys::stat::Mode::from_bits(mode as libc::mode_t).unwrap(),
             nix::sys::stat::FchmodatFlags::NoFollowSymlink,
         )
         .map_err(|err| err.into_pyexception(vm))
