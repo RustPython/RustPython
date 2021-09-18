@@ -2494,6 +2494,25 @@ mod posix {
                 sched_priority_repr.as_str()
             ))
         }
+
+        #[cfg(any(
+            target_os = "linux",
+            target_os = "netbsd",
+            target_os = "freebsd",
+            target_os = "android"
+        ))]
+        fn try_to_libc(&self, vm: &VirtualMachine) -> PyResult<libc::sched_param> {
+            let priority = self.sched_priority.clone();
+            let priority_type = priority.class().name();
+            let value = priority.downcast::<int::PyInt>().map_err(|_| {
+                vm.new_type_error(format!(
+                    "an integer is required (got type {})",
+                    priority_type
+                ))
+            })?;
+            let sched_priority = int::try_to_primitive(value.as_bigint(), vm)?;
+            Ok(libc::sched_param { sched_priority })
+        }
     }
 
     #[derive(FromArgs)]
@@ -2509,6 +2528,55 @@ mod posix {
                 sched_priority: arg.sched_priority,
             }
             .into_pyresult_with_type(vm, cls)
+        }
+    }
+
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "netbsd",
+        target_os = "freebsd",
+        target_os = "android"
+    ))]
+    #[derive(FromArgs)]
+    struct SchedSetschedulerArgs {
+        #[pyarg(positional)]
+        pid: i32,
+        #[pyarg(positional)]
+        policy: i32,
+        #[pyarg(positional)]
+        sched_param_obj: PyRef<SchedParam>,
+    }
+
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "netbsd",
+        target_os = "freebsd",
+        target_os = "android"
+    ))]
+    #[pyfunction]
+    fn sched_getscheduler(pid: libc::pid_t, vm: &VirtualMachine) -> PyResult<i32> {
+        let policy = unsafe { libc::sched_getscheduler(pid) };
+        if policy == -1 {
+            Err(errno_err(vm))
+        } else {
+            Ok(policy)
+        }
+    }
+
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "netbsd",
+        target_os = "freebsd",
+        target_os = "android"
+    ))]
+    #[pyfunction]
+    fn sched_setscheduler(args: SchedSetschedulerArgs, vm: &VirtualMachine) -> PyResult<i32> {
+        let libc_sched_param = args.sched_param_obj.try_to_libc(vm)?;
+        let policy = unsafe { libc::sched_setscheduler(args.pid, args.policy, &libc_sched_param) };
+        if policy == -1 {
+            Err(errno_err(vm))
+        } else {
+            Ok(policy)
         }
     }
 
