@@ -5,6 +5,7 @@ mod decl {
     use crate::builtins::bytearray::{PyByteArray, PyByteArrayRef};
     use crate::builtins::bytes::{PyBytes, PyBytesRef};
     use crate::builtins::pystr::{PyStr, PyStrRef};
+    use crate::builtins::PyTypeRef;
     use crate::byteslike::ArgBytesLike;
     use crate::function::OptionalArg;
     use crate::vm::VirtualMachine;
@@ -34,7 +35,7 @@ mod decl {
                 }
                 obj => Err(vm.new_type_error(format!(
                     "argument should be bytes, buffer or ASCII string, not '{}'",
-                    obj.class().name,
+                    obj.class().name(),
                 ))),
             })
         }
@@ -49,6 +50,38 @@ mod decl {
                 SerializedData::Ascii(a) => f(a.as_str().as_bytes()),
             }
         }
+    }
+
+    #[pyattr(name = "Error")]
+    fn get_binascii_error(vm: &VirtualMachine) -> PyTypeRef {
+        rustpython_common::static_cell! {
+            static BINASCII_ERROR: PyTypeRef;
+        }
+        BINASCII_ERROR
+            .get_or_init(|| {
+                vm.ctx.new_class(
+                    "binascii.Error",
+                    &vm.ctx.exceptions.value_error,
+                    Default::default(),
+                )
+            })
+            .clone()
+    }
+
+    #[pyattr(name = "Incomplete")]
+    fn get_binascii_incomplete(vm: &VirtualMachine) -> PyTypeRef {
+        rustpython_common::static_cell! {
+            static BINASCII_INCOMPLTE: PyTypeRef;
+        }
+        BINASCII_INCOMPLTE
+            .get_or_init(|| {
+                vm.ctx.new_class(
+                    "binascii.Incomplete",
+                    &vm.ctx.exceptions.exception_type,
+                    Default::default(),
+                )
+            })
+            .clone()
     }
 
     fn hex_nibble(n: u8) -> u8 {
@@ -142,5 +175,112 @@ mod decl {
             encoded.push(b'\n');
         }
         encoded
+    }
+
+    #[inline]
+    fn uu_a2b_read(c: &u8, vm: &VirtualMachine) -> PyResult<u8> {
+        // Check the character for legality
+        // The 64 instead of the expected 63 is because
+        // there are a few uuencodes out there that use
+        // '`' as zero instead of space.
+        if !(0x20..=0x60).contains(c) {
+            if [b'\r', b'\n'].contains(c) {
+                return Ok(0);
+            }
+            return Err(vm.new_value_error("Illegal char".to_string()));
+        }
+        Ok((*c - 0x20) & 0x3f)
+    }
+
+    #[pyfunction]
+    fn a2b_uu(s: SerializedData, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        s.with_ref(|b| {
+            // First byte: binary data length (in bytes)
+            let length = if b.is_empty() {
+                ((-0x20i32) & 0x3fi32) as usize
+            } else {
+                ((b[0] - 0x20) & 0x3f) as usize
+            };
+
+            // Allocate the buffer
+            let mut res = Vec::<u8>::with_capacity(length);
+            let trailing_garbage_error = || Err(vm.new_value_error("Trailing garbage".to_string()));
+
+            for chunk in b.get(1..).unwrap_or_default().chunks(4) {
+                let char_a = chunk.get(0).map_or(Ok(0), |x| uu_a2b_read(x, vm))?;
+                let char_b = chunk.get(1).map_or(Ok(0), |x| uu_a2b_read(x, vm))?;
+                let char_c = chunk.get(2).map_or(Ok(0), |x| uu_a2b_read(x, vm))?;
+                let char_d = chunk.get(3).map_or(Ok(0), |x| uu_a2b_read(x, vm))?;
+
+                if res.len() < length {
+                    res.push(char_a << 2 | char_b >> 4);
+                } else if char_a != 0 || char_b != 0 {
+                    return trailing_garbage_error();
+                }
+
+                if res.len() < length {
+                    res.push((char_b & 0xf) | char_c >> 2);
+                } else if char_c != 0 {
+                    return trailing_garbage_error();
+                }
+
+                if res.len() < length {
+                    res.push((char_c & 0x3) << 6 | char_d);
+                } else if char_d != 0 {
+                    return trailing_garbage_error();
+                }
+            }
+
+            let remaining_length = length - res.len();
+            if remaining_length > 0 {
+                res.extend(vec![0; remaining_length]);
+            }
+            Ok(res)
+        })
+    }
+
+    #[derive(FromArgs)]
+    struct BacktickArg {
+        #[pyarg(named, default = "true")]
+        backtick: bool,
+    }
+
+    #[pyfunction]
+    fn b2a_uu(
+        data: ArgBytesLike,
+        BacktickArg { backtick }: BacktickArg,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<u8>> {
+        #[inline]
+        fn uu_b2a(num: u8, backtick: bool) -> u8 {
+            if backtick && num != 0 {
+                0x60
+            } else {
+                0x20 + num
+            }
+        }
+
+        data.with_ref(|b| {
+            let length = b.len();
+            if length > 45 {
+                return Err(vm.new_value_error("At most 45 bytes at once".to_string()));
+            }
+            let mut res = Vec::<u8>::with_capacity(2 + ((length + 2) / 3) * 4);
+            res.push(uu_b2a(length as u8, backtick));
+
+            for chunk in b.chunks(3) {
+                let char_a = *chunk.get(0).unwrap_or(&0);
+                let char_b = *chunk.get(1).unwrap_or(&0);
+                let char_c = *chunk.get(2).unwrap_or(&0);
+
+                res.push(uu_b2a(char_a >> 2, backtick));
+                res.push(uu_b2a((char_a & 0x3) << 4 | char_b >> 4, backtick));
+                res.push(uu_b2a((char_b & 0xf) << 2 | char_c >> 6, backtick));
+                res.push(uu_b2a(char_c & 0x3f, backtick));
+            }
+
+            res.push(0xau8);
+            Ok(res)
+        })
     }
 }

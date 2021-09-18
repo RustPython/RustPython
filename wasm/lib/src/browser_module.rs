@@ -200,7 +200,7 @@ impl Element {
         vm: &VirtualMachine,
     ) -> PyObjectRef {
         match self.elem.get_attribute(attr.as_str()) {
-            Some(s) => vm.ctx.new_str(s),
+            Some(s) => vm.ctx.new_utf8_str(s),
             None => default.unwrap_or_none(vm),
         }
     }

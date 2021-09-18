@@ -491,8 +491,6 @@ class TestNamedTuple(unittest.TestCase):
         self.assertEqual(b2, tuple(b2_expected))
         self.assertEqual(b._fields, tuple(names))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pickle(self):
         p = TestNT(x=10, y=20, z=30)
         for module in (pickle,):

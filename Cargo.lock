@@ -823,10 +823,11 @@ checksum = "de853764b47027c2e862a995c34978ffa63c1501f2e15f987ba11bd4f9bba193"
 
 [[package]]
 name = "fd-lock"
-version = "2.0.0"
+version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0010f02effd88c702318c5dde0463206be67495d0b4d906ba7c0a8f166cc7f06"
+checksum = "b8806dd91a06a7a403a8e596f9bfbfb34e469efbc363fc9c9713e79e26472e36"
 dependencies = [
+ "cfg-if 1.0.0",
  "libc",
  "winapi",
 ]
@@ -1375,19 +1376,6 @@ dependencies = [
 
 [[package]]
 name = "nix"
-version = "0.20.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df8e5e343312e7fbeb2a52139114e9e702991ef9c2aea6817ff2440b35647d56"
-dependencies = [
- "bitflags",
- "cc",
- "cfg-if 1.0.0",
- "libc",
- "memoffset",
-]
-
-[[package]]
-name = "nix"
 version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e7555d6c7164cc913be1ce7f95cbecdabda61eb2ccd89008524af306fb7f5031"
@@ -1401,9 +1389,9 @@ dependencies = [
 
 [[package]]
 name = "num-bigint"
-version = "0.4.0"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e0d047c1062aa51e256408c560894e5251f08925980e53cf1aa5bd00eec6512"
+checksum = "74e768dff5fb39a41b3bcd30bb25cf989706c90d028d1ad71971987aa309d535"
 dependencies = [
  "autocfg",
  "num-integer",
@@ -1712,6 +1700,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ac74c624d6b2d21f425f752262f42188365d7b8ff1aff74c82e45136510a4857"
 
 [[package]]
+name = "pre-commit"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d0f2b9887f84ec91cd86f71c193b883209d744bc8c2a3363c6b1df88efa5af8f"
+dependencies = [
+ "rustc-serialize",
+ "toml 0.2.1",
+]
+
+[[package]]
 name = "precomputed-hash"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1724,7 +1722,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "41fdbd1df62156fbc5945f4762632564d7d038153091c3fcf1067f6aef7cff92"
 dependencies = [
  "thiserror",
- "toml",
+ "toml 0.5.8",
 ]
 
 [[package]]
@@ -2008,6 +2006,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2"
 
 [[package]]
+name = "rustc-serialize"
+version = "0.3.24"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dcf128d1287d2ea9d80910b5f1120d0b8eede3fbf1abe91c40d39ea7d51e6fda"
+
+[[package]]
 name = "rustc_version"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2031,6 +2035,7 @@ dependencies = [
  "libc",
  "log",
  "num-traits",
+ "pre-commit",
  "python3-sys",
  "rustpython-compiler",
  "rustpython-parser",
@@ -2202,7 +2207,7 @@ dependencies = [
  "md-5",
  "memchr",
  "mt19937",
- "nix 0.22.1",
+ "nix",
  "num-bigint",
  "num-complex",
  "num-integer",
@@ -2289,9 +2294,9 @@ checksum = "61b3909d758bb75c79f23d4736fac9433868679d3ad2ea7a61e3c25cfda9a088"
 
 [[package]]
 name = "rustyline"
-version = "8.2.0"
+version = "9.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fbd4eaf7a7738f76c98e4f0395253ae853be3eb018f7b0bb57fe1b6c17e31874"
+checksum = "790487c3881a63489ae77126f57048b42d62d3b2bafbf37453ea19eedb6340d6"
 dependencies = [
  "bitflags",
  "cfg-if 1.0.0",
@@ -2301,7 +2306,7 @@ dependencies = [
  "libc",
  "log",
  "memchr",
- "nix 0.20.1",
+ "nix",
  "radix_trie",
  "scopeguard",
  "smallvec",
@@ -2583,9 +2588,9 @@ dependencies = [
 
 [[package]]
 name = "syn-ext"
-version = "0.2.3"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9210542fa1f4811e2024f7ef22668ef8e035a54f6c9d4826faae8ae2885bd455"
+checksum = "ccfaff88a7edb37fd3a16f24b986500e4a6d4b87218d9b38255e208ca4a08848"
 dependencies = [
  "syn",
 ]
@@ -2770,6 +2775,15 @@ name = "tinyvec_macros"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cda74da7e1a664f795bb1f8a87ec406fb89a02522cf6e50620d016add6dbbf5c"
+
+[[package]]
+name = "toml"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "736b60249cb25337bc196faa43ee12c705e426f3d55c214d73a4e7be06f92cb4"
+dependencies = [
+ "rustc-serialize",
+]
 
 [[package]]
 name = "toml"

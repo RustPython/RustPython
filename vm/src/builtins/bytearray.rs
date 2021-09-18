@@ -6,7 +6,7 @@ use super::pystr::PyStrRef;
 use super::pytype::PyTypeRef;
 use super::tuple::PyTupleRef;
 use crate::anystr::{self, AnyStr};
-use crate::buffer::{BufferOptions, PyBuffer, ResizeGuard};
+use crate::buffer::{BufferOptions, PyBuffer, PyBufferInternal, ResizeGuard};
 use crate::bytesinner::{
     bytes_decode, bytes_from_object, value_from_object, ByteInnerFindOptions, ByteInnerNewOptions,
     ByteInnerPaddingOptions, ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs,
@@ -102,8 +102,8 @@ pub(crate) fn init(context: &PyContext) {
 #[pyimpl(flags(BASETYPE), with(Hashable, Comparable, AsBuffer, Iterable))]
 impl PyByteArray {
     #[pyslot]
-    fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        PyByteArray::default().into_ref_with_type(vm, cls)
+    fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        PyByteArray::default().into_pyresult_with_type(vm, cls)
     }
 
     #[pymethod(magic)]
@@ -273,7 +273,7 @@ impl PyByteArray {
         }
     }
 
-    fn irepeat(zelf: &PyRef<Self>, n: isize, vm: &VirtualMachine) -> PyResult<()> {
+    fn irepeat(zelf: &PyRef<Self>, n: usize, vm: &VirtualMachine) -> PyResult<()> {
         if n == 1 {
             return Ok(());
         }
@@ -290,11 +290,9 @@ impl PyByteArray {
         };
         let elements = &mut w.elements;
 
-        if n <= 0 {
+        if n == 0 {
             elements.clear();
         } else if n != 1 {
-            let n = n as usize;
-
             let old = elements.clone();
 
             elements.reserve((n - 1) * old.len());
@@ -602,13 +600,15 @@ impl PyByteArray {
 
     #[pymethod(name = "__rmul__")]
     #[pymethod(magic)]
-    fn mul(&self, n: isize) -> Self {
-        self.inner().repeat(n).into()
+    fn mul(&self, value: isize, vm: &VirtualMachine) -> PyResult<Self> {
+        vm.check_repeat_or_memory_error(self.len(), value)
+            .map(|value| self.inner().repeat(value).into())
     }
 
     #[pymethod(magic)]
-    fn imul(zelf: PyRef<Self>, n: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        Self::irepeat(&zelf, n, vm).map(|_| zelf)
+    fn imul(zelf: PyRef<Self>, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        vm.check_repeat_or_memory_error(zelf.len(), value)
+            .and_then(|value| Self::irepeat(&zelf, value, vm).map(|_| zelf))
     }
 
     #[pymethod(name = "__mod__")]
@@ -670,41 +670,35 @@ impl Comparable for PyByteArray {
 }
 
 impl AsBuffer for PyByteArray {
-    fn get_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<Box<dyn PyBuffer>> {
-        zelf.exports.fetch_add(1);
-        let buf = ByteArrayBuffer {
-            bytearray: zelf.clone(),
-            options: BufferOptions {
+    fn get_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
+        let buffer = PyBuffer::new(
+            zelf.as_object().clone(),
+            zelf.clone(),
+            BufferOptions {
                 readonly: false,
                 len: zelf.len(),
                 ..Default::default()
             },
-        };
-        Ok(Box::new(buf))
+        );
+        Ok(buffer)
     }
 }
 
-#[derive(Debug)]
-struct ByteArrayBuffer {
-    bytearray: PyByteArrayRef,
-    options: BufferOptions,
-}
-
-impl PyBuffer for ByteArrayBuffer {
+impl PyBufferInternal for PyRef<PyByteArray> {
     fn obj_bytes(&self) -> BorrowedValue<[u8]> {
-        self.bytearray.borrow_buf().into()
+        self.borrow_buf().into()
     }
 
     fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
-        PyRwLockWriteGuard::map(self.bytearray.inner_mut(), |inner| &mut *inner.elements).into()
+        PyRwLockWriteGuard::map(self.inner_mut(), |inner| &mut *inner.elements).into()
     }
 
     fn release(&self) {
-        self.bytearray.exports.fetch_sub(1);
+        self.exports.fetch_sub(1);
     }
 
-    fn get_options(&self) -> &BufferOptions {
-        &self.options
+    fn retain(&self) {
+        self.exports.fetch_add(1);
     }
 }
 

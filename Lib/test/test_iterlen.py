@@ -170,13 +170,9 @@ class TestSet(TestTemporarilyImmutable, unittest.TestCase):
         self.it = iter(d)
         self.mutate = d.pop
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_immutable_during_iteration(self):
         super().test_immutable_during_iteration()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_invariant(self):
         super().test_invariant()
 
@@ -256,8 +252,6 @@ class NoneLengthHint(object):
 
 class TestLengthHintExceptions(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_issue1242657(self):
         self.assertRaises(RuntimeError, list, BadLen())
         self.assertRaises(RuntimeError, list, BadLengthHint())

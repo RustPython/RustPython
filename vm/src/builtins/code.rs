@@ -7,6 +7,7 @@ use std::ops::Deref;
 
 use super::{PyStrRef, PyTypeRef};
 use crate::bytecode::{self, BorrowedConstant, Constant, ConstantBag};
+use crate::function::FuncArgs;
 use crate::VirtualMachine;
 use crate::{
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
@@ -87,7 +88,7 @@ impl ConstantBag for PyObjBag<'_> {
             bytecode::ConstantData::Str { value } if value.len() <= 20 => {
                 vm.intern_string(value).into_object()
             }
-            bytecode::ConstantData::Str { value } => vm.ctx.new_str(value),
+            bytecode::ConstantData::Str { value } => vm.ctx.new_utf8_str(value),
             bytecode::ConstantData::Bytes { value } => ctx.new_bytes(value.to_vec()),
             bytecode::ConstantData::Boolean { value } => ctx.new_bool(value),
             bytecode::ConstantData::Code { code } => {
@@ -115,7 +116,7 @@ impl ConstantBag for PyObjBag<'_> {
             bytecode::BorrowedConstant::Str { value } if value.len() <= 20 => {
                 vm.intern_string(value).into_object()
             }
-            bytecode::BorrowedConstant::Str { value } => vm.ctx.new_str(value),
+            bytecode::BorrowedConstant::Str { value } => vm.ctx.new_utf8_str(value),
             bytecode::BorrowedConstant::Bytes { value } => ctx.new_bytes(value.to_vec()),
             bytecode::BorrowedConstant::Boolean { value } => ctx.new_bool(value),
             bytecode::BorrowedConstant::Code { code } => {
@@ -196,7 +197,7 @@ impl PyCode {}
 #[pyimpl]
 impl PyCodeRef {
     #[pyslot]
-    fn tp_new(_cls: PyTypeRef, vm: &VirtualMachine) -> PyResult<Self> {
+    fn tp_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         Err(vm.new_type_error("Cannot directly create code object".to_owned()))
     }
 

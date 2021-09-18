@@ -14,6 +14,7 @@ use num_bigint::BigInt;
 use strum_macros::EnumString;
 
 use super::errno::errors;
+use crate::buffer::PyBuffer;
 use crate::builtins::bytes::{PyBytes, PyBytesRef};
 use crate::builtins::dict::PyDictRef;
 use crate::builtins::int;
@@ -62,7 +63,7 @@ impl OutputMode {
                 })
             };
             match mode {
-                OutputMode::String => path_as_string(path).map(|s| vm.ctx.new_str(s)),
+                OutputMode::String => path_as_string(path).map(|s| vm.ctx.new_utf8_str(s)),
                 OutputMode::Bytes => {
                     #[cfg(any(unix, target_os = "wasi"))]
                     {
@@ -167,6 +168,7 @@ pub(crate) fn fspath(
     check_for_nul: bool,
     vm: &VirtualMachine,
 ) -> PyResult<FsPath> {
+    // PyOS_FSPath in CPython
     let check_nul = |b: &[u8]| {
         if !check_for_nul || memchr::memchr(b'\0', b).is_none() {
             Ok(())
@@ -195,21 +197,26 @@ pub(crate) fn fspath(
     let method = vm.get_method_or_type_error(obj.clone(), "__fspath__", || {
         format!(
             "expected str, bytes or os.PathLike object, not {}",
-            obj.class().name
+            obj.class().name()
         )
     })?;
     let result = vm.invoke(&method, ())?;
     match1(result)?.map_err(|result| {
         vm.new_type_error(format!(
             "expected {}.__fspath__() to return str or bytes, not {}",
-            obj.class().name,
-            result.class().name,
+            obj.class().name(),
+            result.class().name(),
         ))
     })
 }
 
 impl TryFromObject for PyPathLike {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        // path_converter in CPython
+        let obj = match PyBuffer::try_from_borrowed_object(vm, &obj) {
+            Ok(buffer) => PyBytes::from(buffer.internal.obj_bytes().to_vec()).into_pyobject(vm),
+            Err(_) => obj,
+        };
         let path = fspath(obj, true, vm)?;
         Ok(Self {
             path: path.as_os_str(vm)?.to_owned().into(),
@@ -255,7 +262,7 @@ impl IntoPyException for &'_ io::Error {
             },
         };
         let errno = self.raw_os_error().into_pyobject(vm);
-        let msg = vm.ctx.new_str(self.to_string());
+        let msg = vm.ctx.new_utf8_str(self.to_string());
         vm.new_exception(exc_type, vec![errno, msg])
     }
 }
@@ -348,7 +355,7 @@ impl<const AVAILABLE: usize> FromArgs for DirFd<AVAILABLE> {
                 let fd = vm.to_index_opt(o.clone()).unwrap_or_else(|| {
                     Err(vm.new_type_error(format!(
                         "argument should be integer or None, not {}",
-                        o.class().name
+                        o.class().name()
                     )))
                 })?;
                 let fd = int::try_to_primitive(fd.as_bigint(), vm)?;
@@ -1406,8 +1413,8 @@ mod _os {
                             .ok_or_else(|| {
                                 vm.new_type_error(format!(
                                     "{}.__divmod__() must return a 2-tuple, not {}",
-                                    obj.class().name,
-                                    divmod.class().name
+                                    obj.class().name(),
+                                    divmod.class().name()
                                 ))
                             })?;
                     let secs = int::try_to_primitive(vm.to_index(&div)?.as_bigint(), vm)?;
@@ -1519,6 +1526,7 @@ mod _os {
         }
     }
 
+    #[cfg(all(any(unix, windows), not(target_os = "redox")))]
     #[pyattr]
     #[pyclass(module = "os", name = "times_result")]
     #[derive(Debug, PyStructSequence)]
@@ -1530,10 +1538,11 @@ mod _os {
         pub elapsed: f64,
     }
 
+    #[cfg(all(any(unix, windows), not(target_os = "redox")))]
     #[pyimpl(with(PyStructSequence))]
     impl TimesResult {}
 
-    #[cfg(any(unix, windows))]
+    #[cfg(all(any(unix, windows), not(target_os = "redox")))]
     #[pyfunction]
     fn times(vm: &VirtualMachine) -> PyResult {
         #[cfg(windows)]
@@ -2039,6 +2048,7 @@ mod posix {
     use super::*;
 
     use crate::builtins::list::PyListRef;
+    use crate::utils::ToCString;
     use bitflags::bitflags;
     use nix::unistd::{self, Gid, Pid, Uid};
     #[allow(unused_imports)] // TODO: use will be unnecessary in edition 2021
@@ -2086,6 +2096,39 @@ mod posix {
     const EX_NOPERM: i8 = exitcode::NOPERM as i8;
     #[pyattr]
     const EX_CONFIG: i8 = exitcode::CONFIG as i8;
+
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "dragonfly",
+        target_os = "netbsd"
+    ))]
+    #[pyattr]
+    const SCHED_RR: i32 = libc::SCHED_RR;
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "dragonfly",
+        target_os = "netbsd"
+    ))]
+    #[pyattr]
+    const SCHED_FIFO: i32 = libc::SCHED_FIFO;
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "freebsd",
+        target_os = "dragonfly",
+        target_os = "netbsd"
+    ))]
+    #[pyattr]
+    const SCHED_OTHER: i32 = libc::SCHED_OTHER;
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[pyattr]
+    const SCHED_IDLE: i32 = libc::SCHED_IDLE;
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[pyattr]
+    const SCHED_BATCH: i32 = libc::SCHED_BATCH;
 
     #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
     #[pyattr]
@@ -2286,6 +2329,12 @@ mod posix {
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
+    fn fchdir(fd: RawFd, vm: &VirtualMachine) -> PyResult<()> {
+        nix::unistd::fchdir(fd).map_err(|err| err.into_pyexception(vm))
+    }
+
+    #[cfg(not(target_os = "redox"))]
+    #[pyfunction]
     fn chroot(path: PyPathLike, vm: &VirtualMachine) -> PyResult<()> {
         nix::unistd::chroot(&*path.path).map_err(|err| err.into_pyexception(vm))
     }
@@ -2357,6 +2406,7 @@ mod posix {
         )
     }
 
+    #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn nice(increment: i32, vm: &VirtualMachine) -> PyResult<i32> {
         use nix::errno::{errno, Errno};
@@ -2367,6 +2417,34 @@ mod posix {
         } else {
             Ok(res)
         }
+    }
+
+    #[cfg(not(target_os = "redox"))]
+    #[pyfunction]
+    fn sched_get_priority_max(policy: i32, vm: &VirtualMachine) -> PyResult<i32> {
+        let max = unsafe { libc::sched_get_priority_max(policy) };
+        if max == -1 {
+            Err(errno_err(vm))
+        } else {
+            Ok(max)
+        }
+    }
+
+    #[cfg(not(target_os = "redox"))]
+    #[pyfunction]
+    fn sched_get_priority_min(policy: i32, vm: &VirtualMachine) -> PyResult<i32> {
+        let min = unsafe { libc::sched_get_priority_min(policy) };
+        if min == -1 {
+            Err(errno_err(vm))
+        } else {
+            Ok(min)
+        }
+    }
+
+    #[pyfunction]
+    fn sched_yield(vm: &VirtualMachine) -> PyResult<()> {
+        let _ = nix::sched::sched_yield().map_err(|e| e.into_pyexception(vm))?;
+        Ok(())
     }
 
     #[pyfunction]
@@ -2692,7 +2770,7 @@ mod posix {
             Err(errno_err(vm))
         } else {
             let name = unsafe { ffi::CStr::from_ptr(name) }.to_str().unwrap();
-            Ok(vm.ctx.new_str(name))
+            Ok(vm.ctx.new_utf8_str(name))
         }
     }
 
@@ -3309,7 +3387,7 @@ mod nt {
 
         for (key, value) in env::vars() {
             environ
-                .set_item(vm.ctx.new_str(key), vm.ctx.new_str(value), vm)
+                .set_item(vm.ctx.new_utf8_str(key), vm.ctx.new_utf8_str(value), vm)
                 .unwrap();
         }
         environ

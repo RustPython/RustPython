@@ -22,8 +22,8 @@ mod _operator {
     use crate::function::OptionalArg;
     use crate::iterator;
     use crate::pyobject::TypeProtocol;
-    use crate::slots::Callable;
     use crate::slots::PyComparisonOp::{Eq, Ge, Gt, Le, Lt, Ne};
+    use crate::slots::{Callable, SlotConstructor};
     use crate::utils::Either;
     use crate::vm::ReprGuard;
     use crate::IdProtocol;
@@ -212,7 +212,7 @@ mod _operator {
         // Best attempt at checking that a is sequence-like.
         if !a.class().has_attr("__getitem__") || a.isinstance(&vm.ctx.types.dict_type) {
             return Err(
-                vm.new_type_error(format!("{} object can't be concatenated", a.class().name))
+                vm.new_type_error(format!("{} object can't be concatenated", a.class().name()))
             );
         }
         vm._add(&a, &b)
@@ -288,7 +288,7 @@ mod _operator {
                 if !v.isinstance(&vm.ctx.types.int_type) {
                     return Err(vm.new_type_error(format!(
                         "'{}' type cannot be interpreted as an integer",
-                        v.class().name
+                        v.class().name()
                     )));
                 }
                 int::try_to_primitive(v.payload::<PyInt>().unwrap().as_bigint(), vm)
@@ -317,7 +317,7 @@ mod _operator {
         // Best attempt at checking that a is sequence-like.
         if !a.class().has_attr("__getitem__") || a.isinstance(&vm.ctx.types.dict_type) {
             return Err(
-                vm.new_type_error(format!("{} object can't be concatenated", a.class().name))
+                vm.new_type_error(format!("{} object can't be concatenated", a.class().name()))
             );
         }
         vm._iadd(&a, &b)
@@ -450,7 +450,7 @@ mod _operator {
     #[pyimpl(with(Callable))]
     impl PyAttrGetter {
         #[pyslot]
-        fn tp_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        fn tp_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             let nattr = args.args.len();
             // Check we get no keyword and at least one positional.
             if !args.kwargs.is_empty() {
@@ -467,7 +467,7 @@ mod _operator {
                     return Err(vm.new_type_error("attribute name must be a string".to_owned()));
                 }
             }
-            PyAttrGetter { attrs }.into_ref_with_type(vm, cls)
+            PyAttrGetter { attrs }.into_pyresult_with_type(vm, cls)
         }
 
         #[pymethod(magic)]
@@ -553,7 +553,7 @@ mod _operator {
     #[pyimpl(with(Callable))]
     impl PyItemGetter {
         #[pyslot]
-        fn tp_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        fn tp_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             // Check we get no keyword and at least one positional.
             if !args.kwargs.is_empty() {
                 return Err(vm.new_type_error("itemgetter() takes no keyword arguments".to_owned()));
@@ -561,7 +561,7 @@ mod _operator {
             if args.args.is_empty() {
                 return Err(vm.new_type_error("itemgetter expected 1 argument, got 0.".to_owned()));
             }
-            PyItemGetter { items: args.args }.into_ref_with_type(vm, cls)
+            PyItemGetter { items: args.args }.into_pyresult_with_type(vm, cls)
         }
 
         #[pymethod(magic)]
@@ -626,22 +626,20 @@ mod _operator {
         }
     }
 
-    #[pyimpl(with(Callable))]
-    impl PyMethodCaller {
-        #[pyslot]
-        fn tp_new(
-            cls: PyTypeRef,
-            name: PyObjectRef,
-            args: FuncArgs,
-            vm: &VirtualMachine,
-        ) -> PyResult<PyRef<Self>> {
+    impl SlotConstructor for PyMethodCaller {
+        type Args = (PyObjectRef, FuncArgs);
+
+        fn py_new(cls: PyTypeRef, (name, args): Self::Args, vm: &VirtualMachine) -> PyResult {
             if let Ok(name) = name.try_into_ref(vm) {
-                PyMethodCaller { name, args }.into_ref_with_type(vm, cls)
+                PyMethodCaller { name, args }.into_pyresult_with_type(vm, cls)
             } else {
                 Err(vm.new_type_error("method name must be a string".to_owned()))
             }
         }
+    }
 
+    #[pyimpl(with(Callable, SlotConstructor))]
+    impl PyMethodCaller {
         #[pymethod(magic)]
         fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
             let fmt = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {

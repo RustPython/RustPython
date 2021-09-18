@@ -16,7 +16,7 @@ use super::PyInt;
 use crate::common::lock::{
     PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
 };
-use crate::function::OptionalArg;
+use crate::function::{FuncArgs, OptionalArg};
 use crate::sequence::{self, SimpleSeq};
 use crate::sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex};
 use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable};
@@ -114,8 +114,8 @@ impl PyList {
         } else {
             Err(vm.new_type_error(format!(
                 "Cannot add {} and {}",
-                Self::class(vm).name,
-                other.class().name
+                Self::class(vm).name(),
+                other.class().name()
             )))
         }
     }
@@ -237,25 +237,21 @@ impl PyList {
     }
 
     #[pymethod(magic)]
-    fn mul(&self, counter: isize, vm: &VirtualMachine) -> PyObjectRef {
-        let new_elements = sequence::seq_mul(&self.borrow_vec(), counter)
+    #[pymethod(name = "__rmul__")]
+    fn mul(&self, value: isize, vm: &VirtualMachine) -> PyResult {
+        let new_elements = sequence::seq_mul(vm, &self.borrow_vec(), value)?
             .cloned()
             .collect();
-        vm.ctx.new_list(new_elements)
+        Ok(vm.ctx.new_list(new_elements))
     }
 
     #[pymethod(magic)]
-    fn rmul(&self, counter: isize, vm: &VirtualMachine) -> PyObjectRef {
-        self.mul(counter, vm)
-    }
-
-    #[pymethod(magic)]
-    fn imul(zelf: PyRef<Self>, counter: isize) -> PyRef<Self> {
+    fn imul(zelf: PyRef<Self>, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         let mut elements = zelf.borrow_vec_mut();
         let mut new_elements: Vec<PyObjectRef> =
-            sequence::seq_mul(&*elements, counter).cloned().collect();
+            sequence::seq_mul(vm, &*elements, value)?.cloned().collect();
         std::mem::swap(elements.deref_mut(), &mut new_elements);
-        zelf.clone()
+        Ok(zelf.clone())
     }
 
     #[pymethod]
@@ -401,12 +397,8 @@ impl PyList {
     }
 
     #[pyslot]
-    fn tp_new(
-        cls: PyTypeRef,
-        _iterable: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyRef<Self>> {
-        PyList::default().into_ref_with_type(vm, cls)
+    fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        PyList::default().into_pyresult_with_type(vm, cls)
     }
 
     #[pymethod(magic)]

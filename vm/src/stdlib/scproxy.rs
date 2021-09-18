@@ -106,7 +106,7 @@ mod _scproxy {
                     } else {
                         format!("http://{}", h)
                     };
-                    result.set_item(proto, vm.ctx.new_str(v), vm)?;
+                    result.set_item(proto, vm.ctx.new_utf8_str(v), vm)?;
                 }
             }
             Ok(())

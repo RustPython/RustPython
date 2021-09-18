@@ -1,14 +1,8 @@
-use bstr::ByteSlice;
-use itertools::Itertools;
-use num_bigint::BigInt;
-use num_traits::ToPrimitive;
-
 use crate::anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper};
 use crate::builtins::bytearray::PyByteArray;
 use crate::builtins::bytes::{PyBytes, PyBytesRef};
 use crate::builtins::int::{PyInt, PyIntRef};
 use crate::builtins::pystr::{self, PyStr, PyStrRef};
-use crate::builtins::singletons::PyNoneRef;
 use crate::builtins::PyTypeRef;
 use crate::byteslike::try_bytes_like;
 use crate::cformat::CFormatBytes;
@@ -21,6 +15,10 @@ use crate::{
     IdProtocol, PyComparisonValue, PyIterable, PyObjectRef, PyResult, PyValue,
     TryFromBorrowedObject,
 };
+use bstr::ByteSlice;
+use itertools::Itertools;
+use num_bigint::BigInt;
+use num_traits::ToPrimitive;
 use rustpython_common::hash;
 
 #[derive(Debug, Default, Clone)]
@@ -209,23 +207,24 @@ impl ByteInnerPaddingOptions {
 #[derive(FromArgs)]
 pub struct ByteInnerTranslateOptions {
     #[pyarg(positional)]
-    table: Either<PyBytesInner, PyNoneRef>,
+    table: Option<PyBytesInner>,
     #[pyarg(any, optional)]
     delete: OptionalArg<PyBytesInner>,
 }
 
 impl ByteInnerTranslateOptions {
     pub fn get_value(self, vm: &VirtualMachine) -> PyResult<(Vec<u8>, Vec<u8>)> {
-        let table = match self.table {
-            Either::A(v) => v.elements.to_vec(),
-            Either::B(_) => (0..=255).collect::<Vec<u8>>(),
-        };
-
-        if table.len() != 256 {
-            return Err(
-                vm.new_value_error("translation table must be 256 characters long".to_owned())
-            );
-        }
+        let table = self.table.map_or_else(
+            || Ok((0..=255).collect::<Vec<u8>>()),
+            |v| {
+                if v.elements.len() != 256 {
+                    return Err(vm.new_value_error(
+                        "translation table must be 256 characters long".to_owned(),
+                    ));
+                }
+                Ok(v.elements.to_vec())
+            },
+        )?;
 
         let delete = match self.delete {
             OptionalArg::Present(byte) => byte.elements,
@@ -832,7 +831,7 @@ impl PyBytesInner {
             return self.elements.clone();
         };
 
-        let mut count = maxcount.unwrap_or(std::usize::MAX) - 1;
+        let mut count = maxcount.unwrap_or(usize::MAX) - 1;
         for offset in iter {
             new[offset..offset + len].clone_from_slice(to.elements.as_slice());
             count -= 1;
@@ -860,7 +859,7 @@ impl PyBytesInner {
         //    result_len = self_len + count * (to_len-from_len)
         debug_assert!(count > 0);
         if to.len() as isize - from.len() as isize
-            > (std::isize::MAX - self.elements.len() as isize) / count as isize
+            > (isize::MAX - self.elements.len() as isize) / count as isize
         {
             return Err(vm.new_overflow_error("replace bytes is too long".to_owned()));
         }
@@ -964,8 +963,8 @@ impl PyBytesInner {
             .format(vm, values)
     }
 
-    pub fn repeat(&self, n: isize) -> Vec<u8> {
-        self.elements.repeat(n.to_usize().unwrap_or(0))
+    pub fn repeat(&self, n: usize) -> Vec<u8> {
+        self.elements.repeat(n)
     }
 }
 

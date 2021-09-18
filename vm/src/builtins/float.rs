@@ -2,7 +2,7 @@ use super::{int, PyBytes, PyInt, PyIntRef, PyStr, PyStrRef, PyTypeRef};
 use crate::common::{float_ops, hash};
 use crate::format::FormatSpec;
 use crate::function::{OptionalArg, OptionalOption};
-use crate::slots::{Comparable, Hashable, PyComparisonOp};
+use crate::slots::{Comparable, Hashable, PyComparisonOp, SlotConstructor};
 use crate::VirtualMachine;
 use crate::{
     IdProtocol, IntoPyObject,
@@ -62,7 +62,7 @@ pub fn try_float_opt(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<
             Some(float_obj) => Ok(Some(float_obj.value)),
             None => Err(vm.new_type_error(format!(
                 "__float__ returned non-float (type '{}')",
-                result.class().name
+                result.class().name()
             ))),
         };
     }
@@ -73,8 +73,9 @@ pub fn try_float_opt(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<
 }
 
 pub fn try_float(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
-    try_float_opt(obj, vm)?
-        .ok_or_else(|| vm.new_type_error(format!("must be real number, not {}", obj.class().name)))
+    try_float_opt(obj, vm)?.ok_or_else(|| {
+        vm.new_type_error(format!("must be real number, not {}", obj.class().name()))
+    })
 }
 
 pub(crate) fn to_op_float(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<f64>> {
@@ -154,20 +155,16 @@ pub fn float_pow(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult {
     }
 }
 
-#[pyimpl(flags(BASETYPE), with(Comparable, Hashable))]
-impl PyFloat {
-    #[pyslot]
-    fn tp_new(
-        cls: PyTypeRef,
-        arg: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyRef<Self>> {
+impl SlotConstructor for PyFloat {
+    type Args = OptionalArg<PyObjectRef>;
+
+    fn py_new(cls: PyTypeRef, arg: Self::Args, vm: &VirtualMachine) -> PyResult {
         let float_val = match arg {
             OptionalArg::Missing => 0.0,
             OptionalArg::Present(val) => {
                 let val = if cls.is(&vm.ctx.types.float_type) {
                     match val.downcast_exact::<PyFloat>(vm) {
-                        Ok(f) => return Ok(f),
+                        Ok(f) => return Ok(f.into_object()),
                         Err(val) => val,
                     }
                 } else {
@@ -190,14 +187,17 @@ impl PyFloat {
                 } else {
                     return Err(vm.new_type_error(format!(
                         "float() argument must be a string or a number, not '{}'",
-                        val.class().name
+                        val.class().name()
                     )));
                 }
             }
         };
-        PyFloat::from(float_val).into_ref_with_type(vm, cls)
+        PyFloat::from(float_val).into_pyresult_with_type(vm, cls)
     }
+}
 
+#[pyimpl(flags(BASETYPE), with(Comparable, Hashable, SlotConstructor))]
+impl PyFloat {
     #[pymethod(magic)]
     fn format(&self, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
         match FormatSpec::parse(spec.as_str())

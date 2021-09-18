@@ -189,9 +189,9 @@ fn _winapi_CreateProcess(
         .as_mut()
         .map_or_else(null_mut, |w| w.as_mut_ptr());
 
-    let mut procinfo = unsafe { std::mem::zeroed() };
-    let ret = unsafe {
-        processthreadsapi::CreateProcessW(
+    let procinfo = unsafe {
+        let mut procinfo = std::mem::MaybeUninit::uninit();
+        let ret = processthreadsapi::CreateProcessW(
             app_name,
             command_line,
             null_mut(),
@@ -203,13 +203,13 @@ fn _winapi_CreateProcess(
             env as _,
             current_dir,
             &mut si as *mut winbase::STARTUPINFOEXW as _,
-            &mut procinfo,
-        )
+            procinfo.as_mut_ptr(),
+        );
+        if ret == 0 {
+            return Err(errno_err(vm));
+        }
+        procinfo.assume_init()
     };
-
-    if ret == 0 {
-        return Err(errno_err(vm));
-    }
 
     Ok((
         procinfo.hProcess as usize,

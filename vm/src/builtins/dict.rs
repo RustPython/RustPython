@@ -54,8 +54,8 @@ impl PyValue for PyDict {
 #[pyimpl(with(Hashable, Comparable, Iterable), flags(BASETYPE))]
 impl PyDict {
     #[pyslot]
-    fn tp_new(class: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        PyDict::default().into_ref_with_type(vm, class)
+    fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        PyDict::default().into_pyresult_with_type(vm, cls)
     }
 
     #[pymethod(magic)]
@@ -113,7 +113,7 @@ impl PyDict {
         }
 
         for (key, value) in kwargs.into_iter() {
-            dict.insert(vm, vm.ctx.new_str(key), value)?;
+            dict.insert(vm, vm.ctx.new_utf8_str(key), value)?;
         }
         Ok(())
     }
@@ -355,10 +355,7 @@ impl PyDict {
     ) -> PyResult {
         match self.entries.pop(vm, &key)? {
             Some(value) => Ok(value),
-            None => match default {
-                OptionalArg::Present(default) => Ok(default),
-                OptionalArg::Missing => Err(vm.new_key_error(key)),
-            },
+            None => default.ok_or_else(|| vm.new_key_error(key)),
         }
     }
 
@@ -367,7 +364,7 @@ impl PyDict {
         if let Some((key, value)) = self.entries.pop_back() {
             Ok(vm.ctx.new_tuple(vec![key, value]))
         } else {
-            let err_msg = vm.ctx.new_str("popitem(): dictionary is empty");
+            let err_msg = vm.ctx.new_ascii_str(b"popitem(): dictionary is empty");
             Err(vm.new_key_error(err_msg))
         }
     }
@@ -376,7 +373,7 @@ impl PyDict {
         let dict = DictContentType::default();
 
         for (key, value) in attrs {
-            dict.insert(vm, vm.ctx.new_str(key), value)?;
+            dict.insert(vm, vm.ctx.new_utf8_str(key), value)?;
         }
 
         Ok(PyDict { entries: dict })

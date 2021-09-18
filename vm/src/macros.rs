@@ -34,11 +34,6 @@ macro_rules! py_class {
             py_class
         }
     };
-    (@extract_slots($ctx:expr, $slots:expr, (slot new), $value:expr)) => {
-        $slots.new = Some(
-            $crate::function::IntoPyNativeFunc::into_func($value)
-        );
-    };
     (@extract_slots($ctx:expr, $slots:expr, (slot $slot_name:ident), $value:expr)) => {
         $slots.$slot_name.store(Some($value));
     };
@@ -233,7 +228,7 @@ macro_rules! named_function {
                 [<$module _ $func>],
             )
             .into_function()
-            .with_module(ctx.new_str(stringify!($module).to_owned()))
+            .with_module(ctx.new_utf8_str(stringify!($module).to_owned()))
             .build(ctx)
         }
     }};

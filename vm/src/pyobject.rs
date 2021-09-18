@@ -68,18 +68,7 @@ pub type PyAttributes = HashMap<String, PyObjectRef, ahash::RandomState>;
 // TODO: remove this impl
 impl fmt::Display for PyObjectRef {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if let Some(PyType { ref name, .. }) = self.payload::<PyType>() {
-            let type_name = self.class().name.clone();
-            // We don't have access to a vm, so just assume that if its parent's name
-            // is type, it's a type
-            if type_name == "type" {
-                return write!(f, "type object '{}'", name);
-            } else {
-                return write!(f, "'{}' object", type_name);
-            }
-        }
-
-        write!(f, "'{}' object", self.class().name)
+        write!(f, "'{}' object", self.class().name())
     }
 }
 
@@ -214,11 +203,19 @@ impl PyContext {
         )
     }
 
-    pub fn new_str<S>(&self, s: S) -> PyObjectRef
+    pub fn new_utf8_str<S>(&self, s: S) -> PyObjectRef
     where
         S: Into<pystr::PyStr>,
     {
         PyObject::new(s.into(), self.types.str_type.clone(), None)
+    }
+
+    pub fn new_ascii_str(&self, s: &[u8]) -> PyObjectRef {
+        PyObject::new(
+            pystr::PyStr::from((s, pystr::PyStrKind::Ascii)),
+            self.types.str_type.clone(),
+            None,
+        )
     }
 
     pub fn new_bytes(&self, data: Vec<u8>) -> PyObjectRef {
@@ -451,8 +448,8 @@ fn pyref_payload_error(
 ) -> PyBaseExceptionRef {
     vm.new_runtime_error(format!(
         "Unexpected payload '{}' for type '{}'",
-        &*class.name,
-        &*obj.borrow().class().name,
+        &*class.name(),
+        &*obj.borrow().class().name(),
     ))
 }
 
@@ -461,8 +458,8 @@ pub(crate) fn pyref_type_error(
     class: &PyTypeRef,
     obj: impl std::borrow::Borrow<PyObjectRef>,
 ) -> PyBaseExceptionRef {
-    let expected_type = &*class.name;
-    let actual_type = &*obj.borrow().class().name;
+    let expected_type = &*class.name();
+    let actual_type = &*obj.borrow().class().name();
     vm.new_type_error(format!(
         "Expected type '{}', not '{}'",
         expected_type, actual_type,
@@ -506,12 +503,14 @@ impl<T: PyValue> TryFromObject for PyRefExact<T> {
         } else if cls.issubclass(target_cls) {
             Err(vm.new_type_error(format!(
                 "Expected an exact instance of '{}', not a subclass '{}'",
-                target_cls.name, cls.name,
+                target_cls.name(),
+                cls.name(),
             )))
         } else {
             Err(vm.new_type_error(format!(
                 "Expected type '{}', not '{}'",
-                target_cls.name, cls.name,
+                target_cls.name(),
+                cls.name(),
             )))
         }
     }
@@ -556,7 +555,7 @@ impl TryFromObject for PyCallable {
         if vm.is_callable(&obj) {
             Ok(PyCallable { obj })
         } else {
-            Err(vm.new_type_error(format!("'{}' object is not callable", obj.class().name)))
+            Err(vm.new_type_error(format!("'{}' object is not callable", obj.class().name())))
         }
     }
 }
@@ -697,7 +696,7 @@ where
         }
         Err(vm.new_type_error(format!(
             "'{}' object is not subscriptable",
-            self.class().name
+            self.class().name()
         )))
     }
 
@@ -706,7 +705,7 @@ where
             .map_err(|obj| {
                 vm.new_type_error(format!(
                     "'{}' does not support item assignment",
-                    obj.class().name
+                    obj.class().name()
                 ))
             })?
             .invoke((key, value), vm)?;
@@ -718,7 +717,7 @@ where
             .map_err(|obj| {
                 vm.new_type_error(format!(
                     "'{}' does not support item deletion",
-                    obj.class().name
+                    obj.class().name()
                 ))
             })?
             .invoke((key,), vm)?;
@@ -771,7 +770,7 @@ where
             let cls = obj.class();
             iterfn = cls.mro_find_map(|x| x.slots.iter.load());
             if iterfn.is_none() && !cls.has_attr("__getitem__") {
-                return Err(vm.new_type_error(format!("'{}' object is not iterable", cls.name)));
+                return Err(vm.new_type_error(format!("'{}' object is not iterable", cls.name())));
             }
         }
         Ok(PyIterable {
@@ -1012,9 +1011,14 @@ pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
         } else {
             Err(vm.new_type_error(format!(
                 "'{}' is not a subtype of '{}'",
-                &cls.name, exact_class.name
+                &cls.name(),
+                exact_class.name()
             )))
         }
+    }
+
+    fn into_pyresult_with_type(self, vm: &VirtualMachine, cls: PyTypeRef) -> PyResult {
+        self.into_ref_with_type(vm, cls).into_pyresult(vm)
     }
 }
 
@@ -1106,10 +1110,10 @@ pub trait PyClassImpl: PyClassDef {
         Self::impl_extend_class(ctx, class);
         ctx.add_slot_wrappers(class);
         if let Some(doc) = Self::DOC {
-            class.set_str_attr("__doc__", ctx.new_str(doc));
+            class.set_str_attr("__doc__", ctx.new_utf8_str(doc));
         }
         if let Some(module_name) = Self::MODULE_NAME {
-            class.set_str_attr("__module__", ctx.new_str(module_name));
+            class.set_str_attr("__module__", ctx.new_utf8_str(module_name));
         }
     }
 
@@ -1326,8 +1330,11 @@ impl PyMethod {
             drop(cls);
             vm.invoke(&getter, (obj, name)).map(Self::Attribute)
         } else {
-            Err(vm
-                .new_attribute_error(format!("'{}' object has no attribute '{}'", cls.name, name)))
+            Err(vm.new_attribute_error(format!(
+                "'{}' object has no attribute '{}'",
+                cls.name(),
+                name
+            )))
         }
     }
 

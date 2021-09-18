@@ -30,7 +30,7 @@ impl Location {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 write!(
                     f,
-                    "{}\n{}\n{arrow:>pad$}",
+                    "{}\n{}{arrow:>pad$}",
                     self.desc,
                     self.line,
                     pad = self.loc.column,

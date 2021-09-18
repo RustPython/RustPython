@@ -3,7 +3,7 @@ use super::int::PyIntRef;
 use super::pystr::PyStrRef;
 use super::pytype::PyTypeRef;
 use crate::anystr::{self, AnyStr};
-use crate::buffer::{BufferOptions, PyBuffer};
+use crate::buffer::{BufferOptions, PyBuffer, PyBufferInternal};
 use crate::builtins::tuple::PyTupleRef;
 use crate::bytesinner::{
     bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
@@ -12,12 +12,14 @@ use crate::bytesinner::{
 use crate::byteslike::ArgBytesLike;
 use crate::common::hash::PyHash;
 use crate::function::{OptionalArg, OptionalOption};
-use crate::slots::{AsBuffer, Callable, Comparable, Hashable, Iterable, PyComparisonOp, PyIter};
+use crate::slots::{
+    AsBuffer, Callable, Comparable, Hashable, Iterable, PyComparisonOp, PyIter, SlotConstructor,
+};
 use crate::utils::Either;
 use crate::vm::VirtualMachine;
 use crate::{
-    IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef,
-    PyRef, PyResult, PyValue, TryFromBorrowedObject, TypeProtocol,
+    IdProtocol, IntoPyObject, IntoPyResult, PyClassImpl, PyComparisonValue, PyContext, PyIterable,
+    PyObjectRef, PyRef, PyResult, PyValue, TryFromBorrowedObject, TypeProtocol,
 };
 use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;
@@ -96,17 +98,19 @@ pub(crate) fn init(context: &PyContext) {
     PyBytesIterator::extend_class(context, &context.types.bytes_iterator_type);
 }
 
-#[pyimpl(flags(BASETYPE), with(Hashable, Comparable, AsBuffer, Iterable))]
-impl PyBytes {
-    #[pyslot]
-    fn tp_new(
-        cls: PyTypeRef,
-        options: ByteInnerNewOptions,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyRef<Self>> {
-        options.get_bytes(cls, vm)
-    }
+impl SlotConstructor for PyBytes {
+    type Args = ByteInnerNewOptions;
 
+    fn py_new(cls: PyTypeRef, options: Self::Args, vm: &VirtualMachine) -> PyResult {
+        options.get_bytes(cls, vm).into_pyresult(vm)
+    }
+}
+
+#[pyimpl(
+    flags(BASETYPE),
+    with(Hashable, Comparable, AsBuffer, Iterable, SlotConstructor)
+)]
+impl PyBytes {
     #[pymethod(magic)]
     pub(crate) fn repr(&self) -> String {
         self.inner.repr("", "")
@@ -126,6 +130,15 @@ impl PyBytes {
     #[inline]
     pub fn as_bytes(&self) -> &[u8] {
         &self.inner.elements
+    }
+
+    #[pymethod(magic)]
+    fn bytes(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRef<Self> {
+        if zelf.is(&vm.ctx.types.bytes_type) {
+            zelf
+        } else {
+            PyBytes::from(zelf.inner.clone()).into_ref(vm)
+        }
     }
 
     #[pymethod(magic)]
@@ -431,9 +444,6 @@ impl PyBytes {
     #[pymethod(name = "__rmul__")]
     #[pymethod(magic)]
     fn mul(zelf: PyRef<Self>, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        if value > 0 && zelf.inner.len() as isize > std::isize::MAX / value {
-            return Err(vm.new_overflow_error("repeated bytes are too long".to_owned()));
-        }
         if value == 1 && zelf.class().is(&vm.ctx.types.bytes_type) {
             // Special case: when some `bytes` is multiplied by `1`,
             // nothing really happens, we need to return an object itself
@@ -441,8 +451,14 @@ impl PyBytes {
             // This only works for `bytes` itself, not its subclasses.
             return Ok(zelf);
         }
-        let bytes: PyBytes = zelf.inner.repeat(value).into();
-        Ok(bytes.into_ref(vm))
+        // todo: map err to overflow.
+        vm.check_repeat_or_memory_error(zelf.inner.len(), value)
+            .map(|value| {
+                let bytes: PyBytes = zelf.inner.repeat(value).into();
+                bytes.into_ref(vm)
+            })
+            // see issue 45044 on b.p.o.
+            .map_err(|_| vm.new_overflow_error("repeated bytes are too long".to_owned()))
     }
 
     #[pymethod(name = "__mod__")]
@@ -503,27 +519,22 @@ impl PyBytes {
 }
 
 impl AsBuffer for PyBytes {
-    fn get_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<Box<dyn PyBuffer>> {
-        let buf = BytesBuffer {
-            bytes: zelf.clone(),
-            options: BufferOptions {
+    fn get_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
+        let buf = PyBuffer::new(
+            zelf.as_object().clone(),
+            zelf.clone(),
+            BufferOptions {
                 len: zelf.len(),
                 ..Default::default()
             },
-        };
-        Ok(Box::new(buf))
+        );
+        Ok(buf)
     }
 }
 
-#[derive(Debug)]
-struct BytesBuffer {
-    bytes: PyBytesRef,
-    options: BufferOptions,
-}
-
-impl PyBuffer for BytesBuffer {
+impl PyBufferInternal for PyRef<PyBytes> {
     fn obj_bytes(&self) -> BorrowedValue<[u8]> {
-        self.bytes.as_bytes().into()
+        self.as_bytes().into()
     }
 
     fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
@@ -531,10 +542,7 @@ impl PyBuffer for BytesBuffer {
     }
 
     fn release(&self) {}
-
-    fn get_options(&self) -> &BufferOptions {
-        &self.options
-    }
+    fn retain(&self) {}
 }
 
 impl Hashable for PyBytes {
@@ -559,8 +567,8 @@ impl Comparable for PyBytes {
             return Err(vm.new_type_error(format!(
                 "'{}' not supported between instances of '{}' and '{}'",
                 op.operator_token(),
-                zelf.class().name,
-                other.class().name
+                zelf.class().name(),
+                other.class().name()
             )));
         } else {
             zelf.inner.cmp(other, op, vm)

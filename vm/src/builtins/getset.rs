@@ -259,7 +259,7 @@ impl SlotDescriptor for PyGetSet {
             Err(vm.new_attribute_error(format!(
                 "attribute '{}' of '{}' objects is not readable",
                 zelf.name,
-                Self::class(vm).name
+                Self::class(vm).name()
             )))
         }
     }
@@ -321,7 +321,7 @@ impl PyGetSet {
                     Err(vm.new_attribute_error(format!(
                         "attribute '{}' of '{}' objects is not writable",
                         zelf.name,
-                        obj.class().name
+                        obj.class().name()
                     )))
                 }
             }
@@ -332,7 +332,7 @@ impl PyGetSet {
                     Err(vm.new_attribute_error(format!(
                         "attribute '{}' of '{}' objects is not writable",
                         zelf.name,
-                        obj.class().name
+                        obj.class().name()
                     )))
                 }
             }

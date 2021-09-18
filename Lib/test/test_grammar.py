@@ -399,8 +399,6 @@ class GrammarTests(unittest.TestCase):
                               {'123': 123, 'o': type})
         self.assertEqual(ann_module2.__annotations__, {})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_var_annot_in_module(self):
         # check that functions fail the same way when executed
         # outside of module where they were defined

@@ -3,8 +3,10 @@ pub(crate) use _collections::make_module;
 #[pymodule]
 mod _collections {
     use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
-    use crate::function::{FuncArgs, OptionalArg};
-    use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable};
+    use crate::function::{FuncArgs, KwArgs, OptionalArg};
+    use crate::slots::{
+        Comparable, Hashable, Iterable, PyComparisonOp, PyIter, SlotConstructor, Unhashable,
+    };
     use crate::vm::ReprGuard;
     use crate::VirtualMachine;
     use crate::{
@@ -78,8 +80,8 @@ mod _collections {
     #[pyimpl(flags(BASETYPE), with(Comparable, Hashable, Iterable))]
     impl PyDeque {
         #[pyslot]
-        fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-            PyDeque::default().into_ref_with_type(vm, cls)
+        fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            PyDeque::default().into_pyresult_with_type(vm, cls)
         }
 
         #[pymethod(name = "__init__")]
@@ -202,7 +204,6 @@ mod _collections {
 
         #[pymethod]
         fn extend(&self, iter: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            // TODO: use length_hint here and for extendleft
             self.state.fetch_add(1);
             let max_len = self.maxlen;
             let mut elements: Vec<PyObjectRef> = vm.extract_elements(&iter)?;
@@ -361,15 +362,14 @@ mod _collections {
         }
 
         #[pymethod(magic)]
-        fn reversed(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        fn reversed(zelf: PyRef<Self>) -> PyResult<PyReverseDequeIterator> {
             let length = zelf.len();
             Ok(PyReverseDequeIterator {
                 position: AtomicCell::new(length),
                 status: AtomicCell::new(if length > 0 { Active } else { Exhausted }),
                 length,
                 deque: zelf,
-            }
-            .into_object(vm))
+            })
         }
 
         #[pymethod]
@@ -455,20 +455,30 @@ mod _collections {
 
         #[pymethod(magic)]
         #[pymethod(name = "__rmul__")]
-        fn mul(&self, n: isize) -> Self {
+        fn mul(&self, value: isize, vm: &VirtualMachine) -> PyResult<Self> {
             let deque: SimpleSeqDeque = self.borrow_deque().into();
-            let mul = sequence::seq_mul(&deque, n);
+            let mul = sequence::seq_mul(vm, &deque, value)?;
             let skipped = self
                 .maxlen
                 .and_then(|maxlen| mul.len().checked_sub(maxlen))
                 .unwrap_or(0);
 
             let deque = mul.skip(skipped).cloned().collect();
-            PyDeque {
+            Ok(PyDeque {
                 deque: PyRwLock::new(deque),
                 maxlen: self.maxlen,
                 state: AtomicCell::new(0),
-            }
+            })
+        }
+
+        #[pymethod(magic)]
+        fn imul(zelf: PyRef<Self>, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+            let mul_deque = zelf.mul(value, vm)?;
+            std::mem::swap(
+                &mut *zelf.borrow_deque_mut(),
+                &mut *mul_deque.borrow_deque_mut(),
+            );
+            Ok(zelf)
         }
 
         #[pymethod(magic)]
@@ -502,7 +512,7 @@ mod _collections {
             } else {
                 Err(vm.new_type_error(format!(
                     "can only concatenate deque (not \"{}\") to deque",
-                    other.class().name
+                    other.class().name()
                 )))
             }
         }
@@ -581,7 +591,38 @@ mod _collections {
         }
     }
 
-    #[pyimpl(with(PyIter))]
+    #[derive(FromArgs)]
+    struct DequeIterArgs {
+        #[pyarg(positional)]
+        deque: PyDequeRef,
+
+        #[pyarg(positional, optional)]
+        index: OptionalArg<isize>,
+    }
+
+    impl SlotConstructor for PyDequeIterator {
+        type Args = (DequeIterArgs, KwArgs);
+
+        fn py_new(
+            cls: PyTypeRef,
+            (DequeIterArgs { deque, index }, _kwargs): Self::Args,
+            vm: &VirtualMachine,
+        ) -> PyResult {
+            let len = deque.len();
+            let iter = PyDequeIterator::new(deque);
+            if let OptionalArg::Present(index) = index {
+                let index = max(index, 0) as usize;
+                iter.position.store(min(index, len));
+
+                if len.le(&index) {
+                    iter.status.store(Exhausted);
+                }
+            }
+            iter.into_pyresult_with_type(vm, cls)
+        }
+    }
+
+    #[pyimpl(with(PyIter, SlotConstructor))]
     impl PyDequeIterator {
         pub(crate) fn new(deque: PyDequeRef) -> Self {
             PyDequeIterator {
@@ -653,7 +694,29 @@ mod _collections {
         }
     }
 
-    #[pyimpl(with(PyIter))]
+    impl SlotConstructor for PyReverseDequeIterator {
+        type Args = (DequeIterArgs, KwArgs);
+
+        fn py_new(
+            cls: PyTypeRef,
+
+            (DequeIterArgs { deque, index }, _kwargs): Self::Args,
+            vm: &VirtualMachine,
+        ) -> PyResult {
+            let len = deque.len();
+            let iter = PyDeque::reversed(deque)?;
+            if let OptionalArg::Present(index) = index {
+                let index = max(index, 0) as usize;
+                if len.le(&index) {
+                    iter.status.store(Exhausted);
+                }
+                iter.position.store(len.saturating_sub(index));
+            }
+            iter.into_pyresult_with_type(vm, cls)
+        }
+    }
+
+    #[pyimpl(with(PyIter, SlotConstructor))]
     impl PyReverseDequeIterator {
         #[pymethod(magic)]
         fn length_hint(&self) -> usize {

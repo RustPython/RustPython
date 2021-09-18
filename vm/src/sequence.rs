@@ -1,7 +1,6 @@
 use crate::slots::PyComparisonOp;
 use crate::vm::VirtualMachine;
 use crate::{PyObjectRef, PyResult};
-use num_traits::cast::ToPrimitive;
 
 pub(super) type DynPyIter<'a> = Box<dyn ExactSizeIterator<Item = &'a PyObjectRef> + 'a>;
 
@@ -94,15 +93,15 @@ impl<'a> Iterator for SeqMul<'a> {
     }
 }
 
-pub(crate) fn seq_mul(seq: &impl SimpleSeq, repetitions: isize) -> SeqMul {
-    let repetitions = if seq.len() > 0 {
-        repetitions.to_usize().unwrap_or(0)
-    } else {
-        0
-    };
-    SeqMul {
-        seq,
-        repetitions,
-        iter: None,
-    }
+pub(crate) fn seq_mul<'a>(
+    vm: &VirtualMachine,
+    seq: &'a impl SimpleSeq,
+    repetitions: isize,
+) -> PyResult<SeqMul<'a>> {
+    vm.check_repeat_or_memory_error(seq.len(), repetitions)
+        .map(|repetitions| SeqMul {
+            seq,
+            repetitions,
+            iter: None,
+        })
 }

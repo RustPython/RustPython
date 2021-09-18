@@ -69,15 +69,8 @@ struct IsCloseArgs {
 fn math_isclose(args: IsCloseArgs, vm: &VirtualMachine) -> PyResult<bool> {
     let a = args.a.to_f64();
     let b = args.b.to_f64();
-    let rel_tol = match args.rel_tol {
-        OptionalArg::Missing => 1e-09,
-        OptionalArg::Present(ref value) => value.to_f64(),
-    };
-
-    let abs_tol = match args.abs_tol {
-        OptionalArg::Missing => 0.0,
-        OptionalArg::Present(ref value) => value.to_f64(),
-    };
+    let rel_tol = args.rel_tol.map_or(1e-09, |value| value.to_f64());
+    let abs_tol = args.abs_tol.map_or(0.0, |value| value.to_f64());
 
     if rel_tol < 0.0 || abs_tol < 0.0 {
         return Err(vm.new_value_error("tolerances must be non-negative".to_owned()));
@@ -327,7 +320,7 @@ fn math_gamma(x: IntoPyFloat) -> f64 {
     } else if x.is_nan() || x.is_sign_positive() {
         x
     } else {
-        std::f64::NAN
+        f64::NAN
     }
 }
 
@@ -338,7 +331,7 @@ fn math_lgamma(x: IntoPyFloat) -> f64 {
     } else if x.is_nan() {
         x
     } else {
-        std::f64::INFINITY
+        f64::INFINITY
     }
 }
 
@@ -346,7 +339,7 @@ fn try_magic_method(func_name: &str, vm: &VirtualMachine, value: &PyObjectRef) -
     let method = vm.get_method_or_type_error(value.clone(), func_name, || {
         format!(
             "type '{}' doesn't define '{}' method",
-            value.class().name,
+            value.class().name(),
             func_name,
         )
     })?;
@@ -678,9 +671,10 @@ fn math_fmod(x: IntoPyFloat, y: IntoPyFloat, vm: &VirtualMachine) -> PyResult<f6
 fn math_remainder(x: IntoPyFloat, y: IntoPyFloat, vm: &VirtualMachine) -> PyResult<f64> {
     let x = x.to_f64();
     let y = y.to_f64();
+
     if x.is_finite() && y.is_finite() {
         if y == 0.0 {
-            return Ok(std::f64::NAN);
+            return Err(vm.new_value_error("math domain error".to_owned()));
         }
 
         let absx = x.abs();
@@ -696,20 +690,17 @@ fn math_remainder(x: IntoPyFloat, y: IntoPyFloat, vm: &VirtualMachine) -> PyResu
 
         return Ok(1.0_f64.copysign(x) * r);
     }
-
-    if x.is_nan() {
-        return Ok(x);
-    }
-    if y.is_nan() {
-        return Ok(y);
-    }
-    if x.is_infinite() {
-        return Ok(std::f64::NAN);
-    }
-    if y.is_infinite() {
+    if x.is_infinite() && !y.is_nan() {
         return Err(vm.new_value_error("math domain error".to_owned()));
     }
-    Ok(x)
+    if x.is_nan() || y.is_nan() {
+        return Ok(f64::NAN);
+    }
+    if y.is_infinite() {
+        Ok(x)
+    } else {
+        Err(vm.new_value_error("math domain error".to_owned()))
+    }
 }
 
 #[derive(FromArgs)]
@@ -822,7 +813,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "pi" => ctx.new_float(std::f64::consts::PI), // 3.14159...
         "e" => ctx.new_float(std::f64::consts::E), // 2.71..
         "tau" => ctx.new_float(2.0 * std::f64::consts::PI),
-        "inf" => ctx.new_float(std::f64::INFINITY),
-        "nan" => ctx.new_float(std::f64::NAN)
+        "inf" => ctx.new_float(f64::INFINITY),
+        "nan" => ctx.new_float(f64::NAN)
     })
 }

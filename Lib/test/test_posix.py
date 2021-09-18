@@ -1306,6 +1306,7 @@ class PosixTester(unittest.TestCase):
         posix.sched_yield()
 
     @requires_sched_h
+    @unittest.skip("TODO: RUSTPYTHON https://github.com/rust-lang/libc/pull/2384")
     @unittest.skipUnless(hasattr(posix, 'sched_get_priority_max'),
                          "requires sched_get_priority_max()")
     def test_sched_priority(self):

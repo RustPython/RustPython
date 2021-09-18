@@ -50,8 +50,6 @@ class TypeChecksTest(unittest.TestCase):
         self.assertEqual(issubclass(Integer, Integer), True)
         self.assertEqual(issubclass(Integer, (Integer,)), True)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testSubclassBehavior(self):
         self.assertEqual(issubclass(SubInt, Integer), True)
         self.assertEqual(issubclass(SubInt, (Integer,)), True)

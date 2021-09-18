@@ -9,7 +9,7 @@ https://github.com/python/cpython/blob/50b48572d9a90c5bb36e2bef6179548ea927a35a/
 use super::pystr::PyStrRef;
 use super::pytype::{PyType, PyTypeRef};
 use crate::function::OptionalArg;
-use crate::slots::{SlotDescriptor, SlotGetattro};
+use crate::slots::{SlotConstructor, SlotDescriptor, SlotGetattro};
 use crate::vm::VirtualMachine;
 use crate::{
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
@@ -28,34 +28,22 @@ impl PyValue for PySuper {
     }
 }
 
-#[pyimpl(with(SlotGetattro, SlotDescriptor))]
-impl PySuper {
-    fn new(typ: PyTypeRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
-        let obj = if vm.is_none(&obj) {
-            None
-        } else {
-            let obj_type = supercheck(typ.clone(), obj.clone(), vm)?;
-            Some((obj, obj_type))
-        };
-        Ok(Self { typ, obj })
-    }
+#[derive(FromArgs)]
+pub struct PySuperNewArgs {
+    #[pyarg(positional, optional)]
+    py_type: OptionalArg<PyTypeRef>,
+    #[pyarg(positional, optional)]
+    py_obj: OptionalArg<PyObjectRef>,
+}
 
-    #[pymethod(magic)]
-    fn repr(&self) -> String {
-        let typname = &self.typ.name;
-        match self.obj {
-            Some((_, ref ty)) => format!("<super: <class '{}'>, <{} object>>", typname, ty.name),
-            None => format!("<super: <class '{}'>, NULL>", typname),
-        }
-    }
+impl SlotConstructor for PySuper {
+    type Args = PySuperNewArgs;
 
-    #[pyslot]
-    fn tp_new(
+    fn py_new(
         cls: PyTypeRef,
-        py_type: OptionalArg<PyTypeRef>,
-        py_obj: OptionalArg<PyObjectRef>,
+        Self::Args { py_type, py_obj }: Self::Args,
         vm: &VirtualMachine,
-    ) -> PyResult<PyRef<Self>> {
+    ) -> PyResult {
         // Get the type:
         let (typ, obj) = if let OptionalArg::Present(ty) = py_type {
             (ty, py_obj.unwrap_or_none(vm))
@@ -92,7 +80,7 @@ impl PySuper {
                     typ = Some(class.downcast().map_err(|o| {
                         vm.new_type_error(format!(
                             "super(): __class__ is not a type ({})",
-                            o.class().name
+                            o.class().name()
                         ))
                     })?);
                     break;
@@ -107,33 +95,65 @@ impl PySuper {
             (typ, obj)
         };
 
-        PySuper::new(typ, obj, vm)?.into_ref_with_type(vm, cls)
+        PySuper::new(typ, obj, vm)?.into_pyresult_with_type(vm, cls)
+    }
+}
+
+#[pyimpl(with(SlotGetattro, SlotDescriptor, SlotConstructor))]
+impl PySuper {
+    fn new(typ: PyTypeRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
+        let obj = if vm.is_none(&obj) {
+            None
+        } else {
+            let obj_type = supercheck(typ.clone(), obj.clone(), vm)?;
+            Some((obj, obj_type))
+        };
+        Ok(Self { typ, obj })
+    }
+
+    #[pymethod(magic)]
+    fn repr(&self) -> String {
+        let typname = &self.typ.name();
+        match self.obj {
+            Some((_, ref ty)) => format!("<super: <class '{}'>, <{} object>>", typname, ty.name()),
+            None => format!("<super: <class '{}'>, NULL>", typname),
+        }
     }
 }
 
 impl SlotGetattro for PySuper {
     fn getattro(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        let (inst, obj_type) = match zelf.obj.clone() {
+        let skip = |zelf: PyRef<Self>, name| vm.generic_getattribute(zelf.into_object(), name);
+        let (obj, start_type): (PyObjectRef, PyTypeRef) = match zelf.obj.clone() {
             Some(o) => o,
-            None => return vm.generic_getattribute(zelf.into_object(), name),
+            None => return skip(zelf, name),
         };
-        // skip the classes in obj_type.mro up to and including zelf.typ
-        let it = obj_type
+        // We want __class__ to return the class of the super object
+        // (i.e. super, or a subclass), not the class of su->obj.
+
+        if name.as_str() == "__class__" {
+            return skip(zelf, name);
+        }
+
+        // skip the classes in start_type.mro up to and including zelf.typ
+        let mro: Vec<_> = start_type
             .iter_mro()
             .skip_while(|cls| !cls.is(&zelf.typ))
-            .skip(1);
-        for cls in it {
+            .skip(1) // skip su->type (if any)
+            .collect();
+        for cls in mro {
             if let Some(descr) = cls.get_direct_attr(name.as_str()) {
                 return vm
                     .call_get_descriptor_specific(
                         descr.clone(),
-                        if inst.is(&obj_type) { None } else { Some(inst) },
-                        Some(obj_type.clone().into_object()),
+                        // Only pass 'obj' param if this is instance-mode super (See https://bugs.python.org/issue743267)
+                        if obj.is(&start_type) { None } else { Some(obj) },
+                        Some(start_type.as_object().clone()),
                     )
                     .unwrap_or(Ok(descr));
             }
         }
-        vm.generic_getattribute(zelf.into_object(), name)
+        skip(zelf, name)
     }
 }
 
@@ -201,6 +221,6 @@ pub fn init(context: &PyContext) {
                      super().cmeth(arg)\n";
 
     extend_class!(context, super_type, {
-        "__doc__" => context.new_str(super_doc),
+        "__doc__" => context.new_utf8_str(super_doc),
     });
 }

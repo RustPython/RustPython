@@ -18,7 +18,7 @@ use crate::byteslike::{ArgBytesLike, ArgMemoryBuffer};
 use crate::common::lock::{PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard};
 use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
 use crate::function::{FuncArgs, OptionalArg, OptionalOption};
-use crate::utils::Either;
+use crate::utils::{Either, ToCString};
 use crate::VirtualMachine;
 use crate::{
     IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
@@ -191,8 +191,8 @@ impl PySocket {
     }
 
     #[pyslot]
-    fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        Self::default().into_ref_with_type(vm, cls)
+    fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        Self::default().into_pyresult_with_type(vm, cls)
     }
 
     #[pymethod(magic)]
@@ -438,7 +438,7 @@ impl PySocket {
                     vm.new_type_error(format!(
                         "{}(): AF_INET address must be tuple, not {}",
                         caller,
-                        obj.class().name
+                        obj.class().name()
                     ))
                 })?;
                 let tuple = tuple.as_slice();
@@ -462,7 +462,7 @@ impl PySocket {
                     vm.new_type_error(format!(
                         "{}(): AF_INET6 address must be tuple, not {}",
                         caller,
-                        obj.class().name
+                        obj.class().name()
                     ))
                 })?;
                 let tuple = tuple.as_slice();
@@ -1030,7 +1030,8 @@ fn get_addr_tuple(addr: &socket2::SockAddr, vm: &VirtualMachine) -> PyObjectRef 
             } else {
                 let len = memchr::memchr(b'\0', path_u8).unwrap_or_else(|| path_u8.len());
                 let path = &path_u8[..len];
-                vm.ctx.new_str(String::from_utf8_lossy(path).into_owned())
+                vm.ctx
+                    .new_utf8_str(String::from_utf8_lossy(path).into_owned())
             }
         }
         // TODO: support more address families
@@ -1041,7 +1042,7 @@ fn get_addr_tuple(addr: &socket2::SockAddr, vm: &VirtualMachine) -> PyObjectRef 
 fn _socket_gethostname(vm: &VirtualMachine) -> PyResult {
     gethostname()
         .into_string()
-        .map(|hostname| vm.ctx.new_str(hostname))
+        .map(|hostname| vm.ctx.new_utf8_str(hostname))
         .map_err(|err| vm.new_os_error(err.into_string().unwrap()))
 }
 
@@ -1062,7 +1063,7 @@ fn _socket_inet_ntoa(packed_ip: ArgBytesLike, vm: &VirtualMachine) -> PyResult {
     let packed_ip = packed_ip.borrow_buf();
     let packed_ip = <&[u8; 4]>::try_from(&*packed_ip)
         .map_err(|_| vm.new_os_error("packed IP wrong length for inet_ntoa".to_owned()))?;
-    Ok(vm.ctx.new_str(Ipv4Addr::from(*packed_ip).to_string()))
+    Ok(vm.ctx.new_utf8_str(Ipv4Addr::from(*packed_ip).to_string()))
 }
 
 fn cstr_opt_as_ptr(x: &OptionalArg<ffi::CString>) -> *const libc::c_char {
@@ -1291,7 +1292,8 @@ fn _socket_gethostbyaddr(
     Ok((
         hostname,
         vm.ctx.new_list(vec![]),
-        vm.ctx.new_list(vec![vm.ctx.new_str(addr.ip().to_string())]),
+        vm.ctx
+            .new_list(vec![vm.ctx.new_utf8_str(addr.ip().to_string())]),
     ))
 }
 
@@ -1727,7 +1729,7 @@ fn convert_socket_error(
     };
     vm.new_exception(
         exception_cls.get().unwrap().clone(),
-        vec![vm.ctx.new_int(err.error_num()), vm.ctx.new_str(strerr)],
+        vec![vm.ctx.new_int(err.error_num()), vm.ctx.new_utf8_str(strerr)],
     )
 }
 
@@ -1987,8 +1989,9 @@ pub fn init_winsock() {
     #[cfg(windows)]
     {
         static WSA_INIT: parking_lot::Once = parking_lot::Once::new();
-        WSA_INIT.call_once(|| {
-            let _ = unsafe { winapi::um::winsock2::WSAStartup(0x0101, &mut std::mem::zeroed()) };
+        WSA_INIT.call_once(|| unsafe {
+            let mut wsa_data = std::mem::MaybeUninit::uninit();
+            let _ = winapi::um::winsock2::WSAStartup(0x0101, wsa_data.as_mut_ptr());
         })
     }
 }

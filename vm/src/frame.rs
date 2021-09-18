@@ -654,7 +654,7 @@ impl ExecutingFrame<'_> {
                     .iter()
                     .map(|pyobj| pyobj.payload::<PyStr>().unwrap().as_ref())
                     .collect::<String>();
-                let str_obj = vm.ctx.new_str(s);
+                let str_obj = vm.ctx.new_utf8_str(s);
                 self.push_value(str_obj);
                 Ok(None)
             }
@@ -875,7 +875,7 @@ impl ExecutingFrame<'_> {
                         vm.get_method_or_type_error(awaited_obj.clone(), "__await__", || {
                             format!(
                                 "object {} can't be used in 'await' expression",
-                                awaited_obj.class().name,
+                                awaited_obj.class().name(),
                             )
                         })?;
                     vm.invoke(&await_method, ())?
@@ -1021,7 +1021,7 @@ impl ExecutingFrame<'_> {
                     if e.class().is(&vm.ctx.exceptions.type_error) {
                         vm.new_type_error(format!(
                             "cannot unpack non-iterable {} object",
-                            value.class().name
+                            value.class().name()
                         ))
                     } else {
                         e
@@ -1056,7 +1056,7 @@ impl ExecutingFrame<'_> {
                 let value = match conversion {
                     ConversionFlag::Str => vm.to_str(&value)?.into_object(),
                     ConversionFlag::Repr => vm.to_repr(&value)?.into_object(),
-                    ConversionFlag::Ascii => vm.ctx.new_str(builtins::ascii(value, vm)?),
+                    ConversionFlag::Ascii => vm.ctx.new_utf8_str(builtins::ascii(value, vm)?),
                     ConversionFlag::None => value,
                 };
 
@@ -1292,7 +1292,7 @@ impl ExecutingFrame<'_> {
             for obj in self.pop_multiple(size) {
                 // Take all key-value pairs from the dict:
                 let dict: PyDictRef = obj.downcast().map_err(|obj| {
-                    vm.new_type_error(format!("'{}' object is not a mapping", obj.class().name))
+                    vm.new_type_error(format!("'{}' object is not a mapping", obj.class().name()))
                 })?;
                 for (key, value) in dict {
                     #[allow(clippy::collapsible_if)]
@@ -1602,7 +1602,7 @@ impl ExecutingFrame<'_> {
         vm.set_attr(&func_obj, "__doc__", vm.ctx.none())?;
 
         let name = qualified_name.as_str().split('.').next_back().unwrap();
-        vm.set_attr(&func_obj, "__name__", vm.ctx.new_str(name))?;
+        vm.set_attr(&func_obj, "__name__", vm.ctx.new_utf8_str(name))?;
         vm.set_attr(&func_obj, "__qualname__", qualified_name)?;
         let module = vm.unwrap_or_none(self.globals.get_item_option("__name__", vm)?);
         vm.set_attr(&func_obj, "__module__", module)?;
@@ -1813,6 +1813,7 @@ impl ExecutingFrame<'_> {
     }
 
     // redox still has an old nightly, and edition 2021 won't be out for a while
+    #[allow(renamed_and_removed_lints)]
     #[allow(non_fmt_panic)]
     #[cold]
     #[inline(never)]

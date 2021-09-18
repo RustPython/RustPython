@@ -1,4 +1,4 @@
-use crate::buffer::PyBufferRef;
+use crate::buffer::PyBuffer;
 /// Implementation of Printf-Style string formatting
 /// [https://docs.python.org/3/library/stdtypes.html#printf-style-string-formatting]
 use crate::builtins::float::{try_bigint, IntoPyFloat, PyFloat};
@@ -366,7 +366,7 @@ impl CFormatSpec {
                     Ok(s.into_bytes())
                 }
                 CFormatPreconversor::Str | CFormatPreconversor::Bytes => {
-                    if let Ok(buffer) = PyBufferRef::try_from_borrowed_object(vm, &obj) {
+                    if let Ok(buffer) = PyBuffer::try_from_borrowed_object(vm, &obj) {
                         let guard;
                         let vec;
                         let bytes = match buffer.as_contiguous() {
@@ -387,7 +387,7 @@ impl CFormatSpec {
                                 vm.new_type_error(format!(
                                     "%b requires a bytes-like object, or an object that \
                                      implements __bytes__, not '{}'",
-                                    obj.class().name
+                                    obj.class().name()
                                 ))
                             })?
                             .invoke((), vm)?;
@@ -416,7 +416,7 @@ impl CFormatSpec {
                         Err(vm.new_type_error(format!(
                             "%{} format: a number is required, not {}",
                             self.format_char,
-                            obj.class().name
+                            obj.class().name()
                         )))
                     }
                 }),
@@ -427,7 +427,7 @@ impl CFormatSpec {
                         Err(vm.new_type_error(format!(
                             "%{} format: an integer is required, not {}",
                             self.format_char,
-                            obj.class().name
+                            obj.class().name()
                         )))
                     }
                 }
@@ -489,7 +489,7 @@ impl CFormatSpec {
                         Err(vm.new_type_error(format!(
                             "%{} format: a number is required, not {}",
                             self.format_char,
-                            obj.class().name
+                            obj.class().name()
                         )))
                     }
                 }),
@@ -500,7 +500,7 @@ impl CFormatSpec {
                         Err(vm.new_type_error(format!(
                             "%{} format: an integer is required, not {}",
                             self.format_char,
-                            obj.class().name
+                            obj.class().name()
                         )))
                     }
                 }

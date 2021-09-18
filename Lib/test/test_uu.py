@@ -92,8 +92,6 @@ class UUTest(unittest.TestCase):
             uu.decode(inp, out)
             self.assertEqual(out.getvalue(), plaintext)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_truncatedinput(self):
         inp = io.BytesIO(b"begin 644 t1\n" + encodedtext)
         out = io.BytesIO()
@@ -239,8 +237,6 @@ class UUFileTest(unittest.TestCase):
             s = f.read()
         self.assertEqual(s, plaintext)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_decodetwice(self):
         # Verify that decode() will refuse to overwrite an existing file
         with open(self.tmpin, 'wb') as f:

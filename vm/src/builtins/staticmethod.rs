@@ -1,7 +1,7 @@
 use super::pytype::PyTypeRef;
-use crate::slots::SlotDescriptor;
+use crate::slots::{SlotConstructor, SlotDescriptor};
 use crate::vm::VirtualMachine;
-use crate::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::{PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue};
 
 #[pyclass(module = false, name = "staticmethod")]
 #[derive(Clone, Debug)]
@@ -33,13 +33,16 @@ impl From<PyObjectRef> for PyStaticMethod {
     }
 }
 
-#[pyimpl(with(SlotDescriptor), flags(BASETYPE, HAS_DICT))]
-impl PyStaticMethod {
-    #[pyslot]
-    fn tp_new(cls: PyTypeRef, callable: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        PyStaticMethod { callable }.into_ref_with_type(vm, cls)
+impl SlotConstructor for PyStaticMethod {
+    type Args = PyObjectRef;
+
+    fn py_new(cls: PyTypeRef, callable: Self::Args, vm: &VirtualMachine) -> PyResult {
+        PyStaticMethod { callable }.into_pyresult_with_type(vm, cls)
     }
 }
+
+#[pyimpl(with(SlotDescriptor, SlotConstructor), flags(BASETYPE, HAS_DICT))]
+impl PyStaticMethod {}
 
 pub fn init(context: &PyContext) {
     PyStaticMethod::extend_class(context, &context.types.staticmethod_type);

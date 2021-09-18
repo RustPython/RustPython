@@ -15,7 +15,7 @@ lalrpop = "0.19.6"
 rustpython-ast = { path = "../ast" }
 lalrpop-util = "0.19.6"
 log = "0.4.1"
-num-bigint = "0.4.0"
+num-bigint = "0.4.2"
 num-traits = "0.2"
 unic-emoji-char = "0.9"
 unic-ucd-ident  = "0.9"

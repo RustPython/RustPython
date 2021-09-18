@@ -183,12 +183,12 @@ fn do_findall(vm: &VirtualMachine, pattern: &PyPattern, search_text: PyStrRef) -
             1 => {
                 let full = captures.get(0).unwrap().as_bytes();
                 let full = String::from_utf8_lossy(full).into_owned();
-                vm.ctx.new_str(full)
+                vm.ctx.new_utf8_str(full)
             }
             2 => {
                 let capture = captures.get(1).unwrap().as_bytes();
                 let capture = String::from_utf8_lossy(capture).into_owned();
-                vm.ctx.new_str(capture)
+                vm.ctx.new_utf8_str(capture)
             }
             _ => {
                 let out = captures
@@ -198,7 +198,7 @@ fn do_findall(vm: &VirtualMachine, pattern: &PyPattern, search_text: PyStrRef) -
                         let s = m
                             .map(|m| String::from_utf8_lossy(m.as_bytes()).into_owned())
                             .unwrap_or_default();
-                        vm.ctx.new_str(s)
+                        vm.ctx.new_utf8_str(s)
                     })
                     .collect();
                 vm.ctx.new_tuple(out)
@@ -246,7 +246,7 @@ fn do_split(
     let split = output
         .into_iter()
         .map(|v| {
-            vm.unwrap_or_none(v.map(|v| vm.ctx.new_str(String::from_utf8_lossy(v).into_owned())))
+            vm.unwrap_or_none(v.map(|v| vm.ctx.new_utf8_str(String::from_utf8_lossy(v).into_owned())))
         })
         .collect();
     Ok(vm.ctx.new_list(split))
@@ -324,7 +324,7 @@ impl PyPattern {
             .regex
             .replace_all(text.as_str().as_bytes(), repl.as_str().as_bytes());
         let replaced_text = String::from_utf8_lossy(&replaced_text).into_owned();
-        Ok(vm.ctx.new_str(replaced_text))
+        Ok(vm.ctx.new_utf8_str(replaced_text))
     }
 
     #[pymethod]
@@ -334,7 +334,7 @@ impl PyPattern {
 
     #[pyproperty]
     fn pattern(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_str(self.pattern.clone()))
+        Ok(vm.ctx.new_utf8_str(self.pattern.clone()))
     }
 
     #[pymethod]

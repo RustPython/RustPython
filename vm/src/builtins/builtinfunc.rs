@@ -209,7 +209,7 @@ impl PyBuiltinMethod {
     }
     #[pyproperty(magic)]
     fn qualname(&self) -> String {
-        format!("{}.{}", self.class.name, &self.value.name)
+        format!("{}.{}", self.class.name(), &self.value.name)
     }
     #[pyproperty(magic)]
     fn doc(&self) -> Option<PyStrRef> {
@@ -226,7 +226,8 @@ impl PyBuiltinMethod {
     fn repr(&self) -> String {
         format!(
             "<method '{}' of '{}' objects>",
-            &self.value.name, self.class.name
+            &self.value.name,
+            self.class.name()
         )
     }
 }

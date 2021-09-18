@@ -308,10 +308,15 @@ impl VirtualMachine {
         module::init_module_dict(
             &vm,
             &builtins_dict,
-            vm.ctx.new_str("builtins"),
+            vm.ctx.new_ascii_str(b"builtins"),
             vm.ctx.none(),
         );
-        module::init_module_dict(&vm, &sysmod_dict, vm.ctx.new_str("sys"), vm.ctx.none());
+        module::init_module_dict(
+            &vm,
+            &sysmod_dict,
+            vm.ctx.new_ascii_str(b"sys"),
+            vm.ctx.none(),
+        );
         vm
     }
 
@@ -591,7 +596,6 @@ impl VirtualMachine {
     /// [ctor]: rustpython_vm::exceptions::ExceptionCtor
     pub fn new_exception(&self, exc_type: PyTypeRef, args: Vec<PyObjectRef>) -> PyBaseExceptionRef {
         // TODO: add repr of args into logging?
-        vm_trace!("New exception created: {}", exc_type.name);
 
         PyRef::new_ref(
             // TODO: this costructor might be invalid, because multiple
@@ -622,7 +626,7 @@ impl VirtualMachine {
     /// [invoke]: rustpython_vm::exceptions::invoke
     /// [ctor]: rustpython_vm::exceptions::ExceptionCtor
     pub fn new_exception_msg(&self, exc_type: PyTypeRef, msg: String) -> PyBaseExceptionRef {
-        self.new_exception(exc_type, vec![self.ctx.new_str(msg)])
+        self.new_exception(exc_type, vec![self.ctx.new_utf8_str(msg)])
     }
 
     pub fn new_lookup_error(&self, msg: String) -> PyBaseExceptionRef {
@@ -646,7 +650,11 @@ impl VirtualMachine {
     }
 
     pub fn new_unsupported_unary_error(&self, a: &PyObjectRef, op: &str) -> PyBaseExceptionRef {
-        self.new_type_error(format!("bad operand type for {}: '{}'", op, a.class().name))
+        self.new_type_error(format!(
+            "bad operand type for {}: '{}'",
+            op,
+            a.class().name()
+        ))
     }
 
     pub fn new_unsupported_binop_error(
@@ -658,8 +666,8 @@ impl VirtualMachine {
         self.new_type_error(format!(
             "'{}' not supported between instances of '{}' and '{}'",
             op,
-            a.class().name,
-            b.class().name
+            a.class().name(),
+            b.class().name()
         ))
     }
 
@@ -673,9 +681,9 @@ impl VirtualMachine {
         self.new_type_error(format!(
             "Unsupported operand types for '{}': '{}', '{}', and '{}'",
             op,
-            a.class().name,
-            b.class().name,
-            c.class().name
+            a.class().name(),
+            b.class().name(),
+            c.class().name()
         ))
     }
 
@@ -761,7 +769,7 @@ impl VirtualMachine {
         self.set_attr(
             syntax_error.as_object(),
             "filename",
-            self.ctx.new_str(error.source_path.clone()),
+            self.ctx.new_utf8_str(error.source_path.clone()),
         )
         .unwrap();
         syntax_error
@@ -782,6 +790,11 @@ impl VirtualMachine {
     pub fn new_runtime_error(&self, msg: String) -> PyBaseExceptionRef {
         let runtime_error = self.ctx.exceptions.runtime_error.clone();
         self.new_exception_msg(runtime_error, msg)
+    }
+
+    pub fn new_memory_error(&self, msg: String) -> PyBaseExceptionRef {
+        let memory_error_type = self.ctx.exceptions.memory_error.clone();
+        self.new_exception_msg(memory_error_type, msg)
     }
 
     pub fn new_stop_iteration(&self) -> PyBaseExceptionRef {
@@ -867,7 +880,7 @@ impl VirtualMachine {
                 self.invoke(&index?, ())?.downcast().map_err(|bad| {
                     self.new_type_error(format!(
                         "__index__ returned non-int (type {})",
-                        bad.class().name
+                        bad.class().name()
                     ))
                 })
             }),
@@ -877,7 +890,7 @@ impl VirtualMachine {
         self.to_index_opt(obj.clone()).unwrap_or_else(|| {
             Err(self.new_type_error(format!(
                 "'{}' object cannot be interpreted as an integer",
-                obj.class().name
+                obj.class().name()
             )))
         })
     }
@@ -944,14 +957,52 @@ impl VirtualMachine {
         }
     }
 
-    pub fn _isinstance(&self, obj: &PyObjectRef, cls: &PyObjectRef) -> PyResult<bool> {
+    // Equivalent to check_class. Masks Attribute errors (into TypeErrors) and lets everything
+    // else go through.
+    fn check_cls<F>(&self, cls: &PyObjectRef, msg: F) -> PyResult
+    where
+        F: Fn() -> String,
+    {
+        self.get_attribute(cls.clone(), "__bases__").map_err(|e| {
+            // Only mask AttributeErrors.
+            if e.class().is(&self.ctx.exceptions.attribute_error) {
+                self.new_type_error(msg())
+            } else {
+                e
+            }
+        })
+    }
+
+    fn abstract_isinstance(&self, obj: &PyObjectRef, cls: &PyObjectRef) -> PyResult<bool> {
         if let Ok(typ) = PyTypeRef::try_from_object(self, cls.clone()) {
-            Ok(obj.isinstance(&typ))
+            if obj.class().issubclass(typ.clone()) {
+                Ok(true)
+            } else if let Ok(icls) =
+                PyTypeRef::try_from_object(self, self.get_attribute(obj.clone(), "__class__")?)
+            {
+                if icls.is(&obj.class()) {
+                    Ok(false)
+                } else {
+                    Ok(icls.issubclass(typ))
+                }
+            } else {
+                Ok(false)
+            }
         } else {
-            Err(self.new_type_error(format!(
-                "isinstance() arg 2 must be a type or tuple of types, not {}",
-                cls.class()
-            )))
+            self.check_cls(cls, || {
+                format!(
+                    "isinstance() arg 2 must be a type or tuple of types, not {}",
+                    cls.class()
+                )
+            })
+            .and_then(|_| {
+                let icls = self.get_attribute(obj.clone(), "__class__")?;
+                if self.is_none(&icls) {
+                    Ok(false)
+                } else {
+                    self.abstract_issubclass(icls, cls)
+                }
+            })
         }
     }
 
@@ -965,7 +1016,7 @@ impl VirtualMachine {
         }
 
         if cls.class().is(&self.ctx.types.type_type) {
-            return self._isinstance(obj, cls);
+            return self.abstract_isinstance(obj, cls);
         }
 
         if let Ok(tuple) = PyTupleRef::try_from_object(self, cls.clone()) {
@@ -982,13 +1033,13 @@ impl VirtualMachine {
             return pybool::boolval(self, ret);
         }
 
-        self._isinstance(obj, cls)
+        self.abstract_isinstance(obj, cls)
     }
 
     fn abstract_issubclass(&self, subclass: PyObjectRef, cls: &PyObjectRef) -> PyResult<bool> {
         let mut derived = subclass;
         loop {
-            if derived.class().is(cls) {
+            if derived.is(cls) {
                 return Ok(true);
             }
 
@@ -1024,19 +1075,19 @@ impl VirtualMachine {
         ) {
             Ok(subclass.issubclass(cls))
         } else {
-            if self.get_attribute(subclass.clone(), "__bases__").is_err() {
-                return Err(self.new_type_error(format!(
+            self.check_cls(subclass, || {
+                format!(
                     "issubclass() arg 1 must be a class, not {}",
                     subclass.class()
-                )));
-            }
-            if self.get_attribute(cls.clone(), "__bases__").is_err() {
-                return Err(self.new_type_error(format!(
+                )
+            })
+            .and(self.check_cls(cls, || {
+                format!(
                     "issubclass() arg 2 must be a class or tuple of classes, not {}",
                     cls.class()
-                )));
-            }
-            self.abstract_issubclass(subclass.clone(), cls)
+                )
+            }))
+            .and(self.abstract_issubclass(subclass.clone(), cls))
         }
     }
 
@@ -1138,7 +1189,7 @@ impl VirtualMachine {
             }
             None => Err(self.new_type_error(format!(
                 "'{}' object is not callable",
-                callable.class().name
+                callable.class().name()
             ))),
         }
     }
@@ -1173,7 +1224,7 @@ impl VirtualMachine {
         }
 
         let frame = frame_ref.unwrap().as_object().clone();
-        let event = self.ctx.new_str(event.to_string());
+        let event = self.ctx.new_utf8_str(event.to_string());
         let args = vec![frame, event, self.ctx.none()];
 
         // temporarily disable tracing, during the call to the
@@ -1218,7 +1269,13 @@ impl VirtualMachine {
                 .collect()
         } else {
             let iter = iterator::get_iter(self, value.clone())?;
-            iterator::try_map(self, &iter, |obj| func(obj))
+            let cap = match iterator::length_hint(self, value.clone()) {
+                Err(e) if e.class().is(&self.ctx.exceptions.runtime_error) => return Err(e),
+                Ok(Some(value)) => value,
+                // Use a power of 2 as a default capacity.
+                _ => 4,
+            };
+            iterator::try_map(self, &iter, cap, |obj| func(obj))
         }
     }
 
@@ -1260,7 +1317,15 @@ impl VirtualMachine {
             // TODO: put internal iterable type
             obj => {
                 let iter = iterator::get_iter(self, obj.clone())?;
-                Ok(iterator::try_map(self, &iter, f))
+                let cap = match iterator::length_hint(self, obj.clone()) {
+                    Err(e) if e.class().is(&self.ctx.exceptions.runtime_error) => {
+                        return Ok(Err(e))
+                    }
+                    Ok(Some(value)) => value,
+                    // Use a power of 2 as a default capacity.
+                    _ => 4,
+                };
+                Ok(iterator::try_map(self, &iter, cap, f))
             }
         })
     }
@@ -1309,7 +1374,7 @@ impl VirtualMachine {
                     let has_getattr = cls.mro_find_map(|cls| cls.slots.getattro.load()).is_some();
                     self.new_type_error(format!(
                         "'{}' object has {} attributes ({} {})",
-                        cls.name,
+                        cls.name(),
                         if has_getattr { "only read-only" } else { "no" },
                         if assign { "assign to" } else { "del" },
                         attr_name
@@ -1820,7 +1885,7 @@ impl VirtualMachine {
                     .ok_or_else(|| {
                         self.new_type_error(format!(
                             "'{}' object cannot be interpreted as an integer",
-                            len.class().name
+                            len.class().name()
                         ))
                     })?
                     .as_bigint();
@@ -1840,9 +1905,21 @@ impl VirtualMachine {
         self.obj_len_opt(obj).unwrap_or_else(|| {
             Err(self.new_type_error(format!(
                 "object of type '{}' has no len()",
-                obj.class().name
+                obj.class().name()
             )))
         })
+    }
+
+    /// Checks that the multiplication is able to be performed. On Ok returns the
+    /// index as a usize for sequences to be able to use immediately.
+    pub fn check_repeat_or_memory_error(&self, length: usize, n: isize) -> PyResult<usize> {
+        let n = n.to_usize().unwrap_or(0);
+        if n > 0 && length > isize::MAX as usize / n {
+            // Empty message is currently used in CPython.
+            Err(self.new_memory_error("".to_owned()))
+        } else {
+            Ok(n)
+        }
     }
 
     // https://docs.python.org/3/reference/expressions.html#membership-test-operations
@@ -2153,7 +2230,7 @@ mod tests {
     #[test]
     fn test_multiply_str() {
         Interpreter::default().enter(|vm| {
-            let a = vm.ctx.new_str(String::from("Hello "));
+            let a = vm.ctx.new_ascii_str(b"Hello ");
             let b = vm.ctx.new_int(4_i32);
             let res = vm._mul(&a, &b).unwrap();
             let value = res.payload::<PyStr>().unwrap();

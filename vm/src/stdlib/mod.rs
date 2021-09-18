@@ -9,6 +9,7 @@ pub(crate) mod ast;
 mod atexit;
 mod binascii;
 mod bisect;
+mod cmath;
 mod codecs;
 mod collections;
 mod csv;
@@ -38,6 +39,8 @@ mod string;
 #[cfg(feature = "rustpython-compiler")]
 mod symtable;
 mod sysconfigdata;
+#[cfg(unix)]
+mod syslog;
 #[cfg(feature = "threading")]
 mod thread;
 mod time;
@@ -107,6 +110,7 @@ pub fn get_module_inits() -> StdlibMap {
             "atexit" => atexit::make_module,
             "binascii" => binascii::make_module,
             "_bisect" => bisect::make_module,
+            "cmath" => cmath::make_module,
             "_codecs" => codecs::make_module,
             "_collections" => collections::make_module,
             "_csv" => csv::make_module,
@@ -186,6 +190,7 @@ pub fn get_module_inits() -> StdlibMap {
         #[cfg(unix)]
         {
             "_posixsubprocess" => posixsubprocess::make_module,
+            "syslog" => syslog::make_module,
         }
         // Windows-only
         #[cfg(windows)]

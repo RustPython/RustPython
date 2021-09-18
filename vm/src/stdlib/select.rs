@@ -175,7 +175,7 @@ mod decl {
                 return Err(vm.new_value_error("timeout must be positive".to_owned()));
             }
         }
-        let deadline = timeout.map(|s| time::get_time() + s);
+        let deadline = timeout.map(|s| time::get_time(vm).unwrap() + s);
 
         let seq2set = |list| -> PyResult<(Vec<Selectable>, FdSet)> {
             let v = vm.extract_elements::<Selectable>(list)?;
@@ -214,7 +214,7 @@ mod decl {
             vm.check_signals()?;
 
             if let Some(ref mut timeout) = timeout {
-                *timeout = deadline.unwrap() - time::get_time();
+                *timeout = deadline.unwrap() - time::get_time(vm).unwrap();
                 if *timeout < 0.0 {
                     r.clear();
                     w.clear();

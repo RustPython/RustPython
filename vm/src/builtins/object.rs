@@ -1,7 +1,7 @@
 use super::dict::{PyDict, PyDictRef};
 use super::list::PyList;
 use super::pybool;
-use super::pystr::PyStrRef;
+use super::pystr::{PyStr, PyStrRef};
 use super::pytype::PyTypeRef;
 use crate::builtins::pytype::PyType;
 use crate::common::hash::PyHash;
@@ -11,7 +11,7 @@ use crate::utils::Either;
 use crate::vm::VirtualMachine;
 use crate::{
     IdProtocol, ItemProtocol, PyArithmaticValue, PyAttributes, PyClassImpl, PyComparisonValue,
-    PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
 };
 
 /// object()
@@ -35,9 +35,8 @@ impl PyValue for PyBaseObject {
 impl PyBaseObject {
     /// Create and return a new object.  See help(type) for accurate signature.
     #[pyslot]
-    fn tp_new(mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         // more or less __new__ operator
-        let cls = PyTypeRef::try_from_object(vm, args.shift())?;
         let dict = if cls.is(&vm.ctx.types.object_type) {
             None
         } else {
@@ -184,8 +183,29 @@ impl PyBaseObject {
 
     /// Return repr(self).
     #[pymethod(magic)]
-    fn repr(zelf: PyObjectRef) -> String {
-        format!("<{} object at {:#x}>", zelf.class().name, zelf.get_id())
+    fn repr(zelf: PyObjectRef, vm: &VirtualMachine) -> Option<String> {
+        let class = zelf.class();
+
+        match (
+            class
+                .qualname(vm)
+                .downcast_ref::<PyStr>()
+                .map(|n| n.as_str()),
+            class.module(vm).downcast_ref::<PyStr>().map(|m| m.as_str()),
+        ) {
+            (None, _) => None,
+            (Some(qualname), Some(module)) if module != "builtins" => Some(format!(
+                "<{}.{} object at {:#x}>",
+                module,
+                qualname,
+                zelf.get_id()
+            )),
+            _ => Some(format!(
+                "<{} object at {:#x}>",
+                class.tp_name(),
+                zelf.get_id()
+            )),
+        }
     }
 
     #[pyclassmethod(magic)]
@@ -219,7 +239,7 @@ impl PyBaseObject {
         } else {
             Err(vm.new_type_error(format!(
                 "unsupported format string passed to {}.__format__",
-                obj.class().name
+                obj.class().name()
             )))
         }
     }
@@ -242,7 +262,7 @@ impl PyBaseObject {
                     Ok(())
                 }
                 Err(value) => {
-                    let type_repr = &value.class().name;
+                    let type_repr = &value.class().name();
                     Err(vm.new_type_error(format!(
                         "__class__ must be set to a class, not '{}' object",
                         type_repr
@@ -326,7 +346,7 @@ pub(crate) fn setattr(
                 if e.isinstance(&vm.ctx.exceptions.key_error) {
                     vm.new_attribute_error(format!(
                         "'{}' object has no attribute '{}'",
-                        obj.class().name,
+                        obj.class().name(),
                         attr_name,
                     ))
                 } else {
@@ -338,7 +358,7 @@ pub(crate) fn setattr(
     } else {
         Err(vm.new_attribute_error(format!(
             "'{}' object has no attribute '{}'",
-            obj.class().name,
+            obj.class().name(),
             attr_name,
         )))
     }

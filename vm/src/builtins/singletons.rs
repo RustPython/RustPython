@@ -1,6 +1,9 @@
 use super::pytype::PyTypeRef;
+use crate::slots::SlotConstructor;
 use crate::vm::VirtualMachine;
-use crate::{IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyValue, TypeProtocol};
+use crate::{
+    IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+};
 
 #[pyclass(module = false, name = "NoneType")]
 #[derive(Debug)]
@@ -30,13 +33,16 @@ impl<T: IntoPyObject> IntoPyObject for Option<T> {
     }
 }
 
-#[pyimpl]
-impl PyNone {
-    #[pyslot]
-    fn tp_new(_: PyTypeRef, vm: &VirtualMachine) -> PyRef<Self> {
-        vm.ctx.none.clone()
-    }
+impl SlotConstructor for PyNone {
+    type Args = ();
 
+    fn py_new(_: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.none.clone().into_object())
+    }
+}
+
+#[pyimpl(with(SlotConstructor))]
+impl PyNone {
     #[pymethod(magic)]
     fn repr(&self) -> String {
         "None".to_owned()
@@ -59,13 +65,16 @@ impl PyValue for PyNotImplemented {
     }
 }
 
-#[pyimpl]
-impl PyNotImplemented {
-    #[pyslot]
-    fn tp_new(_: PyTypeRef, vm: &VirtualMachine) -> PyRef<Self> {
-        vm.ctx.not_implemented.clone()
-    }
+impl SlotConstructor for PyNotImplemented {
+    type Args = ();
 
+    fn py_new(_: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.not_implemented.clone().into_object())
+    }
+}
+
+#[pyimpl(with(SlotConstructor))]
+impl PyNotImplemented {
     // TODO: As per https://bugs.python.org/issue35712, using NotImplemented
     // in boolean contexts will need to raise a DeprecationWarning in 3.9
     // and, eventually, a TypeError.

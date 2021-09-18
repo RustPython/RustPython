@@ -1,12 +1,15 @@
 /*
  * Builtin set type with a sequence of unique items.
  */
-use super::{pytype::PyTypeRef, PyDictRef};
+use super::{pytype::PyTypeRef, IterStatus, PyDictRef};
 use crate::common::hash::PyHash;
 use crate::common::rc::PyRc;
 use crate::dictdatatype;
+use crate::dictdatatype::DictSize;
 use crate::function::{Args, FuncArgs, OptionalArg};
-use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable};
+use crate::slots::{
+    Comparable, Hashable, Iterable, PyComparisonOp, PyIter, SlotConstructor, Unhashable,
+};
 use crate::vm::{ReprGuard, VirtualMachine};
 use crate::{
     IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef,
@@ -186,15 +189,11 @@ impl PySetInner {
     }
 
     fn iter(&self) -> PySetIterator {
-        let set_size = SetSizeInfo {
-            position: 0,
-            size: Some(self.content.len()),
-        };
-
         PySetIterator {
             dict: PyRc::clone(&self.content),
-            elements: self.elements(),
-            size_info: AtomicCell::new(set_size),
+            size: self.content.size(),
+            position: AtomicCell::new(0),
+            status: AtomicCell::new(IterStatus::Active),
         }
     }
 
@@ -233,7 +232,7 @@ impl PySetInner {
         if let Some((key, _)) = self.content.pop_back() {
             Ok(key)
         } else {
-            let err_msg = vm.ctx.new_str("pop from an empty set");
+            let err_msg = vm.ctx.new_ascii_str(b"pop from an empty set");
             Err(vm.new_key_error(err_msg))
         }
     }
@@ -363,8 +362,8 @@ macro_rules! multi_args_set {
 #[pyimpl(with(Hashable, Comparable, Iterable), flags(BASETYPE))]
 impl PySet {
     #[pyslot]
-    fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        PySet::default().into_ref_with_type(vm, cls)
+    fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        PySet::default().into_pyresult_with_type(vm, cls)
     }
 
     #[pymethod(magic)]
@@ -476,7 +475,7 @@ impl PySet {
         } else {
             "set(...)".to_owned()
         };
-        Ok(vm.ctx.new_str(s))
+        Ok(vm.ctx.new_utf8_str(s))
     }
 
     #[pymethod]
@@ -599,30 +598,14 @@ macro_rules! multi_args_frozenset {
     }};
 }
 
-#[pyimpl(flags(BASETYPE), with(Hashable, Comparable, Iterable))]
-impl PyFrozenSet {
-    // Also used by ssl.rs windows.
-    pub(crate) fn from_iter(
-        vm: &VirtualMachine,
-        it: impl IntoIterator<Item = PyObjectRef>,
-    ) -> PyResult<Self> {
-        let inner = PySetInner::default();
-        for elem in it {
-            inner.add(elem, vm)?;
-        }
-        Ok(Self { inner })
-    }
+impl SlotConstructor for PyFrozenSet {
+    type Args = OptionalArg<PyObjectRef>;
 
-    #[pyslot]
-    fn tp_new(
-        cls: PyTypeRef,
-        iterable: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyRef<Self>> {
+    fn py_new(cls: PyTypeRef, iterable: Self::Args, vm: &VirtualMachine) -> PyResult {
         let elements = if let OptionalArg::Present(iterable) = iterable {
             let iterable = if cls.is(&vm.ctx.types.frozenset_type) {
                 match iterable.downcast_exact::<Self>(vm) {
-                    Ok(fs) => return Ok(fs),
+                    Ok(fs) => return Ok(fs.into_object()),
                     Err(iterable) => iterable,
                 }
             } else {
@@ -635,10 +618,25 @@ impl PyFrozenSet {
 
         // Return empty fs if iterable passed is empty and only for exact fs types.
         if elements.is_empty() && cls.is(&vm.ctx.types.frozenset_type) {
-            Ok(vm.ctx.empty_frozenset.clone())
+            Ok(vm.ctx.empty_frozenset.clone().into_object())
         } else {
-            Self::from_iter(vm, elements).and_then(|o| o.into_ref_with_type(vm, cls))
+            Self::from_iter(vm, elements).and_then(|o| o.into_pyresult_with_type(vm, cls))
         }
+    }
+}
+
+#[pyimpl(flags(BASETYPE), with(Hashable, Comparable, Iterable, SlotConstructor))]
+impl PyFrozenSet {
+    // Also used by ssl.rs windows.
+    pub(crate) fn from_iter(
+        vm: &VirtualMachine,
+        it: impl IntoIterator<Item = PyObjectRef>,
+    ) -> PyResult<Self> {
+        let inner = PySetInner::default();
+        for elem in it {
+            inner.add(elem, vm)?;
+        }
+        Ok(Self { inner })
     }
 
     #[pymethod(magic)]
@@ -745,7 +743,7 @@ impl PyFrozenSet {
         } else {
             "frozenset(...)".to_owned()
         };
-        Ok(vm.ctx.new_str(s))
+        Ok(vm.ctx.new_utf8_str(s))
     }
 
     #[pymethod(magic)]
@@ -803,17 +801,12 @@ impl TryFromObject for SetIterable {
     }
 }
 
-#[derive(Copy, Clone, Default)]
-struct SetSizeInfo {
-    size: Option<usize>,
-    position: usize,
-}
-
 #[pyclass(module = false, name = "set_iterator")]
 pub(crate) struct PySetIterator {
     dict: PyRc<SetContentType>,
-    elements: Vec<PyObjectRef>,
-    size_info: AtomicCell<SetSizeInfo>,
+    size: DictSize,
+    position: AtomicCell<usize>,
+    status: AtomicCell<IterStatus>,
 }
 
 impl fmt::Debug for PySetIterator {
@@ -833,33 +826,50 @@ impl PyValue for PySetIterator {
 impl PySetIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
-        let set_len = self.dict.len();
-        let position = self.size_info.load().position;
-        set_len.saturating_sub(position)
+        if let IterStatus::Exhausted = self.status.load() {
+            0
+        } else {
+            self.dict.len_from_entry_index(self.position.load())
+        }
+    }
+
+    #[pymethod(magic)]
+    fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<(PyObjectRef, (PyObjectRef,))> {
+        Ok((
+            vm.get_attribute(vm.builtins.clone(), "iter")?,
+            (vm.ctx.new_list(match zelf.status.load() {
+                IterStatus::Exhausted => vec![],
+                IterStatus::Active => zelf
+                    .dict
+                    .keys()
+                    .into_iter()
+                    .skip(zelf.position.load())
+                    .collect(),
+            }),),
+        ))
     }
 }
 
 impl PyIter for PySetIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        let mut size_info = zelf.size_info.take();
-
-        if let Some(set_size) = size_info.size {
-            if set_size == zelf.dict.len() {
-                let index = size_info.position;
-                let item = zelf
-                    .elements
-                    .get(index)
-                    .ok_or_else(|| vm.new_stop_iteration())?;
-                size_info.position += 1;
-                zelf.size_info.store(size_info);
-                return Ok(item.clone());
-            } else {
-                size_info.size = None;
-                zelf.size_info.store(size_info);
+        match zelf.status.load() {
+            IterStatus::Exhausted => Err(vm.new_stop_iteration()),
+            IterStatus::Active => {
+                if zelf.dict.has_changed_size(&zelf.size) {
+                    zelf.status.store(IterStatus::Exhausted);
+                    return Err(
+                        vm.new_runtime_error("set changed size during iteration".to_owned())
+                    );
+                }
+                match zelf.dict.next_entry_atomic(&zelf.position) {
+                    Some((key, _)) => Ok(key),
+                    None => {
+                        zelf.status.store(IterStatus::Exhausted);
+                        Err(vm.new_stop_iteration())
+                    }
+                }
             }
         }
-
-        Err(vm.new_runtime_error("set changed size during iteration".into()))
     }
 }
 

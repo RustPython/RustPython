@@ -62,6 +62,6 @@ for the crate and webpack.
 ## Updating the demo
 
 If you wish to update the WebAssembly demo,
-[open a pull request](https://github.com/RustPython/RustPython/compare/release...master)
-to merge `master` into the `release` branch. This will trigger a Travis build
+[open a pull request](https://github.com/RustPython/RustPython/compare/release...main)
+to merge `main` into the `release` branch. This will trigger a Travis build
 that updates the demo page.

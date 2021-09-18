@@ -1,8 +1,8 @@
 use crate::buffer::PyBuffer;
-use crate::builtins::pystr::PyStrRef;
+use crate::builtins::{PyStrRef, PyTypeRef};
 use crate::common::hash::PyHash;
 use crate::common::lock::PyRwLock;
-use crate::function::{FuncArgs, OptionalArg, PyNativeFunc};
+use crate::function::{FromArgs, FuncArgs, OptionalArg};
 use crate::utils::Either;
 use crate::VirtualMachine;
 use crate::{
@@ -25,8 +25,16 @@ bitflags! {
 }
 
 impl PyTpFlags {
+    // Default used for both built-in and normal classes: empty, for now.
     // CPython default: Py_TPFLAGS_HAVE_STACKLESS_EXTENSION | Py_TPFLAGS_HAVE_VERSION_TAG
-    pub const DEFAULT: Self = Self::HEAPTYPE;
+    pub const DEFAULT: Self = Self::empty();
+
+    // CPython: See initialization of flags in type_new.
+    /// Used for types created in Python. Subclassable and are a
+    /// heaptype.
+    pub fn heap_type_flags() -> Self {
+        Self::DEFAULT | Self::HEAPTYPE | Self::BASETYPE
+    }
 
     pub fn has_feature(self, flag: Self) -> bool {
         self.contains(flag)
@@ -45,6 +53,7 @@ impl Default for PyTpFlags {
 }
 
 pub(crate) type GenericMethod = fn(&PyObjectRef, FuncArgs, &VirtualMachine) -> PyResult;
+pub(crate) type NewFunc = fn(PyTypeRef, FuncArgs, &VirtualMachine) -> PyResult;
 pub(crate) type DelFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<()>;
 pub(crate) type DescrGetFunc =
     fn(PyObjectRef, Option<PyObjectRef>, Option<PyObjectRef>, &VirtualMachine) -> PyResult;
@@ -60,7 +69,7 @@ pub(crate) type RichCompareFunc = fn(
 pub(crate) type GetattroFunc = fn(PyObjectRef, PyStrRef, &VirtualMachine) -> PyResult;
 pub(crate) type SetattroFunc =
     fn(&PyObjectRef, PyStrRef, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>;
-pub(crate) type BufferFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<Box<dyn PyBuffer>>;
+pub(crate) type BufferFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<PyBuffer>;
 pub(crate) type IterFunc = fn(PyObjectRef, &VirtualMachine) -> PyResult;
 pub(crate) type IterNextFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult;
 
@@ -108,7 +117,7 @@ pub struct PyTypeSlots {
     // tp_dictoffset
     // tp_init
     // tp_alloc
-    pub new: Option<PyNativeFunc>,
+    pub new: AtomicCell<Option<NewFunc>>,
     // tp_free
     // tp_is_gc
     // tp_bases
@@ -132,6 +141,19 @@ impl std::fmt::Debug for PyTypeSlots {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("PyTypeSlots")
     }
+}
+
+#[pyimpl]
+pub trait SlotConstructor: PyValue {
+    type Args: FromArgs;
+
+    #[pyslot]
+    fn tp_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let args: Self::Args = args.bind(vm)?;
+        Self::py_new(cls, args, vm)
+    }
+
+    fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult;
 }
 
 #[pyimpl]
@@ -262,7 +284,7 @@ where
     T: Unhashable,
 {
     fn hash(_zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
-        Err(vm.new_type_error(format!("unhashable type: '{}'", _zelf.class().name)))
+        Err(vm.new_type_error(format!("unhashable type: '{}'", _zelf.class().name())))
     }
 }
 
@@ -496,16 +518,16 @@ pub trait SlotSetattro: PyValue {
 
 #[pyimpl]
 pub trait AsBuffer: PyValue {
+    // TODO: `flags` parameter
     #[pyslot]
-    fn tp_as_buffer(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Box<dyn PyBuffer>> {
-        if let Some(zelf) = zelf.downcast_ref() {
-            Self::get_buffer(zelf, vm)
-        } else {
-            Err(vm.new_type_error("unexpected payload for get_buffer".to_owned()))
-        }
+    fn as_buffer(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<PyBuffer> {
+        let zelf = zelf
+            .downcast_ref()
+            .ok_or_else(|| vm.new_type_error("unexpected payload for get_buffer".to_owned()))?;
+        Self::get_buffer(zelf, vm)
     }
 
-    fn get_buffer(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<Box<dyn PyBuffer>>;
+    fn get_buffer(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyBuffer>;
 }
 
 #[pyimpl]

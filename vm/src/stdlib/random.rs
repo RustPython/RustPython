@@ -8,8 +8,9 @@ mod _random {
     use crate::builtins::pytype::PyTypeRef;
     use crate::common::lock::PyMutex;
     use crate::function::OptionalOption;
+    use crate::slots::SlotConstructor;
     use crate::VirtualMachine;
-    use crate::{PyObjectRef, PyRef, PyResult, PyValue, StaticType};
+    use crate::{PyObjectRef, PyResult, PyValue, StaticType};
     use num_bigint::{BigInt, Sign};
     use num_traits::{Signed, Zero};
     use rand::{rngs::StdRng, RngCore, SeedableRng};
@@ -66,21 +67,24 @@ mod _random {
         }
     }
 
-    #[pyimpl(flags(BASETYPE))]
-    impl PyRandom {
-        #[pyslot(new)]
-        fn new(
+    impl SlotConstructor for PyRandom {
+        type Args = OptionalOption<PyObjectRef>;
+
+        fn py_new(
             cls: PyTypeRef,
             // TODO: use x as the seed.
-            _x: OptionalOption<PyObjectRef>,
+            _x: Self::Args,
             vm: &VirtualMachine,
-        ) -> PyResult<PyRef<Self>> {
+        ) -> PyResult {
             PyRandom {
                 rng: PyMutex::default(),
             }
-            .into_ref_with_type(vm, cls)
+            .into_pyresult_with_type(vm, cls)
         }
+    }
 
+    #[pyimpl(flags(BASETYPE), with(SlotConstructor))]
+    impl PyRandom {
         #[pymethod]
         fn random(&self) -> f64 {
             let mut rng = self.rng.lock();

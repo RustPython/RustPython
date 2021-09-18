@@ -111,7 +111,7 @@ impl PyIter for Reader {
         let string = string.downcast::<PyStr>().map_err(|obj| {
             vm.new_type_error(format!(
                 "iterator should return strings, not {} (the file should be opened in text mode)",
-                obj.class().name
+                obj.class().name()
             ))
         })?;
         let input = string.as_str().as_bytes();
@@ -160,7 +160,7 @@ impl PyIter for Reader {
                 let range = prev_end..end;
                 prev_end = end;
                 std::str::from_utf8(&buffer[range])
-                    .map(|s| vm.ctx.new_str(s.to_owned()))
+                    .map(|s| vm.ctx.new_utf8_str(s.to_owned()))
                     // not sure if this is possible - the input was all strings
                     .map_err(|_e| vm.new_unicode_decode_error("csv not utf8".to_owned()))
             })

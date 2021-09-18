@@ -3,7 +3,7 @@ use super::pystr::PyStrRef;
 use super::pytype::PyTypeRef;
 use crate::function::OptionalArg;
 use crate::iterator;
-use crate::slots::Iterable;
+use crate::slots::{Iterable, SlotConstructor};
 use crate::vm::VirtualMachine;
 use crate::{
     IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
@@ -36,21 +36,24 @@ impl PyMappingProxy {
     }
 }
 
-#[pyimpl(with(Iterable))]
-impl PyMappingProxy {
-    #[pyslot]
-    fn tp_new(cls: PyTypeRef, mapping: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+impl SlotConstructor for PyMappingProxy {
+    type Args = PyObjectRef;
+
+    fn py_new(cls: PyTypeRef, mapping: Self::Args, vm: &VirtualMachine) -> PyResult {
         Self {
             mapping: MappingProxyInner::Dict(mapping),
         }
-        .into_ref_with_type(vm, cls)
+        .into_pyresult_with_type(vm, cls)
     }
+}
 
+#[pyimpl(with(Iterable, SlotConstructor))]
+impl PyMappingProxy {
     fn get_inner(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
         let opt = match &self.mapping {
             MappingProxyInner::Class(class) => {
                 let key = PyStrRef::try_from_object(vm, key)?;
-                class.get_attr(key.as_str())
+                class.attributes.read().get(key.as_str()).cloned()
             }
             MappingProxyInner::Dict(obj) => obj.get_item(key, vm).ok(),
         };

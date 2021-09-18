@@ -140,7 +140,7 @@ mod _pyexpat {
                         for attribute in attributes {
                             dict.set_item(
                                 attribute.name.local_name.as_str(),
-                                vm.ctx.new_str(attribute.value),
+                                vm.ctx.new_utf8_str(attribute.value),
                                 vm,
                             )
                             .unwrap();

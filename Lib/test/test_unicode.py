@@ -1896,8 +1896,6 @@ class UnicodeTest(string_tests.CommonTest,
         self.assertEqual((b'aaaa' + seq + b'bbbb').decode('utf-8', 'ignore'),
                           'aaaa' + res + 'bbbb')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_invalid_start_byte(self):
         """
         Test that an 'invalid start byte' error is raised when the first byte
