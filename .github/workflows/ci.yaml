@@ -58,6 +58,8 @@ jobs:
         with:
           target: aarch64-linux-android
 
+      - uses: Swatinem/rust-cache@v1
+
       - name: Check compilation for android
         uses: actions-rs/cargo@v1
         with:
@@ -182,6 +184,7 @@ jobs:
             toolchain: nightly
             components: miri
             override: true
+      - uses: Swatinem/rust-cache@v1
       - name: Run tests under miri
         # miri-ignore-leaks because the type-object circular reference means that there will always be
         # a memory leak, at least until we have proper cyclic gc
