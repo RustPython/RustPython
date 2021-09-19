@@ -118,6 +118,12 @@ impl_try_from_object_int!(
     (u64, to_u64),
 );
 
+impl TryFromBorrowedObject for BigInt {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Self> {
+        try_value_from_borrowed_object(vm, obj, |int: &PyInt| Ok(int.as_bigint().clone()))
+    }
+}
+
 // _PyLong_AsUnsignedLongMask
 pub fn bigint_unsigned_mask(v: &BigInt) -> u32 {
     v.to_u32()
