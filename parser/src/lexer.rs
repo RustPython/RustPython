@@ -2,6 +2,7 @@
 //!
 //! This means source code is translated into separate tokens.
 
+use super::token::StringKind;
 pub use super::token::Tok;
 use crate::ast::Location;
 use crate::error::{LexicalError, LexicalErrorType};
@@ -498,7 +499,7 @@ where
         &mut self,
         is_bytes: bool,
         is_raw: bool,
-        _is_unicode: bool,
+        is_unicode: bool,
         is_fstring: bool,
     ) -> LexResult {
         let quote_char = self.next_char().unwrap();
@@ -612,9 +613,16 @@ where
                 value: string_content.chars().map(|c| c as u8).collect(),
             }
         } else {
+            let kind = if is_fstring {
+                StringKind::F
+            } else if is_unicode {
+                StringKind::U
+            } else {
+                StringKind::Normal
+            };
             Tok::String {
                 value: string_content,
-                is_fstring,
+                kind,
             }
         };
 
