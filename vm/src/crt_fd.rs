@@ -14,6 +14,13 @@ extern "C" {
 #[cfg(not(windows))]
 use libc::{fsync, ftruncate};
 
+// this is basically what CPython has for Py_off_t; windows uses long long
+// for offsets, other platforms just use off_t
+#[cfg(not(windows))]
+pub type Offset = libc::off_t;
+#[cfg(windows)]
+pub type Offset = libc::c_longlong;
+
 #[inline]
 fn cvt<T, I: num_traits::PrimInt>(ret: I, f: impl FnOnce(I) -> T) -> io::Result<T> {
     if ret < I::zero() {
@@ -62,7 +69,7 @@ impl Fd {
         cvt(unsafe { suppress_iph!(libc::close(self.0)) }, drop)
     }
 
-    pub fn ftruncate(&self, len: crate::stdlib::os::Offset) -> io::Result<()> {
+    pub fn ftruncate(&self, len: Offset) -> io::Result<()> {
         cvt(unsafe { suppress_iph!(ftruncate(self.0, len)) }, drop)
     }
 

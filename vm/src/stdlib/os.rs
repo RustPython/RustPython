@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 use std::{env, fs};
 
-use crate::crt_fd::Fd;
+use crate::crt_fd::{Fd, Offset};
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
 use num_bigint::BigInt;
@@ -39,13 +39,6 @@ use crate::{
 use std::os::unix::ffi as ffi_ext;
 #[cfg(target_os = "wasi")]
 use std::os::wasi::ffi as ffi_ext;
-
-// this is basically what CPython has for Py_off_t; windows uses long long
-// for offsets, other platforms just use off_t
-#[cfg(not(windows))]
-pub type Offset = libc::off_t;
-#[cfg(windows)]
-pub type Offset = libc::c_longlong;
 
 #[derive(Debug, Copy, Clone)]
 enum OutputMode {

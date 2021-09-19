@@ -3,7 +3,7 @@
  */
 cfg_if::cfg_if! {
     if #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))] {
-        use super::os::Offset;
+        use crate::crt_fd::Offset;
     } else {
         type Offset = i64;
     }
