@@ -2568,23 +2568,25 @@ mod posix {
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn fchmod(fd: RawFd, mode: u32, vm: &VirtualMachine) -> PyResult<()> {
-        nix::sys::stat::fchmod(
-            fd,
-            nix::sys::stat::Mode::from_bits(mode as libc::mode_t).unwrap(),
+        chmod(
+            PathOrFd::Fd(fd),
+            DirFd::default(),
+            mode,
+            FollowSymlinks(true),
+            vm,
         )
-        .map_err(|err| err.into_pyexception(vm))
     }
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn lchmod(path: PyPathLike, mode: u32, vm: &VirtualMachine) -> PyResult<()> {
-        nix::sys::stat::fchmodat(
-            None,
-            &path.path,
-            nix::sys::stat::Mode::from_bits(mode as libc::mode_t).unwrap(),
-            nix::sys::stat::FchmodatFlags::NoFollowSymlink,
+        chmod(
+            PathOrFd::Path(path),
+            DirFd::default(),
+            mode,
+            FollowSymlinks(false),
+            vm,
         )
-        .map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
