@@ -12,6 +12,88 @@ use crate::{
 };
 use crossbeam_utils::atomic::AtomicCell;
 
+#[derive(Debug)]
+pub struct PositionIterInternal {
+    pub position: AtomicCell<usize>,
+    /// object or PyNone if exhausted
+    pub obj: PyRwLock<PyObjectRef>,
+}
+
+impl PositionIterInternal {
+    pub fn new(obj: PyObjectRef) -> Self {
+        Self {
+            position: AtomicCell::new(0),
+            obj: PyRwLock::new(obj),
+        }
+    }
+
+    pub fn is_active(&self, vm: &VirtualMachine) -> bool {
+        !vm.is_none(&self.obj.read())
+    }
+
+    pub fn set_state(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        if self.is_active(vm) {
+            if let Some(i) = state.payload::<PyInt>() {
+                let i = int::try_to_primitive(i.as_bigint(), vm).unwrap_or(0);
+                self.position.store(i);
+                Ok(())
+            } else {
+                Err(vm.new_type_error("an integer is required.".to_owned()))
+            }
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn reduce(&self, func: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        if self.is_active(vm) {
+            vm.ctx.new_tuple(vec![
+                func,
+                vm.ctx.new_tuple(vec![self.obj.read().clone()]),
+                vm.ctx.new_int(self.position.load()),
+            ])
+        } else {
+            vm.ctx
+                .new_tuple(vec![func, vm.ctx.new_tuple(vec![vm.ctx.new_list(vec![])])])
+        }
+    }
+
+    pub fn next<F>(&self, f: F, vm: &VirtualMachine) -> PyResult
+    where
+        F: FnOnce(usize) -> PyResult,
+    {
+        if self.is_active(vm) {
+            let pos = self.position.fetch_add(1);
+            match f(pos) {
+                Err(ref e)
+                    if e.isinstance(&vm.ctx.exceptions.index_error)
+                        || e.isinstance(&vm.ctx.exceptions.stop_iteration) =>
+                {
+                    *self.obj.write() = vm.ctx.none();
+                    Err(vm.new_stop_iteration())
+                }
+                ret => ret,
+            }
+        } else {
+            Err(vm.new_stop_iteration())
+        }
+    }
+
+    pub fn length_hint<F>(&self, f: F, vm: &VirtualMachine) -> PyResult
+    where
+        F: FnOnce() -> PyResult<usize>,
+    {
+        let len = if self.is_active(vm) {
+            let pos = self.position.load();
+            let obj_len = f()?;
+            obj_len.saturating_sub(pos)
+        } else {
+            0
+        };
+        Ok(PyInt::from(len).into_object(vm))
+    }
+}
+
 /// Marks status of iterator.
 #[derive(Debug, Clone, Copy)]
 pub enum IterStatus {
@@ -24,9 +106,10 @@ pub enum IterStatus {
 #[pyclass(module = false, name = "iterator")]
 #[derive(Debug)]
 pub struct PySequenceIterator {
-    pub position: AtomicCell<usize>,
-    pub obj: PyObjectRef,
-    pub status: AtomicCell<IterStatus>,
+    internal: PositionIterInternal,
+    // pub position: AtomicCell<usize>,
+    // pub obj: PyObjectRef,
+    // pub status: AtomicCell<IterStatus>
 }
 
 impl PyValue for PySequenceIterator {
@@ -39,75 +122,38 @@ impl PyValue for PySequenceIterator {
 impl PySequenceIterator {
     pub fn new(obj: PyObjectRef) -> Self {
         Self {
-            position: AtomicCell::new(0),
-            obj,
-            status: AtomicCell::new(IterStatus::Active),
+            internal: PositionIterInternal::new(obj),
         }
     }
 
     #[pymethod(magic)]
-    fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
-        match self.status.load() {
-            IterStatus::Active => {
-                let pos = self.position.load();
-                // return NotImplemented if no length is around.
-                vm.obj_len(&self.obj)
-                    .map_or(vm.ctx.not_implemented(), |len| {
-                        PyInt::from(len.saturating_sub(pos)).into_object(vm)
-                    })
-            }
-            IterStatus::Exhausted => PyInt::from(0).into_object(vm),
-        }
+    fn length_hint(&self, vm: &VirtualMachine) -> PyResult {
+        self.internal.length_hint(
+            || {
+                vm.obj_len(&self.internal.obj.read())
+                    .map_err(|_| vm.new_not_implemented_error("".to_owned()))
+            },
+            vm,
+        )
     }
 
     #[pymethod(magic)]
     fn reduce(&self, vm: &VirtualMachine) -> PyResult {
         let iter = vm.get_attribute(vm.builtins.clone(), "iter")?;
-        Ok(match self.status.load() {
-            IterStatus::Exhausted => vm
-                .ctx
-                .new_tuple(vec![iter, vm.ctx.new_tuple(vec![vm.ctx.new_list(vec![])])]),
-            IterStatus::Active => vm.ctx.new_tuple(vec![
-                iter,
-                vm.ctx.new_tuple(vec![self.obj.clone()]),
-                vm.ctx.new_int(self.position.load()),
-            ]),
-        })
+        Ok(self.internal.reduce(iter, vm))
     }
 
     #[pymethod(magic)]
     fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        // When we're exhausted, just return.
-        if let IterStatus::Exhausted = self.status.load() {
-            return Ok(());
-        }
-        if let Some(i) = state.payload::<PyInt>() {
-            self.position
-                .store(int::try_to_primitive(i.as_bigint(), vm).unwrap_or(0));
-            Ok(())
-        } else {
-            Err(vm.new_type_error("an integer is required.".to_owned()))
-        }
+        self.internal.set_state(state, vm)
     }
 }
 
 impl IteratorIterable for PySequenceIterator {}
 impl SlotIterator for PySequenceIterator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        if let IterStatus::Exhausted = zelf.status.load() {
-            return Ok(PyIterReturn::StopIteration(None));
-        }
-        let pos = zelf.position.fetch_add(1);
-        match zelf.obj.get_item(pos, vm) {
-            Err(ref e)
-                if e.isinstance(&vm.ctx.exceptions.index_error)
-                    || e.isinstance(&vm.ctx.exceptions.stop_iteration) =>
-            {
-                zelf.status.store(IterStatus::Exhausted);
-                Ok(PyIterReturn::StopIteration(None))
-            }
-            ret => ret.map(PyIterReturn::Return),
-        }
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        zelf.internal
+            .next(|pos| zelf.internal.obj.read().get_item(pos, vm), vm)
     }
 }
 

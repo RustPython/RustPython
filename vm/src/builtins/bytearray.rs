@@ -717,8 +717,7 @@ impl Unhashable for PyByteArray {}
 impl Iterable for PyByteArray {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         Ok(PyByteArrayIterator {
-            position: AtomicCell::new(0),
-            bytearray: zelf,
+            internal: PositionIterInternal::new(zelf.into_object()),
         }
         .into_object(vm))
     }
@@ -731,8 +730,7 @@ impl Iterable for PyByteArray {
 #[pyclass(module = false, name = "bytearray_iterator")]
 #[derive(Debug)]
 pub struct PyByteArrayIterator {
-    position: AtomicCell<usize>,
-    bytearray: PyByteArrayRef,
+    internal: PositionIterInternal,
 }
 
 impl PyValue for PyByteArrayIterator {
@@ -744,35 +742,44 @@ impl PyValue for PyByteArrayIterator {
 #[pyimpl(with(SlotIterator))]
 impl PyByteArrayIterator {
     #[pymethod(magic)]
+    fn length_hint(&self, vm: &VirtualMachine) -> PyResult {
+        self.internal.length_hint(
+            || {
+                Ok(self
+                    .internal
+                    .obj
+                    .read()
+                    .payload::<PyByteArray>()
+                    .unwrap()
+                    .len())
+            },
+            vm,
+        )
+    }
+    #[pymethod(magic)]
     fn reduce(&self, vm: &VirtualMachine) -> PyResult {
         let iter = vm.get_attribute(vm.builtins.clone(), "iter")?;
-        Ok(vm.ctx.new_tuple(vec![
-            iter,
-            vm.ctx.new_tuple(vec![self.bytearray.clone().into_object()]),
-            vm.ctx.new_int(self.position.load()),
-        ]))
+        Ok(self.internal.reduce(iter, vm))
     }
 
     #[pymethod(magic)]
     fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        if let Some(i) = state.payload::<PyInt>() {
-            self.position
-                .store(int::try_to_primitive(i.as_bigint(), vm).unwrap_or(0));
-            Ok(())
-        } else {
-            Err(vm.new_type_error("an integer is required.".to_owned()))
-        }
+        self.internal.set_state(state, vm)
     }
 }
 impl IteratorIterable for PyByteArrayIterator {}
 impl SlotIterator for PyByteArrayIterator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        let pos = zelf.position.fetch_add(1);
-        let r = if let Some(&ret) = zelf.bytearray.borrow_buf().get(pos) {
-            PyIterReturn::Return(ret.into_pyobject(vm))
-        } else {
-            PyIterReturn::StopIteration(None)
-        };
-        Ok(r)
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        zelf.internal.next(
+            |pos| {
+                let bytearray = zelf.internal.obj.read();
+                let bytearray = bytearray.payload::<PyByteArray>().unwrap();
+                let buf = bytearray.borrow_buf();
+                buf.get(pos)
+                    .ok_or_else(|| vm.new_stop_iteration())
+                    .map(|&x| vm.ctx.new_int(x))
+            },
+            vm,
+        )
     }
 }

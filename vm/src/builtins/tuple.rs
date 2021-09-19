@@ -310,9 +310,7 @@ impl Comparable for PyTuple {
 impl Iterable for PyTuple {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         Ok(PyTupleIterator {
-            position: AtomicCell::new(0),
-            status: AtomicCell::new(Active),
-            tuple: zelf,
+            internal: PositionIterInternal::new(zelf.into_object()),
         }
         .into_object(vm))
     }
@@ -321,9 +319,7 @@ impl Iterable for PyTuple {
 #[pyclass(module = false, name = "tuple_iterator")]
 #[derive(Debug)]
 pub(crate) struct PyTupleIterator {
-    position: AtomicCell<usize>,
-    status: AtomicCell<IterStatus>,
-    tuple: PyTupleRef,
+    internal: PositionIterInternal,
 }
 
 impl PyValue for PyTupleIterator {
@@ -335,61 +331,40 @@ impl PyValue for PyTupleIterator {
 #[pyimpl(with(SlotIterator))]
 impl PyTupleIterator {
     #[pymethod(magic)]
-    fn length_hint(&self) -> usize {
-        match self.status.load() {
-            Active => self.tuple.len().saturating_sub(self.position.load()),
-            Exhausted => 0,
-        }
+    fn length_hint(&self, vm: &VirtualMachine) -> PyResult {
+        self.internal.length_hint(
+            || Ok(self.internal.obj.read().payload::<PyTuple>().unwrap().len()),
+            vm,
+        )
     }
 
     #[pymethod(magic)]
     fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        // When we're exhausted, just return.
-        if let Exhausted = self.status.load() {
-            return Ok(());
-        }
-        // Else, set to min of (pos, tuple_size).
-        if let Some(i) = state.payload::<PyInt>() {
-            let position = std::cmp::min(
-                int::try_to_primitive(i.as_bigint(), vm).unwrap_or(0),
-                self.tuple.len(),
-            );
-            self.position.store(position);
-            Ok(())
-        } else {
-            Err(vm.new_type_error("an integer is required.".to_owned()))
-        }
+        self.internal.set_state(state, vm)
     }
 
     #[pymethod(magic)]
     fn reduce(&self, vm: &VirtualMachine) -> PyResult {
         let iter = vm.get_attribute(vm.builtins.clone(), "iter")?;
-        Ok(match self.status.load() {
-            Exhausted => vm
-                .ctx
-                .new_tuple(vec![iter, vm.ctx.new_tuple(vec![vm.ctx.new_list(vec![])])]),
-            Active => vm.ctx.new_tuple(vec![
-                iter,
-                vm.ctx.new_tuple(vec![self.tuple.clone().into_object()]),
-                vm.ctx.new_int(self.position.load()),
-            ]),
-        })
+        Ok(self.internal.reduce(iter, vm))
     }
 }
 
 impl IteratorIterable for PyTupleIterator {}
 impl SlotIterator for PyTupleIterator {
-    fn next(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        if let Exhausted = zelf.status.load() {
-            return Ok(PyIterReturn::StopIteration(None));
-        }
-        let pos = zelf.position.fetch_add(1);
-        if let Some(obj) = zelf.tuple.as_slice().get(pos) {
-            Ok(PyIterReturn::Return(obj.clone()))
-        } else {
-            zelf.status.store(Exhausted);
-            Ok(PyIterReturn::StopIteration(None))
-        }
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        zelf.internal.next(
+            |pos| {
+                let tuple = zelf.internal.obj.read();
+                let tuple = tuple.payload::<PyTuple>().unwrap();
+                tuple
+                    .as_slice()
+                    .get(pos)
+                    .ok_or_else(|| vm.new_stop_iteration())
+                    .map(|x| x.clone())
+            },
+            vm,
+        )
     }
 }
 
