@@ -23,7 +23,7 @@ jobs:
     runs-on:  ${{ matrix.os }}
     strategy:
       matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
+        os: [macos-11, ubuntu-latest, windows-latest]
       fail-fast: false
     steps:
       - uses: actions/checkout@v2
@@ -48,6 +48,18 @@ jobs:
         with:
           command: check
           args: ${{ env.CARGO_ARGS }} --no-default-features
+
+      - name: prepare AppleSilicon build
+        uses: actions-rs/toolchain@v1
+        with:
+          target: aarch64-apple-darwin
+        if: runner.os == 'macOS'
+      - name: Check compilation for Apple Silicon
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: --target aarch64-apple-darwin
+        if: runner.os == 'macOS'
 
   exotic_targets:
     name: Ensure compilation on exotic targets
