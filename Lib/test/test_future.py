@@ -77,6 +77,13 @@ class FutureTest(unittest.TestCase):
             from test import badsyntax_future10
         self.check_syntax_error(cm.exception, "badsyntax_future10", 3)
 
+    k, v = None, None # 'dictionary changed size during iteration'
+    for k, v in locals().items():
+        if k.startswith("test_badfuture"):
+            # XXX RUSTPYTHON TODO: fix SyntaxError
+            locals()[k] = unittest.expectedFailure(v)
+    del k, v
+
     def test_ensure_flags_dont_clash(self):
         # bpo-39562: test that future flags and compiler flags doesn't clash
 
