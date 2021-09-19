@@ -930,7 +930,7 @@ mod _io {
                     if !self.valid_write() || self.write_pos > self.pos {
                         self.write_pos = self.pos
                     }
-                    self.adjust_position(self.pos + buf.len() as i64);
+                    self.adjust_position(self.pos + buf.len() as Offset);
                     if self.pos > self.write_end {
                         self.write_end = self.pos
                     }

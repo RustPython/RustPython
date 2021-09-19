@@ -62,7 +62,7 @@ impl Fd {
         cvt(unsafe { suppress_iph!(libc::close(self.0)) }, drop)
     }
 
-    pub fn ftruncate(&self, len: i64) -> io::Result<()> {
+    pub fn ftruncate(&self, len: crate::stdlib::os::Offset) -> io::Result<()> {
         cvt(unsafe { suppress_iph!(ftruncate(self.0, len)) }, drop)
     }
 
