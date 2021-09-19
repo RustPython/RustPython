@@ -8,7 +8,7 @@ struct NodeModule;
 impl NodeModule {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"body"),ctx.new_ascii_str(b"type_ignores")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"body"),ctx.new_ascii_literal(b"type_ignores")]));
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
@@ -18,7 +18,7 @@ struct NodeInteractive;
 impl NodeInteractive {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"body")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"body")]));
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
@@ -28,7 +28,7 @@ struct NodeExpression;
 impl NodeExpression {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"body")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"body")]));
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
@@ -38,7 +38,7 @@ struct NodeFunctionType;
 impl NodeFunctionType {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"argtypes"),ctx.new_ascii_str(b"returns")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"argtypes"),ctx.new_ascii_literal(b"returns")]));
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
@@ -48,8 +48,8 @@ struct NodeFunctionDef;
 impl NodeFunctionDef {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"name"),ctx.new_ascii_str(b"args"),ctx.new_ascii_str(b"body"),ctx.new_ascii_str(b"decorator_list"),ctx.new_ascii_str(b"returns"),ctx.new_ascii_str(b"type_comment")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"name"),ctx.new_ascii_literal(b"args"),ctx.new_ascii_literal(b"body"),ctx.new_ascii_literal(b"decorator_list"),ctx.new_ascii_literal(b"returns"),ctx.new_ascii_literal(b"type_comment")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "AsyncFunctionDef", base = "AstNode")]
@@ -58,8 +58,8 @@ struct NodeAsyncFunctionDef;
 impl NodeAsyncFunctionDef {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"name"),ctx.new_ascii_str(b"args"),ctx.new_ascii_str(b"body"),ctx.new_ascii_str(b"decorator_list"),ctx.new_ascii_str(b"returns"),ctx.new_ascii_str(b"type_comment")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"name"),ctx.new_ascii_literal(b"args"),ctx.new_ascii_literal(b"body"),ctx.new_ascii_literal(b"decorator_list"),ctx.new_ascii_literal(b"returns"),ctx.new_ascii_literal(b"type_comment")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "ClassDef", base = "AstNode")]
@@ -68,8 +68,8 @@ struct NodeClassDef;
 impl NodeClassDef {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"name"),ctx.new_ascii_str(b"bases"),ctx.new_ascii_str(b"keywords"),ctx.new_ascii_str(b"body"),ctx.new_ascii_str(b"decorator_list")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"name"),ctx.new_ascii_literal(b"bases"),ctx.new_ascii_literal(b"keywords"),ctx.new_ascii_literal(b"body"),ctx.new_ascii_literal(b"decorator_list")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "Return", base = "AstNode")]
@@ -78,8 +78,8 @@ struct NodeReturn;
 impl NodeReturn {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"value")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"value")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "Delete", base = "AstNode")]
@@ -88,8 +88,8 @@ struct NodeDelete;
 impl NodeDelete {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"targets")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"targets")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "Assign", base = "AstNode")]
@@ -98,8 +98,8 @@ struct NodeAssign;
 impl NodeAssign {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"targets"),ctx.new_ascii_str(b"value"),ctx.new_ascii_str(b"type_comment")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"targets"),ctx.new_ascii_literal(b"value"),ctx.new_ascii_literal(b"type_comment")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "AugAssign", base = "AstNode")]
@@ -108,8 +108,8 @@ struct NodeAugAssign;
 impl NodeAugAssign {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"target"),ctx.new_ascii_str(b"op"),ctx.new_ascii_str(b"value")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"target"),ctx.new_ascii_literal(b"op"),ctx.new_ascii_literal(b"value")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "AnnAssign", base = "AstNode")]
@@ -118,8 +118,8 @@ struct NodeAnnAssign;
 impl NodeAnnAssign {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"target"),ctx.new_ascii_str(b"annotation"),ctx.new_ascii_str(b"value"),ctx.new_ascii_str(b"simple")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"target"),ctx.new_ascii_literal(b"annotation"),ctx.new_ascii_literal(b"value"),ctx.new_ascii_literal(b"simple")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "For", base = "AstNode")]
@@ -128,8 +128,8 @@ struct NodeFor;
 impl NodeFor {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"target"),ctx.new_ascii_str(b"iter"),ctx.new_ascii_str(b"body"),ctx.new_ascii_str(b"orelse"),ctx.new_ascii_str(b"type_comment")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"target"),ctx.new_ascii_literal(b"iter"),ctx.new_ascii_literal(b"body"),ctx.new_ascii_literal(b"orelse"),ctx.new_ascii_literal(b"type_comment")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "AsyncFor", base = "AstNode")]
@@ -138,8 +138,8 @@ struct NodeAsyncFor;
 impl NodeAsyncFor {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"target"),ctx.new_ascii_str(b"iter"),ctx.new_ascii_str(b"body"),ctx.new_ascii_str(b"orelse"),ctx.new_ascii_str(b"type_comment")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"target"),ctx.new_ascii_literal(b"iter"),ctx.new_ascii_literal(b"body"),ctx.new_ascii_literal(b"orelse"),ctx.new_ascii_literal(b"type_comment")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "While", base = "AstNode")]
@@ -148,8 +148,8 @@ struct NodeWhile;
 impl NodeWhile {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"test"),ctx.new_ascii_str(b"body"),ctx.new_ascii_str(b"orelse")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"test"),ctx.new_ascii_literal(b"body"),ctx.new_ascii_literal(b"orelse")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "If", base = "AstNode")]
@@ -158,8 +158,8 @@ struct NodeIf;
 impl NodeIf {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"test"),ctx.new_ascii_str(b"body"),ctx.new_ascii_str(b"orelse")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"test"),ctx.new_ascii_literal(b"body"),ctx.new_ascii_literal(b"orelse")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "With", base = "AstNode")]
@@ -168,8 +168,8 @@ struct NodeWith;
 impl NodeWith {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"items"),ctx.new_ascii_str(b"body"),ctx.new_ascii_str(b"type_comment")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"items"),ctx.new_ascii_literal(b"body"),ctx.new_ascii_literal(b"type_comment")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "AsyncWith", base = "AstNode")]
@@ -178,8 +178,8 @@ struct NodeAsyncWith;
 impl NodeAsyncWith {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"items"),ctx.new_ascii_str(b"body"),ctx.new_ascii_str(b"type_comment")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"items"),ctx.new_ascii_literal(b"body"),ctx.new_ascii_literal(b"type_comment")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "Raise", base = "AstNode")]
@@ -188,8 +188,8 @@ struct NodeRaise;
 impl NodeRaise {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"exc"),ctx.new_ascii_str(b"cause")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"exc"),ctx.new_ascii_literal(b"cause")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "Try", base = "AstNode")]
@@ -198,8 +198,8 @@ struct NodeTry;
 impl NodeTry {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"body"),ctx.new_ascii_str(b"handlers"),ctx.new_ascii_str(b"orelse"),ctx.new_ascii_str(b"finalbody")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"body"),ctx.new_ascii_literal(b"handlers"),ctx.new_ascii_literal(b"orelse"),ctx.new_ascii_literal(b"finalbody")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "Assert", base = "AstNode")]
@@ -208,8 +208,8 @@ struct NodeAssert;
 impl NodeAssert {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"test"),ctx.new_ascii_str(b"msg")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"test"),ctx.new_ascii_literal(b"msg")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "Import", base = "AstNode")]
@@ -218,8 +218,8 @@ struct NodeImport;
 impl NodeImport {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"names")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"names")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "ImportFrom", base = "AstNode")]
@@ -228,8 +228,8 @@ struct NodeImportFrom;
 impl NodeImportFrom {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"module"),ctx.new_ascii_str(b"names"),ctx.new_ascii_str(b"level")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"module"),ctx.new_ascii_literal(b"names"),ctx.new_ascii_literal(b"level")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "Global", base = "AstNode")]
@@ -238,8 +238,8 @@ struct NodeGlobal;
 impl NodeGlobal {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"names")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"names")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "Nonlocal", base = "AstNode")]
@@ -248,8 +248,8 @@ struct NodeNonlocal;
 impl NodeNonlocal {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"names")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"names")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "Expr", base = "AstNode")]
@@ -258,8 +258,8 @@ struct NodeExpr;
 impl NodeExpr {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"value")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"value")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "Pass", base = "AstNode")]
@@ -269,7 +269,7 @@ impl NodePass {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
         class.set_str_attr("_fields", ctx.new_list(vec![]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "Break", base = "AstNode")]
@@ -279,7 +279,7 @@ impl NodeBreak {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
         class.set_str_attr("_fields", ctx.new_list(vec![]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "Continue", base = "AstNode")]
@@ -289,7 +289,7 @@ impl NodeContinue {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
         class.set_str_attr("_fields", ctx.new_list(vec![]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "BoolOp", base = "AstNode")]
@@ -298,8 +298,8 @@ struct NodeBoolOp;
 impl NodeBoolOp {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"op"),ctx.new_ascii_str(b"values")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"op"),ctx.new_ascii_literal(b"values")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "NamedExpr", base = "AstNode")]
@@ -308,8 +308,8 @@ struct NodeNamedExpr;
 impl NodeNamedExpr {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"target"),ctx.new_ascii_str(b"value")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"target"),ctx.new_ascii_literal(b"value")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "BinOp", base = "AstNode")]
@@ -318,8 +318,8 @@ struct NodeBinOp;
 impl NodeBinOp {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"left"),ctx.new_ascii_str(b"op"),ctx.new_ascii_str(b"right")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"left"),ctx.new_ascii_literal(b"op"),ctx.new_ascii_literal(b"right")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "UnaryOp", base = "AstNode")]
@@ -328,8 +328,8 @@ struct NodeUnaryOp;
 impl NodeUnaryOp {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"op"),ctx.new_ascii_str(b"operand")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"op"),ctx.new_ascii_literal(b"operand")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "Lambda", base = "AstNode")]
@@ -338,8 +338,8 @@ struct NodeLambda;
 impl NodeLambda {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"args"),ctx.new_ascii_str(b"body")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"args"),ctx.new_ascii_literal(b"body")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "IfExp", base = "AstNode")]
@@ -348,8 +348,8 @@ struct NodeIfExp;
 impl NodeIfExp {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"test"),ctx.new_ascii_str(b"body"),ctx.new_ascii_str(b"orelse")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"test"),ctx.new_ascii_literal(b"body"),ctx.new_ascii_literal(b"orelse")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "Dict", base = "AstNode")]
@@ -358,8 +358,8 @@ struct NodeDict;
 impl NodeDict {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"keys"),ctx.new_ascii_str(b"values")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"keys"),ctx.new_ascii_literal(b"values")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "Set", base = "AstNode")]
@@ -368,8 +368,8 @@ struct NodeSet;
 impl NodeSet {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"elts")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"elts")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "ListComp", base = "AstNode")]
@@ -378,8 +378,8 @@ struct NodeListComp;
 impl NodeListComp {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"elt"),ctx.new_ascii_str(b"generators")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"elt"),ctx.new_ascii_literal(b"generators")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "SetComp", base = "AstNode")]
@@ -388,8 +388,8 @@ struct NodeSetComp;
 impl NodeSetComp {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"elt"),ctx.new_ascii_str(b"generators")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"elt"),ctx.new_ascii_literal(b"generators")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "DictComp", base = "AstNode")]
@@ -398,8 +398,8 @@ struct NodeDictComp;
 impl NodeDictComp {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"key"),ctx.new_ascii_str(b"value"),ctx.new_ascii_str(b"generators")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"key"),ctx.new_ascii_literal(b"value"),ctx.new_ascii_literal(b"generators")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "GeneratorExp", base = "AstNode")]
@@ -408,8 +408,8 @@ struct NodeGeneratorExp;
 impl NodeGeneratorExp {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"elt"),ctx.new_ascii_str(b"generators")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"elt"),ctx.new_ascii_literal(b"generators")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "Await", base = "AstNode")]
@@ -418,8 +418,8 @@ struct NodeAwait;
 impl NodeAwait {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"value")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"value")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "Yield", base = "AstNode")]
@@ -428,8 +428,8 @@ struct NodeYield;
 impl NodeYield {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"value")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"value")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "YieldFrom", base = "AstNode")]
@@ -438,8 +438,8 @@ struct NodeYieldFrom;
 impl NodeYieldFrom {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"value")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"value")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "Compare", base = "AstNode")]
@@ -448,8 +448,8 @@ struct NodeCompare;
 impl NodeCompare {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"left"),ctx.new_ascii_str(b"ops"),ctx.new_ascii_str(b"comparators")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"left"),ctx.new_ascii_literal(b"ops"),ctx.new_ascii_literal(b"comparators")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "Call", base = "AstNode")]
@@ -458,8 +458,8 @@ struct NodeCall;
 impl NodeCall {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"func"),ctx.new_ascii_str(b"args"),ctx.new_ascii_str(b"keywords")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"func"),ctx.new_ascii_literal(b"args"),ctx.new_ascii_literal(b"keywords")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "FormattedValue", base = "AstNode")]
@@ -468,8 +468,8 @@ struct NodeFormattedValue;
 impl NodeFormattedValue {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"value"),ctx.new_ascii_str(b"conversion"),ctx.new_ascii_str(b"format_spec")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"value"),ctx.new_ascii_literal(b"conversion"),ctx.new_ascii_literal(b"format_spec")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "JoinedStr", base = "AstNode")]
@@ -478,8 +478,8 @@ struct NodeJoinedStr;
 impl NodeJoinedStr {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"values")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"values")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "Constant", base = "AstNode")]
@@ -488,8 +488,8 @@ struct NodeConstant;
 impl NodeConstant {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"value"),ctx.new_ascii_str(b"kind")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"value"),ctx.new_ascii_literal(b"kind")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "Attribute", base = "AstNode")]
@@ -498,8 +498,8 @@ struct NodeAttribute;
 impl NodeAttribute {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"value"),ctx.new_ascii_str(b"attr"),ctx.new_ascii_str(b"ctx")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"value"),ctx.new_ascii_literal(b"attr"),ctx.new_ascii_literal(b"ctx")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "Subscript", base = "AstNode")]
@@ -508,8 +508,8 @@ struct NodeSubscript;
 impl NodeSubscript {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"value"),ctx.new_ascii_str(b"slice"),ctx.new_ascii_str(b"ctx")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"value"),ctx.new_ascii_literal(b"slice"),ctx.new_ascii_literal(b"ctx")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "Starred", base = "AstNode")]
@@ -518,8 +518,8 @@ struct NodeStarred;
 impl NodeStarred {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"value"),ctx.new_ascii_str(b"ctx")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"value"),ctx.new_ascii_literal(b"ctx")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "Name", base = "AstNode")]
@@ -528,8 +528,8 @@ struct NodeName;
 impl NodeName {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"id"),ctx.new_ascii_str(b"ctx")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"id"),ctx.new_ascii_literal(b"ctx")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "List", base = "AstNode")]
@@ -538,8 +538,8 @@ struct NodeList;
 impl NodeList {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"elts"),ctx.new_ascii_str(b"ctx")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"elts"),ctx.new_ascii_literal(b"ctx")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "Tuple", base = "AstNode")]
@@ -548,8 +548,8 @@ struct NodeTuple;
 impl NodeTuple {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"elts"),ctx.new_ascii_str(b"ctx")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"elts"),ctx.new_ascii_literal(b"ctx")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "Slice", base = "AstNode")]
@@ -558,8 +558,8 @@ struct NodeSlice;
 impl NodeSlice {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"lower"),ctx.new_ascii_str(b"upper"),ctx.new_ascii_str(b"step")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"lower"),ctx.new_ascii_literal(b"upper"),ctx.new_ascii_literal(b"step")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "Load", base = "AstNode")]
@@ -888,7 +888,7 @@ struct Nodecomprehension;
 impl Nodecomprehension {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"target"),ctx.new_ascii_str(b"iter"),ctx.new_ascii_str(b"ifs"),ctx.new_ascii_str(b"is_async")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"target"),ctx.new_ascii_literal(b"iter"),ctx.new_ascii_literal(b"ifs"),ctx.new_ascii_literal(b"is_async")]));
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
@@ -898,8 +898,8 @@ struct NodeExceptHandler;
 impl NodeExceptHandler {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"type"),ctx.new_ascii_str(b"name"),ctx.new_ascii_str(b"body")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"type"),ctx.new_ascii_literal(b"name"),ctx.new_ascii_literal(b"body")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "arguments", base = "AstNode")]
@@ -908,7 +908,7 @@ struct Nodearguments;
 impl Nodearguments {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"posonlyargs"),ctx.new_ascii_str(b"args"),ctx.new_ascii_str(b"vararg"),ctx.new_ascii_str(b"kwonlyargs"),ctx.new_ascii_str(b"kw_defaults"),ctx.new_ascii_str(b"kwarg"),ctx.new_ascii_str(b"defaults")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"posonlyargs"),ctx.new_ascii_literal(b"args"),ctx.new_ascii_literal(b"vararg"),ctx.new_ascii_literal(b"kwonlyargs"),ctx.new_ascii_literal(b"kw_defaults"),ctx.new_ascii_literal(b"kwarg"),ctx.new_ascii_literal(b"defaults")]));
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
@@ -918,8 +918,8 @@ struct Nodearg;
 impl Nodearg {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"arg"),ctx.new_ascii_str(b"annotation"),ctx.new_ascii_str(b"type_comment")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"arg"),ctx.new_ascii_literal(b"annotation"),ctx.new_ascii_literal(b"type_comment")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "keyword", base = "AstNode")]
@@ -928,8 +928,8 @@ struct Nodekeyword;
 impl Nodekeyword {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"arg"),ctx.new_ascii_str(b"value")]));
-        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"col_offset"),ctx.new_ascii_str(b"end_lineno"),ctx.new_ascii_str(b"end_col_offset")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"arg"),ctx.new_ascii_literal(b"value")]));
+        class.set_str_attr("_attributes", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"col_offset"),ctx.new_ascii_literal(b"end_lineno"),ctx.new_ascii_literal(b"end_col_offset")]));
     }
 }
 #[pyclass(module = "_ast", name = "alias", base = "AstNode")]
@@ -938,7 +938,7 @@ struct Nodealias;
 impl Nodealias {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"name"),ctx.new_ascii_str(b"asname")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"name"),ctx.new_ascii_literal(b"asname")]));
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
@@ -948,7 +948,7 @@ struct Nodewithitem;
 impl Nodewithitem {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"context_expr"),ctx.new_ascii_str(b"optional_vars")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"context_expr"),ctx.new_ascii_literal(b"optional_vars")]));
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }
@@ -958,7 +958,7 @@ struct NodeTypeIgnore;
 impl NodeTypeIgnore {
     #[extend_class]
     fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
-        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_str(b"lineno"),ctx.new_ascii_str(b"tag")]));
+        class.set_str_attr("_fields", ctx.new_list(vec![ctx.new_ascii_literal(b"lineno"),ctx.new_ascii_literal(b"tag")]));
         class.set_str_attr("_attributes", ctx.new_list(vec![]));
     }
 }

@@ -308,13 +308,13 @@ impl VirtualMachine {
         module::init_module_dict(
             &vm,
             &builtins_dict,
-            vm.ctx.new_ascii_str(b"builtins"),
+            vm.ctx.new_ascii_literal(b"builtins"),
             vm.ctx.none(),
         );
         module::init_module_dict(
             &vm,
             &sysmod_dict,
-            vm.ctx.new_ascii_str(b"sys"),
+            vm.ctx.new_ascii_literal(b"sys"),
             vm.ctx.none(),
         );
         vm
@@ -2230,7 +2230,7 @@ mod tests {
     #[test]
     fn test_multiply_str() {
         Interpreter::default().enter(|vm| {
-            let a = vm.ctx.new_ascii_str(b"Hello ");
+            let a = vm.ctx.new_ascii_literal(b"Hello ");
             let b = vm.ctx.new_int(4_i32);
             let res = vm._mul(&a, &b).unwrap();
             let value = res.payload::<PyStr>().unwrap();

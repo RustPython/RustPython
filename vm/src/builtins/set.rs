@@ -232,7 +232,7 @@ impl PySetInner {
         if let Some((key, _)) = self.content.pop_back() {
             Ok(key)
         } else {
-            let err_msg = vm.ctx.new_ascii_str(b"pop from an empty set");
+            let err_msg = vm.ctx.new_ascii_literal(b"pop from an empty set");
             Err(vm.new_key_error(err_msg))
         }
     }

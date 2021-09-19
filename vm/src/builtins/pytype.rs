@@ -344,7 +344,7 @@ impl PyType {
                     Some(found)
                 }
             })
-            .unwrap_or_else(|| vm.ctx.new_ascii_str(b"builtins"))
+            .unwrap_or_else(|| vm.ctx.new_ascii_literal(b"builtins"))
     }
 
     #[pyproperty(magic, setter)]
