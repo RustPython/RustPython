@@ -133,7 +133,7 @@ fn bench_rustpy_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchmar
                 scope
                     .locals
                     .set_item(
-                        vm.ctx.new_ascii_literal(b"ITERATIONS"),
+                        vm.ctx.new_ascii_literal(crate::utils::ascii!("ITERATIONS")),
                         vm.ctx.new_int(idx),
                         vm,
                     )

@@ -212,7 +212,11 @@ impl PyStrIterator {
     fn reduce(&self, vm: &VirtualMachine) -> PyResult {
         let iter = vm.get_attribute(vm.builtins.clone(), "iter")?;
         Ok(vm.ctx.new_tuple(match self.status.load() {
-            Exhausted => vec![iter, vm.ctx.new_tuple(vec![vm.ctx.new_ascii_literal(b"")])],
+            Exhausted => vec![
+                iter,
+                vm.ctx
+                    .new_tuple(vec![vm.ctx.new_ascii_literal(crate::utils::ascii!(""))]),
+            ],
             Active => vec![
                 iter,
                 vm.ctx.new_tuple(vec![self.string.clone().into_object()]),
@@ -976,7 +980,7 @@ impl PyStr {
             if has_mid {
                 sep.into_object()
             } else {
-                vm.ctx.new_ascii_literal(b"")
+                vm.ctx.new_ascii_literal(crate::utils::ascii!(""))
             },
             self.new_substr(back),
         )
@@ -995,7 +999,7 @@ impl PyStr {
             if has_mid {
                 sep.into_object()
             } else {
-                vm.ctx.new_ascii_literal(b"")
+                vm.ctx.new_ascii_literal(crate::utils::ascii!(""))
             },
             self.new_substr(back),
         )
@@ -1541,7 +1545,11 @@ mod tests {
             table.set_item("a", vm.ctx.new_utf8_str("🎅"), &vm).unwrap();
             table.set_item("b", vm.ctx.none(), &vm).unwrap();
             table
-                .set_item("c", vm.ctx.new_ascii_literal(b"xda"), &vm)
+                .set_item(
+                    "c",
+                    vm.ctx.new_ascii_literal(crate::utils::ascii!("xda")),
+                    &vm,
+                )
                 .unwrap();
             let translated = PyStr::maketrans(
                 table.into_object(),

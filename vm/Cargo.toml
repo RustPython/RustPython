@@ -113,6 +113,7 @@ flame = { version = "0.2", optional = true }
 flamer = { version = "0.4", optional = true }
 
 rustpython-common = { path = "../common" }
+ascii = "1.0.0"
 
 [target.'cfg(unix)'.dependencies]
 exitcode = "1.1.2"

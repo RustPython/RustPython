@@ -367,7 +367,10 @@ fn strict_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 fn ignore_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(PyObjectRef, usize)> {
     if is_encode_ish_err(&err, vm) || is_decode_err(&err, vm) {
         let range = extract_unicode_error_range(&err, vm)?;
-        Ok((vm.ctx.new_ascii_literal(b""), range.end))
+        Ok((
+            vm.ctx.new_ascii_literal(crate::utils::ascii!("")),
+            range.end,
+        ))
     } else {
         Err(bad_err_type(err, vm))
     }

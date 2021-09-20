@@ -126,3 +126,27 @@ impl ToCString for PyStr {
         std::ffi::CString::new(self.as_ref()).map_err(|err| err.into_pyexception(vm))
     }
 }
+
+#[allow(dead_code)]
+pub(crate) const fn bytes_is_ascii(x: &str) -> bool {
+    let x = x.as_bytes();
+    let mut i = 0;
+    while i < x.len() {
+        if !x[i].is_ascii() {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+macro_rules! ascii {
+    ($x:literal) => {{
+        const _: () = {
+            ["not ascii"][!crate::utils::bytes_is_ascii($x) as usize];
+        };
+        unsafe { ascii::AsciiStr::from_ascii_unchecked($x.as_bytes()) }
+    }};
+}
+
+pub(crate) use ascii;

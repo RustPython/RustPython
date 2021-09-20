@@ -364,7 +364,9 @@ impl PyDict {
         if let Some((key, value)) = self.entries.pop_back() {
             Ok(vm.ctx.new_tuple(vec![key, value]))
         } else {
-            let err_msg = vm.ctx.new_ascii_literal(b"popitem(): dictionary is empty");
+            let err_msg = vm
+                .ctx
+                .new_ascii_literal(crate::utils::ascii!("popitem(): dictionary is empty"));
             Err(vm.new_key_error(err_msg))
         }
     }
