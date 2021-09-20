@@ -1463,8 +1463,6 @@ class GrammarTests(unittest.TestCase):
         x = ~1 ^ 1 & 1 | 1 & 1 ^ -1
         x = -1*1/1 + 1*1 - ---1*1
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_selectors(self):
         ### trailer: '(' [testlist] ')' | '[' subscript ']' | '.' NAME
         ### subscript: expr | [expr] ':' [expr]
