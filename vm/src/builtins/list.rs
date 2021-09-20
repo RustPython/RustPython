@@ -5,6 +5,7 @@ use std::ops::DerefMut;
 
 use crossbeam_utils::atomic::AtomicCell;
 
+use super::genericalias::PyGenericAlias;
 use super::int;
 use super::iter::{
     IterStatus,
@@ -410,6 +411,11 @@ impl PyList {
         };
         std::mem::swap(self.borrow_vec_mut().deref_mut(), &mut elements);
         Ok(())
+    }
+
+    #[pyclassmethod(magic)]
+    fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+        PyGenericAlias::new(cls, args, vm)
     }
 }
 
