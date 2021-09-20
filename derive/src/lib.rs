@@ -13,6 +13,7 @@ mod error;
 mod util;
 
 mod compile_bytecode;
+mod doc;
 mod from_args;
 mod pyclass;
 mod pymodule;

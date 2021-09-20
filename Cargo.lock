@@ -1842,6 +1842,7 @@ dependencies = [
  "quote",
  "rustpython-bytecode",
  "rustpython-compiler",
+ "serde_json",
  "syn",
  "syn-ext",
  "textwrap 0.13.4",
@@ -2117,9 +2118,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.66"
+version = "1.0.68"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "336b10da19a12ad094b59d870ebde26a45402e5b470add4b5fd03c5048a32127"
+checksum = "0f690853975602e1bfe1ccbf50504d67174e3bcf340f23b5ea9992e0587a52d8"
 dependencies = [
  "itoa",
  "ryu",
