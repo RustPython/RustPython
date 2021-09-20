@@ -98,7 +98,7 @@ impl PyRange {
 
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.length().is_zero()
+        self.compute_length().is_zero()
     }
 
     #[inline]
@@ -116,7 +116,7 @@ impl PyRange {
         }
 
         if index.is_negative() {
-            let length = self.length();
+            let length = self.compute_length();
             let index: BigInt = &length + index;
             if index.is_negative() {
                 return None;
@@ -143,7 +143,7 @@ impl PyRange {
     }
 
     #[inline]
-    fn length(&self) -> BigInt {
+    fn compute_length(&self) -> BigInt {
         let start = self.start.as_bigint();
         let stop = self.stop.as_bigint();
         let step = self.step.as_bigint();
@@ -251,7 +251,7 @@ impl PyRange {
 
     #[pymethod(magic)]
     fn len(&self) -> BigInt {
-        self.length()
+        self.compute_length()
     }
 
     #[pymethod(magic)]
@@ -335,7 +335,7 @@ impl PyRange {
         match subscript {
             RangeIndex::Slice(slice) => {
                 let (mut substart, mut substop, mut substep) =
-                    slice.inner_indices(&self.length(), vm)?;
+                    slice.inner_indices(&self.compute_length(), vm)?;
                 let range_step = &self.step;
                 let range_start = &self.start;
 
@@ -374,7 +374,7 @@ impl PyRange {
 
 impl Hashable for PyRange {
     fn hash(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
-        let length = zelf.length();
+        let length = zelf.compute_length();
         let elements = if length.is_zero() {
             [vm.ctx.new_int(length), vm.ctx.none(), vm.ctx.none()]
         } else if length.is_one() {
@@ -406,8 +406,8 @@ impl Comparable for PyRange {
                 return Ok(true.into());
             }
             let rhs = class_or_notimplemented!(Self, other);
-            let lhs_len = zelf.length();
-            let eq = if lhs_len != rhs.length() {
+            let lhs_len = zelf.compute_length();
+            let eq = if lhs_len != rhs.compute_length() {
                 false
             } else if lhs_len.is_zero() {
                 true
