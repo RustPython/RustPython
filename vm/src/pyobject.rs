@@ -10,6 +10,7 @@ use crate::{
         builtinfunc::PyNativeFuncDef,
         bytearray, bytes,
         code::{self, PyCode},
+        dict::PyMapping,
         getset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetSet},
         namespace::PyNamespace,
         object, pystr,
@@ -639,6 +640,12 @@ where
     T: IntoPyObject,
 {
     fn get_item(&self, key: T, vm: &VirtualMachine) -> PyResult {
+        if let Ok(map) = PyMapping::try_from_borrowed_object(vm, self) {
+            if let Some(getitem) = map.subscript {
+                return getitem(self.clone(), key.into_pyobject(vm), vm);
+            }
+        }
+
         match vm.get_special_method(self.clone(), "__getitem__")? {
             Ok(special_method) => return special_method.invoke((key,), vm),
             Err(obj) => {
@@ -656,6 +663,12 @@ where
     }
 
     fn set_item(&self, key: T, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        if let Ok(map) = PyMapping::try_from_borrowed_object(vm, self) {
+            if let Some(setitem) = map.ass_subscript {
+                return setitem(self.clone(), key.into_pyobject(vm), value, vm);
+            }
+        }
+
         vm.get_special_method(self.clone(), "__setitem__")?
             .map_err(|obj| {
                 vm.new_type_error(format!(
