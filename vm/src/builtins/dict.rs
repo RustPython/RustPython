@@ -12,7 +12,7 @@ use crate::{
     IdProtocol, IntoPyObject, ItemProtocol,
     PyArithmeticValue::*,
     PyAttributes, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
-    PyResult, PyValue, TryFromObject, TypeProtocol,
+    PyResult, PyValue, TryFromBorrowedObject, TypeProtocol,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use std::fmt;
@@ -902,25 +902,27 @@ pub(crate) fn init(context: &PyContext) {
     PyDictReverseItemIterator::extend_class(context, &context.types.dict_reverseitemiterator_type);
 }
 
+#[allow(clippy::type_complexity)]
 pub struct PyMapping {
-    dict: PyDictRef,
+    pub length: Option<fn(PyObjectRef, &VirtualMachine) -> PyResult<usize>>,
+    pub subscript: Option<fn(PyObjectRef, PyObjectRef, &VirtualMachine) -> PyResult>,
+    pub ass_subscript:
+        Option<fn(PyObjectRef, PyObjectRef, PyObjectRef, &VirtualMachine) -> PyResult<()>>,
 }
 
-impl TryFromObject for PyMapping {
-    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        let dict = vm.ctx.new_dict();
-        PyDict::merge(
-            &dict.entries,
-            OptionalArg::Present(obj),
-            KwArgs::default(),
-            vm,
-        )?;
-        Ok(PyMapping { dict })
-    }
-}
+impl PyMapping {}
 
-impl PyMapping {
-    pub fn into_dict(self) -> PyDictRef {
-        self.dict
+impl TryFromBorrowedObject for PyMapping {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Self> {
+        let obj_cls = obj.class();
+        for cls in obj_cls.iter_mro() {
+            if let Some(f) = cls.slots.as_mapping.load() {
+                return f(obj, vm);
+            }
+        }
+        Err(vm.new_type_error(format!(
+            "a dict-like object is required, not '{}'",
+            obj_cls.name()
+        )))
     }
 }
