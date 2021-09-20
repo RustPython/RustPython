@@ -1,4 +1,4 @@
-use crate::builtins::{PyStr, PyTuple, PyTupleRef, PyTypeRef};
+use crate::builtins::{PyStr, PyTupleRef, PyTypeRef};
 use crate::common::hash;
 use crate::slots::{Hashable, SlotConstructor};
 use crate::{
@@ -13,8 +13,6 @@ pub struct PyGenericAlias {
     args: PyTupleRef,
     parameters: PyTupleRef,
 }
-
-pub type PyGenericAliasRef = PyRef<PyGenericAlias>;
 
 impl fmt::Debug for PyGenericAlias {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -50,17 +48,14 @@ impl PyGenericAlias {
         let args: PyTupleRef = if let Ok(tuple) = PyTupleRef::try_from_object(vm, args.clone()) {
             tuple
         } else {
-            vm.ctx
-                .new_tuple(vec![args])
-                .downcast::<PyTuple>()
-                .ok()
-                .unwrap()
+            PyTupleRef::with_elements(vec![args], &vm.ctx)
         };
 
+        let parameters = make_parameters(&args, vm);
         Self {
             origin,
-            args: args.clone(),
-            parameters: make_parameters(args, vm),
+            args,
+            parameters,
         }
     }
 
@@ -123,16 +118,13 @@ impl PyGenericAlias {
 fn is_typevar(obj: PyObjectRef) -> bool {
     let class = obj.class();
     class.tp_name() == "TypeVar"
-        && match class.get_attr("__module__") {
-            Some(o) => o
-                .downcast_ref::<PyStr>()
-                .map(|s| s.as_str() == "typing")
-                .unwrap_or(false),
-            None => false,
-        }
+        && class
+            .get_attr("__module__")
+            .and_then(|o| o.downcast_ref::<PyStr>().map(|s| s.as_str() == "typing"))
+            .unwrap_or(false)
 }
 
-fn make_parameters(args: PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
+fn make_parameters(args: &PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
     let mut parameters: Vec<PyObjectRef> = vec![];
     for arg in args.as_slice() {
         if is_typevar(arg.clone()) {
@@ -147,11 +139,7 @@ fn make_parameters(args: PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
         }
     }
 
-    vm.ctx
-        .new_tuple(parameters)
-        .downcast::<PyTuple>()
-        .ok()
-        .unwrap()
+    PyTupleRef::with_elements(parameters, &vm.ctx)
 }
 
 impl Hashable for PyGenericAlias {

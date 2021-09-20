@@ -5,7 +5,7 @@ use std::ops::DerefMut;
 
 use crossbeam_utils::atomic::AtomicCell;
 
-use super::genericalias::{PyGenericAlias, PyGenericAliasRef};
+use super::genericalias::PyGenericAlias;
 use super::int;
 use super::iter::{
     IterStatus,
@@ -414,8 +414,8 @@ impl PyList {
     }
 
     #[pyclassmethod(magic)]
-    fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAliasRef {
-        PyGenericAlias::new(cls, args, vm).into_ref(vm)
+    fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+        PyGenericAlias::new(cls, args, vm)
     }
 }
 
