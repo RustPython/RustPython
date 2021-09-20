@@ -594,9 +594,15 @@ impl PyValue for PyBytesIterator {
 #[pyimpl(with(SlotIterator))]
 impl PyBytesIterator {
     #[pymethod(magic)]
-    fn length_hint(&self, vm: &VirtualMachine) -> PyResult {
+    fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
         self.internal.length_hint(
-            || Ok(self.internal.obj.read().payload::<PyBytes>().unwrap().len()),
+            || {
+                self.internal
+                    .obj
+                    .read()
+                    .payload::<PyBytes>()
+                    .map(|x| x.len())
+            },
             vm,
         )
     }

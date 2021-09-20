@@ -331,9 +331,9 @@ impl PyValue for PyTupleIterator {
 #[pyimpl(with(SlotIterator))]
 impl PyTupleIterator {
     #[pymethod(magic)]
-    fn length_hint(&self, vm: &VirtualMachine) -> PyResult {
+    fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
         self.internal.length_hint(
-            || Ok(self.internal.obj.read().payload::<PyTuple>().unwrap().len()),
+            || self.internal.obj.read().payload::<PyTuple>().map(|x| x.len()),
             vm,
         )
     }

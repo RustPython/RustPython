@@ -79,18 +79,21 @@ impl PositionIterInternal {
         }
     }
 
-    pub fn length_hint<F>(&self, f: F, vm: &VirtualMachine) -> PyResult
+    pub fn length_hint<F>(&self, f: F, vm: &VirtualMachine) -> PyObjectRef
     where
-        F: FnOnce() -> PyResult<usize>,
+        F: FnOnce() -> Option<usize>,
     {
         let len = if self.is_active(vm) {
             let pos = self.position.load();
-            let obj_len = f()?;
-            obj_len.saturating_sub(pos)
+            if let Some(obj_len) = f() {
+                obj_len.saturating_sub(pos)
+            } else {
+                return vm.ctx.not_implemented();
+            }
         } else {
             0
         };
-        Ok(PyInt::from(len).into_object(vm))
+        PyInt::from(len).into_object(vm)
     }
 }
 
@@ -127,11 +130,10 @@ impl PySequenceIterator {
     }
 
     #[pymethod(magic)]
-    fn length_hint(&self, vm: &VirtualMachine) -> PyResult {
+    fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
         self.internal.length_hint(
             || {
-                vm.obj_len(&self.internal.obj.read())
-                    .map_err(|_| vm.new_not_implemented_error("".to_owned()))
+                vm.obj_len(&self.internal.obj.read()).ok()
             },
             vm,
         )
