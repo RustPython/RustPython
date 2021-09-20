@@ -419,9 +419,7 @@ impl PyList {
 impl Iterable for PyList {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         Ok(PyListIterator {
-            position: AtomicCell::new(0),
-            status: AtomicCell::new(Active),
-            list: zelf,
+            internal: PositionIterInternal::new(zelf.into_object()),
         }
         .into_object(vm))
     }
@@ -476,9 +474,7 @@ fn do_sort(
 #[pyclass(module = false, name = "list_iterator")]
 #[derive(Debug)]
 pub struct PyListIterator {
-    pub position: AtomicCell<usize>,
-    status: AtomicCell<IterStatus>,
-    pub list: PyListRef,
+    internal: PositionIterInternal,
 }
 
 impl PyValue for PyListIterator {
@@ -490,53 +486,45 @@ impl PyValue for PyListIterator {
 #[pyimpl(with(SlotIterator))]
 impl PyListIterator {
     #[pymethod(magic)]
-    fn length_hint(&self) -> usize {
-        match self.status.load() {
-            Active => {
-                let list = self.list.borrow_vec();
-                let pos = self.position.load();
-                list.len().saturating_sub(pos)
-            }
-            Exhausted => 0,
-        }
+    fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
+        self.internal.length_hint(
+            || {
+                self.internal
+                    .obj
+                    .read()
+                    .payload::<PyList>()
+                    .map(|x| x.len())
+            },
+            vm,
+        )
     }
 
     #[pymethod(magic)]
     fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        // When we're exhausted, just return.
-        if let Exhausted = self.status.load() {
-            return Ok(());
-        }
-        let position = list_state(self.list.len(), state, vm)?;
-        self.position.store(position);
-        Ok(())
+        self.internal.set_state(state, vm)
     }
 
     #[pymethod(magic)]
     fn reduce(&self, vm: &VirtualMachine) -> PyResult {
-        let pos = if let Exhausted = self.status.load() {
-            None
-        } else {
-            Some(self.position.load())
-        };
-        list_reduce(self.list.clone(), pos, false, vm)
+        let iter = vm.get_attribute(vm.builtins.clone(), "iter")?;
+        Ok(self.internal.reduce(iter, vm))
     }
 }
 
 impl IteratorIterable for PyListIterator {}
 impl SlotIterator for PyListIterator {
-    fn next(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        if let Exhausted = zelf.status.load() {
-            return Ok(PyIterReturn::StopIteration(None));
-        }
-        let list = zelf.list.borrow_vec();
-        let pos = zelf.position.fetch_add(1);
-        if let Some(obj) = list.get(pos) {
-            Ok(PyIterReturn::Return(obj.clone()))
-        } else {
-            zelf.status.store(Exhausted);
-            Ok(PyIterReturn::StopIteration(None))
-        }
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        zelf.internal.next(
+            |pos| {
+                let list = zelf.internal.obj.read();
+                let list = list.payload::<PyList>().unwrap();
+                let vec = list.borrow_vec();
+                vec.get(pos)
+                    .ok_or_else(|| vm.new_stop_iteration())
+                    .map(|x| x.clone())
+            },
+            vm,
+        )
     }
 }
 

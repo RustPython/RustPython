@@ -333,7 +333,13 @@ impl PyTupleIterator {
     #[pymethod(magic)]
     fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
         self.internal.length_hint(
-            || self.internal.obj.read().payload::<PyTuple>().map(|x| x.len()),
+            || {
+                self.internal
+                    .obj
+                    .read()
+                    .payload::<PyTuple>()
+                    .map(|x| x.len())
+            },
             vm,
         )
     }

@@ -110,9 +110,6 @@ pub enum IterStatus {
 #[derive(Debug)]
 pub struct PySequenceIterator {
     internal: PositionIterInternal,
-    // pub position: AtomicCell<usize>,
-    // pub obj: PyObjectRef,
-    // pub status: AtomicCell<IterStatus>
 }
 
 impl PyValue for PySequenceIterator {
@@ -131,12 +128,8 @@ impl PySequenceIterator {
 
     #[pymethod(magic)]
     fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
-        self.internal.length_hint(
-            || {
-                vm.obj_len(&self.internal.obj.read()).ok()
-            },
-            vm,
-        )
+        self.internal
+            .length_hint(|| vm.obj_len(&self.internal.obj.read()).ok(), vm)
     }
 
     #[pymethod(magic)]
