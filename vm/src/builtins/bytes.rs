@@ -1,6 +1,7 @@
 use super::{PyDictRef, PyIntRef, PyStrRef, PyTupleRef, PyTypeRef};
 use crate::{
     anystr::{self, AnyStr},
+    builtins::dict::PyMapping,
     bytesinner::{
         bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
         ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
@@ -9,8 +10,8 @@ use crate::{
     function::{ArgBytesLike, ArgIterable, OptionalArg, OptionalOption},
     protocol::{BufferInternal, BufferOptions, PyBuffer, PyIterReturn},
     slots::{
-        AsBuffer, Callable, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp,
-        SlotConstructor, SlotIterator,
+        AsBuffer, AsMapping, Callable, Comparable, Hashable, Iterable, IteratorIterable,
+        PyComparisonOp, SlotConstructor, SlotIterator,
     },
     utils::Either,
     IdProtocol, IntoPyObject, IntoPyResult, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef,
@@ -103,7 +104,7 @@ impl SlotConstructor for PyBytes {
 
 #[pyimpl(
     flags(BASETYPE),
-    with(Hashable, Comparable, AsBuffer, Iterable, SlotConstructor)
+    with(AsMapping, Hashable, Comparable, AsBuffer, Iterable, SlotConstructor)
 )]
 impl PyBytes {
     #[pymethod(magic)]
@@ -538,6 +539,36 @@ impl BufferInternal for PyRef<PyBytes> {
 
     fn release(&self) {}
     fn retain(&self) {}
+}
+
+impl AsMapping for PyBytes {
+    fn as_mapping(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyMapping> {
+        Ok(PyMapping {
+            length: Some(Self::length),
+            subscript: Some(Self::subscript),
+            ass_subscript: None,
+        })
+    }
+
+    #[inline]
+    fn length(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+        Self::downcast_ref(&zelf, vm).map(|zelf| Ok(zelf.len()))?
+    }
+
+    #[inline]
+    fn subscript(zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Self::downcast_ref(&zelf, vm).map(|zelf| zelf.getitem(needle, vm))?
+    }
+
+    #[inline]
+    fn ass_subscript(
+        zelf: PyObjectRef,
+        _needle: PyObjectRef,
+        _value: PyObjectRef,
+        _vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        unreachable!("ass_subscript not implemented for {}", zelf.class())
+    }
 }
 
 impl Hashable for PyBytes {

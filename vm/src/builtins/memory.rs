@@ -6,11 +6,12 @@ use crate::common::{
     rc::PyRc,
 };
 use crate::{
+    builtins::dict::PyMapping,
     bytesinner::bytes_to_hex,
     function::{FuncArgs, OptionalArg},
     protocol::{BufferInternal, BufferOptions, PyBuffer},
     sliceable::{convert_slice, wrap_index, SequenceIndex},
-    slots::{AsBuffer, Comparable, Hashable, PyComparisonOp, SlotConstructor},
+    slots::{AsBuffer, AsMapping, Comparable, Hashable, PyComparisonOp, SlotConstructor},
     stdlib::pystruct::FormatSpec,
     utils::Either,
     IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
@@ -53,7 +54,7 @@ impl SlotConstructor for PyMemoryView {
     }
 }
 
-#[pyimpl(with(Hashable, Comparable, AsBuffer, SlotConstructor))]
+#[pyimpl(with(Hashable, Comparable, AsBuffer, AsMapping, SlotConstructor))]
 impl PyMemoryView {
     #[cfg(debug_assertions)]
     fn validate(self) -> Self {
@@ -732,6 +733,39 @@ impl BufferInternal for PyRef<PyMemoryView> {
     }
     fn release(&self) {}
     fn retain(&self) {}
+}
+
+impl AsMapping for PyMemoryView {
+    fn as_mapping(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyMapping> {
+        Ok(PyMapping {
+            length: Some(Self::length),
+            subscript: Some(Self::subscript),
+            ass_subscript: Some(Self::ass_subscript),
+        })
+    }
+
+    #[inline]
+    fn length(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+        Self::downcast_ref(&zelf, vm).map(|zelf| zelf.len(vm))?
+    }
+
+    #[inline]
+    fn subscript(zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Self::downcast(zelf, vm)
+            .map(|zelf| Self::getitem(zelf, SequenceIndex::try_from_object(vm, needle)?, vm))?
+    }
+
+    #[inline]
+    fn ass_subscript(
+        zelf: PyObjectRef,
+        needle: PyObjectRef,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        Self::downcast(zelf, vm).map(|zelf| {
+            Self::setitem(zelf, SequenceIndex::try_from_object(vm, needle)?, value, vm)
+        })?
+    }
 }
 
 impl Comparable for PyMemoryView {

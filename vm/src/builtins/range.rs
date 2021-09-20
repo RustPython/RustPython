@@ -1,9 +1,12 @@
 use super::{PyInt, PyIntRef, PySlice, PySliceRef, PyTypeRef};
 use crate::common::hash::PyHash;
 use crate::{
+    builtins::dict::PyMapping,
     function::{FuncArgs, OptionalArg},
     protocol::PyIterReturn,
-    slots::{Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotIterator},
+    slots::{
+        AsMapping, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotIterator,
+    },
     IdProtocol, IntoPyRef, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol, VirtualMachine,
 };
@@ -173,7 +176,7 @@ pub fn init(context: &PyContext) {
     PyRangeIterator::extend_class(context, &context.types.range_iterator_type);
 }
 
-#[pyimpl(with(Hashable, Comparable, Iterable))]
+#[pyimpl(with(AsMapping, Hashable, Comparable, Iterable))]
 impl PyRange {
     fn new(cls: PyTypeRef, stop: PyIntRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         PyRange {
@@ -369,6 +372,37 @@ impl PyRange {
         }?;
 
         Ok(range.into_object())
+    }
+}
+
+impl AsMapping for PyRange {
+    fn as_mapping(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyMapping> {
+        Ok(PyMapping {
+            length: Some(Self::length),
+            subscript: Some(Self::subscript),
+            ass_subscript: None,
+        })
+    }
+
+    #[inline]
+    fn length(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+        Self::downcast_ref(&zelf, vm).map(|zelf| Ok(zelf.len().to_usize().unwrap()))?
+    }
+
+    #[inline]
+    fn subscript(zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Self::downcast_ref(&zelf, vm)
+            .map(|zelf| zelf.getitem(RangeIndex::try_from_object(vm, needle)?, vm))?
+    }
+
+    #[inline]
+    fn ass_subscript(
+        zelf: PyObjectRef,
+        _needle: PyObjectRef,
+        _value: PyObjectRef,
+        _vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        unreachable!("ass_subscript not implemented for {}", zelf.class())
     }
 }
 

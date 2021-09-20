@@ -6,7 +6,8 @@ use crate::{
     function::{ArgIterable, FuncArgs, KwArgs, OptionalArg},
     protocol::PyIterReturn,
     slots::{
-        Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotIterator, Unhashable,
+        AsMapping, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotIterator,
+        Unhashable,
     },
     vm::{ReprGuard, VirtualMachine},
     IdProtocol, IntoPyObject, ItemProtocol,
@@ -51,7 +52,7 @@ impl PyValue for PyDict {
 
 // Python dict methods:
 #[allow(clippy::len_without_is_empty)]
-#[pyimpl(with(Hashable, Comparable, Iterable), flags(BASETYPE))]
+#[pyimpl(with(AsMapping, Hashable, Comparable, Iterable), flags(BASETYPE))]
 impl PyDict {
     #[pyslot]
     fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -407,6 +408,36 @@ impl PyDict {
     #[pymethod(magic)]
     fn reversed(zelf: PyRef<Self>) -> PyDictReverseKeyIterator {
         PyDictReverseKeyIterator::new(zelf)
+    }
+}
+
+impl AsMapping for PyDict {
+    fn as_mapping(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyMapping> {
+        Ok(PyMapping {
+            length: Some(Self::length),
+            subscript: Some(Self::subscript),
+            ass_subscript: Some(Self::ass_subscript),
+        })
+    }
+
+    #[inline]
+    fn length(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+        Self::downcast_ref(&zelf, vm).map(|zelf| Ok(zelf.len()))?
+    }
+
+    #[inline]
+    fn subscript(zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Self::downcast(zelf, vm).map(|zelf| Self::getitem(zelf, needle, vm))?
+    }
+
+    #[inline]
+    fn ass_subscript(
+        zelf: PyObjectRef,
+        needle: PyObjectRef,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        Self::downcast_ref(&zelf, vm).map(|zelf| zelf.setitem(needle, value, vm))?
     }
 }
 

@@ -9,6 +9,7 @@ use crate::common::{
 };
 use crate::{
     anystr::{self, AnyStr},
+    builtins::dict::PyMapping,
     bytesinner::{
         bytes_decode, bytes_from_object, value_from_object, ByteInnerFindOptions,
         ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerSplitOptions,
@@ -18,8 +19,8 @@ use crate::{
     protocol::{BufferInternal, BufferOptions, PyBuffer, PyIterReturn, ResizeGuard},
     sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
     slots::{
-        AsBuffer, Callable, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp,
-        SlotIterator, Unhashable,
+        AsBuffer, AsMapping, Callable, Comparable, Hashable, Iterable, IteratorIterable,
+        PyComparisonOp, SlotIterator, Unhashable,
     },
     utils::Either,
     IdProtocol, IntoPyObject, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef,
@@ -95,7 +96,10 @@ pub(crate) fn init(context: &PyContext) {
     PyByteArrayIterator::extend_class(context, &context.types.bytearray_iterator_type);
 }
 
-#[pyimpl(flags(BASETYPE), with(Hashable, Comparable, AsBuffer, Iterable))]
+#[pyimpl(
+    flags(BASETYPE),
+    with(Hashable, Comparable, AsBuffer, AsMapping, Iterable)
+)]
 impl PyByteArray {
     #[pyslot]
     fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -709,6 +713,36 @@ impl<'a> ResizeGuard<'a> for PyByteArray {
             Err(vm
                 .new_buffer_error("Existing exports of data: object cannot be re-sized".to_owned()))
         }
+    }
+}
+
+impl AsMapping for PyByteArray {
+    fn as_mapping(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyMapping> {
+        Ok(PyMapping {
+            length: Some(Self::length),
+            subscript: Some(Self::subscript),
+            ass_subscript: Some(Self::ass_subscript),
+        })
+    }
+
+    #[inline]
+    fn length(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+        Self::downcast_ref(&zelf, vm).map(|zelf| Ok(zelf.len()))?
+    }
+
+    #[inline]
+    fn subscript(zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Self::downcast_ref(&zelf, vm).map(|zelf| zelf.getitem(needle, vm))?
+    }
+
+    #[inline]
+    fn ass_subscript(
+        zelf: PyObjectRef,
+        needle: PyObjectRef,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        Self::downcast(zelf, vm).map(|zelf| Self::setitem(zelf, needle, value, vm))?
     }
 }
 

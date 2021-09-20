@@ -7,12 +7,14 @@ use crate::common::lock::{
     PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
 };
 use crate::{
+    builtins::dict::PyMapping,
     function::{ArgIterable, FuncArgs, OptionalArg},
     protocol::PyIterReturn,
     sequence::{self, SimpleSeq},
     sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
     slots::{
-        Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotIterator, Unhashable,
+        AsMapping, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotIterator,
+        Unhashable,
     },
     utils::Either,
     vm::{ReprGuard, VirtualMachine},
@@ -82,7 +84,7 @@ pub(crate) struct SortOptions {
 
 pub type PyListRef = PyRef<PyList>;
 
-#[pyimpl(with(Iterable, Hashable, Comparable), flags(BASETYPE))]
+#[pyimpl(with(AsMapping, Iterable, Hashable, Comparable), flags(BASETYPE))]
 impl PyList {
     #[pymethod]
     pub(crate) fn append(&self, x: PyObjectRef) {
@@ -413,6 +415,36 @@ impl PyList {
     #[pyclassmethod(magic)]
     fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
         PyGenericAlias::new(cls, args, vm)
+    }
+}
+
+impl AsMapping for PyList {
+    fn as_mapping(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyMapping> {
+        Ok(PyMapping {
+            length: Some(Self::length),
+            subscript: Some(Self::subscript),
+            ass_subscript: Some(Self::ass_subscript),
+        })
+    }
+
+    #[inline]
+    fn length(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+        Self::downcast_ref(&zelf, vm).map(|zelf| Ok(zelf.len()))?
+    }
+
+    #[inline]
+    fn subscript(zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Self::downcast(zelf, vm).map(|zelf| Self::getitem(zelf, needle, vm))?
+    }
+
+    #[inline]
+    fn ass_subscript(
+        zelf: PyObjectRef,
+        needle: PyObjectRef,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        Self::downcast_ref(&zelf, vm).map(|zelf| zelf.setitem(needle, value, vm))?
     }
 }
 
