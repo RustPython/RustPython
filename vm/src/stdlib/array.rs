@@ -589,19 +589,13 @@ mod array {
 
     #[pyattr]
     #[pyclass(name = "array")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     pub struct PyArray {
         array: PyRwLock<ArrayContentType>,
         exports: AtomicCell<usize>,
     }
 
     pub type PyArrayRef = PyRef<PyArray>;
-
-    impl PyValue for PyArray {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
-    }
 
     impl From<ArrayContentType> for PyArray {
         fn from(array: ArrayContentType) -> Self {
@@ -1198,16 +1192,10 @@ mod array {
 
     #[pyattr]
     #[pyclass(name = "array_iterator")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     pub struct PyArrayIter {
         position: AtomicCell<usize>,
         array: PyArrayRef,
-    }
-
-    impl PyValue for PyArrayIter {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
 
     #[pyimpl(with(PyIter))]

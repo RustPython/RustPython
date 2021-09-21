@@ -436,15 +436,9 @@ mod _operator {
     /// (r.name.first, r.name.last).
     #[pyattr]
     #[pyclass(name = "attrgetter")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct PyAttrGetter {
         attrs: Vec<PyStrRef>,
-    }
-
-    impl PyValue for PyAttrGetter {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
 
     #[pyimpl(with(Callable))]
@@ -539,15 +533,9 @@ mod _operator {
     /// After g = itemgetter(2, 5, 3), the call g(r) returns (r[2], r[5], r[3])
     #[pyattr]
     #[pyclass(name = "itemgetter")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct PyItemGetter {
         items: Vec<PyObjectRef>,
-    }
-
-    impl PyValue for PyItemGetter {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
 
     #[pyimpl(with(Callable))]
@@ -614,16 +602,10 @@ mod _operator {
     /// r.name('date', foo=1).
     #[pyattr]
     #[pyclass(name = "methodcaller")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct PyMethodCaller {
         name: PyStrRef,
         args: FuncArgs,
-    }
-
-    impl PyValue for PyMethodCaller {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
 
     impl SlotConstructor for PyMethodCaller {

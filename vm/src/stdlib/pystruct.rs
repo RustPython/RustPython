@@ -789,7 +789,7 @@ pub(crate) mod _struct {
 
     #[pyattr]
     #[pyclass(name = "unpack_iterator")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct UnpackIterator {
         format_spec: FormatSpec,
         buffer: ArgBytesLike,
@@ -822,12 +822,6 @@ pub(crate) mod _struct {
                     offset: AtomicCell::new(0),
                 })
             }
-        }
-    }
-
-    impl PyValue for UnpackIterator {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
         }
     }
 
@@ -870,16 +864,10 @@ pub(crate) mod _struct {
 
     #[pyattr]
     #[pyclass(name = "Struct")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct PyStruct {
         spec: FormatSpec,
         fmt_str: PyStrRef,
-    }
-
-    impl PyValue for PyStruct {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
 
     impl SlotConstructor for PyStruct {

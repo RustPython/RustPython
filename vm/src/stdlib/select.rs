@@ -264,16 +264,10 @@ mod decl {
         use std::time;
 
         #[pyclass(module = "select", name = "poll")]
-        #[derive(Default, Debug)]
+        #[derive(Default, Debug, PyValue)]
         pub struct PyPoll {
             // keep sorted
             fds: PyMutex<Vec<pollfd>>,
-        }
-
-        impl PyValue for PyPoll {
-            fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-                Self::static_type()
-            }
         }
 
         #[inline]

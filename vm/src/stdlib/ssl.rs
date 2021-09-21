@@ -248,6 +248,7 @@ fn _ssl_rand_pseudo_bytes(n: i32, vm: &VirtualMachine) -> PyResult<(Vec<u8>, boo
 }
 
 #[pyclass(module = "ssl", name = "_SSLContext")]
+#[derive(PyValue)]
 struct PySslContext {
     ctx: PyRwLock<SslContextBuilder>,
     check_hostname: AtomicCell<bool>,
@@ -257,12 +258,6 @@ struct PySslContext {
 impl fmt::Debug for PySslContext {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.pad("_SSLContext")
-    }
-}
-
-impl PyValue for PySslContext {
-    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
     }
 }
 
@@ -716,6 +711,7 @@ fn socket_closed_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
 }
 
 #[pyclass(module = "ssl", name = "_SSLSocket")]
+#[derive(PyValue)]
 struct PySslSocket {
     ctx: PyRef<PySslContext>,
     stream: PyRwLock<ssl::SslStream<PySocketRef>>,
@@ -727,12 +723,6 @@ struct PySslSocket {
 impl fmt::Debug for PySslSocket {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.pad("_SSLSocket")
-    }
-}
-
-impl PyValue for PySslSocket {
-    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
     }
 }
 

@@ -787,7 +787,7 @@ mod _os {
 
     #[pyattr]
     #[pyclass(name)]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct DirEntry {
         entry: fs::DirEntry,
         mode: OutputMode,
@@ -795,12 +795,6 @@ mod _os {
         lstat: OnceCell<PyObjectRef>,
         #[cfg(not(unix))]
         ino: AtomicCell<Option<u64>>,
-    }
-
-    impl PyValue for DirEntry {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
 
     #[pyimpl]
@@ -959,17 +953,11 @@ mod _os {
 
     #[pyattr]
     #[pyclass(name = "ScandirIter")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct ScandirIterator {
         entries: PyRwLock<fs::ReadDir>,
         exhausted: AtomicCell<bool>,
         mode: OutputMode,
-    }
-
-    impl PyValue for ScandirIterator {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
 
     #[pyimpl(with(PyIter))]
@@ -2486,15 +2474,9 @@ mod posix {
 
     #[pyattr]
     #[pyclass(name = "sched_param")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct SchedParam {
         sched_priority: PyObjectRef,
-    }
-
-    impl PyValue for SchedParam {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
 
     impl TryFromObject for SchedParam {

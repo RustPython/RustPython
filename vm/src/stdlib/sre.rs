@@ -122,7 +122,7 @@ mod _sre {
 
     #[pyattr]
     #[pyclass(name = "Pattern")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     pub(crate) struct Pattern {
         pub pattern: PyObjectRef,
         pub flags: SreFlag,
@@ -131,12 +131,6 @@ mod _sre {
         pub groupindex: PyDictRef,
         pub indexgroup: Vec<Option<PyStrRef>>,
         pub isbytes: bool,
-    }
-
-    impl PyValue for Pattern {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
 
     #[pyimpl(with(Hashable, Comparable))]
@@ -561,7 +555,7 @@ mod _sre {
 
     #[pyattr]
     #[pyclass(name = "Match")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     pub(crate) struct Match {
         string: PyObjectRef,
         pattern: PyRef<Pattern>,
@@ -569,11 +563,6 @@ mod _sre {
         endpos: usize,
         lastindex: isize,
         regs: Vec<(isize, isize)>,
-    }
-    impl PyValue for Match {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
 
     #[pyimpl]
@@ -804,18 +793,13 @@ mod _sre {
 
     #[pyattr]
     #[pyclass(name = "SRE_Scanner")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct SreScanner {
         pattern: PyRef<Pattern>,
         string: PyObjectRef,
         start: AtomicCell<usize>,
         end: usize,
         must_advance: AtomicCell<bool>,
-    }
-    impl PyValue for SreScanner {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
 
     #[pyimpl]

@@ -86,6 +86,7 @@ struct ReadState {
 }
 
 #[pyclass(module = "_csv", name = "reader")]
+#[derive(PyValue)]
 struct Reader {
     iter: PyObjectRef,
     state: PyMutex<ReadState>,
@@ -94,12 +95,6 @@ struct Reader {
 impl fmt::Debug for Reader {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "_csv.reader")
-    }
-}
-
-impl PyValue for Reader {
-    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
     }
 }
 
@@ -193,6 +188,7 @@ struct WriteState {
 }
 
 #[pyclass(module = "_csv", name = "writer")]
+#[derive(PyValue)]
 struct Writer {
     write: PyObjectRef,
     state: PyMutex<WriteState>,
@@ -201,12 +197,6 @@ struct Writer {
 impl fmt::Debug for Writer {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "_csv.writer")
-    }
-}
-
-impl PyValue for Writer {
-    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
     }
 }
 

@@ -1638,14 +1638,9 @@ mod _io {
 
     #[pyattr]
     #[pyclass(name = "BufferedReader", base = "_BufferedIOBase")]
-    #[derive(Debug, Default)]
+    #[derive(Debug, Default, PyValue)]
     struct BufferedReader {
         data: PyThreadMutex<BufferedData>,
-    }
-    impl PyValue for BufferedReader {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
     impl BufferedMixin for BufferedReader {
         const READABLE: bool = true;
@@ -1692,14 +1687,9 @@ mod _io {
 
     #[pyattr]
     #[pyclass(name = "BufferedWriter", base = "_BufferedIOBase")]
-    #[derive(Debug, Default)]
+    #[derive(Debug, Default, PyValue)]
     struct BufferedWriter {
         data: PyThreadMutex<BufferedData>,
-    }
-    impl PyValue for BufferedWriter {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
     impl BufferedMixin for BufferedWriter {
         const READABLE: bool = false;
@@ -1725,14 +1715,9 @@ mod _io {
 
     #[pyattr]
     #[pyclass(name = "BufferedRandom", base = "_BufferedIOBase")]
-    #[derive(Debug, Default)]
+    #[derive(Debug, Default, PyValue)]
     struct BufferedRandom {
         data: PyThreadMutex<BufferedData>,
-    }
-    impl PyValue for BufferedRandom {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
     impl BufferedMixin for BufferedRandom {
         const READABLE: bool = true;
@@ -1768,15 +1753,10 @@ mod _io {
 
     #[pyattr]
     #[pyclass(name = "BufferedRWPair", base = "_BufferedIOBase")]
-    #[derive(Debug, Default)]
+    #[derive(Debug, Default, PyValue)]
     struct BufferedRWPair {
         read: BufferedReader,
         write: BufferedWriter,
-    }
-    impl PyValue for BufferedRWPair {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
     impl BufferedReadable for BufferedRWPair {
         type Reader = BufferedReader;
@@ -2182,14 +2162,9 @@ mod _io {
 
     #[pyattr]
     #[pyclass(name = "TextIOWrapper", base = "_TextIOBase")]
-    #[derive(Debug, Default)]
+    #[derive(Debug, Default, PyValue)]
     struct TextIOWrapper {
         data: PyThreadMutex<Option<TextIOData>>,
-    }
-    impl PyValue for TextIOWrapper {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
 
     #[pyimpl(flags(BASETYPE))]
@@ -3043,19 +3018,13 @@ mod _io {
 
     #[pyattr]
     #[pyclass(name = "StringIO", base = "_TextIOBase")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct StringIO {
         buffer: PyRwLock<BufferedIO>,
         closed: AtomicCell<bool>,
     }
 
     type StringIORef = PyRef<StringIO>;
-
-    impl PyValue for StringIO {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
-    }
 
     #[derive(FromArgs)]
     struct StringIONewArgs {
@@ -3198,7 +3167,7 @@ mod _io {
 
     #[pyattr]
     #[pyclass(name = "BytesIO", base = "_BufferedIOBase")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct BytesIO {
         buffer: PyRwLock<BufferedIO>,
         closed: AtomicCell<bool>,
@@ -3206,12 +3175,6 @@ mod _io {
     }
 
     type BytesIORef = PyRef<BytesIO>;
-
-    impl PyValue for BytesIO {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
-    }
 
     impl SlotConstructor for BytesIO {
         type Args = OptionalArg<Option<PyBytesRef>>;
@@ -3823,18 +3786,12 @@ mod fileio {
 
     #[pyattr]
     #[pyclass(module = "io", name, base = "_RawIOBase")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     pub(super) struct FileIO {
         fd: AtomicCell<i32>,
         closefd: AtomicCell<bool>,
         mode: AtomicCell<Mode>,
         seekable: AtomicCell<Option<bool>>,
-    }
-
-    impl PyValue for FileIO {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
 
     #[derive(FromArgs)]
