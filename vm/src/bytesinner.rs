@@ -11,7 +11,7 @@ use crate::slots::PyComparisonOp;
 use crate::utils::Either;
 use crate::vm::VirtualMachine;
 use crate::{
-    ArgIterable, IdProtocol, PyComparisonValue, PyObjectRef, PyResult, PyValue,
+    function::ArgIterable, IdProtocol, PyComparisonValue, PyObjectRef, PyResult, PyValue,
     TryFromBorrowedObject,
 };
 use bstr::ByteSlice;

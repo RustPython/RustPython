@@ -95,8 +95,8 @@ mod _io {
     use crate::utils::Either;
     use crate::vm::{ReprGuard, VirtualMachine};
     use crate::{
-        ArgIterable, IdProtocol, IntoPyObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-        StaticType, TryFromObject, TypeProtocol,
+        function::ArgIterable, IdProtocol, IntoPyObject, PyContext, PyObjectRef, PyRef, PyResult,
+        PyValue, StaticType, TryFromObject, TypeProtocol,
     };
 
     #[allow(clippy::let_and_return)]

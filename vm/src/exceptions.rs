@@ -11,8 +11,8 @@ use crate::types::create_type_with_slots;
 use crate::StaticType;
 use crate::VirtualMachine;
 use crate::{
-    ArgIterable, IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
-    PyValue, TryFromObject, TypeProtocol,
+    function::ArgIterable, IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef,
+    PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 
 use crossbeam_utils::atomic::AtomicCell;

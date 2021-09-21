@@ -18,8 +18,8 @@ use crate::slots::{
 use crate::utils::Either;
 use crate::vm::VirtualMachine;
 use crate::{
-    ArgIterable, IdProtocol, IntoPyObject, IntoPyResult, PyClassImpl, PyComparisonValue, PyContext,
-    PyObjectRef, PyRef, PyResult, PyValue, TryFromBorrowedObject, TypeProtocol,
+    function::ArgIterable, IdProtocol, IntoPyObject, IntoPyResult, PyClassImpl, PyComparisonValue,
+    PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromBorrowedObject, TypeProtocol,
 };
 use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;

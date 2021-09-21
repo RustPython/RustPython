@@ -17,11 +17,11 @@ mod array {
             PyStr, PyStrRef, PyTypeRef,
         },
         byteslike::ArgBytesLike,
-        function::OptionalArg,
+        function::{ArgIterable, OptionalArg},
         sliceable::{saturate_index, PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
         slots::{AsBuffer, Comparable, Iterable, PyComparisonOp, PyIter, SlotConstructor},
-        ArgIterable, IdProtocol, IntoPyObject, IntoPyResult, PyComparisonValue, PyObjectRef, PyRef,
-        PyResult, PyValue, StaticType, TryFromObject, TypeProtocol, VirtualMachine,
+        IdProtocol, IntoPyObject, IntoPyResult, PyComparisonValue, PyObjectRef, PyRef, PyResult,
+        PyValue, StaticType, TryFromObject, TypeProtocol, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;

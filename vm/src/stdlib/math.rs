@@ -5,9 +5,9 @@
 
 use crate::{
     builtins::{try_bigint_to_f64, try_f64_to_bigint, IntoPyFloat, PyFloatRef, PyInt, PyIntRef},
-    function::{Args, OptionalArg},
+    function::{ArgIterable, Args, OptionalArg},
     utils::Either,
-    ArgIterable, PyObjectRef, PyResult, PySequence, TypeProtocol, VirtualMachine,
+    PyObjectRef, PyResult, PySequence, TypeProtocol, VirtualMachine,
 };
 use num_bigint::BigInt;
 use num_traits::{One, Signed, Zero};

@@ -1,12 +1,12 @@
 use crate::common::lock::PyMutex;
 use crate::{
     builtins::{PyStr, PyStrRef, PyTypeRef},
-    function::{ArgumentError, FromArgs, FuncArgs},
+    function::{ArgIterable, ArgumentError, FromArgs, FuncArgs},
     iterator,
     slots::PyIter,
     types::create_simple_type,
-    ArgIterable, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject,
-    TypeProtocol, VirtualMachine,
+    PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
+    VirtualMachine,
 };
 use itertools::{self, Itertools};
 use std::fmt;

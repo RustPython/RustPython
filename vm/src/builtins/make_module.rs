@@ -32,11 +32,11 @@ mod decl {
     use crate::slots::PyComparisonOp;
     use crate::utils::Either;
     use crate::vm::VirtualMachine;
-    use crate::{py_io, sysmodule};
     use crate::{
-        ArgCallable, ArgIterable, IdProtocol, ItemProtocol, PyArithmaticValue, PyClassImpl,
-        PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+        function::ArgCallable, function::ArgIterable, IdProtocol, ItemProtocol, PyArithmaticValue,
+        PyClassImpl, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
     };
+    use crate::{py_io, sysmodule};
     use num_traits::{Signed, Zero};
 
     #[pyfunction]

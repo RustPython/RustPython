@@ -9,8 +9,8 @@ use super::{int, PyInt};
 use crate::slots::PyIter;
 use crate::vm::VirtualMachine;
 use crate::{
-    ArgCallable, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TypeProtocol,
+    function::ArgCallable, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
+    PyValue, TypeProtocol,
 };
 
 /// Marks status of iterator.

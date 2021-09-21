@@ -9,10 +9,10 @@ mod _sre {
             PyTypeRef,
         },
         common::hash::PyHash,
-        function::{Args, OptionalArg},
+        function::{ArgCallable, Args, OptionalArg},
         slots::{Comparable, Hashable},
-        ArgCallable, IntoPyObject, ItemProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult,
-        PyValue, StaticType, TryFromBorrowedObject, TryFromObject, VirtualMachine,
+        IntoPyObject, ItemProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue,
+        StaticType, TryFromBorrowedObject, TryFromObject, VirtualMachine,
     };
     use core::str;
     use crossbeam_utils::atomic::AtomicCell;

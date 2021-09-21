@@ -24,8 +24,8 @@ use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhas
 use crate::utils::Either;
 use crate::vm::{ReprGuard, VirtualMachine};
 use crate::{
-    ArgIterable, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
-    PyResult, PyValue, TryFromObject, TypeProtocol,
+    function::ArgIterable, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef,
+    PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 
 /// Built-in mutable sequence.

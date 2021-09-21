@@ -13,9 +13,9 @@ use crate::iterator;
 use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable};
 use crate::vm::{ReprGuard, VirtualMachine};
 use crate::{
-    ArgIterable, IdProtocol, IntoPyObject, ItemProtocol, PyArithmaticValue::*, PyAttributes,
-    PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
+    function::ArgIterable, IdProtocol, IntoPyObject, ItemProtocol, PyArithmaticValue::*,
+    PyAttributes, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
+    PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 
 pub type DictContentType = dictdatatype::Dict;

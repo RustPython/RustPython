@@ -12,8 +12,8 @@ use crate::slots::{
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 use crate::{
-    ArgIterable, IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
-    PyResult, PyValue, TryFromObject, TypeProtocol,
+    function::ArgIterable, IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef,
+    PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use std::fmt;

@@ -13,8 +13,8 @@ use rustpython_vm::slots::PyIter;
 use rustpython_vm::types::create_simple_type;
 use rustpython_vm::VirtualMachine;
 use rustpython_vm::{
-    ArgCallable, IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
-    TryFromObject,
+    function::ArgCallable, IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
+    StaticType, TryFromObject,
 };
 
 #[wasm_bindgen(inline_js = "
@@ -499,9 +499,16 @@ impl PyPromise {
 
                 Ok(PyPromise::from_future(ret_future))
             }
-            PromiseKind::PyProm { then } => {
-                Self::cast_result(vm.invoke(then, (on_fulfill, on_reject)), vm)
-            }
+            PromiseKind::PyProm { then } => Self::cast_result(
+                vm.invoke(
+                    then,
+                    (
+                        on_fulfill.map(|c| c.into_object()),
+                        on_reject.map(|c| c.into_object()),
+                    ),
+                ),
+                vm,
+            ),
             PromiseKind::PyResolved(res) => match on_fulfill {
                 Some(resolve) => Self::cast_result(resolve.invoke((res.clone(),), vm), vm),
                 None => Ok(self.clone()),

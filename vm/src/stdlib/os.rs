@@ -2931,7 +2931,10 @@ mod posix {
     // cfg from nix
     #[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "redox")))]
     #[pyfunction]
-    fn setgroups(group_ids: crate::ArgIterable<u32>, vm: &VirtualMachine) -> PyResult<()> {
+    fn setgroups(
+        group_ids: crate::function::ArgIterable<u32>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         let gids = group_ids
             .iter(vm)?
             .map(|entry| match entry {
@@ -2978,13 +2981,13 @@ mod posix {
         #[pyarg(positional)]
         path: PyPathLike,
         #[pyarg(positional)]
-        args: crate::ArgIterable<PyPathLike>,
+        args: crate::function::ArgIterable<PyPathLike>,
         #[pyarg(positional)]
         env: crate::builtins::dict::PyMapping,
         #[pyarg(named, default)]
-        file_actions: Option<crate::ArgIterable<PyTupleRef>>,
+        file_actions: Option<crate::function::ArgIterable<PyTupleRef>>,
         #[pyarg(named, default)]
-        setsigdef: Option<crate::ArgIterable<i32>>,
+        setsigdef: Option<crate::function::ArgIterable<i32>>,
     }
 
     #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]

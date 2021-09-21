@@ -3,12 +3,12 @@
 use crate::{
     builtins::{PyDictRef, PyStrRef, PyTupleRef, PyTypeRef},
     exceptions::{self, IntoPyException},
-    function::{FuncArgs, KwArgs, OptionalArg},
+    function::{ArgCallable, FuncArgs, KwArgs, OptionalArg},
     py_io,
     slots::{SlotGetattro, SlotSetattro},
     utils::Either,
-    ArgCallable, IdProtocol, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
-    StaticType, TypeProtocol, VirtualMachine,
+    IdProtocol, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
+    TypeProtocol, VirtualMachine,
 };
 use parking_lot::{
     lock_api::{RawMutex as RawMutexT, RawMutexTimed, RawReentrantMutex},
