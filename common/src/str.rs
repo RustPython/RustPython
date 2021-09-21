@@ -1,5 +1,12 @@
 use std::ops::{Bound, RangeBounds};
 
+#[cfg(not(target_arch = "wasm32"))]
+#[allow(non_camel_case_types)]
+pub type wchar_t = libc::wchar_t;
+#[cfg(target_arch = "wasm32")]
+#[allow(non_camel_case_types)]
+pub type wchar_t = u32;
+
 pub fn try_get_chars(s: &str, range: impl RangeBounds<usize>) -> Option<&str> {
     let mut chars = s.chars();
     let start = match range.start_bound() {

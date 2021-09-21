@@ -24,10 +24,10 @@ pub(crate) mod _struct {
         pystr::PyStrRef, pytype::PyTypeRef, tuple::PyTupleRef,
     };
     use crate::byteslike::{ArgBytesLike, ArgMemoryBuffer};
+    use crate::common::str::wchar_t;
     use crate::exceptions::PyBaseExceptionRef;
     use crate::function::Args;
     use crate::slots::{PyIter, SlotConstructor};
-    use crate::stdlib::array::wchar_t;
     use crate::utils::Either;
     use crate::VirtualMachine;
     use crate::{IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject};
