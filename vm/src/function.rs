@@ -77,7 +77,7 @@ pub struct FuncArgs {
 /// Conversion from vector of python objects to function arguments.
 impl<A> From<A> for FuncArgs
 where
-    A: Into<Args>,
+    A: Into<PosArgs>,
 {
     fn from(args: A) -> Self {
         FuncArgs {
@@ -105,10 +105,10 @@ impl FromArgs for FuncArgs {
 impl FuncArgs {
     pub fn new<A, K>(args: A, kwargs: K) -> Self
     where
-        A: Into<Args>,
+        A: Into<PosArgs>,
         K: Into<KwArgs>,
     {
-        let Args(args) = args.into();
+        let PosArgs(args) = args.into();
         let KwArgs(kwargs) = kwargs.into();
         Self { args, kwargs }
     }
@@ -374,18 +374,18 @@ impl<T> IntoIterator for KwArgs<T> {
 
 /// A list of positional argument values.
 ///
-/// A built-in function with a `Args` parameter is analogous to a Python
+/// A built-in function with a `PosArgs` parameter is analogous to a Python
 /// function with `*args`. All remaining positional arguments are extracted
 /// (and hence the function will permit an arbitrary number of them).
 ///
-/// `Args` optionally accepts a generic type parameter to allow type checks
+/// `PosArgs` optionally accepts a generic type parameter to allow type checks
 /// or conversions of each argument.
 #[derive(Clone)]
-pub struct Args<T = PyObjectRef>(Vec<T>);
+pub struct PosArgs<T = PyObjectRef>(Vec<T>);
 
-impl<T> Args<T> {
+impl<T> PosArgs<T> {
     pub fn new(args: Vec<T>) -> Self {
-        Args(args)
+        Self(args)
     }
 
     pub fn into_vec(self) -> Vec<T> {
@@ -397,32 +397,32 @@ impl<T> Args<T> {
     }
 }
 
-impl<T> From<Vec<T>> for Args<T> {
+impl<T> From<Vec<T>> for PosArgs<T> {
     fn from(v: Vec<T>) -> Self {
-        Args(v)
+        Self(v)
     }
 }
 
-impl From<()> for Args<PyObjectRef> {
+impl From<()> for PosArgs<PyObjectRef> {
     fn from(_args: ()) -> Self {
-        Args(Vec::new())
+        Self(Vec::new())
     }
 }
 
-impl<T> AsRef<[T]> for Args<T> {
+impl<T> AsRef<[T]> for PosArgs<T> {
     fn as_ref(&self) -> &[T] {
         &self.0
     }
 }
 
-impl<T: PyValue> Args<PyRef<T>> {
+impl<T: PyValue> PosArgs<PyRef<T>> {
     pub fn into_tuple(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx
             .new_tuple(self.0.into_iter().map(PyRef::into_object).collect())
     }
 }
 
-impl<T> FromArgs for Args<T>
+impl<T> FromArgs for PosArgs<T>
 where
     T: TryFromObject,
 {
@@ -431,11 +431,11 @@ where
         while let Some(value) = args.take_positional() {
             varargs.push(T::try_from_object(vm, value)?);
         }
-        Ok(Args(varargs))
+        Ok(PosArgs(varargs))
     }
 }
 
-impl<T> IntoIterator for Args<T> {
+impl<T> IntoIterator for PosArgs<T> {
     type Item = T;
     type IntoIter = std::vec::IntoIter<T>;
 
@@ -546,7 +546,7 @@ macro_rules! tuple_from_py_func_args {
 }
 
 // Implement `FromArgs` for up to 7-tuples, allowing built-in functions to bind
-// up to 7 top-level parameters (note that `Args`, `KwArgs`, nested tuples, etc.
+// up to 7 top-level parameters (note that `PosArgs`, `KwArgs`, nested tuples, etc.
 // count as 1, so this should actually be more than enough).
 tuple_from_py_func_args!(A);
 tuple_from_py_func_args!(A, B);

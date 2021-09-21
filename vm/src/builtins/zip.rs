@@ -1,5 +1,5 @@
 use super::pytype::PyTypeRef;
-use crate::function::Args;
+use crate::function::PosArgs;
 use crate::iterator;
 use crate::slots::{PyIter, SlotConstructor};
 use crate::vm::VirtualMachine;
@@ -18,7 +18,7 @@ impl PyValue for PyZip {
 }
 
 impl SlotConstructor for PyZip {
-    type Args = Args;
+    type Args = PosArgs;
 
     fn py_new(cls: PyTypeRef, iterables: Self::Args, vm: &VirtualMachine) -> PyResult {
         let iterators = iterables

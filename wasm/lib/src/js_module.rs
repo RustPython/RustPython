@@ -8,7 +8,7 @@ use wasm_bindgen_futures::{future_to_promise, JsFuture};
 
 use rustpython_vm::builtins::{PyFloatRef, PyStrRef, PyTypeRef};
 use rustpython_vm::exceptions::PyBaseExceptionRef;
-use rustpython_vm::function::{Args, OptionalArg, OptionalOption};
+use rustpython_vm::function::{OptionalArg, OptionalOption, PosArgs};
 use rustpython_vm::slots::PyIter;
 use rustpython_vm::types::create_simple_type;
 use rustpython_vm::VirtualMachine;
@@ -166,7 +166,7 @@ impl PyJsValue {
     #[pymethod]
     fn call(
         &self,
-        args: Args<PyJsValueRef>,
+        args: PosArgs<PyJsValueRef>,
         opts: CallOptions,
         vm: &VirtualMachine,
     ) -> PyResult<PyJsValue> {
@@ -186,7 +186,7 @@ impl PyJsValue {
     fn call_method(
         &self,
         name: JsProperty,
-        args: Args<PyJsValueRef>,
+        args: PosArgs<PyJsValueRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyJsValue> {
         let js_args = args.iter().map(|x| x.as_ref()).collect::<Array>();
@@ -198,7 +198,7 @@ impl PyJsValue {
     #[pymethod]
     fn construct(
         &self,
-        args: Args<PyJsValueRef>,
+        args: PosArgs<PyJsValueRef>,
         opts: NewObjectOptions,
         vm: &VirtualMachine,
     ) -> PyResult<PyJsValue> {

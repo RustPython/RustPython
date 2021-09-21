@@ -4,7 +4,7 @@ use std::{env, mem, path};
 use crate::builtins::{PyStr, PyStrRef, PyTypeRef};
 use crate::common::hash::{PyHash, PyUHash};
 use crate::frame::FrameRef;
-use crate::function::{Args, FuncArgs, OptionalArg};
+use crate::function::{FuncArgs, OptionalArg, PosArgs};
 use crate::vm::{PySettings, VirtualMachine};
 use crate::{builtins, exceptions, py_io, version};
 use crate::{
@@ -261,7 +261,7 @@ fn sys_displayhook(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
     vm.set_attr(&vm.builtins, "_", vm.ctx.none())?;
     // TODO: catch encoding errors
     let repr = vm.to_repr(&obj)?.into_object();
-    builtins::print(Args::new(vec![repr]), Default::default(), vm)?;
+    builtins::print(PosArgs::new(vec![repr]), Default::default(), vm)?;
     vm.set_attr(&vm.builtins, "_", obj)?;
     Ok(())
 }

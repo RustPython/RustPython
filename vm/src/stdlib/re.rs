@@ -11,7 +11,7 @@ use std::ops::Range;
 use crate::
     {builtins::{
     PyInt, PyIntRef, PyStr, PyStrRef, PyTypeRef},
-    function::{Args, OptionalArg},
+    function::{PosArgs, OptionalArg},
     VirtualMachine, IntoPyObject, PyClassImpl, PyObjectRef, PyResult, PyValue, StaticType, TryFromObject};
 
 #[pyclass(module = "re", name = "Pattern")]
@@ -387,7 +387,7 @@ impl PyMatch {
     }
 
     #[pymethod]
-    fn group(&self, groups: Args, vm: &VirtualMachine) -> PyResult {
+    fn group(&self, groups: PosArgs, vm: &VirtualMachine) -> PyResult {
         let mut groups = groups.into_vec();
         match groups.len() {
             0 => Ok(self
