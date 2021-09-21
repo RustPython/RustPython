@@ -49,8 +49,8 @@ def is_child(module, item):
 
 def traverse(module, names, item):
     import inspect
-    is_builtin = inspect.ismodule(item) or inspect.isbuiltin(item)
-    if is_builtin and isinstance(item.__doc__, str):
+    has_doc = inspect.ismodule(item) or inspect.isclass(item) or inspect.isbuiltin(item)
+    if has_doc and isinstance(item.__doc__, str):
         yield names, item.__doc__
     attr_names = dir(item)
     for name in attr_names:

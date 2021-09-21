@@ -147,7 +147,14 @@ fn generate_class_def(
     metaclass: Option<String>,
     attrs: &[Attribute],
 ) -> std::result::Result<TokenStream, Diagnostic> {
-    let doc = if let Some(doc) = attrs.doc() {
+    let doc = attrs.doc().or_else(|| {
+        let module_name = module_name.unwrap_or("builtins");
+        crate::doc::try_module_item(module_name, name)
+            .ok()
+            .flatten()
+            .map(str::to_owned)
+    });
+    let doc = if let Some(doc) = doc {
         quote!(Some(#doc))
     } else {
         quote!(None)
@@ -179,25 +186,23 @@ fn generate_class_def(
         .into());
     }
     let base_class = if is_pystruct {
-        quote! {
-            fn static_baseclass() -> &'static ::rustpython_vm::builtins::PyTypeRef {
-                use rustpython_vm::StaticType;
-                rustpython_vm::builtins::PyTuple::static_type()
-            }
-        }
-    } else if let Some(typ) = base {
-        let typ = Ident::new(&typ, ident.span());
+        Some(quote! { rustpython_vm::builtins::PyTuple })
+    } else {
+        base.map(|typ| {
+            let typ = Ident::new(&typ, ident.span());
+            quote_spanned! { ident.span() => #typ }
+        })
+    }
+    .map(|typ| {
         quote! {
             fn static_baseclass() -> &'static ::rustpython_vm::builtins::PyTypeRef {
                 use rustpython_vm::StaticType;
                 #typ::static_type()
             }
         }
-    } else {
-        quote!()
-    };
+    });
 
-    let meta_class = if let Some(typ) = metaclass {
+    let meta_class = metaclass.map(|typ| {
         let typ = Ident::new(&typ, ident.span());
         quote! {
             fn static_metaclass() -> &'static ::rustpython_vm::builtins::PyTypeRef {
@@ -205,9 +210,7 @@ fn generate_class_def(
                 #typ::static_type()
             }
         }
-    } else {
-        quote!()
-    };
+    });
 
     let tokens = quote! {
         impl ::rustpython_vm::PyClassDef for #ident {
