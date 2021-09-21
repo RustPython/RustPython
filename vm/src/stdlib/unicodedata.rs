@@ -55,15 +55,9 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 }
 
 #[pyclass(module = "unicodedata", name = "UCD")]
-#[derive(Debug)]
+#[derive(Debug, PyValue)]
 struct PyUCD {
     unic_version: UnicodeVersion,
-}
-
-impl PyValue for PyUCD {
-    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
-    }
 }
 
 impl Default for PyUCD {

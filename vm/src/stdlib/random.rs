@@ -56,15 +56,9 @@ mod _random {
 
     #[pyattr]
     #[pyclass(name = "Random")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct PyRandom {
         rng: PyMutex<PyRng>,
-    }
-
-    impl PyValue for PyRandom {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
 
     impl SlotConstructor for PyRandom {

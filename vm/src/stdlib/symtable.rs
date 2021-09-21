@@ -40,6 +40,7 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "SymbolTable")]
+    #[derive(PyValue)]
     struct PySymbolTable {
         symtable: SymbolTable,
     }
@@ -47,12 +48,6 @@ mod decl {
     impl fmt::Debug for PySymbolTable {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             write!(f, "SymbolTable()")
-        }
-    }
-
-    impl PyValue for PySymbolTable {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
         }
     }
 
@@ -157,6 +152,7 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "Symbol")]
+    #[derive(PyValue)]
     struct PySymbol {
         symbol: Symbol,
         namespaces: Vec<SymbolTable>,
@@ -165,12 +161,6 @@ mod decl {
     impl fmt::Debug for PySymbol {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             write!(f, "Symbol()")
-        }
-    }
-
-    impl PyValue for PySymbol {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
         }
     }
 

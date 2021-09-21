@@ -51,17 +51,11 @@ extern "C" {
 }
 
 #[pyclass(module = "_js", name = "JSValue")]
-#[derive(Debug)]
+#[derive(Debug, PyValue)]
 pub struct PyJsValue {
     pub(crate) value: JsValue,
 }
 type PyJsValueRef = PyRef<PyJsValue>;
-
-impl PyValue for PyJsValue {
-    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
-    }
-}
 
 impl AsRef<JsValue> for PyJsValue {
     fn as_ref(&self) -> &JsValue {
@@ -281,6 +275,7 @@ struct NewObjectOptions {
 type ClosureType = Closure<dyn FnMut(JsValue, Box<[JsValue]>) -> Result<JsValue, JsValue>>;
 
 #[pyclass(module = "_js", name = "JSClosure")]
+#[derive(PyValue)]
 struct JsClosure {
     closure: cell::RefCell<Option<(ClosureType, PyJsValueRef)>>,
     destroyed: cell::Cell<bool>,
@@ -290,12 +285,6 @@ struct JsClosure {
 impl fmt::Debug for JsClosure {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.pad("JsClosure")
-    }
-}
-
-impl PyValue for JsClosure {
-    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
     }
 }
 
@@ -380,7 +369,7 @@ impl JsClosure {
 }
 
 #[pyclass(module = "_js", name = "Promise")]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PyValue)]
 pub struct PyPromise {
     value: PromiseKind,
 }
@@ -392,12 +381,6 @@ enum PromiseKind {
     PyProm { then: PyObjectRef },
     PyResolved(PyObjectRef),
     PyRejected(PyBaseExceptionRef),
-}
-
-impl PyValue for PyPromise {
-    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
-    }
 }
 
 #[pyimpl]
@@ -548,6 +531,7 @@ impl PyPromise {
 }
 
 #[pyclass(module = "_js", name = "AwaitPromise")]
+#[derive(PyValue)]
 struct AwaitPromise {
     obj: cell::Cell<Option<PyObjectRef>>,
 }
@@ -555,12 +539,6 @@ struct AwaitPromise {
 impl fmt::Debug for AwaitPromise {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AwaitPromise").finish()
-    }
-}
-
-impl PyValue for AwaitPromise {
-    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
     }
 }
 

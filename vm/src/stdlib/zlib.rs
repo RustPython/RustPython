@@ -270,17 +270,12 @@ mod decl {
     }
     #[pyattr]
     #[pyclass(name = "Decompress")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct PyDecompress {
         decompress: PyMutex<Decompress>,
         eof: AtomicCell<bool>,
         unused_data: PyMutex<PyBytesRef>,
         unconsumed_tail: PyMutex<PyBytesRef>,
-    }
-    impl PyValue for PyDecompress {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
     #[pyimpl]
     impl PyDecompress {
@@ -441,15 +436,9 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "Compress")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct PyCompress {
         inner: PyMutex<CompressInner>,
-    }
-
-    impl PyValue for PyCompress {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
 
     #[pyimpl]

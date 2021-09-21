@@ -44,7 +44,7 @@ fn get_node_field_opt(
 }
 
 #[pyclass(module = "_ast", name = "AST")]
-#[derive(Debug)]
+#[derive(Debug, PyValue)]
 pub(crate) struct AstNode;
 
 #[pyimpl(flags(HAS_DICT))]
@@ -83,12 +83,6 @@ impl AstNode {
 
 const MODULE_NAME: &str = "_ast";
 pub const PY_COMPILE_FLAG_AST_ONLY: i32 = 0x0400;
-
-impl PyValue for AstNode {
-    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
-    }
-}
 
 trait Node: Sized {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef;

@@ -153,15 +153,9 @@ fn browser_cancel_animation_frame(id: i32, vm: &VirtualMachine) -> PyResult<()> 
 }
 
 #[pyclass(module = "browser", name)]
-#[derive(Debug)]
+#[derive(Debug, PyValue)]
 struct Document {
     doc: web_sys::Document,
-}
-
-impl PyValue for Document {
-    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
-    }
 }
 
 #[pyimpl]
@@ -179,15 +173,9 @@ impl Document {
 }
 
 #[pyclass(module = "browser", name)]
-#[derive(Debug)]
+#[derive(Debug, PyValue)]
 struct Element {
     elem: web_sys::Element,
-}
-
-impl PyValue for Element {
-    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
-    }
 }
 
 #[pyimpl]

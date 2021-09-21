@@ -96,16 +96,11 @@ macro_rules! repr_lock_impl {
 }
 
 #[pyclass(module = "thread", name = "lock")]
+#[derive(PyValue)]
 struct PyLock {
     mu: RawMutex,
 }
 type PyLockRef = PyRef<PyLock>;
-
-impl PyValue for PyLock {
-    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
-    }
-}
 
 impl fmt::Debug for PyLock {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -150,14 +145,9 @@ impl PyLock {
 
 pub type RawRMutex = RawReentrantMutex<RawMutex, RawThreadId>;
 #[pyclass(module = "thread", name = "RLock")]
+#[derive(PyValue)]
 struct PyRLock {
     mu: RawRMutex,
-}
-
-impl PyValue for PyRLock {
-    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
-    }
 }
 
 impl fmt::Debug for PyRLock {
@@ -303,15 +293,9 @@ fn _thread_count(vm: &VirtualMachine) -> usize {
 }
 
 #[pyclass(module = "thread", name = "_local")]
-#[derive(Debug)]
+#[derive(Debug, PyValue)]
 struct PyLocal {
     data: ThreadLocal<PyDictRef>,
-}
-
-impl PyValue for PyLocal {
-    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
-    }
 }
 
 #[pyimpl(with(SlotGetattro, SlotSetattro), flags(BASETYPE))]

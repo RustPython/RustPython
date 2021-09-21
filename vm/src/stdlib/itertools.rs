@@ -24,17 +24,11 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "chain")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct PyItertoolsChain {
         iterables: Vec<PyObjectRef>,
         cur_idx: AtomicCell<usize>,
         cached_iter: PyRwLock<Option<PyObjectRef>>,
-    }
-
-    impl PyValue for PyItertoolsChain {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
 
     #[pyimpl(with(PyIter))]
@@ -102,16 +96,10 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "compress")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct PyItertoolsCompress {
         data: PyObjectRef,
         selector: PyObjectRef,
-    }
-
-    impl PyValue for PyItertoolsCompress {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
 
     #[derive(FromArgs)]
@@ -160,16 +148,10 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "count")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct PyItertoolsCount {
         cur: PyRwLock<BigInt>,
         step: BigInt,
-    }
-
-    impl PyValue for PyItertoolsCount {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
 
     #[derive(FromArgs)]
@@ -219,17 +201,11 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "cycle")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct PyItertoolsCycle {
         iter: PyObjectRef,
         saved: PyRwLock<Vec<PyObjectRef>>,
         index: AtomicCell<usize>,
-    }
-
-    impl PyValue for PyItertoolsCycle {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
 
     impl SlotConstructor for PyItertoolsCycle {
@@ -275,16 +251,10 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "repeat")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct PyItertoolsRepeat {
         object: PyObjectRef,
         times: Option<PyRwLock<usize>>,
-    }
-
-    impl PyValue for PyItertoolsRepeat {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
 
     #[derive(FromArgs)]
@@ -371,16 +341,10 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "starmap")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct PyItertoolsStarmap {
         function: PyObjectRef,
         iter: PyObjectRef,
-    }
-
-    impl PyValue for PyItertoolsStarmap {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
 
     #[derive(FromArgs)]
@@ -418,17 +382,11 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "takewhile")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct PyItertoolsTakewhile {
         predicate: PyObjectRef,
         iterable: PyObjectRef,
         stop_flag: AtomicCell<bool>,
-    }
-
-    impl PyValue for PyItertoolsTakewhile {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
 
     #[derive(FromArgs)]
@@ -486,17 +444,11 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "dropwhile")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct PyItertoolsDropwhile {
         predicate: PyCallable,
         iterable: PyObjectRef,
         start_flag: AtomicCell<bool>,
-    }
-
-    impl PyValue for PyItertoolsDropwhile {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
 
     #[derive(FromArgs)]
@@ -579,16 +531,11 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "groupby")]
+    #[derive(PyValue)]
     struct PyItertoolsGroupBy {
         iterable: PyObjectRef,
         key_func: Option<PyObjectRef>,
         state: PyMutex<GroupByState>,
-    }
-
-    impl PyValue for PyItertoolsGroupBy {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
 
     impl fmt::Debug for PyItertoolsGroupBy {
@@ -680,18 +627,12 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "_grouper")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct PyItertoolsGrouper {
         groupby: PyRef<PyItertoolsGroupBy>,
     }
 
     type PyItertoolsGrouperRef = PyRef<PyItertoolsGrouper>;
-
-    impl PyValue for PyItertoolsGrouper {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
-    }
 
     #[pyimpl(with(PyIter))]
     impl PyItertoolsGrouper {}
@@ -727,19 +668,13 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "islice")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct PyItertoolsIslice {
         iterable: PyObjectRef,
         cur: AtomicCell<usize>,
         next: AtomicCell<usize>,
         stop: Option<usize>,
         step: usize,
-    }
-
-    impl PyValue for PyItertoolsIslice {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
 
     // Restrict obj to ints with value 0 <= val <= sys.maxsize (isize::MAX).
@@ -856,16 +791,10 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "filterfalse")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct PyItertoolsFilterFalse {
         predicate: PyObjectRef,
         iterable: PyObjectRef,
-    }
-
-    impl PyValue for PyItertoolsFilterFalse {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
 
     #[derive(FromArgs)]
@@ -921,7 +850,7 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "accumulate")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct PyItertoolsAccumulate {
         iterable: PyObjectRef,
         binop: Option<PyObjectRef>,
@@ -936,12 +865,6 @@ mod decl {
         func: OptionalOption<PyObjectRef>,
         #[pyarg(named, optional)]
         initial: OptionalOption<PyObjectRef>,
-    }
-
-    impl PyValue for PyItertoolsAccumulate {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
 
     impl SlotConstructor for PyItertoolsAccumulate {
@@ -1013,16 +936,10 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "tee")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct PyItertoolsTee {
         tee_data: PyRc<PyItertoolsTeeData>,
         index: AtomicCell<usize>,
-    }
-
-    impl PyValue for PyItertoolsTee {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
 
     #[derive(FromArgs)]
@@ -1097,18 +1014,12 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "product")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct PyItertoolsProduct {
         pools: Vec<Vec<PyObjectRef>>,
         idxs: PyRwLock<Vec<usize>>,
         cur: AtomicCell<usize>,
         stop: AtomicCell<bool>,
-    }
-
-    impl PyValue for PyItertoolsProduct {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
 
     #[derive(FromArgs)]
@@ -1200,18 +1111,12 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "combinations")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct PyItertoolsCombinations {
         pool: Vec<PyObjectRef>,
         indices: PyRwLock<Vec<usize>>,
         r: AtomicCell<usize>,
         exhausted: AtomicCell<bool>,
-    }
-
-    impl PyValue for PyItertoolsCombinations {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
 
     #[derive(FromArgs)]
@@ -1304,18 +1209,12 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "combinations_with_replacement")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct PyItertoolsCombinationsWithReplacement {
         pool: Vec<PyObjectRef>,
         indices: PyRwLock<Vec<usize>>,
         r: AtomicCell<usize>,
         exhausted: AtomicCell<bool>,
-    }
-
-    impl PyValue for PyItertoolsCombinationsWithReplacement {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
 
     impl SlotConstructor for PyItertoolsCombinationsWithReplacement {
@@ -1395,7 +1294,7 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "permutations")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct PyItertoolsPermutations {
         pool: Vec<PyObjectRef>,               // Collected input iterable
         indices: PyRwLock<Vec<usize>>,        // One index per element in pool
@@ -1403,12 +1302,6 @@ mod decl {
         result: PyRwLock<Option<Vec<usize>>>, // Indexes of the most recently returned result
         r: AtomicCell<usize>,                 // Size of result tuple
         exhausted: AtomicCell<bool>,          // Set when the iterator is exhausted
-    }
-
-    impl PyValue for PyItertoolsPermutations {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
 
     #[derive(FromArgs)]
@@ -1554,16 +1447,10 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "zip_longest")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct PyItertoolsZipLongest {
         iterators: Vec<PyObjectRef>,
         fillvalue: PyObjectRef,
-    }
-
-    impl PyValue for PyItertoolsZipLongest {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
 
     #[pyimpl(with(PyIter, SlotConstructor))]
@@ -1599,16 +1486,10 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "pairwise")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct PyItertoolsPairwise {
         iterator: PyObjectRef,
         old: PyRwLock<Option<PyObjectRef>>,
-    }
-
-    impl PyValue for PyItertoolsPairwise {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
 
     impl SlotConstructor for PyItertoolsPairwise {

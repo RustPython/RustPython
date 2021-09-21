@@ -19,6 +19,7 @@ mod hashlib {
 
     #[pyattr]
     #[pyclass(module = "hashlib", name = "hasher")]
+    #[derive(PyValue)]
     struct PyHasher {
         name: String,
         buffer: PyRwLock<HashWrapper>,
@@ -27,12 +28,6 @@ mod hashlib {
     impl fmt::Debug for PyHasher {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             write!(f, "hasher {}", self.name)
-        }
-    }
-
-    impl PyValue for PyHasher {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
         }
     }
 

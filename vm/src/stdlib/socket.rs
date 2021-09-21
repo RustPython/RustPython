@@ -142,7 +142,7 @@ impl Default for NullableSocket {
 }
 
 #[pyclass(module = "socket", name = "socket")]
-#[derive(Debug)]
+#[derive(Debug, PyValue)]
 pub struct PySocket {
     kind: AtomicCell<i32>,
     family: AtomicCell<i32>,
@@ -160,12 +160,6 @@ impl Default for PySocket {
             timeout: AtomicCell::new(-1.0),
             sock: PyRwLock::new(NullableSocket::invalid()),
         }
-    }
-}
-
-impl PyValue for PySocket {
-    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
     }
 }
 

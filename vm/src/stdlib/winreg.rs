@@ -13,7 +13,7 @@ use winapi::shared::winerror;
 use winreg::{enums::RegType, RegKey, RegValue};
 
 #[pyclass(module = "winreg", name = "HKEYType")]
-#[derive(Debug)]
+#[derive(Debug, PyValue)]
 struct PyHKEY {
     key: PyRwLock<RegKey>,
 }
@@ -21,12 +21,6 @@ type PyHKEYRef = PyRef<PyHKEY>;
 
 // TODO: fix this
 unsafe impl Sync for PyHKEY {}
-
-impl PyValue for PyHKEY {
-    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
-    }
-}
 
 #[pyimpl]
 impl PyHKEY {

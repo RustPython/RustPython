@@ -20,7 +20,7 @@ mod _json {
 
     #[pyattr(name = "make_scanner")]
     #[pyclass(name = "Scanner")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct JsonScanner {
         strict: bool,
         object_hook: Option<PyObjectRef>,
@@ -29,12 +29,6 @@ mod _json {
         parse_int: Option<PyObjectRef>,
         parse_constant: PyObjectRef,
         ctx: PyObjectRef,
-    }
-
-    impl PyValue for JsonScanner {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
 
     impl SlotConstructor for JsonScanner {
