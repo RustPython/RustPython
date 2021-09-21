@@ -90,13 +90,13 @@ mod _io {
     };
     use crate::common::rc::PyRc;
     use crate::exceptions::{self, IntoPyException, PyBaseExceptionRef};
-    use crate::function::{FuncArgs, OptionalArg, OptionalOption};
+    use crate::function::{ArgIterable, FuncArgs, OptionalArg, OptionalOption};
     use crate::slots::SlotConstructor;
     use crate::utils::Either;
     use crate::vm::{ReprGuard, VirtualMachine};
     use crate::{
-        function::ArgIterable, IdProtocol, IntoPyObject, PyContext, PyObjectRef, PyRef, PyResult,
-        PyValue, StaticType, TryFromObject, TypeProtocol,
+        IdProtocol, IntoPyObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
+        TryFromObject, TypeProtocol,
     };
 
     #[allow(clippy::let_and_return)]

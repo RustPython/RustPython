@@ -6,14 +6,14 @@ use crate::common::hash::PyHash;
 use crate::common::rc::PyRc;
 use crate::dictdatatype;
 use crate::dictdatatype::DictSize;
-use crate::function::{Args, FuncArgs, OptionalArg};
+use crate::function::{ArgIterable, Args, FuncArgs, OptionalArg};
 use crate::slots::{
     Comparable, Hashable, Iterable, PyComparisonOp, PyIter, SlotConstructor, Unhashable,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 use crate::{
-    function::ArgIterable, IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef,
-    PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use std::fmt;

@@ -8,14 +8,14 @@ use super::set::PySet;
 use super::IterStatus;
 use crate::dictdatatype::{self, DictKey};
 use crate::exceptions::PyBaseExceptionRef;
-use crate::function::{FuncArgs, KwArgs, OptionalArg};
+use crate::function::{ArgIterable, FuncArgs, KwArgs, OptionalArg};
 use crate::iterator;
 use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable};
 use crate::vm::{ReprGuard, VirtualMachine};
 use crate::{
-    function::ArgIterable, IdProtocol, IntoPyObject, ItemProtocol, PyArithmaticValue::*,
-    PyAttributes, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
-    PyResult, PyValue, TryFromObject, TypeProtocol,
+    IdProtocol, IntoPyObject, ItemProtocol, PyArithmaticValue::*, PyAttributes, PyClassDef,
+    PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol,
 };
 
 pub type DictContentType = dictdatatype::Dict;

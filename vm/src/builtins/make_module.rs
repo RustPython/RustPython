@@ -25,18 +25,20 @@ mod decl {
     use crate::common::{hash::PyHash, str::to_ascii};
     #[cfg(feature = "rustpython-compiler")]
     use crate::compile;
-    use crate::function::{Args, FuncArgs, KwArgs, OptionalArg, OptionalOption};
+    use crate::function::{
+        ArgCallable, ArgIterable, Args, FuncArgs, KwArgs, OptionalArg, OptionalOption,
+    };
     use crate::iterator;
     use crate::readline::{Readline, ReadlineResult};
     use crate::scope::Scope;
     use crate::slots::PyComparisonOp;
     use crate::utils::Either;
     use crate::vm::VirtualMachine;
-    use crate::{
-        function::ArgCallable, function::ArgIterable, IdProtocol, ItemProtocol, PyArithmaticValue,
-        PyClassImpl, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
-    };
     use crate::{py_io, sysmodule};
+    use crate::{
+        IdProtocol, ItemProtocol, PyArithmaticValue, PyClassImpl, PyObjectRef, PyResult, PyValue,
+        TryFromObject, TypeProtocol,
+    };
     use num_traits::{Signed, Zero};
 
     #[pyfunction]
