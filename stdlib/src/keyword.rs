@@ -3,7 +3,7 @@ pub(crate) use decl::make_module;
 
 #[pymodule(name = "keyword")]
 mod decl {
-    use crate::{builtins::PyStr, PyObjectRef, VirtualMachine};
+    use crate::vm::{builtins::PyStr, PyObjectRef, VirtualMachine};
     use itertools::Itertools;
     use rustpython_parser::lexer;
 

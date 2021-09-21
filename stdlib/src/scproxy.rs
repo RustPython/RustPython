@@ -4,7 +4,7 @@ pub(crate) use _scproxy::make_module;
 mod _scproxy {
     // straight-forward port of Modules/_scproxy.c
 
-    use crate::{
+    use crate::vm::{
         builtins::{PyDictRef, PyStr},
         IntoPyObject, ItemProtocol, PyResult, VirtualMachine,
     };

@@ -12,19 +12,19 @@ include = ["LICENSE", "Cargo.toml", "src/**/*.rs"]
 resolver = "2"
 members = [
     ".", "ast", "bytecode", "common", "compiler", "compiler/porcelain",
-    "derive", "jit", "parser", "vm", "vm/pylib-crate", "wasm/lib",
+    "derive", "jit", "parser", "vm", "vm/pylib-crate", "stdlib", "wasm/lib",
 ]
 
 [features]
-default = ["threading", "pylib", "zlib"]
+default = ["threading", "pylib", "zlib", "stdlib"]
+stdlib = ["rustpython-stdlib"]
 flame-it = ["rustpython-vm/flame-it", "flame", "flamescope"]
 freeze-stdlib = ["rustpython-vm/freeze-stdlib"]
 jit = ["rustpython-vm/jit"]
 threading = ["rustpython-vm/threading"]
-zlib = ["rustpython-vm/zlib"]
-
-ssl = ["rustpython-vm/ssl"]
-ssl-vendor = ["rustpython-vm/ssl-vendor"]
+zlib = ["rustpython-stdlib/zlib"]
+ssl = ["rustpython-stdlib/ssl"]
+ssl-vendor = ["rustpython-stdlib/ssl-vendor"]
 
 [dependencies]
 log = "0.4"
@@ -33,6 +33,7 @@ clap = "2.33"
 rustpython-compiler = { path = "compiler/porcelain", version = "0.1.1" }
 rustpython-parser = { path = "parser", version = "0.1.1" }
 rustpython-vm = { path = "vm", version = "0.1.1", default-features = false, features = ["compile-parse"] }
+rustpython-stdlib = {path = "stdlib", optional = true, default-features = false, features = ["compile-parse"]}
 pylib = { package = "rustpython-pylib", path = "vm/pylib-crate", version = "0.1.0", optional = true }
 dirs = { package = "dirs-next", version = "2.0.0" }
 num-traits = "0.2.8"

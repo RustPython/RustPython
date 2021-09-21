@@ -3,7 +3,7 @@ pub(crate) use syslog::make_module;
 #[pymodule(name = "syslog")]
 mod syslog {
     use crate::common::lock::PyRwLock;
-    use crate::{
+    use crate::vm::{
         builtins::{PyStr, PyStrRef},
         function::{OptionalArg, OptionalOption},
         utils::ToCString,

@@ -5,7 +5,7 @@ pub(crate) use _random::make_module;
 #[pymodule]
 mod _random {
     use crate::common::lock::PyMutex;
-    use crate::{
+    use crate::vm::{
         builtins::{PyIntRef, PyTypeRef},
         function::OptionalOption,
         slots::SlotConstructor,

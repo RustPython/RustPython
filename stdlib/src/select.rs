@@ -1,13 +1,13 @@
-use crate::{PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject, VirtualMachine};
+use crate::vm::{PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject, VirtualMachine};
 use std::{io, mem};
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     #[cfg(windows)]
-    super::nt::init_winsock();
+    crate::vm::stdlib::nt::init_winsock();
 
     #[cfg(unix)]
     {
-        use crate::PyClassImpl;
+        use crate::vm::PyClassImpl;
         decl::poll::PyPoll::make_class(&vm.ctx);
     }
 
@@ -151,7 +151,7 @@ fn sec_to_timeval(sec: f64) -> timeval {
 #[pymodule(name = "select")]
 mod decl {
     use super::*;
-    use crate::{
+    use crate::vm::{
         exceptions::IntoPyException, function::OptionalOption, stdlib::time, utils::Either,
         PyObjectRef, PyResult, VirtualMachine,
     };
@@ -252,7 +252,7 @@ mod decl {
     #[cfg(unix)]
     pub(super) mod poll {
         use super::*;
-        use crate::{
+        use crate::vm::{
             builtins::PyFloat, common::lock::PyMutex, function::OptionalArg, stdlib::io::Fildes,
             IntoPyObject, PyValue, TypeProtocol,
         };

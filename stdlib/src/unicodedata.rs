@@ -2,9 +2,9 @@
    See also: https://docs.python.org/3/library/unicodedata.html
 */
 
-use crate::{
-    builtins::PyStrRef, function::OptionalArg, PyClassImpl, PyObject, PyObjectRef, PyResult,
-    PyValue, VirtualMachine,
+use crate::vm::{
+    builtins::PyStrRef, extend_module, function::OptionalArg, py_module, PyClassImpl, PyObject,
+    PyObjectRef, PyResult, PyValue, VirtualMachine,
 };
 use itertools::Itertools;
 use unic_char_property::EnumeratedCharProperty;

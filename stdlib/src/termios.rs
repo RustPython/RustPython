@@ -2,7 +2,7 @@ pub(crate) use self::termios::make_module;
 
 #[pymodule]
 mod termios {
-    use crate::{
+    use crate::vm::{
         builtins::PyBaseExceptionRef,
         builtins::{PyBytes, PyInt, PyListRef, PyTypeRef},
         IntoPyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,

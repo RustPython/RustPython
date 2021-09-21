@@ -934,7 +934,7 @@ impl serde::Serialize for SerializeException<'_> {
     }
 }
 
-pub(crate) fn cstring_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
+pub fn cstring_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
     vm.new_value_error("embedded null character".to_owned())
 }
 

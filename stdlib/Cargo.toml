@@ -1,0 +1,110 @@
+[package]
+name = "rustpython-stdlib"
+version = "0.1.2"
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rustpython-parser = { path = "../parser", optional = true }
+rustpython-derive = { path = "../derive" }
+rustpython-vm = { path = "../vm" }
+rustpython-common = { path = "../common" }
+
+# random
+rand = "0.8"
+rand_core = "0.6"
+mt19937 = "2.0"
+
+# Crypto:
+digest = "0.9.0"
+md-5 = "0.9.1"
+sha-1 = "0.9.4"
+sha2 = "0.9.3"
+sha3 = "0.9.1"
+blake2 = "0.9.1"
+
+## unicode stuff
+unicode_names2 = "0.4"
+# TODO: use unic for this; needed for title case:
+# https://github.com/RustPython/RustPython/pull/832#discussion_r275428939
+unicode-casing = "0.1"
+# update version all at the same time
+unic-char-property = "0.9"
+unic-normal        = "0.9"
+unic-ucd-bidi      = "0.9"
+unic-ucd-category  = "0.9"
+unic-ucd-age       = "0.9"
+unic-ucd-ident     = "0.9"
+
+# compression
+adler32 = "1.0.3"
+crc32fast = "1.2.0"
+flate2 = "1.0.20"
+
+num-complex = "0.4.0"
+num-bigint = "0.4.2"
+num-integer = "0.1.44"
+
+crossbeam-utils = "0.8.5"
+itertools = "0.10.1"
+lexical-core = "0.7"
+num-traits = "0.2.14"
+crc = "^1.0.0"
+memchr = "2"
+base64 = "0.13"
+csv-core = "0.1"
+hex = "0.4.0"
+puruspe = "0.1"
+nix = "0.22.1"
+xml-rs = "0.8"
+libc = "0.2.102"
+cfg-if = "1.0.0"
+ahash = "0.7.4"
+libz-sys = { version = "1.0", optional = true }
+num_enum = "0.5.4"
+ascii = "1.0.0"
+
+[target.'cfg(all(unix, not(target_os = "redox")))'.dependencies]
+termios = "0.3"
+
+[features]
+default = ["compile-parse", "pylib"]
+pylib = ["rustpython-vm/pylib"]
+compile-parse = ["rustpython-vm/compile-parse", "rustpython-parser"]
+threading = ["rustpython-vm/threading"]
+parser = ["rustpython-vm/parser"]
+ast = ["rustpython-vm/ast"]
+compiler = ["rustpython-vm/compiler"]
+# compiler = ["rustpython-compiler", "rustpython-compiler-core", "ast"]
+# parser = ["rustpython-parser", "ast"]
+
+# TODO: use resolver = "2" instead of features
+zlib = ["libz-sys", "flate2/zlib"]
+ssl = ["openssl", "openssl-sys", "foreign-types-shared"]
+ssl-vendor = ["ssl", "openssl/vendored", "openssl-probe"]
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+gethostname = "0.2.0"
+socket2 = { version = "0.4.0", features = ["all"] }
+dns-lookup = "1.0"
+openssl = { version = "0.10.32", optional = true }
+openssl-sys = { version = "0.9", optional = true }
+openssl-probe = { version = "0.1", optional = true }
+foreign-types-shared = { version = "0.1", optional = true }
+
+[target.'cfg(windows)'.dependencies]
+schannel = "0.1"
+widestring = "0.4"
+paste = "1.0.5"
+
+[target.'cfg(windows)'.dependencies.winapi]
+version = "0.3"
+features = [
+  "winsock2", "handleapi", "ws2def", "std", "winbase", "wincrypt", "fileapi", "processenv",
+  "namedpipeapi", "winnt", "processthreadsapi", "errhandlingapi", "winuser", "synchapi", "wincon",
+  "impl-default", "vcruntime", "ifdef", "netioapi"
+]
+
+[target.'cfg(target_os = "macos")'.dependencies]
+system-configuration = "0.4"

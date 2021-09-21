@@ -637,7 +637,7 @@ setprofile() -- set the global profiling function
 setrecursionlimit() -- set the max recursion depth for the interpreter
 settrace() -- set the global debug tracing function
 ";
-    let mut module_names: Vec<_> = vm.state.stdlib_inits.keys().cloned().collect();
+    let mut module_names: Vec<_> = vm.state.module_inits.keys().cloned().collect();
     module_names.push("sys".into());
     module_names.push("builtins".into());
     module_names.sort();

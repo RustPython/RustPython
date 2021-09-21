@@ -5,7 +5,7 @@ pub(crate) use cmath::make_module;
 /// This module provides access to mathematical functions for complex numbers.
 #[pymodule]
 mod cmath {
-    use crate::{
+    use crate::vm::{
         builtins::{IntoPyComplex, IntoPyFloat},
         function::OptionalArg,
         PyResult, VirtualMachine,

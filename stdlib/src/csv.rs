@@ -1,8 +1,10 @@
 use crate::common::lock::PyMutex;
-use crate::{
+use crate::vm::{
     builtins::{PyStr, PyStrRef},
     function::{ArgIterable, ArgumentError, FromArgs, FuncArgs},
+    match_class, named_function,
     protocol::PyIter,
+    py_module,
     slots::{IteratorIterable, SlotIterator},
     types::create_simple_type,
     PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,

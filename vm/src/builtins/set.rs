@@ -639,7 +639,7 @@ impl SlotConstructor for PyFrozenSet {
 #[pyimpl(flags(BASETYPE), with(Hashable, Comparable, Iterable, SlotConstructor))]
 impl PyFrozenSet {
     // Also used by ssl.rs windows.
-    pub(crate) fn from_iter(
+    pub fn from_iter(
         vm: &VirtualMachine,
         it: impl IntoIterator<Item = PyObjectRef>,
     ) -> PyResult<Self> {

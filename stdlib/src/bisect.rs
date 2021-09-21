@@ -2,7 +2,7 @@ pub(crate) use _bisect::make_module;
 
 #[pymodule]
 mod _bisect {
-    use crate::{
+    use crate::vm::{
         function::OptionalArg, slots::PyComparisonOp::Lt, ItemProtocol, PyObjectRef, PyResult,
         VirtualMachine,
     };

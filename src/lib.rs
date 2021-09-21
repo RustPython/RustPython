@@ -93,6 +93,13 @@ where
     };
 
     let interp = Interpreter::new_with_init(settings, |vm| {
+        #[cfg(feature = "stdlib")]
+        {
+            let stdlib = rustpython_stdlib::get_module_inits();
+            for (name, init) in stdlib.into_iter() {
+                vm.add_native_module(name, init);
+            }
+        }
         init(vm);
         init_param
     });

@@ -2,7 +2,7 @@ pub(crate) use decl::make_module;
 
 #[pymodule(name = "dis")]
 mod decl {
-    use crate::{
+    use crate::vm::{
         builtins::{PyCode, PyDictRef, PyStrRef},
         bytecode::CodeFlags,
         compile, ItemProtocol, PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,

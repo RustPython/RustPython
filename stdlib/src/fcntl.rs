@@ -2,7 +2,7 @@ pub(crate) use fcntl::make_module;
 
 #[pymodule]
 mod fcntl {
-    use crate::{
+    use crate::vm::{
         builtins::PyIntRef,
         function::{ArgMemoryBuffer, ArgStrOrBytesLike, OptionalArg},
         stdlib::{io, os},

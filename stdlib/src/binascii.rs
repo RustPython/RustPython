@@ -2,10 +2,10 @@ pub(crate) use decl::make_module;
 
 #[pymodule(name = "binascii")]
 mod decl {
-    use crate::{
+    use crate::vm::{
         builtins::{PyByteArray, PyBytes, PyStr, PyTypeRef},
         function::{ArgBytesLike, OptionalArg},
-        PyObjectRef, PyRef, PyResult, TryFromObject, TypeProtocol, VirtualMachine,
+        match_class, PyObjectRef, PyRef, PyResult, TryFromObject, TypeProtocol, VirtualMachine,
     };
     use crc::{crc32, Hasher32};
     use itertools::Itertools;

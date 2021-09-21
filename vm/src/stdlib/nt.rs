@@ -1,6 +1,6 @@
 use crate::{PyObjectRef, VirtualMachine};
 
-pub(crate) use module::raw_set_handle_inheritable;
+pub use module::raw_set_handle_inheritable;
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let module = module::make_module(vm);
@@ -368,10 +368,7 @@ pub(crate) mod module {
         }
     }
 
-    pub(crate) fn raw_set_handle_inheritable(
-        handle: intptr_t,
-        inheritable: bool,
-    ) -> io::Result<()> {
+    pub fn raw_set_handle_inheritable(handle: intptr_t, inheritable: bool) -> io::Result<()> {
         use um::winbase::HANDLE_FLAG_INHERIT;
         let flags = if inheritable { HANDLE_FLAG_INHERIT } else { 0 };
         let res =

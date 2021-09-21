@@ -3,10 +3,12 @@ use crate::common::{
     ascii,
     lock::{PyRwLock, PyRwLockWriteGuard},
 };
-use crate::{
+use crate::vm::{
     builtins::{PyBaseException, PyBaseExceptionRef, PyStrRef, PyType, PyTypeRef, PyWeak},
     exceptions::{self, IntoPyException},
+    extend_module,
     function::{ArgBytesLike, ArgCallable, ArgMemoryBuffer, ArgStrOrBytesLike, OptionalArg},
+    named_function, py_module,
     slots::SlotConstructor,
     stdlib::os::PyPathLike,
     types::create_simple_type,
@@ -139,9 +141,10 @@ fn obj2py(obj: &Asn1ObjectRef) -> PyNid {
 
 #[cfg(windows)]
 fn _ssl_enum_certificates(store_name: PyStrRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-    use crate::builtins::set::PyFrozenSet;
+    use crate::vm::builtins::PyFrozenSet;
     use schannel::{cert_context::ValidUses, cert_store::CertStore, RawPointer};
     use winapi::um::wincrypt;
+
     // TODO: check every store for it, not just 2 of them:
     // https://github.com/python/cpython/blob/3.8/Modules/_ssl.c#L5603-L5610
     let open_fns = [CertStore::open_current_user, CertStore::open_local_machine];
@@ -495,7 +498,7 @@ impl PySslContext {
             if ret != 1 {
                 let errno = std::io::Error::last_os_error().raw_os_error().unwrap();
                 let err = if errno != 0 {
-                    super::os::errno_err(vm)
+                    crate::vm::stdlib::os::errno_err(vm)
                 } else {
                     convert_openssl_error(vm, ErrorStack::get())
                 };

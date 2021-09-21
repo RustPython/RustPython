@@ -2,7 +2,7 @@ pub(crate) use math::make_module;
 
 #[pymodule]
 mod math {
-    use crate::{
+    use crate::vm::{
         builtins::{
             try_bigint_to_f64, try_f64_to_bigint, IntoPyFloat, PyFloatRef, PyInt, PyIntRef,
         },
