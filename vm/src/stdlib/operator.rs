@@ -12,8 +12,7 @@ mod _operator {
     use crate::common::cmp;
     use crate::{
         builtins::{PyInt, PyIntRef, PyStrRef, PyTypeRef},
-        byteslike::ArgBytesLike,
-        function::{FuncArgs, KwArgs, OptionalArg},
+        function::{ArgBytesLike, FuncArgs, KwArgs, OptionalArg},
         iterator,
         slots::{
             Callable,

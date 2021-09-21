@@ -1729,10 +1729,10 @@ pub mod module {
     fn _extract_vec_bytes(
         x: OptionalArg,
         vm: &VirtualMachine,
-    ) -> PyResult<Option<Vec<crate::byteslike::ArgBytesLike>>> {
+    ) -> PyResult<Option<Vec<crate::function::ArgBytesLike>>> {
         let inner = match x.into_option() {
             Some(v) => {
-                let v = vm.extract_elements::<crate::byteslike::ArgBytesLike>(&v)?;
+                let v = vm.extract_elements::<crate::function::ArgBytesLike>(&v)?;
                 if v.is_empty() {
                     None
                 } else {

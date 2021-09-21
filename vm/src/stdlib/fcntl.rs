@@ -4,8 +4,7 @@ pub(crate) use fcntl::make_module;
 mod fcntl {
     use crate::{
         builtins::int,
-        byteslike::{ArgMemoryBuffer, ArgStrOrBytesLike},
-        function::OptionalArg,
+        function::{ArgMemoryBuffer, ArgStrOrBytesLike, OptionalArg},
         stdlib::{io, os},
         utils::Either,
         PyResult, VirtualMachine,

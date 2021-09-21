@@ -45,7 +45,6 @@ pub(crate) mod macros;
 mod anystr;
 pub mod builtins;
 mod bytesinner;
-pub mod byteslike;
 pub mod cformat;
 mod codecs;
 mod coroutine;

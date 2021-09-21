@@ -15,8 +15,7 @@ mod array {
             IntoPyFloat, PyByteArray, PyBytes, PyBytesRef, PyIntRef, PyList, PyListRef, PySliceRef,
             PyStr, PyStrRef, PyTypeRef,
         },
-        byteslike::ArgBytesLike,
-        function::{ArgIterable, OptionalArg},
+        function::{ArgBytesLike, ArgIterable, OptionalArg},
         protocol::{BufferInternal, BufferOptions, PyBuffer, ResizeGuard},
         sliceable::{saturate_index, PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
         slots::{

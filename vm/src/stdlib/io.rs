@@ -80,8 +80,8 @@ mod _io {
         builtins::{
             PyByteArray, PyBytes, PyBytesRef, PyMemoryView, PyStr, PyStrRef, PyType, PyTypeRef,
         },
-        byteslike::{ArgBytesLike, ArgMemoryBuffer},
         exceptions::{self, PyBaseExceptionRef},
+        function::{ArgBytesLike, ArgMemoryBuffer},
         function::{ArgIterable, FuncArgs, OptionalArg, OptionalOption},
         protocol::{BufferInternal, BufferOptions, PyBuffer, ResizeGuard},
         slots::{Iterable, PyIter, SlotConstructor},
@@ -3682,10 +3682,10 @@ mod fileio {
     use super::_io::*;
     use crate::{
         builtins::{PyStr, PyStrRef, PyTypeRef},
-        byteslike::{ArgBytesLike, ArgMemoryBuffer},
         crt_fd::Fd,
         exceptions::IntoPyException,
         function::OptionalOption,
+        function::{ArgBytesLike, ArgMemoryBuffer},
         function::{FuncArgs, OptionalArg},
         stdlib::os,
         PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,

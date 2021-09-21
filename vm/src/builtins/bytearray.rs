@@ -14,8 +14,7 @@ use crate::{
         ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerSplitOptions,
         ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
     },
-    byteslike::ArgBytesLike,
-    function::{ArgIterable, FuncArgs, OptionalArg, OptionalOption},
+    function::{ArgBytesLike, ArgIterable, FuncArgs, OptionalArg, OptionalOption},
     protocol::{BufferInternal, BufferOptions, PyBuffer, ResizeGuard},
     sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
     slots::{

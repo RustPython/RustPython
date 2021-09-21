@@ -33,7 +33,7 @@ macro_rules! create_property {
 mod _pyexpat {
     use crate::{
         builtins::{PyStr, PyStrRef, PyTypeRef},
-        byteslike::ArgBytesLike,
+        function::ArgBytesLike,
         function::{IntoFuncArgs, OptionalArg},
         ItemProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
         VirtualMachine,

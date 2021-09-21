@@ -1,4 +1,5 @@
 mod argument;
+mod byteslike;
 
 use self::OptionalArg::*;
 use crate::builtins::pytype::PyTypeRef;
@@ -16,6 +17,7 @@ use std::marker::PhantomData;
 use std::ops::RangeInclusive;
 
 pub use argument::{ArgCallable, ArgIterable, PyIterator};
+pub use byteslike::{ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike};
 
 pub trait IntoFuncArgs: Sized {
     fn into_args(self, vm: &VirtualMachine) -> FuncArgs;

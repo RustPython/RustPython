@@ -20,10 +20,10 @@ mod decl {
     #[cfg(feature = "rustpython-compiler")]
     use crate::compile;
     use crate::{
-        byteslike::ArgBytesLike,
         common::{hash::PyHash, str::to_ascii},
         function::{
-            ArgCallable, ArgIterable, FuncArgs, KwArgs, OptionalArg, OptionalOption, PosArgs,
+            ArgBytesLike, ArgCallable, ArgIterable, FuncArgs, KwArgs, OptionalArg, OptionalOption,
+            PosArgs,
         },
         iterator, py_io,
         readline::{Readline, ReadlineResult},

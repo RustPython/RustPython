@@ -1,9 +1,8 @@
 use crate::common::lock::{PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard};
 use crate::{
     builtins::{PyStrRef, PyTupleRef, PyTypeRef},
-    byteslike::{ArgBytesLike, ArgMemoryBuffer},
     exceptions::{IntoPyException, PyBaseExceptionRef},
-    function::{FuncArgs, OptionalArg, OptionalOption},
+    function::{ArgBytesLike, ArgMemoryBuffer, FuncArgs, OptionalArg, OptionalOption},
     utils::{Either, ToCString},
     IntoPyObject, PyClassImpl, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject,
     TryFromObject, TypeProtocol, VirtualMachine,
@@ -302,7 +301,7 @@ impl PySocket {
             #[cfg(unix)]
             c::AF_UNIX => {
                 use std::os::unix::ffi::OsStrExt;
-                let buf = crate::byteslike::ArgStrOrBytesLike::try_from_object(vm, addr)?;
+                let buf = crate::function::ArgStrOrBytesLike::try_from_object(vm, addr)?;
                 let path = &*buf.borrow_bytes();
                 if cfg!(any(target_os = "linux", target_os = "android")) && path.first() == Some(&0)
                 {

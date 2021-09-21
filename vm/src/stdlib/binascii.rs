@@ -4,8 +4,7 @@ pub(crate) use decl::make_module;
 mod decl {
     use crate::{
         builtins::{PyByteArray, PyBytes, PyStr, PyTypeRef},
-        byteslike::ArgBytesLike,
-        function::OptionalArg,
+        function::{ArgBytesLike, OptionalArg},
         PyObjectRef, PyRef, PyResult, TryFromObject, TypeProtocol, VirtualMachine,
     };
     use crc::{crc32, Hasher32};

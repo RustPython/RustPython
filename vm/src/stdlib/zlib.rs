@@ -5,9 +5,8 @@ mod decl {
     use crate::common::lock::PyMutex;
     use crate::{
         builtins::{PyBytes, PyBytesRef, PyIntRef, PyTypeRef},
-        byteslike::ArgBytesLike,
         exceptions::PyBaseExceptionRef,
-        function::OptionalArg,
+        function::{ArgBytesLike, OptionalArg},
         types::create_simple_type,
         IntoPyRef, PyResult, PyValue, VirtualMachine,
     };

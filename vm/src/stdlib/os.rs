@@ -370,10 +370,9 @@ pub(super) mod _os {
     use crate::common::lock::{OnceCell, PyRwLock};
     use crate::{
         builtins::{PyBytesRef, PyStrRef, PyTuple, PyTupleRef, PyTypeRef},
-        byteslike::ArgBytesLike,
         crt_fd::{Fd, Offset},
         exceptions::IntoPyException,
-        function::{FuncArgs, OptionalArg},
+        function::{ArgBytesLike, FuncArgs, OptionalArg},
         slots::{IteratorIterable, PyIter},
         suppress_iph,
         utils::Either,
