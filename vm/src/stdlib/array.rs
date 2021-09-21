@@ -10,11 +10,11 @@ pub type wchar_t = u32;
 #[pymodule(name = "array")]
 mod array {
     use crate::buffer::{BufferOptions, PyBuffer, PyBufferInternal, ResizeGuard};
-    use crate::builtins::float::IntoPyFloat;
     use crate::builtins::list::{PyList, PyListRef};
     use crate::builtins::pystr::{PyStr, PyStrRef};
     use crate::builtins::pytype::PyTypeRef;
     use crate::builtins::slice::PySliceRef;
+    use crate::builtins::IntoPyFloat;
     use crate::builtins::{PyByteArray, PyBytes, PyBytesRef, PyIntRef};
     use crate::byteslike::ArgBytesLike;
     use crate::common::borrow::{BorrowedValue, BorrowedValueMut};

@@ -2,9 +2,7 @@
 //! [https://docs.python.org/3/library/stdtypes.html#printf-style-string-formatting]
 
 use crate::buffer::PyBuffer;
-use crate::builtins::{
-    float::IntoPyFloat, int, try_f64_to_bigint, tuple, PyBytes, PyFloat, PyInt, PyStr,
-};
+use crate::builtins::{int, try_f64_to_bigint, tuple, IntoPyFloat, PyBytes, PyFloat, PyInt, PyStr};
 use crate::common::float_ops;
 use crate::{
     ItemProtocol, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject, TypeProtocol,

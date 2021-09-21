@@ -8,7 +8,7 @@ use num_traits::{One, Signed, Zero};
 use puruspe::{erf, erfc, gamma, ln_gamma};
 
 use crate::builtins::{
-    float::IntoPyFloat, try_bigint_to_f64, try_f64_to_bigint, PyFloatRef, PyInt, PyIntRef,
+    try_bigint_to_f64, try_f64_to_bigint, IntoPyFloat, PyFloatRef, PyInt, PyIntRef,
 };
 use crate::function::{Args, OptionalArg};
 use crate::utils::Either;
