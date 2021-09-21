@@ -16,7 +16,7 @@ mod array {
     use crate::builtins::pytype::PyTypeRef;
     use crate::builtins::slice::PySliceRef;
     use crate::builtins::{PyByteArray, PyBytes, PyBytesRef, PyIntRef};
-    use crate::byteslike::{try_bytes_like, ArgBytesLike};
+    use crate::byteslike::ArgBytesLike;
     use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
     use crate::common::lock::{
         PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyRwLock, PyRwLockReadGuard,
@@ -657,13 +657,13 @@ mod array {
                         )));
                     }
                 } else if init.payload_is::<PyBytes>() || init.payload_is::<PyByteArray>() {
-                    try_bytes_like(vm, &init, |x| array.frombytes(x))?;
+                    init.try_bytes_like(vm, |x| array.frombytes(x))?;
                 } else if let Ok(iter) = PyIterable::try_from_object(vm, init.clone()) {
                     for obj in iter.iter(vm)? {
                         array.push(obj?, vm)?;
                     }
                 } else {
-                    try_bytes_like(vm, &init, |x| array.frombytes(x))?;
+                    init.try_bytes_like(vm, |x| array.frombytes(x))?;
                 }
             }
 

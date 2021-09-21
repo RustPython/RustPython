@@ -29,8 +29,14 @@ impl TryFromBorrowedObject for bool {
     }
 }
 
+impl PyObjectRef {
+    pub fn try_into_bool(self, vm: &VirtualMachine) -> PyResult<bool> {
+        boolval(vm, self)
+    }
+}
+
 /// Convert Python bool into Rust bool.
-pub fn boolval(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
+pub(crate) fn boolval(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
     if obj.is(&vm.ctx.true_value) {
         return Ok(true);
     }

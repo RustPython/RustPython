@@ -1,4 +1,4 @@
-use super::{int, PyBytes, PyInt, PyIntRef, PyStr, PyStrRef, PyTypeRef};
+use super::{try_bigint_to_f64, PyBytes, PyInt, PyIntRef, PyStr, PyStrRef, PyTypeRef};
 use crate::common::{float_ops, hash};
 use crate::format::FormatSpec;
 use crate::function::{OptionalArg, OptionalOption};
@@ -51,29 +51,31 @@ impl From<f64> for PyFloat {
     }
 }
 
-pub fn try_float_opt(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<f64>> {
-    if let Some(float) = obj.payload_if_exact::<PyFloat>(vm) {
-        return Ok(Some(float.value));
+impl PyObjectRef {
+    pub fn try_to_f64(&self, vm: &VirtualMachine) -> PyResult<Option<f64>> {
+        if let Some(float) = self.payload_if_exact::<PyFloat>(vm) {
+            return Ok(Some(float.value));
+        }
+        if let Some(method) = vm.get_method(self.clone(), "__float__") {
+            let result = vm.invoke(&method?, ())?;
+            // TODO: returning strict subclasses of float in __float__ is deprecated
+            return match result.payload::<PyFloat>() {
+                Some(float_obj) => Ok(Some(float_obj.value)),
+                None => Err(vm.new_type_error(format!(
+                    "__float__ returned non-float (type '{}')",
+                    result.class().name()
+                ))),
+            };
+        }
+        if let Some(r) = vm.to_index_opt(self.clone()).transpose()? {
+            return Ok(Some(try_bigint_to_f64(r.as_bigint(), vm)?));
+        }
+        Ok(None)
     }
-    if let Some(method) = vm.get_method(obj.clone(), "__float__") {
-        let result = vm.invoke(&method?, ())?;
-        // TODO: returning strict subclasses of float in __float__ is deprecated
-        return match result.payload::<PyFloat>() {
-            Some(float_obj) => Ok(Some(float_obj.value)),
-            None => Err(vm.new_type_error(format!(
-                "__float__ returned non-float (type '{}')",
-                result.class().name()
-            ))),
-        };
-    }
-    if let Some(r) = vm.to_index_opt(obj.clone()).transpose()? {
-        return Ok(Some(int::to_float(r.as_bigint(), vm)?));
-    }
-    Ok(None)
 }
 
 pub fn try_float(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
-    try_float_opt(obj, vm)?.ok_or_else(|| {
+    obj.try_to_f64(vm)?.ok_or_else(|| {
         vm.new_type_error(format!("must be real number, not {}", obj.class().name()))
     })
 }
@@ -82,7 +84,7 @@ pub(crate) fn to_op_float(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Op
     let v = if let Some(float) = obj.payload_if_subclass::<PyFloat>(vm) {
         Some(float.value)
     } else if let Some(int) = obj.payload_if_subclass::<PyInt>(vm) {
-        Some(int::to_float(int.as_bigint(), vm)?)
+        Some(try_bigint_to_f64(int.as_bigint(), vm)?)
     } else {
         None
     };
@@ -111,7 +113,7 @@ fn inner_mod(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult<f64> {
         .ok_or_else(|| vm.new_zero_division_error("float mod by zero".to_owned()))
 }
 
-pub fn try_bigint(value: f64, vm: &VirtualMachine) -> PyResult<BigInt> {
+pub fn try_to_bigint(value: f64, vm: &VirtualMachine) -> PyResult<BigInt> {
     match value.to_bigint() {
         Some(int) => Ok(int),
         None => {
@@ -171,7 +173,7 @@ impl SlotConstructor for PyFloat {
                     val
                 };
 
-                if let Some(f) = try_float_opt(&val, vm)? {
+                if let Some(f) = val.try_to_f64(vm)? {
                     f
                 } else if let Some(s) = val.payload_if_subclass::<PyStr>(vm) {
                     float_ops::parse_str(s.as_str().trim()).ok_or_else(|| {
@@ -379,17 +381,17 @@ impl PyFloat {
 
     #[pymethod(magic)]
     fn trunc(&self, vm: &VirtualMachine) -> PyResult<BigInt> {
-        try_bigint(self.value, vm)
+        try_to_bigint(self.value, vm)
     }
 
     #[pymethod(magic)]
     fn floor(&self, vm: &VirtualMachine) -> PyResult<BigInt> {
-        try_bigint(self.value.floor(), vm)
+        try_to_bigint(self.value.floor(), vm)
     }
 
     #[pymethod(magic)]
     fn ceil(&self, vm: &VirtualMachine) -> PyResult<BigInt> {
-        try_bigint(self.value.ceil(), vm)
+        try_to_bigint(self.value.ceil(), vm)
     }
 
     #[pymethod(magic)]
@@ -417,7 +419,7 @@ impl PyFloat {
             } else {
                 self.value.round()
             };
-            let int = try_bigint(value, vm)?;
+            let int = try_to_bigint(value, vm)?;
             vm.ctx.new_int(int)
         };
         Ok(value)
