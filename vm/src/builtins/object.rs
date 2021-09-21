@@ -1,6 +1,5 @@
 use super::dict::{PyDict, PyDictRef};
 use super::list::PyList;
-use super::pybool;
 use super::pystr::{PyStr, PyStrRef};
 use super::pytype::PyTypeRef;
 use crate::builtins::pytype::PyType;
@@ -77,7 +76,7 @@ impl PyBaseObject {
                     .unwrap();
                 let value = match cmp(zelf, other, PyComparisonOp::Eq, vm)? {
                     Either::A(obj) => PyArithmaticValue::from_object(vm, obj)
-                        .map(|obj| pybool::boolval(vm, obj))
+                        .map(|obj| obj.try_to_bool(vm))
                         .transpose()?,
                     Either::B(value) => value,
                 };

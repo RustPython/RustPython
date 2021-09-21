@@ -1,4 +1,3 @@
-use super::pybool;
 use super::pytype::PyTypeRef;
 use crate::iterator;
 use crate::slots::{PyIter, SlotConstructor};
@@ -64,7 +63,7 @@ impl PyIter for PyFilter {
                 // iteration
                 vm.invoke(predicate, vec![next_obj.clone()])?
             };
-            if pybool::boolval(vm, predicate_value)? {
+            if predicate_value.try_to_bool(vm)? {
                 return Ok(next_obj);
             }
         }

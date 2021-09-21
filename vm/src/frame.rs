@@ -17,7 +17,7 @@ use crate::builtins::pytype::PyTypeRef;
 use crate::builtins::slice::PySlice;
 use crate::builtins::traceback::PyTraceback;
 use crate::builtins::tuple::{PyTuple, PyTupleTyped};
-use crate::builtins::{list, pybool, set};
+use crate::builtins::{list, set};
 use crate::bytecode;
 use crate::common::boxvec::BoxVec;
 use crate::common::lock::PyMutex;
@@ -844,7 +844,7 @@ impl ExecutingFrame<'_> {
                     _ => self.fatal("WithCleanupFinish expects a FinallyHandler block on stack"),
                 };
 
-                let suppress_exception = pybool::boolval(vm, self.pop_value())?;
+                let suppress_exception = self.pop_value().try_to_bool(vm)?;
 
                 vm.set_exception(prev_exc);
 
@@ -957,7 +957,7 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::JumpIfTrue { target } => {
                 let obj = self.pop_value();
-                let value = pybool::boolval(vm, obj)?;
+                let value = obj.try_to_bool(vm)?;
                 if value {
                     self.jump(*target);
                 }
@@ -966,7 +966,7 @@ impl ExecutingFrame<'_> {
 
             bytecode::Instruction::JumpIfFalse { target } => {
                 let obj = self.pop_value();
-                let value = pybool::boolval(vm, obj)?;
+                let value = obj.try_to_bool(vm)?;
                 if !value {
                     self.jump(*target);
                 }
@@ -975,7 +975,7 @@ impl ExecutingFrame<'_> {
 
             bytecode::Instruction::JumpIfTrueOrPop { target } => {
                 let obj = self.last_value();
-                let value = pybool::boolval(vm, obj)?;
+                let value = obj.try_to_bool(vm)?;
                 if value {
                     self.jump(*target);
                 } else {
@@ -986,7 +986,7 @@ impl ExecutingFrame<'_> {
 
             bytecode::Instruction::JumpIfFalseOrPop { target } => {
                 let obj = self.last_value();
-                let value = pybool::boolval(vm, obj)?;
+                let value = obj.try_to_bool(vm)?;
                 if !value {
                     self.jump(*target);
                 } else {
@@ -1670,7 +1670,7 @@ impl ExecutingFrame<'_> {
             bytecode::UnaryOperator::Plus => vm._pos(&a)?,
             bytecode::UnaryOperator::Invert => vm._invert(&a)?,
             bytecode::UnaryOperator::Not => {
-                let value = pybool::boolval(vm, a)?;
+                let value = a.try_to_bool(vm)?;
                 vm.ctx.new_bool(!value)
             }
         };
@@ -1689,7 +1689,7 @@ impl ExecutingFrame<'_> {
         haystack: PyObjectRef,
     ) -> PyResult<bool> {
         let found = vm._membership(haystack, needle)?;
-        pybool::boolval(vm, found)
+        found.try_to_bool(vm)
     }
 
     fn _not_in(
@@ -1699,7 +1699,7 @@ impl ExecutingFrame<'_> {
         haystack: PyObjectRef,
     ) -> PyResult<bool> {
         let found = vm._membership(haystack, needle)?;
-        Ok(!pybool::boolval(vm, found)?)
+        Ok(!found.try_to_bool(vm)?)
     }
 
     fn _is(&self, a: PyObjectRef, b: PyObjectRef) -> bool {
