@@ -2,7 +2,7 @@ use crate::{PyObjectRef, PyResult, VirtualMachine};
 use nix;
 use std::os::unix::io::RawFd;
 
-pub(crate) fn raw_set_inheritable(fd: RawFd, inheritable: bool) -> nix::Result<()> {
+pub fn raw_set_inheritable(fd: RawFd, inheritable: bool) -> nix::Result<()> {
     use nix::fcntl;
     let flags = fcntl::FdFlag::from_bits_truncate(fcntl::fcntl(fd, fcntl::FcntlArg::F_GETFD)?);
     let mut new_flags = flags;
