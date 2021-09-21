@@ -226,7 +226,9 @@ pub fn to_string(value: f64) -> String {
             format!("{}e{:+#03}", significand, exponent)
         }
     } else {
-        value.to_string()
+        let mut s = value.to_string();
+        s.make_ascii_lowercase();
+        s
     }
 }
 
