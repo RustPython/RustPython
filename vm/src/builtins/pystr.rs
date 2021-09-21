@@ -477,7 +477,7 @@ impl PyStr {
     }
 
     #[pymethod(magic)]
-    pub(crate) fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
+    pub fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
         let in_len = self.byte_len();
         let mut out_len = 0usize;
         // let mut max = 127;
