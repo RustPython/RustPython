@@ -7,7 +7,7 @@ use crate::{
     builtins::{try_bigint_to_f64, try_f64_to_bigint, IntoPyFloat, PyFloatRef, PyInt, PyIntRef},
     function::{Args, OptionalArg},
     utils::Either,
-    PyIterable, PyObjectRef, PyResult, PySequence, TypeProtocol, VirtualMachine,
+    ArgIterable, PyObjectRef, PyResult, PySequence, TypeProtocol, VirtualMachine,
 };
 use num_bigint::BigInt;
 use num_traits::{One, Signed, Zero};
@@ -440,7 +440,7 @@ fn math_lcm(args: Args<PyIntRef>) -> BigInt {
     math_perf_arb_len_int_op(args, |x, y| x.lcm(y.as_bigint()), BigInt::one())
 }
 
-fn math_fsum(iter: PyIterable<IntoPyFloat>, vm: &VirtualMachine) -> PyResult<f64> {
+fn math_fsum(iter: ArgIterable<IntoPyFloat>, vm: &VirtualMachine) -> PyResult<f64> {
     let mut partials = vec![];
     let mut special_sum = 0.0;
     let mut inf_sum = 0.0;
@@ -704,7 +704,7 @@ fn math_remainder(x: IntoPyFloat, y: IntoPyFloat, vm: &VirtualMachine) -> PyResu
 #[derive(FromArgs)]
 struct ProdArgs {
     #[pyarg(positional)]
-    iterable: PyIterable<PyObjectRef>,
+    iterable: ArgIterable<PyObjectRef>,
     #[pyarg(named, optional)]
     start: OptionalArg<PyObjectRef>,
 }

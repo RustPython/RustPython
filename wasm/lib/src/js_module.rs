@@ -13,7 +13,7 @@ use rustpython_vm::slots::PyIter;
 use rustpython_vm::types::create_simple_type;
 use rustpython_vm::VirtualMachine;
 use rustpython_vm::{
-    IntoPyObject, PyCallable, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
+    ArgCallable, IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
     TryFromObject,
 };
 
@@ -459,8 +459,8 @@ impl PyPromise {
     #[pymethod]
     fn then(
         &self,
-        on_fulfill: OptionalOption<PyCallable>,
-        on_reject: OptionalOption<PyCallable>,
+        on_fulfill: OptionalOption<ArgCallable>,
+        on_reject: OptionalOption<ArgCallable>,
         vm: &VirtualMachine,
     ) -> PyResult<PyPromise> {
         let (on_fulfill, on_reject) = (on_fulfill.flatten(), on_reject.flatten());
@@ -516,7 +516,7 @@ impl PyPromise {
     #[pymethod]
     fn catch(
         &self,
-        on_reject: OptionalOption<PyCallable>,
+        on_reject: OptionalOption<ArgCallable>,
         vm: &VirtualMachine,
     ) -> PyResult<PyPromise> {
         self.then(OptionalArg::Present(None), on_reject, vm)

@@ -15,8 +15,8 @@ use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter, SlotC
 use crate::utils::Either;
 use crate::VirtualMachine;
 use crate::{
-    IdProtocol, IntoPyObject, ItemProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext,
-    PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryIntoRef, TypeProtocol,
+    ArgIterable, IdProtocol, IntoPyObject, ItemProtocol, PyClassDef, PyClassImpl,
+    PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryIntoRef, TypeProtocol,
 };
 use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;
@@ -937,7 +937,7 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn join(&self, iterable: PyIterable<PyStrRef>, vm: &VirtualMachine) -> PyResult<String> {
+    fn join(&self, iterable: ArgIterable<PyStrRef>, vm: &VirtualMachine) -> PyResult<String> {
         let iter = iterable.iter(vm)?;
         self.as_str().py_join(iter)
     }

@@ -8,7 +8,7 @@ use crate::{
     slots::SlotConstructor,
     stdlib::os::PyPathLike,
     utils::{Either, ToCString},
-    IntoPyObject, ItemProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
+    ArgCallable, IntoPyObject, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
     StaticType, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
@@ -636,7 +636,7 @@ struct LoadCertChainArgs {
     #[pyarg(any, optional)]
     keyfile: Option<PyPathLike>,
     #[pyarg(any, optional)]
-    password: Option<Either<PyStrRef, PyCallable>>,
+    password: Option<Either<PyStrRef, ArgCallable>>,
 }
 
 struct SocketTimeout {

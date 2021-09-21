@@ -7,7 +7,7 @@ use crate::{
     py_io,
     slots::{SlotGetattro, SlotSetattro},
     utils::Either,
-    IdProtocol, ItemProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
+    ArgCallable, IdProtocol, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
     StaticType, TypeProtocol, VirtualMachine,
 };
 use parking_lot::{
@@ -209,7 +209,7 @@ fn _thread_allocate_lock() -> PyLock {
 }
 
 fn _thread_start_new_thread(
-    func: PyCallable,
+    func: ArgCallable,
     args: PyTupleRef,
     kwargs: OptionalArg<PyDictRef>,
     vm: &VirtualMachine,
@@ -238,7 +238,7 @@ fn _thread_start_new_thread(
         .map_err(|err| err.into_pyexception(vm))
 }
 
-fn run_thread(func: PyCallable, args: FuncArgs, vm: &VirtualMachine) {
+fn run_thread(func: ArgCallable, args: FuncArgs, vm: &VirtualMachine) {
     match func.invoke(args, vm) {
         Ok(_obj) => {}
         Err(e) if e.isinstance(&vm.ctx.exceptions.system_exit) => {}

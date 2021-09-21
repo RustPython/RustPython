@@ -24,7 +24,7 @@ use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhas
 use crate::utils::Either;
 use crate::vm::{ReprGuard, VirtualMachine};
 use crate::{
-    PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef,
+    ArgIterable, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
     PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 
@@ -196,7 +196,7 @@ impl PyList {
         match SequenceIndex::try_from_object_for(vm, needle, Self::NAME)? {
             SequenceIndex::Int(index) => self.setindex(index, value, vm),
             SequenceIndex::Slice(slice) => {
-                if let Ok(sec) = PyIterable::try_from_object(vm, value) {
+                if let Ok(sec) = ArgIterable::try_from_object(vm, value) {
                     return self.setslice(slice, sec, vm);
                 }
                 Err(vm.new_type_error("can only assign an iterable to a slice".to_owned()))
@@ -214,7 +214,7 @@ impl PyList {
         }
     }
 
-    fn setslice(&self, slice: PySliceRef, sec: PyIterable, vm: &VirtualMachine) -> PyResult<()> {
+    fn setslice(&self, slice: PySliceRef, sec: ArgIterable, vm: &VirtualMachine) -> PyResult<()> {
         let items: Result<Vec<PyObjectRef>, _> = sec.iter(vm)?.collect();
         let items = items?;
         let mut elements = self.borrow_vec_mut();

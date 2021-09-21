@@ -95,7 +95,7 @@ mod _io {
     use crate::utils::Either;
     use crate::vm::{ReprGuard, VirtualMachine};
     use crate::{
-        IdProtocol, IntoPyObject, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
+        ArgIterable, IdProtocol, IntoPyObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
         StaticType, TryFromObject, TypeProtocol,
     };
 
@@ -463,7 +463,7 @@ mod _io {
             }
             let hint = hint as usize;
             let mut ret = Vec::new();
-            let it = PyIterable::try_from_object(vm, instance)?;
+            let it = ArgIterable::try_from_object(vm, instance)?;
             let mut full_len = 0;
             for line in it.iter(vm)? {
                 let line = line?;
@@ -480,7 +480,7 @@ mod _io {
         #[pymethod]
         fn writelines(
             instance: PyObjectRef,
-            lines: PyIterable,
+            lines: ArgIterable,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             check_closed(&instance, vm)?;

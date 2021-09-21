@@ -534,11 +534,11 @@ impl<T: PyValue> TryIntoRef<T> for PyRefExact<T> {
 }
 
 #[derive(Clone, Debug)]
-pub struct PyCallable {
+pub struct ArgCallable {
     obj: PyObjectRef,
 }
 
-impl PyCallable {
+impl ArgCallable {
     #[inline]
     pub fn invoke(&self, args: impl IntoFuncArgs, vm: &VirtualMachine) -> PyResult {
         vm.invoke(&self.obj, args)
@@ -550,10 +550,10 @@ impl PyCallable {
     }
 }
 
-impl TryFromObject for PyCallable {
+impl TryFromObject for ArgCallable {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         if vm.is_callable(&obj) {
-            Ok(PyCallable { obj })
+            Ok(ArgCallable { obj })
         } else {
             Err(vm.new_type_error(format!("'{}' object is not callable", obj.class().name())))
         }
@@ -727,18 +727,18 @@ where
 
 /// An iterable Python object.
 ///
-/// `PyIterable` implements `FromArgs` so that a built-in function can accept
+/// `ArgIterable` implements `FromArgs` so that a built-in function can accept
 /// an object that is required to conform to the Python iterator protocol.
 ///
-/// PyIterable can optionally perform type checking and conversions on iterated
+/// ArgIterable can optionally perform type checking and conversions on iterated
 /// objects using a generic type parameter that implements `TryFromObject`.
-pub struct PyIterable<T = PyObjectRef> {
+pub struct ArgIterable<T = PyObjectRef> {
     iterable: PyObjectRef,
     iterfn: Option<crate::slots::IterFunc>,
     _item: PhantomData<T>,
 }
 
-impl<T> PyIterable<T> {
+impl<T> ArgIterable<T> {
     /// Returns an iterator over this sequence of objects.
     ///
     /// This operation may fail if an exception is raised while invoking the
@@ -760,7 +760,7 @@ impl<T> PyIterable<T> {
     }
 }
 
-impl<T> TryFromObject for PyIterable<T>
+impl<T> TryFromObject for ArgIterable<T>
 where
     T: TryFromObject,
 {
@@ -773,7 +773,7 @@ where
                 return Err(vm.new_type_error(format!("'{}' object is not iterable", cls.name())));
             }
         }
-        Ok(PyIterable {
+        Ok(ArgIterable {
             iterable: obj,
             iterfn,
             _item: PhantomData,
@@ -919,7 +919,7 @@ impl<T: PyObjectPayload> IntoPyObject for PyRef<T> {
     }
 }
 
-impl IntoPyObject for PyCallable {
+impl IntoPyObject for ArgCallable {
     #[inline]
     fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
         self.into_object()

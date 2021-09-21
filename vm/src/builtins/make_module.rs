@@ -34,7 +34,7 @@ mod decl {
     use crate::vm::VirtualMachine;
     use crate::{py_io, sysmodule};
     use crate::{
-        IdProtocol, ItemProtocol, PyArithmaticValue, PyCallable, PyClassImpl, PyIterable,
+        ArgCallable, ArgIterable, IdProtocol, ItemProtocol, PyArithmaticValue, PyClassImpl,
         PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
     };
     use num_traits::{Signed, Zero};
@@ -45,7 +45,7 @@ mod decl {
     }
 
     #[pyfunction]
-    fn all(iterable: PyIterable<IntoPyBool>, vm: &VirtualMachine) -> PyResult<bool> {
+    fn all(iterable: ArgIterable<IntoPyBool>, vm: &VirtualMachine) -> PyResult<bool> {
         for item in iterable.iter(vm)? {
             if !item?.to_bool() {
                 return Ok(false);
@@ -55,7 +55,7 @@ mod decl {
     }
 
     #[pyfunction]
-    fn any(iterable: PyIterable<IntoPyBool>, vm: &VirtualMachine) -> PyResult<bool> {
+    fn any(iterable: ArgIterable<IntoPyBool>, vm: &VirtualMachine) -> PyResult<bool> {
         for item in iterable.iter(vm)? {
             if item?.to_bool() {
                 return Ok(true);
@@ -421,7 +421,7 @@ mod decl {
         vm: &VirtualMachine,
     ) -> PyResult {
         if let OptionalArg::Present(sentinel) = sentinel {
-            let callable = PyCallable::try_from_object(vm, iter_target)?;
+            let callable = ArgCallable::try_from_object(vm, iter_target)?;
             Ok(PyCallableIterator::new(callable, sentinel)
                 .into_ref(vm)
                 .into_object())
@@ -755,7 +755,7 @@ mod decl {
     #[derive(FromArgs)]
     pub struct SumArgs {
         #[pyarg(positional)]
-        iterable: PyIterable,
+        iterable: ArgIterable,
         #[pyarg(any, optional)]
         start: OptionalArg<PyObjectRef>,
     }

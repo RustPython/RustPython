@@ -11,7 +11,7 @@ use crate::types::create_type_with_slots;
 use crate::StaticType;
 use crate::VirtualMachine;
 use crate::{
-    IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult,
+    ArgIterable, IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
     PyValue, TryFromObject, TypeProtocol,
 };
 
@@ -83,7 +83,7 @@ impl PyBaseException {
     }
 
     #[pyproperty(setter)]
-    fn set_args(&self, args: PyIterable, vm: &VirtualMachine) -> PyResult<()> {
+    fn set_args(&self, args: ArgIterable, vm: &VirtualMachine) -> PyResult<()> {
         let args = args.iter(vm)?.collect::<PyResult<Vec<_>>>()?;
         *self.args.write() = PyTupleRef::with_elements(args, &vm.ctx);
         Ok(())

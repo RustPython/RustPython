@@ -11,7 +11,7 @@ mod _sre {
         common::hash::PyHash,
         function::{Args, OptionalArg},
         slots::{Comparable, Hashable},
-        IntoPyObject, ItemProtocol, PyCallable, PyComparisonValue, PyObjectRef, PyRef, PyResult,
+        ArgCallable, IntoPyObject, ItemProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult,
         PyValue, StaticType, TryFromBorrowedObject, TryFromObject, VirtualMachine,
     };
     use core::str;
@@ -104,7 +104,7 @@ mod _sre {
     #[derive(FromArgs)]
     struct SubArgs {
         #[pyarg(any)]
-        // repl: Either<PyCallable, PyStrRef>,
+        // repl: Either<ArgCallable, PyStrRef>,
         repl: PyObjectRef,
         #[pyarg(any)]
         string: PyObjectRef,
@@ -298,7 +298,7 @@ mod _sre {
             }
             .into_ref(vm);
             let search = vm.get_method(scanner.into_object(), "search").unwrap()?;
-            let search = PyCallable::try_from_object(vm, search)?;
+            let search = ArgCallable::try_from_object(vm, search)?;
             let iterator = PyCallableIterator::new(search, vm.ctx.none());
             Ok(iterator)
         }

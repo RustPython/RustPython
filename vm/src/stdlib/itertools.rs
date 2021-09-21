@@ -11,7 +11,7 @@ mod decl {
         function::{Args, FuncArgs, OptionalArg, OptionalOption},
         iterator::{call_next, get_iter, get_next_object},
         slots::{PyIter, SlotConstructor},
-        IdProtocol, IntoPyObject, PyCallable, PyObjectRef, PyRef, PyResult, PyValue, PyWeakRef,
+        ArgCallable, IdProtocol, IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, PyWeakRef,
         StaticType, TypeProtocol, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
@@ -443,7 +443,7 @@ mod decl {
     #[pyclass(name = "dropwhile")]
     #[derive(Debug, PyValue)]
     struct PyItertoolsDropwhile {
-        predicate: PyCallable,
+        predicate: ArgCallable,
         iterable: PyObjectRef,
         start_flag: AtomicCell<bool>,
     }
@@ -451,7 +451,7 @@ mod decl {
     #[derive(FromArgs)]
     struct DropwhileNewArgs {
         #[pyarg(positional)]
-        predicate: PyCallable,
+        predicate: ArgCallable,
         #[pyarg(positional)]
         iterable: PyObjectRef,
     }
