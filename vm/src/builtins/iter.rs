@@ -14,21 +14,21 @@ use crossbeam_utils::atomic::AtomicCell;
 
 /// Marks status of iterator.
 #[derive(Debug, Clone)]
-pub enum IterStatus {
+pub enum IterStatus<T> {
     /// Iterator hasn't raised StopIteration.
-    Active(PyObjectRef),
+    Active(T),
     /// Iterator has raised StopIteration.
     Exhausted,
 }
 
 #[derive(Debug)]
-pub struct PositionIterInternal {
-    pub status: IterStatus,
+pub struct PositionIterInternal<T> {
+    pub status: IterStatus<T>,
     pub position: usize,
 }
 
-impl PositionIterInternal {
-    pub fn new(obj: PyObjectRef, position: usize) -> Self {
+impl<T> PositionIterInternal<T> {
+    pub fn new(obj: T, position: usize) -> Self {
         Self {
             status: IterStatus::Active(obj),
             position,
@@ -49,11 +49,14 @@ impl PositionIterInternal {
         }
     }
 
-    pub fn reduce(&self, func: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn _reduce<F>(&self, func: PyObjectRef, f: F, vm: &VirtualMachine) -> PyObjectRef
+    where
+        F: FnOnce(&T) -> PyObjectRef,
+    {
         if let IterStatus::Active(obj) = &self.status {
             vm.ctx.new_tuple(vec![
                 func,
-                vm.ctx.new_tuple(vec![obj.clone()]),
+                vm.ctx.new_tuple(vec![f(obj)]),
                 vm.ctx.new_int(self.position),
             ])
         } else {
@@ -62,9 +65,25 @@ impl PositionIterInternal {
         }
     }
 
+    pub fn builtin_iter_reduce<F>(&self, f: F, vm: &VirtualMachine) -> PyObjectRef
+    where
+        F: FnOnce(&T) -> PyObjectRef,
+    {
+        let iter = vm.get_attribute(vm.builtins.clone(), "iter").unwrap();
+        self._reduce(iter, f, vm)
+    }
+
+    pub fn builtin_reversed_reduce<F>(&self, f: F, vm: &VirtualMachine) -> PyObjectRef
+    where
+        F: FnOnce(&T) -> PyObjectRef,
+    {
+        let reversed = vm.get_attribute(vm.builtins.clone(), "reversed").unwrap();
+        self._reduce(reversed, f, vm)
+    }
+
     pub fn next<F>(&mut self, f: F, vm: &VirtualMachine) -> PyResult
     where
-        F: FnOnce(&PyObjectRef, usize) -> PyResult,
+        F: FnOnce(&T, usize) -> PyResult,
     {
         if let IterStatus::Active(obj) = &self.status {
             match f(obj, self.position) {
@@ -89,7 +108,7 @@ impl PositionIterInternal {
 
     pub fn rev_next<F>(&mut self, f: F, vm: &VirtualMachine) -> PyResult
     where
-        F: FnOnce(&PyObjectRef, usize) -> PyResult,
+        F: FnOnce(&T, usize) -> PyResult,
     {
         if let IterStatus::Active(obj) = &self.status {
             match f(obj, self.position) {
@@ -118,7 +137,7 @@ impl PositionIterInternal {
 
     pub fn length_hint<F>(&self, f: F, vm: &VirtualMachine) -> PyObjectRef
     where
-        F: FnOnce(&PyObjectRef) -> Option<usize>,
+        F: FnOnce(&T) -> Option<usize>,
     {
         let len = if let IterStatus::Active(obj) = &self.status {
             if let Some(obj_len) = f(obj) {
@@ -134,7 +153,7 @@ impl PositionIterInternal {
 
     pub fn rev_length_hint<F>(&self, f: F, vm: &VirtualMachine) -> PyObjectRef
     where
-        F: FnOnce(&PyObjectRef) -> Option<usize>,
+        F: FnOnce(&T) -> Option<usize>,
     {
         if let IterStatus::Active(obj) = &self.status {
             if let Some(obj_len) = f(obj) {
@@ -142,6 +161,7 @@ impl PositionIterInternal {
                     return PyInt::from(self.position + 1).into_object(vm);
                 }
             }
+            // FIXME: return NotImplemented?
         }
         PyInt::from(0).into_object(vm)
     }
@@ -150,7 +170,7 @@ impl PositionIterInternal {
 #[pyclass(module = false, name = "iterator")]
 #[derive(Debug)]
 pub struct PySequenceIterator {
-    internal: PositionIterInternal,
+    internal: PyRwLock<PositionIterInternal<PyObjectRef>>,
 }
 
 impl PyValue for PySequenceIterator {
@@ -163,31 +183,34 @@ impl PyValue for PySequenceIterator {
 impl PySequenceIterator {
     pub fn new(obj: PyObjectRef) -> Self {
         Self {
-            internal: PositionIterInternal::new(obj, 0),
+            internal: PyRwLock::new(PositionIterInternal::new(obj, 0)),
         }
     }
 
     #[pymethod(magic)]
     fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
-        self.internal.length_hint(|obj| vm.obj_len(obj).ok(), vm)
+        self.internal
+            .read()
+            .length_hint(|obj| vm.obj_len(obj).ok(), vm)
     }
 
     #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> PyResult {
-        let iter = vm.get_attribute(vm.builtins.clone(), "iter")?;
-        Ok(self.internal.reduce(iter, vm))
+    fn reduce(&self, vm: &VirtualMachine) -> PyObjectRef {
+        self.internal.read().builtin_iter_reduce(|x| x.clone(), vm)
     }
 
     #[pymethod(magic)]
     fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.internal.set_state(state, vm)
+        self.internal.write().set_state(state, vm)
     }
 }
 
 impl IteratorIterable for PySequenceIterator {}
 impl SlotIterator for PySequenceIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        zelf.internal.next(|obj, pos| obj.get_item(pos, vm), vm)
+        zelf.internal
+            .write()
+            .next(|obj, pos| obj.get_item(pos, vm), vm)
     }
 }
 
@@ -195,7 +218,7 @@ impl SlotIterator for PySequenceIterator {
 #[derive(Debug)]
 pub struct PyCallableIterator {
     sentinel: PyObjectRef,
-    status: PyRwLock<IterStatus>,
+    status: PyRwLock<IterStatus<PyCallable>>,
 }
 
 impl PyValue for PyCallableIterator {
@@ -209,7 +232,7 @@ impl PyCallableIterator {
     pub fn new(callable: ArgCallable, sentinel: PyObjectRef) -> Self {
         Self {
             sentinel,
-            status: PyRwLock::new(IterStatus::Active(callable.into_object())),
+            status: PyRwLock::new(IterStatus::Active(callable)),
         }
     }
 }
@@ -218,7 +241,7 @@ impl IteratorIterable for PyCallableIterator {}
 impl SlotIterator for PyCallableIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         if let IterStatus::Active(callable) = &*zelf.status.read() {
-            let ret = vm.invoke(callable, ())?;
+            let ret = callable.invoke((), vm)?;
             if vm.bool_eq(&ret, &zelf.sentinel)? {
                 *zelf.status.write() = IterStatus::Exhausted;
                 Err(vm.new_stop_iteration())

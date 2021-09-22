@@ -574,7 +574,7 @@ impl Comparable for PyBytes {
 impl Iterable for PyBytes {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         Ok(PyBytesIterator {
-            internal: PyRwLock::new(PositionIterInternal::new(zelf.into_object(), 0)),
+            internal: PyRwLock::new(PositionIterInternal::new(zelf, 0)),
         }
         .into_object(vm))
     }
@@ -583,7 +583,7 @@ impl Iterable for PyBytes {
 #[pyclass(module = false, name = "bytes_iterator")]
 #[derive(Debug)]
 pub struct PyBytesIterator {
-    internal: PyRwLock<PositionIterInternal>,
+    internal: PyRwLock<PositionIterInternal<PyBytesRef>>,
 }
 
 impl PyValue for PyBytesIterator {
@@ -596,15 +596,14 @@ impl PyValue for PyBytesIterator {
 impl PyBytesIterator {
     #[pymethod(magic)]
     fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
-        self.internal
-            .read()
-            .length_hint(|obj| obj.payload::<PyBytes>().map(|x| x.len()), vm)
+        self.internal.read().length_hint(|obj| Some(obj.len()), vm)
     }
 
     #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> PyResult {
-        let iter = vm.get_attribute(vm.builtins.clone(), "iter")?;
-        Ok(self.internal.read().reduce(iter, vm))
+    fn reduce(&self, vm: &VirtualMachine) -> PyObjectRef {
+        self.internal
+            .read()
+            .builtin_iter_reduce(|x| x.clone().into_object(), vm)
     }
 
     #[pymethod(magic)]
@@ -616,8 +615,7 @@ impl IteratorIterable for PyBytesIterator {}
 impl SlotIterator for PyBytesIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         zelf.internal.write().next(
-            |obj, pos| {
-                let bytes = obj.payload::<PyBytes>().unwrap();
+            |bytes, pos| {
                 bytes
                     .as_bytes()
                     .get(pos)

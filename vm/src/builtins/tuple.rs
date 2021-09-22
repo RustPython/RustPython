@@ -310,7 +310,7 @@ impl Comparable for PyTuple {
 impl Iterable for PyTuple {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         Ok(PyTupleIterator {
-            internal: PyRwLock::new(PositionIterInternal::new(zelf.into_object(), 0)),
+            internal: PyRwLock::new(PositionIterInternal::new(zelf, 0)),
         }
         .into_object(vm))
     }
@@ -319,7 +319,7 @@ impl Iterable for PyTuple {
 #[pyclass(module = false, name = "tuple_iterator")]
 #[derive(Debug)]
 pub(crate) struct PyTupleIterator {
-    internal: PyRwLock<PositionIterInternal>,
+    internal: PyRwLock<PositionIterInternal<PyTupleRef>>,
 }
 
 impl PyValue for PyTupleIterator {
@@ -332,9 +332,7 @@ impl PyValue for PyTupleIterator {
 impl PyTupleIterator {
     #[pymethod(magic)]
     fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
-        self.internal
-            .read()
-            .length_hint(|obj| obj.payload::<PyTuple>().map(|x| x.len()), vm)
+        self.internal.read().length_hint(|obj| Some(obj.len()), vm)
     }
 
     #[pymethod(magic)]
@@ -343,9 +341,10 @@ impl PyTupleIterator {
     }
 
     #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> PyResult {
-        let iter = vm.get_attribute(vm.builtins.clone(), "iter")?;
-        Ok(self.internal.read().reduce(iter, vm))
+    fn reduce(&self, vm: &VirtualMachine) -> PyObjectRef {
+        self.internal
+            .read()
+            .builtin_iter_reduce(|x| x.clone().into_object(), vm)
     }
 }
 
@@ -353,8 +352,7 @@ impl IteratorIterable for PyTupleIterator {}
 impl SlotIterator for PyTupleIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         zelf.internal.write().next(
-            |obj, pos| {
-                let tuple = obj.payload::<PyTuple>().unwrap();
+            |tuple, pos| {
                 tuple
                     .as_slice()
                     .get(pos)

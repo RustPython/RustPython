@@ -110,8 +110,8 @@ struct DictEntry<T> {
 #[derive(Debug, PartialEq)]
 pub struct DictSize {
     indices_size: usize,
-    entries_size: usize,
-    used: usize,
+    pub entries_size: usize,
+    pub used: usize,
     filled: usize,
 }
 
