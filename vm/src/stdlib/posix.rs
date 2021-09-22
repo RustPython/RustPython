@@ -60,14 +60,6 @@ pub mod module {
     #[cfg(any(target_os = "dragonfly", target_os = "freebsd", target_os = "linux"))]
     #[pyattr]
     use libc::{SEEK_DATA, SEEK_HOLE};
-    #[pyattr]
-    pub(crate) const F_OK: u8 = 0;
-    #[pyattr]
-    pub(crate) const R_OK: u8 = 4;
-    #[pyattr]
-    pub(crate) const W_OK: u8 = 2;
-    #[pyattr]
-    pub(crate) const X_OK: u8 = 1;
 
     #[cfg(not(any(target_os = "redox", target_os = "freebsd")))]
     #[pyattr]
@@ -161,10 +153,10 @@ pub mod module {
     // Flags for os_access
     bitflags! {
         pub struct AccessFlags: u8{
-            const F_OK = F_OK;
-            const R_OK = R_OK;
-            const W_OK = W_OK;
-            const X_OK = X_OK;
+            const F_OK = _os::F_OK;
+            const R_OK = _os::R_OK;
+            const W_OK = _os::W_OK;
+            const X_OK = _os::X_OK;
         }
     }
 

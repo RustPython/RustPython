@@ -362,7 +362,7 @@ fn bytes_as_osstr<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a ffi::OsS
         .map_err(|_| vm.new_unicode_decode_error("can't decode path for utf-8".to_owned()))
 }
 
-#[pymodule(name = "os")]
+#[pymodule(name = "_os")]
 pub(super) mod _os {
     use super::{
         errno_err, DirFd, FollowSymlinks, FsPath, OutputMode, PathOrFd, PyPathLike, SupportFunc,
@@ -402,6 +402,15 @@ pub(super) mod _os {
         O_APPEND, O_CREAT, O_EXCL, O_RDONLY, O_RDWR, O_TRUNC, O_WRONLY, SEEK_CUR, SEEK_END,
         SEEK_SET,
     };
+
+    #[pyattr]
+    pub(crate) const F_OK: u8 = 0;
+    #[pyattr]
+    pub(crate) const R_OK: u8 = 1 << 2;
+    #[pyattr]
+    pub(crate) const W_OK: u8 = 1 << 1;
+    #[pyattr]
+    pub(crate) const X_OK: u8 = 1 << 0;
 
     #[pyfunction]
     fn close(fileno: i32, vm: &VirtualMachine) -> PyResult<()> {
