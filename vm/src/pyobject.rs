@@ -665,7 +665,7 @@ where
     fn set_item(&self, key: T, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if let Ok(map) = PyMapping::try_from_borrowed_object(vm, self) {
             if let Some(setitem) = map.ass_subscript {
-                return setitem(self.clone(), key.into_pyobject(vm), value, vm);
+                return setitem(self.clone(), key.into_pyobject(vm), Some(value), vm);
             }
         }
 
@@ -681,6 +681,12 @@ where
     }
 
     fn del_item(&self, key: T, vm: &VirtualMachine) -> PyResult<()> {
+        if let Ok(map) = PyMapping::try_from_borrowed_object(vm, self) {
+            if let Some(setitem) = map.ass_subscript {
+                return setitem(self.clone(), key.into_pyobject(vm), None, vm);
+            }
+        }
+
         vm.get_special_method(self.clone(), "__delitem__")?
             .map_err(|obj| {
                 vm.new_type_error(format!(

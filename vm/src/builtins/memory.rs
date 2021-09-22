@@ -758,10 +758,15 @@ impl AsMapping for PyMemoryView {
     fn ass_subscript(
         zelf: PyObjectRef,
         needle: PyObjectRef,
-        value: PyObjectRef,
+        value: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        Self::downcast(zelf, vm).map(|zelf| Self::setitem(zelf, needle, value, vm))?
+        match value {
+            Some(value) => {
+                Self::downcast(zelf, vm).map(|zelf| Self::setitem(zelf, needle, value, vm))?
+            }
+            None => Err(vm.new_type_error("cannot delete memory".to_owned())),
+        }
     }
 }
 

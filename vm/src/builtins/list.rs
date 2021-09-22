@@ -355,8 +355,8 @@ impl PyList {
     }
 
     #[pymethod(magic)]
-    fn delitem(&self, subscript: SequenceIndex, vm: &VirtualMachine) -> PyResult<()> {
-        match subscript {
+    fn delitem(&self, subscript: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        match SequenceIndex::try_from_object_for(vm, subscript, Self::NAME)? {
             SequenceIndex::Int(index) => self.delindex(index, vm),
             SequenceIndex::Slice(slice) => self.delslice(slice, vm),
         }
@@ -441,10 +441,13 @@ impl AsMapping for PyList {
     fn ass_subscript(
         zelf: PyObjectRef,
         needle: PyObjectRef,
-        value: PyObjectRef,
+        value: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        Self::downcast_ref(&zelf, vm).map(|zelf| zelf.setitem(needle, value, vm))?
+        Self::downcast_ref(&zelf, vm).map(|zelf| match value {
+            Some(value) => zelf.setitem(needle, value, vm),
+            None => zelf.delitem(needle, vm),
+        })?
     }
 }
 

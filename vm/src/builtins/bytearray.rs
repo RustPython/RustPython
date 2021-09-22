@@ -205,9 +205,9 @@ impl PyByteArray {
     }
 
     #[pymethod(magic)]
-    pub fn delitem(&self, needle: SequenceIndex, vm: &VirtualMachine) -> PyResult<()> {
+    pub fn delitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let elements = &mut self.try_resizable(vm)?.elements;
-        match needle {
+        match SequenceIndex::try_from_object_for(vm, needle, Self::NAME)? {
             SequenceIndex::Int(int) => {
                 if let Some(idx) = elements.wrap_index(int) {
                     elements.remove(idx);
@@ -739,10 +739,15 @@ impl AsMapping for PyByteArray {
     fn ass_subscript(
         zelf: PyObjectRef,
         needle: PyObjectRef,
-        value: PyObjectRef,
+        value: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        Self::downcast(zelf, vm).map(|zelf| Self::setitem(zelf, needle, value, vm))?
+        match value {
+            Some(value) => {
+                Self::downcast(zelf, vm).map(|zelf| Self::setitem(zelf, needle, value, vm))
+            }
+            None => Self::downcast_ref(&zelf, vm).map(|zelf| zelf.delitem(needle, vm)),
+        }?
     }
 }
 

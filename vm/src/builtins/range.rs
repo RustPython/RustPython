@@ -398,7 +398,7 @@ impl AsMapping for PyRange {
     fn ass_subscript(
         zelf: PyObjectRef,
         _needle: PyObjectRef,
-        _value: PyObjectRef,
+        _value: Option<PyObjectRef>,
         _vm: &VirtualMachine,
     ) -> PyResult<()> {
         unreachable!("ass_subscript not implemented for {}", zelf.class())

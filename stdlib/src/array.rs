@@ -1184,10 +1184,15 @@ mod array {
         fn ass_subscript(
             zelf: PyObjectRef,
             needle: PyObjectRef,
-            value: PyObjectRef,
+            value: Option<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            Self::downcast(zelf, vm).map(|zelf| Self::setitem(zelf, needle, value, vm))?
+            match value {
+                Some(value) => {
+                    Self::downcast(zelf, vm).map(|zelf| Self::setitem(zelf, needle, value, vm))?
+                }
+                None => Self::downcast(zelf, vm).map(|zelf| Self::delitem(zelf, needle, vm))?,
+            }
         }
     }
 

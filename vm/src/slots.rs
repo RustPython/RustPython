@@ -572,7 +572,7 @@ pub trait AsMapping: PyValue {
     fn ass_subscript(
         zelf: PyObjectRef,
         needle: PyObjectRef,
-        value: PyObjectRef,
+        value: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()>;
 }
