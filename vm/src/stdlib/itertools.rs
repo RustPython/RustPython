@@ -8,7 +8,6 @@ mod decl {
     use std::fmt;
 
     use crate::builtins::int::{self, PyInt, PyIntRef};
-    use crate::builtins::pybool;
     use crate::builtins::pytype::PyTypeRef;
     use crate::builtins::tuple::PyTupleRef;
     use crate::common::lock::{PyMutex, PyRwLock, PyRwLockWriteGuard};
@@ -136,7 +135,7 @@ mod decl {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             loop {
                 let sel_obj = call_next(vm, &zelf.selector)?;
-                let verdict = pybool::boolval(vm, sel_obj.clone())?;
+                let verdict = sel_obj.clone().try_to_bool(vm)?;
                 let data_obj = call_next(vm, &zelf.data)?;
 
                 if verdict {
@@ -432,7 +431,7 @@ mod decl {
             let predicate = &zelf.predicate;
 
             let verdict = vm.invoke(predicate, (obj.clone(),))?;
-            let verdict = pybool::boolval(vm, verdict)?;
+            let verdict = verdict.try_to_bool(vm)?;
             if verdict {
                 Ok(obj)
             } else {
@@ -493,7 +492,7 @@ mod decl {
                     let obj = call_next(vm, iterable)?;
                     let pred = predicate.clone();
                     let pred_value = vm.invoke(&pred.into_object(), (obj.clone(),))?;
-                    if !pybool::boolval(vm, pred_value)? {
+                    if !pred_value.try_to_bool(vm)? {
                         zelf.start_flag.store(true);
                         return Ok(obj);
                     }
@@ -841,7 +840,7 @@ mod decl {
                     vm.invoke(predicate, vec![obj.clone()])?
                 };
 
-                if !pybool::boolval(vm, pred_value)? {
+                if !pred_value.try_to_bool(vm)? {
                     return Ok(obj);
                 }
             }

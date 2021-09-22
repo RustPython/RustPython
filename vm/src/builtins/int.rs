@@ -1,10 +1,10 @@
 use super::{float, IntoPyBool, PyByteArray, PyBytes, PyStr, PyStrRef, PyTypeRef};
+use crate::bytesinner::PyBytesInner;
 use crate::common::hash;
 use crate::format::FormatSpec;
 use crate::function::{OptionalArg, OptionalOption};
 use crate::slots::{Comparable, Hashable, PyComparisonOp, SlotConstructor};
 use crate::VirtualMachine;
-use crate::{bytesinner::PyBytesInner, byteslike::try_bytes_like};
 use crate::{
     try_value_from_borrowed_object, IdProtocol, IntoPyObject, IntoPyResult, PyArithmaticValue,
     PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
@@ -142,8 +142,8 @@ pub fn bigint_unsigned_mask(v: &BigInt) -> u32 {
 
 fn inner_pow(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
     if int2.is_negative() {
-        let v1 = to_float(int1, vm)?;
-        let v2 = to_float(int2, vm)?;
+        let v1 = try_to_float(int1, vm)?;
+        let v2 = try_to_float(int2, vm)?;
         float::float_pow(v1, v2, vm).into_pyresult(vm)
     } else {
         Ok(if let Some(v2) = int2.to_u64() {
@@ -541,7 +541,7 @@ impl PyInt {
 
     #[pymethod(magic)]
     fn float(&self, vm: &VirtualMachine) -> PyResult<f64> {
-        to_float(&self.value, vm)
+        try_to_float(&self.value, vm)
     }
 
     #[pymethod(magic)]
@@ -914,7 +914,7 @@ pub(crate) fn get_value(obj: &PyObjectRef) -> &BigInt {
     &obj.payload::<PyInt>().unwrap().value
 }
 
-pub fn to_float(int: &BigInt, vm: &VirtualMachine) -> PyResult<f64> {
+pub fn try_to_float(int: &BigInt, vm: &VirtualMachine) -> PyResult<f64> {
     i2f(int).ok_or_else(|| vm.new_overflow_error("int too large to convert to float".to_owned()))
 }
 // num-bigint now returns Some(inf) for to_f64() in some cases, so just keep that the same for now
@@ -939,7 +939,7 @@ pub(crate) fn try_int(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt
     if let Some(s) = obj.downcast_ref::<PyStr>() {
         return try_convert(obj, s.as_str().as_bytes(), vm);
     }
-    if let Ok(r) = try_bytes_like(vm, obj, |x| try_convert(obj, x, vm)) {
+    if let Ok(r) = obj.try_bytes_like(vm, |x| try_convert(obj, x, vm)) {
         return r;
     }
     // strict `int` check

@@ -77,27 +77,31 @@ impl TryFromBorrowedObject for ArgBytesLike {
     }
 }
 
-pub fn try_bytes_like<R>(
-    vm: &VirtualMachine,
-    obj: &PyObjectRef,
-    f: impl FnOnce(&[u8]) -> R,
-) -> PyResult<R> {
-    let buffer = PyBuffer::try_from_borrowed_object(vm, obj)?;
-    buffer.as_contiguous().map(|x| f(&*x)).ok_or_else(|| {
-        vm.new_type_error("non-contiguous buffer is not a bytes-like object".to_owned())
-    })
-}
+impl PyObjectRef {
+    pub fn try_bytes_like<R>(
+        &self,
+        vm: &VirtualMachine,
+        f: impl FnOnce(&[u8]) -> R,
+    ) -> PyResult<R> {
+        let buffer = PyBuffer::try_from_borrowed_object(vm, self)?;
+        buffer.as_contiguous().map(|x| f(&*x)).ok_or_else(|| {
+            vm.new_type_error("non-contiguous buffer is not a bytes-like object".to_owned())
+        })
+    }
 
-pub fn try_rw_bytes_like<R>(
-    vm: &VirtualMachine,
-    obj: &PyObjectRef,
-    f: impl FnOnce(&mut [u8]) -> R,
-) -> PyResult<R> {
-    let buffer = PyBuffer::try_from_borrowed_object(vm, obj)?;
-    buffer
-        .as_contiguous_mut()
-        .map(|mut x| f(&mut *x))
-        .ok_or_else(|| vm.new_type_error("buffer is not a read-write bytes-like object".to_owned()))
+    pub fn try_rw_bytes_like<R>(
+        &self,
+        vm: &VirtualMachine,
+        f: impl FnOnce(&mut [u8]) -> R,
+    ) -> PyResult<R> {
+        let buffer = PyBuffer::try_from_borrowed_object(vm, self)?;
+        buffer
+            .as_contiguous_mut()
+            .map(|mut x| f(&mut *x))
+            .ok_or_else(|| {
+                vm.new_type_error("buffer is not a read-write bytes-like object".to_owned())
+            })
+    }
 }
 
 impl ArgMemoryBuffer {

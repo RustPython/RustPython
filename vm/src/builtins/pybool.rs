@@ -29,49 +29,51 @@ impl TryFromBorrowedObject for bool {
     }
 }
 
-/// Convert Python bool into Rust bool.
-pub fn boolval(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
-    if obj.is(&vm.ctx.true_value) {
-        return Ok(true);
-    }
-    if obj.is(&vm.ctx.false_value) {
-        return Ok(false);
-    }
-    let rs_bool = match vm.get_method(obj.clone(), "__bool__") {
-        Some(method_or_err) => {
-            // If descriptor returns Error, propagate it further
-            let method = method_or_err?;
-            let bool_obj = vm.invoke(&method, ())?;
-            if !bool_obj.isinstance(&vm.ctx.types.bool_type) {
-                return Err(vm.new_type_error(format!(
-                    "__bool__ should return bool, returned type {}",
-                    bool_obj.class().name()
-                )));
-            }
-
-            get_value(&bool_obj)
+impl PyObjectRef {
+    /// Convert Python bool into Rust bool.
+    pub fn try_to_bool(self, vm: &VirtualMachine) -> PyResult<bool> {
+        if self.is(&vm.ctx.true_value) {
+            return Ok(true);
         }
-        None => match vm.get_method(obj, "__len__") {
+        if self.is(&vm.ctx.false_value) {
+            return Ok(false);
+        }
+        let rs_bool = match vm.get_method(self.clone(), "__bool__") {
             Some(method_or_err) => {
+                // If descriptor returns Error, propagate it further
                 let method = method_or_err?;
                 let bool_obj = vm.invoke(&method, ())?;
-                let int_obj = bool_obj.payload::<PyInt>().ok_or_else(|| {
-                    vm.new_type_error(format!(
-                        "'{}' object cannot be interpreted as an integer",
+                if !bool_obj.isinstance(&vm.ctx.types.bool_type) {
+                    return Err(vm.new_type_error(format!(
+                        "__bool__ should return bool, returned type {}",
                         bool_obj.class().name()
-                    ))
-                })?;
-
-                let len_val = int_obj.as_bigint();
-                if len_val.sign() == Sign::Minus {
-                    return Err(vm.new_value_error("__len__() should return >= 0".to_owned()));
+                    )));
                 }
-                !len_val.is_zero()
+
+                get_value(&bool_obj)
             }
-            None => true,
-        },
-    };
-    Ok(rs_bool)
+            None => match vm.get_method(self, "__len__") {
+                Some(method_or_err) => {
+                    let method = method_or_err?;
+                    let bool_obj = vm.invoke(&method, ())?;
+                    let int_obj = bool_obj.payload::<PyInt>().ok_or_else(|| {
+                        vm.new_type_error(format!(
+                            "'{}' object cannot be interpreted as an integer",
+                            bool_obj.class().name()
+                        ))
+                    })?;
+
+                    let len_val = int_obj.as_bigint();
+                    if len_val.sign() == Sign::Minus {
+                        return Err(vm.new_value_error("__len__() should return >= 0".to_owned()));
+                    }
+                    !len_val.is_zero()
+                }
+                None => true,
+            },
+        };
+        Ok(rs_bool)
+    }
 }
 
 /// bool(x) -> bool
@@ -105,7 +107,7 @@ impl SlotConstructor for PyBool {
                 actual_type
             )));
         }
-        let val = x.map_or(Ok(false), |val| boolval(vm, val))?;
+        let val = x.map_or(Ok(false), |val| val.try_to_bool(vm))?;
         Ok(vm.ctx.new_bool(val))
     }
 }
@@ -202,7 +204,7 @@ impl IntoPyBool {
 impl TryFromObject for IntoPyBool {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         Ok(IntoPyBool {
-            value: boolval(vm, obj)?,
+            value: obj.try_to_bool(vm)?,
         })
     }
 }

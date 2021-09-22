@@ -11,7 +11,6 @@ pub(crate) use _operator::make_module;
 mod _operator {
     use crate::builtins::int;
     use crate::builtins::int::PyIntRef;
-    use crate::builtins::pybool;
     use crate::builtins::pystr::PyStrRef;
     use crate::builtins::PyInt;
     use crate::builtins::PyTypeRef;
@@ -73,13 +72,13 @@ mod _operator {
     /// Same as not a.
     #[pyfunction]
     fn not_(a: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        pybool::boolval(vm, a).map(|r| !r)
+        a.try_to_bool(vm).map(|r| !r)
     }
 
     /// Return True if a is true, False otherwise.
     #[pyfunction]
     fn truth(a: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        pybool::boolval(vm, a)
+        a.try_to_bool(vm)
     }
 
     /// Same as a is b.

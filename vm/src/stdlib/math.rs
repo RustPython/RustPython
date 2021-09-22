@@ -7,8 +7,9 @@ use num_bigint::BigInt;
 use num_traits::{One, Signed, Zero};
 use puruspe::{erf, erfc, gamma, ln_gamma};
 
-use crate::builtins::float::{self, IntoPyFloat, PyFloatRef};
-use crate::builtins::int::{self, PyInt, PyIntRef};
+use crate::builtins::{
+    try_bigint_to_f64, try_f64_to_bigint, IntoPyFloat, PyFloatRef, PyInt, PyIntRef,
+};
 use crate::function::{Args, OptionalArg};
 use crate::utils::Either;
 use crate::vm::VirtualMachine;
@@ -359,8 +360,8 @@ fn math_trunc(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 fn math_ceil(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     let result_or_err = try_magic_method("__ceil__", vm, &value);
     if result_or_err.is_err() {
-        if let Ok(Some(v)) = float::try_float_opt(&value, vm) {
-            let v = float::try_bigint(v.ceil(), vm)?;
+        if let Ok(Some(v)) = value.try_to_f64(vm) {
+            let v = try_f64_to_bigint(v.ceil(), vm)?;
             return Ok(vm.ctx.new_int(v));
         }
     }
@@ -376,8 +377,8 @@ fn math_ceil(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 fn math_floor(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     let result_or_err = try_magic_method("__floor__", vm, &value);
     if result_or_err.is_err() {
-        if let Ok(Some(v)) = float::try_float_opt(&value, vm) {
-            let v = float::try_bigint(v.floor(), vm)?;
+        if let Ok(Some(v)) = value.try_to_f64(vm) {
+            let v = try_f64_to_bigint(v.floor(), vm)?;
             return Ok(vm.ctx.new_int(v));
         }
     }
@@ -401,14 +402,14 @@ fn math_ldexp(
 ) -> PyResult<f64> {
     let value = match value {
         Either::A(f) => f.to_f64(),
-        Either::B(z) => int::to_float(z.as_bigint(), vm)?,
+        Either::B(z) => try_bigint_to_f64(z.as_bigint(), vm)?,
     };
 
     if value == 0_f64 || !value.is_finite() {
         // NaNs, zeros and infinities are returned unchanged
         Ok(value)
     } else {
-        let result = value * (2_f64).powf(int::to_float(i.as_bigint(), vm)?);
+        let result = value * (2_f64).powf(try_bigint_to_f64(i.as_bigint(), vm)?);
         result_or_overflow(value, result, vm)
     }
 }

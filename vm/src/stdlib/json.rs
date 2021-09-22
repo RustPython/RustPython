@@ -5,7 +5,7 @@ mod machinery;
 mod _json {
     use super::*;
     use crate::builtins::pystr::PyStrRef;
-    use crate::builtins::{pybool, pytype::PyTypeRef};
+    use crate::builtins::pytype::PyTypeRef;
     use crate::exceptions::PyBaseExceptionRef;
     use crate::function::{FuncArgs, OptionalArg};
     use crate::iterator;
@@ -35,7 +35,7 @@ mod _json {
         type Args = PyObjectRef;
 
         fn py_new(cls: PyTypeRef, ctx: Self::Args, vm: &VirtualMachine) -> PyResult {
-            let strict = pybool::boolval(vm, vm.get_attribute(ctx.clone(), "strict")?)?;
+            let strict = vm.get_attribute(ctx.clone(), "strict")?.try_to_bool(vm)?;
             let object_hook = vm.option_if_none(vm.get_attribute(ctx.clone(), "object_hook")?);
             let object_pairs_hook =
                 vm.option_if_none(vm.get_attribute(ctx.clone(), "object_pairs_hook")?);

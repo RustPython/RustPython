@@ -81,7 +81,7 @@ mod _io {
     use crate::builtins::memory::PyMemoryView;
     use crate::builtins::{
         bytes::{PyBytes, PyBytesRef},
-        pybool, pytype, PyByteArray, PyStr, PyStrRef, PyTypeRef,
+        pytype, PyByteArray, PyStr, PyStrRef, PyTypeRef,
     };
     use crate::byteslike::{ArgBytesLike, ArgMemoryBuffer};
     use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
@@ -113,7 +113,7 @@ mod _io {
     }
 
     fn ensure_unclosed(file: &PyObjectRef, msg: &str, vm: &VirtualMachine) -> PyResult<()> {
-        if pybool::boolval(vm, vm.get_attribute(file.clone(), "closed")?)? {
+        if vm.get_attribute(file.clone(), "closed")?.try_to_bool(vm)? {
             Err(vm.new_value_error(msg.to_owned()))
         } else {
             Ok(())
@@ -288,7 +288,7 @@ mod _io {
     }
 
     fn file_closed(file: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        pybool::boolval(vm, vm.get_attribute(file.clone(), "closed")?)
+        vm.get_attribute(file.clone(), "closed")?.try_to_bool(vm)
     }
     fn check_closed(file: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if file_closed(file, vm)? {
@@ -299,7 +299,7 @@ mod _io {
     }
 
     fn check_readable(file: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        if pybool::boolval(vm, vm.call_method(file, "readable", ())?)? {
+        if vm.call_method(file, "readable", ())?.try_to_bool(vm)? {
             Ok(())
         } else {
             Err(new_unsupported_operation(
@@ -310,7 +310,7 @@ mod _io {
     }
 
     fn check_writable(file: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        if pybool::boolval(vm, vm.call_method(file, "writable", ())?)? {
+        if vm.call_method(file, "writable", ())?.try_to_bool(vm)? {
             Ok(())
         } else {
             Err(new_unsupported_operation(
@@ -321,7 +321,7 @@ mod _io {
     }
 
     fn check_seekable(file: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        if pybool::boolval(vm, vm.call_method(file, "seekable", ())?)? {
+        if vm.call_method(file, "seekable", ())?.try_to_bool(vm)? {
             Ok(())
         } else {
             Err(new_unsupported_operation(
@@ -520,7 +520,7 @@ mod _io {
         #[pyslot]
         fn tp_iternext(instance: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
             let line = vm.call_method(instance, "readline", ())?;
-            if !pybool::boolval(vm, line.clone())? {
+            if !line.clone().try_to_bool(vm)? {
                 Err(vm.new_stop_iteration())
             } else {
                 Ok(line)
@@ -1812,7 +1812,7 @@ mod _io {
         fn isatty(&self, vm: &VirtualMachine) -> PyResult {
             // read.isatty() or write.isatty()
             let res = self.read.isatty(vm)?;
-            if pybool::boolval(vm, res.clone())? {
+            if res.clone().try_to_bool(vm)? {
                 Ok(res)
             } else {
                 self.write.isatty(vm)
@@ -2208,11 +2208,11 @@ mod _io {
             let buffer = args.buffer;
 
             let has_read1 = vm.get_attribute_opt(buffer.clone(), "read1")?.is_some();
-            let seekable = pybool::boolval(vm, vm.call_method(&buffer, "seekable", ())?)?;
+            let seekable = vm.call_method(&buffer, "seekable", ())?.try_to_bool(vm)?;
 
             let codec = vm.state.codec_registry.lookup(encoding.as_str(), vm)?;
 
-            let encoder = if pybool::boolval(vm, vm.call_method(&buffer, "writable", ())?)? {
+            let encoder = if vm.call_method(&buffer, "writable", ())?.try_to_bool(vm)? {
                 let incremental_encoder =
                     codec.get_incremental_encoder(Some(errors.clone()), vm)?;
                 let encoding_name = vm.get_attribute_opt(incremental_encoder.clone(), "name")?;
@@ -2228,7 +2228,7 @@ mod _io {
                 None
             };
 
-            let decoder = if pybool::boolval(vm, vm.call_method(&buffer, "readable", ())?)? {
+            let decoder = if vm.call_method(&buffer, "readable", ())?.try_to_bool(vm)? {
                 let incremental_decoder =
                     codec.get_incremental_decoder(Some(errors.clone()), vm)?;
                 // TODO: wrap in IncrementalNewlineDecoder if newlines == Universal | Passthrough

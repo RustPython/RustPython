@@ -22,7 +22,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 /// This module provides access to mathematical functions for complex numbers.
 #[pymodule]
 mod cmath {
-    use crate::builtins::{complex::IntoPyComplex, float::IntoPyFloat};
+    use crate::builtins::{IntoPyComplex, IntoPyFloat};
     use crate::function::OptionalArg;
     use crate::{PyResult, VirtualMachine};
     use num_complex::Complex64;
