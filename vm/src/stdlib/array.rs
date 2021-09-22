@@ -1,12 +1,5 @@
 pub(crate) use array::make_module;
 
-#[cfg(not(target_arch = "wasm32"))]
-#[allow(non_camel_case_types)]
-pub type wchar_t = libc::wchar_t;
-#[cfg(target_arch = "wasm32")]
-#[allow(non_camel_case_types)]
-pub type wchar_t = u32;
-
 #[pymodule(name = "array")]
 mod array {
     use crate::buffer::{BufferOptions, PyBuffer, PyBufferInternal, ResizeGuard};
@@ -22,12 +15,12 @@ mod array {
         PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyRwLock, PyRwLockReadGuard,
         PyRwLockWriteGuard,
     };
+    use crate::common::str::wchar_t;
     use crate::function::OptionalArg;
     use crate::sliceable::{
         saturate_index, PySliceableSequence, PySliceableSequenceMut, SequenceIndex,
     };
     use crate::slots::{AsBuffer, Comparable, Iterable, PyComparisonOp, PyIter, SlotConstructor};
-    use crate::stdlib::array::wchar_t;
     use crate::{
         IdProtocol, IntoPyObject, PyComparisonValue, PyIterable, PyObjectRef, PyRef, PyResult,
         PyValue, StaticType, TryFromObject, TypeProtocol,

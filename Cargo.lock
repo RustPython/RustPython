@@ -1793,6 +1793,7 @@ dependencies = [
  "cfg-if 1.0.0",
  "hexf-parse",
  "lexical-core",
+ "libc",
  "lock_api",
  "num-bigint",
  "num-complex",
