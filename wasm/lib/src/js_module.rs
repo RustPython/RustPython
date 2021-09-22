@@ -13,8 +13,8 @@ use rustpython_vm::slots::PyIter;
 use rustpython_vm::types::create_simple_type;
 use rustpython_vm::VirtualMachine;
 use rustpython_vm::{
-    IntoPyObject, PyCallable, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
-    TryFromObject,
+    function::ArgCallable, IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
+    StaticType, TryFromObject,
 };
 
 #[wasm_bindgen(inline_js = "
@@ -459,8 +459,8 @@ impl PyPromise {
     #[pymethod]
     fn then(
         &self,
-        on_fulfill: OptionalOption<PyCallable>,
-        on_reject: OptionalOption<PyCallable>,
+        on_fulfill: OptionalOption<ArgCallable>,
+        on_reject: OptionalOption<ArgCallable>,
         vm: &VirtualMachine,
     ) -> PyResult<PyPromise> {
         let (on_fulfill, on_reject) = (on_fulfill.flatten(), on_reject.flatten());
@@ -499,9 +499,16 @@ impl PyPromise {
 
                 Ok(PyPromise::from_future(ret_future))
             }
-            PromiseKind::PyProm { then } => {
-                Self::cast_result(vm.invoke(then, (on_fulfill, on_reject)), vm)
-            }
+            PromiseKind::PyProm { then } => Self::cast_result(
+                vm.invoke(
+                    then,
+                    (
+                        on_fulfill.map(|c| c.into_object()),
+                        on_reject.map(|c| c.into_object()),
+                    ),
+                ),
+                vm,
+            ),
             PromiseKind::PyResolved(res) => match on_fulfill {
                 Some(resolve) => Self::cast_result(resolve.invoke((res.clone(),), vm), vm),
                 None => Ok(self.clone()),
@@ -516,7 +523,7 @@ impl PyPromise {
     #[pymethod]
     fn catch(
         &self,
-        on_reject: OptionalOption<PyCallable>,
+        on_reject: OptionalOption<ArgCallable>,
         vm: &VirtualMachine,
     ) -> PyResult<PyPromise> {
         self.then(OptionalArg::Present(None), on_reject, vm)

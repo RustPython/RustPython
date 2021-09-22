@@ -11,15 +11,15 @@ use crate::bytesinner::{
 };
 use crate::byteslike::ArgBytesLike;
 use crate::common::hash::PyHash;
-use crate::function::{OptionalArg, OptionalOption};
+use crate::function::{ArgIterable, OptionalArg, OptionalOption};
 use crate::slots::{
     AsBuffer, Callable, Comparable, Hashable, Iterable, PyComparisonOp, PyIter, SlotConstructor,
 };
 use crate::utils::Either;
 use crate::vm::VirtualMachine;
 use crate::{
-    IdProtocol, IntoPyObject, IntoPyResult, PyClassImpl, PyComparisonValue, PyContext, PyIterable,
-    PyObjectRef, PyRef, PyResult, PyValue, TryFromBorrowedObject, TypeProtocol,
+    IdProtocol, IntoPyObject, IntoPyResult, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef,
+    PyRef, PyResult, PyValue, TryFromBorrowedObject, TypeProtocol,
 };
 use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;
@@ -263,7 +263,7 @@ impl PyBytes {
     }
 
     #[pymethod]
-    fn join(&self, iter: PyIterable<PyBytesInner>, vm: &VirtualMachine) -> PyResult<PyBytes> {
+    fn join(&self, iter: ArgIterable<PyBytesInner>, vm: &VirtualMachine) -> PyResult<PyBytes> {
         Ok(self.inner.join(iter, vm)?.into())
     }
 

@@ -1,3 +1,5 @@
+mod argument;
+
 use self::OptionalArg::*;
 use crate::builtins::pytype::PyTypeRef;
 use crate::builtins::tuple::PyTupleRef;
@@ -12,6 +14,8 @@ use itertools::Itertools;
 use result_like::impl_option_like;
 use std::marker::PhantomData;
 use std::ops::RangeInclusive;
+
+pub use argument::{ArgCallable, ArgIterable, PyIterator};
 
 pub trait IntoFuncArgs: Sized {
     fn into_args(self, vm: &VirtualMachine) -> FuncArgs;

@@ -4,12 +4,12 @@ use crate::{
     builtins::{pytype, weakref::PyWeak, PyStrRef, PyTypeRef},
     byteslike::{ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike},
     exceptions::{create_exception_type, IntoPyException, PyBaseExceptionRef},
-    function::OptionalArg,
+    function::{ArgCallable, OptionalArg},
     slots::SlotConstructor,
     stdlib::os::PyPathLike,
     utils::{Either, ToCString},
-    IntoPyObject, ItemProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
-    StaticType, VirtualMachine,
+    IntoPyObject, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
+    VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use foreign_types_shared::{ForeignType, ForeignTypeRef};
@@ -636,7 +636,7 @@ struct LoadCertChainArgs {
     #[pyarg(any, optional)]
     keyfile: Option<PyPathLike>,
     #[pyarg(any, optional)]
-    password: Option<Either<PyStrRef, PyCallable>>,
+    password: Option<Either<PyStrRef, ArgCallable>>,
 }
 
 struct SocketTimeout {

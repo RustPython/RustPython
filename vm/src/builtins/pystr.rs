@@ -9,14 +9,14 @@ use super::pytype::PyTypeRef;
 use crate::anystr::{self, adjust_indices, AnyStr, AnyStrContainer, AnyStrWrapper};
 use crate::exceptions::IntoPyException;
 use crate::format::{FormatSpec, FormatString, FromTemplate};
-use crate::function::{FuncArgs, OptionalArg, OptionalOption};
+use crate::function::{ArgIterable, FuncArgs, OptionalArg, OptionalOption};
 use crate::sliceable::PySliceableSequence;
 use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter, SlotConstructor};
 use crate::utils::Either;
 use crate::VirtualMachine;
 use crate::{
     IdProtocol, IntoPyObject, ItemProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext,
-    PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryIntoRef, TypeProtocol,
+    PyObjectRef, PyRef, PyResult, PyValue, TryIntoRef, TypeProtocol,
 };
 use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;
@@ -937,7 +937,7 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn join(&self, iterable: PyIterable<PyStrRef>, vm: &VirtualMachine) -> PyResult<String> {
+    fn join(&self, iterable: ArgIterable<PyStrRef>, vm: &VirtualMachine) -> PyResult<String> {
         let iter = iterable.iter(vm)?;
         self.as_str().py_join(iter)
     }

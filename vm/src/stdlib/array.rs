@@ -17,11 +17,11 @@ mod array {
             PyStr, PyStrRef, PyTypeRef,
         },
         byteslike::ArgBytesLike,
-        function::OptionalArg,
+        function::{ArgIterable, OptionalArg},
         sliceable::{saturate_index, PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
         slots::{AsBuffer, Comparable, Iterable, PyComparisonOp, PyIter, SlotConstructor},
-        IdProtocol, IntoPyObject, IntoPyResult, PyComparisonValue, PyIterable, PyObjectRef, PyRef,
-        PyResult, PyValue, StaticType, TryFromObject, TypeProtocol, VirtualMachine,
+        IdProtocol, IntoPyObject, IntoPyResult, PyComparisonValue, PyObjectRef, PyRef, PyResult,
+        PyValue, StaticType, TryFromObject, TypeProtocol, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
@@ -648,7 +648,7 @@ mod array {
                     }
                 } else if init.payload_is::<PyBytes>() || init.payload_is::<PyByteArray>() {
                     init.try_bytes_like(vm, |x| array.frombytes(x))?;
-                } else if let Ok(iter) = PyIterable::try_from_object(vm, init.clone()) {
+                } else if let Ok(iter) = ArgIterable::try_from_object(vm, init.clone()) {
                     for obj in iter.iter(vm)? {
                         array.push(obj?, vm)?;
                     }
@@ -712,7 +712,7 @@ mod array {
             } else if let Some(array) = obj.payload::<PyArray>() {
                 w.iadd(&*array.read(), vm)
             } else {
-                let iter = PyIterable::try_from_object(vm, obj)?;
+                let iter = ArgIterable::try_from_object(vm, obj)?;
                 // zelf.extend_from_iterable(iter, vm)
                 for obj in iter.iter(vm)? {
                     w.push(obj?, vm)?;

@@ -4,11 +4,10 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
 
 use rustpython_vm::builtins::{PyDictRef, PyStrRef, PyTypeRef};
-use rustpython_vm::function::OptionalArg;
+use rustpython_vm::function::{ArgCallable, OptionalArg};
 use rustpython_vm::import::import_file;
-use rustpython_vm::VirtualMachine;
 use rustpython_vm::{
-    IntoPyObject, PyCallable, PyClassImpl, PyObject, PyObjectRef, PyResult, PyValue, StaticType,
+    IntoPyObject, PyClassImpl, PyObject, PyObjectRef, PyResult, PyValue, StaticType, VirtualMachine,
 };
 
 use crate::{convert, js_module::PyPromise, vm_class::weak_vm, wasm_builtins::window};
@@ -110,7 +109,7 @@ fn browser_fetch(url: PyStrRef, args: FetchArgs, vm: &VirtualMachine) -> PyResul
     Ok(PyPromise::from_future(future).into_object(vm))
 }
 
-fn browser_request_animation_frame(func: PyCallable, vm: &VirtualMachine) -> PyResult {
+fn browser_request_animation_frame(func: ArgCallable, vm: &VirtualMachine) -> PyResult {
     use std::{cell::RefCell, rc::Rc};
 
     // this basic setup for request_animation_frame taken from:

@@ -8,13 +8,13 @@ use super::set::PySet;
 use super::IterStatus;
 use crate::dictdatatype::{self, DictKey};
 use crate::exceptions::PyBaseExceptionRef;
-use crate::function::{FuncArgs, KwArgs, OptionalArg};
+use crate::function::{ArgIterable, FuncArgs, KwArgs, OptionalArg};
 use crate::iterator;
 use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable};
 use crate::vm::{ReprGuard, VirtualMachine};
 use crate::{
     IdProtocol, IntoPyObject, ItemProtocol, PyArithmaticValue::*, PyAttributes, PyClassDef,
-    PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
+    PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol,
 };
 
@@ -132,7 +132,7 @@ impl PyDict {
     #[pyclassmethod]
     fn fromkeys(
         class: PyTypeRef,
-        iterable: PyIterable,
+        iterable: ArgIterable,
         value: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {

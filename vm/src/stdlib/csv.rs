@@ -1,12 +1,12 @@
 use crate::common::lock::PyMutex;
 use crate::{
     builtins::{PyStr, PyStrRef, PyTypeRef},
-    function::{ArgumentError, FromArgs, FuncArgs},
+    function::{ArgIterable, ArgumentError, FromArgs, FuncArgs},
     iterator,
     slots::PyIter,
     types::create_simple_type,
-    PyClassImpl, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject,
-    TypeProtocol, VirtualMachine,
+    PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
+    VirtualMachine,
 };
 use itertools::{self, Itertools};
 use std::fmt;
@@ -217,7 +217,7 @@ impl Writer {
             }};
         }
 
-        let row = PyIterable::try_from_object(vm, row)?;
+        let row = ArgIterable::try_from_object(vm, row)?;
         for field in row.iter(vm)? {
             let field: PyObjectRef = field?;
             let stringified;
@@ -255,7 +255,7 @@ impl Writer {
     }
 
     #[pymethod]
-    fn writerows(&self, rows: PyIterable, vm: &VirtualMachine) -> PyResult<()> {
+    fn writerows(&self, rows: ArgIterable, vm: &VirtualMachine) -> PyResult<()> {
         for row in rows.iter(vm)? {
             self.writerow(row?, vm)?;
         }

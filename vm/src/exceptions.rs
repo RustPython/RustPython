@@ -4,15 +4,13 @@ use crate::builtins::singletons::{PyNone, PyNoneRef};
 use crate::builtins::traceback::PyTracebackRef;
 use crate::builtins::tuple::{PyTuple, PyTupleRef};
 use crate::common::lock::PyRwLock;
-use crate::function::FuncArgs;
+use crate::function::{ArgIterable, FuncArgs};
 use crate::py_io::{self, Write};
 use crate::sysmodule;
 use crate::types::create_type_with_slots;
-use crate::StaticType;
-use crate::VirtualMachine;
 use crate::{
-    IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult,
-    PyValue, TryFromObject, TypeProtocol,
+    IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    StaticType, TryFromObject, TypeProtocol, VirtualMachine,
 };
 
 use crossbeam_utils::atomic::AtomicCell;
@@ -83,7 +81,7 @@ impl PyBaseException {
     }
 
     #[pyproperty(setter)]
-    fn set_args(&self, args: PyIterable, vm: &VirtualMachine) -> PyResult<()> {
+    fn set_args(&self, args: ArgIterable, vm: &VirtualMachine) -> PyResult<()> {
         let args = args.iter(vm)?.collect::<PyResult<Vec<_>>>()?;
         *self.args.write() = PyTupleRef::with_elements(args, &vm.ctx);
         Ok(())

@@ -11,7 +11,7 @@ use crate::slots::PyComparisonOp;
 use crate::utils::Either;
 use crate::vm::VirtualMachine;
 use crate::{
-    IdProtocol, PyComparisonValue, PyIterable, PyObjectRef, PyResult, PyValue,
+    function::ArgIterable, IdProtocol, PyComparisonValue, PyObjectRef, PyResult, PyValue,
     TryFromBorrowedObject,
 };
 use bstr::ByteSlice;
@@ -556,7 +556,7 @@ impl PyBytesInner {
 
     pub fn join(
         &self,
-        iterable: PyIterable<PyBytesInner>,
+        iterable: ArgIterable<PyBytesInner>,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
         let iter = iterable.iter(vm)?;

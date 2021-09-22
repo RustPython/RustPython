@@ -9,8 +9,8 @@ use super::{int, PyInt};
 use crate::slots::PyIter;
 use crate::vm::VirtualMachine;
 use crate::{
-    ItemProtocol, PyCallable, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TypeProtocol,
+    function::ArgCallable, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
+    PyValue, TypeProtocol,
 };
 
 /// Marks status of iterator.
@@ -112,7 +112,7 @@ impl PyIter for PySequenceIterator {
 #[pyclass(module = false, name = "callable_iterator")]
 #[derive(Debug)]
 pub struct PyCallableIterator {
-    callable: PyCallable,
+    callable: ArgCallable,
     sentinel: PyObjectRef,
     status: AtomicCell<IterStatus>,
 }
@@ -125,7 +125,7 @@ impl PyValue for PyCallableIterator {
 
 #[pyimpl(with(PyIter))]
 impl PyCallableIterator {
-    pub fn new(callable: PyCallable, sentinel: PyObjectRef) -> Self {
+    pub fn new(callable: ArgCallable, sentinel: PyObjectRef) -> Self {
         Self {
             callable,
             sentinel,
