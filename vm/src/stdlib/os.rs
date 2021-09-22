@@ -123,12 +123,16 @@ impl FsPath {
             FsPath::Bytes(b) => bytes_as_osstr(b.as_bytes(), vm),
         }
     }
-    fn to_output_mode(&self) -> OutputMode {
-        match self {
+
+    fn to_pathlike(&self, vm: &VirtualMachine) -> PyResult<PyPathLike> {
+        let path = self.as_os_str(vm)?.to_owned().into();
+        let mode = match self {
             Self::Str(_) => OutputMode::String,
             Self::Bytes(_) => OutputMode::Bytes,
-        }
+        };
+        Ok(PyPathLike { path, mode })
     }
+
     #[cfg(not(target_os = "redox"))]
     pub(crate) fn as_bytes(&self) -> &[u8] {
         // TODO: FS encodings
@@ -202,11 +206,8 @@ impl TryFromObject for PyPathLike {
             Ok(buffer) => PyBytes::from(buffer.internal.obj_bytes().to_vec()).into_pyobject(vm),
             Err(_) => obj,
         };
-        let path = fspath(obj, true, vm)?;
-        Ok(Self {
-            path: path.as_os_str(vm)?.to_owned().into(),
-            mode: path.to_output_mode(),
-        })
+        let fs_path = fspath(obj, true, vm)?;
+        fs_path.to_pathlike(vm)
     }
 }
 
@@ -402,7 +403,7 @@ pub(super) mod _os {
     use rustpython_common::lock::OnceCell;
 
     const OPEN_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
-    const MKDIR_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
+    pub(crate) const MKDIR_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
     const STAT_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
     const UTIME_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
 
