@@ -3,7 +3,7 @@ use crate::PyObjectRef;
 use std::borrow::Cow;
 use std::collections::HashMap;
 
-pub mod array;
+mod array;
 #[cfg(feature = "rustpython-ast")]
 pub(crate) mod ast;
 mod atexit;
@@ -18,7 +18,7 @@ mod errno;
 mod functools;
 mod hashlib;
 mod imp;
-pub mod io;
+pub(crate) mod io;
 mod itertools;
 mod json;
 #[cfg(feature = "rustpython-parser")]
@@ -33,7 +33,7 @@ mod random;
 // TODO: maybe make this an extension module, if we ever get those
 // mod re;
 #[cfg(not(target_arch = "wasm32"))]
-pub mod socket;
+mod socket;
 mod sre;
 mod string;
 #[cfg(feature = "rustpython-compiler")]
@@ -73,7 +73,7 @@ mod scproxy;
 #[cfg(not(target_arch = "wasm32"))]
 mod select;
 #[cfg(not(target_arch = "wasm32"))]
-pub mod signal;
+pub(crate) mod signal;
 #[cfg(all(not(target_arch = "wasm32"), feature = "ssl"))]
 mod ssl;
 #[cfg(all(unix, not(target_os = "redox")))]
