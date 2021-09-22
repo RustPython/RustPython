@@ -18,6 +18,7 @@ use crate::{
 };
 use bstr::ByteSlice;
 use rustpython_common::borrow::{BorrowedValue, BorrowedValueMut};
+use rustpython_common::lock::PyRwLock;
 use std::mem::size_of;
 use std::ops::Deref;
 
@@ -573,7 +574,7 @@ impl Comparable for PyBytes {
 impl Iterable for PyBytes {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         Ok(PyBytesIterator {
-            internal: PositionIterInternal::new(zelf.into_object()),
+            internal: PyRwLock::new(PositionIterInternal::new(zelf.into_object(), 0)),
         }
         .into_object(vm))
     }
@@ -582,7 +583,7 @@ impl Iterable for PyBytes {
 #[pyclass(module = false, name = "bytes_iterator")]
 #[derive(Debug)]
 pub struct PyBytesIterator {
-    internal: PositionIterInternal,
+    internal: PyRwLock<PositionIterInternal>,
 }
 
 impl PyValue for PyBytesIterator {
@@ -595,36 +596,28 @@ impl PyValue for PyBytesIterator {
 impl PyBytesIterator {
     #[pymethod(magic)]
     fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
-        self.internal.length_hint(
-            || {
-                self.internal
-                    .obj
-                    .read()
-                    .payload::<PyBytes>()
-                    .map(|x| x.len())
-            },
-            vm,
-        )
+        self.internal
+            .read()
+            .length_hint(|obj| obj.payload::<PyBytes>().map(|x| x.len()), vm)
     }
 
     #[pymethod(magic)]
     fn reduce(&self, vm: &VirtualMachine) -> PyResult {
         let iter = vm.get_attribute(vm.builtins.clone(), "iter")?;
-        Ok(self.internal.reduce(iter, vm))
+        Ok(self.internal.read().reduce(iter, vm))
     }
 
     #[pymethod(magic)]
     fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.internal.set_state(state, vm)
+        self.internal.write().set_state(state, vm)
     }
 }
 impl IteratorIterable for PyBytesIterator {}
 impl SlotIterator for PyBytesIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        zelf.internal.next(
-            |pos| {
-                let bytes = zelf.internal.obj.read();
-                let bytes = bytes.payload::<PyBytes>().unwrap();
+        zelf.internal.write().next(
+            |obj, pos| {
+                let bytes = obj.payload::<PyBytes>().unwrap();
                 bytes
                     .as_bytes()
                     .get(pos)

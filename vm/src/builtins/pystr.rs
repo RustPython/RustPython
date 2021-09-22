@@ -170,9 +170,10 @@ impl TryIntoRef<PyStr> for &str {
 #[pyclass(module = false, name = "str_iterator")]
 #[derive(Debug)]
 pub struct PyStrIterator {
-    string: PyStrRef,
-    position: PyAtomic<usize>,
-    status: AtomicCell<IterStatus>,
+    // string: PyStrRef,
+    // position: PyAtomic<usize>,
+    // status: AtomicCell<IterStatus>,
+    internal: PyRwLock<PositionIterInternal>,
 }
 
 impl PyValue for PyStrIterator {
@@ -184,82 +185,91 @@ impl PyValue for PyStrIterator {
 #[pyimpl(with(SlotIterator))]
 impl PyStrIterator {
     #[pymethod(magic)]
-    fn length_hint(&self) -> usize {
-        match self.status.load() {
-            Active => {
-                let pos = self.position.load(atomic::Ordering::SeqCst);
-                self.string.len().saturating_sub(pos)
-            }
-            Exhausted => 0,
-        }
+    fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
+        self.internal
+            .read()
+            .length_hint(|obj| obj.payload::<PyStr>().map(|x| x.len()), vm)
+        // match self.status.load() {
+        //     Active => {
+        //         let pos = self.position.load(atomic::Ordering::SeqCst);
+        //         self.string.len().saturating_sub(pos)
+        //     }
+        //     Exhausted => 0,
+        // }
     }
 
     #[pymethod(magic)]
     fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        // When we're exhausted, just return.
-        if let Exhausted = self.status.load() {
-            return Ok(());
-        }
-        let pos = state
-            .payload::<PyInt>()
-            .ok_or_else(|| vm.new_type_error("an integer is required.".to_owned()))?;
-        let pos = std::cmp::min(
-            try_to_primitive(pos.as_bigint(), vm).unwrap_or(0),
-            self.string.len(),
-        );
-        self.position.store(pos, atomic::Ordering::SeqCst);
-        Ok(())
+        self.internal.write().set_state(state, vm)
+        // // When we're exhausted, just return.
+        // if let Exhausted = self.status.load() {
+        //     return Ok(());
+        // }
+        // let pos = state
+        //     .payload::<PyInt>()
+        //     .ok_or_else(|| vm.new_type_error("an integer is required.".to_owned()))?;
+        // let pos = std::cmp::min(
+        //     try_to_primitive(pos.as_bigint(), vm).unwrap_or(0),
+        //     self.string.len(),
+        // );
+        // self.position.store(pos, atomic::Ordering::SeqCst);
+        // Ok(())
     }
 
     #[pymethod(magic)]
     fn reduce(&self, vm: &VirtualMachine) -> PyResult {
         let iter = vm.get_attribute(vm.builtins.clone(), "iter")?;
-        Ok(vm.ctx.new_tuple(match self.status.load() {
-            Exhausted => vec![
-                iter,
-                vm.ctx.new_tuple(vec![vm.ctx.new_ascii_literal(ascii!(""))]),
-            ],
-            Active => vec![
-                iter,
-                vm.ctx.new_tuple(vec![self.string.clone().into_object()]),
-                vm.ctx
-                    .new_int(self.position.load(atomic::Ordering::Relaxed)),
-            ],
-        }))
+        Ok(self.internal.read().reduce(iter, vm))
     }
 }
 
 impl IteratorIterable for PyStrIterator {}
 impl SlotIterator for PyStrIterator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        if let Exhausted = zelf.status.load() {
-            return Ok(PyIterReturn::StopIteration(None));
-        }
-        let value = &*zelf.string.as_str();
-        let mut start = zelf.position.load(atomic::Ordering::SeqCst);
-        loop {
-            if start == value.len() {
-                zelf.status.store(Exhausted);
-                return Ok(PyIterReturn::StopIteration(None));
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        let internal = zelf.internal.write();
+        if let IterStatus::Active(obj) = &internal.status {
+            let s = obj.payload::<PyStr>().unwrap();
+            let value = s.as_str();
+            if internal.position >= value.len() {
+                internal.status = Exhausted;
+                return Err(vm.new_stop_iteration());
             }
-            let ch = match value[start..].chars().next() {
-                Some(ch) => ch,
-                None => {
-                    zelf.status.store(Exhausted);
-                    return Ok(PyIterReturn::StopIteration(None));
-                }
-            };
 
-            match zelf.position.compare_exchange_weak(
-                start,
-                start + ch.len_utf8(),
-                atomic::Ordering::Release,
-                atomic::Ordering::Relaxed,
-            ) {
-                Ok(_) => break Ok(PyIterReturn::Return(ch.into_pyobject(vm))),
-                Err(cur) => start = cur,
-            }
+            let ch = value[internal.position..].chars().next().ok_or_else(|| {
+                internal.status = Exhausted;
+                vm.new_stop_iteration()
+            })?;
+
+            internal.position += ch.len_utf8();
+            Ok(ch.into_pyobject(vm))
+        } else {
+            Err(vm.new_stop_iteration())
         }
+        // if let Exhausted = zelf.status.load() {
+        //     return Err(vm.new_stop_iteration());
+        // }
+        // let value = &*zelf.string.as_str();
+        // let mut start = zelf.position.load(atomic::Ordering::SeqCst);
+        // loop {
+        //     if start == value.len() {
+        //         zelf.status.store(Exhausted);
+        //         return Err(vm.new_stop_iteration());
+        //     }
+        //     let ch = value[start..].chars().next().ok_or_else(|| {
+        //         zelf.status.store(Exhausted);
+        //         vm.new_stop_iteration()
+        //     })?;
+
+        //     match zelf.position.compare_exchange_weak(
+        //         start,
+        //         start + ch.len_utf8(),
+        //         atomic::Ordering::Release,
+        //         atomic::Ordering::Relaxed,
+        //     ) {
+        //         Ok(_) => break Ok(ch.into_pyobject(vm)),
+        //         Err(cur) => start = cur,
+        //     }
+        // }
     }
 }
 
@@ -1294,9 +1304,10 @@ impl Comparable for PyStr {
 impl Iterable for PyStr {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         Ok(PyStrIterator {
-            position: Radium::new(0),
-            string: zelf,
-            status: AtomicCell::new(Active),
+            // position: Radium::new(0),
+            // string: zelf,
+            // status: AtomicCell::new(Active),
+            internal: PyRwLock::new(PositionIterInternal::new(zelf.into_object(), 0)),
         }
         .into_object(vm))
     }

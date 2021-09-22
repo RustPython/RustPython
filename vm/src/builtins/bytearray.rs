@@ -717,7 +717,7 @@ impl Unhashable for PyByteArray {}
 impl Iterable for PyByteArray {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         Ok(PyByteArrayIterator {
-            internal: PositionIterInternal::new(zelf.into_object()),
+            internal: PyRwLock::new(PositionIterInternal::new(zelf.into_object(), 0)),
         }
         .into_object(vm))
     }
@@ -730,7 +730,7 @@ impl Iterable for PyByteArray {
 #[pyclass(module = false, name = "bytearray_iterator")]
 #[derive(Debug)]
 pub struct PyByteArrayIterator {
-    internal: PositionIterInternal,
+    internal: PyRwLock<PositionIterInternal>,
 }
 
 impl PyValue for PyByteArrayIterator {
@@ -743,35 +743,27 @@ impl PyValue for PyByteArrayIterator {
 impl PyByteArrayIterator {
     #[pymethod(magic)]
     fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
-        self.internal.length_hint(
-            || {
-                self.internal
-                    .obj
-                    .read()
-                    .payload::<PyByteArray>()
-                    .map(|x| x.len())
-            },
-            vm,
-        )
+        self.internal
+            .read()
+            .length_hint(|obj| obj.payload::<PyByteArray>().map(|x| x.len()), vm)
     }
     #[pymethod(magic)]
     fn reduce(&self, vm: &VirtualMachine) -> PyResult {
         let iter = vm.get_attribute(vm.builtins.clone(), "iter")?;
-        Ok(self.internal.reduce(iter, vm))
+        Ok(self.internal.read().reduce(iter, vm))
     }
 
     #[pymethod(magic)]
     fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.internal.set_state(state, vm)
+        self.internal.write().set_state(state, vm)
     }
 }
 impl IteratorIterable for PyByteArrayIterator {}
 impl SlotIterator for PyByteArrayIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        zelf.internal.next(
-            |pos| {
-                let bytearray = zelf.internal.obj.read();
-                let bytearray = bytearray.payload::<PyByteArray>().unwrap();
+        zelf.internal.write().next(
+            |obj, pos| {
+                let bytearray = obj.payload::<PyByteArray>().unwrap();
                 let buf = bytearray.borrow_buf();
                 buf.get(pos)
                     .ok_or_else(|| vm.new_stop_iteration())

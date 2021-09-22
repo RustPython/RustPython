@@ -310,7 +310,7 @@ impl Comparable for PyTuple {
 impl Iterable for PyTuple {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         Ok(PyTupleIterator {
-            internal: PositionIterInternal::new(zelf.into_object()),
+            internal: PyRwLock::new(PositionIterInternal::new(zelf.into_object(), 0)),
         }
         .into_object(vm))
     }
@@ -319,7 +319,7 @@ impl Iterable for PyTuple {
 #[pyclass(module = false, name = "tuple_iterator")]
 #[derive(Debug)]
 pub(crate) struct PyTupleIterator {
-    internal: PositionIterInternal,
+    internal: PyRwLock<PositionIterInternal>,
 }
 
 impl PyValue for PyTupleIterator {
@@ -332,37 +332,29 @@ impl PyValue for PyTupleIterator {
 impl PyTupleIterator {
     #[pymethod(magic)]
     fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
-        self.internal.length_hint(
-            || {
-                self.internal
-                    .obj
-                    .read()
-                    .payload::<PyTuple>()
-                    .map(|x| x.len())
-            },
-            vm,
-        )
+        self.internal
+            .read()
+            .length_hint(|obj| obj.payload::<PyTuple>().map(|x| x.len()), vm)
     }
 
     #[pymethod(magic)]
     fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.internal.set_state(state, vm)
+        self.internal.write().set_state(state, vm)
     }
 
     #[pymethod(magic)]
     fn reduce(&self, vm: &VirtualMachine) -> PyResult {
         let iter = vm.get_attribute(vm.builtins.clone(), "iter")?;
-        Ok(self.internal.reduce(iter, vm))
+        Ok(self.internal.read().reduce(iter, vm))
     }
 }
 
 impl IteratorIterable for PyTupleIterator {}
 impl SlotIterator for PyTupleIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        zelf.internal.next(
-            |pos| {
-                let tuple = zelf.internal.obj.read();
-                let tuple = tuple.payload::<PyTuple>().unwrap();
+        zelf.internal.write().next(
+            |obj, pos| {
+                let tuple = obj.payload::<PyTuple>().unwrap();
                 tuple
                     .as_slice()
                     .get(pos)

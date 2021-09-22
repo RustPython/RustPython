@@ -161,16 +161,17 @@ impl PyList {
 
     #[pymethod(magic)]
     fn reversed(zelf: PyRef<Self>) -> PyListReverseIterator {
-        let final_position = zelf.borrow_vec().len();
+        let position = zelf.len().saturating_sub(1);
         // Mark iterator as exhausted immediately if its empty.
         PyListReverseIterator {
-            position: AtomicCell::new(final_position.saturating_sub(1)),
-            status: AtomicCell::new(if final_position == 0 {
-                Exhausted
-            } else {
-                Active
-            }),
-            list: zelf,
+            internal: PyRwLock::new(PositionIterInternal::new(zelf.into_object(), position))
+            // position: AtomicCell::new(final_position.saturating_sub(1)),
+            // status: AtomicCell::new(if final_position == 0 {
+            //     Exhausted
+            // } else {
+            //     Active
+            // }),
+            // list: zelf,
         }
     }
 
@@ -419,7 +420,7 @@ impl PyList {
 impl Iterable for PyList {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         Ok(PyListIterator {
-            internal: PositionIterInternal::new(zelf.into_object()),
+            internal: PyRwLock::new(PositionIterInternal::new(zelf.into_object(), 0)),
         }
         .into_object(vm))
     }
@@ -474,7 +475,7 @@ fn do_sort(
 #[pyclass(module = false, name = "list_iterator")]
 #[derive(Debug)]
 pub struct PyListIterator {
-    internal: PositionIterInternal,
+    internal: PyRwLock<PositionIterInternal>,
 }
 
 impl PyValue for PyListIterator {
@@ -487,37 +488,29 @@ impl PyValue for PyListIterator {
 impl PyListIterator {
     #[pymethod(magic)]
     fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
-        self.internal.length_hint(
-            || {
-                self.internal
-                    .obj
-                    .read()
-                    .payload::<PyList>()
-                    .map(|x| x.len())
-            },
-            vm,
-        )
+        self.internal
+            .read()
+            .length_hint(|obj| obj.payload::<PyList>().map(|x| x.len()), vm)
     }
 
     #[pymethod(magic)]
     fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.internal.set_state(state, vm)
+        self.internal.write().set_state(state, vm)
     }
 
     #[pymethod(magic)]
     fn reduce(&self, vm: &VirtualMachine) -> PyResult {
         let iter = vm.get_attribute(vm.builtins.clone(), "iter")?;
-        Ok(self.internal.reduce(iter, vm))
+        Ok(self.internal.read().reduce(iter, vm))
     }
 }
 
 impl IteratorIterable for PyListIterator {}
 impl SlotIterator for PyListIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        zelf.internal.next(
-            |pos| {
-                let list = zelf.internal.obj.read();
-                let list = list.payload::<PyList>().unwrap();
+        zelf.internal.write().next(
+            |obj, pos| {
+                let list = obj.payload::<PyList>().unwrap();
                 let vec = list.borrow_vec();
                 vec.get(pos)
                     .ok_or_else(|| vm.new_stop_iteration())
@@ -531,9 +524,9 @@ impl SlotIterator for PyListIterator {
 #[pyclass(module = false, name = "list_reverseiterator")]
 #[derive(Debug)]
 pub struct PyListReverseIterator {
-    pub position: AtomicCell<usize>,
-    pub status: AtomicCell<IterStatus>,
-    pub list: PyListRef,
+    internal: PyRwLock<PositionIterInternal>, // pub position: AtomicCell<usize>,
+                                              // pub status: AtomicCell<IterStatus>,
+                                              // pub list: PyListRef
 }
 
 impl PyValue for PyListReverseIterator {
@@ -545,68 +538,84 @@ impl PyValue for PyListReverseIterator {
 #[pyimpl(with(SlotIterator))]
 impl PyListReverseIterator {
     #[pymethod(magic)]
-    fn length_hint(&self) -> usize {
-        match self.status.load() {
-            Active => {
-                let position = self.position.load();
-                if position > self.list.len() {
-                    // List was mutated. Report zero, next call to `__next__` will
-                    // fail and set iterator to Exhausted.
-                    0
-                } else {
-                    position + 1
-                }
-            }
-            Exhausted => 0,
-        }
+    fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
+        self.internal
+            .read()
+            .rev_length_hint(|obj| obj.payload::<PyList>().map(|x| x.len()), vm)
+        // match self.status.load() {
+        //     Active => {
+        //         let position = self.position.load();
+        //         if position > self.list.len() {
+        //             // List was mutated. Report zero, next call to `__next__` will
+        //             // fail and set iterator to Exhausted.
+        //             0
+        //         } else {
+        //             position + 1
+        //         }
+        //     }
+        //     Exhausted => 0,
+        // }
     }
 
     #[pymethod(magic)]
     fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         // When we're exhausted, just return.
-        if let Exhausted = self.status.load() {
-            return Ok(());
-        }
+        // if let Exhausted = self.status.load() {
+        //     return Ok(());
+        // }
 
-        // Max for position is list.len() - 1.
-        let position = list_state(self.list.len().saturating_sub(1), state, vm)?;
-        self.position.store(position);
-        Ok(())
+        // // Max for position is list.len() - 1.
+        // let position = list_state(self.list.len().saturating_sub(1), state, vm)?;
+        // self.position.store(position);
+        // Ok(())
+        self.internal.write().set_state(state, vm)
     }
 
     #[pymethod(magic)]
     fn reduce(&self, vm: &VirtualMachine) -> PyResult {
-        let pos = if let Exhausted = self.status.load() {
-            None
-        } else {
-            Some(self.position.load())
-        };
-        list_reduce(self.list.clone(), pos, true, vm)
+        let iter = vm.get_attribute(vm.builtins.clone(), "reversed")?;
+        Ok(self.internal.read().reduce(iter, vm))
+        // let pos = if let Exhausted = self.status.load() {
+        //     None
+        // } else {
+        //     Some(self.position.load())
+        // };
+        // list_reduce(self.list.clone(), pos, true, vm)
     }
 }
 
 impl IteratorIterable for PyListReverseIterator {}
 impl SlotIterator for PyListReverseIterator {
-    fn next(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        if let Exhausted = zelf.status.load() {
-            return Ok(PyIterReturn::StopIteration(None));
-        }
-        let list = zelf.list.borrow_vec();
-        let pos = zelf.position.fetch_sub(1);
-        if pos > 0 {
-            if let Some(obj) = list.get(pos) {
-                return Ok(PyIterReturn::Return(obj.clone()));
-            }
-        }
-        // We either are == 0 or list.get returned None. Either way, set status
-        // to exhausted and return last item if pos == 0.
-        zelf.status.store(Exhausted);
-        if pos == 0 {
-            if let Some(obj) = list.get(pos) {
-                return Ok(PyIterReturn::Return(obj.clone()));
-            }
-        }
-        Ok(PyIterReturn::StopIteration(None))
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        zelf.internal.write().rev_next(
+            |obj, pos| {
+                let list = obj.payload::<PyList>().unwrap();
+                let vec = list.borrow_vec();
+                vec.get(pos)
+                    .ok_or_else(|| vm.new_stop_iteration())
+                    .map(|x| x.clone())
+            },
+            vm,
+        )
+        // if let Exhausted = zelf.status.load() {
+        //     return Err(vm.new_stop_iteration());
+        // }
+        // let list = zelf.list.borrow_vec();
+        // let pos = zelf.position.fetch_sub(1);
+        // if pos > 0 {
+        //     if let Some(obj) = list.get(pos) {
+        //         return Ok(obj.clone());
+        //     }
+        // }
+        // // We either are == 0 or list.get returned None. Either way, set status
+        // // to exhausted and return last item if pos == 0.
+        // zelf.status.store(Exhausted);
+        // if pos == 0 {
+        //     if let Some(obj) = list.get(pos) {
+        //         return Ok(obj.clone());
+        //     }
+        // }
+        // Err(vm.new_stop_iteration())
     }
 }
 

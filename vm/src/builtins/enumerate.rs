@@ -72,9 +72,10 @@ impl SlotIterator for PyEnumerate {
 #[pyclass(module = false, name = "reversed")]
 #[derive(Debug)]
 pub struct PyReverseSequenceIterator {
-    pub position: AtomicCell<usize>,
-    pub status: AtomicCell<IterStatus>,
-    pub obj: PyObjectRef,
+    internal: PyRwLock<PositionIterInternal>,
+    // pub position: AtomicCell<usize>,
+    // pub status: AtomicCell<IterStatus>,
+    // pub obj: PyObjectRef,
 }
 
 impl PyValue for PyReverseSequenceIterator {
@@ -86,80 +87,88 @@ impl PyValue for PyReverseSequenceIterator {
 #[pyimpl(with(SlotIterator))]
 impl PyReverseSequenceIterator {
     pub fn new(obj: PyObjectRef, len: usize) -> Self {
+        let position = len.saturating_sub(1);
         Self {
-            position: AtomicCell::new(len.saturating_sub(1)),
-            status: AtomicCell::new(if len == 0 { Exhausted } else { Active }),
-            obj,
+            internal: PyRwLock::new(PositionIterInternal::new(obj, position))
+            // position: AtomicCell::new(len.saturating_sub(1)),
+            // status: AtomicCell::new(if len == 0 { Exhausted } else { Active }),
+            // obj,
         }
     }
 
     #[pymethod(magic)]
-    fn length_hint(&self, vm: &VirtualMachine) -> PyResult<usize> {
-        Ok(match self.status.load() {
-            Active => {
-                let position = self.position.load();
-                if position > vm.obj_len(&self.obj)? {
-                    0
-                } else {
-                    position + 1
-                }
-            }
-            Exhausted => 0,
-        })
+    fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
+        self.internal
+            .read()
+            .rev_length_hint(|obj| vm.obj_len(obj).ok(), vm)
+        // Ok(match self.status.load() {
+        //     Active => {
+        //         let position = self.position.load();
+        //         if position > vm.obj_len(&self.obj)? {
+        //             0
+        //         } else {
+        //             position + 1
+        //         }
+        //     }
+        //     Exhausted => 0,
+        // })
     }
 
     #[pymethod(magic)]
     fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        // When we're exhausted, just return.
-        if let Exhausted = self.status.load() {
-            return Ok(());
-        }
-        let len = vm.obj_len(&self.obj)?;
-        let pos = state
-            .payload::<PyInt>()
-            .ok_or_else(|| vm.new_type_error("an integer is required.".to_owned()))?;
-        let pos = std::cmp::min(
-            int::try_to_primitive(pos.as_bigint(), vm).unwrap_or(0),
-            len.saturating_sub(1),
-        );
-        self.position.store(pos);
-        Ok(())
+        self.internal.read().set_state(state, vm)
+        // // When we're exhausted, just return.
+        // if let Exhausted = self.status.load() {
+        //     return Ok(());
+        // }
+        // let len = vm.obj_len(&self.obj)?;
+        // let pos = state
+        //     .payload::<PyInt>()
+        //     .ok_or_else(|| vm.new_type_error("an integer is required.".to_owned()))?;
+        // let pos = std::cmp::min(
+        //     try_to_primitive(pos.as_bigint(), vm).unwrap_or(0),
+        //     len.saturating_sub(1),
+        // );
+        // self.position.store(pos);
+        // Ok(())
     }
 
     #[pymethod(magic)]
     fn reduce(&self, vm: &VirtualMachine) -> PyResult {
         let iter = vm.get_attribute(vm.builtins.clone(), "reversed")?;
-        Ok(vm.ctx.new_tuple(match self.status.load() {
-            Exhausted => vec![iter, vm.ctx.new_tuple(vec![vm.ctx.new_tuple(vec![])])],
-            Active => vec![
-                iter,
-                vm.ctx.new_tuple(vec![self.obj.clone()]),
-                vm.ctx.new_int(self.position.load()),
-            ],
-        }))
+        Ok(self.internal.read().reduce(iter, vm))
+        // Ok(vm.ctx.new_tuple(match self.status.load() {
+        //     Exhausted => vec![iter, vm.ctx.new_tuple(vec![vm.ctx.new_tuple(vec![])])],
+        //     Active => vec![
+        //         iter,
+        //         vm.ctx.new_tuple(vec![self.obj.clone()]),
+        //         vm.ctx.new_int(self.position.load()),
+        //     ],
+        // }))
     }
 }
 
 impl IteratorIterable for PyReverseSequenceIterator {}
 impl SlotIterator for PyReverseSequenceIterator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        if let Exhausted = zelf.status.load() {
-            return Ok(PyIterReturn::StopIteration(None));
-        }
-        let pos = zelf.position.fetch_sub(1);
-        if pos == 0 {
-            zelf.status.store(Exhausted);
-        }
-        match zelf.obj.get_item(pos, vm) {
-            Err(ref e)
-                if e.isinstance(&vm.ctx.exceptions.index_error)
-                    || e.isinstance(&vm.ctx.exceptions.stop_iteration) =>
-            {
-                zelf.status.store(Exhausted);
-                Ok(PyIterReturn::StopIteration(None))
-            }
-            other => other.map(PyIterReturn::Return),
-        }
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        zelf.internal
+            .read()
+            .rev_next(|obj, pos| obj.get_item(pos, vm), vm)
+        // if let Exhausted = zelf.status.load() {
+        //     return Err(vm.new_stop_iteration());
+        // }
+        // let pos = zelf.position.fetch_sub(1);
+        // if pos == 0 {
+        //     zelf.status.store(Exhausted);
+        // }
+        // match zelf.obj.get_item(pos, vm) {
+        //     Err(ref e) if e.isinstance(&vm.ctx.exceptions.index_error) => {
+        //         zelf.status.store(Exhausted);
+        //         Err(vm.new_stop_iteration())
+        //     }
+        //     // also catches stop_iteration => stop_iteration
+        //     ret => ret,
+        // }
     }
 }
 

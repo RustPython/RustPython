@@ -490,6 +490,17 @@ impl<T: Clone> Dict<T> {
         }
     }
 
+    pub fn prev_entry(&self, position: &mut EntryIndex) -> Option<(PyObjectRef, T)> {
+        let inner = self.read();
+        loop {
+            let entry = inner.entries.get(*position)?;
+            *position = position.checked_sub(1)?;
+            if let Some(entry) = entry {
+                break Some((entry.key.clone(), entry.value.clone()));
+            }
+        }
+    }
+
     pub fn next_entry_atomic(&self, position: &AtomicCell<usize>) -> Option<(PyObjectRef, T)> {
         let inner = self.read();
         loop {

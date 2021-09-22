@@ -2,6 +2,7 @@ pub(crate) use _collections::make_module;
 
 #[pymodule]
 mod _collections {
+    use crate::builtins::PositionIterInternal;
     use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
     use crate::{
         builtins::{
@@ -357,12 +358,13 @@ mod _collections {
 
         #[pymethod(magic)]
         fn reversed(zelf: PyRef<Self>) -> PyResult<PyReverseDequeIterator> {
-            let length = zelf.len();
+            // let length = zelf.len();
             Ok(PyReverseDequeIterator {
-                position: AtomicCell::new(length),
-                status: AtomicCell::new(if length > 0 { Active } else { Exhausted }),
-                length,
-                deque: zelf,
+                state: zelf.state.load(),
+                internal: PyRwLock::new(PositionIterInternal::new(
+                    zelf.into_object(),
+                    zelf.len() - 1,
+                )),
             })
         }
 
@@ -573,10 +575,12 @@ mod _collections {
     #[pyclass(name = "_deque_iterator")]
     #[derive(Debug, PyValue)]
     struct PyDequeIterator {
-        position: AtomicCell<usize>,
-        status: AtomicCell<IterStatus>,
-        length: usize, // To track length immutability.
-        deque: PyDequeRef,
+        // position: AtomicCell<usize>,
+        // status: AtomicCell<IterStatus>,
+        // length: usize, // To track length immutability.
+        // deque: PyDequeRef,
+        state: usize,
+        internal: PyRwLock<PositionIterInternal>,
     }
 
     #[derive(FromArgs)]
@@ -596,15 +600,16 @@ mod _collections {
             (DequeIterArgs { deque, index }, _kwargs): Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult {
-            let len = deque.len();
+            // let len = deque.len();
             let iter = PyDequeIterator::new(deque);
             if let OptionalArg::Present(index) = index {
                 let index = max(index, 0) as usize;
-                iter.position.store(min(index, len));
+                iter.internal.write().position = index;
+                // iter.position.store(min(index, len));
 
-                if len.le(&index) {
-                    iter.status.store(Exhausted);
-                }
+                // if len.le(&index) {
+                //     iter.status.store(Exhausted);
+                // }
             }
             iter.into_pyresult_with_type(vm, cls)
         }
@@ -614,56 +619,82 @@ mod _collections {
     impl PyDequeIterator {
         pub(crate) fn new(deque: PyDequeRef) -> Self {
             PyDequeIterator {
-                position: AtomicCell::new(0),
-                status: AtomicCell::new(IterStatus::Active),
-                length: deque.len(),
-                deque,
+                // position: AtomicCell::new(0),
+                // status: AtomicCell::new(IterStatus::Active),
+                // length: deque.len(),
+                // deque,
+                state: deque.state.load(),
+                internal: PyRwLock::new(PositionIterInternal::new(deque.into_object(), 0)),
             }
         }
 
         #[pymethod(magic)]
-        fn length_hint(&self) -> usize {
-            match self.status.load() {
-                Active => self.deque.len().saturating_sub(self.position.load()),
-                Exhausted => 0,
-            }
+        fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
+            self.internal
+                .read()
+                .length_hint(|obj| obj.payload::<PyDeque>().map(|x| x.len()), vm)
+            // match self.status.load() {
+            //     Active => self.deque.len().saturating_sub(self.position.load()),
+            //     Exhausted => 0,
+            // }
         }
 
         #[pymethod(magic)]
         fn reduce(
             zelf: PyRef<Self>,
             vm: &VirtualMachine,
-        ) -> PyResult<(PyTypeRef, (PyDequeRef, PyObjectRef))> {
-            Ok((
+        ) -> (PyTypeRef, (PyObjectRef, PyObjectRef)) {
+            let internal = zelf.internal.read();
+            let deque = match &internal.status {
+                Active(obj) => obj.clone(),
+                Exhausted => PyDeque::default().into_object(vm),
+            };
+            (
                 zelf.clone_class(),
-                (zelf.deque.clone(), vm.ctx.new_int(zelf.position.load())),
-            ))
+                (deque, vm.ctx.new_int(internal.position)),
+            )
         }
     }
 
     impl IteratorIterable for PyDequeIterator {}
     impl SlotIterator for PyDequeIterator {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            match zelf.status.load() {
-                Exhausted => Ok(PyIterReturn::StopIteration(None)),
-                Active => {
-                    if zelf.length != zelf.deque.len() {
-                        // Deque was changed while we iterated.
-                        zelf.status.store(Exhausted);
-                        Err(vm.new_runtime_error("Deque mutated during iteration".to_owned()))
-                    } else {
-                        let pos = zelf.position.fetch_add(1);
-                        let deque = zelf.deque.borrow_deque();
-                        if pos < deque.len() {
-                            let ret = deque[pos].clone();
-                            Ok(PyIterReturn::Return(ret))
-                        } else {
-                            zelf.status.store(Exhausted);
-                            Ok(PyIterReturn::StopIteration(None))
-                        }
+        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+            zelf.internal.write().next(
+                |obj, pos| {
+                    let deque = obj.payload::<PyDeque>().unwrap();
+                    if zelf.state != deque.state.load() {
+                        return Err(
+                            vm.new_runtime_error("Deque mutated during iteration".to_owned())
+                        );
                     }
-                }
-            }
+                    let deque = deque.borrow_deque();
+                    deque
+                        .get(pos)
+                        .ok_or_else(|| vm.new_stop_iteration())
+                        .map(|x| x.clone())
+                },
+                vm,
+            )
+            // match zelf.status.load() {
+            //     Exhausted => Err(vm.new_stop_iteration()),
+            //     Active => {
+            //         if zelf.length != zelf.deque.len() {
+            //             // Deque was changed while we iterated.
+            //             zelf.status.store(Exhausted);
+            //             Err(vm.new_runtime_error("Deque mutated during iteration".to_owned()))
+            //         } else {
+            //             let pos = zelf.position.fetch_add(1);
+            //             let deque = zelf.deque.borrow_deque();
+            //             if pos < deque.len() {
+            //                 let ret = deque[pos].clone();
+            //                 Ok(ret)
+            //             } else {
+            //                 zelf.status.store(Exhausted);
+            //                 Err(vm.new_stop_iteration())
+            //             }
+            //         }
+            //     }
+            // }
         }
     }
 
@@ -671,10 +702,12 @@ mod _collections {
     #[pyclass(name = "_deque_reverse_iterator")]
     #[derive(Debug, PyValue)]
     struct PyReverseDequeIterator {
-        position: AtomicCell<usize>,
-        status: AtomicCell<IterStatus>,
-        length: usize, // To track length immutability.
-        deque: PyDequeRef,
+        // position: AtomicCell<usize>,
+        // status: AtomicCell<IterStatus>,
+        // length: usize, // To track length immutability.
+        // deque: PyDequeRef,
+        state: usize,
+        internal: PyRwLock<PositionIterInternal>,
     }
 
     impl SlotConstructor for PyReverseDequeIterator {
@@ -686,14 +719,15 @@ mod _collections {
             (DequeIterArgs { deque, index }, _kwargs): Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult {
-            let len = deque.len();
+            // let len = deque.len();
             let iter = PyDeque::reversed(deque)?;
             if let OptionalArg::Present(index) = index {
                 let index = max(index, 0) as usize;
-                if len.le(&index) {
-                    iter.status.store(Exhausted);
-                }
-                iter.position.store(len.saturating_sub(index));
+                iter.internal.write().position = index;
+                // if len.le(&index) {
+                //     iter.status.store(Exhausted);
+                // }
+                // iter.position.store(len.saturating_sub(index));
             }
             iter.into_pyresult_with_type(vm, cls)
         }
@@ -702,54 +736,78 @@ mod _collections {
     #[pyimpl(with(SlotIterator, SlotConstructor))]
     impl PyReverseDequeIterator {
         #[pymethod(magic)]
-        fn length_hint(&self) -> usize {
-            match self.status.load() {
-                Active => self.position.load(),
-                Exhausted => 0,
-            }
+        fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
+            self.internal
+                .read()
+                .rev_length_hint(|obj| obj.payload::<PyDeque>().map(|x| x.len()), vm)
+            // match self.status.load() {
+            //     Active => self.position.load(),
+            //     Exhausted => 0,
+            // }
         }
 
         #[pymethod(magic)]
         fn reduce(
             zelf: PyRef<Self>,
             vm: &VirtualMachine,
-        ) -> PyResult<(PyTypeRef, (PyDequeRef, PyObjectRef))> {
+        ) -> PyResult<(PyTypeRef, (PyObjectRef, PyObjectRef))> {
+            let internal = zelf.internal.read();
+            let deque = match &internal.status {
+                Active(obj) => obj.clone(),
+                Exhausted => PyDeque::default().into_object(vm),
+            };
             Ok((
                 zelf.clone_class(),
-                (zelf.deque.clone(), vm.ctx.new_int(zelf.position.load())),
+                (deque, vm.ctx.new_int(internal.position)),
             ))
         }
     }
 
     impl IteratorIterable for PyReverseDequeIterator {}
     impl SlotIterator for PyReverseDequeIterator {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            match zelf.status.load() {
-                Exhausted => Ok(PyIterReturn::StopIteration(None)),
-                Active => {
-                    // If length changes while we iterate, set to Exhausted and bail.
-                    if zelf.length != zelf.deque.len() {
-                        zelf.status.store(Exhausted);
-                        Err(vm.new_runtime_error("Deque mutated during iteration".to_owned()))
-                    } else {
-                        let pos = zelf.position.fetch_sub(1) - 1;
-                        let deque = zelf.deque.borrow_deque();
-                        if pos > 0 {
-                            if let Some(obj) = deque.get(pos) {
-                                return Ok(PyIterReturn::Return(obj.clone()));
-                            }
-                        }
-                        // We either are == 0 or deque.get returned None. Either way, set status
-                        // to exhausted and return last item if pos == 0.
-                        zelf.status.store(Exhausted);
-                        if pos == 0 {
-                            // Can safely index directly.
-                            return Ok(PyIterReturn::Return(deque[pos].clone()));
-                        }
-                        Ok(PyIterReturn::StopIteration(None))
+        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+            zelf.internal.write().rev_next(
+                |obj, pos| {
+                    let deque = obj.payload::<PyDeque>().unwrap();
+                    if deque.state.load() != zelf.state {
+                        return Err(
+                            vm.new_runtime_error("Deque mutated during iteration".to_owned())
+                        );
                     }
-                }
-            }
+                    let deque = deque.borrow_deque();
+                    deque
+                        .get(pos)
+                        .ok_or_else(|| vm.new_stop_iteration())
+                        .map(|x| x.clone())
+                },
+                vm,
+            )
+            // match zelf.status.load() {
+            //     Exhausted => Err(vm.new_stop_iteration()),
+            //     Active => {
+            //         // If length changes while we iterate, set to Exhausted and bail.
+            //         if zelf.length != zelf.deque.len() {
+            //             zelf.status.store(Exhausted);
+            //             Err(vm.new_runtime_error("Deque mutated during iteration".to_owned()))
+            //         } else {
+            //             let pos = zelf.position.fetch_sub(1) - 1;
+            //             let deque = zelf.deque.borrow_deque();
+            //             if pos > 0 {
+            //                 if let Some(obj) = deque.get(pos) {
+            //                     return Ok(obj.clone());
+            //                 }
+            //             }
+            //             // We either are == 0 or deque.get returned None. Either way, set status
+            //             // to exhausted and return last item if pos == 0.
+            //             zelf.status.store(Exhausted);
+            //             if pos == 0 {
+            //                 // Can safely index directly.
+            //                 return Ok(deque[pos].clone());
+            //             }
+            //             Err(vm.new_stop_iteration())
+            //         }
+            //     }
+            // }
         }
     }
 }
