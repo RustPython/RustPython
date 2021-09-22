@@ -1,9 +1,9 @@
 use crate::{
     builtins::{float, int, pybool, PyBaseExceptionRef, PyDictRef, PyFunction, PyStrRef},
     bytecode::CodeFlags,
-    function::FuncArgs,
-    IdProtocol, IntoPyObject, ItemProtocol, PyObjectRef, PyRef, PyResult, TryFromObject,
-    TypeProtocol, VirtualMachine,
+    function::{FuncArgs, IntoPyObject},
+    IdProtocol, ItemProtocol, PyObjectRef, PyRef, PyResult, TryFromObject, TypeProtocol,
+    VirtualMachine,
 };
 use num_traits::ToPrimitive;
 use rustpython_jit::{AbiValue, Args, CompiledCode, JitArgumentError, JitType};

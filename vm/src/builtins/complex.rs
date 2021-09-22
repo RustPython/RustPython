@@ -1,8 +1,8 @@
 use super::{float, PyStr, PyTypeRef};
 use crate::{
-    function::{OptionalArg, OptionalOption},
+    function::{IntoPyObject, OptionalArg, OptionalOption},
     slots::{Comparable, Hashable, PyComparisonOp, SlotConstructor},
-    IdProtocol, IntoPyObject,
+    IdProtocol,
     PyArithmeticValue::{self, *},
     PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol, VirtualMachine,

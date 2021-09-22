@@ -20,7 +20,7 @@ use crate::{
     exceptions,
     frame::{ExecutionResult, Frame, FrameRef},
     frozen,
-    function::{FuncArgs, IntoFuncArgs},
+    function::{FuncArgs, IntoFuncArgs, IntoPyObject},
     import,
     protocol::{PyIterIter, PyIterReturn},
     scope::Scope,
@@ -28,9 +28,8 @@ use crate::{
     slots::PyComparisonOp,
     stdlib,
     utils::Either,
-    IdProtocol, IntoPyObject, ItemProtocol, PyArithmeticValue, PyContext, PyLease, PyMethod,
-    PyObject, PyObjectRef, PyRef, PyRefExact, PyResult, PyValue, TryFromObject, TryIntoRef,
-    TypeProtocol,
+    IdProtocol, ItemProtocol, PyArithmeticValue, PyContext, PyLease, PyMethod, PyObject,
+    PyObjectRef, PyRef, PyRefExact, PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::{Signed, ToPrimitive};

@@ -1,13 +1,11 @@
-use crate::builtins::{PyStrRef, PyTypeRef};
-use crate::common::hash::PyHash;
-use crate::common::lock::PyRwLock;
-use crate::function::{FromArgs, FuncArgs, OptionalArg};
-use crate::protocol::{PyBuffer, PyIterReturn, PyMappingMethods};
-use crate::utils::Either;
-use crate::VirtualMachine;
+use crate::common::{hash::PyHash, lock::PyRwLock};
 use crate::{
-    IdProtocol, IntoPyResult, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
+    builtins::{PyStrRef, PyTypeRef},
+    function::{FromArgs, FuncArgs, IntoPyResult, OptionalArg},
+    protocol::{PyBuffer, PyIterReturn, PyMappingMethods},
+    utils::Either,
+    IdProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use std::cmp::Ordering;

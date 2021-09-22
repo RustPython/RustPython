@@ -5,15 +5,17 @@ use crate::common::{
 };
 use crate::vm::{
     builtins::{PyBaseException, PyBaseExceptionRef, PyStrRef, PyType, PyTypeRef, PyWeak},
-    exceptions::{self, IntoPyException},
-    extend_module,
-    function::{ArgBytesLike, ArgCallable, ArgMemoryBuffer, ArgStrOrBytesLike, OptionalArg},
+    exceptions, extend_module,
+    function::{
+        ArgBytesLike, ArgCallable, ArgMemoryBuffer, ArgStrOrBytesLike, IntoPyException,
+        IntoPyObject, OptionalArg,
+    },
     named_function, py_module,
     slots::SlotConstructor,
     stdlib::os::PyPathLike,
     types::create_simple_type,
     utils::{Either, ToCString},
-    IntoPyObject, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use foreign_types_shared::{ForeignType, ForeignTypeRef};

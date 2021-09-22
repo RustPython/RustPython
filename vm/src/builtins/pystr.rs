@@ -5,9 +5,8 @@ use super::{
 };
 use crate::{
     anystr::{self, adjust_indices, AnyStr, AnyStrContainer, AnyStrWrapper},
-    exceptions::IntoPyException,
     format::{FormatSpec, FormatString, FromTemplate},
-    function::{ArgIterable, FuncArgs, OptionalArg, OptionalOption},
+    function::{ArgIterable, FuncArgs, IntoPyException, IntoPyObject, OptionalArg, OptionalOption},
     protocol::PyIterReturn,
     sliceable::PySliceableSequence,
     slots::{
@@ -16,8 +15,8 @@ use crate::{
     },
     stdlib::sys,
     utils::Either,
-    IdProtocol, IntoPyObject, ItemProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext,
-    PyObjectRef, PyRef, PyResult, PyValue, TryIntoRef, TypeProtocol, VirtualMachine,
+    IdProtocol, ItemProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef,
+    PyRef, PyResult, PyValue, TryIntoRef, TypeProtocol, VirtualMachine,
 };
 use bstr::ByteSlice;
 use itertools::Itertools;

@@ -8,9 +8,10 @@ mod _string {
     use crate::common::ascii;
     use crate::{
         builtins::{PyList, PyStrRef},
-        exceptions::IntoPyException,
         format::{FieldName, FieldNamePart, FieldType, FormatPart, FormatString, FromTemplate},
-        IntoPyObject, PyObjectRef, PyResult, VirtualMachine,
+        function::IntoPyException,
+        function::IntoPyObject,
+        PyObjectRef, PyResult, VirtualMachine,
     };
     use std::mem;
 

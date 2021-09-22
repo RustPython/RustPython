@@ -8,13 +8,11 @@ use wasm_bindgen_futures::{future_to_promise, JsFuture};
 
 use rustpython_vm::{
     builtins::{PyBaseExceptionRef, PyFloatRef, PyStrRef, PyTypeRef},
-    function::ArgCallable,
-    function::{OptionalArg, OptionalOption, PosArgs},
+    function::{ArgCallable, IntoPyObject, OptionalArg, OptionalOption, PosArgs},
     protocol::PyIterReturn,
     slots::{IteratorIterable, SlotIterator},
     types::create_simple_type,
-    IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    VirtualMachine,
+    PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
 };
 
 #[wasm_bindgen(inline_js = "

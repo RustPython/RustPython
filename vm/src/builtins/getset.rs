@@ -3,10 +3,10 @@
 */
 use super::PyTypeRef;
 use crate::{
-    function::{OwnedParam, RefParam},
+    function::{IntoPyResult, OwnedParam, RefParam},
     slots::SlotDescriptor,
-    IntoPyResult, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyThreadingConstraint,
-    PyValue, TryFromObject, TypeProtocol, VirtualMachine,
+    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyThreadingConstraint, PyValue,
+    TryFromObject, TypeProtocol, VirtualMachine,
 };
 
 pub type PyGetterFunc = Box<py_dyn_fn!(dyn Fn(&VirtualMachine, PyObjectRef) -> PyResult)>;

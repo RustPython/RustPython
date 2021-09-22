@@ -7,11 +7,11 @@ mod _sre {
             PyCallableIterator, PyDictRef, PyInt, PyList, PyListRef, PyStr, PyStrRef, PyTupleRef,
         },
         common::{ascii, hash::PyHash},
-        function::{ArgCallable, OptionalArg, PosArgs},
+        function::{ArgCallable, IntoPyObject, OptionalArg, PosArgs},
         protocol::PyBuffer,
         slots::{Comparable, Hashable},
         stdlib::sys,
-        IntoPyObject, ItemProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue,
+        ItemProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue,
         TryFromBorrowedObject, TryFromObject, VirtualMachine,
     };
     use core::str;

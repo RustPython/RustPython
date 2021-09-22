@@ -5,7 +5,6 @@ use crate::common::{
 };
 pub use crate::pyobjectrc::{PyObject, PyObjectRef, PyObjectWeak, PyRef, PyWeakRef};
 use crate::{
-    builtins::PyBaseExceptionRef,
     builtins::{
         builtinfunc::PyNativeFuncDef,
         bytearray, bytes,
@@ -14,12 +13,13 @@ use crate::{
         namespace::PyNamespace,
         object, pystr,
         set::{self, PyFrozenSet},
-        PyBoundMethod, PyComplex, PyDict, PyDictRef, PyEllipsis, PyFloat, PyInt, PyIntRef, PyList,
-        PyNone, PyNotImplemented, PyStaticMethod, PyTuple, PyTupleRef, PyType, PyTypeRef,
+        PyBaseExceptionRef, PyBoundMethod, PyComplex, PyDict, PyDictRef, PyEllipsis, PyFloat,
+        PyInt, PyIntRef, PyList, PyNone, PyNotImplemented, PyStaticMethod, PyTuple, PyTupleRef,
+        PyType, PyTypeRef,
     },
     dictdatatype::Dict,
     exceptions,
-    function::{IntoFuncArgs, IntoPyNativeFunc},
+    function::{IntoFuncArgs, IntoPyNativeFunc, IntoPyObject, IntoPyResult},
     protocol::PyMapping,
     slots::{PyTypeFlags, PyTypeSlots},
     types::{create_type_with_slots, TypeZoo},
@@ -797,15 +797,6 @@ where
     }
 }
 
-/// Implemented by any type that can be returned from a built-in Python function.
-///
-/// `IntoPyObject` has a blanket implementation for any built-in object payload,
-/// and should be implemented by many primitive Rust types, allowing a built-in
-/// function to simply return a `bool` or a `usize` for example.
-pub trait IntoPyObject {
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef;
-}
-
 impl<T: PyObjectPayload> IntoPyObject for PyRef<T> {
     #[inline]
     fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
@@ -830,10 +821,6 @@ where
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         PyValue::into_object(self, vm)
     }
-}
-
-pub trait IntoPyResult {
-    fn into_pyresult(self, vm: &VirtualMachine) -> PyResult;
 }
 
 impl<T> IntoPyResult for T

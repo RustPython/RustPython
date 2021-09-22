@@ -6,7 +6,7 @@ use super::{
     PyTupleRef, PyTypeRef,
 };
 #[cfg(feature = "jit")]
-use crate::IntoPyObject;
+use crate::function::IntoPyObject;
 use crate::{
     bytecode,
     common::lock::PyMutex,

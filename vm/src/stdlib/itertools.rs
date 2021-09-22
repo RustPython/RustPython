@@ -8,12 +8,11 @@ mod decl {
     };
     use crate::{
         builtins::{int, PyInt, PyIntRef, PyTupleRef, PyTypeRef},
-        function::{ArgCallable, FuncArgs, OptionalArg, OptionalOption, PosArgs},
+        function::{ArgCallable, FuncArgs, IntoPyObject, OptionalArg, OptionalOption, PosArgs},
         protocol::{PyIter, PyIterReturn},
         slots::{IteratorIterable, SlotConstructor, SlotIterator},
         stdlib::sys,
-        IdProtocol, IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, PyWeakRef, TypeProtocol,
-        VirtualMachine,
+        IdProtocol, PyObjectRef, PyRef, PyResult, PyValue, PyWeakRef, TypeProtocol, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use num_bigint::BigInt;

@@ -3,9 +3,9 @@ pub(crate) use self::termios::make_module;
 #[pymodule]
 mod termios {
     use crate::vm::{
-        builtins::PyBaseExceptionRef,
-        builtins::{PyBytes, PyInt, PyListRef, PyTypeRef},
-        IntoPyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+        builtins::{PyBaseExceptionRef, PyBytes, PyInt, PyListRef, PyTypeRef},
+        function::IntoPyObject,
+        PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     };
     use std::convert::TryFrom;
     use termios::Termios;

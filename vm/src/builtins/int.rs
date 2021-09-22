@@ -3,11 +3,11 @@ use crate::{
     bytesinner::PyBytesInner,
     common::hash,
     format::FormatSpec,
-    function::{OptionalArg, OptionalOption},
+    function::{IntoPyObject, IntoPyResult, OptionalArg, OptionalOption},
     slots::{Comparable, Hashable, PyComparisonOp, SlotConstructor},
-    try_value_from_borrowed_object, IdProtocol, IntoPyObject, IntoPyResult, PyArithmeticValue,
-    PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromBorrowedObject, TypeProtocol, VirtualMachine,
+    try_value_from_borrowed_object, IdProtocol, PyArithmeticValue, PyClassImpl, PyComparisonValue,
+    PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromBorrowedObject, TypeProtocol,
+    VirtualMachine,
 };
 use bstr::ByteSlice;
 use num_bigint::{BigInt, BigUint, Sign};
