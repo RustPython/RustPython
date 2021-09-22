@@ -28,6 +28,9 @@ mod _posixsubprocess {
     }
 }
 
+use super::os::PyPathLike;
+use super::posix;
+use crate::{PyObjectRef, PyResult, PySequence, TryFromObject, VirtualMachine};
 use nix::{errno::Errno, unistd};
 use std::convert::Infallible as Never;
 #[cfg(not(target_os = "redox"))]
@@ -36,10 +39,6 @@ use std::ffi::CString;
 use std::io::{self, prelude::*};
 #[cfg(not(target_os = "redox"))]
 use std::os::unix::io::AsRawFd;
-
-use super::os;
-use crate::VirtualMachine;
-use crate::{PyObjectRef, PyResult, PySequence, TryFromObject};
 
 macro_rules! gen_args {
     ($($field:ident: $t:ty),*$(,)?) => {
@@ -55,7 +54,7 @@ struct CStrPathLike {
 }
 impl TryFromObject for CStrPathLike {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        let s = os::PyPathLike::try_from_object(vm, obj)?.into_cstring(vm)?;
+        let s = PyPathLike::try_from_object(vm, obj)?.into_cstring(vm)?;
         Ok(CStrPathLike { s })
     }
 }
@@ -93,7 +92,7 @@ fn exec(args: &ForkExecArgs, procargs: ProcArgs) -> ! {
 fn exec_inner(args: &ForkExecArgs, procargs: ProcArgs) -> nix::Result<Never> {
     for &fd in args.fds_to_keep.as_slice() {
         if fd != args.errpipe_write {
-            os::raw_set_inheritable(fd, true)?
+            posix::raw_set_inheritable(fd, true)?
         }
     }
 
@@ -106,7 +105,7 @@ fn exec_inner(args: &ForkExecArgs, procargs: ProcArgs) -> nix::Result<Never> {
 
     let c2pwrite = if args.c2pwrite == 0 {
         let fd = unistd::dup(args.c2pwrite)?;
-        os::raw_set_inheritable(fd, true)?;
+        posix::raw_set_inheritable(fd, true)?;
         fd
     } else {
         args.c2pwrite
@@ -115,12 +114,12 @@ fn exec_inner(args: &ForkExecArgs, procargs: ProcArgs) -> nix::Result<Never> {
     let mut errwrite = args.errwrite;
     while errwrite == 0 || errwrite == 1 {
         errwrite = unistd::dup(errwrite)?;
-        os::raw_set_inheritable(errwrite, true)?;
+        posix::raw_set_inheritable(errwrite, true)?;
     }
 
     let dup_into_stdio = |fd, io_fd| {
         if fd == io_fd {
-            os::raw_set_inheritable(fd, true)
+            posix::raw_set_inheritable(fd, true)
         } else if fd != -1 {
             unistd::dup2(fd, io_fd).map(drop)
         } else {
