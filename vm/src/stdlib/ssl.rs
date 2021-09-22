@@ -75,8 +75,8 @@ enum ProtoVersion {
 }
 
 // taken from CPython, should probably be kept up to date with their version if it ever changes
-const DEFAULT_CIPHER_STRING: &[u8] =
-    b"DEFAULT:!aNULL:!eNULL:!MD5:!3DES:!DES:!RC4:!IDEA:!SEED:!aDSS:!SRP:!PSK";
+const DEFAULT_CIPHER_STRING: &str =
+    "DEFAULT:!aNULL:!eNULL:!MD5:!3DES:!DES:!RC4:!IDEA:!SEED:!aDSS:!SRP:!PSK";
 
 #[derive(num_enum::IntoPrimitive, num_enum::TryFromPrimitive)]
 #[repr(i32)]
@@ -153,8 +153,12 @@ fn _ssl_enum_certificates(store_name: PyStrRef, vm: &VirtualMachine) -> PyResult
             (*ptr).dwCertEncodingType
         };
         let enc_type = match enc_type {
-            wincrypt::X509_ASN_ENCODING => vm.ctx.new_ascii_str(b"x509_asn"),
-            wincrypt::PKCS_7_ASN_ENCODING => vm.ctx.new_ascii_str(b"pkcs_7_asn"),
+            wincrypt::X509_ASN_ENCODING => {
+                vm.ctx.new_ascii_literal(crate::utils::ascii!("x509_asn"))
+            }
+            wincrypt::PKCS_7_ASN_ENCODING => {
+                vm.ctx.new_ascii_literal(crate::utils::ascii!("pkcs_7_asn"))
+            }
             other => vm.ctx.new_int(other),
         };
         let usage = match c.valid_uses()? {
@@ -1047,17 +1051,17 @@ fn cert_to_py(vm: &VirtualMachine, cert: &X509Ref, binary: bool) -> PyResult {
                 .filter_map(|gen_name| {
                     if let Some(email) = gen_name.email() {
                         Some(vm.ctx.new_tuple(vec![
-                            vm.ctx.new_ascii_str(b"email"),
+                            vm.ctx.new_ascii_literal(crate::utils::ascii!("email")),
                             vm.ctx.new_utf8_str(email),
                         ]))
                     } else if let Some(dnsname) = gen_name.dnsname() {
                         Some(vm.ctx.new_tuple(vec![
-                            vm.ctx.new_ascii_str(b"DNS"),
+                            vm.ctx.new_ascii_literal(crate::utils::ascii!("DNS")),
                             vm.ctx.new_utf8_str(dnsname),
                         ]))
                     } else if let Some(ip) = gen_name.ipaddress() {
                         Some(vm.ctx.new_tuple(vec![
-                            vm.ctx.new_ascii_str(b"IP Address"),
+                            vm.ctx.new_ascii_literal(crate::utils::ascii!("IP Address")),
                             vm.ctx.new_utf8_str(String::from_utf8_lossy(ip).into_owned()),
                         ]))
                     } else {
@@ -1148,7 +1152,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "OPENSSL_VERSION_NUMBER" => ctx.new_int(openssl::version::number()),
         "OPENSSL_VERSION_INFO" => parse_version_info(openssl::version::number()).into_pyobject(vm),
         "_OPENSSL_API_VERSION" => parse_version_info(openssl_api_version).into_pyobject(vm),
-        "_DEFAULT_CIPHERS" => ctx.new_ascii_str(DEFAULT_CIPHER_STRING),
+        "_DEFAULT_CIPHERS" => ctx.new_utf8_str(DEFAULT_CIPHER_STRING),
         // "PROTOCOL_SSLv2" => ctx.new_int(SslVersion::Ssl2 as u32), unsupported
         // "PROTOCOL_SSLv3" => ctx.new_int(SslVersion::Ssl3 as u32),
         "PROTOCOL_SSLv23" => ctx.new_int(SslVersion::Tls as u32),

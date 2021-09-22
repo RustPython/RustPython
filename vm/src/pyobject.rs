@@ -207,9 +207,12 @@ impl PyContext {
         PyObject::new(s.into(), self.types.str_type.clone(), None)
     }
 
-    pub fn new_ascii_str(&self, s: &[u8]) -> PyObjectRef {
+    #[inline]
+    pub fn new_ascii_literal(&self, s: &ascii::AsciiStr) -> PyObjectRef {
         PyObject::new(
-            pystr::PyStr::from((s, pystr::PyStrKind::Ascii)),
+            unsafe {
+                pystr::PyStr::new_str_unchecked(s.as_bytes().to_owned(), pystr::PyStrKind::Ascii)
+            },
             self.types.str_type.clone(),
             None,
         )

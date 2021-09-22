@@ -268,8 +268,13 @@ mod _sre {
                             m.get_slice(zelf.groups, state.string, vm)
                                 .unwrap_or_else(|| vm.ctx.none())
                         } else {
-                            m.groups(OptionalArg::Present(vm.ctx.new_ascii_str(b"")), vm)?
-                                .into_object()
+                            m.groups(
+                                OptionalArg::Present(
+                                    vm.ctx.new_ascii_literal(crate::utils::ascii!("")),
+                                ),
+                                vm,
+                            )?
+                            .into_object()
                         };
 
                         matchlist.push(item);
@@ -504,7 +509,7 @@ mod _sre {
                 let join_type = if zelf.isbytes {
                     vm.ctx.new_bytes(vec![])
                 } else {
-                    vm.ctx.new_ascii_str(b"")
+                    vm.ctx.new_ascii_literal(crate::utils::ascii!(""))
                 };
                 let ret = vm.call_method(&join_type, "join", (list,))?;
 

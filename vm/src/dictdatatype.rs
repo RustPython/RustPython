@@ -775,12 +775,12 @@ mod tests {
             assert_eq!(0, dict.len());
 
             let key1 = vm.ctx.new_bool(true);
-            let value1 = vm.ctx.new_ascii_str(b"abc");
+            let value1 = vm.ctx.new_ascii_literal(crate::utils::ascii!("abc"));
             dict.insert(&vm, key1.clone(), value1.clone()).unwrap();
             assert_eq!(1, dict.len());
 
-            let key2 = vm.ctx.new_ascii_str(b"x");
-            let value2 = vm.ctx.new_ascii_str(b"def");
+            let key2 = vm.ctx.new_ascii_literal(crate::utils::ascii!("x"));
+            let value2 = vm.ctx.new_ascii_literal(crate::utils::ascii!("def"));
             dict.insert(&vm, key2.clone(), value2.clone()).unwrap();
             assert_eq!(2, dict.len());
 

@@ -113,14 +113,6 @@ where
         s.as_ref().to_owned().into()
     }
 }
-impl<T> From<(&T, PyStrKind)> for PyStr
-where
-    T: AsRef<[u8]> + ?Sized,
-{
-    fn from((s, k): (&T, PyStrKind)) -> PyStr {
-        (s.as_ref().to_owned().into_boxed_slice(), k).into()
-    }
-}
 
 impl From<String> for PyStr {
     fn from(s: String) -> PyStr {
@@ -134,10 +126,7 @@ impl From<Box<str>> for PyStr {
         // doing the check is ~10x faster for ascii, and is actually only 2% slower worst case for
         // non-ascii; see https://github.com/RustPython/RustPython/pull/2586#issuecomment-844611532
         let is_ascii = value.is_ascii();
-        let bytes = unsafe {
-            // SAFETY: Box<str> and Box<[u8]> have same layout
-            Box::from_raw(Box::into_raw(value) as _)
-        };
+        let bytes = value.into_boxed_bytes();
         let kind = if is_ascii {
             PyStrKind::Ascii
         } else {
@@ -149,24 +138,6 @@ impl From<Box<str>> for PyStr {
             kind,
             hash: Radium::new(hash::SENTINEL),
         }
-    }
-}
-
-impl From<(Vec<u8>, PyStrKind)> for PyStr {
-    fn from((s, kind): (Vec<u8>, PyStrKind)) -> PyStr {
-        (s.into_boxed_slice(), kind).into()
-    }
-}
-
-impl From<(Box<[u8]>, PyStrKind)> for PyStr {
-    fn from((bytes, kind): (Box<[u8]>, PyStrKind)) -> PyStr {
-        let s = Self {
-            bytes,
-            kind: kind.new_data(),
-            hash: Radium::new(hash::SENTINEL),
-        };
-        debug_assert!(matches!(s.kind, PyStrKindData::Ascii) || !s.as_str().is_ascii());
-        s
     }
 }
 
@@ -241,7 +212,11 @@ impl PyStrIterator {
     fn reduce(&self, vm: &VirtualMachine) -> PyResult {
         let iter = vm.get_attribute(vm.builtins.clone(), "iter")?;
         Ok(vm.ctx.new_tuple(match self.status.load() {
-            Exhausted => vec![iter, vm.ctx.new_tuple(vec![vm.ctx.new_ascii_str(b"")])],
+            Exhausted => vec![
+                iter,
+                vm.ctx
+                    .new_tuple(vec![vm.ctx.new_ascii_literal(crate::utils::ascii!(""))]),
+            ],
             Active => vec![
                 iter,
                 vm.ctx.new_tuple(vec![self.string.clone().into_object()]),
@@ -322,13 +297,20 @@ impl SlotConstructor for PyStr {
 }
 
 impl PyStr {
-    /// SAFETY: Given 's' must be valid data for given 'kind'
-    unsafe fn new_str_unchecked(s: String, kind: PyStrKind) -> Self {
-        Self {
-            bytes: Box::from_raw(Box::into_raw(s.into_boxed_str()) as _),
+    /// SAFETY: Given 'bytes' must be valid data for given 'kind'
+    pub(crate) unsafe fn new_str_unchecked(bytes: Vec<u8>, kind: PyStrKind) -> Self {
+        let s = Self {
+            bytes: bytes.into_boxed_slice(),
             kind: kind.new_data(),
             hash: Radium::new(hash::SENTINEL),
-        }
+        };
+        debug_assert!(matches!(s.kind, PyStrKindData::Ascii) || !s.as_str().is_ascii());
+        s
+    }
+
+    /// SAFETY: Given 'bytes' must be ascii
+    unsafe fn new_ascii_unchecked(bytes: Vec<u8>) -> Self {
+        Self::new_str_unchecked(bytes, PyStrKind::Ascii)
     }
 
     fn new_substr(&self, s: String) -> Self {
@@ -338,8 +320,8 @@ impl PyStr {
             PyStrKind::Utf8
         };
         unsafe {
-            // SAFETY: kind is safely calculated for substring
-            Self::new_str_unchecked(s, kind)
+            // SAFETY: kind is properly decided for substring
+            Self::new_str_unchecked(s.into_bytes(), kind)
         }
     }
 
@@ -367,11 +349,11 @@ impl PyStr {
     #[pymethod(magic)]
     fn add(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(other) = other.payload::<PyStr>() {
-            let kind = zelf.kind.kind() | other.kind.kind();
             let bytes = zelf.as_str().py_add(other.as_ref());
             Ok(unsafe {
-                // SAFETY: safe kind operation
-                Self::new_str_unchecked(bytes, kind)
+                // SAFETY: `kind` is safely decided
+                let kind = zelf.kind.kind() | other.kind.kind();
+                Self::new_str_unchecked(bytes.into_bytes(), kind)
             }
             .into_pyobject(vm))
         } else if let Some(radd) = vm.get_method(other.clone(), "__radd__") {
@@ -625,18 +607,23 @@ impl PyStr {
                 |v, s, vm| {
                     v.as_bytes()
                         .split_str(s)
-                        .map(|s| vm.ctx.new_ascii_str(s))
+                        .map(|s| {
+                            unsafe { PyStr::new_ascii_unchecked(s.to_owned()) }.into_pyobject(vm)
+                        })
                         .collect()
                 },
                 |v, s, n, vm| {
                     v.as_bytes()
                         .splitn_str(n, s)
-                        .map(|s| vm.ctx.new_ascii_str(s))
+                        .map(|s| {
+                            unsafe { PyStr::new_ascii_unchecked(s.to_owned()) }.into_pyobject(vm)
+                        })
                         .collect()
                 },
                 |v, n, vm| {
-                    v.as_bytes()
-                        .py_split_whitespace(n, |s| vm.ctx.new_ascii_str(s))
+                    v.as_bytes().py_split_whitespace(n, |s| {
+                        unsafe { PyStr::new_ascii_unchecked(s.to_owned()) }.into_pyobject(vm)
+                    })
                 },
             ),
             PyStrKind::Utf8 => self.as_str().py_split(
@@ -993,7 +980,7 @@ impl PyStr {
             if has_mid {
                 sep.into_object()
             } else {
-                vm.ctx.new_ascii_str(b"")
+                vm.ctx.new_ascii_literal(crate::utils::ascii!(""))
             },
             self.new_substr(back),
         )
@@ -1012,7 +999,7 @@ impl PyStr {
             if has_mid {
                 sep.into_object()
             } else {
-                vm.ctx.new_ascii_str(b"")
+                vm.ctx.new_ascii_literal(crate::utils::ascii!(""))
             },
             self.new_substr(back),
         )
@@ -1410,8 +1397,10 @@ impl PySliceableSequence for PyStr {
             // this is an ascii string
             let mut v = self.bytes[range].to_vec();
             v.reverse();
-            // TODO: from_utf8_unchecked?
-            String::from_utf8(v).unwrap()
+            unsafe {
+                // SAFETY: an ascii string is always utf8
+                String::from_utf8_unchecked(v)
+            }
         } else {
             let mut s = String::with_capacity(self.bytes.len());
             s.extend(
@@ -1556,7 +1545,11 @@ mod tests {
             table.set_item("a", vm.ctx.new_utf8_str("🎅"), &vm).unwrap();
             table.set_item("b", vm.ctx.none(), &vm).unwrap();
             table
-                .set_item("c", vm.ctx.new_ascii_str(b"xda"), &vm)
+                .set_item(
+                    "c",
+                    vm.ctx.new_ascii_literal(crate::utils::ascii!("xda")),
+                    &vm,
+                )
                 .unwrap();
             let translated = PyStr::maketrans(
                 table.into_object(),

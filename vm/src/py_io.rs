@@ -65,7 +65,9 @@ pub fn file_readline(obj: &PyObjectRef, size: Option<usize>, vm: &VirtualMachine
     let eof_err = || {
         vm.new_exception(
             vm.ctx.exceptions.eof_error.clone(),
-            vec![vm.ctx.new_ascii_str(b"EOF when reading a line")],
+            vec![vm
+                .ctx
+                .new_ascii_literal(crate::utils::ascii!("EOF when reading a line"))],
         )
     };
     let ret = match_class!(match ret {
