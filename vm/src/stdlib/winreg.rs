@@ -276,7 +276,7 @@ fn reg_to_py(value: RegValue, vm: &VirtualMachine) -> PyResult {
                 .collect();
             Ok(vm.ctx.new_list(strings))
         }
-        RegType::REG_BINARY | _ => {
+        _ => {
             if value.bytes.is_empty() {
                 Ok(vm.ctx.none())
             } else {

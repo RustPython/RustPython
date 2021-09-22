@@ -258,9 +258,9 @@ fn getattributelist(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<At
                 .get_item_option("handle_list", vm)?
                 .and_then(|obj| {
                     <Option<PySequence<usize>>>::try_from_object(vm, obj)
-                        .and_then(|s| match s {
-                            Some(s) if !s.as_slice().is_empty() => Ok(Some(s.into_vec())),
-                            _ => Ok(None),
+                        .map(|s| match s {
+                            Some(s) if !s.as_slice().is_empty() => Some(s.into_vec()),
+                            _ => None,
                         })
                         .transpose()
                 })

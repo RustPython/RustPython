@@ -3716,7 +3716,7 @@ mod nt {
                 }
             }
         }
-        return Err(err.into_pyexception(vm));
+        Err(err.into_pyexception(vm))
     }
 
     #[pyfunction]
