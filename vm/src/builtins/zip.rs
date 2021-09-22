@@ -1,7 +1,7 @@
 use super::pytype::PyTypeRef;
 use crate::function::PosArgs;
 use crate::iterator;
-use crate::slots::{PyIter, SlotConstructor};
+use crate::slots::{IteratorIterable, PyIter, SlotConstructor};
 use crate::vm::VirtualMachine;
 use crate::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 
@@ -32,6 +32,7 @@ impl SlotConstructor for PyZip {
 #[pyimpl(with(PyIter, SlotConstructor), flags(BASETYPE))]
 impl PyZip {}
 
+impl IteratorIterable for PyZip {}
 impl PyIter for PyZip {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         if zelf.iterators.is_empty() {

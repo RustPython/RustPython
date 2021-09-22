@@ -9,7 +9,7 @@ use super::pytype::PyTypeRef;
 use super::slice::{PySlice, PySliceRef};
 use crate::common::hash::PyHash;
 use crate::function::{FuncArgs, OptionalArg};
-use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter};
+use crate::slots::{Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, PyIter};
 use crate::vm::VirtualMachine;
 use crate::{
     iterator, IdProtocol, IntoPyRef, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
@@ -516,6 +516,7 @@ impl PyLongRangeIterator {
     }
 }
 
+impl IteratorIterable for PyLongRangeIterator {}
 impl PyIter for PyLongRangeIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         // TODO: In pathological case (index == usize::MAX) this can wrap around
@@ -585,6 +586,7 @@ impl PyRangeIterator {
     }
 }
 
+impl IteratorIterable for PyRangeIterator {}
 impl PyIter for PyRangeIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         // TODO: In pathological case (index == usize::MAX) this can wrap around

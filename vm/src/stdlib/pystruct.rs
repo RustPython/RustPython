@@ -20,7 +20,7 @@ pub(crate) mod _struct {
         common::str::wchar_t,
         exceptions::PyBaseExceptionRef,
         function::PosArgs,
-        slots::{PyIter, SlotConstructor},
+        slots::{IteratorIterable, PyIter, SlotConstructor},
         utils::Either,
         IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
     };
@@ -832,6 +832,7 @@ pub(crate) mod _struct {
             self.buffer.len().saturating_sub(self.offset.load()) / self.format_spec.size
         }
     }
+    impl IteratorIterable for UnpackIterator {}
     impl PyIter for UnpackIterator {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             let size = zelf.format_spec.size;

@@ -89,7 +89,7 @@ mod _io {
     use crate::common::rc::PyRc;
     use crate::exceptions::{self, PyBaseExceptionRef};
     use crate::function::{ArgIterable, FuncArgs, OptionalArg, OptionalOption};
-    use crate::slots::SlotConstructor;
+    use crate::slots::{Iterable, PyIter, SlotConstructor};
     use crate::utils::Either;
     use crate::vm::{ReprGuard, VirtualMachine};
     use crate::{
@@ -340,9 +340,10 @@ mod _io {
 
     #[pyattr]
     #[pyclass(name = "_IOBase")]
+    #[derive(Debug, PyValue)]
     struct _IOBase;
 
-    #[pyimpl(flags(BASETYPE, HAS_DICT))]
+    #[pyimpl(with(PyIter), flags(BASETYPE, HAS_DICT))]
     impl _IOBase {
         #[pymethod]
         fn seek(
@@ -508,25 +509,31 @@ mod _io {
         fn check_seekable(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             check_seekable(&instance, vm)
         }
+    }
 
-        #[pyslot]
-        #[pymethod(name = "__iter__")]
-        fn tp_iter(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            check_closed(&instance, vm)?;
-            Ok(instance)
+    impl Iterable for _IOBase {
+        fn tp_iter(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            check_closed(&zelf, vm)?;
+            Ok(zelf)
         }
-        #[pyslot]
-        fn tp_iternext(instance: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            let line = vm.call_method(instance, "readline", ())?;
+
+        fn iter(_zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyResult {
+            unreachable!("tp_iter is implemented")
+        }
+    }
+
+    impl PyIter for _IOBase {
+        fn tp_iternext(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            let line = vm.call_method(zelf, "readline", ())?;
             if !line.clone().try_to_bool(vm)? {
                 Err(vm.new_stop_iteration())
             } else {
                 Ok(line)
             }
         }
-        #[pymethod(magic)]
-        fn next(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            Self::tp_iternext(&instance, vm)
+
+        fn next(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult {
+            unreachable!("tp_iternext is implemented")
         }
     }
 

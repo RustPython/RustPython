@@ -3,7 +3,7 @@ use crate::{
     builtins::{PyStr, PyStrRef},
     function::{ArgIterable, ArgumentError, FromArgs, FuncArgs},
     iterator,
-    slots::PyIter,
+    slots::{IteratorIterable, PyIter},
     types::create_simple_type,
     PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
     VirtualMachine,
@@ -97,6 +97,7 @@ impl fmt::Debug for Reader {
 
 #[pyimpl(with(PyIter))]
 impl Reader {}
+impl IteratorIterable for Reader {}
 impl PyIter for Reader {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         let string = iterator::call_next(vm, &zelf.iter)?;

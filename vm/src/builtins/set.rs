@@ -8,7 +8,8 @@ use crate::dictdatatype;
 use crate::dictdatatype::DictSize;
 use crate::function::{ArgIterable, FuncArgs, OptionalArg, PosArgs};
 use crate::slots::{
-    Comparable, Hashable, Iterable, PyComparisonOp, PyIter, SlotConstructor, Unhashable,
+    Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, PyIter, SlotConstructor,
+    Unhashable,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 use crate::{
@@ -864,6 +865,7 @@ impl PySetIterator {
     }
 }
 
+impl IteratorIterable for PySetIterator {}
 impl PyIter for PySetIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         match zelf.status.load() {

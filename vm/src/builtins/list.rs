@@ -20,7 +20,9 @@ use crate::common::lock::{
 use crate::function::{ArgIterable, FuncArgs, OptionalArg};
 use crate::sequence::{self, SimpleSeq};
 use crate::sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex};
-use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable};
+use crate::slots::{
+    Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, PyIter, Unhashable,
+};
 use crate::utils::Either;
 use crate::vm::{ReprGuard, VirtualMachine};
 use crate::{
@@ -526,6 +528,7 @@ impl PyListIterator {
     }
 }
 
+impl IteratorIterable for PyListIterator {}
 impl PyIter for PyListIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         if let Exhausted = zelf.status.load() {
@@ -599,6 +602,7 @@ impl PyListReverseIterator {
     }
 }
 
+impl IteratorIterable for PyListReverseIterator {}
 impl PyIter for PyListReverseIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         if let Exhausted = zelf.status.load() {

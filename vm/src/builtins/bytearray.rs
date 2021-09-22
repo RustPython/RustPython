@@ -21,7 +21,8 @@ use crate::common::lock::{
 use crate::function::{ArgIterable, FuncArgs, OptionalArg, OptionalOption};
 use crate::sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex};
 use crate::slots::{
-    AsBuffer, Callable, Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable,
+    AsBuffer, Callable, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, PyIter,
+    Unhashable,
 };
 use crate::utils::Either;
 use crate::vm::VirtualMachine;
@@ -747,6 +748,7 @@ impl PyValue for PyByteArrayIterator {
 
 #[pyimpl(with(PyIter))]
 impl PyByteArrayIterator {}
+impl IteratorIterable for PyByteArrayIterator {}
 impl PyIter for PyByteArrayIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         let pos = zelf.position.fetch_add(1);

@@ -11,7 +11,9 @@ use crate::exceptions::IntoPyException;
 use crate::format::{FormatSpec, FormatString, FromTemplate};
 use crate::function::{ArgIterable, FuncArgs, OptionalArg, OptionalOption};
 use crate::sliceable::PySliceableSequence;
-use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter, SlotConstructor};
+use crate::slots::{
+    Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, PyIter, SlotConstructor,
+};
 use crate::utils::Either;
 use crate::VirtualMachine;
 use crate::{
@@ -227,6 +229,7 @@ impl PyStrIterator {
     }
 }
 
+impl IteratorIterable for PyStrIterator {}
 impl PyIter for PyStrIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         if let Exhausted = zelf.status.load() {

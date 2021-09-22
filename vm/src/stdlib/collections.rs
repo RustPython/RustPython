@@ -11,7 +11,8 @@ mod _collections {
         function::{FuncArgs, KwArgs, OptionalArg},
         sequence, sliceable,
         slots::{
-            Comparable, Hashable, Iterable, PyComparisonOp, PyIter, SlotConstructor, Unhashable,
+            Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, PyIter,
+            SlotConstructor, Unhashable,
         },
         vm::ReprGuard,
         PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
@@ -639,6 +640,7 @@ mod _collections {
         }
     }
 
+    impl IteratorIterable for PyDequeIterator {}
     impl PyIter for PyDequeIterator {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             match zelf.status.load() {
@@ -718,6 +720,7 @@ mod _collections {
         }
     }
 
+    impl IteratorIterable for PyReverseDequeIterator {}
     impl PyIter for PyReverseDequeIterator {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             match zelf.status.load() {
