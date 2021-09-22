@@ -85,13 +85,13 @@ impl PyDict {
                     return Err(vm.new_runtime_error("dict mutated during update".to_owned()));
                 }
             } else if let Some(keys) = vm.get_method(dict_obj.clone(), "keys") {
-                let keys = iterator::get_iter(vm, vm.invoke(&keys?, ())?)?;
+                let keys = vm.invoke(&keys?, ())?.get_iter(vm)?;
                 while let Some(key) = iterator::get_next_object(vm, &keys)? {
                     let val = dict_obj.get_item(key.clone(), vm)?;
                     dict.insert(vm, key, val)?;
                 }
             } else {
-                let iter = iterator::get_iter(vm, dict_obj)?;
+                let iter = dict_obj.get_iter(vm)?;
                 loop {
                     fn err(vm: &VirtualMachine) -> PyBaseExceptionRef {
                         vm.new_value_error("Iterator must have exactly two elements".to_owned())
@@ -100,7 +100,7 @@ impl PyDict {
                         Some(obj) => obj,
                         None => break,
                     };
-                    let elem_iter = iterator::get_iter(vm, element)?;
+                    let elem_iter = element.get_iter(vm)?;
                     let key = iterator::get_next_object(vm, &elem_iter)?.ok_or_else(|| err(vm))?;
                     let value =
                         iterator::get_next_object(vm, &elem_iter)?.ok_or_else(|| err(vm))?;

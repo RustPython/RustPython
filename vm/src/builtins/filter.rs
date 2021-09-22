@@ -1,6 +1,6 @@
 use super::PyTypeRef;
 use crate::{
-    iterator,
+    protocol::PyIter,
     slots::{IteratorIterable, SlotConstructor, SlotIterator},
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
@@ -13,7 +13,7 @@ use crate::{
 #[derive(Debug)]
 pub struct PyFilter {
     predicate: PyObjectRef,
-    iterator: PyObjectRef,
+    iterator: PyIter,
 }
 
 impl PyValue for PyFilter {
@@ -22,24 +22,10 @@ impl PyValue for PyFilter {
     }
 }
 
-#[derive(FromArgs)]
-pub struct FilterArgs {
-    #[pyarg(positional)]
-    function: PyObjectRef,
-    #[pyarg(positional)]
-    iterable: PyObjectRef,
-}
-
 impl SlotConstructor for PyFilter {
-    type Args = FilterArgs;
+    type Args = (PyObjectRef, PyIter);
 
-    fn py_new(
-        cls: PyTypeRef,
-        Self::Args { function, iterable }: Self::Args,
-        vm: &VirtualMachine,
-    ) -> PyResult {
-        let iterator = iterator::get_iter(vm, iterable)?;
-
+    fn py_new(cls: PyTypeRef, (function, iterator): Self::Args, vm: &VirtualMachine) -> PyResult {
         Self {
             predicate: function,
             iterator,
@@ -55,9 +41,8 @@ impl IteratorIterable for PyFilter {}
 impl SlotIterator for PyFilter {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         let predicate = &zelf.predicate;
-        let iterator = &zelf.iterator;
         loop {
-            let next_obj = iterator::call_next(vm, iterator)?;
+            let next_obj = zelf.iterator.next(vm)?;
             let predicate_value = if vm.is_none(predicate) {
                 next_obj.clone()
             } else {

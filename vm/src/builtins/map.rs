@@ -2,6 +2,7 @@ use super::PyTypeRef;
 use crate::{
     function::PosArgs,
     iterator,
+    protocol::PyIter,
     slots::{IteratorIterable, SlotConstructor, SlotIterator},
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
@@ -14,7 +15,7 @@ use crate::{
 #[derive(Debug)]
 pub struct PyMap {
     mapper: PyObjectRef,
-    iterators: Vec<PyObjectRef>,
+    iterators: Vec<PyIter>,
 }
 
 impl PyValue for PyMap {
@@ -24,18 +25,11 @@ impl PyValue for PyMap {
 }
 
 impl SlotConstructor for PyMap {
-    type Args = (PyObjectRef, PosArgs<PyObjectRef>);
+    type Args = (PyObjectRef, PosArgs<PyIter>);
 
-    fn py_new(cls: PyTypeRef, (function, iterables): Self::Args, vm: &VirtualMachine) -> PyResult {
-        let iterators = iterables
-            .into_iter()
-            .map(|iterable| iterator::get_iter(vm, iterable))
-            .collect::<Result<Vec<_>, _>>()?;
-        PyMap {
-            mapper: function,
-            iterators,
-        }
-        .into_pyresult_with_type(vm, cls)
+    fn py_new(cls: PyTypeRef, (mapper, iterators): Self::Args, vm: &VirtualMachine) -> PyResult {
+        let iterators = iterators.into_vec();
+        PyMap { mapper, iterators }.into_pyresult_with_type(vm, cls)
     }
 }
 
@@ -44,7 +38,7 @@ impl PyMap {
     #[pymethod(magic)]
     fn length_hint(&self, vm: &VirtualMachine) -> PyResult<usize> {
         self.iterators.iter().try_fold(0, |prev, cur| {
-            let cur = iterator::length_hint(vm, cur.clone())?.unwrap_or(0);
+            let cur = iterator::length_hint(vm, cur.as_object().clone())?.unwrap_or(0);
             let max = std::cmp::max(prev, cur);
             Ok(max)
         })
@@ -57,7 +51,7 @@ impl SlotIterator for PyMap {
         let next_objs = zelf
             .iterators
             .iter()
-            .map(|iterator| iterator::call_next(vm, iterator))
+            .map(|iterator| iterator.next(vm))
             .collect::<Result<Vec<_>, _>>()?;
 
         // the mapper itself can raise StopIteration which does stop the map iteration

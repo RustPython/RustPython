@@ -30,7 +30,7 @@ fn iter_search(
     vm: &VirtualMachine,
 ) -> PyResult<usize> {
     let mut count = 0;
-    let iter = iterator::get_iter(vm, obj)?;
+    let iter = obj.get_iter(vm)?;
     while let Some(element) = iterator::get_next_object(vm, &iter)? {
         if vm.bool_eq(&item, &element)? {
             match flag {

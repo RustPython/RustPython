@@ -6,7 +6,7 @@ use super::{
 use crate::common::lock::PyRwLock;
 use crate::{
     function::OptionalArg,
-    iterator,
+    protocol::PyIter,
     slots::{IteratorIterable, SlotConstructor, SlotIterator},
     IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TypeProtocol, VirtualMachine,
@@ -19,7 +19,7 @@ use num_traits::Zero;
 #[derive(Debug)]
 pub struct PyEnumerate {
     counter: PyRwLock<BigInt>,
-    iterator: PyObjectRef,
+    iterator: PyIter,
 }
 
 impl PyValue for PyEnumerate {
@@ -30,7 +30,7 @@ impl PyValue for PyEnumerate {
 
 #[derive(FromArgs)]
 pub struct EnumerateArgs {
-    iterable: PyObjectRef,
+    iterator: PyIter,
     #[pyarg(any, optional)]
     start: OptionalArg<PyIntRef>,
 }
@@ -38,11 +38,12 @@ pub struct EnumerateArgs {
 impl SlotConstructor for PyEnumerate {
     type Args = EnumerateArgs;
 
-    fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
-        let counter = args
-            .start
-            .map_or_else(BigInt::zero, |start| start.as_bigint().clone());
-        let iterator = iterator::get_iter(vm, args.iterable)?;
+    fn py_new(
+        cls: PyTypeRef,
+        Self::Args { iterator, start }: Self::Args,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let counter = start.map_or_else(BigInt::zero, |start| start.as_bigint().clone());
         PyEnumerate {
             counter: PyRwLock::new(counter),
             iterator,
@@ -57,7 +58,7 @@ impl PyEnumerate {}
 impl IteratorIterable for PyEnumerate {}
 impl SlotIterator for PyEnumerate {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        let next_obj = iterator::call_next(vm, &zelf.iterator)?;
+        let next_obj = zelf.iterator.next(vm)?;
         let mut counter = zelf.counter.write();
         let position = counter.clone();
         *counter += 1;

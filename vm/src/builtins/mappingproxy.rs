@@ -1,7 +1,6 @@
 use super::{PyDict, PyStrRef, PyTypeRef};
 use crate::{
     function::OptionalArg,
-    iterator,
     slots::{Iterable, SlotConstructor},
     IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, VirtualMachine,
@@ -137,7 +136,8 @@ impl Iterable for PyMappingProxy {
                 PyDict::from_attributes(c.attributes.read().clone(), vm)?.into_pyobject(vm)
             }
         };
-        iterator::get_iter(vm, obj)
+        let iter = obj.get_iter(vm)?;
+        Ok(iter.into_object())
     }
 }
 

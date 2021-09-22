@@ -1,7 +1,7 @@
 use super::IntoFuncArgs;
-use crate::builtins::iter::PySequenceIterator;
 use crate::{
-    iterator, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
+    builtins::iter::PySequenceIterator, iterator, protocol::PyIter, PyObjectRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol, VirtualMachine,
 };
 use std::marker::PhantomData;
 
@@ -102,7 +102,7 @@ where
     type Item = PyResult<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        iterator::get_next_object(self.vm, &self.obj)
+        iterator::get_next_object(self.vm, &PyIter::new(&self.obj))
             .transpose()
             .map(|x| x.and_then(|obj| T::try_from_object(self.vm, obj)))
     }
