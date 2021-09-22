@@ -1,10 +1,10 @@
 use super::errno::errors;
 use crate::crt_fd::Fd;
 use crate::{
-    buffer::PyBuffer,
     builtins::{int, PyBytes, PyBytesRef, PySet, PyStr, PyStrRef},
     exceptions::{IntoPyException, PyBaseExceptionRef},
     function::{ArgumentError, FromArgs, FuncArgs},
+    protocol::PyBuffer,
     IntoPyObject, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject,
     TypeProtocol, VirtualMachine,
 };

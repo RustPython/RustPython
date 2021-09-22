@@ -3,12 +3,12 @@ pub(crate) use _sre::make_module;
 #[pymodule]
 mod _sre {
     use crate::{
-        buffer::PyBuffer,
         builtins::{
             PyCallableIterator, PyDictRef, PyInt, PyList, PyListRef, PyStr, PyStrRef, PyTupleRef,
         },
         common::hash::PyHash,
         function::{ArgCallable, OptionalArg, PosArgs},
+        protocol::PyBuffer,
         slots::{Comparable, Hashable},
         IntoPyObject, ItemProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue,
         TryFromBorrowedObject, TryFromObject, VirtualMachine,

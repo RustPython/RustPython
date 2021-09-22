@@ -6,7 +6,7 @@ use crate::PyThreadingConstraint;
 use crate::{PyObjectRef, PyResult, TryFromBorrowedObject, TypeProtocol, VirtualMachine};
 use std::{borrow::Cow, fmt::Debug};
 
-pub trait PyBufferInternal: Debug + PyThreadingConstraint {
+pub trait BufferInternal: Debug + PyThreadingConstraint {
     /// Get the full inner buffer of this memory. You probably want [`as_contiguous()`], as
     /// `obj_bytes` doesn't take into account the range a memoryview might operate on, among other
     /// footguns.
@@ -24,13 +24,13 @@ pub trait PyBufferInternal: Debug + PyThreadingConstraint {
 pub struct PyBuffer {
     pub obj: PyObjectRef,
     pub options: BufferOptions,
-    pub(crate) internal: PyRc<dyn PyBufferInternal>,
+    pub(crate) internal: PyRc<dyn BufferInternal>,
 }
 
 impl PyBuffer {
     pub fn new(
         obj: PyObjectRef,
-        buffer: impl PyBufferInternal + 'static,
+        buffer: impl BufferInternal + 'static,
         options: BufferOptions,
     ) -> Self {
         buffer.retain();
@@ -119,7 +119,7 @@ impl TryFromBorrowedObject for PyBuffer {
 }
 
 // What we actually want to implement is:
-// impl<T> Drop for T where T: PyBufferInternal
+// impl<T> Drop for T where T: BufferInternal
 // but it is not supported by Rust
 impl Drop for PyBuffer {
     fn drop(&mut self) {

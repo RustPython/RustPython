@@ -11,13 +11,13 @@ mod array {
         str::wchar_t,
     };
     use crate::{
-        buffer::{BufferOptions, PyBuffer, PyBufferInternal, ResizeGuard},
         builtins::{
             IntoPyFloat, PyByteArray, PyBytes, PyBytesRef, PyIntRef, PyList, PyListRef, PySliceRef,
             PyStr, PyStrRef, PyTypeRef,
         },
         byteslike::ArgBytesLike,
         function::{ArgIterable, OptionalArg},
+        protocol::{BufferInternal, BufferOptions, PyBuffer, ResizeGuard},
         sliceable::{saturate_index, PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
         slots::{
             AsBuffer, Comparable, Iterable, IteratorIterable, PyComparisonOp, PyIter,
@@ -1140,7 +1140,7 @@ mod array {
         }
     }
 
-    impl PyBufferInternal for PyRef<PyArray> {
+    impl BufferInternal for PyRef<PyArray> {
         fn obj_bytes(&self) -> BorrowedValue<[u8]> {
             self.get_bytes().into()
         }
