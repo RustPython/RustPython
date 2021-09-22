@@ -1778,7 +1778,7 @@ fn _socket_dup(x: PyObjectRef, vm: &VirtualMachine) -> PyResult<RawSocket> {
     let newsock = sock.try_clone().map_err(|e| e.into_pyexception(vm))?;
     let fd = into_sock_fileno(newsock);
     #[cfg(windows)]
-    super::os::raw_set_handle_inheritable(fd as _, false).map_err(|e| e.into_pyexception(vm))?;
+    super::nt::raw_set_handle_inheritable(fd as _, false).map_err(|e| e.into_pyexception(vm))?;
     Ok(fd)
 }
 

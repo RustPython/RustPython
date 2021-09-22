@@ -1,27 +1,17 @@
 use super::errno::errors;
-use crate::common::lock::PyRwLock;
-use crate::crt_fd::{Fd, Offset};
+use crate::crt_fd::Fd;
 use crate::{
     buffer::PyBuffer,
-    builtins::{int, PyBytes, PyBytesRef, PySet, PyStr, PyStrRef, PyTuple, PyTupleRef, PyTypeRef},
-    byteslike::ArgBytesLike,
+    builtins::{int, PyBytes, PyBytesRef, PySet, PyStr, PyStrRef},
     exceptions::{IntoPyException, PyBaseExceptionRef},
-    function::{ArgumentError, FromArgs, FuncArgs, OptionalArg},
-    slots::PyIter,
-    utils::Either,
-    vm::{ReprGuard, VirtualMachine},
-    IntoPyObject, PyObjectRef, PyRef, PyResult, PyStructSequence, PyValue, StaticType,
-    TryFromBorrowedObject, TryFromObject, TypeProtocol,
+    function::{ArgumentError, FromArgs, FuncArgs},
+    IntoPyObject, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject,
+    TypeProtocol, VirtualMachine,
 };
-use crossbeam_utils::atomic::AtomicCell;
-use itertools::Itertools;
-use num_bigint::BigInt;
 use std::ffi;
-use std::fs::OpenOptions;
-use std::io::{self, ErrorKind, Read, Write};
+use std::fs;
+use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime};
-use std::{env, fs};
 
 #[cfg(unix)]
 use std::os::unix::ffi as ffi_ext;
@@ -363,10 +353,7 @@ pub(super) struct FollowSymlinks(
 );
 
 #[cfg(unix)]
-use super::posix::bytes_as_osstr;
-
-#[cfg(not(windows))]
-use super::posix::posix as platform;
+use platform::bytes_as_osstr;
 
 #[cfg(not(unix))]
 fn bytes_as_osstr<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a ffi::OsStr> {
@@ -377,14 +364,38 @@ fn bytes_as_osstr<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a ffi::OsS
 
 #[pymodule(name = "os")]
 pub(super) mod _os {
-    use super::*;
-    use crate::suppress_iph;
-    use rustpython_common::lock::OnceCell;
+    use super::{
+        errno_err, DirFd, FollowSymlinks, FsPath, OutputMode, PathOrFd, PyPathLike, SupportFunc,
+    };
+    use crate::common::lock::{OnceCell, PyRwLock};
+    use crate::crt_fd::{Fd, Offset};
+    use crate::{
+        builtins::{int, PyBytesRef, PyStrRef, PyTuple, PyTupleRef, PyTypeRef},
+        byteslike::ArgBytesLike,
+        exceptions::IntoPyException,
+        function::{FuncArgs, OptionalArg},
+        slots::PyIter,
+        suppress_iph,
+        utils::Either,
+        vm::{ReprGuard, VirtualMachine},
+        IntoPyObject, PyObjectRef, PyRef, PyResult, PyStructSequence, PyValue, StaticType,
+        TryFromBorrowedObject, TryFromObject, TypeProtocol,
+    };
+    use crossbeam_utils::atomic::AtomicCell;
+    use itertools::Itertools;
+    use num_bigint::BigInt;
+    use std::ffi;
+    use std::fs::OpenOptions;
+    use std::io::{self, Read, Write};
+    use std::path::PathBuf;
+    use std::time::{Duration, SystemTime};
+    use std::{env, fs};
 
     const OPEN_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
     pub(crate) const MKDIR_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
     const STAT_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
     const UTIME_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
+    pub(crate) const SYMLINK_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
 
     #[pyattr]
     use libc::{
@@ -562,7 +573,7 @@ pub(super) mod _os {
                 }
                 #[cfg(all(unix, not(target_os = "redox")))]
                 {
-                    use ffi_ext::OsStrExt;
+                    use super::ffi_ext::OsStrExt;
                     let new_fd = nix::unistd::dup(fno).map_err(|e| e.into_pyexception(vm))?;
                     let mut dir =
                         nix::dir::Dir::from_fd(new_fd).map_err(|e| e.into_pyexception(vm))?;
@@ -597,11 +608,11 @@ pub(super) mod _os {
     ) -> PyResult<()> {
         let key: &ffi::OsStr = match key {
             Either::A(ref s) => s.as_str().as_ref(),
-            Either::B(ref b) => bytes_as_osstr(b.as_bytes(), vm)?,
+            Either::B(ref b) => super::bytes_as_osstr(b.as_bytes(), vm)?,
         };
         let value: &ffi::OsStr = match value {
             Either::A(ref s) => s.as_str().as_ref(),
-            Either::B(ref b) => bytes_as_osstr(b.as_bytes(), vm)?,
+            Either::B(ref b) => super::bytes_as_osstr(b.as_bytes(), vm)?,
         };
         env::set_var(key, value);
         Ok(())
@@ -611,7 +622,7 @@ pub(super) mod _os {
     fn unsetenv(key: Either<PyStrRef, PyBytesRef>, vm: &VirtualMachine) -> PyResult<()> {
         let key: &ffi::OsStr = match key {
             Either::A(ref s) => s.as_str().as_ref(),
-            Either::B(ref b) => bytes_as_osstr(b.as_bytes(), vm)?,
+            Either::B(ref b) => super::bytes_as_osstr(b.as_bytes(), vm)?,
         };
         env::remove_var(key);
         Ok(())
@@ -655,7 +666,7 @@ pub(super) mod _os {
             action: fn(fs::Metadata) -> bool,
             vm: &VirtualMachine,
         ) -> PyResult<bool> {
-            match fs_metadata(self.entry.path(), follow_symlinks.0) {
+            match super::fs_metadata(self.entry.path(), follow_symlinks.0) {
                 Ok(meta) => Ok(action(meta)),
                 Err(e) => {
                     // FileNotFoundError is caught and not raised
@@ -1041,7 +1052,7 @@ pub(super) mod _os {
         // TODO: replicate CPython's win32_xstat
         let [] = dir_fd.0;
         let meta = match file {
-            PathOrFd::Path(path) => fs_metadata(&path, follow_symlinks.0)?,
+            PathOrFd::Path(path) => super::fs_metadata(&path, follow_symlinks.0)?,
             PathOrFd::Fd(fno) => Fd(fno).as_rust_file()?.metadata()?,
         };
         meta_to_stat(&meta).map(Some)
@@ -1056,7 +1067,7 @@ pub(super) mod _os {
         let mut stat = std::mem::MaybeUninit::uninit();
         let ret = match file {
             PathOrFd::Path(path) => {
-                use ffi_ext::OsStrExt;
+                use super::ffi_ext::OsStrExt;
                 let path = path.as_ref().as_os_str().as_bytes();
                 let path = match ffi::CString::new(path) {
                     Ok(x) => x,
@@ -1584,7 +1595,7 @@ pub(super) mod _os {
     impl UnameResult {}
 
     pub(super) fn support_funcs() -> Vec<SupportFunc> {
-        let mut supports = super::platform::support_funcs();
+        let mut supports = super::platform::module::support_funcs();
         supports.extend(vec![
             SupportFunc::new("open", Some(false), Some(OPEN_DIR_FD), Some(false)),
             SupportFunc::new("access", Some(false), Some(false), None),
@@ -1603,12 +1614,7 @@ pub(super) mod _os {
             SupportFunc::new("scandir", None, Some(false), Some(false)),
             SupportFunc::new("stat", Some(true), Some(STAT_DIR_FD), Some(true)),
             SupportFunc::new("fstat", Some(true), Some(STAT_DIR_FD), Some(true)),
-            SupportFunc::new(
-                "symlink",
-                Some(false),
-                Some(platform::SYMLINK_DIR_FD),
-                Some(false),
-            ),
+            SupportFunc::new("symlink", Some(false), Some(SYMLINK_DIR_FD), Some(false)),
             SupportFunc::new("truncate", Some(true), Some(false), Some(false)),
             SupportFunc::new(
                 "utime",
@@ -1648,10 +1654,8 @@ impl<'a> SupportFunc {
     }
 }
 
-pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
-    let module = platform::make_module(vm);
-
-    _os::extend_module(vm, &module);
+pub fn extend_module(vm: &VirtualMachine, module: &PyObjectRef) {
+    _os::extend_module(vm, module);
 
     let support_funcs = _os::support_funcs();
     let supports_fd = PySet::default().into_ref(vm);
@@ -1676,15 +1680,16 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "supports_follow_symlinks" => supports_follow_symlinks.into_object(),
         "error" => vm.ctx.exceptions.os_error.clone(),
     });
-
-    module
 }
 pub(crate) use _os::os_open as open;
 
-#[cfg(windows)]
-use super::nt::nt as platform;
+#[cfg(not(windows))]
+use super::posix as platform;
 
-pub(crate) use platform::MODULE_NAME;
+#[cfg(windows)]
+use super::nt as platform;
+
+pub(crate) use platform::module::MODULE_NAME;
 
 #[cfg(not(all(windows, target_env = "msvc")))]
 #[macro_export]

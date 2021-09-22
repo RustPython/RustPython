@@ -1,5 +1,15 @@
-#[pymodule]
-pub(crate) mod nt {
+use crate::{PyObjectRef, VirtualMachine};
+
+pub(crate) use module::raw_set_handle_inheritable;
+
+pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+    let module = module::make_module(vm);
+    super::os::extend_module(vm, &module);
+    module
+}
+
+#[pymodule(name = "nt")]
+pub(crate) mod module {
     use crate::{
         builtins::{PyStrRef, PyTupleRef},
         crt_fd::Fd,
@@ -34,8 +44,6 @@ pub(crate) mod nt {
                 || attr & winnt::FILE_ATTRIBUTE_DIRECTORY != 0))
     }
 
-    pub const SYMLINK_DIR_FD: bool = false;
-
     #[derive(FromArgs)]
     pub(super) struct SimlinkArgs {
         #[pyarg(any)]
@@ -45,7 +53,7 @@ pub(crate) mod nt {
         #[pyarg(flatten)]
         target_is_directory: TargetIsDirectory,
         #[pyarg(flatten)]
-        _dir_fd: DirFd<{ SYMLINK_DIR_FD as usize }>,
+        _dir_fd: DirFd<{ _os::SYMLINK_DIR_FD as usize }>,
     }
 
     #[pyfunction]

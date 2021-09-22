@@ -1,10 +1,18 @@
 //! `posix` compatible module for `not(any(unix, windows))`
 
+use crate::{PyObjectRef, VirtualMachine};
+
+pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+    let module = module::make_module(vm);
+    super::os::extend_module(vm, &module);
+    module
+}
+
 #[pymodule(name = "posix")]
-pub(crate) mod posix {
+pub(crate) mod module {
     use crate::{
         builtins::PyStrRef,
-        stdlib::os::{DirFd, PyPathLike, SupportFunc, TargetIsDirectory},
+        stdlib::os::{DirFd, PyPathLike, SupportFunc, TargetIsDirectory, _os},
         PyResult, VirtualMachine,
     };
     use std::env;
@@ -18,8 +26,6 @@ pub(crate) mod posix {
         os_unimpl("os.access", vm)
     }
 
-    pub const SYMLINK_DIR_FD: bool = false;
-
     #[derive(FromArgs)]
     #[allow(unused)]
     pub(super) struct SimlinkArgs {
@@ -30,7 +36,7 @@ pub(crate) mod posix {
         #[pyarg(flatten)]
         _target_is_directory: TargetIsDirectory,
         #[pyarg(flatten)]
-        _dir_fd: DirFd<{ SYMLINK_DIR_FD as usize }>,
+        _dir_fd: DirFd<{ _os::SYMLINK_DIR_FD as usize }>,
     }
 
     #[pyfunction]

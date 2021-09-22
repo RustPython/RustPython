@@ -1,4 +1,4 @@
-use crate::{PyResult, VirtualMachine};
+use crate::{PyObjectRef, PyResult, VirtualMachine};
 use nix;
 use std::os::unix::io::RawFd;
 
@@ -21,8 +21,14 @@ pub(super) fn bytes_as_osstr<'a>(
     Ok(std::ffi::OsStr::from_bytes(b))
 }
 
-#[pymodule]
-pub mod posix {
+pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+    let module = module::make_module(vm);
+    super::os::extend_module(vm, &module);
+    module
+}
+
+#[pymodule(name = "posix")]
+pub mod module {
     use crate::{
         builtins::{int, PyDictRef, PyInt, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
         crt_fd::Offset,
@@ -151,8 +157,6 @@ pub mod posix {
     #[cfg(target_os = "macos")]
     #[pyattr]
     const _COPYFILE_DATA: u32 = 1 << 3;
-
-    pub(crate) const SYMLINK_DIR_FD: bool = cfg!(not(target_os = "redox"));
 
     // Flags for os_access
     bitflags! {
@@ -304,7 +308,7 @@ pub mod posix {
         #[pyarg(flatten)]
         _target_is_directory: TargetIsDirectory,
         #[pyarg(flatten)]
-        dir_fd: DirFd<{ SYMLINK_DIR_FD as usize }>,
+        dir_fd: DirFd<{ _os::SYMLINK_DIR_FD as usize }>,
     }
 
     #[pyfunction]
