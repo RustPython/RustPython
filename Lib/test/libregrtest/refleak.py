@@ -264,7 +264,8 @@ def clear_caches():
     except KeyError:
         pass
     else:
-        ctypes._reset_cache()
+        pass  # FIXME: RustPython
+        # ctypes._reset_cache()
 
     try:
         typing = sys.modules['typing']
