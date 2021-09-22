@@ -1,7 +1,7 @@
 use super::PyTypeRef;
 use crate::{
     iterator,
-    slots::{IteratorIterable, PyIter, SlotConstructor},
+    slots::{IteratorIterable, SlotConstructor, SlotIterator},
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 
@@ -48,11 +48,11 @@ impl SlotConstructor for PyFilter {
     }
 }
 
-#[pyimpl(with(PyIter, SlotConstructor), flags(BASETYPE))]
+#[pyimpl(with(SlotIterator, SlotConstructor), flags(BASETYPE))]
 impl PyFilter {}
 
 impl IteratorIterable for PyFilter {}
-impl PyIter for PyFilter {
+impl SlotIterator for PyFilter {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         let predicate = &zelf.predicate;
         let iterator = &zelf.iterator;

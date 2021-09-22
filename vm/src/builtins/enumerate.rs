@@ -7,7 +7,7 @@ use crate::common::lock::PyRwLock;
 use crate::{
     function::OptionalArg,
     iterator,
-    slots::{IteratorIterable, PyIter, SlotConstructor},
+    slots::{IteratorIterable, SlotConstructor, SlotIterator},
     IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TypeProtocol, VirtualMachine,
 };
@@ -51,11 +51,11 @@ impl SlotConstructor for PyEnumerate {
     }
 }
 
-#[pyimpl(with(PyIter, SlotConstructor), flags(BASETYPE))]
+#[pyimpl(with(SlotIterator, SlotConstructor), flags(BASETYPE))]
 impl PyEnumerate {}
 
 impl IteratorIterable for PyEnumerate {}
-impl PyIter for PyEnumerate {
+impl SlotIterator for PyEnumerate {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         let next_obj = iterator::call_next(vm, &zelf.iterator)?;
         let mut counter = zelf.counter.write();
@@ -79,7 +79,7 @@ impl PyValue for PyReverseSequenceIterator {
     }
 }
 
-#[pyimpl(with(PyIter))]
+#[pyimpl(with(SlotIterator))]
 impl PyReverseSequenceIterator {
     pub fn new(obj: PyObjectRef, len: usize) -> Self {
         Self {
@@ -137,7 +137,7 @@ impl PyReverseSequenceIterator {
 }
 
 impl IteratorIterable for PyReverseSequenceIterator {}
-impl PyIter for PyReverseSequenceIterator {
+impl SlotIterator for PyReverseSequenceIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         if let Exhausted = zelf.status.load() {
             return Err(vm.new_stop_iteration());

@@ -18,7 +18,7 @@ pub(crate) mod _struct {
         },
         common::str::wchar_t,
         function::{ArgBytesLike, ArgMemoryBuffer, PosArgs},
-        slots::{IteratorIterable, PyIter, SlotConstructor},
+        slots::{IteratorIterable, SlotConstructor, SlotIterator},
         utils::Either,
         IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
     };
@@ -823,7 +823,7 @@ pub(crate) mod _struct {
         }
     }
 
-    #[pyimpl(with(PyIter))]
+    #[pyimpl(with(SlotIterator))]
     impl UnpackIterator {
         #[pymethod(magic)]
         fn length_hint(&self) -> usize {
@@ -831,7 +831,7 @@ pub(crate) mod _struct {
         }
     }
     impl IteratorIterable for UnpackIterator {}
-    impl PyIter for UnpackIterator {
+    impl SlotIterator for UnpackIterator {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             let size = zelf.format_spec.size;
             let offset = zelf.offset.fetch_add(size);

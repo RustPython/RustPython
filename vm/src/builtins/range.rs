@@ -3,7 +3,7 @@ use crate::common::hash::PyHash;
 use crate::{
     function::{FuncArgs, OptionalArg},
     iterator,
-    slots::{Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, PyIter},
+    slots::{Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotIterator},
     IdProtocol, IntoPyRef, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol, VirtualMachine,
 };
@@ -478,7 +478,7 @@ impl PyValue for PyLongRangeIterator {
     }
 }
 
-#[pyimpl(with(PyIter))]
+#[pyimpl(with(SlotIterator))]
 impl PyLongRangeIterator {
     #[pyslot]
     fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -514,7 +514,7 @@ impl PyLongRangeIterator {
 }
 
 impl IteratorIterable for PyLongRangeIterator {}
-impl PyIter for PyLongRangeIterator {
+impl SlotIterator for PyLongRangeIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         // TODO: In pathological case (index == usize::MAX) this can wrap around
         // (since fetch_add wraps). This would result in the iterator spinning again
@@ -547,7 +547,7 @@ impl PyValue for PyRangeIterator {
     }
 }
 
-#[pyimpl(with(PyIter))]
+#[pyimpl(with(SlotIterator))]
 impl PyRangeIterator {
     #[pyslot]
     fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -584,7 +584,7 @@ impl PyRangeIterator {
 }
 
 impl IteratorIterable for PyRangeIterator {}
-impl PyIter for PyRangeIterator {
+impl SlotIterator for PyRangeIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         // TODO: In pathological case (index == usize::MAX) this can wrap around
         // (since fetch_add wraps). This would result in the iterator spinning again

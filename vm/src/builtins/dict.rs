@@ -5,7 +5,9 @@ use crate::{
     dictdatatype::{self, DictKey},
     function::{ArgIterable, FuncArgs, KwArgs, OptionalArg},
     iterator,
-    slots::{Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, PyIter, Unhashable},
+    slots::{
+        Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotIterator, Unhashable,
+    },
     vm::{ReprGuard, VirtualMachine},
     IdProtocol, IntoPyObject, ItemProtocol,
     PyArithmaticValue::*,
@@ -708,7 +710,7 @@ macro_rules! dict_iterator {
             }
         }
 
-        #[pyimpl(with(PyIter))]
+        #[pyimpl(with(SlotIterator))]
         impl $iter_name {
             fn new(dict: PyDictRef) -> Self {
                 $iter_name {
@@ -730,7 +732,7 @@ macro_rules! dict_iterator {
         }
 
         impl IteratorIterable for $iter_name {}
-        impl PyIter for $iter_name {
+        impl SlotIterator for $iter_name {
             #[allow(clippy::redundant_closure_call)]
             fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
                 match zelf.status.load() {
@@ -769,7 +771,7 @@ macro_rules! dict_iterator {
             }
         }
 
-        #[pyimpl(with(PyIter))]
+        #[pyimpl(with(SlotIterator))]
         impl $reverse_iter_name {
             fn new(dict: PyDictRef) -> Self {
                 $reverse_iter_name {
@@ -791,7 +793,7 @@ macro_rules! dict_iterator {
         }
 
         impl IteratorIterable for $reverse_iter_name {}
-        impl PyIter for $reverse_iter_name {
+        impl SlotIterator for $reverse_iter_name {
             #[allow(clippy::redundant_closure_call)]
             fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
                 match zelf.status.load() {

@@ -86,7 +86,7 @@ mod _io {
             ArgBytesLike, ArgIterable, ArgMemoryBuffer, FuncArgs, OptionalArg, OptionalOption,
         },
         protocol::{BufferInternal, BufferOptions, PyBuffer, ResizeGuard},
-        slots::{Iterable, PyIter, SlotConstructor},
+        slots::{Iterable, SlotConstructor, SlotIterator},
         utils::Either,
         vm::{ReprGuard, VirtualMachine},
         IdProtocol, IntoPyObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
@@ -344,7 +344,7 @@ mod _io {
     #[derive(Debug, PyValue)]
     struct _IOBase;
 
-    #[pyimpl(with(PyIter), flags(BASETYPE, HAS_DICT))]
+    #[pyimpl(with(SlotIterator), flags(BASETYPE, HAS_DICT))]
     impl _IOBase {
         #[pymethod]
         fn seek(
@@ -523,7 +523,7 @@ mod _io {
         }
     }
 
-    impl PyIter for _IOBase {
+    impl SlotIterator for _IOBase {
         fn slot_iternext(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
             let line = vm.call_method(zelf, "readline", ())?;
             if !line.clone().try_to_bool(vm)? {

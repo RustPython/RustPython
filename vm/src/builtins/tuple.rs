@@ -9,7 +9,8 @@ use crate::{
     sequence::{self, SimpleSeq},
     sliceable::PySliceableSequence,
     slots::{
-        Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, PyIter, SlotConstructor,
+        Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotConstructor,
+        SlotIterator,
     },
     utils::Either,
     vm::{ReprGuard, VirtualMachine},
@@ -330,7 +331,7 @@ impl PyValue for PyTupleIterator {
     }
 }
 
-#[pyimpl(with(PyIter))]
+#[pyimpl(with(SlotIterator))]
 impl PyTupleIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
@@ -376,7 +377,7 @@ impl PyTupleIterator {
 }
 
 impl IteratorIterable for PyTupleIterator {}
-impl PyIter for PyTupleIterator {
+impl SlotIterator for PyTupleIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         if let Exhausted = zelf.status.load() {
             return Err(vm.new_stop_iteration());

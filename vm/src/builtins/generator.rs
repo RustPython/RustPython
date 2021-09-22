@@ -7,7 +7,7 @@ use crate::{
     coroutine::{Coro, Variant},
     frame::FrameRef,
     function::OptionalArg,
-    slots::{IteratorIterable, PyIter},
+    slots::{IteratorIterable, SlotIterator},
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 
@@ -23,7 +23,7 @@ impl PyValue for PyGenerator {
     }
 }
 
-#[pyimpl(with(PyIter))]
+#[pyimpl(with(SlotIterator))]
 impl PyGenerator {
     pub fn as_coro(&self) -> &Coro {
         &self.inner
@@ -95,7 +95,7 @@ impl PyGenerator {
 }
 
 impl IteratorIterable for PyGenerator {}
-impl PyIter for PyGenerator {
+impl SlotIterator for PyGenerator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         zelf.send(vm.ctx.none(), vm)
     }

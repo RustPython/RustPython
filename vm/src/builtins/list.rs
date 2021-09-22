@@ -10,7 +10,9 @@ use crate::{
     function::{ArgIterable, FuncArgs, OptionalArg},
     sequence::{self, SimpleSeq},
     sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
-    slots::{Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, PyIter, Unhashable},
+    slots::{
+        Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotIterator, Unhashable,
+    },
     utils::Either,
     vm::{ReprGuard, VirtualMachine},
     PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
@@ -484,7 +486,7 @@ impl PyValue for PyListIterator {
     }
 }
 
-#[pyimpl(with(PyIter))]
+#[pyimpl(with(SlotIterator))]
 impl PyListIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
@@ -521,7 +523,7 @@ impl PyListIterator {
 }
 
 impl IteratorIterable for PyListIterator {}
-impl PyIter for PyListIterator {
+impl SlotIterator for PyListIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         if let Exhausted = zelf.status.load() {
             return Err(vm.new_stop_iteration());
@@ -551,7 +553,7 @@ impl PyValue for PyListReverseIterator {
     }
 }
 
-#[pyimpl(with(PyIter))]
+#[pyimpl(with(SlotIterator))]
 impl PyListReverseIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
@@ -595,7 +597,7 @@ impl PyListReverseIterator {
 }
 
 impl IteratorIterable for PyListReverseIterator {}
-impl PyIter for PyListReverseIterator {
+impl SlotIterator for PyListReverseIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         if let Exhausted = zelf.status.load() {
             return Err(vm.new_stop_iteration());
