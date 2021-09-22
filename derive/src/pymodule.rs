@@ -307,9 +307,14 @@ impl ModuleItem for ClassItem {
 
             let class_meta = ClassItemMeta::from_attr(ident.clone(), class_attr)?;
             let module_name = args.context.name.clone();
-            class_attr.fill_nested_meta("module", || {
-                parse_quote! {module = #module_name}
-            })?;
+            let module_name = if let Some(class_module_name) = class_meta.module().ok().flatten() {
+                class_module_name
+            } else {
+                class_attr.fill_nested_meta("module", || {
+                    parse_quote! {module = #module_name}
+                })?;
+                module_name
+            };
             let class_name = class_meta.class_name()?;
             (module_name, class_name)
         };
