@@ -2,13 +2,13 @@ pub(crate) use syslog::make_module;
 
 #[pymodule(name = "syslog")]
 mod syslog {
-    use crate::builtins::pystr::{PyStr, PyStrRef};
     use crate::common::lock::PyRwLock;
-    use crate::function::{OptionalArg, OptionalOption};
-    use crate::pyobject::PyValue;
-    use crate::utils::ToCString;
-    use crate::vm::VirtualMachine;
-    use crate::{PyObjectRef, PyResult, TryFromObject};
+    use crate::{
+        builtins::pystr::{PyStr, PyStrRef},
+        function::{OptionalArg, OptionalOption},
+        utils::ToCString,
+        PyObjectRef, PyResult, PyValue, TryFromObject, VirtualMachine,
+    };
     use std::{ffi::CStr, os::raw::c_char};
 
     #[pyattr]

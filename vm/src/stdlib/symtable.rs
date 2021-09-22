@@ -2,13 +2,12 @@ pub(crate) use decl::make_module;
 
 #[pymodule(name = "symtable")]
 mod decl {
+    use crate::{
+        builtins::{PyStrRef, PyTypeRef},
+        compile::{self, Symbol, SymbolScope, SymbolTable, SymbolTableType},
+        PyRef, PyResult, PyValue, StaticType, VirtualMachine,
+    };
     use std::fmt;
-
-    use crate::builtins::pystr::PyStrRef;
-    use crate::builtins::pytype::PyTypeRef;
-    use crate::compile::{self, Symbol, SymbolScope, SymbolTable, SymbolTableType};
-    use crate::vm::VirtualMachine;
-    use crate::{PyRef, PyResult, PyValue, StaticType};
 
     /// symtable. Return top level SymbolTable.
     /// See docs: https://docs.python.org/3/library/symtable.html?highlight=symtable#symtable.symtable

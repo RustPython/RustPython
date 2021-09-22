@@ -3,24 +3,19 @@
 //! This module makes use of the parser logic, and translates all ast nodes
 //! into python ast.AST objects.
 
+use crate::{
+    builtins::{self, PyStrRef, PyTypeRef},
+    function::FuncArgs,
+    IdProtocol, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue, StaticType,
+    TryFromObject, TypeProtocol, VirtualMachine,
+};
 use num_complex::Complex64;
 use num_traits::{ToPrimitive, Zero};
-
 use rustpython_ast as ast;
-
-#[cfg(feature = "rustpython-parser")]
-use rustpython_parser::parser;
-
 #[cfg(feature = "rustpython-compiler")]
 use rustpython_compiler as compile;
-
-use crate::builtins::{self, PyStrRef, PyTypeRef};
-use crate::function::FuncArgs;
-use crate::vm::VirtualMachine;
-use crate::{
-    IdProtocol, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue, StaticType,
-    TryFromObject, TypeProtocol,
-};
+#[cfg(feature = "rustpython-parser")]
+use rustpython_parser::parser;
 
 #[rustfmt::skip]
 #[allow(clippy::all)]

@@ -3,21 +3,20 @@ pub(crate) use _collections::make_module;
 #[pymodule]
 mod _collections {
     use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
-    use crate::function::{FuncArgs, KwArgs, OptionalArg};
-    use crate::slots::{
-        Comparable, Hashable, Iterable, PyComparisonOp, PyIter, SlotConstructor, Unhashable,
-    };
-    use crate::vm::ReprGuard;
-    use crate::VirtualMachine;
     use crate::{
         builtins::{
             IterStatus::{self, Active, Exhausted},
             PyInt, PyTypeRef,
         },
-        TypeProtocol,
+        function::{FuncArgs, KwArgs, OptionalArg},
+        sequence, sliceable,
+        slots::{
+            Comparable, Hashable, Iterable, PyComparisonOp, PyIter, SlotConstructor, Unhashable,
+        },
+        vm::ReprGuard,
+        PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TypeProtocol,
+        VirtualMachine,
     };
-    use crate::{sequence, sliceable};
-    use crate::{PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, StaticType};
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
     use num_traits::ToPrimitive;

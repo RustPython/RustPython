@@ -2,12 +2,11 @@
    See also: https://docs.python.org/3/library/unicodedata.html
 */
 
-use crate::builtins::pystr::PyStrRef;
-use crate::builtins::pytype::PyTypeRef;
-use crate::function::OptionalArg;
-use crate::vm::VirtualMachine;
-use crate::{PyClassImpl, PyObject, PyObjectRef, PyResult, PyValue, StaticType};
-
+use crate::{
+    builtins::{PyStrRef, PyTypeRef},
+    function::OptionalArg,
+    PyClassImpl, PyObject, PyObjectRef, PyResult, PyValue, StaticType, VirtualMachine,
+};
 use itertools::Itertools;
 use unic_char_property::EnumeratedCharProperty;
 use unic_normal::StrNormalForm;

@@ -2,17 +2,15 @@ pub(crate) use decl::make_module;
 
 #[pymodule(name = "zlib")]
 mod decl {
-    use crate::builtins::bytes::{PyBytes, PyBytesRef};
-    use crate::builtins::int::{self, PyIntRef};
-    use crate::builtins::pytype::PyTypeRef;
-    use crate::byteslike::ArgBytesLike;
     use crate::common::lock::PyMutex;
-    use crate::exceptions::PyBaseExceptionRef;
-    use crate::function::OptionalArg;
-    use crate::types::create_simple_type;
-    use crate::vm::VirtualMachine;
-    use crate::{IntoPyRef, PyResult, PyValue, StaticType};
-
+    use crate::{
+        builtins::{int, PyBytes, PyBytesRef, PyIntRef, PyTypeRef},
+        byteslike::ArgBytesLike,
+        exceptions::PyBaseExceptionRef,
+        function::OptionalArg,
+        types::create_simple_type,
+        IntoPyRef, PyResult, PyValue, StaticType, VirtualMachine,
+    };
     use adler32::RollingAdler32 as Adler32;
     use crc32fast::Hasher as Crc32;
     use crossbeam_utils::atomic::AtomicCell;

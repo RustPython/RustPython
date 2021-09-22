@@ -2,30 +2,27 @@ pub(crate) use array::make_module;
 
 #[pymodule(name = "array")]
 mod array {
-    use crate::buffer::{BufferOptions, PyBuffer, PyBufferInternal, ResizeGuard};
-    use crate::builtins::list::{PyList, PyListRef};
-    use crate::builtins::pystr::{PyStr, PyStrRef};
-    use crate::builtins::pytype::PyTypeRef;
-    use crate::builtins::slice::PySliceRef;
-    use crate::builtins::IntoPyFloat;
-    use crate::builtins::{PyByteArray, PyBytes, PyBytesRef, PyIntRef};
-    use crate::byteslike::ArgBytesLike;
-    use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
-    use crate::common::lock::{
-        PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyRwLock, PyRwLockReadGuard,
-        PyRwLockWriteGuard,
+    use crate::common::{
+        borrow::{BorrowedValue, BorrowedValueMut},
+        lock::{
+            PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyRwLock, PyRwLockReadGuard,
+            PyRwLockWriteGuard,
+        },
+        str::wchar_t,
     };
-    use crate::common::str::wchar_t;
-    use crate::function::OptionalArg;
-    use crate::sliceable::{
-        saturate_index, PySliceableSequence, PySliceableSequenceMut, SequenceIndex,
-    };
-    use crate::slots::{AsBuffer, Comparable, Iterable, PyComparisonOp, PyIter, SlotConstructor};
     use crate::{
-        IdProtocol, IntoPyObject, PyComparisonValue, PyIterable, PyObjectRef, PyRef, PyResult,
-        PyValue, StaticType, TryFromObject, TypeProtocol,
+        buffer::{BufferOptions, PyBuffer, PyBufferInternal, ResizeGuard},
+        builtins::{
+            IntoPyFloat, PyByteArray, PyBytes, PyBytesRef, PyIntRef, PyList, PyListRef, PySliceRef,
+            PyStr, PyStrRef, PyTypeRef,
+        },
+        byteslike::ArgBytesLike,
+        function::OptionalArg,
+        sliceable::{saturate_index, PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
+        slots::{AsBuffer, Comparable, Iterable, PyComparisonOp, PyIter, SlotConstructor},
+        IdProtocol, IntoPyObject, IntoPyResult, PyComparisonValue, PyIterable, PyObjectRef, PyRef,
+        PyResult, PyValue, StaticType, TryFromObject, TypeProtocol, VirtualMachine,
     };
-    use crate::{IntoPyResult, VirtualMachine};
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
     use lexical_core::Integer;

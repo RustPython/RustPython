@@ -2,16 +2,16 @@ pub(crate) use _codecs::make_module;
 
 #[pymodule]
 mod _codecs {
-    use std::ops::Range;
-
-    use crate::builtins::{PyBytesRef, PyStr, PyStrRef, PyTuple};
-    use crate::byteslike::ArgBytesLike;
-    use crate::codecs;
     use crate::common::encodings;
-    use crate::exceptions::PyBaseExceptionRef;
-    use crate::function::FuncArgs;
-    use crate::VirtualMachine;
-    use crate::{IdProtocol, PyObjectRef, PyResult, TryFromBorrowedObject};
+    use crate::{
+        builtins::{PyBytesRef, PyStr, PyStrRef, PyTuple},
+        byteslike::ArgBytesLike,
+        codecs,
+        exceptions::PyBaseExceptionRef,
+        function::FuncArgs,
+        IdProtocol, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
+    };
+    use std::ops::Range;
 
     #[pyfunction]
     fn register(search_function: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {

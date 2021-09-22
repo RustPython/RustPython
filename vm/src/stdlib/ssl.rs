@@ -1,16 +1,15 @@
-use super::os::PyPathLike;
 use super::socket::{self, PySocketRef};
-use crate::builtins::{pytype, weakref::PyWeak, PyStrRef, PyTypeRef};
-use crate::byteslike::{ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike};
 use crate::common::lock::{PyRwLock, PyRwLockWriteGuard};
-use crate::exceptions::{create_exception_type, IntoPyException, PyBaseExceptionRef};
-use crate::function::OptionalArg;
-use crate::slots::SlotConstructor;
-use crate::utils::{Either, ToCString};
-use crate::VirtualMachine;
 use crate::{
+    builtins::{pytype, weakref::PyWeak, PyStrRef, PyTypeRef},
+    byteslike::{ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike},
+    exceptions::{create_exception_type, IntoPyException, PyBaseExceptionRef},
+    function::OptionalArg,
+    slots::SlotConstructor,
+    stdlib::os::PyPathLike,
+    utils::{Either, ToCString},
     IntoPyObject, ItemProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
-    StaticType,
+    StaticType, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use foreign_types_shared::{ForeignType, ForeignTypeRef};

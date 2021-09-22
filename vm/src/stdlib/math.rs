@@ -3,19 +3,16 @@
  *
  */
 
+use crate::{
+    builtins::{try_bigint_to_f64, try_f64_to_bigint, IntoPyFloat, PyFloatRef, PyInt, PyIntRef},
+    function::{Args, OptionalArg},
+    utils::Either,
+    PyIterable, PyObjectRef, PyResult, PySequence, TypeProtocol, VirtualMachine,
+};
 use num_bigint::BigInt;
 use num_traits::{One, Signed, Zero};
 use puruspe::{erf, erfc, gamma, ln_gamma};
-
-use crate::builtins::{
-    try_bigint_to_f64, try_f64_to_bigint, IntoPyFloat, PyFloatRef, PyInt, PyIntRef,
-};
-use crate::function::{Args, OptionalArg};
-use crate::utils::Either;
-use crate::vm::VirtualMachine;
-use crate::{PyIterable, PyObjectRef, PyResult, PySequence, TypeProtocol};
 use rustpython_common::float_ops;
-
 use std::cmp::Ordering;
 
 // Helper macro:

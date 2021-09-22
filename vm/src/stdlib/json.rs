@@ -3,18 +3,16 @@ mod machinery;
 
 #[pymodule]
 mod _json {
-    use super::*;
-    use crate::builtins::pystr::PyStrRef;
-    use crate::builtins::pytype::PyTypeRef;
-    use crate::exceptions::PyBaseExceptionRef;
-    use crate::function::{FuncArgs, OptionalArg};
-    use crate::iterator;
-    use crate::slots::{Callable, SlotConstructor};
-    use crate::VirtualMachine;
+    use super::machinery;
     use crate::{
+        builtins::{PyStrRef, PyTypeRef},
+        exceptions::PyBaseExceptionRef,
+        function::{FuncArgs, OptionalArg},
+        iterator,
+        slots::{Callable, SlotConstructor},
         IdProtocol, IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject,
+        VirtualMachine,
     };
-
     use num_bigint::BigInt;
     use std::str::FromStr;
 

@@ -2,13 +2,12 @@ pub(crate) use _bisect::make_module;
 
 #[pymodule]
 mod _bisect {
-    use std::convert::TryFrom;
-
-    use crate::function::OptionalArg;
-    use crate::slots::PyComparisonOp::Lt;
-    use crate::vm::VirtualMachine;
-    use crate::{ItemProtocol, PyObjectRef, PyResult};
+    use crate::{
+        function::OptionalArg, slots::PyComparisonOp::Lt, ItemProtocol, PyObjectRef, PyResult,
+        VirtualMachine,
+    };
     use num_traits::ToPrimitive;
+    use std::convert::TryFrom;
 
     #[derive(FromArgs)]
     struct BisectArgs {

@@ -22,9 +22,11 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 /// This module provides access to mathematical functions for complex numbers.
 #[pymodule]
 mod cmath {
-    use crate::builtins::{IntoPyComplex, IntoPyFloat};
-    use crate::function::OptionalArg;
-    use crate::{PyResult, VirtualMachine};
+    use crate::{
+        builtins::{IntoPyComplex, IntoPyFloat},
+        function::OptionalArg,
+        PyResult, VirtualMachine,
+    };
     use num_complex::Complex64;
 
     /// Return argument, also known as the phase angle, of a complex.
