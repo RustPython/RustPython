@@ -334,8 +334,8 @@ impl PyRange {
     }
 
     #[pymethod(magic)]
-    fn getitem(&self, subscript: RangeIndex, vm: &VirtualMachine) -> PyResult {
-        match subscript {
+    fn getitem(&self, subscript: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        match RangeIndex::try_from_object(vm, subscript)? {
             RangeIndex::Slice(slice) => {
                 let (mut substart, mut substop, mut substep) =
                     slice.inner_indices(&self.compute_length(), vm)?;
@@ -391,8 +391,7 @@ impl AsMapping for PyRange {
 
     #[inline]
     fn subscript(zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Self::downcast_ref(&zelf, vm)
-            .map(|zelf| zelf.getitem(RangeIndex::try_from_object(vm, needle)?, vm))?
+        Self::downcast_ref(&zelf, vm).map(|zelf| zelf.getitem(needle, vm))?
     }
 
     #[inline]
