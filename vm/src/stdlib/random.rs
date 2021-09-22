@@ -4,13 +4,13 @@ pub(crate) use _random::make_module;
 
 #[pymodule]
 mod _random {
-    use crate::builtins::int::PyIntRef;
-    use crate::builtins::pytype::PyTypeRef;
     use crate::common::lock::PyMutex;
-    use crate::function::OptionalOption;
-    use crate::slots::SlotConstructor;
-    use crate::VirtualMachine;
-    use crate::{PyObjectRef, PyResult, PyValue, StaticType};
+    use crate::{
+        builtins::{PyIntRef, PyTypeRef},
+        function::OptionalOption,
+        slots::SlotConstructor,
+        PyObjectRef, PyResult, PyValue, StaticType, VirtualMachine,
+    };
     use num_bigint::{BigInt, Sign};
     use num_traits::{Signed, Zero};
     use rand::{rngs::StdRng, RngCore, SeedableRng};

@@ -2,21 +2,19 @@ pub(crate) use decl::make_module;
 
 #[pymodule(name = "binascii")]
 mod decl {
-    use crate::builtins::bytearray::{PyByteArray, PyByteArrayRef};
-    use crate::builtins::bytes::{PyBytes, PyBytesRef};
-    use crate::builtins::pystr::{PyStr, PyStrRef};
-    use crate::builtins::PyTypeRef;
-    use crate::byteslike::ArgBytesLike;
-    use crate::function::OptionalArg;
-    use crate::vm::VirtualMachine;
-    use crate::{PyObjectRef, PyResult, TryFromObject, TypeProtocol};
+    use crate::{
+        builtins::{PyByteArray, PyBytes, PyStr, PyTypeRef},
+        byteslike::ArgBytesLike,
+        function::OptionalArg,
+        PyObjectRef, PyRef, PyResult, TryFromObject, TypeProtocol, VirtualMachine,
+    };
     use crc::{crc32, Hasher32};
     use itertools::Itertools;
 
     enum SerializedData {
-        Bytes(PyBytesRef),
-        Buffer(PyByteArrayRef),
-        Ascii(PyStrRef),
+        Bytes(PyRef<PyBytes>),
+        Buffer(PyRef<PyByteArray>),
+        Ascii(PyRef<PyStr>),
     }
 
     impl TryFromObject for SerializedData {

@@ -2,9 +2,7 @@ pub(crate) use decl::make_module;
 
 #[pymodule(name = "faulthandler")]
 mod decl {
-    use crate::frame::FrameRef;
-    use crate::function::OptionalArg;
-    use crate::vm::VirtualMachine;
+    use crate::{frame::FrameRef, function::OptionalArg, VirtualMachine};
 
     fn dump_frame(frame: &FrameRef) {
         eprintln!(

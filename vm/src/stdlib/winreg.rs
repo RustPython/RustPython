@@ -1,11 +1,11 @@
 #![allow(non_snake_case)]
-use crate::builtins::pystr::PyStrRef;
-use crate::builtins::pytype::PyTypeRef;
-use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
-use crate::exceptions::IntoPyException;
-use crate::VirtualMachine;
-use crate::{PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject};
 
+use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
+use crate::{
+    builtins::{PyStrRef, PyTypeRef},
+    exceptions::IntoPyException,
+    PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject, VirtualMachine,
+};
 use std::convert::TryInto;
 use std::ffi::OsStr;
 use std::io;

@@ -1,3 +1,13 @@
+use crate::common::lock::{PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard};
+use crate::{
+    builtins::{int, PyStrRef, PyTupleRef, PyTypeRef},
+    byteslike::{ArgBytesLike, ArgMemoryBuffer},
+    exceptions::{IntoPyException, PyBaseExceptionRef},
+    function::{FuncArgs, OptionalArg, OptionalOption},
+    utils::{Either, ToCString},
+    IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
+    TryFromBorrowedObject, TryFromObject, TypeProtocol, VirtualMachine,
+};
 use crossbeam_utils::atomic::AtomicCell;
 use gethostname::gethostname;
 #[cfg(all(unix, not(target_os = "redox")))]
@@ -9,21 +19,6 @@ use std::mem::MaybeUninit;
 use std::net::{self, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, ToSocketAddrs};
 use std::time::{Duration, Instant};
 use std::{ffi, io};
-
-use crate::builtins::int;
-use crate::builtins::pystr::PyStrRef;
-use crate::builtins::pytype::PyTypeRef;
-use crate::builtins::tuple::PyTupleRef;
-use crate::byteslike::{ArgBytesLike, ArgMemoryBuffer};
-use crate::common::lock::{PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard};
-use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
-use crate::function::{FuncArgs, OptionalArg, OptionalOption};
-use crate::utils::{Either, ToCString};
-use crate::VirtualMachine;
-use crate::{
-    IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
-    TryFromBorrowedObject, TryFromObject, TypeProtocol,
-};
 
 #[cfg(unix)]
 type RawSocket = std::os::unix::io::RawFd;

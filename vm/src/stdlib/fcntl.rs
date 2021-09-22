@@ -2,13 +2,14 @@ pub(crate) use fcntl::make_module;
 
 #[pymodule]
 mod fcntl {
-    use super::super::{io, os};
-    use crate::builtins::int;
-    use crate::byteslike::{ArgMemoryBuffer, ArgStrOrBytesLike};
-    use crate::function::OptionalArg;
-    use crate::utils::Either;
-    use crate::PyResult;
-    use crate::VirtualMachine;
+    use crate::{
+        builtins::int,
+        byteslike::{ArgMemoryBuffer, ArgStrOrBytesLike},
+        function::OptionalArg,
+        stdlib::{io, os},
+        utils::Either,
+        PyResult, VirtualMachine,
+    };
 
     #[pyattr]
     use libc::{FD_CLOEXEC, F_GETFD, F_GETFL, F_SETFD, F_SETFL};

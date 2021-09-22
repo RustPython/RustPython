@@ -2,13 +2,12 @@ pub(crate) use hashlib::make_module;
 
 #[pymodule]
 mod hashlib {
-    use crate::builtins::bytes::{PyBytes, PyBytesRef};
-    use crate::builtins::pystr::PyStrRef;
-    use crate::builtins::pytype::PyTypeRef;
     use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
-    use crate::function::{FuncArgs, OptionalArg};
-    use crate::vm::VirtualMachine;
-    use crate::{PyResult, PyValue, StaticType};
+    use crate::{
+        builtins::{PyBytes, PyBytesRef, PyStrRef, PyTypeRef},
+        function::{FuncArgs, OptionalArg},
+        PyResult, PyValue, StaticType, VirtualMachine,
+    };
     use blake2::{Blake2b, Blake2s};
     use digest::DynDigest;
     use md5::Md5;

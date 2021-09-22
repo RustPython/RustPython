@@ -3,8 +3,7 @@
 *
 */
 
-use crate::vm::VirtualMachine;
-use crate::PyObjectRef;
+use crate::{PyObjectRef, VirtualMachine};
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let module = _pyexpat::make_module(vm);

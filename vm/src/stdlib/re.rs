@@ -8,13 +8,11 @@ use num_traits::Signed;
 use regex::bytes::{Captures, Regex, RegexBuilder};
 use std::fmt;
 use std::ops::Range;
-
-use crate::builtins::int::{PyInt, PyIntRef};
-use crate::builtins::pystr::{PyStr, PyStrRef};
-use crate::builtins::pytype::PyTypeRef;
-use crate::function::{Args, OptionalArg};
-use crate::vm::VirtualMachine;
-use crate::{IntoPyObject, PyClassImpl, PyObjectRef, PyResult, PyValue, StaticType, TryFromObject};
+use crate::
+    {builtins::{
+    PyInt, PyIntRef, PyStr, PyStrRef, PyTypeRef},
+    function::{Args, OptionalArg},
+    VirtualMachine, IntoPyObject, PyClassImpl, PyObjectRef, PyResult, PyValue, StaticType, TryFromObject};
 
 #[pyclass(module = "re", name = "Pattern")]
 #[derive(Debug, PyValue)]

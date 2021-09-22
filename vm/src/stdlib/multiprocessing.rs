@@ -3,10 +3,7 @@ pub(crate) use _multiprocessing::make_module;
 #[cfg(windows)]
 #[pymodule]
 mod _multiprocessing {
-    use super::super::os;
-    use crate::byteslike::ArgBytesLike;
-    use crate::PyResult;
-    use crate::VirtualMachine;
+    use crate::{byteslike::ArgBytesLike, stdlib::os, PyResult, VirtualMachine};
     use winapi::um::winsock2::{self, SOCKET};
 
     #[pyfunction]

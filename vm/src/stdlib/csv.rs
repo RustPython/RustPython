@@ -1,18 +1,15 @@
+use crate::common::lock::PyMutex;
+use crate::{
+    builtins::{PyStr, PyStrRef, PyTypeRef},
+    function::{ArgumentError, FromArgs, FuncArgs},
+    iterator,
+    slots::PyIter,
+    types::create_simple_type,
+    PyClassImpl, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject,
+    TypeProtocol, VirtualMachine,
+};
 use itertools::{self, Itertools};
 use std::fmt;
-
-use crate::builtins::pystr::{PyStr, PyStrRef};
-use crate::builtins::pytype::PyTypeRef;
-use crate::common::lock::PyMutex;
-use crate::function::{ArgumentError, FromArgs, FuncArgs};
-use crate::iterator;
-use crate::slots::PyIter;
-use crate::types::create_simple_type;
-use crate::VirtualMachine;
-use crate::{
-    PyClassImpl, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject,
-    TypeProtocol,
-};
 
 #[repr(i32)]
 pub enum QuoteStyle {
