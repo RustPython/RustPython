@@ -294,8 +294,10 @@ fn sys_getwindowsversion(vm: &VirtualMachine) -> PyResult<crate::builtins::tuple
         winnt::{LPOSVERSIONINFOEXW, LPOSVERSIONINFOW, OSVERSIONINFOEXW},
     };
 
-    let mut version = OSVERSIONINFOEXW::default();
-    version.dwOSVersionInfoSize = std::mem::size_of::<OSVERSIONINFOEXW>() as u32;
+    let mut version = OSVERSIONINFOEXW {
+        dwOSVersionInfoSize: std::mem::size_of::<OSVERSIONINFOEXW>() as u32,
+        ..OSVERSIONINFOEXW::default()
+    };
     let result = unsafe {
         let osvi = &mut version as LPOSVERSIONINFOEXW as LPOSVERSIONINFOW;
         // SAFETY: GetVersionExW accepts a pointer of OSVERSIONINFOW, but winapi crate's type currently doesn't allow to do so.
