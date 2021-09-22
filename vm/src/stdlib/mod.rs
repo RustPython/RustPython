@@ -52,6 +52,8 @@ mod zlib;
 #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
 #[macro_use]
 pub(crate) mod os;
+#[cfg(windows)]
+pub(crate) mod nt;
 #[cfg(unix)]
 pub(crate) mod posix;
 #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]

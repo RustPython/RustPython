@@ -29,13 +29,13 @@ use std::os::unix::ffi as ffi_ext;
 use std::os::wasi::ffi as ffi_ext;
 
 #[derive(Debug, Copy, Clone)]
-enum OutputMode {
+pub(super) enum OutputMode {
     String,
     Bytes,
 }
 
 impl OutputMode {
-    fn process_path(self, path: impl Into<PathBuf>, vm: &VirtualMachine) -> PyResult {
+    pub(super) fn process_path(self, path: impl Into<PathBuf>, vm: &VirtualMachine) -> PyResult {
         fn inner(mode: OutputMode, path: PathBuf, vm: &VirtualMachine) -> PyResult {
             let path_as_string = |p: PathBuf| {
                 p.into_os_string().into_string().map_err(|_| {
@@ -65,7 +65,7 @@ impl OutputMode {
 
 pub struct PyPathLike {
     pub path: PathBuf,
-    mode: OutputMode,
+    pub(super) mode: OutputMode,
 }
 
 impl PyPathLike {
@@ -266,27 +266,27 @@ pub fn errno_err(vm: &VirtualMachine) -> PyBaseExceptionRef {
     errno().into_pyexception(vm)
 }
 
+#[cfg(windows)]
 pub fn errno() -> io::Error {
-    cfg_if::cfg_if! {
-        if #[cfg(windows)] {
-            let err = io::Error::last_os_error();
-            // FIXME: probably not ideal, we need a bigger dichotomy between GetLastError and errno
-            if err.raw_os_error() == Some(0) {
-                io::Error::from_raw_os_error(super::msvcrt::get_errno())
-            } else {
-                err
-            }
-        } else {
-            io::Error::last_os_error()
-        }
+    let err = io::Error::last_os_error();
+    // FIXME: probably not ideal, we need a bigger dichotomy between GetLastError and errno
+    if err.raw_os_error() == Some(0) {
+        io::Error::from_raw_os_error(super::msvcrt::get_errno())
+    } else {
+        err
     }
+}
+
+#[cfg(not(windows))]
+pub fn errno() -> io::Error {
+    io::Error::last_os_error()
 }
 
 #[allow(dead_code)]
 #[derive(FromArgs, Default)]
 pub struct TargetIsDirectory {
     #[pyarg(any, default = "false")]
-    target_is_directory: bool,
+    pub(crate) target_is_directory: bool,
 }
 
 cfg_if::cfg_if! {
@@ -375,31 +375,10 @@ fn bytes_as_osstr<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a ffi::OsS
         .map_err(|_| vm.new_unicode_decode_error("can't decode path for utf-8".to_owned()))
 }
 
-#[cfg(all(windows, target_env = "msvc"))]
-#[macro_export]
-macro_rules! suppress_iph {
-    ($e:expr) => {{
-        let old = $crate::stdlib::os::_set_thread_local_invalid_parameter_handler(
-            $crate::stdlib::os::silent_iph_handler,
-        );
-        let ret = $e;
-        $crate::stdlib::os::_set_thread_local_invalid_parameter_handler(old);
-        ret
-    }};
-}
-
-#[cfg(not(all(windows, target_env = "msvc")))]
-#[macro_export]
-macro_rules! suppress_iph {
-    ($e:expr) => {
-        $e
-    };
-}
-
 #[pymodule(name = "os")]
 pub(super) mod _os {
     use super::*;
-
+    use crate::suppress_iph;
     use rustpython_common::lock::OnceCell;
 
     const OPEN_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
@@ -1053,60 +1032,63 @@ pub(super) mod _os {
         })
     }
 
+    #[cfg(windows)]
     fn stat_inner(
         file: PathOrFd,
         dir_fd: DirFd<{ STAT_DIR_FD as usize }>,
         follow_symlinks: FollowSymlinks,
     ) -> io::Result<Option<StatStruct>> {
-        #[cfg(windows)]
-        {
-            // TODO: replicate CPython's win32_xstat
-            let [] = dir_fd.0;
-            let meta = match file {
-                PathOrFd::Path(path) => fs_metadata(&path, follow_symlinks.0)?,
-                PathOrFd::Fd(fno) => Fd(fno).as_rust_file()?.metadata()?,
-            };
-            meta_to_stat(&meta).map(Some)
-        }
-        #[cfg(not(windows))]
-        {
-            let mut stat = std::mem::MaybeUninit::uninit();
-            let ret = match file {
-                PathOrFd::Path(path) => {
-                    use ffi_ext::OsStrExt;
-                    let path = path.as_ref().as_os_str().as_bytes();
-                    let path = match ffi::CString::new(path) {
-                        Ok(x) => x,
-                        Err(_) => return Ok(None),
+        // TODO: replicate CPython's win32_xstat
+        let [] = dir_fd.0;
+        let meta = match file {
+            PathOrFd::Path(path) => fs_metadata(&path, follow_symlinks.0)?,
+            PathOrFd::Fd(fno) => Fd(fno).as_rust_file()?.metadata()?,
+        };
+        meta_to_stat(&meta).map(Some)
+    }
+
+    #[cfg(not(windows))]
+    fn stat_inner(
+        file: PathOrFd,
+        dir_fd: DirFd<{ STAT_DIR_FD as usize }>,
+        follow_symlinks: FollowSymlinks,
+    ) -> io::Result<Option<StatStruct>> {
+        let mut stat = std::mem::MaybeUninit::uninit();
+        let ret = match file {
+            PathOrFd::Path(path) => {
+                use ffi_ext::OsStrExt;
+                let path = path.as_ref().as_os_str().as_bytes();
+                let path = match ffi::CString::new(path) {
+                    Ok(x) => x,
+                    Err(_) => return Ok(None),
+                };
+
+                #[cfg(not(target_os = "redox"))]
+                let fstatat_ret = dir_fd.get_opt().map(|dir_fd| {
+                    let flags = if follow_symlinks.0 {
+                        0
+                    } else {
+                        libc::AT_SYMLINK_NOFOLLOW
                     };
+                    unsafe { libc::fstatat(dir_fd, path.as_ptr(), stat.as_mut_ptr(), flags) }
+                });
+                #[cfg(target_os = "redox")]
+                let ([], fstatat_ret) = (dir_fd.0, None);
 
-                    #[cfg(not(target_os = "redox"))]
-                    let fstatat_ret = dir_fd.get_opt().map(|dir_fd| {
-                        let flags = if follow_symlinks.0 {
-                            0
-                        } else {
-                            libc::AT_SYMLINK_NOFOLLOW
-                        };
-                        unsafe { libc::fstatat(dir_fd, path.as_ptr(), stat.as_mut_ptr(), flags) }
-                    });
-                    #[cfg(target_os = "redox")]
-                    let ([], fstatat_ret) = (dir_fd.0, None);
-
-                    fstatat_ret.unwrap_or_else(|| {
-                        if follow_symlinks.0 {
-                            unsafe { libc::stat(path.as_ptr(), stat.as_mut_ptr()) }
-                        } else {
-                            unsafe { libc::lstat(path.as_ptr(), stat.as_mut_ptr()) }
-                        }
-                    })
-                }
-                PathOrFd::Fd(fd) => unsafe { libc::fstat(fd, stat.as_mut_ptr()) },
-            };
-            if ret < 0 {
-                return Err(io::Error::last_os_error());
+                fstatat_ret.unwrap_or_else(|| {
+                    if follow_symlinks.0 {
+                        unsafe { libc::stat(path.as_ptr(), stat.as_mut_ptr()) }
+                    } else {
+                        unsafe { libc::lstat(path.as_ptr(), stat.as_mut_ptr()) }
+                    }
+                })
             }
-            Ok(Some(unsafe { stat.assume_init() }))
+            PathOrFd::Fd(fd) => unsafe { libc::fstat(fd, stat.as_mut_ptr()) },
+        };
+        if ret < 0 {
+            return Err(io::Error::last_os_error());
         }
+        Ok(Some(unsafe { stat.assume_init() }))
     }
 
     #[pyfunction]
@@ -1700,407 +1682,14 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 pub(crate) use _os::os_open as open;
 
 #[cfg(windows)]
-#[pymodule]
-mod nt {
-    use super::*;
-    #[cfg(target_env = "msvc")]
-    use crate::builtins::PyListRef;
-    use crate::{builtins::PyDictRef, ItemProtocol};
-    use winapi::vc::vcruntime::intptr_t;
-
-    #[pyattr]
-    use libc::{O_BINARY, O_TEMPORARY};
-
-    #[pyfunction]
-    pub(super) fn access(path: PyPathLike, mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
-        use winapi::um::{fileapi, winnt};
-        let attr = unsafe { fileapi::GetFileAttributesW(path.to_widecstring(vm)?.as_ptr()) };
-        Ok(attr != fileapi::INVALID_FILE_ATTRIBUTES
-            && (mode & 2 == 0
-                || attr & winnt::FILE_ATTRIBUTE_READONLY == 0
-                || attr & winnt::FILE_ATTRIBUTE_DIRECTORY != 0))
-    }
-
-    pub const SYMLINK_DIR_FD: bool = false;
-
-    #[derive(FromArgs)]
-    pub(super) struct SimlinkArgs {
-        #[pyarg(any)]
-        src: PyPathLike,
-        #[pyarg(any)]
-        dst: PyPathLike,
-        #[pyarg(flatten)]
-        target_is_directory: TargetIsDirectory,
-        #[pyarg(flatten)]
-        _dir_fd: DirFd<{ SYMLINK_DIR_FD as usize }>,
-    }
-
-    #[pyfunction]
-    pub(super) fn symlink(args: SimlinkArgs, vm: &VirtualMachine) -> PyResult<()> {
-        use std::os::windows::fs as win_fs;
-        let dir = args.target_is_directory.target_is_directory
-            || args
-                .dst
-                .path
-                .parent()
-                .and_then(|dst_parent| dst_parent.join(&args.src).symlink_metadata().ok())
-                .map_or(false, |meta| meta.is_dir());
-        let res = if dir {
-            win_fs::symlink_dir(args.src.path, args.dst.path)
-        } else {
-            win_fs::symlink_file(args.src.path, args.dst.path)
-        };
-        res.map_err(|err| err.into_pyexception(vm))
-    }
-
-    #[pyfunction]
-    fn set_inheritable(fd: i32, inheritable: bool, vm: &VirtualMachine) -> PyResult<()> {
-        let handle = Fd(fd).to_raw_handle().map_err(|e| e.into_pyexception(vm))?;
-        set_handle_inheritable(handle as _, inheritable, vm)
-    }
-
-    #[pyattr]
-    fn environ(vm: &VirtualMachine) -> PyDictRef {
-        let environ = vm.ctx.new_dict();
-
-        for (key, value) in env::vars() {
-            environ
-                .set_item(vm.ctx.new_utf8_str(key), vm.ctx.new_utf8_str(value), vm)
-                .unwrap();
-        }
-        environ
-    }
-
-    #[pyfunction]
-    fn chmod(
-        path: PyPathLike,
-        dir_fd: DirFd<0>,
-        mode: u32,
-        follow_symlinks: FollowSymlinks,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        const S_IWRITE: u32 = 128;
-        let [] = dir_fd.0;
-        let metadata = if follow_symlinks.0 {
-            fs::metadata(&path)
-        } else {
-            fs::symlink_metadata(&path)
-        };
-        let meta = metadata.map_err(|err| err.into_pyexception(vm))?;
-        let mut permissions = meta.permissions();
-        permissions.set_readonly(mode & S_IWRITE == 0);
-        fs::set_permissions(&path, permissions).map_err(|err| err.into_pyexception(vm))
-    }
-
-    // cwait is available on MSVC only (according to CPython)
-    #[cfg(target_env = "msvc")]
-    extern "C" {
-        fn _cwait(termstat: *mut i32, procHandle: intptr_t, action: i32) -> intptr_t;
-    }
-
-    #[cfg(target_env = "msvc")]
-    #[pyfunction]
-    fn waitpid(pid: intptr_t, opt: i32, vm: &VirtualMachine) -> PyResult<(intptr_t, i32)> {
-        let mut status = 0;
-        let pid = unsafe { suppress_iph!(_cwait(&mut status, pid, opt)) };
-        if pid == -1 {
-            Err(errno_err(vm))
-        } else {
-            Ok((pid, status << 8))
-        }
-    }
-
-    #[cfg(target_env = "msvc")]
-    #[pyfunction]
-    fn wait(vm: &VirtualMachine) -> PyResult<(intptr_t, i32)> {
-        waitpid(-1, 0, vm)
-    }
-
-    #[pyfunction]
-    fn kill(pid: i32, sig: isize, vm: &VirtualMachine) -> PyResult<()> {
-        {
-            use winapi::um::{handleapi, processthreadsapi, wincon, winnt};
-            let sig = sig as u32;
-            let pid = pid as u32;
-
-            if sig == wincon::CTRL_C_EVENT || sig == wincon::CTRL_BREAK_EVENT {
-                let ret = unsafe { wincon::GenerateConsoleCtrlEvent(sig, pid) };
-                let res = if ret == 0 { Err(errno_err(vm)) } else { Ok(()) };
-                return res;
-            }
-
-            let h = unsafe { processthreadsapi::OpenProcess(winnt::PROCESS_ALL_ACCESS, 0, pid) };
-            if h.is_null() {
-                return Err(errno_err(vm));
-            }
-            let ret = unsafe { processthreadsapi::TerminateProcess(h, sig) };
-            let res = if ret == 0 { Err(errno_err(vm)) } else { Ok(()) };
-            unsafe { handleapi::CloseHandle(h) };
-            res
-        }
-    }
-
-    #[pyfunction]
-    fn get_terminal_size(
-        fd: OptionalArg<i32>,
-        vm: &VirtualMachine,
-    ) -> PyResult<super::_os::PyTerminalSize> {
-        let (columns, lines) = {
-            use winapi::um::{handleapi, processenv, winbase, wincon};
-            let stdhandle = match fd {
-                OptionalArg::Present(0) => winbase::STD_INPUT_HANDLE,
-                OptionalArg::Present(1) | OptionalArg::Missing => winbase::STD_OUTPUT_HANDLE,
-                OptionalArg::Present(2) => winbase::STD_ERROR_HANDLE,
-                _ => return Err(vm.new_value_error("bad file descriptor".to_owned())),
-            };
-            let h = unsafe { processenv::GetStdHandle(stdhandle) };
-            if h.is_null() {
-                return Err(vm.new_os_error("handle cannot be retrieved".to_owned()));
-            }
-            if h == handleapi::INVALID_HANDLE_VALUE {
-                return Err(errno_err(vm));
-            }
-            let mut csbi = wincon::CONSOLE_SCREEN_BUFFER_INFO::default();
-            let ret = unsafe { wincon::GetConsoleScreenBufferInfo(h, &mut csbi) };
-            if ret == 0 {
-                return Err(errno_err(vm));
-            }
-            let w = csbi.srWindow;
-            (
-                (w.Right - w.Left + 1) as usize,
-                (w.Bottom - w.Top + 1) as usize,
-            )
-        };
-        Ok(super::_os::PyTerminalSize { columns, lines })
-    }
-
-    #[cfg(target_env = "msvc")]
-    type InvalidParamHandler = extern "C" fn(
-        *const libc::wchar_t,
-        *const libc::wchar_t,
-        *const libc::wchar_t,
-        libc::c_uint,
-        libc::uintptr_t,
-    );
-    #[cfg(target_env = "msvc")]
-    extern "C" {
-        #[doc(hidden)]
-        pub fn _set_thread_local_invalid_parameter_handler(
-            pNew: InvalidParamHandler,
-        ) -> InvalidParamHandler;
-    }
-
-    #[cfg(target_env = "msvc")]
-    #[doc(hidden)]
-    pub extern "C" fn silent_iph_handler(
-        _: *const libc::wchar_t,
-        _: *const libc::wchar_t,
-        _: *const libc::wchar_t,
-        _: libc::c_uint,
-        _: libc::uintptr_t,
-    ) {
-    }
-
-    #[cfg(target_env = "msvc")]
-    extern "C" {
-        fn _wexecv(cmdname: *const u16, argv: *const *const u16) -> intptr_t;
-    }
-
-    #[cfg(target_env = "msvc")]
-    #[pyfunction]
-    fn execv(
-        path: PyStrRef,
-        argv: Either<PyListRef, PyTupleRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        use std::iter::once;
-
-        let make_widestring = |s: &str| {
-            widestring::WideCString::from_os_str(s).map_err(|err| err.into_pyexception(vm))
-        };
-
-        let path = make_widestring(path.as_str())?;
-
-        let argv = vm.extract_elements_func(argv.as_object(), |obj| {
-            let arg = PyStrRef::try_from_object(vm, obj)?;
-            make_widestring(arg.as_str())
-        })?;
-
-        let first = argv
-            .first()
-            .ok_or_else(|| vm.new_value_error("execv() arg 2 must not be empty".to_owned()))?;
-
-        if first.is_empty() {
-            return Err(
-                vm.new_value_error("execv() arg 2 first element cannot be empty".to_owned())
-            );
-        }
-
-        let argv_execv: Vec<*const u16> = argv
-            .iter()
-            .map(|v| v.as_ptr())
-            .chain(once(std::ptr::null()))
-            .collect();
-
-        if (unsafe { suppress_iph!(_wexecv(path.as_ptr(), argv_execv.as_ptr())) } == -1) {
-            Err(errno_err(vm))
-        } else {
-            Ok(())
-        }
-    }
-
-    #[pyfunction]
-    fn _getfinalpathname(path: PyPathLike, vm: &VirtualMachine) -> PyResult {
-        let real = path
-            .as_ref()
-            .canonicalize()
-            .map_err(|e| e.into_pyexception(vm))?;
-        path.mode.process_path(real, vm)
-    }
-
-    #[pyfunction]
-    fn _getfullpathname(path: PyPathLike, vm: &VirtualMachine) -> PyResult {
-        let wpath = path.to_widecstring(vm)?;
-        let mut buffer = vec![0u16; winapi::shared::minwindef::MAX_PATH];
-        let ret = unsafe {
-            winapi::um::fileapi::GetFullPathNameW(
-                wpath.as_ptr(),
-                buffer.len() as _,
-                buffer.as_mut_ptr(),
-                std::ptr::null_mut(),
-            )
-        };
-        if ret == 0 {
-            return Err(errno_err(vm));
-        }
-        if ret as usize > buffer.len() {
-            buffer.resize(ret as usize, 0);
-            let ret = unsafe {
-                winapi::um::fileapi::GetFullPathNameW(
-                    wpath.as_ptr(),
-                    buffer.len() as _,
-                    buffer.as_mut_ptr(),
-                    std::ptr::null_mut(),
-                )
-            };
-            if ret == 0 {
-                return Err(errno_err(vm));
-            }
-        }
-        let buffer = widestring::WideCString::from_vec_with_nul(buffer).unwrap();
-        path.mode.process_path(buffer.to_os_string(), vm)
-    }
-
-    #[pyfunction]
-    fn _getvolumepathname(path: PyPathLike, vm: &VirtualMachine) -> PyResult {
-        let wide = path.to_widecstring(vm)?;
-        let buflen = std::cmp::max(wide.len(), winapi::shared::minwindef::MAX_PATH);
-        let mut buffer = vec![0u16; buflen];
-        let ret = unsafe {
-            winapi::um::fileapi::GetVolumePathNameW(wide.as_ptr(), buffer.as_mut_ptr(), buflen as _)
-        };
-        if ret == 0 {
-            return Err(errno_err(vm));
-        }
-        let buffer = widestring::WideCString::from_vec_with_nul(buffer).unwrap();
-        path.mode.process_path(buffer.to_os_string(), vm)
-    }
-
-    #[pyfunction]
-    fn _getdiskusage(path: PyPathLike, vm: &VirtualMachine) -> PyResult<(u64, u64)> {
-        use winapi::shared::{ntdef::ULARGE_INTEGER, winerror};
-        use winapi::um::fileapi::GetDiskFreeSpaceExW;
-        let wpath = path.to_widecstring(vm)?;
-        let mut _free_to_me = ULARGE_INTEGER::default();
-        let mut total = ULARGE_INTEGER::default();
-        let mut free = ULARGE_INTEGER::default();
-        let ret =
-            unsafe { GetDiskFreeSpaceExW(wpath.as_ptr(), &mut _free_to_me, &mut total, &mut free) };
-        if ret != 0 {
-            return unsafe { Ok((*total.QuadPart(), *free.QuadPart())) };
-        }
-        let err = io::Error::last_os_error();
-        if err.raw_os_error() == Some(winerror::ERROR_DIRECTORY as i32) {
-            if let Some(parent) = path.as_ref().parent() {
-                let parent = widestring::WideCString::from_os_str(parent).unwrap();
-
-                let ret = unsafe {
-                    GetDiskFreeSpaceExW(parent.as_ptr(), &mut _free_to_me, &mut total, &mut free)
-                };
-
-                if ret == 0 {
-                    return Err(errno_err(vm));
-                } else {
-                    return unsafe { Ok((*total.QuadPart(), *free.QuadPart())) };
-                }
-            }
-        }
-        Err(err.into_pyexception(vm))
-    }
-
-    #[pyfunction]
-    fn get_handle_inheritable(handle: intptr_t, vm: &VirtualMachine) -> PyResult<bool> {
-        let mut flags = 0;
-        if unsafe { winapi::um::handleapi::GetHandleInformation(handle as _, &mut flags) } == 0 {
-            Err(errno_err(vm))
-        } else {
-            Ok(flags & winapi::um::winbase::HANDLE_FLAG_INHERIT != 0)
-        }
-    }
-
-    pub(crate) fn raw_set_handle_inheritable(
-        handle: intptr_t,
-        inheritable: bool,
-    ) -> io::Result<()> {
-        use winapi::um::winbase::HANDLE_FLAG_INHERIT;
-        let flags = if inheritable { HANDLE_FLAG_INHERIT } else { 0 };
-        let res = unsafe {
-            winapi::um::handleapi::SetHandleInformation(handle as _, HANDLE_FLAG_INHERIT, flags)
-        };
-        if res == 0 {
-            Err(errno())
-        } else {
-            Ok(())
-        }
-    }
-
-    #[pyfunction]
-    fn set_handle_inheritable(
-        handle: intptr_t,
-        inheritable: bool,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        raw_set_handle_inheritable(handle, inheritable).map_err(|e| e.into_pyexception(vm))
-    }
-
-    #[pyfunction]
-    fn mkdir(
-        path: PyPathLike,
-        mode: OptionalArg<i32>,
-        dir_fd: DirFd<{ super::_os::MKDIR_DIR_FD as usize }>,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        let mode = mode.unwrap_or(0o777);
-        let [] = dir_fd.0;
-        let _ = mode;
-        let wide = path.to_widecstring(vm)?;
-        let res =
-            unsafe { winapi::um::fileapi::CreateDirectoryW(wide.as_ptr(), std::ptr::null_mut()) };
-        if res == 0 {
-            return Err(errno_err(vm));
-        }
-        Ok(())
-    }
-
-    pub(super) fn support_funcs() -> Vec<SupportFunc> {
-        Vec::new()
-    }
-}
-#[cfg(windows)]
-use nt as platform;
-#[cfg(windows)]
-pub(crate) use nt::raw_set_handle_inheritable;
-#[cfg(all(windows, target_env = "msvc"))]
-pub use nt::{_set_thread_local_invalid_parameter_handler, silent_iph_handler};
+use super::nt::nt as platform;
 
 pub(crate) use platform::MODULE_NAME;
+
+#[cfg(not(all(windows, target_env = "msvc")))]
+#[macro_export]
+macro_rules! suppress_iph {
+    ($e:expr) => {
+        $e
+    };
+}

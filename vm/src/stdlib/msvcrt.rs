@@ -1,7 +1,7 @@
 use super::os::errno_err;
 use crate::{
     builtins::{PyBytes, PyStrRef},
-    PyObjectRef, PyRef, PyResult, VirtualMachine,
+    suppress_iph, PyObjectRef, PyRef, PyResult, VirtualMachine,
 };
 use itertools::Itertools;
 use winapi::{
