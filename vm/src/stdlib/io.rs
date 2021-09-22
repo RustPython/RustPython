@@ -9,8 +9,6 @@ cfg_if::cfg_if! {
     }
 }
 
-#[cfg(unix)]
-use crate::stdlib::os::{errno_err, PathOrFd};
 use crate::{PyObjectRef, PyResult, TryFromObject, VirtualMachine};
 pub(crate) use _io::io_open as open;
 
@@ -89,7 +87,7 @@ mod _io {
         PyThreadMutex, PyThreadMutexGuard,
     };
     use crate::common::rc::PyRc;
-    use crate::exceptions::{self, IntoPyException, PyBaseExceptionRef};
+    use crate::exceptions::{self, PyBaseExceptionRef};
     use crate::function::{ArgIterable, FuncArgs, OptionalArg, OptionalOption};
     use crate::slots::SlotConstructor;
     use crate::utils::Either;
@@ -159,6 +157,7 @@ mod _io {
     fn os_err(vm: &VirtualMachine, err: io::Error) -> PyBaseExceptionRef {
         #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
         {
+            use crate::exceptions::IntoPyException;
             err.into_pyexception(vm)
         }
         #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
@@ -3530,8 +3529,11 @@ mod _io {
 
         // check file descriptor validity
         #[cfg(unix)]
-        if let Ok(PathOrFd::Fd(fd)) = PathOrFd::try_from_object(vm, file.clone()) {
-            nix::fcntl::fcntl(fd, nix::fcntl::F_GETFD).map_err(|_| errno_err(vm))?;
+        if let Ok(crate::stdlib::os::PathOrFd::Fd(fd)) =
+            TryFromObject::try_from_object(vm, file.clone())
+        {
+            nix::fcntl::fcntl(fd, nix::fcntl::F_GETFD)
+                .map_err(|_| crate::stdlib::os::errno_err(vm))?;
         }
 
         // Construct a FileIO (subclass of RawIOBase)

@@ -54,6 +54,12 @@ mod zlib;
 pub(crate) mod os;
 #[cfg(unix)]
 pub(crate) mod posix;
+#[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+#[cfg(not(any(unix, windows)))]
+pub(crate) mod posix_compat;
+#[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+#[cfg(not(any(unix, windows)))]
+pub(crate) use posix_compat as posix;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod faulthandler;
