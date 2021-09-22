@@ -14,8 +14,8 @@ use crate::{
     slots::{AsBuffer, AsMapping, Comparable, Hashable, PyComparisonOp, SlotConstructor},
     stdlib::pystruct::FormatSpec,
     utils::Either,
-    IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
-    PyResult, PyValue, TryFromBorrowedObject, TryFromObject, TypeProtocol, VirtualMachine,
+    IdProtocol, IntoPyObject, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef,
+    PyRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject, TypeProtocol, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
@@ -343,10 +343,10 @@ impl PyMemoryView {
     }
 
     #[pymethod(magic)]
-    fn getitem(zelf: PyRef<Self>, needle: SequenceIndex, vm: &VirtualMachine) -> PyResult {
+    fn getitem(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         zelf.try_not_released(vm)?;
-        match needle {
-            SequenceIndex::Int(i) => Self::getitem_by_idx(zelf, i, vm),
+        match SequenceIndex::try_from_object_for(vm, needle, Self::NAME)? {
+            SequenceIndex::Int(index) => Self::getitem_by_idx(zelf, index, vm),
             SequenceIndex::Slice(slice) => Self::getitem_by_slice(zelf, slice, vm),
         }
     }
@@ -460,7 +460,7 @@ impl PyMemoryView {
     #[pymethod(magic)]
     fn setitem(
         zelf: PyRef<Self>,
-        needle: SequenceIndex,
+        needle: PyObjectRef,
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -468,8 +468,8 @@ impl PyMemoryView {
         if zelf.buffer.options.readonly {
             return Err(vm.new_type_error("cannot modify read-only memory".to_owned()));
         }
-        match needle {
-            SequenceIndex::Int(i) => Self::setitem_by_idx(zelf, i, value, vm),
+        match SequenceIndex::try_from_object_for(vm, needle, Self::NAME)? {
+            SequenceIndex::Int(index) => Self::setitem_by_idx(zelf, index, value, vm),
             SequenceIndex::Slice(slice) => Self::setitem_by_slice(zelf, slice, value, vm),
         }
     }
@@ -751,8 +751,7 @@ impl AsMapping for PyMemoryView {
 
     #[inline]
     fn subscript(zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Self::downcast(zelf, vm)
-            .map(|zelf| Self::getitem(zelf, SequenceIndex::try_from_object(vm, needle)?, vm))?
+        Self::downcast(zelf, vm).map(|zelf| Self::getitem(zelf, needle, vm))?
     }
 
     #[inline]
@@ -762,9 +761,7 @@ impl AsMapping for PyMemoryView {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        Self::downcast(zelf, vm).map(|zelf| {
-            Self::setitem(zelf, SequenceIndex::try_from_object(vm, needle)?, value, vm)
-        })?
+        Self::downcast(zelf, vm).map(|zelf| Self::setitem(zelf, needle, value, vm))?
     }
 }
 
