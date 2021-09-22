@@ -56,13 +56,12 @@ pub(crate) fn impl_pyimpl(
         Item::Impl(mut imp) => {
             extract_items_into_context(&mut context, imp.items.iter_mut());
 
+            let ty = &imp.self_ty;
             let ExtractedImplAttrs {
                 with_impl,
                 flags,
                 with_slots,
-            } = extract_impl_attrs(attr)?;
-
-            let ty = &imp.self_ty;
+            } = extract_impl_attrs(attr, &Ident::new(&quote!(ty).to_string(), ty.span()))?;
 
             let getset_impl = &context.getset_items;
             let extend_impl = &context.impl_extend_items;
@@ -98,7 +97,7 @@ pub(crate) fn impl_pyimpl(
                 with_impl,
                 with_slots,
                 ..
-            } = extract_impl_attrs(attr)?;
+            } = extract_impl_attrs(attr, &trai.ident)?;
 
             let getset_impl = &context.getset_items;
             let extend_impl = &context.impl_extend_items;
@@ -872,7 +871,10 @@ struct ExtractedImplAttrs {
     flags: TokenStream,
 }
 
-fn extract_impl_attrs(attr: AttributeArgs) -> std::result::Result<ExtractedImplAttrs, Diagnostic> {
+fn extract_impl_attrs(
+    attr: AttributeArgs,
+    item: &Ident,
+) -> std::result::Result<ExtractedImplAttrs, Diagnostic> {
     let mut withs = Vec::new();
     let mut with_slots = Vec::new();
     let mut flags = vec![quote! { ::rustpython_vm::slots::PyTpFlags::DEFAULT.bits() }];
@@ -899,14 +901,14 @@ fn extract_impl_attrs(attr: AttributeArgs) -> std::result::Result<ExtractedImplA
                             withs.push(quote_spanned! { path.span() =>
                                 PyRef::<Self>::impl_extend_class(ctx, class);
                             });
-                            with_slots.push(quote_spanned! { path.span() =>
+                            with_slots.push(quote_spanned! { item.span() =>
                                 PyRef::<Self>::extend_slots(slots);
                             });
                         } else {
                             withs.push(quote_spanned! { path.span() =>
                                 <Self as #path>::__extend_py_class(ctx, class);
                             });
-                            with_slots.push(quote_spanned! { path.span() =>
+                            with_slots.push(quote_spanned! { item.span() =>
                                 <Self as #path>::__extend_slots(slots);
                             });
                         }
