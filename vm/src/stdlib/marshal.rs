@@ -2,20 +2,20 @@ pub(crate) use decl::make_module;
 
 #[pymodule(name = "marshal")]
 mod decl {
-    use crate::builtins::bytes::PyBytes;
-    use crate::builtins::code::{PyCode, PyCodeRef};
-    use crate::bytecode;
-    use crate::byteslike::ArgBytesLike;
-    use crate::vm::VirtualMachine;
-    use crate::{PyObjectRef, PyResult, TryFromObject};
+    use crate::{
+        builtins::{PyBytes, PyCode},
+        bytecode,
+        byteslike::ArgBytesLike,
+        PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
+    };
 
     #[pyfunction]
-    fn dumps(co: PyCodeRef) -> PyBytes {
+    fn dumps(co: PyRef<PyCode>) -> PyBytes {
         PyBytes::from(co.code.map_clone_bag(&bytecode::BasicBag).to_bytes())
     }
 
     #[pyfunction]
-    fn dump(co: PyCodeRef, f: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn dump(co: PyRef<PyCode>, f: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         vm.call_method(&f, "write", (dumps(co),))?;
         Ok(())
     }

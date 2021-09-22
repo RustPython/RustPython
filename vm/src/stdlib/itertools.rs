@@ -2,24 +2,22 @@ pub(crate) use decl::make_module;
 
 #[pymodule(name = "itertools")]
 mod decl {
+    use crate::common::{
+        lock::{PyMutex, PyRwLock, PyRwLockWriteGuard},
+        rc::PyRc,
+    };
+    use crate::{
+        builtins::{int, PyInt, PyIntRef, PyTupleRef, PyTypeRef},
+        function::{Args, FuncArgs, OptionalArg, OptionalOption},
+        iterator::{call_next, get_iter, get_next_object},
+        slots::{PyIter, SlotConstructor},
+        IdProtocol, IntoPyObject, PyCallable, PyObjectRef, PyRef, PyResult, PyValue, PyWeakRef,
+        StaticType, TypeProtocol, VirtualMachine,
+    };
     use crossbeam_utils::atomic::AtomicCell;
     use num_bigint::BigInt;
     use num_traits::{One, Signed, ToPrimitive, Zero};
     use std::fmt;
-
-    use crate::builtins::int::{self, PyInt, PyIntRef};
-    use crate::builtins::pytype::PyTypeRef;
-    use crate::builtins::tuple::PyTupleRef;
-    use crate::common::lock::{PyMutex, PyRwLock, PyRwLockWriteGuard};
-    use crate::common::rc::PyRc;
-    use crate::function::{Args, FuncArgs, OptionalArg, OptionalOption};
-    use crate::iterator::{call_next, get_iter, get_next_object};
-    use crate::slots::{PyIter, SlotConstructor};
-    use crate::vm::VirtualMachine;
-    use crate::{
-        IdProtocol, IntoPyObject, PyCallable, PyObjectRef, PyRef, PyResult, PyValue, PyWeakRef,
-        StaticType, TypeProtocol,
-    };
 
     #[pyattr]
     #[pyclass(name = "chain")]

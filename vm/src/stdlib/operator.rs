@@ -9,29 +9,22 @@ pub(crate) use _operator::make_module;
 /// for convenience.
 #[pymodule]
 mod _operator {
-    use crate::builtins::int;
-    use crate::builtins::int::PyIntRef;
-    use crate::builtins::pystr::PyStrRef;
-    use crate::builtins::PyInt;
-    use crate::builtins::PyTypeRef;
-    use crate::byteslike::ArgBytesLike;
     use crate::common::cmp;
-    use crate::function::FuncArgs;
-    use crate::function::KwArgs;
-    use crate::function::OptionalArg;
-    use crate::iterator;
-    use crate::pyobject::TypeProtocol;
-    use crate::slots::PyComparisonOp::{Eq, Ge, Gt, Le, Lt, Ne};
-    use crate::slots::{Callable, SlotConstructor};
-    use crate::utils::Either;
-    use crate::vm::ReprGuard;
-    use crate::IdProtocol;
-    use crate::ItemProtocol;
-    use crate::PyRef;
-    use crate::PyValue;
-    use crate::TryIntoRef;
-    use crate::VirtualMachine;
-    use crate::{PyObjectRef, PyResult, StaticType};
+    use crate::{
+        builtins::{int, PyInt, PyIntRef, PyStrRef, PyTypeRef},
+        byteslike::ArgBytesLike,
+        function::{FuncArgs, KwArgs, OptionalArg},
+        iterator,
+        slots::{
+            Callable,
+            PyComparisonOp::{Eq, Ge, Gt, Le, Lt, Ne},
+            SlotConstructor,
+        },
+        utils::Either,
+        vm::ReprGuard,
+        IdProtocol, ItemProtocol, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryIntoRef,
+        TypeProtocol, VirtualMachine,
+    };
 
     /// Same as a < b.
     #[pyfunction]

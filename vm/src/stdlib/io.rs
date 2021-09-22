@@ -11,8 +11,7 @@ cfg_if::cfg_if! {
 
 #[cfg(unix)]
 use crate::stdlib::os::{errno_err, PathOrFd};
-use crate::VirtualMachine;
-use crate::{PyObjectRef, PyResult, TryFromObject};
+use crate::{PyObjectRef, PyResult, TryFromObject, VirtualMachine};
 pub(crate) use _io::io_open as open;
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {

@@ -5,16 +5,13 @@ pub(crate) use _string::make_module;
 
 #[pymodule]
 mod _string {
-    use std::mem;
-
-    use crate::builtins::list::PyList;
-    use crate::builtins::pystr::PyStrRef;
-    use crate::exceptions::IntoPyException;
-    use crate::format::{
-        FieldName, FieldNamePart, FieldType, FormatPart, FormatString, FromTemplate,
+    use crate::{
+        builtins::{PyList, PyStrRef},
+        exceptions::IntoPyException,
+        format::{FieldName, FieldNamePart, FieldType, FormatPart, FormatString, FromTemplate},
+        IntoPyObject, PyObjectRef, PyResult, VirtualMachine,
     };
-    use crate::vm::VirtualMachine;
-    use crate::{IntoPyObject, PyObjectRef, PyResult};
+    use std::mem;
 
     fn create_format_part(
         literal: String,

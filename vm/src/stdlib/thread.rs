@@ -1,29 +1,24 @@
-use crate::builtins::dict::PyDictRef;
-use crate::builtins::pystr::PyStrRef;
-use crate::builtins::pytype::PyTypeRef;
-use crate::builtins::tuple::PyTupleRef;
-/// Implementation of the _thread module
-use crate::exceptions::{self, IntoPyException};
-use crate::function::{FuncArgs, KwArgs, OptionalArg};
-use crate::py_io;
-use crate::slots::{SlotGetattro, SlotSetattro};
-use crate::utils::Either;
-use crate::VirtualMachine;
-use crate::{
-    IdProtocol, ItemProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
-    StaticType, TypeProtocol,
-};
+//! Implementation of the _thread module
 
+use crate::{
+    builtins::{PyDictRef, PyStrRef, PyTupleRef, PyTypeRef},
+    exceptions::{self, IntoPyException},
+    function::{FuncArgs, KwArgs, OptionalArg},
+    py_io,
+    slots::{SlotGetattro, SlotSetattro},
+    utils::Either,
+    IdProtocol, ItemProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
+    StaticType, TypeProtocol, VirtualMachine,
+};
 use parking_lot::{
     lock_api::{RawMutex as RawMutexT, RawMutexTimed, RawReentrantMutex},
     RawMutex, RawThreadId,
 };
-use thread_local::ThreadLocal;
-
 use std::cell::RefCell;
 use std::io::Write;
 use std::time::Duration;
 use std::{fmt, thread};
+use thread_local::ThreadLocal;
 
 // PY_TIMEOUT_MAX is a value in microseconds
 #[cfg(not(target_os = "windows"))]

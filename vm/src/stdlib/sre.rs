@@ -2,26 +2,26 @@ pub(crate) use _sre::make_module;
 
 #[pymodule]
 mod _sre {
-    use crate::buffer::PyBuffer;
-    use crate::builtins::list::PyListRef;
-    use crate::builtins::tuple::PyTupleRef;
-    use crate::builtins::{
-        PyCallableIterator, PyDictRef, PyInt, PyList, PyStr, PyStrRef, PyTypeRef,
-    };
-    use crate::function::{Args, OptionalArg};
-    use crate::slots::{Comparable, Hashable};
-    use crate::VirtualMachine;
     use crate::{
+        buffer::PyBuffer,
+        builtins::{
+            PyCallableIterator, PyDictRef, PyInt, PyList, PyListRef, PyStr, PyStrRef, PyTupleRef,
+            PyTypeRef,
+        },
+        common::hash::PyHash,
+        function::{Args, OptionalArg},
+        slots::{Comparable, Hashable},
         IntoPyObject, ItemProtocol, PyCallable, PyComparisonValue, PyObjectRef, PyRef, PyResult,
-        PyValue, StaticType, TryFromBorrowedObject, TryFromObject,
+        PyValue, StaticType, TryFromBorrowedObject, TryFromObject, VirtualMachine,
     };
     use core::str;
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
     use num_traits::ToPrimitive;
-    use rustpython_common::hash::PyHash;
-    use sre_engine::constants::SreFlag;
-    use sre_engine::engine::{lower_ascii, lower_unicode, upper_unicode, State, StrDrive};
+    use sre_engine::{
+        constants::SreFlag,
+        engine::{lower_ascii, lower_unicode, upper_unicode, State, StrDrive},
+    };
 
     #[pyattr]
     pub use sre_engine::{constants::SRE_MAGIC as MAGIC, CODESIZE, MAXGROUPS, MAXREPEAT};

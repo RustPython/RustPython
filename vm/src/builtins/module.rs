@@ -10,8 +10,7 @@ use crate::{
 
 #[pyclass(module = false, name = "module")]
 #[derive(Debug)]
-pub struct PyModule {}
-pub type PyModuleRef = PyRef<PyModule>;
+pub struct PyModule;
 
 impl PyValue for PyModule {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {

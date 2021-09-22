@@ -1,14 +1,13 @@
 use super::os::errno_err;
-use crate::builtins::bytes::PyBytesRef;
-use crate::builtins::pystr::PyStrRef;
-use crate::VirtualMachine;
-use crate::{PyObjectRef, PyResult};
-
+use crate::{
+    builtins::{PyBytes, PyStrRef},
+    PyObjectRef, PyRef, PyResult, VirtualMachine,
+};
 use itertools::Itertools;
-use winapi::shared::minwindef::UINT;
-use winapi::um::errhandlingapi::SetErrorMode;
-use winapi::um::handleapi::INVALID_HANDLE_VALUE;
-use winapi::um::winnt::HANDLE;
+use winapi::{
+    shared::minwindef::UINT,
+    um::{errhandlingapi::SetErrorMode, handleapi::INVALID_HANDLE_VALUE, winnt::HANDLE},
+};
 
 pub fn setmode_binary(fd: i32) {
     unsafe { suppress_iph!(_setmode(fd, libc::O_BINARY)) };
@@ -49,7 +48,7 @@ fn msvcrt_getwche() -> String {
     let c = unsafe { _getwche() };
     std::char::from_u32(c).unwrap().to_string()
 }
-fn msvcrt_putch(b: PyBytesRef, vm: &VirtualMachine) -> PyResult<()> {
+fn msvcrt_putch(b: PyRef<PyBytes>, vm: &VirtualMachine) -> PyResult<()> {
     let &c = b.as_bytes().iter().exactly_one().map_err(|_| {
         vm.new_type_error("putch() argument must be a byte string of length 1".to_owned())
     })?;
