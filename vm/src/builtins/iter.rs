@@ -218,7 +218,7 @@ impl SlotIterator for PySequenceIterator {
 #[derive(Debug)]
 pub struct PyCallableIterator {
     sentinel: PyObjectRef,
-    status: PyRwLock<IterStatus<PyCallable>>,
+    status: PyRwLock<IterStatus<ArgCallable>>,
 }
 
 impl PyValue for PyCallableIterator {

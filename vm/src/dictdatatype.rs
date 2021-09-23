@@ -9,7 +9,6 @@ use crate::common::{
 };
 use crate::vm::VirtualMachine;
 use crate::{IdProtocol, IntoPyObject, PyObjectRef, PyRefExact, PyResult, TypeProtocol};
-use crossbeam_utils::atomic::AtomicCell;
 use std::fmt;
 use std::mem::size_of;
 
@@ -501,34 +500,8 @@ impl<T: Clone> Dict<T> {
         }
     }
 
-    pub fn next_entry_atomic(&self, position: &AtomicCell<usize>) -> Option<(PyObjectRef, T)> {
-        let inner = self.read();
-        loop {
-            let position_usize = position.fetch_add(1);
-            let entry = inner.entries.get(position_usize)?;
-            if let Some(entry) = entry {
-                break Some((entry.key.clone(), entry.value.clone()));
-            }
-        }
-    }
-
-    pub fn next_entry_atomic_reversed(
-        &self,
-        position: &AtomicCell<usize>,
-    ) -> Option<(PyObjectRef, T)> {
-        let inner = self.read();
-        loop {
-            let position_usize = position.fetch_add(1);
-            let position_index = inner.entries.len().checked_sub(position_usize + 1)?;
-            let entry = inner.entries.get(position_index)?;
-            if let Some(entry) = entry {
-                break Some((entry.key.clone(), entry.value.clone()));
-            }
-        }
-    }
-
     pub fn len_from_entry_index(&self, position: EntryIndex) -> usize {
-        self.read().entries.len() - position
+        self.read().entries.len().saturating_sub(position)
     }
 
     pub fn has_changed_size(&self, old: &DictSize) -> bool {
