@@ -16,7 +16,7 @@ use crate::{
     IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol,
 };
-use rustpython_common::lock::{PyRwLock, PyRwLockWriteGuard};
+use rustpython_common::lock::PyRwLock;
 use std::fmt;
 
 pub type SetContentType = dictdatatype::Dict<()>;
@@ -842,11 +842,6 @@ impl PySetIterator {
         self.internal
             .read()
             .length_hint(|_| Some(self.size.entries_size), vm)
-        // if let IterStatus::Exhausted = self.status.load() {
-        //     0
-        // } else {
-        //     self.dict.len_from_entry_index(self.position.load())
-        // }
     }
 
     #[pymethod(magic)]
@@ -867,41 +862,25 @@ impl PySetIterator {
 impl IteratorIterable for PySetIterator {}
 impl SlotIterator for PySetIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        let mut status = PyRwLockWriteGuard::map(zelf.internal.write(), |x| &mut x.status);
-        let mut position = PyRwLockWriteGuard::map(zelf.internal.write(), |x| &mut x.position);
-        if let IterStatus::Active(dict) = &*status {
+        let mut internal = zelf.internal.write();
+        if let IterStatus::Active(dict) = &internal.status {
             if dict.has_changed_size(&zelf.size) {
-                *status = IterStatus::Exhausted;
+                internal.status = IterStatus::Exhausted;
                 return Err(vm.new_runtime_error("set changed size during iteration".to_owned()));
             }
-            match dict.next_entry(&mut *position) {
-                Some((key, _)) => Ok(key),
+            match dict.next_entry(internal.position) {
+                Some((position, key, _)) => {
+                    internal.position = position;
+                    Ok(key)
+                }
                 None => {
-                    *status = IterStatus::Exhausted;
+                    internal.status = IterStatus::Exhausted;
                     Err(vm.new_stop_iteration())
                 }
             }
         } else {
             Err(vm.new_stop_iteration())
         }
-        // match zelf.status.load() {
-        //     IterStatus::Exhausted => Err(vm.new_stop_iteration()),
-        //     IterStatus::Active => {
-        //         if zelf.dict.has_changed_size(&zelf.size) {
-        //             zelf.status.store(IterStatus::Exhausted);
-        //             return Err(
-        //                 vm.new_runtime_error("set changed size during iteration".to_owned())
-        //             );
-        //         }
-        //         match zelf.dict.next_entry_atomic(&zelf.position) {
-        //             Some((key, _)) => Ok(key),
-        //             None => {
-        //                 zelf.status.store(IterStatus::Exhausted);
-        //                 Err(vm.new_stop_iteration())
-        //             }
-        //         }
-        //     }
-        // }
     }
 }
 

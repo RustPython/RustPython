@@ -478,24 +478,24 @@ impl<T: Clone> Dict<T> {
         self.read().size()
     }
 
-    pub fn next_entry(&self, position: &mut EntryIndex) -> Option<(PyObjectRef, T)> {
+    pub fn next_entry(&self, mut position: EntryIndex) -> Option<(usize, PyObjectRef, T)> {
         let inner = self.read();
         loop {
-            let entry = inner.entries.get(*position)?;
-            *position += 1;
+            let entry = inner.entries.get(position)?;
+            position += 1;
             if let Some(entry) = entry {
-                break Some((entry.key.clone(), entry.value.clone()));
+                break Some((position, entry.key.clone(), entry.value.clone()));
             }
         }
     }
 
-    pub fn prev_entry(&self, position: &mut EntryIndex) -> Option<(PyObjectRef, T)> {
+    pub fn prev_entry(&self, mut position: EntryIndex) -> Option<(usize, PyObjectRef, T)> {
         let inner = self.read();
         loop {
-            let entry = inner.entries.get(*position)?;
-            *position = position.checked_sub(1)?;
+            let entry = inner.entries.get(position)?;
+            position = position.saturating_sub(1);
             if let Some(entry) = entry {
-                break Some((entry.key.clone(), entry.value.clone()));
+                break Some((position, entry.key.clone(), entry.value.clone()));
             }
         }
     }

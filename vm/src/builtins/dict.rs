@@ -587,7 +587,9 @@ impl Iterator for DictIter {
     type Item = (PyObjectRef, PyObjectRef);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.dict.entries.next_entry(&mut self.position)
+        let (position, key, value) = self.dict.entries.next_entry(self.position)?;
+        self.position = position;
+        Some((key, value))
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -735,20 +737,21 @@ macro_rules! dict_iterator {
         impl SlotIterator for $iter_name {
             #[allow(clippy::redundant_closure_call)]
             fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-                let mut status = PyRwLockWriteGuard::map(zelf.internal.write(), |x| &mut x.status);
-                let mut position =
-                    PyRwLockWriteGuard::map(zelf.internal.write(), |x| &mut x.position);
-                if let IterStatus::Active(dict) = &*status {
+                let mut internal = zelf.internal.write();
+                if let IterStatus::Active(dict) = &internal.status {
                     if dict.entries.has_changed_size(&zelf.size) {
-                        *status = IterStatus::Exhausted;
+                        internal.status = IterStatus::Exhausted;
                         return Err(vm.new_runtime_error(
                             "dictionary changed size during iteration".to_owned(),
                         ));
                     }
-                    match dict.entries.next_entry(&mut *position) {
-                        Some((key, value)) => Ok(($result_fn)(vm, key, value)),
+                    match dict.entries.next_entry(internal.position) {
+                        Some((position, key, value)) => {
+                            internal.position = position;
+                            Ok(($result_fn)(vm, key, value))
+                        }
                         None => {
-                            *status = IterStatus::Exhausted;
+                            internal.status = IterStatus::Exhausted;
                             Err(vm.new_stop_iteration())
                         }
                     }
@@ -794,20 +797,25 @@ macro_rules! dict_iterator {
         impl SlotIterator for $reverse_iter_name {
             #[allow(clippy::redundant_closure_call)]
             fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-                let mut status = PyRwLockWriteGuard::map(zelf.internal.write(), |x| &mut x.status);
-                let mut position =
-                    PyRwLockWriteGuard::map(zelf.internal.write(), |x| &mut x.position);
-                if let IterStatus::Active(dict) = &*status {
+                let mut internal = zelf.internal.write();
+                if let IterStatus::Active(dict) = &internal.status {
                     if dict.entries.has_changed_size(&zelf.size) {
-                        *status = IterStatus::Exhausted;
+                        internal.status = IterStatus::Exhausted;
                         return Err(vm.new_runtime_error(
                             "dictionary changed size during iteration".to_owned(),
                         ));
                     }
-                    match dict.entries.prev_entry(&mut *position) {
-                        Some((key, value)) => Ok(($result_fn)(vm, key, value)),
+                    match dict.entries.prev_entry(internal.position) {
+                        Some((position, key, value)) => {
+                            if internal.position == position {
+                                internal.status = IterStatus::Exhausted;
+                            } else {
+                                internal.position = position;
+                            }
+                            Ok(($result_fn)(vm, key, value))
+                        }
                         None => {
-                            *status = IterStatus::Exhausted;
+                            internal.status = IterStatus::Exhausted;
                             Err(vm.new_stop_iteration())
                         }
                     }

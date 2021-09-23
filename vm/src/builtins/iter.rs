@@ -240,10 +240,13 @@ impl PyCallableIterator {
 impl IteratorIterable for PyCallableIterator {}
 impl SlotIterator for PyCallableIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        if let IterStatus::Active(callable) = &*zelf.status.read() {
+        // let mut status = zelf.status.write();
+        let status = zelf.status.upgradable_read();
+        if let IterStatus::Active(callable) = &*status {
             let ret = callable.invoke((), vm)?;
             if vm.bool_eq(&ret, &zelf.sentinel)? {
-                *zelf.status.write() = IterStatus::Exhausted;
+                // *status = IterStatus::Exhausted;
+                *PyRwLockUpgradableReadGuard::upgrade(status) = IterStatus::Exhausted;
                 Err(vm.new_stop_iteration())
             } else {
                 Ok(ret)
