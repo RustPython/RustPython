@@ -4,7 +4,7 @@ pub(crate) use _codecs::make_module;
 mod _codecs {
     use crate::common::encodings;
     use crate::{
-        builtins::{PyBytesRef, PyStr, PyStrRef, PyTuple},
+        builtins::{PyBytes, PyBytesRef, PyStr, PyStrRef, PyTuple},
         byteslike::ArgBytesLike,
         codecs,
         exceptions::PyBaseExceptionRef,
@@ -100,6 +100,11 @@ mod _codecs {
             })
         }
     }
+    impl encodings::StrBuffer for PyStrRef {
+        fn is_ascii(&self) -> bool {
+            PyStr::is_ascii(self)
+        }
+    }
     impl<'vm> encodings::ErrorHandler for ErrorsHandler<'vm> {
         type Error = PyBaseExceptionRef;
         type StrBuf = PyStrRef;
@@ -107,12 +112,45 @@ mod _codecs {
 
         fn handle_encode_error(
             &self,
-            _byte_range: Range<usize>,
-            _reason: &str,
+            data: &str,
+            char_range: Range<usize>,
+            reason: &str,
         ) -> PyResult<(encodings::EncodeReplace<PyStrRef, PyBytesRef>, usize)> {
-            // we don't use common::encodings to really encode anything yet (utf8 can't error
-            // because PyStr is always utf8), so this can't get called until we do
-            todo!()
+            let vm = self.vm;
+            let data_str = vm.ctx.new_utf8_str(data);
+            let encode_exc = vm.new_exception(
+                vm.ctx.exceptions.unicode_encode_error.clone(),
+                vec![
+                    vm.ctx.new_utf8_str(self.encoding),
+                    data_str,
+                    vm.ctx.new_int(char_range.start),
+                    vm.ctx.new_int(char_range.end),
+                    vm.ctx.new_utf8_str(reason),
+                ],
+            );
+            let res = vm.invoke(self.handler_func()?, (encode_exc,))?;
+            let tuple_err = || {
+                vm.new_type_error(
+                    "encoding error handler must return (str/bytes, int) tuple".to_owned(),
+                )
+            };
+            let (replace, restart) = match res.payload::<PyTuple>().map(|tup| tup.as_slice()) {
+                Some([replace, restart]) => (replace.clone(), restart),
+                _ => return Err(tuple_err()),
+            };
+            let replace = match_class!(match replace {
+                s @ PyStr => encodings::EncodeReplace::Str(s),
+                b @ PyBytes => encodings::EncodeReplace::Bytes(b),
+                _ => return Err(tuple_err()),
+            });
+            let restart = isize::try_from_borrowed_object(vm, restart).map_err(|_| tuple_err())?;
+            let restart = if restart < 0 {
+                // will still be out of bounds if it underflows ¯\_(ツ)_/¯
+                data.len().wrapping_sub(restart.unsigned_abs())
+            } else {
+                restart as usize
+            };
+            Ok((replace, restart))
         }
 
         fn handle_decode_error(
@@ -173,6 +211,25 @@ mod _codecs {
             self.vm
                 .new_index_error(format!("position {} from error handler out of bounds", i))
         }
+
+        fn error_encoding(
+            &self,
+            data: &str,
+            char_range: Range<usize>,
+            reason: &str,
+        ) -> Self::Error {
+            let vm = self.vm;
+            vm.new_exception(
+                vm.ctx.exceptions.unicode_encode_error.clone(),
+                vec![
+                    vm.ctx.new_utf8_str(self.encoding),
+                    vm.ctx.new_utf8_str(data),
+                    vm.ctx.new_int(char_range.start),
+                    vm.ctx.new_int(char_range.end),
+                    vm.ctx.new_utf8_str(reason),
+                ],
+            )
+        }
     }
 
     type EncodeResult = PyResult<(Vec<u8>, usize)>;
@@ -221,6 +278,26 @@ mod _codecs {
         }
     }
 
+    #[derive(FromArgs)]
+    struct DecodeArgsNoFinal {
+        #[pyarg(positional)]
+        data: ArgBytesLike,
+        #[pyarg(positional, optional)]
+        errors: Option<PyStrRef>,
+    }
+
+    impl DecodeArgsNoFinal {
+        #[inline]
+        fn decode<'a, F>(self, name: &'a str, decode: F, vm: &'a VirtualMachine) -> DecodeResult
+        where
+            F: FnOnce(&[u8], &ErrorsHandler<'a>) -> DecodeResult,
+        {
+            let data = self.data.borrow_buf();
+            let errors = ErrorsHandler::new(name, self.errors, vm);
+            decode(&data, &errors)
+        }
+    }
+
     macro_rules! do_codec {
         ($module:ident :: $func:ident, $args: expr, $vm:expr) => {{
             use encodings::$module as codec;
@@ -236,6 +313,19 @@ mod _codecs {
     #[pyfunction]
     fn utf_8_decode(args: DecodeArgs, vm: &VirtualMachine) -> DecodeResult {
         do_codec!(utf8::decode, args, vm)
+    }
+
+    #[pyfunction]
+    fn ascii_encode(args: EncodeArgs, vm: &VirtualMachine) -> EncodeResult {
+        if args.s.is_ascii() {
+            return Ok((args.s.as_str().as_bytes().to_vec(), args.s.byte_len()));
+        }
+        do_codec!(ascii::encode, args, vm)
+    }
+
+    #[pyfunction]
+    fn ascii_decode(args: DecodeArgsNoFinal, vm: &VirtualMachine) -> DecodeResult {
+        do_codec!(ascii::decode, args, vm)
     }
 
     // TODO: implement these codecs in Rust!
@@ -322,14 +412,6 @@ mod _codecs {
     #[pyfunction]
     fn utf_16_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         delegate_pycodecs!(utf_16_decode, args, vm)
-    }
-    #[pyfunction]
-    fn ascii_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(ascii_encode, args, vm)
-    }
-    #[pyfunction]
-    fn ascii_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(ascii_decode, args, vm)
     }
     #[pyfunction]
     fn charmap_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {

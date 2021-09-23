@@ -1796,6 +1796,7 @@ dependencies = [
 name = "rustpython-common"
 version = "0.0.0"
 dependencies = [
+ "ascii",
  "cfg-if 1.0.0",
  "hexf-parse",
  "lexical-core",
