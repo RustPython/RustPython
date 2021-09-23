@@ -13,7 +13,6 @@ import os
 import re
 import sys
 import warnings
-from contextlib import redirect_stdout
 from pydoc import ModuleScanner
 
 
@@ -172,7 +171,9 @@ def scan_modules():
     return list(modules.keys())
 
 
-def dir_of_mod_or_error(module_name, keep_other=True):
+def import_module(module_name):
+    import io
+    from contextlib import redirect_stdout
     # Importing modules causes ('Constant String', 2, None, 4) and
     # "Hello world!" to be printed to stdout.
     f = io.StringIO()
@@ -183,13 +184,23 @@ def dir_of_mod_or_error(module_name, keep_other=True):
             module = __import__(module_name)
         except Exception as e:
             return e
+    return module
+
+
+def is_child(module, item):
+    import inspect
+    item_mod = inspect.getmodule(item)
+    return item_mod is module
+
+
+def dir_of_mod_or_error(module_name, keep_other=True):
+    module = import_module(module_name)
     item_names = sorted(set(dir(module)))
     result = {}
     for item_name in item_names:
         item = getattr(module, item_name)
-        item_mod = inspect.getmodule(item)
         # don't repeat items imported from other modules
-        if keep_other or item_mod is module or item_mod is None:
+        if keep_other or is_child(module, item) or inspect.getmodule(item) is None:
             result[item_name] = extra_info(item)
     return result
 
