@@ -317,6 +317,9 @@ mod _codecs {
 
     #[pyfunction]
     fn ascii_encode(args: EncodeArgs, vm: &VirtualMachine) -> EncodeResult {
+        if args.s.is_ascii() {
+            return Ok((args.s.as_str().as_bytes().to_vec(), args.s.byte_len()));
+        }
         do_codec!(ascii::encode, args, vm)
     }
 
