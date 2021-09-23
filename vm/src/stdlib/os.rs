@@ -2588,15 +2588,16 @@ mod posix {
     ))]
     #[pyfunction]
     fn sched_getparam(pid: libc::pid_t, vm: &VirtualMachine) -> PyResult<SchedParam> {
-        let mut libc_sched_param = libc::sched_param { sched_priority: 0 };
-        let ret = unsafe { libc::sched_getparam(pid, &mut libc_sched_param) };
-        if ret == -1 {
-            Err(errno_err(vm))
-        } else {
-            Ok(SchedParam {
-                sched_priority: BigInt::from(libc_sched_param.sched_priority).into_pyobject(vm),
-            })
-        }
+        let param = unsafe {
+            let mut param = std::mem::MaybeUninit::uninit();
+            if -1 == libc::sched_getparam(pid, param.as_mut_ptr()) {
+                return Err(errno_err(vm));
+            }
+            param.assume_init()
+        };
+        Ok(SchedParam {
+            sched_priority: param.sched_priority.into_pyobject(vm),
+        })
     }
 
     #[cfg(any(
@@ -2606,7 +2607,7 @@ mod posix {
         target_os = "android"
     ))]
     #[derive(FromArgs)]
-    struct SetSchedParamArgs {
+    struct SchedSetParamArgs {
         #[pyarg(positional)]
         pid: i32,
         #[pyarg(positional)]
@@ -2620,7 +2621,7 @@ mod posix {
         target_os = "android"
     ))]
     #[pyfunction]
-    fn sched_setparam(args: SetSchedParamArgs, vm: &VirtualMachine) -> PyResult<i32> {
+    fn sched_setparam(args: SchedSetParamArgs, vm: &VirtualMachine) -> PyResult<i32> {
         let libc_sched_param = args.sched_param_obj.try_to_libc(vm)?;
         let ret = unsafe { libc::sched_setparam(args.pid, &libc_sched_param) };
         if ret == -1 {
