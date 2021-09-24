@@ -1,7 +1,7 @@
 use super::pytype::PyTypeRef;
 use crate::function::PosArgs;
 use crate::iterator;
-use crate::slots::{PyIter, SlotConstructor};
+use crate::slots::{IteratorIterable, PyIter, SlotConstructor};
 use crate::vm::VirtualMachine;
 use crate::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 
@@ -50,6 +50,7 @@ impl PyMap {
     }
 }
 
+impl IteratorIterable for PyMap {}
 impl PyIter for PyMap {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         let next_objs = zelf

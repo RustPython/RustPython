@@ -19,7 +19,10 @@ mod array {
         byteslike::ArgBytesLike,
         function::{ArgIterable, OptionalArg},
         sliceable::{saturate_index, PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
-        slots::{AsBuffer, Comparable, Iterable, PyComparisonOp, PyIter, SlotConstructor},
+        slots::{
+            AsBuffer, Comparable, Iterable, IteratorIterable, PyComparisonOp, PyIter,
+            SlotConstructor,
+        },
         IdProtocol, IntoPyObject, IntoPyResult, PyComparisonValue, PyObjectRef, PyRef, PyResult,
         PyValue, TryFromObject, TypeProtocol, VirtualMachine,
     };
@@ -1191,6 +1194,7 @@ mod array {
     #[pyimpl(with(PyIter))]
     impl PyArrayIter {}
 
+    impl IteratorIterable for PyArrayIter {}
     impl PyIter for PyArrayIter {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             let pos = zelf.position.fetch_add(1);

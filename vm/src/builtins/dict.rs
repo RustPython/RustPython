@@ -10,7 +10,9 @@ use crate::dictdatatype::{self, DictKey};
 use crate::exceptions::PyBaseExceptionRef;
 use crate::function::{ArgIterable, FuncArgs, KwArgs, OptionalArg};
 use crate::iterator;
-use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable};
+use crate::slots::{
+    Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, PyIter, Unhashable,
+};
 use crate::vm::{ReprGuard, VirtualMachine};
 use crate::{
     IdProtocol, IntoPyObject, ItemProtocol, PyArithmaticValue::*, PyAttributes, PyClassDef,
@@ -731,6 +733,7 @@ macro_rules! dict_iterator {
             }
         }
 
+        impl IteratorIterable for $iter_name {}
         impl PyIter for $iter_name {
             #[allow(clippy::redundant_closure_call)]
             fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
@@ -791,6 +794,7 @@ macro_rules! dict_iterator {
             }
         }
 
+        impl IteratorIterable for $reverse_iter_name {}
         impl PyIter for $reverse_iter_name {
             #[allow(clippy::redundant_closure_call)]
             fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {

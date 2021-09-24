@@ -15,7 +15,9 @@ use crate::common::hash::PyHash;
 use crate::function::OptionalArg;
 use crate::sequence::{self, SimpleSeq};
 use crate::sliceable::PySliceableSequence;
-use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter, SlotConstructor};
+use crate::slots::{
+    Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, PyIter, SlotConstructor,
+};
 use crate::utils::Either;
 use crate::vm::{ReprGuard, VirtualMachine};
 use crate::{
@@ -378,6 +380,7 @@ impl PyTupleIterator {
     }
 }
 
+impl IteratorIterable for PyTupleIterator {}
 impl PyIter for PyTupleIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         if let Exhausted = zelf.status.load() {

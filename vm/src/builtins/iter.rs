@@ -6,7 +6,7 @@ use crossbeam_utils::atomic::AtomicCell;
 
 use super::pytype::PyTypeRef;
 use super::{int, PyInt};
-use crate::slots::PyIter;
+use crate::slots::{IteratorIterable, PyIter};
 use crate::vm::VirtualMachine;
 use crate::{
     function::ArgCallable, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
@@ -92,6 +92,7 @@ impl PySequenceIterator {
     }
 }
 
+impl IteratorIterable for PySequenceIterator {}
 impl PyIter for PySequenceIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         if let IterStatus::Exhausted = zelf.status.load() {
@@ -134,6 +135,7 @@ impl PyCallableIterator {
     }
 }
 
+impl IteratorIterable for PyCallableIterator {}
 impl PyIter for PyCallableIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         if let IterStatus::Exhausted = zelf.status.load() {

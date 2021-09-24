@@ -374,7 +374,7 @@ pub(super) mod _os {
         byteslike::ArgBytesLike,
         exceptions::IntoPyException,
         function::{FuncArgs, OptionalArg},
-        slots::PyIter,
+        slots::{IteratorIterable, PyIter},
         suppress_iph,
         utils::Either,
         vm::{ReprGuard, VirtualMachine},
@@ -838,6 +838,7 @@ pub(super) mod _os {
             zelf.close()
         }
     }
+    impl IteratorIterable for ScandirIterator {}
     impl PyIter for ScandirIterator {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             if zelf.exhausted.load() {

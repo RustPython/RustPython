@@ -10,7 +10,7 @@ mod decl {
         builtins::{int, PyInt, PyIntRef, PyTupleRef, PyTypeRef},
         function::{ArgCallable, FuncArgs, OptionalArg, OptionalOption, PosArgs},
         iterator::{call_next, get_iter, get_next_object},
-        slots::{PyIter, SlotConstructor},
+        slots::{IteratorIterable, PyIter, SlotConstructor},
         IdProtocol, IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, PyWeakRef, TypeProtocol,
         VirtualMachine,
     };
@@ -54,6 +54,7 @@ mod decl {
             .into_ref_with_type(vm, cls)
         }
     }
+    impl IteratorIterable for PyItertoolsChain {}
     impl PyIter for PyItertoolsChain {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             loop {
@@ -129,6 +130,7 @@ mod decl {
     #[pyimpl(with(PyIter, SlotConstructor))]
     impl PyItertoolsCompress {}
 
+    impl IteratorIterable for PyItertoolsCompress {}
     impl PyIter for PyItertoolsCompress {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             loop {
@@ -187,6 +189,7 @@ mod decl {
 
     #[pyimpl(with(PyIter, SlotConstructor))]
     impl PyItertoolsCount {}
+    impl IteratorIterable for PyItertoolsCount {}
     impl PyIter for PyItertoolsCount {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             let mut cur = zelf.cur.write();
@@ -222,6 +225,7 @@ mod decl {
 
     #[pyimpl(with(PyIter, SlotConstructor))]
     impl PyItertoolsCycle {}
+    impl IteratorIterable for PyItertoolsCycle {}
     impl PyIter for PyItertoolsCycle {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             let item = if let Some(item) = get_next_object(vm, &zelf.iter)? {
@@ -323,6 +327,7 @@ mod decl {
         }
     }
 
+    impl IteratorIterable for PyItertoolsRepeat {}
     impl PyIter for PyItertoolsRepeat {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             if let Some(ref times) = zelf.times {
@@ -368,6 +373,7 @@ mod decl {
 
     #[pyimpl(with(PyIter, SlotConstructor))]
     impl PyItertoolsStarmap {}
+    impl IteratorIterable for PyItertoolsStarmap {}
     impl PyIter for PyItertoolsStarmap {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             let obj = call_next(vm, &zelf.iter)?;
@@ -418,6 +424,7 @@ mod decl {
 
     #[pyimpl(with(PyIter, SlotConstructor))]
     impl PyItertoolsTakewhile {}
+    impl IteratorIterable for PyItertoolsTakewhile {}
     impl PyIter for PyItertoolsTakewhile {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             if zelf.stop_flag.load() {
@@ -480,6 +487,7 @@ mod decl {
 
     #[pyimpl(with(PyIter, SlotConstructor))]
     impl PyItertoolsDropwhile {}
+    impl IteratorIterable for PyItertoolsDropwhile {}
     impl PyIter for PyItertoolsDropwhile {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             let predicate = &zelf.predicate;
@@ -584,6 +592,7 @@ mod decl {
             Ok((new_value, new_key))
         }
     }
+    impl IteratorIterable for PyItertoolsGroupBy {}
     impl PyIter for PyItertoolsGroupBy {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             let mut state = zelf.state.lock();
@@ -633,6 +642,7 @@ mod decl {
 
     #[pyimpl(with(PyIter))]
     impl PyItertoolsGrouper {}
+    impl IteratorIterable for PyItertoolsGrouper {}
     impl PyIter for PyItertoolsGrouper {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             let old_key = {
@@ -762,6 +772,7 @@ mod decl {
         }
     }
 
+    impl IteratorIterable for PyItertoolsIslice {}
     impl PyIter for PyItertoolsIslice {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             while zelf.cur.load() < zelf.next.load() {
@@ -825,6 +836,7 @@ mod decl {
 
     #[pyimpl(with(PyIter, SlotConstructor))]
     impl PyItertoolsFilterFalse {}
+    impl IteratorIterable for PyItertoolsFilterFalse {}
     impl PyIter for PyItertoolsFilterFalse {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             let predicate = &zelf.predicate;
@@ -883,6 +895,7 @@ mod decl {
     #[pyimpl(with(PyIter, SlotConstructor))]
     impl PyItertoolsAccumulate {}
 
+    impl IteratorIterable for PyItertoolsAccumulate {}
     impl PyIter for PyItertoolsAccumulate {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             let iterable = &zelf.iterable;
@@ -1001,6 +1014,7 @@ mod decl {
             .into_object())
         }
     }
+    impl IteratorIterable for PyItertoolsTee {}
     impl PyIter for PyItertoolsTee {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             let value = zelf.tee_data.get_item(vm, zelf.index.load())?;
@@ -1076,6 +1090,7 @@ mod decl {
             }
         }
     }
+    impl IteratorIterable for PyItertoolsProduct {}
     impl PyIter for PyItertoolsProduct {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             // stop signal
@@ -1154,6 +1169,7 @@ mod decl {
 
     #[pyimpl(with(PyIter, SlotConstructor))]
     impl PyItertoolsCombinations {}
+    impl IteratorIterable for PyItertoolsCombinations {}
     impl PyIter for PyItertoolsCombinations {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             // stop signal
@@ -1244,6 +1260,7 @@ mod decl {
     #[pyimpl(with(PyIter, SlotConstructor))]
     impl PyItertoolsCombinationsWithReplacement {}
 
+    impl IteratorIterable for PyItertoolsCombinationsWithReplacement {}
     impl PyIter for PyItertoolsCombinationsWithReplacement {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             // stop signal
@@ -1351,6 +1368,7 @@ mod decl {
 
     #[pyimpl(with(PyIter, SlotConstructor))]
     impl PyItertoolsPermutations {}
+    impl IteratorIterable for PyItertoolsPermutations {}
     impl PyIter for PyItertoolsPermutations {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             // stop signal
@@ -1452,6 +1470,7 @@ mod decl {
 
     #[pyimpl(with(PyIter, SlotConstructor))]
     impl PyItertoolsZipLongest {}
+    impl IteratorIterable for PyItertoolsZipLongest {}
     impl PyIter for PyItertoolsZipLongest {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             if zelf.iterators.is_empty() {
@@ -1505,6 +1524,7 @@ mod decl {
 
     #[pyimpl(with(PyIter, SlotConstructor))]
     impl PyItertoolsPairwise {}
+    impl IteratorIterable for PyItertoolsPairwise {}
     impl PyIter for PyItertoolsPairwise {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             let old = match zelf.old.read().clone() {

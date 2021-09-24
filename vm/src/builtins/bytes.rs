@@ -13,7 +13,8 @@ use crate::byteslike::ArgBytesLike;
 use crate::common::hash::PyHash;
 use crate::function::{ArgIterable, OptionalArg, OptionalOption};
 use crate::slots::{
-    AsBuffer, Callable, Comparable, Hashable, Iterable, PyComparisonOp, PyIter, SlotConstructor,
+    AsBuffer, Callable, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, PyIter,
+    SlotConstructor,
 };
 use crate::utils::Either;
 use crate::vm::VirtualMachine;
@@ -601,6 +602,7 @@ impl PyValue for PyBytesIterator {
 
 #[pyimpl(with(PyIter))]
 impl PyBytesIterator {}
+impl IteratorIterable for PyBytesIterator {}
 impl PyIter for PyBytesIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         let pos = zelf.position.fetch_add(1);

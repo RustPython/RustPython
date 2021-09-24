@@ -8,7 +8,7 @@ use super::pytype::PyTypeRef;
 use crate::coroutine::{Coro, Variant};
 use crate::frame::FrameRef;
 use crate::function::OptionalArg;
-use crate::slots::PyIter;
+use crate::slots::{IteratorIterable, PyIter};
 use crate::vm::VirtualMachine;
 use crate::{IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 
@@ -95,6 +95,7 @@ impl PyGenerator {
     }
 }
 
+impl IteratorIterable for PyGenerator {}
 impl PyIter for PyGenerator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         zelf.send(vm.ctx.none(), vm)

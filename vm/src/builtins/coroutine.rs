@@ -4,7 +4,7 @@ use super::pytype::PyTypeRef;
 use crate::coroutine::{Coro, Variant};
 use crate::frame::FrameRef;
 use crate::function::OptionalArg;
-use crate::slots::PyIter;
+use crate::slots::{IteratorIterable, PyIter};
 use crate::vm::VirtualMachine;
 use crate::{IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 
@@ -104,6 +104,7 @@ impl PyCoroutine {
     }
 }
 
+impl IteratorIterable for PyCoroutine {}
 impl PyIter for PyCoroutine {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         zelf.send(vm.ctx.none(), vm)
@@ -141,6 +142,7 @@ impl PyCoroutineWrapper {
     }
 }
 
+impl IteratorIterable for PyCoroutineWrapper {}
 impl PyIter for PyCoroutineWrapper {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         zelf.send(vm.ctx.none(), vm)
