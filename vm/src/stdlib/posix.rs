@@ -31,17 +31,16 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 pub mod module {
     use crate::{
         builtins::{int, PyDictRef, PyInt, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
-        crt_fd::Offset,
         exceptions::IntoPyException,
-        function::{FuncArgs, OptionalArg},
+        function::OptionalArg,
         slots::SlotConstructor,
         stdlib::os::{
             errno_err, DirFd, FollowSymlinks, PathOrFd, PyPathLike, SupportFunc, TargetIsDirectory,
             _os, fs_metadata,
         },
         utils::{Either, ToCString},
-        IntoPyObject, ItemProtocol, PyObjectRef, PyResult, PyValue, StaticType,
-        TryFromBorrowedObject, TryFromObject, VirtualMachine,
+        IntoPyObject, ItemProtocol, PyObjectRef, PyResult, PyValue, StaticType, TryFromObject,
+        VirtualMachine,
     };
     use bitflags::bitflags;
     use nix::fcntl;
@@ -963,6 +962,8 @@ pub mod module {
     #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
     impl PosixSpawnArgs {
         fn spawn(self, spawnp: bool, vm: &VirtualMachine) -> PyResult<libc::pid_t> {
+            use crate::TryFromBorrowedObject;
+
             let path = CString::new(self.path.into_bytes())
                 .map_err(|_| vm.new_value_error("path should not have nul bytes".to_owned()))?;
 
@@ -983,7 +984,7 @@ pub mod module {
                     let id = PosixSpawnFileActionIdentifier::try_from(id).map_err(|_| {
                         vm.new_type_error("Unknown file_actions identifier".to_owned())
                     })?;
-                    let args = FuncArgs::from(args.to_vec());
+                    let args: crate::function::FuncArgs = args.to_vec().into();
                     let ret = match id {
                         PosixSpawnFileActionIdentifier::Open => {
                             let (fd, path, oflag, mode): (_, PyPathLike, _, _) = args.bind(vm)?;
@@ -1567,7 +1568,7 @@ pub mod module {
         #[pyarg(any)]
         in_fd: i32,
         #[pyarg(any)]
-        offset: Offset,
+        offset: crate::crt_fd::Offset,
         #[pyarg(any)]
         count: i64,
         #[cfg(target_os = "macos")]
