@@ -6,7 +6,6 @@ use super::pystr::PyStrRef;
 use super::pytype::PyTypeRef;
 use super::tuple::PyTupleRef;
 use crate::anystr::{self, AnyStr};
-use crate::buffer::{BufferOptions, PyBuffer, PyBufferInternal, ResizeGuard};
 use crate::bytesinner::{
     bytes_decode, bytes_from_object, value_from_object, ByteInnerFindOptions, ByteInnerNewOptions,
     ByteInnerPaddingOptions, ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs,
@@ -19,6 +18,7 @@ use crate::common::lock::{
     PyRwLockWriteGuard,
 };
 use crate::function::{ArgIterable, FuncArgs, OptionalArg, OptionalOption};
+use crate::protocol::{BufferInternal, BufferOptions, PyBuffer, ResizeGuard};
 use crate::sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex};
 use crate::slots::{
     AsBuffer, Callable, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, PyIter,
@@ -685,7 +685,7 @@ impl AsBuffer for PyByteArray {
     }
 }
 
-impl PyBufferInternal for PyRef<PyByteArray> {
+impl BufferInternal for PyRef<PyByteArray> {
     fn obj_bytes(&self) -> BorrowedValue<[u8]> {
         self.borrow_buf().into()
     }

@@ -74,7 +74,6 @@ mod _io {
     use std::io::{self, prelude::*, Cursor, SeekFrom};
     use std::ops::Range;
 
-    use crate::buffer::{BufferOptions, PyBuffer, PyBufferInternal, ResizeGuard};
     use crate::builtins::memory::PyMemoryView;
     use crate::builtins::{
         bytes::{PyBytes, PyBytesRef},
@@ -89,6 +88,7 @@ mod _io {
     use crate::common::rc::PyRc;
     use crate::exceptions::{self, PyBaseExceptionRef};
     use crate::function::{ArgIterable, FuncArgs, OptionalArg, OptionalOption};
+    use crate::protocol::{BufferInternal, BufferOptions, PyBuffer, ResizeGuard};
     use crate::slots::{Iterable, PyIter, SlotConstructor};
     use crate::utils::Either;
     use crate::vm::{ReprGuard, VirtualMachine};
@@ -1325,7 +1325,7 @@ mod _io {
         data: PyMutex<Vec<u8>>,
         range: Range<usize>,
     }
-    impl PyBufferInternal for BufferedRawBuffer {
+    impl BufferInternal for BufferedRawBuffer {
         fn obj_bytes(&self) -> BorrowedValue<[u8]> {
             BorrowedValue::map(self.data.lock().into(), |data| &data[self.range.clone()])
         }
@@ -3326,7 +3326,7 @@ mod _io {
         }
     }
 
-    impl PyBufferInternal for PyRef<BytesIO> {
+    impl BufferInternal for PyRef<BytesIO> {
         fn obj_bytes(&self) -> BorrowedValue<[u8]> {
             PyRwLockReadGuard::map(self.buffer.read(), |x| x.cursor.get_ref().as_slice()).into()
         }

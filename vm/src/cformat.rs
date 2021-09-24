@@ -1,9 +1,9 @@
 //! Implementation of Printf-Style string formatting
 //! [https://docs.python.org/3/library/stdtypes.html#printf-style-string-formatting]
 
-use crate::buffer::PyBuffer;
 use crate::builtins::{int, try_f64_to_bigint, tuple, IntoPyFloat, PyBytes, PyFloat, PyInt, PyStr};
 use crate::common::float_ops;
+use crate::protocol::PyBuffer;
 use crate::{
     ItemProtocol, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject, TypeProtocol,
     VirtualMachine,

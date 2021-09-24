@@ -3,7 +3,6 @@ use super::int::PyIntRef;
 use super::pystr::PyStrRef;
 use super::pytype::PyTypeRef;
 use crate::anystr::{self, AnyStr};
-use crate::buffer::{BufferOptions, PyBuffer, PyBufferInternal};
 use crate::builtins::tuple::PyTupleRef;
 use crate::bytesinner::{
     bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
@@ -12,6 +11,7 @@ use crate::bytesinner::{
 use crate::byteslike::ArgBytesLike;
 use crate::common::hash::PyHash;
 use crate::function::{ArgIterable, OptionalArg, OptionalOption};
+use crate::protocol::{BufferInternal, BufferOptions, PyBuffer};
 use crate::slots::{
     AsBuffer, Callable, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, PyIter,
     SlotConstructor,
@@ -533,7 +533,7 @@ impl AsBuffer for PyBytes {
     }
 }
 
-impl PyBufferInternal for PyRef<PyBytes> {
+impl BufferInternal for PyRef<PyBytes> {
     fn obj_bytes(&self) -> BorrowedValue<[u8]> {
         self.as_bytes().into()
     }

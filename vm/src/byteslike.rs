@@ -1,6 +1,6 @@
-use crate::buffer::PyBuffer;
 use crate::builtins::PyStrRef;
 use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
+use crate::protocol::PyBuffer;
 use crate::vm::VirtualMachine;
 use crate::{PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject};
 
