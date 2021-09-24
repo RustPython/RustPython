@@ -1,8 +1,7 @@
 use super::dict::{PyDict, PyDictRef};
 use super::list::PyList;
 use super::pystr::{PyStr, PyStrRef};
-use super::pytype::PyTypeRef;
-use crate::builtins::pytype::PyType;
+use super::pytype::{PyType, PyTypeRef};
 use crate::common::hash::PyHash;
 use crate::function::FuncArgs;
 use crate::slots::PyComparisonOp;
@@ -363,8 +362,8 @@ pub(crate) fn setattr(
     }
 }
 
-pub fn init(context: &PyContext) {
-    PyBaseObject::extend_class(context, &context.types.object_type);
+pub fn init(ctx: &PyContext) {
+    PyBaseObject::extend_class(ctx, &ctx.types.object_type);
 }
 
 fn common_reduce(obj: PyObjectRef, proto: usize, vm: &VirtualMachine) -> PyResult {

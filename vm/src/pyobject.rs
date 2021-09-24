@@ -21,7 +21,7 @@ use crate::builtins::list::PyList;
 use crate::builtins::namespace::PyNamespace;
 use crate::builtins::object;
 use crate::builtins::pystr;
-use crate::builtins::pytype::{self, PyType, PyTypeRef};
+use crate::builtins::pytype::{PyType, PyTypeRef};
 use crate::builtins::set::{self, PyFrozenSet};
 use crate::builtins::singletons::{PyNone, PyNoneRef, PyNotImplemented, PyNotImplementedRef};
 use crate::builtins::slice::PyEllipsis;
@@ -123,7 +123,7 @@ impl PyContext {
 
         let new_str = PyRef::new_ref(pystr::PyStr::from("__new__"), types.str_type.clone(), None);
         let tp_new_wrapper = create_object(
-            PyNativeFuncDef::new(pytype::tp_new_wrapper.into_func(), new_str).into_function(),
+            PyNativeFuncDef::new(PyType::__new__.into_func(), new_str).into_function(),
             &types.builtin_function_or_method_type,
         )
         .into_object();
@@ -383,17 +383,6 @@ impl PyContext {
 
     pub fn new_base_object(&self, class: PyTypeRef, dict: Option<PyDictRef>) -> PyObjectRef {
         PyObject::new(object::PyBaseObject, class, dict)
-    }
-
-    pub fn add_slot_wrappers(&self, ty: &PyTypeRef) {
-        let new_wrapper =
-            self.new_bound_method(self.tp_new_wrapper.clone(), ty.clone().into_object());
-        ty.set_str_attr("__new__", new_wrapper);
-    }
-
-    pub fn is_tp_new_wrapper(&self, obj: &PyObjectRef) -> bool {
-        obj.payload::<PyBoundMethod>()
-            .map_or(false, |bound| bound.function.is(&self.tp_new_wrapper))
     }
 }
 
@@ -994,12 +983,16 @@ pub trait PyClassImpl: PyClassDef {
             );
         }
         Self::impl_extend_class(ctx, class);
-        ctx.add_slot_wrappers(class);
         if let Some(doc) = Self::DOC {
             class.set_str_attr("__doc__", ctx.new_utf8_str(doc));
         }
         if let Some(module_name) = Self::MODULE_NAME {
             class.set_str_attr("__module__", ctx.new_utf8_str(module_name));
+        }
+        if class.slots.new.load().is_some() {
+            let bound =
+                ctx.new_bound_method(ctx.tp_new_wrapper.clone(), class.clone().into_object());
+            class.set_str_attr("__new__", bound);
         }
     }
 
