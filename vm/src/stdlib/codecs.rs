@@ -317,7 +317,7 @@ mod _codecs {
 
     #[pyfunction]
     fn latin_1_encode(args: EncodeArgs, vm: &VirtualMachine) -> EncodeResult {
-        if args.s.as_ref().chars().all(|c| (c as u32) < 256) {
+        if args.s.is_ascii() {
             return Ok((args.s.as_str().as_bytes().to_vec(), args.s.byte_len()));
         }
         do_codec!(latin_1::encode, args, vm)
