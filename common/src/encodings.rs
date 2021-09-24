@@ -229,22 +229,10 @@ pub mod latin_1 {
         Ok(out)
     }
 
-    pub fn decode<E: ErrorHandler>(data: &[u8], errors: &E) -> Result<(String, usize), E::Error> {
-        decode_utf8_compatible(
-            data,
-            errors,
-            |v| {
-                std::str::from_utf8(v).map_err(|e| {
-                    // SAFETY: as specified in valid_up_to's documentation, input[..e.valid_up_to()]
-                    //         is valid ascii & therefore valid utf8
-                    unsafe { make_decode_err(v, e.valid_up_to(), e.error_len()) }
-                })
-            },
-            |_rest, err_len| HandleResult::Error {
-                err_len,
-                reason: ERR_REASON,
-            },
-        )
+    pub fn decode<E: ErrorHandler>(data: &[u8], _errors: &E) -> Result<(String, usize), E::Error> {
+        let out: String = data.iter().map(|c| *c as char).collect();
+        let out_len = out.len();
+        Ok((out, out_len))
     }
 }
 
