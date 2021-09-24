@@ -189,39 +189,50 @@ pub mod latin_1 {
             match data
                 .char_indices()
                 .enumerate()
-                .find(|(_, (_, c))| (*c as u32) > 255)
+                .find(|(_, (_, c))| !c.is_ascii())
             {
                 None => {
                     out.extend_from_slice(data.as_bytes());
                     break;
                 }
-                Some((char_i, (byte_i, _))) => {
+                Some((char_i, (byte_i, ch))) => {
                     out.extend_from_slice(&data.as_bytes()[..byte_i]);
                     let char_start = char_data_index + char_i;
-                    // number of non-latin_1 chars between the first non-latin_1 char and the next latin_1 char
-                    let non_latin_1_run_length = data[byte_i..]
-                        .chars()
-                        .take_while(|c| (*c as u32) > 255)
-                        .count();
-                    let char_range = char_start..char_start + non_latin_1_run_length;
-                    let (replace, char_restart) =
-                        errors.handle_encode_error(full_data, char_range.clone(), ERR_REASON)?;
-                    match replace {
-                        EncodeReplace::Str(s) => {
-                            if s.as_ref().chars().any(|c| (c as u32) > 255) {
-                                return Err(
-                                    errors.error_encoding(full_data, char_range, ERR_REASON)
-                                );
+                    if (ch as u32) <= 255 {
+                        out.push(ch as u8);
+                        let char_restart = char_start + 1;
+                        data = crate::str::try_get_chars(full_data, char_restart..)
+                            .ok_or_else(|| errors.error_oob_restart(char_restart))?;
+                        char_data_index = char_restart;
+                    } else {
+                        // number of non-latin_1 chars between the first non-latin_1 char and the next latin_1 char
+                        let non_latin_1_run_length = data[byte_i..]
+                            .chars()
+                            .take_while(|c| (*c as u32) > 255)
+                            .count();
+                        let char_range = char_start..char_start + non_latin_1_run_length;
+                        let (replace, char_restart) = errors.handle_encode_error(
+                            full_data,
+                            char_range.clone(),
+                            ERR_REASON,
+                        )?;
+                        match replace {
+                            EncodeReplace::Str(s) => {
+                                if s.as_ref().chars().any(|c| (c as u32) > 255) {
+                                    return Err(
+                                        errors.error_encoding(full_data, char_range, ERR_REASON)
+                                    );
+                                }
+                                out.extend_from_slice(s.as_ref().as_bytes());
                             }
-                            out.extend_from_slice(s.as_ref().as_bytes());
+                            EncodeReplace::Bytes(b) => {
+                                out.extend_from_slice(b.as_ref());
+                            }
                         }
-                        EncodeReplace::Bytes(b) => {
-                            out.extend_from_slice(b.as_ref());
-                        }
+                        data = crate::str::try_get_chars(full_data, char_restart..)
+                            .ok_or_else(|| errors.error_oob_restart(char_restart))?;
+                        char_data_index = char_restart;
                     }
-                    data = crate::str::try_get_chars(full_data, char_restart..)
-                        .ok_or_else(|| errors.error_oob_restart(char_restart))?;
-                    char_data_index = char_restart;
                     continue;
                 }
             }
