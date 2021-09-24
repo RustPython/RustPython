@@ -172,6 +172,82 @@ pub mod utf8 {
     }
 }
 
+pub mod latin_1 {
+    use super::*;
+
+    pub const ENCODING_NAME: &str = "latin-1";
+
+    const ERR_REASON: &str = "ordinal not in range(256)";
+
+    #[inline]
+    pub fn encode<E: ErrorHandler>(s: &str, errors: &E) -> Result<Vec<u8>, E::Error> {
+        let full_data = s;
+        let mut data = s;
+        let mut char_data_index = 0;
+        let mut out = Vec::<u8>::new();
+        loop {
+            match data
+                .char_indices()
+                .enumerate()
+                .find(|(_, (_, c))| (*c as u32) > 255)
+            {
+                None => {
+                    out.extend_from_slice(data.as_bytes());
+                    break;
+                }
+                Some((char_i, (byte_i, _))) => {
+                    out.extend_from_slice(&data.as_bytes()[..byte_i]);
+                    let char_start = char_data_index + char_i;
+                    // number of non-latin_1 chars between the first non-latin_1 char and the next latin_1 char
+                    let non_latin_1_run_length = data[byte_i..]
+                        .chars()
+                        .take_while(|c| (*c as u32) > 255)
+                        .count();
+                    let char_range = char_start..char_start + non_latin_1_run_length;
+                    let (replace, char_restart) =
+                        errors.handle_encode_error(full_data, char_range.clone(), ERR_REASON)?;
+                    match replace {
+                        EncodeReplace::Str(s) => {
+                            if s.as_ref().chars().any(|c| (c as u32) > 255) {
+                                return Err(
+                                    errors.error_encoding(full_data, char_range, ERR_REASON)
+                                );
+                            }
+                            out.extend_from_slice(s.as_ref().as_bytes());
+                        }
+                        EncodeReplace::Bytes(b) => {
+                            out.extend_from_slice(b.as_ref());
+                        }
+                    }
+                    data = crate::str::try_get_chars(full_data, char_restart..)
+                        .ok_or_else(|| errors.error_oob_restart(char_restart))?;
+                    char_data_index = char_restart;
+                    continue;
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    pub fn decode<E: ErrorHandler>(data: &[u8], errors: &E) -> Result<(String, usize), E::Error> {
+        decode_utf8_compatible(
+            data,
+            errors,
+            |v| {
+                std::str::from_utf8(v).map_err(|e| {
+                    // SAFETY: as specified in valid_up_to's documentation, input[..e.valid_up_to()]
+                    //         is valid ascii & therefore valid utf8
+                    unsafe { make_decode_err(v, e.valid_up_to(), e.error_len()) }
+                })
+            },
+            |_rest, err_len| HandleResult::Error {
+                err_len,
+                reason: ERR_REASON,
+            },
+        )
+    }
+}
+
 pub mod ascii {
     use super::*;
     use ::ascii::AsciiStr;
