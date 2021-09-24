@@ -26,7 +26,7 @@ mod decl {
     #[cfg(feature = "rustpython-compiler")]
     use crate::compile;
     use crate::function::{
-        ArgCallable, ArgIterable, Args, FuncArgs, KwArgs, OptionalArg, OptionalOption,
+        ArgCallable, ArgIterable, FuncArgs, KwArgs, OptionalArg, OptionalOption, PosArgs,
     };
     use crate::iterator;
     use crate::readline::{Readline, ReadlineResult};
@@ -652,7 +652,7 @@ mod decl {
     }
 
     #[pyfunction]
-    pub fn print(objects: Args, options: PrintOptions, vm: &VirtualMachine) -> PyResult<()> {
+    pub fn print(objects: PosArgs, options: PrintOptions, vm: &VirtualMachine) -> PyResult<()> {
         let file = match options.file {
             Some(f) => f,
             None => sysmodule::get_stdout(vm)?,
@@ -809,7 +809,7 @@ mod decl {
     pub fn __build_class__(
         function: PyFunctionRef,
         qualified_name: PyStrRef,
-        bases: Args,
+        bases: PosArgs,
         mut kwargs: KwArgs,
         vm: &VirtualMachine,
     ) -> PyResult {

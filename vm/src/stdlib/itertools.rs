@@ -8,7 +8,7 @@ mod decl {
     };
     use crate::{
         builtins::{int, PyInt, PyIntRef, PyTupleRef, PyTypeRef},
-        function::{ArgCallable, Args, FuncArgs, OptionalArg, OptionalOption},
+        function::{ArgCallable, FuncArgs, OptionalArg, OptionalOption, PosArgs},
         iterator::{call_next, get_iter, get_next_object},
         slots::{PyIter, SlotConstructor},
         IdProtocol, IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, PyWeakRef, StaticType,
@@ -1026,7 +1026,7 @@ mod decl {
     }
 
     impl SlotConstructor for PyItertoolsProduct {
-        type Args = (Args<PyObjectRef>, ProductArgs);
+        type Args = (PosArgs<PyObjectRef>, ProductArgs);
 
         fn py_new(cls: PyTypeRef, (iterables, args): Self::Args, vm: &VirtualMachine) -> PyResult {
             let repeat = args.repeat.unwrap_or(1);
@@ -1425,7 +1425,7 @@ mod decl {
     }
 
     impl SlotConstructor for PyItertoolsZipLongest {
-        type Args = (Args<PyObjectRef>, ZipLongestArgs);
+        type Args = (PosArgs<PyObjectRef>, ZipLongestArgs);
 
         fn py_new(cls: PyTypeRef, (iterables, args): Self::Args, vm: &VirtualMachine) -> PyResult {
             let fillvalue = args.fillvalue.unwrap_or_none(vm);

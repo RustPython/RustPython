@@ -6,7 +6,7 @@ mod math {
         builtins::{
             try_bigint_to_f64, try_f64_to_bigint, IntoPyFloat, PyFloatRef, PyInt, PyIntRef,
         },
-        function::{ArgIterable, Args, OptionalArg},
+        function::{ArgIterable, OptionalArg, PosArgs},
         utils::Either,
         PyObjectRef, PyResult, PySequence, TypeProtocol, VirtualMachine,
     };
@@ -227,7 +227,7 @@ mod math {
     }
 
     #[pyfunction]
-    fn hypot(coordinates: Args<IntoPyFloat>) -> f64 {
+    fn hypot(coordinates: PosArgs<IntoPyFloat>) -> f64 {
         let mut coordinates = IntoPyFloat::vec_into_f64(coordinates.into_vec());
         let mut max = 0.0;
         let mut has_nan = false;
@@ -478,7 +478,7 @@ mod math {
         }
     }
 
-    fn math_perf_arb_len_int_op<F>(args: Args<PyIntRef>, op: F, default: BigInt) -> BigInt
+    fn math_perf_arb_len_int_op<F>(args: PosArgs<PyIntRef>, op: F, default: BigInt) -> BigInt
     where
         F: Fn(&BigInt, &PyInt) -> BigInt,
     {
@@ -498,13 +498,13 @@ mod math {
     }
 
     #[pyfunction]
-    fn gcd(args: Args<PyIntRef>) -> BigInt {
+    fn gcd(args: PosArgs<PyIntRef>) -> BigInt {
         use num_integer::Integer;
         math_perf_arb_len_int_op(args, |x, y| x.gcd(y.as_bigint()), BigInt::zero())
     }
 
     #[pyfunction]
-    fn lcm(args: Args<PyIntRef>) -> BigInt {
+    fn lcm(args: PosArgs<PyIntRef>) -> BigInt {
         use num_integer::Integer;
         math_perf_arb_len_int_op(args, |x, y| x.lcm(y.as_bigint()), BigInt::one())
     }
