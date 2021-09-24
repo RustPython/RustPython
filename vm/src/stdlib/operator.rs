@@ -22,8 +22,8 @@ mod _operator {
         },
         utils::Either,
         vm::ReprGuard,
-        IdProtocol, ItemProtocol, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryIntoRef,
-        TypeProtocol, VirtualMachine,
+        IdProtocol, ItemProtocol, PyObjectRef, PyRef, PyResult, PyValue, TryIntoRef, TypeProtocol,
+        VirtualMachine,
     };
 
     /// Same as a < b.

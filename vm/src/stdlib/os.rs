@@ -378,7 +378,7 @@ pub(super) mod _os {
         suppress_iph,
         utils::Either,
         vm::{ReprGuard, VirtualMachine},
-        IntoPyObject, PyObjectRef, PyRef, PyResult, PyStructSequence, PyValue, StaticType,
+        IntoPyObject, PyObjectRef, PyRef, PyResult, PyStructSequence, PyValue,
         TryFromBorrowedObject, TryFromObject, TypeProtocol,
     };
     use crossbeam_utils::atomic::AtomicCell;

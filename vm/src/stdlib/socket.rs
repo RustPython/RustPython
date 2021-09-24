@@ -5,8 +5,8 @@ use crate::{
     exceptions::{IntoPyException, PyBaseExceptionRef},
     function::{FuncArgs, OptionalArg, OptionalOption},
     utils::{Either, ToCString},
-    IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
-    TryFromBorrowedObject, TryFromObject, TypeProtocol, VirtualMachine,
+    IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromBorrowedObject,
+    TryFromObject, TypeProtocol, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use gethostname::gethostname;

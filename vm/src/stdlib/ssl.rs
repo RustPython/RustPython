@@ -8,8 +8,7 @@ use crate::{
     slots::SlotConstructor,
     stdlib::os::PyPathLike,
     utils::{Either, ToCString},
-    IntoPyObject, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
-    VirtualMachine,
+    IntoPyObject, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use foreign_types_shared::{ForeignType, ForeignTypeRef};

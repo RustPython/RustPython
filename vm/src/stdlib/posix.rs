@@ -39,8 +39,7 @@ pub mod module {
             _os, fs_metadata,
         },
         utils::{Either, ToCString},
-        IntoPyObject, ItemProtocol, PyObjectRef, PyResult, PyValue, StaticType, TryFromObject,
-        VirtualMachine,
+        IntoPyObject, ItemProtocol, PyObjectRef, PyResult, PyValue, TryFromObject, VirtualMachine,
     };
     use bitflags::bitflags;
     use nix::fcntl;

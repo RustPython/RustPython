@@ -10,7 +10,7 @@ mod _json {
         function::{FuncArgs, OptionalArg},
         iterator,
         slots::{Callable, SlotConstructor},
-        IdProtocol, IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject,
+        IdProtocol, IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
         VirtualMachine,
     };
     use num_bigint::BigInt;

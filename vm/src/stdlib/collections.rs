@@ -14,8 +14,7 @@ mod _collections {
             Comparable, Hashable, Iterable, PyComparisonOp, PyIter, SlotConstructor, Unhashable,
         },
         vm::ReprGuard,
-        PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TypeProtocol,
-        VirtualMachine,
+        PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;

@@ -6,13 +6,12 @@ mod _sre {
         buffer::PyBuffer,
         builtins::{
             PyCallableIterator, PyDictRef, PyInt, PyList, PyListRef, PyStr, PyStrRef, PyTupleRef,
-            PyTypeRef,
         },
         common::hash::PyHash,
         function::{ArgCallable, OptionalArg, PosArgs},
         slots::{Comparable, Hashable},
         IntoPyObject, ItemProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue,
-        StaticType, TryFromBorrowedObject, TryFromObject, VirtualMachine,
+        TryFromBorrowedObject, TryFromObject, VirtualMachine,
     };
     use core::str;
     use crossbeam_utils::atomic::AtomicCell;

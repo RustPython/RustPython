@@ -11,8 +11,8 @@ mod decl {
         function::{ArgCallable, FuncArgs, OptionalArg, OptionalOption, PosArgs},
         iterator::{call_next, get_iter, get_next_object},
         slots::{PyIter, SlotConstructor},
-        IdProtocol, IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, PyWeakRef, StaticType,
-        TypeProtocol, VirtualMachine,
+        IdProtocol, IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, PyWeakRef, TypeProtocol,
+        VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use num_bigint::BigInt;
