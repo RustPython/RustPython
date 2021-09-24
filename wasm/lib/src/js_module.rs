@@ -14,7 +14,7 @@ use rustpython_vm::types::create_simple_type;
 use rustpython_vm::VirtualMachine;
 use rustpython_vm::{
     function::ArgCallable, IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
-    StaticType, TryFromObject,
+    TryFromObject,
 };
 
 #[wasm_bindgen(inline_js = "

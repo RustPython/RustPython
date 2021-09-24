@@ -1,11 +1,11 @@
 use crate::common::lock::PyMutex;
 use crate::{
-    builtins::{PyStr, PyStrRef, PyTypeRef},
+    builtins::{PyStr, PyStrRef},
     function::{ArgIterable, ArgumentError, FromArgs, FuncArgs},
     iterator,
     slots::PyIter,
     types::create_simple_type,
-    PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
+    PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
     VirtualMachine,
 };
 use itertools::{self, Itertools};

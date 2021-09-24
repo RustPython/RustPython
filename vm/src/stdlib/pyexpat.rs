@@ -34,7 +34,6 @@ mod _pyexpat {
     use crate::builtins::{PyStr, PyStrRef, PyTypeRef};
     use crate::byteslike::ArgBytesLike;
     use crate::function::{IntoFuncArgs, OptionalArg};
-    use crate::pyobject::StaticType;
     use crate::{
         ItemProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
         VirtualMachine,

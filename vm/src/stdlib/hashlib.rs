@@ -6,7 +6,7 @@ mod hashlib {
     use crate::{
         builtins::{PyBytes, PyBytesRef, PyStrRef, PyTypeRef},
         function::{FuncArgs, OptionalArg},
-        PyResult, PyValue, StaticType, VirtualMachine,
+        PyResult, PyValue, VirtualMachine,
     };
     use blake2::{Blake2b, Blake2s};
     use digest::DynDigest;

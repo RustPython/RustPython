@@ -22,8 +22,7 @@ pub(crate) mod _struct {
         function::PosArgs,
         slots::{PyIter, SlotConstructor},
         utils::Either,
-        IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject,
-        VirtualMachine,
+        IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use half::f16;

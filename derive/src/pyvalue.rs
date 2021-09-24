@@ -8,7 +8,8 @@ pub(crate) fn impl_pyvalue(input: DeriveInput) -> std::result::Result<TokenStrea
 
     let ret = quote! {
         impl ::rustpython_vm::PyValue for #ty {
-            fn class(_vm: &VirtualMachine) -> &PyTypeRef {
+            fn class(_vm: &::rustpython_vm::VirtualMachine) -> &rustpython_vm::builtins::PyTypeRef {
+                use ::rustpython_vm::StaticType;
                 Self::static_type()
             }
         }

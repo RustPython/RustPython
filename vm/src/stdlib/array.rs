@@ -21,7 +21,7 @@ mod array {
         sliceable::{saturate_index, PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
         slots::{AsBuffer, Comparable, Iterable, PyComparisonOp, PyIter, SlotConstructor},
         IdProtocol, IntoPyObject, IntoPyResult, PyComparisonValue, PyObjectRef, PyRef, PyResult,
-        PyValue, StaticType, TryFromObject, TypeProtocol, VirtualMachine,
+        PyValue, TryFromObject, TypeProtocol, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;

@@ -252,11 +252,11 @@ mod decl {
     #[cfg(unix)]
     pub(super) mod poll {
         use super::*;
-        use crate::builtins::{PyFloat, PyTypeRef};
+        use crate::builtins::PyFloat;
         use crate::common::lock::PyMutex;
         use crate::function::OptionalArg;
         use crate::stdlib::io::Fildes;
-        use crate::{IntoPyObject, PyValue, StaticType, TypeProtocol};
+        use crate::{IntoPyObject, PyValue, TypeProtocol};
         use libc::pollfd;
         use num_traits::ToPrimitive;
         use std::time;

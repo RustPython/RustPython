@@ -4,7 +4,7 @@ use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::{
     builtins::{PyStrRef, PyTypeRef},
     exceptions::IntoPyException,
-    PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject, VirtualMachine,
+    PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
 };
 use std::convert::TryInto;
 use std::ffi::OsStr;

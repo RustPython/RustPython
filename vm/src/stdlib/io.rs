@@ -3682,7 +3682,7 @@ mod fileio {
     use crate::function::{FuncArgs, OptionalArg};
     use crate::stdlib::os;
     use crate::vm::VirtualMachine;
-    use crate::{PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject, TypeProtocol};
+    use crate::{PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol};
     use crossbeam_utils::atomic::AtomicCell;
     use std::io::{Read, Write};
 

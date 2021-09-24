@@ -3,9 +3,8 @@
 */
 
 use crate::{
-    builtins::{PyStrRef, PyTypeRef},
-    function::OptionalArg,
-    PyClassImpl, PyObject, PyObjectRef, PyResult, PyValue, StaticType, VirtualMachine,
+    builtins::PyStrRef, function::OptionalArg, PyClassImpl, PyObject, PyObjectRef, PyResult,
+    PyValue, VirtualMachine,
 };
 use itertools::Itertools;
 use unic_char_property::EnumeratedCharProperty;

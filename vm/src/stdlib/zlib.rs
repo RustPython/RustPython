@@ -9,7 +9,7 @@ mod decl {
         exceptions::PyBaseExceptionRef,
         function::OptionalArg,
         types::create_simple_type,
-        IntoPyRef, PyResult, PyValue, StaticType, VirtualMachine,
+        IntoPyRef, PyResult, PyValue, VirtualMachine,
     };
     use adler32::RollingAdler32 as Adler32;
     use crc32fast::Hasher as Crc32;

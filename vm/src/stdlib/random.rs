@@ -9,7 +9,7 @@ mod _random {
         builtins::{PyIntRef, PyTypeRef},
         function::OptionalOption,
         slots::SlotConstructor,
-        PyObjectRef, PyResult, PyValue, StaticType, VirtualMachine,
+        PyObjectRef, PyResult, PyValue, VirtualMachine,
     };
     use num_bigint::{BigInt, Sign};
     use num_traits::{Signed, Zero};

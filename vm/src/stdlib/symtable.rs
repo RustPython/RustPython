@@ -3,9 +3,9 @@ pub(crate) use decl::make_module;
 #[pymodule(name = "symtable")]
 mod decl {
     use crate::{
-        builtins::{PyStrRef, PyTypeRef},
+        builtins::PyStrRef,
         compile::{self, Symbol, SymbolScope, SymbolTable, SymbolTableType},
-        PyRef, PyResult, PyValue, StaticType, VirtualMachine,
+        PyRef, PyResult, PyValue, VirtualMachine,
     };
     use std::fmt;
 

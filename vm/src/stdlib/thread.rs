@@ -7,8 +7,8 @@ use crate::{
     py_io,
     slots::{SlotGetattro, SlotSetattro},
     utils::Either,
-    IdProtocol, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
-    TypeProtocol, VirtualMachine,
+    IdProtocol, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    VirtualMachine,
 };
 use parking_lot::{
     lock_api::{RawMutex as RawMutexT, RawMutexTimed, RawReentrantMutex},
