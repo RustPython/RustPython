@@ -1,8 +1,3 @@
-use crate::vm::VirtualMachine;
-use crate::PyObjectRef;
-use std::borrow::Cow;
-use std::collections::HashMap;
-
 mod array;
 #[cfg(feature = "rustpython-ast")]
 pub(crate) mod ast;
@@ -52,6 +47,16 @@ mod zlib;
 #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
 #[macro_use]
 pub(crate) mod os;
+#[cfg(windows)]
+pub(crate) mod nt;
+#[cfg(unix)]
+pub(crate) mod posix;
+#[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+#[cfg(not(any(unix, windows)))]
+pub(crate) mod posix_compat;
+#[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+#[cfg(not(any(unix, windows)))]
+pub(crate) use posix_compat as posix;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod faulthandler;
@@ -82,6 +87,11 @@ mod termios;
 mod winapi;
 #[cfg(windows)]
 mod winreg;
+
+use crate::vm::VirtualMachine;
+use crate::PyObjectRef;
+use std::borrow::Cow;
+use std::collections::HashMap;
 
 pub type StdlibInitFunc = Box<py_dyn_fn!(dyn Fn(&VirtualMachine) -> PyObjectRef)>;
 
@@ -152,12 +162,9 @@ pub fn get_module_inits() -> StdlibMap {
         {
             "symtable" => symtable::make_module,
         }
-        #[cfg(any(unix, windows, target_os = "wasi"))]
-        {
-            os::MODULE_NAME => os::make_module,
-        }
         #[cfg(any(unix, target_os = "wasi"))]
         {
+            "posix" => posix::make_module,
             "fcntl" => fcntl::make_module,
         }
         // disable some modules on WASM
@@ -195,6 +202,7 @@ pub fn get_module_inits() -> StdlibMap {
         // Windows-only
         #[cfg(windows)]
         {
+            "nt" => nt::make_module,
             "msvcrt" => msvcrt::make_module,
             "_winapi" => winapi::make_module,
             "winreg" => winreg::make_module,
