@@ -331,6 +331,7 @@ pub(crate) mod module {
     fn _getdiskusage(path: PyPathLike, vm: &VirtualMachine) -> PyResult<(u64, u64)> {
         use um::fileapi::GetDiskFreeSpaceExW;
         use winapi::shared::{ntdef::ULARGE_INTEGER, winerror};
+
         let wpath = path.to_widecstring(vm)?;
         let mut _free_to_me = ULARGE_INTEGER::default();
         let mut total = ULARGE_INTEGER::default();
@@ -338,7 +339,7 @@ pub(crate) mod module {
         let ret =
             unsafe { GetDiskFreeSpaceExW(wpath.as_ptr(), &mut _free_to_me, &mut total, &mut free) };
         if ret != 0 {
-            return unsafe { Ok((*total.QuadPart(), *free.QuadPart())) };
+            return Ok(unsafe { (*total.QuadPart(), *free.QuadPart()) });
         }
         let err = io::Error::last_os_error();
         if err.raw_os_error() == Some(winerror::ERROR_DIRECTORY as i32) {
@@ -349,14 +350,14 @@ pub(crate) mod module {
                     GetDiskFreeSpaceExW(parent.as_ptr(), &mut _free_to_me, &mut total, &mut free)
                 };
 
-                if ret == 0 {
-                    return Err(errno_err(vm));
+                return if ret == 0 {
+                    Err(errno_err(vm))
                 } else {
-                    return unsafe { Ok((*total.QuadPart(), *free.QuadPart())) };
-                }
+                    Ok(unsafe { (*total.QuadPart(), *free.QuadPart()) })
+                };
             }
         }
-        return Err(err.into_pyexception(vm));
+        Err(err.into_pyexception(vm))
     }
 
     #[pyfunction]
