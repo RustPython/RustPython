@@ -706,11 +706,11 @@ pub mod module {
 
     #[pyfunction]
     fn execv(
-        path: PyStrRef,
+        path: PyPathLike,
         argv: Either<PyListRef, PyTupleRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let path = path.to_cstring(vm)?;
+        let path = path.into_cstring(vm)?;
 
         let argv = vm.extract_elements_func(argv.as_object(), |obj| {
             PyStrRef::try_from_object(vm, obj)?.to_cstring(vm)
