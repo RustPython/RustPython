@@ -1,34 +1,26 @@
+use super::{
+    int,
+    iter::IterStatus::{self, Active, Exhausted},
+    PyGenericAlias, PyInt, PySliceRef, PyTypeRef,
+};
+use crate::common::lock::{
+    PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
+};
+use crate::{
+    function::{ArgIterable, FuncArgs, OptionalArg},
+    sequence::{self, SimpleSeq},
+    sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
+    slots::{Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, PyIter, Unhashable},
+    utils::Either,
+    vm::{ReprGuard, VirtualMachine},
+    PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol,
+};
+use crossbeam_utils::atomic::AtomicCell;
 use std::fmt;
 use std::iter::FromIterator;
 use std::mem::size_of;
 use std::ops::DerefMut;
-
-use crossbeam_utils::atomic::AtomicCell;
-
-use super::genericalias::PyGenericAlias;
-use super::int;
-use super::iter::{
-    IterStatus,
-    IterStatus::{Active, Exhausted},
-};
-use super::pytype::PyTypeRef;
-use super::slice::PySliceRef;
-use super::PyInt;
-use crate::common::lock::{
-    PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
-};
-use crate::function::{ArgIterable, FuncArgs, OptionalArg};
-use crate::sequence::{self, SimpleSeq};
-use crate::sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex};
-use crate::slots::{
-    Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, PyIter, Unhashable,
-};
-use crate::utils::Either;
-use crate::vm::{ReprGuard, VirtualMachine};
-use crate::{
-    PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
-};
 
 /// Built-in mutable sequence.
 ///

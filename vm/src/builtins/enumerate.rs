@@ -1,20 +1,19 @@
+use super::{
+    int,
+    IterStatus::{self, Active, Exhausted},
+    PyInt, PyIntRef, PyTypeRef,
+};
 use crate::common::lock::PyRwLock;
-
+use crate::{
+    function::OptionalArg,
+    iterator,
+    slots::{IteratorIterable, PyIter, SlotConstructor},
+    IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    TypeProtocol, VirtualMachine,
+};
 use crossbeam_utils::atomic::AtomicCell;
 use num_bigint::BigInt;
 use num_traits::Zero;
-
-use super::int::{try_to_primitive, PyInt, PyIntRef};
-use super::iter::{
-    IterStatus,
-    IterStatus::{Active, Exhausted},
-};
-use super::pytype::PyTypeRef;
-use crate::function::OptionalArg;
-use crate::slots::{IteratorIterable, PyIter, SlotConstructor};
-use crate::vm::VirtualMachine;
-use crate::{iterator, ItemProtocol, TypeProtocol};
-use crate::{IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 
 #[pyclass(module = false, name = "enumerate")]
 #[derive(Debug)]
@@ -117,7 +116,7 @@ impl PyReverseSequenceIterator {
             .payload::<PyInt>()
             .ok_or_else(|| vm.new_type_error("an integer is required.".to_owned()))?;
         let pos = std::cmp::min(
-            try_to_primitive(pos.as_bigint(), vm).unwrap_or(0),
+            int::try_to_primitive(pos.as_bigint(), vm).unwrap_or(0),
             len.saturating_sub(1),
         );
         self.position.store(pos);

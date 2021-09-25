@@ -1,43 +1,38 @@
 //! Builtin function definitions.
 //!
 //! Implements functions listed here: https://docs.python.org/3/library/builtins.html
-use crate::vm::VirtualMachine;
-use crate::PyObjectRef;
+use crate::{PyObjectRef, VirtualMachine};
 
 /// Built-in functions, exceptions, and other objects.
 ///
 /// Noteworthy: None is the `nil' object; Ellipsis represents `...' in slices.
 #[pymodule(name = "builtins")]
 mod decl {
-    use crate::builtins::bytes::PyBytesRef;
-    use crate::builtins::code::PyCodeRef;
-    use crate::builtins::dict::PyDictRef;
-    use crate::builtins::enumerate::PyReverseSequenceIterator;
-    use crate::builtins::function::{PyCellRef, PyFunctionRef};
-    use crate::builtins::int::{self, PyIntRef};
-    use crate::builtins::iter::PyCallableIterator;
-    use crate::builtins::list::{PyList, SortOptions};
-    use crate::builtins::pybool::IntoPyBool;
-    use crate::builtins::pystr::{PyStr, PyStrRef};
-    use crate::builtins::pytype::PyTypeRef;
-    use crate::builtins::{PyByteArray, PyBytes, PyTupleRef};
-    use crate::byteslike::ArgBytesLike;
-    use crate::common::{hash::PyHash, str::to_ascii};
+    use crate::builtins::{
+        enumerate::PyReverseSequenceIterator,
+        function::{PyCellRef, PyFunctionRef},
+        int::{self, PyIntRef},
+        iter::PyCallableIterator,
+        list::{PyList, SortOptions},
+        IntoPyBool, PyByteArray, PyBytes, PyBytesRef, PyCode, PyDictRef, PyStr, PyStrRef,
+        PyTupleRef, PyTypeRef,
+    };
     #[cfg(feature = "rustpython-compiler")]
     use crate::compile;
-    use crate::function::{
-        ArgCallable, ArgIterable, FuncArgs, KwArgs, OptionalArg, OptionalOption, PosArgs,
-    };
-    use crate::iterator;
-    use crate::readline::{Readline, ReadlineResult};
-    use crate::scope::Scope;
-    use crate::slots::PyComparisonOp;
-    use crate::utils::Either;
-    use crate::vm::VirtualMachine;
-    use crate::{py_io, sysmodule};
     use crate::{
-        IdProtocol, ItemProtocol, PyArithmaticValue, PyClassImpl, PyObjectRef, PyResult, PyValue,
-        TryFromObject, TypeProtocol,
+        byteslike::ArgBytesLike,
+        common::{hash::PyHash, str::to_ascii},
+        function::{
+            ArgCallable, ArgIterable, FuncArgs, KwArgs, OptionalArg, OptionalOption, PosArgs,
+        },
+        iterator, py_io,
+        readline::{Readline, ReadlineResult},
+        scope::Scope,
+        slots::PyComparisonOp,
+        sysmodule,
+        utils::Either,
+        IdProtocol, ItemProtocol, PyArithmaticValue, PyClassImpl, PyObjectRef, PyRef, PyResult,
+        PyValue, TryFromObject, TypeProtocol, VirtualMachine,
     };
     use num_traits::{Signed, Zero};
 
@@ -254,7 +249,7 @@ mod decl {
     #[cfg(feature = "rustpython-compiler")]
     #[pyfunction]
     fn eval(
-        source: Either<PyStrRef, PyCodeRef>,
+        source: Either<PyStrRef, PyRef<PyCode>>,
         scope: ScopeArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
@@ -266,7 +261,7 @@ mod decl {
     #[cfg(feature = "rustpython-compiler")]
     #[pyfunction]
     fn exec(
-        source: Either<PyStrRef, PyCodeRef>,
+        source: Either<PyStrRef, PyRef<PyCode>>,
         scope: ScopeArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
@@ -276,7 +271,7 @@ mod decl {
     #[cfg(feature = "rustpython-compiler")]
     fn run_code(
         vm: &VirtualMachine,
-        source: Either<PyStrRef, PyCodeRef>,
+        source: Either<PyStrRef, PyRef<PyCode>>,
         scope: ScopeArgs,
         mode: compile::Mode,
         func: &str,

@@ -1,8 +1,9 @@
-use super::pytype::PyTypeRef;
-use crate::iterator;
-use crate::slots::{IteratorIterable, PyIter, SlotConstructor};
-use crate::vm::VirtualMachine;
-use crate::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use super::PyTypeRef;
+use crate::{
+    iterator,
+    slots::{IteratorIterable, PyIter, SlotConstructor},
+    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+};
 
 /// filter(function or None, iterable) --> filter object
 ///

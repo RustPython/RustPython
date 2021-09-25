@@ -1,14 +1,11 @@
 /*! Python `property` descriptor class.
 
 */
+use super::PyTypeRef;
 use crate::common::lock::PyRwLock;
-
-use super::pytype::PyTypeRef;
-use crate::function::FuncArgs;
-use crate::slots::SlotDescriptor;
-use crate::vm::VirtualMachine;
 use crate::{
-    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    function::FuncArgs, slots::SlotDescriptor, PyClassImpl, PyContext, PyObjectRef, PyRef,
+    PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
 };
 
 /// Property attribute.

@@ -1,13 +1,12 @@
 /*! Python `attribute` descriptor class. (PyGetSet)
 
 */
-use super::pytype::PyTypeRef;
-use crate::function::{OwnedParam, RefParam};
-use crate::slots::SlotDescriptor;
-use crate::vm::VirtualMachine;
+use super::PyTypeRef;
 use crate::{
+    function::{OwnedParam, RefParam},
+    slots::SlotDescriptor,
     IntoPyResult, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyThreadingConstraint,
-    PyValue, TryFromObject, TypeProtocol,
+    PyValue, TryFromObject, TypeProtocol, VirtualMachine,
 };
 
 pub type PyGetterFunc = Box<py_dyn_fn!(dyn Fn(&VirtualMachine, PyObjectRef) -> PyResult)>;

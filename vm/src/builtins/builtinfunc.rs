@@ -1,15 +1,11 @@
-use std::fmt;
-
-use super::classmethod::PyClassMethod;
-use super::pytype;
-use crate::builtins::pystr::PyStrRef;
-use crate::builtins::pytype::PyTypeRef;
-use crate::function::{FuncArgs, PyNativeFunc};
-use crate::slots::{Callable, SlotDescriptor};
-use crate::vm::VirtualMachine;
+use super::{pytype, PyClassMethod, PyStrRef, PyTypeRef};
 use crate::{
+    function::{FuncArgs, PyNativeFunc},
+    slots::{Callable, SlotDescriptor},
     PyClassImpl, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    VirtualMachine,
 };
+use std::fmt;
 
 pub struct PyNativeFuncDef {
     pub func: PyNativeFunc,

@@ -2,14 +2,12 @@
 
 */
 
-use super::code::PyCodeRef;
-use super::dict::PyDictRef;
-use super::pystr::PyStrRef;
-use crate::builtins::PyTypeRef;
-use crate::frame::{Frame, FrameRef};
-use crate::function::FuncArgs;
-use crate::vm::VirtualMachine;
-use crate::{IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult};
+use super::{PyCode, PyDictRef, PyStrRef, PyTypeRef};
+use crate::{
+    frame::{Frame, FrameRef},
+    function::FuncArgs,
+    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, VirtualMachine,
+};
 
 pub fn init(context: &PyContext) {
     FrameRef::extend_class(context, &context.types.frame_type);
@@ -55,7 +53,7 @@ impl FrameRef {
     }
 
     #[pyproperty]
-    fn f_code(self) -> PyCodeRef {
+    fn f_code(self) -> PyRef<PyCode> {
         self.code.clone()
     }
 

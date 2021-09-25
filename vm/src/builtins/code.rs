@@ -2,18 +2,16 @@
 
 */
 
-use std::fmt;
-use std::ops::Deref;
-
 use super::{PyStrRef, PyTypeRef};
-use crate::bytecode::{self, BorrowedConstant, Constant, ConstantBag};
-use crate::function::FuncArgs;
-use crate::VirtualMachine;
 use crate::{
+    bytecode::{self, BorrowedConstant, Constant, ConstantBag},
+    function::FuncArgs,
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
-    TypeProtocol,
+    TypeProtocol, VirtualMachine,
 };
 use num_traits::Zero;
+use std::fmt;
+use std::ops::Deref;
 
 #[derive(Clone)]
 pub struct PyConstant(pub PyObjectRef);

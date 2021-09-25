@@ -1,18 +1,16 @@
 /*
  * Builtin set type with a sequence of unique items.
  */
-use super::{pytype::PyTypeRef, IterStatus, PyDictRef};
-use crate::common::hash::PyHash;
-use crate::common::rc::PyRc;
-use crate::dictdatatype;
-use crate::dictdatatype::DictSize;
-use crate::function::{ArgIterable, FuncArgs, OptionalArg, PosArgs};
-use crate::slots::{
-    Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, PyIter, SlotConstructor,
-    Unhashable,
-};
-use crate::vm::{ReprGuard, VirtualMachine};
+use super::{IterStatus, PyDictRef, PyTypeRef};
+use crate::common::{hash::PyHash, rc::PyRc};
 use crate::{
+    dictdatatype::{self, DictSize},
+    function::{ArgIterable, FuncArgs, OptionalArg, PosArgs},
+    slots::{
+        Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, PyIter, SlotConstructor,
+        Unhashable,
+    },
+    vm::{ReprGuard, VirtualMachine},
     IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol,
 };

@@ -1,7 +1,8 @@
-use super::pytype::PyTypeRef;
-use crate::slots::{SlotConstructor, SlotDescriptor};
-use crate::vm::VirtualMachine;
-use crate::{PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue};
+use super::PyTypeRef;
+use crate::{
+    slots::{SlotConstructor, SlotDescriptor},
+    PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue, VirtualMachine,
+};
 
 #[pyclass(module = false, name = "staticmethod")]
 #[derive(Clone, Debug)]

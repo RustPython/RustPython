@@ -1,24 +1,20 @@
-use super::bytes::PyBytesRef;
-use super::dict::PyDict;
-use super::int::{try_to_primitive, PyInt, PyIntRef};
-use super::iter::{
-    IterStatus,
-    IterStatus::{Active, Exhausted},
+use super::{
+    int::{try_to_primitive, PyInt, PyIntRef},
+    iter::IterStatus::{self, Active, Exhausted},
+    PyBytesRef, PyDict, PyTypeRef,
 };
-use super::pytype::PyTypeRef;
-use crate::anystr::{self, adjust_indices, AnyStr, AnyStrContainer, AnyStrWrapper};
-use crate::exceptions::IntoPyException;
-use crate::format::{FormatSpec, FormatString, FromTemplate};
-use crate::function::{ArgIterable, FuncArgs, OptionalArg, OptionalOption};
-use crate::sliceable::PySliceableSequence;
-use crate::slots::{
-    Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, PyIter, SlotConstructor,
-};
-use crate::utils::Either;
-use crate::VirtualMachine;
 use crate::{
+    anystr::{self, adjust_indices, AnyStr, AnyStrContainer, AnyStrWrapper},
+    exceptions::IntoPyException,
+    format::{FormatSpec, FormatString, FromTemplate},
+    function::{ArgIterable, FuncArgs, OptionalArg, OptionalOption},
+    sliceable::PySliceableSequence,
+    slots::{
+        Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, PyIter, SlotConstructor,
+    },
+    utils::Either,
     IdProtocol, IntoPyObject, ItemProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext,
-    PyObjectRef, PyRef, PyResult, PyValue, TryIntoRef, TypeProtocol,
+    PyObjectRef, PyRef, PyResult, PyValue, TryIntoRef, TypeProtocol, VirtualMachine,
 };
 use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;

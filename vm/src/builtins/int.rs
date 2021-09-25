@@ -1,14 +1,13 @@
 use super::{float, IntoPyBool, PyByteArray, PyBytes, PyStr, PyStrRef, PyTypeRef};
-use crate::bytesinner::PyBytesInner;
-use crate::common::hash;
-use crate::format::FormatSpec;
-use crate::function::{OptionalArg, OptionalOption};
-use crate::slots::{Comparable, Hashable, PyComparisonOp, SlotConstructor};
-use crate::VirtualMachine;
 use crate::{
+    bytesinner::PyBytesInner,
+    common::hash,
+    format::FormatSpec,
+    function::{OptionalArg, OptionalOption},
+    slots::{Comparable, Hashable, PyComparisonOp, SlotConstructor},
     try_value_from_borrowed_object, IdProtocol, IntoPyObject, IntoPyResult, PyArithmaticValue,
     PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromBorrowedObject, TypeProtocol,
+    TryFromBorrowedObject, TypeProtocol, VirtualMachine,
 };
 use bstr::ByteSlice;
 use num_bigint::{BigInt, BigUint, Sign};

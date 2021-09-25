@@ -1,34 +1,30 @@
 //! Implementation of the python bytearray object.
-use super::bytes::{PyBytes, PyBytesRef};
-use super::dict::PyDictRef;
-use super::int::PyIntRef;
-use super::pystr::PyStrRef;
-use super::pytype::PyTypeRef;
-use super::tuple::PyTupleRef;
-use crate::anystr::{self, AnyStr};
-use crate::bytesinner::{
-    bytes_decode, bytes_from_object, value_from_object, ByteInnerFindOptions, ByteInnerNewOptions,
-    ByteInnerPaddingOptions, ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs,
-    PyBytesInner,
+use super::{PyBytes, PyBytesRef, PyDictRef, PyIntRef, PyStrRef, PyTupleRef, PyTypeRef};
+use crate::common::{
+    borrow::{BorrowedValue, BorrowedValueMut},
+    lock::{
+        PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyRwLock, PyRwLockReadGuard,
+        PyRwLockWriteGuard,
+    },
 };
-use crate::byteslike::ArgBytesLike;
-use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
-use crate::common::lock::{
-    PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyRwLock, PyRwLockReadGuard,
-    PyRwLockWriteGuard,
-};
-use crate::function::{ArgIterable, FuncArgs, OptionalArg, OptionalOption};
-use crate::protocol::{BufferInternal, BufferOptions, PyBuffer, ResizeGuard};
-use crate::sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex};
-use crate::slots::{
-    AsBuffer, Callable, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, PyIter,
-    Unhashable,
-};
-use crate::utils::Either;
-use crate::vm::VirtualMachine;
 use crate::{
+    anystr::{self, AnyStr},
+    bytesinner::{
+        bytes_decode, bytes_from_object, value_from_object, ByteInnerFindOptions,
+        ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerSplitOptions,
+        ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
+    },
+    byteslike::ArgBytesLike,
+    function::{ArgIterable, FuncArgs, OptionalArg, OptionalOption},
+    protocol::{BufferInternal, BufferOptions, PyBuffer, ResizeGuard},
+    sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
+    slots::{
+        AsBuffer, Callable, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp,
+        PyIter, Unhashable,
+    },
+    utils::Either,
     IdProtocol, IntoPyObject, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef,
-    PyRef, PyResult, PyValue, TypeProtocol,
+    PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
 use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;

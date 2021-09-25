@@ -6,13 +6,12 @@ https://github.com/python/cpython/blob/50b48572d9a90c5bb36e2bef6179548ea927a35a/
 
 */
 
-use super::pystr::PyStrRef;
-use super::pytype::{PyType, PyTypeRef};
-use crate::function::OptionalArg;
-use crate::slots::{SlotConstructor, SlotDescriptor, SlotGetattro};
-use crate::vm::VirtualMachine;
+use super::{PyStrRef, PyType, PyTypeRef};
 use crate::{
+    function::OptionalArg,
+    slots::{SlotConstructor, SlotDescriptor, SlotGetattro},
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    VirtualMachine,
 };
 
 #[pyclass(module = false, name = "super")]

@@ -1,7 +1,7 @@
-use crate::builtins::{PyStr, PyTupleRef, PyTypeRef};
-use crate::common::hash;
-use crate::slots::{Hashable, SlotConstructor};
 use crate::{
+    builtins::{PyStr, PyTupleRef, PyTypeRef},
+    common::hash,
+    slots::{Hashable, SlotConstructor},
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol, VirtualMachine,
 };

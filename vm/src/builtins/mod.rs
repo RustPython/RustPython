@@ -28,6 +28,8 @@ pub(crate) mod function;
 pub use function::PyFunction;
 pub(crate) mod generator;
 pub use generator::PyGenerator;
+pub(crate) mod genericalias;
+pub use genericalias::PyGenericAlias;
 pub(crate) mod getset;
 pub use getset::PyGetSet;
 pub(crate) mod int;
@@ -78,7 +80,6 @@ pub(crate) mod weakref;
 pub use weakref::PyWeak;
 pub(crate) mod zip;
 pub use zip::PyZip;
-pub(crate) mod genericalias;
 
 pub use float::try_to_bigint as try_f64_to_bigint;
 pub use int::try_to_float as try_bigint_to_f64;

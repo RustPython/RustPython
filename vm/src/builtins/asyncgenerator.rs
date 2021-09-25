@@ -1,14 +1,12 @@
-use super::code::PyCodeRef;
-use super::pystr::PyStrRef;
-use super::pytype::PyTypeRef;
-use crate::coroutine::{Coro, Variant};
-use crate::exceptions::PyBaseExceptionRef;
-use crate::frame::FrameRef;
-use crate::function::OptionalArg;
-use crate::slots::{IteratorIterable, PyIter};
-use crate::vm::VirtualMachine;
+use super::{PyCode, PyStrRef, PyTypeRef};
 use crate::{
+    coroutine::{Coro, Variant},
+    exceptions::PyBaseExceptionRef,
+    frame::FrameRef,
+    function::OptionalArg,
+    slots::{IteratorIterable, PyIter},
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    VirtualMachine,
 };
 
 use crossbeam_utils::atomic::AtomicCell;
@@ -121,7 +119,7 @@ impl PyAsyncGen {
         self.inner.running()
     }
     #[pyproperty]
-    fn ag_code(&self, _vm: &VirtualMachine) -> PyCodeRef {
+    fn ag_code(&self, _vm: &VirtualMachine) -> PyRef<PyCode> {
         self.inner.frame().code.clone()
     }
 }

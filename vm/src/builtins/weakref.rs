@@ -1,11 +1,10 @@
-use super::pytype::PyTypeRef;
+use super::PyTypeRef;
 use crate::common::hash::PyHash;
-use crate::function::{FuncArgs, OptionalArg};
-use crate::slots::{Callable, Comparable, Hashable, PyComparisonOp, SlotConstructor};
-use crate::vm::VirtualMachine;
 use crate::{
+    function::{FuncArgs, OptionalArg},
+    slots::{Callable, Comparable, Hashable, PyComparisonOp, SlotConstructor},
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyObjectWeak, PyRef, PyResult, PyValue,
-    TypeProtocol,
+    TypeProtocol, VirtualMachine,
 };
 
 use crossbeam_utils::atomic::AtomicCell;

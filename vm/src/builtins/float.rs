@@ -1,14 +1,13 @@
 use super::{try_bigint_to_f64, PyBytes, PyInt, PyIntRef, PyStr, PyStrRef, PyTypeRef};
 use crate::common::{float_ops, hash};
-use crate::format::FormatSpec;
-use crate::function::{OptionalArg, OptionalOption};
-use crate::slots::{Comparable, Hashable, PyComparisonOp, SlotConstructor};
-use crate::VirtualMachine;
 use crate::{
+    format::FormatSpec,
+    function::{OptionalArg, OptionalOption},
+    slots::{Comparable, Hashable, PyComparisonOp, SlotConstructor},
     IdProtocol, IntoPyObject,
     PyArithmaticValue::{self, *},
     PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
+    TryFromObject, TypeProtocol, VirtualMachine,
 };
 use num_bigint::{BigInt, ToBigInt};
 use num_complex::Complex64;
