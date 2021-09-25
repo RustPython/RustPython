@@ -1721,8 +1721,6 @@ def _execvpe_mockup(defpath=None):
 @unittest.skipUnless(hasattr(os, 'execv'),
                      "need os.execv()")
 class ExecTests(unittest.TestCase):
-    # TODO: RUSTPYTHON (TypeError: Expected type <class 'str'>, not <class 'bytes'>)
-    @unittest.expectedFailure
     @unittest.skipIf(USING_LINUXTHREADS,
                      "avoid triggering a linuxthreads bug: see issue #4970")
     def test_execvpe_with_bad_program(self):
@@ -1735,8 +1733,6 @@ class ExecTests(unittest.TestCase):
         self.assertRaises(ValueError, os.execv, 'notepad', ('',))
         self.assertRaises(ValueError, os.execv, 'notepad', [''])
 
-    # TODO: RUSTPYTHON (TypeError: Expected type <class 'str'>, not <class 'bytes'>)
-    @unittest.expectedFailure
     def test_execvpe_with_bad_arglist(self):
         self.assertRaises(ValueError, os.execvpe, 'notepad', [], None)
         self.assertRaises(ValueError, os.execvpe, 'notepad', [], {})
