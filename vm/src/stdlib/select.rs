@@ -150,11 +150,10 @@ fn sec_to_timeval(sec: f64) -> timeval {
 mod decl {
     use super::super::time;
     use super::*;
-    use crate::exceptions::IntoPyException;
-    use crate::function::OptionalOption;
-    use crate::utils::Either;
-    use crate::vm::VirtualMachine;
-    use crate::{PyObjectRef, PyResult};
+    use crate::{
+        exceptions::IntoPyException, function::OptionalOption, utils::Either, PyObjectRef,
+        PyResult, VirtualMachine,
+    };
 
     #[pyfunction]
     fn select(
@@ -252,11 +251,10 @@ mod decl {
     #[cfg(unix)]
     pub(super) mod poll {
         use super::*;
-        use crate::builtins::PyFloat;
-        use crate::common::lock::PyMutex;
-        use crate::function::OptionalArg;
-        use crate::stdlib::io::Fildes;
-        use crate::{IntoPyObject, PyValue, TypeProtocol};
+        use crate::{
+            builtins::PyFloat, common::lock::PyMutex, function::OptionalArg, stdlib::io::Fildes,
+            IntoPyObject, PyValue, TypeProtocol,
+        };
         use libc::pollfd;
         use num_traits::ToPrimitive;
         use std::time;

@@ -22,7 +22,7 @@ pub struct PyConstant(pub PyObjectRef);
 //     Boolean { value: super::int::PyIntRef },
 //     Str { value: super::pystr::PyStrRef },
 //     Bytes { value: super::bytes::PyBytesRef },
-//     Code { code: PyCodeRef },
+//     Code { code: PyRef<PyCode> },
 //     Tuple { elements: super::tuple::PyTupleRef },
 //     None(PyObjectRef),
 //     Ellipsis(PyObjectRef),
@@ -140,8 +140,6 @@ impl ConstantBag for PyObjBag<'_> {
     }
 }
 
-pub type PyCodeRef = PyRef<PyCode>;
-
 pub type CodeObject = bytecode::CodeObject<PyConstant>;
 pub type FrozenModule = bytecode::FrozenModule<PyConstant>;
 
@@ -193,7 +191,7 @@ impl PyValue for PyCode {
 impl PyCode {}
 
 #[pyimpl]
-impl PyCodeRef {
+impl PyRef<PyCode> {
     #[pyslot]
     fn tp_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         Err(vm.new_type_error("Cannot directly create code object".to_owned()))
@@ -271,5 +269,5 @@ impl fmt::Display for PyCode {
 }
 
 pub fn init(ctx: &PyContext) {
-    PyCodeRef::extend_class(ctx, &ctx.types.code_type);
+    PyRef::<PyCode>::extend_class(ctx, &ctx.types.code_type);
 }

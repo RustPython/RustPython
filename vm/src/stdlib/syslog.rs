@@ -4,7 +4,7 @@ pub(crate) use syslog::make_module;
 mod syslog {
     use crate::common::lock::PyRwLock;
     use crate::{
-        builtins::pystr::{PyStr, PyStrRef},
+        builtins::{PyStr, PyStrRef},
         function::{OptionalArg, OptionalOption},
         utils::ToCString,
         PyObjectRef, PyResult, PyValue, TryFromObject, VirtualMachine,

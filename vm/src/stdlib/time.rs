@@ -42,10 +42,12 @@ fn duration_since_system_now(vm: &VirtualMachine) -> PyResult<std::time::Duratio
 
 #[pymodule(name = "time")]
 mod time {
-    use crate::builtins::{PyStrRef, PyTypeRef};
-    use crate::function::{FuncArgs, OptionalArg};
-    use crate::utils::Either;
-    use crate::{PyObjectRef, PyResult, PyStructSequence, TryFromObject, VirtualMachine};
+    use crate::{
+        builtins::{PyStrRef, PyTypeRef},
+        function::{FuncArgs, OptionalArg},
+        utils::Either,
+        PyObjectRef, PyResult, PyStructSequence, TryFromObject, VirtualMachine,
+    };
     use chrono::{
         naive::{NaiveDate, NaiveDateTime, NaiveTime},
         Datelike, Timelike,
@@ -367,8 +369,7 @@ mod time {
 #[cfg(unix)]
 #[pymodule(name = "time")]
 mod unix {
-    use crate::vm::VirtualMachine;
-    use crate::PyResult;
+    use crate::{PyResult, VirtualMachine};
     use std::time::Duration;
 
     #[pyfunction]
@@ -474,8 +475,7 @@ mod unix {
 #[cfg(windows)]
 #[pymodule(name = "time")]
 mod windows {
-    use crate::vm::VirtualMachine;
-    use crate::PyResult;
+    use crate::{PyResult, VirtualMachine};
     use std::time::Duration;
     use winapi::shared::{minwindef::FILETIME, ntdef::ULARGE_INTEGER};
     use winapi::um::processthreadsapi::{

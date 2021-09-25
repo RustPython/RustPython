@@ -1,3 +1,28 @@
+use crate::common::{
+    lock::{PyRwLock, PyRwLockReadGuard},
+    rc::PyRc,
+    static_cell,
+};
+pub use crate::pyobjectrc::{PyObject, PyObjectRef, PyObjectWeak, PyRef, PyWeakRef};
+use crate::{
+    builtins::{
+        builtinfunc::PyNativeFuncDef,
+        bytearray, bytes,
+        code::{self, PyCode},
+        getset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetSet},
+        namespace::PyNamespace,
+        object, pystr,
+        set::{self, PyFrozenSet},
+        PyBoundMethod, PyComplex, PyDict, PyDictRef, PyEllipsis, PyFloat, PyInt, PyIntRef, PyList,
+        PyNone, PyNotImplemented, PyStaticMethod, PyTuple, PyTupleRef, PyType, PyTypeRef,
+    },
+    dictdatatype::Dict,
+    exceptions::{self, PyBaseExceptionRef},
+    function::{IntoFuncArgs, IntoPyNativeFunc},
+    slots::{PyTpFlags, PyTypeSlots},
+    types::{create_type_with_slots, TypeZoo},
+    VirtualMachine,
+};
 use num_bigint::BigInt;
 use num_complex::Complex64;
 use num_traits::ToPrimitive;
@@ -5,39 +30,6 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::fmt;
 use std::ops::Deref;
-
-use crate::builtins::builtinfunc::PyNativeFuncDef;
-use crate::builtins::bytearray;
-use crate::builtins::bytes;
-use crate::builtins::code;
-use crate::builtins::code::PyCodeRef;
-use crate::builtins::complex::PyComplex;
-use crate::builtins::dict::{PyDict, PyDictRef};
-use crate::builtins::float::PyFloat;
-use crate::builtins::function::PyBoundMethod;
-use crate::builtins::getset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetSet};
-use crate::builtins::int::{PyInt, PyIntRef};
-use crate::builtins::list::PyList;
-use crate::builtins::namespace::PyNamespace;
-use crate::builtins::object;
-use crate::builtins::pystr;
-use crate::builtins::pytype::{PyType, PyTypeRef};
-use crate::builtins::set::{self, PyFrozenSet};
-use crate::builtins::singletons::{PyNone, PyNoneRef, PyNotImplemented, PyNotImplementedRef};
-use crate::builtins::slice::PyEllipsis;
-use crate::builtins::staticmethod::PyStaticMethod;
-use crate::builtins::tuple::{PyTuple, PyTupleRef};
-use crate::common::lock::{PyRwLock, PyRwLockReadGuard};
-use crate::common::rc::PyRc;
-use crate::common::static_cell;
-use crate::dictdatatype::Dict;
-use crate::exceptions::{self, PyBaseExceptionRef};
-use crate::function::{IntoFuncArgs, IntoPyNativeFunc};
-pub use crate::pyobjectrc::{PyObject, PyObjectRef, PyObjectWeak, PyRef, PyWeakRef};
-use crate::slots::{PyTpFlags, PyTypeSlots};
-use crate::types::{create_type_with_slots, TypeZoo};
-use crate::vm::VirtualMachine;
-
 /* Python objects and references.
 
 Okay, so each python object itself is an class itself (PyObject). Each
@@ -73,11 +65,11 @@ impl fmt::Display for PyObjectRef {
 pub struct PyContext {
     pub true_value: PyIntRef,
     pub false_value: PyIntRef,
-    pub none: PyNoneRef,
+    pub none: PyRef<PyNone>,
     pub empty_tuple: PyTupleRef,
     pub empty_frozenset: PyRef<PyFrozenSet>,
     pub ellipsis: PyRef<PyEllipsis>,
-    pub not_implemented: PyNotImplementedRef,
+    pub not_implemented: PyRef<PyNotImplemented>,
 
     pub types: TypeZoo,
     pub exceptions: exceptions::ExceptionZoo,
@@ -366,11 +358,11 @@ impl PyContext {
         )
     }
 
-    /// Create a new `PyCodeRef` from a `code::CodeObject`. If you have a non-mapped codeobject or
+    /// Create a new `PyRef<PyCode>` from a `code::CodeObject`. If you have a non-mapped codeobject or
     /// this is giving you a type error even though you've passed a `CodeObject`, try
     /// [`vm.new_code_object()`](VirtualMachine::new_code_object) instead.
-    pub fn new_code_object(&self, code: code::CodeObject) -> PyCodeRef {
-        PyRef::new_ref(code::PyCode::new(code), self.types.code_type.clone(), None)
+    pub fn new_code_object(&self, code: code::CodeObject) -> PyRef<PyCode> {
+        PyRef::new_ref(PyCode::new(code), self.types.code_type.clone(), None)
     }
 
     pub fn new_bound_method(&self, function: PyObjectRef, object: PyObjectRef) -> PyObjectRef {
