@@ -71,8 +71,6 @@ jobs:
         with:
           target: i686-unknown-linux-gnu
 
-      - uses: Swatinem/rust-cache@v1
-
       - name: Install gcc-multilib
         run: sudo apt-get install gcc-multilib
       - name: Check compilation for x86 32bit
@@ -84,8 +82,6 @@ jobs:
       - uses: actions-rs/toolchain@v1
         with:
           target: aarch64-linux-android
-
-      - uses: Swatinem/rust-cache@v1
 
       - name: Check compilation for android
         uses: actions-rs/cargo@v1
